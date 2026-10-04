@@ -95,9 +95,9 @@ fn acroform_canvas_raster_is_complete() {
     );
 }
 
-/// A checkbox is the one widget whose appearance the PDF spec would express as
-/// a per-state subdictionary, and hayro reads `/AP` `/N` only as a stream. The
-/// stamp writes the stream, so the mark has to reach the canvas.
+/// A checkbox is the one widget whose `/AP` `/N` is a per-state dictionary in
+/// the deliverable, and hayro reads `/N` only as a stream, so the canvas draws
+/// a stamp carrying the selected state alone: the mark has to reach it.
 #[test]
 fn a_checked_box_puts_its_mark_on_the_canvas() {
     let marked_in_agree_box = |agree: bool| {

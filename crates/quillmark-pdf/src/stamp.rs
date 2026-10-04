@@ -15,9 +15,11 @@ use pdf_writer::{Chunk, Finish, Name, Rect, Ref, Str, TextStr};
 
 use quillmark_core::region::RenderedRegion;
 
-use crate::appearance;
+use crate::appearance::{self, Appearance, Normal};
 use crate::error::PdfError;
-use crate::reader::{err, find_dict_value, parse_indirect_ref, ObjectIndex, UpdatedObject};
+use crate::reader::{
+    err, find_dict_value, parse_indirect_ref, set_dict_value, ObjectIndex, UpdatedObject,
+};
 use crate::update::PdfUpdate;
 use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
 use crate::{FieldSpec, FieldType, FormFont, TextAlign};
@@ -28,6 +30,9 @@ const CODE_EXISTING_ACROFORM: &str = "pdf::existing_acroform";
 /// The fixed checkbox on-state export name. A checkbox [`FieldSpec`] carries
 /// this as its `value` when checked, `None` when not.
 pub const CHECKBOX_ON_STATE: &str = "Yes";
+
+/// The off-state name every checkbox shares (ISO 32000-1 §12.7.4.2.3).
+const OFF_STATE: &[u8] = b"Off";
 
 /// The standard-14 face a check mark is set in, never embedded.
 pub const CHECK_FONT: &[u8] = b"ZapfDingbats";
@@ -118,14 +123,38 @@ fn registered_font(
 pub struct StampOptions {
     /// The `/Info` `/Producer` this stamp writes over whatever the base carries.
     pub producer: String,
+    /// What a checkbox's `/AP` `/N` holds.
+    pub states: AppearanceStates,
 }
 
 impl Default for StampOptions {
     fn default() -> Self {
         Self {
             producer: format!("Quillmark {}", env!("CARGO_PKG_VERSION")),
+            states: AppearanceStates::default(),
         }
     }
+}
+
+/// What a checkbox's `/AP` `/N` holds. Its `/AS` names the current state
+/// either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AppearanceStates {
+    /// A dictionary of both states, [`CHECKBOX_ON_STATE`] and `Off`, so a
+    /// filler toggles the box by renaming `/AS` (ISO 32000-1 §12.7.4.2.3).
+    #[default]
+    All,
+    /// The one stream `/AS` selects, for a rasterizer that reads `/N` only as a
+    /// stream (hayro 0.7). A filler has no other state to switch to, so this
+    /// is a preview's document, never a deliverable.
+    Selected,
+}
+
+/// What a stamped widget's `/AP` `/N` names: one stream, or a checkbox's two
+/// states.
+enum NormalRef {
+    Stream(u32),
+    States { on: u32, off: u32 },
 }
 
 /// Stamp `fields` onto `base` as a fresh AcroForm via one incremental update,
@@ -179,17 +208,25 @@ pub fn stamp(
         for (spec, &wid) in fields.iter().zip(&widget_ids) {
             widgets_by_page[spec.page].push(wid);
             let page_ref = to_ref(pages[spec.page].id)?;
-            let ap_id = match appearance::of(spec).zip(registered_font(&fonts, &font_ids, spec)) {
-                Some((ap, font_id)) => {
-                    let id = alloc_id(&mut up.next_id)?;
-                    up.objects.push(ap.object(id, font_id)?);
-                    Some(id)
-                }
+            let normal = match appearance::of(spec).zip(registered_font(&fonts, &font_ids, spec)) {
                 None => None,
+                Some((Normal::Value(ap), font)) => {
+                    Some(NormalRef::Stream(bake(&mut up, &ap, font)?))
+                }
+                Some((Normal::States { on, off }, font)) => Some(match opts.states {
+                    AppearanceStates::All => NormalRef::States {
+                        on: bake(&mut up, &on, font)?,
+                        off: bake(&mut up, &off, font)?,
+                    },
+                    AppearanceStates::Selected => {
+                        let selected = if spec.is_checked() { &on } else { &off };
+                        NormalRef::Stream(bake(&mut up, selected, font)?)
+                    }
+                }),
             };
             up.objects.push(UpdatedObject {
                 id: wid,
-                bytes: write_widget_object(spec, to_ref(wid)?, page_ref, ap_id)?,
+                bytes: write_widget_object(spec, to_ref(wid)?, page_ref, normal)?,
             });
         }
 
@@ -232,8 +269,11 @@ pub fn stamp(
         // A widget is fillable only if reachable both ways: the catalog's
         // `/AcroForm /Fields` (added here) and the page's `/Annots` (below).
         let cat_dict = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
-        let mut cat_inner = cat_dict.to_vec();
-        cat_inner.extend_from_slice(format!(" /AcroForm {acroform_id} 0 R").as_bytes());
+        let cat_inner = set_dict_value(
+            cat_dict,
+            "AcroForm",
+            format!("{acroform_id} 0 R").as_bytes(),
+        );
         up.objects.push(dict_object(up.catalog_id, &cat_inner));
 
         for (page_idx, widget_refs) in widgets_by_page.iter().enumerate() {
@@ -251,6 +291,14 @@ pub fn stamp(
     }
 
     up.finish(pdf)
+}
+
+/// Write `ap` as a fresh object selecting the registered face `font_id`, and
+/// return its id.
+fn bake(up: &mut PdfUpdate, ap: &Appearance, font_id: u32) -> Result<u32, PdfError> {
+    let id = alloc_id(&mut up.next_id)?;
+    up.objects.push(ap.object(id, font_id)?);
+    Ok(id)
 }
 
 /// One [`RenderedRegion`] per field carrying a schema address, keyed on that
@@ -281,13 +329,13 @@ fn write_quadding(field: &mut Field<'_>, align: TextAlign) {
     field.vartext_quadding(q);
 }
 
-/// Serialize one field as a merged field+widget indirect object, `ap_id` naming
-/// the `/AP` `/N` Form XObject when the widget draws one.
+/// Serialize one field as a merged field+widget indirect object, `normal`
+/// naming its `/AP` `/N` Form XObjects when the widget draws any.
 fn write_widget_object(
     spec: &FieldSpec,
     wid: Ref,
     page_ref: Ref,
-    ap_id: Option<u32>,
+    normal: Option<NormalRef>,
 ) -> Result<Vec<u8>, PdfError> {
     let mut chunk = Chunk::new();
     {
@@ -320,14 +368,7 @@ fn write_widget_object(
                 field.vartext_default_appearance(Str(&da(CHECK_FONT_RESOURCE, 0.0)));
                 let on = spec.is_checked();
                 checkbox_on = Some(on);
-                field.pair(
-                    Name(b"V"),
-                    if on {
-                        Name(CHECKBOX_ON_STATE.as_bytes())
-                    } else {
-                        Name(b"Off")
-                    },
-                );
+                field.pair(Name(b"V"), checkbox_state(on));
                 {
                     let mut mk = field.insert(Name(b"MK")).dict();
                     mk.pair(Name(b"CA"), Str(CHECK_GLYPH));
@@ -365,21 +406,31 @@ fn write_widget_object(
         .page(page_ref)
         .flags(AnnotationFlags::PRINT);
         if let Some(on) = checkbox_on {
-            ann.appearance_state(if on {
-                Name(CHECKBOX_ON_STATE.as_bytes())
-            } else {
-                Name(b"Off")
-            });
+            ann.appearance_state(checkbox_state(on));
         }
-        // One stream rather than a per-state subdictionary, checkboxes included:
-        // the state a stamp writes is the state it renders at, and a viewer that
-        // lets the user toggle one synthesizes its own under `/NeedAppearances`.
-        if let Some(id) = ap_id {
-            ann.appearance().normal().stream(to_ref(id)?);
+        match normal {
+            None => {}
+            Some(NormalRef::Stream(id)) => ann.appearance().normal().stream(to_ref(id)?),
+            Some(NormalRef::States { on, off }) => {
+                ann.appearance()
+                    .normal()
+                    .streams()
+                    .pair(Name(CHECKBOX_ON_STATE.as_bytes()), to_ref(on)?)
+                    .pair(Name(OFF_STATE), to_ref(off)?);
+            }
         }
         ann.finish();
     }
     Ok(chunk.as_bytes().to_vec())
+}
+
+/// The state name a checkbox's `/V` and `/AS` carry.
+fn checkbox_state(on: bool) -> Name<'static> {
+    Name(if on {
+        CHECKBOX_ON_STATE.as_bytes()
+    } else {
+        OFF_STATE
+    })
 }
 
 /// Three cases for the existing `/Annots`: absent (write a fresh array);
