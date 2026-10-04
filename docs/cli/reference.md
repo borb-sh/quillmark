@@ -29,6 +29,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 
 - `-o <PATH>` / `--output <PATH>`: Output file path (default: input filename with format extension, e.g. `input.pdf`; `example.<format>` when no markdown file is given)
 - `-f <FORMAT>` / `--format <FORMAT>`: Output format: `pdf`, `svg`, `png` (default: the `-o` extension when it names one of these, else `pdf`). A `-f` that disagrees with such an extension is refused (`-f png -o out.pdf`); an `-o` extension naming no format is written as given.
+- `--ppi <PPI>`: Pixels per inch for `png` output (default: `144`); `pdf` and `svg` ignore it
 - `--output-data <DATA_FILE>`: Write the compiled, blank-filled JSON data to a file. This is the data before the backend lowers it: a `richtext` value appears as a content object (`{text, lines, marks, islands}`) and a date as its string, where a Typst plate receives content and a `datetime`.
 - `--today <YYYY-MM-DD>`: The render date: what a `today` date field and a plate's `datetime.today()` render as (default: the local date)
 - `--quiet`: Suppress warnings and the output-destination line; errors still print
@@ -40,6 +41,8 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 
 **Pages:** `svg` and `png` render one artifact per page. A multi-page document writes one numbered file per page — `out.svg` becomes `out-1.svg`, `out-2.svg`, … — so no unnumbered file claims to be the whole document. `--stdout` carries one artifact and refuses a multi-page render.
 
+**Long pages:** a `png` page is at most 16384 px a side, so a page whose long side passes it at the asked `--ppi` is refused (`backend::invalid_raster_scale`), and the hint names the largest ppi that fits: a page 9000 pt long fits at `--ppi 131`. `pdf` and `svg` have no pixel ceiling, so a page too long for `png` at the ppi you need renders in either.
+
 **Examples:**
 
 ```bash
@@ -48,6 +51,9 @@ quillmark render ./invoice-quill input.md -o output.pdf
 
 # Render to SVG
 quillmark render ./my-quill input.md -f svg -o output.svg
+
+# Render to PNG at 300 ppi
+quillmark render ./my-quill input.md -f png --ppi 300
 
 # Emit compiled data for inspection
 quillmark render ./my-quill input.md --output-data data.json
