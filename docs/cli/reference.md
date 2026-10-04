@@ -34,7 +34,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 - `--quiet`: Suppress warnings and the output-destination line; errors still print
 - `--stdout`: Write the artifact to stdout instead of a file (and ignore `-o`); refused when the render produces more than one page
 
-**Warnings:** `render` prints the parse warnings, then each warning for input the page leaves out — an undeclared key (`validation::unknown_field`), a card no kind claims, a body under `body.enabled: false`, a stranded variant cell, elements past `max:` — then the backend's. A render that fails still prints the first two ahead of its error.
+**Warnings:** `render` prints the parse warnings, then each warning for input the page leaves out — an undeclared key (`validation::unknown_field`), a card no kind claims, a body under `body.enabled: false`, a stranded variant cell, elements past `max:` — then the backend's. A render that fails prints them ahead of its error. A failed compile still carries the backend's warnings from loading the quill, which explain an error naming only a missing file: a package skipped for its manifest warns `typst::package_manifest`, and an import of it fails as `typst::file_not_found`.
 
 **Streams:** under `--stdout` the artifact owns stdout, and warnings and errors go to stderr, so `quillmark render ./my-quill input.md --stdout > out.pdf` writes a valid PDF. Without `--stdout`, the one stdout line is `Output written to: <path>`, which `--quiet` suppresses.
 

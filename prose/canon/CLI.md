@@ -35,7 +35,9 @@ them.
   ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render)), then the compile's
   ([ERROR.md](ERROR.md#warning-flow)). The engine's one-shot render carries
   the last two; the CLI adds the parse carrier. A render that fails returns no
-  warnings, so the CLI prints the first two itself, ahead of the error.
+  result, so the CLI prints the first two itself, ahead of the error. A failed
+  compile carries the backend's load warnings after its errors
+  ([ERROR.md](ERROR.md#warning-flow)), and the CLI prints them third.
 - **`validate` compiles the plate.** It renders the three canonical documents —
   the empty document, the blueprint, the seeded document — through the quill's
   backend at the backend's first declared format, and reports each failure as a

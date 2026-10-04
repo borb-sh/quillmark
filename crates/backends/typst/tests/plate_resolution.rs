@@ -138,3 +138,32 @@ fn open_err(files: &[(&str, &str)]) -> Vec<quillmark_core::error::Diagnostic> {
         Err(e) => e.into_diagnostics(),
     }
 }
+
+/// An import of a package the load skipped fails as the missing file it is,
+/// and the failure carries the load's reason after that error.
+#[test]
+fn a_failed_open_carries_the_load_warnings_that_explain_it() {
+    use quillmark_core::error::Severity;
+
+    let diags = open_err(&[
+        ("Quill.yaml", YAML),
+        (
+            "packages/broken/typst.toml",
+            "[package]\nname = \"broken\"\nentrypoint = \"lib.typ\"\n",
+        ),
+        ("packages/broken/lib.typ", "#let x = 1\n"),
+        ("plate.typ", "#import \"@local/broken:0.1.0\": x\n#x\n"),
+    ]);
+    let codes: Vec<_> = diags
+        .iter()
+        .map(|d| (d.severity, d.code.as_deref()))
+        .collect();
+    assert_eq!(
+        codes,
+        [
+            (Severity::Error, Some("typst::file_not_found")),
+            (Severity::Warning, Some("typst::package_manifest")),
+        ],
+        "{diags:?}"
+    );
+}

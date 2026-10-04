@@ -11,7 +11,7 @@ pub struct WasmError {
 }
 
 impl WasmError {
-    /// The single diagnostic's message, or a `"… N error(s)"` aggregate.
+    /// The primary diagnostic's message, or a `"… N error(s)"` aggregate.
     pub fn message(&self) -> String {
         match self.diagnostics.as_slice() {
             [] => "Unknown error".to_string(),

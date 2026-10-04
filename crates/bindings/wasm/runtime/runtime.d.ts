@@ -168,7 +168,7 @@ export type {
  * `Error` and attaches `diagnostics` to it, so there is no constructor to
  * `instanceof` against, narrow with {@link isQuillmarkError}. `diagnostics`
  * is always non-empty; `message` is the first diagnostic's message (or an
- * `"N error(s): …"` aggregate for multi-diagnostic failures), so iterate
+ * `"N error(s): …"` aggregate for multi-error failures), so iterate
  * `diagnostics` for per-error detail. The shape is identical to
  * `RenderResult.warnings` entries.
  */

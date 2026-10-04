@@ -50,7 +50,8 @@ rendered instead, so a quill previews without any authored input.
 
 Warnings go to stderr, including one for each undeclared key or other input the
 page leaves out. A render that fails still prints the parse and validation
-warnings ahead of its error.
+warnings ahead of its error, and after them the backend's warnings from loading
+the quill, such as a package skipped for its manifest.
 
 ### `quillmark check [--strict] <QUILL_PATH> <MARKDOWN_FILE>...`
 

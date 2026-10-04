@@ -186,7 +186,8 @@ to each dependency's lets the plate and the package import them as published.
 A `packages/<dir>/` whose `typst.toml` is absent, does not parse, or lacks a
 required key is skipped at load with a `typst::package_manifest` warning, and
 an entrypoint the package does not ship warns `typst::package_entrypoint_missing`.
-Either way, the plate's `#import` for it then fails as an unresolved file.
+Either way, the plate's `#import` for it then fails as `typst::file_not_found`,
+and the failed render carries the warning after that error.
 
 ## Fonts
 
