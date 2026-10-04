@@ -978,7 +978,7 @@ impl Card {
         namespace: &str,
     ) -> Option<serde_json::Value> {
         let mut map = self.payload().meta(key)?.clone();
-        let removed = map.remove(namespace)?;
+        let removed = map.shift_remove(namespace)?;
         if map.is_empty() {
             self.payload_mut().take_meta(key);
         } else {
