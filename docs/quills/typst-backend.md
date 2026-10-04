@@ -297,11 +297,11 @@ Inside `#box`, `#table`, `#figure`, `#footnote`, `#move`, `#pad`: a widget track
 
 `value:` is forwarded verbatim; the Rust adapter maps it to the AcroForm value per `type`:
 
-**Text**: `value` is a string (numbers stringify). A blank value emits no `/V`. Set `multiline: true` for a multi-line box.
+**Text**: `value` is a string, a number, a boolean, or `none`, so it takes a data field: `string`, `enum`, `integer`, `number`, or `boolean`. A number or boolean stringifies, and a blank value emits no `/V`. A `richtext` or `plaintext` value reaches the plate as content and a `date` or `datetime` value as a `datetime`, and passing either fails the render. Set `multiline: true` for a multi-line box.
 
 ```typst
 #form-field("full_name", type: "text", value: data.name)
-#form-field("bio", type: "text", value: data.bio, multiline: true, height: 80pt)
+#form-field("bio", type: "text", value: data.bio, multiline: true, height: 80pt)  // bio: { type: string }
 ```
 
 **Signature**: `value` is ignored. PDF output gains a clickable SigField widget at the call site, which Acrobat — or any reader that supports form signing — presents as a "Sign Here" affordance.
