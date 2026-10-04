@@ -199,7 +199,7 @@ and `Quill::validate` reports nothing about it.
 | Type       | Notes |
 |------------|-------|
 | `string`   | Open scalar UTF-8 text: a value the template computes with (a URL, path, identifier, or reference key), not prose it lays out |
-| `enum`     | A closed set of string values; requires a `values:` list. Also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one) (`""`), which is not a declared member. Projects to JSON-Schema `{type: string, enum: ["", …]}` |
+| `enum`     | A closed set of string values; requires a `values:` list. Also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one) (`""`), which is not a declared member. The [schema](#reading-the-schema-programmatically) emits `values:` as declared, with no `""` |
 | `plaintext`| Navigable, **unformatted** prose over the canonical content: the same nav/regions as `richtext`, but a literal codec (delimiters stay literal, no markup). Add `inline: true` for the single-line variant |
 | `number`   | Numeric scalar (integers and decimals) |
 | `integer`  | Integer-only numeric scalar, sized as an `i64`; a literal past that range takes `number` |
@@ -237,8 +237,8 @@ confidential:
 
 | Declaration | Renders when unanswered | The plate reads |
 |---|---|---|
-| `type: t` | the type's blank | always a `t` |
-| `type: t` with `default:` | the default | always a `t` |
+| `type: t` | the type's [blank](typst-backend.md#blank-values) | a `t`, but `none` for a `date` or `datetime` |
+| `type: t` with `default:` | the default | a `t`, but `none` for a `date` or `datetime` defaulting to `""` |
 | `type: t?` | `none` | a `t` or `none` |
 
 - Any cell takes the `?`: every scalar type, `richtext`, `plaintext`, `date`, `enum`, `array` and `matrix`. An `object` and an `enum` with `variants:` do not (`quill::optional_namespace`); mark the fields inside them instead.
@@ -259,7 +259,7 @@ The four text-ish types form a 2×2 of **data vs content** × **open/plain vs cl
 | **open / literal** | `string` | `plaintext`: `*text*` stays literal |
 | **closed / formatted** | `enum`: a `values:` domain | `richtext`: `*text*` becomes emphasis |
 
-A content field rides the canonical content model, so it carries navigation, regions, and click-to-edit in editor consumers; `string` and `enum` carry none of that. `plaintext` and `richtext` share that entire stack and the same backend lowering, so they are indistinguishable in an editor and diverge only at emit, where the codec decides whether a delimiter is markup or a character.
+Any field the plate prints, `string` and `enum` included, can get a region and click-to-edit in editor consumers ([Which Reads Get Regions](editor-regions.md#which-reads-get-regions)). A content field rides the canonical content model and adds navigation inside its value: a click lands a caret in the text. `plaintext` and `richtext` share that entire stack and the same backend lowering, so they are indistinguishable in an editor and diverge only at emit, where the codec decides whether a delimiter is markup or a character.
 
 Changing a declared type reinterprets every stored value in that field at the next bound load, with no diagnostic, and data → content is the lossy direction: the stored string enters the codec's import and its delimiters are consumed as structure, leaving the literal characters unrecoverable. A declared type change is a new quill version ([Quill Versioning](versioning.md)); audit the corpus before publishing one, as under [Date and Datetime Grammars](#date-and-datetime-grammars).
 
@@ -465,6 +465,8 @@ main:
           score:
             type: number
 ```
+
+A document may write a single value where an array is declared: it is a spelling of a one-element array, and the schema is what disambiguates it. `tags: one` renders as `tags: [one]` does, and `quillmark check` passes it. The element is then judged against `items`, so a mapping written for `tags` is a `validation::type_mismatch` at `tags[0]`, while one written for `cells` is its one row. Likewise, a bare boolean, integer, or number written where a `string` is declared adopts its canonical scalar token (`true`, `47`, `1.0`; `1.50` reads `1.5`) instead of failing.
 
 Use `type: object` with `properties:` for a single structured mapping:
 
@@ -1007,6 +1009,8 @@ Backend-specific configuration for the Typst renderer.
 typst:
   plate_file: plate.typ
 ```
+
+A `plate_file` naming no file fails the render as `typst::plate_missing`. One naming a file at a path holding a `\`, which Typst refuses, fails as `typst::plate_path_invalid`: separate the path with `/`, and rename a file whose own name holds a `\`.
 
 Any other key under `typst` is ignored, with a `typst::unknown_key` warning on each render. Packages are not declared here: a quill vendors them under `packages/`, as the [Typst Backend Guide](typst-backend.md#typst-packages) describes.
 

@@ -208,6 +208,7 @@ Typst diagnostics mapped via `map_typst_errors()`:
 - Severity levels mapped (Error/Warning)
 - Spans resolved to file/line/column
 - Error codes: a **closed set**, keyed off the message's shape
+- Hints: Typst's first, else one the mapping verifies (below)
 
 Typst has no error codes of its own, so the mapping mints one. It classifies
 rather than quotes: `typst::file_not_found` (a file the world refused),
@@ -223,6 +224,12 @@ value per input. Typst's sentence stays in `message`, which is where the
 searched path is read. Classification reads that English, so a reworded
 message degrades to `typst::compile` rather than minting a code of its own.
 
+Typst hints nothing for a missing file, so the mapping adds one hint of its
+own. A bare path resolves from the directory of the file naming it, so a module
+below the quill root misses `assets/…` at the root. A `typst::file_not_found`
+raised there hints the rooted spelling (`/assets/logo.svg`) when the world loads
+a file at it, and only then.
+
 See `crates/backends/typst/src/error_mapping.rs`.
 
 **Quill-load warnings** are the backend's other warning source, hand-coded
@@ -235,6 +242,13 @@ file the world had to skip, which otherwise surfaces only as an unresolved
 reads: core stores that section verbatim, so nothing else would report it. They are properties of the quill, not of a compile, so
 `QuillWorld` holds them and the session serves them ahead of every compile's
 own: an `update` swaps the compile half and keeps these.
+
+**Plate refusals** fail `open` and `workspace` before a world exists:
+`typst::plate_missing` (`typst.plate_file` names no file in the quill),
+`typst::plate_path_invalid` (it names one at a path Typst's `VirtualPath`
+refuses, such as one holding a `\`), and `typst::invalid_utf8`. The plate is
+the one file a refused path cannot merely skip: the world loads it at its
+declared path, and any stand-in name may belong to a file the quill holds.
 
 ## Validation message contract
 

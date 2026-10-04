@@ -29,6 +29,7 @@ use quillmark_core::{
     session::{ChangeSet, LiveSession, SessionHandle},
     types::{OutputFormat, RenderOptions},
 };
+use typst::syntax::VirtualPath;
 
 /// Typst backend implementation for Quillmark.
 #[derive(Debug)]
@@ -498,12 +499,28 @@ impl Default for TypstBackend {
 pub(crate) struct Plate {
     /// `typst.plate_file` as declared; `None` for a quill declaring none.
     pub(crate) file: Option<String>,
+    /// Where the world loads the plate.
+    pub(crate) path: VirtualPath,
     pub(crate) text: String,
+}
+
+impl Plate {
+    /// A plate no `plate_file` declares, loaded as `main.typ`.
+    pub(crate) fn undeclared(text: String) -> Self {
+        Self {
+            file: None,
+            path: VirtualPath::new("main.typ").expect("\"main.typ\" is a valid virtual path"),
+            text,
+        }
+    }
 }
 
 /// The plate is a Typst-only notion: its filename is declared under the
 /// `typst:` backend-config section as `plate_file` and the source lives in the
 /// quill's file bundle. A quill declaring no `plate_file` renders an empty one.
+///
+/// A declared plate loads at its own path, so one Typst's path grammar refuses
+/// fails here: any stand-in name may belong to a file the quill holds.
 fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
     let plate_file = source
         .config()
@@ -512,16 +529,21 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
         .and_then(|v| v.as_str());
 
     let Some(plate_file) = plate_file else {
-        return Ok(Plate {
-            file: None,
-            text: String::new(),
-        });
+        return Ok(Plate::undeclared(String::new()));
     };
 
     let bytes = source.files().get_file(plate_file).ok_or_else(|| {
         RenderError::coded(
             "typst::plate_missing",
             format!("plate file '{plate_file}' not found in the quill's file tree"),
+        )
+    })?;
+
+    let path = VirtualPath::new(plate_file).map_err(|e| {
+        RenderError::coded_hint(
+            "typst::plate_path_invalid",
+            format!("plate file '{plate_file}' is not a path Typst can load ({e})"),
+            "Separate `typst.plate_file` with `/`, and rename the file if its own name holds a `\\`.",
         )
     })?;
 
@@ -533,6 +555,7 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
     })?;
     Ok(Plate {
         file: Some(plate_file.to_string()),
+        path,
         text,
     })
 }

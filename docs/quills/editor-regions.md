@@ -52,17 +52,18 @@ A scalar printed straight off `data` rather than through its ink is tracked at t
 
 ```typst
 #let c = data.classification
-#c.poc                       // regions as `classification.poc`, same as #data.classification.poc
+#c.poc                       // regions as `main.classification.poc`, same as #data.classification.poc
 ```
 
 A read into a typed table works the same way, one step further: the index and
-then the row property, the addresses `form-field(field:)` takes.
+then the row property. The session spells the address as a document path,
+`main.refs[0].org`, where `form-field(field:)` takes `refs.0.org`.
 
 ```typst
-#data.refs.at(0).org         // regions as `refs.0.org`
-#data.refs.at(0)             // regions as `refs.0` — each step is its own address
+#data.refs.at(0).org         // regions as `main.refs[0].org`
+#data.refs.at(0)             // regions as `main.refs[0]` — each step is its own address
 #let row = data.refs.at(0)
-#row.org                     // regions as `refs.0.org` too
+#row.org                     // regions as `main.refs[0].org` too
 ```
 
 Rebind that name anywhere in its file — a second `let`, a closure parameter, a loop pattern, an assignment — and it stops being followed, because a read can no longer be tied to one value. Three shapes are past what the tracker follows at all:
@@ -89,7 +90,7 @@ A live preview routes a click back to the schema field that produced the ink und
 #field-region("classification")[#banner(data.classification)]
 ```
 
-The banner now appears in `session.regions()` under `classification` and a click on it resolves through `session.fieldAt(...)`, exactly as if the field had drawn it.
+The banner now appears in `session.regions()` under `main.classification` and a click on it resolves through `session.fieldAt(...)`, exactly as if the field had drawn it.
 
 `body` is returned untouched, bracketed by two invisible `metadata` markers, so the wrapper changes nothing about layout or output bytes. Unlike a `form-field` widget it reserves no space and draws no click target of its own: it claims the ink that is already there.
 
