@@ -192,8 +192,8 @@ fn check_ceiling(
 /// before the rasterizer allocates: under `backend::invalid_raster_scale` unless
 /// `scale` (device pixels per point, a canvas scale) is finite and positive and
 /// neither side of the `width_pt` × `height_pt` page passes
-/// [`MAX_RASTER_SIDE`]. The refusal names the scale passed and the largest that
-/// fits.
+/// [`MAX_RASTER_SIDE`]. A refusal past the ceiling names the scale passed and
+/// the largest that fits.
 pub fn check_raster(scale: f32, width_pt: f32, height_pt: f32) -> Result<(), RenderError> {
     if !scale.is_finite() || scale <= 0.0 {
         return Err(invalid_raster_scale(
