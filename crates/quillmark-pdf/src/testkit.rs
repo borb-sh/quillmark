@@ -8,7 +8,7 @@
 
 use pdf_writer::types::AnnotationType;
 use pdf_writer::writers::Form;
-use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Settings, TextStr};
+use pdf_writer::{Content, Finish, Name, Null, Pdf, Rect, Ref, Settings, TextStr};
 
 #[derive(Clone, Copy)]
 enum Rotation {
@@ -27,6 +27,8 @@ pub struct BasePdf {
     info_title: Option<String>,
     inline_annot: bool,
     acroform: bool,
+    catalog_nulls: Vec<&'static str>,
+    page_nulls: Vec<&'static str>,
     pretty: bool,
 }
 
@@ -40,6 +42,8 @@ impl BasePdf {
             info_title: None,
             inline_annot: false,
             acroform: false,
+            catalog_nulls: Vec::new(),
+            page_nulls: Vec::new(),
             pretty: true,
         }
     }
@@ -86,6 +90,21 @@ impl BasePdf {
         self
     }
 
+    /// `/key null` on the catalog, in place of any value this builder writes
+    /// there.
+    pub fn catalog_null(mut self, key: &'static str) -> Self {
+        self.catalog_nulls.push(key);
+        self
+    }
+
+    /// `/key null` on every page, in place of any value this builder writes
+    /// there. The page tree keeps its own `/MediaBox`, so a page nulling its
+    /// one inherits it.
+    pub fn page_null(mut self, key: &'static str) -> Self {
+        self.page_nulls.push(key);
+        self
+    }
+
     /// pdf-writer's compact mode, which hex-encodes a non-ASCII string.
     pub fn compact(mut self) -> Self {
         self.pretty = false;
@@ -127,8 +146,11 @@ impl BasePdf {
         {
             let mut catalog = pdf.catalog(catalog_id);
             catalog.pages(page_tree_id);
-            if let Some(id) = acroform_id {
+            if let Some(id) = acroform_id.filter(|_| !self.catalog_nulls.contains(&"AcroForm")) {
                 catalog.pair(Name(b"AcroForm"), id);
+            }
+            for key in &self.catalog_nulls {
+                catalog.pair(Name(key.as_bytes()), Null);
             }
         }
         pdf.pages(page_tree_id)
@@ -139,14 +161,16 @@ impl BasePdf {
 
         for (i, &(page_id, content_id)) in leaves.iter().enumerate() {
             {
+                let written = |key: &str| !self.page_nulls.contains(&key);
                 let mut page = pdf.page(page_id);
-                page.parent(page_tree_id)
-                    .media_box(media)
-                    .contents(content_id);
-                if let Some(crop) = self.crop_box {
+                page.parent(page_tree_id).contents(content_id);
+                if written("MediaBox") {
+                    page.media_box(media);
+                }
+                if let Some(crop) = self.crop_box.filter(|_| written("CropBox")) {
                     page.pair(Name(b"CropBox"), rect(crop));
                 }
-                match self.rotation {
+                match self.rotation.filter(|_| written("Rotate")) {
                     Some(Rotation::Direct(deg)) => {
                         page.rotate(deg);
                     }
@@ -155,8 +179,11 @@ impl BasePdf {
                     }
                     None => {}
                 }
-                if let (0, Some(id)) = (i, annot_id) {
+                if let (0, Some(id), true) = (i, annot_id, written("Annots")) {
                     page.annotations([id]);
+                }
+                for key in &self.page_nulls {
+                    page.pair(Name(key.as_bytes()), Null);
                 }
             }
             pdf.stream(content_id, &Content::new().finish());
