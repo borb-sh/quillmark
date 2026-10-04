@@ -88,3 +88,36 @@ fn both_raster_knobs_reach_the_check_and_every_counted_page_paints() {
         }
     }
 }
+
+#[test]
+fn the_ppi_a_refusal_names_renders_every_selected_page() {
+    let plate = "#page(width: 100pt, height: 9000pt)[A]\n#page(width: 100pt, height: 12000pt)[B]\n";
+    let session = TypstBackend
+        .open(
+            &quill(&yaml("main:\n  fields: {}\n"), plate),
+            &serde_json::json!({}),
+            common::test_date(),
+        )
+        .expect("open");
+    let png = |ppi: f32| {
+        RenderOptions::default()
+            .with_output_format(OutputFormat::Png)
+            .with_ppi(ppi)
+    };
+
+    let refused = session
+        .render(&png(RenderOptions::DEFAULT_PPI))
+        .expect_err("both pages pass the ceiling at the default ppi");
+    let hint = refused.diagnostics()[0]
+        .hint
+        .clone()
+        .expect("a raster refusal carries a hint");
+    let ppi = hint
+        .split_whitespace()
+        .find_map(|word| word.parse::<f32>().ok())
+        .unwrap_or_else(|| panic!("the hint names a ppi: {hint}"));
+    let rendered = session
+        .render(&png(ppi))
+        .unwrap_or_else(|e| panic!("{ppi} ppi, as hinted, renders both pages: {e}"));
+    assert_eq!(rendered.artifacts.len(), 2);
+}
