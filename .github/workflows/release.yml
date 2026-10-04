@@ -334,7 +334,7 @@ jobs:
       - name: Install wasm-bindgen-cli
         uses: taiki-e/install-action@v2.87.21
         with:
-          tool: wasm-bindgen-cli@0.2.128
+          tool: wasm-bindgen-cli@0.2.129
 
       - name: Build WASM packages
         # --release-stamp: stamp the workspace version verbatim. This checkout

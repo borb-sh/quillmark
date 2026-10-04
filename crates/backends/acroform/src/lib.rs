@@ -23,7 +23,7 @@ use quillmark_core::{
     types::{Artifact, OutputFormat, RenderOptions},
 };
 use quillmark_pdf::regions_of;
-use quillmark_pdf::{stamp, FieldSpec, StampOptions};
+use quillmark_pdf::{stamp, AppearanceStates, FieldSpec, StampOptions};
 
 use {
     hayro::hayro_interpret::{font::FontQuery, InterpreterSettings},
@@ -85,7 +85,7 @@ impl Backend for AcroformBackend {
             .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
 
         let field_specs = resolve_field_specs(&bound, json_data);
-        let stamped = stamp_and_parse(&base_pdf, &field_specs)?;
+        let raster = stamp_raster(&base_pdf, &field_specs)?;
 
         Ok(LiveSession::new(
             Box::new(AcroformSession {
@@ -93,7 +93,7 @@ impl Backend for AcroformBackend {
                 bound,
                 field_specs,
                 canvas_boxes,
-                stamped,
+                raster,
             }),
             source.config().clone(),
             today,
@@ -118,15 +118,19 @@ fn resolve_field_specs(bound: &[BoundWidget], json_data: &serde_json::Value) -> 
         .collect()
 }
 
-/// Stamp `field_specs` onto the base, then parse the result for hayro. The one
-/// document is both the deliverable `render` hands back and what the canvas
-/// rasterizes, so the two places `field_specs` are set are the two places it
-/// moves.
+/// Stamp `field_specs` onto the base as the canvas draws it, then parse the
+/// result for hayro. hayro reads a widget's `/AP` `/N` only as a stream, so each
+/// checkbox carries the one state its `/AS` names; the deliverable `render`
+/// stamps carries both, for a filler to toggle.
 ///
 /// A parse failure is this crate stamping something malformed, never a property
 /// of the document being rendered.
-fn stamp_and_parse(base_pdf: &[u8], field_specs: &[FieldSpec]) -> Result<HayroPdf, RenderError> {
-    let stamped = stamp(base_pdf.to_vec(), field_specs, &StampOptions::default())?;
+fn stamp_raster(base_pdf: &[u8], field_specs: &[FieldSpec]) -> Result<HayroPdf, RenderError> {
+    let opts = StampOptions {
+        states: AppearanceStates::Selected,
+        ..StampOptions::default()
+    };
+    let stamped = stamp(base_pdf.to_vec(), field_specs, &opts)?;
     HayroPdf::new(stamped).map_err(|_| {
         RenderError::coded(
             "acroform::stamped_parse_failed",
@@ -143,10 +147,9 @@ struct AcroformSession {
     /// lower-left corner is the canvas origin. Cached so `page_size_pt` need not
     /// reparse.
     canvas_boxes: Vec<[f32; 4]>,
-    /// The base with `field_specs` stamped onto it, parsed: the canvas path
-    /// holds pages rather than bytes to reparse per paint, and `render` hands
-    /// back the same bytes it was parsed from.
-    stamped: HayroPdf,
+    /// [`stamp_raster`] of `field_specs`: the canvas path holds pages rather
+    /// than bytes to reparse per paint.
+    raster: HayroPdf,
 }
 
 impl SessionHandle for AcroformSession {
@@ -164,11 +167,13 @@ impl SessionHandle for AcroformSession {
             return Err(quillmark_core::backend::page_selection_not_supported(format));
         }
 
+        let pdf = stamp(
+            self.base_pdf.clone(),
+            &self.field_specs,
+            &StampOptions::default(),
+        )?;
         Ok(RenderResult::new(
-            vec![Artifact::new(
-                self.stamped.data().as_ref().to_vec(),
-                OutputFormat::Pdf,
-            )],
+            vec![Artifact::new(pdf, OutputFormat::Pdf)],
             OutputFormat::Pdf,
         ))
     }
@@ -215,11 +220,11 @@ impl SessionHandle for AcroformSession {
         regions
     }
 
-    /// Specs and stamped PDF swap together only after both succeed. The
-    /// background never changes, so field deltas are the only visible delta.
+    /// Specs and raster swap together only after both succeed. The background
+    /// never changes, so field deltas are the only visible delta.
     fn update(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
         let field_specs = resolve_field_specs(&self.bound, json_data);
-        let stamped = stamp_and_parse(&self.base_pdf, &field_specs)?;
+        let raster = stamp_raster(&self.base_pdf, &field_specs)?;
 
         let mut dirty_pages: Vec<usize> = self
             .field_specs
@@ -232,7 +237,7 @@ impl SessionHandle for AcroformSession {
         dirty_pages.dedup();
 
         self.field_specs = field_specs;
-        self.stamped = stamped;
+        self.raster = raster;
 
         Ok(ChangeSet::new(self.canvas_boxes.len(), dirty_pages))
     }
@@ -240,7 +245,7 @@ impl SessionHandle for AcroformSession {
 
 impl AcroformSession {
     fn raster(&self, page: usize, scale: f32) -> Result<Option<Pixmap>, RenderError> {
-        let Some(p) = self.stamped.pages().get(page) else {
+        let Some(p) = self.raster.pages().get(page) else {
             return Ok(None);
         };
         let (width_pt, height_pt) = p.render_dimensions();
