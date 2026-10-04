@@ -2210,15 +2210,17 @@ fn reject_deep_js_value(value: &JsValue, ctx: &str) -> Result<(), JsValue> {
 /// looks up the fields a struct declares rather than visiting every key, so it
 /// never enforces `deny_unknown_fields`: a misspelled optional key would read as
 /// absent. A value that is not an object passes, for the deserializer to refuse.
+/// Object-ness is the deserializer's `typeof` test, not `instanceof Object`,
+/// which a null-prototype or cross-realm object fails yet deserializes.
 fn reject_unknown_keys(
     value: &JsValue,
     known: &[&str],
     refusal: impl FnOnce(&str) -> String,
 ) -> Result<(), JsValue> {
-    let Some(obj) = value.dyn_ref::<js_sys::Object>() else {
+    if !value.is_object() {
         return Ok(());
-    };
-    match js_sys::Object::keys(obj)
+    }
+    match js_sys::Object::keys(value.unchecked_ref::<js_sys::Object>())
         .iter()
         .filter_map(|key| key.as_string())
         .find(|k| !known.contains(&k.as_str()))

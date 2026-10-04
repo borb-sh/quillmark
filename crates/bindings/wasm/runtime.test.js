@@ -724,6 +724,8 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     const session = await engine.open(quill, doc)
     try {
       refused(caughtFrom(() => session.render({ format: 'svg', dpi: 300 })), 'dpi')
+      const bare = Object.assign(Object.create(null), { format: 'svg', dpi: 300 })
+      refused(caughtFrom(() => session.render(bare)), 'dpi')
       const every = { format: 'svg', ppi: 72, pages: [0], regions: true }
       expect(session.render(every).outputFormat).toBe('svg')
     } finally {
