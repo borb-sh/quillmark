@@ -179,7 +179,7 @@ proptest! {
     }
 }
 
-/// A word YAML 1.1 or 1.2 reads as a boolean, each letter's case drawn.
+/// A boolean word of YAML 1.1 or 1.2, each letter's case drawn.
 fn arb_boolean_word() -> impl Strategy<Value = String> {
     (
         prop::sample::select(&["y", "n", "yes", "no", "on", "off", "true", "false"][..]),
@@ -194,10 +194,9 @@ fn arb_boolean_word() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    /// Booleans resolve under YAML 1.2's core schema: a plain scalar is a
-    /// boolean exactly when it spells `true` or `false`, and any other word
-    /// is the string written, as a field, a sequence element and a nested
-    /// value alike.
+    /// A plain scalar is a boolean exactly when it spells `true` or `false`,
+    /// in any letter case, and any other word is the string written, as a
+    /// field, a sequence element and a nested value alike, across an emission.
     #[test]
     fn only_true_and_false_read_as_booleans(word in arb_boolean_word()) {
         let src = format!("~~~\n$quill: q\nv: {word}\nlist: [{word}]\nmap:\n  k: {word}\n~~~\n");
@@ -212,6 +211,10 @@ proptest! {
         prop_assert_eq!(read("v"), Some(want.clone()));
         prop_assert_eq!(read("list"), Some(json!([want.clone()])));
         prop_assert_eq!(read("map"), Some(json!({ "k": want })));
+
+        let emitted = doc.to_markdown();
+        let reparsed = Document::parse(&emitted).expect("an emission re-parses").document;
+        prop_assert_eq!(reparsed, doc, "emitted:\n{}", emitted);
     }
 }
 
