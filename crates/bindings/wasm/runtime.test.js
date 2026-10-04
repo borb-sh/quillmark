@@ -1292,6 +1292,9 @@ describe('@quillmark/wasm: today (the render date a host supplies)', () => {
   backend: typst
   description: A field dated by the day it renders
 
+typst:
+  plate_file: plate.typ
+
 main:
   fields:
     issued: { type: date, default: today }
