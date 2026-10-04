@@ -286,6 +286,12 @@ pub struct RenderOptions {
 }
 
 #[cfg(feature = "render")]
+impl RenderOptions {
+    /// The keys an options object may carry; any other key throws.
+    pub(crate) const KEYS: [&'static str; 4] = ["format", "ppi", "pages", "regions"];
+}
+
+#[cfg(feature = "render")]
 impl Default for RenderOptions {
     fn default() -> Self {
         RenderOptions {
@@ -331,4 +337,24 @@ mod tests {
         assert!(!json.contains("\"kind\""));
     }
 
+    /// Built without `..`: a new field fails to compile here, then fails this
+    /// test until `KEYS` names it, or the unknown-key refusal throws on it.
+    #[test]
+    #[cfg(feature = "render")]
+    fn render_options_keys_are_its_serde_fields() {
+        use super::{OutputFormat, RenderOptions};
+
+        let every = RenderOptions {
+            format: Some(OutputFormat::Pdf),
+            ppi: Some(144.0),
+            pages: Some(vec![0]),
+            regions: Some(true),
+        };
+        let json = serde_json::to_value(&every).unwrap();
+        let mut fields: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        let mut keys = RenderOptions::KEYS.to_vec();
+        fields.sort_unstable();
+        keys.sort_unstable();
+        assert_eq!(fields, keys);
+    }
 }

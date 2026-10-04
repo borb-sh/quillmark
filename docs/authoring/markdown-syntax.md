@@ -33,7 +33,7 @@ CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML 
 
 ```markdown
 <u>This is underlined</u>, even <u>across word boundaries</u>.
-<span style="color: red">This span is dropped entirely.</span>
+<span style="color: red">The span's tags drop; its text stays.</span>
 <!-- HTML comments are also dropped -->
 ```
 
@@ -42,7 +42,8 @@ Why: Typst (the rendering backend) has no HTML renderer, and arbitrary HTML pass
 Consequences:
 
 - `<br>`, `<br/>`, `<br />` produce no output. Use a CommonMark hard break instead: two trailing spaces before a newline, or a trailing `\` before a newline.
-- HTML entities and embedded SVG are dropped.
+- HTML entities decode as CommonMark specifies: `Fish &amp; chips, &#65;BC` reads `Fish & chips, ABC`.
+- An [HTML block](https://spec.commonmark.org/0.31.2/#html-blocks), such as a `<div>` opening a line, is dropped whole, text included. Embedded SVG draws nothing: its tags drop like any other.
 - HTML comments do not appear in output.
 
 ### A column-zero `~~~` always opens a card-yaml block

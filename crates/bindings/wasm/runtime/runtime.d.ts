@@ -167,9 +167,11 @@ export type {
  * This is a STRUCTURAL interface, not a class: the WASM layer throws a real
  * `Error` and attaches `diagnostics` to it, so there is no constructor to
  * `instanceof` against, narrow with {@link isQuillmarkError}. `diagnostics`
- * is always non-empty; `message` is the first diagnostic's message (or an
- * `"N error(s): …"` aggregate for multi-diagnostic failures), so iterate
- * `diagnostics` for per-error detail. The shape is identical to
+ * is always non-empty and opens with an error. A `severity: 'warning'` entry
+ * after the errors is one raised before the failure that can explain it, such
+ * as a package the quill's load skipped. `message` is the first diagnostic's
+ * message (or an `"N error(s): …"` aggregate for multi-error failures), so
+ * iterate `diagnostics` for per-error detail. The shape is identical to
  * `RenderResult.warnings` entries.
  */
 export interface QuillmarkError extends Error {
@@ -236,7 +238,11 @@ export interface Artifact {
 	mimeType: string;
 }
 
-/** Options for one render. */
+/**
+ * Options for one render. Any other key throws, `today` included: the render
+ * date is an argument of {@link Engine.render} and {@link Engine.open}, not an
+ * option.
+ */
 export interface RenderOptions {
 	format?: OutputFormat;
 	/**
@@ -371,6 +377,7 @@ export interface BackendDescriptor {
 	formats: OutputFormat[];
 }
 
+/** Options for `new Engine(...)`. A key other than `backends` throws. */
 export interface EngineOptions {
 	/**
 	 * Extra or overriding backend descriptors, merged over the built-ins. Keys are
@@ -407,7 +414,8 @@ export declare class Engine {
 	 * document it opened from, so {@link LiveSession.render} carries the
 	 * compile's alone: read `doc.warnings` and `quill.validate(doc)` beside it.
 	 *
-	 * `today` reads as on {@link open}.
+	 * `today` reads as on {@link open}. An `options` key outside
+	 * {@link RenderOptions} rejects, `today` among them.
 	 */
 	render(quill: Quill, doc: Document, options?: RenderOptions, today?: string): Promise<RenderResult>;
 

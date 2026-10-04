@@ -67,6 +67,10 @@ Fix either by rendering with the Quill the document targets, or by amending the
 name matches any version, so a document that targets its Quill
 correctly never trips these checks.
 
+The host picks which matching Quill to hand Quillmark; in Rust,
+`quillmark_core::version::VersionSelector::matches` tests a candidate's version
+against the selector.
+
 ## Practical Guidelines
 
 1. Start at `1.0.0` for your first stable internal format release.

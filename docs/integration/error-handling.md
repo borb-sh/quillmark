@@ -45,7 +45,7 @@ One thing never reaches a diagnostic: an argument the binding cannot convert at 
     }
     ```
 
-A multi-problem stage (validation, quill config, backend compile) reports **every** problem in one pass, so `diagnostics` may carry several entries; `diagnostics[0]` is the primary. The error's `message` follows a count-based rule: the primary message for one diagnostic, `"<N> error(s): <first message>"` for more.
+A multi-problem stage (validation, quill config, backend compile) reports **every** problem in one pass, so `diagnostics` may carry several entries; `diagnostics[0]` is the primary, and an error. A `Warning` after the errors is one raised before the failure that can explain it ([below](#warnings-vs-errors)). The error's `message` follows a count-based rule: the primary message for one error, `"<N> error(s): <first message>"` for more, warnings not counted.
 
 ## Codes, not types
 
@@ -61,6 +61,8 @@ Notable codes: `quill::name_mismatch` / `quill::version_mismatch` (a well-formed
 
 A Typst compile classifies into four codes: `typst::file_not_found` (a file the quill's world refused — a missing asset is the common one), `typst::unknown_variable`, `typst::type_error`, and `typst::compile` for everything else, warnings included. They are a routing key only: which file was searched for, or which symbol was unknown, is read from `message`.
 
+Before any compile, opening a Typst quill can refuse its plate: `typst::plate_missing` when `typst.plate_file` names no file in the quill, and `typst::plate_path_invalid` when it names one at a path Typst cannot load.
+
 ## Warnings vs errors
 
 Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning` never does. There is no lint-level configuration and no warning-to-error promotion. Warnings ride the same `Diagnostic` currency on non-fatal channels:
@@ -74,6 +76,7 @@ Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning
 
     On the CLI, `quillmark render` and `quillmark check` both print every validation warning ([CLI Reference](../cli/reference.md#check)).
 - **Compile warnings**: a backend's non-fatal diagnostics (font fallback, overfull pages), carried on `result.warnings`.
+- **Load warnings**: what the Typst backend skipped loading the quill (`typst::package_manifest`, `typst::package_entrypoint_missing`, `typst::path_skipped`) and a `typst:` key it does not read (`typst::unknown_key`), carried ahead of the compile warnings. A render or session `open` whose compile fails carries them too, in the error's `diagnostics` after its errors: an `#import` of a package skipped for its manifest fails as `typst::file_not_found`, and only the warning says why.
 - **`backend::declined_construct`**: a construct the backend typesets nothing for, one per content field, carrying `backend`, `construct` and `count` in `args` and the field's path. The Typst backend declines `image`: a markdown image in a `richtext` field reaches no page, because what its url names is undecided.
 
 A successful render returns artifacts **and** a `warnings` list, so inspect it even on success.

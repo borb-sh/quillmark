@@ -27,6 +27,23 @@ fn missing_plate_file_errors_at_open_not_load() {
     );
 }
 
+/// A plate the quill holds at a path Typst refuses has no name the world can
+/// load it at: taking `main.typ` would shadow the quill's own `main.typ`.
+#[test]
+fn a_plate_file_typst_cannot_address_fails_at_open() {
+    let diags = open_err(&[
+        (
+            "Quill.yaml",
+            "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  description: d\n\n\
+             typst:\n  plate_file: lay\\out.typ\n",
+        ),
+        ("lay\\out.typ", "#import \"main.typ\": word\n#word\n"),
+        ("main.typ", "#let word = \"real\"\n"),
+    ]);
+    let codes: Vec<_> = diags.iter().map(|d| d.code.as_deref()).collect();
+    assert_eq!(codes, [Some("typst::plate_path_invalid")], "{diags:?}");
+}
+
 /// `tpl/layout.typ` reaches a sibling by a bare path, a module up a level by
 /// `..`, and a module and an asset by a `/`-rooted path.
 #[test]
@@ -67,6 +84,52 @@ fn project_sources_import_as_typst_resolves_paths() {
     assert_eq!(
         (location.file.as_str(), location.line, location.column),
         ("tpl/layout.typ", 7, 4)
+    );
+}
+
+/// A bare path missed below the quill root hints its rooted spelling, from any
+/// module depth and for any file kind, but only where the quill holds a file
+/// at that spelling.
+#[test]
+fn a_bare_path_missing_a_quill_root_file_hints_the_rooted_spelling() {
+    const YAML: &str = "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  \
+                        description: d\n\ntypst:\n  plate_file: tpl/layout.typ\n";
+    const SVG: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"/>";
+    let hint_of = |files: &[(&str, &str)]| {
+        let diags = open_err(files);
+        diags
+            .iter()
+            .find(|d| d.code.as_deref() == Some("typst::file_not_found"))
+            .unwrap_or_else(|| panic!("a missing file: {diags:?}"))
+            .hint
+            .clone()
+    };
+    let image = "#image(\"assets/logo.svg\")\n";
+
+    let hint = hint_of(&[
+        ("Quill.yaml", YAML),
+        ("tpl/layout.typ", image),
+        ("assets/logo.svg", SVG),
+    ])
+    .expect("the root holds assets/logo.svg");
+    assert!(hint.contains("`/assets/logo.svg`"), "{hint}");
+
+    let hint = hint_of(&[
+        ("Quill.yaml", YAML),
+        ("tpl/layout.typ", "#import \"parts/header.typ\": accent\n#accent\n"),
+        (
+            "tpl/parts/header.typ",
+            "#import \"shared/theme.typ\": accent\n",
+        ),
+        ("shared/theme.typ", "#let accent = [x]\n"),
+    ])
+    .expect("the root holds shared/theme.typ");
+    assert!(hint.contains("`/shared/theme.typ`"), "{hint}");
+
+    assert_eq!(
+        hint_of(&[("Quill.yaml", YAML), ("tpl/layout.typ", image)]),
+        None,
+        "no file at the root, no hint"
     );
 }
 
@@ -137,4 +200,33 @@ fn open_err(files: &[(&str, &str)]) -> Vec<quillmark_core::error::Diagnostic> {
         Ok(_) => panic!("the compile must fail"),
         Err(e) => e.into_diagnostics(),
     }
+}
+
+/// An import of a package the load skipped fails as the missing file it is,
+/// and the failure carries the load's reason after that error.
+#[test]
+fn a_failed_open_carries_the_load_warnings_that_explain_it() {
+    use quillmark_core::error::Severity;
+
+    let diags = open_err(&[
+        ("Quill.yaml", YAML),
+        (
+            "packages/broken/typst.toml",
+            "[package]\nname = \"broken\"\nentrypoint = \"lib.typ\"\n",
+        ),
+        ("packages/broken/lib.typ", "#let x = 1\n"),
+        ("plate.typ", "#import \"@local/broken:0.1.0\": x\n#x\n"),
+    ]);
+    let codes: Vec<_> = diags
+        .iter()
+        .map(|d| (d.severity, d.code.as_deref()))
+        .collect();
+    assert_eq!(
+        codes,
+        [
+            (Severity::Error, Some("typst::file_not_found")),
+            (Severity::Warning, Some("typst::package_manifest")),
+        ],
+        "{diags:?}"
+    );
 }

@@ -172,6 +172,40 @@ favorite_color: red\n\
     assert!(comments.get(b"V").is_err(), "absent array → no /V");
 }
 
+/// ISO 32000-1 §12.7.4.2.3: every delivered box, bound or not, names both its
+/// states under `/AP` `/N` and the current one in `/AS`, so a later filler can
+/// toggle it.
+#[test]
+fn a_delivered_checkbox_carries_both_states_whatever_its_value() {
+    for (agree, state) in [(true, &b"Yes"[..]), (false, b"Off")] {
+        let (doc, af) = render(&FILLED.replace("agree: true", &format!("agree: {agree}")));
+        for (name, state) in [("Agree", state), ("SignerConfirms", b"Off")] {
+            let w = widget(&doc, &af, name);
+            assert_eq!(
+                w.get(b"AS").unwrap().as_name().unwrap(),
+                state,
+                "{name}, agree: {agree}"
+            );
+            let n = w.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap();
+            let mut states: Vec<&[u8]> = n
+                .as_dict()
+                .unwrap_or_else(|_| panic!("{name}: /N is a state dictionary"))
+                .iter()
+                .map(|(state, stream)| {
+                    let id = stream.as_reference().unwrap();
+                    assert!(
+                        doc.get_object(id).unwrap().as_stream().is_ok(),
+                        "{name}: a stream"
+                    );
+                    state.as_slice()
+                })
+                .collect();
+            states.sort_unstable();
+            assert_eq!(states, [&b"Off"[..], b"Yes"], "{name}, agree: {agree}");
+        }
+    }
+}
+
 #[test]
 fn apply_rebinds_values_and_reports_dirty_pages() {
     let doc = Document::parse(FILLED).expect("parse markdown").document;

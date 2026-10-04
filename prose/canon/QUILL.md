@@ -61,7 +61,9 @@ at the boundary.
 
 Validation rules:
 1. Root MUST be a directory node
-2. `Quill.yaml` MUST exist and be valid YAML
+2. `Quill.yaml` MUST exist and be valid YAML, read as a card-yaml payload is:
+   only `true` and `false` are booleans
+   ([markdown-spec.md](../references/markdown-spec.md) §3.4)
 3. File paths use `/` separators and are resolved relative to root
 
 Core reads no backend-specific assets at load time. A backend resolves its own

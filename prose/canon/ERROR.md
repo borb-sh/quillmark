@@ -53,9 +53,12 @@ diagnostics themselves: the machine-routable identity of a failure is each
 diagnostic's namespaced `code`, and consumers route on codes, not on a type.
 Multi-problem stages (validation, quill config, backend
 compilation) carry several diagnostics so every problem reaches the caller in
-one pass. `Display` follows the count-based message rule shared with both
-bindings: the primary diagnostic's message for a single diagnostic, an
-`"<N> error(s): <first message>"` aggregate for more.
+one pass. The first is an error. A `Warning` after the errors is one the
+failing stage raised before it failed, carried because it can explain the
+failure ([Warning flow](#warning-flow)). `Display` follows the count-based
+message rule shared with both bindings: the primary diagnostic's message for a
+single error, an `"<N> error(s): <first message>"` aggregate for more,
+warnings not counted.
 
 Notable codes: `quill::name_mismatch` / `quill::version_mismatch`, the
 document is well-formed but paired with the wrong quill (see
@@ -177,6 +180,13 @@ across families.
 `backend::declined_construct` dedups within itself, per field: its producer
 sees every occurrence at once, so the occurrences collapse into `count`.
 
+A Typst `open` failing once its world has loaded, in codegen or the compile,
+leaves no session to serve the quill-load warnings ([below](#typst)), so its
+`RenderError` carries them after its errors. An `#import` of a package the
+load skipped fails as `typst::file_not_found`, and only
+`typst::package_manifest` says why. A failed `update` carries none: the
+session goes on serving them.
+
 ## Bindings Error Delegation
 
 Python and WASM bindings delegate to core types:
@@ -198,6 +208,7 @@ Typst diagnostics mapped via `map_typst_errors()`:
 - Severity levels mapped (Error/Warning)
 - Spans resolved to file/line/column
 - Error codes: a **closed set**, keyed off the message's shape
+- Hints: Typst's first, else one the mapping verifies (below)
 
 Typst has no error codes of its own, so the mapping mints one. It classifies
 rather than quotes: `typst::file_not_found` (a file the world refused),
@@ -213,6 +224,12 @@ value per input. Typst's sentence stays in `message`, which is where the
 searched path is read. Classification reads that English, so a reworded
 message degrades to `typst::compile` rather than minting a code of its own.
 
+Typst hints nothing for a missing file, so the mapping adds one hint of its
+own. A bare path resolves from the directory of the file naming it, so a module
+below the quill root misses `assets/…` at the root. A `typst::file_not_found`
+raised there hints the rooted spelling (`/assets/logo.svg`) when the world loads
+a file at it, and only then.
+
 See `crates/backends/typst/src/error_mapping.rs`.
 
 **Quill-load warnings** are the backend's other warning source, hand-coded
@@ -225,6 +242,13 @@ file the world had to skip, which otherwise surfaces only as an unresolved
 reads: core stores that section verbatim, so nothing else would report it. They are properties of the quill, not of a compile, so
 `QuillWorld` holds them and the session serves them ahead of every compile's
 own: an `update` swaps the compile half and keeps these.
+
+**Plate refusals** fail `open` and `workspace` before a world exists:
+`typst::plate_missing` (`typst.plate_file` names no file in the quill),
+`typst::plate_path_invalid` (it names one at a path Typst's `VirtualPath`
+refuses, such as one holding a `\`), and `typst::invalid_utf8`. The plate is
+the one file a refused path cannot merely skip: the world loads it at its
+declared path, and any stand-in name may belong to a file the quill holds.
 
 ## Validation message contract
 

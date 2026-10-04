@@ -186,7 +186,7 @@ pub(super) fn build_block(
     let (meta_items, yaml_value) = if content.is_empty() {
         (Vec::new(), None)
     } else {
-        let mut parsed = match serde_saphyr::from_str::<serde_json::Value>(&content) {
+        let mut parsed = match crate::value::parse_yaml::<serde_json::Value>(&content) {
             Ok(parsed) => parsed,
             Err(e) => {
                 let enriched = super::yaml_hints::enrich_yaml_error(&e.to_string(), &content);

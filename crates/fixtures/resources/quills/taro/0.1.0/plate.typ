@@ -12,7 +12,7 @@
 // add `#` before the template expression to enter code mode.
 *Author: #data.author*
 
-*Favorite Ice Cream: #data.ice_cream*__
+*Favorite Ice Cream: #data.ice_cream*
 
 
 #data.at("$body")

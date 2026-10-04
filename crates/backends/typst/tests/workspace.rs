@@ -115,3 +115,29 @@ fn a_manifest_cannot_escape_the_workspace_or_replace_the_helper() {
         ],
     );
 }
+
+/// The workspace warns of what the quill's load skipped as a render does.
+#[test]
+fn a_workspace_carries_the_load_warnings_a_render_does() {
+    use quillmark_core::{backend::Backend, quill::CalendarDate};
+
+    let q = quill(
+        "quill:\n  name: t\n  version: 0.1.0\n  backend: typst\n  description: t\n\
+         typst:\n  plate_file: plate.typ\n  pages: 2\n",
+        &[
+            ("plate.typ", b"hi\n"),
+            ("packages/bare/lib.typ", b"#let x = 1\n"),
+        ],
+    );
+    let ws = workspace(&q, &serde_json::json!({})).expect("workspace");
+    let today = CalendarDate::new(2026, 3, 14).expect("a calendar day");
+    let session = quillmark_typst::TypstBackend
+        .open(&q, &serde_json::json!({}), today)
+        .expect("the plate renders");
+    assert_eq!(ws.warnings, session.warnings());
+    let codes: Vec<_> = ws.warnings.iter().map(|d| d.code.as_deref()).collect();
+    assert_eq!(
+        codes,
+        [Some("typst::unknown_key"), Some("typst::package_manifest")]
+    );
+}

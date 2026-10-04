@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use quillmark_core::{
-    error::RenderError,
+    error::{Diagnostic, RenderError},
     quill::{build_transform_schema, Quill},
 };
 
@@ -22,15 +22,22 @@ pub const HELPER_DIR: &str = "local/quillmark-helper";
 
 /// A directory from which `typst compile` or `typst watch`, run with
 /// `--root <quill>`, `--package-path <dir>/packages`,
-/// `--font-path <dir>/fonts`, `--ignore-system-fonts` and
-/// `--ignore-embedded-fonts`, compiles the plate as Quillmark does, against one
-/// document's data.
+/// `--font-path <dir>/fonts`, `--ignore-system-fonts`,
+/// `--ignore-embedded-fonts` and `--creation-timestamp` at noon UTC of the
+/// render date, compiles the plate against one document's data.
+///
+/// Typst there reads what Quillmark refuses: any file under the root, a
+/// vendored package's file by its path, and a package the quill does not
+/// vendor. A plate that compiles from the workspace can still fail to render.
 #[non_exhaustive]
 pub struct Workspace {
     /// Paths relative to the workspace directory, every component a plain name.
     pub files: Vec<(PathBuf, Vec<u8>)>,
     /// `typst.plate_file`, relative to the quill root.
     pub plate_file: String,
+    /// The quill's load warnings, the ones a render carries: Typst reports a
+    /// package skipped for its manifest only as one it cannot find.
+    pub warnings: Vec<Diagnostic>,
 }
 
 /// The workspace for `source` rendering `json_data`, the plate JSON
@@ -41,6 +48,10 @@ pub struct Workspace {
 /// resolution reads. `fonts/` holds the faces the backend loads: the quill's
 /// own, or the embedded fallback when it ships none. A vendored package whose
 /// manifest names no valid package spec, or names the helper's, is skipped.
+///
+/// Fails with `typst::wrong_backend` for a quill of another backend, and with
+/// each plate refusal a render's `open` raises; `typst::plate_missing` also
+/// covers a quill declaring no `typst.plate_file`.
 pub fn workspace(source: &Quill, json_data: &serde_json::Value) -> Result<Workspace, RenderError> {
     if source.backend_id() != "typst" {
         return Err(RenderError::coded(
@@ -52,12 +63,14 @@ pub fn workspace(source: &Quill, json_data: &serde_json::Value) -> Result<Worksp
             ),
         ));
     }
-    let Some(plate_file) = crate::read_plate(source)?.file else {
+    let plate = crate::read_plate(source)?;
+    let Some(plate_file) = plate.file.clone() else {
         return Err(RenderError::coded(
             "typst::plate_missing",
             "the quill declares no `typst.plate_file`".to_string(),
         ));
     };
+    let warnings = crate::quill_world(source, &plate)?.load_warnings().to_vec();
 
     let meta = SchemaMeta::from_schema_json(build_transform_schema(source.config()).as_json());
     let (lib_typ, _) = helper::generate_lib_typ(json_data, &meta)
@@ -119,5 +132,9 @@ pub fn workspace(source: &Quill, json_data: &serde_json::Value) -> Result<Worksp
         path.components()
             .all(|c| matches!(c, std::path::Component::Normal(_)))
     });
-    Ok(Workspace { files, plate_file })
+    Ok(Workspace {
+        files,
+        plate_file,
+        warnings,
+    })
 }
