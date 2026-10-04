@@ -54,9 +54,9 @@ pub(crate) fn depth_check_meta_map<E>(
     Ok(map)
 }
 
-/// The one YAML reading every engine parse shares. Booleans resolve under
-/// YAML 1.2's core schema: only `true` and `false`, in any letter case, are
-/// booleans, and YAML 1.1's words (`y`, `no`, `On`, `OFF`) stay strings.
+/// The one YAML reading every engine parse shares: only `true` and `false`,
+/// in any letter case, are booleans, and YAML 1.1's words (`y`, `no`, `On`,
+/// `OFF`) stay strings.
 pub(crate) fn parse_yaml<'de, T: Deserialize<'de>>(
     yaml: &'de str,
 ) -> Result<T, serde_saphyr::Error> {

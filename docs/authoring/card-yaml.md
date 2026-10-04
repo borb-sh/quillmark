@@ -122,8 +122,8 @@ YAML reads an unquoted value by its shape before the schema sees it, so a
 | `text: Approve Item #12`, a space then `#` | `Approve Item`: the rest is a comment | `text: "Approve Item #12"` |
 
 `quillmark check` reports none of them: each is well-formed YAML, read as a
-number or cut at a comment. Words need no quotes: only `true` and `false` are
-booleans, so `yes`, `no`, `on`, `off`, `y` and `n` stay text.
+number or cut at a comment. A word needs no quotes unless it is `true`, `false`
+or `null`: `yes`, `no`, `on`, `off`, `y` and `n` stay text.
 
 **Strings:**
 ```yaml
