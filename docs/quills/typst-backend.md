@@ -252,13 +252,15 @@ Witness:
 
 ### Positioning
 
-A widget is ordinary Typst inline content sized `width × height`. It participates in layout the same way `#rect(width: 200pt, height: 50pt)` would: content after it gets pushed by the box's dimensions. Two modes:
+A widget is ordinary Typst inline content sized `width × height`, laid out the way `#box(width: 200pt, height: 50pt)` would be: it sits on the line it is called on, and the line grows to its height. Two modes:
 
-**In-flow (reserves layout space).** Drop the call where you want to claim that block of space and let the rest of the document flow around it:
+**In-flow (reserves layout space).** Drop the call where you want to claim that space and let the rest of the document flow around it. A paragraph break on each side of the call gives the widget a line of its own:
 
 ```typst
 Sign here:
-#signature-field("approver")  // reserves 200×50pt below the label
+
+#signature-field("approver")  // its own paragraph: 200×50pt below the label
+
 The above signature acknowledges receipt.
 ```
 
