@@ -183,7 +183,7 @@ a live value coerce under another world's type.
 
 The text-ish types form a **data vs content** × **open/plain vs closed/formatted**
 2×2: `enum` (closed data), `string` (open data), `plaintext` (plain content),
-`richtext` (formatted content). Every printed field regions, whatever its type;
+`richtext` (formatted content). A printed field of any type can region;
 navigation inside the value is a property of the content model, so `plaintext`
 and `richtext` share the entire nav/region/preview
 stack and the same backend lowering (both carry `contentMediaType:
