@@ -87,6 +87,52 @@ fn project_sources_import_as_typst_resolves_paths() {
     );
 }
 
+/// A bare path missed below the quill root hints its rooted spelling, from any
+/// module depth and for any file kind, but only where the quill holds a file
+/// at that spelling.
+#[test]
+fn a_bare_path_missing_a_quill_root_file_hints_the_rooted_spelling() {
+    const YAML: &str = "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  \
+                        description: d\n\ntypst:\n  plate_file: tpl/layout.typ\n";
+    const SVG: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"/>";
+    let hint_of = |files: &[(&str, &str)]| {
+        let diags = open_err(files);
+        diags
+            .iter()
+            .find(|d| d.code.as_deref() == Some("typst::file_not_found"))
+            .unwrap_or_else(|| panic!("a missing file: {diags:?}"))
+            .hint
+            .clone()
+    };
+    let image = "#image(\"assets/logo.svg\")\n";
+
+    let hint = hint_of(&[
+        ("Quill.yaml", YAML),
+        ("tpl/layout.typ", image),
+        ("assets/logo.svg", SVG),
+    ])
+    .expect("the root holds assets/logo.svg");
+    assert!(hint.contains("`/assets/logo.svg`"), "{hint}");
+
+    let hint = hint_of(&[
+        ("Quill.yaml", YAML),
+        ("tpl/layout.typ", "#import \"parts/header.typ\": accent\n#accent\n"),
+        (
+            "tpl/parts/header.typ",
+            "#import \"shared/theme.typ\": accent\n",
+        ),
+        ("shared/theme.typ", "#let accent = [x]\n"),
+    ])
+    .expect("the root holds shared/theme.typ");
+    assert!(hint.contains("`/shared/theme.typ`"), "{hint}");
+
+    assert_eq!(
+        hint_of(&[("Quill.yaml", YAML), ("tpl/layout.typ", image)]),
+        None,
+        "no file at the root, no hint"
+    );
+}
+
 /// A vendored package loads under its spec alone: its files are not project
 /// sources a path import reaches.
 #[test]

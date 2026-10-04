@@ -198,6 +198,7 @@ Typst diagnostics mapped via `map_typst_errors()`:
 - Severity levels mapped (Error/Warning)
 - Spans resolved to file/line/column
 - Error codes: a **closed set**, keyed off the message's shape
+- Hints: Typst's first, else one the mapping verifies (below)
 
 Typst has no error codes of its own, so the mapping mints one. It classifies
 rather than quotes: `typst::file_not_found` (a file the world refused),
@@ -212,6 +213,12 @@ a searched path, a symbol name — into a routing key, and give the key one
 value per input. Typst's sentence stays in `message`, which is where the
 searched path is read. Classification reads that English, so a reworded
 message degrades to `typst::compile` rather than minting a code of its own.
+
+Typst hints nothing for a missing file, so the mapping adds one hint of its
+own. A bare path resolves from the directory of the file naming it, so a module
+below the quill root misses `assets/…` at the root. A `typst::file_not_found`
+raised there hints the rooted spelling (`/assets/logo.svg`) when the world loads
+a file at it, and only then.
 
 See `crates/backends/typst/src/error_mapping.rs`.
 
