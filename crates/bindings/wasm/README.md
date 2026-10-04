@@ -124,7 +124,8 @@ may load a backend). Pass `{ backends }` to register or override backend descrip
 Each entry is a descriptor (`{ [backendId]: { load, formats } }`) where `load`
 is the lazy thunk returning the backend module and `formats` is the
 **required** static capability manifest. A malformed descriptor throws at
-`new Engine(...)`, naming the backend id.
+`new Engine(...)`, naming the backend id, and so does any options key other
+than `backends`.
 
 **The format probe is always free.** `supportedFormats` depends only on
 `quill.backendId`, and answers from the descriptor's required `formats`
@@ -362,7 +363,7 @@ value throws `FieldDecode`; an absent field reads back `undefined` and a
 present-null `null`. A read never coerces a scalar (`qty: "3"` reads `"3"`);
 `resolve()` is the coerced view.
 
-### `engine.render(quill, parsed, opts?)` vs. `engine.open(quill, parsed)`
+### `engine.render(quill, parsed, opts?, today?)` vs. `engine.open(quill, parsed, today?)`
 
 Use **`engine.render`** for one-shot exports (PDF/SVG/PNG): compiles, emits
 artifacts, done. Use **`LiveSession`** (returned by `engine.open`) for
@@ -377,6 +378,15 @@ Both take the render date as an optional last argument (`YYYY-MM-DD`, default
 the local date): what a `today` date field and a plate's `datetime.today()`
 render as. A session keeps the date it opened with, so a preview left open past
 midnight renders yesterday's until it is reopened.
+
+`opts` takes `format`, `ppi`, `pages` and `regions`, on `engine.render` and
+`session.render` alike. Any other key throws rather than reading as absent,
+`today` included, so `engine.render(quill, doc, { today })` rejects instead of
+rendering the local date. The date goes last:
+
+```js
+await engine.render(quill, doc, { format: "pdf" }, "2026-03-14");
+```
 
 A document that compiles to zero pages still produces a valid session
 (`pageCount === 0`); `paint(ctx, 0, scale)` and `pageSize(0)` then throw. Branch on
@@ -490,6 +500,10 @@ applies to every throw site:
   `diagnostics[0].code`, never on message text.
 - `engine.render` / `session.render`: backend compilation failures and
   validation errors.
+- An object argument carrying a key its verb does not read: the render
+  options, `new Engine` options, an `Addr`, a `CardInput`. The diagnostic
+  names the key and carries no `code`: it is a call site to fix, not a
+  condition to route on.
 - `engine.render(quill, parsed)` against a quill whose *name* differs
   (`quill::name_mismatch`) or whose *version* falls outside the document's
   selector (`quill::version_mismatch`): a throw, never a warning.
