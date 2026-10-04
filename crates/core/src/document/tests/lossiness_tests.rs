@@ -379,8 +379,6 @@ fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
     assert_eq!(md.matches("# kept").count(), 1, "{md}");
 }
 
-/// The prescan splits on `\n`, so CRLF input reaches it with a trailing `\r` on
-/// every line.
 #[test]
 fn crlf_input_parses_as_its_lf_twin() {
     let lf = "~~~card-yaml\n$quill: q\n$kind: main\n# note\nx: # trailing\ny: keep\n~~~\n\nBody.\n";
