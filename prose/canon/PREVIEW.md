@@ -114,7 +114,7 @@ compositing of its own. Backends satisfy it differently:
   stamped at session-open and again at each `update`. It is the stamp `render`
   hands back but for each checkbox's `/AP` `/N`: the deliverable names both
   states there for a filler to toggle, and hayro reads `/N` only as a stream,
-  so the raster's names the one state its `/AS` selects.
+  so the raster's `/N` is the one stream its `/AS` selects.
 
 `Ok(None)` is the out-of-range page; the `Err` is a
 `scale` no page can be rasterized at. Neither rasterizer bounds the buffer it

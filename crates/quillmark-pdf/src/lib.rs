@@ -3,8 +3,9 @@
 //! `(base_pdf_bytes, &[FieldSpec]) -> { stamped_pdf, regions }`, via a single
 //! incremental-update append. A backend meets the spine at [`FieldSpec`],
 //! whatever it derived the geometry from. The stamped PDF is both the
-//! interactive deliverable and what a rasterizer draws, so a preview needs no
-//! second document.
+//! interactive deliverable and what a rasterizer draws. A rasterizer reading a
+//! checkbox's `/AP` `/N` only as a stream draws an
+//! [`AppearanceStates::Selected`] stamp instead.
 //!
 //! `crate::reader`'s docs carry the input contract the base PDF must satisfy.
 
