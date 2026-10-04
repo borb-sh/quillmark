@@ -237,8 +237,8 @@ confidential:
 
 | Declaration | Renders when unanswered | The plate reads |
 |---|---|---|
-| `type: t` | the type's blank | always a `t` |
-| `type: t` with `default:` | the default | always a `t` |
+| `type: t` | the type's [blank](typst-backend.md#blank-values) | a `t`, but `none` for a `date` or `datetime` |
+| `type: t` with `default:` | the default | a `t`, but `none` for a `date` or `datetime` defaulting to `""` |
 | `type: t?` | `none` | a `t` or `none` |
 
 - Any cell takes the `?`: every scalar type, `richtext`, `plaintext`, `date`, `enum`, `array` and `matrix`. An `object` and an `enum` with `variants:` do not (`quill::optional_namespace`); mark the fields inside them instead.
