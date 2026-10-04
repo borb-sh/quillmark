@@ -333,8 +333,9 @@ proptest! {
 
 /// Writes a payload in a layout its picks draw: any indentation step, a
 /// sequence at or past its key's column, a compact or bare dash, a value on its
-/// key's line, below it or in a block scalar, a flow collection on one line or
-/// several, a tag or anchor, and own-line comments at any column.
+/// key's line, below it, onto a continuation line or in a block scalar of any
+/// style, a flow collection on one line or several, a tag or anchor, a key bare,
+/// quoted or holding a space, and own-line comments at any column.
 struct Scribble {
     picks: Vec<u8>,
     at: usize,
@@ -443,6 +444,7 @@ impl Scribble {
     }
 
     fn entry(&mut self, lead: String, column: usize, k: &str, v: &Node) {
+        let k = &spell(k, column);
         if let Some(flow) = self.flow(v, column + 2) {
             let t = self.tail();
             self.line(0, &format!("{lead}{k}: {flow}{t}"));
@@ -452,7 +454,7 @@ impl Scribble {
             Node::Word(w) if self.pick(5) == 0 => {
                 let props = self.props();
                 let t = self.tail();
-                self.line(0, &format!("{lead}{k}: {props}|-{t}"));
+                self.line(0, &format!("{lead}{k}: {props}{}{t}", style(w)));
                 self.line(column + 2, w);
             }
             Node::Word(w) => {
@@ -466,7 +468,13 @@ impl Scribble {
                     self.line(below, &format!("{word}{t}"));
                 } else {
                     let t = self.tail();
-                    self.line(0, &format!("{lead}{k}: {word}{t}"));
+                    match broken(w, &word) {
+                        Some((head, rest)) => {
+                            self.line(0, &format!("{lead}{k}: {head}"));
+                            self.line(column + 2, &format!("{rest}{t}"));
+                        }
+                        None => self.line(0, &format!("{lead}{k}: {word}{t}")),
+                    }
                 }
             }
             Node::Absent | Node::EmptyMap | Node::EmptySeq => {
@@ -554,13 +562,19 @@ impl Scribble {
             Node::Word(w) if self.pick(5) == 0 => {
                 let props = self.props();
                 let t = self.tail();
-                self.line(0, &format!("{lead}- {props}|-{t}"));
+                self.line(0, &format!("{lead}- {props}{}{t}", style(w)));
                 self.line(dash + 2, w);
             }
             Node::Word(w) => {
                 let word = self.word(w);
                 let t = self.tail();
-                self.line(0, &format!("{lead}- {word}{t}"));
+                match broken(w, &word) {
+                    Some((head, rest)) => {
+                        self.line(0, &format!("{lead}- {head}"));
+                        self.line(dash + 2, &format!("{rest}{t}"));
+                    }
+                    None => self.line(0, &format!("{lead}- {word}{t}")),
+                }
             }
             Node::Absent => {
                 let t = self.tail();
@@ -573,6 +587,34 @@ impl Scribble {
             }
         }
     }
+}
+
+/// A key as a hand might spell it: bare or quoted, and past the root holding a
+/// space or ` #`.
+fn spell(k: &str, column: usize) -> String {
+    match (column, (k.len() + column) % 4) {
+        (_, 0) => k.to_string(),
+        (_, 1) => format!("\"{k}\""),
+        (0, _) => format!("'{k}'"),
+        (_, 2) => format!("{k} x"),
+        _ => format!("'{k} # y'"),
+    }
+}
+
+fn style(w: &str) -> &'static str {
+    ["|-", "|", ">-", ">"][w.len() % 4]
+}
+
+/// `word` carried onto a continuation line, plain or inside its quotes, when
+/// `w` ends in a digit.
+fn broken(w: &str, word: &str) -> Option<(String, String)> {
+    if !w.ends_with(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(match word.strip_suffix('"') {
+        Some(open) => (open.to_string(), "more\"".to_string()),
+        None => (word.to_string(), "more".to_string()),
+    })
 }
 
 proptest! {
