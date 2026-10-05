@@ -20,7 +20,7 @@ my-form/
 
 At load the backend binds each field's value from your document data and writes the AcroForm **fresh** from `form.json` onto the background. It never reads or reconciles a form already in `form.pdf`: a background that still carries one is refused (`pdf::existing_acroform`), since a second `/AcroForm` on the catalog is a dict the spec does not define and the old widgets would stay live in the page `/Annots`.
 
-A catalog `/AcroForm null` is no form: ISO 32000-1 §7.3.9 reads an entry whose value is `null` as absent. A background stripped that way (PyMuPDF's `xref_set_key` sets a key to `null` rather than deleting it) stamps, and the fresh `/AcroForm` replaces the null entry. Every entry the backend reads off `form.pdf` follows the same rule.
+A catalog `/AcroForm null` is no form: ISO 32000-1 §7.3.9 reads an entry whose value is `null` as absent, so the background stamps and the fresh `/AcroForm` replaces the null entry. Every entry the backend reads off `form.pdf` reads a direct `null` the same way. Nulling the key (PyMuPDF's `xref_set_key` sets a key to `null` rather than deleting it) strips the catalog entry alone: the old widget annotations must leave the page `/Annots` too, and the backend does not check that they have.
 
 !!! note "Where the assets come from"
     Producing a clean `form.pdf` + `form.json` from a raw source PDF (decrypt, strip, extract, verify) is the job of a separate *qualification* layer and is out of scope for the engine; the engine checks the result of the stripping, not how it was reached. V1 quills hand-author both assets; the `sample_form` fixture in `crates/fixtures/resources/quills/sample_form/` is a worked example.
@@ -255,7 +255,7 @@ The PDF is the real deliverable, and the canvas rasterizes the same stamp but fo
 
 Each widget is a real field carrying `/NeedAppearances` **and** a baked `/AP` appearance stream drawing its current value. The two split the work: a viewer that synthesizes appearances (Acrobat, Chrome/pdfium, Preview.app, pdf.js's forms layer) rebuilds each value from `/V` and `/DA`, refitting it as the user types; a consumer that synthesizes nothing (a raster pipeline, Ghostscript, the canvas) draws the baked stream and shows the value rather than an empty box.
 
-A checkbox bakes both of its states, checked or not: `/AP << /N << /Yes … /Off … >> >>`, with `/AS` and `/V` naming the current one. `Yes` draws the check mark and `Off` draws nothing, the background owning the box itself. A later stage that fills the delivered PDF (pypdf, PyMuPDF) toggles a box by renaming `/AS` and `/V`, with no appearance to regenerate.
+A checkbox bakes both of its states, checked or not: `/AP << /N << /Yes … /Off … >> >>`, with `/AS` and `/V` naming the current one. `Yes` draws the check mark and `Off` draws nothing, the background owning the box itself. A later stage that fills the delivered PDF toggles a box by renaming `/AS` and `/V`, as pypdf does, with no appearance to regenerate.
 
 ### Baked-appearance fidelity limits
 

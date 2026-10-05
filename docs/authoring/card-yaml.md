@@ -123,7 +123,8 @@ YAML reads an unquoted value by its shape before the schema sees it, so a
 
 `quillmark check` reports none of them: each is well-formed YAML, read as a
 number or cut at a comment. A word needs no quotes unless it is `true`, `false`
-or `null`: `yes`, `no`, `on`, `off`, `y` and `n` stay text.
+or `null`, in any letter case, or `~`: `yes`, `no`, `on`, `off`, `y` and `n`
+stay text.
 
 **Strings:**
 ```yaml
