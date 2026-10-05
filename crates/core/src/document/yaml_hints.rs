@@ -45,13 +45,13 @@ fn sanitize_message(raw: &str) -> String {
         " use from_multiple or from_multiple_with_options",
         " use from_multiple_with_options",
         " set DuplicateKeyPolicy in Options if acceptable",
+        " (strict mode expects true/false)",
     ];
 
+    // The parser's snippet repeats its message under the caret.
     let mut out = raw.to_string();
     for p in STRIPS {
-        if let Some(idx) = out.find(p) {
-            out.replace_range(idx..idx + p.len(), "");
-        }
+        out = out.replace(p, "");
     }
     out = out.replace(" ; .", ".").replace(" , .", ".");
     out.trim_end_matches([',', ';', ' ']).to_string()
@@ -114,6 +114,16 @@ fn derive_hint(message: &str, content: &str) -> Option<String> {
         return Some(
             "Each field may appear at most once inside a card-yaml block. \
              Remove the duplicate line, or move it to a separate composable card."
+                .to_string(),
+        );
+    }
+
+    // A `!!bool` tag on a word other than `true` or `false`.
+    if m.contains("invalid boolean") {
+        return Some(
+            "Only `true` and `false`, in any letter case, are booleans, so a `!!bool` \
+             tag takes no other word. Drop the tag to keep the word as text, or write \
+             `true` or `false`."
                 .to_string(),
         );
     }
@@ -366,13 +376,14 @@ fn first_field_with_unquoted_colon(content: &str) -> Option<(String, String)> {
         if matches!(first, Some('\'') | Some('"') | Some('|') | Some('>')) {
             continue;
         }
+        // A comment's `:` is no part of the value.
+        let value = if value.starts_with('#') {
+            ""
+        } else {
+            value.split_once(" #").map_or(value, |(v, _)| v).trim_end()
+        };
         if value.contains(':') {
-            // Strip a trailing comment if any.
-            let value_clean = match value.split_once(" #") {
-                Some((v, _)) => v.trim_end(),
-                None => value.trim_end(),
-            };
-            return Some((key.trim().to_string(), value_clean.to_string()));
+            return Some((key.trim().to_string(), value.to_string()));
         }
     }
     None
@@ -430,6 +441,21 @@ mod tests {
     }
 
     #[test]
+    fn a_bool_tag_on_a_word_names_the_two_booleans() {
+        let content = "b: !!bool yes\n";
+        let raw = crate::value::parse_yaml::<serde_json::Value>(content)
+            .expect_err("`yes` is no boolean")
+            .to_string();
+        let enriched = enrich_yaml_error(&raw, content);
+        assert!(
+            !enriched.message.contains("strict mode"),
+            "{}",
+            enriched.message
+        );
+        assert!(enriched.hint.expect("a hint").contains("`!!bool`"));
+    }
+
+    #[test]
     fn hint_for_alias_unknown_anchor_names_field() {
         let content = "title: Doc\nbluf: **Increased maritime activity**\n";
         let enriched = enrich_yaml_error("alias references unknown anchor", content);
@@ -446,6 +472,14 @@ mod tests {
         assert!(hint.contains("system_name"));
         assert!(hint.contains("Node.js Service: Order Processing API"));
         assert!(hint.contains("Quote"));
+    }
+
+    #[test]
+    fn hint_for_mapping_values_skips_a_colon_in_a_comment() {
+        let content = "title: Note # see: below\nnote: # aside: x\nsubtitle: a: b\n";
+        let enriched = enrich_yaml_error("mapping values are not allowed in this context", content);
+        let hint = enriched.hint.expect("hint should be set");
+        assert!(hint.contains("subtitle: \"a: b\""), "{hint}");
     }
 
     #[test]

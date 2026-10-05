@@ -442,10 +442,11 @@ A conforming parser MUST also bound YAML nesting depth, at whatever depth
 its YAML parser accepts, so that deeply nested input is refused rather than
 exhausting the stack. The depth itself is the parser's to choose.
 
-A block whose comments and tags sit under more than 64 bytes of key path per
-byte of the block, plus 64 KiB, is refused as `parse::invalid_structure`: each
-comment and tag records a key path, and the bound keeps that memory linear in
-the block.
+A block whose comments and tags record more than 64 bytes of path per byte of
+the block, plus 64 KiB, is refused as `parse::invalid_structure`: each comment
+and tag records the path of the collection holding it, each level costing its
+key's bytes and a fixed overhead, and the bound keeps that memory linear in the
+block.
 
 Markdown block nesting depth (100) is enforced at import time by the
 markdown→content parser (`Document::parse`); the Typst backend re-checks

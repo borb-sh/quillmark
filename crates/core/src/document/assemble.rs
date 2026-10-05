@@ -223,8 +223,9 @@ pub(super) fn build_block(
 
     let pre = prescan_fence_content(&content).map_err(|over| {
         ParseError::InvalidStructure(format!(
-            "The card-yaml block's comments and tags sit under key paths totalling \
-             more than {} bytes. Shorten the keys above them, or move the comments up.",
+            "The card-yaml block's comments and tags record their nesting paths in \
+             more than {} bytes, each level above them costing its key and a fixed \
+             overhead. Merge the comments, or move them nearer the top level.",
             over.budget
         ))
     })?;

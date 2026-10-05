@@ -116,22 +116,25 @@ pub(crate) fn append_refs_to_array_key(
         .collect::<Vec<_>>()
         .join(" ");
 
-    let merged = match find_dict_value(dict, key) {
-        None => format!("[{refs_str}]"),
-        Some(existing) => {
-            let trimmed = existing.trim_ascii();
-            if !trimmed.starts_with(b"[") {
-                return Err(on_non_array(existing));
-            }
-            let end = trimmed
-                .iter()
-                .rposition(|&b| b == b']')
-                .ok_or_else(|| err(code, format!("/{key} array missing ]")))?;
-            let inner = &trimmed[1..end];
-            format!("[{} {refs_str}]", String::from_utf8_lossy(inner).trim())
+    let mut merged = vec![b'['];
+    if let Some(existing) = find_dict_value(dict, key) {
+        let trimmed = existing.trim_ascii();
+        if !trimmed.starts_with(b"[") {
+            return Err(on_non_array(existing));
         }
-    };
-    Ok(set_dict_value(dict, key, merged.as_bytes()))
+        let end = trimmed
+            .iter()
+            .rposition(|&b| b == b']')
+            .ok_or_else(|| err(code, format!("/{key} array missing ]")))?;
+        let inner = trimmed[1..end].trim_ascii();
+        merged.extend_from_slice(inner);
+        // A `%` comment runs to the end of its line, so only a newline keeps
+        // the refs out of one.
+        merged.push(if inner.contains(&b'%') { b'\n' } else { b' ' });
+    }
+    merged.extend_from_slice(refs_str.as_bytes());
+    merged.push(b']');
+    Ok(set_dict_value(dict, key, &merged))
 }
 
 /// Stamp `/Info` `/Producer = producer`, pushing the updated or freshly created
@@ -269,5 +272,27 @@ mod tests {
     #[test]
     fn pdf_text_string_non_bmp_uses_surrogate_pair() {
         assert_eq!(pdf_text_string("😀"), b"<FEFFD83DDE00>");
+    }
+
+    /// An inline annotation's bytes need not be UTF-8, and a comment closing
+    /// the array runs to its newline.
+    #[test]
+    fn appended_refs_keep_the_array_bytes_and_stay_out_of_its_comment() {
+        let annots = |dict: &[u8]| {
+            let out = append_refs_to_array_key(dict, "Annots", &[12, 13], CODE_PARSE, |_| {
+                unreachable!("an inline array")
+            })
+            .expect("an inline array");
+            find_dict_value(&out, "Annots")
+                .expect("annots")
+                .trim_ascii()
+                .to_vec()
+        };
+        assert_eq!(
+            annots(b"/Annots [8 0 R << /Contents (caf\xe9) >> %legacy\n] /Parent 2 0 R"),
+            b"[8 0 R << /Contents (caf\xe9) >> %legacy\n12 0 R 13 0 R]"
+        );
+        assert_eq!(annots(b"/Annots [ 8 0 R ]"), b"[8 0 R 12 0 R 13 0 R]");
+        assert_eq!(annots(b"/Type /Page"), b"[12 0 R 13 0 R]");
     }
 }

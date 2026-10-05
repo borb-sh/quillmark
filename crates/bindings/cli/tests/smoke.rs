@@ -684,33 +684,40 @@ main:
 
 /// `workspace` writes the helper package where the printed `--package-path`
 /// points, and the command names the quill's plate and dates the compile at
-/// noon UTC of the render date.
+/// noon UTC of the render date, attached by `=` so a date before 1970 reads as
+/// a value rather than a flag.
 #[test]
 fn workspace_writes_the_helper_and_prints_the_typst_command() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out = dir.path().join("ws");
     let quill = taro();
-    let stdout = ok(&[
-        "workspace",
-        quill.to_str().unwrap(),
-        "-o",
-        out.to_str().unwrap(),
-        "--today",
-        "2026-03-14",
-    ]);
+    let command = |today: &str| {
+        let stdout = ok(&[
+            "workspace",
+            quill.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--today",
+            today,
+        ]);
+        stdout
+            .lines()
+            .find(|l| l.starts_with("typst watch"))
+            .unwrap_or_else(|| panic!("no typst command: {stdout}"))
+            .to_owned()
+    };
+    let current = command("2026-03-14");
     assert!(out
         .join("packages/local/quillmark-helper/0.1.0/lib.typ")
         .is_file());
-    let command = stdout
-        .lines()
-        .find(|l| l.starts_with("typst watch"))
-        .unwrap_or_else(|| panic!("no typst command: {stdout}"));
     assert!(
-        command.contains(&format!("--package-path {}", out.join("packages").display()))
-            && command.contains(&quill.join("plate.typ").display().to_string())
-            && command.contains("--creation-timestamp 1773489600 "),
-        "{command}"
+        current.contains(&format!("--package-path {}", out.join("packages").display()))
+            && current.contains(&quill.join("plate.typ").display().to_string())
+            && current.contains("--creation-timestamp=1773489600 "),
+        "{current}"
     );
+    let early = command("1969-12-31");
+    assert!(early.contains("--creation-timestamp=-43200 "), "{early}");
 }
 
 /// A package the load skips for its manifest fails a render as a missing

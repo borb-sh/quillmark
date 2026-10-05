@@ -249,8 +249,8 @@ export interface RenderOptions {
 	 * Pixels per inch for raster formats (PNG); ignored by PDF and SVG.
 	 * Defaults to 144. Must be finite, above 0, and small enough to keep both
 	 * sides of every rendered page within 16384 px — anything else throws
-	 * `backend::invalid_raster_scale`, whose hint past the ceiling names the
-	 * largest ppi that fits.
+	 * `backend::invalid_raster_scale`, whose hint past the ceiling names a ppi
+	 * that fits.
 	 */
 	ppi?: number;
 	pages?: number[];

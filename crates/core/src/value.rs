@@ -56,11 +56,15 @@ pub(crate) fn depth_check_meta_map<E>(
 
 /// The one YAML reading every engine parse shares: only `true` and `false`,
 /// in any letter case, are booleans, and YAML 1.1's words (`y`, `no`, `On`,
-/// `OFF`) stay strings.
+/// `OFF`) stay strings. Comments reach no value, so none is buffered, and a run
+/// of them meets no count limit.
 pub(crate) fn parse_yaml<'de, T: Deserialize<'de>>(
     yaml: &'de str,
 ) -> Result<T, serde_saphyr::Error> {
-    serde_saphyr::from_str_with_options(yaml, serde_saphyr::options! { strict_booleans: true })
+    serde_saphyr::from_str_with_options(
+        yaml,
+        serde_saphyr::options! { strict_booleans: true, emit_comments: false },
+    )
 }
 
 impl QuillValue {

@@ -98,26 +98,22 @@ fn emit_meta_block(
     trailer: Option<&str>,
     nested: &[NestedComment],
 ) {
+    let ctx = EmitCtx {
+        nested,
+        ..EmitCtx::EMPTY
+    };
+    out.push_str(key);
     if value.is_empty() {
-        out.push_str(key);
         out.push_str(": {}");
         push_trailer(out, trailer);
         out.push('\n');
+        emit_own_line_pending(out, ctx, 0, 2);
         return;
     }
-    out.push_str(key);
     out.push(':');
     push_trailer(out, trailer);
     out.push('\n');
-    emit_mapping_children(
-        out,
-        value,
-        2,
-        EmitCtx {
-            nested,
-            ..EmitCtx::EMPTY
-        },
-    );
+    emit_mapping_children(out, value, 2, ctx);
 }
 
 /// The sidecar tables threaded through the recursive emit: `path` is the
@@ -635,10 +631,11 @@ fn emit_key(out: &mut String, key: &str) {
 }
 
 /// Emit a mapping key at `indent`. Top-level field names (indent 0), held to
-/// `[A-Za-z_][A-Za-z0-9_]*`, are emitted verbatim. Nested keys (indent > 0)
-/// are arbitrary user data and route through [`emit_key`] for YAML quoting.
+/// `[A-Za-z_][A-Za-z0-9_]*`, are emitted verbatim, but for `null` in any letter
+/// case, which reads back as no key. Nested keys (indent > 0) are arbitrary
+/// user data and route through [`emit_key`] for YAML quoting.
 fn emit_key_at(out: &mut String, key: &str, indent: usize) {
-    if indent == 0 {
+    if indent == 0 && !key.eq_ignore_ascii_case("null") {
         out.push_str(key);
     } else {
         emit_key(out, key);

@@ -1675,7 +1675,13 @@ impl QuillConfig {
                         )
                     } else if actual == "string" && declared == "boolean" {
                         "Write the default as a bare `true` or `false`.".to_string()
-                    } else if actual == "string" {
+                    } else if actual == "string"
+                        && (!matches!(declared.as_str(), "number" | "integer")
+                            || source_token
+                                .trim_matches('"')
+                                .parse::<f64>()
+                                .is_ok_and(f64::is_finite))
+                    {
                         format!(
                             "Remove the quotes around the default value to keep it a {declared}."
                         )
