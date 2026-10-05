@@ -485,6 +485,23 @@ fn quoting_normalises_to_canonical_form_with_type_fidelity() {
     assert_eq!(emitted, emitted2, "round-trip must be idempotent");
 }
 
+/// The field grammar admits `null` in any letter case, a key YAML reads as no
+/// key unless quoted.
+#[test]
+fn a_field_named_null_round_trips() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\n\"null\": x\n\"NULL\": y\n~~~\n";
+    let emitted = Document::parse(src).unwrap().document.to_markdown();
+    let back = Document::parse(&emitted)
+        .unwrap_or_else(|e| panic!("{e:?}\n{emitted}"))
+        .document;
+    for (key, value) in [("null", "x"), ("NULL", "y")] {
+        assert_eq!(
+            back.main().payload().get(key).and_then(|v| v.as_str()),
+            Some(value)
+        );
+    }
+}
+
 #[test]
 fn comment_position_round_trips() {
     struct Case {
