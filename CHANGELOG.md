@@ -1,5 +1,117 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.121 → 0.122](docs/migrations/0.121-to-0.122.md).
+
+### YAML booleans
+
+- fix(core)!: **only `true` and `false`, in any letter case, are YAML
+  booleans**, so an unquoted `y`, `n`, `yes`, `no`, `on` or `off` is the text
+  written: `middle_initial: N` reaches the plate as `N` where it printed
+  `false`, and nothing reports the change. A card-yaml payload, `Quill.yaml` and
+  `QuillValue::from_yaml_str` share the reading. A word under a `boolean`,
+  `number` or `integer` field, a matrix member's tick included, fails
+  validation as `validation::type_mismatch` and the render as
+  `validation::coercion_failed`; in `Quill.yaml` a word where a boolean belongs
+  fails to load, and `values: [US, NO, DE]` loads. `!!bool` on a word fails the
+  parse, its hint naming the two booleans. (#2034)
+
+### Comment placement
+
+- fix(core)!: **a comment keeps the slot the YAML gives it**: the prescan reads
+  each comment's container and slot from the parser's event stream, so one in a
+  sequence at its key's column, indented less than its block, in a compact
+  nested sequence or trailing a plain scalar's continuation line re-emits
+  there, where it moved or dropped. A sequence item carrying a trailer beside
+  its first key's emits in the bare-dash form. `parse::unsupported_yaml_tag`
+  warns on every tagged node at its own path. A column-zero key outside the
+  field grammar fails as `parse::invalid_structure` naming the field, and so
+  does a block whose comments and tags record more than 64 bytes of path per
+  byte of the block, plus 64 KiB. (#2041)
+- fix(core)!: **a legacy `quillmark/document@0.82.0` row's `$id` drops with its
+  inline trailer**, which re-emitted on the item above. (#2041)
+- fix(core): **a run of comments meets no count limit**, so a key's trailer
+  ahead of 32 own-line comments parses, as does any longer run 0.121 refused.
+- fix(core): removing a `$seed` overlay keeps its siblings' order (#2041); a
+  comment under an empty `$ext` or `$seed` survives `to_markdown`; and a
+  top-level field named `null`, in any letter case, emits quoted, so the
+  markdown reads back.
+
+### Checkbox appearance states
+
+- fix(pdf,acroform)!: **every stamped checkbox carries both its appearance
+  states**, `/AP << /N << /Yes … /Off … >> >>` with `/AS` and `/V` naming the
+  current one, so a filler toggles it by renaming `/AS` and `/V`. A reader
+  taking `/N` only as a stream draws an empty box, and rendered PDF bytes move
+  wherever a checkbox is stamped. `StampOptions` gains `states:
+  AppearanceStates`: `All`, the default, is the deliverable, and `Selected`
+  writes each box's `/N` as the one stream `/AS` names, for a rasterizer that
+  cannot resolve it, as the acroform canvas does. (#2038)
+- fix(pdf): **a direct `null` dictionary entry reads as absent**, so a base
+  PDF's `/AcroForm null` stamps where it failed as `pdf::existing_acroform`.
+  Nulling the key strips no widgets. (#2038)
+- fix(pdf): **a stamp appends to a page's `/Annots` without rewriting the
+  array's bytes**, where it decoded them as lossy UTF-8, turning an inline
+  annotation's Latin-1 byte into U+FFFD, and could land the new refs inside a
+  closing `%` comment.
+
+### Typst plate path
+
+- fix(typst)!: **a `plate_file` at a path Typst's path grammar refuses fails to
+  open as `typst::plate_path_invalid`**, where the plate loaded as `main.typ`
+  and shadowed the quill's own `main.typ`. Such a path holds a `\`: separate
+  the path with `/`. (#2037)
+- feat(typst): **a `typst::file_not_found` for a bare path in a module below the
+  quill root hints the rooted spelling** when the quill root holds that file.
+  (#2037)
+
+### WASM options and types
+
+- fix(wasm)!: **an options object refuses a key the verb does not read**:
+  `engine.render` and `session.render` throw on a render option outside
+  `format`, `ppi`, `pages` and `regions`, and `new Engine` on a key other than
+  `backends`, so `engine.render(quill, doc, { today })` rejects, naming the
+  trailing argument the date belongs in, where it rendered the local date. A
+  null-prototype or cross-realm options object, `Addr` or `CardInput` is
+  checked too. (#2036)
+- fix(wasm)!: **`runtime.d.ts`'s writer and reader verbs type as declared**:
+  `Addr`, `Content`, `Delta`, `PathStep` and `Resolved` read as `any`, so code
+  leaning on the `any` stops compiling. (#2043)
+
+### Load warnings
+
+- fix(core,typst,cli)!: **a failed Typst compile carries the quill's load
+  warnings after its errors**, so a thrown error's `diagnostics` may hold
+  warnings; `diagnostics[0]` and the message are unchanged. `quillmark render`
+  prints the carried warnings ahead of the error, and `quillmark validate`
+  reports each once. (#2039)
+- fix(typst,cli): **`quillmark workspace` prints the quill's load warnings**,
+  which `Workspace.warnings` carries, and its `typst watch` command passes
+  `--creation-timestamp=` at noon UTC of the render date, so the plate's
+  `datetime.today()` agrees with the render's, before 1970 too. (#2039)
+
+### Raster refusals
+
+- fix(core,typst,acroform,wasm): **a raster refusal names a ppi or scale that
+  fits**: a PNG export one that fits every selected page, pointing a page too
+  long for PNG at PDF or SVG, and a canvas a scale. Both backends size a raster
+  by `raster_size`, each side rounded and at least one pixel, so a tiny canvas
+  scale paints one pixel where acroform threw, and `paint` checks a scale as
+  the `f64` a JS number is before narrowing it. (#2040)
+- feat(cli): **`quillmark render --ppi`** sets the PNG density. (#2040)
+
+### Docs
+
+- docs(quills): **consumer-study corrections** across the quill and authoring
+  pages. (#2035)
+
+### Build
+
+- ci: `wasm-bindgen-cli` pinned to the lockfile's 0.2.129; thiserror 2.0.21,
+  web-sys 0.3.106 and `taiki-e/install-action` 2.87.21. (#2032, #2033)
+
+
 ## v0.121.0 - 2026-09-30
 
 Upgrade path: [0.120 → 0.121](docs/migrations/0.120-to-0.121.md).
