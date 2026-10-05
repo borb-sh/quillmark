@@ -45,13 +45,13 @@ fn sanitize_message(raw: &str) -> String {
         " use from_multiple or from_multiple_with_options",
         " use from_multiple_with_options",
         " set DuplicateKeyPolicy in Options if acceptable",
+        " (strict mode expects true/false)",
     ];
 
+    // The parser's snippet repeats its message under the caret.
     let mut out = raw.to_string();
     for p in STRIPS {
-        if let Some(idx) = out.find(p) {
-            out.replace_range(idx..idx + p.len(), "");
-        }
+        out = out.replace(p, "");
     }
     out = out.replace(" ; .", ".").replace(" , .", ".");
     out.trim_end_matches([',', ';', ' ']).to_string()
@@ -114,6 +114,16 @@ fn derive_hint(message: &str, content: &str) -> Option<String> {
         return Some(
             "Each field may appear at most once inside a card-yaml block. \
              Remove the duplicate line, or move it to a separate composable card."
+                .to_string(),
+        );
+    }
+
+    // A `!!bool` tag on a word other than `true` or `false`.
+    if m.contains("invalid boolean") {
+        return Some(
+            "Only `true` and `false`, in any letter case, are booleans, so a `!!bool` \
+             tag takes no other word. Drop the tag to keep the word as text, or write \
+             `true` or `false`."
                 .to_string(),
         );
     }
@@ -427,6 +437,21 @@ mod tests {
             "duplicate mapping key: organizations, set DuplicateKeyPolicy in Options if acceptable";
         let out = sanitize_message(raw);
         assert_eq!(out, "duplicate mapping key: organizations");
+    }
+
+    #[test]
+    fn a_bool_tag_on_a_word_names_the_two_booleans() {
+        let content = "b: !!bool yes\n";
+        let raw = crate::value::parse_yaml::<serde_json::Value>(content)
+            .expect_err("`yes` is no boolean")
+            .to_string();
+        let enriched = enrich_yaml_error(&raw, content);
+        assert!(
+            !enriched.message.contains("strict mode"),
+            "{}",
+            enriched.message
+        );
+        assert!(enriched.hint.expect("a hint").contains("`!!bool`"));
     }
 
     #[test]
