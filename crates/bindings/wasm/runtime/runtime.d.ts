@@ -590,6 +590,8 @@ declare module '../core/wasm.js' {
 	}
 }
 
+import type { Addr, Content, Delta, PathStep, Resolved } from '../core/wasm.js';
+
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
  * Speaks names, values, and markdown, so bare `set` / `setAll` / `reviseBody` /
