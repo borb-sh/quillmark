@@ -376,13 +376,14 @@ fn first_field_with_unquoted_colon(content: &str) -> Option<(String, String)> {
         if matches!(first, Some('\'') | Some('"') | Some('|') | Some('>')) {
             continue;
         }
+        // A comment's `:` is no part of the value.
+        let value = if value.starts_with('#') {
+            ""
+        } else {
+            value.split_once(" #").map_or(value, |(v, _)| v).trim_end()
+        };
         if value.contains(':') {
-            // Strip a trailing comment if any.
-            let value_clean = match value.split_once(" #") {
-                Some((v, _)) => v.trim_end(),
-                None => value.trim_end(),
-            };
-            return Some((key.trim().to_string(), value_clean.to_string()));
+            return Some((key.trim().to_string(), value.to_string()));
         }
     }
     None
@@ -471,6 +472,14 @@ mod tests {
         assert!(hint.contains("system_name"));
         assert!(hint.contains("Node.js Service: Order Processing API"));
         assert!(hint.contains("Quote"));
+    }
+
+    #[test]
+    fn hint_for_mapping_values_skips_a_colon_in_a_comment() {
+        let content = "title: Note # see: below\nnote: # aside: x\nsubtitle: a: b\n";
+        let enriched = enrich_yaml_error("mapping values are not allowed in this context", content);
+        let hint = enriched.hint.expect("hint should be set");
+        assert!(hint.contains("subtitle: \"a: b\""), "{hint}");
     }
 
     #[test]
