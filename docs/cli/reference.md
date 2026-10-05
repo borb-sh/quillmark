@@ -41,7 +41,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 
 **Pages:** `svg` and `png` render one artifact per page. A multi-page document writes one numbered file per page — `out.svg` becomes `out-1.svg`, `out-2.svg`, … — so no unnumbered file claims to be the whole document. `--stdout` carries one artifact and refuses a multi-page render.
 
-**Long pages:** a `png` page is at most 16384 px a side, so a page whose long side passes it at the asked `--ppi` is refused (`backend::invalid_raster_scale`), and the hint names the largest ppi that fits: a page 9000 pt long fits at `--ppi 131`. `pdf` and `svg` have no pixel ceiling, so a page too long for `png` at the ppi you need renders in either.
+**Long pages:** a `png` page is at most 16384 px a side, so a page whose long side passes it at the asked `--ppi` is refused (`backend::invalid_raster_scale`), and the hint names a ppi that fits: a page 9000 pt long fits at `--ppi 131`. `pdf` and `svg` have no pixel ceiling, so a page too long for `png` at the ppi you need renders in either.
 
 **Examples:**
 

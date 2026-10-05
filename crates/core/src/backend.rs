@@ -193,7 +193,7 @@ fn check_ceiling(
 /// `scale` (device pixels per point, a canvas scale) is finite and positive and
 /// neither side of the `width_pt` × `height_pt` page passes
 /// [`MAX_RASTER_SIDE`]. A refusal past the ceiling names the scale passed and
-/// the largest that fits.
+/// one that fits.
 pub fn check_raster(scale: f32, width_pt: f32, height_pt: f32) -> Result<(), RenderError> {
     if !scale.is_finite() || scale <= 0.0 {
         return Err(invalid_raster_scale(
@@ -204,8 +204,8 @@ pub fn check_raster(scale: f32, width_pt: f32, height_pt: f32) -> Result<(), Ren
     check_ceiling(Density::Scale, scale, scale, width_pt, height_pt)
 }
 
-/// [`check_raster`] for an export at `ppi`, which the refusal names with the
-/// largest ppi that fits; a `ppi` that is not finite and positive is refused as
+/// [`check_raster`] for an export at `ppi`, which the refusal names with a ppi
+/// that fits; a `ppi` that is not finite and positive is refused as
 /// [`raster_scale`] refuses it.
 pub fn check_raster_ppi(ppi: f32, width_pt: f32, height_pt: f32) -> Result<(), RenderError> {
     check_ceiling(Density::Ppi, ppi, raster_scale(ppi)?, width_pt, height_pt)
@@ -229,7 +229,7 @@ pub fn fit_raster_scale(scale: f32, width_pt: f32, height_pt: f32) -> f32 {
 /// since a preview drawn soft beats one not drawn. One that is not finite and
 /// positive, or is under `f32::MIN_POSITIVE`, where narrowing would change it
 /// rather than round it, is refused under `backend::invalid_raster_scale`,
-/// whose hint names the largest scale the page paints at.
+/// whose hint names a scale the page paints at.
 pub fn canvas_scale(scale: f64, width_pt: f32, height_pt: f32) -> Result<f32, RenderError> {
     let ceiling = ceiling_scale(width_pt, height_pt);
     let refuse = |message: String, floor: &str| {

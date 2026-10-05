@@ -72,7 +72,7 @@ that is not finite and positive, or that would rasterize a side of a page past
 `MAX_RASTER_SIDE`, and on `paint` a scale under `f32::MIN_POSITIVE` — ppi and
 canvas scale are the same quantity in two units, so they share the code, and
 the refusal speaks the unit passed: its message names the value, and its hint,
-past the ceiling or on `paint`, the largest value that fits, a ppi on an export
+past the ceiling or on `paint`, a value that fits, a ppi on an export
 and a scale on the canvas;
 `backend::page_index_out_of_bounds` / `backend::page_selection_not_supported`:
 a `RenderOptions::pages` selection naming a page the document does not have, or
