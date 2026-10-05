@@ -98,26 +98,22 @@ fn emit_meta_block(
     trailer: Option<&str>,
     nested: &[NestedComment],
 ) {
+    let ctx = EmitCtx {
+        nested,
+        ..EmitCtx::EMPTY
+    };
+    out.push_str(key);
     if value.is_empty() {
-        out.push_str(key);
         out.push_str(": {}");
         push_trailer(out, trailer);
         out.push('\n');
+        emit_own_line_pending(out, ctx, 0, 2);
         return;
     }
-    out.push_str(key);
     out.push(':');
     push_trailer(out, trailer);
     out.push('\n');
-    emit_mapping_children(
-        out,
-        value,
-        2,
-        EmitCtx {
-            nested,
-            ..EmitCtx::EMPTY
-        },
-    );
+    emit_mapping_children(out, value, 2, ctx);
 }
 
 /// The sidecar tables threaded through the recursive emit: `path` is the

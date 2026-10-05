@@ -508,6 +508,25 @@ fn a_long_comment_run_keeps_every_comment() {
     );
 }
 
+/// A comment indented under an empty `$ext` or `$seed` is inside it, as under
+/// an empty field.
+#[test]
+fn a_comment_under_an_empty_meta_block_round_trips() {
+    for meta in ["$ext", "$seed"] {
+        let src =
+            format!("~~~card-yaml\n$quill: q\n$kind: main\n{meta}: {{}}\n  # under\nk: 1\n~~~\n");
+        let emitted = Document::parse(&src).unwrap().document.to_markdown();
+        assert!(
+            emitted.contains(&format!("{meta}: {{}}\n  # under\n")),
+            "{emitted}"
+        );
+        assert_eq!(
+            Document::parse(&emitted).unwrap().document.to_markdown(),
+            emitted
+        );
+    }
+}
+
 /// The field grammar admits `null` in any letter case, a key YAML reads as no
 /// key unless quoted.
 #[test]
