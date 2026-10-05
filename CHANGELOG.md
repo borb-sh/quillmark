@@ -15,7 +15,7 @@ Upgrade path: [0.121 → 0.122](docs/migrations/0.121-to-0.122.md).
   validation as `validation::type_mismatch` and the render as
   `validation::coercion_failed`; in `Quill.yaml` a word where a boolean belongs
   fails to load, and `values: [US, NO, DE]` loads. `!!bool` on a word fails the
-  parse, its hint naming the two booleans. (#2034)
+  parse, its hint naming the two booleans. (#2034, #2044)
 
 ### Comment placement
 
@@ -33,10 +33,11 @@ Upgrade path: [0.121 → 0.122](docs/migrations/0.121-to-0.122.md).
   inline trailer**, which re-emitted on the item above. (#2041)
 - fix(core): **a run of comments meets no count limit**, so a key's trailer
   ahead of 32 own-line comments parses, as does any longer run 0.121 refused.
+  (#2044)
 - fix(core): removing a `$seed` overlay keeps its siblings' order (#2041); a
   comment under an empty `$ext` or `$seed` survives `to_markdown`; and a
   top-level field named `null`, in any letter case, emits quoted, so the
-  markdown reads back.
+  markdown reads back. (#2044)
 
 ### Checkbox appearance states
 
@@ -54,7 +55,7 @@ Upgrade path: [0.121 → 0.122](docs/migrations/0.121-to-0.122.md).
 - fix(pdf): **a stamp appends to a page's `/Annots` without rewriting the
   array's bytes**, where it decoded them as lossy UTF-8, turning an inline
   annotation's Latin-1 byte into U+FFFD, and could land the new refs inside a
-  closing `%` comment.
+  closing `%` comment. (#2044)
 
 ### Typst plate path
 
@@ -89,7 +90,8 @@ Upgrade path: [0.121 → 0.122](docs/migrations/0.121-to-0.122.md).
 - fix(typst,cli): **`quillmark workspace` prints the quill's load warnings**,
   which `Workspace.warnings` carries, and its `typst watch` command passes
   `--creation-timestamp=` at noon UTC of the render date, so the plate's
-  `datetime.today()` agrees with the render's, before 1970 too. (#2039)
+  `datetime.today()` agrees with the render's, before 1970 too. (#2039,
+  #2044)
 
 ### Raster refusals
 
