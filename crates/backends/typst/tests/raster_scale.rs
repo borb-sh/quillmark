@@ -120,4 +120,8 @@ fn the_ppi_a_refusal_names_renders_every_selected_page() {
         .render(&png(ppi))
         .unwrap_or_else(|e| panic!("{ppi} ppi, as hinted, renders both pages: {e}"));
     assert_eq!(rendered.artifacts.len(), 2);
+
+    session
+        .render(&png(131.0).with_pages(vec![0]))
+        .expect("a longer page outside the selection does not hold it to a lower ppi");
 }
