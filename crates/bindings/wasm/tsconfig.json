@@ -2,7 +2,8 @@
   "compilerOptions": {
     "strict": true,
     "noEmit": true,
-    "skipLibCheck": true,
+    // The file under test, runtime.d.ts, is a declaration file.
+    "skipLibCheck": false,
     "module": "esnext",
     "moduleResolution": "bundler",
     "target": "esnext",
