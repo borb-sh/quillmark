@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.122.0 - 2026-10-05
 
 Upgrade path: [0.121 → 0.122](docs/migrations/0.121-to-0.122.md).
 
