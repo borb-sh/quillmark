@@ -11,7 +11,7 @@ use typst_svg::SvgOptions;
 use crate::error_mapping::map_typst_errors;
 use crate::world::QuillWorld;
 use quillmark_core::{
-    backend::{check_raster, page_selection_not_supported, selected_pages},
+    backend::{check_raster_ppi, page_selection_not_supported, selected_pages},
     error::{Diagnostic, RenderError, RenderResult},
     types::{Artifact, OutputFormat},
 };
@@ -74,11 +74,18 @@ pub(crate) fn render_document_pages(
         OutputFormat::Png => {
             let scale = quillmark_core::backend::raster_scale(ppi)?;
             let opts = render_options(scale);
+            // The longest page passing clears every page, and the ppi its
+            // refusal names fits them all.
+            if let Some(longest) = selected_indices
+                .iter()
+                .map(|&idx| document.pages()[idx].frame.size())
+                .max_by_key(|size| size.max_by_side())
+            {
+                check_raster_ppi(ppi, longest.x.to_pt() as f32, longest.y.to_pt() as f32)?;
+            }
             let mut artifacts = Vec::with_capacity(selected_indices.len());
             for idx in selected_indices {
                 let page = &document.pages()[idx];
-                let size = page.frame.size();
-                check_raster(scale, size.x.to_pt() as f32, size.y.to_pt() as f32)?;
                 let pixmap = typst_render::render(page, &opts);
                 let png_data = pixmap.encode_png().map_err(|e| {
                     RenderError::coded("typst::png_encoding", format!("PNG encoding failed: {e}"))

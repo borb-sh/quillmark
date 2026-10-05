@@ -67,10 +67,13 @@ for a backend session that does not override the incremental-`update` seam
 (both built-in backends override it); `backend::format_not_supported`: the
 requested format is outside the backend's `supported_formats`, one code on
 every backend so a caller matches the condition once;
-`backend::invalid_raster_scale`: a `RenderOptions.ppi` or a `render_rgba` scale
+`backend::invalid_raster_scale`: a `RenderOptions.ppi` or a canvas scale
 that is not finite and positive, or that would rasterize a side of a page past
-`MAX_RASTER_SIDE` — ppi and canvas scale are the same quantity in two units,
-so they share the code and the message names which one was passed;
+`MAX_RASTER_SIDE`, and on `paint` a scale under `f32::MIN_POSITIVE` — ppi and
+canvas scale are the same quantity in two units, so they share the code, and
+the refusal speaks the unit passed: its message names the value, and its hint,
+past the ceiling or on `paint`, the largest value that fits, a ppi on an export
+and a scale on the canvas;
 `backend::page_index_out_of_bounds` / `backend::page_selection_not_supported`:
 a `RenderOptions::pages` selection naming a page the document does not have, or
 asked of a format the backend emits whole (PDF on both built-in backends), both
@@ -196,7 +199,7 @@ Python and WASM bindings delegate to core types:
 
 **WASM delivery follows the function kind, not the failure kind.** A synchronous verb throws; a promise-returning verb rejects; nothing does both.
 
-- The promise-returning surface is `init` plus the four `Engine` verbs (`render`, `open`, `load`, `supportedFormats`). A programming error reached through one of them (`runtime::foreign_handle`, an unregistered backend) arrives as a rejection like any other failure.
+- The promise-returning surface is `init` plus the four `Engine` verbs (`render`, `open`, `load`, `supportedFormats`). A programming error reached through one of them (a handle that is not this copy's, `runtime::not_a_quill` / `runtime::not_a_document`; an unregistered backend, `engine::backend_not_found`) arrives as a rejection like any other failure.
 - `init` is the one promise-returning export not declared `async`: its memo is returned by identity rather than re-wrapped per call. Its conflict guard therefore returns `Promise.reject(runtime::init_conflict)` where an `async` body would have converted a throw.
 - A synchronous throw from `init` would lose the rule at exactly one export, and silently: `Promise<void>` cannot declare it, so the declaration invites `init(BYTES).catch(…)` and the throw escapes.
 

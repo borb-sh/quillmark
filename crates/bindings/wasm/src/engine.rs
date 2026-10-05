@@ -2687,7 +2687,8 @@ impl LiveSession {
     /// this call.
     ///
     /// Throws if `page` is out of range, `ctx` is the wrong type, or `scale` is
-    /// not finite and positive (`backend::invalid_raster_scale`).
+    /// not finite and positive or is under `f32::MIN_POSITIVE`
+    /// (`backend::invalid_raster_scale`).
     #[wasm_bindgen(js_name = paint)]
     pub fn paint(
         &self,
@@ -2705,7 +2706,8 @@ impl LiveSession {
             .page_size_pt(page)
             .ok_or_else(|| self.page_oob_error("paint", page))?;
 
-        let scale = quillmark_core::backend::fit_raster_scale(scale as f32, width_pt, height_pt);
+        let scale = quillmark_core::backend::canvas_scale(scale, width_pt, height_pt)
+            .map_err(|e| WasmError::from(e).to_js_value())?;
 
         // `page_size_pt(page)` answered, so the page is in range and a raster is
         // owed; a `None` here is a backend bug.

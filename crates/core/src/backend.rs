@@ -103,7 +103,7 @@ fn plural(construct: crate::quill::BlockConstruct, count: usize) -> String {
 /// arithmetic wraps.
 pub const MAX_RASTER_SIDE: u32 = 16_384;
 
-fn invalid_raster_scale(message: String, hint: &str) -> RenderError {
+fn invalid_raster_scale(message: String, hint: impl Into<String>) -> RenderError {
     RenderError::coded_hint("backend::invalid_raster_scale", message, hint)
 }
 
@@ -119,42 +119,142 @@ pub fn raster_scale(ppi: f32) -> Result<f32, RenderError> {
     Ok(ppi / 72.0)
 }
 
+/// The pixel size of a `width_pt` × `height_pt` page rasterized at `scale`
+/// device pixels per point: each side rounded to the nearest pixel and at least
+/// one, as `typst-render` sizes its pixmap. Every raster backend allocates this
+/// size, so it is what [`check_raster`] counts.
+pub fn raster_size(scale: f32, width_pt: f32, height_pt: f32) -> (u32, u32) {
+    let px = |pt: f32| (scale * pt).round().max(1.0) as u32;
+    (px(width_pt), px(height_pt))
+}
+
+/// The unit a raster density arrives in, which a refusal names.
+#[derive(Clone, Copy)]
+enum Density {
+    Ppi,
+    Scale,
+}
+
+/// The largest scale at which neither side of the page passes
+/// [`MAX_RASTER_SIDE`], and no larger than an `f32` holds.
+fn ceiling_scale(width_pt: f32, height_pt: f32) -> f64 {
+    (f64::from(MAX_RASTER_SIDE) / f64::from(width_pt.max(height_pt))).min(f64::from(f32::MAX))
+}
+
+/// `limit` floored to three significant digits, or to an integer where that is
+/// finer, so the number a hint names is one the check admits.
+fn round_down(limit: f64) -> f64 {
+    let unit = 10f64.powi((2.0 - limit.log10().floor()).clamp(0.0, 300.0) as i32);
+    (limit * unit).floor() / unit
+}
+
+fn fitting(density: Density, width_pt: f32, height_pt: f32) -> f64 {
+    let per_scale = match density {
+        Density::Ppi => 72.0,
+        Density::Scale => 1.0,
+    };
+    round_down(per_scale * ceiling_scale(width_pt, height_pt))
+}
+
+/// `value` is what the caller passed, in `density`'s unit; `scale` is the same
+/// density in device pixels per point.
+fn check_ceiling(
+    density: Density,
+    value: f32,
+    scale: f32,
+    width_pt: f32,
+    height_pt: f32,
+) -> Result<(), RenderError> {
+    let (w, h) = raster_size(scale, width_pt, height_pt);
+    if w.max(h) <= MAX_RASTER_SIDE {
+        return Ok(());
+    }
+    let fit = fitting(density, width_pt, height_pt);
+    let (at, hint) = match density {
+        Density::Ppi => (
+            format!("{value} ppi"),
+            format!("Pass a ppi of {fit} or less, or render PDF or SVG, which have no pixel ceiling."),
+        ),
+        Density::Scale => (
+            format!("canvas scale {value}"),
+            format!("Lower the canvas scale to {fit} device pixels per point or less."),
+        ),
+    };
+    Err(invalid_raster_scale(
+        format!(
+            "a {width_pt}x{height_pt} pt page at {at} is {w}x{h} px, past the {MAX_RASTER_SIDE} px ceiling on a side"
+        ),
+        hint,
+    ))
+}
+
 /// The refusal every raster backend owes a page it cannot rasterize, checked
 /// before the rasterizer allocates: under `backend::invalid_raster_scale` unless
-/// `scale` (device pixels per point, as [`raster_scale`] returns) is finite and
-/// positive and neither side of the `width_pt` × `height_pt` page passes
-/// [`MAX_RASTER_SIDE`].
+/// `scale` (device pixels per point, a canvas scale) is finite and positive and
+/// neither side of the `width_pt` × `height_pt` page passes
+/// [`MAX_RASTER_SIDE`]. A refusal past the ceiling names the scale passed and
+/// the largest that fits.
 pub fn check_raster(scale: f32, width_pt: f32, height_pt: f32) -> Result<(), RenderError> {
     if !scale.is_finite() || scale <= 0.0 {
         return Err(invalid_raster_scale(
-            format!("raster scale {scale} is not a finite positive number of device pixels per point"),
+            format!("canvas scale {scale} is not a finite positive number of device pixels per point"),
             "Pass a scale above 0.",
         ));
     }
-    // `max` takes the non-NaN side, flooring a degenerate page size at the one
-    // pixel the rasterizers floor it at.
-    let px = |pt: f32| (f64::from(scale) * f64::from(pt)).round().max(1.0);
-    let (w, h) = (px(width_pt), px(height_pt));
-    if w.max(h) > f64::from(MAX_RASTER_SIDE) {
-        return Err(invalid_raster_scale(
-            format!(
-                "a {width_pt}x{height_pt} pt page at {scale} device pixels per point is {w}x{h} px, past the {MAX_RASTER_SIDE} px ceiling on a side"
-            ),
-            "Rasterize fewer pixels: lower the ppi (the default is 144) or the canvas scale.",
-        ));
-    }
-    Ok(())
+    check_ceiling(Density::Scale, scale, scale, width_pt, height_pt)
+}
+
+/// [`check_raster`] for an export at `ppi`, which the refusal names with the
+/// largest ppi that fits; a `ppi` that is not finite and positive is refused as
+/// [`raster_scale`] refuses it.
+pub fn check_raster_ppi(ppi: f32, width_pt: f32, height_pt: f32) -> Result<(), RenderError> {
+    check_ceiling(Density::Ppi, ppi, raster_scale(ppi)?, width_pt, height_pt)
 }
 
 /// `scale` reduced, where it must be, to the largest at which neither side of
-/// the `width_pt` × `height_pt` page passes [`MAX_RASTER_SIDE`]: what a preview
-/// paints at, where a softer page beats a refused one. A scale that is not
-/// finite and positive is returned as given, for [`check_raster`] to refuse.
+/// the `width_pt` × `height_pt` page passes [`MAX_RASTER_SIDE`]. A scale that
+/// is not finite and positive is returned as given, for [`check_raster`] to
+/// refuse.
 pub fn fit_raster_scale(scale: f32, width_pt: f32, height_pt: f32) -> f32 {
     if !scale.is_finite() || scale <= 0.0 {
         return scale;
     }
-    scale.min(MAX_RASTER_SIDE as f32 / width_pt.max(height_pt))
+    scale.min(ceiling_scale(width_pt, height_pt) as f32)
+}
+
+/// The `f32` scale a canvas paint rasterizes the `width_pt` × `height_pt` page
+/// at, from the `f64` a JS number arrives as, checked before it narrows.
+///
+/// A scale past the ceiling is reduced as [`fit_raster_scale`] reduces it,
+/// since a preview drawn soft beats one not drawn. One that is not finite and
+/// positive, or is under `f32::MIN_POSITIVE`, where narrowing would change it
+/// rather than round it, is refused under `backend::invalid_raster_scale`,
+/// whose hint names the largest scale the page paints at.
+pub fn canvas_scale(scale: f64, width_pt: f32, height_pt: f32) -> Result<f32, RenderError> {
+    let ceiling = ceiling_scale(width_pt, height_pt);
+    let refuse = |message: String, floor: &str| {
+        invalid_raster_scale(
+            message,
+            format!(
+                "Pass a scale {floor}; this page paints at up to {} device pixels per point.",
+                round_down(ceiling)
+            ),
+        )
+    };
+    if !scale.is_finite() || scale <= 0.0 {
+        return Err(refuse(
+            format!("canvas scale {scale} is not a finite positive number of device pixels per point"),
+            "above 0",
+        ));
+    }
+    let least = f32::MIN_POSITIVE;
+    if scale < f64::from(least) {
+        return Err(refuse(
+            format!("canvas scale {scale:e} is under {least:e}, the least a raster scale holds"),
+            &format!("of at least {least:e}"),
+        ));
+    }
+    Ok(scale.min(ceiling) as f32)
 }
 
 /// The pages a render covers: `pages` as given, or every page of `page_count`
@@ -252,6 +352,53 @@ mod tests {
         }
         assert_eq!(fit_raster_scale(2.0, LETTER_PT.0, LETTER_PT.1), 2.0);
         assert!(fit_raster_scale(f32::NAN, LETTER_PT.0, LETTER_PT.1).is_nan());
+    }
+
+    /// The numbers a refusal's hint names, read off its words.
+    fn hinted(err: &RenderError) -> Vec<f64> {
+        err.diagnostics()[0]
+            .hint
+            .as_deref()
+            .expect("a raster refusal carries a hint")
+            .split_whitespace()
+            .filter_map(|word| word.trim_end_matches(['.', ',', ';']).parse().ok())
+            .collect()
+    }
+
+    #[test]
+    fn a_refusal_hints_the_largest_density_that_fits_a_page_long_on_one_axis() {
+        let (w, h) = (612.0, 9000.0);
+
+        let at_default = check_raster_ppi(RenderOptions::DEFAULT_PPI, w, h)
+            .expect_err("1224x18000 px is past the ceiling");
+        assert!(hinted(&at_default).contains(&131.0));
+        check_raster_ppi(131.0, w, h).expect("the hinted ppi fits");
+        assert!(check_raster_ppi(132.0, w, h).is_err(), "the hinted ppi is the largest");
+
+        let at_double = check_raster(2.0, w, h).expect_err("1224x18000 px is past the ceiling");
+        assert!(hinted(&at_double).contains(&1.82));
+        check_raster(1.82, w, h).expect("the hinted scale fits");
+        assert!(check_raster(1.83, w, h).is_err(), "the hinted scale is the largest at 3 digits");
+    }
+
+    #[test]
+    fn a_canvas_scale_is_reduced_past_the_ceiling_and_refused_where_an_f32_cannot_hold_it() {
+        let (w, h) = LETTER_PT;
+        assert_eq!(canvas_scale(2.0, w, h).expect("2x is in range"), 2.0);
+        for scale in [1e39, f64::MAX] {
+            let fitted = canvas_scale(scale, w, h).expect("a finite scale past the ceiling is reduced");
+            check_raster(fitted, w, h).expect("to one the check admits");
+            assert_eq!(raster_size(fitted, w, h).1, MAX_RASTER_SIDE);
+        }
+        let least = f64::from(f32::MIN_POSITIVE);
+        assert_eq!(canvas_scale(least, w, h).expect("the least f32 scale"), f32::MIN_POSITIVE);
+        for scale in [f64::NAN, f64::INFINITY, 0.0, -1.0, least / 2.0, 1e-46] {
+            let err = canvas_scale(scale, w, h)
+                .err()
+                .unwrap_or_else(|| panic!("{scale:e} is not a scale an f32 holds"));
+            assert!(hinted(&err).contains(&20.6), "the hint names the fitting scale");
+            assert_eq!(code(err), "backend::invalid_raster_scale");
+        }
     }
 
     #[test]

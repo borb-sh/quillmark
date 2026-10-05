@@ -330,6 +330,41 @@ fn multi_page_svg_writes_one_file_per_page_and_refuses_stdout() {
     );
 }
 
+/// A page 9000 pt long passes the 16384 px raster ceiling at the default
+/// 144 ppi, and renders at the ppi the refusal names.
+#[test]
+fn a_long_page_renders_png_at_a_lower_ppi() {
+    let dir = quill_with_config(
+        r#"quill:
+  name: longq
+  version: 0.1.0
+  backend: typst
+  description: One page long on one axis
+typst:
+  plate_file: plate.typ
+main:
+  fields: {}
+"#,
+    );
+    std::fs::write(
+        dir.path().join("plate.typ"),
+        "#set page(width: 612pt, height: 9000pt)\nLong\n",
+    )
+    .expect("write plate.typ");
+    let (quill, png) = (dir.path().to_str().unwrap(), dir.path().join("long.png"));
+    let png_arg = png.to_str().unwrap();
+
+    let out = run(&["render", quill, "-o", png_arg]);
+    assert_eq!(out.status.code(), Some(1), "1224x18000 px was not refused");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("backend::invalid_raster_scale"), "{stderr}");
+
+    ok(&["render", quill, "-o", png_arg, "--ppi", "131"]);
+    let bytes = std::fs::read(&png).expect("the png was written");
+    let height = u32::from_be_bytes(bytes[20..24].try_into().expect("an IHDR height"));
+    assert_eq!(height, 16375, "9000 pt at 131 ppi");
+}
+
 /// taro obliges `author` and `title`; `titel` is a typo of the second.
 const TYPO_DOC: &str = "~~~card-yaml\n$quill: taro\ntitel: Hello\n~~~\n\nBody.\n";
 

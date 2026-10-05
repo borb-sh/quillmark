@@ -247,9 +247,10 @@ export interface RenderOptions {
 	format?: OutputFormat;
 	/**
 	 * Pixels per inch for raster formats (PNG); ignored by PDF and SVG.
-	 * Defaults to 144. Must be finite, above 0, and small enough to keep every
-	 * rendered page under 268435456 pixels — anything else throws
-	 * `backend::invalid_raster_scale`.
+	 * Defaults to 144. Must be finite, above 0, and small enough to keep both
+	 * sides of every rendered page within 16384 px — anything else throws
+	 * `backend::invalid_raster_scale`, whose hint past the ceiling names the
+	 * largest ppi that fits.
 	 */
 	ppi?: number;
 	pages?: number[];
@@ -545,7 +546,8 @@ export declare class LiveSession {
 	 * neither exceeds 16384 px, so `canvas.width / widthPt` is the scale painted
 	 * at; the caller owns `canvas.style.*`, and a canvas styled `width: 100%`
 	 * needs nothing back from the paint. Throws `backend::invalid_raster_scale`
-	 * on a `scale` that is not finite and positive.
+	 * on a `scale` that is not finite and positive, or is under the least a
+	 * 32-bit float holds at full precision (2⁻¹²⁶, about 1.2e-38).
 	 *
 	 * The write is a whole-backing-store `putImageData`, which bypasses the 2D
 	 * context transform, `globalAlpha`, and clip, so give each visible page its

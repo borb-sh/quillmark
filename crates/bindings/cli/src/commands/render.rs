@@ -26,6 +26,10 @@ pub struct RenderArgs {
     #[arg(short, long, value_name = "FORMAT")]
     format: Option<String>,
 
+    /// Pixels per inch for png output (default: 144); pdf and svg ignore it
+    #[arg(long, value_name = "PPI")]
+    ppi: Option<f32>,
+
     /// Write output to stdout instead of file
     #[arg(long)]
     stdout: bool,
@@ -55,7 +59,9 @@ pub fn execute(args: RenderArgs) -> Result<()> {
         args.output.as_deref().filter(|_| !args.stdout),
     )?;
 
-    let rendered = render(&quill, &parsed, today, output_format, args.output_data.as_deref());
+    let mut options = RenderOptions::default().with_output_format(output_format);
+    options.ppi = args.ppi;
+    let rendered = render(&quill, &parsed, today, &options, args.output_data.as_deref());
     let mut result = match rendered {
         Ok(result) => result,
         Err(e) => {
@@ -140,7 +146,7 @@ fn render(
     quill: &Quill,
     parsed: &Document,
     today: CalendarDate,
-    output_format: OutputFormat,
+    options: &RenderOptions,
     output_data: Option<&Path>,
 ) -> Result<RenderResult> {
     if let Some(data_path) = output_data {
@@ -163,12 +169,7 @@ fn render(
         })?;
     }
 
-    Ok(Quillmark::new().render(
-        quill,
-        parsed,
-        today,
-        &RenderOptions::default().with_output_format(output_format),
-    )?)
+    Ok(Quillmark::new().render(quill, parsed, today, options)?)
 }
 
 /// An `-o` extension that names a format is a second statement of it: it

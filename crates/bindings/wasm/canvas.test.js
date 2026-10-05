@@ -272,21 +272,31 @@ describe('LiveSession canvas preview', () => {
   it('paint reduces the scale to keep the backing store within 16384 px a side', () => {
     const session = openSession()
     const { widthPt, heightPt } = session.pageSize(0)
-    const scale = (16384 / Math.max(widthPt, heightPt)) * 4
+    // Past the ceiling, and past what a 32-bit float holds.
+    for (const scale of [(16384 / Math.max(widthPt, heightPt)) * 4, 1e39, Number.MAX_VALUE]) {
+      const ctx = new FakeCanvasRenderingContext2D()
+      session.paint(ctx, 0, scale)
 
-    const ctx = new FakeCanvasRenderingContext2D()
-    session.paint(ctx, 0, scale)
-
-    expect(Math.max(ctx.canvas.width, ctx.canvas.height)).toBeLessThanOrEqual(16384)
-    // Reduced proportionally: the page keeps its aspect ratio.
-    expect(ctx.canvas.width / ctx.canvas.height).toBeCloseTo(widthPt / heightPt, 2)
+      expect(Math.max(ctx.canvas.width, ctx.canvas.height)).toBe(16384)
+      // Reduced proportionally: the page keeps its aspect ratio.
+      expect(ctx.canvas.width / ctx.canvas.height).toBeCloseTo(widthPt / heightPt, 2)
+    }
   })
 
-  it('paint throws on a scale that is not a finite positive number', () => {
+  it('paint throws on a scale that is not a finite positive number a 32-bit float holds', () => {
     const session = openSession()
     const ctx = new FakeCanvasRenderingContext2D()
     // A missing scale or an options object is refused rather than guessed.
-    for (const scale of [undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, { densityScale: 2 }]) {
+    for (const scale of [
+      undefined,
+      0,
+      -1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      { densityScale: 2 },
+      1e-46,
+      Number.MIN_VALUE,
+    ]) {
       expectEditCode(() => session.paint(ctx, 0, scale), 'backend::invalid_raster_scale')
     }
   })

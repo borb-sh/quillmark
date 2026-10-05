@@ -192,9 +192,7 @@ impl SessionHandle for AcroformSession {
         page: usize,
         scale: f32,
     ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
-        let Some(pixmap) =
-            self.raster(page, &standard_font_settings(), &scaled_render_settings(scale))?
-        else {
+        let Some(pixmap) = self.raster(page, scale)? else {
             return Ok(None);
         };
         let w = pixmap.width() as u32;
@@ -246,29 +244,33 @@ impl SessionHandle for AcroformSession {
 }
 
 impl AcroformSession {
-    fn raster(
-        &self,
-        page: usize,
-        interp: &InterpreterSettings,
-        settings: &RenderSettings,
-    ) -> Result<Option<Pixmap>, RenderError> {
+    fn raster(&self, page: usize, scale: f32) -> Result<Option<Pixmap>, RenderError> {
         let Some(p) = self.raster.pages().get(page) else {
             return Ok(None);
         };
         let (width_pt, height_pt) = p.render_dimensions();
-        quillmark_core::backend::check_raster(settings.x_scale, width_pt, height_pt)?;
+        quillmark_core::backend::check_raster(scale, width_pt, height_pt)?;
+        let size = quillmark_core::backend::raster_size(scale, width_pt, height_pt);
         let cache = RenderCache::new();
-        Ok(Some(hayro_render(p, &cache, interp, settings)))
+        Ok(Some(hayro_render(
+            p,
+            &cache,
+            &standard_font_settings(),
+            &scaled_render_settings(scale, size),
+        )))
     }
 }
 
-fn scaled_render_settings(scale: f32) -> RenderSettings {
+/// The size is explicit because hayro floors the scaled page, to 0 px under
+/// one pixel, where `check_raster` counts a rounded side of at least one.
+fn scaled_render_settings(scale: f32, (width, height): (u32, u32)) -> RenderSettings {
     use hayro::vello_cpu::color::palette::css::WHITE;
     RenderSettings {
         x_scale: scale,
         y_scale: scale,
+        width: u16::try_from(width).ok(),
+        height: u16::try_from(height).ok(),
         bg_color: WHITE,
-        ..Default::default()
     }
 }
 
