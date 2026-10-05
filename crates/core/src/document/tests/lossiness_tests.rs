@@ -485,6 +485,29 @@ fn quoting_normalises_to_canonical_form_with_type_fidelity() {
     assert_eq!(emitted, emitted2, "round-trip must be idempotent");
 }
 
+/// A run of own-line comments meets no count limit, behind a trailer too:
+/// every comment, and the field after the run, survives the parse.
+#[test]
+fn a_long_comment_run_keeps_every_comment() {
+    let run: String = (0..120).map(|i| format!("  # c{i}\n")).collect();
+    let src =
+        format!("~~~card-yaml\n$quill: q\n$kind: main\nk: # note\n{run}  a: 1\nafter: 2\n~~~\n");
+    let emitted = Document::parse(&src)
+        .unwrap_or_else(|e| panic!("{e:?}"))
+        .document
+        .to_markdown();
+    for c in (0..120)
+        .map(|i| format!("# c{i}\n"))
+        .chain(["# note\n".into(), "after: 2\n".into()])
+    {
+        assert!(emitted.contains(&c), "{c:?} dropped:\n{emitted}");
+    }
+    assert_eq!(
+        Document::parse(&emitted).unwrap().document.to_markdown(),
+        emitted
+    );
+}
+
 /// The field grammar admits `null` in any letter case, a key YAML reads as no
 /// key unless quoted.
 #[test]

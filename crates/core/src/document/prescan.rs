@@ -12,7 +12,7 @@
 //! value parse applies a core `!!` tag, ignores any other, and keeps no tag.
 
 use serde_saphyr::granit_parser::{
-    Event, Marker, Parser, Placement, ScalarStyle, Span, StructureStyle,
+    Event, Marker, Options, Parser, Placement, ScalarStyle, Span, StructureStyle,
 };
 
 use crate::value::PathSegment;
@@ -67,10 +67,13 @@ pub(crate) fn budget(len: usize) -> usize {
 }
 
 /// Scan `yaml`, the text the value parse reads. A parser error ends the scan
-/// with what it has read: the value parse is the one that refuses.
+/// with what it has read: the value parse is the one that refuses. It counts no
+/// comments, so neither does this parse.
 pub(crate) fn prescan_fence_content(yaml: &str) -> Result<PreScan, OverBudget> {
     let mut walk = Walk::new(yaml);
-    for next in Parser::new_from_str(yaml) {
+    let mut options = Options::default();
+    options.max_buffered_comment_events = usize::MAX;
+    for next in Parser::new_from_str_with_options(yaml, options) {
         let Ok((event, span)) = next else { break };
         walk.step(&event, span)?;
     }
