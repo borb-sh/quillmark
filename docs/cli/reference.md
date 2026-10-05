@@ -235,7 +235,7 @@ quillmark workspace [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 ```bash
 quillmark workspace ./my-quill input.md -o ws --today 2026-03-14
 # Workspace written to: ws
-# typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts --creation-timestamp 1773489600 ./my-quill/plate.typ ws/plate.pdf
+# typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts --creation-timestamp=1773489600 ./my-quill/plate.typ ws/plate.pdf
 ```
 
 Tinymist takes the same flags through its `tinymist.typstExtraArgs` setting,

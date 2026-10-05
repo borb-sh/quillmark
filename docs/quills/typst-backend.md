@@ -392,7 +392,7 @@ for one document, beside the quill's packages and fonts, and prints the
 
 ```bash
 quillmark workspace ./my-quill input.md -o ws --today 2026-03-14
-typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts --creation-timestamp 1773489600 ./my-quill/plate.typ ws/plate.pdf
+typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts --creation-timestamp=1773489600 ./my-quill/plate.typ ws/plate.pdf
 ```
 
 Edits to the plate recompile on save. The helper holds `input.md`'s data, so

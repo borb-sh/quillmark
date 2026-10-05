@@ -65,7 +65,7 @@ pub fn execute(args: WorkspaceArgs) -> Result<()> {
         let pdf = args.output.join(pdf_name.file_name().unwrap_or_default());
         println!(
             "typst watch --root {quill} --package-path {packages} --font-path {fonts} \
-             --ignore-system-fonts --ignore-embedded-fonts --creation-timestamp {timestamp} \
+             --ignore-system-fonts --ignore-embedded-fonts --creation-timestamp={timestamp} \
              {plate} {pdf}",
             quill = shell_word(&args.quill),
             packages = shell_word(&args.output.join(PACKAGES_DIR)),
