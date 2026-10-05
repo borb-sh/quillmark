@@ -301,6 +301,12 @@ fn has_own_line_pending(ctx: EmitCtx<'_>, position: usize) -> bool {
         .any(|c| c.position == position && !c.inline && c.container_path.as_slice() == ctx.path)
 }
 
+fn has_inline(ctx: EmitCtx<'_>, position: usize) -> bool {
+    ctx.nested
+        .iter()
+        .any(|c| c.position == position && c.inline && c.container_path.as_slice() == ctx.path)
+}
+
 /// Return the inline trailer for `position` in the context path. If multiple
 /// inline comments share the slot, returns the first and emits the rest as
 /// own-line.
@@ -464,11 +470,10 @@ fn emit_sequence_children(
     emit_orphan_inlines(out, ctx, items.len(), base_indent);
 }
 
-/// Emit a single `- <value>\n` sequence item. When the item is a mapping,
-/// if both the seq-item trailer and the first key's trailer are present,
-/// the inner one degrades to an own-line comment. A mapping carrying an
-/// own-line comment before its first key takes the bare-dash form, the shape
-/// the parser reads that comment back from.
+/// Emit a single `- <value>\n` sequence item. A mapping carrying an own-line
+/// comment before its first key, or a trailer of its own beside its first
+/// key's, takes the bare-dash form, the shape the parser reads those comments
+/// back from: a trailer on a dash line holding the first key is the item's.
 fn emit_sequence_item(
     out: &mut String,
     value: &JsonValue,
@@ -487,7 +492,8 @@ fn emit_sequence_item(
             out.push('\n');
         }
         JsonValue::Object(map) => {
-            if has_own_line_pending(ctx, 0) {
+            let both_trailers = inline_trailer.is_some() && has_inline(ctx, 0);
+            if has_own_line_pending(ctx, 0) || both_trailers {
                 push_indent(out, base_indent);
                 out.push('-');
                 push_trailer(out, inline_trailer);
@@ -505,7 +511,6 @@ fn emit_sequence_item(
                 let mut child_path = ctx.path.to_vec();
                 child_path.push(PathSegment::Key(k.clone()));
                 if first {
-                    let line_trailer = inline_trailer.or(inner_trailer);
                     push_indent(out, base_indent);
                     out.push_str("- ");
                     emit_field_at(
@@ -514,11 +519,8 @@ fn emit_sequence_item(
                         v,
                         KeyPos::SeqHead(base_indent),
                         ctx.at(&child_path),
-                        line_trailer,
+                        inline_trailer.or(inner_trailer),
                     );
-                    if let (Some(_), Some(loser)) = (inline_trailer, inner_trailer) {
-                        push_comment_line(out, base_indent + 2, loser);
-                    }
                     first = false;
                 } else {
                     emit_field_at(
@@ -618,7 +620,7 @@ fn literal_block(s: &str) -> Option<(&'static str, Vec<&str>)> {
         }
         probe.push('\n');
     }
-    match serde_saphyr::from_str::<JsonValue>(&probe) {
+    match crate::value::parse_yaml::<JsonValue>(&probe) {
         Ok(JsonValue::String(back)) if back == s => Some((header, lines)),
         _ => None,
     }
@@ -632,10 +634,9 @@ fn emit_key(out: &mut String, key: &str) {
     out.push_str(&saphyr_emit_scalar(&JsonValue::String(key.to_string())));
 }
 
-/// Emit a mapping key at `indent`. Top-level field names (indent 0) are emitted
-/// verbatim: the line-oriented prescan accepts only bare `[A-Za-z_][A-Za-z0-9_]*`
-/// field names there, so quoting one would make it unparseable. Nested keys
-/// (indent > 0) route through [`emit_key`] for correct YAML quoting.
+/// Emit a mapping key at `indent`. Top-level field names (indent 0), held to
+/// `[A-Za-z_][A-Za-z0-9_]*`, are emitted verbatim. Nested keys (indent > 0)
+/// are arbitrary user data and route through [`emit_key`] for YAML quoting.
 fn emit_key_at(out: &mut String, key: &str, indent: usize) {
     if indent == 0 {
         out.push_str(key);
@@ -674,7 +675,7 @@ pub(crate) fn saphyr_emit_scalar(value: &JsonValue) -> String {
             let has_edge_whitespace = !s.is_empty()
                 && (s.starts_with(char::is_whitespace) || s.ends_with(char::is_whitespace));
             let reparses_same = matches!(
-                serde_saphyr::from_str::<JsonValue>(&buf),
+                crate::value::parse_yaml::<JsonValue>(&buf),
                 Ok(JsonValue::String(ref s2)) if s2 == s
             );
             if has_edge_whitespace || !reparses_same {

@@ -20,7 +20,7 @@ use quillmark_content::model::Normalized;
 fn import_body_or_parse_error(md: &str) -> Result<Normalized, ParseError> {
     super::import_body(md).map_err(|e| ParseError::BodyImport(e.to_string()))
 }
-use super::prescan::{prescan_fence_content, NestedComment, PreItem, PreScan};
+use super::prescan::{prescan_fence_content, NestedComment, PreItem};
 use super::{Card, Document};
 
 /// A `MissingQuill` message naming the specific malformation. LLM authors hit a
@@ -129,13 +129,14 @@ pub(super) struct MetadataBlock {
 
 /// The document-absolute, 1-indexed position of a YAML parse failure.
 ///
-/// `parser` is the position the engine reports inside the string it parsed: the
-/// fence content, line-for-line, less the leading whitespace `trim` removes.
-/// With no reported position the block's first content line is the anchor.
+/// `parser` is the position the engine reports inside the string it parsed:
+/// `yaml`, the fence content line-for-line, less the leading whitespace `trim`
+/// removes. With no reported position the block's first content line is the
+/// anchor.
 fn document_position(
     markdown: &str,
     content_start: usize,
-    pre: &PreScan,
+    yaml: &str,
     parser: Option<(usize, usize)>,
 ) -> (usize, usize) {
     let first_line = markdown[..content_start].lines().count() + 1;
@@ -143,8 +144,7 @@ fn document_position(
         return (first_line, 1);
     };
 
-    let cleaned = &pre.cleaned_yaml;
-    let trimmed_prefix = &cleaned[..cleaned.len() - cleaned.trim_start().len()];
+    let trimmed_prefix = &yaml[..yaml.len() - yaml.trim_start().len()];
     let source_index = trimmed_prefix.matches('\n').count() + rel_line.saturating_sub(1);
 
     // Only the first parsed line lost leading whitespace to `trim`.
@@ -180,20 +180,20 @@ pub(super) fn build_block(
         });
     }
 
-    let pre = prescan_fence_content(raw_content);
+    let yaml = raw_content.replace("\r\n", "\n");
 
-    let content = pre.cleaned_yaml.trim().to_string();
+    let content = yaml.trim().to_string();
     let (meta_items, yaml_value) = if content.is_empty() {
         (Vec::new(), None)
     } else {
-        let mut parsed = match serde_saphyr::from_str::<serde_json::Value>(&content) {
+        let mut parsed = match crate::value::parse_yaml::<serde_json::Value>(&content) {
             Ok(parsed) => parsed,
             Err(e) => {
                 let enriched = super::yaml_hints::enrich_yaml_error(&e.to_string(), &content);
                 let (line, column) = document_position(
                     markdown,
                     content_start,
-                    &pre,
+                    &yaml,
                     e.location()
                         .map(|l| (l.line() as usize, l.column() as usize)),
                 );
@@ -220,6 +220,14 @@ pub(super) fn build_block(
             });
         }
     }
+
+    let pre = prescan_fence_content(&content).map_err(|over| {
+        ParseError::InvalidStructure(format!(
+            "The card-yaml block's comments and tags sit under key paths totalling \
+             more than {} bytes. Shorten the keys above them, or move the comments up.",
+            over.budget
+        ))
+    })?;
 
     Ok(MetadataBlock {
         start: block_start,

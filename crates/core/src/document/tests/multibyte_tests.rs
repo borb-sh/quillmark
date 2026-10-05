@@ -1,5 +1,5 @@
 //! Regression coverage for the "string index N is not a character boundary"
-//! panic class on the YAML scanner paths that run *after* the prescan.
+//! panic class on the YAML scanner paths.
 
 use crate::document::Document;
 
