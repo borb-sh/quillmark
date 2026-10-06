@@ -1716,7 +1716,7 @@ impl Addr {
         if value.is_undefined() || value.is_null() {
             return Ok(Addr::default());
         }
-        reject_unknown_keys(value, &["card", "field"], |k| {
+        reject_unknown_keys(value, &["card", "field"], "addr", |k| {
             format!("addr has unknown key `{k}`; an address takes only `card` and `field`")
         })?;
         serde_wasm_bindgen::from_value(value.clone())
@@ -2206,21 +2206,38 @@ fn reject_deep_js_value(value: &JsValue, ctx: &str) -> Result<(), JsValue> {
     Ok(())
 }
 
-/// Refuse an own key outside `known`, worded by `refusal`. `serde_wasm_bindgen`
-/// looks up the fields a struct declares rather than visiting every key, so it
-/// never enforces `deny_unknown_fields`: a misspelled optional key would read as
-/// absent. A value that is not an object passes, for the deserializer to refuse.
-/// Object-ness is the deserializer's `typeof` test, not `instanceof Object`,
-/// which a null-prototype or cross-realm object fails yet deserializes.
+/// Refuse an object that is not plain, naming it `what`, and an own key outside
+/// `known`, worded by `refusal`. `serde_wasm_bindgen` looks up the fields a
+/// struct declares rather than visiting every key, so it never enforces
+/// `deny_unknown_fields`: a misspelled optional key would read as absent. The
+/// lookup reaches a non-enumerable key and one up the prototype chain, so the
+/// walk reads every own name and takes only a plain object: one whose prototype
+/// is `null` or has a `null` prototype itself, as `Object.prototype` of any
+/// realm does. A value that is not an object passes, for the deserializer to
+/// refuse. Object-ness is the deserializer's `typeof` test, not
+/// `instanceof Object`, which a null-prototype or cross-realm object fails yet
+/// deserializes.
 fn reject_unknown_keys(
     value: &JsValue,
     known: &[&str],
+    what: &str,
     refusal: impl FnOnce(&str) -> String,
 ) -> Result<(), JsValue> {
     if !value.is_object() {
         return Ok(());
     }
-    match js_sys::Object::keys(value.unchecked_ref::<js_sys::Object>())
+    let proto = js_sys::Reflect::get_prototype_of(value)?;
+    if !proto.is_null() && !js_sys::Reflect::get_prototype_of(&proto)?.is_null() {
+        let passed = if value.is_instance_of::<js_sys::Map>() {
+            "a `Map`"
+        } else {
+            "one inheriting from another object"
+        };
+        return Err(
+            WasmError::from(format!("{what} must be a plain object, not {passed}")).to_js_value(),
+        );
+    }
+    match js_sys::Object::get_own_property_names(value.unchecked_ref::<js_sys::Object>())
         .iter()
         .filter_map(|key| key.as_string())
         .find(|k| !known.contains(&k.as_str()))
@@ -2321,13 +2338,18 @@ fn render_options_or_throw(
 ) -> Result<quillmark_core::types::RenderOptions, JsValue> {
     let opts = match opts {
         Some(ts) => {
-            reject_unknown_keys(&ts.js_value(), &RenderOptions::KEYS, |k| match k {
-                "today" => format!("render options have unknown key `today`; {date_at}"),
-                _ => format!(
-                    "render options have unknown key `{k}`; RenderOptions takes only `{}`",
-                    RenderOptions::KEYS.join("`, `")
-                ),
-            })?;
+            reject_unknown_keys(
+                &ts.js_value(),
+                &RenderOptions::KEYS,
+                "render options",
+                |k| match k {
+                    "today" => format!("render options have unknown key `today`; {date_at}"),
+                    _ => format!(
+                        "render options have unknown key `{k}`; RenderOptions takes only `{}`",
+                        RenderOptions::KEYS.join("`, `")
+                    ),
+                },
+            )?;
             from_ts_or_throw(&ts)?
         }
         None => RenderOptions::default(),
@@ -2357,7 +2379,7 @@ fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue
     // card. A payload item is an internally tagged enum, read through
     // `deserialize_any` over every key, so its own deny holds without a walk.
     const KEYS: &[&str] = &["kind", "quill", "ext", "seed", "payloadItems", "body"];
-    reject_unknown_keys(value, KEYS, |k| {
+    reject_unknown_keys(value, KEYS, "card", |k| {
         format!(
             "card has unknown field `{k}`; expected a CardInput \
              {{ kind, payloadItems, body, … }}, where each field is \

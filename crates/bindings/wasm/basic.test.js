@@ -349,6 +349,15 @@ describe('Document editor surface: storeFields', () => {
     expect(() => doc.storeFields({ title: 'x' })).toThrow(/unknown key/)
     expect(field(doc.main, 'title')).not.toBe('x')
   })
+
+  it('an address is a plain object, and every own key of it counts', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const write = (addr) => () => doc.storeFields(addr, { title: 'x' })
+    expect(write(new Map([['card', 0]]))).toThrow('addr must be a plain object, not a `Map`')
+    expect(write(Object.create({ card: 0 }))).toThrow('addr must be a plain object')
+    expect(write(Object.defineProperty({}, 'crad', { value: 0 }))).toThrow('unknown key `crad`')
+    expect(field(doc.main, 'title')).not.toBe('x')
+  })
 })
 
 describe('Document editor surface: setQuillRef / overwrite / revise', () => {
