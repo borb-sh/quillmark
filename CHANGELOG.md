@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.123.0 - 2026-10-06
 
 Upgrade path: [0.122 → 0.123](docs/migrations/0.122-to-0.123.md).
 
@@ -91,6 +91,7 @@ Upgrade path: [0.122 → 0.123](docs/migrations/0.122-to-0.123.md).
   `string` field takes as a number: an `_` between digits, a `0x`, `0o` or
   `0b` prefix, an exponent, and the non-finite spellings that fail the parse.
   (#2064)
+
 
 ## v0.122.0 - 2026-10-05
 
