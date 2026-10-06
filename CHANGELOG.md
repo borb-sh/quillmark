@@ -1,5 +1,97 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.122 → 0.123](docs/migrations/0.122-to-0.123.md).
+
+### Boolean coercion
+
+- fix(core)!: **a number under a `boolean` field renders by whether it is
+  non-zero**, a matrix member's bare tick included, so a float of magnitude at
+  most `2.220446049250313e-16`, such as `1e-17`, renders `true` where it
+  rendered `false`, and nothing reports the change. `0` and `-0.0` render
+  `false`, and every integer reads as before. (#2053)
+
+### Open matrix
+
+- fix(core)!: **an open matrix's added item whose `title` is `""` or
+  whitespace alone fails as `validation::enum_violation`** at its key, carrying
+  the `open` hint, and the render with it, where it printed a held row with
+  nothing beside the tick. Such an item in a `default:` fails to load as
+  `quill::default_not_in_enum`, and in a card kind's `seed:` as
+  `quill::seed_enum_violation`. (#2068)
+
+### Comment placement
+
+- fix(core)!: **a comment's text drops the whitespace ending its line**, read
+  from markdown, a stored row or a `CardWire` alike, so `to_markdown` writes
+  `# note` for `# note  ` and its emission reads back to the same document. A
+  stored row holding such a comment rewrites once when saved again, and
+  nothing reports the change. (#2064)
+- fix(core)!: **a comment keeps the slot the YAML gives it** under a tagged
+  empty value (`k: !!str`, `k: !`), inside an alias key's value, and around or
+  inside a merge (`<<`), where `to_markdown` dropped or moved it, and nothing
+  reports the change. A comment at a lesser column below a tagged or anchored
+  empty value belongs to the collection around it. A top-level alias key keeps
+  its place in the field order, where its field moved to the block's end, and
+  a `parse::unsupported_yaml_tag` inside its value names the key's text. A
+  sequence item emptied by its merges emits as `- {}` with its comment after
+  it. (#2064)
+- fix(core): **`to_markdown` indexes a field's comments once**, so emitting a
+  commented container costs its entries plus its comments, not their product;
+  the emitted markdown is byte-for-byte the same. (#2064)
+
+### Base PDF reading
+
+- fix(pdf,acroform)!: **a `form.pdf` whose page `/Annots` hold a widget
+  annotation fails to open as `pdf::existing_acroform`**, naming the first
+  page holding one, whatever its catalog `/AcroForm` holds, where a base whose
+  `/AcroForm` was deleted or nulled stamped the fresh widgets beside its own.
+  An annotation whose `/Subtype` references `/Widget` is a widget. (#2064)
+- fix(pdf)!: **a trailer, catalog or page-tree node naming a key twice or
+  with no value, or holding a token where a key belongs, fails as
+  `pdf::parse`** (`pdf::stamp_parse` for the catalog under `stamp`), and an
+  `/Info` object as `pdf::write`, where the stamp rewrote one entry of two or
+  appended a key that took the next token as its value. A trailer's direct
+  `/Info` dictionary of such a shape stamps a fresh `/Info` without its
+  entries. (#2064)
+- fix(pdf): **`%`, `{` and `}` end a token and NUL is white-space**, so
+  `/AcroForm null%stripped` reads as `null` and stamps. A reference to a
+  `null` object or to no object reads as absent, so `/AcroForm 7 0 R` over
+  `7 0 obj null endobj` stamps where it failed as `pdf::existing_acroform`.
+  (#2064)
+
+### WASM options
+
+- fix(wasm)!: **an options object, `Addr` or `CardInput` must be a plain
+  object**, one whose prototype is `null` or `Object.prototype` of any realm:
+  a class instance, `Object.create(defaults)` and a `Map` throw, where 0.122
+  read a class instance's and an inherited key and none of a `Map`'s entries.
+  A key the verb does not read throws when it is non-enumerable, such as the
+  `__ob__` Vue 2 defines, or holds `undefined`, and so does a `new Engine`
+  argument other than an object, `null` or `undefined`. Spread into a literal:
+  `{ ...defaults, ...options }`. (#2064)
+
+### Typst plate path
+
+- fix(typst,cli): **a `plate_file` led by `./` names the file at the quill
+  root**, so `plate_file: ./plate.typ` loads where it failed as
+  `typst::plate_missing`, and `quillmark validate` accepts it where it refused
+  it as `cli::plate_file_escapes_quill`. A leading `/` or a `..` step still
+  misses, with a hint naming the spelling from the quill root. (#2064)
+- fix(typst): the rooted-path hint on a `typst::file_not_found` states what the
+  quill root holds, true of a bare path and a rooted one alike. (#2064)
+
+### Parse hints
+
+- fix(core): **an unquoted `.inf`, `.nan` or `1e999` hints its quoted
+  spelling**, `s: ".inf"`, and the message drops serde-saphyr's option name;
+  the parse still fails as `parse::yaml_error_with_location`. (#2064)
+- fix(docs): card-yaml's "Quote these" table lists the number spellings a
+  `string` field takes as a number: an `_` between digits, a `0x`, `0o` or
+  `0b` prefix, an exponent, and the non-finite spellings that fail the parse.
+  (#2064)
+
 ## v0.122.0 - 2026-10-05
 
 Upgrade path: [0.121 → 0.122](docs/migrations/0.121-to-0.122.md).
