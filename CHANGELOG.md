@@ -2,7 +2,25 @@
 
 ## v0.123.1 - 2026-10-06
 
-- feat(content)!: a table cell carries a line break as \n, spelled <br> in markdown
+Upgrade path: [0.123.0 → 0.123.1](docs/migrations/0.123.0-to-0.123.1.md).
+
+### Table cells
+
+- feat(content)!: **a table cell carries a line break**, one `\n` in its
+  `text`, spelled `<br>` inside the pipe cell (`| line one<br>line two |`, any
+  case, with attributes or a closing `/`) and typeset as `#linebreak()`. A
+  mark spans the break as it spans a prose hard break, and its edge moves off
+  it. `to_markdown` writes a cell's `\n` as `<br>`, and a `\n` in a cell
+  written through the JSON lanes is a break, where normalization made it a
+  space. `TableCell.text` is unchanged in shape. (#2071)
+- feat(content)!: **an inline `<br>` is a hard break in a paragraph and a
+  space in a heading**, where it rendered nothing, so a `richtext(inline)`
+  value holding one now has two lines and fails as `validation::not_inline`
+  (`edit::field_not_inline` on a strict write; a quill `default:` fails to
+  load), and nothing else reports the change. A `<br>` with no text before it
+  on its line, or alone on a line, still renders nothing; `\<br>` and a `<br>`
+  in backticks stay literal. A `<br>` in an image's alt is a space, where it
+  was dropped. (#2071)
 
 
 ## v0.123.0 - 2026-10-06
