@@ -367,17 +367,19 @@ Body regions (the root body and every card body) are rendered as CommonMark
 |---|---|---|
 | Strikethrough | `~~text~~` | GFM rules: word-bounded delimiter runs only. |
 | Pipe tables | GFM pipe-table syntax with alignment rows | Supports `:---`, `:---:`, `---:` alignment. |
-| Underline (HTML) | `<u>text</u>` | The one allowlisted HTML tag (see §6.2). The only syntax for underline; handles intraword and arbitrary-range cases. |
+| Underline (HTML) | `<u>text</u>` | Allowlisted HTML (see §6.2). The only syntax for underline; handles intraword and arbitrary-range cases. |
 
 ### 6.2 Declared Deviations from CommonMark
 
 **Raw HTML is accepted syntactically but produces no output, except
-`<u>…</u>` which renders as underline.** The parser recognises HTML per
-CommonMark §4.6 / §6.11, discards every event, and re-emits only the
-`<u>` wrapper. Rationale: Typst has no HTML renderer, and arbitrary
-passthrough would create an injection vector for downstream
-HTML-producing tooling; `<u>` is the one exception because no
-CommonMark-native syntax covers underline.
+`<u>…</u>`, which renders as underline, and an inline `<br>`, which is a
+hard break.** The parser recognises HTML per CommonMark §4.6 / §6.11,
+discards every event, and re-emits only the `<u>` wrapper and the `<br>`
+break. Rationale: Typst has no HTML renderer, and arbitrary passthrough
+would create an injection vector for downstream HTML-producing tooling;
+`<u>` is an exception because no CommonMark-native syntax covers
+underline, and `<br>` because a pipe-table row is one source line, with no
+room for a native hard break.
 
 **A column-zero `~~~` with a blank line above it opens a card-yaml block,
 not a fenced code block, whatever its info string** (§3.2, §4). A backtick
@@ -406,9 +408,12 @@ support may come in a future revision:
   supported. In markdown body text `$` is literal; inside a `~~~` card-yaml
   payload `$` is reserved as the prefix for system-metadata keys (§3.3).
 - HTML comments: accepted syntactically, not rendered (see §6.2).
-- `<br>`, `<br/>`, `<br />`: follow the raw-HTML rule (non-rendering);
-  authors use CommonMark-native hard breaks (trailing two spaces plus
-  newline, or trailing `\\` plus newline).
+- `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
+  table cell: a hard break. In a paragraph, one with no text before it on its
+  line is dropped; in a heading it is a space; on a line of its own it is an
+  HTML block and drops whole. Outside a table, export writes the
+  CommonMark-native hard break (trailing `\\` plus newline); inside a cell it
+  writes `<br>`.
 
 ## 7. Input Normalization
 

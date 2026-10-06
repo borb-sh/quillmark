@@ -4,13 +4,15 @@
 //! bidi controls dropped, line separators spaced, HTML comment-fence repair) so
 //! the content invariants hold by construction, then parsed with
 //! `pulldown_cmark` (CommonMark + strikethrough + pipe tables) and walked into
-//! a [`Content`]. This is the one place the `<u>` allowlist runs.
+//! a [`Content`]. This is the one place the `<u>`/`<br>` allowlist runs.
 //!
 //! ## Canonicalizations
 //!
 //! - A soft break is a space and a hard break a `continues` line, distinct from
 //!   a paragraph boundary. Inside a heading a hard break is a space, a heading
 //!   being one line; a setext heading spans two source lines and can carry one.
+//!   Inside a table cell a hard break is a `\n` in the cell's text. An inline
+//!   `<br>` is a hard break, dropped where no text precedes it on its line.
 //! - Two adjacent sibling containers keep their boundary, told apart by
 //!   `Container::instance`, minted here and canonicalized by `normalize`.
 //! - An empty heading, code block or container keeps its line. An empty
@@ -439,6 +441,16 @@ impl Builder {
                 Event::Rule => self.open_line(LineKind::Rule, false),
                 Event::SoftBreak => self.push_inline(" "),
                 Event::HardBreak => {
+                    // A break with no text before it on its line is dropped:
+                    // pulldown never emits one there, an inline `<br>` can, and
+                    // arming a continuation would join the block to the one above.
+                    let line_empty = matches!(self.pending, Some((_, false)))
+                        || self.cur.is_none()
+                        || self.inline.text.is_empty()
+                        || self.inline.text.ends_with('\n');
+                    if line_empty {
+                        continue;
+                    }
                     match self.cur.as_ref().map(|l| &l.kind) {
                         // A heading is one line.
                         Some(LineKind::Heading { .. }) => self.push_inline(" "),
@@ -678,8 +690,8 @@ impl Builder {
                         .push(crate::serial::cell_to_value(&cell.text, &cell.marks));
                 }
             }
-            // Inline content of the open cell. A soft/hard break in a
-            // single-line cell is a space.
+            // Inline content of the open cell. A hard break is a `\n` in the
+            // cell's text, as in prose.
             Event::Text(t) => {
                 if let Some(c) = acc.cell.as_mut() {
                     c.push_text(t);
@@ -690,9 +702,14 @@ impl Builder {
                     c.push_code(t);
                 }
             }
-            Event::SoftBreak | Event::HardBreak => {
+            Event::SoftBreak => {
                 if let Some(c) = acc.cell.as_mut() {
                     c.push_text(" ");
+                }
+            }
+            Event::HardBreak => {
+                if let Some(c) = acc.cell.as_mut() {
+                    c.push_raw('\n');
                 }
             }
             Event::Start(Tag::Emphasis) => {
@@ -795,7 +812,8 @@ pub(crate) fn sanitize_lang(lang: &str) -> String {
 
 // `MarkdownFixer` is the raw-HTML filter between pulldown and the builder: it
 // allowlists `<u>…</u>` as underline (rewritten to Strong start/end, the
-// classification riding the event) and drops every other raw HTML event.
+// classification riding the event) and an inline `<br>` as a hard break, and
+// drops every other raw HTML event, an HTML-block `<br>` included.
 // Delimiter arithmetic stays pulldown's, since a fixer that re-segments `***`
 // runs can only disagree with CommonMark, and disagreeing means deleting an
 // asterisk the author typed.
@@ -807,6 +825,17 @@ fn is_u_open_tag(html: &str) -> bool {
     } else {
         false
     }
+}
+
+/// `<br>` with any case, attributes, or a closing `/`.
+fn is_br_tag(html: &str) -> bool {
+    let Some(inner) = html.trim().strip_prefix('<').and_then(|s| s.strip_suffix('>')) else {
+        return false;
+    };
+    let name_end = inner
+        .find(|c: char| c.is_ascii_whitespace() || c == '/')
+        .unwrap_or(inner.len());
+    inner[..name_end].eq_ignore_ascii_case("br")
 }
 
 fn is_u_close_tag(html: &str) -> bool {
@@ -863,6 +892,7 @@ where
                 Event::InlineHtml(ref html) | Event::Html(ref html) if is_u_close_tag(html) => {
                     (Event::End(TagEnd::Strong), false)
                 }
+                Event::InlineHtml(ref html) if is_br_tag(html) => (Event::HardBreak, false),
                 Event::Html(_) | Event::InlineHtml(_) => continue,
                 other => (other, false),
             });
@@ -1329,6 +1359,27 @@ mod tests {
         assert_eq!(rt.lines.len(), 2);
         assert!(!rt.lines[0].continues);
         assert!(rt.lines[1].continues, "hard break -> continuation line");
+    }
+
+    #[test]
+    fn inline_br_is_a_hard_break_where_text_precedes_it() {
+        let rt = imp("line1<br>line2");
+        assert_eq!(rt.text, "line1\nline2");
+        assert!(rt.lines[1].continues);
+
+        assert_eq!(imp("# a<br>b").text, "a b");
+
+        let rt = imp("a\n\n<br>b");
+        assert_eq!(rt.text, "a\nb");
+        assert!(!rt.lines[1].continues, "two paragraphs stay two");
+
+        let rt = imp("# <br>a");
+        assert_eq!(rt.text, "a");
+        assert_eq!(rt.lines[0].kind, LineKind::Heading { level: 1 });
+
+        let rt = imp("**<br>a**");
+        assert_eq!(rt.text, "a");
+        assert_eq!(rt.marks, vec![Mark::new(0, 1, MarkKind::Strong)]);
     }
 
     #[test]

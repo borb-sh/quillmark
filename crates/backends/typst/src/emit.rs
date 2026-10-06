@@ -699,11 +699,10 @@ impl<'a> Emit<'a> {
         };
         let mut buf = String::new();
         sweep_marks(lo, hi, &wraps, &mut buf, open, |buf, pos, tail| {
-            let c = self.chars[pos];
-            if c == '\n' {
-                buf.push_str("#linebreak()");
-                return (pos + 1, Tail::Expr);
+            if let Some(step) = linebreak_at(buf, &self.chars, pos) {
+                return step;
             }
+            let c = self.chars[pos];
             if c == ISLAND_SLOT {
                 let markup = self.island_markup(pos);
                 buf.push_str(&markup);
@@ -942,23 +941,37 @@ fn emit_run(
     (re, left, (pos..re, g0..g1, EscapeCtx::Markup))
 }
 
-/// A cell is flat inline (no islands, no line breaks), so its markup carries no
-/// source-map runs. It opens at the head of the `[…]` [`table_markup`] wraps it
-/// in, which is a line anchor.
+/// A `\n` at `pos` lowers to `#linebreak()`: the step a sweep callback takes
+/// before any run, prose and table cell alike. A raw `\n` in markup would let
+/// what follows it open a block.
+fn linebreak_at(out: &mut String, chars: &[char], pos: usize) -> Option<(usize, Tail)> {
+    if chars[pos] != '\n' {
+        return None;
+    }
+    out.push_str("#linebreak()");
+    Some((pos + 1, Tail::Expr))
+}
+
+/// A cell is flat inline (no islands; a `\n` is a line break), so its markup
+/// carries no source-map runs. It opens at the head of the `[…]`
+/// [`table_markup`] wraps it in, which is a line anchor.
 fn cell_markup(text: &str, marks: &[Mark]) -> String {
     let chars: Vec<char> = text.chars().collect();
     let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len());
     clip_wraps_to_codes(&mut wraps, &codes);
     let mut out = String::new();
     sweep_marks(0, chars.len(), &wraps, &mut out, Tail::Anchor, |out, pos, tail| {
+        if let Some(step) = linebreak_at(out, &chars, pos) {
+            return step;
+        }
         let (re, left, _) = emit_run(out, pos, chars.len(), &chars, &wraps, &codes, tail);
         (re, left)
     });
     out
 }
 
-/// Each cell is canonical `{text, marks}` rendered through [`cell_markup`], so a
-/// formatted cell reaches byte parity with the oracle, no markdown re-parse.
+/// Each cell is canonical `{text, marks}` rendered through [`cell_markup`], with
+/// no markdown re-parse.
 fn table_markup(props: &serde_json::Value) -> String {
     let header = props.get("header").and_then(|v| v.as_array());
     let rows = props.get("rows").and_then(|v| v.as_array());
@@ -2040,6 +2053,11 @@ mod tests {
                 emit("| / t | = h |\n| --- | --- |\n| - b | 1. n |").markup,
                 vec![],
             ),
+            // Behind a cell's line break.
+            (
+                emit("| a<br>- b | a<br>= h |\n| --- | --- |\n| x | y |").markup,
+                vec![],
+            ),
             // A list item's body head, whose own item is the one block here.
             (emit("- /").markup, vec![SyntaxKind::ListItem]),
             // Real blocks still reach Typst as blocks.
@@ -2054,5 +2072,12 @@ mod tests {
         ] {
             assert_eq!(found(&markup), want, "for {markup:?}");
         }
+
+        fn linebreaks(n: &SyntaxNode) -> usize {
+            let own = usize::from(n.kind() == SyntaxKind::Ident && n.leaf_text() == "linebreak");
+            own + n.children().map(linebreaks).sum::<usize>()
+        }
+        let cells = emit("| a<br>b |\n| --- |\n| c<br>**d** |").markup;
+        assert_eq!(linebreaks(&parse(&cells)), 2, "a cell break is a `linebreak` call: {cells:?}");
     }
 }

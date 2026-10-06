@@ -888,7 +888,7 @@ impl Content {
             }
         }
         // A table island's props are repaired (padded to one column count, cell
-        // `\n` rewritten to a space, cell marks canonicalized) before the key
+        // `\r` rewritten to a space, cell marks canonicalized) before the key
         // sort, so equal cells serialize to equal bytes.
         for island in &mut self.islands {
             island.island_type.normalize_props(&mut island.props);
@@ -897,21 +897,10 @@ impl Content {
         // A formatting mark's edges never sit on a line boundary: markdown can't
         // bold a `\n`, so two producers that disagree only about whether the
         // boundary is "inside" the mark must canonicalize to the same bounds.
-        // Trim leading/trailing `\n` (interior boundaries are kept: a mark may
-        // legitimately span lines). Zero-width results are dropped below.
         // Skip the full-text char collection when nothing needs trimming.
         if self.marks.iter().any(|m| m.kind.is_formatting()) {
             let chars: Vec<char> = self.text.chars().collect();
-            for m in &mut self.marks {
-                if m.kind.is_formatting() {
-                    while m.start < m.end && chars.get(m.start) == Some(&'\n') {
-                        m.start += 1;
-                    }
-                    while m.end > m.start && chars.get(m.end - 1) == Some(&'\n') {
-                        m.end -= 1;
-                    }
-                }
-            }
+            trim_marks_off_newlines(&chars, &mut self.marks);
         }
         self.marks = normalize_marks(std::mem::take(&mut self.marks));
     }
@@ -1166,6 +1155,21 @@ fn canonicalize_containers(lines: &mut [Line]) {
             line.containers[d].set_instance(instance);
         }
         state.truncate(depth_len);
+    }
+}
+
+/// Trim each formatting mark's leading/trailing `\n` off `chars`; interior
+/// boundaries are kept, a mark legitimately spanning lines. Zero-width results
+/// are left for [`normalize_marks`] to drop. Prose text and a table cell's text
+/// share the rule.
+pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
+    for m in marks.iter_mut().filter(|m| m.kind.is_formatting()) {
+        while m.start < m.end && chars.get(m.start) == Some(&'\n') {
+            m.start += 1;
+        }
+        while m.end > m.start && chars.get(m.end - 1) == Some(&'\n') {
+            m.end -= 1;
+        }
     }
 }
 
@@ -1758,7 +1762,7 @@ mod tests {
             "header": [cell("h")],
             "rows": [
                 [cell("a"), cell("b"), cell("c")],
-                [cell("d\ne")],
+                [cell("d\u{2028}e")],
             ],
         }));
         rt.normalize();

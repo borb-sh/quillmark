@@ -11,8 +11,9 @@ use serde_json::Value;
 /// and not others projects the island away silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IslandType {
-    /// `{header, rows, aligns}` with inline `{text, marks}` cells. Mark-carrying,
-    /// shape-normalized (one column count, `\n`-free cells).
+    /// `{header, rows, aligns}` with inline `{text, marks}` cells, a `\n` in a
+    /// cell's text being a line break. Mark-carrying, shape-normalized (one
+    /// column count, `\n` the only line-break char a cell keeps).
     Table,
     /// `{url, alt}`. No cell model, no shape invariants.
     Image,

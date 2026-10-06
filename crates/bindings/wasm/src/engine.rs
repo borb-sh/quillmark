@@ -272,7 +272,7 @@ export type ContentMarkKind =
 
 /** A cell in a `TableProps`. `marks` rides the prose `ContentMark` shape, but
  * each mark's `start`/`end` are USV offsets into this cell's `text`, not into
- * `Content.text`. */
+ * `Content.text`. A `\n` in `text` is a line break. */
 export interface TableCell {
     text: string;
     marks: ContentMark[];

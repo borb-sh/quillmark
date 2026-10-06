@@ -128,7 +128,8 @@ Table alignment maps `none→auto`, `left`, `center`, `right`; the `align:`
 argument is emitted only when at least one column is non-default. A table cell is
 canonical `{text, marks}`, lowered through the same mark sweep as prose: a
 formatted cell reaches `#strong[…]` / `#emph[…]` / `#raw(…)` / `#link(…)[…]`, not
-an escaped source slice.
+an escaped source slice. A `\n` in a cell's text is a line break and lowers to
+`#linebreak()`, as a prose hard break does.
 
 **Block quotes render** as `#quote(block: true)[…]`: the one lowering
 divergence from a flat inline pass; a quote's inner blocks lower under the
@@ -140,9 +141,9 @@ leaves and containers alike: what the content nests, the markup nests.
 
 Anchor marks emit nothing; an `image` island emits nothing (see
 [Declined images](#declined-images)).
-Content that import never admits into the content: raw HTML other than `<u>`,
-HTML comments, `<br>`, math, footnotes, task lists, definition lists
-(markdown-spec §6.3): is absent here.
+Content that import never admits into the content: raw HTML other than `<u>`
+and an inline `<br>` (a hard break), HTML comments, math, footnotes, task lists,
+definition lists (markdown-spec §6.3): is absent here.
 
 ### Declined images
 
