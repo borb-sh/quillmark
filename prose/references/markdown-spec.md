@@ -244,6 +244,13 @@ data payload.
     trailer of the entry holding the value, or follows it when one already
     trails it. A trailer on a sequence item's dash line is the item's, though
     the line holds the item's first key.
+  - A mapping holding a merge (`<<`) reads its own keys, then each key the
+    merge brings that it does not already hold, and `toMarkdown` writes them in
+    that order. A comment at an own key stays with that key. One ahead of a
+    merge or on its line sits ahead of the keys the merge brings, one inside its
+    value keeps its slot among them, and one following the merge follows them.
+    A comment inside a merged key the mapping already holds sits ahead of where
+    that key would.
 - **Tags.** A YAML tag on any node (`!include`, `!env`, a core `!!str`) is
   dropped with a `parse::unsupported_yaml_tag` warning: on a block value, a
   sequence element, a key, or a node inside a flow collection. The value is

@@ -296,6 +296,51 @@ fn an_alias_key_holds_its_comments_and_tags() {
     assert_eq!(Document::parse(&md).unwrap().document, out.document, "{md}");
 }
 
+/// A mapping holding a merge reads its own keys, then each key the merge
+/// brings that it does not already hold. A comment keeps its slot among those
+/// keys: one ahead of, on or inside a merge sits with the keys that merge
+/// brings, one at an own key with that key, and one inside a merged key the
+/// mapping overrides ahead of where that key would sit.
+#[test]
+fn a_comment_around_or_inside_a_merge_keeps_its_slot() {
+    let cases = [
+        (
+            "m:\n  w: 0\n  # before\n  <<: # on\n    # first\n    x: 1 # x\n    # between\n    \
+             z: 2\n    # last\n  # after\n  v: 3\n  # end\n",
+            "m:\n  w: 0\n  # after\n  v: 3\n  # before\n  # on\n  # first\n  x: 1 # x\n  \
+             # between\n  z: 2\n  # last\n  # end\n",
+        ),
+        (
+            "b: &b\n  x: 1\nm:\n  # before\n  <<: *b\n  # after\n  c: 2\n",
+            "m:\n  # after\n  c: 2\n  # before\n  x: 1\n",
+        ),
+        (
+            "p: &p {x: 1, z: 2}\nq: &q {z: 3, u: 4}\nm:\n  x: 0\n  <<: [*p, # p\n    *q] # q\n",
+            "m:\n  x: 0\n  # p\n  z: 2\n  u: 4\n  # q\n",
+        ),
+        (
+            "p: &p {x: 1}\nq: &q {z: 2}\nm:\n  <<:\n    # p\n    - *p\n    # q\n    - *q\n  c: 3\n",
+            "m:\n  c: 3\n  # p\n  x: 1\n  # q\n  z: 2\n",
+        ),
+        (
+            "m:\n  <<:\n    a:\n      # inside a\n      deep: 1\n    <<: {b: 2}\n  a: 0\n",
+            "m:\n  a: 0\n  # inside a\n  b: 2\n",
+        ),
+        ("l:\n  - <<: {x: 1}\n    c: 2 # c\n", "l:\n  - c: 2 # c\n    x: 1\n"),
+        (
+            "$ext:\n  d: &d {a: 1}\nx: 0\n# before\n<<: *d # on\nc: 2\n",
+            "x: 0\nc: 2\n# before\n# on\na: 1\n",
+        ),
+    ];
+    for (fields, emitted) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}")).document;
+        let md = doc.to_markdown();
+        assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
 /// Each comment keeps the container and slot the YAML gives it, whatever the
 /// spelling's indentation: a sequence at its key's column, a comment indented
 /// less than its block, a compact nested sequence, a continuation line.
