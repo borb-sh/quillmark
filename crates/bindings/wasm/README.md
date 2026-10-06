@@ -503,8 +503,8 @@ same shape applies to every throw site:
 - `engine.render` / `session.render`: backend compilation failures and
   validation errors.
 - An object argument carrying a key its verb does not read: the render
-  options, `new Engine` options, an `Addr`, a `CardInput`. Every own key
-  counts, a non-enumerable one and one holding `undefined` included. The
+  options, `new Engine` options, an `Addr`, a `CardInput`. Every own string
+  key counts, a non-enumerable one and one holding `undefined` included. The
   argument must be a plain object, its prototype `null` or `Object.prototype`
   of any realm, so a `Map`, a class instance or `Object.create({ … })` throws.
   The diagnostic names the key or what was passed, and carries no `code`: it
