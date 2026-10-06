@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 
 use pdf_writer::types::AnnotationType;
 use proptest::prelude::*;
-use quillmark_pdf::testkit::{null_spellings, BasePdf, Held};
+use quillmark_pdf::testkit::{null_spellings, BasePdf, Held, NO_OBJECT, NULL_OBJECT, RAW_OBJECT};
 use quillmark_pdf::{page_canvas_boxes, stamp, FieldSpec, FieldType, StampOptions};
 
 /// A real AcroForm the spine accepts, so a mutant of it exercises parse paths a
@@ -92,6 +92,25 @@ fn nulled_base(nulls: &[((&str, &'static str), Vec<u8>)]) -> Vec<u8> {
         .expect("trailer /Root")
         + root.len();
     [&pdf[..at], &trailer, &pdf[at..]].concat()
+}
+
+/// A piece of what a page's `/Annots` or an annotation holds, mostly whole
+/// values: references to [`RAW_OBJECT`], to `null` and to no object, and
+/// annotation dictionaries, among the tokens that open, close or end one.
+fn annots_piece() -> impl Strategy<Value = String> {
+    let values = [RAW_OBJECT, NO_OBJECT, NULL_OBJECT]
+        .map(|id| format!("{id} 0 R"))
+        .into_iter()
+        .chain([format!("<</Subtype {RAW_OBJECT} 0 R>>")])
+        .chain(["null", "/Widget", "<</Subtype/Widget>>", "()", "[]"].map(str::to_string))
+        .collect::<Vec<_>>();
+    let tokens = [
+        " ", "\0", "%c\n", "[", "]", "<<", ">>", "<", ">", "(", ")", "{", "}", "R", "/Subtype",
+    ];
+    prop_oneof![
+        3 => proptest::sample::select(values),
+        1 => proptest::sample::select(tokens.map(str::to_string).to_vec()),
+    ]
 }
 
 fn count(haystack: &[u8], needle: &[u8]) -> usize {
@@ -239,6 +258,27 @@ proptest! {
         if let (AnnotationType::Widget, Err(e)) = (subtype, &result) {
             prop_assert!(e.message.contains(&format!("page {}", page + 1)), "{}", e.message);
         }
+    }
+
+    /// The widget check reads every page's `/Annots`, each element and its
+    /// `/Subtype` through any reference. Generated pieces of them, in the
+    /// array and in the object its elements reference, answer `Err` or `Ok`,
+    /// never a panic.
+    #[test]
+    fn a_generated_annots_array_is_read_without_a_panic(
+        array in any::<bool>(),
+        annots in proptest::collection::vec(annots_piece(), 0..12),
+        dict in any::<bool>(),
+        object in proptest::collection::vec(annots_piece(), 0..12),
+    ) {
+        let annots = annots.concat();
+        let object = object.concat();
+        let base = BasePdf::letter(2)
+            .null_object()
+            .raw_object(if dict { format!("<< /Subtype {object} >>") } else { object })
+            .page_raw("Annots", if array { format!(" [{annots}]") } else { format!(" {annots}") })
+            .build();
+        exercise(&base);
     }
 
     /// ISO 32000-1 §7.3.7: a dictionary names each key once, and readers part

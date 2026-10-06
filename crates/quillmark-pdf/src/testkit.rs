@@ -17,6 +17,9 @@ pub const NULL_OBJECT: i32 = 99;
 /// An id below [`NULL_OBJECT`] that no testkit base writes an object under.
 pub const NO_OBJECT: i32 = 98;
 
+/// The id [`BasePdf::raw_object`] writes its bytes under, below [`NO_OBJECT`].
+pub const RAW_OBJECT: i32 = 97;
+
 #[derive(Clone, Copy)]
 enum Rotation {
     Direct(i32),
@@ -61,6 +64,7 @@ pub struct BasePdf {
     catalog_entries: Vec<(&'static str, Vec<u8>)>,
     page_entries: Vec<(&'static str, Vec<u8>)>,
     null_object: bool,
+    raw_object: Option<Vec<u8>>,
     pretty: bool,
 }
 
@@ -79,6 +83,7 @@ impl BasePdf {
             catalog_entries: Vec::new(),
             page_entries: Vec::new(),
             null_object: false,
+            raw_object: None,
             pretty: true,
         }
     }
@@ -156,6 +161,13 @@ impl BasePdf {
     /// A `null` object under [`NULL_OBJECT`], for an entry to reference.
     pub fn null_object(mut self) -> Self {
         self.null_object = true;
+        self
+    }
+
+    /// Object [`RAW_OBJECT`] holding `body`'s bytes, a value pdf-writer does
+    /// not write, such as a generated one. The xref carries no row for it.
+    pub fn raw_object(mut self, body: impl Into<Vec<u8>>) -> Self {
+        self.raw_object = Some(body.into());
         self
     }
 
@@ -302,6 +314,11 @@ impl BasePdf {
                 bytes = insert_entry(&bytes, page_id, key, value);
             }
         }
+        if let Some(body) = &self.raw_object {
+            let header = format!("{RAW_OBJECT} 0 obj\n");
+            let object = [header.as_bytes(), body, b"\nendobj\n"].concat();
+            bytes = insert(&bytes, rfind(&bytes, b"\nxref\n") + 1, &object);
+        }
         bytes
     }
 }
@@ -344,14 +361,18 @@ fn names(entries: &[(&str, Vec<u8>)], key: &str) -> bool {
     entries.iter().any(|&(name, _)| name == key)
 }
 
-/// `pdf` with `/key` and `value` written last in object `id`'s dictionary, and
-/// every xref offset past them and `startxref` moved to match.
+/// `pdf` with `/key` and `value` written last in object `id`'s dictionary.
 fn insert_entry(pdf: &[u8], id: Ref, key: &str, value: &[u8]) -> Vec<u8> {
     let object = find(pdf, format!("\n{} 0 obj\n", id.get()).as_bytes());
     let endobj = object + find(&pdf[object..], b"endobj");
     let at = object + rfind(&pdf[object..endobj], b">>");
-    let entry = [format!(" /{key}").as_bytes(), value].concat();
-    let mut out = [&pdf[..at], &entry, &pdf[at..]].concat();
+    insert(pdf, at, &[format!(" /{key}").as_bytes(), value].concat())
+}
+
+/// `pdf` with `bytes` at `at`, and every xref offset past them and `startxref`
+/// moved to match.
+fn insert(pdf: &[u8], at: usize, bytes: &[u8]) -> Vec<u8> {
+    let mut out = [&pdf[..at], bytes, &pdf[at..]].concat();
 
     let xref = rfind(&out, b"\nxref\n") + 1;
     let header = xref + b"xref\n".len();
@@ -361,7 +382,7 @@ fn insert_entry(pdf: &[u8], id: Ref, key: &str, value: &[u8]) -> Vec<u8> {
     for row in out[rows..trailer].chunks_exact_mut(20) {
         let offset: usize = std::str::from_utf8(&row[..10]).unwrap().parse().unwrap();
         if row[17] == b'n' && offset > at {
-            row[..10].copy_from_slice(format!("{:010}", offset + entry.len()).as_bytes());
+            row[..10].copy_from_slice(format!("{:010}", offset + bytes.len()).as_bytes());
         }
     }
     let startxref = rfind(&out, b"startxref\n") + b"startxref\n".len();
