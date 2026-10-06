@@ -87,11 +87,12 @@ fn project_sources_import_as_typst_resolves_paths() {
     );
 }
 
-/// A bare path missed below the quill root hints its rooted spelling, from any
-/// module depth and for any file kind, but only where the quill holds a file
-/// at that spelling.
+/// A path missed below the quill root hints the rooted path of the file the
+/// root holds, from any module depth and for any file kind, but only where it
+/// holds one. A bare spelling and a rooted one through the module's directory
+/// search the same path, and draw the same hint.
 #[test]
-fn a_bare_path_missing_a_quill_root_file_hints_the_rooted_spelling() {
+fn a_path_missed_below_the_quill_root_hints_the_rooted_file_the_root_holds() {
     const YAML: &str = "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  \
                         description: d\n\ntypst:\n  plate_file: tpl/layout.typ\n";
     const SVG: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"/>";
@@ -106,13 +107,15 @@ fn a_bare_path_missing_a_quill_root_file_hints_the_rooted_spelling() {
     };
     let image = "#image(\"assets/logo.svg\")\n";
 
-    let hint = hint_of(&[
-        ("Quill.yaml", YAML),
-        ("tpl/layout.typ", image),
-        ("assets/logo.svg", SVG),
-    ])
-    .expect("the root holds assets/logo.svg");
-    assert!(hint.contains("`/assets/logo.svg`"), "{hint}");
+    for written in [image, "#image(\"/tpl/assets/logo.svg\")\n"] {
+        let hint = hint_of(&[
+            ("Quill.yaml", YAML),
+            ("tpl/layout.typ", written),
+            ("assets/logo.svg", SVG),
+        ])
+        .expect("the root holds assets/logo.svg");
+        assert!(hint.contains("`/assets/logo.svg`"), "{written}: {hint}");
+    }
 
     let hint = hint_of(&[
         ("Quill.yaml", YAML),
