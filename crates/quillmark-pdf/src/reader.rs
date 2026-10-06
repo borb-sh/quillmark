@@ -439,9 +439,11 @@ fn dict_entries(dict: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
 }
 
 /// `dict` when [`dict_entries`] reads it to its end and it names each key
-/// once, as ISO 32000-1 §7.3.7 requires, else `Err` under `code`. Readers part
-/// on which entry a repeated key holds and on what follows a token where a key
-/// belongs, so no read or rewrite of such a dict is safe.
+/// once, with a value, as ISO 32000-1 §7.3.7 requires, else `Err` under
+/// `code`. Readers part on which entry a repeated key holds and on what follows
+/// a token where a key belongs, and a key with no value takes whatever follows
+/// it as its value, an entry a rewrite appends included, so no read or rewrite
+/// of such a dict is safe.
 fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d [u8], PdfError> {
     let mut keys = HashSet::new();
     let mut end = 0;
@@ -452,6 +454,15 @@ fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d
                 format!(
                     "{what} dict names {} twice; a dictionary names each key once, so keep one \
                      entry",
+                    String::from_utf8_lossy(key)
+                ),
+            ));
+        }
+        if skip_ws_and_comments(entry, 0) == entry.len() {
+            return Err(err(
+                code,
+                format!(
+                    "{what} dict names {} with no value",
                     String::from_utf8_lossy(key)
                 ),
             ));
@@ -1176,12 +1187,14 @@ mod tests {
     }
 
     #[test]
-    fn a_dict_holding_a_token_where_a_key_belongs_is_refused() {
+    fn a_dict_holding_a_stray_token_or_a_key_with_no_value_is_refused() {
         for inner in [
             "/Lang /en{US} /AcroForm 7 0 R",
             "/AcroForm null} /Pages 2 0 R",
             "/A 1 2 /AcroForm 7 0 R",
             "(x) /A 1",
+            "/Pages 2 0 R /Lang",
+            "/Pages 2 0 R /Lang %c\n",
         ] {
             let pdf = format!("%PDF\n1 0 obj\n<< {inner} >>\nendobj\n");
             let e = ObjectIndex::new(pdf.as_bytes())
