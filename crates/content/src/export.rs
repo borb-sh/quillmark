@@ -647,10 +647,11 @@ fn render_marked_core(
     let n = chars.len();
 
     // A code span is emitted verbatim between backticks, so a slot inside it
-    // would land raw and re-import as nothing, taking the island with it.
-    // Markdown has no honest encoding (`` `![x](y)` `` is *literal* text), so
-    // split each code range around every slot it covers and let the island
-    // render between the surviving code spans.
+    // would land raw and re-import as nothing, taking the island with it, and a
+    // cell's `\n` would land raw and split the pipe row. Markdown has no honest
+    // encoding for either (`` `![x](y)` `` and `` `<br>` `` are *literal* text),
+    // so split each code range around every slot and `\n` it covers and let
+    // the island or break render between the surviving code spans.
     let mut code_ranges: Vec<(usize, usize)> = code_ranges
         .iter()
         .flat_map(|&(s, e)| split_around_slots(chars, s, e))
@@ -668,6 +669,17 @@ fn render_marked_core(
     let mut atomics: Vec<(usize, usize)> = code_ranges.to_vec();
     atomics.extend(links.iter().map(|(s, e, _)| (*s, *e)));
     clip_fmt_to_atomic(&mut fmt, &atomics);
+    // A clip can land an edge on a cell's `\n`, where storage trims a mark's
+    // edge, so the probe below would read back a mark other than the one asked.
+    for m in fmt.iter_mut() {
+        while m.0 < m.1 && chars[m.0] == '\n' {
+            m.0 += 1;
+        }
+        while m.1 > m.0 && chars[m.1 - 1] == '\n' {
+            m.1 -= 1;
+        }
+    }
+    fmt.retain(|m| m.0 < m.1);
     clip_asterisk_overlap(&mut fmt);
 
     // The slice's edge whitespace runs, found on the content chars: the heading,
@@ -875,12 +887,24 @@ fn render_marked_core(
     // over different text is not the mark the content held: `**a**_b_**c**` lowers
     // to a `***` run CommonMark re-segments into one `Strong` over all three spans,
     // spending no character and moving where bold starts and ends.
+    //
+    // A cell fragment is read back as a cell, where `<br>` is a `\n` wherever it
+    // sits; prose reads a break at a mark edge or a second one in a row
+    // differently.
     let probe = |md: &str, want_marks: &[Mark]| -> Option<bool> {
-        let rt = crate::import::from_markdown(&format!(",{md},")).ok()?;
-        if rt.text != want {
+        let (text, marks) = if escape_pipe {
+            let rt = crate::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |")).ok()?;
+            let cell = rt.islands.first()?.props.get("rows")?.get(0)?.get(0)?;
+            crate::serial::parse_cell(cell)
+        } else {
+            let rt = crate::import::from_markdown(&format!(",{md},")).ok()?;
+            let rt = rt.into_content();
+            (rt.text, rt.marks)
+        };
+        if text != want {
             return None;
         }
-        let got: Vec<&Mark> = rt.marks.iter().filter(|m| is_flanking(&m.kind)).collect();
+        let got: Vec<&Mark> = marks.iter().filter(|m| is_flanking(&m.kind)).collect();
         Some(got.into_iter().eq(want_marks.iter()))
     };
     // Re-spell before dropping anything. The leak is rarely an unrepresentable
@@ -1002,12 +1026,14 @@ pub fn clip_range_to_atomic(start: &mut usize, end: &mut usize, atomics: &[(usiz
     }
 }
 
-/// The maximal slot-free subranges of `[start, end)`: the range itself when it
-/// covers no [`ISLAND_SLOT`], else one range per run between slots (empty runs
-/// dropped). Used to keep a code span off an island it cannot represent.
+/// The maximal subranges of `[start, end)` free of [`ISLAND_SLOT`] and `\n`:
+/// the range itself when it covers neither, else one range per run between
+/// them (empty runs dropped). Used to keep a code span off an island or a cell
+/// break it cannot represent.
 fn split_around_slots(chars: &[char], start: usize, end: usize) -> Vec<(usize, usize)> {
+    let cut = |c: char| c == ISLAND_SLOT || c == '\n';
     let end = end.min(chars.len());
-    if !chars[start.min(end)..end].contains(&ISLAND_SLOT) {
+    if !chars[start.min(end)..end].iter().any(|&c| cut(c)) {
         return vec![(start, end)];
     }
     let mut out = Vec::new();
@@ -1016,7 +1042,7 @@ fn split_around_slots(chars: &[char], start: usize, end: usize) -> Vec<(usize, u
         .iter()
         .enumerate()
         .map(|(i, c)| (start + i, c))
-        .filter(|&(_, &c)| c == ISLAND_SLOT)
+        .filter(|&(_, &c)| cut(c))
     {
         if run < i {
             out.push((run, i));
@@ -1144,7 +1170,8 @@ fn escape_run(chars: &[char], escape_pipe: bool) -> String {
 /// Push `c` into `out` escaped so it re-imports as literal text: the char
 /// verbatim, or a `&'static str` escape. `leading` also escapes block-starter
 /// chars that would otherwise open a heading/list/quote; `escape_pipe` adds
-/// `|`→`\|`, so a table cell survives `pulldown`'s pipe split.
+/// `|`→`\|` and `\n`→`<br>`, so a table cell survives `pulldown`'s pipe split
+/// on its one source line.
 fn escape_char_into(c: char, leading: bool, escape_pipe: bool, out: &mut String) {
     let esc: &str = match c {
         '\\' => "\\\\",
@@ -1160,6 +1187,7 @@ fn escape_char_into(c: char, leading: bool, escape_pipe: bool, out: &mut String)
         // escaped: detecting "would form an entity" is not worth the fragility.
         '&' => "\\&",
         '|' if escape_pipe => "\\|",
+        '\n' if escape_pipe => "<br>",
         '#' if leading => "\\#",
         '>' if leading => "\\>",
         '-' if leading => "\\-",
@@ -1684,6 +1712,34 @@ mod tests {
         assert_eq!(cell["marks"][0]["start"], 0);
         assert_eq!(cell["marks"][0]["end"], 4);
         assert!(to_markdown(&rt).contains("**bold**"));
+    }
+
+    #[test]
+    fn a_cell_line_break_round_trips_as_br() {
+        for body in [
+            "line1<br>line2",
+            "a <br> b",
+            "<br>a",
+            "a<br>",
+            "a<br><br>b",
+            "**a<br>b**",
+            "\\<br>",
+        ] {
+            let md = format!("| h |\n| --- |\n| {body} |");
+            let rt = from_markdown(&md).unwrap();
+            assert_eq!(to_markdown(&rt), md, "cell {body:?}");
+        }
+        let rt = from_markdown("| h |\n| --- |\n| \\<br> |").unwrap();
+        assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "<br>");
+    }
+
+    #[test]
+    fn every_br_spelling_is_one_cell_break() {
+        for br in ["<br/>", "<br />", "<BR>", "<br clear=\"all\">"] {
+            let rt = from_markdown(&format!("| h |\n| --- |\n| a{br}b |")).unwrap();
+            assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "a\nb", "{br}");
+            assert_eq!(to_markdown(&rt), "| h |\n| --- |\n| a<br>b |", "{br}");
+        }
     }
 
     /// A content of one Para line holding `text`, whose slots the `islands`

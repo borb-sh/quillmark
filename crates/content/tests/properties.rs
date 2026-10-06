@@ -647,6 +647,10 @@ fn cell_token() -> impl Strategy<Value = String> {
         clean_word().prop_map(|w| format!("~~{w}~~")),
         clean_word().prop_map(|w| format!("`{w}`")),
         (clean_word(), clean_word()).prop_map(|(t, u)| format!("[{t}](https://ex.com/{u})")),
+        clean_word().prop_map(|w| format!("{w}<br>{w}")),
+        clean_word().prop_map(|w| format!("**{w}<br>{w}**")),
+        clean_word().prop_map(|w| format!("<br>{w}")),
+        clean_word().prop_map(|w| format!("{w}<br>")),
     ]
 }
 
@@ -718,6 +722,86 @@ proptest! {
         let md = to_markdown(&rt);
         let rt2 = from_markdown(&md).unwrap();
         prop_assert_eq!(&rt, &rt2, "table not a fixed point.\n  md: {:?}", md);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// Editor marks over a cell holding `\n`: the shapes import never mints, a
+    /// mark edge on a break and a code span across one. The text and the row
+    /// survive whatever the marks, and a break costs no mark.
+    #[test]
+    fn editor_marks_over_a_cell_break_are_text_safe(
+        chars in prop::collection::vec(
+            prop::sample::select(vec!['a', 'b', '9', '\n', ' ']),
+            1..10,
+        ),
+        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..5), 0..4),
+    ) {
+        let text: String = chars.into_iter().collect();
+        let n = text.chars().count();
+        let marks: Vec<Value> = specs
+            .iter()
+            .map(|&(a, b, k)| {
+                let (s, e) = (a % (n + 1), b % (n + 1));
+                let kind = if k == 4 { MarkKind::Code } else { ov_kind(k) };
+                quillmark_content::serial::mark_to_value(&Mark::new(s.min(e), s.max(e), kind))
+            })
+            .collect();
+        let rt = table_content(
+            vec!["none"],
+            vec![json!({"text": "h", "marks": []})],
+            vec![vec![json!({"text": text, "marks": marks})]],
+        )
+        .into_normalized();
+        prop_assert_eq!(rt.validate(), Ok(()), "normalized table invalid");
+        prop_assert_eq!(&renormalized(&rt), &*rt, "the table mint is not a fixed point");
+
+        let md = to_markdown(&rt);
+        let rt2 = from_markdown(&md).unwrap();
+        let rows = rt2.islands.first().map(|i| i.props["rows"].clone());
+        prop_assert_eq!(rows.as_ref().and_then(|r| r.as_array()).map(Vec::len), Some(1),
+            "the row split: {:?}", md);
+        let cell = &rt2.islands[0].props["rows"][0][0];
+        prop_assert_eq!(cell["text"].as_str(), Some(text.as_str()), "cell text drifted: {:?}", md);
+        prop_assert_eq!(&from_markdown(&to_markdown(&rt2)).unwrap(), &rt2,
+            "the re-import is not a fixed point: {:?}", md);
+
+        // A break flanks a delimiter as the punctuation `<br>` is, so the same
+        // cell with each `\n` a `,` keeps the marks it keeps, up to the trim of
+        // an edge off a break. A code span is left out: one across a break
+        // re-imports as two spans, and its clip can land a wrap's edge on a
+        // space the trim exposes.
+        let (stored, kept) = quillmark_content::serial::parse_cell(&rt.islands[0].props["rows"][0][0]);
+        let cs: Vec<char> = stored.chars().collect();
+        if !kept.iter().any(|m| m.kind == MarkKind::Code) {
+            let commas: String = cs.iter().map(|&c| if c == '\n' { ',' } else { c }).collect();
+            let wire: Vec<Value> = kept.iter().map(quillmark_content::serial::mark_to_value).collect();
+            let twin = table_content(
+                vec!["none"],
+                vec![json!({"text": "h", "marks": []})],
+                vec![vec![json!({"text": commas, "marks": wire})]],
+            )
+            .into_normalized();
+            let twin2 = from_markdown(&to_markdown(&twin)).unwrap();
+            let marks_of = |rt: &Normalized| {
+                let mut marks = quillmark_content::serial::parse_cell(&rt.islands[0].props["rows"][0][0]).1;
+                // Off the twin's `,` where the cell holds a `\n`, as a stored edge is.
+                for m in &mut marks {
+                    while m.start < m.end && cs[m.start] == '\n' {
+                        m.start += 1;
+                    }
+                    while m.end > m.start && cs[m.end - 1] == '\n' {
+                        m.end -= 1;
+                    }
+                }
+                marks.retain(|m| m.start < m.end);
+                marks.sort_by_key(|m| (m.start, m.end, m.kind.sort_key()));
+                marks
+            };
+            prop_assert_eq!(marks_of(&rt2), marks_of(&twin2), "a break cost a mark: {:?}", md);
+        }
     }
 }
 

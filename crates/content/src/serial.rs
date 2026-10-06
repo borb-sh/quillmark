@@ -785,11 +785,12 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 ///   only grows: no cell is ever truncated). Materializing the count into the
 ///   header means the markdown projection (header-derived) and the Typst
 ///   projection (widest-row) agree on one number.
-/// - **Single-line cells.** Any `\n`/`\r` in a cell's text becomes a space (the
-///   same rule import applies to soft/hard breaks). A 1:1 replacement keeps char
-///   offsets stable, so the cell's marks stay in range.
-/// - **Canonical cell marks.** Each cell's marks are re-normalized (sort,
-///   same-kind union, drop zero-width) so equal cells serialize to equal bytes.
+/// - **One break char.** A `\n` in a cell's text is a line break; a `\r` or a
+///   [`crate::normalize::is_line_separator`] char becomes a space. A 1:1
+///   replacement keeps char offsets stable, so the cell's marks stay in range.
+/// - **Canonical cell marks.** Each cell's marks are re-normalized (formatting
+///   edges trimmed off `\n` as prose's are, sort, same-kind union, drop
+///   zero-width) so equal cells serialize to equal bytes.
 /// - **Arrays where arrays belong.** A present non-array `header`, `aligns`, or
 ///   row carries no cells, so it becomes an empty array.
 pub(crate) fn normalize_table_props(props: &mut Value) {
@@ -856,23 +857,30 @@ fn pad_row(v: &mut Value, cols: usize) {
     }
 }
 
-/// Every char a downstream lexer reads as a line break, the separators
-/// [`crate::normalize::is_line_separator`] names included. A cell is one line.
+/// Every char a downstream lexer reads as a line break other than `\n`, the
+/// separators [`crate::normalize::is_line_separator`] names included. A cell's
+/// one line break is `\n`.
 fn is_cell_break(c: char) -> bool {
-    c == '\n' || c == '\r' || crate::normalize::is_line_separator(c)
+    c == '\r' || crate::normalize::is_line_separator(c)
 }
 
-/// De-newline a cell's text (each line break → a space, 1:1 so mark offsets
-/// hold) and re-normalize its marks. Writes back into the cell's **own** object
-/// rather than minting a fresh one, so a key this build does not recognize
-/// survives.
+/// Space a cell's stray line-break chars (1:1, so mark offsets hold) and
+/// re-normalize its marks. Writes back into the cell's **own** object rather
+/// than minting a fresh one, so a key this build does not recognize survives.
 fn canon_cell(cell: &mut Value) {
-    let (text, marks) = parse_cell(cell);
+    let (text, mut marks) = parse_cell(cell);
     let text = if text.contains(is_cell_break) {
         text.replace(is_cell_break, " ")
     } else {
         text
     };
+    if text.contains('\n') {
+        // Union before the trim: the pieces a sweep reopens across a `\n` meet
+        // at it, and trimmed first they would part there.
+        marks = crate::model::normalize_marks(marks);
+        let chars: Vec<char> = text.chars().collect();
+        crate::model::trim_marks_off_newlines(&chars, &mut marks);
+    }
     let canon = cell_to_value(&text, &crate::model::normalize_marks(marks));
     match (cell.as_object_mut(), canon) {
         // Overwrite the canonical keys, leave the rest.
