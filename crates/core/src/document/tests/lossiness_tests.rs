@@ -300,7 +300,9 @@ fn an_alias_key_holds_its_comments_and_tags() {
 /// brings that it does not already hold. A comment keeps its slot among those
 /// keys: one ahead of, on or inside a merge sits with the keys that merge
 /// brings, one at an own key with that key, and one inside a merged key the
-/// mapping overrides ahead of where that key would sit.
+/// mapping overrides ahead of where that key would sit. An item whose merges
+/// bring no key emits as `{}`, which holds no comment, so its comments follow
+/// the item.
 #[test]
 fn a_comment_around_or_inside_a_merge_keeps_its_slot() {
     let cases = [
@@ -327,6 +329,8 @@ fn a_comment_around_or_inside_a_merge_keeps_its_slot() {
             "m:\n  a: 0\n  # inside a\n  b: 2\n",
         ),
         ("l:\n  - <<: {x: 1}\n    c: 2 # c\n", "l:\n  - c: 2 # c\n    x: 1\n"),
+        ("l:\n  - <<:\n      # c\n  - 1\n", "l:\n  - {}\n  # c\n  - 1\n"),
+        ("d: &d {}\nl:\n  - <<: *d\n    # note\n", "l:\n  - {}\n  # note\n"),
         (
             "$ext:\n  d: &d {a: 1}\nx: 0\n# before\n<<: *d # on\nc: 2\n",
             "x: 0\nc: 2\n# before\n# on\na: 1\n",

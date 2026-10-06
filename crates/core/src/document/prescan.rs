@@ -1074,7 +1074,9 @@ impl<'a> Walk<'a> {
                     self.rebuild_root(&flat);
                 } else {
                     self.resolve(depth, frame.first, &flat);
-                    if item {
+                    if item && flat.keys.is_empty() {
+                        self.vacate(depth, frame.first);
+                    } else if item {
                         self.lend(depth, frame.first);
                     }
                 }
@@ -1143,6 +1145,25 @@ impl<'a> Walk<'a> {
         r.comment.position = index;
         if let Some(entry) = self.frames[depth - 1].entry.as_mut() {
             entry.trailed = true;
+        }
+    }
+
+    /// Move the comments of an item's mapping that holds no key after the item:
+    /// `to_markdown` writes that item `{}`, which holds none.
+    fn vacate(&mut self, depth: usize, first: usize) {
+        let Some(index) = self.frames[depth - 1].entry.as_ref().map(|e| e.index) else {
+            return;
+        };
+        let chain = self.chain(depth);
+        let after = [&chain[..chain.len() - 2], &[index + 1, 0]].concat();
+        for r in &mut self.nested[first..] {
+            if r.order.starts_with(&chain) {
+                r.order = after.clone();
+                r.at = At::After(index);
+                r.comment.container_path.pop();
+                r.comment.position = index + 1;
+                r.comment.inline = false;
+            }
         }
     }
 
