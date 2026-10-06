@@ -11,6 +11,8 @@
 //! This module owns the surrounding structure: fences, `$` metadata lines, field
 //! ordering, indentation, and comment interleaving.
 
+use std::collections::BTreeMap;
+
 use serde_json::Value as JsonValue;
 use serde_saphyr::{FlowMap, FlowSeq, SerializerOptions};
 
@@ -98,8 +100,9 @@ fn emit_meta_block(
     trailer: Option<&str>,
     nested: &[NestedComment],
 ) {
+    let comments = Comments::new(nested);
     let ctx = EmitCtx {
-        nested,
+        comments: &comments,
         ..EmitCtx::EMPTY
     };
     out.push_str(key);
@@ -117,20 +120,20 @@ fn emit_meta_block(
 }
 
 /// The sidecar tables threaded through the recursive emit: `path` is the
-/// container path the current node sits at, `nested` the whole block's
-/// comment table. `project_content` routes each canonical content object
+/// container path the current node sits at, `comments` the whole value's
+/// comments by slot. `project_content` routes each canonical content object
 /// through [`project_content_field`].
 #[derive(Clone, Copy)]
 struct EmitCtx<'a> {
     path: &'a [PathSegment],
-    nested: &'a [NestedComment],
+    comments: &'a Comments<'a>,
     project_content: bool,
 }
 
 impl<'a> EmitCtx<'a> {
     const EMPTY: Self = Self {
         path: &[],
-        nested: &[],
+        comments: &Comments::EMPTY,
         project_content: false,
     };
 
@@ -145,6 +148,39 @@ impl<'a> EmitCtx<'a> {
             return None;
         }
         project_content_field(value).map(JsonValue::String)
+    }
+}
+
+/// A comment table indexed by the slot each comment sits at.
+struct Comments<'a> {
+    slots: BTreeMap<(&'a [PathSegment], usize, bool), Vec<&'a str>>,
+    /// Each container's comments in table order: its orphaned inlines emit in
+    /// that order, not by position.
+    containers: BTreeMap<&'a [PathSegment], Vec<&'a NestedComment>>,
+}
+
+impl<'a> Comments<'a> {
+    const EMPTY: Self = Self {
+        slots: BTreeMap::new(),
+        containers: BTreeMap::new(),
+    };
+
+    fn new(nested: &'a [NestedComment]) -> Self {
+        let mut comments = Self::EMPTY;
+        for c in nested {
+            let path = c.container_path.as_slice();
+            comments.slots.entry((path, c.position, c.inline)).or_default().push(&c.text);
+            comments.containers.entry(path).or_default().push(c);
+        }
+        comments
+    }
+
+    fn slot(&self, path: &'a [PathSegment], position: usize, inline: bool) -> &[&'a str] {
+        self.slots.get(&(path, position, inline)).map_or(&[], Vec::as_slice)
+    }
+
+    fn container(&self, path: &[PathSegment]) -> &[&'a NestedComment] {
+        self.containers.get(path).map_or(&[], Vec::as_slice)
     }
 }
 
@@ -221,7 +257,7 @@ pub(super) fn emit_payload_items(out: &mut String, payload: &Payload) {
                     value.as_json(),
                     KeyPos::Line(0),
                     EmitCtx {
-                        nested: &nested,
+                        comments: &Comments::new(&nested),
                         project_content: true,
                         ..EmitCtx::EMPTY
                     },
@@ -283,24 +319,18 @@ fn ensure_blank_before_fence(out: &mut String) {
 /// Emit own-line nested comments at `position` in the context path (inline
 /// comments are handled by `find_inline_trailer`).
 fn emit_own_line_pending(out: &mut String, ctx: EmitCtx<'_>, position: usize, indent: usize) {
-    for c in ctx.nested {
-        if c.position == position && !c.inline && c.container_path.as_slice() == ctx.path {
-            push_comment_line(out, indent, &c.text);
-        }
+    for text in ctx.comments.slot(ctx.path, position, false) {
+        push_comment_line(out, indent, text);
     }
 }
 
 /// Whether [`emit_own_line_pending`] has anything to write at `position`.
 fn has_own_line_pending(ctx: EmitCtx<'_>, position: usize) -> bool {
-    ctx.nested
-        .iter()
-        .any(|c| c.position == position && !c.inline && c.container_path.as_slice() == ctx.path)
+    !ctx.comments.slot(ctx.path, position, false).is_empty()
 }
 
 fn has_inline(ctx: EmitCtx<'_>, position: usize) -> bool {
-    ctx.nested
-        .iter()
-        .any(|c| c.position == position && c.inline && c.container_path.as_slice() == ctx.path)
+    !ctx.comments.slot(ctx.path, position, true).is_empty()
 }
 
 /// Return the inline trailer for `position` in the context path. If multiple
@@ -312,23 +342,17 @@ fn find_inline_trailer<'a>(
     position: usize,
     indent: usize,
 ) -> Option<&'a str> {
-    let mut chosen: Option<&str> = None;
-    for c in ctx.nested {
-        if c.position == position && c.inline && c.container_path.as_slice() == ctx.path {
-            if chosen.is_none() {
-                chosen = Some(c.text.as_str());
-            } else {
-                push_comment_line(out, indent, &c.text);
-            }
-        }
+    let (&first, rest) = ctx.comments.slot(ctx.path, position, true).split_first()?;
+    for text in rest {
+        push_comment_line(out, indent, text);
     }
-    chosen
+    Some(first)
 }
 
 /// Emit orphan inline comments (`position >= container_len`) as own-line.
 fn emit_orphan_inlines(out: &mut String, ctx: EmitCtx<'_>, container_len: usize, indent: usize) {
-    for c in ctx.nested {
-        if c.inline && c.position >= container_len && c.container_path.as_slice() == ctx.path {
+    for c in ctx.comments.container(ctx.path) {
+        if c.inline && c.position >= container_len {
             push_comment_line(out, indent, &c.text);
         }
     }
@@ -418,7 +442,7 @@ pub(crate) fn emit_mapping_lines(
         0,
         EmitCtx {
             path: &[],
-            nested,
+            comments: &Comments::new(nested),
             project_content: true,
         },
     );
@@ -960,5 +984,33 @@ mod tests {
             Some("note"),
         );
         assert_eq!(out, "outer: # note\n  inner: 1\n");
+    }
+
+    #[test]
+    fn inline_comments_with_no_line_to_trail_stand_alone_in_table_order() {
+        let inline = |position, text: &str| NestedComment {
+            container_path: p("list"),
+            position,
+            text: text.to_string(),
+            inline: true,
+        };
+        let payload = Payload::from_items_with_nested(
+            vec![PayloadItem::Field {
+                key: "list".to_string(),
+                value: QuillValue::from_json(serde_json::json!(["a", "b"])),
+            }],
+            vec![
+                inline(0, "trailer"),
+                inline(0, "second at 0"),
+                inline(5, "past the end"),
+                inline(2, "at the end"),
+            ],
+        );
+        let mut out = String::new();
+        emit_payload_items(&mut out, &payload);
+        assert_eq!(
+            out,
+            "list:\n  # second at 0\n  - a # trailer\n  - b\n  # past the end\n  # at the end\n"
+        );
     }
 }
