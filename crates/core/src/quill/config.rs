@@ -388,16 +388,8 @@ impl QuillConfig {
                     }
                 }
                 if mode == Leniency::Render {
-                    if let Some(n) = json_value.as_i64() {
-                        return Ok(QuillValue::from_json(serde_json::Value::Bool(n != 0)));
-                    }
                     if let Some(n) = json_value.as_f64() {
-                        if n.is_nan() {
-                            return Ok(QuillValue::from_json(serde_json::Value::Bool(false)));
-                        }
-                        return Ok(QuillValue::from_json(serde_json::Value::Bool(
-                            n.abs() > f64::EPSILON,
-                        )));
+                        return Ok(QuillValue::from_json(serde_json::Value::Bool(n != 0.0)));
                     }
                 }
 
