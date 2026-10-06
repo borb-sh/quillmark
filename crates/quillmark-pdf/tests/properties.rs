@@ -9,7 +9,7 @@
 use std::sync::LazyLock;
 
 use proptest::prelude::*;
-use quillmark_pdf::testkit::BasePdf;
+use quillmark_pdf::testkit::{null_spellings, BasePdf};
 use quillmark_pdf::{page_canvas_boxes, stamp, FieldSpec, FieldType, StampOptions};
 
 /// A real AcroForm the spine accepts, so a mutant of it exercises parse paths a
@@ -66,15 +66,19 @@ const NULLABLE: [(&str, &str); 8] = [
     ("page", "Rotate"),
 ];
 
-/// A one-page testkit base carrying `/key null` at each of `nulls`.
-fn nulled_base(nulls: &[(&str, &'static str)]) -> Vec<u8> {
+/// A one-page testkit base carrying `/key` and its spelling of `null` at each
+/// of `nulls`.
+fn nulled_base(nulls: &[((&str, &'static str), Vec<u8>)]) -> Vec<u8> {
     let mut base = BasePdf::letter(1);
     let mut trailer = Vec::new();
-    for &(holder, key) in nulls {
-        match holder {
-            "catalog" => base = base.catalog_null(key),
-            "page" => base = base.page_null(key),
-            _ => trailer.extend_from_slice(format!(" /{key} null").as_bytes()),
+    for ((holder, key), spelling) in nulls {
+        match *holder {
+            "catalog" => base = base.catalog_raw(key, spelling.clone()),
+            "page" => base = base.page_raw(key, spelling.clone()),
+            _ => {
+                trailer.extend_from_slice(format!(" /{key}").as_bytes());
+                trailer.extend_from_slice(spelling);
+            }
         }
     }
     let pdf = base.build();
@@ -154,13 +158,22 @@ proptest! {
     }
 
     /// ISO 32000-1 §7.3.9: an entry whose value is `null` is an absent one.
-    /// The [`NULLABLE`] entries, nulled in any combination, stamp as their
-    /// absence: the page keeps the page tree's box, and each dictionary the
-    /// update rewrites names each key it writes once.
+    /// The [`NULLABLE`] entries, nulled in any combination and each in any of
+    /// the [`null_spellings`], stamp as their absence: the page keeps the page
+    /// tree's box, and each dictionary the update rewrites names each key it
+    /// writes once.
     #[test]
     fn a_null_entry_stamps_as_its_absence(
-        nulls in proptest::sample::subsequence(NULLABLE.to_vec(), 0..=NULLABLE.len()),
+        spellings in proptest::collection::vec(
+            proptest::option::of(proptest::sample::select(null_spellings())),
+            NULLABLE.len(),
+        ),
     ) {
+        let nulls: Vec<_> = NULLABLE
+            .into_iter()
+            .zip(spellings)
+            .filter_map(|(entry, spelling)| Some((entry, spelling?)))
+            .collect();
         let base = nulled_base(&nulls);
         prop_assert_eq!(
             page_canvas_boxes(&base).map_err(|e| e.message),

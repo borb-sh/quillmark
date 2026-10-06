@@ -8,7 +8,7 @@
 
 use pdf_writer::types::AnnotationType;
 use pdf_writer::writers::Form;
-use pdf_writer::{Content, Finish, Name, Null, Pdf, Rect, Ref, Settings, TextStr};
+use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Settings, TextStr};
 
 #[derive(Clone, Copy)]
 enum Rotation {
@@ -27,8 +27,8 @@ pub struct BasePdf {
     info_title: Option<String>,
     inline_annot: bool,
     acroform: bool,
-    catalog_nulls: Vec<&'static str>,
-    page_nulls: Vec<&'static str>,
+    catalog_entries: Vec<(&'static str, Vec<u8>)>,
+    page_entries: Vec<(&'static str, Vec<u8>)>,
     pretty: bool,
 }
 
@@ -42,8 +42,8 @@ impl BasePdf {
             info_title: None,
             inline_annot: false,
             acroform: false,
-            catalog_nulls: Vec::new(),
-            page_nulls: Vec::new(),
+            catalog_entries: Vec::new(),
+            page_entries: Vec::new(),
             pretty: true,
         }
     }
@@ -90,18 +90,18 @@ impl BasePdf {
         self
     }
 
-    /// `/key null` on the catalog, in place of any value this builder writes
-    /// there.
-    pub fn catalog_null(mut self, key: &'static str) -> Self {
-        self.catalog_nulls.push(key);
+    /// `/key` followed by `value`'s bytes on the catalog, in place of any value
+    /// this builder writes there: a spelling pdf-writer does not write, such as
+    /// a NUL before the value or a comment glued to it.
+    pub fn catalog_raw(mut self, key: &'static str, value: impl Into<Vec<u8>>) -> Self {
+        self.catalog_entries.push((key, value.into()));
         self
     }
 
-    /// `/key null` on every page, in place of any value this builder writes
-    /// there. The page tree keeps its own `/MediaBox`, so a page nulling its
-    /// one inherits it.
-    pub fn page_null(mut self, key: &'static str) -> Self {
-        self.page_nulls.push(key);
+    /// [`catalog_raw`](Self::catalog_raw) on every page. The page tree keeps
+    /// its own `/MediaBox`, so a page nulling its one inherits it.
+    pub fn page_raw(mut self, key: &'static str, value: impl Into<Vec<u8>>) -> Self {
+        self.page_entries.push((key, value.into()));
         self
     }
 
@@ -146,11 +146,8 @@ impl BasePdf {
         {
             let mut catalog = pdf.catalog(catalog_id);
             catalog.pages(page_tree_id);
-            if let Some(id) = acroform_id.filter(|_| !self.catalog_nulls.contains(&"AcroForm")) {
+            if let Some(id) = acroform_id.filter(|_| !names(&self.catalog_entries, "AcroForm")) {
                 catalog.pair(Name(b"AcroForm"), id);
-            }
-            for key in &self.catalog_nulls {
-                catalog.pair(Name(key.as_bytes()), Null);
             }
         }
         pdf.pages(page_tree_id)
@@ -161,7 +158,7 @@ impl BasePdf {
 
         for (i, &(page_id, content_id)) in leaves.iter().enumerate() {
             {
-                let written = |key: &str| !self.page_nulls.contains(&key);
+                let written = |key: &str| !names(&self.page_entries, key);
                 let mut page = pdf.page(page_id);
                 page.parent(page_tree_id).contents(content_id);
                 if written("MediaBox") {
@@ -181,9 +178,6 @@ impl BasePdf {
                 }
                 if let (0, Some(id), true) = (i, annot_id, written("Annots")) {
                     page.annotations([id]);
-                }
-                for key in &self.page_nulls {
-                    page.pair(Name(key.as_bytes()), Null);
                 }
             }
             pdf.stream(content_id, &Content::new().finish());
@@ -205,10 +199,77 @@ impl BasePdf {
                 .producer(TextStr("Base"))
                 .title(TextStr(title));
         }
-        pdf.finish()
+        let mut bytes = pdf.finish();
+        for (key, value) in &self.catalog_entries {
+            bytes = insert_entry(&bytes, catalog_id, key, value);
+        }
+        for &(page_id, _) in &leaves {
+            for (key, value) in &self.page_entries {
+                bytes = insert_entry(&bytes, page_id, key, value);
+            }
+        }
+        bytes
     }
+}
+
+/// The bytes after a key that ISO 32000-1 reads as `null`, for
+/// [`BasePdf::catalog_raw`] and [`BasePdf::page_raw`]: the keyword, after a NUL
+/// as its white-space or before a comment glued to it (§7.2.2).
+pub fn null_spellings() -> Vec<Vec<u8>> {
+    vec![
+        b" null".to_vec(),
+        b"\0null".to_vec(),
+        b" null%stripped\n".to_vec(),
+    ]
 }
 
 fn rect([x0, y0, x1, y1]: [f32; 4]) -> Rect {
     Rect::new(x0, y0, x1, y1)
+}
+
+fn names(entries: &[(&str, Vec<u8>)], key: &str) -> bool {
+    entries.iter().any(|&(name, _)| name == key)
+}
+
+/// `pdf` with `/key` and `value` written last in object `id`'s dictionary, and
+/// every xref offset past them and `startxref` moved to match.
+fn insert_entry(pdf: &[u8], id: Ref, key: &str, value: &[u8]) -> Vec<u8> {
+    let object = find(pdf, format!("\n{} 0 obj\n", id.get()).as_bytes());
+    let endobj = object + find(&pdf[object..], b"endobj");
+    let at = object + rfind(&pdf[object..endobj], b">>");
+    let entry = [format!(" /{key}").as_bytes(), value].concat();
+    let mut out = [&pdf[..at], &entry, &pdf[at..]].concat();
+
+    let xref = rfind(&out, b"\nxref\n") + 1;
+    let header = xref + b"xref\n".len();
+    let rows = header + find(&out[header..], b"\n") + 1;
+    let trailer = rows + find(&out[rows..], b"trailer");
+    // pdf-writer's rows are `OOOOOOOOOO GGGGG n\r\n`.
+    for row in out[rows..trailer].chunks_exact_mut(20) {
+        let offset: usize = std::str::from_utf8(&row[..10]).unwrap().parse().unwrap();
+        if row[17] == b'n' && offset > at {
+            row[..10].copy_from_slice(format!("{:010}", offset + entry.len()).as_bytes());
+        }
+    }
+    let startxref = rfind(&out, b"startxref\n") + b"startxref\n".len();
+    let digits = out[startxref..]
+        .iter()
+        .take_while(|b| b.is_ascii_digit())
+        .count();
+    out.splice(startxref..startxref + digits, xref.to_string().into_bytes());
+    out
+}
+
+fn find(haystack: &[u8], needle: &[u8]) -> usize {
+    haystack
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .expect("a testkit base carries the needle")
+}
+
+fn rfind(haystack: &[u8], needle: &[u8]) -> usize {
+    haystack
+        .windows(needle.len())
+        .rposition(|w| w == needle)
+        .expect("a testkit base carries the needle")
 }

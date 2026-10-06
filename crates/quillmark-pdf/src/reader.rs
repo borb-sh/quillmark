@@ -224,7 +224,7 @@ impl<'a> ObjectIndex<'a> {
                 continue;
             }
             if pdf[i].is_ascii_digit()
-                && (i == 0 || matches!(pdf[i - 1], b'\n' | b'\r' | b' '))
+                && (i == 0 || is_pdf_ws(pdf[i - 1]))
                 && let Some(id) = obj_header_id(&pdf[i..])
             {
                 starts.insert(id, i);
@@ -263,8 +263,7 @@ impl<'a> ObjectIndex<'a> {
         let start = *self.starts.get(&id)?;
         let header = &self.pdf[start..];
         let id_digits = header.iter().take_while(|b| b.is_ascii_digit()).count();
-        // Past the id and the one space a header writes after it.
-        let rest = &header[id_digits + 1..];
+        let rest = skip_ws(&header[id_digits..]);
         let n = rest.iter().take_while(|b| b.is_ascii_digit()).count();
         std::str::from_utf8(&rest[..n]).ok()?.parse().ok()
     }
@@ -293,9 +292,10 @@ impl<'a> ObjectIndex<'a> {
 /// matches the exact decimal form a reference to the object is written in.
 fn obj_header_id(rest: &[u8]) -> Option<u32> {
     let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+    let generation = ws_end(rest, digits);
     if (digits > 1 && rest[0] == b'0')
-        || rest.get(digits) != Some(&b' ')
-        || !is_obj_header_tail(&rest[digits + 1..])
+        || generation == digits
+        || !is_obj_header_tail(&rest[generation..])
     {
         return None;
     }
@@ -328,10 +328,7 @@ fn is_obj_header_tail(rest: &[u8]) -> bool {
         return false;
     }
     let after_gen = &rest[gen_digits..];
-    let ws = after_gen
-        .iter()
-        .take_while(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
-        .count();
+    let ws = after_gen.iter().take_while(|&&b| is_pdf_ws(b)).count();
     if ws == 0 {
         return false;
     }
@@ -340,11 +337,13 @@ fn is_obj_header_tail(rest: &[u8]) -> bool {
 }
 
 /// Locate `/Key` in a dict's *inner* bytes (between its `<<` / `>>`) and return
-/// its raw value slice, beginning just after the key token. `None` when the
-/// dict has no such key or its value is `null`: ISO 32000-1 §7.3.9 makes the two
-/// the same entry, so every read goes through here.
+/// its value's bytes. `None` when the dict has no such key or its value is
+/// `null`: ISO 32000-1 §7.3.9 makes the two the same entry, so every read goes
+/// through here.
 pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
-    find_dict_entry(dict_bytes, key).filter(|value| !is_null(value))
+    let entry = find_dict_entry(dict_bytes, key)?;
+    let value = &entry[skip_ws_and_comments(entry, 0)..];
+    (value != b"null").then_some(value)
 }
 
 /// [`find_dict_value`] without the `null` filter: the entry a rewrite replaces,
@@ -381,10 +380,6 @@ fn find_dict_entry<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
         }
         i = value_end;
     }
-}
-
-fn is_null(value: &[u8]) -> bool {
-    value[skip_ws_and_comments(value, 0)..] == *b"null"
 }
 
 /// A flat dict's inner bytes with `key` (bare, `"Producer"`) holding
@@ -510,18 +505,13 @@ fn read_value_end(b: &[u8], start: usize) -> Option<usize> {
         c if c.is_ascii_digit() || c == b'-' || c == b'+' || c == b'.' => {
             // Possibly `N N R`; the standalone-R check rejects `5 0 Rect`.
             let num_end = read_number_end(b, i);
-            let mut j = num_end;
-            while j < b.len() && matches!(b[j], b' ' | b'\t' | b'\n' | b'\r') {
-                j += 1;
-            }
+            let mut j = ws_end(b, num_end);
             let n2_start = j;
             while j < b.len() && b[j].is_ascii_digit() {
                 j += 1;
             }
             if j > n2_start {
-                while j < b.len() && matches!(b[j], b' ' | b'\t' | b'\n' | b'\r') {
-                    j += 1;
-                }
+                j = ws_end(b, j);
                 if b.get(j).copied() == Some(b'R') && b.get(j + 1).is_none_or(|c| is_pdf_delim(*c))
                 {
                     return Some(j + 1);
@@ -579,11 +569,18 @@ fn skip_pdf_hex_string(b: &[u8], start: usize) -> usize {
     (i + 1).min(b.len())
 }
 
+/// White-space per ISO 32000-1 §7.2.2.
+fn is_pdf_ws(c: u8) -> bool {
+    matches!(c, b'\0' | b'\t' | b'\n' | b'\x0c' | b'\r' | b' ')
+}
+
+/// Whether `c` ends a token: white-space or an ISO 32000-1 §7.2.2 delimiter.
 fn is_pdf_delim(c: u8) -> bool {
-    matches!(
-        c,
-        b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' | b'/' | b'[' | b']' | b'(' | b')' | b'<' | b'>'
-    )
+    is_pdf_ws(c)
+        || matches!(
+            c,
+            b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%'
+        )
 }
 
 pub(crate) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
@@ -648,7 +645,7 @@ fn dict_end(b: &[u8], open: usize) -> Result<usize, usize> {
 /// The index of the first byte at or after `i` that is not whitespace.
 fn ws_end(b: &[u8], i: usize) -> usize {
     let mut i = i;
-    while i < b.len() && matches!(b[i], b' ' | b'\t' | b'\n' | b'\r' | b'\x0c') {
+    while i < b.len() && is_pdf_ws(b[i]) {
         i += 1;
     }
     i
@@ -838,12 +835,21 @@ fn parse_rect_array(bytes: &[u8]) -> Option<[f32; 4]> {
     let inner = trimmed.strip_prefix(b"[")?.strip_suffix(b"]")?;
     let mut nums = [0.0f32; 4];
     let mut count = 0;
-    for tok in String::from_utf8_lossy(inner).split_whitespace() {
+    let mut i = skip_ws_and_comments(inner, 0);
+    while i < inner.len() {
+        let end = (i..inner.len())
+            .find(|&j| is_pdf_delim(inner[j]))
+            .unwrap_or(inner.len());
         if count >= 4 {
             return None;
         }
-        nums[count] = tok.parse().ok().filter(|f: &f32| f.is_finite())?;
+        nums[count] = std::str::from_utf8(&inner[i..end])
+            .ok()?
+            .parse()
+            .ok()
+            .filter(|f: &f32| f.is_finite())?;
         count += 1;
+        i = skip_ws_and_comments(inner, end);
     }
     (count == 4).then_some(nums)
 }
@@ -992,6 +998,27 @@ mod tests {
     }
 
     #[test]
+    fn a_token_ends_at_nul_and_at_every_delimiter() {
+        for sep in [" ", "\0", "%c\n"] {
+            for (value, want) in [
+                ("null", None),
+                ("/Pages", Some("/Pages")),
+                ("2\x000\x00R", Some("2\x000\x00R")),
+                ("612", Some("612")),
+            ] {
+                for end in ["\0", "%c\n", "{", "}"] {
+                    let dict = format!("/A{sep}{value}{end}");
+                    assert_eq!(
+                        find_dict_value(dict.as_bytes(), "A"),
+                        want.map(str::as_bytes),
+                        "{dict:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn set_dict_value_replaces_the_one_entry_or_appends_it() {
         for (dict, want) in [
             (
@@ -1107,6 +1134,13 @@ mod tests {
     }
 
     #[test]
+    fn rect_array_reads_its_numbers_through_white_space_and_comments() {
+        for bytes in [&b"[0\x000\t612\x0c792]"[..], b"[%c\n0 0%c\n612 792%c\n]"] {
+            assert_eq!(parse_rect_array(bytes), Some([0.0, 0.0, 612.0, 792.0]));
+        }
+    }
+
+    #[test]
     fn find_object_at_token_boundary() {
         let pdf = b"%PDF\n519 0 obj\n<< /A 1 >>\nendobj\n19 0 obj\n<< /B 2 >>\nendobj\n";
         let idx = ObjectIndex::new(pdf);
@@ -1132,6 +1166,17 @@ mod tests {
         let pdf = b"%PDF\n19 0 obj\n<< /V (real) >>\nendobj\n019 0 obj\n<< /V (decoy) >>\nendobj\n";
         let dict = ObjectIndex::new(pdf).dict(19, CODE_PARSE, "obj").unwrap();
         assert_eq!(find_dict_value(dict, "V").unwrap().trim_ascii(), b"(real)");
+    }
+
+    #[test]
+    fn an_object_header_reads_through_any_white_space() {
+        let pdf = b"%PDF\n1\t0\x0cobj << /A 1 >> endobj\x002  3\r\nobj << /B 2 >> endobj\
+                    \x0c3\x000\x00obj<</C 3>>endobj\n";
+        let idx = ObjectIndex::new(pdf);
+        for (id, generation, body) in [(1, 0, &b"/A 1"[..]), (2, 3, b"/B 2"), (3, 0, b"/C 3")] {
+            assert_eq!(idx.generation(id), Some(generation));
+            assert_eq!(idx.dict(id, CODE_PARSE, "obj").unwrap().trim_ascii(), body);
+        }
     }
 
     #[test]

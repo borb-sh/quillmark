@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use quillmark_pdf::testkit::BasePdf;
+use quillmark_pdf::testkit::{null_spellings, BasePdf};
 use quillmark_pdf::{
     regions_of, stamp, AppearanceStates, FieldSpec, FieldType, StampOptions, CHECKBOX_ON_STATE,
 };
@@ -776,22 +776,24 @@ fn a_non_winansi_value_draws_substituted_while_the_field_keeps_it_whole() {
 /// `/AcroForm` where the null stood.
 #[test]
 fn a_null_acroform_is_no_form_and_the_stamp_writes_the_one_entry() {
-    let base = BasePdf::letter(1).catalog_null("AcroForm").build();
-    let fields = [text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")];
-    let out = stamp(base.clone(), &fields, &StampOptions::default())
-        .unwrap_or_else(|e| panic!("a null /AcroForm is no form: {}", e.message));
+    for spelling in null_spellings() {
+        let base = BasePdf::letter(1).catalog_raw("AcroForm", spelling).build();
+        let fields = [text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")];
+        let out = stamp(base.clone(), &fields, &StampOptions::default())
+            .unwrap_or_else(|e| panic!("a null /AcroForm is no form: {}", e.message));
 
-    let update = &out[base.len()..];
-    assert_eq!(
-        update
-            .windows(b"/AcroForm".len())
-            .filter(|w| *w == b"/AcroForm")
-            .count(),
-        1,
-        "the rewritten catalog names /AcroForm once: {}",
-        String::from_utf8_lossy(update)
-    );
-    let (_, af, w) = stamped_on(base, &fields);
-    assert_eq!(af.get(b"Fields").unwrap().as_array().unwrap().len(), 1);
-    assert!(w.contains_key("X"));
+        let update = &out[base.len()..];
+        assert_eq!(
+            update
+                .windows(b"/AcroForm".len())
+                .filter(|w| *w == b"/AcroForm")
+                .count(),
+            1,
+            "the rewritten catalog names /AcroForm once: {}",
+            String::from_utf8_lossy(update)
+        );
+        let (_, af, w) = stamped_on(base, &fields);
+        assert_eq!(af.get(b"Fields").unwrap().as_array().unwrap().len(), 1);
+        assert!(w.contains_key("X"));
+    }
 }
