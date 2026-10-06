@@ -746,8 +746,10 @@ impl FieldSchema {
 
     /// The member schema a matrix key composes under, judged on its stored
     /// value: the roster member's, else, on an open matrix, the added item's
-    /// for a key spelled as a member id whose mapping carries a `title`.
-    /// `None` for a key neither admits, which is outside the matrix's domain
+    /// for a key spelled as a member id whose mapping carries a `title`. A
+    /// null title is absent, and an empty or whitespace-only one labels
+    /// nothing, so either leaves its key untitled. `None` for a key neither
+    /// admits, which is outside the matrix's domain
     /// (`validation::enum_violation`), and on every other type.
     pub fn matrix_member(&self, key: &str, stored: &serde_json::Value) -> Option<&FieldSchema> {
         if self.r#type.matrix_roster().contains_key(key) {
@@ -756,7 +758,11 @@ impl FieldSchema {
         let titled = stored
             .as_object()
             .and_then(|m| m.get(MATRIX_TITLE_KEY))
-            .is_some_and(|title| !title.is_null());
+            .is_some_and(|title| match title {
+                serde_json::Value::Null => false,
+                serde_json::Value::String(text) => !text.trim().is_empty(),
+                _ => true,
+            });
         self.matrix_member_at(key).filter(|_| titled)
     }
 

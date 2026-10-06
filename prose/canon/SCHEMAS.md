@@ -255,6 +255,8 @@ columns a roster member does, and its `title` is a `string` cell. The domain is
 the roster plus those keys, so an untitled key or one no id spells is
 `enum_violation`, whose `open` arg carries the hint toward the added spelling.
 
+- A `title` is the label the page prints beside the tick, so a blank one (`""`
+  or whitespace alone) leaves its key untitled, as a null one does.
 - Added ids share the roster's key space, so an id a later roster declares reads
   as that member, its stored `title` warned as a roster member's is.
 - A title matching a member's is the author's answer and prints: nothing

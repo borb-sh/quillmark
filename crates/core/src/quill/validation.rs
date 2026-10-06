@@ -36,7 +36,7 @@ pub enum ValidationError {
         value: String,
         allowed: Vec<String>,
         /// The domain is an open matrix's: its roster, and any key spelled as a
-        /// member id whose mapping carries a `title`.
+        /// member id whose mapping carries a `title` that is not blank.
         open: bool,
     },
 
@@ -188,7 +188,7 @@ fn not_plain_hint() -> &'static str {
 /// Actionable exit clause for an open matrix's `EnumViolation`.
 fn open_matrix_hint() -> &'static str {
     "Rename the key to a member, or add the item beside the roster: key it by a \
-     snake_case id and give it a `title`."
+     snake_case id and give it a `title` that is not blank."
 }
 
 /// Actionable exit clause for a `HeldStored` error.
