@@ -961,11 +961,13 @@ proptest! {
 fn arb_line() -> impl Strategy<Value = String> {
     let indent = prop::sample::select(&["", " ", "  ", "    ", "      "][..]);
     let dashes = prop::sample::select(&["", "", "- ", "- - ", "-"][..]);
-    let key = prop::sample::select(&["", "k: ", "j: ", "k:", "\"q k\": ", "? ", "!t m: "][..]);
+    let key = prop::sample::select(
+        &["", "k: ", "j: ", "k:", "\"q k\": ", "? ", "!t m: ", "<<: ", "*a : "][..],
+    );
     let value = prop::sample::select(
         &[
             "", "v", "w x", "[a, b]", "{a: 1}", "[]", "{}", "!t v", "&a v", "*a", "|", "null", "[a,",
-            "'q", "!!str", "!",
+            "'q", "!!str", "!", "{<<: *a}", "[*a]", "&a {x: 1}",
         ][..],
     );
     let comment = prop::sample::select(&["", "", " # c", "# own", " #"][..]);
