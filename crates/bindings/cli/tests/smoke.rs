@@ -224,6 +224,18 @@ fn validate_reports_a_load_warning_once() {
     }
 }
 
+/// A `plate_file` led by `./` names the file at the quill root, for the config
+/// check as for the renders after it.
+#[test]
+fn validate_reads_a_plate_file_led_by_dot_slash_from_the_quill_root() {
+    let dir = quill_with_config(
+        "quill:\n  name: d\n  version: 0.1.0\n  backend: typst\n  description: d\n\
+         typst:\n  plate_file: ./plate.typ\n",
+    );
+    std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
+    ok(&["validate", dir.path().to_str().unwrap()]);
+}
+
 /// A config that will not load is a quill failure, and reads as one.
 #[test]
 fn an_unloadable_quill_is_not_an_invalid_argument() {
