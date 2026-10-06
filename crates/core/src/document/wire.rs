@@ -15,7 +15,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
-use super::payload::{MetaKey, Payload, PayloadItem};
+use super::payload::{trim_comment_text, MetaKey, Payload, PayloadItem};
 use super::{Card, EditError};
 use crate::error::diag_args;
 use crate::value::QuillValue;
@@ -197,9 +197,10 @@ impl TryFrom<CardWire> for Card {
                         value: QuillValue::from_json(value),
                     })
                 }
-                PayloadItemWire::Comment { text, inline } => {
-                    Ok(PayloadItem::Comment { text, inline })
-                }
+                PayloadItemWire::Comment { text, inline } => Ok(PayloadItem::Comment {
+                    text: trim_comment_text(text),
+                    inline,
+                }),
             })
             .collect::<Result<Vec<_>, WireError>>()?;
 

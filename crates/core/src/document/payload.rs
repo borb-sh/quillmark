@@ -140,6 +140,13 @@ impl PayloadItem {
     }
 }
 
+/// `text` without the whitespace ending it: the text a comment holds, as a
+/// parse of its line reads it.
+pub(crate) fn trim_comment_text(mut text: String) -> String {
+    text.truncate(text.trim_end().len());
+    text
+}
+
 /// Ordered, comment-preserving payload of a card-yaml block: a **read view**
 /// onto card-yaml storage, holding `$` entries, user fields, and comments
 /// interleaved in source order.

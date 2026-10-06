@@ -199,6 +199,9 @@ stored row, `store_field`) rests as authored until it is conformed. That is
 a named state, not a second resting form: it is readable, round-trippable,
 and one bound load away from converging.
 
+A comment's text rests without the whitespace ending it, as a parse reads its
+line, so a stored row holding such text loads without it and rewrites once.
+
 **Migrated rows: a conditional caveat.** The guarantee above is unconditional
 for a document the current writer serializes directly. A row still carrying
 a legacy schema tag migrates forward on read, and the `0.92.0` hop

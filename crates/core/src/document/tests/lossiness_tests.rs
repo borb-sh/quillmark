@@ -355,6 +355,42 @@ fn a_comment_ending_in_whitespace_reads_back_the_same() {
     }
 }
 
+/// A comment read from a stored row or the wire holds no whitespace ending it
+/// either, so a document built from one round-trips through `to_markdown`.
+#[test]
+fn a_stored_or_wired_comment_reads_without_the_whitespace_ending_it() {
+    use crate::document::{Card, CardWire, PayloadItemWire};
+
+    let mut doc: Document = serde_json::from_value(serde_json::json!({
+        "schema": "quillmark/document@0.116.0",
+        "main": {
+            "payload": {
+                "items": [
+                    {"type": "quill", "value": "q@1.0"},
+                    {"type": "kind", "value": "main"},
+                    {"type": "comment", "text": "note  ", "inline": false},
+                    {"type": "field", "key": "a", "value": [1]},
+                    {"type": "comment", "text": "t \t", "inline": true},
+                ],
+                "nested_comments": [
+                    {"container_path": [{"Key": "a"}], "position": 1, "text": "end\u{3000}", "inline": false},
+                ],
+            },
+            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""},
+        },
+        "cards": [],
+    }))
+    .unwrap();
+    let mut wire = CardWire::new("note".to_string(), serde_json::Value::Null);
+    wire.payload_items = vec![PayloadItemWire::Comment {
+        text: "wired \t".to_string(),
+        inline: false,
+    }];
+    doc.push_card(Card::try_from(wire).unwrap()).unwrap();
+    let md = doc.to_markdown();
+    assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+}
+
 /// Each comment keeps the container and slot the YAML gives it, whatever the
 /// spelling's indentation: a sequence at its key's column, a comment indented
 /// less than its block, a compact nested sequence, a continuation line.
