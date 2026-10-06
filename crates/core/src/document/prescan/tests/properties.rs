@@ -5,14 +5,16 @@
 //! column. Both spellings read back into the slots the generator wrote, and
 //! `to_markdown` round-trips the document. Written in any layout, with comments
 //! at any column, a document settles after one emission. Over arbitrary fence
-//! bodies neither the prescan nor the parse panics.
+//! bodies neither the prescan nor the parse panics, and the prescan's parser
+//! reads to the end of each body the value parse reads.
 
 use std::collections::HashMap;
 
 use proptest::prelude::*;
 use serde_json::{Map, Value};
+use serde_saphyr::granit_parser::{Event, Parser, ScanError};
 
-use super::super::prescan_fence_content;
+use super::super::{options, prescan_fence_content};
 use crate::document::{Document, NestedComment, PayloadItem};
 use crate::value::{PathSegment, QuillValue};
 
@@ -961,15 +963,56 @@ fn arb_line() -> impl Strategy<Value = String> {
     let dashes = prop::sample::select(&["", "", "- ", "- - ", "-"][..]);
     let key = prop::sample::select(&["", "k: ", "j: ", "k:", "\"q k\": ", "? ", "!t m: "][..]);
     let value = prop::sample::select(
-        &["", "v", "w x", "[a, b]", "{a: 1}", "[]", "{}", "!t v", "&a v", "*a", "|", "null", "[a,", "'q", "!!str", "!"][..],
+        &[
+            "", "v", "w x", "[a, b]", "{a: 1}", "[]", "{}", "!t v", "&a v", "*a", "|", "null", "[a,",
+            "'q", "!!str", "!",
+        ][..],
     );
     let comment = prop::sample::select(&["", "", " # c", "# own", " #"][..]);
     (indent, dashes, key, value, comment)
         .prop_map(|(i, d, k, v, c)| format!("{i}{d}{k}{v}{c}"))
 }
 
+/// The error the prescan's parser meets ahead of the end of `body`'s root
+/// node, which is all of `body` the value parse reads.
+fn root_refusal(body: &str) -> Option<ScanError> {
+    let mut open = 0usize;
+    for next in Parser::new_from_str_with_options(body, options()) {
+        match next {
+            Err(refusal) => return Some(refusal),
+            Ok((Event::MappingStart(..) | Event::SequenceStart(..), _)) => open += 1,
+            Ok((Event::MappingEnd | Event::SequenceEnd, _)) if open == 1 => return None,
+            Ok((Event::MappingEnd | Event::SequenceEnd, _)) => open -= 1,
+            Ok((Event::Scalar(..) | Event::Alias(..), _)) if open == 0 => return None,
+            Ok(_) => {}
+        }
+    }
+    None
+}
+
 fn arb_body() -> impl Strategy<Value = String> {
     prop::collection::vec(arb_line(), 0..14).prop_map(|lines| lines.join("\n"))
+}
+
+/// A body with a run of up to 200 own-line comments at one of its lines: the
+/// parser buffers such a run while it works out the entry after it.
+fn arb_run() -> impl Strategy<Value = String> {
+    (prop::collection::vec(arb_line(), 1..14), any::<prop::sample::Index>(), 0..200usize).prop_map(
+        |(mut lines, at, run)| {
+            let at = at.index(lines.len() + 1);
+            lines.splice(at..at, std::iter::repeat_n("# r".to_string(), run));
+            lines.join("\n")
+        },
+    )
+}
+
+/// Any text, its lines ended by `\n`, `\r\n` or a lone `\r`, some of them
+/// written from the pieces that decide where a comment lands.
+fn arb_text() -> impl Strategy<Value = String> {
+    let line = prop_oneof!["[\\PC\\t]{0,40}", arb_line()];
+    let end = prop::sample::select(&["\n", "\r\n", "\r"][..]);
+    prop::collection::vec((line, end), 0..12)
+        .prop_map(|lines| lines.into_iter().map(|(line, end)| line + end).collect())
 }
 
 proptest! {
@@ -981,8 +1024,21 @@ proptest! {
     }
 
     #[test]
-    fn the_prescan_reads_any_text_without_panicking(body in "\\PC{0,200}") {
+    fn the_prescan_reads_any_text_without_panicking(body in arb_text()) {
         let _ = prescan_fence_content(&body);
+    }
+
+    /// The prescan ends its scan at its parser's error and leaves the refusal
+    /// to the value parse, so its parser reads all the value parse reads: a
+    /// comment past an error of its own would drop.
+    #[test]
+    fn the_prescan_parser_reads_what_the_value_parse_reads(
+        body in prop_oneof![arb_body(), arb_run(), arb_text()],
+    ) {
+        if crate::value::parse_yaml::<Value>(&body).is_ok() {
+            let refusal = root_refusal(&body);
+            prop_assert!(refusal.is_none(), "{:?}\n{}", refusal, body);
+        }
     }
 
     /// The parse refuses or reads a fence body, never panics, prescan included.

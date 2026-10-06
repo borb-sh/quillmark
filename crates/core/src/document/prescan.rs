@@ -74,17 +74,22 @@ pub(crate) fn budget(len: usize) -> usize {
 }
 
 /// Scan `yaml`, the text the value parse reads. A parser error ends the scan
-/// with what it has read: the value parse is the one that refuses. It counts no
-/// comments, so neither does this parse.
+/// with what it has read: the value parse is the one that refuses.
 pub(crate) fn prescan_fence_content(yaml: &str) -> Result<PreScan, OverBudget> {
     let mut walk = Walk::new(yaml);
-    let mut options = Options::default();
-    options.max_buffered_comment_events = usize::MAX;
-    for next in Parser::new_from_str_with_options(yaml, options) {
+    for next in Parser::new_from_str_with_options(yaml, options()) {
         let Ok((event, span)) = next else { break };
         walk.step(&event, span)?;
     }
     walk.finish()
+}
+
+/// The parser options the scan reads with, which refuse no text the value
+/// parse reads. That parse counts no comments, so neither does this one.
+fn options() -> Options {
+    let mut options = Options::default();
+    options.max_buffered_comment_events = usize::MAX;
+    options
 }
 
 /// What a node event starts, as far as comments care.
