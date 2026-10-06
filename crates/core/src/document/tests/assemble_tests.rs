@@ -93,6 +93,18 @@ fn test_body_prose_inside_the_block_is_told_to_close_the_block() {
     assert!(!hint.contains("block scalar"), "got: {hint}");
 }
 
+#[test]
+fn a_non_finite_float_fails_the_parse_hinting_its_quoted_spelling() {
+    let diag = decompose("~~~\n$quill: q\n$kind: main\next: .inf\n~~~\n")
+        .unwrap_err()
+        .to_diagnostic();
+    assert_eq!(
+        diag.code.as_deref(),
+        Some("parse::yaml_error_with_location")
+    );
+    assert!(diag.hint.is_some(), "{diag:?}");
+}
+
 /// `---` front matter declaring `$quill` is one fence away from a root block,
 /// so the message names that edit.
 #[test]

@@ -18,7 +18,7 @@ use quillmark_core::region::RenderedRegion;
 use crate::appearance::{self, Appearance, Normal};
 use crate::error::PdfError;
 use crate::reader::{
-    err, find_dict_value, parse_indirect_ref, set_dict_value, ObjectIndex, UpdatedObject,
+    array_elements, as_dict, err, parse_indirect_ref, set_dict_value, ObjectIndex, UpdatedObject,
 };
 use crate::update::PdfUpdate;
 use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
@@ -162,9 +162,9 @@ enum NormalRef {
 /// session-level query (see [`regions_of`]).
 ///
 /// `base` must satisfy the reader's input contract (traditional-xref,
-/// unencrypted, inline-annots, bounded-tree) and carry no `/AcroForm` of its
-/// own, and each `rect` must already be final, finite, bottom-left PDF-point
-/// geometry.
+/// unencrypted, inline-annots, bounded-tree) and carry no form of its own: no
+/// catalog `/AcroForm`, and no widget annotation in any page's `/Annots`. Each
+/// `rect` must already be final, finite, bottom-left PDF-point geometry.
 pub fn stamp(
     base: Vec<u8>,
     fields: &[FieldSpec],
@@ -181,8 +181,9 @@ pub fn stamp(
     if !fields.is_empty() {
         // Before any allocation: a second `/AcroForm` on the catalog is a dict
         // the spec does not define, and the base's own widgets stay live in the
-        // page `/Annots` this update preserves.
-        if find_dict_value(idx.dict(up.catalog_id, CODE_PARSE, "catalog")?, "AcroForm").is_some() {
+        // page `/Annots` this update preserves, whatever its catalog names.
+        let catalog = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
+        if idx.value(catalog, "AcroForm").is_some() {
             return Err(err(
                 CODE_EXISTING_ACROFORM,
                 "base PDF already carries an /AcroForm; strip its form before stamping",
@@ -190,6 +191,19 @@ pub fn stamp(
         }
 
         let pages = up.resolve_pages(&idx, fields)?;
+        for (at, page) in pages.iter().enumerate() {
+            let what = format!("page node {}", page.id);
+            if holds_a_widget(&idx, idx.dict(page.id, CODE_PARSE, &what)?) {
+                return Err(err(
+                    CODE_EXISTING_ACROFORM,
+                    format!(
+                        "page {} of the base PDF holds a widget annotation in its /Annots; \
+                         strip the base's widgets from every page's /Annots before stamping",
+                        at + 1
+                    ),
+                ));
+            }
+        }
         let page_count = pages.len();
 
         let fonts = fonts_used(fields);
@@ -285,12 +299,28 @@ pub fn stamp(
             let pg_dict = idx.dict(page_obj_id, CODE_PARSE, &what)?;
             up.objects.push(dict_object(
                 page_obj_id,
-                &rewrite_page_with_annots(pg_dict, widget_refs)?,
+                &rewrite_page_with_annots(&idx, pg_dict, widget_refs)?,
             ));
         }
     }
 
-    up.finish(pdf)
+    Ok(up.finish(pdf))
+}
+
+/// Whether the page dict `page` holds a `/Subtype /Widget` annotation in its
+/// `/Annots`: the array, each element and its `/Subtype` read through any
+/// reference, as a viewer reads them.
+fn holds_a_widget<'a>(idx: &ObjectIndex<'a>, page: &'a [u8]) -> bool {
+    let Some(annots) = idx.value(page, "Annots").and_then(|annots| idx.resolve(annots)) else {
+        return false;
+    };
+    array_elements(annots).any(|annot| {
+        idx.resolve(annot)
+            .and_then(as_dict)
+            .and_then(|annot| idx.value(annot, "Subtype"))
+            .and_then(|subtype| idx.resolve(subtype))
+            == Some(&b"/Widget"[..])
+    })
 }
 
 /// Write `ap` as a fresh object selecting the registered face `font_id`, and
@@ -433,11 +463,23 @@ fn checkbox_state(on: bool) -> Name<'static> {
     })
 }
 
-/// Three cases for the existing `/Annots`: absent (write a fresh array);
-/// inline array (splice widget refs before `]`); indirect reference (hard
-/// error, the input contract requires inline annots).
-fn rewrite_page_with_annots(pg_dict: &[u8], widget_refs: &[u32]) -> Result<Vec<u8>, PdfError> {
-    append_refs_to_array_key(pg_dict, "Annots", widget_refs, CODE_PARSE, non_array_annots)
+/// Three cases for the existing `/Annots`: absent or `null`, directly or by
+/// reference (write a fresh array); inline array (splice widget refs before
+/// `]`); any other indirect reference (hard error, the input contract requires
+/// inline annots).
+fn rewrite_page_with_annots(
+    idx: &ObjectIndex,
+    pg_dict: &[u8],
+    widget_refs: &[u32],
+) -> Result<Vec<u8>, PdfError> {
+    append_refs_to_array_key(
+        idx,
+        pg_dict,
+        "Annots",
+        widget_refs,
+        CODE_PARSE,
+        non_array_annots,
+    )
 }
 
 fn non_array_annots(existing: &[u8]) -> PdfError {
@@ -448,5 +490,27 @@ fn non_array_annots(existing: &[u8]) -> PdfError {
         )
     } else {
         err(CODE_PARSE, "/Annots is neither array nor indirect ref")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_widget_reads_through_a_referenced_subtype() {
+        let idx = ObjectIndex::new(b"%PDF\n7 0 obj /Widget endobj\n8 0 obj /Link endobj\n");
+        for (page, widget) in [
+            (&b"/Annots [<< /Subtype /Widget >>]"[..], true),
+            (b"/Annots [<< /Subtype 7 0 R >>]", true),
+            (b"/Annots [<< /Subtype 8 0 R >>]", false),
+        ] {
+            assert_eq!(
+                holds_a_widget(&idx, page),
+                widget,
+                "{}",
+                String::from_utf8_lossy(page)
+            );
+        }
     }
 }

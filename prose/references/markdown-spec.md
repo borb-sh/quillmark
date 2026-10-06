@@ -237,11 +237,23 @@ data payload.
     collection is inside it, and so is one at or past the first key or dash of
     a sequence item's collection; any other belongs to the collection around
     it. A comment indented under `key: []`, `key: {}` or a bare `key:` is
-    inside that empty value.
+    inside that empty value, and so is one under a bare key whose tag reads
+    as null, `key: !!null` or `key: !custom`. Under `key: !!str` or `key: !`
+    the value is an empty string, and the comment follows the entry.
   - A comment inside a flow collection or on a multi-line scalar's line is the
     trailer of the entry holding the value, or follows it when one already
     trails it. A trailer on a sequence item's dash line is the item's, though
     the line holds the item's first key.
+  - A mapping holding a merge (`<<`) reads its own keys, then each key the
+    merge brings that it does not already hold, and `toMarkdown` writes them in
+    that order. A comment at an own key stays with that key, so one between a
+    merge and the next own key sits with that key, ahead of the merged keys.
+    One ahead of a merge or on its line sits ahead of the keys the merge brings,
+    one inside its value keeps its slot among them, and one closing the mapping
+    after its merge follows them. A comment inside a merged key the mapping
+    already holds sits ahead of where that key would. A sequence item whose
+    mapping holds nothing but merges bringing no key emits as `{}`, and the
+    comments inside it follow the item.
 - **Tags.** A YAML tag on any node (`!include`, `!env`, a core `!!str`) is
   dropped with a `parse::unsupported_yaml_tag` warning: on a block value, a
   sequence element, a key, or a node inside a flow collection. The value is

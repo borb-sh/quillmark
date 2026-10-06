@@ -46,6 +46,7 @@ fn sanitize_message(raw: &str) -> String {
         " use from_multiple_with_options",
         " set DuplicateKeyPolicy in Options if acceptable",
         " (strict mode expects true/false)",
+        " rejected by reject_non_finite_typeless_float",
     ];
 
     // The parser's snippet repeats its message under the caret.
@@ -59,6 +60,17 @@ fn sanitize_message(raw: &str) -> String {
 
 /// Derive an actionable hint for `message`, given the YAML `content`.
 fn derive_hint(message: &str, content: &str) -> Option<String> {
+    if let Some(value) = non_finite_value(message) {
+        let advice = format!(
+            "YAML reads `{value}` as infinity or NaN, which no field holds. \
+             Quote it to keep the text"
+        );
+        return Some(match flagged_key_holding(message, content, value) {
+            Some(key) => format!("{advice}: `{key}: \"{value}\"`"),
+            None => format!("{advice}; e.g. `field: \"{value}\"`."),
+        });
+    }
+
     let m = message.to_ascii_lowercase();
 
     // A plain scalar starting with `*` or `&` reads as a YAML alias or anchor.
@@ -300,6 +312,23 @@ fn anchor_alias_hint(content: &str, advice: &str, example: &str) -> String {
     }
 }
 
+/// The scalar a non-finite float refusal names (`.inf`, `.nan`, `1e999`), read
+/// off the first line: the snippet below it quotes `content`.
+fn non_finite_value(message: &str) -> Option<&str> {
+    let (_, rest) = message.lines().next()?.split_once("non-finite float `")?;
+    rest.split_once('`').map(|(value, _)| value)
+}
+
+/// The key of the line the parser flagged, when the rest of that line, a
+/// comment aside, is `value`.
+fn flagged_key_holding<'a>(message: &str, content: &'a str, value: &str) -> Option<&'a str> {
+    let number = flagged_line_number(message)?;
+    let line = content.lines().nth(number.checked_sub(1)?)?;
+    let (key, rest) = key_value_lines(line).next()?;
+    let rest = rest.split_once(" #").map_or(rest, |(v, _)| v);
+    (rest.trim_end() == value).then_some(key)
+}
+
 /// The `key: value` lines of `content` whose key could be a YAML mapping key,
 /// values leading-trimmed. A comment or sequence line surfaces as a key
 /// starting with `#` / `-`, which callers filter as their scan requires.
@@ -453,6 +482,28 @@ mod tests {
             enriched.message
         );
         assert!(enriched.hint.expect("a hint").contains("`!!bool`"));
+    }
+
+    #[test]
+    fn a_non_finite_float_names_no_option_and_hints_its_quoted_spelling() {
+        for (content, example) in [
+            ("s: .inf\n", "`s: \".inf\"`"),
+            ("title: Memo\ns: -.NaN # aside\n", "`s: \"-.NaN\"`"),
+            ("s: 1e999\n", "`s: \"1e999\"`"),
+            ("s: [.nan]\n", "`field: \".nan\"`"),
+        ] {
+            let raw = crate::value::parse_yaml::<serde_json::Value>(content)
+                .expect_err("a non-finite float has no JSON form")
+                .to_string();
+            let enriched = enrich_yaml_error(&raw, content);
+            assert!(
+                !enriched.message.contains("reject_non_finite_typeless_float"),
+                "{}",
+                enriched.message
+            );
+            let hint = enriched.hint.expect("a hint");
+            assert!(hint.contains(example), "{content:?}: {hint}");
+        }
     }
 
     #[test]

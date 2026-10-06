@@ -4,12 +4,14 @@
 //!
 //! `Ok` is not assertable over mutated bytes — the reader's input contract
 //! refuses most well-formed PDFs too — so a refusal is an acceptable answer
-//! there. A base the testkit builds is in contract, so its stamp is asserted.
+//! there. A base the testkit builds has one answer, its stamp or a refusal
+//! under a known code, so that answer is asserted.
 
 use std::sync::LazyLock;
 
+use pdf_writer::types::AnnotationType;
 use proptest::prelude::*;
-use quillmark_pdf::testkit::BasePdf;
+use quillmark_pdf::testkit::{null_spellings, BasePdf, Held, NO_OBJECT, NULL_OBJECT, RAW_OBJECT};
 use quillmark_pdf::{page_canvas_boxes, stamp, FieldSpec, FieldType, StampOptions};
 
 /// A real AcroForm the spine accepts, so a mutant of it exercises parse paths a
@@ -66,15 +68,19 @@ const NULLABLE: [(&str, &str); 8] = [
     ("page", "Rotate"),
 ];
 
-/// A one-page testkit base carrying `/key null` at each of `nulls`.
-fn nulled_base(nulls: &[(&str, &'static str)]) -> Vec<u8> {
-    let mut base = BasePdf::letter(1);
+/// A one-page testkit base carrying `/key` and its spelling of `null` at each
+/// of `nulls`.
+fn nulled_base(nulls: &[((&str, &'static str), Vec<u8>)]) -> Vec<u8> {
+    let mut base = BasePdf::letter(1).null_object();
     let mut trailer = Vec::new();
-    for &(holder, key) in nulls {
-        match holder {
-            "catalog" => base = base.catalog_null(key),
-            "page" => base = base.page_null(key),
-            _ => trailer.extend_from_slice(format!(" /{key} null").as_bytes()),
+    for ((holder, key), spelling) in nulls {
+        match *holder {
+            "catalog" => base = base.catalog_raw(key, spelling.clone()),
+            "page" => base = base.page_raw(key, spelling.clone()),
+            _ => {
+                trailer.extend_from_slice(format!(" /{key}").as_bytes());
+                trailer.extend_from_slice(spelling);
+            }
         }
     }
     let pdf = base.build();
@@ -86,6 +92,25 @@ fn nulled_base(nulls: &[(&str, &'static str)]) -> Vec<u8> {
         .expect("trailer /Root")
         + root.len();
     [&pdf[..at], &trailer, &pdf[at..]].concat()
+}
+
+/// A piece of what a page's `/Annots` or an annotation holds, mostly whole
+/// values: references to [`RAW_OBJECT`], to `null` and to no object, and
+/// annotation dictionaries, among the tokens that open, close or end one.
+fn annots_piece() -> impl Strategy<Value = String> {
+    let values = [RAW_OBJECT, NO_OBJECT, NULL_OBJECT]
+        .map(|id| format!("{id} 0 R"))
+        .into_iter()
+        .chain([format!("<</Subtype {RAW_OBJECT} 0 R>>")])
+        .chain(["null", "/Widget", "<</Subtype/Widget>>", "()", "[]"].map(str::to_string))
+        .collect::<Vec<_>>();
+    let tokens = [
+        " ", "\0", "%c\n", "[", "]", "<<", ">>", "<", ">", "(", ")", "{", "}", "R", "/Subtype",
+    ];
+    prop_oneof![
+        3 => proptest::sample::select(values),
+        1 => proptest::sample::select(tokens.map(str::to_string).to_vec()),
+    ]
 }
 
 fn count(haystack: &[u8], needle: &[u8]) -> usize {
@@ -154,13 +179,22 @@ proptest! {
     }
 
     /// ISO 32000-1 §7.3.9: an entry whose value is `null` is an absent one.
-    /// The [`NULLABLE`] entries, nulled in any combination, stamp as their
-    /// absence: the page keeps the page tree's box, and each dictionary the
-    /// update rewrites names each key it writes once.
+    /// The [`NULLABLE`] entries, nulled in any combination and each in any of
+    /// the [`null_spellings`], stamp as their absence: the page keeps the page
+    /// tree's box, and each dictionary the update rewrites names each key it
+    /// writes once.
     #[test]
     fn a_null_entry_stamps_as_its_absence(
-        nulls in proptest::sample::subsequence(NULLABLE.to_vec(), 0..=NULLABLE.len()),
+        spellings in proptest::collection::vec(
+            proptest::option::of(proptest::sample::select(null_spellings())),
+            NULLABLE.len(),
+        ),
     ) {
+        let nulls: Vec<_> = NULLABLE
+            .into_iter()
+            .zip(spellings)
+            .filter_map(|(entry, spelling)| Some((entry, spelling?)))
+            .collect();
         let base = nulled_base(&nulls);
         prop_assert_eq!(
             page_canvas_boxes(&base).map_err(|e| e.message),
@@ -184,5 +218,95 @@ proptest! {
                 String::from_utf8_lossy(update)
             );
         }
+    }
+
+    /// A base's widgets stay live in the page `/Annots` the update preserves,
+    /// whatever its catalog names. A widget on any page, held inline or by
+    /// reference in an array the page holds either way, is refused under the
+    /// form's code, naming its page, with the catalog's `/AcroForm` absent or
+    /// `null`; any other annotation answers as it did.
+    #[test]
+    fn a_widget_on_any_page_is_refused(
+        pages in 1usize..4,
+        page in any::<prop::sample::Index>(),
+        subtype in proptest::sample::select(vec![
+            AnnotationType::Widget,
+            AnnotationType::Link,
+            AnnotationType::Text,
+        ]),
+        held in proptest::sample::select(vec![Held::Inline, Held::Referenced]),
+        indirect in any::<bool>(),
+        acroform in proptest::option::of(proptest::sample::select(null_spellings())),
+    ) {
+        let page = page.index(pages);
+        let mut base = BasePdf::letter(pages).null_object().annot(page, subtype, held);
+        if indirect {
+            base = base.indirect_annots();
+        }
+        if let Some(null) = acroform {
+            base = base.catalog_raw("AcroForm", null);
+        }
+        let result = stamp(base.build(), &every_field_kind(), &StampOptions::default());
+        // `every_field_kind` stamps the first page, the one whose `/Annots`
+        // the update rewrites.
+        let want = match subtype {
+            AnnotationType::Widget => Err("pdf::existing_acroform"),
+            _ if indirect && page == 0 => Err("pdf::indirect_annots"),
+            _ => Ok(()),
+        };
+        prop_assert_eq!(result.as_ref().map(drop).map_err(|e| e.code), want);
+        if let (AnnotationType::Widget, Err(e)) = (subtype, &result) {
+            prop_assert!(e.message.contains(&format!("page {}", page + 1)), "{}", e.message);
+        }
+    }
+
+    /// The widget check reads every page's `/Annots`, each element and its
+    /// `/Subtype` through any reference. Generated pieces of them, in the
+    /// array and in the object its elements reference, answer `Err` or `Ok`,
+    /// never a panic.
+    #[test]
+    fn a_generated_annots_array_is_read_without_a_panic(
+        array in any::<bool>(),
+        annots in proptest::collection::vec(annots_piece(), 0..12),
+        dict in any::<bool>(),
+        object in proptest::collection::vec(annots_piece(), 0..12),
+    ) {
+        let annots = annots.concat();
+        let object = object.concat();
+        let base = BasePdf::letter(2)
+            .null_object()
+            .raw_object(if dict { format!("<< /Subtype {object} >>") } else { object })
+            .page_raw("Annots", if array { format!(" [{annots}]") } else { format!(" {annots}") })
+            .build();
+        exercise(&base);
+    }
+
+    /// ISO 32000-1 §7.3.7: a dictionary names each key once, and readers part
+    /// on which of two entries a repeated key holds. A [`NULLABLE`] key named
+    /// twice, each entry holding a `null` in any spelling or an array, is
+    /// refused under the code of the read that meets it, never stamped.
+    #[test]
+    fn a_key_named_twice_is_refused(
+        (holder, key) in proptest::sample::select(NULLABLE.to_vec()),
+        values in proptest::collection::vec(
+            proptest::sample::select([null_spellings(), vec![b" []".to_vec()]].concat()),
+            2,
+        ),
+    ) {
+        let base = nulled_base(&[
+            ((holder, key), values[0].clone()),
+            ((holder, key), values[1].clone()),
+        ]);
+        let code = if holder == "catalog" { "pdf::stamp_parse" } else { "pdf::parse" };
+        prop_assert_eq!(
+            stamp(base.clone(), &every_field_kind(), &StampOptions::default())
+                .map(drop)
+                .map_err(|e| e.code),
+            Err(code)
+        );
+        prop_assert_eq!(
+            page_canvas_boxes(&base).map(drop).map_err(|e| e.code),
+            Err("pdf::parse")
+        );
     }
 }

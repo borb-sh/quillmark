@@ -37,9 +37,10 @@ fn map_single_diagnostic(error: &SourceDiagnostic, world: &QuillWorld) -> Diagno
 
 const FILE_NOT_FOUND: &str = "file not found (searched at ";
 
-/// The rooted spelling of a path a module below the quill root missed, offered
-/// only where the world loads a file at it: a bare path resolves from the
-/// directory of the file naming it.
+/// The searched path past the naming module's directory, rooted, offered only
+/// where the world loads a file at it. A bare `assets/x` in `tpl/` and a rooted
+/// `/tpl/assets/x` search the same path, so the hint states what the quill root
+/// holds, which is true of either spelling.
 fn rooted_path_hint(message: &str, span: DiagSpan, world: &QuillWorld) -> Option<String> {
     let searched = message.strip_prefix(FILE_NOT_FOUND)?.strip_suffix(')')?;
     let file = span.id()?;
@@ -57,8 +58,8 @@ fn rooted_path_hint(message: &str, span: DiagSpan, world: &QuillWorld) -> Option
     (world.source(rooted).is_ok() || world.file(rooted).is_ok()).then(|| {
         let rooted = rooted.vpath().get_with_slash();
         format!(
-            "a path without a leading `/` resolves from the directory of the file \
-             naming it; write `{rooted}` for the one at the quill root"
+            "the quill root holds `{rooted}`; a path without a leading `/` resolves \
+             from the directory of the file naming it"
         )
     })
 }

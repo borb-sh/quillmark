@@ -189,9 +189,9 @@ impl QuillWorld {
         &self.load_warnings
     }
 
-    /// The file a diagnostic names for `id`: the plate by its declared
-    /// `plate_file`, a package's file under its spec
-    /// (`@local/p:0.1.0/lib.typ`), anything else by its virtual path.
+    /// The file a diagnostic names for `id`: the plate by its `plate_file`, a
+    /// package's file under its spec (`@local/p:0.1.0/lib.typ`), anything else
+    /// by its virtual path.
     pub(crate) fn display_path(&self, id: FileId) -> String {
         let path = id.vpath().get_without_slash();
         match (&self.plate_file, id.root()) {

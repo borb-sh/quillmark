@@ -6,10 +6,12 @@
 //! ## Input contract
 //!
 //! The base PDF must be traditional-xref, unencrypted, inline-annots,
-//! bounded-tree: a classic `xref` table (not an xref *stream*), no `/Encrypt`,
-//! page `/Annots` written inline rather than as an indirect reference, and a
-//! `/Pages` tree of any depth that reaches each node once and stays under
-//! 100 000 nodes. That is the precise inverse of the scanner's error branches.
+//! bounded-tree, well-formed: a classic `xref` table (not an xref *stream*), no
+//! `/Encrypt`, page `/Annots` written inline rather than as an indirect
+//! reference, a `/Pages` tree of any depth that reaches each node once and
+//! stays under 100 000 nodes, and every dictionary the reader meets naming each
+//! key once, with a value. That is the precise inverse of the scanner's error
+//! branches.
 //! `hayro-syntax` is read-only and exposes no byte spans, so it cannot drive a
 //! byte-splice append; hence this bespoke scanner.
 
@@ -61,7 +63,7 @@ pub(crate) fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<
 }
 
 /// The inner trailer dict (between `<<` and `>>`) for the xref section at
-/// `xref_offset`, queryable with [`find_dict_value`].
+/// `xref_offset`, [`well_formed`] and queryable with [`find_dict_value`].
 pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8], PdfError> {
     let needle = b"trailer";
     let pos = pdf[xref_offset..]
@@ -69,8 +71,9 @@ pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8],
         .position(|w| w == needle)
         .ok_or_else(|| err(CODE_PARSE, "trailer marker not found"))?
         + xref_offset;
-    extract_outer_dict(&pdf[pos + needle.len()..])
-        .ok_or_else(|| err(CODE_PARSE, "trailer dict not parseable"))
+    let dict = extract_outer_dict(&pdf[pos + needle.len()..])
+        .ok_or_else(|| err(CODE_PARSE, "trailer dict not parseable"))?;
+    well_formed(dict, CODE_PARSE, "trailer")
 }
 
 /// What the trailer's `/Info` gives the producer stamp to rewrite.
@@ -80,12 +83,13 @@ pub(crate) enum InfoSource<'a> {
     /// Entries for a fresh object whose reference replaces the trailer's
     /// `/Info`: a direct dict's — ISO 32000-1 Table 15 asks for an indirect
     /// reference, which not every writer honours — or none, when the trailer
-    /// carries no `/Info` or one this reader cannot read.
+    /// carries no `/Info` or one this reader cannot read: not a dict, or one
+    /// [`well_formed`] refuses.
     Entries(&'a [u8]),
 }
 
-pub(crate) fn read_info_source(trailer: &[u8]) -> InfoSource<'_> {
-    let Some(value) = find_dict_value(trailer, "Info") else {
+pub(crate) fn read_info_source<'t>(idx: &ObjectIndex, trailer: &'t [u8]) -> InfoSource<'t> {
+    let Some(value) = idx.value(trailer, "Info") else {
         return InfoSource::Entries(b"");
     };
     if let Some((id, _)) = parse_indirect_ref(value) {
@@ -94,6 +98,7 @@ pub(crate) fn read_info_source(trailer: &[u8]) -> InfoSource<'_> {
     let trimmed = value.trim_ascii();
     if trimmed.starts_with(b"<<")
         && let Some(entries) = extract_outer_dict(trimmed)
+        && well_formed(entries, CODE_PARSE, "/Info").is_ok()
     {
         return InfoSource::Entries(entries);
     }
@@ -104,19 +109,23 @@ pub(crate) fn read_info_source(trailer: &[u8]) -> InfoSource<'_> {
 /// trailer: many readers (lopdf included) consult only the last trailer, so
 /// dropping them would lose the document `/Info` and file identifier.
 /// `new_info_ref` supersedes that `/Info` rather than joining it, so the new
-/// trailer holds one `/Info` whatever shape the old value had. Callers append
-/// `/Size`, `/Root` and `/Prev` themselves.
-fn write_trailer_tail(out: &mut Vec<u8>, prior_trailer: &[u8], new_info_ref: Option<u32>) {
+/// trailer holds one `/Info` whatever shape the old value had.
+pub(crate) fn write_trailer_tail(
+    out: &mut Vec<u8>,
+    idx: &ObjectIndex,
+    prior_trailer: &[u8],
+    new_info_ref: Option<u32>,
+) {
     match new_info_ref {
         Some(id) => out.extend_from_slice(format!(" /Info {id} 0 R").as_bytes()),
         None => {
-            if let Some(value) = find_dict_value(prior_trailer, "Info") {
+            if let Some(value) = idx.value(prior_trailer, "Info") {
                 out.extend_from_slice(b" /Info ");
                 out.extend_from_slice(value.trim_ascii());
             }
         }
     }
-    if let Some(value) = find_dict_value(prior_trailer, "ID") {
+    if let Some(value) = idx.value(prior_trailer, "ID") {
         out.extend_from_slice(b" /ID ");
         out.extend_from_slice(value.trim_ascii());
     }
@@ -138,8 +147,7 @@ impl UpdatedObject {
 /// Append one incremental update to `pdf`: each object in `objects`, then an
 /// xref subsection table and a trailer chaining to the prior xref via `/Prev`.
 ///
-/// `new_info_ref` names an information dictionary written in this update, which
-/// the new trailer's `/Info` points at in place of the prior trailer's own.
+/// `trailer_tail` holds the entries [`write_trailer_tail`] carries forward.
 /// `new_size` is the updated `/Size` (highest object number + 1) and `root_id`
 /// the document catalog.
 pub(crate) fn append_incremental_update(
@@ -147,17 +155,9 @@ pub(crate) fn append_incremental_update(
     prev_xref: usize,
     root_id: u32,
     new_size: u32,
-    new_info_ref: Option<u32>,
+    trailer_tail: &[u8],
     objects: &[UpdatedObject],
-) -> Result<Vec<u8>, PdfError> {
-    // Built while the prior trailer at `prev_xref` is still intact.
-    let mut trailer_tail = Vec::new();
-    write_trailer_tail(
-        &mut trailer_tail,
-        find_trailer_dict(&pdf, prev_xref)?,
-        new_info_ref,
-    );
-
+) -> Vec<u8> {
     if !pdf.ends_with(b"\n") {
         pdf.push(b'\n');
     }
@@ -194,12 +194,17 @@ pub(crate) fn append_incremental_update(
     }
 
     pdf.extend_from_slice(format!("trailer\n<< /Size {new_size} /Root {root_id} 0 R").as_bytes());
-    pdf.extend_from_slice(&trailer_tail);
+    pdf.extend_from_slice(trailer_tail);
     pdf.extend_from_slice(
         format!(" /Prev {prev_xref} >>\nstartxref\n{new_xref_off}\n%%EOF\n").as_bytes(),
     );
-    Ok(pdf)
+    pdf
 }
+
+/// How many references [`ObjectIndex::value`] and [`ObjectIndex::resolve`]
+/// follow: a longer chain, a cycle included, reads as present to `value` and
+/// as `None` to `resolve`.
+const MAX_REFERENCE_CHAIN: usize = 8;
 
 /// A base PDF and the offset of every indirect object header in it, collected in
 /// one forward pass. Every read of an object goes through this.
@@ -224,7 +229,7 @@ impl<'a> ObjectIndex<'a> {
                 continue;
             }
             if pdf[i].is_ascii_digit()
-                && (i == 0 || matches!(pdf[i - 1], b'\n' | b'\r' | b' '))
+                && (i == 0 || is_pdf_ws(pdf[i - 1]))
                 && let Some(id) = obj_header_id(&pdf[i..])
             {
                 starts.insert(id, i);
@@ -245,16 +250,70 @@ impl<'a> ObjectIndex<'a> {
         Some((start, find_endobj_end(self.pdf, start)?))
     }
 
-    /// The inner dict bytes of object `id`. `what` names the object in both
-    /// failure messages — `"{what} not found"` and `"{what} dict not
-    /// parseable"` — under the caller's error `code`; an Option-returning caller
-    /// calls `.ok()`.
+    /// The inner dict bytes of object `id`, [`well_formed`]. `what` names the
+    /// object in every failure message, under the caller's error `code`; an
+    /// Option-returning caller calls `.ok()`.
     pub fn dict(&self, id: u32, code: &'static str, what: &str) -> Result<&'a [u8], PdfError> {
         let (s, e) = self
             .object_bytes(id)
             .ok_or_else(|| err(code, format!("{what} not found")))?;
-        extract_outer_dict(&self.pdf[s..e])
-            .ok_or_else(|| err(code, format!("{what} dict not parseable")))
+        let dict = extract_outer_dict(&self.pdf[s..e])
+            .ok_or_else(|| err(code, format!("{what} dict not parseable")))?;
+        well_formed(dict, code, what)
+    }
+
+    /// [`find_dict_value`], reading a reference that resolves to `null` as
+    /// absent too: one naming a `null` object or no object at all, directly or
+    /// through a chain of references (ISO 32000-1 §7.3.10). A present value
+    /// reads as written, a reference unresolved.
+    pub fn value<'d>(&self, dict: &'d [u8], key: &str) -> Option<&'d [u8]> {
+        find_dict_value(dict, key).filter(|value| !self.resolves_to_null(value))
+    }
+
+    fn resolves_to_null(&self, value: &[u8]) -> bool {
+        let mut reference = parse_indirect_ref(value);
+        for _ in 0..MAX_REFERENCE_CHAIN {
+            let Some((id, _)) = reference else {
+                return false;
+            };
+            if !self.starts.contains_key(&id) {
+                return true;
+            }
+            match self.body(id) {
+                Some(b"null") => return true,
+                Some(body) => reference = parse_indirect_ref(body),
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// `value`, or the value its reference names, followed along a chain of up
+    /// to [`MAX_REFERENCE_CHAIN`] references (ISO 32000-1 §7.3.10). `None`
+    /// where a reference names no object or one that never closes, or the chain
+    /// runs past the bound.
+    pub fn resolve<'d>(&self, value: &'d [u8]) -> Option<&'d [u8]>
+    where
+        'a: 'd,
+    {
+        let mut value = value;
+        for _ in 0..MAX_REFERENCE_CHAIN {
+            let Some((id, _)) = parse_indirect_ref(value) else {
+                return Some(value);
+            };
+            value = self.body(id)?;
+        }
+        parse_indirect_ref(value).is_none().then_some(value)
+    }
+
+    /// The first value object `id` holds past its header, or `None` when the
+    /// object is absent or never closes.
+    fn body(&self, id: u32) -> Option<&'a [u8]> {
+        let (s, e) = self.object_bytes(id)?;
+        let object = &self.pdf[s..e - b"endobj".len()];
+        let header_end = object.windows(3).position(|w| w == b"obj")? + 3;
+        let start = skip_ws_and_comments(object, header_end);
+        Some(&object[start..read_value_end(object, start)?])
     }
 
     /// The generation in object `id`'s header, or `None` when the object is
@@ -263,8 +322,7 @@ impl<'a> ObjectIndex<'a> {
         let start = *self.starts.get(&id)?;
         let header = &self.pdf[start..];
         let id_digits = header.iter().take_while(|b| b.is_ascii_digit()).count();
-        // Past the id and the one space a header writes after it.
-        let rest = &header[id_digits + 1..];
+        let rest = skip_ws(&header[id_digits..]);
         let n = rest.iter().take_while(|b| b.is_ascii_digit()).count();
         std::str::from_utf8(&rest[..n]).ok()?.parse().ok()
     }
@@ -293,9 +351,10 @@ impl<'a> ObjectIndex<'a> {
 /// matches the exact decimal form a reference to the object is written in.
 fn obj_header_id(rest: &[u8]) -> Option<u32> {
     let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+    let generation = ws_end(rest, digits);
     if (digits > 1 && rest[0] == b'0')
-        || rest.get(digits) != Some(&b' ')
-        || !is_obj_header_tail(&rest[digits + 1..])
+        || generation == digits
+        || !is_obj_header_tail(&rest[generation..])
     {
         return None;
     }
@@ -328,10 +387,7 @@ fn is_obj_header_tail(rest: &[u8]) -> bool {
         return false;
     }
     let after_gen = &rest[gen_digits..];
-    let ws = after_gen
-        .iter()
-        .take_while(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
-        .count();
+    let ws = after_gen.iter().take_while(|&&b| is_pdf_ws(b)).count();
     if ws == 0 {
         return false;
     }
@@ -340,56 +396,121 @@ fn is_obj_header_tail(rest: &[u8]) -> bool {
 }
 
 /// Locate `/Key` in a dict's *inner* bytes (between its `<<` / `>>`) and return
-/// its raw value slice, beginning just after the key token. `None` when the
-/// dict has no such key or its value is `null`: ISO 32000-1 §7.3.9 makes the two
-/// the same entry, so every read goes through here.
+/// its value's bytes. `None` when the dict has no such key or its value is
+/// `null`: ISO 32000-1 §7.3.9 makes the two the same entry, so every read goes
+/// through here.
 pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
-    find_dict_entry(dict_bytes, key).filter(|value| !is_null(value))
+    let entry = find_dict_entry(dict_bytes, key)?;
+    let value = &entry[skip_ws_and_comments(entry, 0)..];
+    (value != b"null").then_some(value)
 }
 
 /// [`find_dict_value`] without the `null` filter: the entry a rewrite replaces,
 /// whatever it holds.
+fn find_dict_entry<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
+    let key_marker = format!("/{key}");
+    dict_entries(dict_bytes)
+        .find(|&(name, _)| name == key_marker.as_bytes())
+        .map(|(_, entry)| entry)
+}
+
+/// Each entry of a dict's inner bytes, in order, as its key Name (`/Pages`)
+/// and its value's bytes from just after the key, so the key span is
+/// recoverable by subtraction.
 ///
 /// Entries alternate `key value key value …`, so the scan reads a key Name then
 /// consumes its value wholesale via `read_value_end` (stepping over nested
 /// `<<>>` / `[]` / `()` / `<>` as a unit). Only keys are matched, so a Name in
-/// value position (`/Subtype /Producer`) is never mistaken for one.
-fn find_dict_entry<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
-    let key_marker = format!("/{}", key);
-    let km = key_marker.as_bytes();
+/// value position (`/Subtype /Producer`) is never mistaken for one. A
+/// well-formed flat dict yields a Name key at each step; anything else (end of
+/// input, or a stray token) ends the scan.
+fn dict_entries(dict: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
     let mut i = 0;
-    loop {
-        i = skip_ws_and_comments(dict_bytes, i);
-        // A well-formed flat dict yields a Name key here. Anything else (end of
-        // input, or a stray token) means there is no further key to match.
-        if dict_bytes.get(i) != Some(&b'/') {
+    std::iter::from_fn(move || {
+        i = skip_ws_and_comments(dict, i);
+        if dict.get(i) != Some(&b'/') {
             return None;
         }
         let key_start = i;
         i += 1;
-        while i < dict_bytes.len() && !is_pdf_delim(dict_bytes[i]) {
+        while i < dict.len() && !is_pdf_delim(dict[i]) {
             i += 1;
         }
         let after_key = i;
-        let matched = &dict_bytes[key_start..after_key] == km;
-        let value_start = skip_ws_and_comments(dict_bytes, after_key);
-        let value_end = read_value_end(dict_bytes, value_start)?;
-        if matched {
-            // Slice from after the key, not `value_start`, so the key span is
-            // recoverable by subtraction.
-            return Some(&dict_bytes[after_key..value_end]);
-        }
-        i = value_end;
-    }
+        i = read_value_end(dict, skip_ws_and_comments(dict, after_key))?;
+        Some((&dict[key_start..after_key], &dict[after_key..i]))
+    })
 }
 
-fn is_null(value: &[u8]) -> bool {
-    value[skip_ws_and_comments(value, 0)..] == *b"null"
+/// `dict` when [`dict_entries`] reads it to its end and it names each key
+/// once, with a value, as ISO 32000-1 §7.3.7 requires, else `Err` under
+/// `code`. Readers part on which entry a repeated key holds and on what follows
+/// a token where a key belongs, and a key with no value takes whatever follows
+/// it as its value, an entry a rewrite appends included, so no read or rewrite
+/// of such a dict is safe.
+fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d [u8], PdfError> {
+    let mut keys = HashSet::new();
+    let mut end = 0;
+    for (key, entry) in dict_entries(dict) {
+        if !keys.insert(key) {
+            return Err(err(
+                code,
+                format!(
+                    "{what} dict names {} twice; a dictionary names each key once, so keep one \
+                     entry",
+                    String::from_utf8_lossy(key)
+                ),
+            ));
+        }
+        if skip_ws_and_comments(entry, 0) == entry.len() {
+            return Err(err(
+                code,
+                format!(
+                    "{what} dict names {} with no value",
+                    String::from_utf8_lossy(key)
+                ),
+            ));
+        }
+        end = entry.as_ptr() as usize + entry.len() - dict.as_ptr() as usize;
+    }
+    if skip_ws_and_comments(dict, end) < dict.len() {
+        return Err(err(
+            code,
+            format!("{what} dict holds a token where a key belongs"),
+        ));
+    }
+    Ok(dict)
+}
+
+/// The inner bytes of the dictionary `value` writes inline, or `None` for any
+/// other value and for a dictionary [`well_formed`] refuses.
+pub(crate) fn as_dict(value: &[u8]) -> Option<&[u8]> {
+    if !value.starts_with(b"<<") {
+        return None;
+    }
+    well_formed(extract_outer_dict(value)?, CODE_PARSE, "dictionary").ok()
+}
+
+/// Each element of the array `value` writes inline, in order, from its first
+/// significant byte. The read ends at a token no value starts with, and any
+/// value but an array holds none.
+pub(crate) fn array_elements(value: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let inner = value
+        .strip_prefix(b"[")
+        .and_then(|array| array.strip_suffix(b"]"))
+        .unwrap_or_default();
+    let mut i = 0;
+    std::iter::from_fn(move || {
+        let start = skip_ws_and_comments(inner, i);
+        i = read_value_end(inner, start)?;
+        (i > start).then(|| &inner[start..i])
+    })
 }
 
 /// A flat dict's inner bytes with `key` (bare, `"Producer"`) holding
 /// `new_value`: the entry replaced in place where the dict carries one, a `null`
-/// one included, else appended. A dict never ends up naming `key` twice.
+/// one included, else appended, so a [`well_formed`] dict names `key` exactly
+/// once after.
 pub(crate) fn set_dict_value(dict: &[u8], key: &str, new_value: &[u8]) -> Vec<u8> {
     let Some(value) = find_dict_entry(dict, key) else {
         let mut out = dict.to_vec();
@@ -510,18 +631,13 @@ fn read_value_end(b: &[u8], start: usize) -> Option<usize> {
         c if c.is_ascii_digit() || c == b'-' || c == b'+' || c == b'.' => {
             // Possibly `N N R`; the standalone-R check rejects `5 0 Rect`.
             let num_end = read_number_end(b, i);
-            let mut j = num_end;
-            while j < b.len() && matches!(b[j], b' ' | b'\t' | b'\n' | b'\r') {
-                j += 1;
-            }
+            let mut j = ws_end(b, num_end);
             let n2_start = j;
             while j < b.len() && b[j].is_ascii_digit() {
                 j += 1;
             }
             if j > n2_start {
-                while j < b.len() && matches!(b[j], b' ' | b'\t' | b'\n' | b'\r') {
-                    j += 1;
-                }
+                j = ws_end(b, j);
                 if b.get(j).copied() == Some(b'R') && b.get(j + 1).is_none_or(|c| is_pdf_delim(*c))
                 {
                     return Some(j + 1);
@@ -579,11 +695,18 @@ fn skip_pdf_hex_string(b: &[u8], start: usize) -> usize {
     (i + 1).min(b.len())
 }
 
+/// White-space per ISO 32000-1 §7.2.2.
+fn is_pdf_ws(c: u8) -> bool {
+    matches!(c, b'\0' | b'\t' | b'\n' | b'\x0c' | b'\r' | b' ')
+}
+
+/// Whether `c` ends a token: white-space or an ISO 32000-1 §7.2.2 delimiter.
 fn is_pdf_delim(c: u8) -> bool {
-    matches!(
-        c,
-        b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' | b'/' | b'[' | b']' | b'(' | b')' | b'<' | b'>'
-    )
+    is_pdf_ws(c)
+        || matches!(
+            c,
+            b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%'
+        )
 }
 
 pub(crate) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
@@ -648,7 +771,7 @@ fn dict_end(b: &[u8], open: usize) -> Result<usize, usize> {
 /// The index of the first byte at or after `i` that is not whitespace.
 fn ws_end(b: &[u8], i: usize) -> usize {
     let mut i = i;
-    while i < b.len() && matches!(b[i], b' ' | b'\t' | b'\n' | b'\r' | b'\x0c') {
+    while i < b.len() && is_pdf_ws(b[i]) {
         i += 1;
     }
     i
@@ -698,7 +821,7 @@ impl Page {
             .chain(self.ancestors.iter().copied())
             .find_map(|id| {
                 let dict = idx.dict(id, CODE_PARSE, "page node").ok()?;
-                parse(find_dict_value(dict, key)?)
+                parse(idx.value(dict, key)?)
             })
     }
 }
@@ -838,12 +961,21 @@ fn parse_rect_array(bytes: &[u8]) -> Option<[f32; 4]> {
     let inner = trimmed.strip_prefix(b"[")?.strip_suffix(b"]")?;
     let mut nums = [0.0f32; 4];
     let mut count = 0;
-    for tok in String::from_utf8_lossy(inner).split_whitespace() {
+    let mut i = skip_ws_and_comments(inner, 0);
+    while i < inner.len() {
+        let end = (i..inner.len())
+            .find(|&j| is_pdf_delim(inner[j]))
+            .unwrap_or(inner.len());
         if count >= 4 {
             return None;
         }
-        nums[count] = tok.parse().ok().filter(|f: &f32| f.is_finite())?;
+        nums[count] = std::str::from_utf8(&inner[i..end])
+            .ok()?
+            .parse()
+            .ok()
+            .filter(|f: &f32| f.is_finite())?;
         count += 1;
+        i = skip_ws_and_comments(inner, end);
     }
     (count == 4).then_some(nums)
 }
@@ -992,6 +1124,91 @@ mod tests {
     }
 
     #[test]
+    fn a_reference_resolving_to_null_reads_as_absent() {
+        let pdf = b"%PDF\n7 0 obj\nnull\nendobj\n8 0 obj 7 0 R endobj\n9 0 obj 9 0 R endobj\n\
+                    10 0 obj\n<< /Fields [] >>\nendobj\n";
+        let idx = ObjectIndex::new(pdf);
+        for (value, present) in [
+            ("7 0 R", false),
+            ("99 0 R", false),
+            ("8 0 R", false),
+            ("9 0 R", true),
+            ("10 0 R", true),
+        ] {
+            let dict = format!("/AcroForm {value} /Pages 2 0 R");
+            assert_eq!(
+                idx.value(dict.as_bytes(), "AcroForm"),
+                present.then_some(value.as_bytes()),
+                "{dict}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_array_reads_each_element_through_its_references() {
+        let pdf = b"%PDF\n7 0 obj\n<< /Subtype /Widget >>\nendobj\n8 0 obj 7 0 R endobj\n\
+                    9 0 obj 9 0 R endobj\n";
+        let idx = ObjectIndex::new(pdf);
+        let array = b"[7 0 R 8 0 R 9 0 R 99 0 R (a]b) %c]\n [1 2] << /K [3] >> 12 /N) 5]";
+        let widget = Some(&b"<< /Subtype /Widget >>"[..]);
+        assert_eq!(
+            array_elements(array)
+                .map(|element| idx.resolve(element))
+                .collect::<Vec<_>>(),
+            [
+                widget,
+                widget,
+                None,
+                None,
+                Some(b"(a]b)"),
+                Some(b"[1 2]"),
+                Some(b"<< /K [3] >>"),
+                Some(b"12"),
+                Some(b"/N"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_token_ends_at_nul_and_at_every_delimiter() {
+        for sep in [" ", "\0", "%c\n"] {
+            for (value, want) in [
+                ("null", None),
+                ("/Pages", Some("/Pages")),
+                ("2\x000\x00R", Some("2\x000\x00R")),
+                ("612", Some("612")),
+            ] {
+                for end in ["\0", "%c\n", "{", "}"] {
+                    let dict = format!("/A{sep}{value}{end}");
+                    assert_eq!(
+                        find_dict_value(dict.as_bytes(), "A"),
+                        want.map(str::as_bytes),
+                        "{dict:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_dict_holding_a_stray_token_or_a_key_with_no_value_is_refused() {
+        for inner in [
+            "/Lang /en{US} /AcroForm 7 0 R",
+            "/AcroForm null} /Pages 2 0 R",
+            "/A 1 2 /AcroForm 7 0 R",
+            "(x) /A 1",
+            "/Pages 2 0 R /Lang",
+            "/Pages 2 0 R /Lang %c\n",
+        ] {
+            let pdf = format!("%PDF\n1 0 obj\n<< {inner} >>\nendobj\n");
+            let e = ObjectIndex::new(pdf.as_bytes())
+                .dict(1, CODE_PARSE, "catalog")
+                .expect_err(inner);
+            assert_eq!(e.code, CODE_PARSE);
+        }
+    }
+
+    #[test]
     fn set_dict_value_replaces_the_one_entry_or_appends_it() {
         for (dict, want) in [
             (
@@ -1107,6 +1324,13 @@ mod tests {
     }
 
     #[test]
+    fn rect_array_reads_its_numbers_through_white_space_and_comments() {
+        for bytes in [&b"[0\x000\t612\x0c792]"[..], b"[%c\n0 0%c\n612 792%c\n]"] {
+            assert_eq!(parse_rect_array(bytes), Some([0.0, 0.0, 612.0, 792.0]));
+        }
+    }
+
+    #[test]
     fn find_object_at_token_boundary() {
         let pdf = b"%PDF\n519 0 obj\n<< /A 1 >>\nendobj\n19 0 obj\n<< /B 2 >>\nendobj\n";
         let idx = ObjectIndex::new(pdf);
@@ -1132,6 +1356,17 @@ mod tests {
         let pdf = b"%PDF\n19 0 obj\n<< /V (real) >>\nendobj\n019 0 obj\n<< /V (decoy) >>\nendobj\n";
         let dict = ObjectIndex::new(pdf).dict(19, CODE_PARSE, "obj").unwrap();
         assert_eq!(find_dict_value(dict, "V").unwrap().trim_ascii(), b"(real)");
+    }
+
+    #[test]
+    fn an_object_header_reads_through_any_white_space() {
+        let pdf = b"%PDF\n1\t0\x0cobj << /A 1 >> endobj\x002  3\r\nobj << /B 2 >> endobj\
+                    \x0c3\x000\x00obj<</C 3>>endobj\n";
+        let idx = ObjectIndex::new(pdf);
+        for (id, generation, body) in [(1, 0, &b"/A 1"[..]), (2, 3, b"/B 2"), (3, 0, b"/C 3")] {
+            assert_eq!(idx.generation(id), Some(generation));
+            assert_eq!(idx.dict(id, CODE_PARSE, "obj").unwrap().trim_ascii(), body);
+        }
     }
 
     #[test]
@@ -1297,7 +1532,8 @@ mod tests {
                     2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 \
                     /CropBox [0 0 100 100] >>\nendobj\n\
                     3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
-                    /CropBox 9 0 R >>\nendobj\n";
+                    /CropBox 9 0 R >>\nendobj\n\
+                    9 0 obj\n[0 0 50 50]\nendobj\n";
         let e = canvas_boxes_of(&ObjectIndex::new(pdf), 1).expect_err("indirect /CropBox rejected");
         assert_eq!(e.code, CODE_PARSE);
         assert!(e.message.contains("/CropBox"), "{}", e.message);

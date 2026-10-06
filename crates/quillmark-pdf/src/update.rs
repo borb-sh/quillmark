@@ -6,7 +6,7 @@
 use crate::error::PdfError;
 use crate::reader::{
     append_incremental_update, assert_unrotated_pages, err, find_dict_value, open_trailer,
-    read_info_source, walk_page_tree, ObjectIndex, Page, UpdatedObject,
+    read_info_source, walk_page_tree, write_trailer_tail, ObjectIndex, Page, UpdatedObject,
 };
 use crate::writer::apply_producer_stamp;
 use crate::FieldSpec;
@@ -23,10 +23,10 @@ pub struct PdfUpdate {
     pub next_id: u32,
     /// Objects to write in this revision; callers push their own onto it.
     pub objects: Vec<UpdatedObject>,
-    /// `Some` when the producer stamp allocated a fresh `/Info`, which
-    /// [`finish`](PdfUpdate::finish) makes the new trailer's `/Info`, in place
-    /// of whatever the base's trailer held.
-    new_info_ref: Option<u32>,
+    /// The `/Info` and `/ID` [`finish`](PdfUpdate::finish) writes into the new
+    /// trailer: the base trailer's own, with the producer stamp's fresh `/Info`
+    /// in place of the base's when it allocated one.
+    trailer_tail: Vec<u8>,
 }
 
 impl PdfUpdate {
@@ -35,7 +35,7 @@ impl PdfUpdate {
     /// [`finish`](Self::finish) with the base's bytes.
     pub fn begin(idx: &ObjectIndex, producer: &str) -> Result<Self, PdfError> {
         let (xref_offset, trailer, catalog_id) = open_trailer(idx.bytes(), CODE_PARSE)?;
-        if find_dict_value(trailer, "Encrypt").is_some() {
+        if idx.value(trailer, "Encrypt").is_some() {
             return Err(err(
                 "pdf::encrypted",
                 "PDF is encrypted; the stamp spine does not handle encrypted PDFs",
@@ -54,15 +54,17 @@ impl PdfUpdate {
         // of handing out an id that collides or that no reference admits.
         let mut next_id = size;
         let mut objects: Vec<UpdatedObject> = Vec::new();
-        let info = read_info_source(trailer);
+        let info = read_info_source(idx, trailer);
         let new_info_ref = apply_producer_stamp(idx, info, producer, &mut next_id, &mut objects)?;
+        let mut trailer_tail = Vec::new();
+        write_trailer_tail(&mut trailer_tail, idx, trailer, new_info_ref);
 
         Ok(Self {
             xref_offset,
             catalog_id,
             next_id,
             objects,
-            new_info_ref,
+            trailer_tail,
         })
     }
 
@@ -105,14 +107,14 @@ impl PdfUpdate {
     }
 
     /// Serialize the accumulated objects onto `pdf` via one incremental-update
-    /// append, threading in a freshly-allocated `/Info` when there is one.
-    pub fn finish(self, pdf: Vec<u8>) -> Result<Vec<u8>, PdfError> {
+    /// append.
+    pub fn finish(self, pdf: Vec<u8>) -> Vec<u8> {
         append_incremental_update(
             pdf,
             self.xref_offset,
             self.catalog_id,
             self.next_id,
-            self.new_info_ref,
+            &self.trailer_tail,
             &self.objects,
         )
     }
@@ -139,7 +141,6 @@ mod tests {
         PdfUpdate::begin(&idx, "Quillmark test")
             .expect("begin")
             .finish(base.to_vec())
-            .expect("finish")
     }
 
     #[test]
@@ -147,6 +148,7 @@ mod tests {
         for (value, title) in [
             ("<< /Title (x) >>", Some(&b"(x)"[..])),
             ("(not a dictionary)", None),
+            ("<< /Title (x) /Title (y) >>", None),
         ] {
             let base = base_with_trailer(&format!("/Size 6 /Root 1 0 R /Info {value}"));
             let out = stamped(&base);

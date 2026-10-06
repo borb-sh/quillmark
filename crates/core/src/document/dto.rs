@@ -20,7 +20,7 @@ use quillmark_content::import::ImportError;
 use quillmark_content::model::{Container, Content, MarkKind, Normalized};
 
 use super::meta::validate_composable_kind;
-use super::payload::{MetaKey, Payload, PayloadItem};
+use super::payload::{trim_comment_text, MetaKey, Payload, PayloadItem};
 use super::prescan::NestedComment;
 use crate::value::PathSegment;
 use super::{Card, Document};
@@ -892,7 +892,10 @@ impl TryFrom<PayloadItemV0_116_0> for PayloadItem {
                     value: QuillValue::from_json(value),
                 }
             }
-            PayloadItemV0_116_0::Comment { text, inline } => PayloadItem::Comment { text, inline },
+            PayloadItemV0_116_0::Comment { text, inline } => PayloadItem::Comment {
+                text: trim_comment_text(text),
+                inline,
+            },
         })
     }
 }
@@ -916,7 +919,7 @@ impl From<NestedCommentV0_92_0> for NestedComment {
                 .map(PathSegment::from)
                 .collect(),
             position: nc.position,
-            text: nc.text,
+            text: trim_comment_text(nc.text),
             inline: nc.inline,
         }
     }

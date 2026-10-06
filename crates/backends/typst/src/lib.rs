@@ -497,7 +497,7 @@ impl Default for TypstBackend {
 }
 
 pub(crate) struct Plate {
-    /// `typst.plate_file` as declared; `None` for a quill declaring none.
+    /// `typst.plate_file` less a leading `./`; `None` for a quill declaring none.
     pub(crate) file: Option<String>,
     /// Where the world loads the plate.
     pub(crate) path: VirtualPath,
@@ -531,12 +531,14 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
     let Some(plate_file) = plate_file else {
         return Ok(Plate::undeclared(String::new()));
     };
+    let plate_file = plate_file.trim_start_matches("./");
 
     let bytes = source.files().get_file(plate_file).ok_or_else(|| {
-        RenderError::coded(
-            "typst::plate_missing",
-            format!("plate file '{plate_file}' not found in the quill's file tree"),
-        )
+        let message = format!("plate file '{plate_file}' not found in the quill's file tree");
+        match plate_spelling_hint(plate_file, source) {
+            Some(hint) => RenderError::coded_hint("typst::plate_missing", message, hint),
+            None => RenderError::coded("typst::plate_missing", message),
+        }
     })?;
 
     let path = VirtualPath::new(plate_file).map_err(|e| {
@@ -557,6 +559,30 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
         file: Some(plate_file.to_string()),
         path,
         text,
+    })
+}
+
+/// The fix for a `plate_file` holding a leading `/` or a `..` step, which the
+/// tree lookup refuses: its spelling from the quill root where the quill holds
+/// a file there, else the rule.
+fn plate_spelling_hint(plate_file: &str, source: &Quill) -> Option<String> {
+    use std::path::{Component, Path};
+
+    if !Path::new(plate_file)
+        .components()
+        .any(|c| matches!(c, Component::RootDir | Component::ParentDir))
+    {
+        return None;
+    }
+    let rule = "`typst.plate_file` names a file inside the quill by its path from the quill \
+                root, with no leading `/` and no `..`";
+    let spelling = VirtualPath::new(plate_file)
+        .ok()
+        .map(|path| path.get_without_slash().to_string())
+        .filter(|path| source.files().get_file(path).is_some());
+    Some(match spelling {
+        Some(path) => format!("Write `{path}`: {rule}."),
+        None => format!("{rule}."),
     })
 }
 

@@ -44,6 +44,58 @@ fn a_plate_file_typst_cannot_address_fails_at_open() {
     assert_eq!(codes, [Some("typst::plate_path_invalid")], "{diags:?}");
 }
 
+/// A `plate_file` led by `./` names the file at the quill root: the plate
+/// renders, and its diagnostics name it as they would for `plate.typ`.
+#[test]
+fn a_plate_file_led_by_dot_slash_names_the_quill_root_file() {
+    use quillmark_core::types::{OutputFormat, RenderOptions};
+
+    let q = quill(
+        &YAML.replace("plate.typ", "./plate.typ"),
+        &[("plate.typ", b"#set text(font: \"nosuchfont\")\nhello\n")],
+    );
+    let session = TypstBackend
+        .open(&q, &serde_json::json!({}), common::test_date())
+        .expect("the plate loads");
+    let pdf = session
+        .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
+        .expect("the plate renders");
+    assert!(!pdf.artifacts[0].bytes.is_empty());
+    let located: Vec<_> = session
+        .warnings()
+        .iter()
+        .filter_map(|d| d.location.as_ref().map(|l| l.file.as_str()))
+        .collect();
+    assert_eq!(located, ["plate.typ"], "{:?}", session.warnings());
+}
+
+/// The tree holds no file at a path with a leading `/` or a `..` step, so such
+/// a `plate_file` misses its plate. The hint offers the spelling from the quill
+/// root where the quill holds a file there; a plain path that misses has no
+/// spelling to fix.
+#[test]
+fn a_rooted_or_dot_dot_plate_file_misses_and_hints_the_spelling_from_the_root() {
+    let hint_of = |declared: &str| {
+        let diags = open_err(&[
+            ("Quill.yaml", &YAML.replace("plate.typ", declared)),
+            ("plate.typ", "hello\n"),
+        ]);
+        let codes: Vec<_> = diags.iter().map(|d| d.code.as_deref()).collect();
+        assert_eq!(codes, [Some("typst::plate_missing")], "{declared}: {diags:?}");
+        diags[0].hint.clone()
+    };
+
+    for declared in ["/plate.typ", "tpl/../plate.typ"] {
+        let hint = hint_of(declared).expect("a hint");
+        assert!(hint.contains("`plate.typ`"), "{declared}: {hint}");
+    }
+    for (declared, spelling) in [("../plate.typ", "`plate.typ`"), ("/absent.typ", "`absent.typ`")] {
+        let hint = hint_of(declared).expect("a hint");
+        assert!(!hint.contains(spelling), "{declared}: {hint}");
+    }
+    assert_eq!(hint_of("absent.typ"), None);
+}
+
 /// `tpl/layout.typ` reaches a sibling by a bare path, a module up a level by
 /// `..`, and a module and an asset by a `/`-rooted path.
 #[test]
@@ -87,11 +139,12 @@ fn project_sources_import_as_typst_resolves_paths() {
     );
 }
 
-/// A bare path missed below the quill root hints its rooted spelling, from any
-/// module depth and for any file kind, but only where the quill holds a file
-/// at that spelling.
+/// A path missed below the quill root hints the rooted path of the file the
+/// root holds, from any module depth and for any file kind, but only where it
+/// holds one. A bare spelling and a rooted one through the module's directory
+/// search the same path, and draw the same hint.
 #[test]
-fn a_bare_path_missing_a_quill_root_file_hints_the_rooted_spelling() {
+fn a_path_missed_below_the_quill_root_hints_the_rooted_file_the_root_holds() {
     const YAML: &str = "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  \
                         description: d\n\ntypst:\n  plate_file: tpl/layout.typ\n";
     const SVG: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"/>";
@@ -106,13 +159,15 @@ fn a_bare_path_missing_a_quill_root_file_hints_the_rooted_spelling() {
     };
     let image = "#image(\"assets/logo.svg\")\n";
 
-    let hint = hint_of(&[
-        ("Quill.yaml", YAML),
-        ("tpl/layout.typ", image),
-        ("assets/logo.svg", SVG),
-    ])
-    .expect("the root holds assets/logo.svg");
-    assert!(hint.contains("`/assets/logo.svg`"), "{hint}");
+    for written in [image, "#image(\"/tpl/assets/logo.svg\")\n"] {
+        let hint = hint_of(&[
+            ("Quill.yaml", YAML),
+            ("tpl/layout.typ", written),
+            ("assets/logo.svg", SVG),
+        ])
+        .expect("the root holds assets/logo.svg");
+        assert!(hint.contains("`/assets/logo.svg`"), "{written}: {hint}");
+    }
 
     let hint = hint_of(&[
         ("Quill.yaml", YAML),

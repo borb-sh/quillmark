@@ -119,12 +119,17 @@ YAML reads an unquoted value by its shape before the schema sees it, so a
 |---|---|---|
 | `zip: 02134`, a leading zero | `2134.0` | `zip: "02134"` |
 | `ver: 1.10`, a version-like number | `1.1` | `ver: "1.10"` |
+| `batch: 2024_07`, an `_` between digits | `202407` | `batch: "2024_07"` |
+| `code: 0x1F`, a `0x`, `0o` or `0b` prefix | `31` | `code: "0x1F"` |
+| `room: 1E3`, an exponent | `1000.0` | `room: "1E3"` |
+| `ext: .inf` or `.nan`, in any letter case | nothing: the parse fails | `ext: ".inf"` |
+| `id: 1e999`, a number too large to hold | nothing: the parse fails | `id: "1e999"` |
 | `text: Approve Item #12`, a space then `#` | `Approve Item`: the rest is a comment | `text: "Approve Item #12"` |
 
-`quillmark check` reports none of them: each is well-formed YAML, read as a
-number or cut at a comment. A word needs no quotes unless it is `true`, `false`
-or `null`, in any letter case, or `~`: `yes`, `no`, `on`, `off`, `y` and `n`
-stay text.
+`quillmark check` reports only the rows that fail the parse; the rest are
+well-formed YAML, read as a number or cut at a comment. A word needs no quotes
+unless it is `true`, `false` or `null`, in any letter case, or `~`: `yes`,
+`no`, `on`, `off`, `y` and `n` stay text.
 
 **Strings:**
 ```yaml

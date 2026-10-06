@@ -503,9 +503,12 @@ same shape applies to every throw site:
 - `engine.render` / `session.render`: backend compilation failures and
   validation errors.
 - An object argument carrying a key its verb does not read: the render
-  options, `new Engine` options, an `Addr`, a `CardInput`. The diagnostic
-  names the key and carries no `code`: it is a call site to fix, not a
-  condition to route on.
+  options, `new Engine` options, an `Addr`, a `CardInput`. Every own string
+  key counts, a non-enumerable one and one holding `undefined` included. The
+  argument must be a plain object, its prototype `null` or `Object.prototype`
+  of any realm, so a `Map`, a class instance or `Object.create({ … })` throws.
+  The diagnostic names the key or what was passed, and carries no `code`: it
+  is a call site to fix, not a condition to route on.
 - `engine.render(quill, parsed)` against a quill whose *name* differs
   (`quill::name_mismatch`) or whose *version* falls outside the document's
   selector (`quill::version_mismatch`): a throw, never a warning.

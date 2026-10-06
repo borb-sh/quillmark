@@ -5,30 +5,51 @@
 //! column. Both spellings read back into the slots the generator wrote, and
 //! `to_markdown` round-trips the document. Written in any layout, with comments
 //! at any column, a document settles after one emission. Over arbitrary fence
-//! bodies neither the prescan nor the parse panics.
+//! bodies neither the prescan nor the parse panics, and the prescan's parser
+//! reads to the end of each body the value parse reads.
+
+use std::collections::HashMap;
 
 use proptest::prelude::*;
 use serde_json::{Map, Value};
+use serde_saphyr::granit_parser::{Event, Parser, ScanError};
 
-use super::super::prescan_fence_content;
+use super::super::{options, prescan_fence_content};
 use crate::document::{Document, NestedComment, PayloadItem};
-use crate::value::PathSegment;
+use crate::value::{PathSegment, QuillValue};
 
 #[derive(Debug, Clone)]
 enum Node {
     Word(String),
     Absent,
+    /// An empty value under this tag.
+    Tagged(&'static str),
     EmptyMap,
     EmptySeq,
     Map(Vec<(String, Node)>),
+    /// A mapping whose second entries come in through a merge (`<<`) written
+    /// among its own: it reads its own keys, then each merged one it does not
+    /// hold.
+    Merged(Vec<(String, Node)>, Vec<(String, Node)>),
     Seq(Vec<Node>),
 }
 
 impl Node {
+    /// A mapping's own entries and the ones it merges.
+    fn mapping(&self) -> Option<(&[(String, Node)], &[(String, Node)])> {
+        match self {
+            Node::Map(entries) => Some((entries, &[])),
+            Node::Merged(own, merged) => Some((own, merged)),
+            _ => None,
+        }
+    }
+
     fn json(&self) -> Value {
         match self {
             Node::Word(w) => Value::String(w.clone()),
             Node::Absent => Value::Null,
+            Node::Tagged(tag) if reads_text(tag) => Value::String(String::new()),
+            Node::Tagged(_) => Value::Null,
             Node::EmptyMap => Value::Object(Map::new()),
             Node::EmptySeq => Value::Array(Vec::new()),
             Node::Map(entries) => Value::Object(
@@ -37,9 +58,25 @@ impl Node {
                     .map(|(k, v)| (k.clone(), v.json()))
                     .collect(),
             ),
+            Node::Merged(own, merged) => Value::Object(
+                own.iter()
+                    .chain(merged.iter().filter(|(k, _)| !holds(own, k)))
+                    .map(|(k, v)| (k.clone(), v.json()))
+                    .collect(),
+            ),
             Node::Seq(items) => Value::Array(items.iter().map(Node::json).collect()),
         }
     }
+}
+
+/// `!!str` and `!` read an empty value as text; `!!null` and an unknown tag as
+/// null.
+fn reads_text(tag: &str) -> bool {
+    matches!(tag, "!!str" | "!")
+}
+
+fn holds(entries: &[(String, Node)], key: &str) -> bool {
+    entries.iter().any(|(k, _)| k == key)
 }
 
 fn distinct(entries: Vec<(String, Node)>) -> Vec<(String, Node)> {
@@ -58,13 +95,16 @@ fn arb_node() -> impl Strategy<Value = Node> {
     let leaf = prop_oneof![
         4 => "v[a-z0-9]{0,3}".prop_map(Node::Word),
         1 => Just(Node::Absent),
+        1 => prop::sample::select(&["!!str", "!", "!!null", "!t"][..]).prop_map(Node::Tagged),
         1 => Just(Node::EmptyMap),
         1 => Just(Node::EmptySeq),
     ];
     leaf.prop_recursive(4, 48, 4, |inner| {
         prop_oneof![
-            arb_entries(inner.clone()).prop_map(Node::Map),
-            prop::collection::vec(inner, 1..4).prop_map(Node::Seq),
+            2 => arb_entries(inner.clone()).prop_map(Node::Map),
+            1 => (arb_entries(inner.clone()), arb_entries(inner.clone()))
+                .prop_map(|(own, merged)| Node::Merged(own, merged)),
+            2 => prop::collection::vec(inner, 1..4).prop_map(Node::Seq),
         ]
     })
 }
@@ -85,15 +125,52 @@ enum Item {
 
 /// Writes a payload as a hand might, recording the slot each comment takes in
 /// the document model. The layout is `to_markdown`'s but for `zero`, which
-/// writes a sequence under a key at the key's column.
+/// writes a sequence under a key at the key's column, and `alias`, which
+/// anchors a key's first spelling and writes every later one as its alias.
 struct Render {
     zero: bool,
+    alias: bool,
+    /// The anchor on each key spelled so far.
+    keys: HashMap<String, usize>,
     fill: Vec<bool>,
     slot: usize,
     count: usize,
     src: String,
-    items: Vec<Item>,
+    /// Each top-level item, with the slot it takes: its position, then `0`
+    /// for an own-line comment, `1` for a field and `2` for a trailer.
+    items: Vec<(usize, usize, Item)>,
     nested: Vec<NestedComment>,
+}
+
+/// Where a `Render` writes the merge bringing `merged` among `entries`, the
+/// mapping's own, written from `from` on.
+fn merge_at(entries: &[(String, Node)], merged: &[(String, Node)], from: usize) -> Option<usize> {
+    let n = entries.len();
+    (!merged.is_empty()).then(|| ((n + merged.len()) % (n + 1)).max(from))
+}
+
+/// How many of `merged` the mapping holding `entries` takes in.
+fn brought(entries: &[(String, Node)], merged: &[(String, Node)]) -> usize {
+    merged.iter().filter(|(k, _)| !holds(entries, k)).count()
+}
+
+/// The slot of a comment below the value of `entries[i]` that holds none: it
+/// waits for the next child, the merge's keys or an own key, or follows the
+/// last key.
+fn next_slot(
+    entries: &[(String, Node)],
+    merged: &[(String, Node)],
+    from: usize,
+    i: usize,
+) -> usize {
+    let n = entries.len();
+    if merge_at(entries, merged, from) == Some(i + 1) {
+        n
+    } else if i + 1 < n {
+        i + 1
+    } else {
+        n + brought(entries, merged)
+    }
 }
 
 fn child(path: &[PathSegment], segment: PathSegment) -> Vec<PathSegment> {
@@ -103,13 +180,22 @@ fn child(path: &[PathSegment], segment: PathSegment) -> Vec<PathSegment> {
 }
 
 fn trailer(text: &Option<String>) -> String {
-    text.as_ref().map_or_else(String::new, |t| format!(" # {t}"))
+    text.as_ref().map_or_else(String::new, |t| format!(" # {}", spaced(t)))
+}
+
+/// `c`, numbered `cN`, as a hand might end it: bare or past trailing
+/// whitespace, which its text does not keep.
+fn spaced(c: &str) -> String {
+    let n: usize = c[1..].parse().expect("a numbered comment");
+    format!("{c}{}", ["", "  ", " \t", "\u{3000}"][n % 4])
 }
 
 impl Render {
-    fn new(zero: bool, fill: Vec<bool>) -> Self {
+    fn new(zero: bool, alias: bool, fill: Vec<bool>) -> Self {
         Self {
             zero,
+            alias,
+            keys: HashMap::new(),
             fill,
             slot: 0,
             count: 0,
@@ -117,6 +203,18 @@ impl Render {
             items: Vec::new(),
             nested: Vec::new(),
         }
+    }
+
+    fn key(&mut self, k: &str) -> String {
+        if !self.alias {
+            return k.to_string();
+        }
+        if let Some(n) = self.keys.get(k) {
+            return format!("*k{n} ");
+        }
+        let n = self.keys.len() + 1;
+        self.keys.insert(k.to_string(), n);
+        format!("&k{n} {k}")
     }
 
     fn comment(&mut self) -> Option<String> {
@@ -135,6 +233,11 @@ impl Render {
     }
 
     fn mark(&mut self, path: &[PathSegment], position: usize, text: &str, inline: bool) {
+        if path.is_empty() {
+            let comment = Item::Comment(text.to_string(), inline);
+            self.items.push((position, 2 * usize::from(inline), comment));
+            return;
+        }
         self.nested.push(NestedComment {
             container_path: path.to_vec(),
             position,
@@ -145,32 +248,20 @@ impl Render {
 
     fn own(&mut self, column: usize, path: &[PathSegment], position: usize) {
         if let Some(c) = self.comment() {
-            self.line(column, &format!("# {c}"));
+            self.line(column, &format!("# {}", spaced(&c)));
             self.mark(path, position, &c, false);
         }
     }
 
-    fn root(&mut self, entries: &[(String, Node)]) {
-        for (k, v) in entries {
-            if let Some(c) = self.comment() {
-                self.line(0, &format!("# {c}"));
-                self.items.push(Item::Comment(c, false));
-            }
-            self.items.push(Item::Field(k.clone()));
-            let t = self.comment();
-            if let Some(t) = &t {
-                self.items.push(Item::Comment(t.clone(), true));
-            }
-            self.entry(String::new(), 0, k, v, &[PathSegment::Key(k.clone())], &t);
-        }
-        if let Some(c) = self.comment() {
-            self.line(0, &format!("# {c}"));
-            self.items.push(Item::Comment(c, false));
+    fn field(&mut self, path: &[PathSegment], position: usize, k: &str) {
+        if path.is_empty() {
+            self.items.push((position, 1, Item::Field(k.to_string())));
         }
     }
 
     /// A key's line and its value's lines, `lead` ahead of the key, which sits
-    /// at `column`. `path` is the value's.
+    /// at `column`. `path` is the value's. Answers a comment written under a
+    /// value that holds none, which the caller's slot after the entry takes.
     fn entry(
         &mut self,
         lead: String,
@@ -179,23 +270,35 @@ impl Render {
         v: &Node,
         path: &[PathSegment],
         t: &Option<String>,
-    ) {
+    ) -> Option<String> {
         let t = trailer(t);
-        let head = |sep: &str| format!("{lead}{k}{sep}{t}");
+        let key = self.key(k);
+        let head = |sep: &str| format!("{lead}{key}{sep}{t}");
         match v {
             Node::Word(w) => self.line(0, &head(&format!(": {w}"))),
-            Node::Absent | Node::EmptyMap | Node::EmptySeq => {
+            Node::Tagged(tag) if reads_text(tag) => {
+                self.line(0, &head(&format!(": {tag}")));
+                let c = self.comment()?;
+                self.line(column + 2, &format!("# {}", spaced(&c)));
+                return Some(c);
+            }
+            Node::Absent | Node::Tagged(_) | Node::EmptyMap | Node::EmptySeq => {
                 let sep = match v {
-                    Node::EmptyMap => ": {}",
-                    Node::EmptySeq => ": []",
-                    _ => ":",
+                    Node::Tagged(tag) => format!(": {tag}"),
+                    Node::EmptyMap => ": {}".to_string(),
+                    Node::EmptySeq => ": []".to_string(),
+                    _ => ":".to_string(),
                 };
-                self.line(0, &head(sep));
+                self.line(0, &head(&sep));
                 self.own(column + 2, path, 0);
             }
             Node::Map(entries) => {
                 self.line(0, &head(":"));
-                self.map(entries, 0, column + 2, path);
+                self.map(entries, &[], 0, column + 2, path);
+            }
+            Node::Merged(own, merged) => {
+                self.line(0, &head(":"));
+                self.map(own, merged, 0, column + 2, path);
             }
             Node::Seq(items) => {
                 self.line(0, &head(":"));
@@ -203,19 +306,84 @@ impl Render {
                 self.seq(items, dash, path, self.zero);
             }
         }
+        None
     }
 
-    fn map(&mut self, entries: &[(String, Node)], from: usize, column: usize, path: &[PathSegment]) {
+    /// A mapping's entries from `from` on, at `column`, and a merge among
+    /// them past `from` bringing `merged`.
+    fn map(
+        &mut self,
+        entries: &[(String, Node)],
+        merged: &[(String, Node)],
+        from: usize,
+        column: usize,
+        path: &[PathSegment],
+    ) {
+        let n = entries.len();
+        let at = merge_at(entries, merged, from);
         for (i, (k, v)) in entries.iter().enumerate().skip(from) {
+            if at == Some(i) {
+                self.merge(entries, merged, column, path);
+            }
             self.own(column, path, i);
+            self.field(path, i, k);
             let t = self.comment();
             if let Some(t) = &t {
                 self.mark(path, i, t, true);
             }
             let value = child(path, PathSegment::Key(k.clone()));
-            self.entry(" ".repeat(column), column, k, v, &value, &t);
+            if let Some(c) = self.entry(" ".repeat(column), column, k, v, &value, &t) {
+                self.mark(path, next_slot(entries, merged, from, i), &c, false);
+            }
         }
-        self.own(column, path, entries.len());
+        if at == Some(n) {
+            self.merge(entries, merged, column, path);
+        }
+        self.own(column, path, n + brought(entries, merged));
+    }
+
+    /// `<<:` at `column`, holding `merged` in a block mapping. Each comment
+    /// takes its slot among the keys of the mapping: `own`'s, then each merged
+    /// one `own` does not hold. Those on and inside a merged key `own` holds
+    /// land ahead of where it would sit.
+    fn merge(
+        &mut self,
+        own: &[(String, Node)],
+        merged: &[(String, Node)],
+        column: usize,
+        path: &[PathSegment],
+    ) {
+        let mut seat = own.len();
+        self.own(column, path, seat);
+        let t = self.comment();
+        self.line(column, &format!("<<:{}", trailer(&t)));
+        if let Some(t) = &t {
+            self.mark(path, seat, t, false);
+        }
+        for (k, v) in merged {
+            let held = !holds(own, k);
+            self.own(column + 2, path, seat);
+            if held {
+                self.field(path, seat, k);
+            }
+            let t = self.comment();
+            if let Some(t) = &t {
+                self.mark(path, seat, t, held);
+            }
+            let value = child(path, PathSegment::Key(k.clone()));
+            let first = self.nested.len();
+            let after = self.entry(" ".repeat(column + 2), column + 2, k, v, &value, &t);
+            if !held {
+                for c in self.nested.split_off(first) {
+                    self.mark(path, seat, &c.text, false);
+                }
+            }
+            seat += usize::from(held);
+            if let Some(c) = after {
+                self.mark(path, seat, &c, false);
+            }
+        }
+        self.own(column + 2, path, seat);
     }
 
     /// A comment at the dashes' column after the last item is the next key's
@@ -233,33 +401,37 @@ impl Render {
     fn item(&mut self, dash: usize, item: &Node, path: &[PathSegment], i: usize, t: Option<String>) {
         let own = child(path, PathSegment::Index(i));
         match item {
-            Node::Map(entries) => {
+            Node::Map(_) | Node::Merged(..) => {
+                let (entries, merged) = item.mapping().expect("a mapping");
                 let (k, v) = &entries[0];
                 let value = child(&own, PathSegment::Key(k.clone()));
                 let lead = self.comment();
                 let first = self.comment();
-                if lead.is_some() || (t.is_some() && first.is_some()) {
+                let after = if lead.is_some() || (t.is_some() && first.is_some()) {
                     if let Some(t) = &t {
                         self.mark(path, i, t, true);
                     }
                     self.line(dash, &format!("-{}", trailer(&t)));
                     if let Some(c) = &lead {
-                        self.line(dash + 2, &format!("# {c}"));
+                        self.line(dash + 2, &format!("# {}", spaced(c)));
                         self.mark(&own, 0, c, false);
                     }
                     if let Some(f) = &first {
                         self.mark(&own, 0, f, true);
                     }
-                    self.entry(" ".repeat(dash + 2), dash + 2, k, v, &value, &first);
+                    self.entry(" ".repeat(dash + 2), dash + 2, k, v, &value, &first)
                 } else {
                     // The dash line's trailer is the item's.
                     let t = t.or(first);
                     if let Some(t) = &t {
                         self.mark(path, i, t, true);
                     }
-                    self.entry(format!("{}- ", " ".repeat(dash)), dash + 2, k, v, &value, &t);
+                    self.entry(format!("{}- ", " ".repeat(dash)), dash + 2, k, v, &value, &t)
+                };
+                if let Some(c) = after {
+                    self.mark(&own, next_slot(entries, merged, 1, 0), &c, false);
                 }
-                self.map(entries, 1, dash + 2, &own);
+                self.map(entries, merged, 1, dash + 2, &own);
             }
             Node::Seq(inner) => {
                 if let Some(t) = &t {
@@ -274,6 +446,7 @@ impl Render {
                 }
                 let text = match scalar {
                     Node::Word(w) => w.as_str(),
+                    Node::Tagged(tag) => tag,
                     Node::EmptyMap => "{}",
                     Node::EmptySeq => "[]",
                     _ => "null",
@@ -282,6 +455,33 @@ impl Render {
             }
         }
     }
+}
+
+/// Where `c` emits among the comments of fields holding `fields`: at each level
+/// the place its path takes in the value, then its slot. A merge writes keys
+/// past the source order, so the marks a `Render` makes in source order sort
+/// by this.
+fn emit_order(fields: &Map<String, Value>, c: &NestedComment) -> Vec<usize> {
+    let mut order = Vec::new();
+    let mut map = fields;
+    let mut value: Option<&Value> = None;
+    for segment in &c.container_path {
+        let (place, next) = match (segment, value) {
+            (PathSegment::Index(i), Some(Value::Array(items))) => (*i, &items[*i]),
+            (PathSegment::Key(k), _) => {
+                let place = map.keys().position(|x| x == k).expect("a key the value holds");
+                (place, &map[k])
+            }
+            _ => unreachable!("a path into the value"),
+        };
+        order.extend([place, 2]);
+        value = Some(next);
+        if let Value::Object(inner) = next {
+            map = inner;
+        }
+    }
+    order.extend([c.position, usize::from(c.inline)]);
+    order
 }
 
 fn items_of(doc: &Document) -> Vec<Item> {
@@ -301,25 +501,35 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(400))]
 
     /// Every comment reads back into the slot it was written at, under either
-    /// sequence indentation, and the document round-trips through
-    /// `to_markdown`.
+    /// sequence indentation, under keys written as aliases and among the keys
+    /// a merge brings, and the document round-trips through `to_markdown`.
     #[test]
     fn every_comment_reads_back_into_its_slot(
         entries in arb_entries(arb_node()),
+        merged in prop::option::weighted(0.3, arb_entries(arb_node())),
         fill in arb_fill(),
     ) {
-        for zero in [false, true] {
-            let mut render = Render::new(zero, fill.clone());
-            render.root(&entries);
+        let merged = merged.unwrap_or_default();
+        let Value::Object(fields) = Node::Merged(entries.clone(), merged.clone()).json() else {
+            unreachable!("a mapping reads as an object");
+        };
+        for (zero, alias) in [(false, false), (true, false), (false, true)] {
+            let mut render = Render::new(zero, alias, fill.clone());
+            render.map(&entries, &merged, 0, 0, &[]);
             let src = format!("~~~\n$quill: q\n$kind: main\n{}~~~\n", render.src);
             let doc = Document::parse(&src)
                 .unwrap_or_else(|e| panic!("the rendering parses: {e}\n{src}"))
                 .document;
             let payload = doc.main().payload();
-            prop_assert_eq!(items_of(&doc), render.items, "{}", src);
-            prop_assert_eq!(payload.nested_comments(), &render.nested[..], "{}", src);
-            for (k, v) in &entries {
-                prop_assert_eq!(payload.get(k).map(|q| q.as_json().clone()), Some(v.json()), "{}", src);
+            let mut items = render.items;
+            items.sort_by_key(|&(position, kind, _)| (position, kind));
+            let items: Vec<Item> = items.into_iter().map(|(.., item)| item).collect();
+            prop_assert_eq!(items_of(&doc), items, "{}", src);
+            let mut nested = render.nested;
+            nested.sort_by_cached_key(|c| emit_order(&fields, c));
+            prop_assert_eq!(payload.nested_comments(), &nested[..], "{}", src);
+            for (k, v) in &fields {
+                prop_assert_eq!(payload.get(k).map(QuillValue::as_json), Some(v), "{}", src);
             }
 
             let md = doc.to_markdown();
@@ -340,6 +550,10 @@ struct Scribble {
     picks: Vec<u8>,
     at: usize,
     anchors: usize,
+    /// The anchor on each key text written with one.
+    keys: HashMap<String, usize>,
+    /// The anchors on the merges' values written so far.
+    merges: Vec<usize>,
     src: String,
 }
 
@@ -349,6 +563,8 @@ impl Scribble {
             picks,
             at: 0,
             anchors: 0,
+            keys: HashMap::new(),
+            merges: Vec::new(),
             src: String::new(),
         }
     }
@@ -368,16 +584,22 @@ impl Scribble {
     fn notes(&mut self, reach: usize) {
         for _ in 0..self.pick(3) {
             let column = self.pick(reach + 1);
-            self.line(column, "# n");
+            let end = self.end();
+            self.line(column, &format!("# n{end}"));
         }
     }
 
-    fn tail(&mut self) -> &'static str {
+    fn tail(&mut self) -> String {
         if self.pick(2) == 0 {
-            " # t"
+            format!(" # t{}", self.end())
         } else {
-            ""
+            String::new()
         }
+    }
+
+    /// Whitespace ending a comment, which its text does not keep.
+    fn end(&mut self) -> &'static str {
+        ["", "", "  ", "\t", " \u{3000}"][self.pick(5)]
     }
 
     fn props(&mut self) -> String {
@@ -391,6 +613,14 @@ impl Scribble {
         }
     }
 
+    /// A missing value's tag or anchor, if any, past a space.
+    fn bare(&mut self) -> String {
+        match self.props().trim_end() {
+            "" => String::new(),
+            props => format!(" {props}"),
+        }
+    }
+
     fn word(&mut self, w: &str) -> String {
         let props = self.props();
         match self.pick(5) {
@@ -399,12 +629,18 @@ impl Scribble {
         }
     }
 
+    /// The entries, then at times the end-of-document marker, after which
+    /// the comments are the block's last lines.
     fn root(&mut self, entries: &[(String, Node)]) {
         for (k, v) in entries {
             self.notes(4);
             self.entry(String::new(), 0, k, v);
         }
         self.notes(4);
+        if self.pick(4) == 0 {
+            self.line(0, "...");
+            self.notes(4);
+        }
     }
 
     /// `[w, v]` or `{k: w}` from flat words, on one line or broken after its
@@ -443,8 +679,23 @@ impl Scribble {
         Some(format!("{open}{}{close}", parts.join(&sep)))
     }
 
+    /// `k` spelled as `spell` has it, anchored, or as an alias to an earlier
+    /// key anchored with its text.
+    fn key(&mut self, k: &str, column: usize) -> String {
+        let (spelled, text) = spell(k, column);
+        match self.keys.get(&text).copied() {
+            Some(n) if self.pick(2) == 0 => format!("*k{n} "),
+            _ if self.pick(4) == 0 => {
+                self.anchors += 1;
+                self.keys.insert(text, self.anchors);
+                format!("&k{} {spelled}", self.anchors)
+            }
+            _ => spelled,
+        }
+    }
+
     fn entry(&mut self, lead: String, column: usize, k: &str, v: &Node) {
-        let k = &spell(k, column);
+        let k = &self.key(k, column);
         if let Some(flow) = self.flow(v, column + 2) {
             let t = self.tail();
             self.line(0, &format!("{lead}{k}: {flow}{t}"));
@@ -477,22 +728,24 @@ impl Scribble {
                     }
                 }
             }
-            Node::Absent | Node::EmptyMap | Node::EmptySeq => {
+            Node::Absent | Node::Tagged(_) | Node::EmptyMap | Node::EmptySeq => {
                 let sep = match v {
-                    Node::EmptyMap => ": {}",
-                    Node::EmptySeq => ": []",
-                    _ => ":",
+                    Node::Tagged(tag) => format!(": {tag}"),
+                    Node::EmptyMap => ": {}".to_string(),
+                    Node::EmptySeq => ": []".to_string(),
+                    _ => format!(":{}", self.bare()),
                 };
                 let t = self.tail();
                 self.line(0, &format!("{lead}{k}{sep}{t}"));
                 self.notes(column + 4);
             }
-            Node::Map(entries) => {
+            Node::Map(_) | Node::Merged(..) => {
+                let (entries, merged) = v.mapping().expect("a mapping");
                 let t = self.tail();
                 self.line(0, &format!("{lead}{k}:{t}"));
                 let child = column + 1 + self.pick(4);
                 self.notes(child + 2);
-                self.block_map(entries, 0, child);
+                self.block_map(entries, merged, 0, child);
             }
             Node::Seq(items) => {
                 let t = self.tail();
@@ -504,14 +757,63 @@ impl Scribble {
         }
     }
 
-    fn block_map(&mut self, entries: &[(String, Node)], from: usize, column: usize) {
+    /// A mapping's entries from `from` on, at `column`, and a merge among
+    /// them past `from` bringing `merged`.
+    fn block_map(
+        &mut self,
+        entries: &[(String, Node)],
+        merged: &[(String, Node)],
+        from: usize,
+        column: usize,
+    ) {
+        let at = (!merged.is_empty()).then(|| self.pick(entries.len() + 1).max(from));
         for (i, (k, v)) in entries.iter().enumerate().skip(from) {
             if i > from {
                 self.notes(column + 2);
             }
+            if at == Some(i) {
+                self.merge(merged, " ".repeat(column), column);
+                self.notes(column + 2);
+            }
             self.entry(" ".repeat(column), column, k, v);
         }
+        if at == Some(entries.len()) {
+            self.notes(column + 2);
+            self.merge(merged, " ".repeat(column), column);
+        }
         self.notes(column + 2);
+    }
+
+    /// `<<` at `column`, `lead` ahead of it on its line, bringing `merged` as
+    /// the picks spell it: a block or flow mapping, a sequence holding one, or
+    /// an alias to a merge's value written before, under `!!merge` or not.
+    fn merge(&mut self, merged: &[(String, Node)], lead: String, column: usize) {
+        let key = ["<<", "<<", "!!merge <<"][self.pick(3)];
+        let t = self.tail();
+        let alias = self.pick(self.merges.len() + 2);
+        if let Some(&n) = self.merges.get(alias) {
+            self.line(0, &format!("{lead}{key}: *m{n}{t}"));
+            return;
+        }
+        if let Some(flow) = self.flow(&Node::Map(merged.to_vec()), column + 2) {
+            self.line(0, &format!("{lead}{key}: {flow}{t}"));
+            return;
+        }
+        let anchor = (self.pick(3) == 0).then(|| {
+            self.anchors += 1;
+            self.anchors
+        });
+        let named = anchor.map_or_else(String::new, |n| format!(" &m{n}"));
+        self.line(0, &format!("{lead}{key}:{named}{t}"));
+        let child = column + 1 + self.pick(3);
+        self.notes(child + 2);
+        if self.pick(3) == 0 {
+            self.item(" ".repeat(child), child, &Node::Map(merged.to_vec()));
+            self.notes(child + 2);
+        } else {
+            self.block_map(merged, &[], 0, child);
+        }
+        self.merges.extend(anchor);
     }
 
     fn block_seq(&mut self, items: &[Node], dash: usize) {
@@ -532,17 +834,23 @@ impl Scribble {
             return;
         }
         match item {
-            Node::Map(entries) if self.pick(2) == 0 => {
+            Node::Merged(entries, merged) if self.pick(3) == 0 => {
+                self.merge(merged, format!("{lead}- "), dash + 2);
+                self.block_map(entries, &[], 0, dash + 2);
+            }
+            Node::Map(_) | Node::Merged(..) if self.pick(2) == 0 => {
+                let (entries, merged) = item.mapping().expect("a mapping");
                 let (k, v) = &entries[0];
                 self.entry(format!("{lead}- "), dash + 2, k, v);
-                self.block_map(entries, 1, dash + 2);
+                self.block_map(entries, merged, 1, dash + 2);
             }
-            Node::Map(entries) => {
+            Node::Map(_) | Node::Merged(..) => {
+                let (entries, merged) = item.mapping().expect("a mapping");
                 let t = self.tail();
                 self.line(0, &format!("{lead}-{t}"));
                 let child = dash + 1 + self.pick(3);
                 self.notes(child + 2);
-                self.block_map(entries, 0, child);
+                self.block_map(entries, merged, 0, child);
             }
             Node::Seq(inner) if self.pick(2) == 0 => {
                 self.item(format!("{lead}- "), dash + 2, &inner[0]);
@@ -577,8 +885,15 @@ impl Scribble {
                 }
             }
             Node::Absent => {
+                let bare = self.bare();
                 let t = self.tail();
-                self.line(0, &format!("{lead}-{t}"));
+                self.line(0, &format!("{lead}-{bare}{t}"));
+                self.notes(dash + 4);
+            }
+            Node::Tagged(tag) => {
+                let t = self.tail();
+                self.line(0, &format!("{lead}- {tag}{t}"));
+                self.notes(dash + 4);
             }
             Node::EmptyMap | Node::EmptySeq => {
                 let empty = if matches!(item, Node::EmptyMap) { "{}" } else { "[]" };
@@ -589,15 +904,15 @@ impl Scribble {
     }
 }
 
-/// A key as a hand might spell it: bare or quoted, and past the root holding a
-/// space or ` #`.
-fn spell(k: &str, column: usize) -> String {
+/// A key as a hand might spell it, and the text it reads as: bare or quoted,
+/// and past the root holding a space or ` #`.
+fn spell(k: &str, column: usize) -> (String, String) {
     match (column, (k.len() + column) % 4) {
-        (_, 0) => k.to_string(),
-        (_, 1) => format!("\"{k}\""),
-        (0, _) => format!("'{k}'"),
-        (_, 2) => format!("{k} x"),
-        _ => format!("'{k} # y'"),
+        (_, 0) => (k.to_string(), k.to_string()),
+        (_, 1) => (format!("\"{k}\""), k.to_string()),
+        (0, _) => (format!("'{k}'"), k.to_string()),
+        (_, 2) => (format!("{k} x"), format!("{k} x")),
+        _ => (format!("'{k} # y'"), format!("{k} # y")),
     }
 }
 
@@ -646,17 +961,60 @@ proptest! {
 fn arb_line() -> impl Strategy<Value = String> {
     let indent = prop::sample::select(&["", " ", "  ", "    ", "      "][..]);
     let dashes = prop::sample::select(&["", "", "- ", "- - ", "-"][..]);
-    let key = prop::sample::select(&["", "k: ", "j: ", "k:", "\"q k\": ", "? ", "!t m: "][..]);
+    let key = prop::sample::select(
+        &["", "k: ", "j: ", "k:", "\"q k\": ", "? ", "!t m: ", "<<: ", "*a : "][..],
+    );
     let value = prop::sample::select(
-        &["", "v", "w x", "[a, b]", "{a: 1}", "[]", "{}", "!t v", "&a v", "*a", "|", "null", "[a,", "'q"][..],
+        &[
+            "", "v", "w x", "[a, b]", "{a: 1}", "[]", "{}", "!t v", "&a v", "*a", "|", "null", "[a,",
+            "'q", "!!str", "!", "{<<: *a}", "[*a]", "&a {x: 1}",
+        ][..],
     );
     let comment = prop::sample::select(&["", "", " # c", "# own", " #"][..]);
     (indent, dashes, key, value, comment)
         .prop_map(|(i, d, k, v, c)| format!("{i}{d}{k}{v}{c}"))
 }
 
+/// The error the prescan's parser meets ahead of the end of `body`'s root
+/// node, which is all of `body` the value parse reads.
+fn root_refusal(body: &str) -> Option<ScanError> {
+    let mut open = 0usize;
+    for next in Parser::new_from_str_with_options(body, options()) {
+        match next {
+            Err(refusal) => return Some(refusal),
+            Ok((Event::MappingStart(..) | Event::SequenceStart(..), _)) => open += 1,
+            Ok((Event::MappingEnd | Event::SequenceEnd, _)) if open == 1 => return None,
+            Ok((Event::MappingEnd | Event::SequenceEnd, _)) => open -= 1,
+            Ok((Event::Scalar(..) | Event::Alias(..), _)) if open == 0 => return None,
+            Ok(_) => {}
+        }
+    }
+    None
+}
+
 fn arb_body() -> impl Strategy<Value = String> {
     prop::collection::vec(arb_line(), 0..14).prop_map(|lines| lines.join("\n"))
+}
+
+/// A body with a run of up to 200 own-line comments at one of its lines: the
+/// parser buffers such a run while it works out the entry after it.
+fn arb_run() -> impl Strategy<Value = String> {
+    (prop::collection::vec(arb_line(), 1..14), any::<prop::sample::Index>(), 0..200usize).prop_map(
+        |(mut lines, at, run)| {
+            let at = at.index(lines.len() + 1);
+            lines.splice(at..at, std::iter::repeat_n("# r".to_string(), run));
+            lines.join("\n")
+        },
+    )
+}
+
+/// Any text, its lines ended by `\n`, `\r\n` or a lone `\r`, some of them
+/// written from the pieces that decide where a comment lands.
+fn arb_text() -> impl Strategy<Value = String> {
+    let line = prop_oneof!["[\\PC\\t]{0,40}", arb_line()];
+    let end = prop::sample::select(&["\n", "\r\n", "\r"][..]);
+    prop::collection::vec((line, end), 0..12)
+        .prop_map(|lines| lines.into_iter().map(|(line, end)| line + end).collect())
 }
 
 proptest! {
@@ -668,8 +1026,21 @@ proptest! {
     }
 
     #[test]
-    fn the_prescan_reads_any_text_without_panicking(body in "\\PC{0,200}") {
+    fn the_prescan_reads_any_text_without_panicking(body in arb_text()) {
         let _ = prescan_fence_content(&body);
+    }
+
+    /// The prescan ends its scan at its parser's error and leaves the refusal
+    /// to the value parse, so its parser reads all the value parse reads: a
+    /// comment past an error of its own would drop.
+    #[test]
+    fn the_prescan_parser_reads_what_the_value_parse_reads(
+        body in prop_oneof![arb_body(), arb_run(), arb_text()],
+    ) {
+        if crate::value::parse_yaml::<Value>(&body).is_ok() {
+            let refusal = root_refusal(&body);
+            prop_assert!(refusal.is_none(), "{:?}\n{}", refusal, body);
+        }
     }
 
     /// The parse refuses or reads a fence body, never panics, prescan included.

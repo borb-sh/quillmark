@@ -249,6 +249,152 @@ fn a_comment_under_a_scalar_below_its_key_follows_the_value() {
     }
 }
 
+/// An empty value is the scalar its tag reads. Under `!!str` or `!` it is text,
+/// which holds no comment, so one indented under it follows the entry; under
+/// `!!null`, or a tag the parse ignores, it is null and holds the comment. One
+/// below it at a lesser column belongs to the collection around it.
+#[test]
+fn a_comment_under_a_tagged_empty_value_survives() {
+    let cases = [
+        ("k: !\n  # c\nj: 1\n", "k: \"\"\n# c\nj: 1\n"),
+        ("k: !!str # t\n  # c\nj: 1\n", "k: \"\" # t\n# c\nj: 1\n"),
+        ("rows:\n  - k: !\n      # c\n    j: 1\n", "  - k: \"\"\n    # c\n    j: 1\n"),
+        ("k: !!null\n  # c\nj: 1\n", "k:\n  # c\nj: 1\n"),
+        (
+            "m:\n  k: !!str\n    # c\n  # d\n# e\nj: 1\n",
+            "m:\n  k: \"\"\n  # c\n  # d\n# e\nj: 1\n",
+        ),
+        (
+            "m:\n  k: !t\n    # c\n  # d\n# e\nj: 1\n",
+            "m:\n  k:\n    # c\n  # d\n# e\nj: 1\n",
+        ),
+        ("l:\n  - !!str\n  # c\n  - b\n# d\nj: 1\n", "l:\n  - \"\"\n  # c\n  - b\n# d\nj: 1\n"),
+    ];
+    for (fields, emitted) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap().document;
+        let md = doc.to_markdown();
+        assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
+/// An alias key is its anchored scalar's text, so the comments and tags under
+/// it keep their paths, and at the top level its field keeps its place and its
+/// trailer.
+#[test]
+fn an_alias_key_holds_its_comments_and_tags() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
+               a: &x foo\n\
+               o:\n  *x :\n    # c\n    s: !t 1\n\
+               *x : 1 # t\n\
+               b: 2\n~~~\n";
+    let out = Document::parse(src).unwrap();
+    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some("main.o.foo.s"))]);
+    let md = out.document.to_markdown();
+    assert!(md.contains("o:\n  foo:\n    # c\n    s: 1\nfoo: 1 # t\nb: 2\n"), "{md}");
+    assert_eq!(Document::parse(&md).unwrap().document, out.document, "{md}");
+}
+
+/// A mapping holding a merge reads its own keys, then each key the merge
+/// brings that it does not already hold. A comment keeps its slot among those
+/// keys: one ahead of, on or inside a merge sits with the keys that merge
+/// brings, one at an own key with that key, and one inside a merged key the
+/// mapping overrides ahead of where that key would sit. An item whose merges
+/// bring no key emits as `{}`, which holds no comment, so its comments follow
+/// the item.
+#[test]
+fn a_comment_around_or_inside_a_merge_keeps_its_slot() {
+    let cases = [
+        (
+            "m:\n  w: 0\n  # before\n  <<: # on\n    # first\n    x: 1 # x\n    # between\n    \
+             z: 2\n    # last\n  # after\n  v: 3\n  # end\n",
+            "m:\n  w: 0\n  # after\n  v: 3\n  # before\n  # on\n  # first\n  x: 1 # x\n  \
+             # between\n  z: 2\n  # last\n  # end\n",
+        ),
+        (
+            "b: &b\n  x: 1\nm:\n  # before\n  <<: *b\n  # after\n  c: 2\n",
+            "m:\n  # after\n  c: 2\n  # before\n  x: 1\n",
+        ),
+        (
+            "p: &p {x: 1, z: 2}\nq: &q {z: 3, u: 4}\nm:\n  x: 0\n  <<: [*p, # p\n    *q] # q\n",
+            "m:\n  x: 0\n  # p\n  z: 2\n  u: 4\n  # q\n",
+        ),
+        (
+            "p: &p {x: 1}\nq: &q {z: 2}\nm:\n  <<:\n    # p\n    - *p\n    # q\n    - *q\n  c: 3\n",
+            "m:\n  c: 3\n  # p\n  x: 1\n  # q\n  z: 2\n",
+        ),
+        (
+            "m:\n  <<:\n    a:\n      # inside a\n      deep: 1\n    <<: {b: 2}\n  a: 0\n",
+            "m:\n  a: 0\n  # inside a\n  b: 2\n",
+        ),
+        ("l:\n  - <<: {x: 1}\n    c: 2 # c\n", "l:\n  - c: 2 # c\n    x: 1\n"),
+        ("l:\n  - <<:\n      # c\n  - 1\n", "l:\n  - {}\n  # c\n  - 1\n"),
+        ("d: &d {}\nl:\n  - <<: *d\n    # note\n", "l:\n  - {}\n  # note\n"),
+        (
+            "$ext:\n  d: &d {a: 1}\nx: 0\n# before\n<<: *d # on\nc: 2\n",
+            "x: 0\nc: 2\n# before\n# on\na: 1\n",
+        ),
+    ];
+    for (fields, emitted) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}")).document;
+        let md = doc.to_markdown();
+        assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
+/// A comment's text ends at its last character that is not whitespace, so
+/// the same comment emitted as the block's last line, whose whitespace the
+/// fence's trim drops, reads back as the same text.
+#[test]
+fn a_comment_ending_in_whitespace_reads_back_the_same() {
+    for fields in ["k: 1\n# c  \n...\n", "k: 1 # c \t\n...\n", "k: 1\n# c \u{3000}\nj: 2\n"] {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap().document;
+        let md = doc.to_markdown();
+        assert!(md.contains("# c\n"), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
+/// A comment read from a stored row or the wire holds no whitespace ending it
+/// either, so a document built from one round-trips through `to_markdown`.
+#[test]
+fn a_stored_or_wired_comment_reads_without_the_whitespace_ending_it() {
+    use crate::document::{Card, CardWire, PayloadItemWire};
+
+    let mut doc: Document = serde_json::from_value(serde_json::json!({
+        "schema": "quillmark/document@0.116.0",
+        "main": {
+            "payload": {
+                "items": [
+                    {"type": "quill", "value": "q@1.0"},
+                    {"type": "kind", "value": "main"},
+                    {"type": "comment", "text": "note  ", "inline": false},
+                    {"type": "field", "key": "a", "value": [1]},
+                    {"type": "comment", "text": "t \t", "inline": true},
+                ],
+                "nested_comments": [
+                    {"container_path": [{"Key": "a"}], "position": 1, "text": "end\u{3000}", "inline": false},
+                ],
+            },
+            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""},
+        },
+        "cards": [],
+    }))
+    .unwrap();
+    let mut wire = CardWire::new("note".to_string(), serde_json::Value::Null);
+    wire.payload_items = vec![PayloadItemWire::Comment {
+        text: "wired \t".to_string(),
+        inline: false,
+    }];
+    doc.push_card(Card::try_from(wire).unwrap()).unwrap();
+    let md = doc.to_markdown();
+    assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+}
+
 /// Each comment keeps the container and slot the YAML gives it, whatever the
 /// spelling's indentation: a sequence at its key's column, a comment indented
 /// less than its block, a compact nested sequence, a continuation line.

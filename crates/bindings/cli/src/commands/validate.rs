@@ -128,7 +128,7 @@ fn validate_file_references(quill: &Quill, result: &mut ValidationResult) {
         .get("plate_file")
         .and_then(|v| v.as_str())
     {
-        let rel = Path::new(plate_file);
+        let rel = Path::new(plate_file.trim_start_matches("./"));
         if rel
             .components()
             .any(|c| !matches!(c, std::path::Component::Normal(_)))

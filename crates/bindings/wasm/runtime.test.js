@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import vm from 'node:vm'
 import {
   Engine,
   DocumentWriter,
@@ -730,6 +731,41 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
       expect(session.render(every).outputFormat).toBe('svg')
     } finally {
       session.free()
+    }
+  })
+
+  it('an options object is a plain object, and every own key of it counts', async () => {
+    const message = (err) => {
+      expect(isQuillmarkError(err), String(err)).toBe(true)
+      return err.diagnostics[0].message
+    }
+    const engine = new Engine()
+    const quill = makeRuntimeQuill()
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const render = (options) => engine.render(quill, doc, options)
+
+    for (const [options, refusal] of [
+      [Object.create({ today: '2026-03-14' }), 'render options must be a plain object'],
+      [Object.defineProperty({}, 'today', { value: '2026-03-14' }), 'unknown key `today`'],
+      [new Map([['format', 'svg']]), 'not a `Map`'],
+      [new (class { format = 'svg' })(), 'render options must be a plain object'],
+      [{ format: 'pdf', today: undefined }, 'unknown key `today`'],
+    ]) {
+      expect(message(await render(options).catch((e) => e))).toContain(refusal)
+    }
+    for (const [options, refusal] of [
+      [Object.create({ backends: {} }), 'Engine options must be a plain object'],
+      [Object.defineProperty({}, 'backend', { value: {} }), 'unknown key `backend`'],
+      [new Map([['backends', {}]]), 'not a `Map`'],
+      [new (class { backends = {} })(), 'Engine options must be a plain object'],
+      [{ backends: {}, backend: undefined }, 'unknown key `backend`'],
+    ]) {
+      expect(message(caughtFrom(() => new Engine(options)))).toContain(refusal)
+    }
+
+    for (const plain of [() => Object.create(null), () => vm.runInNewContext('({})')]) {
+      expect((await render(Object.assign(plain(), { format: 'svg' }))).outputFormat).toBe('svg')
+      expect(() => new Engine(Object.assign(plain(), { backends: {} }))).not.toThrow()
     }
   })
 

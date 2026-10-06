@@ -8,11 +8,18 @@
 //! inside a flow collection or a multi-line scalar belongs to the block entry
 //! holding that value: its trailer, or an own-line comment after it.
 //!
+//! A mapping holding a merge (`<<`) reads its own keys, then each key the merge
+//! brings that it does not already hold. Once it closes, its comments are placed
+//! again among those keys: one ahead of, on or inside a merge sits with the
+//! keys that merge brings.
+//!
 //! Every tagged node is recorded at its path, for the assembler to warn on; the
 //! value parse applies a core `!!` tag, ignores any other, and keeps no tag.
 
+use std::collections::{HashMap, HashSet};
+
 use serde_saphyr::granit_parser::{
-    Event, Marker, Options, Parser, Placement, ScalarStyle, Span, StructureStyle,
+    Event, Marker, Options, Parser, Placement, ScalarStyle, Span, StructureStyle, Tag,
 };
 
 use crate::value::PathSegment;
@@ -44,7 +51,7 @@ pub struct NestedComment {
 /// Output of [`prescan_fence_content`].
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PreScan {
-    /// Top-level fields and comments in source order.
+    /// Top-level fields and comments, in the order `to_markdown` writes them.
     pub items: Vec<PreItem>,
     /// In the order `to_markdown` writes them.
     pub nested_comments: Vec<NestedComment>,
@@ -67,17 +74,22 @@ pub(crate) fn budget(len: usize) -> usize {
 }
 
 /// Scan `yaml`, the text the value parse reads. A parser error ends the scan
-/// with what it has read: the value parse is the one that refuses. It counts no
-/// comments, so neither does this parse.
+/// with what it has read: the value parse is the one that refuses.
 pub(crate) fn prescan_fence_content(yaml: &str) -> Result<PreScan, OverBudget> {
     let mut walk = Walk::new(yaml);
-    let mut options = Options::default();
-    options.max_buffered_comment_events = usize::MAX;
-    for next in Parser::new_from_str_with_options(yaml, options) {
+    for next in Parser::new_from_str_with_options(yaml, options()) {
         let Ok((event, span)) = next else { break };
         walk.step(&event, span)?;
     }
     walk.finish()
+}
+
+/// The parser options the scan reads with, which refuse no text the value
+/// parse reads. That parse counts no comments, so neither does this one.
+fn options() -> Options {
+    let mut options = Options::default();
+    options.max_buffered_comment_events = usize::MAX;
+    options
 }
 
 /// What a node event starts, as far as comments care.
@@ -86,18 +98,23 @@ enum Shape {
     BlockMapping,
     BlockSequence,
     Flow,
-    /// A scalar with no source text: a key's or a dash's missing value.
+    /// A scalar with no source text that reads as null: a key's or a dash's
+    /// missing value.
     Absent,
     Scalar,
 }
 
 impl Shape {
-    fn of(event: &Event<'_>, span: &Span) -> Self {
+    /// `reads_null` answers for a tagged scalar with no source text.
+    fn of(event: &Event<'_>, span: &Span, reads_null: impl FnOnce(&Tag) -> bool) -> Self {
         match event {
             Event::MappingStart(StructureStyle::Block, ..) => Shape::BlockMapping,
             Event::SequenceStart(StructureStyle::Block, ..) => Shape::BlockSequence,
             Event::MappingStart(..) | Event::SequenceStart(..) => Shape::Flow,
-            Event::Scalar(_, ScalarStyle::Plain, ..) if span.start.index() == span.end.index() => {
+            Event::Scalar(_, ScalarStyle::Plain, _, tag)
+                if span.start.index() == span.end.index()
+                    && tag.as_deref().is_none_or(reads_null) =>
+            {
                 Shape::Absent
             }
             _ => Shape::Scalar,
@@ -148,6 +165,18 @@ struct Frame {
     entry: Option<Entry>,
     /// A trailer is recorded for the item the next node starts.
     next_trailed: bool,
+    /// Each child of a mapping, and each item of a sequence that collects.
+    children: Vec<Child>,
+    /// A sequence keeping what each item brings: a merge's value, an item of
+    /// one that collects, or one an anchor names.
+    collects: bool,
+    /// It is written inside a merge's value: the mapping holding the merge
+    /// places its comments.
+    merged: bool,
+    /// The anchor it defines, `0` for none.
+    anchor: usize,
+    /// Where its comments start among `Walk::nested`.
+    first: usize,
 }
 
 #[derive(Debug)]
@@ -176,13 +205,246 @@ enum Slot {
     Next(usize),
 }
 
+/// Where a comment sits among the children of the collection holding it.
+/// `After(i)` and `Ahead(i + 1)` record one slot; they part where a merge moves
+/// a mapping's keys away from its children's order.
+#[derive(Debug, Clone, Copy)]
+enum At {
+    /// Ahead of the child at this position, or after the last when none is.
+    Ahead(usize),
+    /// After the child at this position.
+    After(usize),
+    /// The trailer of the child at this position.
+    Trailer(usize),
+}
+
+impl At {
+    /// The position and inline flag a [`NestedComment`] records.
+    fn slot(self) -> (usize, bool) {
+        match self {
+            At::Ahead(position) => (position, false),
+            At::After(index) => (index + 1, false),
+            At::Trailer(index) => (index, true),
+        }
+    }
+}
+
+/// A comment inside a collection, beside its place in emit order. Comments
+/// sharing a slot emit in source order.
+#[derive(Debug)]
+struct Recorded {
+    order: Vec<usize>,
+    at: At,
+    offset: usize,
+    comment: NestedComment,
+}
+
+/// What an anchor names, as far as a key or a merge reads it.
+#[derive(Debug)]
+enum Anchored {
+    /// A scalar's text, and whether it spells the merge key.
+    Scalar(String, bool),
+    /// The keys a collection brings to a merge, each once.
+    Keys(Vec<String>),
+}
+
+/// A child of a mapping, or an item of a sequence that collects.
+#[derive(Debug)]
+enum Child {
+    /// An entry's own key.
+    Key(String),
+    /// What a merge entry's value, or the item, brings.
+    Merged(Flat),
+}
+
+/// A collection's keys as the value parse reads them through merges: a
+/// mapping's own keys, then what each of its merges brings, and a sequence's
+/// items' keys in turn.
+#[derive(Debug, Default)]
+struct Flat {
+    keys: Vec<String>,
+    /// Each child's place among `keys`, in source order.
+    parts: Vec<Part>,
+}
+
+#[derive(Debug)]
+enum Part {
+    /// An own key, at this offset.
+    Key(usize),
+    /// What a merge's value or a sequence item brings, over `start..end`.
+    Merged {
+        start: usize,
+        end: usize,
+        parts: Vec<Part>,
+    },
+}
+
+/// Where a comment inside a mapping holding a merge lands among its keys.
+#[derive(Debug)]
+enum Landing {
+    /// Ahead of the key at this offset, or after the last.
+    Ahead(usize),
+    /// The trailer of the key at this offset.
+    Trailer(usize),
+    /// Inside the value of the key at this offset, its container that many
+    /// levels below the mapping.
+    Inside(usize, usize),
+}
+
+impl Flat {
+    fn of(children: Vec<Child>) -> Self {
+        let own = children.iter().filter(|c| matches!(c, Child::Key(_))).count();
+        let mut keys = Vec::with_capacity(own);
+        let mut merged = Vec::new();
+        let parts = children
+            .into_iter()
+            .map(|child| match child {
+                Child::Key(key) => {
+                    keys.push(key);
+                    Part::Key(keys.len() - 1)
+                }
+                Child::Merged(mut flat) => {
+                    let start = own + merged.len();
+                    merged.append(&mut flat.keys);
+                    Part::Merged {
+                        start,
+                        end: own + merged.len(),
+                        parts: flat.parts,
+                    }
+                }
+            })
+            .collect();
+        keys.append(&mut merged);
+        Self { keys, parts }
+    }
+
+    /// What a merge's value or a collecting sequence's item brings when
+    /// `event`, its node, is an alias or a scalar. A collection's keys come in
+    /// when it closes.
+    fn of_node(event: &Event<'_>, anchors: &HashMap<usize, Anchored>) -> Self {
+        match event {
+            Event::Alias(id) => match anchors.get(id) {
+                Some(Anchored::Keys(keys)) => Self {
+                    keys: keys.clone(),
+                    parts: Vec::new(),
+                },
+                _ => Self::default(),
+            },
+            _ => Self::default(),
+        }
+    }
+}
+
+impl Part {
+    fn start(&self) -> usize {
+        match *self {
+            Part::Key(offset) => offset,
+            Part::Merged { start, .. } => start,
+        }
+    }
+
+    fn end(&self) -> usize {
+        match *self {
+            Part::Key(offset) => offset + 1,
+            Part::Merged { end, .. } => end,
+        }
+    }
+}
+
+/// Where a comment recorded `rest` below a collection, at `at`, lands among
+/// the `len` keys its children's `parts` bring.
+fn land(parts: &[Part], len: usize, rest: &[usize], at: At) -> Landing {
+    let ahead = |position: usize| parts.get(position).map_or(len, Part::start);
+    match *rest {
+        [child, 2, ref below @ ..] => match parts.get(child) {
+            Some(&Part::Key(offset)) => Landing::Inside(offset, 1),
+            Some(&Part::Merged {
+                start,
+                end,
+                parts: ref inner,
+            }) => match land(inner, end - start, below, at) {
+                Landing::Ahead(offset) => Landing::Ahead(start + offset),
+                Landing::Trailer(offset) => Landing::Trailer(start + offset),
+                Landing::Inside(offset, levels) => Landing::Inside(start + offset, levels + 1),
+            },
+            None => Landing::Ahead(len),
+        },
+        _ => match at {
+            At::Trailer(index) => match parts.get(index) {
+                Some(&Part::Key(offset)) => Landing::Trailer(offset),
+                _ => Landing::Ahead(ahead(index)),
+            },
+            At::Ahead(position) => Landing::Ahead(ahead(position)),
+            At::After(index) => Landing::Ahead(parts.get(index).map_or(len, Part::end)),
+        },
+    }
+}
+
+/// For each offset into `keys`, how many keys ahead of it the value holds, and
+/// one more for the end: the value holds the first key of each text, so the
+/// one at `o` when `seat[o + 1] > seat[o]`.
+fn seats(keys: &[String]) -> Vec<usize> {
+    let mut seen = HashSet::new();
+    let mut seat = Vec::with_capacity(keys.len() + 1);
+    let mut held = 0;
+    seat.push(held);
+    for key in keys {
+        held += usize::from(seen.insert(key.as_str()));
+        seat.push(held);
+    }
+    seat
+}
+
+/// Move `r`, recorded inside the mapping at `chain` and `path` that holds a
+/// merge, into the value of the key of `flat` it sits inside, or answer the
+/// slot of the mapping it lands on. The comments on and inside a key the value
+/// does not hold land ahead of where it would sit.
+fn reseat(
+    r: &mut Recorded,
+    chain: &[usize],
+    path: &[PathSegment],
+    flat: &Flat,
+    seat: &[usize],
+) -> Option<(usize, bool)> {
+    let held = |offset: usize| seat[offset + 1] > seat[offset];
+    match land(&flat.parts, flat.keys.len(), &r.order[chain.len()..], r.at) {
+        Landing::Inside(offset, levels) if held(offset) => {
+            let mut order = chain.to_vec();
+            order.extend([seat[offset], 2]);
+            order.extend_from_slice(&r.order[chain.len() + 2 * levels..]);
+            let mut container = path.to_vec();
+            container.push(PathSegment::Key(flat.keys[offset].clone()));
+            container.extend_from_slice(&r.comment.container_path[path.len() + levels..]);
+            r.order = order;
+            r.comment.container_path = container;
+            None
+        }
+        Landing::Trailer(offset) if held(offset) => Some((seat[offset], true)),
+        Landing::Ahead(offset) | Landing::Trailer(offset) | Landing::Inside(offset, _) => {
+            Some((seat[offset], false))
+        }
+    }
+}
+
+/// Whether a key spells the merge key: `<<` plain and untagged, or under
+/// `!!merge`.
+fn is_merge_key(text: &str, style: ScalarStyle, tag: Option<&Tag>) -> bool {
+    text == "<<"
+        && match tag {
+            Some(tag) => tag
+                .suffix_in_namespace("tag:yaml.org,2002:")
+                .is_some_and(|suffix| suffix == "merge"),
+            None => style == ScalarStyle::Plain,
+        }
+}
+
 struct Walk<'a> {
     src: &'a str,
     budget: usize,
     left: usize,
     items: Vec<PreItem>,
-    /// Each comment beside its place in emit order.
-    nested: Vec<(Vec<usize>, NestedComment)>,
+    /// Each comment inside a collection, in the order recorded.
+    nested: Vec<Recorded>,
     tags: Vec<Vec<PathSegment>>,
     /// Open collections, outermost first, then the ones a run of own-line
     /// comments closed before it found its slots.
@@ -197,18 +459,28 @@ struct Walk<'a> {
     /// its start.
     last_start: usize,
     last_end: usize,
-    /// Byte ranges of the comments since the last event holding source text.
+    /// Byte ranges of the comments past the last event holding source text.
     gap: Vec<(usize, usize)>,
+    /// Whether an empty plain scalar reads as null, by the tag on it.
+    nulls: HashMap<String, bool>,
+    /// What each anchor names, by anchor id.
+    anchors: HashMap<usize, Anchored>,
+    /// Where the root collection's items start among `items`.
+    root_start: usize,
+    /// Each comment on a root slot: the slot, and the comment's offset.
+    root_marks: Vec<(At, usize)>,
 }
 
 fn byte(marker: Marker) -> usize {
     marker.byte_offset().unwrap_or(0)
 }
 
-/// The text after `#`, less any further `#` and one space.
+/// The text after `#`, less any further `#`, one space, and the whitespace
+/// ending it: the block's text is trimmed, so the comment closing it keeps
+/// none.
 fn comment_text(raw: &str) -> String {
     let after = raw.trim_start_matches('#');
-    after.strip_prefix(' ').unwrap_or(after).to_string()
+    after.strip_prefix(' ').unwrap_or(after).trim_end().to_string()
 }
 
 impl<'a> Walk<'a> {
@@ -229,7 +501,23 @@ impl<'a> Walk<'a> {
             last_start: 0,
             last_end: 0,
             gap: Vec::new(),
+            nulls: HashMap::new(),
+            anchors: HashMap::new(),
+            root_start: 0,
+            root_marks: Vec::new(),
         }
+    }
+
+    /// Whether the value parse reads an empty plain scalar under `tag` as null,
+    /// as it does one with no tag: `!!str` and `!` read it as text. The probe
+    /// spells the tag verbatim, which resolves without the block's `%TAG` lines.
+    fn reads_null(&mut self, tag: &Tag) -> bool {
+        *self.nulls.entry(format!("!<{tag}>")).or_insert_with_key(|probe| {
+            matches!(
+                crate::value::parse_yaml::<serde_json::Value>(probe),
+                Ok(serde_json::Value::Null)
+            )
+        })
     }
 
     fn step(&mut self, event: &Event<'_>, span: Span) -> Result<(), OverBudget> {
@@ -249,15 +537,15 @@ impl<'a> Walk<'a> {
         let run = std::mem::take(&mut self.pending);
         if self.live == 0 {
             for c in run {
-                self.record(0, 0, c.text, false)?;
+                self.record(0, At::Ahead(0), c)?;
             }
         } else {
             self.place_run(run)?;
         }
-        self.nested.sort_by(|a, b| a.0.cmp(&b.0));
+        self.nested.sort_by(|a, b| (&a.order, a.offset).cmp(&(&b.order, b.offset)));
         Ok(PreScan {
             items: self.items,
-            nested_comments: self.nested.into_iter().map(|(_, c)| c).collect(),
+            nested_comments: self.nested.into_iter().map(|r| r.comment).collect(),
             unsupported_tags: self.tags,
         })
     }
@@ -272,7 +560,8 @@ impl<'a> Walk<'a> {
         let on_colon = span.start.index() == span.end.index()
             && self.src.as_bytes().get(end) == Some(&b':');
         self.last_end = end + usize::from(on_colon);
-        self.gap.clear();
+        let last_end = self.last_end;
+        self.gap.retain(|&(from, _)| from >= last_end);
     }
 
     fn comment(&mut self, text: &str, placement: Placement, span: Span) -> Result<(), OverBudget> {
@@ -287,7 +576,7 @@ impl<'a> Walk<'a> {
         if placement == Placement::Right {
             self.trailing(c)
         } else if let Some(host) = self.flow_host() {
-            self.after(host, c.text)
+            self.after(host, c)
         } else {
             self.pending.push(c);
             Ok(())
@@ -306,7 +595,7 @@ impl<'a> Walk<'a> {
 
     fn trailing(&mut self, c: Comment) -> Result<(), OverBudget> {
         if let Some(host) = self.flow_host() {
-            return self.trail(host, c.text);
+            return self.trail(host, c);
         }
         let Some(top) = self.live.checked_sub(1) else {
             self.pending.push(c);
@@ -317,11 +606,11 @@ impl<'a> Walk<'a> {
             e.line == c.line || self.last_line == c.line || c.offset < self.last_start
         });
         if on_entry {
-            self.trail(top, c.text)
+            self.trail(top, c)
         } else if frame.sequence {
             let position = frame.count;
             self.frames[top].next_trailed = true;
-            self.record(top, position, c.text, true)
+            self.record(top, At::Trailer(position), c)
         } else if frame.awaiting_value {
             self.pending.extend(self.held.replace(c));
             Ok(())
@@ -331,19 +620,19 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// `text` as the trailer of `frames[f]`'s current entry, or after it when
+    /// `c` as the trailer of `frames[f]`'s current entry, or after it when
     /// one already trails it. The first key of a sequence item's mapping lends
     /// its trailer to the item when nothing else would keep the key on a line
     /// below the dash: `to_markdown` writes that key on the dash line, where a
     /// trailer is the item's.
-    fn trail(&mut self, f: usize, text: String) -> Result<(), OverBudget> {
+    fn trail(&mut self, f: usize, c: Comment) -> Result<(), OverBudget> {
         let lends = self.is_item_mapping(f) && !self.frames[f].led;
         let Some(entry) = self.frames[f].entry.as_mut() else {
             return Ok(());
         };
         if entry.trailed {
-            let position = entry.index + 1;
-            return self.record(f, position, text, false);
+            let index = entry.index;
+            return self.record(f, At::After(index), c);
         }
         entry.trailed = true;
         let index = entry.index;
@@ -353,9 +642,9 @@ impl<'a> Walk<'a> {
         {
             item.trailed = true;
             let position = item.index;
-            return self.record(f - 1, position, text, true);
+            return self.record(f - 1, At::Trailer(position), c);
         }
-        self.record(f, index, text, true)
+        self.record(f, At::Trailer(index), c)
     }
 
     fn is_item_mapping(&self, f: usize) -> bool {
@@ -368,18 +657,18 @@ impl<'a> Walk<'a> {
             && !self.frames[f - 1].flow
     }
 
-    /// `text` as an own-line comment after `frames[f]`'s current entry.
-    fn after(&mut self, f: usize, text: String) -> Result<(), OverBudget> {
+    /// `c` as an own-line comment after `frames[f]`'s current entry.
+    fn after(&mut self, f: usize, c: Comment) -> Result<(), OverBudget> {
         let Some(entry) = self.frames[f].entry.as_mut() else {
             return Ok(());
         };
         entry.trailed = true;
-        let position = entry.index + 1;
-        self.record(f, position, text, false)
+        let index = entry.index;
+        self.record(f, At::After(index), c)
     }
 
     fn node(&mut self, event: &Event<'_>, span: Span) -> Result<(), OverBudget> {
-        let shape = Shape::of(event, &span);
+        let shape = Shape::of(event, &span, |tag| self.reads_null(tag));
         let top = self.live.checked_sub(1);
         let awaiting = top.is_some_and(|t| self.frames[t].awaiting_value);
         let dash_trailer = match self.held.take() {
@@ -390,18 +679,23 @@ impl<'a> Walk<'a> {
             }
         };
         let bound = self.settle(byte(span.start))?;
-        self.frames.truncate(self.live);
+        self.close(self.live);
 
         let role = match top {
             None => Role::Root,
             Some(t) => self.place(t, event, &span, shape),
         };
+        if let Event::Scalar(text, style, anchor @ 1.., tag) = event {
+            let merge = is_merge_key(text, *style, tag.as_deref());
+            self.anchors.insert(*anchor, Anchored::Scalar(text.to_string(), merge));
+        }
         let depth = top.map_or(0, |t| t + 1);
         if event.tag().is_some() {
             let path = self.path(depth);
             self.charge_path(&path, 0)?;
             self.tags.push(path);
         }
+        let first = self.nested.len();
         let led = self.bind(bound, top, shape, role)?;
 
         if let Event::MappingStart(..) | Event::SequenceStart(..) = event {
@@ -409,8 +703,15 @@ impl<'a> Walk<'a> {
                 (Role::Value, Some(t)) => self.frames[t].entry.as_ref().map(|e| e.column),
                 _ => None,
             };
+            let parent = top.map(|t| &self.frames[t]);
+            let feeds = parent.is_some_and(|p| matches!(p.children.last(), Some(Child::Merged(_))));
+            let sequence = matches!(event, Event::SequenceStart(..));
+            let anchor = event.anchor_id().unwrap_or(0);
+            if top.is_none() {
+                self.root_start = self.items.len();
+            }
             self.frames.push(Frame {
-                sequence: matches!(event, Event::SequenceStart(..)),
+                sequence,
                 flow: shape == Shape::Flow && top.is_some(),
                 count: 0,
                 awaiting_value: false,
@@ -419,12 +720,17 @@ impl<'a> Walk<'a> {
                 led,
                 entry: None,
                 next_trailed: false,
+                children: Vec::new(),
+                collects: sequence && (feeds || anchor != 0),
+                merged: feeds && parent.is_some_and(|p| !p.sequence || p.merged),
+                anchor,
+                first,
             });
             self.live = self.frames.len();
             if let Some(c) = dash_trailer {
                 let f = self.live - 1;
                 self.frames[f].next_trailed = true;
-                self.record(f, 0, c.text, true)?;
+                self.record(f, At::Trailer(0), c)?;
             }
         }
         let block_scalar = matches!(
@@ -450,6 +756,9 @@ impl<'a> Walk<'a> {
                 trailed: std::mem::take(&mut frame.next_trailed),
                 empty: false,
             });
+            if frame.collects {
+                frame.children.push(Child::Merged(Flat::of_node(event, &self.anchors)));
+            }
             return Role::Item;
         }
         if frame.awaiting_value {
@@ -457,11 +766,21 @@ impl<'a> Walk<'a> {
             if let Some(entry) = frame.entry.as_mut() {
                 entry.empty = shape == Shape::Absent;
             }
+            if let Some(Child::Merged(flat)) = frame.children.last_mut() {
+                *flat = Flat::of_node(event, &self.anchors);
+            }
             return Role::Value;
         }
-        let key = match event {
-            Event::Scalar(text, ..) => Some(text.to_string()),
-            _ => None,
+        let (key, merge) = match event {
+            Event::Scalar(text, style, _, tag) => (
+                Some(text.to_string()),
+                is_merge_key(text, *style, tag.as_deref()),
+            ),
+            Event::Alias(id) => match self.anchors.get(id) {
+                Some(Anchored::Scalar(text, merge)) => (Some(text.clone()), *merge),
+                _ => (None, false),
+            },
+            _ => (None, false),
         };
         let column = span.indent.unwrap_or(span.start.col());
         if frame.count == 0 {
@@ -478,7 +797,11 @@ impl<'a> Walk<'a> {
             trailed: false,
             empty: false,
         });
-        if let (0, Some(key)) = (top, key) {
+        frame.children.push(match merge {
+            true => Child::Merged(Flat::default()),
+            false => Child::Key(key.clone().unwrap_or_default()),
+        });
+        if let (0, Some(key), false) = (top, key, merge) {
             self.items.push(PreItem::Field { key });
         }
         Role::Key
@@ -491,7 +814,12 @@ impl<'a> Walk<'a> {
         if self.pending.is_empty() {
             return Ok(Vec::new());
         }
-        let mut run = std::mem::take(&mut self.pending);
+        // The parser hands the comments below a node with no text of its own,
+        // `k: !!str`, ahead of it: they wait for the node after it.
+        let (mut run, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending)
+            .into_iter()
+            .partition(|c| c.offset < start);
+        self.pending = later;
         let Some(top) = self.live.checked_sub(1) else {
             return Ok(run);
         };
@@ -547,7 +875,7 @@ impl<'a> Walk<'a> {
     fn place_run(&mut self, run: Vec<Comment>) -> Result<(), OverBudget> {
         let Some(top) = self.live.checked_sub(1) else {
             for c in run {
-                self.record(0, 0, c.text, false)?;
+                self.record(0, At::Ahead(0), c)?;
             }
             return Ok(());
         };
@@ -579,10 +907,10 @@ impl<'a> Walk<'a> {
                 .unwrap_or(slots.len() - 1);
             floor = pick;
             match slots[pick] {
-                Slot::Under(f, _) => self.record(f + 1, 0, c.text, false)?,
+                Slot::Under(f, _) => self.record(f + 1, At::Ahead(0), c)?,
                 Slot::Last(f) | Slot::Next(f) => {
                     let position = self.frames[f].count;
-                    self.record(f, position, c.text, false)?;
+                    self.record(f, At::Ahead(position), c)?;
                 }
             }
         }
@@ -613,7 +941,7 @@ impl<'a> Walk<'a> {
     ) -> Result<bool, OverBudget> {
         let Some(top) = top else {
             for c in comments {
-                self.record(0, 0, c.text, false)?;
+                self.record(0, At::Ahead(0), c)?;
             }
             return Ok(false);
         };
@@ -624,9 +952,9 @@ impl<'a> Walk<'a> {
             inside &= shape.is_block() || c.column > key;
             led |= inside;
             if inside {
-                self.record(top + 1, 0, c.text, false)?;
+                self.record(top + 1, At::Ahead(0), c)?;
             } else {
-                self.after(top, c.text)?;
+                self.after(top, c)?;
             }
         }
         Ok(led)
@@ -637,15 +965,16 @@ impl<'a> Walk<'a> {
             return Ok(());
         };
         if self.frames[top].flow {
-            self.frames.truncate(top + 1);
-            let frame = self.frames.pop().expect("the top frame is present");
-            self.live = top;
+            self.close(top + 1);
+            let frame = &self.frames[top];
             if frame.count == 0
                 && frame.held_at.is_some()
                 && let Some(entry) = self.frames[top - 1].entry.as_mut()
             {
                 entry.empty = true;
             }
+            self.close(top);
+            self.live = top;
             self.content(span, false);
             return Ok(());
         }
@@ -653,13 +982,13 @@ impl<'a> Walk<'a> {
             self.pending.extend(self.held.take());
             let run = std::mem::take(&mut self.pending);
             self.place_run(run)?;
-            self.frames.clear();
+            self.close(0);
             self.live = 0;
             return Ok(());
         }
         self.live = top;
         if self.pending.is_empty() && self.held.is_none() {
-            self.frames.truncate(top);
+            self.close(top);
         }
         Ok(())
     }
@@ -691,37 +1020,206 @@ impl<'a> Walk<'a> {
         Ok(())
     }
 
-    /// Record `text` at `position` in the collection at `depth`.
-    fn record(
-        &mut self,
-        depth: usize,
-        position: usize,
-        text: String,
-        inline: bool,
-    ) -> Result<(), OverBudget> {
+    /// Record `c` at `at` in the collection at `depth`.
+    fn record(&mut self, depth: usize, at: At, c: Comment) -> Result<(), OverBudget> {
+        let (position, inline) = at.slot();
+        let text = c.text;
         if depth == 0 {
+            if !self.frames.is_empty() {
+                self.root_marks.push((at, c.offset));
+            }
             self.items.push(PreItem::Comment { text, inline });
             return Ok(());
         }
         let container_path = self.path(depth);
-        // At each slot: own-line comments (`0`), the trailer (`1`), then the
-        // comments inside the child there (`2`).
-        let mut order: Vec<usize> = self.frames[..depth]
-            .iter()
-            .flat_map(|f| [f.entry.as_ref().map_or(0, |e| e.index), 2])
-            .collect();
+        let mut order = self.chain(depth);
         order.extend([position, usize::from(inline)]);
         self.charge_path(&container_path, order.len() * std::mem::size_of::<usize>())?;
-        self.nested.push((
+        self.nested.push(Recorded {
             order,
-            NestedComment {
+            at,
+            offset: c.offset,
+            comment: NestedComment {
                 container_path,
                 position,
                 text,
                 inline,
             },
-        ));
+        });
         Ok(())
+    }
+
+    /// The place in emit order of the collection at `depth`. At each slot come
+    /// own-line comments (`0`), the trailer (`1`), then the comments inside the
+    /// child there (`2`).
+    fn chain(&self, depth: usize) -> Vec<usize> {
+        self.frames[..depth]
+            .iter()
+            .flat_map(|f| [f.entry.as_ref().map_or(0, |e| e.index), 2])
+            .collect()
+    }
+
+    /// Drop the frames past `keep`, deepest first. Each hands its keys to the
+    /// anchor it defines and to the merge or item holding it, and a mapping
+    /// holding a merge, written outside any merge, places its comments again.
+    fn close(&mut self, keep: usize) {
+        while self.frames.len() > keep {
+            let depth = self.frames.len() - 1;
+            let item = self.is_item_mapping(depth);
+            let frame = self.frames.pop().expect("a frame past `keep`");
+            let merges = frame.children.iter().any(|c| matches!(c, Child::Merged(_)));
+            let flat = Flat::of(frame.children);
+            if merges && !frame.sequence && !frame.merged {
+                if depth == 0 {
+                    self.rebuild_root(&flat);
+                } else {
+                    self.resolve(depth, frame.first, &flat);
+                    if item && flat.keys.is_empty() {
+                        self.vacate(depth, frame.first);
+                    } else if item {
+                        self.lend(depth, frame.first);
+                    }
+                }
+            }
+            if frame.anchor != 0 {
+                let mut seen = HashSet::new();
+                let keys = flat.keys.iter().filter(|k| seen.insert(k.as_str())).cloned();
+                self.anchors.insert(frame.anchor, Anchored::Keys(keys.collect()));
+            }
+            if let Some(Child::Merged(slot)) =
+                self.frames.last_mut().and_then(|f| f.children.last_mut())
+            {
+                *slot = flat;
+            }
+        }
+        if keep == 0 {
+            self.root_marks.clear();
+        }
+    }
+
+    /// Place again the comments recorded since `first` inside the mapping at
+    /// `depth`, which holds a merge, among the keys of `flat`.
+    fn resolve(&mut self, depth: usize, first: usize, flat: &Flat) {
+        let seat = seats(&flat.keys);
+        let chain = self.chain(depth);
+        let path = self.path(depth);
+        for r in &mut self.nested[first..] {
+            if !r.order.starts_with(&chain) {
+                continue;
+            }
+            if let Some((position, inline)) = reseat(r, &chain, &path, flat, &seat) {
+                r.at = if inline { At::Trailer(position) } else { At::Ahead(position) };
+                r.order = [chain.as_slice(), &[position, usize::from(inline)]].concat();
+                r.comment.container_path = path.clone();
+                r.comment.position = position;
+                r.comment.inline = inline;
+            }
+        }
+    }
+
+    /// Lend the item the trailer of its mapping's first key, as `trail` does,
+    /// once a merge has placed the mapping's comments again: no own-line
+    /// comment leads that key, and the item has no trailer of its own.
+    fn lend(&mut self, depth: usize, first: usize) {
+        let Some(index) = self.frames[depth - 1]
+            .entry
+            .as_ref()
+            .filter(|e| !e.trailed)
+            .map(|e| e.index)
+        else {
+            return;
+        };
+        let chain = self.chain(depth);
+        let slot = |inline: usize| [chain.as_slice(), &[0, inline]].concat();
+        let (led, trailer) = (slot(0), slot(1));
+        let mine = &mut self.nested[first..];
+        if mine.iter().any(|r| r.order == led) {
+            return;
+        }
+        let Some(r) = mine.iter_mut().find(|r| r.order == trailer) else {
+            return;
+        };
+        r.order = [&chain[..chain.len() - 2], &[index, 1]].concat();
+        r.at = At::Trailer(index);
+        r.comment.container_path.pop();
+        r.comment.position = index;
+        if let Some(entry) = self.frames[depth - 1].entry.as_mut() {
+            entry.trailed = true;
+        }
+    }
+
+    /// Move the comments of an item's mapping that holds no key after the item:
+    /// `to_markdown` writes that item `{}`, which holds none.
+    fn vacate(&mut self, depth: usize, first: usize) {
+        let Some(index) = self.frames[depth - 1].entry.as_ref().map(|e| e.index) else {
+            return;
+        };
+        let chain = self.chain(depth);
+        let after = [&chain[..chain.len() - 2], &[index + 1, 0]].concat();
+        for r in &mut self.nested[first..] {
+            if r.order.starts_with(&chain) {
+                r.order = after.clone();
+                r.at = At::After(index);
+                r.comment.container_path.pop();
+                r.comment.position = index + 1;
+                r.comment.inline = false;
+            }
+        }
+    }
+
+    /// Place again the items of a root mapping holding a merge among the keys
+    /// of `flat`: its fields, the comments on its slots, and each comment
+    /// inside it that lands on one.
+    fn rebuild_root(&mut self, flat: &Flat) {
+        let seat = seats(&flat.keys);
+        let mut landed = Vec::new();
+        let marks = std::mem::take(&mut self.root_marks);
+        let comments = self
+            .items
+            .split_off(self.root_start)
+            .into_iter()
+            .filter_map(|item| match item {
+                PreItem::Comment { text, .. } => Some(text),
+                PreItem::Field { .. } => None,
+            });
+        for ((at, offset), text) in marks.into_iter().zip(comments) {
+            let (position, inline) = at.slot();
+            let mut r = Recorded {
+                order: vec![position, usize::from(inline)],
+                at,
+                offset,
+                comment: NestedComment {
+                    container_path: Vec::new(),
+                    position,
+                    text,
+                    inline,
+                },
+            };
+            if let Some((position, inline)) = reseat(&mut r, &[], &[], flat, &seat) {
+                landed.push((position, inline, offset, r.comment.text));
+            }
+        }
+        for mut r in std::mem::take(&mut self.nested) {
+            match reseat(&mut r, &[], &[], flat, &seat) {
+                Some((position, inline)) => {
+                    landed.push((position, inline, r.offset, r.comment.text));
+                }
+                None => self.nested.push(r),
+            }
+        }
+        landed.sort_by_key(|&(position, inline, offset, _)| (position, inline, offset));
+        let mut landed = landed.into_iter().peekable();
+        let fields = flat.keys.iter().enumerate().filter(|&(o, _)| seat[o + 1] > seat[o]);
+        for (position, (_, key)) in fields.enumerate() {
+            while let Some((.., text)) = landed.next_if(|l| (l.0, l.1) == (position, false)) {
+                self.items.push(PreItem::Comment { text, inline: false });
+            }
+            self.items.push(PreItem::Field { key: key.clone() });
+            while let Some((.., text)) = landed.next_if(|l| (l.0, l.1) == (position, true)) {
+                self.items.push(PreItem::Comment { text, inline: true });
+            }
+        }
+        self.items.extend(landed.map(|(.., text)| PreItem::Comment { text, inline: false }));
     }
 }
 

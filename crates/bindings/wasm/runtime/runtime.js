@@ -162,22 +162,36 @@ function quillmarkError(code, message, hint) {
 }
 
 /**
- * Throw on an own key of an options object outside `known`. The JS twin of the
- * binding's `reject_unknown_keys`, in the uncoded shape it throws: a misspelled
- * optional key would otherwise read as absent.
+ * Throw on options that are not a plain object, or on an own key of them
+ * outside `known`. The JS twin of the binding's `reject_unknown_keys`, in the
+ * uncoded shape it throws: a misspelled optional key would otherwise read as
+ * absent, and a read reaches a key up the prototype chain that no own-key walk
+ * sees.
  * @param {unknown} options
  * @param {string[]} known
  * @param {string} what the options' name, for the message
  * @returns {void}
  */
 function rejectUnknownKeys(options, known, what) {
-	for (const key of Object.keys(options ?? {})) {
-		if (known.includes(key)) continue;
-		const message = `${what} have unknown key \`${key}\`; ${what} take only \`${known.join('`, `')}\``;
-		const err = /** @type {any} */ (new Error(message));
-		err.diagnostics = [{ severity: 'error', message }];
-		throw err;
+	if (options == null) return;
+	const proto = Object.getPrototypeOf(options);
+	let message;
+	if (proto !== null && Object.getPrototypeOf(proto) !== null) {
+		const passed =
+			options instanceof Map
+				? 'a `Map`'
+				: typeof options === 'object'
+					? 'one inheriting from another object'
+					: `a ${typeof options}`;
+		message = `${what} must be a plain object, not ${passed}`;
+	} else {
+		const key = Object.getOwnPropertyNames(options).find((k) => !known.includes(k));
+		if (key === undefined) return;
+		message = `${what} have unknown key \`${key}\`; ${what} take only \`${known.join('`, `')}\``;
 	}
+	const err = /** @type {any} */ (new Error(message));
+	err.diagnostics = [{ severity: 'error', message }];
+	throw err;
 }
 
 // These checks deliver the ERROR, not the rejection, at the seams that cross
