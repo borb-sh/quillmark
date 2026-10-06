@@ -635,6 +635,12 @@ fn a_document_value_coerces_by_declared_type_or_names_where_it_could_not() {
             json!(true),
         ),
         (
+            "boolean from a float under machine epsilon",
+            "    f: { type: boolean }\n",
+            json!(1e-17),
+            json!(true),
+        ),
+        (
             "date",
             "    f: { type: date }\n",
             json!("2026-04-13"),
