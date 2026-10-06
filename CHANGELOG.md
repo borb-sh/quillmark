@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.123.1 - 2026-10-06
+
+- feat(content)!: a table cell carries a line break as \n, spelled <br> in markdown
+
+
 ## v0.123.0 - 2026-10-06
 
 Upgrade path: [0.122 → 0.123](docs/migrations/0.122-to-0.123.md).
