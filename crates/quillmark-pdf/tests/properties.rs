@@ -4,7 +4,8 @@
 //!
 //! `Ok` is not assertable over mutated bytes — the reader's input contract
 //! refuses most well-formed PDFs too — so a refusal is an acceptable answer
-//! there. A base the testkit builds is in contract, so its stamp is asserted.
+//! there. A base the testkit builds has one answer, its stamp or a refusal
+//! under a known code, so that answer is asserted.
 
 use std::sync::LazyLock;
 
@@ -197,5 +198,34 @@ proptest! {
                 String::from_utf8_lossy(update)
             );
         }
+    }
+
+    /// ISO 32000-1 §7.3.7: a dictionary names each key once, and readers part
+    /// on which of two entries a repeated key holds. A [`NULLABLE`] key named
+    /// twice, each entry holding a `null` in any spelling or an array, is
+    /// refused under the code of the read that meets it, never stamped.
+    #[test]
+    fn a_key_named_twice_is_refused(
+        (holder, key) in proptest::sample::select(NULLABLE.to_vec()),
+        values in proptest::collection::vec(
+            proptest::sample::select([null_spellings(), vec![b" []".to_vec()]].concat()),
+            2,
+        ),
+    ) {
+        let base = nulled_base(&[
+            ((holder, key), values[0].clone()),
+            ((holder, key), values[1].clone()),
+        ]);
+        let code = if holder == "catalog" { "pdf::stamp_parse" } else { "pdf::parse" };
+        prop_assert_eq!(
+            stamp(base.clone(), &every_field_kind(), &StampOptions::default())
+                .map(drop)
+                .map_err(|e| e.code),
+            Err(code)
+        );
+        prop_assert_eq!(
+            page_canvas_boxes(&base).map(drop).map_err(|e| e.code),
+            Err("pdf::parse")
+        );
     }
 }

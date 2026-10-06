@@ -148,6 +148,7 @@ mod tests {
         for (value, title) in [
             ("<< /Title (x) >>", Some(&b"(x)"[..])),
             ("(not a dictionary)", None),
+            ("<< /Title (x) /Title (y) >>", None),
         ] {
             let base = base_with_trailer(&format!("/Size 6 /Root 1 0 R /Info {value}"));
             let out = stamped(&base);

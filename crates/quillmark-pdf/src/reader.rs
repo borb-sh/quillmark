@@ -61,7 +61,7 @@ pub(crate) fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<
 }
 
 /// The inner trailer dict (between `<<` and `>>`) for the xref section at
-/// `xref_offset`, queryable with [`find_dict_value`].
+/// `xref_offset`, [`well_formed`] and queryable with [`find_dict_value`].
 pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8], PdfError> {
     let needle = b"trailer";
     let pos = pdf[xref_offset..]
@@ -69,8 +69,9 @@ pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8],
         .position(|w| w == needle)
         .ok_or_else(|| err(CODE_PARSE, "trailer marker not found"))?
         + xref_offset;
-    extract_outer_dict(&pdf[pos + needle.len()..])
-        .ok_or_else(|| err(CODE_PARSE, "trailer dict not parseable"))
+    let dict = extract_outer_dict(&pdf[pos + needle.len()..])
+        .ok_or_else(|| err(CODE_PARSE, "trailer dict not parseable"))?;
+    well_formed(dict, CODE_PARSE, "trailer")
 }
 
 /// What the trailer's `/Info` gives the producer stamp to rewrite.
@@ -80,7 +81,8 @@ pub(crate) enum InfoSource<'a> {
     /// Entries for a fresh object whose reference replaces the trailer's
     /// `/Info`: a direct dict's — ISO 32000-1 Table 15 asks for an indirect
     /// reference, which not every writer honours — or none, when the trailer
-    /// carries no `/Info` or one this reader cannot read.
+    /// carries no `/Info` or one this reader cannot read: not a dict, or one
+    /// [`well_formed`] refuses.
     Entries(&'a [u8]),
 }
 
@@ -94,6 +96,7 @@ pub(crate) fn read_info_source<'t>(idx: &ObjectIndex, trailer: &'t [u8]) -> Info
     let trimmed = value.trim_ascii();
     if trimmed.starts_with(b"<<")
         && let Some(entries) = extract_outer_dict(trimmed)
+        && well_formed(entries, CODE_PARSE, "/Info").is_ok()
     {
         return InfoSource::Entries(entries);
     }
@@ -244,16 +247,16 @@ impl<'a> ObjectIndex<'a> {
         Some((start, find_endobj_end(self.pdf, start)?))
     }
 
-    /// The inner dict bytes of object `id`. `what` names the object in both
-    /// failure messages — `"{what} not found"` and `"{what} dict not
-    /// parseable"` — under the caller's error `code`; an Option-returning caller
-    /// calls `.ok()`.
+    /// The inner dict bytes of object `id`, [`well_formed`]. `what` names the
+    /// object in every failure message, under the caller's error `code`; an
+    /// Option-returning caller calls `.ok()`.
     pub fn dict(&self, id: u32, code: &'static str, what: &str) -> Result<&'a [u8], PdfError> {
         let (s, e) = self
             .object_bytes(id)
             .ok_or_else(|| err(code, format!("{what} not found")))?;
-        extract_outer_dict(&self.pdf[s..e])
-            .ok_or_else(|| err(code, format!("{what} dict not parseable")))
+        let dict = extract_outer_dict(&self.pdf[s..e])
+            .ok_or_else(|| err(code, format!("{what} dict not parseable")))?;
+        well_formed(dict, code, what)
     }
 
     /// [`find_dict_value`], reading a reference that resolves to `null` as
@@ -383,43 +386,74 @@ pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a
 
 /// [`find_dict_value`] without the `null` filter: the entry a rewrite replaces,
 /// whatever it holds.
+fn find_dict_entry<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
+    let key_marker = format!("/{key}");
+    dict_entries(dict_bytes)
+        .find(|&(name, _)| name == key_marker.as_bytes())
+        .map(|(_, entry)| entry)
+}
+
+/// Each entry of a dict's inner bytes, in order, as its key Name (`/Pages`)
+/// and its value's bytes from just after the key, so the key span is
+/// recoverable by subtraction.
 ///
 /// Entries alternate `key value key value …`, so the scan reads a key Name then
 /// consumes its value wholesale via `read_value_end` (stepping over nested
 /// `<<>>` / `[]` / `()` / `<>` as a unit). Only keys are matched, so a Name in
-/// value position (`/Subtype /Producer`) is never mistaken for one.
-fn find_dict_entry<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
-    let key_marker = format!("/{}", key);
-    let km = key_marker.as_bytes();
+/// value position (`/Subtype /Producer`) is never mistaken for one. A
+/// well-formed flat dict yields a Name key at each step; anything else (end of
+/// input, or a stray token) ends the scan.
+fn dict_entries(dict: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
     let mut i = 0;
-    loop {
-        i = skip_ws_and_comments(dict_bytes, i);
-        // A well-formed flat dict yields a Name key here. Anything else (end of
-        // input, or a stray token) means there is no further key to match.
-        if dict_bytes.get(i) != Some(&b'/') {
+    std::iter::from_fn(move || {
+        i = skip_ws_and_comments(dict, i);
+        if dict.get(i) != Some(&b'/') {
             return None;
         }
         let key_start = i;
         i += 1;
-        while i < dict_bytes.len() && !is_pdf_delim(dict_bytes[i]) {
+        while i < dict.len() && !is_pdf_delim(dict[i]) {
             i += 1;
         }
         let after_key = i;
-        let matched = &dict_bytes[key_start..after_key] == km;
-        let value_start = skip_ws_and_comments(dict_bytes, after_key);
-        let value_end = read_value_end(dict_bytes, value_start)?;
-        if matched {
-            // Slice from after the key, not `value_start`, so the key span is
-            // recoverable by subtraction.
-            return Some(&dict_bytes[after_key..value_end]);
+        i = read_value_end(dict, skip_ws_and_comments(dict, after_key))?;
+        Some((&dict[key_start..after_key], &dict[after_key..i]))
+    })
+}
+
+/// `dict` when [`dict_entries`] reads it to its end and it names each key
+/// once, as ISO 32000-1 §7.3.7 requires, else `Err` under `code`. Readers part
+/// on which entry a repeated key holds and on what follows a token where a key
+/// belongs, so no read or rewrite of such a dict is safe.
+fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d [u8], PdfError> {
+    let mut keys = HashSet::new();
+    let mut end = 0;
+    for (key, entry) in dict_entries(dict) {
+        if !keys.insert(key) {
+            return Err(err(
+                code,
+                format!(
+                    "{what} dict names {} twice; a dictionary names each key once, so keep one \
+                     entry",
+                    String::from_utf8_lossy(key)
+                ),
+            ));
         }
-        i = value_end;
+        end = entry.as_ptr() as usize + entry.len() - dict.as_ptr() as usize;
     }
+    if skip_ws_and_comments(dict, end) < dict.len() {
+        return Err(err(
+            code,
+            format!("{what} dict holds a token where a key belongs"),
+        ));
+    }
+    Ok(dict)
 }
 
 /// A flat dict's inner bytes with `key` (bare, `"Producer"`) holding
 /// `new_value`: the entry replaced in place where the dict carries one, a `null`
-/// one included, else appended. A dict never ends up naming `key` twice.
+/// one included, else appended, so a [`well_formed`] dict names `key` exactly
+/// once after.
 pub(crate) fn set_dict_value(dict: &[u8], key: &str, new_value: &[u8]) -> Vec<u8> {
     let Some(value) = find_dict_entry(dict, key) else {
         let mut out = dict.to_vec();
@@ -1071,6 +1105,22 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_dict_holding_a_token_where_a_key_belongs_is_refused() {
+        for inner in [
+            "/Lang /en{US} /AcroForm 7 0 R",
+            "/AcroForm null} /Pages 2 0 R",
+            "/A 1 2 /AcroForm 7 0 R",
+            "(x) /A 1",
+        ] {
+            let pdf = format!("%PDF\n1 0 obj\n<< {inner} >>\nendobj\n");
+            let e = ObjectIndex::new(pdf.as_bytes())
+                .dict(1, CODE_PARSE, "catalog")
+                .expect_err(inner);
+            assert_eq!(e.code, CODE_PARSE);
         }
     }
 
