@@ -5,7 +5,8 @@
 
 use std::collections::HashMap;
 
-use quillmark_pdf::testkit::{null_spellings, BasePdf};
+use pdf_writer::types::AnnotationType;
+use quillmark_pdf::testkit::{null_spellings, BasePdf, Held};
 use quillmark_pdf::{
     regions_of, stamp, AppearanceStates, FieldSpec, FieldType, StampOptions, CHECKBOX_ON_STATE,
 };
@@ -316,8 +317,24 @@ fn an_out_of_contract_input_is_refused_under_its_code() {
         // A non-`xref` byte run at the startxref offset reads as an xref stream.
         ("xref stream", replaced(&[(b"xref\n0", b"1 0 \n0")]), vec![], "pdf::xref_stream"),
         // Two `/AcroForm` keys are undefined per spec, and the old form's
-        // widgets stay live in the preserved page `/Annots`.
+        // widgets stay live in the preserved page `/Annots`, whatever the
+        // catalog names.
         ("existing /AcroForm", BasePdf::letter(1).acroform().build(), vec![field()], "pdf::existing_acroform"),
+        (
+            "a widget in a page's /Annots",
+            BasePdf::letter(1).annot(0, AnnotationType::Widget, Held::Referenced).build(),
+            vec![field()],
+            "pdf::existing_acroform",
+        ),
+        (
+            "a widget in another page's /Annots beside /AcroForm null",
+            BasePdf::letter(2)
+                .catalog_raw("AcroForm", " null")
+                .annot(1, AnnotationType::Widget, Held::Inline)
+                .build(),
+            vec![field()],
+            "pdf::existing_acroform",
+        ),
         (
             "non-zero generation catalog",
             replaced(&[(b"1 0 obj", b"1 2 obj"), (b"/Root 1 0 R", b"/Root 1 2 R")]),

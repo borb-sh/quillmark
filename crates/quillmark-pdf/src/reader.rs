@@ -285,6 +285,23 @@ impl<'a> ObjectIndex<'a> {
         false
     }
 
+    /// `value`, or the value its reference names, followed along a chain of up
+    /// to [`MAX_REFERENCE_CHAIN`] references (ISO 32000-1 §7.3.10). `None`
+    /// where a reference names no object or the chain runs past the bound.
+    pub fn resolve<'d>(&self, value: &'d [u8]) -> Option<&'d [u8]>
+    where
+        'a: 'd,
+    {
+        let mut value = value;
+        for _ in 0..MAX_REFERENCE_CHAIN {
+            let Some((id, _)) = parse_indirect_ref(value) else {
+                return Some(value);
+            };
+            value = self.body(id)?;
+        }
+        parse_indirect_ref(value).is_none().then_some(value)
+    }
+
     /// The first value object `id` holds past its header, or `None` when the
     /// object is absent or never closes.
     fn body(&self, id: u32) -> Option<&'a [u8]> {
@@ -448,6 +465,31 @@ fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d
         ));
     }
     Ok(dict)
+}
+
+/// The inner bytes of the dictionary `value` writes inline, or `None` for any
+/// other value and for a dictionary [`well_formed`] refuses.
+pub(crate) fn as_dict(value: &[u8]) -> Option<&[u8]> {
+    if !value.starts_with(b"<<") {
+        return None;
+    }
+    well_formed(extract_outer_dict(value)?, CODE_PARSE, "dictionary").ok()
+}
+
+/// Each element of the array `value` writes inline, in order, from its first
+/// significant byte. The read ends at a token no value starts with, and any
+/// value but an array holds none.
+pub(crate) fn array_elements(value: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let inner = value
+        .strip_prefix(b"[")
+        .and_then(|array| array.strip_suffix(b"]"))
+        .unwrap_or_default();
+    let mut i = 0;
+    std::iter::from_fn(move || {
+        let start = skip_ws_and_comments(inner, i);
+        i = read_value_end(inner, start)?;
+        (i > start).then(|| &inner[start..i])
+    })
 }
 
 /// A flat dict's inner bytes with `key` (bare, `"Producer"`) holding
@@ -1085,6 +1127,31 @@ mod tests {
                 "{dict}"
             );
         }
+    }
+
+    #[test]
+    fn an_array_reads_each_element_through_its_references() {
+        let pdf = b"%PDF\n7 0 obj\n<< /Subtype /Widget >>\nendobj\n8 0 obj 7 0 R endobj\n\
+                    9 0 obj 9 0 R endobj\n";
+        let idx = ObjectIndex::new(pdf);
+        let array = b"[7 0 R 8 0 R 9 0 R 99 0 R (a]b) %c]\n [1 2] << /K [3] >> 12 /N) 5]";
+        let widget = Some(&b"<< /Subtype /Widget >>"[..]);
+        assert_eq!(
+            array_elements(array)
+                .map(|element| idx.resolve(element))
+                .collect::<Vec<_>>(),
+            [
+                widget,
+                widget,
+                None,
+                None,
+                Some(b"(a]b)"),
+                Some(b"[1 2]"),
+                Some(b"<< /K [3] >>"),
+                Some(b"12"),
+                Some(b"/N"),
+            ]
+        );
     }
 
     #[test]

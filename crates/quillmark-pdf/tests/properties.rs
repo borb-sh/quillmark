@@ -9,8 +9,9 @@
 
 use std::sync::LazyLock;
 
+use pdf_writer::types::AnnotationType;
 use proptest::prelude::*;
-use quillmark_pdf::testkit::{null_spellings, BasePdf};
+use quillmark_pdf::testkit::{null_spellings, BasePdf, Held};
 use quillmark_pdf::{page_canvas_boxes, stamp, FieldSpec, FieldType, StampOptions};
 
 /// A real AcroForm the spine accepts, so a mutant of it exercises parse paths a
@@ -197,6 +198,46 @@ proptest! {
                 String::from_utf8_lossy(key),
                 String::from_utf8_lossy(update)
             );
+        }
+    }
+
+    /// A base's widgets stay live in the page `/Annots` the update preserves,
+    /// whatever its catalog names. A widget on any page, held inline or by
+    /// reference in an array the page holds either way, is refused under the
+    /// form's code, naming its page, with the catalog's `/AcroForm` absent or
+    /// `null`; any other annotation answers as it did.
+    #[test]
+    fn a_widget_on_any_page_is_refused(
+        pages in 1usize..4,
+        page in any::<prop::sample::Index>(),
+        subtype in proptest::sample::select(vec![
+            AnnotationType::Widget,
+            AnnotationType::Link,
+            AnnotationType::Text,
+        ]),
+        held in proptest::sample::select(vec![Held::Inline, Held::Referenced]),
+        indirect in any::<bool>(),
+        acroform in proptest::option::of(proptest::sample::select(null_spellings())),
+    ) {
+        let page = page.index(pages);
+        let mut base = BasePdf::letter(pages).null_object().annot(page, subtype, held);
+        if indirect {
+            base = base.indirect_annots();
+        }
+        if let Some(null) = acroform {
+            base = base.catalog_raw("AcroForm", null);
+        }
+        let result = stamp(base.build(), &every_field_kind(), &StampOptions::default());
+        // `every_field_kind` stamps the first page, the one whose `/Annots`
+        // the update rewrites.
+        let want = match subtype {
+            AnnotationType::Widget => Err("pdf::existing_acroform"),
+            _ if indirect && page == 0 => Err("pdf::indirect_annots"),
+            _ => Ok(()),
+        };
+        prop_assert_eq!(result.as_ref().map(drop).map_err(|e| e.code), want);
+        if let (AnnotationType::Widget, Err(e)) = (subtype, &result) {
+            prop_assert!(e.message.contains(&format!("page {}", page + 1)), "{}", e.message);
         }
     }
 

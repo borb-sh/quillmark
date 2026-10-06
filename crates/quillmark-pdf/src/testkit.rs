@@ -7,8 +7,8 @@
 //! `/Size 5`).
 
 use pdf_writer::types::AnnotationType;
-use pdf_writer::writers::Form;
-use pdf_writer::{Content, Finish, Name, Null, Pdf, Rect, Ref, Settings, TextStr};
+use pdf_writer::writers::{Annotation, Form};
+use pdf_writer::{Array, Content, Finish, Name, Null, Pdf, Rect, Ref, Settings, TextStr};
 
 /// The id [`BasePdf::null_object`] writes a `null` under, past every id a test
 /// base numbers positionally.
@@ -23,6 +23,28 @@ enum Rotation {
     Indirect(i32),
 }
 
+/// How an `/Annots` array holds an annotation dictionary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Held {
+    /// Written in the array.
+    Inline,
+    /// An object the array references.
+    Referenced,
+}
+
+#[derive(Clone, Copy)]
+struct Annot {
+    page: usize,
+    subtype: AnnotationType,
+    held: Held,
+}
+
+/// One element of a page's `/Annots`.
+enum Entry {
+    Reference(Ref),
+    Inline(AnnotationType),
+}
+
 /// A base PDF under construction: US Letter, `pages` pages, each drawing
 /// nothing.
 #[derive(Clone)]
@@ -33,6 +55,8 @@ pub struct BasePdf {
     rotation: Option<Rotation>,
     info_title: Option<String>,
     inline_annot: bool,
+    annots: Vec<Annot>,
+    indirect_annots: bool,
     acroform: bool,
     catalog_entries: Vec<(&'static str, Vec<u8>)>,
     page_entries: Vec<(&'static str, Vec<u8>)>,
@@ -49,6 +73,8 @@ impl BasePdf {
             rotation: None,
             info_title: None,
             inline_annot: false,
+            annots: Vec::new(),
+            indirect_annots: false,
             acroform: false,
             catalog_entries: Vec::new(),
             page_entries: Vec::new(),
@@ -90,6 +116,19 @@ impl BasePdf {
     /// [`inline_annot_id`](Self::inline_annot_id).
     pub fn inline_annot(mut self) -> Self {
         self.inline_annot = true;
+        self
+    }
+
+    /// A `subtype` annotation last in page `page`'s `/Annots`, held as `held`.
+    pub fn annot(mut self, page: usize, subtype: AnnotationType, held: Held) -> Self {
+        self.annots.push(Annot { page, subtype, held });
+        self
+    }
+
+    /// Each page's `/Annots` as a reference to an array object, which the
+    /// input contract refuses on a page the spine stamps.
+    pub fn indirect_annots(mut self) -> Self {
+        self.indirect_annots = true;
         self
     }
 
@@ -156,6 +195,30 @@ impl BasePdf {
         let acroform_id = alloc(self.acroform);
         let rotate_id = alloc(matches!(self.rotation, Some(Rotation::Indirect(_))));
         let info_id = alloc(self.info_title.is_some());
+        let annot_ids: Vec<Option<Ref>> = self
+            .annots
+            .iter()
+            .map(|annot| alloc(annot.held == Held::Referenced))
+            .collect();
+        let entries: Vec<Vec<Entry>> = (0..self.pages)
+            .map(|i| {
+                let text_annot = annot_id.filter(|_| i == 0).map(Entry::Reference);
+                let added = self
+                    .annots
+                    .iter()
+                    .zip(&annot_ids)
+                    .filter(|(annot, _)| annot.page == i)
+                    .map(|(annot, id)| match *id {
+                        Some(id) => Entry::Reference(id),
+                        None => Entry::Inline(annot.subtype),
+                    });
+                text_annot.into_iter().chain(added).collect()
+            })
+            .collect();
+        let array_ids: Vec<Option<Ref>> = entries
+            .iter()
+            .map(|entries| alloc(self.indirect_annots && !entries.is_empty()))
+            .collect();
 
         let media = rect(self.media_box);
         {
@@ -191,17 +254,30 @@ impl BasePdf {
                     }
                     None => {}
                 }
-                if let (0, Some(id), true) = (i, annot_id, written("Annots")) {
-                    page.annotations([id]);
+                if written("Annots") && !entries[i].is_empty() {
+                    match array_ids[i] {
+                        Some(id) => {
+                            page.pair(Name(b"Annots"), id);
+                        }
+                        None => write_entries(page.insert(Name(b"Annots")).array(), &entries[i]),
+                    }
                 }
             }
             pdf.stream(content_id, &Content::new().finish());
+            if let Some(id) = array_ids[i] {
+                write_entries(pdf.indirect(id).array(), &entries[i]);
+            }
         }
 
         if let Some(id) = annot_id {
             pdf.annotation(id)
                 .subtype(AnnotationType::Text)
                 .rect(Rect::new(10.0, 10.0, 30.0, 30.0));
+        }
+        for (annot, id) in self.annots.iter().zip(&annot_ids) {
+            if let Some(id) = *id {
+                annotate(pdf.annotation(id), annot.subtype);
+            }
         }
         if let Some(id) = acroform_id {
             pdf.indirect(id).start::<Form>().fields([]).finish();
@@ -247,6 +323,21 @@ pub fn null_spellings() -> Vec<Vec<u8>> {
 
 fn rect([x0, y0, x1, y1]: [f32; 4]) -> Rect {
     Rect::new(x0, y0, x1, y1)
+}
+
+fn write_entries(mut array: Array<'_>, entries: &[Entry]) {
+    for entry in entries {
+        match *entry {
+            Entry::Reference(id) => {
+                array.item(id);
+            }
+            Entry::Inline(subtype) => annotate(array.push().start::<Annotation>(), subtype),
+        }
+    }
+}
+
+fn annotate(mut annot: Annotation<'_>, subtype: AnnotationType) {
+    annot.subtype(subtype).rect(Rect::new(10.0, 40.0, 30.0, 60.0));
 }
 
 fn names(entries: &[(&str, Vec<u8>)], key: &str) -> bool {

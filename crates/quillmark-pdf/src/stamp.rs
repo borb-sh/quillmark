@@ -17,7 +17,9 @@ use quillmark_core::region::RenderedRegion;
 
 use crate::appearance::{self, Appearance, Normal};
 use crate::error::PdfError;
-use crate::reader::{err, parse_indirect_ref, set_dict_value, ObjectIndex, UpdatedObject};
+use crate::reader::{
+    array_elements, as_dict, err, parse_indirect_ref, set_dict_value, ObjectIndex, UpdatedObject,
+};
 use crate::update::PdfUpdate;
 use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
 use crate::{FieldSpec, FieldType, FormFont, TextAlign};
@@ -160,9 +162,9 @@ enum NormalRef {
 /// session-level query (see [`regions_of`]).
 ///
 /// `base` must satisfy the reader's input contract (traditional-xref,
-/// unencrypted, inline-annots, bounded-tree) and carry no `/AcroForm` of its
-/// own, and each `rect` must already be final, finite, bottom-left PDF-point
-/// geometry.
+/// unencrypted, inline-annots, bounded-tree) and carry no form of its own: no
+/// catalog `/AcroForm`, and no widget annotation in any page's `/Annots`. Each
+/// `rect` must already be final, finite, bottom-left PDF-point geometry.
 pub fn stamp(
     base: Vec<u8>,
     fields: &[FieldSpec],
@@ -179,7 +181,7 @@ pub fn stamp(
     if !fields.is_empty() {
         // Before any allocation: a second `/AcroForm` on the catalog is a dict
         // the spec does not define, and the base's own widgets stay live in the
-        // page `/Annots` this update preserves.
+        // page `/Annots` this update preserves, whatever its catalog names.
         let catalog = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
         if idx.value(catalog, "AcroForm").is_some() {
             return Err(err(
@@ -189,6 +191,19 @@ pub fn stamp(
         }
 
         let pages = up.resolve_pages(&idx, fields)?;
+        for (at, page) in pages.iter().enumerate() {
+            let what = format!("page node {}", page.id);
+            if holds_a_widget(&idx, idx.dict(page.id, CODE_PARSE, &what)?) {
+                return Err(err(
+                    CODE_EXISTING_ACROFORM,
+                    format!(
+                        "page {} of the base PDF holds a widget annotation in its /Annots; \
+                         strip the base's widgets from every page's /Annots before stamping",
+                        at + 1
+                    ),
+                ));
+            }
+        }
         let page_count = pages.len();
 
         let fonts = fonts_used(fields);
@@ -290,6 +305,21 @@ pub fn stamp(
     }
 
     Ok(up.finish(pdf))
+}
+
+/// Whether the page dict `page` holds a `/Subtype /Widget` annotation in its
+/// `/Annots`: the array and each element read through any reference, as a
+/// viewer reads them.
+fn holds_a_widget<'a>(idx: &ObjectIndex<'a>, page: &'a [u8]) -> bool {
+    let Some(annots) = idx.value(page, "Annots").and_then(|annots| idx.resolve(annots)) else {
+        return false;
+    };
+    array_elements(annots).any(|annot| {
+        idx.resolve(annot)
+            .and_then(as_dict)
+            .and_then(|annot| idx.value(annot, "Subtype"))
+            == Some(&b"/Widget"[..])
+    })
 }
 
 /// Write `ap` as a fresh object selecting the registered face `font_id`, and
