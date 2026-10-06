@@ -4,9 +4,7 @@
 use pdf_writer::{Chunk, Name, Ref};
 
 use crate::error::PdfError;
-use crate::reader::{
-    err, find_dict_value, set_dict_value, InfoSource, ObjectIndex, UpdatedObject,
-};
+use crate::reader::{err, set_dict_value, InfoSource, ObjectIndex, UpdatedObject};
 
 const CODE_PARSE: &str = "pdf::write";
 
@@ -104,6 +102,7 @@ pub(crate) fn pdf_text_string(s: &str) -> Vec<u8> {
 /// caller's error code for an array that never closes, and `on_non_array` builds
 /// the refusal for an existing value that is not an inline array.
 pub(crate) fn append_refs_to_array_key(
+    idx: &ObjectIndex,
     dict: &[u8],
     key: &str,
     refs: &[u32],
@@ -117,7 +116,7 @@ pub(crate) fn append_refs_to_array_key(
         .join(" ");
 
     let mut merged = vec![b'['];
-    if let Some(existing) = find_dict_value(dict, key) {
+    if let Some(existing) = idx.value(dict, key) {
         let trimmed = existing.trim_ascii();
         if !trimmed.starts_with(b"[") {
             return Err(on_non_array(existing));
@@ -223,6 +222,7 @@ pub(crate) fn winansi_encode(s: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reader::find_dict_value;
 
     #[test]
     fn alloc_id_stops_at_the_reference_id_space() {
@@ -279,7 +279,8 @@ mod tests {
     #[test]
     fn appended_refs_keep_the_array_bytes_and_stay_out_of_its_comment() {
         let annots = |dict: &[u8]| {
-            let out = append_refs_to_array_key(dict, "Annots", &[12, 13], CODE_PARSE, |_| {
+            let idx = ObjectIndex::new(b"");
+            let out = append_refs_to_array_key(&idx, dict, "Annots", &[12, 13], CODE_PARSE, |_| {
                 unreachable!("an inline array")
             })
             .expect("an inline array");

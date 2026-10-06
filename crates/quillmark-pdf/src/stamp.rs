@@ -17,9 +17,7 @@ use quillmark_core::region::RenderedRegion;
 
 use crate::appearance::{self, Appearance, Normal};
 use crate::error::PdfError;
-use crate::reader::{
-    err, find_dict_value, parse_indirect_ref, set_dict_value, ObjectIndex, UpdatedObject,
-};
+use crate::reader::{err, parse_indirect_ref, set_dict_value, ObjectIndex, UpdatedObject};
 use crate::update::PdfUpdate;
 use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
 use crate::{FieldSpec, FieldType, FormFont, TextAlign};
@@ -182,7 +180,8 @@ pub fn stamp(
         // Before any allocation: a second `/AcroForm` on the catalog is a dict
         // the spec does not define, and the base's own widgets stay live in the
         // page `/Annots` this update preserves.
-        if find_dict_value(idx.dict(up.catalog_id, CODE_PARSE, "catalog")?, "AcroForm").is_some() {
+        let catalog = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
+        if idx.value(catalog, "AcroForm").is_some() {
             return Err(err(
                 CODE_EXISTING_ACROFORM,
                 "base PDF already carries an /AcroForm; strip its form before stamping",
@@ -285,12 +284,12 @@ pub fn stamp(
             let pg_dict = idx.dict(page_obj_id, CODE_PARSE, &what)?;
             up.objects.push(dict_object(
                 page_obj_id,
-                &rewrite_page_with_annots(pg_dict, widget_refs)?,
+                &rewrite_page_with_annots(&idx, pg_dict, widget_refs)?,
             ));
         }
     }
 
-    up.finish(pdf)
+    Ok(up.finish(pdf))
 }
 
 /// Write `ap` as a fresh object selecting the registered face `font_id`, and
@@ -433,11 +432,23 @@ fn checkbox_state(on: bool) -> Name<'static> {
     })
 }
 
-/// Three cases for the existing `/Annots`: absent (write a fresh array);
-/// inline array (splice widget refs before `]`); indirect reference (hard
-/// error, the input contract requires inline annots).
-fn rewrite_page_with_annots(pg_dict: &[u8], widget_refs: &[u32]) -> Result<Vec<u8>, PdfError> {
-    append_refs_to_array_key(pg_dict, "Annots", widget_refs, CODE_PARSE, non_array_annots)
+/// Three cases for the existing `/Annots`: absent or `null`, directly or by
+/// reference (write a fresh array); inline array (splice widget refs before
+/// `]`); any other indirect reference (hard error, the input contract requires
+/// inline annots).
+fn rewrite_page_with_annots(
+    idx: &ObjectIndex,
+    pg_dict: &[u8],
+    widget_refs: &[u32],
+) -> Result<Vec<u8>, PdfError> {
+    append_refs_to_array_key(
+        idx,
+        pg_dict,
+        "Annots",
+        widget_refs,
+        CODE_PARSE,
+        non_array_annots,
+    )
 }
 
 fn non_array_annots(existing: &[u8]) -> PdfError {

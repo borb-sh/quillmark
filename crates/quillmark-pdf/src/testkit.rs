@@ -8,7 +8,14 @@
 
 use pdf_writer::types::AnnotationType;
 use pdf_writer::writers::Form;
-use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Settings, TextStr};
+use pdf_writer::{Content, Finish, Name, Null, Pdf, Rect, Ref, Settings, TextStr};
+
+/// The id [`BasePdf::null_object`] writes a `null` under, past every id a test
+/// base numbers positionally.
+pub const NULL_OBJECT: i32 = 99;
+
+/// An id below [`NULL_OBJECT`] that no testkit base writes an object under.
+pub const NO_OBJECT: i32 = 98;
 
 #[derive(Clone, Copy)]
 enum Rotation {
@@ -29,6 +36,7 @@ pub struct BasePdf {
     acroform: bool,
     catalog_entries: Vec<(&'static str, Vec<u8>)>,
     page_entries: Vec<(&'static str, Vec<u8>)>,
+    null_object: bool,
     pretty: bool,
 }
 
@@ -44,6 +52,7 @@ impl BasePdf {
             acroform: false,
             catalog_entries: Vec::new(),
             page_entries: Vec::new(),
+            null_object: false,
             pretty: true,
         }
     }
@@ -102,6 +111,12 @@ impl BasePdf {
     /// its own `/MediaBox`, so a page nulling its one inherits it.
     pub fn page_raw(mut self, key: &'static str, value: impl Into<Vec<u8>>) -> Self {
         self.page_entries.push((key, value.into()));
+        self
+    }
+
+    /// A `null` object under [`NULL_OBJECT`], for an entry to reference.
+    pub fn null_object(mut self) -> Self {
+        self.null_object = true;
         self
     }
 
@@ -199,6 +214,9 @@ impl BasePdf {
                 .producer(TextStr("Base"))
                 .title(TextStr(title));
         }
+        if self.null_object {
+            pdf.indirect(Ref::new(NULL_OBJECT)).primitive(Null);
+        }
         let mut bytes = pdf.finish();
         for (key, value) in &self.catalog_entries {
             bytes = insert_entry(&bytes, catalog_id, key, value);
@@ -214,12 +232,16 @@ impl BasePdf {
 
 /// The bytes after a key that ISO 32000-1 reads as `null`, for
 /// [`BasePdf::catalog_raw`] and [`BasePdf::page_raw`]: the keyword, after a NUL
-/// as its white-space or before a comment glued to it (§7.2.2).
+/// as its white-space or before a comment glued to it (§7.2.2), and a reference
+/// to a `null` object or to no object (§7.3.10), which a base built with
+/// [`BasePdf::null_object`] resolves.
 pub fn null_spellings() -> Vec<Vec<u8>> {
     vec![
         b" null".to_vec(),
         b"\0null".to_vec(),
         b" null%stripped\n".to_vec(),
+        format!(" {NULL_OBJECT} 0 R").into_bytes(),
+        format!(" {NO_OBJECT} 0 R").into_bytes(),
     ]
 }
 

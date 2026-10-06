@@ -84,8 +84,8 @@ pub(crate) enum InfoSource<'a> {
     Entries(&'a [u8]),
 }
 
-pub(crate) fn read_info_source(trailer: &[u8]) -> InfoSource<'_> {
-    let Some(value) = find_dict_value(trailer, "Info") else {
+pub(crate) fn read_info_source<'t>(idx: &ObjectIndex, trailer: &'t [u8]) -> InfoSource<'t> {
+    let Some(value) = idx.value(trailer, "Info") else {
         return InfoSource::Entries(b"");
     };
     if let Some((id, _)) = parse_indirect_ref(value) {
@@ -104,19 +104,23 @@ pub(crate) fn read_info_source(trailer: &[u8]) -> InfoSource<'_> {
 /// trailer: many readers (lopdf included) consult only the last trailer, so
 /// dropping them would lose the document `/Info` and file identifier.
 /// `new_info_ref` supersedes that `/Info` rather than joining it, so the new
-/// trailer holds one `/Info` whatever shape the old value had. Callers append
-/// `/Size`, `/Root` and `/Prev` themselves.
-fn write_trailer_tail(out: &mut Vec<u8>, prior_trailer: &[u8], new_info_ref: Option<u32>) {
+/// trailer holds one `/Info` whatever shape the old value had.
+pub(crate) fn write_trailer_tail(
+    out: &mut Vec<u8>,
+    idx: &ObjectIndex,
+    prior_trailer: &[u8],
+    new_info_ref: Option<u32>,
+) {
     match new_info_ref {
         Some(id) => out.extend_from_slice(format!(" /Info {id} 0 R").as_bytes()),
         None => {
-            if let Some(value) = find_dict_value(prior_trailer, "Info") {
+            if let Some(value) = idx.value(prior_trailer, "Info") {
                 out.extend_from_slice(b" /Info ");
                 out.extend_from_slice(value.trim_ascii());
             }
         }
     }
-    if let Some(value) = find_dict_value(prior_trailer, "ID") {
+    if let Some(value) = idx.value(prior_trailer, "ID") {
         out.extend_from_slice(b" /ID ");
         out.extend_from_slice(value.trim_ascii());
     }
@@ -138,8 +142,7 @@ impl UpdatedObject {
 /// Append one incremental update to `pdf`: each object in `objects`, then an
 /// xref subsection table and a trailer chaining to the prior xref via `/Prev`.
 ///
-/// `new_info_ref` names an information dictionary written in this update, which
-/// the new trailer's `/Info` points at in place of the prior trailer's own.
+/// `trailer_tail` holds the entries [`write_trailer_tail`] carries forward.
 /// `new_size` is the updated `/Size` (highest object number + 1) and `root_id`
 /// the document catalog.
 pub(crate) fn append_incremental_update(
@@ -147,17 +150,9 @@ pub(crate) fn append_incremental_update(
     prev_xref: usize,
     root_id: u32,
     new_size: u32,
-    new_info_ref: Option<u32>,
+    trailer_tail: &[u8],
     objects: &[UpdatedObject],
-) -> Result<Vec<u8>, PdfError> {
-    // Built while the prior trailer at `prev_xref` is still intact.
-    let mut trailer_tail = Vec::new();
-    write_trailer_tail(
-        &mut trailer_tail,
-        find_trailer_dict(&pdf, prev_xref)?,
-        new_info_ref,
-    );
-
+) -> Vec<u8> {
     if !pdf.ends_with(b"\n") {
         pdf.push(b'\n');
     }
@@ -194,12 +189,16 @@ pub(crate) fn append_incremental_update(
     }
 
     pdf.extend_from_slice(format!("trailer\n<< /Size {new_size} /Root {root_id} 0 R").as_bytes());
-    pdf.extend_from_slice(&trailer_tail);
+    pdf.extend_from_slice(trailer_tail);
     pdf.extend_from_slice(
         format!(" /Prev {prev_xref} >>\nstartxref\n{new_xref_off}\n%%EOF\n").as_bytes(),
     );
-    Ok(pdf)
+    pdf
 }
+
+/// How many references [`ObjectIndex::value`] follows: a longer chain, a cycle
+/// included, reads as present.
+const MAX_REFERENCE_CHAIN: usize = 8;
 
 /// A base PDF and the offset of every indirect object header in it, collected in
 /// one forward pass. Every read of an object goes through this.
@@ -255,6 +254,42 @@ impl<'a> ObjectIndex<'a> {
             .ok_or_else(|| err(code, format!("{what} not found")))?;
         extract_outer_dict(&self.pdf[s..e])
             .ok_or_else(|| err(code, format!("{what} dict not parseable")))
+    }
+
+    /// [`find_dict_value`], reading a reference that resolves to `null` as
+    /// absent too: one naming a `null` object or no object at all, directly or
+    /// through a chain of references (ISO 32000-1 §7.3.10). A present value
+    /// reads as written, a reference unresolved.
+    pub fn value<'d>(&self, dict: &'d [u8], key: &str) -> Option<&'d [u8]> {
+        find_dict_value(dict, key).filter(|value| !self.resolves_to_null(value))
+    }
+
+    fn resolves_to_null(&self, value: &[u8]) -> bool {
+        let mut reference = parse_indirect_ref(value);
+        for _ in 0..MAX_REFERENCE_CHAIN {
+            let Some((id, _)) = reference else {
+                return false;
+            };
+            if !self.starts.contains_key(&id) {
+                return true;
+            }
+            match self.body(id) {
+                Some(b"null") => return true,
+                Some(body) => reference = parse_indirect_ref(body),
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// The first value object `id` holds past its header, or `None` when the
+    /// object is absent or never closes.
+    fn body(&self, id: u32) -> Option<&'a [u8]> {
+        let (s, e) = self.object_bytes(id)?;
+        let object = &self.pdf[s..e - b"endobj".len()];
+        let header_end = object.windows(3).position(|w| w == b"obj")? + 3;
+        let start = skip_ws_and_comments(object, header_end);
+        Some(&object[start..read_value_end(object, start)?])
     }
 
     /// The generation in object `id`'s header, or `None` when the object is
@@ -695,7 +730,7 @@ impl Page {
             .chain(self.ancestors.iter().copied())
             .find_map(|id| {
                 let dict = idx.dict(id, CODE_PARSE, "page node").ok()?;
-                parse(find_dict_value(dict, key)?)
+                parse(idx.value(dict, key)?)
             })
     }
 }
@@ -995,6 +1030,27 @@ mod tests {
             find_dict_value(b" /Kind /null ", "Kind").is_some(),
             "so is the name /null"
         );
+    }
+
+    #[test]
+    fn a_reference_resolving_to_null_reads_as_absent() {
+        let pdf = b"%PDF\n7 0 obj\nnull\nendobj\n8 0 obj 7 0 R endobj\n9 0 obj 9 0 R endobj\n\
+                    10 0 obj\n<< /Fields [] >>\nendobj\n";
+        let idx = ObjectIndex::new(pdf);
+        for (value, present) in [
+            ("7 0 R", false),
+            ("99 0 R", false),
+            ("8 0 R", false),
+            ("9 0 R", true),
+            ("10 0 R", true),
+        ] {
+            let dict = format!("/AcroForm {value} /Pages 2 0 R");
+            assert_eq!(
+                idx.value(dict.as_bytes(), "AcroForm"),
+                present.then_some(value.as_bytes()),
+                "{dict}"
+            );
+        }
     }
 
     #[test]
@@ -1342,7 +1398,8 @@ mod tests {
                     2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 \
                     /CropBox [0 0 100 100] >>\nendobj\n\
                     3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
-                    /CropBox 9 0 R >>\nendobj\n";
+                    /CropBox 9 0 R >>\nendobj\n\
+                    9 0 obj\n[0 0 50 50]\nendobj\n";
         let e = canvas_boxes_of(&ObjectIndex::new(pdf), 1).expect_err("indirect /CropBox rejected");
         assert_eq!(e.code, CODE_PARSE);
         assert!(e.message.contains("/CropBox"), "{}", e.message);

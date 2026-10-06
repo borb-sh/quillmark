@@ -69,7 +69,7 @@ const NULLABLE: [(&str, &str); 8] = [
 /// A one-page testkit base carrying `/key` and its spelling of `null` at each
 /// of `nulls`.
 fn nulled_base(nulls: &[((&str, &'static str), Vec<u8>)]) -> Vec<u8> {
-    let mut base = BasePdf::letter(1);
+    let mut base = BasePdf::letter(1).null_object();
     let mut trailer = Vec::new();
     for ((holder, key), spelling) in nulls {
         match *holder {

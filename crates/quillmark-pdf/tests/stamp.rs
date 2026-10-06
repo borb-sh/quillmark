@@ -330,9 +330,11 @@ fn an_out_of_contract_input_is_refused_under_its_code() {
             vec![field()],
             "pdf::nonzero_generation",
         ),
+        // A reference naming no object reads as absent, so this one names the
+        // page's content stream.
         (
             "indirect /Annots",
-            with_page_insertion(&build_base_pdf(1), b" /Annots 99 0 R"),
+            with_page_insertion(&build_base_pdf(1), b" /Annots 4 0 R"),
             vec![field()],
             "pdf::indirect_annots",
         ),
@@ -777,7 +779,10 @@ fn a_non_winansi_value_draws_substituted_while_the_field_keeps_it_whole() {
 #[test]
 fn a_null_acroform_is_no_form_and_the_stamp_writes_the_one_entry() {
     for spelling in null_spellings() {
-        let base = BasePdf::letter(1).catalog_raw("AcroForm", spelling).build();
+        let base = BasePdf::letter(1)
+            .null_object()
+            .catalog_raw("AcroForm", spelling)
+            .build();
         let fields = [text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")];
         let out = stamp(base.clone(), &fields, &StampOptions::default())
             .unwrap_or_else(|e| panic!("a null /AcroForm is no form: {}", e.message));
