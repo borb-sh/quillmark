@@ -12,8 +12,10 @@ headline break, enough to pick the guide.
 No step requires migrating a stored document: the storage DTO's bytes and tag
 hold across every step here except 0.111 → 0.112, 0.114 → 0.115 and
 0.115 → 0.116, where canonical bytes move (content hashes recompute) and the
-tag becomes `quillmark/document@0.112.0`, `@0.115.0` and `@0.116.0` in turn.
-A build older than such a step refuses a row the newer build has rewritten.
+tag becomes `quillmark/document@0.112.0`, `@0.115.0` and `@0.116.0` in turn,
+and 0.122 → 0.123, where a row holding a comment that ends in whitespace loads
+without it and rewrites once when saved, under the same tag. A build older
+than a step that moves the tag refuses a row the newer build has rewritten.
 
 ## Guides
 
