@@ -308,8 +308,8 @@ pub fn stamp(
 }
 
 /// Whether the page dict `page` holds a `/Subtype /Widget` annotation in its
-/// `/Annots`: the array and each element read through any reference, as a
-/// viewer reads them.
+/// `/Annots`: the array, each element and its `/Subtype` read through any
+/// reference, as a viewer reads them.
 fn holds_a_widget<'a>(idx: &ObjectIndex<'a>, page: &'a [u8]) -> bool {
     let Some(annots) = idx.value(page, "Annots").and_then(|annots| idx.resolve(annots)) else {
         return false;
@@ -318,6 +318,7 @@ fn holds_a_widget<'a>(idx: &ObjectIndex<'a>, page: &'a [u8]) -> bool {
         idx.resolve(annot)
             .and_then(as_dict)
             .and_then(|annot| idx.value(annot, "Subtype"))
+            .and_then(|subtype| idx.resolve(subtype))
             == Some(&b"/Widget"[..])
     })
 }
@@ -489,5 +490,27 @@ fn non_array_annots(existing: &[u8]) -> PdfError {
         )
     } else {
         err(CODE_PARSE, "/Annots is neither array nor indirect ref")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_widget_reads_through_a_referenced_subtype() {
+        let idx = ObjectIndex::new(b"%PDF\n7 0 obj /Widget endobj\n8 0 obj /Link endobj\n");
+        for (page, widget) in [
+            (&b"/Annots [<< /Subtype /Widget >>]"[..], true),
+            (b"/Annots [<< /Subtype 7 0 R >>]", true),
+            (b"/Annots [<< /Subtype 8 0 R >>]", false),
+        ] {
+            assert_eq!(
+                holds_a_widget(&idx, page),
+                widget,
+                "{}",
+                String::from_utf8_lossy(page)
+            );
+        }
     }
 }
