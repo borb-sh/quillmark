@@ -302,8 +302,9 @@ fn an_open_matrix_prints_added_items_after_the_roster_in_id_order() {
 }
 
 /// An open matrix's domain is its roster and every key spelled as a member id
-/// whose mapping carries a `title`. Anything else is the closed matrix's fault,
-/// hinted toward the added spelling.
+/// whose mapping carries a `title` that is not blank. Anything else is the
+/// closed matrix's fault, hinted toward the added spelling, and gates the
+/// render.
 #[test]
 fn a_key_outside_an_open_roster_needs_an_id_and_a_title() {
     let quill = quill_from_yaml(&open_yaml());
@@ -311,9 +312,12 @@ fn a_key_outside_an_open_roster_needs_an_id_and_a_title() {
         ("wing_ig: true", "wing_ig"),
         ("wing_ig: { detail: X }", "wing_ig"),
         ("wing_ig: { title: null }", "wing_ig"),
+        ("wing_ig: { title: \"\" }", "wing_ig"),
+        ("wing_ig: { title: \" \\t \" }", "wing_ig"),
         ("Wing IG: { title: Wing IG }", "Wing IG"),
     ] {
-        let diags = quill.validate(&doc(&format!("qualifications:\n  {spelling}\n")));
+        let document = doc(&format!("qualifications:\n  {spelling}\n"));
+        let diags = quill.validate(&document);
         let [diag] = diags.as_slice() else {
             panic!("{spelling}: expected one diagnostic, got {diags:?}");
         };
@@ -321,6 +325,7 @@ fn a_key_outside_an_open_roster_needs_an_id_and_a_title() {
         assert_eq!(diag.path.as_deref(), Some(format!("main.qualifications.{key}").as_str()));
         assert_eq!(diag.args.get("open"), Some(&json!(true)), "{spelling}");
         assert!(diag.hint.as_deref().is_some_and(|h| h.contains("`title`")), "{diag:?}");
+        assert!(quill.compile_data(&document, test_date()).is_err(), "{spelling}");
     }
 
     let titled = codes_of(&quill, &doc("qualifications:\n  wing_ig: { title: { a: 1 } }\n"));

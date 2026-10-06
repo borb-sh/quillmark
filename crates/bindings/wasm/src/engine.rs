@@ -87,8 +87,8 @@ export interface QuillFieldSchema {
     members?: Record<string, string>;
     /** `true` on a `type: "matrix"` field admitting items a document adds
      *  beside the roster: each keyed by a snake_case id and carrying a
-     *  `title` string beside the columns, held by being present. Valid only
-     *  on a matrix. */
+     *  `title` string, not blank, beside the columns, held by being present.
+     *  Valid only on a matrix. */
     open?: boolean;
     ui?: QuillFieldUi;
     properties?: Record<string, QuillFieldSchema>;

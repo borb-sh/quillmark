@@ -632,9 +632,10 @@ qualifications:
 ```
 
 - An added item is held by being present and takes the same columns a member
-  does. Its `title` is a string, and a key outside the roster with no `title`,
-  or one that is not a snake_case id, is refused (`validation::enum_violation`,
-  hinted toward the added spelling).
+  does. Its `title` is a string, and a key outside the roster with no `title`
+  or a blank one (`""` or whitespace alone), or one that is not a snake_case
+  id, is refused (`validation::enum_violation`, hinted toward the added
+  spelling).
 - The plate receives the held roster members in roster order, then each added
   item sorted by id, `{title, …columns}`, and `roster` returns them in that
   order. A plate wanting another order sorts the rows itself. An added item's
