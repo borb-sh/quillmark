@@ -11,8 +11,10 @@
 //! Every tagged node is recorded at its path, for the assembler to warn on; the
 //! value parse applies a core `!!` tag, ignores any other, and keeps no tag.
 
+use std::collections::HashMap;
+
 use serde_saphyr::granit_parser::{
-    Event, Marker, Options, Parser, Placement, ScalarStyle, Span, StructureStyle,
+    Event, Marker, Options, Parser, Placement, ScalarStyle, Span, StructureStyle, Tag,
 };
 
 use crate::value::PathSegment;
@@ -86,18 +88,23 @@ enum Shape {
     BlockMapping,
     BlockSequence,
     Flow,
-    /// A scalar with no source text: a key's or a dash's missing value.
+    /// A scalar with no source text that reads as null: a key's or a dash's
+    /// missing value.
     Absent,
     Scalar,
 }
 
 impl Shape {
-    fn of(event: &Event<'_>, span: &Span) -> Self {
+    /// `reads_null` answers for a tagged scalar with no source text.
+    fn of(event: &Event<'_>, span: &Span, reads_null: impl FnOnce(&Tag) -> bool) -> Self {
         match event {
             Event::MappingStart(StructureStyle::Block, ..) => Shape::BlockMapping,
             Event::SequenceStart(StructureStyle::Block, ..) => Shape::BlockSequence,
             Event::MappingStart(..) | Event::SequenceStart(..) => Shape::Flow,
-            Event::Scalar(_, ScalarStyle::Plain, ..) if span.start.index() == span.end.index() => {
+            Event::Scalar(_, ScalarStyle::Plain, _, tag)
+                if span.start.index() == span.end.index()
+                    && tag.as_deref().is_none_or(reads_null) =>
+            {
                 Shape::Absent
             }
             _ => Shape::Scalar,
@@ -197,8 +204,10 @@ struct Walk<'a> {
     /// its start.
     last_start: usize,
     last_end: usize,
-    /// Byte ranges of the comments since the last event holding source text.
+    /// Byte ranges of the comments past the last event holding source text.
     gap: Vec<(usize, usize)>,
+    /// Whether an empty plain scalar reads as null, by the tag on it.
+    nulls: HashMap<String, bool>,
 }
 
 fn byte(marker: Marker) -> usize {
@@ -229,7 +238,20 @@ impl<'a> Walk<'a> {
             last_start: 0,
             last_end: 0,
             gap: Vec::new(),
+            nulls: HashMap::new(),
         }
+    }
+
+    /// Whether the value parse reads an empty plain scalar under `tag` as null,
+    /// as it does one with no tag: `!!str` and `!` read it as text. The probe
+    /// spells the tag verbatim, which resolves without the block's `%TAG` lines.
+    fn reads_null(&mut self, tag: &Tag) -> bool {
+        *self.nulls.entry(format!("!<{tag}>")).or_insert_with_key(|probe| {
+            matches!(
+                crate::value::parse_yaml::<serde_json::Value>(probe),
+                Ok(serde_json::Value::Null)
+            )
+        })
     }
 
     fn step(&mut self, event: &Event<'_>, span: Span) -> Result<(), OverBudget> {
@@ -272,7 +294,8 @@ impl<'a> Walk<'a> {
         let on_colon = span.start.index() == span.end.index()
             && self.src.as_bytes().get(end) == Some(&b':');
         self.last_end = end + usize::from(on_colon);
-        self.gap.clear();
+        let last_end = self.last_end;
+        self.gap.retain(|&(from, _)| from >= last_end);
     }
 
     fn comment(&mut self, text: &str, placement: Placement, span: Span) -> Result<(), OverBudget> {
@@ -379,7 +402,7 @@ impl<'a> Walk<'a> {
     }
 
     fn node(&mut self, event: &Event<'_>, span: Span) -> Result<(), OverBudget> {
-        let shape = Shape::of(event, &span);
+        let shape = Shape::of(event, &span, |tag| self.reads_null(tag));
         let top = self.live.checked_sub(1);
         let awaiting = top.is_some_and(|t| self.frames[t].awaiting_value);
         let dash_trailer = match self.held.take() {
@@ -491,7 +514,12 @@ impl<'a> Walk<'a> {
         if self.pending.is_empty() {
             return Ok(Vec::new());
         }
-        let mut run = std::mem::take(&mut self.pending);
+        // The parser hands the comments below a node with no text of its own,
+        // `k: !!str`, ahead of it: they wait for the node after it.
+        let (mut run, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending)
+            .into_iter()
+            .partition(|c| c.offset < start);
+        self.pending = later;
         let Some(top) = self.live.checked_sub(1) else {
             return Ok(run);
         };

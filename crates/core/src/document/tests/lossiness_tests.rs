@@ -249,6 +249,36 @@ fn a_comment_under_a_scalar_below_its_key_follows_the_value() {
     }
 }
 
+/// An empty value is the scalar its tag reads. Under `!!str` or `!` it is text,
+/// which holds no comment, so one indented under it follows the entry; under
+/// `!!null`, or a tag the parse ignores, it is null and holds the comment. One
+/// below it at a lesser column belongs to the collection around it.
+#[test]
+fn a_comment_under_a_tagged_empty_value_survives() {
+    let cases = [
+        ("k: !\n  # c\nj: 1\n", "k: \"\"\n# c\nj: 1\n"),
+        ("k: !!str # t\n  # c\nj: 1\n", "k: \"\" # t\n# c\nj: 1\n"),
+        ("rows:\n  - k: !\n      # c\n    j: 1\n", "  - k: \"\"\n    # c\n    j: 1\n"),
+        ("k: !!null\n  # c\nj: 1\n", "k:\n  # c\nj: 1\n"),
+        (
+            "m:\n  k: !!str\n    # c\n  # d\n# e\nj: 1\n",
+            "m:\n  k: \"\"\n  # c\n  # d\n# e\nj: 1\n",
+        ),
+        (
+            "m:\n  k: !t\n    # c\n  # d\n# e\nj: 1\n",
+            "m:\n  k:\n    # c\n  # d\n# e\nj: 1\n",
+        ),
+        ("l:\n  - !!str\n  # c\n  - b\n# d\nj: 1\n", "l:\n  - \"\"\n  # c\n  - b\n# d\nj: 1\n"),
+    ];
+    for (fields, emitted) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap().document;
+        let md = doc.to_markdown();
+        assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
 /// Each comment keeps the container and slot the YAML gives it, whatever the
 /// spelling's indentation: a sequence at its key's column, a comment indented
 /// less than its block, a compact nested sequence, a continuation line.

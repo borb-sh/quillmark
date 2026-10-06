@@ -18,6 +18,8 @@ use crate::value::PathSegment;
 enum Node {
     Word(String),
     Absent,
+    /// An empty value under this tag.
+    Tagged(&'static str),
     EmptyMap,
     EmptySeq,
     Map(Vec<(String, Node)>),
@@ -29,6 +31,8 @@ impl Node {
         match self {
             Node::Word(w) => Value::String(w.clone()),
             Node::Absent => Value::Null,
+            Node::Tagged(tag) if reads_text(tag) => Value::String(String::new()),
+            Node::Tagged(_) => Value::Null,
             Node::EmptyMap => Value::Object(Map::new()),
             Node::EmptySeq => Value::Array(Vec::new()),
             Node::Map(entries) => Value::Object(
@@ -40,6 +44,12 @@ impl Node {
             Node::Seq(items) => Value::Array(items.iter().map(Node::json).collect()),
         }
     }
+}
+
+/// `!!str` and `!` read an empty value as text; `!!null` and an unknown tag as
+/// null.
+fn reads_text(tag: &str) -> bool {
+    matches!(tag, "!!str" | "!")
 }
 
 fn distinct(entries: Vec<(String, Node)>) -> Vec<(String, Node)> {
@@ -58,6 +68,7 @@ fn arb_node() -> impl Strategy<Value = Node> {
     let leaf = prop_oneof![
         4 => "v[a-z0-9]{0,3}".prop_map(Node::Word),
         1 => Just(Node::Absent),
+        1 => prop::sample::select(&["!!str", "!", "!!null", "!t"][..]).prop_map(Node::Tagged),
         1 => Just(Node::EmptyMap),
         1 => Just(Node::EmptySeq),
     ];
@@ -161,7 +172,10 @@ impl Render {
             if let Some(t) = &t {
                 self.items.push(Item::Comment(t.clone(), true));
             }
-            self.entry(String::new(), 0, k, v, &[PathSegment::Key(k.clone())], &t);
+            let path = [PathSegment::Key(k.clone())];
+            if let Some(c) = self.entry(String::new(), 0, k, v, &path, &t) {
+                self.items.push(Item::Comment(c, false));
+            }
         }
         if let Some(c) = self.comment() {
             self.line(0, &format!("# {c}"));
@@ -170,7 +184,8 @@ impl Render {
     }
 
     /// A key's line and its value's lines, `lead` ahead of the key, which sits
-    /// at `column`. `path` is the value's.
+    /// at `column`. `path` is the value's. Answers a comment written under a
+    /// value that holds none, which the caller's slot after the entry takes.
     fn entry(
         &mut self,
         lead: String,
@@ -179,18 +194,25 @@ impl Render {
         v: &Node,
         path: &[PathSegment],
         t: &Option<String>,
-    ) {
+    ) -> Option<String> {
         let t = trailer(t);
         let head = |sep: &str| format!("{lead}{k}{sep}{t}");
         match v {
             Node::Word(w) => self.line(0, &head(&format!(": {w}"))),
-            Node::Absent | Node::EmptyMap | Node::EmptySeq => {
+            Node::Tagged(tag) if reads_text(tag) => {
+                self.line(0, &head(&format!(": {tag}")));
+                let c = self.comment()?;
+                self.line(column + 2, &format!("# {c}"));
+                return Some(c);
+            }
+            Node::Absent | Node::Tagged(_) | Node::EmptyMap | Node::EmptySeq => {
                 let sep = match v {
-                    Node::EmptyMap => ": {}",
-                    Node::EmptySeq => ": []",
-                    _ => ":",
+                    Node::Tagged(tag) => format!(": {tag}"),
+                    Node::EmptyMap => ": {}".to_string(),
+                    Node::EmptySeq => ": []".to_string(),
+                    _ => ":".to_string(),
                 };
-                self.line(0, &head(sep));
+                self.line(0, &head(&sep));
                 self.own(column + 2, path, 0);
             }
             Node::Map(entries) => {
@@ -203,6 +225,7 @@ impl Render {
                 self.seq(items, dash, path, self.zero);
             }
         }
+        None
     }
 
     fn map(&mut self, entries: &[(String, Node)], from: usize, column: usize, path: &[PathSegment]) {
@@ -213,7 +236,9 @@ impl Render {
                 self.mark(path, i, t, true);
             }
             let value = child(path, PathSegment::Key(k.clone()));
-            self.entry(" ".repeat(column), column, k, v, &value, &t);
+            if let Some(c) = self.entry(" ".repeat(column), column, k, v, &value, &t) {
+                self.mark(path, i + 1, &c, false);
+            }
         }
         self.own(column, path, entries.len());
     }
@@ -238,7 +263,7 @@ impl Render {
                 let value = child(&own, PathSegment::Key(k.clone()));
                 let lead = self.comment();
                 let first = self.comment();
-                if lead.is_some() || (t.is_some() && first.is_some()) {
+                let after = if lead.is_some() || (t.is_some() && first.is_some()) {
                     if let Some(t) = &t {
                         self.mark(path, i, t, true);
                     }
@@ -250,14 +275,17 @@ impl Render {
                     if let Some(f) = &first {
                         self.mark(&own, 0, f, true);
                     }
-                    self.entry(" ".repeat(dash + 2), dash + 2, k, v, &value, &first);
+                    self.entry(" ".repeat(dash + 2), dash + 2, k, v, &value, &first)
                 } else {
                     // The dash line's trailer is the item's.
                     let t = t.or(first);
                     if let Some(t) = &t {
                         self.mark(path, i, t, true);
                     }
-                    self.entry(format!("{}- ", " ".repeat(dash)), dash + 2, k, v, &value, &t);
+                    self.entry(format!("{}- ", " ".repeat(dash)), dash + 2, k, v, &value, &t)
+                };
+                if let Some(c) = after {
+                    self.mark(&own, 1, &c, false);
                 }
                 self.map(entries, 1, dash + 2, &own);
             }
@@ -274,6 +302,7 @@ impl Render {
                 }
                 let text = match scalar {
                     Node::Word(w) => w.as_str(),
+                    Node::Tagged(tag) => tag,
                     Node::EmptyMap => "{}",
                     Node::EmptySeq => "[]",
                     _ => "null",
@@ -391,6 +420,14 @@ impl Scribble {
         }
     }
 
+    /// A missing value's tag or anchor, if any, past a space.
+    fn bare(&mut self) -> String {
+        match self.props().trim_end() {
+            "" => String::new(),
+            props => format!(" {props}"),
+        }
+    }
+
     fn word(&mut self, w: &str) -> String {
         let props = self.props();
         match self.pick(5) {
@@ -477,11 +514,12 @@ impl Scribble {
                     }
                 }
             }
-            Node::Absent | Node::EmptyMap | Node::EmptySeq => {
+            Node::Absent | Node::Tagged(_) | Node::EmptyMap | Node::EmptySeq => {
                 let sep = match v {
-                    Node::EmptyMap => ": {}",
-                    Node::EmptySeq => ": []",
-                    _ => ":",
+                    Node::Tagged(tag) => format!(": {tag}"),
+                    Node::EmptyMap => ": {}".to_string(),
+                    Node::EmptySeq => ": []".to_string(),
+                    _ => format!(":{}", self.bare()),
                 };
                 let t = self.tail();
                 self.line(0, &format!("{lead}{k}{sep}{t}"));
@@ -577,8 +615,15 @@ impl Scribble {
                 }
             }
             Node::Absent => {
+                let bare = self.bare();
                 let t = self.tail();
-                self.line(0, &format!("{lead}-{t}"));
+                self.line(0, &format!("{lead}-{bare}{t}"));
+                self.notes(dash + 4);
+            }
+            Node::Tagged(tag) => {
+                let t = self.tail();
+                self.line(0, &format!("{lead}- {tag}{t}"));
+                self.notes(dash + 4);
             }
             Node::EmptyMap | Node::EmptySeq => {
                 let empty = if matches!(item, Node::EmptyMap) { "{}" } else { "[]" };
@@ -648,7 +693,7 @@ fn arb_line() -> impl Strategy<Value = String> {
     let dashes = prop::sample::select(&["", "", "- ", "- - ", "-"][..]);
     let key = prop::sample::select(&["", "k: ", "j: ", "k:", "\"q k\": ", "? ", "!t m: "][..]);
     let value = prop::sample::select(
-        &["", "v", "w x", "[a, b]", "{a: 1}", "[]", "{}", "!t v", "&a v", "*a", "|", "null", "[a,", "'q"][..],
+        &["", "v", "w x", "[a, b]", "{a: 1}", "[]", "{}", "!t v", "&a v", "*a", "|", "null", "[a,", "'q", "!!str", "!"][..],
     );
     let comment = prop::sample::select(&["", "", " # c", "# own", " #"][..]);
     (indent, dashes, key, value, comment)

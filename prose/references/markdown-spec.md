@@ -237,7 +237,9 @@ data payload.
     collection is inside it, and so is one at or past the first key or dash of
     a sequence item's collection; any other belongs to the collection around
     it. A comment indented under `key: []`, `key: {}` or a bare `key:` is
-    inside that empty value.
+    inside that empty value, and so is one under a bare key whose tag reads
+    as null, `key: !!null` or `key: !custom`. Under `key: !!str` or `key: !`
+    the value is an empty string, and the comment follows the entry.
   - A comment inside a flow collection or on a multi-line scalar's line is the
     trailer of the entry holding the value, or follows it when one already
     trails it. A trailer on a sequence item's dash line is the item's, though
