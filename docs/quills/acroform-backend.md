@@ -18,7 +18,7 @@ my-form/
 - **`form.pdf`**, the *stripped background*: the normalized form with its `/AcroForm`, widget annotations, and page `/Annots` removed (pure pages, rules, boxes, and labels).
 - **`form.json`**, the value-free **placement + binding** layer: where each widget sits (`page`, `rect`) and which schema field it binds (`schema_field`). Everything intrinsic (widget kind, choice options, multiline, tooltip) is *derived* from the quill schema, not restated here.
 
-At load the backend binds each field's value from your document data and writes the AcroForm **fresh** from `form.json` onto the background. It never reads or reconciles a form already in `form.pdf`: a background that still carries one is refused (`pdf::existing_acroform`), since a second `/AcroForm` on the catalog is a dict the spec does not define and the old widgets would stay live in the page `/Annots`.
+At load the backend binds each field's value from your document data and writes the AcroForm **fresh** from `form.json` onto the background. It never reconciles a form already in `form.pdf`: a background that still carries one is refused (`pdf::existing_acroform`), since a second `/AcroForm` on the catalog is a dict the spec does not define and the old widgets would stay live in the page `/Annots`.
 
 A catalog `/AcroForm null` is no form: ISO 32000-1 §7.3.9 reads an entry whose value is `null` as absent, so the background stamps and the fresh `/AcroForm` replaces the null entry. A reference to a `null` object, or to an object the file does not hold, is `null` too (§7.3.10), so `/AcroForm 7 0 R` over `7 0 obj null endobj` is no form either. Every optional entry the backend reads off `form.pdf` reads a `null` the same way, written directly or referenced.
 

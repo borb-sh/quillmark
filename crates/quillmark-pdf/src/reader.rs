@@ -6,10 +6,12 @@
 //! ## Input contract
 //!
 //! The base PDF must be traditional-xref, unencrypted, inline-annots,
-//! bounded-tree: a classic `xref` table (not an xref *stream*), no `/Encrypt`,
-//! page `/Annots` written inline rather than as an indirect reference, and a
-//! `/Pages` tree of any depth that reaches each node once and stays under
-//! 100 000 nodes. That is the precise inverse of the scanner's error branches.
+//! bounded-tree, well-formed: a classic `xref` table (not an xref *stream*), no
+//! `/Encrypt`, page `/Annots` written inline rather than as an indirect
+//! reference, a `/Pages` tree of any depth that reaches each node once and
+//! stays under 100 000 nodes, and every dictionary the reader meets naming each
+//! key once, with a value. That is the precise inverse of the scanner's error
+//! branches.
 //! `hayro-syntax` is read-only and exposes no byte spans, so it cannot drive a
 //! byte-splice append; hence this bespoke scanner.
 
@@ -199,8 +201,9 @@ pub(crate) fn append_incremental_update(
     pdf
 }
 
-/// How many references [`ObjectIndex::value`] follows: a longer chain, a cycle
-/// included, reads as present.
+/// How many references [`ObjectIndex::value`] and [`ObjectIndex::resolve`]
+/// follow: a longer chain, a cycle included, reads as present to `value` and
+/// as `None` to `resolve`.
 const MAX_REFERENCE_CHAIN: usize = 8;
 
 /// A base PDF and the offset of every indirect object header in it, collected in
@@ -287,7 +290,8 @@ impl<'a> ObjectIndex<'a> {
 
     /// `value`, or the value its reference names, followed along a chain of up
     /// to [`MAX_REFERENCE_CHAIN`] references (ISO 32000-1 §7.3.10). `None`
-    /// where a reference names no object or the chain runs past the bound.
+    /// where a reference names no object or one that never closes, or the chain
+    /// runs past the bound.
     pub fn resolve<'d>(&self, value: &'d [u8]) -> Option<&'d [u8]>
     where
         'a: 'd,
