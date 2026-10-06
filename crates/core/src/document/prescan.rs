@@ -208,6 +208,8 @@ struct Walk<'a> {
     gap: Vec<(usize, usize)>,
     /// Whether an empty plain scalar reads as null, by the tag on it.
     nulls: HashMap<String, bool>,
+    /// Each anchored scalar's text, by anchor id: an alias key's.
+    anchors: HashMap<usize, String>,
 }
 
 fn byte(marker: Marker) -> usize {
@@ -239,6 +241,7 @@ impl<'a> Walk<'a> {
             last_end: 0,
             gap: Vec::new(),
             nulls: HashMap::new(),
+            anchors: HashMap::new(),
         }
     }
 
@@ -419,6 +422,9 @@ impl<'a> Walk<'a> {
             None => Role::Root,
             Some(t) => self.place(t, event, &span, shape),
         };
+        if let Event::Scalar(text, _, anchor @ 1.., _) = event {
+            self.anchors.insert(*anchor, text.to_string());
+        }
         let depth = top.map_or(0, |t| t + 1);
         if event.tag().is_some() {
             let path = self.path(depth);
@@ -484,6 +490,7 @@ impl<'a> Walk<'a> {
         }
         let key = match event {
             Event::Scalar(text, ..) => Some(text.to_string()),
+            Event::Alias(id) => self.anchors.get(id).cloned(),
             _ => None,
         };
         let column = span.indent.unwrap_or(span.start.col());

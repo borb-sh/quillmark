@@ -279,6 +279,23 @@ fn a_comment_under_a_tagged_empty_value_survives() {
     }
 }
 
+/// An alias key is its anchored scalar's text, so the comments and tags under
+/// it keep their paths, and at the top level its field keeps its place and its
+/// trailer.
+#[test]
+fn an_alias_key_holds_its_comments_and_tags() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
+               a: &x foo\n\
+               o:\n  *x :\n    # c\n    s: !t 1\n\
+               *x : 1 # t\n\
+               b: 2\n~~~\n";
+    let out = Document::parse(src).unwrap();
+    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some("main.o.foo.s"))]);
+    let md = out.document.to_markdown();
+    assert!(md.contains("o:\n  foo:\n    # c\n    s: 1\nfoo: 1 # t\nb: 2\n"), "{md}");
+    assert_eq!(Document::parse(&md).unwrap().document, out.document, "{md}");
+}
+
 /// Each comment keeps the container and slot the YAML gives it, whatever the
 /// spelling's indentation: a sequence at its key's column, a comment indented
 /// less than its block, a compact nested sequence, a continuation line.

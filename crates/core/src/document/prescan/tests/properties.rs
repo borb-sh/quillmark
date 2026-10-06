@@ -7,6 +7,8 @@
 //! at any column, a document settles after one emission. Over arbitrary fence
 //! bodies neither the prescan nor the parse panics.
 
+use std::collections::HashMap;
+
 use proptest::prelude::*;
 use serde_json::{Map, Value};
 
@@ -96,9 +98,13 @@ enum Item {
 
 /// Writes a payload as a hand might, recording the slot each comment takes in
 /// the document model. The layout is `to_markdown`'s but for `zero`, which
-/// writes a sequence under a key at the key's column.
+/// writes a sequence under a key at the key's column, and `alias`, which
+/// anchors a key's first spelling and writes every later one as its alias.
 struct Render {
     zero: bool,
+    alias: bool,
+    /// The anchor on each key spelled so far.
+    keys: HashMap<String, usize>,
     fill: Vec<bool>,
     slot: usize,
     count: usize,
@@ -118,9 +124,11 @@ fn trailer(text: &Option<String>) -> String {
 }
 
 impl Render {
-    fn new(zero: bool, fill: Vec<bool>) -> Self {
+    fn new(zero: bool, alias: bool, fill: Vec<bool>) -> Self {
         Self {
             zero,
+            alias,
+            keys: HashMap::new(),
             fill,
             slot: 0,
             count: 0,
@@ -128,6 +136,18 @@ impl Render {
             items: Vec::new(),
             nested: Vec::new(),
         }
+    }
+
+    fn key(&mut self, k: &str) -> String {
+        if !self.alias {
+            return k.to_string();
+        }
+        if let Some(n) = self.keys.get(k) {
+            return format!("*k{n} ");
+        }
+        let n = self.keys.len() + 1;
+        self.keys.insert(k.to_string(), n);
+        format!("&k{n} {k}")
     }
 
     fn comment(&mut self) -> Option<String> {
@@ -196,7 +216,8 @@ impl Render {
         t: &Option<String>,
     ) -> Option<String> {
         let t = trailer(t);
-        let head = |sep: &str| format!("{lead}{k}{sep}{t}");
+        let key = self.key(k);
+        let head = |sep: &str| format!("{lead}{key}{sep}{t}");
         match v {
             Node::Word(w) => self.line(0, &head(&format!(": {w}"))),
             Node::Tagged(tag) if reads_text(tag) => {
@@ -330,15 +351,15 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(400))]
 
     /// Every comment reads back into the slot it was written at, under either
-    /// sequence indentation, and the document round-trips through
-    /// `to_markdown`.
+    /// sequence indentation and under keys written as aliases, and the
+    /// document round-trips through `to_markdown`.
     #[test]
     fn every_comment_reads_back_into_its_slot(
         entries in arb_entries(arb_node()),
         fill in arb_fill(),
     ) {
-        for zero in [false, true] {
-            let mut render = Render::new(zero, fill.clone());
+        for (zero, alias) in [(false, false), (true, false), (false, true)] {
+            let mut render = Render::new(zero, alias, fill.clone());
             render.root(&entries);
             let src = format!("~~~\n$quill: q\n$kind: main\n{}~~~\n", render.src);
             let doc = Document::parse(&src)
@@ -369,6 +390,8 @@ struct Scribble {
     picks: Vec<u8>,
     at: usize,
     anchors: usize,
+    /// The anchor on each key text written with one.
+    keys: HashMap<String, usize>,
     src: String,
 }
 
@@ -378,6 +401,7 @@ impl Scribble {
             picks,
             at: 0,
             anchors: 0,
+            keys: HashMap::new(),
             src: String::new(),
         }
     }
@@ -480,8 +504,23 @@ impl Scribble {
         Some(format!("{open}{}{close}", parts.join(&sep)))
     }
 
+    /// `k` spelled as `spell` has it, anchored, or as an alias to an earlier
+    /// key anchored with its text.
+    fn key(&mut self, k: &str, column: usize) -> String {
+        let (spelled, text) = spell(k, column);
+        match self.keys.get(&text).copied() {
+            Some(n) if self.pick(2) == 0 => format!("*k{n} "),
+            _ if self.pick(4) == 0 => {
+                self.anchors += 1;
+                self.keys.insert(text, self.anchors);
+                format!("&k{} {spelled}", self.anchors)
+            }
+            _ => spelled,
+        }
+    }
+
     fn entry(&mut self, lead: String, column: usize, k: &str, v: &Node) {
-        let k = &spell(k, column);
+        let k = &self.key(k, column);
         if let Some(flow) = self.flow(v, column + 2) {
             let t = self.tail();
             self.line(0, &format!("{lead}{k}: {flow}{t}"));
@@ -634,15 +673,15 @@ impl Scribble {
     }
 }
 
-/// A key as a hand might spell it: bare or quoted, and past the root holding a
-/// space or ` #`.
-fn spell(k: &str, column: usize) -> String {
+/// A key as a hand might spell it, and the text it reads as: bare or quoted,
+/// and past the root holding a space or ` #`.
+fn spell(k: &str, column: usize) -> (String, String) {
     match (column, (k.len() + column) % 4) {
-        (_, 0) => k.to_string(),
-        (_, 1) => format!("\"{k}\""),
-        (0, _) => format!("'{k}'"),
-        (_, 2) => format!("{k} x"),
-        _ => format!("'{k} # y'"),
+        (_, 0) => (k.to_string(), k.to_string()),
+        (_, 1) => (format!("\"{k}\""), k.to_string()),
+        (0, _) => (format!("'{k}'"), k.to_string()),
+        (_, 2) => (format!("{k} x"), format!("{k} x")),
+        _ => (format!("'{k} # y'"), format!("{k} # y")),
     }
 }
 
