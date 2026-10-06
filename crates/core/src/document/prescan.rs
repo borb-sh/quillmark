@@ -470,10 +470,12 @@ fn byte(marker: Marker) -> usize {
     marker.byte_offset().unwrap_or(0)
 }
 
-/// The text after `#`, less any further `#` and one space.
+/// The text after `#`, less any further `#`, one space, and the whitespace
+/// ending it: the block's text is trimmed, so the comment closing it keeps
+/// none.
 fn comment_text(raw: &str) -> String {
     let after = raw.trim_start_matches('#');
-    after.strip_prefix(' ').unwrap_or(after).to_string()
+    after.strip_prefix(' ').unwrap_or(after).trim_end().to_string()
 }
 
 impl<'a> Walk<'a> {

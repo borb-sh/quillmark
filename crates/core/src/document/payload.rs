@@ -85,7 +85,8 @@ pub enum PayloadItem {
     },
     /// A user-defined YAML field.
     Field { key: String, value: QuillValue },
-    /// A YAML comment. Text excludes the leading `#` and one optional space.
+    /// A YAML comment. Text excludes the leading `#`, one optional space and
+    /// the whitespace ending the line.
     ///
     /// An `inline` comment (`field: value # text`) attaches to the item that
     /// immediately precedes it; an orphan degrades to an own-line comment.

@@ -341,6 +341,20 @@ fn a_comment_around_or_inside_a_merge_keeps_its_slot() {
     }
 }
 
+/// A comment's text ends at its last character that is not whitespace, so
+/// the same comment emitted as the block's last line, whose whitespace the
+/// fence's trim drops, reads back as the same text.
+#[test]
+fn a_comment_ending_in_whitespace_reads_back_the_same() {
+    for fields in ["k: 1\n# c  \n...\n", "k: 1 # c \t\n...\n", "k: 1\n# c \u{3000}\nj: 2\n"] {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap().document;
+        let md = doc.to_markdown();
+        assert!(md.contains("# c\n"), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
 /// Each comment keeps the container and slot the YAML gives it, whatever the
 /// spelling's indentation: a sequence at its key's column, a comment indented
 /// less than its block, a compact nested sequence, a continuation line.

@@ -178,7 +178,14 @@ fn child(path: &[PathSegment], segment: PathSegment) -> Vec<PathSegment> {
 }
 
 fn trailer(text: &Option<String>) -> String {
-    text.as_ref().map_or_else(String::new, |t| format!(" # {t}"))
+    text.as_ref().map_or_else(String::new, |t| format!(" # {}", spaced(t)))
+}
+
+/// `c`, numbered `cN`, as a hand might end it: bare or past trailing
+/// whitespace, which its text does not keep.
+fn spaced(c: &str) -> String {
+    let n: usize = c[1..].parse().expect("a numbered comment");
+    format!("{c}{}", ["", "  ", " \t", "\u{3000}"][n % 4])
 }
 
 impl Render {
@@ -239,7 +246,7 @@ impl Render {
 
     fn own(&mut self, column: usize, path: &[PathSegment], position: usize) {
         if let Some(c) = self.comment() {
-            self.line(column, &format!("# {c}"));
+            self.line(column, &format!("# {}", spaced(&c)));
             self.mark(path, position, &c, false);
         }
     }
@@ -270,7 +277,7 @@ impl Render {
             Node::Tagged(tag) if reads_text(tag) => {
                 self.line(0, &head(&format!(": {tag}")));
                 let c = self.comment()?;
-                self.line(column + 2, &format!("# {c}"));
+                self.line(column + 2, &format!("# {}", spaced(&c)));
                 return Some(c);
             }
             Node::Absent | Node::Tagged(_) | Node::EmptyMap | Node::EmptySeq => {
@@ -404,7 +411,7 @@ impl Render {
                     }
                     self.line(dash, &format!("-{}", trailer(&t)));
                     if let Some(c) = &lead {
-                        self.line(dash + 2, &format!("# {c}"));
+                        self.line(dash + 2, &format!("# {}", spaced(c)));
                         self.mark(&own, 0, c, false);
                     }
                     if let Some(f) = &first {
@@ -575,16 +582,22 @@ impl Scribble {
     fn notes(&mut self, reach: usize) {
         for _ in 0..self.pick(3) {
             let column = self.pick(reach + 1);
-            self.line(column, "# n");
+            let end = self.end();
+            self.line(column, &format!("# n{end}"));
         }
     }
 
-    fn tail(&mut self) -> &'static str {
+    fn tail(&mut self) -> String {
         if self.pick(2) == 0 {
-            " # t"
+            format!(" # t{}", self.end())
         } else {
-            ""
+            String::new()
         }
+    }
+
+    /// Whitespace ending a comment, which its text does not keep.
+    fn end(&mut self) -> &'static str {
+        ["", "", "  ", "\t", " \u{3000}"][self.pick(5)]
     }
 
     fn props(&mut self) -> String {
@@ -614,12 +627,18 @@ impl Scribble {
         }
     }
 
+    /// The entries, then at times the end-of-document marker, after which
+    /// the comments are the block's last lines.
     fn root(&mut self, entries: &[(String, Node)]) {
         for (k, v) in entries {
             self.notes(4);
             self.entry(String::new(), 0, k, v);
         }
         self.notes(4);
+        if self.pick(4) == 0 {
+            self.line(0, "...");
+            self.notes(4);
+        }
     }
 
     /// `[w, v]` or `{k: w}` from flat words, on one line or broken after its
