@@ -192,6 +192,7 @@ class Writer:
     def revise_field(
         self, name: str, text: str, card: int | None = None
     ) -> list[Diagnostic]: ...
+    def revise_document(self, markdown: str) -> list[Diagnostic]: ...
     def add_card(
         self,
         kind: str,
