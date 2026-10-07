@@ -153,7 +153,9 @@ fn dropped_constructs(warnings: &[Diagnostic]) -> Value {
 }
 
 /// The body's markup block in the generated helper, the one `emit_content`
-/// writes: from its `#let` to the next top-level `#let` or doc comment.
+/// writes: the `_qm_cN` block the data literal's `$body` names, from its `#let`
+/// to the next top-level `#let` or doc comment. A blank body lowers to `""`
+/// and has no block.
 fn lowering(quill: &Quill, doc: &Document) -> Result<String, String> {
     let data = quill
         .compile_checked(doc, common::test_date())
@@ -166,9 +168,17 @@ fn lowering(quill: &Quill, doc: &Document) -> Result<String, String> {
         .find(|(path, _)| path.ends_with("lib.typ"))
         .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
         .ok_or("the workspace holds no lib.typ")?;
-    let Some(at) = lib.find("#let _qm_c0 = [\n") else {
-        return Ok(String::new());
+    let id = match lib.split_once("\"$body\": _qm_c") {
+        Some((_, rest)) => {
+            let n = rest.bytes().take_while(u8::is_ascii_digit).count();
+            format!("_qm_c{}", &rest[..n])
+        }
+        None if lib.contains("\"$body\": \"\"") => return Ok(String::new()),
+        None => return Err("the helper's data literal names no `$body` block".into()),
     };
+    let at = lib
+        .find(&format!("#let {id} = [\n"))
+        .ok_or_else(|| format!("the helper binds no `{id}` block"))?;
     let block = &lib[at..];
     let end = ["\n#let ", "\n///"]
         .iter()
