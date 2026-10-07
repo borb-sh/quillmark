@@ -480,6 +480,17 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
     expect(mapPos(delta, 6, 'before')).toBe(6)
     expect(mapPos(delta, 11, 'after')).toBe(17)
   })
+
+  it('a stored null crosses as null, both ways', () => {
+    const md = '<quill-table widths="1 2 auto">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</quill-table>'
+    const { content } = importMarkdown(md)
+    expect(content.islands[0].props.widths).toEqual([1, 2, null])
+    expect(content.islands[0].props.widths[2]).toBeNull()
+    expect(importMarkdown(exportMarkdown(content)).content).toEqual(content)
+
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\nnote: null\n~~~\n')
+    expect(doc.getStored('note')).toBeNull()
+  })
 })
 
 describe('Content predicates: isInline / isPlain', () => {

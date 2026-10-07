@@ -101,9 +101,10 @@ pub struct Diagnostic {
 }
 
 // tsify's default serializer emits a `Map` for a map-typed field, against
-// `args`' declared `Record<string, unknown>`. The config that applies is the
-// *outermost* crossing type's, so every type that can carry a diagnostic across
-// the ABI declares `hashmap_as_object`.
+// `args`' declared `Record<string, unknown>`, and an `args` value's `null` as
+// `undefined`. The config that applies is the *outermost* crossing type's, so
+// every type that can carry a diagnostic across the ABI declares
+// `hashmap_as_object` and `missing_as_null`.
 const _: () = assert!(<Diagnostic as tsify::Tsify>::SERIALIZATION_CONFIG.hashmap_as_object);
 
 impl From<quillmark_core::error::Diagnostic> for Diagnostic {
@@ -155,7 +156,7 @@ impl From<quillmark_core::types::Artifact> for Artifact {
 
 #[cfg(feature = "render")]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
-#[tsify(hashmap_as_object)]
+#[tsify(hashmap_as_object, missing_as_null)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderResult {
     pub artifacts: Vec<Artifact>,
@@ -167,7 +168,10 @@ pub struct RenderResult {
 }
 
 #[cfg(feature = "render")]
-const _: () = assert!(<RenderResult as tsify::Tsify>::SERIALIZATION_CONFIG.hashmap_as_object);
+const _: () = {
+    let config = <RenderResult as tsify::Tsify>::SERIALIZATION_CONFIG;
+    assert!(config.hashmap_as_object && config.missing_as_null);
+};
 
 /// What a committed `LiveSession.update` changed. `dirtyPages` lists pages whose
 /// content differs from the previous compile, including pages the edit added;
