@@ -16,7 +16,7 @@ use crate::{
     value::QuillValue,
 };
 
-use super::CardSchema;
+use super::{CardSchema, QuillConfig};
 
 /// The failure of the bound door ([`Quill::parse`]): the markdown did not
 /// parse, or it parsed under a `$quill` this quill does not answer to. Nothing
@@ -84,10 +84,17 @@ impl Quill {
     /// move bytes on an untouched document. Idempotent: a second call is a byte
     /// no-op and re-emits the identical diagnostics.
     pub fn conform(&self, doc: &mut Document) -> Result<Vec<Diagnostic>, RenderError> {
+        self.config().conform(doc)
+    }
+}
+
+impl QuillConfig {
+    /// [`Quill::conform`] over the schema alone, for a door that holds only the
+    /// config.
+    pub(crate) fn conform(&self, doc: &mut Document) -> Result<Vec<Diagnostic>, RenderError> {
         self.check_quill_reference(doc)?;
-        let config = self.config();
         let mut diags = Vec::new();
-        conform_card(&config.main, doc.main_card_mut(), &DocPath::main(), &mut diags);
+        conform_card(&self.main, doc.main_card_mut(), &DocPath::main(), &mut diags);
         for (index, card) in doc.cards_vec_mut().iter_mut().enumerate() {
             // A card whose `$kind` declares no schema has no declared field to
             // conform: it passes untouched, as the render gate passes it. The
@@ -95,7 +102,7 @@ impl Quill {
             let Some(kind) = card.kind().map(str::to_string) else {
                 continue;
             };
-            let Some(schema) = config.card_kind(&kind) else {
+            let Some(schema) = self.card_kind(&kind) else {
                 continue;
             };
             conform_card(schema, card, &DocPath::card(Some(&kind), index), &mut diags);

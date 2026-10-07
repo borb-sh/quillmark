@@ -459,3 +459,59 @@ Entry body.
     );
     assert_eq!(restored, bytes(&authored), "one document, two ingress routes");
 }
+
+#[test]
+fn revise_document_revises_then_conforms() {
+    use quillmark_content::model::{Mark, MarkKind};
+
+    let quill = quill();
+    let (mut doc, _) = parse_bound(&quill, MD);
+    let mut body = doc.cards()[0]
+        .field_content("body", crate::document::Codec::Richtext)
+        .unwrap()
+        .unwrap()
+        .into_content();
+    // 0..4 is "card".
+    body.marks.push(Mark::new(0, 4, MarkKind::Anchor { id: "k".into() }));
+    doc.card_mut(0)
+        .unwrap()
+        .overwrite_field("body", body.into_normalized())
+        .unwrap();
+
+    let md = MD
+        .replace("subject: Q3 **results**", "subject: Q4 **results**")
+        .replace(
+            "\n~~~card-yaml\n$kind: entry\n",
+            "\n~~~card-yaml\n$kind: entry\nbody: a fresh card\n~~~\n\n~~~card-yaml\n$kind: entry\n",
+        );
+    let receipt = quill.writer(&mut doc).revise_document(&md).expect("revise");
+    let (expected, warnings) = parse_bound(&quill, &md);
+
+    assert_eq!(receipt.alignment, vec![None, Some(0)]);
+    assert!(receipt.dropped_anchors.is_empty());
+    assert_eq!(receipt.warnings, warnings);
+    assert_eq!(doc.to_markdown(), expected.to_markdown());
+    let anchored = doc.cards()[1]
+        .field_content("body", crate::document::Codec::Richtext)
+        .unwrap()
+        .unwrap();
+    assert!(anchored
+        .marks
+        .iter()
+        .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "k")));
+    for name in ["subject", "note", "tags"] {
+        assert_eq!(
+            doc.main().payload().get(name),
+            expected.main().payload().get(name),
+            "{name} rests as the bound parse lands it"
+        );
+    }
+
+    let before = bytes(&doc);
+    let err = quill
+        .writer(&mut doc)
+        .revise_document(&md.replace("conform_test@1.0.0", "other@1.0.0"))
+        .unwrap_err();
+    assert!(matches!(err, crate::quill::BoundParseError::Mismatch(_)));
+    assert_eq!(bytes(&doc), before);
+}

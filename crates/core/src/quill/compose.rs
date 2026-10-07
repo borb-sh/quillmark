@@ -44,11 +44,6 @@ impl Quill {
     pub fn dry_run(&self, doc: &Document) -> Result<(), RenderError> {
         self.config().dry_run(doc)
     }
-
-    /// [`QuillConfig::check_quill_reference`] on this quill's config.
-    pub(crate) fn check_quill_reference(&self, doc: &Document) -> Result<(), RenderError> {
-        self.config().check_quill_reference(doc)
-    }
 }
 
 /// The document→data compile is a pure config read: coercion, validation,

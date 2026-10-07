@@ -28,10 +28,10 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Card, Document, EditError, Revised};
+use crate::document::{Card, Document, DocumentRevised, EditError, Revised};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
-use crate::quill::{FieldSchema, QuillConfig};
+use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
 use crate::value::QuillValue;
 
 /// A [`Document`] bound to its [`QuillConfig`] for typed writes. Construct with
@@ -99,6 +99,26 @@ impl<'a> TypedWriter<'a> {
     pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Revised, EditError> {
         let schema = Some(&self.config.main.fields);
         revise_impl(self.doc.main_card_mut(), schema, name, text, &DocPath::main())
+    }
+
+    /// Replace the document with `markdown` through [`Document::revise`], then
+    /// conform it: the bound door for a whole-document markdown write. The
+    /// receipt's `warnings` carry the `conform::*` diagnostics after the
+    /// revise's own.
+    ///
+    /// A `$quill` this quill does not answer to fails as
+    /// [`BoundParseError::Mismatch`] before any mutation, and a parse failure
+    /// as [`BoundParseError::Parse`].
+    pub fn revise_document(&mut self, markdown: &str) -> Result<DocumentRevised, BoundParseError> {
+        let parsed = Document::parse(markdown)?;
+        self.config.check_quill_reference(&parsed.document)?;
+        let mut revised = self.doc.revise_parsed(parsed);
+        revised.warnings.extend(
+            self.config
+                .conform(self.doc)
+                .expect("the revised document carries the `$quill` checked above"),
+        );
+        Ok(revised)
     }
 
     /// Build a composable card of `kind`, typed-commit `fields` onto it,
