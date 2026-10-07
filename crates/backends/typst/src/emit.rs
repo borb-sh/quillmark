@@ -1054,7 +1054,7 @@ mod tests {
     use typst::syntax::SyntaxKind;
 
     fn emit(md: &str) -> Emission {
-        let rt = from_markdown(md).expect("import");
+        let rt = from_markdown(md).expect("import").content;
         assert_eq!(rt.validate(), Ok(()), "content invariants for {md:?}");
         emit_content(&rt).expect("emit")
     }
@@ -1225,7 +1225,7 @@ mod tests {
 
     #[test]
     fn inline_emits_no_block_terminator() {
-        let rt = from_markdown("A **bold** subject").expect("import");
+        let rt = from_markdown("A **bold** subject").expect("import").content;
         assert!(rt.is_inline());
         let inline = emit_content_inline(&rt).expect("emit").markup;
         assert_eq!(inline, "A #strong[bold] subject");
@@ -1237,7 +1237,7 @@ mod tests {
     #[test]
     fn inline_falls_back_to_block_for_non_inline_content() {
         for md in ["# Heading", "one\n\ntwo", "- item"] {
-            let rt = from_markdown(md).expect("import");
+            let rt = from_markdown(md).expect("import").content;
             assert!(!rt.is_inline(), "{md:?} is not inline");
             assert_eq!(
                 emit_content_inline(&rt).expect("emit").markup,
@@ -1711,7 +1711,7 @@ mod tests {
     #[test]
     fn runs_map_content_to_generated_bytes() {
         for md in sample_inputs() {
-            let rt = from_markdown(md).unwrap();
+            let rt = from_markdown(md).unwrap().content;
             let ec = emit_content(&rt).unwrap();
             let chars: Vec<char> = rt.text.chars().collect();
             for seg in &ec.segments {

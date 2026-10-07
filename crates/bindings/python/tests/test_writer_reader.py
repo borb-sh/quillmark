@@ -97,11 +97,14 @@ def test_card_selector_targets_the_composable_card_on_both_lanes():
 
 def test_writer_revise_field():
     """revise_field diff-imports markdown into a richtext field under the same
-    guards as `set`."""
+    guards as `set`, returning what the import dropped at the field."""
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
-    w.revise_field("bio", "make it **bold**")
+    assert w.revise_field("bio", "make it **bold**") == []
+    assert quill.reader(doc).get("bio") == "make it **bold**"
+    (dropped,) = w.revise_field("bio", "make it <kbd>**bold**</kbd>")
+    assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"
     with raises_edit_code("edit::field_not_inline"):
         w.revise_field("headline", "line one\n\nline two")

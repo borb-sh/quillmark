@@ -4,7 +4,7 @@
 > **Base**: [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)
 > **Implementation**: `crates/core/src/document/`
 
-Quillmark Markdown is a **strict superset of CommonMark** with two declared
+Quillmark Markdown is a **strict superset of CommonMark** with three declared
 deviations (§6.2). It layers a structured-data system (the **card-yaml**
 format) on top of ordinary markdown, and selects a small, stable set of GFM
 extensions.
@@ -13,10 +13,11 @@ This document is the authoritative syntax standard.
 ## 1. Superset Statement
 
 Every valid CommonMark 0.31.2 document parses to the same block / inline
-structure under this spec, *except* for the two deviations declared in §6.2:
-raw HTML, and a column-zero `~~~` block with a blank line above it, which is a
-card-yaml block rather than a fenced code block whatever its info string (§3.2;
-an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
+structure under this spec, *except* for the three deviations declared in §6.2:
+raw HTML, a link reference definition labelled `^…`, and a column-zero `~~~`
+block with a blank line above it, which is a card-yaml block rather than a
+fenced code block whatever its info string (§3.2; an indented `~~~` is not a
+card-yaml opener). Additionally, this spec defines:
 
 - **Structured data**: card-yaml blocks (§3).
 - **Extensions**: strikethrough, pipe tables, and `<u>` for underline
@@ -371,15 +372,47 @@ Body regions (the root body and every card body) are rendered as CommonMark
 
 ### 6.2 Declared Deviations from CommonMark
 
-**Raw HTML is accepted syntactically but produces no output, except
-`<u>…</u>`, which renders as underline, and an inline `<br>`, which is a
-hard break.** The parser recognises HTML per CommonMark §4.6 / §6.11,
-discards every event, and re-emits only the `<u>` wrapper and the `<br>`
-break. Rationale: Typst has no HTML renderer, and arbitrary passthrough
-would create an injection vector for downstream HTML-producing tooling;
-`<u>` is an exception because no CommonMark-native syntax covers
-underline, and `<br>` because a pipe-table row is one source line, with no
-room for a native hard break.
+**Raw HTML produces no output of its own, except an inline `<u>…</u>`, which
+renders as underline, and an inline `<br>`, which is a hard break.** The parser
+recognises HTML per CommonMark §4.6 / §6.6 and discards the HTML itself. What
+else an HTML block holds depends on its type:
+
+| HTML block (CommonMark §4.6) | What imports |
+|---|---|
+| Type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<quill-keep>` | Everything but the tags. Each line holding only tags drops, and every other line parses as markdown, as though a blank line stood above and below each tag line; a line opening with a type-6 tag keeps the text after it. A `quill-*` tag is the carrier §6.4 defines. |
+| Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after its end marker (`-->`, `?>`, `>`, `]]>`, the closing tag) on its last line is a paragraph of its own. |
+
+Inside a type 6 or 7 block, a line opening a type 1–5 block or a fence keeps
+that construct whole where it closes inside the block, and drops with the rest
+of the block where it does not, so nothing in a block swallows what follows it.
+A line holding only tags is a tag line wherever it stands outside code:
+
+- Under a paragraph's text, where CommonMark reads it as inline HTML (a type 7
+  tag cannot interrupt a paragraph), it ends the paragraph and opens a type 7
+  block running to the paragraph's end, inside the paragraph's containers. A
+  lazy line leaves the quotes it lacks.
+- As a pipe-table row, it ends the table rather than adding a row.
+- Between list items, it keeps the item before it open as a blank line would,
+  so the items on either side stay one list.
+
+The allowlist is inline: `<u>` or `<br>` alone on its line is a tag line like
+any other. An import reports each dropped opening tag by its lowercase name,
+under `parse::dropped_construct`; a closing tag, a comment, the content of a
+type 1–5 block and `quill-anchor` (§6.4) report nothing.
+
+Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
+an injection vector for downstream HTML-producing tooling; `<u>` is an
+exception because no CommonMark-native syntax covers underline, and `<br>`
+because a pipe-table row is one source line, with no room for a native hard
+break. A tag line is transparent because authors write one around markdown
+(`<div align="center">` above a table), and CommonMark runs a type 6 or 7 block
+to the next blank line, which would drop the markdown with the tag.
+
+**A link reference definition whose label starts with `^` is literal text**,
+and so is every reference to its label: `[^1]: Word` imports as the text
+`[^1]: Word`, and `text[^1]` as `text[^1]`. CommonMark reads the line as a
+definition, making `[^1]` a link to `Word`; the syntax is the footnote of other
+dialects, which this spec does not support (§6.3).
 
 **A column-zero `~~~` with a blank line above it opens a card-yaml block,
 not a fenced code block, whatever its info string** (§3.2, §4). A backtick
@@ -404,16 +437,88 @@ support may come in a future revision:
   across the versions its `$quill` selector admits and declares every other
   thing it references, so a path into one quill's file tree is not a binding a
   document may take.
-- Math (`$…$`, `$$…$$`), footnotes, task lists, definition lists: not
-  supported. In markdown body text `$` is literal; inside a `~~~` card-yaml
-  payload `$` is reserved as the prefix for system-metadata keys (§3.3).
+- Math (`$…$`, `$$…$$`), task lists, definition lists: not supported; each
+  imports as the literal text it is. In markdown body text `$` is literal;
+  inside a `~~~` card-yaml payload `$` is reserved as the prefix for
+  system-metadata keys (§3.3).
+- Footnotes: not supported. A footnote-shaped definition (`[^1]: Word`) and its
+  references import as literal text (§6.2), and the import reports each
+  definition under `parse::dropped_construct` as `footnote_definition`.
 - HTML comments: accepted syntactically, not rendered (see §6.2).
 - `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
   table cell: a hard break. In a paragraph, one with no text before it on its
-  line is dropped; in a heading it is a space; on a line of its own it is an
-  HTML block and drops whole. Outside a table, export writes the
-  CommonMark-native hard break (trailing `\\` plus newline); inside a cell it
-  writes `<br>`.
+  line is dropped; in a heading it is a space. One alone on its line is a tag
+  line (§6.2): it drops, and ends a paragraph it stands under. Outside a
+  table, export writes the CommonMark-native hard break (trailing `\\` plus
+  newline); inside a cell it writes `<br>`.
+
+### 6.4 The `quill-*` Carrier
+
+A `quill-*` element spells what CommonMark has no syntax for, such as
+per-instance layout and anchors. Each is a CommonMark raw-HTML tag and a valid
+custom-element name, which an HTML renderer draws as its children.
+
+**Names.** A carrier tag's name is `quill-` and an element name matching
+`[a-z][a-z0-9]*(-[a-z0-9]+)*`: `quill-keep`, `quill-table`, `quill-a1-b`.
+CommonMark tag names admit no `:`, so the prefix stands where XML would write a
+namespace (`quill:keep`). A tag name reads ASCII-case-insensitively, as HTML
+names do, and the canonical spelling is lowercase. `quill-`, `quill-a--b` and
+`quill-9` carry no element.
+
+**Reserved names.** `table` and `cell` are reserved for the construct they
+wrap, and `anchor` for the anchor spelling. A reserved name folds into its
+construct where a construct declares the fold; none is ever an element of its
+own, and a quill cannot declare one.
+
+**Attributes.** A name matches `[a-z][a-z0-9_]*` and is none of `style`,
+`class`, `id`, `href`, `src` and `name`, nor any name opening `on`, so the
+carrier never holds markup a downstream HTML renderer would act on (§6.2's
+rationale). An attribute outside that grammar, or one repeating a name already
+read, is refused by name. A value reads double-quoted, single-quoted or
+unquoted, and decodes `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;` and decimal or
+hexadecimal references to a Unicode scalar value; any other `&` is text.
+
+**Scope by syntax.** Import decides a carrier tag's scope from its line, with
+no quill: a tag alone on its line is a block wrapper (a tag line, §6.2), and a
+pair inside a line is inline.
+
+**Canonical spelling.** An element is written with:
+
+- attributes sorted by name, each value double-quoted, with `&`, `<`, `>` and
+  `"` as `&amp;`, `&lt;`, `&gt;` and `&quot;`;
+- a `|`, a control character, a bidi control or a line separator in a value as
+  a hexadecimal reference (`&#x7C;`): a `|` ends a table cell, a line ending
+  ends the tag's line, and §7 rewrites the rest;
+- a block wrapper with each tag alone on its line and a blank line between it
+  and what it wraps, inside the containers it sits in;
+- an inline pair on one line with the text around it.
+
+```markdown
+<quill-keep>
+
+**Signed**
+J. Doe
+
+</quill-keep>
+
+Text with a <quill-keep note="a &amp; b">pair</quill-keep> inside a line.
+```
+
+**An element nothing folds or models** is transparent: its tags drop, what it
+wraps imports, and `parse::dropped_construct` reports it under its tag name
+(`quill-keep`), as any raw tag (§6.2). Every element but `anchor` is one. A
+`quill-*` tag outside the grammar is a raw tag reported the same way.
+
+**`quill-anchor`** is reserved for an anchor's read-only spelling,
+`<quill-anchor ref="…"></quill-anchor>`, which no export writes. Import drops
+it without a report, inline or alone on its line.
+
+**Strip.** Stripping the carrier from a markdown string removes every `quill-*`
+tag the import drops as markup and keeps what a wrapper holds; a tag in a code
+span, a fence, a comment or another tag's attribute stays. A line left holding
+only container markers becomes a blank line inside them, and a list item's
+marker left bare loses the blank lines after it, which would end the item.
+Every other byte stays.
 
 ## 7. Input Normalization
 
@@ -435,10 +540,27 @@ Before CommonMark parsing, each body region is normalized:
    text after one is read as a block marker the author never wrote and two
    in a row split the paragraph. All five are Unicode whitespace, so a
    space keeps the words they part apart.
-4. **HTML comment fence repair.** If `-->` is followed by non-whitespace
-   text on the same line, insert a newline after `-->` so the trailing
-   text reaches the paragraph parser instead of being consumed by the
-   CommonMark HTML-block rule (type 2).
+4. **Parser-guided repair.** The text is parsed, edited inside the spans that
+   parse locates, and parsed again; text in a fenced or indented code block is
+   never edited.
+   - In a type 6 or 7 HTML block, each line holding only tags gets a blank
+     line above and below, and a line opening with a type-6 tag splits after
+     it, so the block's other lines reach the markdown parser (§6.2).
+   - On a type 1–5 block's last line, text after the end marker moves to a
+     line of its own.
+   - A line holding only tags under a paragraph's text gets a blank line above
+     it and one tag per line, opening a type 7 block. A line carrying the
+     paragraph's quote markers is written inside the paragraph's containers.
+   - A pipe-table row holding only tags gets a blank line above it, ending the
+     table.
+   - A block of tag lines that ends a list item is indented into the item, a
+     blank line between its lines.
+   - A link reference definition labelled `^…` has its `[` backslash-escaped.
+
+   A blank line written inside a container carries the container's `>`
+   markers, and one closes freed text the next line would otherwise continue
+   lazily. A freed line opening a container that holds an HTML block of its
+   own (`> <div>`) is repaired by a further round.
 
 Normalization is applied identically to the root body and every card
 body. It is not applied to YAML payload values.

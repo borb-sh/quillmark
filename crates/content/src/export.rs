@@ -893,12 +893,11 @@ fn render_marked_core(
     // differently.
     let probe = |md: &str, want_marks: &[Mark]| -> Option<bool> {
         let (text, marks) = if escape_pipe {
-            let rt = crate::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |")).ok()?;
+            let rt = crate::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |")).ok()?.content;
             let cell = rt.islands.first()?.props.get("rows")?.get(0)?.get(0)?;
             crate::serial::parse_cell(cell)
         } else {
-            let rt = crate::import::from_markdown(&format!(",{md},")).ok()?;
-            let rt = rt.into_content();
+            let rt = crate::import::from_markdown(&format!(",{md},")).ok()?.content.into_content();
             (rt.text, rt.marks)
         };
         if text != want {
@@ -1268,7 +1267,7 @@ mod tests {
             .into_normalized();
         rt.validate().expect("validates");
         assert_eq!(to_markdown(&rt), "~~**x**~~");
-        assert_eq!(from_markdown("**~~x~~**").unwrap(), rt);
+        assert_eq!(from_markdown("**~~x~~**").unwrap().content, rt);
     }
 
     fn li(ordinal: u64, instance: u64) -> Vec<Container> {
@@ -1333,7 +1332,7 @@ mod tests {
         for (rt, expected) in cases {
             let md = to_markdown(rt);
             assert_eq!(&md, expected);
-            assert_eq!(&from_markdown(&md).unwrap(), rt, "{md:?} did not return");
+            assert_eq!(&from_markdown(&md).unwrap().content, rt, "{md:?} did not return");
         }
     }
 
@@ -1347,19 +1346,19 @@ mod tests {
         let rt = rt.into_normalized();
         rt.validate().expect("validates");
         assert_eq!(to_markdown(&rt), "- a\n\n+ ***\n\n+ b");
-        assert_eq!(from_markdown(&to_markdown(&rt)).unwrap(), rt);
+        assert_eq!(from_markdown(&to_markdown(&rt)).unwrap().content, rt);
 
         let mut rt = stored("a\n\nb", vec![oli(0, 0), oli(0, 1), oli(1, 1)]).into_content();
         rt.lines[1].kind = LineKind::Rule;
         let rt = rt.into_normalized();
         assert_eq!(to_markdown(&rt), "1. a\n\n1) ***\n\n2) b");
-        assert_eq!(from_markdown(&to_markdown(&rt)).unwrap(), rt);
+        assert_eq!(from_markdown(&to_markdown(&rt)).unwrap().content, rt);
     }
 
     fn round_trips(md: &str) {
-        let rt = from_markdown(md).unwrap();
+        let rt = from_markdown(md).unwrap().content;
         let md2 = to_markdown(&rt);
-        let rt2 = from_markdown(&md2).unwrap();
+        let rt2 = from_markdown(&md2).unwrap().content;
         assert_eq!(
             rt, rt2,
             "content not a fixed point.\n  in:  {md:?}\n  mid: {md2:?}"
@@ -1373,7 +1372,7 @@ mod tests {
         round_trips("[![a cat](cat.png)](https://e.com)");
         round_trips("[a ![cat](cat.png) b](https://e.com)");
         assert_eq!(
-            to_markdown(&from_markdown("[![a cat](cat.png)](https://e.com)").unwrap()),
+            to_markdown(&from_markdown("[![a cat](cat.png)](https://e.com)").unwrap().content),
             "[![a cat](cat.png)](https://e.com)"
         );
     }
@@ -1382,13 +1381,13 @@ mod tests {
     /// splits around the slot, keeping both the text and the island.
     #[test]
     fn code_mark_over_island_slot_keeps_the_island() {
-        let mut rt = from_markdown("a ![x](y.png) b").unwrap().into_content();
+        let mut rt = from_markdown("a ![x](y.png) b").unwrap().content.into_content();
         rt.marks.push(Mark { start: 0, end: 5, kind: MarkKind::Code });
         let rt = rt.into_normalized();
         assert_eq!(rt.validate(), Ok(()));
         let md = to_markdown(&rt);
         assert_eq!(md, "`a `![x](y.png)` b`");
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, rt.text);
         assert_eq!(rt2.islands.len(), 1);
     }
@@ -1472,7 +1471,7 @@ mod tests {
     #[test]
     fn thematic_break_canonicalizes_to_stars() {
         for src in ["---", "___", "- - -"] {
-            let rt = from_markdown(&format!("one\n\n{src}\n\ntwo")).unwrap();
+            let rt = from_markdown(&format!("one\n\n{src}\n\ntwo")).unwrap().content;
             let md = to_markdown(&rt);
             assert!(md.contains("\n\n***\n\n"), "source: {src}, got: {md:?}");
         }
@@ -1486,7 +1485,7 @@ mod tests {
         for md in ["* ---", "+ ---", "- ***", "- ___", "- - ***", "- > ***"] {
             round_trips(md);
         }
-        assert_eq!(to_markdown(&from_markdown("* ---").unwrap()), "- ***");
+        assert_eq!(to_markdown(&from_markdown("* ---").unwrap().content), "- ***");
         // The shapes that never collide, pinned against a fix that trades one
         // collision for another: swapping the bullet marker to `*`/`+` starts a
         // *new* list, resetting `ordinal` on this item and every one after.
@@ -1525,11 +1524,11 @@ mod tests {
 
     #[test]
     fn leading_ordered_marker_escaped() {
-        let mut rt = from_markdown("x").unwrap().into_content();
+        let mut rt = from_markdown("x").unwrap().content.into_content();
         rt.text = "1. not a list".into();
         let rt = rt.into_normalized();
         let md = to_markdown(&rt);
-        let back = from_markdown(&md).unwrap();
+        let back = from_markdown(&md).unwrap().content;
         assert_eq!(back.lines[0].kind, LineKind::Para);
         assert!(back.lines[0].containers.is_empty());
         assert_eq!(back, rt);
@@ -1572,7 +1571,7 @@ mod tests {
                 let rt = stored(text, vec![containers.clone()]);
                 let md = to_markdown(&rt);
                 assert_eq!(
-                    &from_markdown(&md).unwrap(),
+                    &from_markdown(&md).unwrap().content,
                     &rt,
                     "{text:?} under {containers:?} did not return: {md:?}"
                 );
@@ -1582,7 +1581,7 @@ mod tests {
             let rt = rt.into_normalized();
             let md = to_markdown(&rt);
             assert_eq!(
-                &from_markdown(&md).unwrap(),
+                &from_markdown(&md).unwrap().content,
                 &rt,
                 "heading {text:?} did not return: {md:?}"
             );
@@ -1596,7 +1595,7 @@ mod tests {
         for text in ["abc   \n   def", "   \nabc", "abc\n   ", "\tabc\ndef\t"] {
             let rt = hard_break_block(text);
             let md = to_markdown(&rt);
-            assert_eq!(&from_markdown(&md).unwrap(), &rt, "{text:?} → {md:?}");
+            assert_eq!(&from_markdown(&md).unwrap().content, &rt, "{text:?} → {md:?}");
         }
     }
 
@@ -1610,7 +1609,7 @@ mod tests {
         ] {
             let rt = hard_break_block(text);
             let md = to_markdown(&rt);
-            assert_eq!(&from_markdown(&md).unwrap(), &rt, "{text:?} → {md:?}");
+            assert_eq!(&from_markdown(&md).unwrap().content, &rt, "{text:?} → {md:?}");
         }
     }
 
@@ -1621,7 +1620,7 @@ mod tests {
     #[test]
     fn a_marked_line_with_edge_whitespace_keeps_its_delimiters_out_of_the_text() {
         let rt = marked("    foo", vec![Mark::new(4, 7, MarkKind::Strong)]);
-        let back = from_markdown(&to_markdown(&rt)).unwrap();
+        let back = from_markdown(&to_markdown(&rt)).unwrap().content;
         assert_eq!(back.text, "    foo");
         assert_eq!(back, rt);
     }
@@ -1646,7 +1645,7 @@ mod tests {
         .into_normalized();
         assert_eq!(rt.validate(), Ok(()), "table island invalid");
         let md = to_markdown(&rt);
-        assert_eq!(&from_markdown(&md).unwrap(), &rt, "cell edges lost: {md:?}");
+        assert_eq!(&from_markdown(&md).unwrap().content, &rt, "cell edges lost: {md:?}");
     }
 
     /// The island writes its line whole, so a mark reaching over its slot
@@ -1656,7 +1655,7 @@ mod tests {
     /// the island's line extends the mark over its slot.
     #[test]
     fn a_mark_reaching_over_a_block_islands_slot_does_not_wrap_its_markup() {
-        let mut rt = from_markdown("[abc](u)").unwrap();
+        let mut rt = from_markdown("[abc](u)").unwrap().content;
         rt.apply_field_change(&crate::ops::ChangeBundle {
             delta: crate::delta::Delta {
                 ops: vec![
@@ -1688,7 +1687,7 @@ mod tests {
         let md = to_markdown(&rt);
         assert_eq!(md, "[a](u)\n\n| h |\n| --- |\n| c |\n\n[bc](u)");
         assert_eq!(
-            from_markdown(&md).unwrap().islands.len(),
+            from_markdown(&md).unwrap().content.islands.len(),
             1,
             "the table left the document: {md:?}"
         );
@@ -1705,7 +1704,7 @@ mod tests {
 
     #[test]
     fn formatted_cell_marks_are_structured_not_reparsed() {
-        let rt = from_markdown("| H |\n| --- |\n| **bold** |").unwrap();
+        let rt = from_markdown("| H |\n| --- |\n| **bold** |").unwrap().content;
         let cell = &rt.islands[0].props["rows"][0][0];
         assert_eq!(cell["text"], "bold");
         assert_eq!(cell["marks"][0]["type"], "strong");
@@ -1726,17 +1725,17 @@ mod tests {
             "\\<br>",
         ] {
             let md = format!("| h |\n| --- |\n| {body} |");
-            let rt = from_markdown(&md).unwrap();
+            let rt = from_markdown(&md).unwrap().content;
             assert_eq!(to_markdown(&rt), md, "cell {body:?}");
         }
-        let rt = from_markdown("| h |\n| --- |\n| \\<br> |").unwrap();
+        let rt = from_markdown("| h |\n| --- |\n| \\<br> |").unwrap().content;
         assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "<br>");
     }
 
     #[test]
     fn every_br_spelling_is_one_cell_break() {
         for br in ["<br/>", "<br />", "<BR>", "<br clear=\"all\">"] {
-            let rt = from_markdown(&format!("| h |\n| --- |\n| a{br}b |")).unwrap();
+            let rt = from_markdown(&format!("| h |\n| --- |\n| a{br}b |")).unwrap().content;
             assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "a\nb", "{br}");
             assert_eq!(to_markdown(&rt), "| h |\n| --- |\n| a<br>b |", "{br}");
         }
@@ -1784,7 +1783,7 @@ mod tests {
         assert_eq!(rt.marks, vec![Mark::new(4, 8, MarkKind::Strong)]);
 
         let md = to_markdown(&rt);
-        assert_eq!(from_markdown(&md).unwrap(), rt, "{md:?}");
+        assert_eq!(from_markdown(&md).unwrap().content, rt, "{md:?}");
     }
 
     /// The break leaves an island line where a paragraph line was, and a block
@@ -1807,7 +1806,7 @@ mod tests {
         assert!(!rt.lines[2].continues, "continuation into a block island");
 
         let md = to_markdown(&rt);
-        let back = from_markdown(&md).unwrap();
+        let back = from_markdown(&md).unwrap().content;
         assert_eq!(back.text, format!("a\n{ISLAND_SLOT}\nmore"), "{md:?}");
     }
 
@@ -1829,7 +1828,7 @@ mod tests {
         .into_normalized();
         let md = to_markdown(&over_slot);
         assert_eq!(md, "a![a](u)b");
-        let back = from_markdown(&md).unwrap();
+        let back = from_markdown(&md).unwrap().content;
         assert_eq!(back.text, over_slot.text);
         assert_eq!(back.islands.len(), 1);
         assert!(back.marks.is_empty(), "leaking mark kept: {md:?}");
@@ -1843,7 +1842,7 @@ mod tests {
         .into_normalized();
         let md = to_markdown(&before_slot);
         assert_eq!(md, "**a**![a](u)b");
-        assert_eq!(from_markdown(&md).unwrap(), before_slot);
+        assert_eq!(from_markdown(&md).unwrap().content, before_slot);
     }
 
     /// An image `alt` is the one place the character reference cannot carry an
@@ -1857,7 +1856,7 @@ mod tests {
                     .with_props(serde_json::json!({"alt": " a ", "url": "u"})),
             ],
         );
-        let back = from_markdown(&to_markdown(&rt)).unwrap();
+        let back = from_markdown(&to_markdown(&rt)).unwrap().content;
         assert_eq!(
             back.islands[0].props["alt"], "a",
             "if this ever round-trips, promote it out of the known-limits list"
@@ -1866,8 +1865,8 @@ mod tests {
 
     #[test]
     fn known_hard_break_limits() {
-        let rt = from_markdown("**one\\\ntwo**").unwrap();
-        let rt2 = from_markdown(&to_markdown(&rt)).unwrap();
+        let rt = from_markdown("**one\\\ntwo**").unwrap().content;
+        let rt2 = from_markdown(&to_markdown(&rt)).unwrap().content;
         assert!(
             rt != rt2,
             "if this ever round-trips, promote it out of the known-limits list"
@@ -1877,7 +1876,7 @@ mod tests {
 
     #[test]
     fn anchor_marks_omitted_but_text_survives() {
-        let mut rt = from_markdown("comment target here").unwrap().into_content();
+        let mut rt = from_markdown("comment target here").unwrap().content.into_content();
         rt.marks.push(Mark {
             start: 8,
             end: 14,
@@ -1885,7 +1884,7 @@ mod tests {
         });
         let rt = rt.into_normalized();
         let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "comment target here");
         assert!(!md.contains("c1"));
     }
@@ -1912,7 +1911,7 @@ mod tests {
         );
         let md = to_markdown(&rt);
         assert_eq!(md, "**ab*cd***ef", "balanced, no literal `**` leak");
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "abcdef");
         // Documented limit: same-delimiter overlap degrades to its nested subset.
         assert_eq!(
@@ -1959,7 +1958,7 @@ mod tests {
                 ],
             );
             let md = to_markdown(&rt);
-            let rt2 = from_markdown(&md).unwrap();
+            let rt2 = from_markdown(&md).unwrap().content;
             assert_eq!(rt, rt2, "{k1:?}+{k2:?} overlap not a fixed point: {md:?}");
         }
     }
@@ -1985,7 +1984,7 @@ mod tests {
         );
         let md = to_markdown(&rt);
         assert_eq!(md, "**ab**`cdef`");
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "abcdef");
     }
 
@@ -2004,7 +2003,7 @@ mod tests {
             ("`a`", "a", "`a`"),
             ("`  `", "  ", "`  `"),
         ] {
-            let rt = from_markdown(md).unwrap();
+            let rt = from_markdown(md).unwrap().content;
             assert_eq!(rt.text, text, "import of {md:?}");
             assert_eq!(to_markdown(&rt), want);
             round_trips(md);
@@ -2017,11 +2016,11 @@ mod tests {
     fn ampersand_and_entities_round_trip() {
         round_trips("a & b");
         round_trips("copyright \\&copy; sign");
-        let rt = from_markdown("\\&amp;").unwrap();
+        let rt = from_markdown("\\&amp;").unwrap().content;
         assert_eq!(rt.text, "&amp;");
         let md = to_markdown(&rt);
         assert!(md.contains("\\&"), "the `&` must be escaped, got {md:?}");
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "&amp;", "entity-shaped text must not decode");
         assert_eq!(rt, rt2);
     }
@@ -2030,11 +2029,11 @@ mod tests {
     /// sequence: `# a #` would come back as "a", dropping the `#`.
     #[test]
     fn heading_trailing_hash_round_trips() {
-        let rt = from_markdown("# a \\#").unwrap();
+        let rt = from_markdown("# a \\#").unwrap().content;
         assert_eq!(rt.text, "a #");
         let md = to_markdown(&rt);
         assert!(md.contains("\\#"), "trailing `#` must be escaped, got {md:?}");
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "a #", "trailing `#` must survive");
         assert_eq!(rt, rt2);
         round_trips("# heading \\#\\#");
@@ -2049,11 +2048,11 @@ mod tests {
         round_trips("see ![a\\\\b](x.png) here");
         round_trips("see ![a&b](x.png) here");
         round_trips("see ![a\\*b\\_c](x.png) here");
-        let rt = from_markdown("see ![a\\]b](x.png) here").unwrap();
+        let rt = from_markdown("see ![a\\]b](x.png) here").unwrap().content;
         assert_eq!(rt.islands.len(), 1, "one image island");
         assert_eq!(rt.islands[0].props["alt"], "a]b");
         let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.islands.len(), 1, "image survived, got md {md:?}");
         assert_eq!(rt2.islands[0].props["alt"], "a]b");
     }
@@ -2097,7 +2096,7 @@ mod tests {
                 },
             )])
             .into_normalized();
-        let back = from_markdown(&to_markdown(&rt)).expect("re-imports");
+        let back = from_markdown(&to_markdown(&rt)).expect("re-imports").content;
         assert_eq!(back.text, "t x", "the display text did not leak");
         assert_eq!(
             back.marks.first().map(|m| &m.kind),
@@ -2111,7 +2110,7 @@ mod tests {
         let rt = Content::new(format!("x{ISLAND_SLOT}"), vec![Line::new(LineKind::Para)])
             .with_islands(vec![isl])
             .into_normalized();
-        let back = from_markdown(&to_markdown(&rt)).expect("re-imports");
+        let back = from_markdown(&to_markdown(&rt)).expect("re-imports").content;
         assert_eq!(back.islands.len(), 1, "the island survived");
         assert_eq!(back.islands[0].props["url"], "u%0Dv");
     }
@@ -2150,7 +2149,7 @@ mod tests {
             );
             let md = to_markdown(&rt);
             assert_eq!(md, want, "{label}");
-            assert_eq!(from_markdown(&md).unwrap().text, text, "{label}: text drift");
+            assert_eq!(from_markdown(&md).unwrap().content.text, text, "{label}: text drift");
         }
     }
 
@@ -2171,10 +2170,10 @@ mod tests {
             ("bold, emph, bold", "**a±**_b_**c**"),
             ("the same over a literal `*`", "__*__*౸*__a**0__"),
         ] {
-            let once = from_markdown(src).unwrap();
+            let once = from_markdown(src).unwrap().content;
             assert!(once.marks.len() >= 2, "{label}: nothing to lose");
             let md = to_markdown(&once);
-            let twice = from_markdown(&md).unwrap();
+            let twice = from_markdown(&md).unwrap().content;
             assert_eq!(&twice.text, &once.text, "{label}: text drift. md: {md:?}");
             assert_eq!(&twice.marks, &once.marks, "{label}: mark lost. md: {md:?}");
         }
@@ -2210,7 +2209,7 @@ mod tests {
         let md = to_markdown(&rt);
         assert_eq!(md.matches("**abcde**").count(), 16, "every good mark kept");
         assert_eq!(md.matches("**").count(), 32, "every leaking mark dropped");
-        assert_eq!(from_markdown(&md).unwrap().text, text);
+        assert_eq!(from_markdown(&md).unwrap().content.text, text);
     }
 
     /// Past the budget the net still terminates and preserves the text, dropping
@@ -2231,7 +2230,7 @@ mod tests {
         );
         let md = to_markdown(&rt);
         assert!(!md.contains('*'), "every leaking mark dropped: {md:?}");
-        assert_eq!(from_markdown(&md).unwrap().text, text);
+        assert_eq!(from_markdown(&md).unwrap().content.text, text);
     }
 
     #[test]

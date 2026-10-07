@@ -29,6 +29,7 @@
 //! in one round loses the match, and the anchor with it: the accepted
 //! residual.
 
+use crate::import::{ImportWarning, Imported};
 use crate::model::{Mark, Content, Normalized};
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
@@ -325,13 +326,15 @@ fn push_insert(ops: &mut Vec<Op>, s: &str) {
 /// returned content is `new_rt` (structure/marks/islands from the fresh import)
 /// plus the surviving handles.
 ///
-/// Returns the new content and the [`Delta`] used: the text change an editor
-/// bridge can map its own positions through.
+/// Returns the new content, the [`Delta`] used (the text change an editor
+/// bridge can map its own positions through), and the import's
+/// [`ImportWarning`]s.
 pub fn diff_import(
     base: &Content,
     new_markdown: &str,
-) -> Result<(Normalized, Delta), crate::import::ImportError> {
-    let mut new_rt = crate::import::from_markdown(new_markdown)?.into_content();
+) -> Result<(Normalized, Delta, Vec<ImportWarning>), crate::import::ImportError> {
+    let Imported { content, warnings } = crate::import::from_markdown(new_markdown)?;
+    let mut new_rt = content.into_content();
     let delta = diff(&base.text, &new_rt.text);
 
     let base_chars: Vec<char> = base.text.chars().collect();
@@ -352,7 +355,7 @@ pub fn diff_import(
         }
         // else: detached: the accepted residual drop.
     }
-    Ok((new_rt.into_normalized(), delta))
+    Ok((new_rt.into_normalized(), delta, warnings))
 }
 
 /// Rebase one non-formatting mark through the delta. Returns its new range, or
@@ -539,7 +542,7 @@ mod tests {
     #[test]
     fn anchor_rehomed_on_block_move() {
         // Two paragraphs; anchor on the first; the rewrite swaps their order.
-        let mut base = from_markdown("first para here\n\nsecond para here").unwrap().into_content();
+        let mut base = from_markdown("first para here\n\nsecond para here").unwrap().content.into_content();
         // "first para here" is chars 0..15
         base.marks.push(Mark {
             start: 0,
@@ -547,7 +550,7 @@ mod tests {
             kind: MarkKind::Anchor { id: "c1".into() },
         });
         let base = base.into_normalized();
-        let (new_rt, _) = diff_import(&base, "second para here\n\nfirst para here").unwrap();
+        let (new_rt, _, _) = diff_import(&base, "second para here\n\nfirst para here").unwrap();
         let anchor = new_rt
             .marks
             .iter()
@@ -562,7 +565,7 @@ mod tests {
 
     #[test]
     fn anchor_dropped_when_text_deleted() {
-        let mut base = from_markdown("keep this and drop that").unwrap().into_content();
+        let mut base = from_markdown("keep this and drop that").unwrap().content.into_content();
         // Anchor on "drop that" (14..23).
         base.marks.push(Mark {
             start: 14,
@@ -570,7 +573,7 @@ mod tests {
             kind: MarkKind::Anchor { id: "c1".into() },
         });
         let base = base.into_normalized();
-        let (new_rt, _) = diff_import(&base, "keep this").unwrap();
+        let (new_rt, _, _) = diff_import(&base, "keep this").unwrap();
         assert!(
             !new_rt
                 .marks
@@ -582,7 +585,7 @@ mod tests {
 
     #[test]
     fn anchor_not_rehomed_onto_unrelated_survivor() {
-        let mut base = from_markdown("target one to drop\n\nkeep the target two").unwrap().into_content();
+        let mut base = from_markdown("target one to drop\n\nkeep the target two").unwrap().content.into_content();
         base.marks.push(Mark {
             start: 0,
             end: 6, // "target" in the first (deleted) paragraph
@@ -591,7 +594,7 @@ mod tests {
         let base = base.into_normalized();
         // First paragraph deleted; the second (with its own "target") survives
         // as retained text: the anchor must drop, not jump to it.
-        let (new_rt, _) = diff_import(&base, "keep the target two").unwrap();
+        let (new_rt, _, _) = diff_import(&base, "keep the target two").unwrap();
         assert!(
             !new_rt
                 .marks
@@ -641,14 +644,14 @@ mod tests {
 
     #[test]
     fn anchor_survives_between_disjoint_edits() {
-        let mut base = from_markdown("aaaMIDDLEbbb").unwrap().into_content();
+        let mut base = from_markdown("aaaMIDDLEbbb").unwrap().content.into_content();
         base.marks.push(Mark {
             start: 3,
             end: 9,
             kind: MarkKind::Anchor { id: "c1".into() },
         });
         let base = base.into_normalized();
-        let (new_rt, _) = diff_import(&base, "AAAMIDDLEZZZ").unwrap();
+        let (new_rt, _, _) = diff_import(&base, "AAAMIDDLEZZZ").unwrap();
         let anchor = new_rt
             .marks
             .iter()
@@ -720,7 +723,7 @@ mod tests {
         // `diff_import` is what a full-document LLM rewrite hits: it must stay
         // fast and still rebase an anchor sitting in shared text.
         let base_text = format!("hello target world-{}-end", filler(30_000, 0));
-        let mut base = from_markdown(&base_text).unwrap().into_content();
+        let mut base = from_markdown(&base_text).unwrap().content.into_content();
         base.marks.push(Mark {
             start: 6,
             end: 12, // "target"
@@ -730,7 +733,7 @@ mod tests {
 
         let new_markdown = format!("hello target world-{}-end", filler(30_000, 11));
         let start = std::time::Instant::now();
-        let (new_rt, _delta) = diff_import(&base, &new_markdown).unwrap();
+        let (new_rt, _delta, _) = diff_import(&base, &new_markdown).unwrap();
         let elapsed = start.elapsed();
         assert!(
             elapsed < std::time::Duration::from_secs(2),

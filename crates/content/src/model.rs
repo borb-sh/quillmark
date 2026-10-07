@@ -1366,7 +1366,7 @@ mod tests {
             assert_eq!(rt.lines[0].kind, LineKind::Para, "{what}");
             let md = crate::export::to_markdown(&rt);
             assert_eq!(
-                crate::import::from_markdown(&md).expect("re-imports"),
+                crate::import::from_markdown(&md).expect("re-imports").content,
                 rt,
                 "{what} is not a fixed point: {md:?}"
             );
@@ -1470,22 +1470,22 @@ mod tests {
     fn is_inline_accepts_empty_and_single_para() {
         assert!(Content::empty().is_inline());
         assert!(crate::import::from_markdown("just one line")
-            .unwrap()
+            .unwrap().content
             .is_inline());
         assert!(crate::import::from_markdown("a *bold* run")
-            .unwrap()
+            .unwrap().content
             .is_inline());
     }
 
     #[test]
     fn is_inline_rejects_blocks_containers_and_islands() {
         assert!(!crate::import::from_markdown("one\n\ntwo")
-            .unwrap()
+            .unwrap().content
             .is_inline());
         assert!(!crate::import::from_markdown("# heading")
-            .unwrap()
+            .unwrap().content
             .is_inline());
-        assert!(!crate::import::from_markdown("- item").unwrap().is_inline());
+        assert!(!crate::import::from_markdown("- item").unwrap().content.is_inline());
     }
 
     #[test]

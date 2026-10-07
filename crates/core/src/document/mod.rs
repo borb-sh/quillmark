@@ -6,19 +6,70 @@
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::import::from_markdown as import_markdown;
+use quillmark_content::import::{from_markdown as import_markdown, Imported};
 use quillmark_content::model::Normalized;
 
 use crate::error::ParseError;
 use crate::version::QuillReference;
-use crate::error::Diagnostic;
+use crate::error::{Diagnostic, Severity};
 
 pub(crate) fn import_body(md: &str) -> Result<Normalized, ImportError> {
+    import_body_warned(md).map(|imported| imported.content)
+}
+
+/// [`import_body`] keeping the import's warnings.
+pub(crate) fn import_body_warned(md: &str) -> Result<Imported, ImportError> {
     if md.is_empty() {
-        Ok(Normalized::empty())
+        Ok(Imported {
+            content: Normalized::empty(),
+            warnings: Vec::new(),
+        })
     } else {
         import_markdown(md)
     }
+}
+
+/// The diagnostic code a markdown import's dropped construct rides.
+pub const DROPPED_CONSTRUCT: &str = "parse::dropped_construct";
+
+/// The warning a markdown import owes what it could not carry: `count` of
+/// `construct` dropped from one field, a raw tag by its lowercase name or
+/// `footnote_definition`. It carries no `path`: the caller that knows the
+/// field's address attaches it. Non-fatal: the rest of the markdown imports.
+pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
+    let ImportWarning::DroppedConstruct { construct, count } = warning;
+    let message = match (construct.as_str(), count) {
+        ("footnote_definition", 1) => {
+            "markdown import does not carry footnotes: a footnote-shaped definition in this \
+             field reads as literal text"
+                .to_string()
+        }
+        ("footnote_definition", n) => format!(
+            "markdown import does not carry footnotes: {n} footnote-shaped definitions in \
+             this field read as literal text"
+        ),
+        (element, 1) if element.starts_with(quillmark_content::carrier::PREFIX) => format!(
+            "markdown import models no `{element}` element: its tags in this field were \
+             dropped and what it wraps kept"
+        ),
+        (element, n) if element.starts_with(quillmark_content::carrier::PREFIX) => format!(
+            "markdown import models no `{element}` element: the tags of {n} in this field \
+             were dropped and what they wrap kept"
+        ),
+        (tag, 1) => format!(
+            "markdown import does not carry raw HTML: a `<{tag}>` tag in this field was dropped"
+        ),
+        (tag, n) => format!(
+            "markdown import does not carry raw HTML: {n} `<{tag}>` tags in this field were \
+             dropped"
+        ),
+    };
+    let mut args = std::collections::BTreeMap::new();
+    args.insert("construct".to_string(), construct.into());
+    args.insert("count".to_string(), count.into());
+    Diagnostic::new(Severity::Warning, message)
+        .with_code(DROPPED_CONSTRUCT.to_string())
+        .with_args(args)
 }
 
 /// Which encoding a [`Codec::decode_value`] failure came from, so a call site
@@ -186,9 +237,11 @@ pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_112_0, STORAGE_V0_115_0,
     STORAGE_V0_116_0, STORAGE_V0_93_0,
 };
-pub use edit::{CardMut, EditError};
+pub use edit::{CardMut, EditError, Revised};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::import::ImportError;
+/// Taken by [`dropped_construct`], so nameable from here.
+pub use quillmark_content::import::ImportWarning;
 pub use meta::{is_valid_kind_name, validate_composable_kind, CardKindError};
 pub use payload::{MetaKey, Payload, PayloadItem};
 // Reachable through `Payload::nested_comments`, so nameable from here.

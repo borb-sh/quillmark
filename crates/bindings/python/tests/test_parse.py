@@ -103,6 +103,21 @@ def test_diagnostic_str_and_repr():
     assert "Diagnostic(" in repr(diag)
 
 
+def test_a_dropped_construct_warns_at_its_body():
+    """The table under a centering div imports, and the div it drops rides
+    `doc.warnings` at the body it sat in."""
+    md = (
+        "~~~card-yaml\n$quill: my_quill\n$kind: main\n~~~\n\n"
+        '<div align="center">\n| a | b |\n|---|---|\n</div>\n'
+    )
+    doc = Document.from_markdown(md)
+    assert [i["type"] for i in doc.body["islands"]] == ["table"]
+    (diag,) = doc.warnings
+    assert diag.code == "parse::dropped_construct"
+    assert diag.path == "main.body"
+    assert diag.args == {"construct": "div", "count": 1}
+
+
 def test_document_authoring_text_helpers():
     rules = Document.markdown_rules()
     assert isinstance(rules, str) and rules.strip() != ""

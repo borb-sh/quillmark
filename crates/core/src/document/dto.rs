@@ -1308,7 +1308,7 @@ This body and the metadata above are an indorsement card.
         use quillmark_content::model::{Mark, MarkKind};
 
         let mut doc = sample();
-        let mut content = quillmark_content::import::from_markdown("underlined intro").unwrap().into_content();
+        let mut content = quillmark_content::import::from_markdown("underlined intro").unwrap().content.into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
         let content = content.into_normalized();
         let json = quillmark_content::serial::to_canonical_value(&content);
@@ -1857,7 +1857,7 @@ title: Hi
         };
 
         let content = quillmark_content::import::from_markdown("see ![a](u.png)\n\n| h |\n|---|\n| c |")
-            .expect("content");
+            .expect("content").content;
         let canonical =
             serde_json::to_string(&quillmark_content::serial::to_canonical_value(&content))
                 .expect("canonical content serializes");

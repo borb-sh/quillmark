@@ -132,6 +132,45 @@ fn a_tag_keeps_its_value_and_warns_at_its_path() {
     assert_eq!(again.document, out.document, "{md}");
 }
 
+/// What a body's import drops warns at that body's path, after its card's tag
+/// warnings and in card order, one diagnostic per construct with its count.
+#[test]
+fn a_body_import_warns_per_dropped_construct_at_the_body() {
+    let src = "~~~\n$quill: q\n$kind: main\nfrom: !t A\n~~~\n\n\
+               <div align=\"center\">\n| a | b |\n|---|---|\n</div>\n\
+               <span>one</span> <span>two</span>\n\n\
+               ~~~\n$kind: note\nto: !t B\n~~~\n\ntext[^1]\n\n[^1]: Word\n";
+    let out = Document::parse(src).unwrap();
+    assert_eq!(
+        anchors(&out),
+        [
+            ("parse::unsupported_yaml_tag", Some("main.from")),
+            ("parse::dropped_construct", Some("main.body")),
+            ("parse::dropped_construct", Some("main.body")),
+            ("parse::unsupported_yaml_tag", Some("cards.note[0].to")),
+            ("parse::dropped_construct", Some("cards.note[0].body")),
+        ]
+    );
+    let args: Vec<_> = out
+        .warnings
+        .iter()
+        .filter(|w| w.code.as_deref() == Some("parse::dropped_construct"))
+        .map(|w| (w.args["construct"].clone(), w.args["count"].clone()))
+        .collect();
+    assert_eq!(
+        args,
+        [
+            (serde_json::json!("div"), serde_json::json!(1)),
+            (serde_json::json!("span"), serde_json::json!(2)),
+            (serde_json::json!("footnote_definition"), serde_json::json!(1)),
+        ]
+    );
+    assert!(out
+        .warnings
+        .iter()
+        .all(|w| w.severity == crate::error::Severity::Warning));
+}
+
 /// A `$seed` / `$ext` value is opaque, with no document address, so a tag
 /// inside one warns without a `path`.
 #[test]

@@ -1,6 +1,6 @@
 # Markdown Syntax
 
-Quillmark Markdown is a **strict superset of [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)** with a small set of [GitHub Flavored Markdown](https://github.github.com/gfm/) extensions and **two declared deviations**: [raw HTML](#raw-html-is-not-rendered-except-u-and-br) and [`~~~` fences](#a-column-zero-always-opens-a-card-yaml-block). If you already know CommonMark, you only need to learn what is on this page.
+Quillmark Markdown is a **strict superset of [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)** with a small set of [GitHub Flavored Markdown](https://github.github.com/gfm/) extensions and **three declared deviations**: [raw HTML](#raw-html-is-not-rendered-except-u-and-br), [footnote-shaped definitions](#a-footnote-shaped-definition-is-text) and [`~~~` fences](#a-column-zero-always-opens-a-card-yaml-block). If you already know CommonMark, you only need to learn what is on this page.
 
 For the authoritative grammar, block-detection rules, normalization, and limits, see the formal [Markdown specification](../reference/markdown-spec.md).
 
@@ -35,16 +35,30 @@ CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML 
 <u>This is underlined</u>, even <u>across word boundaries</u>.
 <span style="color: red">The span's tags drop; its text stays.</span>
 <!-- HTML comments are also dropped -->
+
+<div align="center">
+| The div's tags drop; | its table stays |
+|---|---|
+</div>
 ```
 
 Why: Typst (the rendering backend) has no HTML renderer, and arbitrary HTML passthrough would create injection risks for downstream tooling. `<u>` is allowed because no CommonMark-native syntax covers arbitrary-range underline, and `<br>` because a table row is one line, with no room for a CommonMark hard break.
 
 Consequences:
 
-- `<br>`, `<br/>`, `<br />` (any case) are a line break, in a paragraph or a table cell: `| line one<br>line two |`. Outside a table, a CommonMark hard break does the same: two trailing spaces before a newline, or a trailing `\` before a newline. In a paragraph, a `<br>` with no text before it on its line produces nothing, as does a `<br>` alone on a line.
+- `<br>`, `<br/>`, `<br />` (any case) are a line break, in a paragraph or a table cell: `| line one<br>line two |`. Outside a table, a CommonMark hard break does the same: two trailing spaces before a newline, or a trailing `\` before a newline. In a paragraph, a `<br>` with no text before it on its line produces nothing. A `<br>` alone on a line is a tag line like any other, below.
 - HTML entities decode as CommonMark specifies: `Fish &amp; chips, &#65;BC` reads `Fish & chips, ABC`.
-- An [HTML block](https://spec.commonmark.org/0.31.2/#html-blocks), such as a `<div>` opening a line, is dropped whole, text included. Embedded SVG draws nothing: its tags drop like any other.
-- HTML comments do not appear in output.
+- A tag on a line of its own wraps markdown rather than hiding it: `<div>`, `<center>`, `<details>` or any other tag line drops, and the lines between parse as markdown whether or not blank lines surround the tags. Under a paragraph's text, a tag line ends the paragraph. Between list items, it leaves the list one list, as a blank line would. Embedded SVG draws nothing: its tags drop like any other, and text it holds reads as text.
+- A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included.
+- HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
+- Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included; comments and `<quill-anchor>` tags are not.
+
+### A footnote-shaped definition is text
+
+CommonMark reads `[^1]: Note` as a link reference definition, which turns every
+`[^1]` into a link to `Note`. Quillmark keeps both as the text you typed, and
+reports the definition as a `parse::dropped_construct` warning, since it
+supports no footnotes.
 
 ### A column-zero `~~~` always opens a card-yaml block
 
@@ -75,12 +89,13 @@ Consequences:
 
 ## Out of scope
 
-The following are recognised by the parser (so they will not corrupt surrounding content) but produce no output:
+The following are not supported, and render as the literal text written:
 
 - **Math** (`$…$`, `$$…$$`): `$` is treated as a literal character.
-- **Footnotes**, **task lists**, **definition lists**: not supported.
+- **Footnotes**: see [above](#a-footnote-shaped-definition-is-text).
+- **Task lists**, **definition lists**.
 
-Some constructs (like link titles) are accepted by the parser but may be dropped during rendering when the active backend has no target for them. Those losses are backend-specific; see each backend's documentation.
+A link's title (`[text](url "Title")`) drops at import, with no warning. A construct the active backend has no target for, such as an image under Typst, drops at render with a `backend::declined_construct` warning; see each backend's documentation.
 
 ## Structured data: card-yaml blocks
 

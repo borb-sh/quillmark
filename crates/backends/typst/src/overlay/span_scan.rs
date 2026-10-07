@@ -1427,7 +1427,7 @@ main:
         let schema = quillmark_core::quill::build_transform_schema(q.config());
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
         let rt = quillmark_content::import::from_markdown("A probe paragraph, PROBETOKEN.")
-            .expect("import");
+            .expect("import").content;
         let data =
             serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
         let mut world = QuillWorld::new(&q, &plate).expect("world");
@@ -1912,7 +1912,7 @@ main:
         let schema = quillmark_core::quill::build_transform_schema(q.config());
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
         let rt =
-            quillmark_content::import::from_markdown("- Item ONE\n- Item TWO").expect("import");
+            quillmark_content::import::from_markdown("- Item ONE\n- Item TWO").expect("import").content;
         let data =
             serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(&rt) });
         let mut world = QuillWorld::new(&q, &plate).expect("world");
@@ -2045,7 +2045,7 @@ main:
     }
 
     fn body(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown).expect("import");
+        let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
         serde_json::json!({
             "body": quillmark_content::serial::to_canonical_value(&rt),
             "classification": "UNCLASSIFIED",

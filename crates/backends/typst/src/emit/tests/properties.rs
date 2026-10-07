@@ -14,7 +14,7 @@ use crate::emit::{escape_markup, escape_string};
 
 /// The render path: import markdown to a content, then lower it to markup.
 fn mark_to_typst(markdown: &str) -> Result<String, String> {
-    let rt = quillmark_content::import::from_markdown(markdown).map_err(|e| e.to_string())?;
+    let rt = quillmark_content::import::from_markdown(markdown).map_err(|e| e.to_string())?.content;
     crate::emit::emit_content(&rt)
         .map(|ec| ec.markup)
         .map_err(|e| e.to_string())

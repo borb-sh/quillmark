@@ -64,7 +64,7 @@ pub fn host_with_plate(plate: &str) -> Quill {
 /// The shape the seam carries for a richtext field: canonical Content-JSON, not
 /// a markdown string.
 pub fn content(markdown: &str) -> serde_json::Value {
-    let rt = quillmark_content::import::from_markdown(markdown).expect("import");
+    let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
     quillmark_content::serial::to_canonical_value(&rt)
 }
 

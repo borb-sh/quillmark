@@ -350,6 +350,25 @@ export interface Delta {
     ops: ({ retain: number } | { insert: string } | { delete: number })[];
 }
 
+/**
+ * The receipt of a markdown revise (`revise`, `writer.reviseBody`,
+ * `writer.reviseField`): the text `delta`, and one `parse::dropped_construct`
+ * warning per construct the import dropped, anchored at the revised address.
+ */
+export interface Revised {
+    delta: Delta;
+    warnings: Diagnostic[];
+}
+
+/**
+ * A markdown import (`importMarkdown`): the canonical `content`, and one
+ * `parse::dropped_construct` warning per construct it dropped, with no `path`.
+ */
+export interface Imported {
+    content: Content;
+    warnings: Diagnostic[];
+}
+
 /** Which side of a same-position insertion `mapPos` lands a point on. */
 export type Assoc = "before" | "after";
 
@@ -1412,14 +1431,16 @@ impl Document {
 
     /// **Revise** the richtext value at `addr` from a markdown string: the
     /// default write path. Imports the markdown, diffs it against the current
-    /// value, rebases surviving identity anchors, and returns the text `Delta` an
-    /// editor bridge maps its own positions through (`mapPos`). An absent
-    /// `addr.field` targets the body, an absent `addr.card` the main card; an
-    /// absent field cold-imports from empty.
+    /// value, rebases surviving identity anchors, and returns the `Revised`
+    /// receipt: the text `delta` an editor bridge maps its own positions through
+    /// (`mapPos`), and a `parse::dropped_construct` warning per construct the
+    /// import dropped, its `path` the address written. An absent `addr.field`
+    /// targets the body, an absent `addr.card` the main card; an absent field
+    /// cold-imports from empty.
     ///
     /// Throws on an out-of-range card, a malformed field name, a present
     /// non-content field value, or an over-nested markdown input.
-    #[wasm_bindgen(js_name = revise, unchecked_return_type = "Delta")]
+    #[wasm_bindgen(js_name = revise, unchecked_return_type = "Revised")]
     pub fn revise(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
@@ -1428,26 +1449,28 @@ impl Document {
         let addr = Addr::from_js_or_string(&addr)?;
         let base = self.addr_base(&addr);
         let mut card = self.addr_card_mut(&addr)?;
-        let delta = match &addr.field {
-            None => card.revise_body(markdown),
-            Some(field) => card.revise_field(field, markdown),
+        let revised = match &addr.field {
+            None => card.revise_body(markdown).map(|r| r.with_path(&base.body())),
+            Some(field) => card
+                .revise_field(field, markdown)
+                .map(|r| r.with_path(&base.field(field))),
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
-        serialize_or_throw(&delta, "revise")
+        serialize_or_throw(&RevisedJs::from(revised), "revise")
     }
 
     /// Revise the content field at `addr` from authored text, typed *and*
     /// anchor-preserving: the ABI under `writer.reviseField`. Surviving anchors
     /// rebase as in [`revise`](Self::revise), then the diffed result is
     /// schema-conformed, so a `richtext(inline)` field rejects a multi-block
-    /// result with `edit::field_not_inline`. Returns the text `Delta`. The codec
-    /// is the declared type's: `richtext` diffs markdown, `plaintext` literal
-    /// text.
+    /// result with `edit::field_not_inline`. Returns the `Revised` receipt, its
+    /// warnings anchored at the field. The codec is the declared type's:
+    /// `richtext` diffs markdown, `plaintext` literal text, which drops nothing.
     ///
     /// `addr` must name a field; a body address throws, since a body carries no
     /// field schema (use [`revise`](Self::revise)). An undeclared name throws
     /// `edit::unknown_field`, an out-of-range card throws.
-    #[wasm_bindgen(js_name = _reviseField, skip_typescript, unchecked_return_type = "Delta")]
+    #[wasm_bindgen(js_name = _reviseField, skip_typescript, unchecked_return_type = "Revised")]
     pub fn revise_field_abi(
         &mut self,
         quill: &Quill,
@@ -1458,7 +1481,7 @@ impl Document {
         let field = addr.require_field("reviseField")?.to_string();
         let base = self.addr_base(&addr);
         let mut writer = quill.inner.writer(&mut self.inner);
-        let delta = match addr.card {
+        let revised = match addr.card {
             None => writer.revise_field(&field, text),
             Some(index) => writer
                 .card(index)
@@ -1466,7 +1489,7 @@ impl Document {
                 .revise_field(&field, text),
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
-        serialize_or_throw(&delta, "reviseField")
+        serialize_or_throw(&RevisedJs::from(revised), "reviseField")
     }
 
     /// **Apply** a committed content edit `bundle` at `addr`, the editor splice:
@@ -1579,7 +1602,9 @@ impl Document {
     /// leaves the document untouched. Field errors throw the same per-field
     /// bundle as [`commitFields`](Self::commit_fields); an invalid kind or body,
     /// or a bad position, throws a single-entry bundle keyed `$kind` / `$body`.
-    #[wasm_bindgen(js_name = _addCard, skip_typescript)]
+    /// Returns the body import's `parse::dropped_construct` warnings, anchored
+    /// at the placed card's body.
+    #[wasm_bindgen(js_name = _addCard, skip_typescript, unchecked_return_type = "Diagnostic[]")]
     pub fn add_card(
         &mut self,
         quill: &Quill,
@@ -1589,18 +1614,20 @@ impl Document {
         >,
         #[wasm_bindgen(unchecked_optional_param_type = "string")] body: Option<String>,
         #[wasm_bindgen(unchecked_optional_param_type = "number")] at: Option<usize>,
-    ) -> Result<(), JsValue> {
+    ) -> Result<JsValue, JsValue> {
         let batch = match fields {
             Some(f) => js_value_to_field_batch(&f, "addCard")?,
             None => Vec::new(),
         };
         // The card is built before it joins the document, so field errors anchor
         // at bare names (empty base).
-        quill
+        let warnings = quill
             .inner
             .writer(&mut self.inner)
             .add_card(kind, batch, body.as_deref(), at)
-            .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))
+            .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))?;
+        let warnings: Vec<Diagnostic> = warnings.into_iter().map(Into::into).collect();
+        serialize_or_throw(&warnings, "addCard")
     }
 
     /// Insert a card: `at` absent appends, a number inserts at that index (in
@@ -1786,7 +1813,7 @@ fn js_to_content_with(
     let json = js_value_to_json(value, ctx)?;
     if !json.is_object() {
         return Err(WasmError::from(format!(
-            "{ctx}: expected a Content content object; for markdown use importMarkdown(md) first"
+            "{ctx}: expected a Content content object; for markdown use importMarkdown(md).content first"
         ))
         .to_js_value());
     }
@@ -1804,17 +1831,20 @@ fn parse_change_bundle(
         .map_err(|e| WasmError::from(format!("{ctx}: {e}")).to_js_value())
 }
 
-/// Import a markdown string to canonical `Content`: the pure, document-free
-/// codec. `overwrite(addr, importMarkdown(md))` spells the cold, anchor-losing
-/// write; prefer `revise` for edit semantics. Throws on an over-nested input.
-#[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Content")]
+/// Import a markdown string: the pure, document-free codec. Returns the
+/// canonical `content` and a `parse::dropped_construct` warning per construct
+/// the import dropped, with no `path`. `overwrite(addr, importMarkdown(md).content)`
+/// spells the cold, anchor-losing write; prefer `revise` for edit semantics.
+/// Throws on an over-nested input.
+#[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
-    let content = quillmark_content::import::from_markdown(markdown)
+    let imported = quillmark_content::import::from_markdown(markdown)
         .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
-    serialize_or_throw(
-        &quillmark_content::serial::to_canonical_value(&content),
-        "importMarkdown",
-    )
+    let out = ImportedJs {
+        content: quillmark_content::serial::to_canonical_value(&imported.content),
+        warnings: dropped_constructs(imported.warnings),
+    };
+    serialize_or_throw(&out, "importMarkdown")
 }
 
 /// Export canonical `Content` to its markdown projection. Throws if `rt` is not
@@ -1828,22 +1858,66 @@ pub fn export_markdown(
 }
 
 /// Rebase `markdown` onto a `base` content: the document-free twin of `revise`,
-/// returning the new `content` and the text `delta` (offsets are USV indices into
-/// `Content.text`, surviving anchors rebased). Throws on an over-nested markdown
-/// input or a non-content `base`.
-#[wasm_bindgen(js_name = rebase, unchecked_return_type = "{ content: Content; delta: Delta }")]
+/// returning the new `content`, the text `delta` (offsets are USV indices into
+/// `Content.text`, surviving anchors rebased), and the import's
+/// `parse::dropped_construct` warnings, with no `path`. Throws on an
+/// over-nested markdown input or a non-content `base`.
+#[wasm_bindgen(
+    js_name = rebase,
+    unchecked_return_type = "{ content: Content; delta: Delta; warnings: Diagnostic[] }"
+)]
 pub fn rebase(
     #[wasm_bindgen(unchecked_param_type = "Content")] base: JsValue,
     markdown: &str,
 ) -> Result<JsValue, JsValue> {
     let base = js_to_content(base, "rebase")?;
-    let (content, delta) = quillmark_content::delta::diff_import(&base, markdown)
+    let (content, delta, warnings) = quillmark_content::delta::diff_import(&base, markdown)
         .map_err(|e| WasmError::from(format!("rebase: {e}")).to_js_value())?;
-    let out = serde_json::json!({
-        "content": quillmark_content::serial::to_canonical_value(&content),
-        "delta": serde_json::to_value(&delta).unwrap_or(serde_json::Value::Null),
-    });
+    let out = RebasedJs {
+        content: quillmark_content::serial::to_canonical_value(&content),
+        delta,
+        warnings: dropped_constructs(warnings),
+    };
     serialize_or_throw(&out, "rebase")
+}
+
+#[derive(serde::Serialize)]
+struct ImportedJs {
+    content: serde_json::Value,
+    warnings: Vec<Diagnostic>,
+}
+
+#[derive(serde::Serialize)]
+struct RebasedJs {
+    content: serde_json::Value,
+    delta: quillmark_core::session::Delta,
+    warnings: Vec<Diagnostic>,
+}
+
+/// The `Revised` receipt as it crosses: `delta` on the op wire `applyChange`
+/// carries.
+#[derive(serde::Serialize)]
+struct RevisedJs {
+    delta: quillmark_core::session::Delta,
+    warnings: Vec<Diagnostic>,
+}
+
+impl From<quillmark_core::document::Revised> for RevisedJs {
+    fn from(revised: quillmark_core::document::Revised) -> Self {
+        RevisedJs {
+            delta: revised.delta,
+            warnings: revised.warnings.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+fn dropped_constructs(
+    warnings: Vec<quillmark_core::document::ImportWarning>,
+) -> Vec<Diagnostic> {
+    warnings
+        .into_iter()
+        .map(|w| quillmark_core::document::dropped_construct(w).into())
+        .collect()
 }
 
 /// Whether `content` satisfies the `inline` constraint of `richtext` and

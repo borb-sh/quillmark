@@ -89,6 +89,8 @@ w.set_all({"title": "T", "author": "A"})  # atomic batch; one diagnostic per bad
 w.revise_body("A **taro** essay.")        # body write (edit semantics; a body has no field schema)
 w.revise_field("bio", "make it **bold**") # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
+                                          # the revise verbs and add_card return the parse::dropped_construct
+                                          # warnings their markdown import raised: [Diagnostic, ...]
 w.remove_card(0)
 w.set("author", "Issa", card=0)           # every verb takes card=: None is main, an int the composable card
 ```

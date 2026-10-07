@@ -51,7 +51,8 @@ The leaf rich-text primitive `quillmark-core` depends on: the `Content` content
 model (one USV text with line attributes, anchored marks, embedded islands), its
 canonical byte-deterministic serialization (the one frozen wire form storage,
 the render seam, and the binding seam all carry), the markdown⇄content
-import/export codecs, and edit deltas.
+import/export codecs, the `quill-*` carrier grammar (`carrier`), and edit
+deltas.
 The workspace's only markdown parser (`pulldown-cmark`) lives here, in
 `quillmark-content::import`, run once at ingest. **Invariant:** the markdown
 engine appears exactly once in the workspace; no render path parses markdown:
@@ -105,7 +106,8 @@ binary). See [BINDINGS.md](BINDINGS.md).
 
 ### `quillmark-fixtures`
 
-Test resources under `resources/`. Helper functions for test setup.
+Test resources under `resources/`, the parity corpus `@quillmark/wasm` also
+ships among them ([PARITY.md](PARITY.md)). Helper functions for test setup.
 
 ## Core Interfaces
 

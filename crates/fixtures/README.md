@@ -21,6 +21,9 @@ let usaf_memo = quillmark_fixtures::quills_path("usaf_memo");
   - `extended_metadata_demo.md` - composable cards under one main card
   - `ambiguous_strings.md` - field values YAML would otherwise coerce away from strings
 
+- **The parity corpus**, `resources/parity/parity.json`: one entry per row of the matrix in [`prose/canon/PARITY.md`](../../prose/canon/PARITY.md), holding the row's markdown, its canonical stored content, substrings its Typst lowering contains and the signals it raises.
+  `crates/quillmark/tests/parity.rs` asserts every entry, and `scripts/build-wasm.sh` ships the file in `@quillmark/wasm`.
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](../../LICENSE) for details.

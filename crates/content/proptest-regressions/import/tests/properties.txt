@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc dbae656fbc3d7432efa1d1f3963007ed9b1c1a3102fc820bf0cd0a0e91961ff8 # shrinks to doc = Piece { md: "<div align=\"center\">\n\n> <!-- aa0 -->aa0\n> aa0\n<quill-keep>\n    <p>\n    <img src=\"p.png\"> aa0\n    </p>\n</quill-keep>", words: ["aa0", "aa0", "aa0"], tags: ["div", "quill-keep", "p", "img"], table: false }
+cc 3a6be3a8e7164c57c512da30e3edc40239c776be0958bc6e1ad554bc4bcd7c61 # shrinks to doc = Piece { md: "<div align=\"center\">\n\naa0\n<quill-keep>\n    <p>\n    <!-- aa0 -->aa0\n    <img src=\"p.png\"> aa0\n    </p>\n</quill-keep>", words: ["aa0", "aa0", "aa0"], tags: ["div", "quill-keep", "p", "img"], table: false }

@@ -15,6 +15,7 @@
     "core",
     "render",
     "runtime",
+    "parity.json",
     "CHANGELOG.md"
   ],
   "main": "./runtime/runtime.js",

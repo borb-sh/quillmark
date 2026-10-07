@@ -777,7 +777,7 @@ mod tests {
 
     /// The shape the seam carries for a richtext field.
     fn content(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown).expect("import");
+        let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
         quillmark_content::serial::to_canonical_value(&rt)
     }
 

@@ -8,8 +8,10 @@
 //! byte-deterministic JSON that storage, the render seam and the binding seam
 //! all carry; [`delta`] and [`ops`] are the per-field edit surface.
 
+pub mod carrier;
 pub mod delta;
 pub mod export;
+mod html;
 pub mod import;
 pub mod island;
 pub mod model;

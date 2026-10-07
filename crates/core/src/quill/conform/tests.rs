@@ -376,7 +376,8 @@ Body.
     let delta = quill
         .writer(&mut doc)
         .revise_field("note", &text)
-        .expect("revise");
+        .expect("revise")
+        .delta;
     assert!(
         delta
             .ops
@@ -386,7 +387,7 @@ Body.
     );
     assert_eq!(bytes(&doc), before, "a no-change revise moves no bytes");
 
-    quill
+    let _ = quill
         .writer(&mut doc)
         .revise_field("note", r"a \*b\* line, revised")
         .expect("revise");

@@ -161,6 +161,9 @@ sed "s/VERSION_PLACEHOLDER/$VERSION/" crates/bindings/wasm/package.template.json
 if [ -f "crates/bindings/wasm/README.md" ]; then
     cp crates/bindings/wasm/README.md pkg/
 fi
+# The parity corpus (prose/canon/PARITY.md): a downstream codec round-trips it
+# against the package version it imports.
+cp crates/fixtures/resources/parity/parity.json pkg/
 # Ship the workspace changelog so npmjs renders a Changelog tab for the
 # published package (it is listed in package.template.json's "files").
 if [ -f "CHANGELOG.md" ]; then

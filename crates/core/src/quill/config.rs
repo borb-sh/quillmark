@@ -638,7 +638,7 @@ impl QuillConfig {
                         "richtext",
                         format!("markdown import failed: {e}"),
                     )
-                })?;
+                })?.content;
                 inline_check(&rt)?;
                 Ok(QuillValue::from_json(
                     quillmark_content::serial::to_canonical_value(&rt),

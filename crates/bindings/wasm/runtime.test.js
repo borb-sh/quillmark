@@ -174,19 +174,23 @@ card_kinds:
     expect(fieldOf(ed.document.main, 'qty')).toBe(5)
   })
 
-  it('reviseBody / reviseField write from markdown and return a Delta', () => {
+  it('reviseBody / reviseField write from markdown and return the receipt', () => {
     const quill = buildQuill()
     const ed = quill.writer(blankDoc())
-    expect(Array.isArray(ed.reviseBody('New **body**.').ops)).toBe(true)
+    expect(Array.isArray(ed.reviseBody('New **body**.').delta.ops)).toBe(true)
     expect(ed.document.bodyMarkdown()).toBe('New **body**.')
-    expect(Array.isArray(ed.reviseField('subject', 'Q3 **results**').ops)).toBe(true)
+    const { delta, warnings } = ed.reviseField('subject', 'Q3 <kbd>**results**</kbd>')
+    expect(Array.isArray(delta.ops)).toBe(true)
+    expect(warnings.map((w) => [w.code, w.path])).toEqual([
+      ['parse::dropped_construct', 'main.subject'],
+    ])
     expect(quill.reader(ed.document).get('subject')).toBe('Q3 **results**')
   })
 
   it('addCard commits fields and body; removeCard returns the card', () => {
     const ed = buildQuill().writer(blankDoc())
     // `body` here is the card's richtext FIELD; the third arg is the card body.
-    ed.addCard('note', { body: 'Field **body**.' }, 'Card body text.')
+    expect(ed.addCard('note', { body: 'Field **body**.' }, 'Card body text.')).toEqual([])
     expect(ed.document.cards[0].kind).toBe('note')
     expect(exportMarkdown(fieldOf(ed.document.cards[0], 'body'))).toBe('Field **body**.')
     expect(exportMarkdown(ed.document.cards[0].body)).toBe('Card body text.')
@@ -201,10 +205,12 @@ card_kinds:
     const ed = buildQuill().writer(doc)
     ed.card(0).set('body', 'Card **body**.')
     expect(exportMarkdown(fieldOf(doc.cards[0], 'body'))).toBe('Card **body**.')
-    expect(Array.isArray(ed.card(0).reviseBody('Card body md.').ops)).toBe(true)
+    expect(ed.card(0).reviseBody('Card <span>body</span> md.').warnings[0].path).toBe(
+      'cards.note[0].body'
+    )
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body md.')
     // card(i).reviseField is the typed, anchor-preserving field write.
-    const delta = ed.card(0).reviseField('body', 'Revised **field**.')
+    const { delta } = ed.card(0).reviseField('body', 'Revised **field**.')
     expect(exportMarkdown(fieldOf(doc.cards[0], 'body'))).toBe('Revised **field**.')
     expect(Array.isArray(delta.ops)).toBe(true)
   })
@@ -566,7 +572,7 @@ describe('@quillmark/wasm: container run boundaries', () => {
   const remints = (a, b, expected) => {
     const [x, y] = assignInstances([a, b])
     expect([x, y].map((c) => c.instance)).toEqual(expected)
-    const back = importMarkdown(exportMarkdown(content(x, y)))
+    const back = importMarkdown(exportMarkdown(content(x, y))).content
     expect(back.lines.map((l) => l.containers[0].instance)).toEqual(
       expected.map((n) => n || undefined)
     )

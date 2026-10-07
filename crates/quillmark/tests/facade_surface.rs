@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use quillmark::{
     CalendarDate, CardReader, Delta, Document, EditError, FileTreeNode, ImportError, Normalized,
-    ParseDateError, Parsed, Quill, QuillReference, QuillValue, TypedReader, TypedWriter,
+    ParseDateError, Parsed, Quill, QuillReference, QuillValue, Revised, TypedReader, TypedWriter,
 };
 
 const QUILL: &str = r#"
@@ -83,8 +83,15 @@ fn content_lane_spells_through_the_facade() {
     assert_eq!(subject.text, "Hello world", "the emphasis rides a mark, not the text");
     assert_eq!(subject.marks.len(), 1);
 
+    let Revised { delta, warnings } = doc
+        .main_mut()
+        .revise_body("# Body <span>kept</span>")
+        .expect("a heading imports");
+    let _: Delta = delta;
+    assert_eq!(warnings.len(), 1, "the dropped tag rides the receipt: {warnings:?}");
+
     let over_nested = "> ".repeat(200) + "deep";
-    let refusal: Result<Delta, EditError> = doc.main_mut().revise_body(over_nested);
+    let refusal: Result<Revised, EditError> = doc.main_mut().revise_body(over_nested);
     let Err(EditError::Import(ImportError::NestingTooDeep { depth, max })) = refusal else {
         panic!("markdown nested past the codec's limit is refused, not imported: {refusal:?}");
     };
@@ -106,7 +113,8 @@ fn preview_regions_spell_through_the_facade() {
     let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("usaf_memo"))
         .expect("usaf_memo should load");
     let mut doc = quill.seed_document();
-    doc.main_mut()
+    let _ = doc
+        .main_mut()
         .revise_body("The first paragraph.")
         .expect("a plain paragraph imports");
     let today: CalendarDate = "2026-03-14".parse().expect("a date");

@@ -141,9 +141,9 @@ leaves and containers alike: what the content nests, the markup nests.
 
 Anchor marks emit nothing; an `image` island emits nothing (see
 [Declined images](#declined-images)).
-Content that import never admits into the content: raw HTML other than `<u>`
-and an inline `<br>` (a hard break), HTML comments, math, footnotes, task lists,
-definition lists (markdown-spec §6.3): is absent here.
+Raw HTML other than an inline `<u>` and `<br>` (a hard break) never enters the
+content, so it is absent here; math, footnotes, task lists and definition lists
+enter it as literal text (markdown-spec §6.2, §6.3).
 
 ### Declined images
 

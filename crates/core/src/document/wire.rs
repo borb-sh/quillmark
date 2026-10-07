@@ -259,7 +259,7 @@ mod tests {
         use quillmark_content::model::{Mark, MarkKind};
 
         let mut card = Card::new("note").unwrap();
-        let mut content = quillmark_content::import::from_markdown("underlined intro").unwrap().into_content();
+        let mut content = quillmark_content::import::from_markdown("underlined intro").unwrap().content.into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
         let content = content.into_normalized();
         let json = quillmark_content::serial::to_canonical_value(&content);

@@ -273,7 +273,11 @@ however each was written, and the projection has no syntax to carry the
 difference back. So the canonical form is `{id, type, props}` and holds no
 fidelity class beside them: such a record is not re-derivable from the row that
 would carry it, and does not survive a `to_markdown` → `from_markdown` hop.
-Surfacing a drop belongs to whoever runs the import, where it happens.
+Surfacing a drop belongs to whoever runs the import, where it happens. The
+import reports the raw tags and footnote-shaped definitions it drops beside the
+content ([markdown-spec.md](../references/markdown-spec.md) §6.2 names the
+silent ones), and core surfaces them as `parse::dropped_construct`
+([ERROR.md](ERROR.md) § "Warning flow"); a cell image's url drops unreported.
 
 **Container identity is path plus contiguity, and `instance` is what completes
 it.** Two adjacent lines sit in the same container iff their whole container
@@ -534,7 +538,10 @@ from markdown.**
   partially, never re-id'd (the documented diff-rebase residual).
 
 No markdown round-trip guarantee: export emits nothing for an anchor and import
-mints none, so a cold export→import loses every anchor. Anchors are edit-lane
+mints none, so a cold export→import loses every anchor. The carrier reserves
+`<quill-anchor>` for an anchor's read-only spelling, which no export writes and
+import drops unreported ([markdown-spec.md](../references/markdown-spec.md)
+§6.4). Anchors are edit-lane
 infrastructure: they survive only through diff-rebase (`revise` / `rebase`).
 Non-rendering is a property of review-time metadata, not a gap; a future render
 projection (proof annotations, PDF destinations) would render the referent or a

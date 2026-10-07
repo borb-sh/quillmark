@@ -814,10 +814,16 @@ impl PyWriter {
         .map_err(|errs| convert_edit_errors(errs, &target.base))
     }
 
-    /// Revise a body from markdown; anchors rebase. The `Delta` receipt is
-    /// discarded, as on `revise_field`.
+    /// Revise a body from markdown; anchors rebase. Returns the import's
+    /// `parse::dropped_construct` warnings, anchored at the body; the text
+    /// `Delta` is discarded, as on `revise_field`.
     #[pyo3(signature = (markdown, card=None))]
-    fn revise_body(&self, py: Python<'_>, markdown: &str, card: Option<isize>) -> PyResult<()> {
+    fn revise_body(
+        &self,
+        py: Python<'_>,
+        markdown: &str,
+        card: Option<isize>,
+    ) -> PyResult<Vec<PyDiagnostic>> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -829,7 +835,7 @@ impl PyWriter {
                 .map_err(|e| convert_edit_error(e, &target.base))?
                 .revise_body(markdown),
         }
-        .map(|_| ())
+        .map(|revised| py_diagnostics(revised.warnings))
         .map_err(|e| convert_edit_error(e, &target.base))
     }
 
@@ -839,7 +845,8 @@ impl PyWriter {
     /// Surviving anchors rebase, then the diffed result is schema-conformed, so a
     /// `richtext(inline)` field rejects a multi-block result with
     /// `edit::field_not_inline`. Raises `edit::unknown_field` for an undeclared
-    /// name. The text `Delta` is discarded.
+    /// name. Returns the import's `parse::dropped_construct` warnings, anchored
+    /// at the field; the text `Delta` is discarded.
     #[pyo3(signature = (name, text, card=None))]
     fn revise_field(
         &self,
@@ -847,7 +854,7 @@ impl PyWriter {
         name: &str,
         text: &str,
         card: Option<isize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Vec<PyDiagnostic>> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -859,7 +866,7 @@ impl PyWriter {
                 .map_err(|e| convert_edit_error(e, &target.base))?
                 .revise_field(name, text),
         }
-        .map(|_| ())
+        .map(|revised| py_diagnostics(revised.warnings))
         .map_err(|e| convert_edit_error(e, &target.base))
     }
 
@@ -868,7 +875,8 @@ impl PyWriter {
     /// appends, `Some(i)` inserts at index `i`, and a position out of range
     /// raises. Transactional: a rejected field (raising a per-field diagnostic
     /// bundle) or an invalid kind, body, or position leaves the document
-    /// untouched.
+    /// untouched. Returns the body import's `parse::dropped_construct` warnings,
+    /// anchored at the placed card's body.
     #[pyo3(signature = (kind, fields=None, body=None, at=None))]
     fn add_card(
         &self,
@@ -877,7 +885,7 @@ impl PyWriter {
         fields: Option<Bound<'_, PyDict>>,
         body: Option<String>,
         at: Option<isize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Vec<PyDiagnostic>> {
         let batch = match fields {
             Some(f) => pydict_to_field_batch(&f)?,
             None => Vec::new(),
@@ -893,6 +901,7 @@ impl PyWriter {
             .inner
             .writer(&mut doc.inner)
             .add_card(kind, batch, body.as_deref(), at)
+            .map(py_diagnostics)
             .map_err(|errs| convert_edit_errors(errs, &quillmark_core::path::DocPath::new()))
     }
 
@@ -1179,6 +1188,10 @@ impl PyArtifact {
 #[derive(Clone)]
 pub struct PyDiagnostic {
     pub(crate) inner: Diagnostic,
+}
+
+fn py_diagnostics(diags: Vec<Diagnostic>) -> Vec<PyDiagnostic> {
+    diags.into_iter().map(|inner| PyDiagnostic { inner }).collect()
 }
 
 #[pymethods]
