@@ -172,7 +172,8 @@ fails:
   itself.
 - A spelled entry imports to `content`, warning `signals.import`, and so does
   a body holding it through `Document::parse`.
-- `to_markdown(content)` re-imports to `content`, the fixed point.
+- A spelled entry's `to_markdown(content)` re-imports to `content`, the fixed
+  point. An entry markdown cannot spell is checked on the other surfaces only.
 - The body's block in the generated helper, which is `emit_content`'s markup,
   contains every `typst` substring.
 - A render through the `table_demo` fixture quill warns exactly

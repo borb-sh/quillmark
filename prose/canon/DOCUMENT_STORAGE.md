@@ -538,7 +538,10 @@ from markdown.**
   partially, never re-id'd (the documented diff-rebase residual).
 
 No markdown round-trip guarantee: export emits nothing for an anchor and import
-mints none, so a cold export→import loses every anchor. Anchors are edit-lane
+mints none, so a cold export→import loses every anchor. The carrier reserves
+`<quill-anchor>` for an anchor's read-only spelling, which no export writes and
+import drops unreported ([markdown-spec.md](../references/markdown-spec.md)
+§6.4). Anchors are edit-lane
 infrastructure: they survive only through diff-rebase (`revise` / `rebase`).
 Non-rendering is a property of review-time metadata, not a gap; a future render
 projection (proof annotations, PDF destinations) would render the referent or a

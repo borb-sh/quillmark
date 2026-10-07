@@ -144,8 +144,9 @@ families:
   know its address, and at the body or field from the typed writer and WASM
   `revise`. `add_card` returns it at the placed card's body, WASM
   `importMarkdown` and `rebase` beside the content with no `path`, and
-  Python's `revise_body` / `revise_field` / `add_card` as a list. A conform or
-  a typed `set` importing a `richtext` string drops without it.
+  Python's `revise_body` / `revise_field` / `add_card` as a list. Any other
+  write importing a `richtext` string, such as a conform, a typed `set` or a
+  card inserted with a string body, drops without it.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
