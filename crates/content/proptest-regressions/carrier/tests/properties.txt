@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e35539d761d3bdaa474f367132cc6df8db1d7c014ce8240aa5e00634d52ff29b # shrinks to doc = Piece { md: "<quill-keep>\n- aa0\n</quill-keep>\n\n- aa0\n  <quill-keep>\n  aa0\n  </quill-keep>", reported: ["quill-keep", "quill-keep"] }
+cc b75e7b00edfea33487aedbf3c8b8519c3f703080775ffc336c06bd5d100774dc # shrinks to doc = Piece { md: "- aa0\n  <quill-keep>\n  aa0\n  </quill-keep>\n\n<quill-anchor ref=\"\"></quill-anchor>\n\n- aa0\n  <quill-keep>\n  aa0\n  </quill-keep>", reported: ["quill-keep", "quill-keep"] }
+cc 23941cd0a207d9a86a02efd88f4e5b9e8edcf5d356fa7c1fd0e4a55aadba1084 # shrinks to doc = Piece { md: "- <quill-keep>\n  <quill-anchor ref=\"\"></quill-anchor>\n  </quill-keep>\n\n<quill-keep>\n> <quill-anchor ref=\"\"></quill-anchor>\n</quill-keep>", reported: ["quill-keep", "quill-keep"] }

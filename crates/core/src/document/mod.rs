@@ -48,6 +48,14 @@ pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
             "markdown import does not carry footnotes: {n} footnote-shaped definitions in \
              this field read as literal text"
         ),
+        (element, 1) if element.starts_with(quillmark_content::carrier::PREFIX) => format!(
+            "markdown import models no `{element}` element: its tags in this field were \
+             dropped and what it wraps kept"
+        ),
+        (element, n) if element.starts_with(quillmark_content::carrier::PREFIX) => format!(
+            "markdown import models no `{element}` element: the tags of {n} in this field \
+             were dropped and what they wrap kept"
+        ),
         (tag, 1) => format!(
             "markdown import does not carry raw HTML: a `<{tag}>` tag in this field was dropped"
         ),

@@ -32,6 +32,7 @@
 use crate::model::{
     Container, Island, Line, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
 };
+use crate::carrier;
 use crate::html;
 use crate::island::IslandType;
 use crate::normalize::{normalize_markdown, Repaired};
@@ -912,13 +913,14 @@ impl Dropped {
         }
     }
 
-    /// `quill-anchor` is the engine's own read-only spelling of an anchor,
-    /// written to be dropped.
+    /// An opening tag, under its lowercase name. A carrier element nothing
+    /// folds counts like any tag; `quill-anchor`, the engine's own read-only
+    /// spelling of an anchor, is written to be dropped and counts nothing.
     fn tag(&mut self, tag: &html::Tag, at: usize) {
-        let name = tag.name.to_ascii_lowercase();
-        if !tag.closing && name != "quill-anchor" {
-            self.add(&name, at);
+        if tag.closing || carrier::element(tag.name).is_some_and(|e| e == "anchor") {
+            return;
         }
+        self.add(&tag.name.to_ascii_lowercase(), at);
     }
 
     fn into_warnings(mut self) -> Vec<ImportWarning> {
@@ -946,9 +948,9 @@ where
         }
     }
 
-    /// Consume an HTML block through its end, counting the tags of a type 6 or
-    /// 7 block and the opening tag of a type 1 block; a type 1–5 block's content
-    /// is not markup to count. Only the block's end reaches the builder.
+    /// Consume an HTML block through its end, counting its
+    /// [markup tags](html::block_tags). Only the block's end reaches the
+    /// builder.
     fn drop_html_block(&mut self, at: usize) {
         let mut text = String::new();
         for (event, _) in self.inner.by_ref() {
@@ -958,26 +960,8 @@ where
                 _ => {}
             }
         }
-        let first = text.lines().next().unwrap_or("");
-        match html::block_start(first) {
-            Some(html::BlockKind::Verbatim(_)) => {
-                if let Some(tag) = text.find('<').and_then(|i| html::tag_at(&text, i)) {
-                    self.dropped.tag(&tag, at);
-                }
-                return;
-            }
-            Some(kind) if kind.end_marker().is_some() => return,
-            _ => {}
-        }
-        let mut i = 0;
-        while let Some(off) = text[i..].find('<') {
-            match html::tag_at(&text, i + off) {
-                Some(tag) => {
-                    self.dropped.tag(&tag, at);
-                    i = tag.span.end;
-                }
-                None => i += off + 1,
-            }
+        for tag in html::block_tags(&text) {
+            self.dropped.tag(&tag, at);
         }
     }
 }
@@ -1778,13 +1762,16 @@ mod tests {
 
     /// One count per open or self-closing tag, by lowercase name, in order of
     /// first occurrence: closing tags, comments, a `<pre>` block's content, the
-    /// inline allowlist and `quill-anchor` count nothing.
+    /// inline allowlist and `quill-anchor`, inline or alone on its line, count
+    /// nothing. A `quill-*` element nothing folds counts under its full name,
+    /// in the grammar or not.
     #[test]
     fn dropped_tags_count_once_per_opening() {
         let md = "<div>\n<span>a</span> <SPAN>b</SPAN><br> <u>c</u> <img src=x/>\n</div>\n\n\
                   <!-- <em>not markup</em> -->\n\n<pre><b>x</b></pre>\n\n\
-                  <quill-anchor id=\"x\">t</quill-anchor> <quill-keep>k</quill-keep>\n\n[^1]: f\n\n\
-                  | <span>cell</span> |\n|---|\n| <hr/> |";
+                  <quill-anchor id=\"x\">t</quill-anchor> <quill-keep>k</quill-keep>\n\
+                  <QUILL-ANCHOR ref=\"y\"></QUILL-ANCHOR>\n<Quill-Keep>\n\n[^1]: f\n\n\
+                  | <span>cell</span> |\n|---|\n| <hr/> <quill-a--b>z</quill-a--b> |";
         let imported = imp_fixed(md);
         assert_eq!(
             dropped(&imported),
@@ -1793,9 +1780,10 @@ mod tests {
                 ("span", 3),
                 ("img", 1),
                 ("pre", 1),
-                ("quill-keep", 1),
+                ("quill-keep", 2),
                 ("footnote_definition", 1),
-                ("hr", 1)
+                ("hr", 1),
+                ("quill-a--b", 1)
             ]
         );
         assert!(imp_fixed("plain **text**, `<code>`, \\<escaped>").warnings.is_empty());

@@ -379,7 +379,7 @@ else an HTML block holds depends on its type:
 
 | HTML block (CommonMark §4.6) | What imports |
 |---|---|
-| Type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<quill-keep>` | Everything but the tags. Each line holding only tags drops, and every other line parses as markdown, as though a blank line stood above and below each tag line; a line opening with a type-6 tag keeps the text after it. |
+| Type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<quill-keep>` | Everything but the tags. Each line holding only tags drops, and every other line parses as markdown, as though a blank line stood above and below each tag line; a line opening with a type-6 tag keeps the text after it. A `quill-*` tag is the carrier §6.4 defines. |
 | Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after its end marker (`-->`, `?>`, `>`, `]]>`, the closing tag) on its last line is a paragraph of its own. |
 
 Inside a type 6 or 7 block, a line opening a type 1–5 block or a fence keeps
@@ -397,8 +397,8 @@ A line holding only tags is a tag line wherever it stands outside code:
 
 The allowlist is inline: `<u>` or `<br>` alone on its line is a tag line like
 any other. An import reports each dropped opening tag by name, under
-`parse::dropped_construct`; a comment and the content of a type 1–5 block
-report nothing.
+`parse::dropped_construct`; a comment, the content of a type 1–5 block and
+`quill-anchor` (§6.4) report nothing.
 
 Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
 an injection vector for downstream HTML-producing tooling; `<u>` is an
@@ -451,6 +451,74 @@ support may come in a future revision:
   line (§6.2): it drops, and ends a paragraph it stands under. Outside a
   table, export writes the CommonMark-native hard break (trailing `\\` plus
   newline); inside a cell it writes `<br>`.
+
+### 6.4 The `quill-*` Carrier
+
+A `quill-*` element spells what CommonMark has no syntax for, such as
+per-instance layout and anchors. Each is a CommonMark raw-HTML tag and a valid
+custom-element name, which an HTML renderer draws as its children.
+
+**Names.** A carrier tag's name is `quill-` and an element name matching
+`[a-z][a-z0-9]*(-[a-z0-9]+)*`: `quill-keep`, `quill-table`, `quill-a1-b`.
+CommonMark tag names admit no `:`, so the prefix stands where XML would write a
+namespace (`quill:keep`). A tag name reads ASCII-case-insensitively, as HTML
+names do, and the canonical spelling is lowercase. `quill-`, `quill-a--b` and
+`quill-9` carry no element.
+
+**Reserved names.** `table` and `cell` are reserved for the construct they
+wrap, and `anchor` for the anchor spelling. A reserved name folds into its
+construct where a construct declares the fold; none is ever an element of its
+own, and a quill cannot declare one.
+
+**Attributes.** A name matches `[a-z][a-z0-9_]*` and is none of `style`,
+`class`, `id`, `href`, `src` and `name`, nor any name opening `on`, so the
+carrier never holds markup a downstream HTML renderer would act on (§6.2's
+rationale). An attribute outside that grammar, or one repeating a name already
+read, is refused by name. A value reads double-quoted, single-quoted or
+unquoted, and decodes `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;` and decimal or
+hexadecimal references to a Unicode scalar value; any other `&` is text.
+
+**Scope by syntax.** Import decides a carrier tag's scope from its line, with
+no quill: a tag alone on its line is a block wrapper (a tag line, §6.2), and a
+pair inside a line is inline.
+
+**Canonical spelling.** An element is written with:
+
+- attributes sorted by name, each value double-quoted, with `&`, `<`, `>` and
+  `"` as `&amp;`, `&lt;`, `&gt;` and `&quot;`;
+- a `|`, a control character, a bidi control or a line separator in a value as
+  a hexadecimal reference (`&#x7C;`): a `|` ends a table cell, a line ending
+  ends the tag's line, and §7 rewrites the rest;
+- a block wrapper with each tag alone on its line and a blank line between it
+  and what it wraps, inside the containers it sits in;
+- an inline pair on one line with the text around it.
+
+```markdown
+<quill-keep>
+
+**Signed**
+J. Doe
+
+</quill-keep>
+
+Text with a <quill-keep note="a &amp; b">pair</quill-keep> inside a line.
+```
+
+**An element nothing folds or models** is transparent: its tags drop, what it
+wraps imports, and `parse::dropped_construct` reports it under its tag name
+(`quill-keep`), as any raw tag (§6.2). Every element but `anchor` is one. A
+`quill-*` tag outside the grammar is a raw tag reported the same way.
+
+**`quill-anchor`** is reserved for the read-only anchor spelling a later
+release writes, `<quill-anchor ref="…"></quill-anchor>`. Import drops it
+without a report, inline or alone on its line.
+
+**Strip.** Stripping the carrier from a markdown string removes every `quill-*`
+tag the import drops as markup and keeps what a wrapper holds; a tag in a code
+span, a fence, a comment or another tag's attribute stays. A line left holding
+only container markers becomes a blank line inside them, and a list item's
+marker left bare loses the blank lines after it, which would end the item.
+Every other byte stays.
 
 ## 7. Input Normalization
 
