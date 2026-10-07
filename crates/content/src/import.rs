@@ -1689,6 +1689,60 @@ mod tests {
         assert_eq!(crate::export::to_markdown(&imported.content), md);
     }
 
+    /// A line holding only tags is a tag line under paragraph text too, where
+    /// CommonMark reads it as inline HTML: it ends the paragraph and opens a
+    /// block running to the paragraph's end, inside the paragraph's
+    /// containers. A lazy one leaves the quotes it lacks.
+    #[test]
+    fn a_tag_line_under_paragraph_text_opens_a_block() {
+        let cases: &[(&str, &str, &[usize])] = &[
+            ("para\n<quill-keep>\nmore\n</quill-keep>", "para\nmore", &[0, 0]),
+            ("text\n<u>\nmore\n</u>", "text\nmore", &[0, 0]),
+            ("text\n<br>\nmore", "text\nmore", &[0, 0]),
+            ("> a\n> <x>\n>      b", "a\nb", &[1, 1]),
+            ("> a\n<x>\nb", "a\nb", &[1, 0]),
+            ("- a\n  <x>\n      b\n- c", "a\nb\nc", &[1, 1, 1]),
+            ("- <a></a>\n  text", "text", &[1]),
+            ("a\n<x>\n    <p>\n    <!-- c -->b\n    <img src=\"p.png\"> c\n    </p>\n</x>", "a\nb  c", &[0, 0]),
+        ];
+        for (md, text, depths) in cases {
+            let rt = imp_fixed(md).content;
+            assert_eq!(rt.text, *text, "{md:?}");
+            assert!(rt.marks.is_empty(), "{md:?}");
+            let got: Vec<usize> = rt.lines.iter().map(|l| l.containers.len()).collect();
+            assert_eq!(got, *depths, "{md:?}");
+        }
+    }
+
+    /// A tag line drops as a blank line does, so it keeps a list item open as a
+    /// blank line would: the list on either side of a wrapper's tag is one
+    /// list. A quote the item sits in does not reach a tag outside it.
+    #[test]
+    fn a_tag_line_between_list_items_keeps_one_list() {
+        for md in [
+            "<quill-keep>\n- a\n</quill-keep>\n\n- b",
+            "- a\n\n<quill-keep>\n- b\n</quill-keep>",
+            "- a\n\n<quill-anchor ref=\"r\"></quill-anchor>\n\n- b",
+            "- a\n<div>\n- b",
+            "- x\n  - a\n\n</x>\n\n  - b",
+        ] {
+            let rt = imp_fixed(md).content;
+            let items: Vec<&Container> = rt.lines.iter().filter_map(|l| l.containers.last()).collect();
+            let [a, b] = items[items.len() - 2..] else { unreachable!() };
+            assert!(
+                matches!((a, b), (
+                    Container::ListItem { ordinal: 0, instance: i, .. },
+                    Container::ListItem { ordinal: 1, instance: j, .. },
+                ) if i == j),
+                "{md:?}: {:?}",
+                rt.lines
+            );
+        }
+        let rt = imp_fixed("> - a\n\n</x>\n\n- b").content;
+        assert_eq!(rt.lines[0].containers.len(), 2);
+        assert_eq!(rt.lines[1].containers.len(), 1);
+    }
+
     /// `[^1]: Word` is a link reference definition to CommonMark, which would
     /// make `[^1]` a link to `Word`; import keeps both as the text they are.
     /// A definition that follows it on the next line stays one.

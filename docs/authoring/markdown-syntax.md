@@ -46,12 +46,12 @@ Why: Typst (the rendering backend) has no HTML renderer, and arbitrary HTML pass
 
 Consequences:
 
-- `<br>`, `<br/>`, `<br />` (any case) are a line break, in a paragraph or a table cell: `| line one<br>line two |`. Outside a table, a CommonMark hard break does the same: two trailing spaces before a newline, or a trailing `\` before a newline. In a paragraph, a `<br>` with no text before it on its line produces nothing, as does a `<br>` alone on a line.
+- `<br>`, `<br/>`, `<br />` (any case) are a line break, in a paragraph or a table cell: `| line one<br>line two |`. Outside a table, a CommonMark hard break does the same: two trailing spaces before a newline, or a trailing `\` before a newline. In a paragraph, a `<br>` with no text before it on its line produces nothing. A `<br>` alone on a line is a tag line like any other, below.
 - HTML entities decode as CommonMark specifies: `Fish &amp; chips, &#65;BC` reads `Fish & chips, ABC`.
-- A tag on a line of its own wraps markdown rather than hiding it: `<div>`, `<center>`, `<details>` or any other tag line drops, and the lines between parse as markdown whether or not blank lines surround the tags. Embedded SVG draws nothing: its tags drop like any other, and text it holds reads as text.
+- A tag on a line of its own wraps markdown rather than hiding it: `<div>`, `<center>`, `<details>` or any other tag line drops, and the lines between parse as markdown whether or not blank lines surround the tags. Under a paragraph's text, a tag line ends the paragraph. Between list items, it leaves the list one list, as a blank line would. Embedded SVG draws nothing: its tags drop like any other, and text it holds reads as text.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
-- Each dropped tag is reported as a `parse::dropped_construct` warning naming it, a `<pre>` block's included; comments are not.
+- Each dropped tag is reported as a `parse::dropped_construct` warning naming it, a `<pre>` block's included; comments and `<quill-anchor>` tags are not.
 
 ### A footnote-shaped definition is text
 

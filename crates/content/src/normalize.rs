@@ -80,20 +80,22 @@ pub(crate) fn normalize_markdown(markdown: &str, options: Options) -> Repaired {
     repair(cleaned, options)
 }
 
-/// Rounds the repair takes at most. A round frees only lines the round before
-/// left inside an HTML block, so a later round has work only where a freed line
-/// opens a container holding another HTML block.
+/// Rounds the repair takes at most. A round leaves work for the next only where
+/// its edits make a new HTML block: a freed line opening a container that holds
+/// one, a tag line split from paragraph text, or a block of tags moved into a
+/// list item.
 const REPAIR_ROUNDS: usize = 8;
 
 /// How many following lines a tag left open at its line's end may close on.
 const TAG_JOIN_LINES: usize = 8;
 
-/// Rewrite `text` so the parse reads the markdown an HTML block or a
-/// footnote-shaped definition would hide from it (markdown-spec §6.2, §7 step
-/// 4). Each round parses and edits only inside the spans that parse located, so
-/// a fence is never touched; the rounds end at one that plans no edit. Where a
-/// line inside a type 6 or 7 block opens a type 1–5 block or a fence that does
-/// not close inside it, that line and the rest of the block are deleted: they
+/// Rewrite `text` so the parse reads the markdown an HTML block, a line of tags
+/// or a footnote-shaped definition would hide from it, and so a tag line keeps
+/// a list item open as a blank line does (markdown-spec §6.2, §7 step 4). Each
+/// round parses and edits only inside the spans that parse located, so a fence
+/// is never touched; the rounds end at one that plans no edit. Where a line
+/// inside a type 6 or 7 block opens a type 1–5 block or a fence that does not
+/// close inside it, that line and the rest of the block are deleted: they
 /// dropped before, and freed they would swallow what follows the block.
 fn repair(mut text: String, options: Options) -> Repaired {
     let mut footnotes = Vec::new();
@@ -137,21 +139,44 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
         .filter(|(label, _)| label.starts_with('^'))
         .flat_map(|(_, def)| footnote_edits(src, def.span.clone()))
         .collect();
-    let mut block: Option<Vec<usize>> = None;
+    let mut block: Option<(Vec<usize>, Option<usize>)> = None;
     let mut row: Option<usize> = None;
     let mut tag_rows: Vec<SrcLine> = Vec::new();
+    let mut runs = Runs::default();
+    let mut items: Vec<usize> = Vec::new();
+    // The innermost list item closed since the last event that opens or holds
+    // something, an HTML block's start aside: the item a blank line where that
+    // block stands would have kept open.
+    let mut ended: Option<usize> = None;
     for (event, range) in parser.into_offset_iter() {
+        if let Some(run) = runs.feed(&event, &range) {
+            edits.extend(run_tag_line_edits(src, &run));
+        }
+        if !matches!(event, Event::End(_)) {
+            ended = ended.filter(|_| matches!(event, Event::Start(PTag::HtmlBlock)));
+        }
         match event {
-            Event::Start(PTag::HtmlBlock) => block = Some(Vec::new()),
+            Event::Start(PTag::Item) => items.push(range.start),
+            Event::End(TagEnd::Item) => {
+                let item = items.pop();
+                ended = ended.or(item);
+            }
+            Event::Start(PTag::HtmlBlock) => block = Some((Vec::new(), ended.take())),
             Event::Html(_) => {
-                if let Some(starts) = &mut block {
+                if let Some((starts, _)) = &mut block {
                     starts.push(range.start);
                 }
             }
             Event::End(TagEnd::HtmlBlock) => {
-                if let Some(starts) = block.take() {
+                if let Some((starts, item)) = block.take() {
                     let lines: Vec<SrcLine> = starts.iter().map(|&at| SrcLine::at(src, at)).collect();
-                    edits.extend(html_block_edit(src, &lines));
+                    match item.and_then(|at| into_item(src, at, &lines)) {
+                        Some(edit) => {
+                            edits.push(edit);
+                            ended = item;
+                        }
+                        None => edits.extend(html_block_edit(src, &lines)),
+                    }
                 }
             }
             Event::Start(PTag::TableRow) => row = Some(range.start),
@@ -163,6 +188,9 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
             }
             _ => {}
         }
+    }
+    if let Some(run) = runs.finish() {
+        edits.extend(run_tag_line_edits(src, &run));
     }
     edits.extend(tag_row_edits(src, &tag_rows));
     edits.sort_by_key(|e| (e.range.start, e.range.end));
@@ -202,6 +230,36 @@ fn apply(src: &str, edits: &[Edit], footnotes: &mut Vec<usize>) -> String {
     out
 }
 
+/// A block of tag lines that ended the list item opening at `item`, written
+/// inside that item instead, a blank line between its lines. A blank line keeps
+/// an item open for the line after it to continue, and a tag line drops as a
+/// blank line does, so the list on either side of a wrapper's tag stays one
+/// list. A block in other quotes than the item's stays.
+fn into_item(src: &str, item: usize, lines: &[SrcLine]) -> Option<Edit> {
+    let marker = SrcLine::at(src, item);
+    let rest = &marker.content[..marker.content.find('\n').unwrap_or(marker.content.len())];
+    let width = match rest.bytes().next() {
+        Some(b'-' | b'+' | b'*') => 1,
+        _ => rest.bytes().take_while(u8::is_ascii_digit).count() + 1,
+    };
+    let after = &rest[width.min(rest.len())..];
+    let gap = html::indent_columns(after);
+    let gap = if after.trim().is_empty() || gap > 4 { 1 } else { gap };
+    let cont = format!("{}{}", continuation_of(marker.prefix), " ".repeat(width + gap));
+    let blank = blank_of(&cont);
+    let fits = |l: &SrcLine| html::tag_line(l.content).is_some() && blank_of(l.prefix) == blank;
+    if !lines.iter().all(fits) {
+        return None;
+    }
+    let (first, last) = (lines.first()?, lines.last()?);
+    let with: Vec<String> = lines.iter().map(|l| format!("{cont}{}", l.content.trim())).collect();
+    Some(Edit {
+        range: first.start..last.end(),
+        with: with.join(&format!("\n{blank}\n")),
+        footnote: false,
+    })
+}
+
 /// One source line of a span: its container prefix as the parser consumed it,
 /// and the rest of the line.
 #[derive(Clone, Copy)]
@@ -234,7 +292,7 @@ impl<'a> SrcLine<'a> {
 
 /// A blank line inside the containers `prefix` holds: each quote's `>` kept,
 /// a list marker dropped.
-fn blank_of(prefix: &str) -> String {
+pub(crate) fn blank_of(prefix: &str) -> String {
     let mut s: String = prefix
         .chars()
         .map(|c| if matches!(c, '>' | '\t') { c } else { ' ' })
@@ -582,6 +640,121 @@ fn join_tag(t: &str, rest: &[SrcLine]) -> Option<(usize, usize)> {
     let end = html::tag_at(&joined, 0)?.span.end;
     let j = starts.iter().rposition(|&s| s < end)?;
     Some((j, end - starts[j]))
+}
+
+/// Inline content between two block events outside a table: a paragraph's, a
+/// heading's, or a tight list item's text.
+struct Run {
+    /// The first inline event's offset.
+    start: usize,
+    heading: bool,
+    /// Each inline HTML event's offset.
+    tags: Vec<usize>,
+}
+
+/// The [`Run`]s of one parse, fed its events in order.
+#[derive(Default)]
+struct Runs {
+    open: Option<Run>,
+    tables: usize,
+    heading: bool,
+}
+
+impl Runs {
+    /// The run `event` ends, if it ends one.
+    fn feed(&mut self, event: &Event, range: &Range<usize>) -> Option<Run> {
+        if is_inline(event) {
+            if self.tables == 0 {
+                let heading = self.heading;
+                let run = self.open.get_or_insert_with(|| Run {
+                    start: range.start,
+                    heading,
+                    tags: Vec::new(),
+                });
+                if matches!(event, Event::InlineHtml(_)) {
+                    run.tags.push(range.start);
+                }
+            }
+            return None;
+        }
+        match event {
+            Event::Start(PTag::Heading { .. }) => self.heading = true,
+            Event::End(TagEnd::Heading(_)) => self.heading = false,
+            Event::Start(PTag::Table(_)) => self.tables += 1,
+            Event::End(TagEnd::Table) => self.tables -= 1,
+            _ => {}
+        }
+        self.open.take()
+    }
+
+    fn finish(self) -> Option<Run> {
+        self.open
+    }
+}
+
+fn is_inline(event: &Event) -> bool {
+    match event {
+        Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak | Event::InlineHtml(_) => {
+            true
+        }
+        Event::Start(tag) => matches!(
+            tag,
+            PTag::Emphasis | PTag::Strong | PTag::Strikethrough | PTag::Link { .. } | PTag::Image { .. }
+        ),
+        Event::End(tag) => matches!(
+            tag,
+            TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link | TagEnd::Image
+        ),
+        _ => false,
+    }
+}
+
+/// The first line of a run holding only tags, which CommonMark reads as inline
+/// HTML, made a type 7 block start: a blank line above it where text precedes
+/// it in the run, and one tag per line. The block runs to the run's end, as
+/// though a type 7 tag could interrupt a paragraph. A line carrying the run's
+/// quote markers is written inside the run's containers; a lazy one keeps its
+/// own prefix and leaves the quotes it lacks, as the blank line above it does.
+/// A heading's first line is never a tag line.
+fn run_tag_line_edits(src: &str, run: &Run) -> Option<Edit> {
+    let first = SrcLine::at(src, run.start);
+    let quotes = |p: &str| p.bytes().filter(|&b| b == b'>').count();
+    let mut seen = None;
+    for &at in &run.tags {
+        let line = SrcLine::at(src, at);
+        if seen == Some(line.start) {
+            continue;
+        }
+        seen = Some(line.start);
+        let opens = line.start == first.start;
+        let leads = if opens {
+            at == run.start && !run.heading
+        } else {
+            line.prefix.bytes().all(|b| matches!(b, b'>' | b' ' | b'\t'))
+        };
+        let Some(tags) = html::tag_line(line.content).filter(|_| leads) else {
+            continue;
+        };
+        let cont = if quotes(line.prefix) == quotes(first.prefix) {
+            continuation_of(first.prefix)
+        } else {
+            line.prefix.to_string()
+        };
+        let split: Vec<&str> = tags.iter().map(|t| &line.content[t.span.clone()]).collect();
+        let split = split.join(&format!("\n{}", continuation_of(&cont)));
+        let with = if opens {
+            format!("{}{split}", line.prefix)
+        } else {
+            format!("{}\n{cont}{split}", blank_of(line.prefix))
+        };
+        let range = line.start..line.end();
+        return (with != src[range.clone()]).then_some(Edit {
+            range,
+            with,
+            footnote: false,
+        });
+    }
+    None
 }
 
 fn tag_row_edits(src: &str, rows: &[SrcLine]) -> Vec<Edit> {

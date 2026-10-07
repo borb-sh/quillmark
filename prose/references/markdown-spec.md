@@ -385,9 +385,18 @@ else an HTML block holds depends on its type:
 Inside a type 6 or 7 block, a line opening a type 1–5 block or a fence keeps
 that construct whole where it closes inside the block, and drops with the rest
 of the block where it does not, so nothing in a block swallows what follows it.
-A pipe-table row holding only tags ends the table rather than adding a row. The
-allowlist is inline: `<u>` or `<br>` alone on its line is a tag line like any
-other. An import reports each dropped opening tag by name, under
+A line holding only tags is a tag line wherever it stands outside code:
+
+- Under a paragraph's text, where CommonMark reads it as inline HTML (a type 7
+  tag cannot interrupt a paragraph), it ends the paragraph and opens a type 7
+  block running to the paragraph's end, inside the paragraph's containers. A
+  lazy line leaves the quotes it lacks.
+- As a pipe-table row, it ends the table rather than adding a row.
+- Between list items, it keeps the item before it open as a blank line would,
+  so the items on either side stay one list.
+
+The allowlist is inline: `<u>` or `<br>` alone on its line is a tag line like
+any other. An import reports each dropped opening tag by name, under
 `parse::dropped_construct`; a comment and the content of a type 1–5 block
 report nothing.
 
@@ -438,9 +447,8 @@ support may come in a future revision:
 - HTML comments: accepted syntactically, not rendered (see §6.2).
 - `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
   table cell: a hard break. In a paragraph, one with no text before it on its
-  line is dropped; in a heading it is a space. One opening a block — alone on
-  its line after a blank line or at a container's start — is a tag line
-  (§6.2): it drops, and the lines after it import as markdown. Outside a
+  line is dropped; in a heading it is a space. One alone on its line is a tag
+  line (§6.2): it drops, and ends a paragraph it stands under. Outside a
   table, export writes the CommonMark-native hard break (trailing `\\` plus
   newline); inside a cell it writes `<br>`.
 
@@ -472,8 +480,13 @@ Before CommonMark parsing, each body region is normalized:
      it, so the block's other lines reach the markdown parser (§6.2).
    - On a type 1–5 block's last line, text after the end marker moves to a
      line of its own.
+   - A line holding only tags under a paragraph's text gets a blank line above
+     it and one tag per line, opening a type 7 block. A line carrying the
+     paragraph's quote markers is written inside the paragraph's containers.
    - A pipe-table row holding only tags gets a blank line above it, ending the
      table.
+   - A block of tag lines that ends a list item is indented into the item, a
+     blank line between its lines.
    - A link reference definition labelled `^…` has its `[` backslash-escaped.
 
    A blank line written inside a container carries the container's `>`
