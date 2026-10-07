@@ -248,7 +248,7 @@ fn test_replace_body_reports_import_error() {
 fn test_overwrite_body_sets_directly() {
     use quillmark_content::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::import::from_markdown("underlined body").unwrap().into_content();
+    let mut content = quillmark_content::import::from_markdown("underlined body").unwrap().content.into_content();
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
     let content = content.into_normalized();
 
@@ -261,7 +261,7 @@ fn test_overwrite_body_sets_directly() {
 fn test_overwrite_field_sets_directly() {
     use quillmark_content::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::import::from_markdown("underlined intro").unwrap().into_content();
+    let mut content = quillmark_content::import::from_markdown("underlined intro").unwrap().content.into_content();
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
     let content = content.into_normalized();
 
@@ -367,7 +367,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_inline() {
 fn test_commit_field_richtext_content_object_reads_back() {
     use quillmark_content::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::import::from_markdown("underlined intro").unwrap().into_content();
+    let mut content = quillmark_content::import::from_markdown("underlined intro").unwrap().content.into_content();
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
     let content = content.into_normalized();
     let json = quillmark_content::serial::to_canonical_value(&content);
@@ -528,7 +528,7 @@ fn test_revise_body_returns_delta_and_updates_body() {
 fn test_revise_body_rebases_anchor() {
     use quillmark_content::model::{Mark, MarkKind};
 
-    let mut base = quillmark_content::import::from_markdown("keep the target word").unwrap().into_content();
+    let mut base = quillmark_content::import::from_markdown("keep the target word").unwrap().content.into_content();
     // Anchor over "target" (chars 9..15).
     base.marks.push(Mark::new(9, 15, MarkKind::Anchor { id: "c1".into() }));
     let base = base.into_normalized();

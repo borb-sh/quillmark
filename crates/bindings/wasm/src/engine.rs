@@ -1810,7 +1810,7 @@ fn parse_change_bundle(
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Content")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
     let content = quillmark_content::import::from_markdown(markdown)
-        .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
+        .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?.content;
     serialize_or_throw(
         &quillmark_content::serial::to_canonical_value(&content),
         "importMarkdown",
@@ -1837,7 +1837,7 @@ pub fn rebase(
     markdown: &str,
 ) -> Result<JsValue, JsValue> {
     let base = js_to_content(base, "rebase")?;
-    let (content, delta) = quillmark_content::delta::diff_import(&base, markdown)
+    let (content, delta, _) = quillmark_content::delta::diff_import(&base, markdown)
         .map_err(|e| WasmError::from(format!("rebase: {e}")).to_js_value())?;
     let out = serde_json::json!({
         "content": quillmark_content::serial::to_canonical_value(&content),

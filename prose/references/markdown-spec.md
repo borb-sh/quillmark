@@ -4,7 +4,7 @@
 > **Base**: [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)
 > **Implementation**: `crates/core/src/document/`
 
-Quillmark Markdown is a **strict superset of CommonMark** with two declared
+Quillmark Markdown is a **strict superset of CommonMark** with three declared
 deviations (§6.2). It layers a structured-data system (the **card-yaml**
 format) on top of ordinary markdown, and selects a small, stable set of GFM
 extensions.
@@ -13,10 +13,11 @@ This document is the authoritative syntax standard.
 ## 1. Superset Statement
 
 Every valid CommonMark 0.31.2 document parses to the same block / inline
-structure under this spec, *except* for the two deviations declared in §6.2:
-raw HTML, and a column-zero `~~~` block with a blank line above it, which is a
-card-yaml block rather than a fenced code block whatever its info string (§3.2;
-an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
+structure under this spec, *except* for the three deviations declared in §6.2:
+raw HTML, a link reference definition labelled `^…`, and a column-zero `~~~`
+block with a blank line above it, which is a card-yaml block rather than a
+fenced code block whatever its info string (§3.2; an indented `~~~` is not a
+card-yaml opener). Additionally, this spec defines:
 
 - **Structured data**: card-yaml blocks (§3).
 - **Extensions**: strikethrough, pipe tables, and `<u>` for underline
@@ -371,15 +372,37 @@ Body regions (the root body and every card body) are rendered as CommonMark
 
 ### 6.2 Declared Deviations from CommonMark
 
-**Raw HTML is accepted syntactically but produces no output, except
-`<u>…</u>`, which renders as underline, and an inline `<br>`, which is a
-hard break.** The parser recognises HTML per CommonMark §4.6 / §6.11,
-discards every event, and re-emits only the `<u>` wrapper and the `<br>`
-break. Rationale: Typst has no HTML renderer, and arbitrary passthrough
-would create an injection vector for downstream HTML-producing tooling;
-`<u>` is an exception because no CommonMark-native syntax covers
-underline, and `<br>` because a pipe-table row is one source line, with no
-room for a native hard break.
+**Raw HTML produces no output of its own, except an inline `<u>…</u>`, which
+renders as underline, and an inline `<br>`, which is a hard break.** The parser
+recognises HTML per CommonMark §4.6 / §6.6 and discards the HTML itself. What
+else an HTML block holds depends on its type:
+
+| HTML block (CommonMark §4.6) | What imports |
+|---|---|
+| Type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<quill-keep>` | Everything but the tags. Each line holding only tags drops, and every other line parses as markdown, as though a blank line stood above and below each tag line; a line opening with a type-6 tag keeps the text after it. |
+| Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after its end marker (`-->`, `?>`, `>`, `]]>`, the closing tag) on its last line is a paragraph of its own. |
+
+Inside a type 6 or 7 block, a line opening a type 1–5 block or a fence keeps
+that construct whole where it closes inside the block, and drops with the rest
+of the block where it does not, so nothing in a block swallows what follows it.
+A pipe-table row holding only tags ends the table rather than adding a row. The
+allowlist is inline: `<u>` or `<br>` alone on its line is a tag line like any
+other. An import reports each dropped opening tag by name; a comment and the
+content of a type 1–5 block report nothing.
+
+Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
+an injection vector for downstream HTML-producing tooling; `<u>` is an
+exception because no CommonMark-native syntax covers underline, and `<br>`
+because a pipe-table row is one source line, with no room for a native hard
+break. A tag line is transparent because authors write one around markdown
+(`<div align="center">` above a table), and CommonMark runs a type 6 or 7 block
+to the next blank line, which would drop the markdown with the tag.
+
+**A link reference definition whose label starts with `^` is literal text**,
+and so is every reference to its label: `[^1]: Word` imports as the text
+`[^1]: Word`, and `text[^1]` as `text[^1]`. CommonMark reads the line as a
+definition, making `[^1]` a link to `Word`; the syntax is the footnote of other
+dialects, which this spec does not support (§6.3).
 
 **A column-zero `~~~` with a blank line above it opens a card-yaml block,
 not a fenced code block, whatever its info string** (§3.2, §4). A backtick
@@ -404,16 +427,21 @@ support may come in a future revision:
   across the versions its `$quill` selector admits and declares every other
   thing it references, so a path into one quill's file tree is not a binding a
   document may take.
-- Math (`$…$`, `$$…$$`), footnotes, task lists, definition lists: not
-  supported. In markdown body text `$` is literal; inside a `~~~` card-yaml
-  payload `$` is reserved as the prefix for system-metadata keys (§3.3).
+- Math (`$…$`, `$$…$$`), task lists, definition lists: not supported; each
+  imports as the literal text it is. In markdown body text `$` is literal;
+  inside a `~~~` card-yaml payload `$` is reserved as the prefix for
+  system-metadata keys (§3.3).
+- Footnotes: not supported. A footnote-shaped definition (`[^1]: Word`) and its
+  references import as literal text (§6.2), and the import reports each
+  definition.
 - HTML comments: accepted syntactically, not rendered (see §6.2).
 - `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
   table cell: a hard break. In a paragraph, one with no text before it on its
-  line is dropped; in a heading it is a space; on a line of its own it is an
-  HTML block and drops whole. Outside a table, export writes the
-  CommonMark-native hard break (trailing `\\` plus newline); inside a cell it
-  writes `<br>`.
+  line is dropped; in a heading it is a space. One opening a block — alone on
+  its line after a blank line or at a container's start — is a tag line
+  (§6.2): it drops, and the lines after it import as markdown. Outside a
+  table, export writes the CommonMark-native hard break (trailing `\\` plus
+  newline); inside a cell it writes `<br>`.
 
 ## 7. Input Normalization
 
@@ -435,10 +463,22 @@ Before CommonMark parsing, each body region is normalized:
    text after one is read as a block marker the author never wrote and two
    in a row split the paragraph. All five are Unicode whitespace, so a
    space keeps the words they part apart.
-4. **HTML comment fence repair.** If `-->` is followed by non-whitespace
-   text on the same line, insert a newline after `-->` so the trailing
-   text reaches the paragraph parser instead of being consumed by the
-   CommonMark HTML-block rule (type 2).
+4. **Parser-guided repair.** The text is parsed, edited inside the spans that
+   parse locates, and parsed again; text in a fenced or indented code block is
+   never edited.
+   - In a type 6 or 7 HTML block, each line holding only tags gets a blank
+     line above and below, and a line opening with a type-6 tag splits after
+     it, so the block's other lines reach the markdown parser (§6.2).
+   - On a type 1–5 block's last line, text after the end marker moves to a
+     line of its own.
+   - A pipe-table row holding only tags gets a blank line above it, ending the
+     table.
+   - A link reference definition labelled `^…` has its `[` backslash-escaped.
+
+   A blank line written inside a container carries the container's `>`
+   markers, and one closes freed text the next line would otherwise continue
+   lazily. A freed line opening a container that holds an HTML block of its
+   own (`> <div>`) is repaired by a further round.
 
 Normalization is applied identically to the root body and every card
 body. It is not applied to YAML payload values.

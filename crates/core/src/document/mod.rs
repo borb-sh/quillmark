@@ -17,7 +17,7 @@ pub(crate) fn import_body(md: &str) -> Result<Normalized, ImportError> {
     if md.is_empty() {
         Ok(Normalized::empty())
     } else {
-        import_markdown(md)
+        import_markdown(md).map(|imported| imported.content)
     }
 }
 

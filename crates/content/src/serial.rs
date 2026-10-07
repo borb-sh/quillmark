@@ -1740,7 +1740,7 @@ mod tests {
         assert_eq!(rt.marks, vec![Mark::new(4, 8, MarkKind::Strong)]);
 
         let md = crate::export::to_markdown(&rt);
-        let back = crate::import::from_markdown(&md).expect("re-imports");
+        let back = crate::import::from_markdown(&md).expect("re-imports").content;
         assert_eq!(back, rt, "{md:?}");
     }
 

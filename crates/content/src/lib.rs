@@ -10,6 +10,7 @@
 
 pub mod delta;
 pub mod export;
+mod html;
 pub mod import;
 pub mod island;
 pub mod model;

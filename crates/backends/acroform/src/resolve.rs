@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn richtext_content_lowers_to_plaintext() {
         let rt =
-            quillmark_content::import::from_markdown("A **bold** claim.\n\nSecond line.").unwrap();
+            quillmark_content::import::from_markdown("A **bold** claim.\n\nSecond line.").unwrap().content;
         let content = quillmark_content::serial::to_canonical_value(&rt);
         assert_eq!(
             coerce_text(&content).as_deref(),
@@ -230,7 +230,7 @@ mod tests {
     fn richtext_array_joins_element_plaintext() {
         let el = |md: &str| {
             quillmark_content::serial::to_canonical_value(
-                &quillmark_content::import::from_markdown(md).unwrap(),
+                &quillmark_content::import::from_markdown(md).unwrap().content,
             )
         };
         let arr = Value::Array(vec![el("First **ref**."), el("Second _ref_.")]);
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn a_value_carrying_a_newline_reaches_the_stamp_multiline() {
         let two_paragraphs = quillmark_content::serial::to_canonical_value(
-            &quillmark_content::import::from_markdown("One.\n\nTwo.").unwrap(),
+            &quillmark_content::import::from_markdown("One.\n\nTwo.").unwrap().content,
         );
         let data = json!({
             "bio": two_paragraphs,

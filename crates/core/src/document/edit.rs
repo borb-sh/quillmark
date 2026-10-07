@@ -1119,7 +1119,7 @@ impl Card {
     /// ([`Delta::map_pos`]). An over-nested input returns [`EditError::Import`]
     /// rather than degrading to the empty content.
     pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Delta, EditError> {
-        let (content, delta) =
+        let (content, delta, _) =
             diff_import(self.body(), &body.into()).map_err(EditError::Import)?;
         self.overwrite_body(content);
         Ok(delta)
@@ -1141,7 +1141,9 @@ impl Card {
             Some(Err(e)) => return Err(field_decode(name, &[], Codec::Richtext, e)),
             None => Normalized::empty(),
         };
-        diff_import(&base, &body.into()).map_err(EditError::Import)
+        diff_import(&base, &body.into())
+            .map(|(content, delta, _)| (content, delta))
+            .map_err(EditError::Import)
     }
 
     /// Revise a richtext field from an authored markdown string: the field-level

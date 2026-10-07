@@ -748,7 +748,7 @@ mod tests {
     }
 
     fn content(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown).expect("import");
+        let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
         quillmark_content::serial::to_canonical_value(&rt)
     }
 
@@ -823,7 +823,7 @@ mod tests {
     fn segment_maps_index_the_generated_lib_typ() {
         let meta = meta_from(serde_json::json!({ "properties": { "intro": richtext_field() } }));
         let rt = quillmark_content::import::from_markdown("Hello **bold**.\n\nSecond para.")
-            .expect("import");
+            .expect("import").content;
         let data =
             serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
         let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
