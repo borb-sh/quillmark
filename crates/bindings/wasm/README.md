@@ -228,6 +228,13 @@ In short: persist the `toStored` string, upgrade freely, never downgrade. The
 full design (including how migrations are added) is in
 `prose/canon/DOCUMENT_STORAGE.md`.
 
+### The parity corpus
+
+`parity.json` at the package root is the engine's conformance corpus, one entry
+per construct with its markdown, its canonical stored `content` and the signals
+it raises; a downstream codec that round-trips each `content` through its own
+state pins it to the package version it imports (`prose/canon/PARITY.md`).
+
 ### Cards, seeds, and addresses
 
 To render a form editor, read field definitions from `quill.schema` (walk
