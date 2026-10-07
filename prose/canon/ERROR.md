@@ -134,9 +134,9 @@ families:
   card's under its stored `$kind` as `pathFor` mints it. One on a `$` key or
   inside `$ext` or `$seed`, which have no document address, carries none.
   A body's markdown import adds `parse::dropped_construct`, one per construct
-  it dropped (a raw tag by its lowercase name, or `footnote`) with its
-  `count`, anchored at the body (`main.body`, `cards.<kind>[<i>].body`) after
-  its card's tag warnings.
+  it dropped (a raw tag by its lowercase name, or `footnote_definition`) with
+  its `count`, anchored at the body (`main.body`, `cards.<kind>[<i>].body`)
+  after its card's tag warnings.
 - **`parse::dropped_construct` off a markdown write.** The diagnostic a parse
   adds, minted by `quillmark_core::document::dropped_construct`, also rides
   the write that imported the markdown. A revise returns it on its `Revised`

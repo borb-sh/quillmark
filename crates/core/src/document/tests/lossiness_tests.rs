@@ -162,7 +162,7 @@ fn a_body_import_warns_per_dropped_construct_at_the_body() {
         [
             (serde_json::json!("div"), serde_json::json!(1)),
             (serde_json::json!("span"), serde_json::json!(2)),
-            (serde_json::json!("footnote"), serde_json::json!(1)),
+            (serde_json::json!("footnote_definition"), serde_json::json!(1)),
         ]
     );
     assert!(out

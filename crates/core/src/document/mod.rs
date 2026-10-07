@@ -34,17 +34,17 @@ pub const DROPPED_CONSTRUCT: &str = "parse::dropped_construct";
 
 /// The warning a markdown import owes what it could not carry: `count` of
 /// `construct` dropped from one field, a raw tag by its lowercase name or
-/// `footnote`. It carries no `path`: the caller that knows the field's
-/// address attaches it. Non-fatal: the rest of the markdown imports.
+/// `footnote_definition`. It carries no `path`: the caller that knows the
+/// field's address attaches it. Non-fatal: the rest of the markdown imports.
 pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
     let ImportWarning::DroppedConstruct { construct, count } = warning;
     let message = match (construct.as_str(), count) {
-        ("footnote", 1) => {
+        ("footnote_definition", 1) => {
             "markdown import does not carry footnotes: a footnote-shaped definition in this \
              field reads as literal text"
                 .to_string()
         }
-        ("footnote", n) => format!(
+        ("footnote_definition", n) => format!(
             "markdown import does not carry footnotes: {n} footnote-shaped definitions in \
              this field read as literal text"
         ),

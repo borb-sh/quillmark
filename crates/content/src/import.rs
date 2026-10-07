@@ -73,8 +73,8 @@ impl std::error::Error for ImportError {}
 pub enum ImportWarning {
     /// `count` instances of `construct` dropped: a raw tag by its lowercase
     /// name (`span`, `div`, `quill-keep`), counted at its open or self-closing
-    /// form, or `footnote` for a footnote-shaped definition imported as literal
-    /// text. One entry per construct.
+    /// form, or `footnote_definition` for a footnote-shaped definition
+    /// imported as literal text. One entry per construct.
     DroppedConstruct { construct: String, count: usize },
 }
 
@@ -108,7 +108,7 @@ pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     b.run(&mut fixer)?;
     let mut dropped = fixer.dropped;
     for at in footnotes {
-        dropped.add("footnote", at);
+        dropped.add("footnote_definition", at);
     }
     Ok(Imported {
         content: b.finish().into_normalized(),
@@ -1697,7 +1697,7 @@ mod tests {
         let imported = imp_fixed("[^1]: Word\n\ntext[^1]");
         assert_eq!(imported.content.text, "[^1]: Word\ntext[^1]");
         assert!(imported.content.marks.is_empty());
-        assert_eq!(dropped(&imported), [("footnote", 1)]);
+        assert_eq!(dropped(&imported), [("footnote_definition", 1)]);
 
         let imported = imp_fixed("> [^a]: one\n> [^A]: two\n> [x]: /url\n\nsee [^a] and [x]");
         assert_eq!(imported.content.text, "[^a]: one\n[^A]: two\nsee [^a] and x");
@@ -1705,7 +1705,7 @@ mod tests {
             imported.content.marks,
             [Mark::new(33, 34, MarkKind::Link { url: "/url".into() })]
         );
-        assert_eq!(dropped(&imported), [("footnote", 2)]);
+        assert_eq!(dropped(&imported), [("footnote_definition", 2)]);
     }
 
     /// A tag alone on its line is a block wrapper, whatever its name: the
@@ -1740,7 +1740,7 @@ mod tests {
                 ("img", 1),
                 ("pre", 1),
                 ("quill-keep", 1),
-                ("footnote", 1),
+                ("footnote_definition", 1),
                 ("hr", 1)
             ]
         );
