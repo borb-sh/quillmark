@@ -123,6 +123,12 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
         }
     }
 
+    let validated = quill.validate(&doc);
+    let codes: Value = validated.iter().filter_map(|d| d.code.clone()).collect();
+    if codes != *entry["signals"].get("validate").unwrap_or(&json!([])) {
+        failures.push(format!("validate warns {codes}"));
+    }
+
     match engine.render(
         quill,
         &doc,
@@ -134,10 +140,28 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
             if codes != entry["signals"]["render"] {
                 failures.push(format!("render warns {codes}"));
             }
+            let at_validate = declines(&validated, "validation::declined_construct");
+            let at_render = declines(&result.warnings, "backend::declined_construct");
+            if at_validate != at_render {
+                failures.push(format!(
+                    "validate declines {at_validate:?} where the render declines {at_render:?}"
+                ));
+            }
         }
         Err(e) => failures.push(format!("render fails: {e:?}")),
     }
     failures
+}
+
+fn declines(diags: &[Diagnostic], code: &str) -> BTreeSet<(String, String, String)> {
+    diags
+        .iter()
+        .filter(|d| d.code.as_deref() == Some(code))
+        .map(|d| {
+            let arg = |k: &str| d.args.get(k).map(|v| v.to_string()).unwrap_or_default();
+            (d.path.clone().unwrap_or_default(), arg("construct"), arg("count"))
+        })
+        .collect()
 }
 
 fn canonical(content: &quillmark::Normalized) -> String {

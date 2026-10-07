@@ -254,9 +254,9 @@ pub struct Emission {
     pub markup: String,
     /// One entry per emitted segment, in generation order.
     pub segments: Vec<SegmentMap>,
-    /// Image islands this emission drew nothing for. Counted off `islands`
-    /// rather than off the slots, so an image counts wherever it sits.
-    pub declined_images: usize,
+    /// Each construct this emission drew nothing for, with its count, as
+    /// [`quillmark_core::backend::declined_in`] reads the content.
+    pub declined: Vec<(quillmark_core::quill::BlockConstruct, usize)>,
 }
 
 impl Emission {
@@ -272,11 +272,7 @@ impl Emission {
         Emission {
             markup,
             segments,
-            declined_images: rt
-                .islands
-                .iter()
-                .filter(|i| i.island_type == IslandType::Image)
-                .count(),
+            declined: quillmark_core::backend::declined_in("typst", rt),
         }
     }
 }
@@ -731,8 +727,8 @@ impl<'a> Emit<'a> {
         };
         match isl.island_type {
             // Declined: what a content image's url names is undecided, so this
-            // backend draws none and `Emission::declined_images` counts them
-            // for the warning saying so.
+            // backend draws none and `Emission::declined` counts them for the
+            // warning saying so.
             IslandType::Image => String::new(),
             IslandType::Table => table_markup(&isl.props),
         }
@@ -1051,6 +1047,7 @@ mod tests {
 
     use super::*;
     use quillmark_content::import::from_markdown;
+    use quillmark_core::quill::BlockConstruct;
     use typst::syntax::SyntaxKind;
 
     fn emit(md: &str) -> Emission {
@@ -1892,8 +1889,8 @@ mod tests {
         let ec = emit("before ![alt](assets/logo.svg) after\n\n![x](y.png)");
         assert!(!ec.markup.contains("#image"), "got {:?}", ec.markup);
         assert!(!ec.markup.contains("assets/logo.svg"), "got {:?}", ec.markup);
-        assert_eq!(ec.declined_images, 2);
-        assert_eq!(emit("no images here").declined_images, 0);
+        assert_eq!(ec.declined, vec![(BlockConstruct::Image, 2)]);
+        assert!(emit("no images here").declined.is_empty());
     }
 
     #[test]

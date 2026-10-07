@@ -89,8 +89,10 @@ impl Quillmark {
 
     /// Render `doc` against `quill` in one shot: [`open`](Self::open) +
     /// [`LiveSession::render`], with every [`Quill::validate`] warning ahead of
-    /// the compile's in the result's `warnings`. A session's warnings are the
-    /// compile's alone. An unset `output_format` falls back to the backend's
+    /// the compile's in the result's `warnings`, less
+    /// `validation::declined_construct`, which the compile reports itself as
+    /// `backend::declined_construct`. A session's warnings are the compile's
+    /// alone. An unset `output_format` falls back to the backend's
     /// first supported format.
     pub fn render(
         &self,
@@ -109,7 +111,10 @@ impl Quillmark {
         let unclaimed = quill
             .validate(doc)
             .into_iter()
-            .filter(|d| d.severity == Severity::Warning);
+            .filter(|d| {
+                d.severity == Severity::Warning
+                    && d.code.as_deref() != Some("validation::declined_construct")
+            });
         result.warnings.splice(0..0, unclaimed);
         Ok(result)
     }

@@ -90,7 +90,7 @@ fn recompile(
     schema_meta: &SchemaMeta,
     scalar_windows: &[overlay::FieldWindow],
 ) -> Result<Compiled, RenderError> {
-    let (mut windows, declined_images) = world
+    let (mut windows, declined) = world
         .inject_helper_package(data, schema_meta)
         .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
     windows.extend(scalar_windows.iter().cloned());
@@ -107,7 +107,7 @@ fn recompile(
         world,
         compile_warnings,
         &unclosed,
-        &declined_images,
+        &declined,
         &card_kinds(data),
     );
     Ok(Compiled {
@@ -141,31 +141,35 @@ fn card_kinds(data: &serde_json::Value) -> Vec<Option<String>> {
         .unwrap_or_default()
 }
 
-/// One `backend::declined_construct` per content field holding images.
+/// One `backend::declined_construct` per content field and construct this
+/// backend [declines](quillmark_core::backend::declines).
 ///
 /// A field whose plate address does not translate is skipped rather than
 /// anchored loosely: the warning is about *this* field, and an unanchored one
 /// names none.
-fn declined_image_warnings(
-    declined: &world::DeclinedImages,
+fn declined_warnings(
+    declined: &world::Declined,
     card_kinds: &[Option<String>],
 ) -> Vec<Diagnostic> {
     let kinds: Vec<Option<&str>> = card_kinds.iter().map(|k| k.as_deref()).collect();
     declined
         .iter()
-        .filter_map(|(addr, count)| {
+        .filter_map(|(addr, construct, count)| {
             let path = quillmark_core::region::plate_addr_to_doc_path(addr, &kinds)?;
             let diag = quillmark_core::backend::declined_construct(
                 TypstBackend.id(),
-                BlockConstruct::Image,
+                *construct,
                 *count,
                 &path,
             );
-            Some(diag.with_hint(
-                "what a content image's url names is undecided; a plate draws a \
-                 quill asset with `#image(\"/assets/…\")`"
-                    .to_string(),
-            ))
+            Some(match construct {
+                BlockConstruct::Image => diag.with_hint(
+                    "what a content image's url names is undecided; a plate draws a \
+                     quill asset with `#image(\"/assets/…\")`"
+                        .to_string(),
+                ),
+                _ => diag,
+            })
         })
         .collect()
 }
@@ -176,7 +180,7 @@ fn session_warnings(
     world: &world::QuillWorld,
     compile: Vec<Diagnostic>,
     unclosed: &[(usize, String)],
-    declined_images: &world::DeclinedImages,
+    declined: &world::Declined,
     card_kinds: &[Option<String>],
 ) -> Vec<Diagnostic> {
     let mut all = world.load_warnings().to_vec();
@@ -193,7 +197,7 @@ fn session_warnings(
                 .to_string(),
         )
     }));
-    all.extend(declined_image_warnings(declined_images, card_kinds));
+    all.extend(declined_warnings(declined, card_kinds));
     all
 }
 

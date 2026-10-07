@@ -59,7 +59,7 @@ import meets. The columns:
 | spells | the surface has a form for the construct and reads it back as written |
 | carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor by diff-rebase |
 | honors | the lowering draws it as CONVERT.md maps it |
-| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render under `backend::declined_construct` |
+| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render under `backend::declined_construct`, `validate` under `validation::declined_construct` |
 | refuses | the surface rejects the write |
 | silent: honored | no signal, and none is owed: the outcome is the one the construct asks for |
 | n/a | the surface never meets the construct: past the markdown column, a spelling the import does not store |
@@ -116,7 +116,7 @@ An anchor draws nothing, which is how the lowering honors it, and a cold
 | `island.table.cell.break`: a cell's `\n`, spelled `<br>` | spells | spells | spells | honors | n/a | silent: honored | none |
 | `island.table.props.unnamed`: a props key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | n/a | drops silently | none |
 | `island.table.cell.unnamed`: a cell key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | n/a | drops silently | none |
-| `island.image` | spells | spells | spells | declines with a signal | n/a | drops silently | `backend::declined_construct`, `image` |
+| `island.image` | spells | spells | spells | declines with a signal | n/a | declines with a signal | `backend::declined_construct`, `validation::declined_construct`, `image` |
 
 A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
 mint it without a key the engine does not name.
@@ -164,6 +164,7 @@ matrix row:
 | `typst` | substrings the body's lowering contains, never a whole emission |
 | `signals.import` | `{construct, count}` per `parse::dropped_construct` the import raises, in order |
 | `signals.render` | the codes a one-shot render's warnings carry, in order |
+| `signals.validate` | the codes `Quill::validate` reports, in order; absent is none |
 
 `crates/quillmark/tests/parity.rs` asserts each entry and names every one that
 fails:
@@ -178,6 +179,9 @@ fails:
   contains every `typst` substring.
 - A render through the `table_demo` fixture quill warns exactly
   `signals.render`.
+- `Quill::validate` on that document reports exactly `signals.validate`, and
+  its `validation::declined_construct` set (path, construct, count) is the
+  render's `backend::declined_construct` set.
 
 A row whose construct the import does not store still has its `typst`: what the
 markup wrapped reaches the page.

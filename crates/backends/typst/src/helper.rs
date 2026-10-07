@@ -38,8 +38,8 @@ pub struct ContentMap {
     pub path: String,
     pub block: Range<usize>,
     pub segments: Vec<SegmentMap>,
-    /// [`Emission::declined_images`] for this block.
-    pub declined_images: usize,
+    /// [`Emission::declined`] for this block.
+    pub declined: Vec<(quillmark_core::quill::BlockConstruct, usize)>,
 }
 
 /// The source plus each content block's [`ContentMap`]. `Err` only when a
@@ -93,21 +93,21 @@ pub fn generate_lib_typ(
     let mut windows: Vec<ContentMap> = cg
         .windows
         .into_iter()
-        .map(|(path, block, segments, declined_images)| ContentMap {
+        .map(|(path, block, segments, declined)| ContentMap {
             path,
             block: (block.start + blocks_at)..(block.end + blocks_at),
             segments: segments
                 .into_iter()
                 .map(|s| rebase_segment(s, blocks_at))
                 .collect(),
-            declined_images,
+            declined,
         })
         .collect();
     windows.extend(data_literal.windows.into_iter().map(|(path, block)| ContentMap {
         path,
         block: (block.start + data_at)..(block.end + data_at),
         segments: Vec::new(),
-        declined_images: 0,
+        declined: Vec::new(),
     }));
     Ok((out, windows))
 }
@@ -125,7 +125,7 @@ fn rebase_segment(mut s: SegmentMap, shift: usize) -> SegmentMap {
 struct Codegen<'m> {
     meta: &'m SchemaMeta,
     blocks: String,
-    windows: Vec<(String, Range<usize>, Vec<SegmentMap>, usize)>,
+    windows: Vec<(String, Range<usize>, Vec<SegmentMap>, Vec<(quillmark_core::quill::BlockConstruct, usize)>)>,
     counter: usize,
     emit_error: Option<EmitError>,
     /// `(schema address, block binding)` per present date. Backs `_qm-display`.
@@ -151,7 +151,7 @@ impl<'m> Codegen<'m> {
     fn content_block(&mut self, path: &str, ec: Emission) -> String {
         let id = format!("_qm_c{}", self.counter);
         self.counter += 1;
-        let declined_images = ec.declined_images;
+        let declined = ec.declined;
         self.blocks.push_str("#let ");
         self.blocks.push_str(&id);
         self.blocks.push_str(" = ");
@@ -170,7 +170,7 @@ impl<'m> Codegen<'m> {
             .map(|s| rebase_segment(s, markup_at))
             .collect();
         self.windows
-            .push((path.to_string(), start..end, segments, declined_images));
+            .push((path.to_string(), start..end, segments, declined));
         id
     }
 
@@ -192,7 +192,7 @@ impl<'m> Codegen<'m> {
         let text_end = self.blocks.len();
         self.blocks.push('\n');
         self.windows
-            .push((path.to_string(), text_start..text_end, Vec::new(), 0));
+            .push((path.to_string(), text_start..text_end, Vec::new(), Vec::new()));
         self.display.push((path.to_string(), id.clone()));
         id
     }

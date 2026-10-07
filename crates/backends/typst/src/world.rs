@@ -16,9 +16,9 @@ use quillmark_core::{
     quill::{CalendarDate, Quill},
 };
 
-/// One `(plate address, count)` per content field holding image islands, which
+/// One `(plate address, construct, count)` per content field and construct
 /// this backend draws nothing for.
-pub(crate) type DeclinedImages = Vec<(String, usize)>;
+pub(crate) type Declined = Vec<(String, quillmark_core::quill::BlockConstruct, usize)>;
 
 /// One shape for assets and package files alike, so a consumer routing on the
 /// code need not know which.
@@ -258,19 +258,18 @@ impl QuillWorld {
     /// `typst.toml` is constant and set once at construction. Returns each
     /// generated content block's byte window, paired with the helper file's id
     /// (the span scan's classification table), beside this injection's
-    /// [`DeclinedImages`].
+    /// [`Declined`].
     pub(crate) fn inject_helper_package(
         &mut self,
         data: &serde_json::Value,
         meta: &crate::SchemaMeta,
-    ) -> Result<(Vec<crate::overlay::FieldWindow>, DeclinedImages), crate::emit::EmitError> {
+    ) -> Result<(Vec<crate::overlay::FieldWindow>, Declined), crate::emit::EmitError> {
         let file = Self::helper_fid("lib.typ");
         let (src, windows) = helper::generate_lib_typ(data, meta)?;
         self.set_source(file, &src);
         let declined = windows
             .iter()
-            .filter(|w| w.declined_images > 0)
-            .map(|w| (w.path.clone(), w.declined_images))
+            .flat_map(|w| w.declined.iter().map(|&(c, n)| (w.path.clone(), c, n)))
             .collect();
         let windows = windows
             .into_iter()

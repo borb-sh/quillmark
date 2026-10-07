@@ -981,6 +981,9 @@
       "import": [],
       "render": [
         "backend::declined_construct"
+      ],
+      "validate": [
+        "validation::declined_construct"
       ]
     }
   },

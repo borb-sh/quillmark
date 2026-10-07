@@ -46,8 +46,8 @@ pub struct UiFieldSchema {
 }
 
 /// A block construct a body can hold, and the vocabulary
-/// [`backend::declined_construct`](crate::backend::declined_construct) names one
-/// in: the block kinds the content model distinguishes, minus the paragraph,
+/// [`backend::declined_construct`](crate::backend::declined_construct) and
+/// `validation::declined_construct` name one in: the block kinds the content model distinguishes, minus the paragraph,
 /// which is the floor and cannot be declined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -62,6 +62,46 @@ pub enum BlockConstruct {
 }
 
 impl BlockConstruct {
+    pub const ALL: &'static [BlockConstruct] = &[
+        Self::Heading,
+        Self::Rule,
+        Self::Code,
+        Self::List,
+        Self::Quote,
+        Self::Table,
+        Self::Image,
+    ];
+
+    /// How many of this construct `content` holds: a heading, rule or code
+    /// block per block, a list or quote per container run at any depth, a
+    /// table or image per island.
+    pub fn count_in(self, content: &quillmark_content::model::Content) -> usize {
+        use quillmark_content::island::IslandType;
+        use quillmark_content::model::{Container, LineKind};
+        let blocks = |is: fn(&LineKind) -> bool| {
+            content
+                .lines
+                .iter()
+                .filter(|l| is(&l.kind) && !l.continues)
+                .count()
+        };
+        let islands = |ty: IslandType| content.islands.iter().filter(|i| i.island_type == ty).count();
+        let all = 0..content.lines.len();
+        match self {
+            Self::Heading => blocks(|k| matches!(k, LineKind::Heading { .. })),
+            Self::Rule => blocks(|k| matches!(k, LineKind::Rule)),
+            Self::Code => blocks(|k| matches!(k, LineKind::Code { .. })),
+            Self::List => container_runs(&content.lines, all, 0, &|c| {
+                matches!(c, Container::ListItem { .. })
+            }),
+            Self::Quote => container_runs(&content.lines, all, 0, &|c| {
+                matches!(c, Container::Quote { .. })
+            }),
+            Self::Table => islands(IslandType::Table),
+            Self::Image => islands(IslandType::Image),
+        }
+    }
+
     /// The value that rides `backend::declined_construct`'s `construct` arg.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -74,6 +114,23 @@ impl BlockConstruct {
             Self::Image => "image",
         }
     }
+}
+
+fn container_runs(
+    lines: &[quillmark_content::model::Line],
+    range: std::ops::Range<usize>,
+    depth: usize,
+    want: &dyn Fn(&quillmark_content::model::Container) -> bool,
+) -> usize {
+    use quillmark_content::traverse::{items, runs};
+    runs(lines, range, depth)
+        .map(|run| {
+            usize::from(want(run.container))
+                + items(lines, run.range, depth)
+                    .map(|item| container_runs(lines, item.range, depth + 1, want))
+                    .sum::<usize>()
+        })
+        .sum()
 }
 
 impl std::fmt::Display for BlockConstruct {

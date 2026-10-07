@@ -1,7 +1,7 @@
 //! Backend trait for output backends.
 
 use crate::error::RenderError;
-use crate::quill::{CalendarDate, Quill};
+use crate::quill::{BlockConstruct, CalendarDate, Quill};
 use crate::{session::LiveSession, types::OutputFormat};
 
 /// Backend trait for rendering different output formats.
@@ -46,6 +46,27 @@ pub fn unsupported_format(format: OutputFormat, backend: &str, supported: &[Outp
 /// The diagnostic code a backend's own declined construct rides.
 pub const DECLINED_CONSTRUCT: &str = "backend::declined_construct";
 
+/// The constructs the backend `id` typesets nothing for: the one table a
+/// backend's render and [`Quill::validate`] both read, so the two cannot
+/// disagree. An id the table does not name declines nothing.
+pub fn declines(id: &str) -> &'static [BlockConstruct] {
+    match id {
+        "typst" => &[BlockConstruct::Image],
+        "acroform" => BlockConstruct::ALL,
+        _ => &[],
+    }
+}
+
+/// Each construct the backend `id` [`declines`] that `content` holds, with its
+/// count, in [`BlockConstruct`] order.
+pub fn declined_in(id: &str, content: &crate::Content) -> Vec<(BlockConstruct, usize)> {
+    declines(id)
+        .iter()
+        .map(|&c| (c, c.count_in(content)))
+        .filter(|&(_, n)| n > 0)
+        .collect()
+}
+
 /// The warning a backend owes a content field holding a construct it typesets
 /// nothing for: `count` of `construct` in the field `path` anchors, from
 /// `backend`. One diagnostic per (field, construct), so a producer that sees
@@ -76,8 +97,7 @@ pub fn declined_construct(
 
 /// English enough for the engine's own sentence; a consumer wording this
 /// itself reads `construct` and `count` off `args` instead.
-fn plural(construct: crate::quill::BlockConstruct, count: usize) -> String {
-    use crate::quill::BlockConstruct;
+pub(crate) fn plural(construct: BlockConstruct, count: usize) -> String {
     let name = match construct {
         BlockConstruct::Heading => "heading",
         BlockConstruct::Rule => "horizontal rule",
