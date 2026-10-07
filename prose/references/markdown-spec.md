@@ -396,9 +396,9 @@ A line holding only tags is a tag line wherever it stands outside code:
   so the items on either side stay one list.
 
 The allowlist is inline: `<u>` or `<br>` alone on its line is a tag line like
-any other. An import reports each dropped opening tag by name, under
-`parse::dropped_construct`; a comment, the content of a type 1–5 block and
-`quill-anchor` (§6.4) report nothing.
+any other. An import reports each dropped opening tag by its lowercase name,
+under `parse::dropped_construct`; a closing tag, a comment, the content of a
+type 1–5 block and `quill-anchor` (§6.4) report nothing.
 
 Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
 an injection vector for downstream HTML-producing tooling; `<u>` is an
@@ -509,9 +509,9 @@ wraps imports, and `parse::dropped_construct` reports it under its tag name
 (`quill-keep`), as any raw tag (§6.2). Every element but `anchor` is one. A
 `quill-*` tag outside the grammar is a raw tag reported the same way.
 
-**`quill-anchor`** is reserved for the read-only anchor spelling a later
-release writes, `<quill-anchor ref="…"></quill-anchor>`. Import drops it
-without a report, inline or alone on its line.
+**`quill-anchor`** is reserved for an anchor's read-only spelling,
+`<quill-anchor ref="…"></quill-anchor>`, which no export writes. Import drops
+it without a report, inline or alone on its line.
 
 **Strip.** Stripping the carrier from a markdown string removes every `quill-*`
 tag the import drops as markup and keeps what a wrapper holds; a tag in a code
