@@ -95,8 +95,9 @@ const TAG_JOIN_LINES: usize = 8;
 /// round parses and edits only inside the spans that parse located, so a fence
 /// is never touched; the rounds end at one that plans no edit. Where a line
 /// inside a type 6 or 7 block opens a type 1–5 block or a fence that does not
-/// close inside it, that line and the rest of the block are deleted: they
-/// dropped before, and freed they would swallow what follows the block.
+/// close inside it, that line and the rest of the block are deleted: the
+/// unrepaired parse drops them with the block, and freed they would swallow
+/// what follows it.
 fn repair(mut text: String, options: Options) -> Repaired {
     let mut footnotes = Vec::new();
     if !may_need_repair(&text) {
@@ -582,7 +583,8 @@ fn transparent(lines: &[SrcLine]) -> Rows {
                         frag = lines[j].content[end..].trim_start();
                     } else if html::block_start(t) == Some(BlockKind::BlockName) {
                         // Its block runs to the blank line padding the next
-                        // tag line, as it ran to the block's end before.
+                        // tag line, as the unrepaired parse runs it to the
+                        // block's end.
                         let to = (i + 1..lines.len())
                             .find(|&j| matches!(classify(lines[j].content.trim_start()), Piece::Tags))
                             .unwrap_or(lines.len());

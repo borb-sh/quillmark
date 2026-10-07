@@ -82,7 +82,7 @@ pub enum ImportWarning {
 /// A markdown import: the content, and what the markdown spelled that it
 /// could not carry, in order of each construct's first occurrence.
 #[derive(Debug, Clone, PartialEq)]
-#[must_use]
+#[must_use = "carries the import's warnings; read `.warnings` or bind it"]
 pub struct Imported {
     pub content: Normalized,
     pub warnings: Vec<ImportWarning>,
@@ -97,10 +97,10 @@ pub(crate) fn options() -> Options {
 }
 
 /// Import markdown into a normalized, validated [`Content`], with an
-/// [`ImportWarning`] per construct it dropped. HTML comments and the content
-/// of a `<pre>`, `<script>`, `<style>` or `<textarea>` block drop silently, as
-/// does a `quill-anchor` tag; the block's opening tag counts, and a closing tag
-/// never does.
+/// [`ImportWarning`] per construct it dropped. A comment, the content of a type
+/// 1–5 HTML block and a `quill-anchor` tag drop silently; a `<pre>`,
+/// `<script>`, `<style>` or `<textarea>` block's opening tag counts, and a
+/// closing tag never does.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let options = options();
     let Repaired { text, footnotes } = normalize_markdown(markdown, options);
