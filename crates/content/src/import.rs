@@ -98,7 +98,8 @@ pub(crate) fn options() -> Options {
 /// Import markdown into a normalized, validated [`Content`], with an
 /// [`ImportWarning`] per construct it dropped. HTML comments and the content
 /// of a `<pre>`, `<script>`, `<style>` or `<textarea>` block drop silently, as
-/// does a `quill-anchor` tag; a closing tag is never counted.
+/// does a `quill-anchor` tag; the block's opening tag counts, and a closing tag
+/// never does.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let options = options();
     let Repaired { text, footnotes } = normalize_markdown(markdown, options);
@@ -946,8 +947,8 @@ where
     }
 
     /// Consume an HTML block through its end, counting the tags of a type 6 or
-    /// 7 block; a type 1–5 block's content is not markup to count. Only the
-    /// block's end reaches the builder.
+    /// 7 block and the opening tag of a type 1 block; a type 1–5 block's content
+    /// is not markup to count. Only the block's end reaches the builder.
     fn drop_html_block(&mut self, at: usize) {
         let mut text = String::new();
         for (event, _) in self.inner.by_ref() {
@@ -958,8 +959,15 @@ where
             }
         }
         let first = text.lines().next().unwrap_or("");
-        if html::block_start(first).is_some_and(|k| k.end_marker().is_some()) {
-            return;
+        match html::block_start(first) {
+            Some(html::BlockKind::Verbatim(_)) => {
+                if let Some(tag) = text.find('<').and_then(|i| html::tag_at(&text, i)) {
+                    self.dropped.tag(&tag, at);
+                }
+                return;
+            }
+            Some(kind) if kind.end_marker().is_some() => return,
+            _ => {}
         }
         let mut i = 0;
         while let Some(off) = text[i..].find('<') {
@@ -1726,7 +1734,15 @@ mod tests {
         let imported = imp_fixed(md);
         assert_eq!(
             dropped(&imported),
-            [("div", 1), ("span", 3), ("img", 1), ("quill-keep", 1), ("footnote", 1), ("hr", 1)]
+            [
+                ("div", 1),
+                ("span", 3),
+                ("img", 1),
+                ("pre", 1),
+                ("quill-keep", 1),
+                ("footnote", 1),
+                ("hr", 1)
+            ]
         );
         assert!(imp_fixed("plain **text**, `<code>`, \\<escaped>").warnings.is_empty());
     }
