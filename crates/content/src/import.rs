@@ -438,7 +438,10 @@ impl Builder {
                     self.ensure_open(LineKind::Para);
                     self.inline.push_code(&t);
                 }
-                Event::Rule => self.open_line(LineKind::Rule, false),
+                Event::Rule => {
+                    self.open_line(LineKind::Rule, false);
+                    self.rearm_item();
+                }
                 Event::SoftBreak => self.push_inline(" "),
                 Event::HardBreak => {
                     // A break with no text before it on its line is dropped:
@@ -601,9 +604,11 @@ impl Builder {
                 }
                 self.in_code = false;
                 self.code_lang = None;
+                self.rearm_item();
             }
             TagEnd::List(_) => {
                 self.list_stack.pop();
+                self.rearm_item();
             }
             TagEnd::Item => {
                 let mark = self.container_marks.pop().unwrap_or(0);
@@ -612,13 +617,27 @@ impl Builder {
             TagEnd::BlockQuote(_) => {
                 let mark = self.container_marks.pop().unwrap_or(0);
                 self.close_container(mark);
+                self.rearm_item();
             }
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link => {
                 self.close_mark()
             }
             // A block that produced no inline content still gets its line.
-            TagEnd::Heading(_) | TagEnd::Paragraph => self.flush_empty_block(),
+            TagEnd::Heading(_) | TagEnd::Paragraph => {
+                self.flush_empty_block();
+                self.rearm_item();
+            }
+            TagEnd::HtmlBlock => self.rearm_item(),
             _ => {}
+        }
+    }
+
+    /// A tight list item's inline content arrives with no `Paragraph` start to
+    /// arm its line, so after a block nested in the item the next text must be
+    /// armed here or it joins that block's last line.
+    fn rearm_item(&mut self) {
+        if matches!(self.containers.last(), Some(Container::ListItem { .. })) {
+            self.pending = Some((LineKind::Para, false));
         }
     }
 
@@ -754,6 +773,7 @@ impl Builder {
                 "rows": acc.rows,
             });
             self.mint_island(IslandType::Table, props);
+            self.rearm_item();
         }
     }
 
@@ -1391,6 +1411,25 @@ mod tests {
         assert_eq!(rt.lines[0].kind, LineKind::Heading { level: 2 });
         assert_eq!(rt.lines[1].kind, LineKind::Para);
         assert!(!rt.lines[1].continues, "separate block, not a continuation");
+    }
+
+    /// A tight item's text arrives with no `Paragraph` start, so text after a
+    /// block nested in the item opens a line of its own rather than joining
+    /// that block's last line.
+    #[test]
+    fn text_after_a_block_nested_in_a_tight_item_opens_its_own_line() {
+        for (md, text) in [
+            ("- item\n  ```\n  code\n  ```\n  after", "item\ncode\nafter"),
+            ("- item\n  > # head\n  after", "item\nhead\nafter"),
+            ("- item\n  <!-- c -->\n  after", "item\nafter"),
+            ("- item\n  ***\n  after", "item\n\nafter"),
+        ] {
+            let rt = imp(md);
+            assert_eq!(rt.text, text, "{md:?}");
+            let last = rt.lines.last().unwrap();
+            assert_eq!((&last.kind, last.containers.len()), (&LineKind::Para, 1), "{md:?}");
+            assert_eq!(imp(&crate::export::to_markdown(&rt)), rt, "{md:?}");
+        }
     }
 
     #[test]
