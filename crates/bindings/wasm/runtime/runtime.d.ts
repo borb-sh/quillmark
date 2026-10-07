@@ -140,6 +140,7 @@ export type {
 	CardAddr,
 	Delta,
 	Revised,
+	DocumentRevised,
 	Imported,
 	Assoc,
 	IslandOp,
@@ -593,7 +594,7 @@ declare module '../core/wasm.js' {
 	}
 }
 
-import type { Addr, Content, PathStep, Resolved, Revised } from '../core/wasm.js';
+import type { Addr, Content, DocumentRevised, PathStep, Resolved, Revised } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -641,6 +642,15 @@ export declare class DocumentWriter {
 	 * byte-identical revise of a value carrying escapes is a byte no-op.
 	 */
 	reviseField(name: string, text: string): Revised;
+	/**
+	 * Replace the bound document with `markdown` through
+	 * `Document.reviseDocument`, then conform it, so aligned cards keep their
+	 * anchors and every declared content field lands at rest. Returns the
+	 * `DocumentRevised` receipt, its `warnings` ending with the `conform::*`
+	 * ones. Throws when `markdown` declares a `$quill` this quill does not
+	 * answer to, or does not parse, leaving the document unchanged.
+	 */
+	reviseDocument(markdown: string): DocumentRevised;
 	/**
 	 * Build a composable card of `kind`, typed-commit `fields` onto it, set its
 	 * body from optional markdown, and place it. `at` omitted appends, a number

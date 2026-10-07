@@ -770,6 +770,13 @@ export class DocumentWriter {
 		return this.#doc._reviseField(this.#quill, name, text);
 	}
 	/**
+	 * @param {string} markdown
+	 * @returns {import('../core/wasm.js').DocumentRevised}
+	 */
+	reviseDocument(markdown) {
+		return this.#doc._reviseDocument(this.#quill, markdown);
+	}
+	/**
 	 * @param {string} kind
 	 * @param {Record<string, unknown>} [fields]
 	 * @param {string} [body]

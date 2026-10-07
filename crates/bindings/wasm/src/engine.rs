@@ -361,6 +361,22 @@ export interface Revised {
 }
 
 /**
+ * The receipt of a whole-document revise (`reviseDocument`,
+ * `writer.reviseDocument`). `deltas` holds one text change per revised body or
+ * content field, at its path in the revised document. `droppedAnchors` names
+ * every anchor the write did not carry, at its path in the stored document.
+ * `alignment[i]` is the stored card index composable card `i` revised, `null`
+ * for an inserted card; a stored index it never names was removed. `warnings`
+ * are the parse's and each field import's, then the writer's `conform::*`.
+ */
+export interface DocumentRevised {
+    deltas: { path: string; delta: Delta }[];
+    droppedAnchors: { path: string; id: string }[];
+    alignment: (number | null)[];
+    warnings: Diagnostic[];
+}
+
+/**
  * A markdown import (`importMarkdown`): the canonical `content`, and one
  * `parse::dropped_construct` warning per construct it dropped, with no `path`.
  */
@@ -1459,6 +1475,40 @@ impl Document {
         serialize_or_throw(&RevisedJs::from(revised), "revise")
     }
 
+    /// Replace this document **in place** with `markdown`, keeping what the
+    /// markdown cannot spell where a card aligns: composable cards align to the
+    /// stored ones by `$kind` and text similarity, and each aligned body and
+    /// content field rebases its surviving anchors as `revise` does. Everything
+    /// else lands as written; an omitted `$ext` keeps the stored one on the main
+    /// card, and on a composable card only when the `$kind` sequence is
+    /// unchanged. Schema-free: nothing conforms (`writer.reviseDocument` does).
+    /// Returns the `DocumentRevised` receipt and clears the load's `warnings`.
+    /// Throws on a parse failure, leaving the document unchanged.
+    #[wasm_bindgen(js_name = reviseDocument, unchecked_return_type = "DocumentRevised")]
+    pub fn revise_document(&mut self, markdown: &str) -> Result<JsValue, JsValue> {
+        let revised = self
+            .inner
+            .revise(markdown)
+            .map_err(WasmError::from)
+            .map_err(|e| e.to_js_value())?;
+        self.parse_warnings.clear();
+        serialize_nullable_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
+    }
+
+    /// The ABI under `writer.reviseDocument`: `reviseDocument`, then conform
+    /// against `quill`. Throws when `markdown` declares a `$quill` this quill
+    /// does not answer to, before any mutation.
+    #[wasm_bindgen(js_name = _reviseDocument, skip_typescript, unchecked_return_type = "DocumentRevised")]
+    pub fn revise_document_abi(&mut self, quill: &Quill, markdown: &str) -> Result<JsValue, JsValue> {
+        let revised = quill
+            .inner
+            .writer(&mut self.inner)
+            .revise_document(markdown)
+            .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())?;
+        self.parse_warnings.clear();
+        serialize_nullable_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
+    }
+
     /// Revise the content field at `addr` from authored text, typed *and*
     /// anchor-preserving: the ABI under `writer.reviseField`. Surviving anchors
     /// rebase as in [`revise`](Self::revise), then the diffed result is
@@ -1906,6 +1956,52 @@ impl From<quillmark_core::document::Revised> for RevisedJs {
     fn from(revised: quillmark_core::document::Revised) -> Self {
         RevisedJs {
             delta: revised.delta,
+            warnings: revised.warnings.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DocumentRevisedJs {
+    deltas: Vec<FieldDeltaJs>,
+    dropped_anchors: Vec<DroppedAnchorJs>,
+    alignment: Vec<Option<usize>>,
+    warnings: Vec<Diagnostic>,
+}
+
+#[derive(serde::Serialize)]
+struct FieldDeltaJs {
+    path: String,
+    delta: quillmark_core::session::Delta,
+}
+
+#[derive(serde::Serialize)]
+struct DroppedAnchorJs {
+    path: String,
+    id: String,
+}
+
+impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
+    fn from(revised: quillmark_core::document::DocumentRevised) -> Self {
+        DocumentRevisedJs {
+            deltas: revised
+                .deltas
+                .into_iter()
+                .map(|d| FieldDeltaJs {
+                    path: d.path.to_string(),
+                    delta: d.delta,
+                })
+                .collect(),
+            dropped_anchors: revised
+                .dropped_anchors
+                .into_iter()
+                .map(|d| DroppedAnchorJs {
+                    path: d.path.to_string(),
+                    id: d.id,
+                })
+                .collect(),
+            alignment: revised.alignment,
             warnings: revised.warnings.into_iter().map(Into::into).collect(),
         }
     }
