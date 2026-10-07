@@ -120,4 +120,48 @@ mod tests {
             assert_eq!(props, once, "normalize_props is not a fixed point");
         }
     }
+
+    /// `widths` settles to the column count and its weights' GCD and never
+    /// widens the table; each layout key is absent at its default or when
+    /// invalid.
+    #[test]
+    fn normalize_props_settles_the_layout_keys() {
+        use serde_json::{json, Value};
+        let absent = Value::Null;
+        let cases: &[(Value, &str, Value)] = &[
+            (json!([2, 4, null]), "widths", json!([1, 2, null])),
+            (json!([3, null]), "widths", json!([1, null, null])),
+            (json!([6, 9, 12, 15]), "widths", json!([2, 3, 4])),
+            (json!([null, null, 5]), "widths", json!([null, null, 1])),
+            (json!([null, null, null, 4]), "widths", absent.clone()),
+            (json!([null, null]), "widths", absent.clone()),
+            (json!([]), "widths", absent.clone()),
+            (json!([1, 0, 1]), "widths", absent.clone()),
+            (json!([1, -1, 1]), "widths", absent.clone()),
+            (json!([1, 1.5, 1]), "widths", absent.clone()),
+            (json!([1, "2", 1]), "widths", absent.clone()),
+            (json!("1 2 3"), "widths", absent.clone()),
+            (json!(2), "widths", absent.clone()),
+            (json!("center"), "align", json!("center")),
+            (json!("left"), "align", json!("left")),
+            (json!("right"), "align", json!("right")),
+            (json!("middle"), "align", absent.clone()),
+            (json!(["center"]), "align", absent.clone()),
+            (json!(false), "breakable", json!(false)),
+            (json!(true), "breakable", absent.clone()),
+            (json!("false"), "breakable", absent.clone()),
+            (json!(0), "breakable", absent.clone()),
+        ];
+        for (value, key, settled) in cases {
+            let mut props = json!({"header": ["a", "b", "c"], "rows": [["1", "2", "3"]]});
+            props[*key] = value.clone();
+            IslandType::Table.normalize_props(&mut props);
+            assert_eq!(props.get(*key).unwrap_or(&absent), settled, "{key}: {value}");
+            assert_eq!(props["header"].as_array().unwrap().len(), 3, "{key}: {value}");
+
+            let once = props.clone();
+            IslandType::Table.normalize_props(&mut props);
+            assert_eq!(props, once, "{key}: {value} is not a fixed point");
+        }
+    }
 }
