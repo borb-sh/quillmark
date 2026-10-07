@@ -279,12 +279,20 @@ export interface TableCell {
 }
 
 /** `props` of a `type: "table"` island: a pipe table normalized to one column
- * count that `header`, every row of `rows`, and `aligns` all share. */
+ * count that `header`, every row of `rows`, `aligns` and `widths` all share.
+ * A layout key at its default is absent. */
 export interface TableProps {
     header: TableCell[];
     rows: TableCell[][];
     /** Per-column alignment, one entry per column. */
     aligns: ("none" | "left" | "center" | "right")[];
+    /** Per-column relative weights, divided by their GCD; `null` is an
+     * auto-fit column. Absent when every column is auto-fit. */
+    widths?: (number | null)[];
+    /** The table's placement; absent is the quill's. */
+    align?: "left" | "center" | "right";
+    /** `false` keeps the table on one page; absent is breakable. */
+    breakable?: false;
 }
 
 /** `props` of a `type: "image"` island. Stores and round-trips; no backend
