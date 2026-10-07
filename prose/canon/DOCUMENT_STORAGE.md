@@ -543,6 +543,9 @@ mints none, so a cold export→import loses every anchor. The carrier reserves
 import drops unreported ([markdown-spec.md](../references/markdown-spec.md)
 §6.4). Anchors are edit-lane
 infrastructure: they survive only through diff-rebase (`revise` / `rebase`).
+A whole-document markdown write keeps them through `Document::revise`, which
+aligns cards by `$kind` and text and rebases each aligned body and content
+field; an anchor on a card it cannot align drops, and the receipt names it.
 Non-rendering is a property of review-time metadata, not a gap; a future render
 projection (proof annotations, PDF destinations) would render the referent or a
 position, never the id, so this policy holds either way.
