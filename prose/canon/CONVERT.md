@@ -171,6 +171,10 @@ reads and the shape the WASM boundary pins:
   above); `aligns` is one `none | left | center | right` per column. Import
   normalizes to a single column count: header, every row, and `aligns` padded
   to the widest, so `columns:` and `align:` agree.
+  The optional layout keys `widths`, `align` and `breakable`
+  ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") are
+  not read: the table draws auto-fit, at the quill's placement, and breaks
+  across pages.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. What `url` names is undecided (see [Declined images](#declined-images)).
 

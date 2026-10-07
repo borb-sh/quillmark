@@ -870,6 +870,32 @@ impl PyWriter {
         .map_err(|e| convert_edit_error(e, &target.base))
     }
 
+    /// Replace the bound document with `markdown`, then conform it: composable
+    /// cards align to the stored ones by `$kind` and text, and each aligned
+    /// body and richtext field revises as `revise_body` / `revise_field` do.
+    /// Everything else lands as written; an omitted `$ext` keeps the stored one
+    /// on the main card, and on a composable card only when the `$kind`
+    /// sequence is unchanged. Returns the warnings, the `conform::*` ones last,
+    /// and clears the document's load `warnings`; the receipt's deltas, dropped
+    /// anchors and alignment are discarded. Raises `QuillmarkError` on a parse
+    /// failure or a `$quill` this quill does not answer to, leaving the
+    /// document unchanged.
+    fn revise_document(&self, py: Python<'_>, markdown: &str) -> PyResult<Vec<PyDiagnostic>> {
+        let quill = self.quill.borrow(py);
+        let mut doc = self.doc.borrow_mut(py);
+        let revised = quill
+            .inner
+            .writer(&mut doc.inner)
+            .revise_document(markdown)
+            .map_err(|e| {
+                let diags = e.to_diagnostics();
+                let message = quillmark_core::error::RenderError::summary_message(&diags);
+                raise_with_diagnostics(diags, message)
+            })?;
+        doc.parse_warnings.clear();
+        Ok(py_diagnostics(revised.warnings))
+    }
+
     /// Build a composable card of `kind`, typed-commit `fields` onto it, set its
     /// body from optional markdown, and place it. `at` picks the position: `None`
     /// appends, `Some(i)` inserts at index `i`, and a position out of range

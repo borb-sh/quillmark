@@ -215,6 +215,20 @@ card_kinds:
     expect(Array.isArray(delta.ops)).toBe(true)
   })
 
+  it('reviseDocument revises the whole document, then conforms it', () => {
+    const quill = buildQuill()
+    const doc = quill.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nbody: kept\n~~~\n')
+    const ed = quill.writer(doc)
+    const receipt = ed.reviseDocument(
+      '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nbody: kept\n~~~\n',
+    )
+    expect(receipt.alignment).toEqual([0])
+    expect(receipt.droppedAnchors).toEqual([])
+    expect(fieldOf(doc.main, 'subject')).toHaveProperty('text', 'Q3 results')
+    expect(() => ed.reviseDocument('~~~card-yaml\n$quill: other\n~~~\n')).toThrow()
+    expect(quill.reader(doc).get('subject')).toBe('Q3 **results**')
+  })
+
   it('a bad card index throws at write time, not at card()', () => {
     const ed = buildQuill().writer(blankDoc())
     const cardEd = ed.card(9) // lazy: constructing the CardWriter never throws

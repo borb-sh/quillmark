@@ -793,6 +793,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 ///   zero-width) so equal cells serialize to equal bytes.
 /// - **Arrays where arrays belong.** A present non-array `header`, `aligns`, or
 ///   row carries no cells, so it becomes an empty array.
+/// - **Layout keys absent at their default.** See [`normalize_table_layout`].
 pub(crate) fn normalize_table_props(props: &mut Value) {
     let cols = table_cols(props);
     let Some(obj) = props.as_object_mut() else {
@@ -826,6 +827,51 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
             }
         }
     }
+    normalize_table_layout(obj, cols);
+}
+
+/// A table's layout keys, each absent at its default or when invalid:
+///
+/// - `widths`: one entry per column, each a positive integer weight or `null`
+///   for an auto-fit column, padded with `null` or truncated to `cols` and
+///   reduced by the GCD of its weights. All `null`, or any other entry, is
+///   absent.
+/// - `align`: `left`, `center` or `right`.
+/// - `breakable`: `false`.
+fn normalize_table_layout(obj: &mut Map<String, Value>, cols: usize) {
+    match obj.get("widths").and_then(|w| settle_widths(w, cols)) {
+        Some(w) => obj.insert("widths".into(), w),
+        None => obj.remove("widths"),
+    };
+    if !matches!(obj.get("align").and_then(Value::as_str), Some("left" | "center" | "right")) {
+        obj.remove("align");
+    }
+    if obj.get("breakable") != Some(&Value::Bool(false)) {
+        obj.remove("breakable");
+    }
+}
+
+fn settle_widths(widths: &Value, cols: usize) -> Option<Value> {
+    let mut weights = widths
+        .as_array()?
+        .iter()
+        .map(|w| match w {
+            Value::Null => Some(None),
+            w => w.as_u64().filter(|&n| n > 0).map(Some),
+        })
+        .collect::<Option<Vec<Option<u64>>>>()?;
+    weights.resize(cols, None);
+    let gcd = weights.iter().flatten().fold(0, |a, &b| gcd(a, b));
+    (gcd > 0).then(|| {
+        weights
+            .into_iter()
+            .map(|w| w.map_or(Value::Null, |n| Value::from(n / gcd)))
+            .collect()
+    })
+}
+
+fn gcd(a: u64, b: u64) -> u64 {
+    if b == 0 { a } else { gcd(b, a % b) }
 }
 
 /// A table's canonical column count: the widest of its header, any body row, and

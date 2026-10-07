@@ -334,7 +334,15 @@ pub fn diff_import(
     new_markdown: &str,
 ) -> Result<(Normalized, Delta, Vec<ImportWarning>), crate::import::ImportError> {
     let Imported { content, warnings } = crate::import::from_markdown(new_markdown)?;
-    let mut new_rt = content.into_content();
+    let (content, delta) = rebase_onto(base, content);
+    Ok((content, delta, warnings))
+}
+
+/// [`diff_import`] over a content already imported: diff `new` against `base`
+/// and carry `base`'s surviving non-formatting marks onto it. `new` carries no
+/// anchor of its own, as an import's output does not.
+pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
+    let mut new_rt = new.into_content();
     let delta = diff(&base.text, &new_rt.text);
 
     let base_chars: Vec<char> = base.text.chars().collect();
@@ -355,7 +363,7 @@ pub fn diff_import(
         }
         // else: detached: the accepted residual drop.
     }
-    Ok((new_rt.into_normalized(), delta, warnings))
+    (new_rt.into_normalized(), delta)
 }
 
 /// Rebase one non-formatting mark through the delta. Returns its new range, or

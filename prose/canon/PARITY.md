@@ -59,11 +59,12 @@ import meets. The columns:
 | spells | the surface has a form for the construct and reads it back as written |
 | carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor by diff-rebase |
 | honors | the lowering draws it as CONVERT.md maps it |
-| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render under `backend::declined_construct` |
+| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render under `backend::declined_construct`, `validate` under `validation::declined_construct` |
 | refuses | the surface rejects the write |
 | silent: honored | no signal, and none is owed: the outcome is the one the construct asks for |
 | n/a | the surface never meets the construct: past the markdown column, a spelling the import does not store |
 | drops silently | outside the vocabulary: the surface loses the construct and nothing reports it; in the validate column, the render loses it and `validate` says nothing |
+| inert | the lowering reads no declaration for the key and draws as if it were absent, and `validate` says nothing; borb-sh/quillmark#2083 brings the signal |
 
 ### Lines
 
@@ -116,10 +117,19 @@ An anchor draws nothing, which is how the lowering honors it, and a cold
 | `island.table.cell.break`: a cell's `\n`, spelled `<br>` | spells | spells | spells | honors | n/a | silent: honored | none |
 | `island.table.props.unnamed`: a props key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | n/a | drops silently | none |
 | `island.table.cell.unnamed`: a cell key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | n/a | drops silently | none |
-| `island.image` | spells | spells | spells | declines with a signal | n/a | drops silently | `backend::declined_construct`, `image` |
+| `island.table.props.widths`: column weights, `null` an auto-fit column | spells | spells | spells | inert | n/a | inert | none |
+| `island.table.props.widths.auto`: every column auto-fit, the default | spells | spells | spells | silent: honored | n/a | silent: honored | none |
+| `island.table.props.align`: the table's placement | spells | spells | spells | inert | n/a | inert | none |
+| `island.table.props.breakable`: `false`, the table kept on one page | spells | spells | spells | inert | n/a | inert | none |
+| `island.table.props.breakable.true`: `true`, the default | spells | spells | spells | silent: honored | n/a | silent: honored | none |
+| `island.image` | spells | spells | spells | declines with a signal | n/a | declines with a signal | `backend::declined_construct`, `validation::declined_construct`, `image` |
 
 A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
 mint it without a key the engine does not name.
+
+`widths`, `align` and `breakable` are spelled on a `quill-table` wrapper
+([markdown-spec.md](../references/markdown-spec.md) §6.4), and each is absent
+at its default, so a default row stores no key.
 
 ### Spellings
 
@@ -140,7 +150,10 @@ above, or markup the content does not store.
 | `html.tag_line.list`: a tag line between list items | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
 | `carrier.block`: a `quill-*` wrapper nothing models, a type 7 block | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
 | `carrier.inline`: a `quill-*` pair nothing models, inside a line | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
-| `carrier.table`: the reserved `quill-table` around a table | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table` |
+| `carrier.table`: the reserved `quill-table` around a table | spells | spells | spells | inert | n/a | inert | none |
+| `carrier.table.holds_other`: a `quill-table` around anything but one table | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table` |
+| `carrier.table.attr`: a `quill-table` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[foo]` |
+| `carrier.table.value`: a `quill-table` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[widths]` |
 | `carrier.anchor`: an echoed `quill-anchor` | silent: honored | n/a | n/a | n/a | n/a | n/a | none |
 | `markdown.footnote_definition`: `[^1]: Word` | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `footnote_definition` |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | n/a | none |
@@ -164,6 +177,7 @@ matrix row:
 | `typst` | substrings the body's lowering contains, never a whole emission |
 | `signals.import` | `{construct, count}` per `parse::dropped_construct` the import raises, in order |
 | `signals.render` | the codes a one-shot render's warnings carry, in order |
+| `signals.validate` | the codes `Quill::validate` reports, in order; absent is none |
 
 `crates/quillmark/tests/parity.rs` asserts each entry and names every one that
 fails:
@@ -178,6 +192,9 @@ fails:
   contains every `typst` substring.
 - A render through the `table_demo` fixture quill warns exactly
   `signals.render`.
+- `Quill::validate` on that document reports exactly `signals.validate`, and
+  its `validation::declined_construct` set (path, construct, count) is the
+  render's `backend::declined_construct` set.
 
 A row whose construct the import does not store still has its `typst`: what the
 markup wrapped reaches the page.

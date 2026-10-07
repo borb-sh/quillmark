@@ -425,6 +425,22 @@ fn emit_table(isl: &Island, out: &mut String) {
     if cols == 0 {
         return;
     }
+    if let Some(wrapper) = crate::carrier::table::wrapper(&isl.props) {
+        let mut table = String::new();
+        emit_pipe_table(header, rows, aligns, cols, &mut table);
+        out.push_str(&wrapper.wrap_block(&table));
+    } else {
+        emit_pipe_table(header, rows, aligns, cols, out);
+    }
+}
+
+fn emit_pipe_table(
+    header: Option<&Vec<serde_json::Value>>,
+    rows: Option<&Vec<serde_json::Value>>,
+    aligns: Option<&Vec<serde_json::Value>>,
+    cols: usize,
+    out: &mut String,
+) {
     // Cells are canonical `{text, marks}`; each cell's markdown is rebuilt from
     // that structure, so nothing re-parses markdown and `import(export(table))`
     // is a fixed point.

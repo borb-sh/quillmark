@@ -44,11 +44,6 @@ impl Quill {
     pub fn dry_run(&self, doc: &Document) -> Result<(), RenderError> {
         self.config().dry_run(doc)
     }
-
-    /// [`QuillConfig::check_quill_reference`] on this quill's config.
-    pub(crate) fn check_quill_reference(&self, doc: &Document) -> Result<(), RenderError> {
-        self.config().check_quill_reference(doc)
-    }
 }
 
 /// The document→data compile is a pure config read: coercion, validation,
@@ -229,6 +224,7 @@ impl Quill {
         diags.extend(validate_variants(self.config(), doc));
         diags.extend(validate_cardinality(self.config(), doc));
         diags.extend(self.validate_seed(doc));
+        diags.extend(validate_declined(self.config(), doc));
         diags
     }
 
@@ -1144,6 +1140,151 @@ pub(crate) fn body_disabled_warning(path: &DocPath, card: &str) -> Diagnostic {
     .with_hint("Remove the body content, or set `body.enabled: true` on the card kind.".to_string())
 }
 
+/// One `validation::declined_construct` per content field and construct that
+/// the quill's backend [`declines`](crate::backend::declines): the warning
+/// that field's render raises as `backend::declined_construct`.
+fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    let mut each = |at: &DocPath, content: &crate::Content| {
+        for (construct, count) in crate::backend::declined_in(&config.backend, content) {
+            diags.push(declined_construct_warning(&config.backend, construct, count, at));
+        }
+    };
+    for (schema, card, path) in schema_cards(config, doc) {
+        let Some(schema) = schema else { continue };
+        if schema.body_enabled() {
+            each(&path.body(), card.body());
+        }
+        for (key, value) in card.payload().iter() {
+            if let Some(field) = schema.fields.get(key.as_str()) {
+                each_content(field, value.as_json(), &path.field(key), &mut each);
+            }
+        }
+    }
+    diags
+}
+
+pub(crate) fn declined_construct_warning(
+    backend: &str,
+    construct: super::BlockConstruct,
+    count: usize,
+    path: &DocPath,
+) -> Diagnostic {
+    Diagnostic::new(
+        Severity::Warning,
+        format!(
+            "the {backend} backend does not typeset {}: {count} in this field \
+             will not reach the page",
+            crate::backend::plural(construct, count)
+        ),
+    )
+    .with_code("validation::declined_construct".to_string())
+    .with_path(path.to_string())
+    .with_arg("construct", construct.as_str().into())
+    .with_arg("count", count.into())
+}
+
+/// Call `f` on every content value `json` holds under `field`, at its path:
+/// the walk a render's content fields follow, through variants, matrices,
+/// objects and arrays.
+fn each_content(
+    field: &FieldSchema,
+    json: &serde_json::Value,
+    path: &DocPath,
+    f: &mut dyn FnMut(&DocPath, &crate::Content),
+) {
+    let codec = match field.r#type {
+        FieldType::RichText { .. } => Some(crate::document::Codec::Richtext),
+        FieldType::PlainText { .. } => Some(crate::document::Codec::Plaintext),
+        _ => None,
+    };
+    if let Some(codec) = codec {
+        if let Some(Ok(content)) = codec.decode_value(json) {
+            f(path, &content);
+        }
+        return;
+    }
+    if field.is_variant_bearing() {
+        let Some(object) = json.as_object() else { return };
+        let Some(live) = field.variant_fields(&field.selected_member(Some(json))) else {
+            return;
+        };
+        for (key, value) in object {
+            if let Some(cell) = live.get(key) {
+                each_content(cell, value, &path.field(key), f);
+            }
+        }
+        return;
+    }
+    if matches!(field.r#type, FieldType::Matrix { .. }) {
+        let Some(object) = json.as_object() else { return };
+        for (id, cell) in object {
+            let (Some(member), Some(cells)) = (field.matrix_member(id, cell), cell.as_object())
+            else {
+                continue;
+            };
+            let mut cells = cells.clone();
+            cells.remove(MATRIX_HELD_KEY);
+            each_content(member, &serde_json::Value::Object(cells), &path.field(id), f);
+        }
+        return;
+    }
+    if let Some(props) = field.namespace_props() {
+        let Some(object) = json.as_object() else { return };
+        for (key, value) in object {
+            if let Some(prop) = props.get(key) {
+                each_content(prop, value, &path.field(key), f);
+            }
+        }
+        return;
+    }
+    if let (FieldType::Array, Some(items), Some(elements)) =
+        (&field.r#type, &field.items, json.as_array())
+    {
+        for (index, element) in elements.iter().enumerate() {
+            each_content(items, element, &path.index(index), f);
+        }
+    }
+}
+
+impl QuillConfig {
+    /// One [`backend::declined_construct`](crate::backend::declined_construct)
+    /// per content field and construct that `backend`
+    /// [`declines`](crate::backend::declines) in `data`, the plate JSON
+    /// [`compile_data`](Self::compile_data) built from this config: the walk
+    /// [`Quill::validate`] makes over the document, so the two agree.
+    pub fn declined_in_plate(&self, backend: &str, data: &serde_json::Value) -> Vec<Diagnostic> {
+        let mut diags = Vec::new();
+        let mut each = |at: &DocPath, content: &crate::Content| {
+            for (construct, count) in crate::backend::declined_in(backend, content) {
+                diags.push(crate::backend::declined_construct(backend, construct, count, at));
+            }
+        };
+        let mut card = |schema: &CardSchema, obj: &serde_json::Map<String, serde_json::Value>, path: DocPath| {
+            for (key, value) in obj {
+                if key == "$body" {
+                    if let Ok(content) = quillmark_content::serial::from_canonical_value(value) {
+                        each(&path.body(), &content);
+                    }
+                } else if let Some(field) = schema.fields.get(key.as_str()) {
+                    each_content(field, value, &path.field(key), &mut each);
+                }
+            }
+        };
+        let Some(main) = data.as_object() else { return diags };
+        card(&self.main, main, DocPath::main());
+        let cards = main.get("$cards").and_then(|c| c.as_array());
+        for (index, obj) in cards.into_iter().flatten().enumerate() {
+            let Some(obj) = obj.as_object() else { continue };
+            let Some(kind) = obj.get("$kind").and_then(|k| k.as_str()) else { continue };
+            if let Some(schema) = self.card_kind(kind) {
+                card(schema, obj, DocPath::card(Some(kind), index));
+            }
+        }
+        diags
+    }
+}
+
 /// Report every authored cell that belongs to a variant the discriminant does
 /// not select, across the main card and every composable card. The value stays
 /// in the document and the diagnostic is non-fatal (`prose/canon/SCHEMAS.md`
@@ -1382,6 +1523,75 @@ properties:
             resolved,
             json!({ "street": "1 Infinite Loop", "zip": 0, "note": "extra" })
         );
+    }
+
+    #[test]
+    fn validate_declines_what_the_backend_will_not_draw_where_the_render_does() {
+        let quill = crate::quill::quill_from_yaml(
+            r#"
+quill: { name: dc, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    intro: { type: richtext }
+card_kinds:
+  note:
+    fields:
+      items:
+        type: array
+        items: { type: richtext }
+"#,
+        );
+        let md = "~~~\n$quill: dc@1.0.0\n$kind: main\nintro: see ![a](a.png)\n~~~\n\n\
+                  ![x](x.png) and ![y](y.png)\n\n| a |\n|---|\n| b |\n\n\
+                  ~~~\n$kind: note\nitems:\n  - plain\n  - '![z](z.png)'\n~~~\n";
+        let doc = Document::parse(md).expect("parse").document;
+
+        let declined = |diags: Vec<Diagnostic>, code: &str| -> Vec<(String, serde_json::Value)> {
+            diags
+                .into_iter()
+                .filter(|d| d.code.as_deref() == Some(code))
+                .inspect(|d| assert_eq!(d.severity, Severity::Warning))
+                .map(|d| (d.path.unwrap_or_default(), json!(d.args)))
+                .collect()
+        };
+        let validated = declined(quill.validate(&doc), "validation::declined_construct");
+        assert_eq!(
+            validated,
+            vec![
+                ("main.body".into(), json!({ "construct": "image", "count": 2 })),
+                ("main.intro".into(), json!({ "construct": "image", "count": 1 })),
+                ("cards.note[0].items[1]".into(), json!({ "construct": "image", "count": 1 })),
+            ]
+        );
+
+        let plate = quill.compile_data(&doc, test_date()).expect("compiles");
+        let mut rendered = declined(
+            quill.config().declined_in_plate("typst", &plate),
+            crate::backend::DECLINED_CONSTRUCT,
+        );
+        for (_, args) in &mut rendered {
+            assert_eq!(args["backend"], "typst");
+            args.as_object_mut().unwrap().remove("backend");
+        }
+        let mut validated = validated;
+        validated.sort_by(|a, b| a.0.cmp(&b.0));
+        rendered.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(rendered, validated);
+    }
+
+    #[test]
+    fn acroform_declines_every_construct_but_the_paragraph() {
+        let md = "# H\n\nprose\n\n- a\n  - b\n- c\n\n1. d\n\n> q\n>\n> > r\n\n\
+                  ```\nx\ny\n```\n\n---\n\n| t |\n|---|\n| u |\n\n![i](i.png)\n";
+        let content = crate::document::import_body(md).expect("imports");
+        let declined = crate::backend::declined_in("acroform", &content);
+        use crate::quill::BlockConstruct::*;
+        assert_eq!(
+            declined,
+            vec![(Heading, 1), (Rule, 1), (Code, 1), (List, 3), (Quote, 2), (Table, 1), (Image, 1)]
+        );
+        assert_eq!(crate::backend::declined_in("typst", &content), vec![(Image, 1)]);
+        assert!(crate::backend::declined_in("acroform", &crate::document::import_body("prose\n\nmore").unwrap()).is_empty());
     }
 
     #[test]

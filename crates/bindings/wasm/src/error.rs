@@ -23,7 +23,9 @@ impl WasmError {
     /// shape as `RenderResult.warnings`.
     pub fn to_js_value(&self) -> JsValue {
         let err = js_sys::Error::new(&self.message());
-        let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+        let serializer = serde_wasm_bindgen::Serializer::new()
+            .serialize_maps_as_objects(true)
+            .serialize_missing_as_null(true);
         let wasm_diags: Vec<WasmDiagnostic> =
             self.diagnostics.iter().cloned().map(Into::into).collect();
         if let Ok(data) = wasm_diags.serialize(&serializer) {

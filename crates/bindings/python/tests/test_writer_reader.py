@@ -112,6 +112,25 @@ def test_writer_revise_field():
         w.revise_field("nope", "x")
 
 
+def test_writer_revise_document():
+    """revise_document replaces the document from markdown, conforms it, and
+    returns the warnings; a foreign `$quill` raises and changes nothing."""
+    quill = richtext_quill()
+    doc = Document("sample_form@0.1.0")
+    w = quill.writer(doc)
+    assert w.revise_field("bio", "make it **bold**") == []
+    (dropped,) = w.revise_document(
+        "~~~\n$quill: sample_form@0.1.0\nbio: make it <kbd>**bold**</kbd>\n~~~\n\nBody.\n"
+    )
+    assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
+    assert quill.reader(doc).get("bio") == "make it **bold**"
+    assert doc.warnings == []
+    before = doc.to_markdown()
+    with pytest.raises(QuillmarkError):
+        w.revise_document("~~~\n$quill: other\n~~~\n")
+    assert doc.to_markdown() == before
+
+
 def test_view_interprets_by_declared_type():
     """view.get reads richtext as markdown, a scalar as its canonical value,
     absence as None; an undeclared name raises."""

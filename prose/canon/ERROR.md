@@ -134,8 +134,10 @@ families:
   card's under its stored `$kind` as `pathFor` mints it. One on a `$` key or
   inside `$ext` or `$seed`, which have no document address, carries none.
   A body's markdown import adds `parse::dropped_construct`, one per construct
-  it dropped (a raw tag by its lowercase name, or `footnote_definition`) with
-  its `count`, anchored at the body (`main.body`, `cards.<kind>[<i>].body`)
+  it dropped (a raw tag by its lowercase name, `footnote_definition`,
+  `quill-table` for a `quill-table` wrapper not holding exactly one table, or
+  `quill-table[<attr>]` for a wrapper attribute the engine does not name or
+  cannot read) with its `count`, anchored at the body (`main.body`, `cards.<kind>[<i>].body`)
   after its card's tag warnings.
 - **`parse::dropped_construct` off a markdown write.** The diagnostic a parse
   adds, minted by `quillmark_core::document::dropped_construct`, also rides
@@ -165,7 +167,7 @@ families:
   malformed input, and the document does not render; a `Warning` is unclaimed
   input, which renders. The warnings are
   `cardinality`, `out_of_variant`, `unknown_card`, `body_disabled`,
-  `unknown_field`, and the `$seed` checks, which warn
+  `unknown_field`, `declined_construct`, and the `$seed` checks, which warn
   whatever their class because no render reads `$seed`.
   The render gate consults only the fatal set. A one-shot render
   (`Quillmark::render`) carries every one of these warnings on
@@ -181,7 +183,15 @@ families:
   `quillmark_core::backend::declined_construct`. Raised at the compile that
   dropped the construct, so it rides the session's compile warnings. The Typst
   backend declines `image` in content
-  ([CONVERT.md](CONVERT.md#declined-images)); nothing else declines anything.
+  ([CONVERT.md](CONVERT.md#declined-images)), and the acroform backend every
+  construct but the paragraph. `quillmark_core::backend::declines` is the
+  table, keyed by backend id.
+- **`validation::declined_construct`: the decline, ahead of the render.**
+  `Quill::validate` walks every content field and body against the quill's
+  backend's row of that table and warns once per (field, construct), with
+  `construct` and `count` in `args` and the field's `DocPath` in `path`: the
+  warning the render raises as `backend::declined_construct`. A one-shot
+  render leaves it out of `RenderResult.warnings`, which carry the backend's.
 - **Compile warnings**: the Typst backend maps the compiler's non-fatal
   diagnostics (font fallback, overfull pages, …) through the same span
   resolution as errors. They are state of the session's current compile:
@@ -408,6 +418,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::seed_unknown_field` | — | code-determined |
 | `validation::not_inline` | `trailingNewline`? | structured |
 | `validation::not_plain` | — | code-determined |
+| `validation::declined_construct` | `construct`, `count` | structured |
 | `edit::invalid_field_name` | `field` | structured |
 | `edit::unknown_field` | `field` | structured |
 | `edit::invalid_kind_name` | `kind` | structured |

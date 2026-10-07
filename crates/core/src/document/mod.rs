@@ -222,6 +222,7 @@ pub(crate) fn is_line_with_trailing_newline(content: &quillmark_content::model::
     content.lines.len() == 2 && content.text.ends_with('\n')
 }
 
+pub(crate) mod align;
 pub mod assemble;
 pub mod dto;
 pub mod edit;
@@ -230,6 +231,7 @@ pub mod fences;
 pub mod meta;
 pub mod payload;
 pub(crate) mod prescan;
+pub mod revise;
 pub mod wire;
 pub(crate) mod yaml_hints;
 
@@ -244,6 +246,7 @@ pub use quillmark_content::import::ImportError;
 pub use quillmark_content::import::ImportWarning;
 pub use meta::{is_valid_kind_name, validate_composable_kind, CardKindError};
 pub use payload::{MetaKey, Payload, PayloadItem};
+pub use revise::{DocumentRevised, DroppedAnchor, FieldDelta};
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};

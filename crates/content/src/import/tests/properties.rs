@@ -21,6 +21,11 @@ struct Piece {
     /// Ends in a pipe table, which takes in the lines after it as rows until a
     /// blank line.
     table: bool,
+    /// The pipe tables a `quill-table` wrapper around it would hold.
+    tables: usize,
+    /// Holds a block other than a pipe table, a comment or a tag line: what
+    /// keeps a `quill-table` wrapper around it from folding.
+    other: bool,
 }
 
 impl Piece {
@@ -33,6 +38,8 @@ impl Piece {
             out.md.push_str(&p.md);
             out.words.extend(p.words);
             out.tags.extend(p.tags);
+            out.tables += p.tables;
+            out.other |= p.other;
         }
         out
     }
@@ -56,25 +63,25 @@ fn inline() -> impl Strategy<Value = Piece> {
             md: format!("<{name}{attrs}>{w}</{name}>"),
             words: vec![w],
             tags: vec![name.to_string()],
-            table: false,
+            ..Piece::default()
         });
     prop_oneof![
-        3 => word().prop_map(|w| Piece { md: w.clone(), words: vec![w], tags: vec![], table: false }),
+        3 => word().prop_map(|w| Piece { md: w.clone(), words: vec![w], tags: vec![], ..Piece::default() }),
         2 => tagged,
-        1 => word().prop_map(|w| Piece { md: format!("<u>{w}</u>"), words: vec![w], tags: vec![], table: false }),
+        1 => word().prop_map(|w| Piece { md: format!("<u>{w}</u>"), words: vec![w], tags: vec![], ..Piece::default() }),
         1 => (word(), word()).prop_map(|(a, b)| Piece {
             md: format!("{a}<br>{b}"),
             words: vec![a, b],
             tags: vec![],
-            table: false,
+            ..Piece::default()
         }),
         1 => word().prop_map(|w| Piece {
             md: format!("<quill-anchor id=\"a\">{w}</quill-anchor>"),
             words: vec![w],
             tags: vec![],
-            table: false,
+            ..Piece::default()
         }),
-        1 => Just(Piece { md: "<img src=\"p.png\">".into(), words: vec![], tags: vec!["img".into()], table: false }),
+        1 => Just(Piece { md: "<img src=\"p.png\">".into(), words: vec![], tags: vec!["img".into()], ..Piece::default() }),
     ]
 }
 
@@ -83,17 +90,21 @@ fn paragraph() -> impl Strategy<Value = Piece> {
         prop::collection::vec(inline(), 1..4).prop_map(|p| Piece::join(p, " ")),
         1..3,
     )
-    .prop_map(|lines| Piece::join(lines, "\n"))
+    // A line of nothing but tags is a tag line.
+    .prop_map(|lines| {
+        let p = Piece::join(lines, "\n");
+        Piece { other: !p.words.is_empty(), ..p }
+    })
 }
 
 fn cell() -> impl Strategy<Value = Piece> {
     prop_oneof![
-        word().prop_map(|w| Piece { md: w.clone(), words: vec![w], tags: vec![], table: false }),
+        word().prop_map(|w| Piece { md: w.clone(), words: vec![w], tags: vec![], ..Piece::default() }),
         word().prop_map(|w| Piece {
             md: format!("<span>{w}</span>"),
             words: vec![w],
             tags: vec!["span".into()],
-            table: false,
+            ..Piece::default()
         }),
     ]
 }
@@ -113,7 +124,7 @@ fn table() -> impl Strategy<Value = Piece> {
                 1,
                 Piece { md: format!("|{}", "---|".repeat(cols)), ..Piece::default() },
             );
-            Piece { table: true, ..Piece::join(lines, "\n") }
+            Piece { table: true, tables: 1, ..Piece::join(lines, "\n") }
         })
     })
 }
@@ -124,6 +135,8 @@ fn comment() -> impl Strategy<Value = Piece> {
     (prop::collection::vec(word(), 1..3), any::<bool>(), prop::option::of(paragraph())).prop_map(
         |(hidden, multiline, tail)| {
             let mut p = tail.unwrap_or_default();
+            // On one line with text after it, the comment is the paragraph's.
+            p.other |= !multiline && !p.md.is_empty();
             let sep = if multiline { "\n" } else { " " };
             p.md = format!("<!--{sep}{}{sep}-->{}", hidden.join(" "), p.md);
             p
@@ -155,12 +168,16 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
         prop::bool::weighted(0.8),
     )
         .prop_map(|((name, attrs), blocks, pad_open, pad_close, closed)| {
+            // An unclosed `quill-table` takes the next `</quill-table>` as its
+            // own; the unit tests hold that case.
+            let closed = closed || name == "quill-table";
             let mut md = format!("<{name}{attrs}>\n");
             if pad_open {
                 md.push('\n');
             }
             let mut words = Vec::new();
-            let mut tags = vec![name.to_string()];
+            let mut tags = Vec::new();
+            let (mut tables, mut other) = (0, false);
             let mut after_table = false;
             for (i, (block, gap)) in blocks.into_iter().enumerate() {
                 if i > 0 {
@@ -170,14 +187,27 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
                 md.push_str(&block.md);
                 words.extend(block.words);
                 tags.extend(block.tags);
+                tables += block.tables;
+                other |= block.other;
             }
             if closed {
                 md.push_str(if pad_close { "\n\n" } else { "\n" });
                 md.push_str(&format!("</{name}>"));
             }
+            let folds = name == "quill-table" && closed && tables == 1 && !other;
+            if !folds {
+                tags.push(name.to_string());
+            }
             // A closing tag straight after a table's rows is one more row to the
             // parser, so the table runs on past it.
-            Piece { md, words, tags, table: after_table && !(closed && pad_close) }
+            Piece {
+                md,
+                words,
+                tags,
+                table: after_table && !(closed && pad_close),
+                tables,
+                other: other || name == "quill-table",
+            }
         })
 }
 
@@ -200,6 +230,8 @@ fn compact_nested() -> impl Strategy<Value = Piece> {
                 words: body.words,
                 tags,
                 table: false,
+                tables: body.tables,
+                other: body.other,
             }
         })
 }
@@ -207,6 +239,7 @@ fn compact_nested() -> impl Strategy<Value = Piece> {
 /// Blocks in a list item or a quote.
 fn contained(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> {
     (inner, any::<bool>()).prop_map(|(mut p, list)| {
+        p.other = true;
         p.md = if list { prefixed(&p.md, "- ", "  ") } else { prefixed(&p.md, "> ", "> ") };
         p
     })

@@ -480,6 +480,17 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
     expect(mapPos(delta, 6, 'before')).toBe(6)
     expect(mapPos(delta, 11, 'after')).toBe(17)
   })
+
+  it('a stored null crosses as null, both ways', () => {
+    const md = '<quill-table widths="1 2 auto">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</quill-table>'
+    const { content } = importMarkdown(md)
+    expect(content.islands[0].props.widths).toEqual([1, 2, null])
+    expect(content.islands[0].props.widths[2]).toBeNull()
+    expect(importMarkdown(exportMarkdown(content)).content).toEqual(content)
+
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\nnote: null\n~~~\n')
+    expect(doc.getStored('note')).toBeNull()
+  })
 })
 
 describe('Content predicates: isInline / isPlain', () => {
@@ -890,6 +901,27 @@ Card body.
       }),
     ])
     expect(doc.revise({ field: 'intro' }, '<kbd>x</kbd>').warnings[0].path).toBe('main.intro')
+  })
+
+  it('reviseDocument aligns cards, keeps an unchanged card\'s anchor and names the dropped ones', () => {
+    const doc = Document.fromMarkdown(
+      '~~~\n$quill: q\n~~~\n\nMain.\n\n~~~\n$kind: note\n~~~\n\nKeep this note.\n\n~~~\n$kind: memo\n~~~\n\nDrop this memo.\n',
+    )
+    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'k' } }] })
+    doc.applyChange({ card: 1 }, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'd' } }] })
+    const receipt = doc.reviseDocument(
+      '~~~\n$quill: q\n~~~\n\nMain.\n\n~~~\n$kind: aside\n~~~\n\nNew <span>aside</span>.\n\n~~~\n$kind: note\n~~~\n\nKeep this note.\n',
+    )
+    expect(receipt.alignment).toEqual([null, 0])
+    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.memo[1].body', id: 'd' }])
+    expect(receipt.deltas.map((d) => d.path)).toEqual(['main.body', 'cards.note[1].body'])
+    expect(receipt.warnings.map((w) => [w.code, w.path])).toEqual([
+      ['parse::dropped_construct', 'cards.aside[0].body'],
+    ])
+    expect(doc.cards[1].body.marks).toContainEqual(
+      expect.objectContaining({ type: 'anchor', attrs: { id: 'k' } }),
+    )
+    expect(doc.warnings).toEqual([])
   })
 
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
