@@ -90,16 +90,31 @@ for (const name of mdFiles('prose/canon')) {
 }
 
 // INDEX is the only entry point canon promises, so a page missing from it is
-// unreachable and a link out of it must resolve.
+// unreachable.
 if (existsSync('prose/canon/INDEX.md')) {
   const index = readFileSync('prose/canon/INDEX.md', 'utf8');
   for (const name of mdFiles('prose/canon')) {
     if (name === 'INDEX.md') continue;
     if (!index.includes(`(${name})`)) fail('prose/canon/INDEX.md', `does not link \`${name}\`: every canon page is reachable from the index`);
   }
-  for (const [, target] of index.matchAll(REL_LINK)) {
+}
+
+// A canon page links a neighbour's fact rather than copying it, which holds
+// only while the link resolves. Fenced code is not a link.
+for (const name of mdFiles('prose/canon')) {
+  const file = join('prose/canon', name);
+  let fenced = false;
+  const text = readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => {
+      const fence = /^\s*(```|~~~)/.test(line);
+      if (fence) fenced = !fenced;
+      return !fence && !fenced;
+    })
+    .join('\n');
+  for (const [, target] of text.matchAll(REL_LINK)) {
     const resolved = posix.normalize(join('prose/canon', target.split('#')[0]));
-    if (!existsSync(resolved)) fail('prose/canon/INDEX.md', `link target \`${target}\` does not resolve`);
+    if (!existsSync(resolved)) fail(file, `link target \`${target}\` does not resolve`);
   }
 }
 
