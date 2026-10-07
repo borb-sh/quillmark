@@ -293,3 +293,98 @@ proptest! {
         prop_assert_eq!(&emitted, &back.to_markdown(), "emit not idempotent");
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+enum Fate {
+    Keep,
+    Edit,
+    Delete,
+}
+
+fn arb_fate() -> impl Strategy<Value = Fate> {
+    prop_oneof![Just(Fate::Keep), Just(Fate::Edit), Just(Fate::Delete)]
+}
+
+fn arb_card() -> impl Strategy<Value = (&'static str, String)> {
+    (
+        prop::sample::select(&["note", "memo"][..]),
+        "[a-z]{1,8}( [a-z]{1,8}){0,4}",
+    )
+}
+
+fn card_block(kind: &str, body: &str) -> String {
+    format!("\n~~~\n$kind: {kind}\n~~~\n\n{body}\n")
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
+
+    /// A whole-document revise over cards each anchored at its leading word:
+    /// with other cards inserted, deleted, edited and every card reordered, an
+    /// unchanged card keeps its anchor and aligns to its stored self, and the
+    /// receipt names exactly the anchors the revised document no longer holds.
+    #[test]
+    fn an_unchanged_card_keeps_its_anchor_through_a_whole_document_revise(
+        stored in prop::collection::vec((arb_card(), arb_fate()), 1..7),
+        inserted in prop::collection::vec(arb_card(), 0..4),
+        order in prop::collection::vec(any::<u32>(), 12),
+    ) {
+        let mut src = "~~~\n$quill: q\n~~~\n\nMain.\n".to_string();
+        for (i, ((kind, words), _)) in stored.iter().enumerate() {
+            src.push_str(&card_block(kind, &format!("card{i} {words}")));
+        }
+        let mut doc = parse_or_skip(&src).expect("a generated document parses");
+        for i in 0..stored.len() {
+            let mut card = doc.card_mut(i).unwrap();
+            let body = super::revise_tests::anchored(card.body(), &format!("card{i}"), &format!("c{i}"));
+            card.overwrite_body(body);
+        }
+
+        // (stored index if kept unchanged, kind, body)
+        let mut incoming: Vec<(Option<usize>, &str, String)> = Vec::new();
+        for (i, ((kind, words), fate)) in stored.iter().enumerate() {
+            match fate {
+                Fate::Keep => incoming.push((Some(i), kind, format!("card{i} {words}"))),
+                Fate::Edit => incoming.push((None, kind, format!("card{i} {words} and more"))),
+                Fate::Delete => {}
+            }
+        }
+        for (j, (kind, words)) in inserted.iter().enumerate() {
+            incoming.push((None, kind, format!("fresh{j} {words}")));
+        }
+        let mut keyed: Vec<_> = incoming.into_iter().enumerate().collect();
+        keyed.sort_by_key(|(n, _)| order[*n]);
+        let incoming: Vec<_> = keyed.into_iter().map(|(_, c)| c).collect();
+
+        let mut md = "~~~\n$quill: q\n~~~\n\nMain.\n".to_string();
+        for (_, kind, body) in &incoming {
+            md.push_str(&card_block(kind, body));
+        }
+        let receipt = doc.revise(&md).expect("the incoming document parses");
+
+        let held: Vec<Vec<String>> = doc
+            .cards()
+            .iter()
+            .map(|c| super::revise_tests::anchor_ids(c.body()))
+            .collect();
+        for (p, (kept, _, _)) in incoming.iter().enumerate() {
+            if let Some(i) = kept {
+                prop_assert_eq!(receipt.alignment[p], Some(*i));
+                prop_assert_eq!(&held[p], &vec![format!("c{i}")]);
+            }
+        }
+        let mut dropped: Vec<String> = receipt.dropped_anchors.iter().map(|d| d.id.clone()).collect();
+        dropped.sort();
+        let mut lost: Vec<String> = (0..stored.len())
+            .map(|i| format!("c{i}"))
+            .filter(|id| !held.iter().flatten().any(|h| h == id))
+            .collect();
+        lost.sort();
+        prop_assert_eq!(dropped, lost);
+        for d in &receipt.dropped_anchors {
+            let i: usize = d.id[1..].parse().unwrap();
+            let kind = stored[i].0 .0;
+            prop_assert_eq!(d.path.to_string(), format!("cards.{kind}[{i}].body"));
+        }
+    }
+}
