@@ -336,6 +336,20 @@ earns the place: cells are where the `table` type is likeliest to grow
 rewrites a cell's `text` and `marks` in place rather than minting a fresh
 `{text, marks}` object.
 
+A table island's props name `header`, `rows`, `aligns` (one per column:
+`none`, `left`, `center` or `right`) and three layout keys, each absent at its
+default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
+
+| Key | Value | Default |
+|---|---|---|
+| `widths` | one entry per column, a positive integer weight or `null` for an auto-fit column; settled to the column count and divided by the weights' GCD | every entry `null` |
+| `align` | the table's placement: `left`, `center` or `right` | the quill's placement |
+| `breakable` | `false` keeps the table on one page | `true` |
+
+`widths` are weights, not lengths, so each quill decides what full width is.
+The keys ride the opaque props carrier, which an older reader round-trips, so
+adding them is no storage-version event.
+
 Two rules bound the payload:
 
 - **Payload depth is capped at `MAX_JSON_DEPTH` (128).** Island `props` is host

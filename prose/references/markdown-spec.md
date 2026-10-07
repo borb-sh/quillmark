@@ -506,8 +506,40 @@ Text with a <quill-keep note="a &amp; b">pair</quill-keep> inside a line.
 
 **An element nothing folds or models** is transparent: its tags drop, what it
 wraps imports, and `parse::dropped_construct` reports it under its tag name
-(`quill-keep`), as any raw tag (§6.2). Every element but `anchor` is one. A
-`quill-*` tag outside the grammar is a raw tag reported the same way.
+(`quill-keep`), as any raw tag (§6.2). Every element but `anchor` and a
+`table` block wrapper is one. A `quill-*` tag outside the grammar is a raw tag
+reported the same way.
+
+**`quill-table`** is a block wrapper around one pipe table, and folds its
+attributes into the table's layout, whatever quill reads the document:
+
+| Attribute | Value | Default |
+|---|---|---|
+| `widths` | whitespace-separated column weights, each a positive decimal integer or `auto` for an auto-fit column | every column `auto` |
+| `align` | the table's placement: `left`, `center` or `right` | the quill's placement |
+| `breakable` | `true`, or `false` to keep the table on one page | `true` |
+
+```markdown
+<quill-table align="center" breakable="false" widths="1 2 auto">
+
+| Item | Description | Qty |
+| --- | --- | --- |
+| A | First | 1 |
+
+</quill-table>
+```
+
+- Weights are relative and divide by their GCD: `2 4` reads as `1 2`. A
+  `widths` shorter than the table pads with `auto`, and a longer one drops its
+  extra entries.
+- Each attribute at its default stores nothing, and export writes the wrapper
+  only around a table holding a value other than its default.
+- Column alignment stays in the delimiter row. Its dash counts carry no width,
+  since a formatter pads them to the column.
+- A wrapper holding anything but exactly one table drops whole: its tags drop,
+  what it holds imports, and `parse::dropped_construct` reports `quill-table`.
+- An attribute other than these three, and one whose value is outside its
+  spelling, drops alone, reported as `quill-table[<name>]`.
 
 **`quill-anchor`** is reserved for an anchor's read-only spelling,
 `<quill-anchor ref="…"></quill-anchor>`, which no export writes. Import drops
