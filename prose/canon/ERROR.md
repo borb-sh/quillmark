@@ -112,7 +112,7 @@ for it, anchored at the card that is full.
 
 ## Warning flow
 
-Warnings travel the same `Diagnostic` currency as errors, on six producer
+Warnings travel the same `Diagnostic` currency as errors, on seven producer
 families:
 
 - **`quill::*` load warnings**: the second half of
@@ -133,6 +133,19 @@ families:
   (`parse::unsupported_yaml_tag`) anchors at the tagged node's `path`, a
   card's under its stored `$kind` as `pathFor` mints it. One on a `$` key or
   inside `$ext` or `$seed`, which have no document address, carries none.
+  A body's markdown import adds `parse::dropped_construct`, one per construct
+  it dropped (a raw tag by its lowercase name, or `footnote`) with its
+  `count`, anchored at the body (`main.body`, `cards.<kind>[<i>].body`) after
+  its card's tag warnings.
+- **`parse::dropped_construct` off a markdown write.** The diagnostic a parse
+  adds, minted by `quillmark_core::document::dropped_construct`, also rides
+  the write that imported the markdown. A revise returns it on its `Revised`
+  receipt beside the `Delta`: unanchored from a `Card` verb, which does not
+  know its address, and at the body or field from the typed writer and WASM
+  `revise`. `add_card` returns it at the placed card's body, WASM
+  `importMarkdown` and `rebase` beside the content with no `path`, and
+  Python's `revise_body` / `revise_field` / `add_card` as a list. A conform or
+  a typed `set` importing a `richtext` string drops without it.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
@@ -422,6 +435,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::missing_kind` | `info`? | structured |
 | `parse::empty_input` | — | code-determined |
 | `parse::unsupported_yaml_tag` | — | code-determined |
+| `parse::dropped_construct` | `construct`, `count` | structured |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |
 | `parse::body_import` | — | fallback |

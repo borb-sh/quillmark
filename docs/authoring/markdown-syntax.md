@@ -51,13 +51,14 @@ Consequences:
 - A tag on a line of its own wraps markdown rather than hiding it: `<div>`, `<center>`, `<details>` or any other tag line drops, and the lines between parse as markdown whether or not blank lines surround the tags. Embedded SVG draws nothing: its tags drop like any other, and text it holds reads as text.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
-- Each tag dropped this way is reported as a warning, naming the tag; comments are not.
+- Each dropped tag is reported as a `parse::dropped_construct` warning naming it, a `<pre>` block's included; comments are not.
 
 ### A footnote-shaped definition is text
 
 CommonMark reads `[^1]: Note` as a link reference definition, which turns every
 `[^1]` into a link to `Note`. Quillmark keeps both as the text you typed, and
-reports the definition as a warning, since it supports no footnotes.
+reports the definition as a `parse::dropped_construct` warning, since it
+supports no footnotes.
 
 ### A column-zero `~~~` always opens a card-yaml block
 

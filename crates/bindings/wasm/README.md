@@ -332,7 +332,7 @@ the per-call `_commit*` ABI):
 const ed = quill.writer(doc);                       // Rust `quill.writer(doc)` twin; new DocumentWriter(quill, doc) also works
 ed.set("subject", "Q3 results");                    // strict-committed to the schema type
 ed.setAll({ qty: "3", subject: "Q3" });             // all-or-nothing batch
-ed.reviseField("subject", "Q3 **results**");        // typed AND anchor-preserving; returns a Delta
+ed.reviseField("subject", "Q3 **results**");        // typed AND anchor-preserving; returns { delta, warnings }
 ed.set("titel", "x");                               // throws UnknownField: a typo, not a fallback
 ed.card(2).set("body", "**note**");                 // composable card, resolved by its $kind
 ```

@@ -16,9 +16,23 @@ use super::payload::{MetaKey, Payload, PayloadItem};
 use quillmark_content::model::Normalized;
 
 /// The parse-time half of the markdown→content boundary
-/// ([`super::import_body`]): an over-nesting failure becomes a [`ParseError`].
-fn import_body_or_parse_error(md: &str) -> Result<Normalized, ParseError> {
-    super::import_body(md).map_err(|e| ParseError::BodyImport(e.to_string()))
+/// ([`super::import_body`]): an over-nesting failure becomes a [`ParseError`],
+/// and each dropped construct a warning anchored at the card's body.
+fn import_body_or_parse_error(
+    md: &str,
+    card: &DocPath,
+    warnings: &mut Vec<Diagnostic>,
+) -> Result<Normalized, ParseError> {
+    let imported =
+        super::import_body_warned(md).map_err(|e| ParseError::BodyImport(e.to_string()))?;
+    let at = card.body().to_string();
+    warnings.extend(
+        imported
+            .warnings
+            .into_iter()
+            .map(|w| super::dropped_construct(w).with_path(at.clone())),
+    );
+    Ok(imported.content)
 }
 use super::prescan::{prescan_fence_content, NestedComment, PreItem};
 use super::{Card, Document};
@@ -241,8 +255,9 @@ pub(super) fn build_block(
     })
 }
 
-/// Decompose markdown into a typed [`Document`], returning any non-fatal warnings
-/// collected during fence scanning.
+/// Decompose markdown into a typed [`Document`] and its non-fatal warnings: the
+/// fence scan's, then each card's YAML-tag and body-import warnings in card
+/// order.
 pub(super) fn decompose_with_warnings(
     markdown: &str,
 ) -> Result<(Document, Vec<Diagnostic>), crate::error::ParseError> {
@@ -324,7 +339,8 @@ pub(super) fn decompose_with_warnings(
 
     let global_body = body_after(markdown, &blocks, 0);
 
-    let main = Card::from_parts(main_payload, import_body_or_parse_error(&global_body)?);
+    let main_body = import_body_or_parse_error(&global_body, &DocPath::main(), &mut warnings)?;
+    let main = Card::from_parts(main_payload, main_body);
 
     let mut cards: Vec<Card> = Vec::new();
     for idx in 1..blocks.len() {
@@ -397,11 +413,9 @@ pub(super) fn decompose_with_warnings(
         warnings.extend(tag_warnings(&base, &blocks[idx]));
 
         let card_body = body_after(markdown, &blocks, idx);
+        let card_body = import_body_or_parse_error(&card_body, &base, &mut warnings)?;
 
-        cards.push(Card::from_parts(
-            card_payload,
-            import_body_or_parse_error(&card_body)?,
-        ));
+        cards.push(Card::from_parts(card_payload, card_body));
     }
 
     let doc = Document::from_main_and_cards(main, cards);

@@ -36,7 +36,7 @@
 // and name `quillmark-core` directly.
 pub use quillmark_core::{
     backend::Backend,
-    document::{Card, Document, EditError, ImportError, Parsed},
+    document::{Card, Document, EditError, ImportError, Parsed, Revised},
     error::{
         Diagnostic, Location, ParseError, RenderError, RenderResult, Severity, DOCUMENT_FILE,
     },

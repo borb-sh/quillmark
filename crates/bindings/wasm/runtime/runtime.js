@@ -756,7 +756,7 @@ export class DocumentWriter {
 	}
 	/**
 	 * @param {string} markdown
-	 * @returns {import('../core/wasm.js').Delta}
+	 * @returns {import('../core/wasm.js').Revised}
 	 */
 	reviseBody(markdown) {
 		return this.#doc.revise({}, markdown);
@@ -764,7 +764,7 @@ export class DocumentWriter {
 	/**
 	 * @param {string} name
 	 * @param {string} text
-	 * @returns {import('../core/wasm.js').Delta}
+	 * @returns {import('../core/wasm.js').Revised}
 	 */
 	reviseField(name, text) {
 		return this.#doc._reviseField(this.#quill, name, text);
@@ -774,7 +774,7 @@ export class DocumentWriter {
 	 * @param {Record<string, unknown>} [fields]
 	 * @param {string} [body]
 	 * @param {number} [at] insertion index; appends when omitted
-	 * @returns {void}
+	 * @returns {import('../core/wasm.js').Diagnostic[]}
 	 */
 	addCard(kind, fields, body, at) {
 		return this.#doc._addCard(this.#quill, kind, fields, body, at);
@@ -837,7 +837,7 @@ export class CardWriter {
 	}
 	/**
 	 * @param {string} markdown
-	 * @returns {import('../core/wasm.js').Delta}
+	 * @returns {import('../core/wasm.js').Revised}
 	 */
 	reviseBody(markdown) {
 		return this.#doc.revise({ card: this.#index }, markdown);
@@ -845,7 +845,7 @@ export class CardWriter {
 	/**
 	 * @param {string} name
 	 * @param {string} text
-	 * @returns {import('../core/wasm.js').Delta}
+	 * @returns {import('../core/wasm.js').Revised}
 	 */
 	reviseField(name, text) {
 		return this.#doc._reviseField(this.#quill, { card: this.#index, field: name }, text);

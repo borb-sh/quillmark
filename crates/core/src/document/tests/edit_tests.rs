@@ -99,7 +99,7 @@ fn test_document_card_mut() {
     let mut doc = make_doc_with_cards();
     {
         let mut card = doc.card_mut(0).unwrap();
-        card.revise_body("Updated card body.").unwrap();
+        let _ = card.revise_body("Updated card body.").unwrap();
     }
     assert_eq!(doc.cards()[0].body_markdown(), "Updated card body.");
 }
@@ -283,8 +283,8 @@ fn test_revise_field_diff_imports_and_returns_delta() {
     use quillmark_content::model::{Mark, MarkKind};
 
     let mut card = Card::new("note").unwrap();
-    let delta = card.revise_field("intro", "hello target world").unwrap();
-    assert!(!delta.ops.is_empty());
+    let revised = card.revise_field("intro", "hello target world").unwrap();
+    assert!(!revised.delta.ops.is_empty());
 
     let mut base = card
         .field_content("intro", Codec::Richtext)
@@ -296,7 +296,7 @@ fn test_revise_field_diff_imports_and_returns_delta() {
         .push(Mark::new(6, 12, MarkKind::Anchor { id: "c1".into() }));
     let base = base.into_normalized();
     card.overwrite_field("intro", base).unwrap();
-    card.revise_field("intro", "why keep the target here").unwrap();
+    let _ = card.revise_field("intro", "why keep the target here").unwrap();
     let read = card.field_content("intro", Codec::Richtext).unwrap().unwrap();
     assert!(read
         .marks
@@ -323,10 +323,10 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_inline() {
     );
 
     let mut card = Card::new("note").unwrap();
-    let delta = card
+    let revised = card
         .revise_field_checked("subject", "hello target world", &inline)
         .unwrap();
-    assert!(!delta.ops.is_empty());
+    assert!(!revised.delta.ops.is_empty());
 
     let mut base = card
         .field_content("subject", Codec::Richtext)
@@ -338,7 +338,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_inline() {
         .push(Mark::new(6, 12, MarkKind::Anchor { id: "c1".into() }));
     let base = base.into_normalized();
     card.overwrite_field("subject", base).unwrap();
-    card.revise_field_checked("subject", "why keep the target here", &inline)
+    let _ = card.revise_field_checked("subject", "why keep the target here", &inline)
         .unwrap();
     let read = card.field_content("subject", Codec::Richtext).unwrap().unwrap();
     assert!(
@@ -359,7 +359,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_inline() {
     let d = card
         .revise_field_checked("body", "para one\n\npara two", &block)
         .unwrap();
-    assert!(!d.ops.is_empty());
+    assert!(!d.delta.ops.is_empty());
     assert!(card.field_text("body", Codec::Richtext).unwrap().unwrap().contains("para two"));
 }
 
@@ -515,8 +515,8 @@ fn test_revise_body_returns_delta_and_updates_body() {
     use crate::session::{Assoc, Delta};
 
     let mut card = Card::new("note").unwrap();
-    card.revise_body("hello world").unwrap();
-    let delta: Delta = card.revise_body("hello brave world").unwrap();
+    let _ = card.revise_body("hello world").unwrap();
+    let delta: Delta = card.revise_body("hello brave world").unwrap().delta;
     assert_eq!(card.body().text, "hello brave world");
     // The delta maps a stale position at the end of "hello " forward across
     // the inserted "brave ".
@@ -535,7 +535,7 @@ fn test_revise_body_rebases_anchor() {
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(base);
 
-    card.revise_body("why keep the target word").unwrap();
+    let _ = card.revise_body("why keep the target word").unwrap();
     let anchor = card
         .body()
         .marks
@@ -555,7 +555,7 @@ fn test_apply_body_change_applies_bundle() {
     use quillmark_content::model::MarkKind;
 
     let mut card = Card::new("note").unwrap();
-    card.revise_body("abc").unwrap();
+    let _ = card.revise_body("abc").unwrap();
     card.apply_body_change(&ChangeBundle {
         delta: diff("abc", "abXc"),
         mark_ops: vec![MarkOp::Add {
@@ -583,7 +583,7 @@ fn test_apply_body_change_reports_out_of_range() {
     use quillmark_content::model::MarkKind;
 
     let mut card = Card::new("note").unwrap();
-    card.revise_body("abc").unwrap();
+    let _ = card.revise_body("abc").unwrap();
     let result = card.apply_body_change(&ChangeBundle {
         delta: diff("abc", "abc"),
         mark_ops: vec![MarkOp::Add {

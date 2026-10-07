@@ -373,14 +373,15 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
 
   it('revise({}, md) revises the main body and returns the text delta', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const delta = doc.revise({}, 'Body from **markdown**.')
+    const { delta, warnings } = doc.revise({}, 'Body from **markdown**.')
     expect(exportMarkdown(doc.main.body)).toBe('Body from **markdown**.')
     expect(Array.isArray(delta.ops)).toBe(true)
+    expect(warnings).toEqual([])
   })
 
   it('overwrite({}, rt) writes a content object', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.overwrite({}, importMarkdown('Content **body** here.'))
+    doc.overwrite({}, importMarkdown('Content **body** here.').content)
     expect(doc.main.body.text).toBe('Content body here.')
     expect(exportMarkdown(doc.main.body)).toBe('Content **body** here.')
   })
@@ -402,12 +403,12 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     let deep = []
     for (let i = 0; i < 5000; i++) deep = [deep]
-    const rt = importMarkdown('body')
+    const rt = importMarkdown('body').content
     rt.islands = [{ id: 'i1', type: 'image', props: deep }]
     // Matched on the message: a slot/shape complaint would pass a bare toThrow
     // while the depth door stayed open.
     expect(() => doc.overwrite({}, rt)).toThrow(/nests deeper/)
-    doc.overwrite({}, importMarkdown('after'))
+    doc.overwrite({}, importMarkdown('after').content)
     expect(doc.main.body.text).toBe('after')
   })
 
@@ -427,10 +428,24 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
 
 describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () => {
   it('importMarkdown ∘ exportMarkdown round-trips a body', () => {
-    const rt = importMarkdown('A **bold** line.')
+    const { content: rt, warnings } = importMarkdown('A **bold** line.')
     expect(typeof rt).toBe('object')
     expect(rt.text).toBe('A bold line.')
     expect(exportMarkdown(rt)).toBe('A **bold** line.')
+    expect(warnings).toEqual([])
+  })
+
+  it('importMarkdown imports the table under a centering div and warns of the div', () => {
+    const { content, warnings } = importMarkdown('<div align="center">\n| a | b |\n|---|---|\n</div>')
+    expect(content.islands.map((i) => i.type)).toEqual(['table'])
+    expect(warnings).toEqual([
+      {
+        severity: 'warning',
+        code: 'parse::dropped_construct',
+        message: expect.any(String),
+        args: { construct: 'div', count: 1 },
+      },
+    ])
   })
 
   it('answers the canonical form on every Content lane, a zero instance omitted', () => {
@@ -438,12 +453,12 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
     // back. `instance` costs a key only where two adjacent runs would weld.
     const written = (rt) => rt.lines.flatMap((l) => l.containers).map((c) => c.instance)
 
-    expect(written(importMarkdown('> a\n\n- b'))).toEqual([undefined, undefined])
-    expect(written(rebase(importMarkdown('> a'), '> a\n\n- b').content)).toEqual([
+    expect(written(importMarkdown('> a\n\n- b').content)).toEqual([undefined, undefined])
+    expect(written(rebase(importMarkdown('> a').content, '> a\n\n- b').content)).toEqual([
       undefined,
       undefined,
     ])
-    expect(written(importMarkdown('- a\n\n* b'))).toEqual([undefined, 1])
+    expect(written(importMarkdown('- a\n\n* b').content)).toEqual([undefined, 1])
 
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: commit_test\n~~~\n\n> a\n\n- b')
     expect(written(doc.main.body)).toEqual([undefined, undefined])
@@ -456,9 +471,10 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
   })
 
   it('rebase computes a content + delta and mapPos maps a position through it', () => {
-    const base = importMarkdown('hello world')
-    const { content, delta } = rebase(base, 'hello brave world')
+    const base = importMarkdown('hello world').content
+    const { content, delta, warnings } = rebase(base, 'hello brave world')
     expect(content.text).toBe('hello brave world')
+    expect(warnings).toEqual([])
     expect(Array.isArray(delta.ops)).toBe(true)
     // A caret at the end of "hello " stays; one after "world" shifts past "brave ".
     expect(mapPos(delta, 6, 'before')).toBe(6)
@@ -468,11 +484,11 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
 
 describe('Content predicates: isInline / isPlain', () => {
   it('judge the inline and plaintext constraints on a Content, throwing on a non-content', () => {
-    expect(isInline(importMarkdown('One **bold** line.'))).toBe(true)
-    expect(isInline(importMarkdown('One.\n\nTwo.'))).toBe(false)
-    expect(isInline(importMarkdown('- item'))).toBe(false)
-    expect(isPlain(importMarkdown('One.\n\nTwo.'))).toBe(true)
-    expect(isPlain(importMarkdown('One **bold** line.'))).toBe(false)
+    expect(isInline(importMarkdown('One **bold** line.').content)).toBe(true)
+    expect(isInline(importMarkdown('One.\n\nTwo.').content)).toBe(false)
+    expect(isInline(importMarkdown('- item').content)).toBe(false)
+    expect(isPlain(importMarkdown('One.\n\nTwo.').content)).toBe(true)
+    expect(isPlain(importMarkdown('One **bold** line.').content)).toBe(false)
     expect(() => isInline('One.')).toThrow()
     expect(() => isPlain({ not: 'a content' })).toThrow()
   })
@@ -853,12 +869,27 @@ Card body.
 
   it('revise / overwrite take a card address', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
-    const delta = doc.revise({ card: 0 }, 'New card body.')
+    const { delta } = doc.revise({ card: 0 }, 'New card body.')
     expect(exportMarkdown(doc.cards[0].body)).toBe('New card body.')
     expect(Array.isArray(delta.ops)).toBe(true)
 
-    doc.overwrite({ card: 0 }, importMarkdown('Card body from **markdown**.'))
+    doc.overwrite({ card: 0 }, importMarkdown('Card body from **markdown**.').content)
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body from **markdown**.')
+  })
+
+  it('revise anchors a dropped construct at the address it wrote', () => {
+    const doc = Document.fromMarkdown(MD_WITH_CARD)
+    const { warnings } = doc.revise({ card: 0 }, 'Card <span>body</span>.')
+    expect(doc.cards[0].body.text).toBe('Card body.')
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        code: 'parse::dropped_construct',
+        path: 'cards.note[0].body',
+        args: { construct: 'span', count: 1 },
+      }),
+    ])
+    expect(doc.revise({ field: 'intro' }, '<kbd>x</kbd>').warnings[0].path).toBe('main.intro')
   })
 
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
@@ -867,7 +898,7 @@ Card body.
     expectEditCode(() => doc.storeField(addr, 'x'), 'edit::index_out_of_range')
     expectEditCode(() => doc.removeField(addr), 'edit::index_out_of_range')
     expectEditCode(() => doc.revise({ card: 0 }, 'x'), 'edit::index_out_of_range')
-    expectEditCode(() => doc.overwrite({ card: 0 }, importMarkdown('x')), 'edit::index_out_of_range')
+    expectEditCode(() => doc.overwrite({ card: 0 }, importMarkdown('x').content), 'edit::index_out_of_range')
   })
 })
 

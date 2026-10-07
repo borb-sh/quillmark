@@ -387,8 +387,9 @@ that construct whole where it closes inside the block, and drops with the rest
 of the block where it does not, so nothing in a block swallows what follows it.
 A pipe-table row holding only tags ends the table rather than adding a row. The
 allowlist is inline: `<u>` or `<br>` alone on its line is a tag line like any
-other. An import reports each dropped opening tag by name; a comment and the
-content of a type 1–5 block report nothing.
+other. An import reports each dropped opening tag by name, under
+`parse::dropped_construct`; a comment and the content of a type 1–5 block
+report nothing.
 
 Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
 an injection vector for downstream HTML-producing tooling; `<u>` is an
@@ -433,7 +434,7 @@ support may come in a future revision:
   system-metadata keys (§3.3).
 - Footnotes: not supported. A footnote-shaped definition (`[^1]: Word`) and its
   references import as literal text (§6.2), and the import reports each
-  definition.
+  definition under `parse::dropped_construct`.
 - HTML comments: accepted syntactically, not rendered (see §6.2).
 - `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
   table cell: a hard break. In a paragraph, one with no text before it on its
