@@ -5,8 +5,9 @@
 use std::collections::HashMap;
 
 use quillmark::{
-    CalendarDate, CardReader, Delta, Document, EditError, FileTreeNode, ImportError, Normalized,
-    ParseDateError, Parsed, Quill, QuillReference, QuillValue, Revised, TypedReader, TypedWriter,
+    CalendarDate, CardReader, Delta, Document, DocumentRevised, DroppedAnchor, EditError,
+    FieldDelta, FileTreeNode, ImportError, Normalized, ParseDateError, Parsed, Quill,
+    QuillReference, QuillValue, Revised, TypedReader, TypedWriter,
 };
 
 const QUILL: &str = r#"
@@ -96,6 +97,15 @@ fn content_lane_spells_through_the_facade() {
         panic!("markdown nested past the codec's limit is refused, not imported: {refusal:?}");
     };
     assert!(depth > max, "the refusal names the depth that passed the limit");
+
+    let markdown = doc.to_markdown();
+    let revised: DocumentRevised = quill
+        .writer(&mut doc)
+        .revise_document(&markdown)
+        .expect("the document's own markdown revises");
+    let deltas: &[FieldDelta] = &revised.deltas;
+    let dropped: &[DroppedAnchor] = &revised.dropped_anchors;
+    assert!(!deltas.is_empty() && dropped.is_empty());
 }
 
 #[test]
