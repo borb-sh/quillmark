@@ -51,7 +51,7 @@ Consequences:
 - A tag on a line of its own wraps markdown rather than hiding it: `<div>`, `<center>`, `<details>` or any other tag line drops, and the lines between parse as markdown whether or not blank lines surround the tags. Under a paragraph's text, a tag line ends the paragraph. Between list items, it leaves the list one list, as a blank line would. Embedded SVG draws nothing: its tags drop like any other, and text it holds reads as text.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
-- Each dropped tag is reported as a `parse::dropped_construct` warning naming it, a `<pre>` block's included; comments and `<quill-anchor>` tags are not.
+- Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included; comments and `<quill-anchor>` tags are not.
 
 ### A footnote-shaped definition is text
 
@@ -89,13 +89,13 @@ Consequences:
 
 ## Out of scope
 
-The following are recognised by the parser (so they will not corrupt surrounding content) but produce no output:
+The following are not supported, and render as the literal text written:
 
 - **Math** (`$…$`, `$$…$$`): `$` is treated as a literal character.
-- **Footnotes**: not supported; see [above](#a-footnote-shaped-definition-is-text).
-- **Task lists**, **definition lists**: not supported.
+- **Footnotes**: see [above](#a-footnote-shaped-definition-is-text).
+- **Task lists**, **definition lists**.
 
-Some constructs (like link titles) are accepted by the parser but may be dropped during rendering when the active backend has no target for them. Those losses are backend-specific; see each backend's documentation.
+A link's title (`[text](url "Title")`) drops at import, with no warning. A construct the active backend has no target for, such as an image under Typst, drops at render with a `backend::declined_construct` warning; see each backend's documentation.
 
 ## Structured data: card-yaml blocks
 
