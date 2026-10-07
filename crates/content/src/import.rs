@@ -27,7 +27,8 @@
 //!   break is a `Rule` line carrying no text.
 //! - Raw HTML produces no content beyond the allowlist. A tag alone on its line
 //!   is a block wrapper: it drops, and the lines around it parse as markdown. A
-//!   type 1–5 HTML block (`<pre>`, a comment, …) drops whole.
+//!   type 1–5 HTML block (`<pre>`, a comment, …) drops whole. A `quill-table`
+//!   wrapper around one table folds its attributes into the table's props.
 
 use crate::model::{
     Container, Island, Line, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
@@ -74,8 +75,10 @@ impl std::error::Error for ImportError {}
 pub enum ImportWarning {
     /// `count` instances of `construct` dropped: a raw tag by its lowercase
     /// name (`span`, `div`, `quill-keep`), counted at its open or self-closing
-    /// form, or `footnote_definition` for a footnote-shaped definition
-    /// imported as literal text. One entry per construct.
+    /// form; `footnote_definition` for a footnote-shaped definition imported
+    /// as literal text; `quill-table` for a `quill-table` wrapper not holding
+    /// exactly one table, and `quill-table[<attr>]` for an attribute one
+    /// holding a table cannot fold. One entry per construct.
     DroppedConstruct { construct: String, count: usize },
 }
 
@@ -107,12 +110,23 @@ pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let mut fixer = MarkdownFixer::new(Parser::new_ext(&text, options).into_offset_iter());
     let mut b = Builder::new();
     b.run(&mut fixer)?;
-    let mut dropped = fixer.dropped;
+    let mut content = b.finish();
+    let (mut dropped, folds) = fixer.finish();
     for at in footnotes {
         dropped.add("footnote_definition", at);
     }
+    let mut tables: Vec<&mut Island> = content
+        .islands
+        .iter_mut()
+        .filter(|i| i.island_type == IslandType::Table)
+        .collect();
+    for (k, props) in folds {
+        if let Some(o) = tables.get_mut(k).and_then(|t| t.props.as_object_mut()) {
+            o.extend(props);
+        }
+    }
     Ok(Imported {
-        content: b.finish().into_normalized(),
+        content: content.into_normalized(),
         warnings: dropped.into_warnings(),
     })
 }
@@ -878,7 +892,8 @@ pub(crate) fn sanitize_lang(lang: &str) -> String {
 // allowlists an inline `<u>…</u>` as underline (rewritten to Strong start/end,
 // the classification riding the event) and an inline `<br>` as a hard break,
 // and drops every other raw HTML event, an HTML block whole. It counts each
-// tag it drops, so the warnings and the drop cannot disagree.
+// tag it drops, so the warnings and the drop cannot disagree, and reads the
+// `quill-table` wrappers whose attributes `from_markdown` folds.
 // Delimiter arithmetic stays pulldown's, since a fixer that re-segments `***`
 // runs can only disagree with CommonMark, and disagreeing means deleting an
 // asterisk the author typed.
@@ -935,6 +950,23 @@ impl Dropped {
 struct MarkdownFixer<I> {
     inner: I,
     dropped: Dropped,
+    /// The `quill-table` block wrappers open at this point, innermost last.
+    wrappers: Vec<TableWrapper>,
+    tables: usize,
+    in_table: bool,
+    /// Each folding wrapper's props, by the ordinal of the table it holds.
+    folds: Vec<(usize, serde_json::Map<String, serde_json::Value>)>,
+}
+
+/// A `quill-table` block wrapper whose open tag the fixer has read: it folds
+/// its attributes into the table island it holds when it holds exactly one
+/// table and nothing else.
+struct TableWrapper {
+    attrs: carrier::Attrs,
+    at: usize,
+    /// The ordinal among the document's tables of each table it holds.
+    tables: Vec<usize>,
+    holds_other: bool,
 }
 
 impl<'a, I> MarkdownFixer<I>
@@ -945,7 +977,68 @@ where
         Self {
             inner,
             dropped: Dropped::default(),
+            wrappers: Vec::new(),
+            tables: 0,
+            in_table: false,
+            folds: Vec::new(),
         }
+    }
+
+    /// The drops and the folds. A wrapper left open folds nothing.
+    fn finish(mut self) -> (Dropped, Vec<(usize, serde_json::Map<String, serde_json::Value>)>) {
+        for w in std::mem::take(&mut self.wrappers) {
+            self.dropped.add("quill-table", w.at);
+        }
+        (self.dropped, self.folds)
+    }
+
+    /// Record what a block event passed to the builder puts inside the
+    /// innermost open wrapper.
+    fn observe(&mut self, event: &Event) {
+        match event {
+            Event::Start(Tag::Table(_)) => {
+                if let Some(w) = self.wrappers.last_mut() {
+                    w.tables.push(self.tables);
+                }
+                self.tables += 1;
+                self.in_table = true;
+            }
+            Event::End(TagEnd::Table) => self.in_table = false,
+            // The repair writes a tag line after a list item into the item, so
+            // a wrapper's open tag can sit in a container its table follows.
+            Event::End(_) => {}
+            _ if self.in_table => {}
+            _ => {
+                if let Some(w) = self.wrappers.last_mut() {
+                    w.holds_other = true;
+                }
+            }
+        }
+    }
+
+    /// A wrapper holding anything but one table drops whole as `quill-table`;
+    /// otherwise each attribute the engine does not name or cannot read drops
+    /// as `quill-table[<name>]`, and the rest fold.
+    fn close_wrapper(&mut self, w: TableWrapper) {
+        let [table] = w.tables[..] else {
+            return self.dropped.add("quill-table", w.at);
+        };
+        if w.holds_other {
+            return self.dropped.add("quill-table", w.at);
+        }
+        let mut props = serde_json::Map::new();
+        for name in &w.attrs.refused {
+            self.dropped.add(&format!("quill-table[{name}]"), w.at);
+        }
+        for (name, value) in w.attrs.values {
+            match carrier::table::prop(&name, &value) {
+                Some(v) => {
+                    props.insert(name, v);
+                }
+                None => self.dropped.add(&format!("quill-table[{name}]"), w.at),
+            }
+        }
+        self.folds.push((table, props));
     }
 
     /// Consume an HTML block through its end, counting its
@@ -961,7 +1054,23 @@ where
             }
         }
         for tag in html::block_tags(&text) {
-            self.dropped.tag(&tag, at);
+            if tag.self_closing || carrier::element(tag.name).as_deref() != Some("table") {
+                self.dropped.tag(&tag, at);
+            } else if tag.closing {
+                if let Some(w) = self.wrappers.pop() {
+                    self.close_wrapper(w);
+                }
+            } else {
+                if let Some(outer) = self.wrappers.last_mut() {
+                    outer.holds_other = true;
+                }
+                self.wrappers.push(TableWrapper {
+                    attrs: carrier::decode_attrs(&tag.attrs),
+                    at,
+                    tables: Vec::new(),
+                    holds_other: false,
+                });
+            }
         }
     }
 }
@@ -994,7 +1103,10 @@ where
                     }
                     None => continue,
                 },
-                other => (other, false),
+                other => {
+                    self.observe(&other);
+                    (other, false)
+                }
             });
         }
     }
@@ -1565,7 +1677,7 @@ mod tests {
     fn a_tag_wrapping_markdown_drops_while_the_markdown_imports() {
         for md in [
             "<div align=\"center\">\n| a | b |\n|---|---|\n| 1 | 2 |\n</div>",
-            "<quill-table widths=\"1 2\">\n| a | b |\n|---|---|\n| 1 | 2 |\n</quill-table>",
+            "<quill-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</quill-keep>",
             "<div align=\"center\">\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n</div>",
         ] {
             let rt = imp_fixed(md).content;
@@ -1577,6 +1689,100 @@ mod tests {
         assert_eq!(imported.content.text, "Signed J. Doe");
         assert_eq!(imported.content.marks, [Mark::new(0, 6, MarkKind::Strong)]);
         assert_eq!(dropped(&imported), [("center", 1)]);
+    }
+
+    fn layout(rt: &Normalized) -> serde_json::Value {
+        let [island] = rt.islands.as_slice() else {
+            panic!("one island expected: {:?}", rt.islands);
+        };
+        let keys = ["widths", "align", "breakable"];
+        let props = island.props.as_object().unwrap();
+        let kept = props.iter().filter(|(k, _)| keys.contains(&k.as_str()));
+        serde_json::Value::Object(kept.map(|(k, v)| (k.clone(), v.clone())).collect())
+    }
+
+    #[test]
+    fn a_table_wrapper_folds_its_attributes_into_the_table_it_holds() {
+        let table = "| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |";
+        let canonical = "<quill-table align=\"center\" breakable=\"false\" widths=\"1 3 auto\">\n\n\
+                         | a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</quill-table>";
+        let expected = serde_json::json!({"align": "center", "breakable": false, "widths": [1, 3, null]});
+        let cases = [
+            (format!("<quill-table widths=\"2 6\" align=center BREAKABLE='false'>\n{table}\n</quill-table>"), 0),
+            (format!("<Quill-Table widths=\" 2  6 auto \" breakable=\"false\" align=\"center\">\n\n{table}\n\n</Quill-Table>\n\nafter"), 0),
+            (format!("- item\n- <quill-table widths=\"2 6\" align=\"center\" breakable=\"false\">\n\n  {}\n\n  </quill-table>", table.replace('\n', "\n  ")), 1),
+            (format!("- item\n\n<quill-table widths=\"2 6\" align=\"center\" breakable=\"false\">\n\n{table}\n\n</quill-table>"), 0),
+            (format!("> <quill-table widths=\"2 6 auto auto\" align=\"center\" breakable=\"false\">\n> {}\n> </quill-table>", table.replace('\n', "\n> ")), 1),
+        ];
+        for (md, containers) in &cases {
+            let imported = imp_fixed(md);
+            assert_eq!(dropped(&imported), [], "{md:?}");
+            let rt = &imported.content;
+            let props = &rt.islands.iter().find(|i| i.island_type == IslandType::Table).unwrap().props;
+            for key in ["widths", "align", "breakable"] {
+                assert_eq!(props[key], expected[key], "{key} in {md:?}");
+            }
+            let (_, line) = rt.text.split('\n').zip(&rt.lines).find(|(t, _)| t.contains(ISLAND_SLOT)).unwrap();
+            assert_eq!(line.containers.len(), *containers, "{md:?}");
+        }
+        assert_eq!(crate::export::to_markdown(&imp_fixed(&cases[0].0).content), canonical);
+        assert_eq!(
+            crate::export::to_markdown(&imp_fixed(&cases[4].0).content),
+            canonical.split('\n').map(|l| if l.is_empty() { ">".to_string() } else { format!("> {l}") }).collect::<Vec<_>>().join("\n")
+        );
+
+        let defaults = imp_fixed(&format!("<quill-table widths=\"auto auto\" breakable=\"true\">\n{table}\n</quill-table>"));
+        assert_eq!(dropped(&defaults), []);
+        assert_eq!(layout(&defaults.content), serde_json::json!({}));
+        assert_eq!(crate::export::to_markdown(&defaults.content), from_markdown(table).map(|i| crate::export::to_markdown(&i.content)).unwrap());
+    }
+
+    #[test]
+    fn a_table_wrapper_holding_anything_but_one_table_drops_whole() {
+        let t = "| a |\n|---|\n| 1 |";
+        for md in [
+            "<quill-table align=\"center\">\n\npara\n\n</quill-table>".to_string(),
+            format!("<quill-table align=\"center\">\n\n{t}\n\n{t}\n\n</quill-table>"),
+            format!("<quill-table align=\"center\">\n\n{t}\n\npara\n\n</quill-table>"),
+            format!("<quill-table align=\"center\">\n\n- {}\n\n</quill-table>", t.replace('\n', "\n  ")),
+            format!("<quill-table align=\"center\">\n\n{t}"),
+            "<quill-table align=\"center\">\n\n</quill-table>".to_string(),
+            format!("<quill-table align=\"center\"/>\n\n{t}"),
+        ] {
+            let imported = imp_fixed(&md);
+            assert_eq!(dropped(&imported), [("quill-table", 1)], "{md:?}");
+            assert!(imported.content.islands.iter().all(|i| i.props.get("align").is_none()), "{md:?}");
+            assert_eq!(imported.content, imp_fixed(&crate::carrier::strip(&md)).content, "{md:?}");
+        }
+
+        let nested = imp_fixed(&format!("<quill-table align=\"left\">\n\n<quill-table align=\"right\">\n\n{t}\n\n</quill-table>\n\n</quill-table>"));
+        assert_eq!(dropped(&nested), [("quill-table", 1)]);
+        assert_eq!(layout(&nested.content), serde_json::json!({"align": "right"}));
+    }
+
+    #[test]
+    fn a_table_wrapper_drops_each_attribute_it_cannot_read() {
+        let t = "| a | b |\n|---|---|\n| 1 | 2 |";
+        let cases: &[(&str, &[(&str, usize)], serde_json::Value)] = &[
+            ("foo=\"1\" align=\"left\"", &[("quill-table[foo]", 1)], serde_json::json!({"align": "left"})),
+            ("style=\"x\" onclick=\"y\" breakable=\"false\"", &[("quill-table[onclick]", 1), ("quill-table[style]", 1)], serde_json::json!({"breakable": false})),
+            ("widths=\"a b\" align=\"middle\" breakable=\"no\"", &[("quill-table[align]", 1), ("quill-table[breakable]", 1), ("quill-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"0 1\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"+1 2\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"1 null\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"1 *\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"1.5 2\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
+            ("breakable", &[("quill-table[breakable]", 1)], serde_json::json!({})),
+            ("align=\"left\" align=\"right\"", &[("quill-table[align]", 1)], serde_json::json!({"align": "left"})),
+        ];
+        for (attrs, warned, kept) in cases {
+            let md = format!("<quill-table {attrs}>\n\n{t}\n\n</quill-table>");
+            let imported = imp_fixed(&md);
+            let mut got = dropped(&imported);
+            got.sort();
+            assert_eq!(got, *warned, "{md:?}");
+            assert_eq!(layout(&imported.content), *kept, "{md:?}");
+        }
     }
 
     /// A type-7 tag cannot interrupt a pipe table, so the parser reads

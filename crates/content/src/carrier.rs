@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::ops::Range;
 
+pub(crate) mod table;
+
 /// What every carrier tag name opens with.
 pub const PREFIX: &str = "quill-";
 
