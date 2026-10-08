@@ -24,7 +24,8 @@ construct. A conformance corpus pins every row: an engine test asserts it, and
    the projection.
 4. **No silent lane.** For every construct, quill and backend, the outcome is
    honored, inert with a signal, or refused at the write. The signal reaches
-   every door: parse, import, revise, `validate` and render.
+   every door that meets the construct: a markdown drop the parse, import or
+   revise that drops it, and a decline `validate` and render.
 5. **Storage honesty.** Discriminators are closed and payload carriers are
    opaque. A knob is a key wherever a carrier exists, and a kind only where none
    can hold it.
