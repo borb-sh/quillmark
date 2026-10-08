@@ -385,6 +385,18 @@ export interface DocumentRevised {
 }
 
 /**
+ * The read `toAnnotatedMarkdown` returns: `toMarkdown`'s markdown with a
+ * read-only `<quill-anchor ref="…"></quill-anchor>` at each prose anchor's
+ * start its line can hold, and every anchor of every body and content field,
+ * spelled or not. Each names the `path` of its body or field and the text of
+ * the `line` its start sits on, island slots removed.
+ */
+export interface AnnotatedMarkdown {
+    markdown: string;
+    anchors: { id: string; path: string; line: string }[];
+}
+
+/**
  * A markdown import (`importMarkdown`): the canonical `content`, and one
  * `parse::dropped_construct` warning per construct it dropped, with no `path`.
  */
@@ -928,6 +940,29 @@ impl Document {
     #[wasm_bindgen(js_name = toMarkdown)]
     pub fn to_markdown(&self) -> String {
         self.inner.to_markdown()
+    }
+
+    /// `toMarkdown` with each prose anchor of every body and content field
+    /// spelled read-only at its start where its line can hold the tag, and
+    /// listed with its field's path and line either way. An import drops every
+    /// tag, so `reviseDocument` with the markdown keeps the anchors it keeps
+    /// with `toMarkdown`'s.
+    #[wasm_bindgen(js_name = toAnnotatedMarkdown, unchecked_return_type = "AnnotatedMarkdown")]
+    pub fn to_annotated_markdown(&self) -> Result<JsValue, JsValue> {
+        let read = self.inner.to_markdown_annotated();
+        let js = AnnotatedMarkdownJs {
+            markdown: read.markdown,
+            anchors: read
+                .anchors
+                .into_iter()
+                .map(|a| DocumentAnchorJs {
+                    id: a.id,
+                    path: a.path.to_string(),
+                    line: a.line,
+                })
+                .collect(),
+        };
+        serialize_or_throw(&js, "toAnnotatedMarkdown")
     }
 
     /// Serialize this document to a versioned storage DTO string. Prefer it over
@@ -1976,6 +2011,19 @@ struct DocumentRevisedJs {
     dropped_anchors: Vec<DroppedAnchorJs>,
     alignment: Vec<Option<usize>>,
     warnings: Vec<Diagnostic>,
+}
+
+#[derive(serde::Serialize)]
+struct AnnotatedMarkdownJs {
+    markdown: String,
+    anchors: Vec<DocumentAnchorJs>,
+}
+
+#[derive(serde::Serialize)]
+struct DocumentAnchorJs {
+    id: String,
+    path: String,
+    line: String,
 }
 
 #[derive(serde::Serialize)]

@@ -141,6 +141,7 @@ export type {
 	Delta,
 	Revised,
 	DocumentRevised,
+	AnnotatedMarkdown,
 	Imported,
 	Assoc,
 	IslandOp,
