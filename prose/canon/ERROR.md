@@ -135,9 +135,11 @@ families:
   inside `$ext` or `$seed`, which have no document address, carries none.
   A body's markdown import adds `parse::dropped_construct`, one per construct
   it dropped (a raw tag by its lowercase name, `footnote_definition`,
-  `quill-table` for a `quill-table` wrapper not holding exactly one table, or
+  `quill-table` for a `quill-table` wrapper not holding exactly one table,
   `quill-table[<attr>]` for a wrapper attribute the engine does not name or
-  cannot read) with its `count`, anchored at the body (`main.body`, `cards.<kind>[<i>].body`)
+  cannot read, `quill-cell` for a `quill-cell` tag in a table cell it does not
+  wrap whole, or `quill-cell[<attr>]` for such an attribute on a pair that
+  does) with its `count`, anchored at the body (`main.body`, `cards.<kind>[<i>].body`)
   after its card's tag warnings.
 - **`parse::dropped_construct` off a markdown write.** The diagnostic a parse
   adds, minted by `quillmark_core::document::dropped_construct`, also rides
@@ -167,7 +169,8 @@ families:
   malformed input, and the document does not render; a `Warning` is unclaimed
   input, which renders. The warnings are
   `cardinality`, `out_of_variant`, `unknown_card`, `body_disabled`,
-  `unknown_field`, `declined_construct`, and the `$seed` checks, which warn
+  `unknown_field`, `declined_construct`, `undeclared_construct`, and the
+  `$seed` checks, which warn
   whatever their class because no render reads `$seed`.
   The render gate consults only the fatal set. A one-shot render
   (`Quillmark::render`) carries every one of these warnings on
@@ -193,6 +196,16 @@ families:
   `construct` and `count` in `args` and the field's `DocPath` in `path`: the
   warning the render raises as `backend::declined_construct`. A one-shot
   render leaves it out of `RenderResult.warnings`, which carry the backend's.
+- **`validation::undeclared_construct`: a stored knob the quill does not
+  honor.** `Quill::validate` warns once per (content field, knob) where the
+  field stores a table or cell knob the quill's `honors:` leaves out
+  ([QUILL.md](QUILL.md#honors)), with `construct` (`table.widths`,
+  `table.align`, `table.breakable`, `cell.align`, `cell.valign`) and `count`
+  (the tables, or cells, storing it) in `args` and the field's `DocPath` in
+  `path`. The render lays those tables out as if the knob were absent and raises
+  nothing of its own, so a one-shot render carries this warning. A backend
+  declining tables outright raises none: its `declined_construct` already
+  covers the table.
 - **Compile warnings**: the Typst backend maps the compiler's non-fatal
   diagnostics (font fallback, overfull pages, …) through the same span
   resolution as errors. They are state of the session's current compile:
@@ -420,6 +433,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::not_inline` | `trailingNewline`? | structured |
 | `validation::not_plain` | — | code-determined |
 | `validation::declined_construct` | `construct`, `count` | structured |
+| `validation::undeclared_construct` | `construct`, `count` | structured |
 | `edit::invalid_field_name` | `field` | structured |
 | `edit::unknown_field` | `field` | structured |
 | `edit::invalid_kind_name` | `kind` | structured |

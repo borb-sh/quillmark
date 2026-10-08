@@ -433,6 +433,31 @@ impl PyDocument {
         self.inner.to_markdown()
     }
 
+    /// `to_markdown` with each prose anchor of every body and content field
+    /// spelled read-only at its start, `<quill-anchor ref="ID"></quill-anchor>`,
+    /// where its line can hold the tag. A dict: `markdown`, and `anchors`, one
+    /// `{"id", "path", "line"}` dict per anchor, spelled or not: `path` the
+    /// body's or field's document path, `line` the text of the line its start
+    /// sits on. A parse drops every tag.
+    fn to_annotated_markdown<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let read = self.inner.to_markdown_annotated();
+        let anchors = read
+            .anchors
+            .iter()
+            .map(|a| {
+                let d = PyDict::new(py);
+                d.set_item("id", &a.id)?;
+                d.set_item("path", a.path.to_string())?;
+                d.set_item("line", &a.line)?;
+                Ok(d)
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let d = PyDict::new(py);
+        d.set_item("markdown", read.markdown)?;
+        d.set_item("anchors", anchors)?;
+        Ok(d)
+    }
+
     /// Serialize to a versioned storage DTO string. Byte-deterministic per schema version.
     fn to_stored(&self) -> String {
         serde_json::to_string(&self.inner).expect("Document serialization is infallible")

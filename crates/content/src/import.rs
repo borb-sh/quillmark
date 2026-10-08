@@ -28,7 +28,8 @@
 //! - Raw HTML produces no content beyond the allowlist. A tag alone on its line
 //!   is a block wrapper: it drops, and the lines around it parse as markdown. A
 //!   type 1–5 HTML block (`<pre>`, a comment, …) drops whole. A `quill-table`
-//!   wrapper around one table folds its attributes into the table's props.
+//!   wrapper around one table folds its attributes into the table's props,
+//!   and a `quill-cell` pair around a whole table cell into the cell.
 
 use crate::model::{
     Container, Island, Line, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
@@ -39,6 +40,7 @@ use crate::island::IslandType;
 use crate::normalize::{normalize_markdown, Repaired};
 use crate::MAX_NESTING_DEPTH;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use std::collections::VecDeque;
 use std::ops::Range;
 
 /// What `event` contributes to the alt text of an image being collected: one
@@ -78,7 +80,9 @@ pub enum ImportWarning {
     /// form; `footnote_definition` for a footnote-shaped definition imported
     /// as literal text; `quill-table` for a `quill-table` wrapper not holding
     /// exactly one table, and `quill-table[<attr>]` for an attribute one
-    /// holding a table cannot fold. One entry per construct.
+    /// holding a table cannot fold; `quill-cell` for a `quill-cell` tag in a
+    /// table cell it does not wrap whole, and `quill-cell[<attr>]` for an
+    /// attribute one wrapping its cell cannot fold. One entry per construct.
     DroppedConstruct { construct: String, count: usize },
 }
 
@@ -123,9 +127,10 @@ pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
         .iter_mut()
         .filter(|i| i.island_type == IslandType::Table)
         .collect();
-    for (k, props) in folds {
-        if let Some(o) = tables.get_mut(k).and_then(|t| t.props.as_object_mut()) {
-            o.extend(props);
+    for Fold { table, at, keys } in folds {
+        let into = tables.get_mut(table).and_then(|t| t.props.pointer_mut(&at));
+        if let Some(o) = into.and_then(serde_json::Value::as_object_mut) {
+            o.extend(keys);
         }
     }
     Ok(Imported {
@@ -896,10 +901,19 @@ pub(crate) fn sanitize_lang(lang: &str) -> String {
 // the classification riding the event) and an inline `<br>` as a hard break,
 // and drops every other raw HTML event, an HTML block whole. It counts each
 // tag it drops, so the warnings and the drop cannot disagree, and reads the
-// `quill-table` wrappers whose attributes `from_markdown` folds.
+// `quill-table` wrappers and `quill-cell` pairs whose attributes
+// `from_markdown` folds.
 // Delimiter arithmetic stays pulldown's, since a fixer that re-segments `***`
 // runs can only disagree with CommonMark, and disagreeing means deleting an
 // asterisk the author typed.
+
+/// The `quill-cell` tag `event` is, if it is one.
+fn cell_tag<'e>(event: &'e Event) -> Option<html::Tag<'e>> {
+    match event {
+        Event::InlineHtml(h) => html::tag_at(h, 0).filter(|t| carrier::element(t.name).as_deref() == Some("cell")),
+        _ => None,
+    }
+}
 
 fn is_bare_u(tag: &html::Tag) -> bool {
     tag.name.eq_ignore_ascii_case("u") && tag.attrs.is_empty() && !tag.self_closing
@@ -956,15 +970,30 @@ impl Dropped {
     }
 }
 
-struct MarkdownFixer<I> {
+struct MarkdownFixer<'a, I> {
     inner: I,
     dropped: Dropped,
     /// The `quill-table` block wrappers open at this point, innermost last.
     wrappers: Vec<TableWrapper>,
     tables: usize,
     in_table: bool,
-    /// Each folding wrapper's props, by the ordinal of the table it holds.
-    folds: Vec<(usize, serde_json::Map<String, serde_json::Value>)>,
+    /// The open table row's pointer into its table's props, `/header` or
+    /// `/rows/<n>`, and the cells it has opened.
+    row: (String, usize),
+    body_rows: usize,
+    folds: Vec<Fold>,
+    /// A table cell's events, read through its end and passed on once its
+    /// fold is decided.
+    held: VecDeque<(Event<'a>, bool)>,
+}
+
+/// The keys a carrier element folds into the table island of ordinal `table`:
+/// into its props, or into one of its cells, by `at`, a JSON pointer into the
+/// props.
+struct Fold {
+    table: usize,
+    at: String,
+    keys: serde_json::Map<String, serde_json::Value>,
 }
 
 /// A `quill-table` block wrapper whose open tag the fixer has read: it folds
@@ -978,7 +1007,7 @@ struct TableWrapper {
     holds_other: bool,
 }
 
-impl<'a, I> MarkdownFixer<I>
+impl<'a, I> MarkdownFixer<'a, I>
 where
     I: Iterator<Item = (Event<'a>, Range<usize>)>,
 {
@@ -989,12 +1018,15 @@ where
             wrappers: Vec::new(),
             tables: 0,
             in_table: false,
+            row: (String::new(), 0),
+            body_rows: 0,
             folds: Vec::new(),
+            held: VecDeque::new(),
         }
     }
 
     /// The drops and the folds. A wrapper left open folds nothing.
-    fn finish(mut self) -> (Dropped, Vec<(usize, serde_json::Map<String, serde_json::Value>)>) {
+    fn finish(mut self) -> (Dropped, Vec<Fold>) {
         for w in std::mem::take(&mut self.wrappers) {
             self.dropped.add("quill-table", w.at);
         }
@@ -1011,6 +1043,12 @@ where
                 }
                 self.tables += 1;
                 self.in_table = true;
+                self.body_rows = 0;
+            }
+            Event::Start(Tag::TableHead) => self.row = ("/header".into(), 0),
+            Event::Start(Tag::TableRow) => {
+                self.row = (format!("/rows/{}", self.body_rows), 0);
+                self.body_rows += 1;
             }
             Event::End(TagEnd::Table) => self.in_table = false,
             // The repair writes a tag line after a list item into the item, so
@@ -1035,19 +1073,78 @@ where
         if w.holds_other {
             return self.dropped.add("quill-table", w.at);
         }
-        let mut props = serde_json::Map::new();
-        for name in &w.attrs.refused {
-            self.dropped.add(&format!("quill-table[{name}]"), w.at);
+        let keys = self.fold_attrs("quill-table", w.attrs, w.at, carrier::table::prop);
+        self.folds.push(Fold { table, at: String::new(), keys });
+    }
+
+    /// The keys `attrs` fold through `read`, each attribute refused or read as
+    /// `None` dropping alone as `<construct>[<name>]`.
+    fn fold_attrs(
+        &mut self,
+        construct: &str,
+        attrs: carrier::Attrs,
+        at: usize,
+        read: fn(&str, &str) -> Option<serde_json::Value>,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let mut keys = serde_json::Map::new();
+        for name in &attrs.refused {
+            self.dropped.add(&format!("{construct}[{name}]"), at);
         }
-        for (name, value) in w.attrs.values {
-            match carrier::table::prop(&name, &value) {
+        for (name, value) in attrs.values {
+            match read(&name, &value) {
                 Some(v) => {
-                    props.insert(name, v);
+                    keys.insert(name, v);
                 }
-                None => self.dropped.add(&format!("quill-table[{name}]"), w.at),
+                None => self.dropped.add(&format!("{construct}[{name}]"), at),
             }
         }
-        self.folds.push((table, props));
+        keys
+    }
+
+    /// Read the table cell just opened through its end into `held`. A
+    /// `quill-cell` pair whose open tag is the cell's first event and whose
+    /// close tag its last, with no other `quill-cell` tag between, folds its
+    /// attributes into the cell and its tags pass on nothing; otherwise every
+    /// tag drops as it does anywhere.
+    fn read_cell(&mut self) {
+        let at = format!("{}/{}", self.row.0, self.row.1);
+        self.row.1 += 1;
+        let mut events = Vec::new();
+        let mut end = None;
+        for (event, range) in self.inner.by_ref() {
+            if matches!(event, Event::End(TagEnd::TableCell)) {
+                end = Some(event);
+                break;
+            }
+            events.push((event, range));
+        }
+        let tags: Vec<usize> = (0..events.len()).filter(|&i| cell_tag(&events[i].0).is_some()).collect();
+        let pair = match tags[..] {
+            [0, last] if last + 1 == events.len() => {
+                let open = cell_tag(&events[0].0).filter(|t| !t.closing && !t.self_closing);
+                let close = cell_tag(&events[last].0).filter(|t| t.closing);
+                open.zip(close).map(|(open, _)| (carrier::decode_attrs(&open.attrs), events[0].1.start))
+            }
+            _ => None,
+        };
+        let inner = match pair {
+            Some((attrs, start)) => {
+                let keys = self.fold_attrs("quill-cell", attrs, start, carrier::cell::key);
+                self.folds.push(Fold { table: self.tables - 1, at, keys });
+                events.pop();
+                events.remove(0);
+                events
+            }
+            None => events,
+        };
+        for (event, range) in inner {
+            if let Some(item) = self.fix(event, range) {
+                self.held.push_back(item);
+            }
+        }
+        if let Some(end) = end {
+            self.held.push_back((end, false));
+        }
     }
 
     /// Consume an HTML block through its end, counting its
@@ -1082,9 +1179,32 @@ where
             }
         }
     }
+
+    /// One event as the builder takes it, or `None` for one that drops.
+    fn fix(&mut self, event: Event<'a>, range: Range<usize>) -> Option<(Event<'a>, bool)> {
+        Some(match event {
+            Event::Start(Tag::HtmlBlock) => {
+                self.drop_html_block(range.start);
+                (Event::End(TagEnd::HtmlBlock), false)
+            }
+            Event::InlineHtml(html) => match html::tag_at(&html, 0)? {
+                tag if is_bare_u(&tag) && !tag.closing => (Event::Start(Tag::Strong), true),
+                tag if is_bare_u(&tag) => (Event::End(TagEnd::Strong), false),
+                tag if tag.name.eq_ignore_ascii_case("br") && !tag.closing => (Event::HardBreak, false),
+                tag => {
+                    self.dropped.tag(&tag, range.start);
+                    return None;
+                }
+            },
+            other => {
+                self.observe(&other);
+                (other, false)
+            }
+        })
+    }
 }
 
-impl<'a, I> Iterator for MarkdownFixer<I>
+impl<'a, I> Iterator for MarkdownFixer<'a, I>
 where
     I: Iterator<Item = (Event<'a>, Range<usize>)>,
 {
@@ -1094,29 +1214,17 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
+            if let Some(item) = self.held.pop_front() {
+                return Some(item);
+            }
             let (event, range) = self.inner.next()?;
-            return Some(match event {
-                Event::Start(Tag::HtmlBlock) => {
-                    self.drop_html_block(range.start);
-                    (Event::End(TagEnd::HtmlBlock), false)
-                }
-                Event::InlineHtml(html) => match html::tag_at(&html, 0) {
-                    Some(tag) if is_bare_u(&tag) && !tag.closing => (Event::Start(Tag::Strong), true),
-                    Some(tag) if is_bare_u(&tag) => (Event::End(TagEnd::Strong), false),
-                    Some(tag) if tag.name.eq_ignore_ascii_case("br") && !tag.closing => {
-                        (Event::HardBreak, false)
-                    }
-                    Some(tag) => {
-                        self.dropped.tag(&tag, range.start);
-                        continue;
-                    }
-                    None => continue,
-                },
-                other => {
-                    self.observe(&other);
-                    (other, false)
-                }
-            });
+            if matches!(event, Event::Start(Tag::TableCell)) {
+                self.read_cell();
+                return Some((event, false));
+            }
+            if let Some(item) = self.fix(event, range) {
+                return Some(item);
+            }
         }
     }
 }
@@ -1791,6 +1899,111 @@ mod tests {
             got.sort();
             assert_eq!(got, *warned, "{md:?}");
             assert_eq!(layout(&imported.content), *kept, "{md:?}");
+        }
+    }
+
+    /// A cell's `align` and `valign`, by its JSON pointer into the one table's
+    /// props.
+    fn cell_keys(rt: &Normalized, at: &str) -> serde_json::Value {
+        let [island] = rt.islands.as_slice() else {
+            panic!("one island expected: {:?}", rt.islands);
+        };
+        let cell = island.props.pointer(at).unwrap().as_object().unwrap();
+        let kept = cell.iter().filter(|(k, _)| ["align", "valign"].contains(&k.as_str()));
+        serde_json::Value::Object(kept.map(|(k, v)| (k.clone(), v.clone())).collect())
+    }
+
+    #[test]
+    fn a_cell_pair_around_its_whole_cell_folds_its_attributes_into_the_cell() {
+        let md = "| <quill-cell valign=\"bottom\">h</quill-cell> | b |\n| --- | ---: |\n\
+                  | <Quill-Cell VALIGN=horizon align='center'>**1** <u>x</u></Quill-Cell> \
+                  | <quill-cell align=\"left\"> 2 </quill-cell> |";
+        let imported = imp_fixed(md);
+        assert_eq!(dropped(&imported), []);
+        let rt = &imported.content;
+        assert_eq!(cell_keys(rt, "/header/0"), serde_json::json!({"valign": "bottom"}));
+        assert_eq!(cell_keys(rt, "/header/1"), serde_json::json!({}));
+        assert_eq!(cell_keys(rt, "/rows/0/0"), serde_json::json!({"align": "center", "valign": "horizon"}));
+        assert_eq!(cell_keys(rt, "/rows/0/1"), serde_json::json!({"align": "left"}));
+        let (text, marks) = crate::serial::parse_cell(&rt.islands[0].props["rows"][0][0]);
+        assert_eq!(text, "1 x");
+        assert_eq!(marks, [Mark::new(0, 1, MarkKind::Strong), Mark::new(2, 3, MarkKind::Underline)]);
+        assert_eq!(table_rows(rt), [["1 x", " 2 "]]);
+        assert_eq!(
+            crate::export::to_markdown(rt),
+            "| <quill-cell valign=\"bottom\">h</quill-cell> | b |\n| --- | ---: |\n\
+             | <quill-cell align=\"center\" valign=\"horizon\">**1** <u>x</u></quill-cell> \
+             | <quill-cell align=\"left\">&#32;2&#32;</quill-cell> |"
+        );
+
+        let respelled = imp_fixed("| h |\n| --- |\n| <quill-cell align=\"right\">__a**__*b*</quill-cell> |");
+        let (text, marks) = crate::serial::parse_cell(&respelled.content.islands[0].props["rows"][0][0]);
+        assert_eq!(text, "a**b");
+        assert_eq!(marks, [Mark::new(0, 3, MarkKind::Strong), Mark::new(3, 4, MarkKind::Emph)]);
+        assert_eq!(cell_keys(&respelled.content, "/rows/0/0"), serde_json::json!({"align": "right"}));
+    }
+
+    #[test]
+    fn a_cell_pair_at_its_default_folds_to_nothing() {
+        let imported = imp_fixed(
+            "| h | i |\n| ---: | --- |\n| <quill-cell align=\"right\" valign=\"top\">1</quill-cell> \
+             | <quill-cell>2</quill-cell> |",
+        );
+        assert_eq!(dropped(&imported), []);
+        assert_eq!(cell_keys(&imported.content, "/rows/0/0"), serde_json::json!({}));
+        assert_eq!(crate::export::to_markdown(&imported.content), "| h | i |\n| ---: | --- |\n| 1 | 2 |");
+    }
+
+    /// The cell imports as its [`strip`](crate::carrier::strip) does, each
+    /// `quill-cell` open tag reported.
+    #[test]
+    fn a_cell_pair_not_wrapping_its_whole_cell_drops() {
+        let r = "<quill-cell align=\"right\">";
+        let l = "<quill-cell align=\"left\">";
+        let cases = [
+            (format!("a {r}b</quill-cell>"), "a b", 1),
+            (format!("{r}a</quill-cell> b"), "a b", 1),
+            (format!("{r}a</quill-cell>{l}b</quill-cell>"), "ab", 2),
+            (format!("{r}{l}a</quill-cell></quill-cell>"), "a", 2),
+            (format!("{r}a"), "a", 1),
+            (format!("{r}a</quill-cell></quill-cell>"), "a", 1),
+            ("<quill-cell align=\"right\"/>a".to_string(), "a", 1),
+            (format!("**{r}a</quill-cell>**"), "a", 1),
+            (format!("<!-- c -->{r}a</quill-cell>"), "a", 1),
+        ];
+        for (cell, text, count) in &cases {
+            let md = format!("| h |\n| --- |\n| {cell} |");
+            let imported = imp_fixed(&md);
+            assert_eq!(dropped(&imported), [("quill-cell", *count)], "{md:?}");
+            assert_eq!(table_rows(&imported.content), [[*text]], "{md:?}");
+            assert_eq!(cell_keys(&imported.content, "/rows/0/0"), serde_json::json!({}), "{md:?}");
+            assert_eq!(imported.content, imp_fixed(&crate::carrier::strip(&md)).content, "{md:?}");
+        }
+
+        let prose = imp_fixed(&format!("a {r}b</quill-cell> c"));
+        assert_eq!(dropped(&prose), [("quill-cell", 1)]);
+        assert_eq!(prose.content.text, "a b c");
+    }
+
+    #[test]
+    fn a_cell_pair_drops_each_attribute_it_cannot_read() {
+        let cases: &[(&str, &[(&str, usize)], serde_json::Value)] = &[
+            ("foo=\"1\" align=\"right\"", &[("quill-cell[foo]", 1)], serde_json::json!({"align": "right"})),
+            ("style=\"x\" onclick=\"y\" valign=\"bottom\"", &[("quill-cell[onclick]", 1), ("quill-cell[style]", 1)], serde_json::json!({"valign": "bottom"})),
+            ("align=\"middle\" valign=\"center\"", &[("quill-cell[align]", 1), ("quill-cell[valign]", 1)], serde_json::json!({})),
+            ("align=\"Right\"", &[("quill-cell[align]", 1)], serde_json::json!({})),
+            ("valign", &[("quill-cell[valign]", 1)], serde_json::json!({})),
+            ("align=\"left\" align=\"right\"", &[("quill-cell[align]", 1)], serde_json::json!({"align": "left"})),
+        ];
+        for (attrs, warned, kept) in cases {
+            let md = format!("| <quill-cell {attrs}>h</quill-cell> |\n| --- |\n| <quill-cell {attrs}>1</quill-cell> |");
+            let imported = imp_fixed(&md);
+            let mut got = dropped(&imported);
+            got.sort();
+            let doubled: Vec<(&str, usize)> = warned.iter().map(|&(c, n)| (c, 2 * n)).collect();
+            assert_eq!(got, doubled, "{md:?}");
+            assert_eq!(cell_keys(&imported.content, "/header/0"), *kept, "{md:?}");
+            assert_eq!(cell_keys(&imported.content, "/rows/0/0"), *kept, "{md:?}");
         }
     }
 

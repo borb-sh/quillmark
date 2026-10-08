@@ -8,6 +8,7 @@ mod example;
 mod resolved;
 mod fill;
 mod formats;
+mod honors;
 mod ignore;
 mod load;
 mod schema;
@@ -25,6 +26,7 @@ pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedM
 pub(crate) use resolved::resolve_document;
 pub use fill::blank;
 pub use formats::{parse_date, parse_datetime, CalendarDate, ParseDateError, TODAY};
+pub use honors::{ElementDecl, ElementScope, Honors, TableKnob};
 pub use ignore::QuillIgnore;
 pub use schema::{
     build_transform_schema, CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_ROSTER_KEY,

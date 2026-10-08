@@ -1,0 +1,21 @@
+quill:
+  name: table_honors
+  version: 0.1.0
+  backend: typst
+  description: Declares every table and cell knob, so each lowers through the full pipeline
+
+typst:
+  plate_file: plate.typ
+
+honors:
+  table: [widths, align, breakable]
+  cell: [align, valign]
+  elements:
+    keep:
+      scope: block
+
+main:
+  fields:
+    title:
+      description: title of document
+      type: string

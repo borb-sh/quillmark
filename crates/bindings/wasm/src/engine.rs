@@ -126,6 +126,29 @@ export interface QuillSchema {
     main: QuillCardSchema;
     /** Present only when the quill declares at least one named card kind. */
     card_kinds?: Record<string, QuillCardSchema>;
+    /** The markup the quill's plate renders beyond prose, for every body and
+     *  content field. Present only when the quill declares any. A table or cell
+     *  key it leaves out still stores, and renders as if absent. */
+    honors?: QuillHonors;
+}
+
+/** A quill's `honors:` section. */
+export interface QuillHonors {
+    /** The `TableProps` keys the plate lays out, in this order. */
+    table?: ("widths" | "align" | "breakable")[];
+    /** The `TableCell` keys the plate lays out, in this order. */
+    cell?: ("align" | "valign")[];
+    /** The `quill-<name>` elements the plate renders, keyed by name. */
+    elements?: Record<string, QuillElementSchema>;
+}
+
+/** One declared `quill-<name>` element. */
+export interface QuillElementSchema {
+    /** `block` wraps blocks; `inline` wraps a run of text. */
+    scope: "block" | "inline";
+    /** Each attribute's schema, of a scalar type, key order the declaration
+     *  order. */
+    attrs?: Record<string, QuillFieldSchema>;
 }
 
 /**
@@ -272,10 +295,16 @@ export type ContentMarkKind =
 
 /** A cell in a `TableProps`. `marks` rides the prose `ContentMark` shape, but
  * each mark's `start`/`end` are USV offsets into this cell's `text`, not into
- * `Content.text`. A `\n` in `text` is a line break. */
+ * `Content.text`. A `\n` in `text` is a line break. An alignment key at its
+ * default is absent. */
 export interface TableCell {
     text: string;
     marks: ContentMark[];
+    /** The cell's horizontal alignment where it differs from its column's
+     * `aligns` entry; absent is the column's. */
+    align?: "left" | "center" | "right";
+    /** The cell's vertical alignment; absent is `top`. */
+    valign?: "horizon" | "bottom";
 }
 
 /** `props` of a `type: "table"` island: a pipe table normalized to one column
@@ -382,6 +411,18 @@ export interface DocumentRevised {
     droppedAnchors: { path: string; id: string }[];
     alignment: (number | null)[];
     warnings: Diagnostic[];
+}
+
+/**
+ * The read `toAnnotatedMarkdown` returns: `toMarkdown`'s markdown with a
+ * read-only `<quill-anchor ref="…"></quill-anchor>` at each prose anchor's
+ * start its line can hold, and every anchor of every body and content field,
+ * spelled or not. Each names the `path` of its body or field and the text of
+ * the `line` its start sits on, island slots removed.
+ */
+export interface AnnotatedMarkdown {
+    markdown: string;
+    anchors: { id: string; path: string; line: string }[];
 }
 
 /**
@@ -928,6 +969,29 @@ impl Document {
     #[wasm_bindgen(js_name = toMarkdown)]
     pub fn to_markdown(&self) -> String {
         self.inner.to_markdown()
+    }
+
+    /// `toMarkdown` with each prose anchor of every body and content field
+    /// spelled read-only at its start where its line can hold the tag, and
+    /// listed with its field's path and line either way. An import drops every
+    /// tag, so `reviseDocument` with the markdown keeps the anchors it keeps
+    /// with `toMarkdown`'s.
+    #[wasm_bindgen(js_name = toAnnotatedMarkdown, unchecked_return_type = "AnnotatedMarkdown")]
+    pub fn to_annotated_markdown(&self) -> Result<JsValue, JsValue> {
+        let read = self.inner.to_markdown_annotated();
+        let js = AnnotatedMarkdownJs {
+            markdown: read.markdown,
+            anchors: read
+                .anchors
+                .into_iter()
+                .map(|a| DocumentAnchorJs {
+                    id: a.id,
+                    path: a.path.to_string(),
+                    line: a.line,
+                })
+                .collect(),
+        };
+        serialize_or_throw(&js, "toAnnotatedMarkdown")
     }
 
     /// Serialize this document to a versioned storage DTO string. Prefer it over
@@ -1976,6 +2040,19 @@ struct DocumentRevisedJs {
     dropped_anchors: Vec<DroppedAnchorJs>,
     alignment: Vec<Option<usize>>,
     warnings: Vec<Diagnostic>,
+}
+
+#[derive(serde::Serialize)]
+struct AnnotatedMarkdownJs {
+    markdown: String,
+    anchors: Vec<DocumentAnchorJs>,
+}
+
+#[derive(serde::Serialize)]
+struct DocumentAnchorJs {
+    id: String,
+    path: String,
+    line: String,
 }
 
 #[derive(serde::Serialize)]

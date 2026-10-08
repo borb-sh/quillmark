@@ -1,8 +1,9 @@
 //! Markdown export: content → markdown, per island type.
 //!
 //! Marks become syntax; identity ([`MarkKind::Anchor`]) marks are **omitted**,
-//! surviving across edits via diff-rebase rather than the projection. The
-//! contract is the **content fixed point**: for a content `rt` from
+//! surviving across edits via diff-rebase rather than the projection.
+//! [`to_markdown_annotated`] spells each at its start as a read-only tag the
+//! import drops. The contract is the **content fixed point**: for a content `rt` from
 //! [`crate::import::from_markdown`], `from_markdown(to_markdown(rt)) == rt`.
 //! Markdown source is not canonical; the content is.
 //!
@@ -39,12 +40,91 @@ use crate::model::{
 /// build knows emits its markdown, any other a placeholder comment.
 pub fn to_markdown(rt: &Normalized) -> String {
     let segments = line_segments(rt);
-    let ctx = Ctx {
+    project(&Ctx {
         rt,
         segments: &segments,
+        tags: &[],
+    })
+}
+
+/// A [`to_markdown_annotated`] read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Annotated {
+    /// [`to_markdown`]'s markdown with the anchor tags it can hold.
+    pub markdown: String,
+    /// Every prose anchor, spelled or not, in `(start, id)` order.
+    pub anchors: Vec<AnchorRead>,
+}
+
+/// One prose anchor of an [`Annotated`] read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchorRead {
+    pub id: String,
+    /// The text of the content line the anchor's start sits on, island slots
+    /// removed: what locates the anchor where a writer lost its tag.
+    pub line: String,
+}
+
+/// [`to_markdown`] with each prose anchor spelled
+/// `<quill-anchor ref="ID"></quill-anchor>` at its `start`, a read-only
+/// spelling the import drops, so the markdown imports as [`to_markdown`]'s
+/// does. A range anchor reads as its start.
+///
+/// A tag sits after the delimiters of the marks closing at its position and
+/// before those opening there. Inside a code span or a link it moves to the
+/// span's start. A code-block line, a block island's line and an empty line
+/// hold none, and neither does a table cell, whose anchors are not listed.
+/// Where a line's tags change what it imports to, they move to its end, and
+/// where that changes it too, the line holds none.
+pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
+    let segments = line_segments(rt);
+    let plain = Ctx {
+        rt,
+        segments: &segments,
+        tags: &[],
     };
+    let mut found: Vec<(Usv, &str)> = rt
+        .marks
+        .iter()
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some((m.start, id.as_str())),
+            _ => None,
+        })
+        .collect();
+    found.sort_unstable();
+    let mut tags: Vec<Vec<(Usv, &str)>> = vec![Vec::new(); segments.len()];
+    let mut anchors = Vec::with_capacity(found.len());
+    for (start, id) in found {
+        let i = segments
+            .partition_point(|s| s.end < start)
+            .min(segments.len() - 1);
+        let seg = &segments[i];
+        anchors.push(AnchorRead {
+            id: id.to_string(),
+            line: seg_str(&plain, i).chars().filter(|&c| c != ISLAND_SLOT).collect(),
+        });
+        let holds_tags = rt
+            .lines
+            .get(i)
+            .is_some_and(|l| !matches!(l.kind, LineKind::Code { .. }))
+            && seg.start < seg.end
+            && start <= seg.end
+            && block_island(&plain, i).is_none();
+        if holds_tags {
+            tags[i].push((start - seg.start, id));
+        }
+    }
+    let markdown = project(&Ctx {
+        rt,
+        segments: &segments,
+        tags: &tags,
+    });
+    Annotated { markdown, anchors }
+}
+
+fn project(ctx: &Ctx) -> String {
     let mut out = String::new();
-    emit_block(&ctx, 0..rt.lines.len(), 0, &mut out);
+    emit_block(ctx, 0..ctx.rt.lines.len(), 0, &mut out);
     // `to_markdown` projects a *value*, not a file: it emits no final newline,
     // so `writer.set("subject", "Hello")` reads back as `"Hello"`. Document-file
     // writers own the file-final newline, and import is newline-insensitive, so
@@ -71,6 +151,9 @@ struct Ctx<'a> {
     rt: &'a Content,
     /// One entry per [`Content::lines`] entry.
     segments: &'a [Segment],
+    /// Per line, the anchor tags it holds at line-local positions, in
+    /// `(position, id)` order; empty for the plain projection.
+    tags: &'a [Vec<(Usv, &'a str)>],
 }
 
 /// One line's char range `[start, end)` into the content, with the matching byte
@@ -375,18 +458,10 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
             out.push(' ');
             // Headings never carry continuations (import maps a hard break in a
             // heading to a space), so only the first line contributes.
-            let mut inline = render_inline(ctx, range.start, false);
-            // A trailing `#` run reads as an ATX closing sequence on re-import
-            // (`# a #` → heading text "a"). One escaped hash defeats the whole
-            // closer, and `\#` re-imports as a literal `#`.
-            if inline.ends_with('#') {
-                inline.pop();
-                inline.push_str("\\#");
-            }
-            out.push_str(&inline);
+            out.push_str(&render_inline(ctx, range.start, true));
         }
         LineKind::Para => {
-            let parts: Vec<String> = range.map(|i| render_inline(ctx, i, true)).collect();
+            let parts: Vec<String> = range.map(|i| render_inline(ctx, i, false)).collect();
             out.push_str(&parts.join("\\\n"));
         }
         // `***`, not `---`: all three break spellings import alike, but `---` is
@@ -547,7 +622,10 @@ fn url_is_bare_safe(url: &str) -> bool {
     depth == 0
 }
 
-fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
+/// Line `i`'s inline markdown, as a heading's text after its `#`s or as a
+/// paragraph line, which escapes what would open a block.
+fn render_inline(ctx: &Ctx, i: usize, heading: bool) -> String {
+    let escape_leading_block = !heading;
     let seg = &ctx.segments[i];
     let line_start = seg.start;
     let text = seg_str(ctx, i);
@@ -570,7 +648,9 @@ fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
     };
 
     let slots_before_line = seg.slots_before;
-    render_marked_core(
+    let tags = ctx.tags.get(i).filter(|t| !t.is_empty());
+    let mut points = tags.map(|_| Vec::with_capacity(n + 1));
+    let mut md = render_marked_core(
         &chars,
         &code_ranges,
         &fmt,
@@ -578,6 +658,7 @@ fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
         escape_punct_at,
         escape_leading_block,
         false, // prose text does not escape `|`
+        points.as_mut(),
         |pos_local| {
             let before = slots_before_line
                 + chars[..pos_local]
@@ -590,7 +671,64 @@ fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
                 markup
             })
         },
-    )
+    );
+    // A trailing `#` run reads as an ATX closing sequence on re-import
+    // (`# a #` → heading text "a"). One escaped hash defeats the whole closer,
+    // and `\#` re-imports as a literal `#`. A tag after the run sits after the
+    // escape.
+    if heading && md.ends_with('#') {
+        let end = md.len();
+        md.insert(end - 1, '\\');
+        for point in points.iter_mut().flatten().filter(|p| **p == end) {
+            *point += 1;
+        }
+    }
+    match (tags, points) {
+        (Some(tags), Some(points)) => annotate(md, &points, tags),
+        _ => md,
+    }
+}
+
+/// `md`, one line's markdown, with each of `tags` at its position's tag point
+/// in `points`. A line whose tags change what it imports to holds them at its
+/// end instead, and none where that changes it too: each spelling is read
+/// back as the net reads one, inside `,…,`.
+fn annotate(md: String, points: &[usize], tags: &[(Usv, &str)]) -> String {
+    let reads = |line: &str| {
+        crate::import::from_markdown(&format!(",{line},"))
+            .ok()
+            .map(|i| i.content)
+    };
+    let Some(plain) = reads(&md) else {
+        return md;
+    };
+    let mut inline = String::new();
+    let mut at = 0;
+    for &(pos, id) in tags {
+        let point = points[pos];
+        inline.push_str(&md[at..point]);
+        inline.push_str(&anchor_tag(id));
+        at = point;
+    }
+    inline.push_str(&md[at..]);
+    if reads(&inline).as_ref() == Some(&plain) {
+        return inline;
+    }
+    let mut at_end = md.clone();
+    for &(_, id) in tags {
+        at_end.push_str(&anchor_tag(id));
+    }
+    if reads(&at_end).as_ref() == Some(&plain) {
+        return at_end;
+    }
+    md
+}
+
+/// The carrier's canonical spelling of an anchor `id`.
+fn anchor_tag(id: &str) -> String {
+    crate::carrier::Element::new("anchor", [("ref".to_string(), id.to_string())].into())
+        .expect("`anchor` and `ref` are in the carrier grammar")
+        .wrap_inline("")
 }
 
 /// Route `marks` into the three lists [`render_marked_core`] takes, each range
@@ -636,6 +774,11 @@ fn bucket_marks(
 /// `|`→`\|` for cells; `island_markup_at` renders an island slot (prose) or
 /// yields `None` (cells carry no slot).
 ///
+/// `tag_points`, when given, receives each position's tag point, one entry
+/// per position `0..=n`: the byte offset in the result after the delimiters
+/// of the marks closing there and before those opening there. A position
+/// inside a code span or link takes the span's start's.
+///
 /// The model permits free (Peritext-style) overlap but markdown syntax nests.
 /// The sweep closes every mark ending at a boundary and reopens the deeper
 /// survivors, so a partial overlap lowers to balanced markdown
@@ -658,6 +801,7 @@ fn render_marked_core(
     escape_punct_at: Option<usize>,
     escape_leading_block: bool,
     escape_pipe: bool,
+    tag_points: Option<&mut Vec<usize>>,
     island_markup_at: impl Fn(usize) -> Option<String>,
 ) -> String {
     let n = chars.len();
@@ -731,8 +875,8 @@ fn render_marked_core(
     });
 
     // One mark sweep over the marks `keep` selects (indices into `fmt`) → inline
-    // markdown.
-    let sweep = |keep: &[bool], d: Delims| -> String {
+    // markdown, recording each position's tag point into `points`.
+    let sweep = |keep: &[bool], d: Delims, mut points: Option<&mut Vec<usize>>| -> String {
         let mut out = String::new();
         // Marks currently open, outermost first. Storing the `fmt` index (not
         // `(end, kind)`) keeps each open mark's identity, so a reopened mark
@@ -741,8 +885,8 @@ fn render_marked_core(
         let (mut oi, mut li, mut ci) = (0usize, 0usize, 0usize);
         let mut pos = 0usize;
         while pos <= n {
+            let mut reopen: Vec<usize> = Vec::new();
             if let Some(idx) = stack.iter().position(|&fi| fmt[fi].1 == pos) {
-                let mut reopen: Vec<usize> = Vec::new();
                 while stack.len() > idx {
                     let fi = stack.pop().unwrap();
                     out.push_str(delim_close(fmt[fi].2, d));
@@ -750,10 +894,14 @@ fn render_marked_core(
                         reopen.push(fi);
                     }
                 }
-                for fi in reopen.into_iter().rev() {
-                    out.push_str(delim_open(fmt[fi].2, d));
-                    stack.push(fi);
-                }
+            }
+            let point = out.len();
+            if let Some(points) = points.as_mut() {
+                points.push(point);
+            }
+            for fi in reopen.into_iter().rev() {
+                out.push_str(delim_open(fmt[fi].2, d));
+                stack.push(fi);
             }
             // Open formatting marks starting here BEFORE any atomic run, so a
             // formatting mark beginning at the same position as inline code/link
@@ -793,6 +941,9 @@ fn render_marked_core(
                 out.push_str("](");
                 emit_url(url, &mut out);
                 out.push(')');
+                if let Some(points) = points.as_mut() {
+                    points.resize(le, point);
+                }
                 pos = le;
                 continue;
             }
@@ -821,6 +972,9 @@ fn render_marked_core(
                     out.push(' ');
                 }
                 out.push_str(&fence);
+                if let Some(points) = points.as_mut() {
+                    points.resize(ce, point);
+                }
                 pos = ce;
                 continue;
             }
@@ -861,8 +1015,17 @@ fn render_marked_core(
     };
     let all = vec![true; fmt.len()];
     if !fmt.iter().any(|m| is_flanking(m.2)) {
-        return sweep(&all, DELIM_SPELLINGS[0]);
+        return sweep(&all, DELIM_SPELLINGS[0], tag_points);
     }
+    // The settled rendering, its tag points recorded by one more sweep of the
+    // same selection and spelling when the caller asks for them.
+    let mut tag_points = tag_points;
+    let mut settle = |out: String, keep: &[bool], d: Delims| -> String {
+        if let Some(points) = tag_points.take() {
+            sweep(keep, d, Some(points));
+        }
+        out
+    };
     // The probe wraps the fragment in `,…,`: parsed standalone, a leading `0. ` /
     // `# ` / `> ` would read as a list/heading/quote marker and drop a good mark.
     // A punctuation sentinel blocks every leading-block construct, preserves edge
@@ -933,9 +1096,9 @@ fn render_marked_core(
     // and each is verified before it is used. Four probes at most.
     let intent = want_marks(&all);
     for &d in &DELIM_SPELLINGS {
-        let cand = sweep(&all, d);
+        let cand = sweep(&all, d, None);
         if probe(&cand, &intent) == Some(true) {
-            return cand;
+            return settle(cand, &all, d);
         }
     }
     // The flanking marks in document order. That order is the re-add priority
@@ -953,7 +1116,7 @@ fn render_marked_core(
         }
         mask
     };
-    let render = |keep: &[usize]| -> String { sweep(&mask_of(keep), DELIM_SPELLINGS[0]) };
+    let render = |keep: &[usize]| -> String { sweep(&mask_of(keep), DELIM_SPELLINGS[0], None) };
     let survives = |md: &str, keep: &[usize]| probe(md, &want_marks(&mask_of(keep))) == Some(true);
     // Drop the whole flanking set, then re-add by halves: a chunk that survives is
     // accepted whole, one that doesn't splits and its halves are retried, a lone
@@ -966,7 +1129,7 @@ fn render_marked_core(
     // split, so the floor is already its answer.
     let mut out = render(&[]);
     if cands.len() == 1 || !survives(&out, &[]) {
-        return out;
+        return settle(out, &mask_of(&[]), DELIM_SPELLINGS[0]);
     }
     let mut kept: Vec<usize> = Vec::new();
     // A chunk `(lo, hi)` and the `kept` length at which its trial is *already
@@ -1003,7 +1166,7 @@ fn render_marked_core(
             split(&mut work, kept.len());
         }
     }
-    out
+    settle(out, &mask_of(&kept), DELIM_SPELLINGS[0])
 }
 
 /// Probes the verify-and-drop net will spend on one line before giving up and
@@ -1101,12 +1264,13 @@ fn clip_asterisk_overlap(fmt: &mut [(usize, usize, &MarkKind)]) {
 /// Reconstruct a table cell's markdown from its `{text, marks}`: the prose mark
 /// sweep with `|`→`\|` escaping so the cell survives re-import through
 /// `pulldown`'s pipe splitting. A cell is flat inline: no islands, no
-/// leading-block escape.
+/// leading-block escape. A cell holding an alignment key is wrapped whole in
+/// its `quill-cell` pair.
 fn render_cell_md(v: &serde_json::Value) -> String {
     let (text, marks) = crate::serial::parse_cell(v);
     let chars: Vec<char> = text.chars().collect();
     let (code_ranges, fmt, links) = bucket_marks(&marks, 0, chars.len(), true);
-    render_marked_core(
+    let md = render_marked_core(
         &chars,
         &code_ranges,
         &fmt,
@@ -1114,8 +1278,13 @@ fn render_cell_md(v: &serde_json::Value) -> String {
         None,
         false,
         true,
+        None,
         |_| None,
-    )
+    );
+    match crate::carrier::cell::pair(v) {
+        Some(pair) => pair.wrap_inline(&md),
+        None => md,
+    }
 }
 
 /// Which of markdown's two spellings each asterisk-family kind is emitted with.
@@ -1905,6 +2074,146 @@ mod tests {
         assert!(!md.contains("c1"));
     }
 
+    fn anchor(start: usize, end: usize, id: &str) -> Mark {
+        Mark::new(start, end, MarkKind::Anchor { id: id.into() })
+    }
+
+    fn tag(id: &str) -> String {
+        format!("<quill-anchor ref=\"{id}\"></quill-anchor>")
+    }
+
+    /// The read imports as the plain projection does, anchors gone.
+    fn reads_as_plain(read: &Annotated, rt: &Normalized) {
+        let plain = from_markdown(&to_markdown(rt)).unwrap().content;
+        assert!(plain.marks.iter().all(|m| !matches!(m.kind, MarkKind::Anchor { .. })));
+        assert_eq!(from_markdown(&read.markdown).unwrap().content, plain, "{:?}", read.markdown);
+    }
+
+    fn read_ids(read: &Annotated) -> Vec<&str> {
+        read.anchors.iter().map(|a| a.id.as_str()).collect()
+    }
+
+    /// A tag sits after the delimiters closing at its position and before those
+    /// opening there, so it parts no delimiter run from its text. A range anchor
+    /// reads as its start, and two anchors at one position spell in id order.
+    #[test]
+    fn a_tag_sits_between_the_marks_closing_and_opening_at_its_start() {
+        let rt = marked(
+            "abcd ef",
+            vec![
+                Mark::new(0, 2, MarkKind::Strong),
+                Mark::new(2, 4, MarkKind::Strike),
+                anchor(0, 0, "open"),
+                anchor(2, 7, "range"),
+                anchor(4, 4, "close"),
+                anchor(4, 4, "also"),
+            ],
+        );
+        let read = to_markdown_annotated(&rt);
+        assert_eq!(
+            read.markdown,
+            format!(
+                "{}**ab**{}~~cd~~{}{} ef",
+                tag("open"),
+                tag("range"),
+                tag("also"),
+                tag("close")
+            )
+        );
+        assert_eq!(read_ids(&read), ["open", "range", "also", "close"]);
+        assert!(read.anchors.iter().all(|a| a.line == "abcd ef"));
+        reads_as_plain(&read, &rt);
+    }
+
+    /// A code span or link has no position inside it a tag could take without
+    /// becoming its text, so the tag moves to the span's start.
+    #[test]
+    fn a_tag_inside_a_code_span_or_link_moves_to_its_start() {
+        let rt = marked(
+            "run code at site",
+            vec![
+                Mark::new(4, 8, MarkKind::Code),
+                Mark::new(12, 16, MarkKind::Link { url: "u".into() }),
+                Mark::new(12, 16, MarkKind::Strong),
+                anchor(6, 6, "c"),
+                anchor(14, 15, "l"),
+            ],
+        );
+        let read = to_markdown_annotated(&rt);
+        assert_eq!(
+            read.markdown,
+            format!("run {}`code` at {}**[site](u)**", tag("c"), tag("l"))
+        );
+        reads_as_plain(&read, &rt);
+    }
+
+    /// A code-block line, a block island's line and an empty line have no
+    /// inline slot that keeps their structure, so they hold no tag; their
+    /// anchors are still listed. An anchor in a table cell is outside the
+    /// anchor op surface and is neither.
+    #[test]
+    fn a_line_with_no_inline_slot_holds_no_tag() {
+        let mut rt = from_markdown("```\nfn a() {}\n```\n\n| h |\n| --- |\n| c |\n\n- a\n-\n- b")
+            .unwrap()
+            .content
+            .into_content();
+        assert_eq!(rt.text, format!("fn a() {{}}\n{ISLAND_SLOT}\na\n\nb"));
+        rt.marks.extend([anchor(3, 3, "code"), anchor(10, 10, "table"), anchor(14, 14, "empty")]);
+        rt.islands[0].props["rows"][0][0]["marks"] =
+            serde_json::json!([{"attrs": {"id": "cell"}, "end": 1, "start": 0, "type": "anchor"}]);
+        let rt = rt.into_normalized();
+        assert_eq!(rt.validate(), Ok(()));
+        assert_eq!(rt.islands[0].props["rows"][0][0]["marks"][0]["type"], "anchor");
+
+        let read = to_markdown_annotated(&rt);
+        assert_eq!(read.markdown, to_markdown(&rt));
+        let lines: Vec<(&str, &str)> =
+            read.anchors.iter().map(|a| (a.id.as_str(), a.line.as_str())).collect();
+        assert_eq!(lines, [("code", "fn a() {}"), ("table", ""), ("empty", "")]);
+    }
+
+    /// A heading's trailing `#` keeps the escape that holds it out of an ATX
+    /// closing sequence wherever its tag lands, so the read is the plain
+    /// projection with tags added.
+    #[test]
+    fn a_heading_keeps_its_trailing_hash_escape_under_a_tag() {
+        let mut rt = from_markdown("# a \\#").unwrap().content.into_content();
+        assert_eq!(rt.text, "a #");
+        rt.marks.extend([anchor(2, 2, "before"), anchor(3, 3, "after")]);
+        let rt = rt.into_normalized();
+        let read = to_markdown_annotated(&rt);
+        assert_eq!(read.markdown, format!("# a {}\\#{}", tag("before"), tag("after")));
+        reads_as_plain(&read, &rt);
+    }
+
+    /// The tag is the carrier's canonical spelling, so an id holding markup
+    /// characters is entity-encoded and the import still drops the tag whole.
+    #[test]
+    fn an_anchor_id_is_entity_encoded() {
+        let rt = marked("ab", vec![anchor(1, 1, "a\"&<b>")]);
+        let read = to_markdown_annotated(&rt);
+        assert_eq!(
+            read.markdown,
+            "a<quill-anchor ref=\"a&quot;&amp;&lt;b&gt;\"></quill-anchor>b"
+        );
+        assert_eq!(read_ids(&read), ["a\"&<b>"]);
+        reads_as_plain(&read, &rt);
+    }
+
+    /// Every tag on a line moves to its end where a tag in place would change
+    /// what the line imports to, and none is written where the end changes it
+    /// too. The lines and points here are hand-made, so each rung is met.
+    #[test]
+    fn a_line_its_tags_would_change_holds_them_at_its_end_or_not_at_all() {
+        // `!` and `[x](u)` parted by a tag are text and a link, not an image.
+        assert_eq!(
+            annotate("![x](u) y".into(), &[0, 1], &[(1, "t")]),
+            format!("![x](u) y{}", tag("t"))
+        );
+        // A trailing `\` escapes the `<` that would open the tag.
+        assert_eq!(annotate("a\\".into(), &[0, 1, 2], &[(2, "t")]), "a\\");
+    }
+
     /// `strong` and `emph` share the `*` delimiter, so their overlap is
     /// unrepresentable: a naive `**ab*cdef*` re-imports as literal text. Export
     /// nests them by truncation instead, keeping the text.
@@ -2167,6 +2476,37 @@ mod tests {
             assert_eq!(md, want, "{label}");
             assert_eq!(from_markdown(&md).unwrap().content.text, text, "{label}: text drift");
         }
+    }
+
+    /// A cell's `quill-cell` pair puts punctuation on both edges of its
+    /// markdown, as the net's `,` sentinels do in the probe, so what the probe
+    /// clears re-imports inside the pair as it would outside it.
+    #[test]
+    fn net_drops_a_leaking_cell_mark_inside_its_quill_cell_pair() {
+        let strong = |start, end| serde_json::json!({"end": end, "start": start, "type": "strong"});
+        let cell = serde_json::json!({
+            "align": "right",
+            "marks": [strong(1, 3), strong(8, 10)],
+            "text": "a.b and cd",
+        });
+        let rt = with_islands(
+            &ISLAND_SLOT.to_string(),
+            vec![Island::new("isl-0".into(), IslandType::Table).with_props(serde_json::json!({
+                "aligns": ["none"],
+                "header": [{"marks": [], "text": "h"}],
+                "rows": [[cell]],
+            }))],
+        );
+        let md = to_markdown(&rt);
+        assert_eq!(md, "| h |\n| --- |\n| <quill-cell align=\"right\">a.b and **cd**</quill-cell> |");
+        let back = from_markdown(&md).unwrap();
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+        let cell = &back.content.islands[0].props["rows"][0][0];
+        assert_eq!(cell["align"], "right");
+        assert_eq!(
+            crate::serial::parse_cell(cell),
+            ("a.b and cd".to_string(), vec![Mark::new(8, 10, MarkKind::Strong)])
+        );
     }
 
     /// A mark whose delimiters merge with their neighbour's is re-spelled, not

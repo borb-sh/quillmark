@@ -6,6 +6,7 @@
 //! guard is live is `Tail`, the record of what the emitter last wrote.
 
 use quillmark_core::error::MAX_NESTING_DEPTH;
+use quillmark_core::quill::{Honors, TableKnob};
 use quillmark_content::island::IslandType;
 use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
 use quillmark_content::normalize::is_line_separator;
@@ -300,7 +301,9 @@ impl EmitError {
     }
 }
 
-pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
+/// Lower `rt`, laying a table out by each knob `honors` declares and as if
+/// every other knob were absent.
+pub fn emit_content(rt: &Normalized, honors: &Honors) -> Result<Emission, EmitError> {
     let max_depth = rt
         .lines
         .iter()
@@ -313,7 +316,7 @@ pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
             max: MAX_NESTING_DEPTH,
         });
     }
-    let mut e = Emit::new(rt);
+    let mut e = Emit::new(rt, honors);
     let n = rt.lines.len();
     e.emit_block_level(0..n, 0);
     Ok(Emission::new(rt, e.out, e.segments))
@@ -325,18 +328,19 @@ pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
 /// Anything not [`is_inline`] falls back to [`emit_content`].
 ///
 /// [`is_inline`]: quillmark_content::model::Content::is_inline
-pub(crate) fn emit_content_inline(rt: &Normalized) -> Result<Emission, EmitError> {
+pub(crate) fn emit_content_inline(rt: &Normalized, honors: &Honors) -> Result<Emission, EmitError> {
     if !rt.is_inline() {
-        return emit_content(rt);
+        return emit_content(rt, honors);
     }
     // `is_inline` guarantees depth 0, so `emit_content`'s nesting guard is moot.
-    let mut e = Emit::new(rt);
+    let mut e = Emit::new(rt, honors);
     e.emit_segment(0..rt.lines.len());
     Ok(Emission::new(rt, e.out, e.segments))
 }
 
 struct Emit<'a> {
     rt: &'a Content,
+    honors: &'a Honors,
     /// Content text as USV, so a `[start, end)` USV range slices in O(1).
     chars: Vec<char>,
     /// Per line: its `[start, end)` USV range (text only, excluding the `\n`
@@ -362,7 +366,7 @@ struct Emit<'a> {
 }
 
 impl<'a> Emit<'a> {
-    fn new(rt: &'a Content) -> Self {
+    fn new(rt: &'a Content, honors: &'a Honors) -> Self {
         let chars: Vec<char> = rt.text.chars().collect();
         // Per-line USV `[start, end)` from the shared segmentation (including
         // the malformed-content padding) so the two crates cannot drift.
@@ -377,6 +381,7 @@ impl<'a> Emit<'a> {
             .collect();
         Emit {
             rt,
+            honors,
             chars,
             line_usv,
             slot_offsets,
@@ -730,7 +735,7 @@ impl<'a> Emit<'a> {
             // backend draws none and `Emission::declined` counts them for the
             // warning saying so.
             IslandType::Image => String::new(),
-            IslandType::Table => table_markup(&isl.props),
+            IslandType::Table => table_markup(&isl.props, self.honors),
         }
     }
 }
@@ -967,8 +972,18 @@ fn cell_markup(text: &str, marks: &[Mark]) -> String {
 }
 
 /// Each cell is canonical `{text, marks}` rendered through [`cell_markup`], with
-/// no markdown re-parse.
-fn table_markup(props: &serde_json::Value) -> String {
+/// no markdown re-parse. A knob `honors` leaves out lowers as if absent:
+///
+/// - `widths`: `columns: (2fr, auto)` in place of `columns: 2`.
+/// - `align`: `align(center, table(…))` under `context`, where each cell
+///   aligning by default takes the alignment the table stands in, so placing a
+///   table moves no text inside it.
+/// - `breakable: false`: `block(breakable: false)[…]`, outermost, as the block
+///   spans the width a placement aligns within.
+/// - a cell's `align` and `valign`: `table.cell(align: right + bottom)[…]`,
+///   which Typst folds with the column's alignment.
+fn table_markup(props: &serde_json::Value, honors: &Honors) -> String {
+    use serde_json::Value;
     let header = props.get("header").and_then(|v| v.as_array());
     let rows = props.get("rows").and_then(|v| v.as_array());
     let aligns = props.get("aligns").and_then(|v| v.as_array());
@@ -988,39 +1003,80 @@ fn table_markup(props: &serde_json::Value) -> String {
         return String::new();
     }
 
-    let cell = |v: &serde_json::Value| {
+    let knob = |k: TableKnob| honors.declares(k).then(|| props.get(k.key())).flatten();
+    let placement = knob(TableKnob::Align)
+        .and_then(Value::as_str)
+        .filter(|a| matches!(*a, "left" | "center" | "right"));
+    let unbreakable = knob(TableKnob::Breakable) == Some(&Value::Bool(false));
+    let cell_keys = honors.declares(TableKnob::CellAlign) || honors.declares(TableKnob::CellValign);
+    // Placed, the table is a call under `context`, so a cell aligning by default
+    // reads the alignment outside the placement rather than the placement's.
+    let inherited = "align.alignment";
+
+    let cell = |v: &Value| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
-        cell_markup(&text, &marks)
+        let body = cell_markup(&text, &marks);
+        let key = |k: TableKnob, set: &[&'static str]| -> Option<&'static str> {
+            let value = honors.declares(k).then(|| v.get(k.key())?.as_str()).flatten()?;
+            set.iter().copied().find(|s| *s == value)
+        };
+        let alignment: Vec<&str> = if cell_keys {
+            [
+                key(TableKnob::CellAlign, &["left", "center", "right"]),
+                key(TableKnob::CellValign, &["top", "horizon", "bottom"]),
+            ]
+            .into_iter()
+            .flatten()
+            .collect()
+        } else {
+            Vec::new()
+        };
+        if alignment.is_empty() {
+            format!("[{body}]")
+        } else {
+            format!("table.cell(align: {})[{body}]", alignment.join(" + "))
+        }
     };
 
-    let mut out = String::from("#table(\n");
-    out.push_str(&format!("  columns: {},\n", cols));
-    if let Some(al) = aligns {
-        if al
-            .iter()
-            .any(|a| a.as_str().map(|s| s != "none").unwrap_or(false))
-        {
-            out.push_str("  align: (");
-            for (i, a) in al.iter().enumerate() {
-                if i > 0 {
-                    out.push_str(", ");
-                }
-                out.push_str(match a.as_str().unwrap_or("none") {
-                    "left" => "left",
-                    "center" => "center",
-                    "right" => "right",
-                    _ => "auto",
-                });
-            }
-            out.push_str("),\n");
+    let mut out = String::from("table(\n");
+    match knob(TableKnob::Widths).and_then(Value::as_array) {
+        Some(weights) => {
+            let tracks: Vec<String> = (0..cols)
+                .map(|i| match weights.get(i).and_then(Value::as_u64) {
+                    Some(n) => format!("{n}fr"),
+                    None => "auto".to_string(),
+                })
+                .collect();
+            out.push_str(&format!("  columns: ({}),\n", tracks.join(", ")));
         }
+        None => out.push_str(&format!("  columns: {},\n", cols)),
+    }
+    let aligned = aligns.filter(|al| al.iter().any(|a| a.as_str().is_some_and(|s| s != "none")));
+    if let Some(al) = aligned {
+        out.push_str("  align: (");
+        for (i, a) in al.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(match a.as_str().unwrap_or("none") {
+                "left" => "left",
+                "center" => "center",
+                "right" => "right",
+                _ if placement.is_some() => inherited,
+                _ => "auto",
+            });
+        }
+        out.push_str("),\n");
+    } else if placement.is_some() {
+        out.push_str(&format!(
+            "  align: if table.align == auto {{ {inherited} }} else {{ table.align }},\n"
+        ));
     }
     out.push_str("  table.header(");
     if let Some(h) = header {
         for c in h {
-            out.push('[');
             out.push_str(&cell(c));
-            out.push_str("], ");
+            out.push_str(", ");
         }
     }
     out.push_str("),\n");
@@ -1029,16 +1085,22 @@ fn table_markup(props: &serde_json::Value) -> String {
             if let Some(r) = row.as_array() {
                 out.push_str("  ");
                 for c in r {
-                    out.push('[');
                     out.push_str(&cell(c));
-                    out.push_str("], ");
+                    out.push_str(", ");
                 }
                 out.push('\n');
             }
         }
     }
     out.push(')');
-    out
+    let table = match placement {
+        Some(at) => format!("#context align({at}, {out})"),
+        None => format!("#{out}"),
+    };
+    if unbreakable {
+        return format!("#block(breakable: false)[{table}]");
+    }
+    table
 }
 
 #[cfg(test)]
@@ -1053,7 +1115,7 @@ mod tests {
     fn emit(md: &str) -> Emission {
         let rt = from_markdown(md).expect("import").content;
         assert_eq!(rt.validate(), Ok(()), "content invariants for {md:?}");
-        emit_content(&rt).expect("emit")
+        emit_content(&rt, &Honors::default()).expect("emit")
     }
 
     #[test]
@@ -1224,10 +1286,10 @@ mod tests {
     fn inline_emits_no_block_terminator() {
         let rt = from_markdown("A **bold** subject").expect("import").content;
         assert!(rt.is_inline());
-        let inline = emit_content_inline(&rt).expect("emit").markup;
+        let inline = emit_content_inline(&rt, &Honors::default()).expect("emit").markup;
         assert_eq!(inline, "A #strong[bold] subject");
         assert!(!inline.contains("\n\n"), "no parbreak in {inline:?}");
-        let block = emit_content(&rt).expect("emit").markup;
+        let block = emit_content(&rt, &Honors::default()).expect("emit").markup;
         assert!(block.ends_with("\n\n"), "block path keeps its terminator");
     }
 
@@ -1237,8 +1299,8 @@ mod tests {
             let rt = from_markdown(md).expect("import").content;
             assert!(!rt.is_inline(), "{md:?} is not inline");
             assert_eq!(
-                emit_content_inline(&rt).expect("emit").markup,
-                emit_content(&rt).expect("emit").markup,
+                emit_content_inline(&rt, &Honors::default()).expect("emit").markup,
+                emit_content(&rt, &Honors::default()).expect("emit").markup,
                 "non-inline {md:?} must fall back to block lowering"
             );
         }
@@ -1336,7 +1398,7 @@ mod tests {
             .into_normalized();
         assert_eq!(rt.validate(), Ok(()));
         assert_eq!(
-            emit_content(&rt).unwrap().markup,
+            emit_content(&rt, &Honors::default()).unwrap().markup,
             "#raw(\"abc\")#link(\"z\")[#link(\"a\")[defghij]]\n\n"
         );
     }
@@ -1509,7 +1571,7 @@ mod tests {
             let rt = Content::new(text, vec![Line::new(LineKind::Para)]).into_normalized();
             assert!(rt.validate().is_err(), "{c:?} passes the content invariants");
 
-            let markup = emit_content(&rt).unwrap().markup;
+            let markup = emit_content(&rt, &Honors::default()).unwrap().markup;
             assert_eq!(markup, " \\- item  tail = not a heading\n\n", "for {c:?}");
             for k in resolve(&markup).1 {
                 assert!(ALLOWED_LEAVES.contains(&k), "{c:?} lowered to a {k:?} leaf");
@@ -1595,7 +1657,7 @@ mod tests {
                     .with_islands(vec![Island::new("isl-0".into(), ty)])
                     .into_normalized();
                 assert_eq!(rt.validate(), Ok(()), "content invariants for {text:?}");
-                let markup = emit_content(&rt).unwrap().markup;
+                let markup = emit_content(&rt, &Honors::default()).unwrap().markup;
                 assert!(
                     !markup.contains(ISLAND_SLOT),
                     "the slot char reached the markup: {markup:?}"
@@ -1709,7 +1771,7 @@ mod tests {
     fn runs_map_content_to_generated_bytes() {
         for md in sample_inputs() {
             let rt = from_markdown(md).unwrap().content;
-            let ec = emit_content(&rt).unwrap();
+            let ec = emit_content(&rt, &Honors::default()).unwrap();
             let chars: Vec<char> = rt.text.chars().collect();
             for seg in &ec.segments {
                 // Segment window is within the markup and non-decreasing.
@@ -1743,7 +1805,7 @@ mod tests {
             ]);
         let rt = rt.into_normalized();
         assert_eq!(rt.validate(), Ok(()));
-        let out = emit_content(&rt).unwrap().markup;
+        let out = emit_content(&rt, &Honors::default()).unwrap().markup;
         assert_eq!(out, "#strong[ab#emph[cd]]#emph[ef]\n\n");
         // Bracket-balanced regardless.
         assert_eq!(out.matches('[').count(), out.matches(']').count());
@@ -1756,7 +1818,7 @@ mod tests {
             Content::new(text.to_string(), vec![Line::new(LineKind::Para)]).with_marks(marks);
         let rt = rt.into_normalized();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
-        emit_content(&rt).unwrap().markup
+        emit_content(&rt, &Honors::default()).unwrap().markup
     }
 
     fn balanced(out: &str) -> bool {
@@ -1866,7 +1928,7 @@ mod tests {
             "header": [ cell("H") ],
             "rows": [ [ cell("a"), cell("b"), cell("c") ] ],
         });
-        let out = table_markup(&props);
+        let out = table_markup(&props, &Honors::default());
         assert!(out.contains("columns: 3,"), "got {out:?}");
 
         // Empty header, populated rows: still counts the rows.
@@ -1874,14 +1936,62 @@ mod tests {
             "header": [],
             "rows": [ [ cell("a"), cell("b") ] ],
         });
-        let out = table_markup(&props);
+        let out = table_markup(&props, &Honors::default());
         assert!(out.contains("columns: 2,"), "got {out:?}");
+    }
+
+    #[test]
+    fn a_declared_knob_lowers_and_an_undeclared_one_lowers_as_absent() {
+        let props = serde_json::json!({
+            "header": [
+                { "text": "a", "marks": [] },
+                { "text": "b", "marks": [], "align": "right", "valign": "bottom" },
+            ],
+            "rows": [[{ "text": "1", "marks": [], "valign": "horizon" }, { "text": "2", "marks": [] }]],
+            "aligns": ["none", "left"],
+            "widths": [2, null],
+            "align": "center",
+            "breakable": false,
+        });
+        let all = Honors { knobs: TableKnob::ALL.iter().copied().collect(), ..Honors::default() };
+        assert_eq!(
+            table_markup(&props, &all),
+            "#block(breakable: false)[#context align(center, table(\n  columns: (2fr, auto),\n  \
+             align: (align.alignment, left),\n  \
+             table.header([a], table.cell(align: right + bottom)[b], ),\n  \
+             table.cell(align: horizon)[1], [2], \n))]"
+        );
+        assert_eq!(
+            table_markup(&props, &Honors::default()),
+            "#table(\n  columns: 2,\n  align: (auto, left),\n  table.header([a], [b], ),\n  [1], [2], \n)"
+        );
+        let cells = Honors { knobs: [TableKnob::CellValign].into(), ..Honors::default() };
+        assert!(table_markup(&props, &cells).contains("[a], table.cell(align: bottom)[b]"));
+    }
+
+    /// Placed with no column aligned, a cell takes the plate's `table.align`,
+    /// else the alignment the table stands in.
+    #[test]
+    fn a_placed_table_without_column_aligns_inherits_the_cells_alignment() {
+        let props = serde_json::json!({
+            "header": [{ "text": "a", "marks": [] }],
+            "rows": [],
+            "aligns": ["none"],
+            "align": "right",
+        });
+        let placed = Honors { knobs: [TableKnob::Align].into(), ..Honors::default() };
+        assert_eq!(
+            table_markup(&props, &placed),
+            "#context align(right, table(\n  columns: 1,\n  \
+             align: if table.align == auto { align.alignment } else { table.align },\n  \
+             table.header([a], ),\n))"
+        );
     }
 
     #[test]
     fn empty_table_emits_nothing() {
         let props = serde_json::json!({ "header": [], "aligns": [], "rows": [] });
-        assert_eq!(table_markup(&props), "");
+        assert_eq!(table_markup(&props, &Honors::default()), "");
     }
 
     #[test]
@@ -1959,7 +2069,7 @@ mod tests {
         use quillmark_content::model::Line;
         let rt = Content::new("= x".to_string(), vec![Line::new(LineKind::Para)]);
         let rt = rt.into_normalized();
-        let ec = emit_content(&rt).unwrap();
+        let ec = emit_content(&rt, &Honors::default()).unwrap();
         let chars: Vec<char> = rt.text.chars().collect();
         for seg in &ec.segments {
             for (content, generated, ctx) in &seg.runs {
