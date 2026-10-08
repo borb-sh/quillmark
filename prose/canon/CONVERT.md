@@ -174,7 +174,8 @@ reads and the shape the WASM boundary pins:
   The optional layout keys `widths`, `align` and `breakable`
   ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") are
   not read: the table draws auto-fit, at the quill's placement, and breaks
-  across pages.
+  across pages. Nor are a cell's optional `align` and `valign`: it draws at
+  its column's alignment, at the top.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. What `url` names is undecided (see [Declined images](#declined-images)).
 
