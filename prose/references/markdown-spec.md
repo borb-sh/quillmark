@@ -542,8 +542,20 @@ attributes into the table's layout, whatever quill reads the document:
   spelling, drops alone, reported as `quill-table[<name>]`.
 
 **`quill-anchor`** is reserved for an anchor's read-only spelling,
-`<quill-anchor ref="…"></quill-anchor>`, which no export writes. Import drops
-it without a report, inline or alone on its line.
+`<quill-anchor ref="…"></quill-anchor>`, which the annotated export writes and
+no plain export does. Import drops it without a report, inline or alone on its
+line. The annotated export writes one inline at each anchor's start:
+
+- after the delimiters of the marks closing there and before those opening
+  there;
+- at a code span's or link's start, for an anchor inside one;
+- in no code block, block island's line, table cell or empty line;
+- at the end of a line whose tags in place would change what it imports to,
+  and nowhere on a line where the end changes it too.
+
+```markdown
+A <quill-anchor ref="c1"></quill-anchor>**flagged** phrase.
+```
 
 **Strip.** Stripping the carrier from a markdown string removes every `quill-*`
 tag the import drops as markup and keeps what a wrapper holds; a tag in a code
