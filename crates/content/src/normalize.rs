@@ -96,10 +96,10 @@ const TAG_JOIN_LINES: usize = 8;
 /// a list item open as a blank line does (markdown-spec §6.2, §7 step 4). Each
 /// round parses and edits only inside the spans that parse located, so a fence
 /// is never touched; the rounds end at one that plans no edit. Where a line
-/// inside a type 6 or 7 block opens a type 1–5 block or a fence that does not
-/// close inside it, that line and the rest of the block are deleted: the
-/// unrepaired parse drops them with the block, and freed they would swallow
-/// what follows it. Past the last round, only the footnote-shaped
+/// inside a type 6 or 7 block opens a type 1–5 block or a fence, at its start
+/// or past its quote and list markers, that does not close inside it, that
+/// line and the rest of the block are deleted: the unrepaired parse drops them
+/// with the block, and freed they would swallow what follows it. Past the last round, only the footnote-shaped
 /// definitions it freed are made literal.
 fn repair(text: String, options: Options) -> Repaired {
     let mut r = Repaired {
@@ -573,6 +573,9 @@ fn transparent(lines: &[SrcLine]) -> (Rows, Vec<String>) {
     let mut i = 0;
     'lines: while i < lines.len() {
         let mut prefix = lines[i].prefix.to_string();
+        // The containers the line's own markers open before a piece that
+        // opens a block, which the lines that block takes in continue.
+        let mut nest = String::new();
         let mut frag = lines[i].content;
         if !rows.at_block_start() {
             frag = strip_columns(frag, dedent);
@@ -589,7 +592,15 @@ fn transparent(lines: &[SrcLine]) -> (Rows, Vec<String>) {
             // Past paragraph text, an indent that deep continues the paragraph,
             // whatever it indents.
             let continuation = deep && !rows.at_block_start();
-            let lead = if deep { "" } else { &frag[..frag.len() - t.len()] };
+            let mut lead = if deep { "" } else { &frag[..frag.len() - t.len()] }.to_string();
+            let mut t = t;
+            if let Some(m) = container_markers(t).filter(|_| !continuation) {
+                if matches!(classify(&t[m..]), Piece::Opener(_) | Piece::Fence(..)) {
+                    lead.push_str(&t[..m]);
+                    nest.push_str(&continuation_of(&lead));
+                    t = &t[m..];
+                }
+            }
             match classify(t) {
                 Piece::Tags => {
                     rows.tags([format!("{prefix}{lead}{t}")]);
@@ -611,10 +622,10 @@ fn transparent(lines: &[SrcLine]) -> (Rows, Vec<String>) {
                         };
                         rows.push(format!("{prefix}{lead}{t}"), Kind::Raw);
                         for line in &lines[i + 1..j] {
-                            rows.push(line.whole(), Kind::Raw);
+                            rows.push(format!("{}{nest}{}", line.prefix, line.content), Kind::Raw);
                         }
                         let closing = lines[j];
-                        rows.push(format!("{}{}", closing.prefix, &closing.content[..end]), Kind::Raw);
+                        rows.push(format!("{}{nest}{}", closing.prefix, &closing.content[..end]), Kind::Raw);
                         i = j;
                         frag = closing.content[end..].trim_start();
                     }
@@ -627,7 +638,8 @@ fn transparent(lines: &[SrcLine]) -> (Rows, Vec<String>) {
                     };
                     rows.push(format!("{prefix}{lead}{t}"), Kind::Raw);
                     for line in &lines[i + 1..=j] {
-                        rows.push(format!("{}{}", line.prefix, strip_columns(line.content, dedent)), Kind::Raw);
+                        let content = strip_columns(line.content, dedent);
+                        rows.push(format!("{}{nest}{content}", line.prefix), Kind::Raw);
                     }
                     i = j;
                     break;
@@ -661,16 +673,43 @@ fn transparent(lines: &[SrcLine]) -> (Rows, Vec<String>) {
                 }
                 _ => {
                     let shown = if continuation { frag } else { t };
-                    let lead = if continuation { "" } else { lead };
+                    let lead = if continuation { "" } else { &lead };
                     rows.push(format!("{prefix}{lead}{shown}"), Kind::Text);
                     break;
                 }
             }
-            prefix = continuation_of(lines[i].prefix);
+            prefix = format!("{}{nest}", continuation_of(lines[i].prefix));
         }
         i += 1;
     }
     (rows, Vec::new())
+}
+
+/// The length of the quote and list markers `t` opens with, each with the
+/// space after it, where what follows them starts a block; `None` without
+/// one, or where what follows is indented code.
+fn container_markers(t: &str) -> Option<usize> {
+    let b = t.as_bytes();
+    let mut i = 0;
+    loop {
+        if html::indent_columns(&t[i..]) > 3 {
+            return None;
+        }
+        let at = i + t[i..].len() - t[i..].trim_start_matches([' ', '\t']).len();
+        let digits = b[at..].iter().take_while(|c| c.is_ascii_digit()).count();
+        let (width, quote) = match b.get(at + digits) {
+            Some(b'>') if digits == 0 => (1, true),
+            Some(b'-' | b'+' | b'*') if digits == 0 => (1, false),
+            Some(b'.' | b')') if (1..=9).contains(&digits) => (digits + 1, false),
+            _ => return (i > 0).then_some(at),
+        };
+        let past = at + width;
+        i = match b.get(past) {
+            Some(b' ' | b'\t') => past + 1,
+            _ if quote => past,
+            _ => return (i > 0).then_some(at),
+        };
+    }
 }
 
 /// The names of the opening tags in `first` and the lines after it, read as

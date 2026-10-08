@@ -1843,13 +1843,22 @@ mod tests {
             ("<div class=\"never closed\ntext\n</div>\n\nafter", "after"),
             ("<div>\n    indented\n</div>", "indented"),
             ("<div>\n- a\n    - b\n</div>", "a\nb"),
+            ("<div>\n- <!-- note\n\n  more text", "more text"),
+            ("<div>\n> 1. ```\ncode\n</div>\n\nmore text", "more text"),
+            ("<div>\n- ```\ncode\n```\n</div>", "code"),
+            ("<div>\n> <!-- c\nx --> kept\n</div>", "kept"),
         ];
         for (md, text) in cases {
             assert_eq!(imp_fixed(md).content.text, *text, "{md:?}");
         }
-        let imported = imp_fixed("<div>\n```\n<b>x</b> <quill-anchor ref=\"r\">\n</div>");
-        assert_eq!(imported.content.text, "");
-        assert_eq!(dropped(&imported), [("div", 1), ("b", 1)]);
+        for md in [
+            "<div>\n```\n<b>x</b> <quill-anchor ref=\"r\">\n</div>",
+            "<div>\n- <!-- c\n<b>x</b>\n</div>",
+        ] {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.text, "", "{md:?}");
+            assert_eq!(dropped(&imported), [("div", 1), ("b", 1)], "{md:?}");
+        }
     }
 
     /// Text after a type 1–5 block's end marker on its last line moves to a
