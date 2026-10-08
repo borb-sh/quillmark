@@ -1,4 +1,5 @@
 use quillmark_content::model::{Mark, MarkKind, Normalized};
+use quillmark_content::serial::to_canonical_value;
 
 use crate::document::{Codec, Document};
 use crate::path::DocPath;
@@ -183,4 +184,52 @@ fn dropped_anchor_paths_name_the_stored_address() {
         ]
     );
     assert_eq!(receipt.deltas[0].path, DocPath::main_body());
+}
+
+#[test]
+fn the_annotated_read_lists_each_anchor_at_its_field() {
+    let mut doc = stored();
+    let item = crate::document::import_body("an item to flag").unwrap();
+    let items = serde_json::json!([
+        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
+        to_canonical_value(&anchored(&item, "flag", "i1")),
+    ]);
+    doc.card_mut(0)
+        .unwrap()
+        .store_field("items", QuillValue::from_json(items))
+        .unwrap();
+
+    let read = doc.to_markdown_annotated();
+    let listed: Vec<(String, &str, &str)> = read
+        .anchors
+        .iter()
+        .map(|a| (a.path.to_string(), a.id.as_str(), a.line.as_str()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("main.subject".to_string(), "s1", "The subject line"),
+            ("main.body".to_string(), "m1", "Main prose stays here."),
+            ("cards.note[0].items[1]".to_string(), "i1", "an item to flag"),
+            ("cards.note[0].body".to_string(), "a1", "First note about apples."),
+            ("cards.note[1].body".to_string(), "p1", "Second note about pears."),
+            ("cards.memo[2].body".to_string(), "x1", "A memo to drop."),
+        ]
+    );
+    for id in ["s1", "m1", "i1", "a1", "p1", "x1"] {
+        let tag = format!("<quill-anchor ref=\"{id}\"></quill-anchor>");
+        assert_eq!(read.markdown.matches(&tag).count(), 1, "{id}:\n{}", read.markdown);
+    }
+}
+
+#[test]
+fn revising_with_the_annotated_read_keeps_every_anchor() {
+    let mut doc = stored();
+    let before = doc.clone();
+    let markdown = doc.to_markdown_annotated().markdown;
+    assert!(markdown.contains("<quill-anchor ref=\"s1\"></quill-anchor>"));
+    let receipt = doc.revise(&markdown).unwrap();
+    assert!(receipt.dropped_anchors.is_empty(), "{:?}", receipt.dropped_anchors);
+    assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
+    assert_eq!(doc, before);
 }

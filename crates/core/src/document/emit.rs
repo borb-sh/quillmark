@@ -11,15 +11,42 @@
 //! This module owns the surrounding structure: fences, `$` metadata lines, field
 //! ordering, indentation, and comment interleaving.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
+use quillmark_content::export::to_markdown_annotated;
+use quillmark_content::model::Normalized;
 use serde_json::Value as JsonValue;
 use serde_saphyr::{FlowMap, FlowSeq, SerializerOptions};
 
 use super::payload::{Payload, PayloadItem};
 use super::prescan::NestedComment;
+use crate::path::DocPath;
 use crate::value::PathSegment;
 use super::{Card, Document};
+
+/// The read [`Document::to_markdown_annotated`] returns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnnotatedMarkdown {
+    pub markdown: String,
+    /// Every prose anchor of every body and content field, in the order the
+    /// markdown reaches them.
+    pub anchors: Vec<DocumentAnchor>,
+}
+
+/// One anchor of an [`AnnotatedMarkdown`] read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentAnchor {
+    pub id: String,
+    /// The body or content field holding the anchor.
+    pub path: DocPath,
+    /// The text of the content line the anchor's start sits on, island slots
+    /// removed.
+    pub line: String,
+}
+
+/// Where an annotated emission collects its anchors.
+type Anchors = RefCell<Vec<DocumentAnchor>>;
 
 impl Document {
     /// Emit canonical Quillmark Markdown from this document.
@@ -45,20 +72,43 @@ impl Document {
     /// The emitted form, and what survives it:
     /// `prose/references/markdown-spec.md` §9 and §3.4.
     pub fn to_markdown(&self) -> String {
+        self.emit(None)
+    }
+
+    /// [`to_markdown`](Self::to_markdown) with every body and content field, at
+    /// any depth, projected through [`to_markdown_annotated`]: each prose
+    /// anchor spelled read-only at its start where its line can hold the tag,
+    /// and listed at its field's [`DocPath`] either way.
+    ///
+    /// A read, not a codec: an import drops every tag, so
+    /// [`Document::revise`] with this markdown keeps the anchors it keeps with
+    /// [`to_markdown`](Self::to_markdown)'s.
+    pub fn to_markdown_annotated(&self) -> AnnotatedMarkdown {
+        let anchors = Anchors::default();
+        let markdown = self.emit(Some(&anchors));
+        AnnotatedMarkdown {
+            markdown,
+            anchors: anchors.into_inner(),
+        }
+    }
+
+    fn emit(&self, anchors: Option<&Anchors>) -> String {
         let mut out = String::new();
 
         // Bodies are content values whose markdown is an export projection, so a
         // round-trip canonicalizes them (leading and trailing blank lines are
         // dropped: a value, not a file).
-        emit_block(&mut out, self.main());
-        append_body(&mut out, &self.main().body_markdown());
+        let main = DocPath::main();
+        emit_block(&mut out, self.main(), &main, anchors);
+        append_body(&mut out, &body_markdown(self.main().body(), &main, anchors));
 
         // The separator is normalised before each block, so edited bodies that
         // lack a trailing blank line still round-trip.
-        for card in self.cards() {
+        for (i, card) in self.cards().iter().enumerate() {
             ensure_blank_before_fence(&mut out);
-            emit_block(&mut out, card);
-            append_body(&mut out, &card.body_markdown());
+            let at = DocPath::card(card.kind(), i);
+            emit_block(&mut out, card, &at, anchors);
+            append_body(&mut out, &body_markdown(card.body(), &at, anchors));
         }
 
         // The body projection carries no trailing newline; the emitted document
@@ -69,6 +119,28 @@ impl Document {
 
         out
     }
+}
+
+/// A card body's markdown, its anchors collected at `card`'s body when
+/// `anchors` asks for them.
+fn body_markdown(body: &Normalized, card: &DocPath, anchors: Option<&Anchors>) -> String {
+    match anchors {
+        None => quillmark_content::export::to_markdown(body),
+        Some(anchors) => annotated(body, &card.body(), anchors),
+    }
+}
+
+/// `content`'s annotated markdown, its anchors pushed at `path`.
+fn annotated(content: &Normalized, path: &DocPath, anchors: &Anchors) -> String {
+    let read = to_markdown_annotated(content);
+    anchors
+        .borrow_mut()
+        .extend(read.anchors.into_iter().map(|a| DocumentAnchor {
+            id: a.id,
+            path: path.clone(),
+            line: a.line,
+        }));
+    read.markdown
 }
 
 /// Append a card's markdown body after its closing fence, separated by one
@@ -122,12 +194,14 @@ fn emit_meta_block(
 /// The sidecar tables threaded through the recursive emit: `path` is the
 /// container path the current node sits at, `comments` the whole value's
 /// comments by slot. `project_content` routes each canonical content object
-/// through [`project_content_field`].
+/// through [`project_content_field`], or, with `annotate`, through the
+/// annotated export, its anchors collected under the field's path.
 #[derive(Clone, Copy)]
 struct EmitCtx<'a> {
     path: &'a [PathSegment],
     comments: &'a Comments<'a>,
     project_content: bool,
+    annotate: Option<(&'a DocPath, &'a Anchors)>,
 }
 
 impl<'a> EmitCtx<'a> {
@@ -135,6 +209,7 @@ impl<'a> EmitCtx<'a> {
         path: &[],
         comments: &Comments::EMPTY,
         project_content: false,
+        annotate: None,
     };
 
     fn at(self, path: &'a [PathSegment]) -> Self {
@@ -147,7 +222,14 @@ impl<'a> EmitCtx<'a> {
         if !self.project_content {
             return None;
         }
-        project_content_field(value).map(JsonValue::String)
+        let markdown = match self.annotate {
+            None => project_content_field(value)?,
+            Some((field, anchors)) => {
+                let path = self.path.iter().fold(field.clone(), |p, seg| p.segment(seg));
+                annotated(&canonical_content(value)?, &path, anchors)
+            }
+        };
+        Some(JsonValue::String(markdown))
     }
 }
 
@@ -220,15 +302,21 @@ impl KeyPos {
     }
 }
 
-fn emit_block(out: &mut String, card: &Card) {
+fn emit_block(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Anchors>) {
     out.push_str("~~~\n");
-    emit_payload_items(out, card.payload());
+    emit_items(out, card.payload(), anchors.map(|a| (at, a)));
     out.push_str("~~~\n");
 }
 
 /// Walk the unified item list and emit each entry. An `inline: true` comment
 /// immediately following a non-comment item is consumed as that item's trailer.
 pub(super) fn emit_payload_items(out: &mut String, payload: &Payload) {
+    emit_items(out, payload, None);
+}
+
+/// [`emit_payload_items`], each content field annotated with its anchors
+/// collected under the card at `annotate`'s path.
+fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &Anchors)>) {
     let items = payload.items();
     let mut i = 0;
     while i < items.len() {
@@ -251,6 +339,7 @@ pub(super) fn emit_payload_items(out: &mut String, payload: &Payload) {
             }
             PayloadItem::Field { key, value } => {
                 let nested = payload.nested_comments_for(key);
+                let field = annotate.map(|(card, anchors)| (card.field(key), anchors));
                 emit_field_at(
                     out,
                     key,
@@ -259,6 +348,7 @@ pub(super) fn emit_payload_items(out: &mut String, payload: &Payload) {
                     EmitCtx {
                         comments: &Comments::new(&nested),
                         project_content: true,
+                        annotate: field.as_ref().map(|(path, anchors)| (path, *anchors)),
                         ..EmitCtx::EMPTY
                     },
                     trailer,
@@ -290,6 +380,11 @@ pub(super) fn emit_payload_items(out: &mut String, payload: &Payload) {
 /// `PartialEq` is order-independent, so a `Value` guard would also project a
 /// content-canonical object whose keys are in non-canonical order.
 pub(super) fn project_content_field(value: &JsonValue) -> Option<String> {
+    canonical_content(value).map(|rt| quillmark_content::export::to_markdown(&rt))
+}
+
+/// The content `value` is, when [`project_content_field`] projects it.
+fn canonical_content(value: &JsonValue) -> Option<Normalized> {
     if !value.is_object() {
         return None;
     }
@@ -301,7 +396,7 @@ pub(super) fn project_content_field(value: &JsonValue) -> Option<String> {
     if as_written != canonical {
         return None;
     }
-    Some(quillmark_content::export::to_markdown(&rt))
+    Some(rt)
 }
 
 /// Ensure `out` ends with `\n\n` so the next fence has a blank line above it.
@@ -444,6 +539,7 @@ pub(crate) fn emit_mapping_lines(
             path: &[],
             comments: &Comments::new(nested),
             project_content: true,
+            annotate: None,
         },
     );
     out

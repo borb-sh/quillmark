@@ -240,6 +240,7 @@ pub use dto::{
     STORAGE_V0_116_0, STORAGE_V0_93_0,
 };
 pub use edit::{CardMut, EditError, Revised};
+pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::import::ImportError;
 /// Taken by [`dropped_construct`], so nameable from here.
