@@ -2,7 +2,7 @@ quill:
   name: table_honors
   version: 0.1.0
   backend: typst
-  description: Declares every table and cell knob, so each lowers through the full pipeline
+  description: Declares every table and cell knob and two elements, so each lowers through the full pipeline
 
 typst:
   plate_file: plate.typ
@@ -13,6 +13,10 @@ honors:
   elements:
     keep:
       scope: block
+    hl:
+      scope: inline
+      attrs:
+        tone: { type: enum, values: [warm, cool], default: warm }
 
 main:
   fields:
