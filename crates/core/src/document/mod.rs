@@ -48,6 +48,14 @@ pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
             "markdown import does not carry footnotes: {n} footnote-shaped definitions in \
              this field read as literal text"
         ),
+        (attribute, n) if attribute.ends_with(']') => {
+            let (element, name) = attribute.trim_end_matches(']').split_once('[').unwrap_or((attribute, ""));
+            let times = if n == 1 { String::new() } else { format!(" on {n} wrappers") };
+            format!(
+                "markdown import refused the `{name}` attribute of `<{element}>`{times} in this \
+                 field: it names no key, or its value is outside the key's spelling"
+            )
+        }
         (element, 1) if element.starts_with(quillmark_content::carrier::PREFIX) => format!(
             "markdown import models no `{element}` element: its tags in this field were \
              dropped and what it wraps kept"

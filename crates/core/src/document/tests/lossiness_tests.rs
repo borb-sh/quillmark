@@ -946,3 +946,16 @@ fn a_comment_inside_a_plain_scalar_is_a_located_refusal() {
     };
     assert_eq!((line, column), (6, 3), "anchored at `  bbb` in the source");
 }
+
+#[test]
+fn a_refused_quill_table_attribute_names_the_attribute_not_an_element() {
+    let doc = Document::parse("~~~\n$quill: q\n~~~\n\n<quill-table widths=\"x\">\n\n| a |\n|---|\n| b |\n\n</quill-table>\n")
+        .unwrap();
+    let message = &doc
+        .warnings
+        .iter()
+        .find(|w| w.code.as_deref() == Some("parse::dropped_construct"))
+        .expect("the refused attribute warns")
+        .message;
+    assert!(message.contains("`widths` attribute of `<quill-table>`"), "{message}");
+}

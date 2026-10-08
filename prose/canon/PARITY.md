@@ -193,14 +193,14 @@ fails:
 - A render through the `table_demo` fixture quill warns exactly
   `signals.render`.
 - `Quill::validate` on that document reports exactly `signals.validate`, and
-  its `validation::declined_construct` set (path, construct, count) is the
-  render's `backend::declined_construct` set.
+  its `validation::declined_construct` list (path, construct, count) is the
+  render's `backend::declined_construct` list.
 
 A row whose construct the import does not store still has its `typst`: what the
 markup wrapped reaches the page.
 
 `scripts/build-wasm.sh` ships the file at the root of `@quillmark/wasm` as
-`parity.json`, and the package's `parity.test.js` round-trips every spelled
+`parity.json`, exported as `@quillmark/wasm/parity.json`, and the package's `parity.test.js` round-trips every spelled
 entry through `importMarkdown` and `exportMarkdown`. A downstream codec pins the
 copy in the package version it imports: decoding each `content` into its own
 state and encoding it back yields `content`.
