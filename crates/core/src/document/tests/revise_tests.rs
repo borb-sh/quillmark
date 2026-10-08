@@ -103,7 +103,7 @@ fn aligned_cards_keep_their_anchors_and_the_receipt_names_the_rest() {
 }
 
 #[test]
-fn an_omitted_ext_carries_only_when_the_kind_sequences_match() {
+fn an_omitted_ext_carries_when_the_card_aligns_by_text_or_the_kind_sequences_match() {
     let same = "~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nFirst.\n\n~~~\n$kind: note\n~~~\n\nSecond.\n\n~~~\n$kind: memo\n~~~\n";
     let mut doc = stored();
     let _ = doc.revise(same).unwrap();
@@ -118,6 +118,13 @@ fn an_omitted_ext_carries_only_when_the_kind_sequences_match() {
         .revise("~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nFirst note about apples.\n")
         .unwrap();
     assert_eq!(doc.main().ext(), Some(&main_ext));
+    assert_eq!(doc.cards()[0].ext().unwrap()["app"]["key"], "n1");
+
+    let mut doc = stored();
+    let receipt = doc
+        .revise("~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nUnrelated words entirely.\n")
+        .unwrap();
+    assert_eq!(receipt.alignment, vec![Some(0)]);
     assert_eq!(doc.cards()[0].ext(), None);
 
     let mut doc = stored();
@@ -183,4 +190,23 @@ fn dropped_anchor_paths_name_the_stored_address() {
         ]
     );
     assert_eq!(receipt.deltas[0].path, DocPath::main_body());
+}
+
+#[test]
+fn a_deleted_card_never_hands_its_ext_to_an_edited_neighbour() {
+    let mut doc = parse(
+        "~~~\n$quill: q\n~~~\n\n\
+~~~\n$kind: note\nowner: Ann\nstatus: done\n$ext:\n  app:\n    key: ann\n~~~\n\nWrite the intro section.\n\n\
+~~~\n$kind: note\nowner: Bob\nstatus: open\n$ext:\n  app:\n    key: bob\n~~~\n\nReview the budget table.\n",
+    );
+    let receipt = doc
+        .revise(
+            "~~~\n$quill: q\n~~~\n\n\
+~~~\n$kind: note\nowner: Bob\nstatus: done\n~~~\n\nReview the budget table and sign off.\n\n\
+~~~\n$kind: note\nowner: Cy\nstatus: open\n~~~\n\nDraft the appendix.\n",
+        )
+        .unwrap();
+    assert_eq!(receipt.alignment, vec![Some(1), None]);
+    assert_eq!(doc.cards()[0].ext().unwrap()["app"]["key"], "bob");
+    assert_eq!(doc.cards()[1].ext(), None);
 }
