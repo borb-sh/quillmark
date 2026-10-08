@@ -635,6 +635,7 @@
   {
     "name": "mark.anchor",
     "markdown": null,
+    "annotated": "<quill-anchor ref=\"c1\"></quill-anchor>Hi there",
     "content": {
       "islands": [],
       "lines": [

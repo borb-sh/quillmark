@@ -1,7 +1,8 @@
 /**
  * The parity corpus as the package ships it, `pkg/parity.json`: every entry
  * with a markdown spelling round-trips through the markdown codec a consumer
- * reaches (prose/canon/PARITY.md § "The corpus").
+ * reaches, and an `annotated` read imports as its content without anchors
+ * (prose/canon/PARITY.md § "The corpus").
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -14,6 +15,7 @@ const { importMarkdown, exportMarkdown } = await init()
 const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'pkg')
 const corpus = JSON.parse(readFileSync(join(PKG_DIR, 'parity.json'), 'utf8'))
 const spelled = corpus.filter((entry) => entry.markdown !== null)
+const annotated = corpus.filter((entry) => entry.annotated !== undefined)
 
 describe('pkg/parity.json', () => {
   it('holds entries with a markdown spelling', () => {
@@ -34,6 +36,17 @@ describe('pkg/parity.json', () => {
       ).toEqual(
         signals.import.map((s) => ({ code: 'parse::dropped_construct', ...s })),
       )
+    })
+  }
+
+  for (const { name, annotated: read, content } of annotated) {
+    it(`${name}, annotated`, () => {
+      const imported = importMarkdown(read)
+      expect(imported.content).toEqual({
+        ...content,
+        marks: content.marks.filter((m) => m.type !== 'anchor'),
+      })
+      expect(imported.warnings).toEqual([])
     })
   }
 })
