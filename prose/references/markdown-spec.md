@@ -382,6 +382,10 @@ else an HTML block holds depends on its type:
 | Type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<quill-keep>` | Everything but the tags. Each line holding only tags drops, and every other line parses as markdown, as though a blank line stood above and below each tag line; a line opening with a type-6 tag keeps the text after it. A `quill-*` tag is the carrier §6.4 defines, whose elements wrap what their tags hold. |
 | Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after its end marker (`-->`, `?>`, `>`, `]]>`, the closing tag) on its last line is a paragraph of its own. |
 
+A type 1 block ends at the first line holding `</pre>`, `</script>`,
+`</style>` or `</textarea>`, in any case and whatever tag opened it, as
+CommonMark ends it.
+
 Inside a type 6 or 7 block, a line opening a type 1–5 block or a fence keeps
 that construct whole where it closes inside the block, and drops with the rest
 of the block where it does not, so nothing in a block swallows what follows it.
@@ -391,6 +395,8 @@ A line holding only tags is a tag line wherever it stands outside code:
   tag cannot interrupt a paragraph), it ends the paragraph and opens a type 7
   block running to the paragraph's end, inside the paragraph's containers. A
   lazy line leaves the quotes it lacks.
+- Under a setext heading's text, it moves below the heading's underline, one
+  tag per line, so the heading keeps its lines.
 - As a pipe-table row, it ends the table rather than adding a row.
 - Between list items, it keeps the item before it open as a blank line would,
   so the items on either side stay one list.
@@ -400,10 +406,14 @@ puts it: under a paragraph's text it keeps its own container prefix, and it
 does not continue the list item before it. Its element opens or closes there.
 
 The allowlist is inline: `<u>` or `<br>` alone on its line is a tag line like
-any other. An import reports each dropped opening tag by its lowercase name,
-under `parse::dropped_construct`; a closing tag, a comment, the content of a
-type 1–5 block, `quill-anchor` and an element that closes (§6.4) report
-nothing.
+any other. An inline `<u>` pairs with a `</u>` as HTML pairs them, inside its
+paragraph, heading, list item's text or table cell: a `</u>` closes the
+innermost `<u>` still open, whatever marks lie between, so an underline crosses
+`**` or `~~` freely. A `<u>` carrying an attribute drops and still takes its
+`</u>`, and one still open where its text ends drops. An import reports each
+dropped opening tag by its lowercase name, under `parse::dropped_construct`; a
+closing tag, a comment, the content of a type 1–5 block, `quill-anchor` and an
+element that closes (§6.4) report nothing.
 
 Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
 an injection vector for downstream HTML-producing tooling; `<u>` is an
@@ -534,10 +544,10 @@ end, an inline pair holding nothing, a self-closing tag, and an open tag in an
 image's alt text. A `quill-*` tag outside the grammar is a raw tag reported
 the same way.
 
-Export writes an inline element's tags outside the emphasis delimiters closing
-and opening where it stands, so a tag never sits at a delimiter run's edge,
-where its `<` or `>` would change the run's flanking. A delimiter run spanning
-that position stays open around the tag.
+Export writes an inline element's tags, and `<u>` and `</u>`, outside the
+emphasis delimiters closing and opening where they stand, so a tag never sits
+at a delimiter run's edge, where its `<` or `>` would change the run's
+flanking. A delimiter run spanning that position stays open around the tag.
 
 ```markdown
 **bold <quill-hl tone="warm">both** highlit</quill-hl>
@@ -660,9 +670,15 @@ Before CommonMark parsing, each body region is normalized:
      it, so the block's other lines reach the markdown parser (§6.2).
    - On a type 1–5 block's last line, text after the end marker moves to a
      line of its own.
+   - A type 1 block's first closing tag is respelled as the block's own
+     closing tag in lowercase, so the parse ends the block where CommonMark
+     does.
    - A line holding only tags under a paragraph's text gets a blank line above
      it and one tag per line, opening a type 7 block. A line carrying the
      paragraph's quote markers is written inside the paragraph's containers.
+   - A line holding only tags under a setext heading's text moves below the
+     underline, one tag per line, written in the containers the line above
+     would write it in.
    - A pipe-table row holding only tags gets a blank line above it, ending the
      table.
    - A block of tag lines that ends a list item is indented into the item, a
