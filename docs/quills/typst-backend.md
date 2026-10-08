@@ -127,17 +127,19 @@ Each row is `(id, title, held, value, path)`, roster members in roster order and
 
 ### Elements
 
-A `quill-<name>` element renders through the helper's `elements` registry. A plate registers a renderer under the element's name, taking its attributes and its content:
+A `quill-<name>` element renders through the helper's `elements` registry. A plate registers a renderer under the element's name, taking its attributes, its content, and `inline`, true for an element inside a line:
 
 ```typst
 #import "@local/quillmark-helper:0.1.0": data, elements
 
-#elements.update(e => e + (stamp: (attrs, body) => text(fill: red, body)))
+#elements.update(e => e + (stamp: (attrs, body, inline: false) => {
+  if inline { text(fill: red, body) } else { block(stroke: red, body) }
+}))
 
 #data.at("$body", default: [])
 ```
 
-The update applies to the content after it in the document, so it goes above the body it styles. `attrs` is a dictionary of the element's attributes, each the string the document wrote, keyed by name. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone.
+The dispatcher reads the registry's final value, so the update may stand anywhere in the plate. Every renderer takes `inline`, whether or not it reads it. An element around nothing, `<quill-sig></quill-sig>`, calls its renderer with an empty body, which suits a signature line or a stamp. `attrs` is a dictionary of the element's attributes, each the string the document wrote, keyed by name. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone.
 
 ## Modules
 

@@ -19,8 +19,9 @@ const PAGE: &str = r#"
 
 /// A renderer that compiles only when its attributes arrive as written.
 const STAMP: &str = r#"
-#elements.update(e => e + (stamp: (attrs, body) => {
+#elements.update(e => e + (stamp: (attrs, body, inline: false) => {
   assert(attrs == (day: "2024-01-15", size: "4"), message: repr(attrs))
+  assert(inline, message: "an element inside a line renders inline")
   text(fill: red, body)
 }))
 "#;
@@ -29,6 +30,14 @@ fn quill(plate: &str) -> Quill {
     common::quill_with_plate(
         &common::yaml("main:\n  fields: {}\n"),
         &format!("{PAGE}{plate}#data.at(\"$body\", default: [])\n"),
+    )
+}
+
+/// A quill whose plate registers `plate` after placing the content.
+fn quill_registering_last(plate: &str) -> Quill {
+    common::quill_with_plate(
+        &common::yaml("main:\n  fields: {}\n"),
+        &format!("{PAGE}#data.at(\"$body\", default: [])\n{plate}"),
     )
 }
 
@@ -75,4 +84,23 @@ fn the_built_in_keep_keeps_its_run_on_one_page() {
         glyphs(&kept[0]),
         glyphs(&bare[0])
     );
+}
+
+#[test]
+fn a_renderer_registered_after_the_content_still_renders_it() {
+    assert_eq!(pages(&quill_registering_last(STAMP), STAMPED), pages(&quill(STAMP), STAMPED));
+}
+
+/// A renderer that draws a block element and an inline one differently.
+const MARK: &str = r#"
+#elements.update(e => e + (mark: (attrs, body, inline: false) => {
+  if inline { text(fill: blue, body) } else { block(fill: yellow, body) }
+}))
+"#;
+
+#[test]
+fn a_renderer_tells_a_block_element_from_an_inline_one() {
+    let block = pages(&quill(MARK), "<quill-mark>\n\nb\n\n</quill-mark>");
+    let inline = pages(&quill(MARK), "<quill-mark>b</quill-mark>");
+    assert_ne!(block, inline);
 }

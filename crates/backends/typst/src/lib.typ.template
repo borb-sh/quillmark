@@ -166,19 +166,20 @@
 }
 
 /// The plate's element renderers, keyed by element name: each a function of
-/// the element's attribute dictionary and its body. A plate adds or replaces
-/// one ahead of the content it renders:
-/// `#elements.update(e => e + (stamp: (attrs, body) => text(fill: red, body)))`.
+/// the element's attribute dictionary and its body, taking `inline`, true
+/// where the element stands inside a line. A plate registers one anywhere in
+/// the plate, since the dispatcher reads the registry's final value:
+/// `#elements.update(e => e + (stamp: (attrs, body, inline: false) => text(fill: red, body)))`.
 #let elements = state("quillmark-elements", (:))
 
-/// Element `name` around `body`, which the engine calls for each element the
-/// quill declares: the plate's renderer under `elements`, else the built-in
+/// Element `name` around `body`, which the engine calls for each element in
+/// the content: the plate's renderer under `elements`, else the built-in
 /// `keep`, which keeps its body on one page (in a `box` inline), else `body`
 /// as it stands.
 #let qm-element(name, attrs, body, inline: false) = context {
-  let render = elements.get().at(name, default: none)
+  let render = elements.final().at(name, default: none)
   if render != none {
-    render(attrs, body)
+    render(attrs, body, inline: inline)
   } else if name == "keep" {
     if inline { box(body) } else { block(breakable: false, body) }
   } else {
