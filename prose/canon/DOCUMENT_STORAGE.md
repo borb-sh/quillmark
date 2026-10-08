@@ -42,7 +42,7 @@ crate-internal to `quillmark-core` and never a storage option.
 
 ## The Format
 
-The current schema (`quillmark/document@0.116.0`) carries each card's full
+The current schema (`quillmark/document@0.124.0`) carries each card's full
 ordered payload: typed `$` system metadata, user fields, and YAML
 comments interleaved in source order: as a single discriminated-union
 item list. This is what makes inline-comment preservation symmetric across
@@ -52,7 +52,7 @@ object, not a markdown string); see Byte-stability.
 
 ```json
 {
-  "schema": "quillmark/document@0.116.0",
+  "schema": "quillmark/document@0.124.0",
   "main": {
     "payload": {
       "items": [
@@ -82,19 +82,23 @@ document came through the bound door) live on the `Parsed` record, not on
 their `Document` handle as session state and exclude them from `equals` and
 the DTO alike.
 
-### Legacy schemas (V0_115_0, V0_112_0, V0_93_0, V0_92_0, V0_82_0, V0_81_0)
+### Legacy schemas (V0_116_0, V0_115_0, V0_112_0, V0_93_0, V0_92_0, V0_82_0, V0_81_0)
+
+Documents written under `"schema": "quillmark/document@0.116.0"` carry the
+current tree, over the content vocabulary without `element`
+(§ Content vocabularies), and the hop decodes the `body`.
 
 Documents written under `"schema": "quillmark/document@0.115.0"` carry the
-current tree, and the hop decodes the `body`. A field item under it or any
-older tag may also carry `fill` and, from V0_92_0, `nested_fills`; the read
-passes over both and keeps the `value`.
+V0_116_0 tree, and the hop is a retag. A field item under it or any older tag
+may also carry `fill` and, from V0_92_0, `nested_fills`; the read passes over
+both and keeps the `value`.
 
 Documents written under `"schema": "quillmark/document@0.112.0"` carry the
 V0_115_0 tree, over the content form that carried a `loss` class on
 every island and spelled a block island's line `{"kind":"island"}` rather than
 `{"kind":"para"}`. The line kind is derived, not stored: a lone island slot's
 line is a paragraph, and whether that slot's markup is a block is the island
-*type*'s to say. The hop is a retag, and the V0_115_0 hop's `body` decode reads
+*type*'s to say. The hop is a retag, and the V0_116_0 hop's `body` decode reads
 the spelling: the decoder reads `island` wherever it meets it and ignores
 `loss`, permanently, because the same spellings rest untagged inside every
 `richtext` field.
@@ -110,7 +114,7 @@ payload value, under no schema tag of its own.
 Documents written before `0.93.0` carry
 `"schema": "quillmark/document@0.92.0"` and store the card `body` as a
 markdown string rather than the embedded canonical content. Readers accept
-them and migrate forward to V0_116_0 on load; writers do not produce this
+them and migrate forward to V0_124_0 on load; writers do not produce this
 shape. The one hop that can reject is the body cold-import (see
 Byte-stability).
 
@@ -127,7 +131,7 @@ row; `$id` reached no backend, which is what makes dropping it the cheaper loss.
 `"schema": "quillmark/document@0.81.0"` is the oldest tag that exists, not
 just the oldest one read: `0.81.0` is where `Document` serialization begins, and
 no build before it serialized a `Document` at all. Every stored blob therefore
-carries one of the seven tags this page names, and the reader set is complete. Its shape
+carries one of the eight tags this page names, and the reader set is complete. Its shape
 is pre-unification: a separate `sentinel` beside a `frontmatter` item list. It
 carries neither `$id` nor `$ext`, so its hop to V0_82_0 is lossless.
 
@@ -233,8 +237,8 @@ four discriminators are covered by their own rule: each is a **closed set**.
 | Axis | Members | Rust type |
 |---|---|---|
 | Line `kind` | `para`, `heading`, `code`, `rule` | `LineKind` |
-| Container | `list_item`, `quote` | `Container` |
-| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor` | `MarkKind` |
+| Container | `list_item`, `quote`, `element` | `Container` |
+| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor`, `element` | `MarkKind` |
 | Island `type` | `table`, `image` | `IslandType` |
 
 A name outside one of them is `ParseError::UnknownName { axis, name }` at every
@@ -248,6 +252,16 @@ total over a `Normalized` body, and a region no projection reads has no defined
 result. A malformed discriminator is a different failure and stays
 `ParseError::Shape`: the closed set answers for names, and a non-string is not a
 name.
+
+`element` is a closed member over an open payload. Its `attrs` bag holds the
+element's `name`, any carrier element name but the reserved `table`, `cell` and
+`anchor`, beside its attributes, each a string under a name in the carrier's
+attribute grammar ([markdown-spec.md](../references/markdown-spec.md) §6.4).
+The grammar refuses an attribute called `name`, so the two never collide. A new
+element name is no storage event, since no reader is frozen at a set of names;
+the member's arrival was one (`0.124.0`). A bag outside the grammar is
+`ParseError::Shape` on both lanes. Two adjacent runs, and two overlapping
+marks, are one element where the whole bag, `name` among it, is equal.
 
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,
@@ -297,7 +311,7 @@ boundary. A container field added later inherits that trade, since a reader is
 frozen at the vocabulary it shipped with. The Markdown
 projection spells the same boundary with the idiom CommonMark already reads: a
 change of bullet char (`-`/`+`) or of ordered delimiter (`.`/`)`) for lists, the
-blank line for quotes.
+blank line for quotes, and for an element the tag pair each run writes.
 
 The omission is every encoder's, storage and the binding seam alike
 (`serial::to_canonical_value` is the only one). A spelled zero decodes to the
@@ -376,7 +390,8 @@ Two rules bound the payload:
   is `Invariant::NestingTooDeep`'s container cap on the payload axis.
 
 - **Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
-  `lang`, a `link`'s `url` and a `list_item`'s shape are all `attrs` entries:
+  `lang`, a `link`'s `url`, a `list_item`'s shape and an `element`'s name and
+  attributes are all `attrs` entries:
   `{"kind":"heading","attrs":{"level":1}}`. The envelope keys stay siblings —
   `kind`/`type`/`container`, `containers`, `continues`, a mark's `start`/`end`,
   a container's `instance` — because they belong to the object rather than to
@@ -592,8 +607,8 @@ this policy holds either way.
 
 The schema version is tied to the **crate version at which the `Document`
 wire format was last changed**: not the running crate version. The
-current format was fixed in `0.116.0`, so the version tag is
-`quillmark/document@0.116.0`; every later patch release writes that same
+current format was fixed in `0.124.0`, so the version tag is
+`quillmark/document@0.124.0`; every later patch release writes that same
 value, because patches do not change the format.
 
 The format is the *bytes*, not only the envelope: `0.115.0` left the DTO tree
@@ -612,21 +627,22 @@ turn and moves every built-in's payload into `attrs` inside that content.
 block island's line `para`. `0.116.0` writes a field item as
 `{type: field, key, value}` and refuses a document, card, payload or payload
 item carrying a key its type does not name, where every earlier tag reads past
-one.
+one. `0.124.0` leaves the tree unchanged and adds `element` to the container and
+mark vocabularies.
 
 The V0_92_0 hop cold-imports the stored markdown `body` string through the same
 Markdown → richtext path `Document::parse` uses, so a pathologically
 over-nested legacy body is rejected (`StorageError::Malformed`) rather than
-silently truncated. The V0_115_0 → V0_116_0 hop decodes its raw `body`, and
-can reject for the same reason a load can; the V0_93_0 → V0_112_0 and
-V0_112_0 → V0_115_0 hops are retags, every tree up to V0_115_0 spelling `body`
-raw and that one decode answering for each spelling.
+silently truncated. The V0_116_0 → V0_124_0 hop decodes its raw `body`, and
+can reject for the same reason a load can; the V0_93_0 → V0_112_0,
+V0_112_0 → V0_115_0 and V0_115_0 → V0_116_0 hops are retags, every tree up to
+V0_116_0 spelling `body` raw and that one decode answering for each spelling.
 
 `0.81.0` is the oldest tag read, and migrations chain
-(`V0_81_0 → V0_82_0 → V0_92_0 → V0_116_0`, with
-`V0_93_0 → V0_112_0 → V0_115_0 → V0_116_0` beside it); only the newest DTO
-converts to the live `Document`. The V0_92_0 chain lands on V0_116_0 rather
-than passing through V0_115_0: a cold import
+(`V0_81_0 → V0_82_0 → V0_92_0 → V0_124_0`, with
+`V0_93_0 → V0_112_0 → V0_115_0 → V0_116_0 → V0_124_0` beside it); only the
+newest DTO converts to the live `Document`. The V0_92_0 chain lands on V0_124_0
+rather than passing through V0_116_0: a cold import
 yields the live content, and re-spelling it *back* to a raw `body` only to read
 it forward again would need an encoder for that form, which this crate lacks.
 The `V0_81_0` hop is structural, the `V0_82_0` hop is lossy in exactly one place
@@ -636,7 +652,7 @@ The `V0_81_0` hop is structural, the `V0_82_0` hop is lossy in exactly one place
 
 When the `Document` wire format changes again:
 
-1. **Freeze** the current `DocumentV0_116_0` type tree: leave its struct
+1. **Freeze** the current `DocumentV0_124_0` type tree: leave its struct
    /enum definitions and serde derives untouched so existing rows still parse.
    Replace any field whose type tracks the live crate — `CanonicalContent` is
    the one — with raw `serde_json::Value`, or the frozen tree will *write* the
@@ -648,11 +664,11 @@ When the `Document` wire format changes again:
    plus its `From<&Document>` and `TryFrom<… for Document>` conversions.
 4. **Add** the `StoredDocument::V0_NN_0` variant, tagged
    `#[serde(rename = "quillmark/document@0.NN.0")]`.
-5. **Write the migration**: `From<DocumentV0_116_0> for DocumentV0_NN_0` if
+5. **Write the migration**: `From<DocumentV0_124_0> for DocumentV0_NN_0` if
    the mapping cannot fail (a purely structural rename/restructure, or a retag
-   like `V0_112_0 → V0_115_0`), or `TryFrom<DocumentV0_116_0> for DocumentV0_NN_0`
+   like `V0_112_0 → V0_115_0`), or `TryFrom<DocumentV0_124_0> for DocumentV0_NN_0`
    if it can reject, as the V0_92_0 cold-import does for an over-nested legacy
-   body and the V0_115_0 hop does for a body that will not decode. This is the only real labor: it
+   body and the V0_116_0 hop does for a body that will not decode. This is the only real labor: it
    encodes how old fields map to the new model (renames, restructures,
    defaults for new fields, and: for a `TryFrom` hop: which malformed inputs
    get rejected).
@@ -663,15 +679,15 @@ When the `Document` wire format changes again:
    ```rust
    match stored {
        StoredDocument::V0_NN_0(p) => Document::try_from(p),
-       StoredDocument::V0_116_0(p) => Document::try_from(DocumentV0_NN_0::try_from(p)?),
-       StoredDocument::V0_115_0(p) => Document::try_from(DocumentV0_NN_0::try_from(
-           DocumentV0_116_0::try_from(p)?,
+       StoredDocument::V0_124_0(p) => Document::try_from(DocumentV0_NN_0::try_from(p)?),
+       StoredDocument::V0_116_0(p) => Document::try_from(DocumentV0_NN_0::try_from(
+           DocumentV0_124_0::try_from(p)?,
        )?),
-       StoredDocument::V0_112_0(p) => Document::try_from(DocumentV0_NN_0::try_from(
-           DocumentV0_116_0::try_from(DocumentV0_115_0::from(p))?,
+       StoredDocument::V0_115_0(p) => Document::try_from(DocumentV0_NN_0::try_from(
+           DocumentV0_124_0::try_from(DocumentV0_116_0::from(p))?,
        )?),
        StoredDocument::V0_92_0(p) => Document::try_from(DocumentV0_NN_0::try_from(
-           DocumentV0_116_0::try_from(p)?,
+           DocumentV0_124_0::try_from(p)?,
        )?),
    }
    ```
@@ -697,7 +713,7 @@ into the hop.
 
 Old and new DTOs **coexist** in `dto.rs`, so a row written by any
 still-supported past version always loads. Migrations chain
-(`V0_92_0 → V0_116_0 → V0_NN_0 → …`); only the newest DTO converts to the live
+(`V0_92_0 → V0_124_0 → V0_NN_0 → …`); only the newest DTO converts to the live
 `Document`, so each migration step stays small as versions accumulate. The
 cost is one frozen type tree per schema version plus one migration function
 per version bump.
@@ -720,7 +736,7 @@ sourcing it from a row count rather than a version number.
 
 ## Gotchas
 
-- The schema version is a hand-set constant (`STORAGE_V0_116_0`), **not**
+- The schema version is a hand-set constant (`STORAGE_V0_124_0`), **not**
   `CARGO_PKG_VERSION`: bumping it is a deliberate act tied to a model change.
 - Unknown schema versions are rejected on read, never silently ignored.
 - DTO type names carry version suffixes with underscores

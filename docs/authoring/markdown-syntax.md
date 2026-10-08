@@ -51,7 +51,8 @@ Consequences:
 - A tag on a line of its own wraps markdown rather than hiding it: `<div>`, `<center>`, `<details>` or any other tag line drops, and the lines between parse as markdown whether or not blank lines surround the tags. Under a paragraph's text, a tag line ends the paragraph. Between list items, it leaves the list one list, as a blank line would. Embedded SVG draws nothing: its tags drop like any other, and text it holds reads as text.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
-- Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included; comments and `<quill-anchor>` tags are not.
+- A `quill-<name>` pair is kept as an element around what it holds: tag lines around blocks (`<quill-keep>` above a signature, `</quill-keep>` below it), or a pair inside a line around text. A quill whose `honors:` declares the element renders it, and any other quill renders what it holds. One left unclosed drops like any other tag.
+- Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included; comments, `<quill-anchor>` tags and a `quill-*` element that closes are not.
 
 ### A footnote-shaped definition is text
 

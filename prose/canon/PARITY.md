@@ -65,7 +65,7 @@ import meets. The columns:
 | silent: honored | no signal, and none is owed: the outcome is the one the construct asks for |
 | n/a | the surface never meets the construct: past the markdown column, a spelling the import does not store |
 | drops silently | outside the vocabulary: the surface loses the construct and nothing reports it; in the validate column, the render loses it and `validate` says nothing |
-| declared | the surface honors the key where the quill's `honors:` declares it; elsewhere the lowering draws as if it were absent, the blueprint teaches nothing, and `validate` and a one-shot render warn under `validation::undeclared_construct` |
+| declared | the surface honors the key or element where the quill's `honors:` declares it; elsewhere the lowering draws as if it were absent, the blueprint teaches nothing, and `validate` and a one-shot render warn under `validation::undeclared_construct` |
 
 ### Lines
 
@@ -90,6 +90,11 @@ import meets. The columns:
 | `container.list_item.instance.bullet`: two adjacent bullet lists | spells | spells | spells | drops silently | n/a | drops silently | none |
 | `container.quote`: block quote | spells | spells | spells | honors | n/a | silent: honored | none |
 | `container.quote.instance`: two adjacent quotes | spells | spells | spells | honors | n/a | silent: honored | none |
+| `container.element`: an element around blocks | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `element.keep` |
+| `container.element.attrs`: an element carrying an attribute | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `element.keep` |
+| `container.element.instance`: two adjacent runs of one element | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `element.keep` |
+| `container.element.in_item`: an element in a list item | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `element.keep` |
+| `container.element.around_list`: an element around a list | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `element.keep` |
 
 Two adjacent bullet lists lower to items a blank line parts, which Typst reads
 as one wide list: the `instance` boundary does not reach the page.
@@ -105,6 +110,9 @@ as one wide list: the `instance` boundary does not reach the page.
 | `mark.code` | spells | spells | spells | honors | n/a | silent: honored | none |
 | `mark.link` | spells | spells | spells | honors | n/a | silent: honored | none |
 | `mark.anchor` | carries opaquely | spells | spells | honors | n/a | silent: honored | none |
+| `mark.element`: an element inside a line | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `element.hl` |
+| `mark.element.scope`: `keep` inside a line, where the quill declares it around blocks | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `element.keep` |
+| `mark.element.crossing`: an element crossing a strong run | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `element.hl` |
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
@@ -112,6 +120,11 @@ The annotated read spells it at its start as a `quill-anchor` tag the import
 drops, so the markdown cell stays `carries opaquely`: a write keeps an anchor by
 diff-rebase, never by its tag. The row's corpus entry pins the spelling under
 `annotated`.
+
+A quill honors an element where its `honors.elements` declares the name at the
+element's scope ([QUILL.md](QUILL.md#honors)): `block` for a container, `inline`
+for a mark. The declaring corpus quill declares `keep` around blocks and `hl`
+inside a line, so `mark.element.scope` is undeclared under both quills.
 
 ### Islands
 
@@ -131,6 +144,7 @@ diff-rebase, never by its tag. The row's corpus entry pins the spelling under
 | `island.table.cell.valign`: a cell's vertical alignment | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `cell.valign` |
 | `island.table.cell.align_valign`: both, in a cell holding marks | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `cell.align` and `cell.valign` |
 | `island.table.cell.align.column`: an `align` equal to its column's, the default | spells | spells | spells | silent: honored | n/a | silent: honored | none |
+| `island.table.cell.element`: an element inside a cell | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `element.hl` |
 | `island.image` | spells | spells | spells | declines with a signal | n/a | declines with a signal | `backend::declined_construct`, `validation::declined_construct`, `image` |
 
 A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
@@ -158,8 +172,10 @@ above, or markup the content does not store.
 | `html.comment` | silent: honored | n/a | n/a | n/a | n/a | n/a | none |
 | `html.tag_line.paragraph`: a tag line under paragraph text | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
 | `html.tag_line.list`: a tag line between list items | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
-| `carrier.block`: a `quill-*` wrapper nothing models, a type 7 block | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
-| `carrier.inline`: a `quill-*` pair nothing models, inside a line | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
+| `carrier.element.unclosed`: an element still open where the body ends | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
+| `carrier.element.self_closing`: a self-closing element tag | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
+| `carrier.element.attr`: an element attribute outside the grammar | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep[onclick]` |
+| `carrier.element.stray_close`: an element close tag with nothing open | silent: honored | n/a | n/a | n/a | n/a | n/a | none |
 | `carrier.table`: the reserved `quill-table` around a table | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `table.widths` |
 | `carrier.table.holds_other`: a `quill-table` around anything but one table | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table` |
 | `carrier.table.attr`: a `quill-table` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[foo]` |
@@ -205,9 +221,10 @@ fails:
   point. An entry markdown cannot spell is checked on the other surfaces only.
 - An entry's `annotated` is `to_markdown_annotated(content)`'s markdown, and
   imports, warning nothing, to `content` without its anchors.
-- The rest runs through two fixture quills: `table_demo`, which declares no
-  knob, against `typst` and `signals`, and `table_honors`, which declares every
-  knob, against `declared` where the entry has one.
+- The rest runs through two fixture quills: `table_demo`, which declares
+  nothing, against `typst` and `signals`, and `table_honors`, which declares
+  every knob and the elements `keep` and `hl`, against `declared` where the
+  entry has one.
 - The body's block in the generated helper, which is `emit_content`'s markup,
   contains every `typst` substring.
 - A one-shot render warns exactly `signals.render`.

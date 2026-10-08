@@ -1034,9 +1034,9 @@ A document stores every knob whatever its quill declares, as its markdown spells
 </quill-table>
 ```
 
-A knob the quill leaves out renders as if absent, and `quillmark validate` and `Quill::validate` warn `validation::undeclared_construct` on each field storing one. Column alignment (`| :-- | --: |`) needs no declaration: every Typst quill honors it. The blueprint closes the main card with one example of each declared construct, so an LLM author sees the markup the quill renders. A quill without the section renders, validates and teaches as before.
+A knob the quill leaves out renders as if absent, and `quillmark validate` and `Quill::validate` warn `validation::undeclared_construct` on each field storing one. Elements store the same way: a declared one renders through the plate's renderer (see [Elements](typst-backend.md#elements)), and one the quill does not declare at its scope renders what it wraps and warns. Column alignment (`| :-- | --: |`) needs no declaration: every Typst quill honors it. The blueprint closes the main card with one example of each declared construct, so an LLM author sees the markup the quill renders. A quill without the section renders, validates and teaches as before.
 
-An element name is lowercase letters and digits, words joined by single hyphens (`keep`, `pull-quote`); `table`, `cell` and `anchor` are the engine's own. A malformed section fails the load as `quill::invalid_honors`, `quill::invalid_element_name`, `quill::invalid_element` or `quill::invalid_element_attr`. The acroform backend typesets no table, so it takes no `table` or `cell` knob.
+An element name is lowercase letters and digits, words joined by single hyphens (`keep`, `pull-quote`); `table`, `cell` and `anchor` are the engine's own. A malformed section fails the load as `quill::invalid_honors`, `quill::invalid_element_name`, `quill::invalid_element` or `quill::invalid_element_attr`. The acroform backend typesets no table and lowers no element, so declaring a knob or an element under it fails the load as `quill::invalid_honors`.
 
 ---
 
