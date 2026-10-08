@@ -122,14 +122,19 @@ An anchor draws nothing, which is how the lowering honors it, and a cold
 | `island.table.props.align`: the table's placement | spells | spells | spells | inert | n/a | inert | none |
 | `island.table.props.breakable`: `false`, the table kept on one page | spells | spells | spells | inert | n/a | inert | none |
 | `island.table.props.breakable.true`: `true`, the default | spells | spells | spells | silent: honored | n/a | silent: honored | none |
+| `island.table.cell.align`: a cell's horizontal alignment | spells | spells | spells | inert | n/a | inert | none |
+| `island.table.cell.valign`: a cell's vertical alignment | spells | spells | spells | inert | n/a | inert | none |
+| `island.table.cell.align_valign`: both, in a cell holding marks | spells | spells | spells | inert | n/a | inert | none |
+| `island.table.cell.align.column`: an `align` equal to its column's, the default | spells | spells | spells | silent: honored | n/a | silent: honored | none |
 | `island.image` | spells | spells | spells | declines with a signal | n/a | declines with a signal | `backend::declined_construct`, `validation::declined_construct`, `image` |
 
 A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
 mint it without a key the engine does not name.
 
 `widths`, `align` and `breakable` are spelled on a `quill-table` wrapper
-([markdown-spec.md](../references/markdown-spec.md) §6.4), and each is absent
-at its default, so a default row stores no key.
+([markdown-spec.md](../references/markdown-spec.md) §6.4), and a cell's `align`
+and `valign` on a `quill-cell` pair around its content. Each is absent at its
+default, so a default row stores no key.
 
 ### Spellings
 
@@ -154,6 +159,9 @@ above, or markup the content does not store.
 | `carrier.table.holds_other`: a `quill-table` around anything but one table | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table` |
 | `carrier.table.attr`: a `quill-table` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[foo]` |
 | `carrier.table.value`: a `quill-table` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[widths]` |
+| `carrier.cell.partial`: a `quill-cell` pair not wrapping its whole cell | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-cell` |
+| `carrier.cell.attr`: a `quill-cell` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-cell[foo]` |
+| `carrier.cell.value`: a `quill-cell` attribute value outside its set | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-cell[align]` |
 | `carrier.anchor`: an echoed `quill-anchor` | silent: honored | n/a | n/a | n/a | n/a | n/a | none |
 | `markdown.footnote_definition`: `[^1]: Word` | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `footnote_definition` |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | n/a | none |

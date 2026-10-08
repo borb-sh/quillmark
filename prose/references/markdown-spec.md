@@ -506,9 +506,9 @@ Text with a <quill-keep note="a &amp; b">pair</quill-keep> inside a line.
 
 **An element nothing folds or models** is transparent: its tags drop, what it
 wraps imports, and `parse::dropped_construct` reports it under its tag name
-(`quill-keep`), as any raw tag (§6.2). Every element but `anchor` and a
-`table` block wrapper is one. A `quill-*` tag outside the grammar is a raw tag
-reported the same way.
+(`quill-keep`), as any raw tag (§6.2). Every element but `anchor`, a `table`
+block wrapper and a `cell` pair wrapping a whole table cell is one. A
+`quill-*` tag outside the grammar is a raw tag reported the same way.
 
 **`quill-table`** is a block wrapper around one pipe table, and folds its
 attributes into the table's layout, whatever quill reads the document:
@@ -540,6 +540,35 @@ attributes into the table's layout, whatever quill reads the document:
   what it holds imports, and `parse::dropped_construct` reports `quill-table`.
 - An attribute other than these three, and one whose value is outside its
   spelling, drops alone, reported as `quill-table[<name>]`.
+
+**`quill-cell`** is an inline pair around a table cell's whole content, in the
+header row or the body, and folds its attributes into the cell, whatever quill
+reads the document:
+
+| Attribute | Value | Default |
+|---|---|---|
+| `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's, from the delimiter row |
+| `valign` | the cell's vertical alignment: `top`, `horizon` or `bottom` | `top` |
+
+```markdown
+| Item | Qty |
+| --- | ---: |
+| <quill-cell valign="bottom">Total</quill-cell> | <quill-cell align="center">42</quill-cell> |
+```
+
+- A pair folds when its open tag is the cell's first inline and its close tag
+  the cell's last, and the cell holds no other `quill-cell` tag. What it wraps
+  is the cell's content as written, edge whitespace included.
+- A pair that does not wrap the whole cell folds nothing: text or markup
+  before or after it, a second pair, a nested pair and an unclosed pair each
+  leave the cell as written, its `quill-cell` tags dropped, and
+  `parse::dropped_construct` reports each open tag as `quill-cell`.
+- An `align` equal to its column's and a `valign` of `top` store nothing, and
+  export writes the pair only around a cell holding a value other than its
+  default.
+- An attribute other than these two, and one whose value is outside its set,
+  drops alone, reported as `quill-cell[<name>]`.
+- A `quill-cell` outside a table cell is an element nothing folds.
 
 **`quill-anchor`** is reserved for an anchor's read-only spelling,
 `<quill-anchor ref="…"></quill-anchor>`, which no export writes. Import drops
