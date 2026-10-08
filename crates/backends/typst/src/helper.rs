@@ -228,7 +228,7 @@ impl<'m> Codegen<'m> {
         };
         match from_canonical_value(value) {
             Ok(rt) if !rt.is_blank() => {
-                match emit(&rt, self.meta.honors()) {
+                match emit(&rt) {
                     Ok(ec) => self.content_block(path, ec),
                     Err(e) => {
                         self.emit_error.get_or_insert(e);
@@ -584,7 +584,7 @@ pub(crate) fn node_type(node: &serde_json::Value) -> Option<&str> {
 
 /// The two date field types, distinguished by their Typst `datetime(..)` arity.
 #[derive(Clone, Copy)]
-pub(crate) enum DateKind {
+enum DateKind {
     Date,
     DateTime,
 }
@@ -606,7 +606,7 @@ fn display_literal(entries: &[(String, String)]) -> String {
 /// `None` for a string that does not parse (the empty string included), which
 /// the caller lowers to `none`. Reuses the coercion layer's own parse, so a
 /// value that reached here parses and `None` is the defensive arm.
-pub(crate) fn datetime_constructor(s: &str, kind: DateKind) -> Option<String> {
+fn datetime_constructor(s: &str, kind: DateKind) -> Option<String> {
     match kind {
         DateKind::Date => quillmark_core::quill::parse_date(s)
             .map(|(year, month, day)| format!("datetime(year: {year}, month: {month}, day: {day})")),

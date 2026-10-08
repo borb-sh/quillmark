@@ -1429,24 +1429,11 @@
       "text": "Signed"
     },
     "typst": [
-      "#[\n#strong[Signed]"
+      "#qm-element(\"keep\", (:))[\n#strong[Signed]"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "#qm-element(\"keep\", (:))[\n#strong[Signed]"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -1472,24 +1459,11 @@
       "text": "Text"
     },
     "typst": [
-      "#[\nText"
+      "#qm-element(\"keep\", (\"note\": \"x\"))[\nText"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "#qm-element(\"keep\", (\"note\": \"x\"))[\nText"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -1526,26 +1500,12 @@
       "text": "one\ntwo"
     },
     "typst": [
-      "#[\none",
-      "#[\ntwo"
+      "#qm-element(\"keep\", (:))[\none",
+      "#qm-element(\"keep\", (:))[\ntwo"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "#qm-element(\"keep\", (:))[\none",
-        "#qm-element(\"keep\", (:))[\ntwo"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -1578,24 +1538,11 @@
       "text": "one"
     },
     "typst": [
-      "- #[\n  one"
+      "- #qm-element(\"keep\", (:))[\n  one"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "- #qm-element(\"keep\", (:))[\n  one"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -1647,24 +1594,11 @@
       "text": "one\ntwo"
     },
     "typst": [
-      "#[\n- one\n- two"
+      "#qm-element(\"keep\", (:))[\n- one\n- two"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "#qm-element(\"keep\", (:))[\n- one\n- two"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -1692,60 +1626,11 @@
       "text": "A pair here."
     },
     "typst": [
-      "A pair here."
+      "A #qm-element(\"hl\", (\"tone\": \"cool\"), inline: true)[pair] here."
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "A #qm-element(\"hl\", (\"tone\": \"cool\"), inline: true)[pair] here."
-      ],
-      "signals": {
-        "render": []
-      }
-    }
-  },
-  {
-    "name": "mark.element.scope",
-    "markdown": "A <quill-keep>pair</quill-keep> here.",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "name": "keep"
-          },
-          "end": 6,
-          "start": 2,
-          "type": "element"
-        }
-      ],
-      "text": "A pair here."
-    },
-    "typst": [
-      "A pair here."
-    ],
-    "signals": {
-      "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
+      "render": []
     }
   },
   {
@@ -1777,24 +1662,11 @@
       "text": "a b c"
     },
     "typst": [
-      "a #strong[b c]"
+      "#qm-element(\"hl\", (:), inline: true)[a #strong[b]]#strong[ c]"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "#qm-element(\"hl\", (\"tone\": \"warm\"), inline: true)[a #strong[b]]#strong[ c]"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -1838,24 +1710,11 @@
       "text": "￼"
     },
     "typst": [
-      "table.header([a], )"
+      "table.header([#qm-element(\"hl\", (:), inline: true)[a]], )"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "table.header([#qm-element(\"hl\", (\"tone\": \"warm\"), inline: true)[a]], )"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -1934,7 +1793,7 @@
       "text": "Text"
     },
     "typst": [
-      "#[\nText"
+      "#qm-element(\"keep\", (:))[\nText"
     ],
     "signals": {
       "import": [
@@ -1943,20 +1802,7 @@
           "count": 1
         }
       ],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "#qm-element(\"keep\", (:))[\nText"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -2033,24 +1879,11 @@
       "text": "￼"
     },
     "typst": [
-      "columns: 2"
+      "columns: (1fr, 2fr)"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "columns: (1fr, 2fr)"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -2245,24 +2078,11 @@
       "text": "￼"
     },
     "typst": [
-      "columns: 3"
+      "columns: (1fr, 2fr, auto)"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "columns: (1fr, 2fr, auto)"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -2369,24 +2189,11 @@
       "text": "￼"
     },
     "typst": [
-      "columns: 2"
+      "#context align(center, table("
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "#context align(center, table("
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -2438,24 +2245,11 @@
       "text": "￼"
     },
     "typst": [
-      "columns: 2"
+      "#block(breakable: false)[#table("
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "#block(breakable: false)[#table("
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -2715,25 +2509,11 @@
       "text": "￼"
     },
     "typst": [
-      "columns: 2",
-      "[1], [2]"
+      "table.cell(align: right)[1], [2]"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "table.cell(align: right)[1], [2]"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -2785,25 +2565,11 @@
       "text": "￼"
     },
     "typst": [
-      "columns: 2",
-      "[1], [2]"
+      "table.cell(align: bottom)[1], [2]"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "table.cell(align: bottom)[1], [2]"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {
@@ -2862,26 +2628,11 @@
       "text": "￼"
     },
     "typst": [
-      "[#strong[1] one], [2]"
+      "table.cell(align: center + horizon)[#strong[1] one], [2]"
     ],
     "signals": {
       "import": [],
-      "render": [
-        "validation::undeclared_construct",
-        "validation::undeclared_construct"
-      ],
-      "validate": [
-        "validation::undeclared_construct",
-        "validation::undeclared_construct"
-      ]
-    },
-    "declared": {
-      "typst": [
-        "table.cell(align: center + horizon)[#strong[1] one], [2]"
-      ],
-      "signals": {
-        "render": []
-      }
+      "render": []
     }
   },
   {

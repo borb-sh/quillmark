@@ -64,7 +64,6 @@ follow:
 | **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <members>` | label (single-line prose), an `array`'s element cap, and a matrix's member hint |
 | **Inline `# …`** at end of the value line | `# <type>[<format>][?]` | structural metadata: the field's type, an optional format refinement, and the optional-cell marker |
 | **Body line** closing a card's payload | `# no body` | that the kind takes no body (see "Bodies") |
-| **Honored markup** closing the root payload, above any body line | `# markup this quill honors:`, then one example per declared construct | the table knobs and elements the quill's `honors:` declares (see "Markup a quill honors") |
 
 The two slots divide by *grammar*, not by subject: the inline slot is the fixed
 `<type>[<format>]` expression and takes nothing else, so a constraint that is not
@@ -382,44 +381,6 @@ carries, itself included, so the expansion recurses to whatever depth the schema
 declares. A freeform `type: object` without a `properties` map is rejected at
 `Quill.yaml` parse time (`quill::object_missing_properties`).
 
-## Markup a quill honors
-
-A quill declaring `honors:` ([QUILL.md](QUILL.md#honors)) closes the root
-payload with the markup it renders beyond prose, above any `# no body`: a
-`# markup this quill honors:` header, then one canonical example per declared
-construct, each line a comment and a blank line a bare `#`, a bare `#` between
-two examples. The root carries it once because the declaration is quill-wide: it
-holds for every body and content field.
-
-```
-# markup this quill honors:
-# <quill-table align="center" breakable="false" widths="2 1">
-#
-# | Item | Amount |
-# | --- | --- |
-# | Total | <quill-cell align="right" valign="bottom">42</quill-cell> |
-#
-# </quill-table>
-#
-# <quill-keep>
-#
-# Text.
-#
-# </quill-keep>
-```
-
-- **A table** carries every declared table knob on its `quill-table` wrapper and,
-  where cell knobs are declared, one `quill-cell` carrying each; a quill
-  declaring cell knobs alone shows the bare pipe table around that cell. One
-  table teaches every knob, and its values are illustrative.
-- **An element** shows its scope's spelling: a block element wraps a paragraph,
-  an inline one a run of text in a sentence. Each attribute shows its
-  `default:`, else its enum's first member, else its type's name.
-
-A quill declaring nothing has no header and no example. The spelling is the
-carrier's ([markdown-spec.md](../references/markdown-spec.md) §6.4), written by
-the same `carrier::Element` the export uses.
-
 ## UI metadata honored
 
 Field declaration order controls field ordering within the document:
@@ -437,8 +398,7 @@ no second shape for.
 Every body is empty: a body is a cell. A kind under
 `body.enabled: false` closes its payload with `# no body`, directly above the
 body, whose emptiness would otherwise read as awaiting prose; a kind taking a
-body has no body line. The honored markup a root payload closes with sits above
-it.
+body has no body line.
 
 A composable card's emitted block — its `$kind` line, the `composable
 (0..N)` / sample-card comments, its fields, and its body — is one sample

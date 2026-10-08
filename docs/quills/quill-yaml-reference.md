@@ -20,9 +20,6 @@ main:         # Optional, main entry-point card: field schemas and optional titl
 card_kinds:   # Optional: additional composable card kinds
   ...
 
-honors:       # Optional: table knobs and elements the plate renders
-  ...
-
 typst:        # Optional: backend-specific configuration
   ...
 ```
@@ -1001,45 +998,6 @@ Card kinds defined here are authored as `~~~` blocks (with a `$kind: <kind>` lin
 
 ---
 
-## `honors` Section
-
-What the plate renders beyond prose, declared once for every body and content field.
-
-```yaml
-honors:
-  table: [widths, align, breakable]
-  cell: [align, valign]
-  elements:
-    keep:
-      scope: block          # block | inline
-      attrs:
-        note: { type: string }
-```
-
-| Key | Holds |
-|-----|-------|
-| `table` | The table knobs the plate lays out: any of `widths` (column weights), `align` (the table's placement) and `breakable` (`false` keeps a table on one page) |
-| `cell` | The cell knobs: any of `align` (`left`, `center`, `right`, over the column's) and `valign` (`top`, `horizon`, `bottom`) |
-| `elements` | `quill-<name>` elements, each a `scope` (`block` or `inline`) and optional `attrs`, each a field schema of type `string`, `enum`, `integer`, `number`, `boolean`, `date` or `datetime` |
-
-A document stores every knob whatever its quill declares, as its markdown spells them:
-
-```markdown
-<quill-table align="center" widths="2 1">
-
-| Item | Amount |
-| --- | --- |
-| Total | <quill-cell align="right">42</quill-cell> |
-
-</quill-table>
-```
-
-A knob the quill leaves out renders as if absent, and `quillmark validate` and `Quill::validate` warn `validation::undeclared_construct` on each field storing one. Elements store the same way: a declared one renders through the plate's renderer (see [Elements](typst-backend.md#elements)), and one the quill does not declare at its scope renders what it wraps and warns. Column alignment (`| :-- | --: |`) needs no declaration: every Typst quill honors it. The blueprint closes the main card with one example of each declared construct, so an LLM author sees the markup the quill renders. A quill without the section renders, validates and teaches as before.
-
-An element name is lowercase letters and digits, words joined by single hyphens (`keep`, `pull-quote`); `table`, `cell` and `anchor` are the engine's own. A malformed section fails the load as `quill::invalid_honors`, `quill::invalid_element_name`, `quill::invalid_element` or `quill::invalid_element_attr`. The acroform backend typesets no table and lowers no element, so declaring a knob or an element under it fails the load as `quill::invalid_honors`.
-
----
-
 ## `typst` Section
 
 Backend-specific configuration for the Typst renderer.
@@ -1068,7 +1026,7 @@ Quillmark emits a public schema contract derived from `Quill.yaml`. Accessors:
 - WASM: `quill.schema` (JSON)
 - CLI: `quillmark schema <path>`
 
-`ui:` hints are preserved verbatim in the output, and `honors` is emitted when the quill declares anything. See [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md) for the emitted shape.
+`ui:` hints are preserved verbatim in the output. See [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md) for the emitted shape.
 
 ---
 

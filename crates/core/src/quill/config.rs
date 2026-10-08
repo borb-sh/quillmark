@@ -8,11 +8,9 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Diagnostic, Severity, diag_args};
 use crate::value::QuillValue;
 
-use super::honors::{self, ElementDecl, ElementScope, Honors, ELEMENT_KEYS, HONORS_KEYS};
 use super::types::{BODY_CARD_SCHEMA_KEYS, UI_CARD_SCHEMA_KEYS, VARIANT_DISCRIMINANT_KEY};
 use super::{
-    BlockConstruct, BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType,
-    GroupRegistry, UiCardSchema,
+    BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType, GroupRegistry, UiCardSchema,
 };
 
 /// Where a field sits in the type tree. Every type nests at every depth; this
@@ -117,14 +115,11 @@ pub struct QuillConfig {
     /// The top-level YAML section whose key matches `backend`.
     #[serde(default)]
     pub backend_config: HashMap<String, QuillValue>,
-    /// The `honors:` section: the table knobs and elements the plate renders.
-    #[serde(skip_serializing_if = "Honors::is_empty")]
-    pub honors: Honors,
 }
 
 impl QuillConfig {
     /// The four fields `Quill.yaml` requires. `description`, `author`,
-    /// `card_kinds`, `backend_config` and `honors` start empty.
+    /// `card_kinds`, and `backend_config` start empty.
     ///
     /// This bypasses [`Self::from_yaml_with_warnings`] and its validation, so a
     /// config built here can hold shapes the parser refuses. Loading a quill
@@ -140,7 +135,6 @@ impl QuillConfig {
             version,
             author: String::new(),
             backend_config: HashMap::new(),
-            honors: Honors::default(),
         }
     }
 }
@@ -267,11 +261,6 @@ impl QuillConfig {
             );
         }
 
-        if !self.honors.is_empty() {
-            let honors = serde_json::to_value(&self.honors).expect("Honors is always serializable");
-            obj.insert("honors".to_string(), honors);
-        }
-
         serde_json::Value::Object(obj)
     }
 
@@ -294,33 +283,6 @@ impl QuillConfig {
             return Ok(fields.clone());
         };
         Self::coerce_fields(card_schema, Some(card_kind), fields)
-    }
-
-    /// Coerce a `quill-<element>` element's attributes against its
-    /// `honors.elements` declaration, returning the input unchanged when the
-    /// quill declares no such element. An attribute the declaration does not
-    /// name copies through.
-    pub fn coerce_element(
-        &self,
-        element: &str,
-        attrs: &IndexMap<String, QuillValue>,
-    ) -> Result<IndexMap<String, QuillValue>, CoercionError> {
-        let Some(decl) = self.honors.elements.get(element) else {
-            return Ok(attrs.clone());
-        };
-        attrs
-            .iter()
-            .map(|(name, value)| {
-                let coerced = match decl.attrs.get(name) {
-                    Some(schema) => {
-                        let path = format!("honors.elements.{element}.{name}");
-                        Self::conform_value(value, schema, &path, Leniency::Render)?
-                    }
-                    None => value.clone(),
-                };
-                Ok((name.clone(), coerced))
-            })
-            .collect()
     }
 
     /// Coerce every field the schema declares and copy the rest through. A
@@ -2037,217 +1999,6 @@ impl QuillConfig {
         fields
     }
 
-    /// Parse the `honors:` section. A malformed knob list, element or
-    /// attribute is reported and left out, so the rest still loads and a
-    /// render-time reader never meets a shape it cannot read.
-    fn parse_honors(
-        value: &serde_json::Value,
-        backend: &str,
-        errors: &mut Vec<Diagnostic>,
-    ) -> Honors {
-        let invalid = |message: String, hint: String| {
-            Diagnostic::new(Severity::Error, message)
-                .with_code("quill::invalid_honors".to_string())
-                .with_hint(hint)
-        };
-        let mut out = Honors::default();
-        let Some(obj) = value.as_object() else {
-            errors.push(invalid(
-                "'honors' must be a mapping".to_string(),
-                format!("Valid keys under 'honors' are: {}.", HONORS_KEYS.join(", ")),
-            ));
-            return out;
-        };
-        for (key, value) in obj {
-            match key.as_str() {
-                list @ ("table" | "cell") => {
-                    let valid = honors::knob_keys(list).join(", ");
-                    let Some(items) = value.as_array() else {
-                        errors.push(invalid(
-                            format!("'honors.{list}' must be a list of knob names"),
-                            format!("Write `{list}: [{valid}]`, keeping the knobs the plate honors."),
-                        ));
-                        continue;
-                    };
-                    for item in items {
-                        let knob = item.as_str().and_then(|name| honors::knob(list, name));
-                        let Some(knob) = knob else {
-                            errors.push(invalid(
-                                format!("'honors.{list}' names no knob `{item}`"),
-                                format!("Valid knobs under 'honors.{list}' are: {valid}."),
-                            ));
-                            continue;
-                        };
-                        if !out.knobs.insert(knob) {
-                            errors.push(invalid(
-                                format!("'honors.{list}' names `{}` twice", knob.key()),
-                                "Name each knob once.".to_string(),
-                            ));
-                        }
-                    }
-                }
-                "elements" => {
-                    let Some(elements) = value.as_object() else {
-                        errors.push(invalid(
-                            "'honors.elements' must be a mapping of element names".to_string(),
-                            "Write `elements: { <name>: { scope: block } }`.".to_string(),
-                        ));
-                        continue;
-                    };
-                    for (name, decl) in elements {
-                        if let Some(decl) = Self::parse_element(name, decl, errors) {
-                            out.elements.insert(name.clone(), decl);
-                        }
-                    }
-                }
-                _ => errors.push(invalid(
-                    format!("Unknown key '{key}' in 'honors'"),
-                    format!("Valid keys under 'honors' are: {}.", HONORS_KEYS.join(", ")),
-                )),
-            }
-        }
-        if !out.knobs.is_empty() && crate::backend::declines(backend).contains(&BlockConstruct::Table) {
-            errors.push(invalid(
-                format!("The {backend} backend typesets no table, so it honors no table knob"),
-                "Remove `honors.table` and `honors.cell`.".to_string(),
-            ));
-            out.knobs.clear();
-        }
-        if !out.elements.is_empty() && !crate::backend::lowers_elements(backend) {
-            errors.push(invalid(
-                format!("The {backend} backend lowers no element, so it honors none"),
-                "Remove `honors.elements`.".to_string(),
-            ));
-            out.elements.clear();
-        }
-        out
-    }
-
-    /// Parse one `honors.elements` entry, `None` when it is refused.
-    fn parse_element(
-        name: &str,
-        value: &serde_json::Value,
-        errors: &mut Vec<Diagnostic>,
-    ) -> Option<ElementDecl> {
-        use quillmark_content::carrier;
-        let label = format!("honors.elements.{name}");
-        if !carrier::is_element_name(name) || carrier::RESERVED.contains(&name) {
-            let reason = if carrier::is_element_name(name) {
-                format!("`quill-{name}` is reserved for the engine's own spelling")
-            } else {
-                "an element name is lowercase letters and digits, its words joined by single \
-                 hyphens, opening with a letter"
-                    .to_string()
-            };
-            errors.push(
-                Diagnostic::new(
-                    Severity::Error,
-                    format!("Invalid element name '{name}' in 'honors.elements': {reason}."),
-                )
-                .with_code("quill::invalid_element_name".to_string())
-                .with_hint("Name the element as its `quill-<name>` tag spells it, e.g. `keep`.".to_string()),
-            );
-            return None;
-        }
-        let invalid = |message: String| {
-            Diagnostic::new(Severity::Error, message)
-                .with_code("quill::invalid_element".to_string())
-                .with_hint(format!(
-                    "An element is `{{ scope: block | inline, attrs: {{ <name>: <field schema> }} }}`; \
-                     valid keys are: {}.",
-                    ELEMENT_KEYS.join(", ")
-                ))
-        };
-        let Some(obj) = value.as_object() else {
-            errors.push(invalid(format!("'{label}' must be a mapping")));
-            return None;
-        };
-        if let Some(key) = obj.keys().find(|k| !ELEMENT_KEYS.contains(&k.as_str())) {
-            errors.push(invalid(format!("Unknown key '{key}' in '{label}'")));
-            return None;
-        }
-        let scope = match obj.get("scope").and_then(|v| v.as_str()) {
-            Some("block") => ElementScope::Block,
-            Some("inline") => ElementScope::Inline,
-            _ => {
-                errors.push(invalid(format!("'{label}.scope' must be `block` or `inline`")));
-                return None;
-            }
-        };
-        let mut attrs = IndexMap::new();
-        match obj.get("attrs") {
-            None => {}
-            Some(serde_json::Value::Object(raw)) => {
-                let before = errors.len();
-                for (attr, schema) in raw {
-                    if let Some(schema) = Self::parse_element_attr(&label, attr, schema, errors) {
-                        attrs.insert(attr.clone(), schema);
-                    }
-                }
-                if errors.len() > before {
-                    return None;
-                }
-            }
-            Some(_) => {
-                errors.push(invalid(format!("'{label}.attrs' must be a mapping of attribute names")));
-                return None;
-            }
-        }
-        Some(ElementDecl { scope, attrs })
-    }
-
-    /// Parse one element attribute's schema, a scalar field schema.
-    fn parse_element_attr(
-        label: &str,
-        attr: &str,
-        value: &serde_json::Value,
-        errors: &mut Vec<Diagnostic>,
-    ) -> Option<FieldSchema> {
-        let refuse = |errors: &mut Vec<Diagnostic>, reason: String, hint: &str| {
-            errors.push(
-                Diagnostic::new(
-                    Severity::Error,
-                    format!("Invalid attribute '{attr}' in '{label}.attrs': {reason}."),
-                )
-                .with_code("quill::invalid_element_attr".to_string())
-                .with_hint(hint.to_string()),
-            );
-        };
-        if !quillmark_content::carrier::is_attr_name(attr) {
-            refuse(
-                errors,
-                "an attribute name is snake_case, and neither `on*` nor one of style, class, \
-                 id, href, src, name"
-                    .to_string(),
-                "Rename the attribute.",
-            );
-            return None;
-        }
-        let schema = match FieldSchema::from_quill_value(attr.to_string(), &QuillValue::from_json(value.clone())) {
-            Ok(schema) => schema,
-            Err(e) => {
-                refuse(errors, e.to_string(), "Declare a scalar field schema, e.g. `{ type: string }`.");
-                return None;
-            }
-        };
-        if !honors::is_attr_type(&schema) {
-            refuse(
-                errors,
-                format!("an attribute takes one scalar value, not `{}`", schema.r#type.as_str()),
-                "Use string, enum, integer, number, boolean, date or datetime, without `variants:`.",
-            );
-            return None;
-        }
-        let owner = format!("{label}.attrs.{attr}");
-        if let Some(diag) = Self::validate_field_schema_shape(&schema, &owner, FieldPosition::Property) {
-            errors.push(diag);
-            return None;
-        }
-        let before = errors.len();
-        Self::validate_field_blueprint_constraints(&schema, &owner, errors);
-        (errors.len() == before).then_some(schema)
-    }
-
     fn field_parse_hint(field_value: &serde_json::Value) -> Option<String> {
         spells_ui_title(field_value).then(|| {
             "A field's label is its own `title:`, beside `description:`; `ui` holds no \
@@ -2524,7 +2275,6 @@ impl QuillConfig {
                 let is_known = key == "quill"
                     || key == "main"
                     || key == "card_kinds"
-                    || key == "honors"
                     || (!backend.is_empty() && key == &backend);
                 if is_known {
                     continue;
@@ -2543,7 +2293,7 @@ impl QuillConfig {
                     )
                 } else {
                     diag.with_hint(format!(
-                        "Valid top-level sections are: quill, main, card_kinds, honors{}",
+                        "Valid top-level sections are: quill, main, card_kinds{}",
                         if backend.is_empty() {
                             String::new()
                         } else {
@@ -2555,11 +2305,6 @@ impl QuillConfig {
                 errors.push(diag);
             }
         }
-
-        let honors = quill_yaml_val
-            .get("honors")
-            .map(|value| Self::parse_honors(value, &backend, &mut errors))
-            .unwrap_or_default();
 
         let main_def = quill_yaml_val
             .get("main")
@@ -2830,7 +2575,6 @@ impl QuillConfig {
                 version,
                 author,
                 backend_config,
-                honors,
             },
             warnings,
         ))

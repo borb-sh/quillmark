@@ -57,12 +57,6 @@ pub fn declines(id: &str) -> &'static [BlockConstruct] {
     }
 }
 
-/// Whether the backend `id` lowers carrier elements: every backend that
-/// typesets a block construct, so not one that [`declines`] them all.
-pub fn lowers_elements(id: &str) -> bool {
-    declines(id) != BlockConstruct::ALL
-}
-
 /// Each construct the backend `id` [`declines`] that `content` holds, with its
 /// count, in [`BlockConstruct`] order.
 pub fn declined_in(id: &str, content: &crate::Content) -> Vec<(BlockConstruct, usize)> {

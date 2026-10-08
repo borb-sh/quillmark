@@ -8,7 +8,7 @@
 use indexmap::IndexMap;
 
 use super::{
-    CardSchema, FieldSchema, FieldType, Honors, QuillConfig, VariantFields, MATRIX_TITLE_KEY,
+    CardSchema, FieldSchema, FieldType, QuillConfig, VariantFields, MATRIX_TITLE_KEY,
     VARIANT_DISCRIMINANT_KEY,
 };
 use crate::document::emit::{emit_mapping_lines, saphyr_emit_flow};
@@ -38,7 +38,6 @@ impl QuillConfig {
             &self.main,
             &format!("{}@{}", self.name, self.version),
             label_line(self.main.title.as_deref(), main_desc.as_deref()),
-            &self.honors,
         );
         let cards = self.card_kinds.iter().map(build_card).collect();
 
@@ -102,34 +101,10 @@ impl CardItems {
     }
 }
 
-/// The markup the quill honors, closing the root payload: a header line, then
-/// each example a comment line apiece, a blank `#` line between two.
-fn push_honors(items: &mut CardItems, honors: &Honors) {
-    let examples = honors.examples();
-    if examples.is_empty() {
-        return;
-    }
-    items.push(PayloadItem::comment("markup this quill honors:"));
-    for (i, example) in examples.iter().enumerate() {
-        if i > 0 {
-            items.push(PayloadItem::comment(""));
-        }
-        for line in example.lines() {
-            items.push(PayloadItem::comment(line));
-        }
-    }
-}
-
 /// Build the root card: `$quill` (with the `# keep verbatim` inline reminder),
-/// `$kind: main` carrying the optional [`label_line`] inline, the fields, the
-/// [`push_honors`] examples, then the [`push_body_line`]. Inline, the label
-/// cannot read as the first field's.
-fn build_main_card(
-    card: &CardSchema,
-    quill_ref: &str,
-    label: Option<String>,
-    honors: &Honors,
-) -> Card {
+/// `$kind: main` carrying the optional [`label_line`] inline, the fields, then
+/// the [`push_body_line`]. Inline, the label cannot read as the first field's.
+fn build_main_card(card: &CardSchema, quill_ref: &str, label: Option<String>) -> Card {
     let reference = quill_ref
         .parse()
         .expect("quill name@version is always a valid QuillReference");
@@ -143,7 +118,6 @@ fn build_main_card(
         items.push(PayloadItem::comment_inline(label));
     }
     append_fields(&mut items, card);
-    push_honors(&mut items, honors);
     push_body_line(&mut items, card);
     Card::from_parts(items.into_payload(), Normalized::empty())
 }

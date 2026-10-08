@@ -357,7 +357,7 @@ default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
 | Key | Value | Default |
 |---|---|---|
 | `widths` | one entry per column, a positive integer weight or `null` for an auto-fit column; settled to the column count and divided by the weights' GCD | every entry `null` |
-| `align` | the table's placement: `left`, `center` or `right` | the quill's placement |
+| `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
 | `breakable` | `false` keeps the table on one page | `true` |
 
 A cell names `text`, `marks` and two alignment keys, each absent at its
@@ -368,9 +368,8 @@ default and when invalid:
 | `align` | the cell's horizontal alignment: `left`, `center` or `right`; absent where it equals its column's `aligns` entry | its column's `aligns` entry |
 | `valign` | the cell's vertical alignment: `horizon` or `bottom` | `top` |
 
-`widths` are weights, not lengths, so each quill decides what full width is,
-and a quill lays out each table and cell key only where its `honors:` declares
-it ([QUILL.md](QUILL.md#honors)). The keys ride the opaque props carrier and a
+`widths` are weights, not lengths, so each plate decides what full width is.
+The keys ride the opaque props carrier and a
 cell's own keys, which an older reader round-trips, so adding them is no
 storage-version event.
 

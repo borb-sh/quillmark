@@ -1072,25 +1072,6 @@ card_kinds:
     expect(schema.card_kinds.indorsement.fields.signature_block).toBeDefined()
   })
 
-  it('emits the honors declaration on the schema', () => {
-    const yaml = META_QUILL_YAML.replace(
-      'main:\n',
-      'honors:\n  cell: [valign]\n  table: [widths]\n  elements:\n    keep: { scope: block }\n\nmain:\n',
-    )
-    const quill = Quill.fromTree(
-      makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: yaml }),
-    )
-    expect(JSON.parse(JSON.stringify(quill.schema)).honors).toEqual({
-      table: ['widths'],
-      cell: ['valign'],
-      elements: { keep: { scope: 'block' } },
-    })
-    const bare = Quill.fromTree(
-      makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: META_QUILL_YAML }),
-    )
-    expect(bare.schema.honors).toBeUndefined()
-  })
-
   it('surfaces the load\'s advisory diagnostics on quill.warnings', () => {
     const clean = Quill.fromTree(
       makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: META_QUILL_YAML }),

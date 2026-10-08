@@ -951,16 +951,6 @@ card_kinds:
             .args,
         );
         add(
-            "validation::undeclared_construct",
-            crate::quill::compose::undeclared_construct_warning(
-                "q",
-                crate::quill::TableKnob::Widths,
-                1,
-                &path.body(),
-            )
-            .args,
-        );
-        add(
             "backend::declined_construct",
             crate::backend::declined_construct(
                 "typst",
