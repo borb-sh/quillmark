@@ -197,21 +197,24 @@ pub(crate) fn block_tags(text: &str) -> Vec<Tag<'_>> {
     match block_start(text.lines().next().unwrap_or("")) {
         Some(BlockKind::Verbatim(_)) => text.find('<').and_then(|i| tag_at(text, i)).into_iter().collect(),
         Some(kind) if kind.end_marker().is_some() => Vec::new(),
-        _ => {
-            let mut tags = Vec::new();
-            let mut i = 0;
-            while let Some(off) = text[i..].find('<') {
-                match tag_at(text, i + off) {
-                    Some(tag) => {
-                        i = tag.span.end;
-                        tags.push(tag);
-                    }
-                    None => i += off + 1,
-                }
+        _ => tags(text),
+    }
+}
+
+/// Every complete tag in `text`, scanned left to right.
+pub(crate) fn tags(text: &str) -> Vec<Tag<'_>> {
+    let mut tags = Vec::new();
+    let mut i = 0;
+    while let Some(off) = text[i..].find('<') {
+        match tag_at(text, i + off) {
+            Some(tag) => {
+                i = tag.span.end;
+                tags.push(tag);
             }
-            tags
+            None => i += off + 1,
         }
     }
+    tags
 }
 
 /// Columns of leading indentation, a tab advancing to the next multiple of 4.

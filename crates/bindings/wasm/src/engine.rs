@@ -1559,8 +1559,8 @@ impl Document {
     /// stored ones by `$kind` and text similarity, and each aligned body and
     /// content field rebases its surviving anchors as `revise` does. Everything
     /// else lands as written; an omitted `$ext` keeps the stored one on the main
-    /// card, and on a composable card only when the `$kind` sequence is
-    /// unchanged. Schema-free: nothing conforms (`writer.reviseDocument` does).
+    /// card, on a card that aligned by text, and on one that aligned by position
+    /// only when the `$kind` sequence is unchanged. Schema-free: nothing conforms (`writer.reviseDocument` does).
     /// Returns the `DocumentRevised` receipt and clears the load's `warnings`.
     /// Throws on a parse failure, leaving the document unchanged.
     #[wasm_bindgen(js_name = reviseDocument, unchecked_return_type = "DocumentRevised")]

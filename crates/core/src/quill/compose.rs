@@ -1146,7 +1146,9 @@ pub(crate) fn body_disabled_warning(path: &DocPath, card: &str) -> Diagnostic {
 /// `validation::undeclared_construct` per content field and stored table knob
 /// the quill's `honors:` leaves out, where the backend typesets tables at all,
 /// and one per content field and element it uses at a scope `honors:` does not
-/// declare, where the backend lowers elements.
+/// declare, where the backend lowers elements. The walk reads the plate a
+/// render compiles, defaults and coercion applied, and the authored document
+/// only when that compile fails.
 fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     let tables = !crate::backend::declines(&config.backend).contains(&super::BlockConstruct::Table);
@@ -1177,6 +1179,11 @@ fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
             diags.push(undeclared_element_warning(&config.name, &name, &scopes, count, at));
         }
     };
+    let any_day = CalendarDate::new(2000, 1, 1).expect("a calendar date");
+    if let Ok(plate) = config.compile_data(doc, any_day) {
+        config.each_plate_content(&plate, &mut each);
+        return diags;
+    }
     for (schema, card, path) in schema_cards(config, doc) {
         let Some(schema) = schema else { continue };
         if schema.body_enabled() {
@@ -1333,11 +1340,21 @@ impl QuillConfig {
     /// [`Quill::validate`] makes over the document, so the two agree.
     pub fn declined_in_plate(&self, backend: &str, data: &serde_json::Value) -> Vec<Diagnostic> {
         let mut diags = Vec::new();
-        let mut each = |at: &DocPath, content: &crate::Content| {
+        self.each_plate_content(data, &mut |at: &DocPath, content: &crate::Content| {
             for (construct, count) in crate::backend::declined_in(backend, content) {
                 diags.push(crate::backend::declined_construct(backend, construct, count, at));
             }
-        };
+        });
+        diags
+    }
+
+    /// Call `each` on every body and content field of the plate JSON `data`,
+    /// at its path.
+    fn each_plate_content(
+        &self,
+        data: &serde_json::Value,
+        each: &mut dyn FnMut(&DocPath, &crate::Content),
+    ) {
         let mut card = |schema: &CardSchema, obj: &serde_json::Map<String, serde_json::Value>, path: DocPath| {
             for (key, value) in obj {
                 if key == "$body" {
@@ -1345,11 +1362,11 @@ impl QuillConfig {
                         each(&path.body(), &content);
                     }
                 } else if let Some(field) = schema.fields.get(key.as_str()) {
-                    each_content(field, value, &path.field(key), &mut each);
+                    each_content(field, value, &path.field(key), each);
                 }
             }
         };
-        let Some(main) = data.as_object() else { return diags };
+        let Some(main) = data.as_object() else { return };
         card(&self.main, main, DocPath::main());
         let cards = main.get("$cards").and_then(|c| c.as_array());
         for (index, obj) in cards.into_iter().flatten().enumerate() {
@@ -1359,7 +1376,6 @@ impl QuillConfig {
                 card(schema, obj, DocPath::card(Some(kind), index));
             }
         }
-        diags
     }
 }
 
@@ -1611,17 +1627,21 @@ quill: { name: dc, version: 1.0.0, backend: typst, description: x }
 main:
   fields:
     intro: { type: richtext }
+    banner: { type: richtext, default: "![logo](l.png)" }
 card_kinds:
   note:
     fields:
       items:
         type: array
         items: { type: richtext }
+      more:
+        type: array
+        items: { type: richtext }
 "#,
         );
         let md = "~~~\n$quill: dc@1.0.0\n$kind: main\nintro: see ![a](a.png)\n~~~\n\n\
                   ![x](x.png) and ![y](y.png)\n\n| a |\n|---|\n| b |\n\n\
-                  ~~~\n$kind: note\nitems:\n  - plain\n  - '![z](z.png)'\n~~~\n";
+                  ~~~\n$kind: note\nitems:\n  - plain\n  - '![z](z.png)'\nmore: '![s](s.png)'\n~~~\n";
         let doc = Document::parse(md).expect("parse").document;
 
         let declined = |diags: Vec<Diagnostic>, code: &str| -> Vec<(String, serde_json::Value)> {
@@ -1632,13 +1652,16 @@ card_kinds:
                 .map(|d| (d.path.unwrap_or_default(), json!(d.args)))
                 .collect()
         };
-        let validated = declined(quill.validate(&doc), "validation::declined_construct");
+        let mut validated = declined(quill.validate(&doc), "validation::declined_construct");
+        validated.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(
             validated,
             vec![
+                ("cards.note[0].items[1]".into(), json!({ "construct": "image", "count": 1 })),
+                ("cards.note[0].more[0]".into(), json!({ "construct": "image", "count": 1 })),
+                ("main.banner".into(), json!({ "construct": "image", "count": 1 })),
                 ("main.body".into(), json!({ "construct": "image", "count": 2 })),
                 ("main.intro".into(), json!({ "construct": "image", "count": 1 })),
-                ("cards.note[0].items[1]".into(), json!({ "construct": "image", "count": 1 })),
             ]
         );
 
@@ -1651,8 +1674,6 @@ card_kinds:
             assert_eq!(args["backend"], "typst");
             args.as_object_mut().unwrap().remove("backend");
         }
-        let mut validated = validated;
-        validated.sort_by(|a, b| a.0.cmp(&b.0));
         rendered.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(rendered, validated);
     }

@@ -118,7 +118,7 @@ pub(crate) fn options() -> Options {
 /// closing tag never does.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let options = options();
-    let Repaired { text, footnotes } = normalize_markdown(markdown, options);
+    let Repaired { text, footnotes, tags } = normalize_markdown(markdown, options);
     let mut fixer = MarkdownFixer::new(Parser::new_ext(&text, options).into_offset_iter());
     let mut b = Builder::new();
     b.run(&mut fixer)?;
@@ -127,6 +127,9 @@ pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     dropped.absorb(elements);
     for at in footnotes {
         dropped.add("footnote_definition", at);
+    }
+    for (at, name) in tags {
+        dropped.opening(&name, at);
     }
     let mut tables: Vec<&mut Island> = content
         .islands
@@ -1166,10 +1169,16 @@ impl Dropped {
     /// folds counts like any tag; `quill-anchor`, the engine's own read-only
     /// spelling of an anchor, is written to be dropped and counts nothing.
     fn tag(&mut self, tag: &html::Tag, at: usize) {
-        if tag.closing || carrier::element(tag.name).is_some_and(|e| e == "anchor") {
+        if !tag.closing {
+            self.opening(tag.name, at);
+        }
+    }
+
+    fn opening(&mut self, name: &str, at: usize) {
+        if carrier::element(name).is_some_and(|e| e == "anchor") {
             return;
         }
-        self.add(&tag.name.to_ascii_lowercase(), at);
+        self.add(&name.to_ascii_lowercase(), at);
     }
 
     /// Fold in another walk's drops, each at its own first offset.
@@ -2275,7 +2284,8 @@ mod tests {
 
     /// A line inside a type 6/7 block that opens a comment, a `<pre>` or a fence
     /// keeps it whole when it closes inside the block; when it does not, it drops
-    /// with the rest of the block rather than swallowing what follows.
+    /// with the rest of the block, its tags counted, rather than swallowing what
+    /// follows.
     #[test]
     fn a_freed_line_never_swallows_what_follows_its_block() {
         let cases: &[(&str, &str)] = &[
@@ -2289,9 +2299,21 @@ mod tests {
             ("<div class=\"never closed\ntext\n</div>\n\nafter", "after"),
             ("<div>\n    indented\n</div>", "indented"),
             ("<div>\n- a\n    - b\n</div>", "a\nb"),
+            ("<div>\n- <!-- note\n\n  more text", "more text"),
+            ("<div>\n> 1. ```\ncode\n</div>\n\nmore text", "more text"),
+            ("<div>\n- ```\ncode\n```\n</div>", "code"),
+            ("<div>\n> <!-- c\nx --> kept\n</div>", "kept"),
         ];
         for (md, text) in cases {
             assert_eq!(imp_fixed(md).content.text, *text, "{md:?}");
+        }
+        for md in [
+            "<div>\n```\n<b>x</b> <quill-anchor ref=\"r\">\n</div>",
+            "<div>\n- <!-- c\n<b>x</b>\n</div>",
+        ] {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.text, "", "{md:?}");
+            assert_eq!(dropped(&imported), [("div", 1), ("b", 1)], "{md:?}");
         }
     }
 
@@ -2350,6 +2372,8 @@ mod tests {
             ("- a\n  <x>\n      b\n- c", "a\nb\nc", &[1, 1, 1]),
             ("- <a></a>\n  text", "text", &[1]),
             ("a\n<x>\n    <p>\n    <!-- c -->b\n    <img src=\"p.png\"> c\n    </p>\n</x>", "a\nb  c", &[0, 0]),
+            ("   \\*a\n<span>\nb", "*a\nb", &[0, 0]),
+            (">    \\*a\n> <span>\n> b", "*a\nb", &[1, 1]),
         ];
         for (md, text, depths) in cases {
             let rt = imp_fixed(md).content;
@@ -2406,6 +2430,10 @@ mod tests {
             [Mark::new(33, 34, MarkKind::Link { url: "/url".into() })]
         );
         assert_eq!(dropped(&imported), [("footnote_definition", 2)]);
+
+        let imported = imp_fixed(&format!("{}x[^1]", "[^1]: a\n\n".repeat(9)));
+        assert!(imported.content.marks.is_empty());
+        assert_eq!(dropped(&imported), [("footnote_definition", 9)]);
     }
 
     /// A tag alone on its line is a block wrapper, whatever its name: the

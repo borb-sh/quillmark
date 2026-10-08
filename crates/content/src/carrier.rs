@@ -4,7 +4,7 @@
 
 use crate::html;
 use crate::import::options;
-use crate::normalize::{blank_of, is_bidi_char, is_line_separator, normalize_markdown};
+use crate::normalize::{admit_char, blank_of, is_bidi_char, is_line_separator, normalize_markdown};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -252,7 +252,8 @@ impl Element {
 /// left bare drops the blank lines after it, which would end the item; every
 /// other byte is kept.
 pub fn strip(markdown: &str) -> String {
-    let found = prefixed_tags(markdown);
+    let (admitted, source) = admitted(markdown);
+    let found = prefixed_tags(&admitted);
     if found.is_empty() {
         return markdown.to_string();
     }
@@ -260,9 +261,10 @@ pub fn strip(markdown: &str) -> String {
     let mut marked = String::with_capacity(markdown.len() + found.len() * 4);
     let mut at = 0;
     for (k, tag) in found.iter().enumerate() {
-        marked.push_str(&markdown[at..tag.name_end]);
+        let name_end = source[tag.name_end];
+        marked.push_str(&markdown[at..name_end]);
         let _ = write!(marked, "{MARK}{k}");
-        at = tag.name_end;
+        at = name_end;
     }
     marked.push_str(&markdown[at..]);
     let mut markup = vec![false; found.len()];
@@ -276,9 +278,34 @@ pub fn strip(markdown: &str) -> String {
     let spans: Vec<Range<usize>> = found
         .iter()
         .zip(markup)
-        .filter_map(|(tag, markup)| markup.then(|| tag.span.clone()))
+        .filter_map(|(tag, markup)| markup.then_some(&tag.span))
+        .map(|span| {
+            let last = source[span.end - 1];
+            source[span.start]..last + markdown[last..].chars().next().map_or(0, char::len_utf8)
+        })
         .collect();
     remove(markdown, &spans)
+}
+
+/// The text the import's normalization makes of `s` before its repair, and
+/// for each of its bytes the offset in `s` of the character it comes from.
+fn admitted(s: &str) -> (String, Vec<usize>) {
+    let mut text = String::with_capacity(s.len());
+    let mut source = Vec::with_capacity(s.len());
+    let mut chars = s.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let c = if c == '\r' {
+            chars.next_if(|&(_, n)| n == '\n');
+            '\n'
+        } else if let Some(c) = admit_char(c) {
+            c
+        } else {
+            continue;
+        };
+        text.push(c);
+        source.resize(text.len(), i);
+    }
+    (text, source)
 }
 
 /// Appended to each `quill-*` tag's name, with the tag's index, so the
@@ -519,6 +546,9 @@ mod tests {
             ("w<quill-anchor ref=\"c1\"></quill-anchor>\r\n<QUILL-A>\r\nv", "w\r\n\r\nv"),
             ("<quill-table\n  widths=\"1 2\">\n| a |\n|---|", "\n| a |\n|---|"),
             ("- <quill-x></quill-x>\n  text", "- \n  text"),
+            ("<quill-keep\r\n  a=\"1\">\r\ntext\r\n</quill-keep>", "\r\ntext\r\n"),
+            ("<quill-keep\u{200E}>a</quill-keep>", "a"),
+            ("<quill-keep\u{0B}a=\"1\">\n\ntext", "\n\ntext"),
         ];
         for (md, stripped) in cases {
             assert_eq!(strip(md), *stripped, "{md:?}");

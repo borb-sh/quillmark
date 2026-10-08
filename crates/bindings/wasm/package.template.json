@@ -26,7 +26,8 @@
       "types": "./runtime/runtime.d.ts",
       "import": "./runtime/runtime.js",
       "default": "./runtime/runtime.js"
-    }
+    },
+    "./parity.json": "./parity.json"
   },
   "imports": {
     "#quillmark-env": {

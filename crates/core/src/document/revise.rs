@@ -6,7 +6,7 @@ use quillmark_content::model::{Content, MarkKind, Normalized};
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 
-use super::align::{align, Slot};
+use super::align::{align, Pairing, Slot};
 use super::emit::{emit_payload_items, project_content_field};
 use super::{dropped_construct, Card, Document, Parsed, Payload, PayloadItem};
 use crate::error::{Diagnostic, ParseError};
@@ -61,9 +61,10 @@ impl Document {
     /// comments, inserted cards, and removed cards dropped.
     ///
     /// `$ext` lands as spelled. A card that omits it keeps the stored one when
-    /// it is the main card, or when the two documents' composable `$kind`
-    /// sequences are identical, so a misaligned pair never hands one card
-    /// another's durable key.
+    /// it is the main card, when it aligned by text, or when it aligned by
+    /// position and the two documents' composable `$kind` sequences are
+    /// identical, so a card that merely sits where another was never takes
+    /// that card's durable key.
     ///
     /// Schema-free: nothing conforms. A field that is not a stored content
     /// object rests as authored, and an over-nested field string lands as given
@@ -85,7 +86,7 @@ impl Document {
 
         let stored_texts: Vec<String> = self.cards.iter().map(card_text).collect();
         let incoming_texts: Vec<String> = cards.iter().map(card_text).collect();
-        let alignment = align(
+        let pairs = align(
             &slots(&self.cards, &stored_texts),
             &slots(&cards, &incoming_texts),
         );
@@ -108,10 +109,11 @@ impl Document {
         let mut kept = vec![None; self.cards.len()];
         for (j, card) in cards.into_iter().enumerate() {
             let at = DocPath::card(card.kind(), j);
-            let card = match alignment[j] {
-                Some(i) => {
+            let card = match pairs[j] {
+                Some((i, pairing)) => {
                     kept[i] = Some(j);
-                    revise_card(&self.cards[i], card, &at, same_kinds, &mut deltas, &mut warnings)
+                    let carry_ext = pairing == Pairing::Text || same_kinds;
+                    revise_card(&self.cards[i], card, &at, carry_ext, &mut deltas, &mut warnings)
                 }
                 None => card,
             };
@@ -124,6 +126,7 @@ impl Document {
         }
 
         *self = Document::from_main_and_cards(main, revised_cards);
+        let alignment = pairs.into_iter().map(|pair| pair.map(|(i, _)| i)).collect();
         DocumentRevised {
             deltas,
             dropped_anchors,

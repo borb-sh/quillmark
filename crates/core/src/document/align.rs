@@ -11,70 +11,138 @@ pub(crate) struct Slot<'a> {
     pub text: &'a str,
 }
 
-/// Above this many same-kind pairs, similarity is text equality alone: a word
-/// diff per pair would make the alignment quadratic in diffs.
-const MAX_SCORED_PAIRS: usize = 10_000;
+/// Above this much estimated diff work, summed over the same-kind pairs as
+/// `(words + words)²`, similarity is text equality alone.
+const MAX_DIFF_WORK: usize = 50_000_000;
 
-/// Above this many chars in either text, a pair's similarity is the share of
-/// its common prefix and suffix rather than a word diff.
-const MAX_DIFFED_CHARS: usize = 20_000;
+/// Above this many words in either text, a pair's similarity is the share of
+/// its common leading and trailing words rather than a word diff.
+const MAX_DIFFED_WORDS: usize = 2_000;
 
-/// For each incoming card, the index of the stored card it revises, or `None`
-/// for an inserted card. Stored cards no entry names are removed.
+/// Above this many unpaired cards on one side times the other, the cards that
+/// are not twins pair by position alone.
+const MAX_TABLE_CELLS: usize = 4_000_000;
+
+/// The similarity, in thousandths, a pair needs to align by text. Below it two
+/// cards pair only by position, between the cards that aligned by text.
+const MIN_PAIR_PERMILLE: u64 = 500;
+
+/// How an incoming card came to revise a stored one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pairing {
+    /// Their texts match, or resemble each other more than any rival pairing.
+    Text,
+    /// Same kind, unlike texts, and the only unpaired cards of that kind
+    /// between two text-aligned neighbours, taken in order.
+    Position,
+}
+
+/// For each incoming card, the stored card it revises and how they paired, or
+/// `None` for an inserted card. Stored cards no entry names are removed.
 ///
 /// Only cards of one `$kind` pair. A card whose `(kind, text)` occurs exactly
 /// once on each side pairs with its twin wherever either sits, so a reorder of
 /// unchanged cards keeps every pairing. The rest align as a diff over the kind
-/// sequence that maximizes total text similarity, so within a run of one kind
-/// an edited card pairs with the stored card it most resembles.
-pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<usize>> {
+/// sequence that maximizes how far each pair's similarity clears
+/// [`MIN_PAIR_PERMILLE`], so a deleted card and an inserted one never outweigh
+/// one edited card. Cards left unpaired between two consecutive text pairs
+/// then pair in order by kind.
+pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(usize, Pairing)>> {
     let mut out = vec![None; incoming.len()];
     let mut taken = vec![false; stored.len()];
     for (j, i) in unique_twins(stored, incoming) {
-        out[j] = Some(i);
+        out[j] = Some((i, Pairing::Text));
         taken[i] = true;
     }
 
     let rest_stored: Vec<usize> = (0..stored.len()).filter(|&i| !taken[i]).collect();
     let rest_incoming: Vec<usize> = (0..incoming.len()).filter(|&j| out[j].is_none()).collect();
-    let pairs = rest_stored
-        .iter()
-        .flat_map(|&i| rest_incoming.iter().map(move |&j| (i, j)))
-        .filter(|&(i, j)| stored[i].kind == incoming[j].kind)
-        .count();
-    let exact_only = pairs > MAX_SCORED_PAIRS;
+    let stored_words = words(stored, &rest_stored);
+    let incoming_words = words(incoming, &rest_incoming);
+    let (n, m) = (rest_stored.len(), rest_incoming.len());
+    let same_kind = |a: usize, b: usize| stored[rest_stored[a]].kind == incoming[rest_incoming[b]].kind;
 
-    // A pair scores one plus its similarity in thousandths, so any same-kind
-    // pair beats leaving both unpaired and similarity decides between pairings.
-    let score = |i: usize, j: usize| -> Option<u64> {
-        let (a, b) = (stored[i], incoming[j]);
-        (a.kind == b.kind).then(|| 1 + similarity_permille(a.text, b.text, exact_only))
+    if n.saturating_mul(m) > MAX_TABLE_CELLS {
+        pair_by_position((0, 0), (n, m), &same_kind, &rest_stored, &rest_incoming, &mut out);
+        return out;
+    }
+
+    let mut work = 0usize;
+    for a in 0..n {
+        for b in 0..m {
+            if same_kind(a, b) {
+                let size = (stored_words[a].len() + incoming_words[b].len()).min(2 * MAX_DIFFED_WORDS);
+                work = work.saturating_add(size * size);
+            }
+        }
+    }
+    let exact_only = work > MAX_DIFF_WORK;
+
+    let gain = |a: usize, b: usize| -> Option<u64> {
+        if !same_kind(a, b) {
+            return None;
+        }
+        let sim = if stored[rest_stored[a]].text == incoming[rest_incoming[b]].text {
+            1000
+        } else if exact_only {
+            0
+        } else {
+            similarity_permille(&stored_words[a], &incoming_words[b])
+        };
+        (sim >= MIN_PAIR_PERMILLE).then(|| sim - MIN_PAIR_PERMILLE + 1)
     };
 
-    let (n, m) = (rest_stored.len(), rest_incoming.len());
     let mut table = vec![vec![0u64; m + 1]; n + 1];
-    let mut scores = vec![vec![None; m]; n];
+    let mut gains = vec![vec![None; m]; n];
     for a in (0..n).rev() {
         for b in (0..m).rev() {
-            let s = score(rest_stored[a], rest_incoming[b]);
-            scores[a][b] = s;
-            let paired = s.map_or(0, |s| s + table[a + 1][b + 1]);
+            let g = gain(a, b);
+            gains[a][b] = g;
+            let paired = g.map_or(0, |g| g + table[a + 1][b + 1]);
             table[a][b] = paired.max(table[a + 1][b]).max(table[a][b + 1]);
         }
     }
+
+    let mut gap = (0, 0);
     let (mut a, mut b) = (0, 0);
     while a < n && b < m {
-        match scores[a][b] {
-            Some(s) if s + table[a + 1][b + 1] == table[a][b] => {
-                out[rest_incoming[b]] = Some(rest_stored[a]);
+        match gains[a][b] {
+            Some(g) if g + table[a + 1][b + 1] == table[a][b] => {
+                pair_by_position(gap, (a, b), &same_kind, &rest_stored, &rest_incoming, &mut out);
+                out[rest_incoming[b]] = Some((rest_stored[a], Pairing::Text));
                 a += 1;
                 b += 1;
+                gap = (a, b);
             }
             _ if table[a + 1][b] == table[a][b] => a += 1,
             _ => b += 1,
         }
     }
+    pair_by_position(gap, (n, m), &same_kind, &rest_stored, &rest_incoming, &mut out);
     out
+}
+
+fn words<'a>(slots: &[Slot<'a>], rest: &[usize]) -> Vec<Vec<&'a str>> {
+    rest.iter().map(|&k| slots[k].text.split_whitespace().collect()).collect()
+}
+
+/// Pairs the cards of `[from, to)` on each side in order, each incoming card
+/// with the next stored card of its kind.
+fn pair_by_position(
+    from: (usize, usize),
+    to: (usize, usize),
+    same_kind: &impl Fn(usize, usize) -> bool,
+    rest_stored: &[usize],
+    rest_incoming: &[usize],
+    out: &mut [Option<(usize, Pairing)>],
+) {
+    let mut a = from.0;
+    for b in from.1..to.1 {
+        if let Some(found) = (a..to.0).find(|&a| same_kind(a, b)) {
+            out[rest_incoming[b]] = Some((rest_stored[found], Pairing::Position));
+            a = found + 1;
+        }
+    }
 }
 
 /// `(incoming, stored)` index pairs of cards whose `(kind, text)` occurs once
@@ -98,30 +166,23 @@ fn unique_twins(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<(usize, usize
     pairs
 }
 
-fn similarity_permille(a: &str, b: &str, exact_only: bool) -> u64 {
-    if a == b {
-        return 1000;
-    }
-    if exact_only {
-        return 0;
-    }
-    let ratio = if a.len().max(b.len()) > MAX_DIFFED_CHARS {
+fn similarity_permille(a: &[&str], b: &[&str]) -> u64 {
+    let ratio = if a.len().max(b.len()) > MAX_DIFFED_WORDS {
         affix_ratio(a, b)
     } else {
-        similar::TextDiff::from_words(a, b).ratio()
+        similar::TextDiff::from_slices(a, b).ratio()
     };
     (ratio.clamp(0.0, 1.0) * 1000.0).round() as u64
 }
 
 /// The share of both texts their common prefix and suffix cover.
-fn affix_ratio(a: &str, b: &str) -> f32 {
-    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+fn affix_ratio(a: &[&str], b: &[&str]) -> f32 {
     let total = a.len() + b.len();
     if total == 0 {
         return 1.0;
     }
     let shorter = a.len().min(b.len());
-    let prefix = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
     let suffix = a
         .iter()
         .rev()
@@ -142,6 +203,9 @@ mod tests {
 
     fn run(stored: &[(&str, &str)], incoming: &[(&str, &str)]) -> Vec<Option<usize>> {
         align(&slots(stored), &slots(incoming))
+            .into_iter()
+            .map(|pair| pair.map(|(i, _)| i))
+            .collect()
     }
 
     #[test]
@@ -182,9 +246,31 @@ mod tests {
     }
 
     #[test]
+    fn a_deleted_and_an_inserted_card_do_not_outweigh_an_edited_one() {
+        let stored = [
+            ("note", "owner: Ann\nstatus: done\n\nWrite the intro section."),
+            ("note", "owner: Bob\nstatus: open\n\nReview the budget table."),
+        ];
+        let incoming = [
+            ("note", "owner: Bob\nstatus: done\n\nReview the budget table and sign off."),
+            ("note", "owner: Cy\nstatus: open\n\nDraft the appendix."),
+        ];
+        let aligned = align(&slots(&stored), &slots(&incoming));
+        assert_eq!(aligned, vec![Some((1, Pairing::Text)), None]);
+    }
+
+    #[test]
+    fn a_rewritten_card_in_place_pairs_by_position() {
+        let stored = [("a", "head"), ("note", "one two three"), ("b", "tail")];
+        let incoming = [("a", "head"), ("note", "four five six"), ("b", "tail")];
+        let aligned = align(&slots(&stored), &slots(&incoming));
+        assert_eq!(aligned[1], Some((1, Pairing::Position)));
+    }
+
+    #[test]
     fn affix_ratio_measures_shared_ends() {
-        assert_eq!(affix_ratio("abcd", "abcd"), 1.0);
-        assert_eq!(affix_ratio("abXd", "abYd"), 0.75);
-        assert_eq!(affix_ratio("", "xy"), 0.0);
+        assert_eq!(affix_ratio(&["a", "b", "c", "d"], &["a", "b", "c", "d"]), 1.0);
+        assert_eq!(affix_ratio(&["a", "b", "X", "d"], &["a", "b", "Y", "d"]), 0.75);
+        assert_eq!(affix_ratio(&[], &["x", "y"]), 0.0);
     }
 }
