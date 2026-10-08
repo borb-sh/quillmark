@@ -130,6 +130,25 @@ fn entity(s: &str) -> Option<(char, usize)> {
     Some((c, lead + n + 1))
 }
 
+/// The element `tag` opens or closes, where the import models it: an element
+/// name the carrier does not [reserve](RESERVED), on a tag that is not
+/// self-closing.
+pub(crate) fn modeled_tag(tag: &html::Tag) -> Option<String> {
+    let name = element(tag.name).filter(|n| !RESERVED.contains(&n.as_str()))?;
+    (!tag.self_closing).then_some(name)
+}
+
+/// The element a [`Container::Element`](crate::model::Container::Element) or
+/// [`MarkKind::Element`](crate::model::MarkKind::Element) spells: `None` for a
+/// name outside the grammar or [reserved](RESERVED), or an attribute name
+/// outside its grammar, none of which the import models.
+pub fn modeled(name: &str, attrs: &BTreeMap<String, String>) -> Option<Element> {
+    if RESERVED.contains(&name) {
+        return None;
+    }
+    Element::new(name, attrs.clone()).ok()
+}
+
 /// A name or attribute an [`Element`] refuses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
@@ -227,7 +246,7 @@ impl Element {
 }
 
 /// `markdown` without its `quill-*` tags, keeping what a wrapper holds. A tag
-/// goes where the import drops it as markup, so one in a code span, a fence, a
+/// goes where the import reads it as markup, so one in a code span, a fence, a
 /// comment or another tag's attribute stays. A line left holding nothing but
 /// container markers is a blank line inside them, and a list item's marker
 /// left bare drops the blank lines after it, which would end the item; every

@@ -10,6 +10,7 @@ use crate::island::IslandType;
 use crate::normalize::{is_bidi_char, is_line_separator};
 use serde_json::Value as JsonValue;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 /// A position in a [`Content`], counted in Unicode scalar values (USV): never
 /// bytes, never UTF-16 units. One astral char is 1 USV / 4 UTF-8 bytes / 2
@@ -154,6 +155,15 @@ impl LineKind {
     }
 }
 
+/// An element's payload bag: its `name` beside its attributes, keys ascending.
+/// The carrier refuses an attribute called `name`, so the two never collide.
+fn element_bag(name: &str, attrs: &BTreeMap<String, String>) -> JsonValue {
+    let mut entries: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    entries.push(("name", name));
+    entries.sort_unstable();
+    JsonValue::Object(entries.into_iter().map(|(k, v)| (k.to_string(), v.into())).collect())
+}
+
 /// A payload bag from its entries, which must be listed in ascending key order:
 /// [`Content::normalize`] canonicalizes an opaque bag, and a minted one is
 /// canonical by construction.
@@ -202,6 +212,15 @@ pub enum Container {
     /// A block quote. Adjacent lines sharing one `Quote` are one
     /// multi-paragraph quote; two adjacent quotes differ in `instance`.
     Quote { instance: u64 },
+    /// A `quill-*` carrier element around blocks (markdown-spec §6.4): `name`
+    /// the part of its tag after `quill-`, `attrs` its attributes as written.
+    /// The member is closed and its names open: any element name the carrier
+    /// does not reserve is one, so a new name is no storage event.
+    Element {
+        name: String,
+        attrs: BTreeMap<String, String>,
+        instance: u64,
+    },
 }
 
 impl Container {
@@ -223,7 +242,9 @@ impl Container {
     /// `0, 1, 0, 1`. Non-adjacent runs never collide, so two values suffice.
     pub fn instance(&self) -> u64 {
         match self {
-            Container::ListItem { instance, .. } | Container::Quote { instance } => *instance,
+            Container::ListItem { instance, .. }
+            | Container::Quote { instance }
+            | Container::Element { instance, .. } => *instance,
         }
     }
 
@@ -232,6 +253,7 @@ impl Container {
         match self {
             Container::ListItem { .. } => "list_item",
             Container::Quote { .. } => "quote",
+            Container::Element { .. } => "element",
         }
     }
 
@@ -250,18 +272,21 @@ impl Container {
                 ("start", (*start).into()),
             ])),
             Container::Quote { .. } => Cow::Owned(JsonValue::Null),
+            Container::Element { name, attrs, .. } => Cow::Owned(element_bag(name, attrs)),
         }
     }
 
     fn set_instance(&mut self, n: u64) {
         match self {
-            Container::ListItem { instance, .. } | Container::Quote { instance } => *instance = n,
+            Container::ListItem { instance, .. }
+            | Container::Quote { instance }
+            | Container::Element { instance, .. } => *instance = n,
         }
     }
 
     /// Whether these two are the same container shape, `ordinal` and `instance`
     /// aside — `start` counts, so a list starting at 1 and one starting at 3
-    /// are two shapes.
+    /// are two shapes, and an element's whole name and attributes do.
     ///
     /// The **identity** rule, read and written alike: two adjacent lines sit in
     /// one container instance iff this holds *and* their
@@ -280,6 +305,10 @@ impl Container {
                 },
             ) => a == c && b == d,
             (Container::Quote { .. }, Container::Quote { .. }) => true,
+            (
+                Container::Element { name: a, attrs: b, .. },
+                Container::Element { name: c, attrs: d, .. },
+            ) => a == c && b == d,
             _ => false,
         }
     }
@@ -389,6 +418,12 @@ pub enum MarkKind {
     Link {
         url: String,
     },
+    /// A `quill-*` carrier element around a run of text, named and attributed
+    /// as [`Container::Element`] is.
+    Element {
+        name: String,
+        attrs: BTreeMap<String, String>,
+    },
     // Identity: a handle, not a property. Never merged, may be zero-width.
     /// A comment thread or stable anchor, carried by id and rebased across
     /// edits like any position. The id is caller-supplied, unique per `Content`,
@@ -449,6 +484,7 @@ impl MarkKind {
                 | MarkKind::Strike
                 | MarkKind::Code
                 | MarkKind::Link { .. }
+                | MarkKind::Element { .. }
         )
     }
 
@@ -461,6 +497,7 @@ impl MarkKind {
             MarkKind::Strike => "strike",
             MarkKind::Code => "code",
             MarkKind::Link { .. } => "link",
+            MarkKind::Element { .. } => "element",
             MarkKind::Anchor { .. } => "anchor",
         }
     }
@@ -474,6 +511,7 @@ impl MarkKind {
             | MarkKind::Strike
             | MarkKind::Code => Cow::Owned(JsonValue::Null),
             MarkKind::Link { url } => Cow::Owned(bag([("url", url.as_str().into())])),
+            MarkKind::Element { name, attrs } => Cow::Owned(element_bag(name, attrs)),
             MarkKind::Anchor { id } => Cow::Owned(bag([("id", id.as_str().into())])),
         }
     }

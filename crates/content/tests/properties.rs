@@ -78,6 +78,9 @@ fn inline_token() -> impl Strategy<Value = String> {
         clean_word().prop_map(|w| format!("~~{w}~~")),
         code_span(),
         clean_word().prop_map(|w| format!("<u>{w}</u>")),
+        clean_word().prop_map(|w| format!("<quill-hl>{w}</quill-hl>")),
+        clean_word().prop_map(|w| format!("<quill-hl tone=\"warm\">**{w}**</quill-hl>")),
+        (clean_word(), clean_word()).prop_map(|(a, b)| format!("<quill-hl>{a} **{b}</quill-hl> {a}**")),
         (clean_word(), clean_word()).prop_map(|(t, u)| format!("[{t}](https://ex.com/{u})")),
         (clean_word(), special_url()).prop_map(|(t, u)| format!("[{t}](<{u}>)")),
         (special_alt(), special_url()).prop_map(|(a, u)| format!("![{a}](<{u}>)")),
@@ -150,6 +153,14 @@ fn block() -> impl Strategy<Value = String> {
         )),
         prop::collection::vec(clean_word(), 1..4)
             .prop_map(|ls| format!("```\n{}\n```", ls.join("\n"))),
+        // Carrier elements: at the top level, around a list, in an item, and
+        // two adjacent runs, which only the tags between them keep apart.
+        prose().prop_map(|p| format!("<quill-keep note=\"x\">\n{p}\n</quill-keep>")),
+        (prose(), prose()).prop_map(|(a, b)| format!("<quill-keep>\n- {a}\n- {b}\n</quill-keep>")),
+        (prose(), prose()).prop_map(|(a, b)| format!("- {a}\n- <quill-keep>\n\n  {b}\n\n  </quill-keep>")),
+        (prose(), prose()).prop_map(|(a, b)| format!(
+            "<quill-keep>\n{a}\n</quill-keep>\n<quill-keep>\n{b}\n</quill-keep>"
+        )),
         (clean_word(), clean_word())
             .prop_map(|(a, b)| format!("| {a} | {b} |\n| --- | --- |\n| 1 | 2 |")),
     ]
@@ -177,11 +188,12 @@ fn delimiter_run() -> impl Strategy<Value = String> {
 }
 
 fn ov_kind(i: u8) -> MarkKind {
-    match i % 4 {
+    match i % 5 {
         0 => MarkKind::Strong,
         1 => MarkKind::Emph,
         2 => MarkKind::Strike,
-        _ => MarkKind::Underline,
+        3 => MarkKind::Underline,
+        _ => MarkKind::Element { name: "hl".into(), attrs: [("tone".into(), "warm".into())].into() },
     }
 }
 
@@ -258,7 +270,7 @@ proptest! {
     fn overlapping_marks_export_is_text_safe(
         raw in "[a-z]{4,8}",
         x in 0usize..64, y in 0usize..64, z in 0usize..64,
-        k1i in 0u8..4, k2i in 0u8..4,
+        k1i in 0u8..5, k2i in 0u8..5,
     ) {
         let text = raw;
         let n = text.chars().count();
@@ -311,7 +323,7 @@ proptest! {
             ]),
             2..10,
         ),
-        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..4), 0..4),
+        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..5), 0..4),
     ) {
         // Word-char edges keep the mark-free baseline a round-trip fixed point;
         // the mixed chars live in the interior, where marks clash with flanking
@@ -462,7 +474,7 @@ proptest! {
 
         let plain = to_markdown(&rt);
         let read = to_markdown_annotated(&rt);
-        prop_assert_eq!(&strip(&read.markdown), &plain, "more than tags added: {:?}", read.markdown);
+        prop_assert_eq!(strip(&read.markdown), strip(&plain), "more than tags added: {:?}", read.markdown);
         prop_assert_eq!(
             from_markdown(&read.markdown).unwrap().content,
             from_markdown(&plain).unwrap().content,
@@ -688,6 +700,7 @@ fn cell_token() -> impl Strategy<Value = String> {
         clean_word().prop_map(|w| format!("**{w}<br>{w}**")),
         clean_word().prop_map(|w| format!("<br>{w}")),
         clean_word().prop_map(|w| format!("{w}<br>")),
+        clean_word().prop_map(|w| format!("<quill-hl>{w}</quill-hl>")),
     ]
 }
 
@@ -774,7 +787,7 @@ proptest! {
             prop::sample::select(vec!['a', 'b', '9', '\n', ' ']),
             1..10,
         ),
-        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..5), 0..4),
+        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..6), 0..4),
     ) {
         let text: String = chars.into_iter().collect();
         let n = text.chars().count();
@@ -782,7 +795,7 @@ proptest! {
             .iter()
             .map(|&(a, b, k)| {
                 let (s, e) = (a % (n + 1), b % (n + 1));
-                let kind = if k == 4 { MarkKind::Code } else { ov_kind(k) };
+                let kind = if k == 5 { MarkKind::Code } else { ov_kind(k) };
                 quillmark_content::serial::mark_to_value(&Mark::new(s.min(e), s.max(e), kind))
             })
             .collect();
@@ -852,7 +865,8 @@ proptest! {
 /// branch; the noise arm keeps the rest of the space.
 const DECODE_DISCRIMINATORS: &[&str] = &[
     "text", "lines", "marks", "islands", "kind", "attrs", "op", "line", "at", "delta", "ops",
-    "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end",
+    "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end", "container", "type",
+    "name", "element", "instance",
 ];
 
 fn decode_key() -> impl Strategy<Value = String> {

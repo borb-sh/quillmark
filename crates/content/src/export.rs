@@ -358,6 +358,12 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
             // one quote on re-import.
             prefix_quote(inner, out);
         }
+        // An element outside the carrier grammar has no spelling, so what it
+        // wraps is written bare.
+        Container::Element { name, attrs, .. } => match crate::carrier::modeled(name, attrs) {
+            Some(element) => out.push_str(&element.wrap_block(inner)),
+            None => out.push_str(inner),
+        },
     }
 }
 
@@ -839,7 +845,13 @@ fn render_marked_core(
             m.1 -= 1;
         }
     }
-    fmt.retain(|m| m.0 < m.1);
+    fmt.retain(|m| {
+        m.0 < m.1
+            && match m.2 {
+                MarkKind::Element { name, attrs } => crate::carrier::modeled(name, attrs).is_some(),
+                _ => true,
+            }
+    });
     clip_asterisk_overlap(&mut fmt);
 
     // The slice's edge whitespace runs, found on the content chars: the heading,
@@ -874,17 +886,45 @@ fn render_marked_core(
             .then(ast_last(fmt[a].2).cmp(&ast_last(fmt[b].2)))
     });
 
+    // Each element mark's tag pair. At one position the tags sit outside the
+    // delimiters closing and opening there, so a tag's `<` and `>` never abut a
+    // delimiter from inside its run, where they would change how it flanks. A
+    // run spanning the position stays open around the tag: elements pair by
+    // name, apart from the delimiters' nesting.
+    let element_tags: Vec<Option<(String, String)>> = fmt
+        .iter()
+        .map(|m| match m.2 {
+            MarkKind::Element { name, attrs } => {
+                crate::carrier::modeled(name, attrs).map(|e| (e.open_tag(), e.close_tag()))
+            }
+            _ => None,
+        })
+        .collect();
+    let is_element = |fi: usize| element_tags[fi].is_some();
+
     // One mark sweep over the marks `keep` selects (indices into `fmt`) → inline
     // markdown, recording each position's tag point into `points`.
     let sweep = |keep: &[bool], d: Delims, mut points: Option<&mut Vec<usize>>| -> String {
         let mut out = String::new();
-        // Marks currently open, outermost first. Storing the `fmt` index (not
-        // `(end, kind)`) keeps each open mark's identity, so a reopened mark
-        // re-emits its OWN delimiter.
+        // Marks currently open, outermost first, elements and delimiters
+        // apart. Storing the `fmt` index (not `(end, kind)`) keeps each open
+        // mark's identity, so a reopened mark re-emits its OWN delimiter.
         let mut stack: Vec<usize> = Vec::new();
+        let mut elements: Vec<usize> = Vec::new();
         let (mut oi, mut li, mut ci) = (0usize, 0usize, 0usize);
         let mut pos = 0usize;
         while pos <= n {
+            // A mark whose start the cursor already passed was jumped over by
+            // an atomic span's interior and never opens; clipping keeps that
+            // set empty.
+            while oi < by_start.len() && fmt[by_start[oi]].0 < pos {
+                oi += 1;
+            }
+            let from = oi;
+            while oi < by_start.len() && fmt[by_start[oi]].0 == pos {
+                oi += 1;
+            }
+            let opening: Vec<usize> = by_start[from..oi].iter().copied().filter(|&fi| keep[fi]).collect();
             let mut reopen: Vec<usize> = Vec::new();
             if let Some(idx) = stack.iter().position(|&fi| fmt[fi].1 == pos) {
                 while stack.len() > idx {
@@ -895,28 +935,30 @@ fn render_marked_core(
                     }
                 }
             }
+            let mut reopen_elements: Vec<usize> = Vec::new();
+            if let Some(idx) = elements.iter().position(|&fi| fmt[fi].1 == pos) {
+                while elements.len() > idx {
+                    let fi = elements.pop().unwrap();
+                    out.push_str(&element_tags[fi].as_ref().unwrap().1);
+                    if fmt[fi].1 != pos {
+                        reopen_elements.push(fi);
+                    }
+                }
+            }
             let point = out.len();
             if let Some(points) = points.as_mut() {
                 points.push(point);
             }
-            for fi in reopen.into_iter().rev() {
-                out.push_str(delim_open(fmt[fi].2, d));
-                stack.push(fi);
+            let fresh = opening.iter().copied().filter(|&fi| is_element(fi));
+            for fi in reopen_elements.into_iter().rev().chain(fresh) {
+                out.push_str(&element_tags[fi].as_ref().unwrap().0);
+                elements.push(fi);
             }
             // Open formatting marks starting here BEFORE any atomic run, so a
             // formatting mark beginning at the same position as inline code/link
-            // still wraps it rather than being dropped. A mark whose start the
-            // cursor already passed was jumped over by an atomic span's interior
-            // and never opens; clipping keeps that set empty.
-            while oi < by_start.len() && fmt[by_start[oi]].0 < pos {
-                oi += 1;
-            }
-            while oi < by_start.len() && fmt[by_start[oi]].0 == pos {
-                let fi = by_start[oi];
-                oi += 1;
-                if !keep[fi] {
-                    continue;
-                }
+            // still wraps it rather than being dropped.
+            let fresh = opening.iter().copied().filter(|&fi| !is_element(fi));
+            for fi in reopen.into_iter().rev().chain(fresh) {
                 out.push_str(delim_open(fmt[fi].2, d));
                 stack.push(fi);
             }
@@ -1002,6 +1044,9 @@ fn render_marked_core(
         while let Some(fi) = stack.pop() {
             out.push_str(delim_close(fmt[fi].2, d));
         }
+        while let Some(fi) = elements.pop() {
+            out.push_str(&element_tags[fi].as_ref().unwrap().1);
+        }
         out
     };
 
@@ -1009,9 +1054,14 @@ fn render_marked_core(
     // over a span markdown can't represent, and it lowers to a `**`/`*`/`~~` run
     // pulldown re-reads as literal text, leaking a delimiter into the content.
     // Re-parse the rendered line and, if its plain text drifted, search for a set
-    // of flanking marks that keeps the text intact.
+    // of flanking marks that keeps the text intact. Element marks are read back
+    // beside them and dropped the same way: a pair the line cannot hold comes
+    // back as other markup or as nothing.
     let is_flanking = |k: &MarkKind| {
-        matches!(k, MarkKind::Strong | MarkKind::Emph | MarkKind::Strike)
+        matches!(
+            k,
+            MarkKind::Strong | MarkKind::Emph | MarkKind::Strike | MarkKind::Element { .. }
+        )
     };
     let all = vec![true; fmt.len()];
     if !fmt.iter().any(|m| is_flanking(m.2)) {
@@ -1637,6 +1687,11 @@ mod tests {
             ("link", "see [our site](https://example.com) now"),
             ("table", "| a | b |\n| --- | --- |\n| 1 | 2 |"),
             ("image", "see ![a cat](cat.png) here"),
+            ("element", "<quill-keep note=\"x\">\n\npara\n\n</quill-keep>"),
+            ("element_around_list", "<quill-keep>\n\n- a\n\n- b\n\n</quill-keep>"),
+            ("element_in_item", "- <quill-keep>\n\n  a\n\n  </quill-keep>"),
+            ("element_mark", "a <quill-hl tone=\"warm\">b</quill-hl> c"),
+            ("element_in_cell", "| <quill-hl>a</quill-hl> |\n| --- |"),
         ] {
             println!("construct: {label}");
             round_trips(md);
@@ -2285,6 +2340,38 @@ mod tests {
             let md = to_markdown(&rt);
             let rt2 = from_markdown(&md).unwrap().content;
             assert_eq!(rt, rt2, "{k1:?}+{k2:?} overlap not a fixed point: {md:?}");
+        }
+    }
+
+    /// An element's tags sit outside the delimiters closing and opening where
+    /// they stand, and inside a run spanning that point, so the crossings
+    /// import mints write back as they were read.
+    #[test]
+    fn element_tags_sit_outside_the_delimiters_at_their_edge() {
+        for md in [
+            "<quill-hl>a **b</quill-hl> c**",
+            "**a <quill-hl>b** c</quill-hl>",
+            "a<quill-hl>**b</quill-hl>c**",
+            "<quill-a>x <quill-b>y</quill-b></quill-a><quill-b> z</quill-b>",
+        ] {
+            assert_eq!(to_markdown(&from_markdown(md).unwrap().content), md);
+        }
+    }
+
+    /// An element the carrier cannot spell, under a reserved name or with an
+    /// attribute outside its grammar, writes nothing: a run's blocks stand
+    /// unwrapped and a mark drops.
+    #[test]
+    fn an_unspellable_element_writes_nothing() {
+        let unspellable: [(&str, std::collections::BTreeMap<String, String>); 2] =
+            [("table", [].into()), ("keep", [("onclick".to_string(), "x".to_string())].into())];
+        for (name, attrs) in unspellable {
+            let element = Container::Element { name: name.into(), attrs: attrs.clone(), instance: 0 };
+            let rt = Content::new("a".into(), vec![Line::new(LineKind::Para).with_containers(vec![element])])
+                .into_normalized();
+            assert_eq!(to_markdown(&rt), "a");
+            let rt = marked("ab", vec![Mark::new(0, 1, MarkKind::Element { name: name.into(), attrs })]);
+            assert_eq!(to_markdown(&rt), "ab");
         }
     }
 

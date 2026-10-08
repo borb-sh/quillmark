@@ -2,6 +2,7 @@
 //! [`from_markdown`](crate::import::from_markdown) boundary (markdown-spec §7):
 //! characters the content cannot hold, then the parser-guided repair.
 
+use crate::carrier;
 use crate::html::{self, BlockKind};
 use pulldown_cmark::{Event, Options, Parser, Tag as PTag, TagEnd};
 use std::ops::Range;
@@ -235,7 +236,9 @@ fn apply(src: &str, edits: &[Edit], footnotes: &mut Vec<usize>) -> String {
 /// inside that item instead, a blank line between its lines. A blank line keeps
 /// an item open for the line after it to continue, and a tag line drops as a
 /// blank line does, so the list on either side of a wrapper's tag stays one
-/// list. A block in other quotes than the item's stays.
+/// list. A block in other quotes than the item's stays, and so does one holding
+/// an element tag (markdown-spec §6.4), which opens or closes its element where
+/// its own indentation stands.
 fn into_item(src: &str, item: usize, lines: &[SrcLine]) -> Option<Edit> {
     let marker = SrcLine::at(src, item);
     let rest = &marker.content[..marker.content.find('\n').unwrap_or(marker.content.len())];
@@ -248,7 +251,10 @@ fn into_item(src: &str, item: usize, lines: &[SrcLine]) -> Option<Edit> {
     let gap = if after.trim().is_empty() || gap > 4 { 1 } else { gap };
     let cont = format!("{}{}", continuation_of(marker.prefix), " ".repeat(width + gap));
     let blank = blank_of(&cont);
-    let fits = |l: &SrcLine| html::tag_line(l.content).is_some() && blank_of(l.prefix) == blank;
+    let fits = |l: &SrcLine| {
+        html::tag_line(l.content).is_some_and(|tags| !tags.iter().any(|t| carrier::modeled_tag(t).is_some()))
+            && blank_of(l.prefix) == blank
+    };
     if !lines.iter().all(fits) {
         return None;
     }
@@ -464,8 +470,9 @@ fn html_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
 }
 
 /// A type 1–5 block's last line, split after its end marker when text follows
-/// it; `None` when nothing follows, or when a piece of what follows would open
-/// a block running past the line, which then stays dropped.
+/// it, which keeps the line's indent; `None` when nothing follows, or when a
+/// piece of what follows would open a block running past the line, which then
+/// stays dropped.
 fn rescue_end(kind: BlockKind, last: &SrcLine) -> Option<Rows> {
     let at = html::block_end(kind, last.content)?;
     let mut frag = last.content[at..].trim();
@@ -474,7 +481,7 @@ fn rescue_end(kind: BlockKind, last: &SrcLine) -> Option<Rows> {
     }
     let mut rows = Rows::default();
     rows.push(format!("{}{}", last.prefix, &last.content[..at]), Kind::Raw);
-    let prefix = continuation_of(last.prefix);
+    let prefix = format!("{}{}", continuation_of(last.prefix), shallow_lead(last.content));
     loop {
         match classify(frag) {
             Piece::Tags => {
@@ -503,7 +510,8 @@ fn rescue_end(kind: BlockKind, last: &SrcLine) -> Option<Rows> {
 }
 
 /// A type 6 or 7 block's lines, its tags padded out so every other line parses
-/// as markdown.
+/// as markdown. A piece split off after another keeps its line's indent, and so
+/// stays in the list item that indent continues.
 fn transparent(lines: &[SrcLine]) -> Rows {
     let mut rows = Rows::default();
     // Four columns of indent past a block start make an indented code line, so
@@ -517,6 +525,7 @@ fn transparent(lines: &[SrcLine]) -> Rows {
         if !rows.at_block_start() {
             frag = strip_columns(frag, dedent);
         }
+        let mut indent = shallow_lead(frag);
         loop {
             let t = frag.trim_start();
             if t.is_empty() {
@@ -556,6 +565,7 @@ fn transparent(lines: &[SrcLine]) -> Rows {
                         let closing = lines[j];
                         rows.push(format!("{}{}", closing.prefix, &closing.content[..end]), Kind::Raw);
                         i = j;
+                        indent = shallow_lead(closing.content);
                         frag = closing.content[end..].trim_start();
                     }
                 }
@@ -580,6 +590,7 @@ fn transparent(lines: &[SrcLine]) -> Rows {
                         run.push(format!("{}{}", lines[j].prefix, &lines[j].content[..end]));
                         rows.tags(run);
                         i = j;
+                        indent = shallow_lead(lines[j].content);
                         frag = lines[j].content[end..].trim_start();
                     } else if html::block_start(t) == Some(BlockKind::BlockName) {
                         // Its block runs to the blank line padding the next
@@ -606,11 +617,20 @@ fn transparent(lines: &[SrcLine]) -> Rows {
                     break;
                 }
             }
-            prefix = continuation_of(lines[i].prefix);
+            prefix = format!("{}{indent}", continuation_of(lines[i].prefix));
         }
         i += 1;
     }
     rows
+}
+
+/// The whitespace leading `line` when it is shy of an indented code line's
+/// four columns, else nothing.
+fn shallow_lead(line: &str) -> &str {
+    if html::indent_columns(line) > 3 {
+        return "";
+    }
+    &line[..line.len() - line.trim_start().len()]
 }
 
 /// `line` without up to `n` columns of leading indentation.
@@ -694,7 +714,7 @@ impl Runs {
     }
 }
 
-fn is_inline(event: &Event) -> bool {
+pub(crate) fn is_inline(event: &Event) -> bool {
     match event {
         Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak | Event::InlineHtml(_) => {
             true
@@ -716,8 +736,9 @@ fn is_inline(event: &Event) -> bool {
 /// it in the run, and one tag per line. The block runs to the run's end, as
 /// though a type 7 tag could interrupt a paragraph. A line carrying the run's
 /// quote markers is written inside the run's containers; a lazy one keeps its
-/// own prefix and leaves the quotes it lacks, as the blank line above it does.
-/// A heading's first line is never a tag line.
+/// own prefix and leaves the quotes it lacks, as the blank line above it does,
+/// and so does a line holding an element tag, which closes its element where
+/// its own indentation stands. A heading's first line is never a tag line.
 fn run_tag_line_edits(src: &str, run: &Run) -> Option<Edit> {
     let first = SrcLine::at(src, run.start);
     let quotes = |p: &str| p.bytes().filter(|&b| b == b'>').count();
@@ -737,7 +758,8 @@ fn run_tag_line_edits(src: &str, run: &Run) -> Option<Edit> {
         let Some(tags) = html::tag_line(line.content).filter(|_| leads) else {
             continue;
         };
-        let cont = if quotes(line.prefix) == quotes(first.prefix) {
+        let element = tags.iter().any(|t| carrier::modeled_tag(t).is_some());
+        let cont = if quotes(line.prefix) == quotes(first.prefix) && !element {
             continuation_of(first.prefix)
         } else {
             line.prefix.to_string()
@@ -902,6 +924,19 @@ mod tests {
             for &at in &r.footnotes {
                 assert_eq!(&r.text[at..at + 3], "\\[^", "{md:?} -> {:?}", r.text);
             }
+        }
+    }
+    /// Text split off after a comment keeps its line's indent, read inside an
+    /// HTML block the same round frees, so it stays in the list item that
+    /// indent continues.
+    #[test]
+    fn a_split_piece_keeps_its_lines_indent() {
+        let cases = [
+            ("<div>\n- a\n  <!-- c -->b", "<div>\n\n- a\n  <!-- c -->\n  b"),
+            ("<div>\n- a\n\n  <!--\n  c\n  -->b", "<div>\n\n- a\n\n  <!--\n  c\n  -->\n  b"),
+        ];
+        for (md, repaired) in cases {
+            assert_eq!(normalized(md).text, repaired, "{md:?}");
         }
     }
 }
