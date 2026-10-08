@@ -8,8 +8,10 @@
 A content construct has one form, its stored JSON, and markdown, the op wire
 and the Typst lowering are codecs or projections of it. This page states the
 invariants every surface keeps and a matrix of what each surface does with each
-construct. A conformance corpus pins every row: an engine test asserts it, and
-`@quillmark/wasm` ships it for downstream codecs.
+construct. A conformance corpus pins every row: an engine test asserts its
+markdown, stored JSON, op wire, Typst lowering, validate and signal cells, the
+honors tests in core pin its blueprint cell, and `@quillmark/wasm` ships it for
+downstream codecs.
 
 ## Invariants
 
@@ -205,6 +207,7 @@ matrix row:
 | `markdown` | the row's spelling, or `null` where markdown spells none (`mark.anchor`, the unnamed keys) |
 | `annotated` | `to_markdown_annotated(content)`'s markdown, on a row whose construct has a read-only spelling (`mark.anchor`); absent elsewhere |
 | `content` | the canonical stored content, `serial::to_canonical_value`, pretty-printed so a change diffs by line |
+| `reimports` | what `from_markdown(to_markdown(content))` lands on, on a row markdown cannot spell (`mark.anchor`, the unnamed keys); absent where it is `content` |
 | `typst` | substrings the body's lowering contains, never a whole emission |
 | `signals.import` | `{construct, count}` per `parse::dropped_construct` the import raises, in order |
 | `signals.render` | the codes a one-shot render's warnings carry, in order |
@@ -218,10 +221,18 @@ fails:
   itself.
 - A spelled entry imports to `content`, warning `signals.import`, and so does
   a body holding it through `Document::parse`.
-- A spelled entry's `to_markdown(content)` re-imports to `content`, the fixed
-  point. An entry markdown cannot spell is checked on the other surfaces only.
-- An entry's `annotated` is `to_markdown_annotated(content)`'s markdown, and
-  imports, warning nothing, to `content` without its anchors.
+- `content` lands through `serial::from_authored_value`, and through one
+  `ChangeBundle` read by `change_bundle_from_value` and applied to an empty
+  field: the text by `delta`, each island by an `insert` at its slot, each
+  line's kind, containers and `continues` by line ops, and every mark by an
+  `add`.
+- `to_markdown(content)` re-imports, warning nothing, to `reimports`: the fixed
+  point where the entry has none.
+- A body holding `content`, revised with `to_markdown(content)`, lands on
+  `reimports` plus every anchor `content` holds, warning nothing.
+- An entry's `annotated` is `to_markdown_annotated(content)`'s markdown,
+  imports, warning nothing, to `content` without its anchors, and revises a
+  body holding `content` to `content`.
 - The rest runs through two fixture quills: `table_demo`, which declares
   nothing, against `typst` and `signals`, and `table_honors`, which declares
   every knob and the elements `keep` and `hl`, against `declared` where the
@@ -234,7 +245,9 @@ fails:
   render's `backend::declined_construct` list.
 
 A row whose construct the import does not store still has its `typst`: what the
-markup wrapped reaches the page.
+markup wrapped reaches the page. The blueprint column has no key: core's honors
+tests (`crates/core/src/quill/tests/honors_tests.rs`) pin what a declaring
+quill's blueprint teaches.
 
 `scripts/build-wasm.sh` ships the file at the root of `@quillmark/wasm` as
 `parity.json`, exported as `@quillmark/wasm/parity.json`, and the package's
