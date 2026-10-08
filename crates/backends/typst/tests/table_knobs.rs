@@ -1,5 +1,5 @@
-//! A table or cell knob lowers where the quill's `honors:` declares it and as if
-//! absent where not, and placing a table moves no text inside it.
+//! Every table and cell knob lowers and compiles, and placing a table moves no
+//! text inside it.
 
 use quillmark_core::{
     backend::Backend,
@@ -17,12 +17,8 @@ const PLATE: &str = r#"
 #data.at("$body", default: [])
 "#;
 
-fn quill(honors: &str) -> Quill {
-    common::quill_with_plate(&common::yaml(&format!("{honors}main:\n  fields: {{}}\n")), PLATE)
-}
-
-fn declaring() -> Quill {
-    quill("honors:\n  table: [widths, align, breakable]\n  cell: [align, valign]\n")
+fn quill() -> Quill {
+    common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), PLATE)
 }
 
 fn svg(quill: &Quill, markdown: &str) -> String {
@@ -57,15 +53,9 @@ const KNOBS: &str = "<quill-table align=\"center\" breakable=\"false\" widths=\"
 const PLAIN: &str = "| Item | Amount |\n| --- | --- |\n| Total | 42 |";
 
 #[test]
-fn every_knob_compiles_where_declared() {
-    let declared = svg(&declaring(), KNOBS);
-    assert_ne!(declared, svg(&declaring(), PLAIN), "the knobs move the table");
-}
-
-#[test]
-fn a_quill_declaring_nothing_lays_the_table_out_as_if_absent() {
-    let bare = quill("");
-    assert_eq!(svg(&bare, KNOBS), svg(&bare, PLAIN));
+fn every_knob_compiles_and_moves_the_table() {
+    let quill = quill();
+    assert_ne!(svg(&quill, KNOBS), svg(&quill, PLAIN), "the knobs move the table");
 }
 
 /// A centered table's short cell keeps its offset from the header above it: the
@@ -78,7 +68,7 @@ fn placing_a_table_keeps_its_cells_aligned_as_they_were() {
     for set in ["", "#set table(align: right)\n", "#set align(right)\n"] {
         let plate = PLATE.replace("#data", &format!("{set}#data"));
         let quill = common::quill_with_plate(
-            &common::yaml("honors:\n  table: [align]\nmain:\n  fields: {}\n"),
+            &common::yaml("main:\n  fields: {}\n"),
             &plate,
         );
         let at = origins(&svg(&quill, &placed));

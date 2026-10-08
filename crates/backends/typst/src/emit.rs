@@ -6,8 +6,6 @@
 //! guard is live is `Tail`, the record of what the emitter last wrote.
 
 use quillmark_core::error::MAX_NESTING_DEPTH;
-use crate::helper::{datetime_constructor, lit, DateKind};
-use quillmark_core::quill::{ElementScope, FieldType, Honors, TableKnob};
 use quillmark_content::island::IslandType;
 use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
 use quillmark_content::normalize::is_line_separator;
@@ -303,9 +301,8 @@ impl EmitError {
     }
 }
 
-/// Lower `rt`, laying a table out by each knob `honors` declares and as if
-/// every other knob were absent.
-pub fn emit_content(rt: &Normalized, honors: &Honors) -> Result<Emission, EmitError> {
+/// Lower `rt` to Typst markup.
+pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
     let max_depth = rt
         .lines
         .iter()
@@ -318,7 +315,7 @@ pub fn emit_content(rt: &Normalized, honors: &Honors) -> Result<Emission, EmitEr
             max: MAX_NESTING_DEPTH,
         });
     }
-    let mut e = Emit::new(rt, honors);
+    let mut e = Emit::new(rt);
     let n = rt.lines.len();
     e.emit_block_level(0..n, 0);
     Ok(Emission::new(rt, e.out, e.segments))
@@ -330,19 +327,18 @@ pub fn emit_content(rt: &Normalized, honors: &Honors) -> Result<Emission, EmitEr
 /// Anything not [`is_inline`] falls back to [`emit_content`].
 ///
 /// [`is_inline`]: quillmark_content::model::Content::is_inline
-pub(crate) fn emit_content_inline(rt: &Normalized, honors: &Honors) -> Result<Emission, EmitError> {
+pub(crate) fn emit_content_inline(rt: &Normalized) -> Result<Emission, EmitError> {
     if !rt.is_inline() {
-        return emit_content(rt, honors);
+        return emit_content(rt);
     }
     // `is_inline` guarantees depth 0, so `emit_content`'s nesting guard is moot.
-    let mut e = Emit::new(rt, honors);
+    let mut e = Emit::new(rt);
     e.emit_segment(0..rt.lines.len());
     Ok(Emission::new(rt, e.out, e.segments))
 }
 
 struct Emit<'a> {
     rt: &'a Content,
-    honors: &'a Honors,
     /// Content text as USV, so a `[start, end)` USV range slices in O(1).
     chars: Vec<char>,
     /// Per line: its `[start, end)` USV range (text only, excluding the `\n`
@@ -368,7 +364,7 @@ struct Emit<'a> {
 }
 
 impl<'a> Emit<'a> {
-    fn new(rt: &'a Content, honors: &'a Honors) -> Self {
+    fn new(rt: &'a Content) -> Self {
         let chars: Vec<char> = rt.text.chars().collect();
         // Per-line USV `[start, end)` from the shared segmentation (including
         // the malformed-content padding) so the two crates cannot drift.
@@ -383,7 +379,6 @@ impl<'a> Emit<'a> {
             .collect();
         Emit {
             rt,
-            honors,
             chars,
             line_usv,
             slot_offsets,
@@ -592,17 +587,11 @@ impl<'a> Emit<'a> {
         self.end_newline = true;
     }
 
-    /// `#qm-element("keep", (:))[…]` around the run of an element the quill
-    /// declares at block scope, else `#[…]`, the children with nothing applied.
+    /// `#qm-element("keep", (:))[…]` around an element's run.
     fn emit_element(&mut self, range: Range<usize>, depth: usize, name: &str, attrs: &BTreeMap<String, String>) {
         self.open_line();
-        match element_call(self.honors, name, attrs, ElementScope::Block) {
-            Some(call) => {
-                self.out.push_str(&call);
-                self.out.push(')');
-            }
-            None => self.out.push('#'),
-        }
+        self.out.push_str(&element_call(name, attrs));
+        self.out.push(')');
         self.out.push_str("[\n");
         self.end_newline = true;
         self.emit_block_level(range, depth + 1);
@@ -712,8 +701,7 @@ impl<'a> Emit<'a> {
     ) -> Vec<(Range<usize>, Range<usize>, EscapeCtx)> {
         let mut runs = Vec::new();
 
-        let honors = self.honors;
-        let (mut wraps, codes) = wraps_and_codes(self.overlapping_marks(lo, hi), lo, hi, honors);
+        let (mut wraps, codes) = wraps_and_codes(self.overlapping_marks(lo, hi), lo, hi);
         // Atomic code spans can't carry partial styling.
         clip_wraps_to_codes(&mut wraps, &codes);
 
@@ -762,7 +750,7 @@ impl<'a> Emit<'a> {
             // backend draws none and `Emission::declined` counts them for the
             // warning saying so.
             IslandType::Image => String::new(),
-            IslandType::Table => table_markup(&isl.props, self.honors),
+            IslandType::Table => table_markup(&isl.props),
         }
     }
 }
@@ -881,13 +869,7 @@ fn next_boundary(
 
 /// The wrapping/atomic marks overlapping `[lo, hi)`, clamped to it: a mark
 /// entirely outside is dropped, one straddling is clipped to the window edges.
-/// An element mark wraps only where `honors` declares it inline.
-fn wraps_and_codes(
-    marks: &[Mark],
-    lo: usize,
-    hi: usize,
-    honors: &Honors,
-) -> (Vec<Wrap>, Vec<(usize, usize)>) {
+fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usize, usize)>) {
     let mut wraps = Vec::new();
     let mut codes = Vec::new();
     for m in marks {
@@ -912,11 +894,11 @@ fn wraps_and_codes(
                 end: e,
                 open: format!("#link(\"{}\")[", escape_string(url)),
             }),
-            MarkKind::Element { name, attrs } => {
-                if let Some(call) = element_call(honors, name, attrs, ElementScope::Inline) {
-                    wraps.push(Wrap { start: s, end: e, open: format!("{call}, inline: true)[") });
-                }
-            }
+            MarkKind::Element { name, attrs } => wraps.push(Wrap {
+                start: s,
+                end: e,
+                open: format!("{}, inline: true)[", element_call(name, attrs)),
+            }),
             // `Anchor` is identity: a handle, with no Typst spelling.
             MarkKind::Anchor { .. } => {}
         }
@@ -926,31 +908,15 @@ fn wraps_and_codes(
 }
 
 /// The `#qm-element(name, attrs` a call to the helper's dispatcher opens with,
-/// its argument list left open, when `honors` declares element `name` in
-/// `scope`. The attributes are a dictionary, keys sorted, each value
-/// [`Honors::element_attrs`] made: a declared `date` or `datetime` a
-/// `datetime(..)`, every other one its JSON literal.
-fn element_call(honors: &Honors, name: &str, attrs: &BTreeMap<String, String>, scope: ElementScope) -> Option<String> {
-    let decl = honors.element(name, scope)?;
-    let entries: Vec<String> = honors
-        .element_attrs(name, attrs)
-        .into_iter()
-        .map(|(attr, value)| {
-            let kind = decl.attrs.get(&attr).and_then(|schema| match schema.r#type {
-                FieldType::Date => Some(DateKind::Date),
-                FieldType::DateTime => Some(DateKind::DateTime),
-                _ => None,
-            });
-            let json = value.as_json();
-            let value = kind
-                .zip(json.as_str())
-                .and_then(|(kind, s)| datetime_constructor(s, kind))
-                .unwrap_or_else(|| lit(json));
-            format!("\"{}\": {value}", escape_string(&attr))
-        })
+/// its argument list left open. The attributes are a dictionary of strings,
+/// keys sorted, `(:)` when empty.
+fn element_call(name: &str, attrs: &BTreeMap<String, String>) -> String {
+    let entries: Vec<String> = attrs
+        .iter()
+        .map(|(attr, value)| format!("\"{}\": \"{}\"", escape_string(attr), escape_string(value)))
         .collect();
     let dict = if entries.is_empty() { "(:)".to_string() } else { format!("({})", entries.join(", ")) };
-    Some(format!("#qm-element(\"{}\", {dict}", escape_string(name)))
+    format!("#qm-element(\"{}\", {dict}", escape_string(name))
 }
 
 /// One run of a mark sweep: the atomic `#raw(..)` code span starting at `pos`,
@@ -1022,9 +988,9 @@ fn linebreak_at(out: &mut String, chars: &[char], pos: usize) -> Option<(usize, 
 /// A cell is flat inline (no islands; a `\n` is a line break), so its markup
 /// carries no source-map runs. It opens at the head of the `[…]`
 /// [`table_markup`] wraps it in, which is a line anchor.
-fn cell_markup(text: &str, marks: &[Mark], honors: &Honors) -> String {
+fn cell_markup(text: &str, marks: &[Mark]) -> String {
     let chars: Vec<char> = text.chars().collect();
-    let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len(), honors);
+    let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len());
     clip_wraps_to_codes(&mut wraps, &codes);
     let mut out = String::new();
     sweep_marks(0, chars.len(), &wraps, &mut out, Tail::Anchor, |out, pos, tail| {
@@ -1038,7 +1004,7 @@ fn cell_markup(text: &str, marks: &[Mark], honors: &Honors) -> String {
 }
 
 /// Each cell is canonical `{text, marks}` rendered through [`cell_markup`], with
-/// no markdown re-parse. A knob `honors` leaves out lowers as if absent:
+/// no markdown re-parse. The layout keys lower as:
 ///
 /// - `widths`: `columns: (2fr, auto)` in place of `columns: 2`.
 /// - `align`: `align(center, table(…))` under `context`, where each cell
@@ -1048,7 +1014,7 @@ fn cell_markup(text: &str, marks: &[Mark], honors: &Honors) -> String {
 ///   spans the width a placement aligns within.
 /// - a cell's `align` and `valign`: `table.cell(align: right + bottom)[…]`,
 ///   which Typst folds with the column's alignment.
-fn table_markup(props: &serde_json::Value, honors: &Honors) -> String {
+fn table_markup(props: &serde_json::Value) -> String {
     use serde_json::Value;
     let header = props.get("header").and_then(|v| v.as_array());
     let rows = props.get("rows").and_then(|v| v.as_array());
@@ -1069,34 +1035,29 @@ fn table_markup(props: &serde_json::Value, honors: &Honors) -> String {
         return String::new();
     }
 
-    let knob = |k: TableKnob| honors.declares(k).then(|| props.get(k.key())).flatten();
-    let placement = knob(TableKnob::Align)
+    let placement = props
+        .get("align")
         .and_then(Value::as_str)
         .filter(|a| matches!(*a, "left" | "center" | "right"));
-    let unbreakable = knob(TableKnob::Breakable) == Some(&Value::Bool(false));
-    let cell_keys = honors.declares(TableKnob::CellAlign) || honors.declares(TableKnob::CellValign);
+    let unbreakable = props.get("breakable") == Some(&Value::Bool(false));
     // Placed, the table is a call under `context`, so a cell aligning by default
     // reads the alignment outside the placement rather than the placement's.
     let inherited = "align.alignment";
 
     let cell = |v: &Value| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
-        let body = cell_markup(&text, &marks, honors);
-        let key = |k: TableKnob, set: &[&'static str]| -> Option<&'static str> {
-            let value = honors.declares(k).then(|| v.get(k.key())?.as_str()).flatten()?;
+        let body = cell_markup(&text, &marks);
+        let key = |k: &str, set: &[&'static str]| -> Option<&'static str> {
+            let value = v.get(k)?.as_str()?;
             set.iter().copied().find(|s| *s == value)
         };
-        let alignment: Vec<&str> = if cell_keys {
-            [
-                key(TableKnob::CellAlign, &["left", "center", "right"]),
-                key(TableKnob::CellValign, &["top", "horizon", "bottom"]),
-            ]
-            .into_iter()
-            .flatten()
-            .collect()
-        } else {
-            Vec::new()
-        };
+        let alignment: Vec<&str> = [
+            key("align", &["left", "center", "right"]),
+            key("valign", &["top", "horizon", "bottom"]),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         if alignment.is_empty() {
             format!("[{body}]")
         } else {
@@ -1105,7 +1066,7 @@ fn table_markup(props: &serde_json::Value, honors: &Honors) -> String {
     };
 
     let mut out = String::from("table(\n");
-    match knob(TableKnob::Widths).and_then(Value::as_array) {
+    match props.get("widths").and_then(Value::as_array) {
         Some(weights) => {
             let tracks: Vec<String> = (0..cols)
                 .map(|i| match weights.get(i).and_then(Value::as_u64) {
@@ -1181,7 +1142,7 @@ mod tests {
     fn emit(md: &str) -> Emission {
         let rt = from_markdown(md).expect("import").content;
         assert_eq!(rt.validate(), Ok(()), "content invariants for {md:?}");
-        emit_content(&rt, &Honors::default()).expect("emit")
+        emit_content(&rt).expect("emit")
     }
 
     #[test]
@@ -1352,10 +1313,10 @@ mod tests {
     fn inline_emits_no_block_terminator() {
         let rt = from_markdown("A **bold** subject").expect("import").content;
         assert!(rt.is_inline());
-        let inline = emit_content_inline(&rt, &Honors::default()).expect("emit").markup;
+        let inline = emit_content_inline(&rt).expect("emit").markup;
         assert_eq!(inline, "A #strong[bold] subject");
         assert!(!inline.contains("\n\n"), "no parbreak in {inline:?}");
-        let block = emit_content(&rt, &Honors::default()).expect("emit").markup;
+        let block = emit_content(&rt).expect("emit").markup;
         assert!(block.ends_with("\n\n"), "block path keeps its terminator");
     }
 
@@ -1365,8 +1326,8 @@ mod tests {
             let rt = from_markdown(md).expect("import").content;
             assert!(!rt.is_inline(), "{md:?} is not inline");
             assert_eq!(
-                emit_content_inline(&rt, &Honors::default()).expect("emit").markup,
-                emit_content(&rt, &Honors::default()).expect("emit").markup,
+                emit_content_inline(&rt).expect("emit").markup,
+                emit_content(&rt).expect("emit").markup,
                 "non-inline {md:?} must fall back to block lowering"
             );
         }
@@ -1464,7 +1425,7 @@ mod tests {
             .into_normalized();
         assert_eq!(rt.validate(), Ok(()));
         assert_eq!(
-            emit_content(&rt, &Honors::default()).unwrap().markup,
+            emit_content(&rt).unwrap().markup,
             "#raw(\"abc\")#link(\"z\")[#link(\"a\")[defghij]]\n\n"
         );
     }
@@ -1637,7 +1598,7 @@ mod tests {
             let rt = Content::new(text, vec![Line::new(LineKind::Para)]).into_normalized();
             assert!(rt.validate().is_err(), "{c:?} passes the content invariants");
 
-            let markup = emit_content(&rt, &Honors::default()).unwrap().markup;
+            let markup = emit_content(&rt).unwrap().markup;
             assert_eq!(markup, " \\- item  tail = not a heading\n\n", "for {c:?}");
             for k in resolve(&markup).1 {
                 assert!(ALLOWED_LEAVES.contains(&k), "{c:?} lowered to a {k:?} leaf");
@@ -1723,7 +1684,7 @@ mod tests {
                     .with_islands(vec![Island::new("isl-0".into(), ty)])
                     .into_normalized();
                 assert_eq!(rt.validate(), Ok(()), "content invariants for {text:?}");
-                let markup = emit_content(&rt, &Honors::default()).unwrap().markup;
+                let markup = emit_content(&rt).unwrap().markup;
                 assert!(
                     !markup.contains(ISLAND_SLOT),
                     "the slot char reached the markup: {markup:?}"
@@ -1837,7 +1798,7 @@ mod tests {
     fn runs_map_content_to_generated_bytes() {
         for md in sample_inputs() {
             let rt = from_markdown(md).unwrap().content;
-            let ec = emit_content(&rt, &Honors::default()).unwrap();
+            let ec = emit_content(&rt).unwrap();
             let chars: Vec<char> = rt.text.chars().collect();
             for seg in &ec.segments {
                 // Segment window is within the markup and non-decreasing.
@@ -1871,7 +1832,7 @@ mod tests {
             ]);
         let rt = rt.into_normalized();
         assert_eq!(rt.validate(), Ok(()));
-        let out = emit_content(&rt, &Honors::default()).unwrap().markup;
+        let out = emit_content(&rt).unwrap().markup;
         assert_eq!(out, "#strong[ab#emph[cd]]#emph[ef]\n\n");
         // Bracket-balanced regardless.
         assert_eq!(out.matches('[').count(), out.matches(']').count());
@@ -1884,7 +1845,7 @@ mod tests {
             Content::new(text.to_string(), vec![Line::new(LineKind::Para)]).with_marks(marks);
         let rt = rt.into_normalized();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
-        emit_content(&rt, &Honors::default()).unwrap().markup
+        emit_content(&rt).unwrap().markup
     }
 
     fn balanced(out: &str) -> bool {
@@ -1994,7 +1955,7 @@ mod tests {
             "header": [ cell("H") ],
             "rows": [ [ cell("a"), cell("b"), cell("c") ] ],
         });
-        let out = table_markup(&props, &Honors::default());
+        let out = table_markup(&props);
         assert!(out.contains("columns: 3,"), "got {out:?}");
 
         // Empty header, populated rows: still counts the rows.
@@ -2002,12 +1963,12 @@ mod tests {
             "header": [],
             "rows": [ [ cell("a"), cell("b") ] ],
         });
-        let out = table_markup(&props, &Honors::default());
+        let out = table_markup(&props);
         assert!(out.contains("columns: 2,"), "got {out:?}");
     }
 
     #[test]
-    fn a_declared_knob_lowers_and_an_undeclared_one_lowers_as_absent() {
+    fn the_layout_keys_lower_to_typst() {
         let props = serde_json::json!({
             "header": [
                 { "text": "a", "marks": [] },
@@ -2019,20 +1980,13 @@ mod tests {
             "align": "center",
             "breakable": false,
         });
-        let all = Honors { knobs: TableKnob::ALL.iter().copied().collect(), ..Honors::default() };
         assert_eq!(
-            table_markup(&props, &all),
+            table_markup(&props),
             "#block(breakable: false)[#context align(center, table(\n  columns: (2fr, auto),\n  \
              align: (align.alignment, left),\n  \
              table.header([a], table.cell(align: right + bottom)[b], ),\n  \
              table.cell(align: horizon)[1], [2], \n))]"
         );
-        assert_eq!(
-            table_markup(&props, &Honors::default()),
-            "#table(\n  columns: 2,\n  align: (auto, left),\n  table.header([a], [b], ),\n  [1], [2], \n)"
-        );
-        let cells = Honors { knobs: [TableKnob::CellValign].into(), ..Honors::default() };
-        assert!(table_markup(&props, &cells).contains("[a], table.cell(align: bottom)[b]"));
     }
 
     /// Placed with no column aligned, a cell takes the plate's `table.align`,
@@ -2045,91 +1999,65 @@ mod tests {
             "aligns": ["none"],
             "align": "right",
         });
-        let placed = Honors { knobs: [TableKnob::Align].into(), ..Honors::default() };
         assert_eq!(
-            table_markup(&props, &placed),
+            table_markup(&props),
             "#context align(right, table(\n  columns: 1,\n  \
              align: if table.align == auto { align.alignment } else { table.align },\n  \
              table.header([a], ),\n))"
         );
     }
 
-    fn element_honors() -> Honors {
-        let yaml = "quill: { name: q, version: 1.0.0, backend: typst, description: x }\n\
-                    honors:\n  elements:\n    keep: { scope: block, attrs: { note: { type: string } } }\n    \
-                    hl:\n      scope: inline\n      attrs:\n        size: { type: integer }\n        \
-                    day: { type: date }\n        tone: { type: enum, values: [red, blue], default: red }\n\
-                    main:\n  fields: {}\n";
-        quillmark_core::quill::QuillConfig::from_yaml_with_warnings(yaml).expect("loads").0.honors
-    }
-
-    fn emit_under(md: &str, honors: &Honors) -> String {
+    fn emit_md(md: &str) -> String {
         let rt = from_markdown(md).expect("import").content;
-        emit_content(&rt, honors).expect("emit").markup
+        emit_content(&rt).expect("emit").markup
     }
 
-    /// A block element the quill declares lowers through the dispatcher around
-    /// its run, and one it does not to a bare content block, inside a list item
-    /// as at the top; adjacent runs are adjacent calls.
+    /// A block element lowers through the dispatcher around its run, inside a
+    /// list item as at the top; adjacent runs are adjacent calls.
     #[test]
-    fn a_block_element_lowers_through_the_dispatcher_where_declared() {
-        let honors = element_honors();
+    fn a_block_element_lowers_through_the_dispatcher() {
         let cases = [
             (
                 "<quill-keep note=\"x\">\n\npara\n\n</quill-keep>",
                 "#qm-element(\"keep\", (\"note\": \"x\"))[\npara\n\n]\n\n",
-                "#[\npara\n\n]\n\n",
             ),
             (
                 "- a\n- <quill-keep>\n\n  b\n\n  - c\n\n  </quill-keep>",
                 "- a\n- #qm-element(\"keep\", (:))[\n  b\n\n  - c\n  ]\n\n\n",
-                "- a\n- #[\n  b\n\n  - c\n  ]\n\n\n",
             ),
             (
                 "<quill-keep>\na\n</quill-keep>\n<quill-keep>\nb\n</quill-keep>",
                 "#qm-element(\"keep\", (:))[\na\n\n]\n\n#qm-element(\"keep\", (:))[\nb\n\n]\n\n",
-                "#[\na\n\n]\n\n#[\nb\n\n]\n\n",
             ),
         ];
-        for (md, declared, bare) in cases {
-            assert_eq!(emit_under(md, &honors), declared, "{md:?}");
-            assert_eq!(emit_under(md, &Honors::default()), bare, "{md:?}");
+        for (md, want) in cases {
+            assert_eq!(emit_md(md), want, "{md:?}");
         }
     }
 
-    /// An inline element the quill declares wraps its text in a dispatcher
-    /// call, in prose and a table cell, its attributes coerced as declared, a
-    /// refused one and an undeclared one as written, a default filling one left
-    /// out; at a scope the quill does not declare it, the text stands bare.
+    /// An inline element wraps its text in a dispatcher call, in prose and a
+    /// table cell, its attributes passed as strings.
     #[test]
-    fn an_inline_element_wraps_where_declared() {
-        let honors = element_honors();
+    fn an_inline_element_wraps_in_a_dispatcher_call() {
         let cases = [
             (
                 "a <quill-hl size=\"4\" day=\"2024-01-15\">b</quill-hl> c",
-                "a #qm-element(\"hl\", (\"day\": datetime(year: 2024, month: 1, day: 15), \"size\": 4, \
-                 \"tone\": \"red\"), inline: true)[b] c\n\n",
-            ),
-            (
-                "a <quill-hl size=\"big\" x=\"y\">b</quill-hl> c",
-                "a #qm-element(\"hl\", (\"size\": \"big\", \"tone\": \"red\", \"x\": \"y\"), inline: true)[b] c\n\n",
+                "a #qm-element(\"hl\", (\"day\": \"2024-01-15\", \"size\": \"4\"), inline: true)[b] c\n\n",
             ),
             (
                 "| <quill-hl>x</quill-hl> |\n|---|",
-                "#table(\n  columns: 1,\n  table.header([#qm-element(\"hl\", (\"tone\": \"red\"), inline: true)[x]], ),\n)\n\n",
+                "#table(\n  columns: 1,\n  table.header([#qm-element(\"hl\", (:), inline: true)[x]], ),\n)\n\n",
             ),
-            ("a <quill-keep>b</quill-keep> c", "a b c\n\n"),
         ];
-        for (md, declared) in cases {
-            assert_eq!(emit_under(md, &honors), declared, "{md:?}");
+        for (md, want) in cases {
+            assert_eq!(emit_md(md), want, "{md:?}");
         }
-        assert_eq!(emit_under(cases[0].0, &Honors::default()), "a b c\n\n");
     }
 
     #[test]
     fn empty_table_emits_nothing() {
         let props = serde_json::json!({ "header": [], "aligns": [], "rows": [] });
-        assert_eq!(table_markup(&props, &Honors::default()), "");
+        assert_eq!(table_markup(&props), "");
     }
 
     #[test]
@@ -2207,7 +2135,7 @@ mod tests {
         use quillmark_content::model::Line;
         let rt = Content::new("= x".to_string(), vec![Line::new(LineKind::Para)]);
         let rt = rt.into_normalized();
-        let ec = emit_content(&rt, &Honors::default()).unwrap();
+        let ec = emit_content(&rt).unwrap();
         let chars: Vec<char> = rt.text.chars().collect();
         for seg in &ec.segments {
             for (content, generated, ctx) in &seg.runs {

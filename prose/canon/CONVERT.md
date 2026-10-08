@@ -118,19 +118,18 @@ is a lowering bug, never a document's.
 | `MarkKind::Code` | `#raw("…")` (inline) |
 | `MarkKind::Link{url}` | `#link("url")[…]` (`escape_string` on the url) |
 | `MarkKind::Anchor` | nothing |
-| `MarkKind::Element{name, attrs}` | `#qm-element("name", (…), inline: true)[…]` where the quill declares `name` inline, else the text it marks (see [Elements](#elements)) |
+| `MarkKind::Element{name, attrs}` | `#qm-element("name", (…), inline: true)[…]` (see [Elements](#elements)) |
 | `Container::ListItem` (bullet) | `- ` |
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
 | `Container::Quote` | `#quote(block: true)[…]` |
-| `Container::Element{name, attrs}` | `#qm-element("name", (…))[…]` where the quill declares `name` around blocks, else `#[…]` |
+| `Container::Element{name, attrs}` | `#qm-element("name", (…))[…]` |
 | `image` island | nothing, plus one `backend::declined_construct` warning per field (see [Declined images](#declined-images)) |
 | `table` island | `#table(columns: N, align: (…), table.header(…), …)` |
 
 Table alignment maps `none→auto`, `left`, `center`, `right`; the `align:`
 argument is emitted only when at least one column is non-default.
 
-A layout knob lowers only where the quill's `honors:` declares it
-([QUILL.md](QUILL.md#honors)), and as if absent elsewhere:
+The table's layout keys lower as:
 
 | Knob | Lowering |
 |---|---|
@@ -171,17 +170,12 @@ alone:
 #elements.update(e => e + (stamp: (attrs, body) => text(fill: red, body)))
 ```
 
-`attrs` is a dictionary keyed by attribute name, sorted, and `(:)` when empty:
+`attrs` is a dictionary of strings keyed by attribute name, sorted, and `(:)`
+when empty: each attribute as the document stores it.
 
-- A declared attribute is coerced to its declared type at render leniency, and
-  one the coercion refuses passes as its string.
-- A declared `default:` fills an attribute the element leaves out.
-- A `date` or `datetime` lowers to Typst's `datetime(..)`.
-- An attribute the declaration does not name passes as its string.
-
-An undeclared block element keeps its run's structure in `#[…]`, so a run
-inside a list item stays in the item. The dispatcher's bytes fall between runs,
-so the source map holds no run for them.
+A block element's call keeps its run's structure in its `[…]`, so a run inside
+a list item stays in the item. The dispatcher's bytes fall between runs, so the
+source map holds no run for them.
 
 ### Declined images
 
@@ -210,11 +204,11 @@ reads and the shape the WASM boundary pins:
   normalizes to a single column count: header, every row, and `aligns` padded
   to the widest, so `columns:` and `align:` agree.
   The optional layout keys `widths`, `align` and `breakable`
-  ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") are
-  read where the quill declares them (see [above](#element-mapping)), and so
-  are a cell's optional `align` and `valign`; an undeclared one draws as if
-  absent: auto-fit, at the quill's placement, breaking across pages, a cell at
-  its column's alignment and at the top.
+  ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") lower
+  as [above](#element-mapping), and so do a cell's optional `align` and
+  `valign`; an absent one draws at its default: auto-fit, at the plate's
+  placement, breaking across pages, a cell at its column's alignment and at
+  the top.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. What `url` names is undecided (see [Declined images](#declined-images)).
 

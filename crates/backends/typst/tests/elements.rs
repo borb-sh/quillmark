@@ -1,6 +1,6 @@
-//! A carrier element the quill declares renders through the helper's
-//! dispatcher: the plate's renderer under `elements` with the attributes the
-//! quill's declaration coerces, else the built-in `keep`.
+//! A carrier element renders through the helper's dispatcher: the plate's
+//! renderer under `elements`, its attributes as strings, else the built-in
+//! `keep`, else what the element wraps.
 
 use quillmark_core::{
     backend::Backend,
@@ -17,24 +17,17 @@ const PAGE: &str = r#"
 #set page(width: 200pt, height: 120pt, margin: 10pt)
 "#;
 
-/// A renderer that compiles only when its attributes arrive at their declared
-/// types and the declared default fills the one the document leaves out.
+/// A renderer that compiles only when its attributes arrive as written.
 const STAMP: &str = r#"
 #elements.update(e => e + (stamp: (attrs, body) => {
-  assert(type(attrs.size) == int, message: repr(attrs))
-  assert(type(attrs.day) == datetime, message: repr(attrs))
-  assert(attrs.tone == "red", message: repr(attrs))
+  assert(attrs == (day: "2024-01-15", size: "4"), message: repr(attrs))
   text(fill: red, body)
 }))
 "#;
 
-const DECLARING: &str = "honors:\n  elements:\n    keep: { scope: block }\n    stamp:\n      scope: inline\n      \
-                         attrs:\n        size: { type: integer }\n        day: { type: date }\n        \
-                         tone: { type: enum, values: [red, blue], default: red }\n";
-
-fn quill(honors: &str, plate: &str) -> Quill {
+fn quill(plate: &str) -> Quill {
     common::quill_with_plate(
-        &common::yaml(&format!("{honors}main:\n  fields: {{}}\n")),
+        &common::yaml("main:\n  fields: {}\n"),
         &format!("{PAGE}{plate}#data.at(\"$body\", default: [])\n"),
     )
 }
@@ -58,11 +51,12 @@ fn pages(quill: &Quill, markdown: &str) -> Vec<String> {
 const STAMPED: &str = "a <quill-stamp size=\"4\" day=\"2024-01-15\">b</quill-stamp> c";
 
 #[test]
-fn the_plates_renderer_receives_the_declared_attributes() {
-    let declared = pages(&quill(DECLARING, STAMP), STAMPED);
-    let bare = pages(&quill("", STAMP), STAMPED);
-    assert_ne!(declared, bare, "the renderer colors the stamped text");
-    assert_eq!(bare, pages(&quill("", STAMP), "a b c"));
+fn the_plates_renderer_receives_the_attributes() {
+    let rendered = pages(&quill(STAMP), STAMPED);
+    let unregistered = pages(&quill(""), STAMPED);
+    assert_ne!(rendered, unregistered, "the renderer colors the stamped text");
+    let glyphs = |pages: &[String]| pages.iter().map(|p| p.matches("<use ").count()).sum::<usize>();
+    assert_eq!(glyphs(&unregistered), glyphs(&pages(&quill(""), "a b c")), "unregistered draws its text");
 }
 
 /// The built-in `keep` moves a run that would break across pages to the next
@@ -70,14 +64,15 @@ fn the_plates_renderer_receives_the_declared_attributes() {
 #[test]
 fn the_built_in_keep_keeps_its_run_on_one_page() {
     let filler = "line\n\n".repeat(3);
-    let kept = format!("{filler}<quill-keep>\n\none\n\ntwo\n\nthree\n\n</quill-keep>");
+    let run = "one\n\ntwo\n\nthree";
+    let kept = format!("{filler}<quill-keep>\n\n{run}\n\n</quill-keep>");
     let glyphs = |svg: &String| svg.matches("<use ").count();
-    let declared = pages(&quill(DECLARING, ""), &kept);
-    let bare = pages(&quill("", ""), &kept);
+    let kept = pages(&quill(""), &kept);
+    let bare = pages(&quill(""), &format!("{filler}{run}"));
     assert!(
-        glyphs(&declared[0]) < glyphs(&bare[0]),
+        glyphs(&kept[0]) < glyphs(&bare[0]),
         "the kept run leaves the first page: {} vs {}",
-        glyphs(&declared[0]),
+        glyphs(&kept[0]),
         glyphs(&bare[0])
     );
 }

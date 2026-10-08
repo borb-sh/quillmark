@@ -533,8 +533,9 @@ reads the document:
   reported as `quill-<name>[<attr>]`.
 - Two adjacent block runs of one element stay two. Inline, a run unions with
   an adjacent or overlapping run of the same name and attributes.
-- A quill renders an element only where its `honors:` declares the name at the
-  scope it stands at, and renders what it wraps unwrapped elsewhere.
+- A Typst plate renders an element through the renderer it registers under
+  the name; with none, `keep` holds what it wraps on one page and any other
+  element renders what it wraps.
 
 **An element that does not close** is transparent: its tags drop, what it wraps
 imports, and `parse::dropped_construct` reports it under its tag name
@@ -559,7 +560,7 @@ attributes into the table's layout, whatever quill reads the document:
 | Attribute | Value | Default |
 |---|---|---|
 | `widths` | whitespace-separated column weights, each a positive decimal integer or `auto` for an auto-fit column | every column `auto` |
-| `align` | the table's placement: `left`, `center` or `right` | the quill's placement |
+| `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
 | `breakable` | `true`, or `false` to keep the table on one page | `true` |
 
 ```markdown
@@ -579,9 +580,6 @@ attributes into the table's layout, whatever quill reads the document:
   only around a table holding a value other than its default.
 - Column alignment stays in the delimiter row. Its dash counts carry no width,
   since a formatter pads them to the column.
-- A quill renders an attribute only where its `honors:` declares it, and lays
-  the table out as if the attribute were absent elsewhere; the import keeps it
-  either way.
 - A wrapper holding anything but exactly one table drops whole: its tags drop,
   what it holds imports, and `parse::dropped_construct` reports `quill-table`.
 - An attribute other than these three, and one whose value is outside its
@@ -614,8 +612,6 @@ reads the document:
   default.
 - An attribute other than these two, and one whose value is outside its set,
   drops alone, reported as `quill-cell[<name>]`.
-- A quill renders an attribute only where its `honors:` declares it, as for
-  `quill-table`.
 - A `quill-cell` outside a table cell is transparent, reported as
   `quill-cell`.
 

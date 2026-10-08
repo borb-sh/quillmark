@@ -18,8 +18,7 @@ use serde_json::{json, Value};
 
 mod common;
 
-/// The quill declaring no knob, then the one declaring every knob.
-const QUILLS: [&str; 2] = ["table_demo", "table_honors"];
+const QUILL: &str = "table_demo";
 
 fn frontmatter(quill: &str) -> String {
     format!("~~~\n$quill: {quill}@0.1.0\n$kind: main\ntitle: Parity\n~~~\n")
@@ -40,14 +39,12 @@ fn every_entry_holds_on_every_surface() {
     }
 
     let engine = Quillmark::new();
-    let quills = QUILLS.map(|name| {
-        quillmark::quill_from_path(quills_path(name)).unwrap_or_else(|e| panic!("{name} loads: {e:?}"))
-    });
+    let quill = quillmark::quill_from_path(quills_path(QUILL)).unwrap_or_else(|e| panic!("{QUILL} loads: {e:?}"));
     let failures: Vec<String> = corpus
         .iter()
         .flat_map(|entry| {
             let name = entry["name"].as_str().unwrap_or_default();
-            check(entry, &engine, &quills)
+            check(entry, &engine, &quill)
                 .into_iter()
                 .map(move |f| format!("{name}: {f}"))
         })
@@ -55,8 +52,7 @@ fn every_entry_holds_on_every_surface() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// What an entry expects of one quill's surfaces: its own `typst` and
-/// `signals`, or, for the declaring quill, its `declared` override of each.
+/// What an entry expects of the quill's surfaces.
 struct Expected<'a> {
     typst: &'a Value,
     render: &'a Value,
@@ -64,19 +60,17 @@ struct Expected<'a> {
 }
 
 impl<'a> Expected<'a> {
-    fn of(entry: &'a Value, declaring: bool) -> Self {
-        let declared = declaring.then(|| entry.get("declared")).flatten();
-        let typst = declared.and_then(|d| d.get("typst")).unwrap_or(&entry["typst"]);
-        let signals = declared.and_then(|d| d.get("signals")).unwrap_or(&entry["signals"]);
+    fn of(entry: &'a Value) -> Self {
+        let signals = &entry["signals"];
         Expected {
-            typst,
+            typst: &entry["typst"],
             render: &signals["render"],
             validate: signals.get("validate").cloned().unwrap_or(json!([])),
         }
     }
 }
 
-fn check(entry: &Value, engine: &Quillmark, quills: &[Quill; 2]) -> Vec<String> {
+fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
     let mut failures = Vec::new();
     let stored = &entry["content"];
     let content = match serial::from_canonical_value(stored) {
@@ -126,7 +120,7 @@ fn check(entry: &Value, engine: &Quillmark, quills: &[Quill; 2]) -> Vec<String> 
                 failures.push(format!("import warns {warnings}"));
             }
 
-            let parsed = match Document::parse(&format!("{}\n{markdown}\n", frontmatter(QUILLS[0]))) {
+            let parsed = match Document::parse(&format!("{}\n{markdown}\n", frontmatter(QUILL))) {
                 Ok(p) => p,
                 Err(e) => return [failures, vec![format!("a body does not parse: {e}")]].concat(),
             };
@@ -146,26 +140,13 @@ fn check(entry: &Value, engine: &Quillmark, quills: &[Quill; 2]) -> Vec<String> 
             if import_signals.as_array().is_none_or(|a| !a.is_empty()) {
                 failures.push("an entry with no markdown declares import signals".into());
             }
-            let mut doc = Document::parse(&frontmatter(QUILLS[0])).expect("frontmatter parses").document;
+            let mut doc = Document::parse(&frontmatter(QUILL)).expect("frontmatter parses").document;
             doc.main_mut().overwrite_body(content);
             doc
         }
     };
 
-    for (quill, declaring) in quills.iter().zip([false, true]) {
-        let mut doc = doc.clone();
-        if declaring {
-            let mut bound = Document::parse(&frontmatter(quill.name())).expect("frontmatter parses").document;
-            bound.main_mut().overwrite_body(doc.main().body().clone());
-            doc = bound;
-        }
-        let expected = Expected::of(entry, declaring);
-        failures.extend(
-            surfaces(&expected, engine, quill, &doc)
-                .into_iter()
-                .map(|f| format!("{}: {f}", quill.name())),
-        );
-    }
+    failures.extend(surfaces(&Expected::of(entry), engine, quill, &doc));
     failures
 }
 
@@ -326,7 +307,7 @@ fn check_revise(content: &Normalized, reimports: &Normalized, markdown: &str) ->
             .filter(|m| matches!(m.kind, MarkKind::Anchor { .. })),
     );
     let expected = expected.into_normalized();
-    let mut doc = Document::parse(&frontmatter(QUILLS[0])).expect("frontmatter parses").document;
+    let mut doc = Document::parse(&frontmatter(QUILL)).expect("frontmatter parses").document;
     doc.main_mut().overwrite_body(content.clone());
     match doc.main_mut().revise_body(markdown) {
         Ok(revised) if doc.main().body() == &expected && revised.warnings.is_empty() => vec![],

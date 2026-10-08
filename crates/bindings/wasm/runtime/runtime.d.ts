@@ -109,8 +109,6 @@ export type {
 	QuillFieldSchema,
 	QuillFieldType,
 	QuillCardSchema,
-	QuillHonors,
-	QuillElementSchema,
 	QuillCardBody,
 	QuillFieldUi,
 	QuillCardUi,

@@ -127,7 +127,7 @@ Each row is `(id, title, held, value, path)`, roster members in roster order and
 
 ### Elements
 
-A `quill-<name>` element the quill declares under [`honors.elements`](quill-yaml-reference.md#honors-section) renders through the helper's `elements` registry. A plate registers a renderer under the element's name, taking its attributes and its content:
+A `quill-<name>` element renders through the helper's `elements` registry. A plate registers a renderer under the element's name, taking its attributes and its content:
 
 ```typst
 #import "@local/quillmark-helper:0.1.0": data, elements
@@ -137,13 +137,7 @@ A `quill-<name>` element the quill declares under [`honors.elements`](quill-yaml
 #data.at("$body", default: [])
 ```
 
-The update applies to the content after it in the document, so it goes above the body it styles. `attrs` is a dictionary keyed by attribute name:
-
-- A declared attribute arrives at its declared type, a `date` or `datetime` as a Typst `datetime`, and one its type refuses as the string written.
-- A declared `default:` fills an attribute the document leaves out.
-- An attribute the declaration does not name arrives as its string.
-
-With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone. An element the quill does not declare at its scope draws its content alone, and `quill.validate(doc)` warns `validation::undeclared_construct`.
+The update applies to the content after it in the document, so it goes above the body it styles. `attrs` is a dictionary of the element's attributes, each the string the document wrote, keyed by name. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone.
 
 ## Modules
 
