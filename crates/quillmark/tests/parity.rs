@@ -168,8 +168,14 @@ fn surfaces(expected: &Expected, engine: &Quillmark, quill: &Quill, doc: &Docume
         Ok(l) => l,
         Err(e) => return vec![e],
     };
-    for property in expected.typst.as_array().into_iter().flatten() {
-        let property = property.as_str().unwrap_or_default();
+    let Some(properties) = expected.typst.as_array() else {
+        return vec!["typst is not an array".into()];
+    };
+    for property in properties {
+        let Some(property) = property.as_str() else {
+            failures.push(format!("typst holds a non-string {property}"));
+            continue;
+        };
         if !lowering.contains(property) {
             failures.push(format!("lowering lacks {property:?}:\n{lowering}"));
         }
@@ -230,15 +236,17 @@ fn check_annotated(annotated: &Value, content: &quillmark::Normalized) -> Vec<St
     failures
 }
 
-fn declines(diags: &[Diagnostic], code: &str) -> BTreeSet<(String, String, String)> {
-    diags
+fn declines(diags: &[Diagnostic], code: &str) -> Vec<(String, String, String)> {
+    let mut declines: Vec<_> = diags
         .iter()
         .filter(|d| d.code.as_deref() == Some(code))
         .map(|d| {
             let arg = |k: &str| d.args.get(k).map(|v| v.to_string()).unwrap_or_default();
             (d.path.clone().unwrap_or_default(), arg("construct"), arg("count"))
         })
-        .collect()
+        .collect();
+    declines.sort();
+    declines
 }
 
 fn canonical(content: &quillmark::Normalized) -> String {

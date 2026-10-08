@@ -212,18 +212,18 @@ fails:
   contains every `typst` substring.
 - A one-shot render warns exactly `signals.render`.
 - `Quill::validate` on that document reports exactly `signals.validate`, and
-  its `validation::declined_construct` set (path, construct, count) is the
-  render's `backend::declined_construct` set.
+  its `validation::declined_construct` list (path, construct, count) is the
+  render's `backend::declined_construct` list.
 
 A row whose construct the import does not store still has its `typst`: what the
 markup wrapped reaches the page.
 
 `scripts/build-wasm.sh` ships the file at the root of `@quillmark/wasm` as
-`parity.json`, and the package's `parity.test.js` round-trips every spelled
-entry through `importMarkdown` and `exportMarkdown`, and imports each
-`annotated` read. A downstream codec pins the copy in the package version it
-imports: decoding each `content` into its own state and encoding it back yields
-`content`.
+`parity.json`, exported as `@quillmark/wasm/parity.json`, and the package's
+`parity.test.js` round-trips every spelled entry through `importMarkdown` and
+`exportMarkdown`, and imports each `annotated` read. A downstream codec pins the
+copy in the package version it imports: decoding each `content` into its own
+state and encoding it back yields `content`.
 
 A construct enters the engine with its row and its entry, and a change to what
 a surface does with one edits both.

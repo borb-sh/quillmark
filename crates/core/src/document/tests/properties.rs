@@ -321,8 +321,9 @@ proptest! {
 
     /// A whole-document revise over cards each anchored at its leading word:
     /// with other cards inserted, deleted, edited and every card reordered, an
-    /// unchanged card keeps its anchor and aligns to its stored self, and the
-    /// receipt names exactly the anchors the revised document no longer holds.
+    /// unchanged card keeps its anchor and aligns to its stored self, an anchor
+    /// rests only on the card its stored card aligned to, and the receipt names
+    /// exactly the anchors the revised document no longer holds.
     #[test]
     fn an_unchanged_card_keeps_its_anchor_through_a_whole_document_revise(
         stored in prop::collection::vec((arb_card(), arb_fate()), 1..7),
@@ -371,6 +372,9 @@ proptest! {
             if let Some(i) = kept {
                 prop_assert_eq!(receipt.alignment[p], Some(*i));
                 prop_assert_eq!(&held[p], &vec![format!("c{i}")]);
+            }
+            for id in &held[p] {
+                prop_assert_eq!(Some(id.clone()), receipt.alignment[p].map(|i| format!("c{i}")));
             }
         }
         let mut dropped: Vec<String> = receipt.dropped_anchors.iter().map(|d| d.id.clone()).collect();

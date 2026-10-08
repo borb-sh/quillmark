@@ -899,8 +899,8 @@ impl PyWriter {
     /// cards align to the stored ones by `$kind` and text, and each aligned
     /// body and richtext field revises as `revise_body` / `revise_field` do.
     /// Everything else lands as written; an omitted `$ext` keeps the stored one
-    /// on the main card, and on a composable card only when the `$kind`
-    /// sequence is unchanged. Returns the warnings, the `conform::*` ones last,
+    /// on the main card, on a card that aligned by text, and on one that aligned
+    /// by position only when the `$kind` sequence is unchanged. Returns the warnings, the `conform::*` ones last,
     /// and clears the document's load `warnings`; the receipt's deltas, dropped
     /// anchors and alignment are discarded. Raises `QuillmarkError` on a parse
     /// failure or a `$quill` this quill does not answer to, leaving the

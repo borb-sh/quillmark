@@ -66,11 +66,13 @@ fn admit_chars(s: &str) -> String {
     s.chars().filter_map(admit_char).collect()
 }
 
-/// The text the import parses, and the byte offset in it of each
-/// footnote-shaped definition the repair made literal.
+/// The text the import parses, the byte offset in it of each footnote-shaped
+/// definition the repair made literal, and the name of each opening tag on
+/// the lines it deleted, at the offset just past what replaced them.
 pub(crate) struct Repaired {
     pub(crate) text: String,
     pub(crate) footnotes: Vec<usize>,
+    pub(crate) tags: Vec<(usize, String)>,
 }
 
 /// Every markdown normalization in order (spec §7): CRLF → LF, bidi controls
@@ -94,23 +96,30 @@ const TAG_JOIN_LINES: usize = 8;
 /// a list item open as a blank line does (markdown-spec §6.2, §7 step 4). Each
 /// round parses and edits only inside the spans that parse located, so a fence
 /// is never touched; the rounds end at one that plans no edit. Where a line
-/// inside a type 6 or 7 block opens a type 1–5 block or a fence that does not
-/// close inside it, that line and the rest of the block are deleted: the
-/// unrepaired parse drops them with the block, and freed they would swallow
-/// what follows it.
-fn repair(mut text: String, options: Options) -> Repaired {
-    let mut footnotes = Vec::new();
-    if !may_need_repair(&text) {
-        return Repaired { text, footnotes };
+/// inside a type 6 or 7 block opens a type 1–5 block or a fence, at its start
+/// or past its quote and list markers, that does not close inside it, that
+/// line and the rest of the block are deleted: the unrepaired parse drops them
+/// with the block, and freed they would swallow what follows it. Past the last round, only the footnote-shaped
+/// definitions it freed are made literal.
+fn repair(text: String, options: Options) -> Repaired {
+    let mut r = Repaired {
+        text,
+        footnotes: Vec::new(),
+        tags: Vec::new(),
+    };
+    if !may_need_repair(&r.text) {
+        return r;
     }
     for _ in 0..REPAIR_ROUNDS {
-        let edits = plan(&text, options);
+        let edits = plan(&r.text, options);
         if edits.is_empty() {
-            break;
+            return r;
         }
-        text = apply(&text, &edits, &mut footnotes);
+        apply(&mut r, &edits);
     }
-    Repaired { text, footnotes }
+    let edits = footnotes_only(&r.text, options);
+    apply(&mut r, &edits);
+    r
 }
 
 /// Whether some line could open an HTML block, hold a table row of tags, or
@@ -125,21 +134,21 @@ fn may_need_repair(s: &str) -> bool {
     })
 }
 
+#[derive(Default)]
 struct Edit {
     range: Range<usize>,
     with: String,
     /// The `[` escape of a footnote-shaped definition.
     footnote: bool,
+    /// The opening tags of the lines it deletes, by name.
+    tags: Vec<String>,
 }
 
 fn plan(src: &str, options: Options) -> Vec<Edit> {
     let parser = Parser::new_ext(src, options);
-    let mut edits: Vec<Edit> = parser
-        .reference_definitions()
-        .iter()
-        .filter(|(label, _)| label.starts_with('^'))
-        .flat_map(|(_, def)| footnote_edits(src, def.span.clone()))
-        .collect();
+    let defs = footnote_spans(&parser);
+    let mut edits: Vec<Edit> = Vec::new();
+    let mut leaves: Vec<Range<usize>> = Vec::new();
     let mut block: Option<(Vec<usize>, Option<usize>)> = None;
     let mut row: Option<usize> = None;
     let mut tag_rows: Vec<SrcLine> = Vec::new();
@@ -150,6 +159,9 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
     // block stands would have kept open.
     let mut ended: Option<usize> = None;
     for (event, range) in parser.into_offset_iter() {
+        if !defs.is_empty() && !is_container(&event) {
+            leaves.push(range.clone());
+        }
         if let Some(run) = runs.feed(&event, &range) {
             edits.extend(run_tag_line_edits(src, &run));
         }
@@ -194,41 +206,88 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
         edits.extend(run_tag_line_edits(src, &run));
     }
     edits.extend(tag_row_edits(src, &tag_rows));
+    edits.extend(footnote_plan(src, &defs, leaves));
     edits.sort_by_key(|e| (e.range.start, e.range.end));
     edits
 }
 
-/// Apply `edits`, sorted by start, skipping one that overlaps an edit already
-/// applied (the next round plans it again). `footnotes` are offsets into `src`;
-/// they come back as offsets into the result, the new escapes appended.
-fn apply(src: &str, edits: &[Edit], footnotes: &mut Vec<usize>) -> String {
+/// The edits making every footnote-shaped definition of `src` literal, and
+/// nothing else.
+fn footnotes_only(src: &str, options: Options) -> Vec<Edit> {
+    let parser = Parser::new_ext(src, options);
+    let defs = footnote_spans(&parser);
+    if defs.is_empty() {
+        return Vec::new();
+    }
+    let leaves = parser
+        .into_offset_iter()
+        .filter(|(event, _)| !is_container(event))
+        .map(|(_, range)| range)
+        .collect();
+    let mut edits = footnote_plan(src, &defs, leaves);
+    edits.sort_by_key(|e| (e.range.start, e.range.end));
+    edits
+}
+
+/// The span of each label's first footnote-shaped definition.
+fn footnote_spans(parser: &Parser) -> Vec<Range<usize>> {
+    parser
+        .reference_definitions()
+        .iter()
+        .filter(|(label, _)| label.starts_with('^'))
+        .map(|(_, def)| def.span.clone())
+        .collect()
+}
+
+/// The edits for `defs` and for every later definition of their labels,
+/// `leaves` being the ranges of the parse's events that are not containers.
+fn footnote_plan(src: &str, defs: &[Range<usize>], leaves: Vec<Range<usize>>) -> Vec<Edit> {
+    if defs.is_empty() {
+        return Vec::new();
+    }
+    let repeats = footnote_definitions(src, leaves)
+        .into_iter()
+        .filter(|&at| defs.iter().all(|d| d.start != at))
+        .map(|at| at..at);
+    defs.iter().cloned().chain(repeats).flat_map(|def| footnote_edits(src, def)).collect()
+}
+
+/// Apply `edits`, sorted by start, to `r.text`, skipping one that overlaps an
+/// edit already applied (the next round plans it again). The offsets `r`
+/// holds move with the text, and the applied edits' own are appended.
+fn apply(r: &mut Repaired, edits: &[Edit]) {
+    let src = &r.text;
     let mut out = String::with_capacity(src.len() + 64);
     let mut taken = 0;
     let mut applied: Vec<(Range<usize>, Range<usize>)> = Vec::new();
-    let mut fresh = Vec::new();
+    let mut footnotes = Vec::new();
+    let mut tags = Vec::new();
     for e in edits {
         if e.range.start < taken {
             continue;
         }
         out.push_str(&src[taken..e.range.start]);
         if e.footnote {
-            fresh.push(out.len());
+            footnotes.push(out.len());
         }
         let new_start = out.len();
         out.push_str(&e.with);
+        tags.extend(e.tags.iter().map(|name| (out.len(), name.clone())));
         applied.push((e.range.clone(), new_start..out.len()));
         taken = e.range.end;
     }
     out.push_str(&src[taken..]);
-    for p in footnotes.iter_mut() {
-        *p = match applied.iter().rev().find(|(old, _)| old.start <= *p) {
-            None => *p,
-            Some((old, new)) if *p < old.end => new.start,
-            Some((old, new)) => new.end + (*p - old.end),
-        };
+    let moved = |p: usize| match applied.iter().rev().find(|(old, _)| old.start <= p) {
+        None => p,
+        Some((old, new)) if p < old.end => new.start,
+        Some((old, new)) => new.end + (p - old.end),
+    };
+    for p in r.footnotes.iter_mut().chain(r.tags.iter_mut().map(|(p, _)| p)) {
+        *p = moved(*p);
     }
-    footnotes.extend(fresh);
-    out
+    r.footnotes.extend(footnotes);
+    r.tags.extend(tags);
+    r.text = out;
 }
 
 /// A block of tag lines that ended the list item opening at `item`, written
@@ -257,7 +316,7 @@ fn into_item(src: &str, item: usize, lines: &[SrcLine]) -> Option<Edit> {
     Some(Edit {
         range: first.start..last.end(),
         with: with.join(&format!("\n{blank}\n")),
-        footnote: false,
+        ..Edit::default()
     })
 }
 
@@ -450,8 +509,8 @@ fn closes_fence(content: &str, c: char, n: usize) -> bool {
 fn html_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
     let kind = html::block_start(first.content)?;
-    let (start, rows, tag_needs_close) = match kind.end_marker() {
-        Some(_) => (last.start, rescue_end(kind, last)?, true),
+    let (start, (rows, tags), tag_needs_close) = match kind.end_marker() {
+        Some(_) => (last.start, (rescue_end(kind, last)?, Vec::new()), true),
         None => (first.start, transparent(lines), false),
     };
     let end = last.end();
@@ -459,7 +518,8 @@ fn html_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     (with != src[start..end]).then_some(Edit {
         range: start..end,
         with,
-        footnote: false,
+        tags,
+        ..Edit::default()
     })
 }
 
@@ -503,8 +563,8 @@ fn rescue_end(kind: BlockKind, last: &SrcLine) -> Option<Rows> {
 }
 
 /// A type 6 or 7 block's lines, its tags padded out so every other line parses
-/// as markdown.
-fn transparent(lines: &[SrcLine]) -> Rows {
+/// as markdown, and the opening tags of the lines it deletes.
+fn transparent(lines: &[SrcLine]) -> (Rows, Vec<String>) {
     let mut rows = Rows::default();
     // Four columns of indent past a block start make an indented code line, so
     // a line that starts a block drops them, and the lines continuing it drop
@@ -513,6 +573,9 @@ fn transparent(lines: &[SrcLine]) -> Rows {
     let mut i = 0;
     'lines: while i < lines.len() {
         let mut prefix = lines[i].prefix.to_string();
+        // The containers the line's own markers open before a piece that
+        // opens a block, which the lines that block takes in continue.
+        let mut nest = String::new();
         let mut frag = lines[i].content;
         if !rows.at_block_start() {
             frag = strip_columns(frag, dedent);
@@ -529,7 +592,15 @@ fn transparent(lines: &[SrcLine]) -> Rows {
             // Past paragraph text, an indent that deep continues the paragraph,
             // whatever it indents.
             let continuation = deep && !rows.at_block_start();
-            let lead = if deep { "" } else { &frag[..frag.len() - t.len()] };
+            let mut lead = if deep { "" } else { &frag[..frag.len() - t.len()] }.to_string();
+            let mut t = t;
+            if let Some(m) = container_markers(t).filter(|_| !continuation) {
+                if matches!(classify(&t[m..]), Piece::Opener(_) | Piece::Fence(..)) {
+                    lead.push_str(&t[..m]);
+                    nest.push_str(&continuation_of(&lead));
+                    t = &t[m..];
+                }
+            }
             match classify(t) {
                 Piece::Tags => {
                     rows.tags([format!("{prefix}{lead}{t}")]);
@@ -547,14 +618,14 @@ fn transparent(lines: &[SrcLine]) -> Rows {
                         let close = (i + 1..lines.len())
                             .find_map(|j| html::block_end(kind, lines[j].content).map(|end| (j, end)));
                         let Some((j, end)) = close else {
-                            break 'lines;
+                            return (rows, opening_tags(t, &lines[i + 1..]));
                         };
                         rows.push(format!("{prefix}{lead}{t}"), Kind::Raw);
                         for line in &lines[i + 1..j] {
-                            rows.push(line.whole(), Kind::Raw);
+                            rows.push(format!("{}{nest}{}", line.prefix, line.content), Kind::Raw);
                         }
                         let closing = lines[j];
-                        rows.push(format!("{}{}", closing.prefix, &closing.content[..end]), Kind::Raw);
+                        rows.push(format!("{}{nest}{}", closing.prefix, &closing.content[..end]), Kind::Raw);
                         i = j;
                         frag = closing.content[end..].trim_start();
                     }
@@ -563,11 +634,12 @@ fn transparent(lines: &[SrcLine]) -> Rows {
                     let close = (i + 1..lines.len())
                         .find(|&j| closes_fence(strip_columns(lines[j].content, dedent), c, n));
                     let Some(j) = close else {
-                        break 'lines;
+                        return (rows, opening_tags(t, &lines[i + 1..]));
                     };
                     rows.push(format!("{prefix}{lead}{t}"), Kind::Raw);
                     for line in &lines[i + 1..=j] {
-                        rows.push(format!("{}{}", line.prefix, strip_columns(line.content, dedent)), Kind::Raw);
+                        let content = strip_columns(line.content, dedent);
+                        rows.push(format!("{}{nest}{content}", line.prefix), Kind::Raw);
                     }
                     i = j;
                     break;
@@ -601,16 +673,54 @@ fn transparent(lines: &[SrcLine]) -> Rows {
                 }
                 _ => {
                     let shown = if continuation { frag } else { t };
-                    let lead = if continuation { "" } else { lead };
+                    let lead = if continuation { "" } else { &lead };
                     rows.push(format!("{prefix}{lead}{shown}"), Kind::Text);
                     break;
                 }
             }
-            prefix = continuation_of(lines[i].prefix);
+            prefix = format!("{}{nest}", continuation_of(lines[i].prefix));
         }
         i += 1;
     }
-    rows
+    (rows, Vec::new())
+}
+
+/// The length of the quote and list markers `t` opens with, each with the
+/// space after it, where what follows them starts a block; `None` without
+/// one, or where what follows is indented code.
+fn container_markers(t: &str) -> Option<usize> {
+    let b = t.as_bytes();
+    let mut i = 0;
+    loop {
+        if html::indent_columns(&t[i..]) > 3 {
+            return None;
+        }
+        let at = i + t[i..].len() - t[i..].trim_start_matches([' ', '\t']).len();
+        let digits = b[at..].iter().take_while(|c| c.is_ascii_digit()).count();
+        let (width, quote) = match b.get(at + digits) {
+            Some(b'>') if digits == 0 => (1, true),
+            Some(b'-' | b'+' | b'*') if digits == 0 => (1, false),
+            Some(b'.' | b')') if (1..=9).contains(&digits) => (digits + 1, false),
+            _ => return (i > 0).then_some(at),
+        };
+        let past = at + width;
+        i = match b.get(past) {
+            Some(b' ' | b'\t') => past + 1,
+            _ if quote => past,
+            _ => return (i > 0).then_some(at),
+        };
+    }
+}
+
+/// The names of the opening tags in `first` and the lines after it, read as
+/// one type 6 block reads them.
+fn opening_tags(first: &str, rest: &[SrcLine]) -> Vec<String> {
+    let text: Vec<&str> = std::iter::once(first).chain(rest.iter().map(|l| l.content)).collect();
+    html::tags(&text.join("\n"))
+        .into_iter()
+        .filter(|t| !t.closing)
+        .map(|t| t.name.to_string())
+        .collect()
 }
 
 /// `line` without up to `n` columns of leading indentation.
@@ -719,7 +829,8 @@ fn is_inline(event: &Event) -> bool {
 /// own prefix and leaves the quotes it lacks, as the blank line above it does.
 /// A heading's first line is never a tag line.
 fn run_tag_line_edits(src: &str, run: &Run) -> Option<Edit> {
-    let first = SrcLine::at(src, run.start);
+    let escaped = run.start > 0 && src.as_bytes()[run.start - 1] == b'\\';
+    let first = SrcLine::at(src, run.start - usize::from(escaped));
     let quotes = |p: &str| p.bytes().filter(|&b| b == b'>').count();
     let mut seen = None;
     for &at in &run.tags {
@@ -753,7 +864,7 @@ fn run_tag_line_edits(src: &str, run: &Run) -> Option<Edit> {
         return (with != src[range.clone()]).then_some(Edit {
             range,
             with,
-            footnote: false,
+            ..Edit::default()
         });
     }
     None
@@ -778,11 +889,54 @@ fn tag_row_edits(src: &str, rows: &[SrcLine]) -> Vec<Edit> {
         edits.push(Edit {
             range: first.start..end,
             with: out.finish(&blank, next_line_continues(src, end), true),
-            footnote: false,
+            ..Edit::default()
         });
         k = to;
     }
     edits
+}
+
+fn is_container(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Start(PTag::BlockQuote(_) | PTag::List(_) | PTag::Item)
+            | Event::End(TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item)
+    )
+}
+
+/// The start of each footnote-shaped definition, the repeats of a label the
+/// parser's map omits included: each `[^label]:` opening a line inside its
+/// containers where no leaf block or inline event reaches, a definition being
+/// the one block the parse emits nothing for.
+fn footnote_definitions(src: &str, mut leaves: Vec<Range<usize>>) -> Vec<usize> {
+    leaves.sort_by_key(|r| r.start);
+    let mut reach = Vec::with_capacity(leaves.len());
+    let mut end = 0;
+    for r in &leaves {
+        end = end.max(r.end);
+        reach.push(end);
+    }
+    let covered = |at: usize| {
+        let k = leaves.partition_point(|r| r.start <= at);
+        k > 0 && reach[k - 1] > at
+    };
+    src.match_indices("[^")
+        .map(|(at, _)| at)
+        .filter(|&at| {
+            if covered(at) {
+                return false;
+            }
+            let line = src[..at].rfind('\n').map_or(0, |i| i + 1);
+            let lead = src[..at][line..].bytes().all(|b| {
+                b.is_ascii_digit() || matches!(b, b'>' | b' ' | b'\t' | b'-' | b'+' | b'*' | b'.' | b')')
+            });
+            let label = &src[at + 2..];
+            let shaped = label
+                .find(['[', ']', '\\', '\n'])
+                .is_some_and(|i| i > 0 && label[i..].starts_with("]:"));
+            lead && shaped
+        })
+        .collect()
 }
 
 /// The `[` escape making a footnote-shaped definition literal, and a blank line
@@ -792,6 +946,7 @@ fn footnote_edits(src: &str, def: Range<usize>) -> Vec<Edit> {
         range: def.start..def.start + 1,
         with: "\\[".to_string(),
         footnote: true,
+        ..Edit::default()
     }];
     let end = src[def.end..].find('\n').map_or(src.len(), |i| def.end + i);
     if next_line_continues(src, end) {
@@ -799,7 +954,7 @@ fn footnote_edits(src: &str, def: Range<usize>) -> Vec<Edit> {
         edits.push(Edit {
             range: end..end,
             with: format!("\n{}", blank_of(prefix)),
-            footnote: false,
+            ..Edit::default()
         });
     }
     edits
@@ -889,13 +1044,16 @@ mod tests {
     }
 
     /// A footnote's offset is minted in the round that escapes it and carried
-    /// through every edit a later round lands ahead of it.
+    /// through every edit a later round lands ahead of it, a definition the
+    /// last round frees among them.
     #[test]
     fn a_footnote_offset_follows_the_edits_before_it() {
+        let nested: String = (0..REPAIR_ROUNDS).map(|d| format!("{}- <div>\n", "  ".repeat(d))).collect();
         for md in [
             "[^1]: a",
             "<div>\n<div>text\n</div>\n\n> [^1]: a",
             "- <div>\n  > <span>\n  > [^x]: b\n  </div>\n\n[^1]: a",
+            &format!("{nested}{}- [^1]: a", "  ".repeat(REPAIR_ROUNDS)),
         ] {
             let r = normalized(md);
             assert!(!r.footnotes.is_empty(), "{md:?}");
