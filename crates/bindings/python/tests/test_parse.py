@@ -104,11 +104,11 @@ def test_diagnostic_str_and_repr():
 
 
 def test_a_dropped_construct_warns_at_its_body():
-    """The table under a centering div imports, and the div it drops rides
-    `doc.warnings` at the body it sat in."""
+    """The table a blank line sets apart from a centering div imports, and the
+    div it drops rides `doc.warnings` at the body it sat in."""
     md = (
         "~~~card-yaml\n$quill: my_quill\n$kind: main\n~~~\n\n"
-        '<div align="center">\n| a | b |\n|---|---|\n</div>\n'
+        '<div align="center">\n\n| a | b |\n|---|---|\n\n</div>\n'
     )
     doc = Document.from_markdown(md)
     assert [i["type"] for i in doc.body["islands"]] == ["table"]
