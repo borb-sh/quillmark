@@ -29,8 +29,8 @@
 //! in one round loses the match, and the anchor with it: the accepted
 //! residual.
 
-use crate::import::{ImportWarning, Imported};
-use crate::model::{Mark, Content, Normalized};
+use crate::import::{AnchorTag, ImportWarning, Imported};
+use crate::model::{Mark, MarkKind, Content, Normalized};
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 
@@ -333,8 +333,8 @@ pub fn diff_import(
     base: &Content,
     new_markdown: &str,
 ) -> Result<(Normalized, Delta, Vec<ImportWarning>), crate::import::ImportError> {
-    let Imported { content, warnings } = crate::import::from_markdown(new_markdown)?;
-    let (content, delta) = rebase_onto(base, content);
+    let (Imported { content, warnings }, tags) = crate::import::from_markdown_tagged(new_markdown)?;
+    let (content, delta) = rebase_onto_tagged(base, content, &tags);
     Ok((content, delta, warnings))
 }
 
@@ -342,6 +342,14 @@ pub fn diff_import(
 /// and carry `base`'s surviving non-formatting marks onto it. `new` carries no
 /// anchor of its own, as an import's output does not.
 pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
+    rebase_onto_tagged(base, new, &[])
+}
+
+/// [`rebase_onto`], with an anchor the diff drops re-homed at the one tag in
+/// `tags` carrying its id: a point there, or a range over the same text where
+/// that text follows the tag, else a point. An anchor whose id two tags carry
+/// stays dropped, and a tag naming no anchor of `base` mints nothing.
+pub fn rebase_onto_tagged(base: &Content, new: Normalized, tags: &[AnchorTag]) -> (Normalized, Delta) {
     let mut new_rt = new.into_content();
     let delta = diff(&base.text, &new_rt.text);
 
@@ -354,7 +362,9 @@ pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
         if m.kind.is_formatting() {
             continue;
         }
-        if let Some((ns, ne)) = rebase_mark(&delta, &base_chars, &new_chars, &inserted, m) {
+        let rebased = rebase_mark(&delta, &base_chars, &new_chars, &inserted, m)
+            .or_else(|| tagged_home(tags, &base_chars, &new_chars, m));
+        if let Some((ns, ne)) = rebased {
             new_rt.marks.push(Mark {
                 start: ns,
                 end: ne,
@@ -364,6 +374,24 @@ pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
         // else: detached: the accepted residual drop.
     }
     (new_rt.into_normalized(), delta)
+}
+
+/// Where the tag carrying `m`'s anchor id puts it, when exactly one does.
+fn tagged_home(tags: &[AnchorTag], base_chars: &[char], new_chars: &[char], m: &Mark) -> Option<(usize, usize)> {
+    let MarkKind::Anchor { id } = &m.kind else {
+        return None;
+    };
+    let mut named = tags.iter().filter(|t| &t.id == id);
+    let at = named.next()?.at;
+    if named.next().is_some() {
+        return None;
+    }
+    let span = base_chars.get(m.start..m.end)?;
+    let end = at + span.len();
+    match new_chars.get(at..end) {
+        Some(text) if text == span => Some((at, end)),
+        _ => Some((at, at)),
+    }
 }
 
 /// Rebase one non-formatting mark through the delta. Returns its new range, or
@@ -569,6 +597,80 @@ mod tests {
                 .to_string(),
             "first para here"
         );
+    }
+
+    fn anchored(md: &str, start: usize, end: usize) -> Normalized {
+        let mut base = from_markdown(md).unwrap().content.into_content();
+        base.marks.push(Mark {
+            start,
+            end,
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        base.into_normalized()
+    }
+
+    fn anchor_text(rt: &Content) -> Option<String> {
+        let m = rt.marks.iter().find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))?;
+        Some(rt.text.chars().skip(m.start).take(m.end - m.start).collect())
+    }
+
+    fn anchor_at(rt: &Content) -> Option<usize> {
+        rt.marks
+            .iter()
+            .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
+            .map(|m| m.start)
+    }
+
+    /// The diff drops an anchor whose sentence moved and was rewritten; the tag
+    /// the writer kept beside it re-homes it there.
+    #[test]
+    fn a_dropped_anchor_lands_at_its_tag() {
+        let base = anchored("The fee is due Monday.\n\nOther text here.", 4, 7);
+        let rewritten = "Other text here.\n\n<quill-anchor ref=\"c1\"></quill-anchor>A fee is owed Tuesday.";
+        let (new_rt, _, warnings) = diff_import(&base, rewritten).unwrap();
+        assert!(warnings.is_empty());
+        assert_eq!(anchor_at(&new_rt), Some(17));
+        assert_eq!(anchor_text(&new_rt).as_deref(), Some(""));
+
+        let untagged = "Other text here.\n\nA fee is owed Tuesday.";
+        assert_eq!(anchor_at(&diff_import(&base, untagged).unwrap().0), None);
+    }
+
+    /// A range anchor re-homed at its tag keeps its span where its text follows
+    /// the tag.
+    #[test]
+    fn a_tagged_range_anchor_keeps_its_span_over_the_same_text() {
+        let base = anchored("The fee is due Monday.\n\nOther text here.", 4, 7);
+        let moved = "Other text here.\n\nA <quill-anchor ref=\"c1\"></quill-anchor>fee is owed Tuesday.";
+        let (new_rt, _, _) = diff_import(&base, moved).unwrap();
+        assert_eq!(anchor_text(&new_rt).as_deref(), Some("fee"));
+    }
+
+    /// The diff wins over a tag: an unchanged annotated read, whose tags stand
+    /// away from their anchors where a link or a code span holds one, keeps
+    /// every anchor where it was.
+    #[test]
+    fn the_diff_wins_over_a_tag() {
+        let base = anchored("see [the link](u) here", 8, 12);
+        let annotated = crate::export::to_markdown_annotated(&base);
+        assert!(annotated.markdown.contains("quill-anchor"), "{:?}", annotated.markdown);
+        let (new_rt, _, _) = diff_import(&base, &annotated.markdown).unwrap();
+        assert_eq!(new_rt.marks, base.marks);
+    }
+
+    /// Two tags naming one anchor leave it dropped, and a tag naming no anchor
+    /// of the base mints nothing.
+    #[test]
+    fn an_ambiguous_or_unknown_tag_places_nothing() {
+        let base = anchored("The fee is due Monday.", 4, 7);
+        let tag = "<quill-anchor ref=\"c1\"></quill-anchor>";
+        let (new_rt, _, _) = diff_import(&base, &format!("Hop {tag}up.")).unwrap();
+        assert_eq!(anchor_at(&new_rt), Some(4));
+        let (new_rt, _, _) = diff_import(&base, &format!("{tag}Hop {tag}up.")).unwrap();
+        assert_eq!(anchor_at(&new_rt), None);
+        let (new_rt, _, _) = diff_import(&Normalized::empty(), &format!("{tag}text")).unwrap();
+        assert!(new_rt.marks.is_empty());
+        assert!(from_markdown(&format!("{tag}text")).unwrap().content.marks.is_empty());
     }
 
     #[test]

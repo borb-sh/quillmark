@@ -25,9 +25,9 @@ pub(crate) struct Tag<'a> {
 /// The start condition a line meets, in §4.6's numbering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BlockKind {
-    /// Type 1: `<pre`, `<script`, `<style` or `<textarea`, ending at the line
-    /// holding any of their closing tags ([`verbatim_close`]). The parser ends
-    /// it only at the closing tag carried here.
+    /// Type 1: `<pre`, `<script`, `<style` or `<textarea`, ending to CommonMark
+    /// at the line holding any of their closing tags ([`verbatim_close`]). The
+    /// parser ends it only at the closing tag carried here, in lowercase.
     Verbatim(&'static str),
     /// Type 2: `<!--`, ending at `-->`.
     Comment,
@@ -285,8 +285,8 @@ pub(crate) fn block_end(kind: BlockKind, line: &str) -> Option<usize> {
     line.find(marker).map(|at| at + marker.len())
 }
 
-/// The first closing tag on `line` that ends a type 1 block: `</pre>`,
-/// `</script>`, `</style>` or `</textarea>`, in any case.
+/// The first closing tag on `line` that ends a type 1 block to CommonMark:
+/// `</pre>`, `</script>`, `</style>` or `</textarea>`, in any case.
 pub(crate) fn verbatim_close(line: &str) -> Option<Range<usize>> {
     line.match_indices("</").find_map(|(at, _)| {
         VERBATIM.iter().find_map(|(_, close)| {

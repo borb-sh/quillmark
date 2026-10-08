@@ -5,7 +5,6 @@
 use crate::carrier;
 use crate::html::{self, BlockKind};
 use pulldown_cmark::{Event, Options, Parser, Tag as PTag, TagEnd};
-use std::borrow::Cow;
 use std::ops::Range;
 
 /// The Unicode bidi formatting controls, which sit adjacent to `**`/`_` and
@@ -68,13 +67,11 @@ fn admit_chars(s: &str) -> String {
     s.chars().filter_map(admit_char).collect()
 }
 
-/// The text the import parses, the byte offset in it of each footnote-shaped
-/// definition the repair made literal, and the name of each opening tag on
-/// the lines it deleted, at the offset just past what replaced them.
+/// The text the import parses, and the byte offset in it of each
+/// footnote-shaped definition the repair made literal.
 pub(crate) struct Repaired {
     pub(crate) text: String,
     pub(crate) footnotes: Vec<usize>,
-    pub(crate) tags: Vec<(usize, String)>,
 }
 
 /// Every markdown normalization in order (spec §7): CRLF → LF, bidi controls
@@ -85,29 +82,20 @@ pub(crate) fn normalize_markdown(markdown: &str, options: Options) -> Repaired {
 }
 
 /// Rounds the repair takes at most. A round leaves work for the next only where
-/// its edits make a new HTML block: a freed line opening a container that holds
-/// one, a tag line split from paragraph text, or a block of tags moved into a
-/// list item.
+/// its edits make a new HTML block: a freed line opening one, or a carrier tag
+/// line split from paragraph text.
 const REPAIR_ROUNDS: usize = 8;
 
-/// How many following lines a tag left open at its line's end may close on.
-const TAG_JOIN_LINES: usize = 8;
-
-/// Rewrite `text` so the parse reads the markdown an HTML block, a line of tags
-/// or a footnote-shaped definition would hide from it, and so a tag line keeps
-/// a list item open as a blank line does (markdown-spec §6.2, §7 step 4). Each
-/// round parses and edits only inside the spans that parse located, so a fence
-/// is never touched; the rounds end at one that plans no edit. Where a line
-/// inside a type 6 or 7 block opens a type 1–5 block or a fence, at its start
-/// or past its quote and list markers, that does not close inside it, that
-/// line and the rest of the block are deleted: the unrepaired parse drops them
-/// with the block, and freed they would swallow what follows it. Past the last round, only the footnote-shaped
-/// definitions it freed are made literal.
+/// Rewrite `text` so the parse reads the markdown a carrier tag line or a
+/// footnote-shaped definition would hide from it, and the text after a type
+/// 1–5 block's end marker (markdown-spec §6.2, §7 step 4). Each round parses
+/// and edits only inside the spans that parse located, so a fence is never
+/// touched; the rounds end at one that plans no edit. Past the last round, only
+/// the footnote-shaped definitions it freed are made literal.
 fn repair(text: String, options: Options) -> Repaired {
     let mut r = Repaired {
         text,
         footnotes: Vec::new(),
-        tags: Vec::new(),
     };
     if !may_need_repair(&r.text) {
         return r;
@@ -142,8 +130,6 @@ struct Edit {
     with: String,
     /// The `[` escape of a footnote-shaped definition.
     footnote: bool,
-    /// The opening tags of the lines it deletes, by name.
-    tags: Vec<String>,
 }
 
 fn plan(src: &str, options: Options) -> Vec<Edit> {
@@ -151,15 +137,10 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
     let defs = footnote_spans(&parser);
     let mut edits: Vec<Edit> = Vec::new();
     let mut leaves: Vec<Range<usize>> = Vec::new();
-    let mut block: Option<(Vec<usize>, Option<usize>)> = None;
+    let mut block: Option<Vec<usize>> = None;
     let mut row: Option<usize> = None;
     let mut tag_rows: Vec<SrcLine> = Vec::new();
     let mut runs = Runs::default();
-    let mut items: Vec<usize> = Vec::new();
-    // The innermost list item closed since the last event that opens or holds
-    // something, an HTML block's start aside: the item a blank line where that
-    // block stands would have kept open.
-    let mut ended: Option<usize> = None;
     for (event, range) in parser.into_offset_iter() {
         if !defs.is_empty() && !is_container(&event) {
             leaves.push(range.clone());
@@ -167,31 +148,17 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
         if let Some(run) = runs.feed(&event, &range) {
             edits.extend(run_tag_line_edits(src, &run));
         }
-        if !matches!(event, Event::End(_)) {
-            ended = ended.filter(|_| matches!(event, Event::Start(PTag::HtmlBlock)));
-        }
         match event {
-            Event::Start(PTag::Item) => items.push(range.start),
-            Event::End(TagEnd::Item) => {
-                let item = items.pop();
-                ended = ended.or(item);
-            }
-            Event::Start(PTag::HtmlBlock) => block = Some((Vec::new(), ended.take())),
+            Event::Start(PTag::HtmlBlock) => block = Some(Vec::new()),
             Event::Html(_) => {
-                if let Some((starts, _)) = &mut block {
+                if let Some(starts) = &mut block {
                     starts.push(range.start);
                 }
             }
             Event::End(TagEnd::HtmlBlock) => {
-                if let Some((starts, item)) = block.take() {
+                if let Some(starts) = block.take() {
                     let lines: Vec<SrcLine> = starts.iter().map(|&at| SrcLine::at(src, at)).collect();
-                    match item.and_then(|at| into_item(src, at, &lines)) {
-                        Some(edit) => {
-                            edits.push(edit);
-                            ended = item;
-                        }
-                        None => edits.extend(html_block_edit(src, &lines)),
-                    }
+                    edits.extend(html_block_edit(src, &lines));
                 }
             }
             Event::Start(PTag::TableRow) => row = Some(range.start),
@@ -263,7 +230,6 @@ fn apply(r: &mut Repaired, edits: &[Edit]) {
     let mut taken = 0;
     let mut applied: Vec<(Range<usize>, Range<usize>)> = Vec::new();
     let mut footnotes = Vec::new();
-    let mut tags = Vec::new();
     for e in edits {
         if e.range.start < taken {
             continue;
@@ -274,7 +240,6 @@ fn apply(r: &mut Repaired, edits: &[Edit]) {
         }
         let new_start = out.len();
         out.push_str(&e.with);
-        tags.extend(e.tags.iter().map(|name| (out.len(), name.clone())));
         applied.push((e.range.clone(), new_start..out.len()));
         taken = e.range.end;
     }
@@ -284,47 +249,11 @@ fn apply(r: &mut Repaired, edits: &[Edit]) {
         Some((old, new)) if p < old.end => new.start,
         Some((old, new)) => new.end + (p - old.end),
     };
-    for p in r.footnotes.iter_mut().chain(r.tags.iter_mut().map(|(p, _)| p)) {
+    for p in r.footnotes.iter_mut() {
         *p = moved(*p);
     }
     r.footnotes.extend(footnotes);
-    r.tags.extend(tags);
     r.text = out;
-}
-
-/// A block of tag lines that ended the list item opening at `item`, written
-/// inside that item instead, a blank line between its lines. A blank line keeps
-/// an item open for the line after it to continue, and a tag line drops as a
-/// blank line does, so the list on either side of a wrapper's tag stays one
-/// list. A block in other quotes than the item's stays, and so does one holding
-/// an element tag (markdown-spec §6.4), which opens or closes its element where
-/// its own indentation stands.
-fn into_item(src: &str, item: usize, lines: &[SrcLine]) -> Option<Edit> {
-    let marker = SrcLine::at(src, item);
-    let rest = &marker.content[..marker.content.find('\n').unwrap_or(marker.content.len())];
-    let width = match rest.bytes().next() {
-        Some(b'-' | b'+' | b'*') => 1,
-        _ => rest.bytes().take_while(u8::is_ascii_digit).count() + 1,
-    };
-    let after = &rest[width.min(rest.len())..];
-    let gap = html::indent_columns(after);
-    let gap = if after.trim().is_empty() || gap > 4 { 1 } else { gap };
-    let cont = format!("{}{}", continuation_of(marker.prefix), " ".repeat(width + gap));
-    let blank = blank_of(&cont);
-    let fits = |l: &SrcLine| {
-        html::tag_line(l.content).is_some_and(|tags| !tags.iter().any(|t| carrier::modeled_tag(t).is_some()))
-            && blank_of(l.prefix) == blank
-    };
-    if !lines.iter().all(fits) {
-        return None;
-    }
-    let (first, last) = (lines.first()?, lines.last()?);
-    let with: Vec<String> = lines.iter().map(|l| format!("{cont}{}", l.content.trim())).collect();
-    Some(Edit {
-        range: first.start..last.end(),
-        with: with.join(&format!("\n{blank}\n")),
-        ..Edit::default()
-    })
 }
 
 /// One source line of a span: its container prefix as the parser consumed it,
@@ -395,8 +324,7 @@ enum Kind {
     Tag,
     /// Freed markdown, possibly a paragraph a later line continues.
     Text,
-    /// Kept whole: a type 1–5 block, a fence, or a type-6 tag that never
-    /// closes and the lines it holds.
+    /// Kept whole: a type 1–5 block through its end marker.
     Raw,
 }
 
@@ -409,12 +337,6 @@ enum Row {
 struct Rows(Vec<Row>);
 
 impl Rows {
-    /// Whether the next line starts a block rather than continuing paragraph
-    /// text.
-    fn at_block_start(&self) -> bool {
-        !matches!(self.0.last(), Some(Row::Line(_, Kind::Text)))
-    }
-
     fn push(&mut self, line: String, kind: Kind) {
         self.0.push(Row::Line(line, kind));
     }
@@ -458,77 +380,44 @@ impl Rows {
     }
 }
 
-/// What a piece of a line inside an HTML block is, read where a block may start.
-enum Piece {
-    Tags,
-    /// Opens with a complete type-6 tag ending at this offset, text after it.
-    BlockTag(usize),
-    /// Opens a type 1–5 block.
-    Opener(BlockKind),
-    /// Opens a tag the line does not close.
-    Open,
-    Fence(char, usize),
-    Text,
+/// Whether `line` holds only `quill-*` tags: a carrier tag line (markdown-spec
+/// §6.4), the one tag line the repair frees markdown around.
+fn carrier_line(line: &str) -> bool {
+    html::tag_line(line).is_some_and(|tags| tags.iter().all(is_carrier))
 }
 
-fn classify(t: &str) -> Piece {
-    if let Some(after) = t.strip_prefix('<') {
-        if let Some(kind) = html::block_start(t).filter(|k| k.end_marker().is_some()) {
-            return Piece::Opener(kind);
-        }
-        if html::tag_line(t).is_some() {
-            return Piece::Tags;
-        }
-        return match html::tag_at(t, 0) {
-            Some(tag) if html::is_block_name(tag.name) => Piece::BlockTag(tag.span.end),
-            Some(_) => Piece::Text,
-            None => {
-                let name = after.strip_prefix('/').unwrap_or(after);
-                if name.starts_with(|c: char| c.is_ascii_alphabetic()) {
-                    Piece::Open
-                } else {
-                    Piece::Text
-                }
-            }
-        };
-    }
-    match fence_open(t) {
-        Some((c, n)) => Piece::Fence(c, n),
-        None => Piece::Text,
-    }
+fn is_carrier(tag: &html::Tag) -> bool {
+    let name = tag.name.as_bytes();
+    name.len() >= carrier::PREFIX.len() && name[..carrier::PREFIX.len()].eq_ignore_ascii_case(carrier::PREFIX.as_bytes())
 }
 
-fn fence_open(t: &str) -> Option<(char, usize)> {
-    let c = t.chars().next().filter(|c| matches!(c, '`' | '~'))?;
-    let n = t.chars().take_while(|&x| x == c).count();
-    (n >= 3 && (c == '~' || !t[n..].contains('`'))).then_some((c, n))
-}
-
-fn closes_fence(content: &str, c: char, n: usize) -> bool {
-    if html::indent_columns(content) > 3 {
+fn fence_open(t: &str) -> bool {
+    let Some(c) = t.chars().next().filter(|c| matches!(c, '`' | '~')) else {
         return false;
-    }
-    let t = content.trim_start();
-    let run = t.chars().take_while(|&x| x == c).count();
-    run >= n && t[run..].trim().is_empty()
+    };
+    let n = t.chars().take_while(|&x| x == c).count();
+    n >= 3 && (c == '~' || !t[n..].contains('`'))
 }
 
+/// The edit freeing what an HTML block hides: a block opened by a carrier tag
+/// line, or the text after a type 1–5 block's end marker. Every other block
+/// drops whole, as CommonMark reads it.
 fn html_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
     let kind = html::block_start(first.content)?;
     if let Some(edit) = close_edit(kind, lines) {
         return Some(edit);
     }
-    let (start, (rows, tags), tag_needs_close) = match kind.end_marker() {
-        Some(_) => (last.start, (rescue_end(kind, last)?, Vec::new()), true),
-        None => (first.start, transparent(lines), false),
+    let (start, rows, tag_needs_close) = match kind.end_marker() {
+        Some(_) => (last.start, rescue_end(kind, last)?, true),
+        None if carrier_line(first.content) => (first.start, transparent(lines), false),
+        None => return None,
     };
     let end = last.end();
     let with = rows.finish(&blank_of(last.prefix), next_line_continues(src, end), tag_needs_close);
     (with != src[start..end]).then_some(Edit {
         range: start..end,
         with,
-        tags,
         ..Edit::default()
     })
 }
@@ -551,224 +440,40 @@ fn close_edit(kind: BlockKind, lines: &[SrcLine]) -> Option<Edit> {
     })
 }
 
-/// `s`, a kept type 1–5 block's text through its end marker, with a type 1
-/// block's closing tag respelled as [`close_edit`] respells it.
-fn respelled(kind: BlockKind, s: &str) -> Cow<'_, str> {
-    let BlockKind::Verbatim(close) = kind else {
-        return Cow::Borrowed(s);
-    };
-    match html::verbatim_close(s) {
-        Some(r) if &s[r.clone()] != close => Cow::Owned(format!("{}{close}{}", &s[..r.start], &s[r.end..])),
-        _ => Cow::Borrowed(s),
-    }
-}
-
 /// A type 1–5 block's last line, split after its end marker when text follows
-/// it, which keeps the line's indent; `None` when nothing follows, or when a
-/// piece of what follows would open a block running past the line, which then
-/// stays dropped.
+/// it, which keeps the line's indent; `None` when nothing follows, or when what
+/// follows opens a fence or a type 1–5 block it does not close, which would run
+/// past the line and so drops with the block.
 fn rescue_end(kind: BlockKind, last: &SrcLine) -> Option<Rows> {
     let at = html::block_end(kind, last.content)?;
-    let mut frag = last.content[at..].trim();
-    if frag.is_empty() {
+    let rest = last.content[at..].trim();
+    let runs_on = match html::block_start(rest) {
+        Some(k) if k.end_marker().is_some() => html::block_end(k, rest).is_none(),
+        _ => fence_open(rest),
+    };
+    if rest.is_empty() || runs_on {
         return None;
     }
     let mut rows = Rows::default();
-    rows.push(format!("{}{}", last.prefix, respelled(kind, &last.content[..at])), Kind::Raw);
+    rows.push(format!("{}{}", last.prefix, &last.content[..at]), Kind::Raw);
     let prefix = format!("{}{}", continuation_of(last.prefix), shallow_lead(last.content));
-    loop {
-        match classify(frag) {
-            Piece::Tags => {
-                rows.tags([format!("{prefix}{frag}")]);
-                return Some(rows);
-            }
-            Piece::BlockTag(end) => {
-                rows.tags([format!("{prefix}{}", &frag[..end])]);
-                frag = frag[end..].trim_start();
-            }
-            Piece::Opener(kind) => {
-                let end = html::block_end(kind, frag)?;
-                rows.push(format!("{prefix}{}", respelled(kind, &frag[..end])), Kind::Raw);
-                frag = frag[end..].trim_start();
-            }
-            Piece::Open | Piece::Fence(..) => return None,
-            Piece::Text => {
-                rows.push(format!("{prefix}{frag}"), Kind::Text);
-                return Some(rows);
-            }
-        }
-        if frag.is_empty() {
-            return Some(rows);
-        }
-    }
+    rows.push(format!("{prefix}{rest}"), Kind::Text);
+    Some(rows)
 }
 
-/// A type 6 or 7 block's lines, its tags padded out so every other line parses
-/// as markdown, and the opening tags of the lines it deletes. A piece split off
-/// after another keeps its line's indent, and so stays in the list item that
-/// indent continues.
-fn transparent(lines: &[SrcLine]) -> (Rows, Vec<String>) {
+/// A block opened by a carrier tag line, each carrier tag line in it padded
+/// with a blank line above and below, so every other line parses as it would
+/// with no tag line beside it.
+fn transparent(lines: &[SrcLine]) -> Rows {
     let mut rows = Rows::default();
-    // Four columns of indent past a block start make an indented code line, so
-    // a line that starts a block drops them, and the lines continuing it drop
-    // as many: HTML source indents a block's lines alike.
-    let mut dedent = 0;
-    let mut i = 0;
-    'lines: while i < lines.len() {
-        let mut prefix = lines[i].prefix.to_string();
-        // The containers the line's own markers open before a piece that
-        // opens a block, which the lines that block takes in continue.
-        let mut nest = String::new();
-        let mut frag = lines[i].content;
-        if !rows.at_block_start() {
-            frag = strip_columns(frag, dedent);
+    for line in lines {
+        if carrier_line(line.content) {
+            rows.tags([line.whole()]);
+        } else {
+            rows.push(line.whole(), Kind::Text);
         }
-        let mut indent = shallow_lead(frag);
-        loop {
-            let t = frag.trim_start();
-            if t.is_empty() {
-                break;
-            }
-            let deep = html::indent_columns(frag) > 3;
-            if rows.at_block_start() {
-                dedent = if deep { html::indent_columns(frag) } else { 0 };
-            }
-            // Past paragraph text, an indent that deep continues the paragraph,
-            // whatever it indents.
-            let continuation = deep && !rows.at_block_start();
-            let mut lead = if deep { "" } else { &frag[..frag.len() - t.len()] }.to_string();
-            let mut t = t;
-            if let Some(m) = container_markers(t).filter(|_| !continuation) {
-                if matches!(classify(&t[m..]), Piece::Opener(_) | Piece::Fence(..)) {
-                    lead.push_str(&t[..m]);
-                    nest.push_str(&continuation_of(&lead));
-                    t = &t[m..];
-                }
-            }
-            match classify(t) {
-                Piece::Tags => {
-                    rows.tags([format!("{prefix}{lead}{t}")]);
-                    break;
-                }
-                Piece::BlockTag(end) => {
-                    rows.tags([format!("{prefix}{lead}{}", &t[..end])]);
-                    frag = t[end..].trim_start();
-                }
-                Piece::Opener(kind) if !continuation => {
-                    if let Some(end) = html::block_end(kind, t) {
-                        rows.push(format!("{prefix}{lead}{}", respelled(kind, &t[..end])), Kind::Raw);
-                        frag = t[end..].trim_start();
-                    } else {
-                        let close = (i + 1..lines.len())
-                            .find_map(|j| html::block_end(kind, lines[j].content).map(|end| (j, end)));
-                        let Some((j, end)) = close else {
-                            return (rows, opening_tags(t, &lines[i + 1..]));
-                        };
-                        rows.push(format!("{prefix}{lead}{t}"), Kind::Raw);
-                        for line in &lines[i + 1..j] {
-                            rows.push(format!("{}{nest}{}", line.prefix, line.content), Kind::Raw);
-                        }
-                        let closing = lines[j];
-                        let close = respelled(kind, &closing.content[..end]);
-                        rows.push(format!("{}{nest}{close}", closing.prefix), Kind::Raw);
-                        i = j;
-                        indent = shallow_lead(closing.content);
-                        frag = closing.content[end..].trim_start();
-                    }
-                }
-                Piece::Fence(c, n) if !continuation => {
-                    let close = (i + 1..lines.len())
-                        .find(|&j| closes_fence(strip_columns(lines[j].content, dedent), c, n));
-                    let Some(j) = close else {
-                        return (rows, opening_tags(t, &lines[i + 1..]));
-                    };
-                    rows.push(format!("{prefix}{lead}{t}"), Kind::Raw);
-                    for line in &lines[i + 1..=j] {
-                        let content = strip_columns(line.content, dedent);
-                        rows.push(format!("{}{nest}{content}", line.prefix), Kind::Raw);
-                    }
-                    i = j;
-                    break;
-                }
-                Piece::Open if !continuation => {
-                    if let Some((j, end)) = join_tag(t, &lines[i + 1..]) {
-                        let j = i + 1 + j;
-                        let mut run = vec![format!("{prefix}{lead}{t}")];
-                        run.extend(lines[i + 1..j].iter().map(SrcLine::whole));
-                        run.push(format!("{}{}", lines[j].prefix, &lines[j].content[..end]));
-                        rows.tags(run);
-                        i = j;
-                        indent = shallow_lead(lines[j].content);
-                        frag = lines[j].content[end..].trim_start();
-                    } else if html::block_start(t) == Some(BlockKind::BlockName) {
-                        // Its block runs to the blank line padding the next
-                        // tag line, as the unrepaired parse runs it to the
-                        // block's end.
-                        let to = (i + 1..lines.len())
-                            .find(|&j| matches!(classify(lines[j].content.trim_start()), Piece::Tags))
-                            .unwrap_or(lines.len());
-                        rows.push(format!("{prefix}{lead}{t}"), Kind::Raw);
-                        for line in &lines[i + 1..to] {
-                            rows.push(line.whole(), Kind::Raw);
-                        }
-                        i = to;
-                        continue 'lines;
-                    } else {
-                        rows.push(format!("{prefix}{lead}{t}"), Kind::Text);
-                        break;
-                    }
-                }
-                _ => {
-                    let shown = if continuation { frag } else { t };
-                    let lead = if continuation { "" } else { &lead };
-                    rows.push(format!("{prefix}{lead}{shown}"), Kind::Text);
-                    break;
-                }
-            }
-            let inside = if nest.is_empty() { indent } else { &nest };
-            prefix = format!("{}{inside}", continuation_of(lines[i].prefix));
-        }
-        i += 1;
     }
-    (rows, Vec::new())
-}
-
-/// The length of the quote and list markers `t` opens with, each with the
-/// space after it, where what follows them starts a block; `None` without
-/// one, or where what follows is indented code.
-fn container_markers(t: &str) -> Option<usize> {
-    let b = t.as_bytes();
-    let mut i = 0;
-    loop {
-        if html::indent_columns(&t[i..]) > 3 {
-            return None;
-        }
-        let at = i + t[i..].len() - t[i..].trim_start_matches([' ', '\t']).len();
-        let digits = b[at..].iter().take_while(|c| c.is_ascii_digit()).count();
-        let (width, quote) = match b.get(at + digits) {
-            Some(b'>') if digits == 0 => (1, true),
-            Some(b'-' | b'+' | b'*') if digits == 0 => (1, false),
-            Some(b'.' | b')') if (1..=9).contains(&digits) => (digits + 1, false),
-            _ => return (i > 0).then_some(at),
-        };
-        let past = at + width;
-        i = match b.get(past) {
-            Some(b' ' | b'\t') => past + 1,
-            _ if quote => past,
-            _ => return (i > 0).then_some(at),
-        };
-    }
-}
-
-/// The names of the opening tags in `first` and the lines after it, read as
-/// one type 6 block reads them.
-fn opening_tags(first: &str, rest: &[SrcLine]) -> Vec<String> {
-    let text: Vec<&str> = std::iter::once(first).chain(rest.iter().map(|l| l.content)).collect();
-    html::tags(&text.join("\n"))
-        .into_iter()
-        .filter(|t| !t.closing)
-        .map(|t| t.name.to_string())
-        .collect()
+    rows
 }
 
 /// The whitespace leading `line` when it is shy of an indented code line's
@@ -778,37 +483,6 @@ fn shallow_lead(line: &str) -> &str {
         return "";
     }
     &line[..line.len() - line.trim_start().len()]
-}
-
-/// `line` without up to `n` columns of leading indentation.
-fn strip_columns(line: &str, n: usize) -> &str {
-    let mut col = 0;
-    for (i, c) in line.char_indices() {
-        if col >= n {
-            return &line[i..];
-        }
-        match c {
-            ' ' => col += 1,
-            '\t' => col += 4 - col % 4,
-            _ => return &line[i..],
-        }
-    }
-    ""
-}
-
-/// Where the tag `t` opens closes on a later line: that line's index in
-/// `rest` and the byte offset past its `>`.
-fn join_tag(t: &str, rest: &[SrcLine]) -> Option<(usize, usize)> {
-    let mut joined = t.to_string();
-    let mut starts = Vec::new();
-    for line in rest.iter().take(TAG_JOIN_LINES) {
-        joined.push('\n');
-        starts.push(joined.len());
-        joined.push_str(line.content);
-    }
-    let end = html::tag_at(&joined, 0)?.span.end;
-    let j = starts.iter().rposition(|&s| s < end)?;
-    Some((j, end - starts[j]))
 }
 
 /// Inline content between two block events outside a table: a paragraph's, a
@@ -879,20 +553,17 @@ pub(crate) fn is_inline(event: &Event) -> bool {
     }
 }
 
-/// The first line of a run holding only tags, which CommonMark reads as inline
-/// HTML, made a type 7 block start: a blank line above it where text precedes
-/// it in the run, and one tag per line. The block runs to the run's end, as
-/// though a type 7 tag could interrupt a paragraph. A line carrying the run's
-/// quote markers is written inside the run's containers; a lazy one keeps its
-/// own prefix and leaves the quotes it lacks, as the blank line above it does,
-/// and so does a line holding an element tag, which closes its element where
-/// its own indentation stands. A heading's first line is never a tag line, and
-/// every tag line under a setext heading's text moves, so written, below its
-/// underline, where the heading has ended.
+/// The first carrier tag line of a run, which CommonMark reads as inline HTML,
+/// made a type 7 block start: a blank line above it where text precedes it in
+/// the run, and one tag per line. The block runs to the run's end, as though a
+/// type 7 tag could interrupt a paragraph. The line keeps its own prefix, so
+/// its element opens or closes where its own indentation stands. A heading's
+/// first line is never a tag line, and every carrier tag line under a setext
+/// heading's text moves, so written, below its underline, where the heading
+/// has ended.
 fn run_tag_line_edits(src: &str, run: &Run) -> Vec<Edit> {
     let escaped = run.start > 0 && src.as_bytes()[run.start - 1] == b'\\';
     let first = SrcLine::at(src, run.start - usize::from(escaped));
-    let quotes = |p: &str| p.bytes().filter(|&b| b == b'>').count();
     let mut edits = Vec::new();
     let mut moved = String::new();
     let mut seen = None;
@@ -908,15 +579,10 @@ fn run_tag_line_edits(src: &str, run: &Run) -> Vec<Edit> {
         } else {
             line.prefix.bytes().all(|b| matches!(b, b'>' | b' ' | b'\t'))
         };
-        let Some(tags) = html::tag_line(line.content).filter(|_| leads) else {
+        let Some(tags) = html::tag_line(line.content).filter(|t| leads && t.iter().all(is_carrier)) else {
             continue;
         };
-        let element = tags.iter().any(|t| carrier::modeled_tag(t).is_some());
-        let cont = if quotes(line.prefix) == quotes(first.prefix) && !element {
-            continuation_of(first.prefix)
-        } else {
-            line.prefix.to_string()
-        };
+        let cont = line.prefix;
         let split: Vec<&str> = tags.iter().map(|t| &line.content[t.span.clone()]).collect();
         let split = split.join(&format!("\n{}", continuation_of(&cont)));
         let range = line.start..line.end();
@@ -1131,11 +797,11 @@ mod tests {
     /// last round frees among them.
     #[test]
     fn a_footnote_offset_follows_the_edits_before_it() {
-        let nested: String = (0..REPAIR_ROUNDS).map(|d| format!("{}- <div>\n", "  ".repeat(d))).collect();
+        let nested: String = (0..REPAIR_ROUNDS).map(|d| format!("{}- <quill-keep>\n", "  ".repeat(d))).collect();
         for md in [
             "[^1]: a",
-            "<div>\n<div>text\n</div>\n\n> [^1]: a",
-            "- <div>\n  > <span>\n  > [^x]: b\n  </div>\n\n[^1]: a",
+            "<quill-keep>\n<quill-keep>\ntext\n</quill-keep>\n\n> [^1]: a",
+            "- <quill-keep>\n  > <quill-keep>\n  > [^x]: b\n  </quill-keep>\n\n[^1]: a",
             &format!("{nested}{}- [^1]: a", "  ".repeat(REPAIR_ROUNDS)),
         ] {
             let r = normalized(md);
@@ -1145,14 +811,14 @@ mod tests {
             }
         }
     }
-    /// Text split off after a comment keeps its line's indent, read inside an
-    /// HTML block the same round frees, so it stays in the list item that
+    /// Text split off after a comment keeps its line's indent, read inside a
+    /// carrier block an earlier round frees, so it stays in the list item that
     /// indent continues.
     #[test]
     fn a_split_piece_keeps_its_lines_indent() {
         let cases = [
-            ("<div>\n- a\n  <!-- c -->b", "<div>\n\n- a\n  <!-- c -->\n  b"),
-            ("<div>\n- a\n\n  <!--\n  c\n  -->b", "<div>\n\n- a\n\n  <!--\n  c\n  -->\n  b"),
+            ("<quill-keep>\n- a\n  <!-- c -->b", "<quill-keep>\n\n- a\n  <!-- c -->\n  b"),
+            ("<quill-keep>\n- a\n\n  <!--\n  c\n  -->b", "<quill-keep>\n\n- a\n\n  <!--\n  c\n  -->\n  b"),
         ];
         for (md, repaired) in cases {
             assert_eq!(normalized(md).text, repaired, "{md:?}");
