@@ -118,9 +118,11 @@ is a lowering bug, never a document's.
 | `MarkKind::Code` | `#raw("…")` (inline) |
 | `MarkKind::Link{url}` | `#link("url")[…]` (`escape_string` on the url) |
 | `MarkKind::Anchor` | nothing |
+| `MarkKind::Element{name, attrs}` | `#qm-element("name", (…), inline: true)[…]` where the quill declares `name` inline, else the text it marks (see [Elements](#elements)) |
 | `Container::ListItem` (bullet) | `- ` |
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
 | `Container::Quote` | `#quote(block: true)[…]` |
+| `Container::Element{name, attrs}` | `#qm-element("name", (…))[…]` where the quill declares `name` around blocks, else `#[…]` |
 | `image` island | nothing, plus one `backend::declined_construct` warning per field (see [Declined images](#declined-images)) |
 | `table` island | `#table(columns: N, align: (…), table.header(…), …)` |
 
@@ -152,9 +154,34 @@ leaves and containers alike: what the content nests, the markup nests.
 
 Anchor marks emit nothing; an `image` island emits nothing (see
 [Declined images](#declined-images)).
-Raw HTML other than an inline `<u>` and `<br>` (a hard break) never enters the
-content, so it is absent here; math, footnotes, task lists and definition lists
+Raw HTML other than an inline `<u>`, `<br>` (a hard break) and the `quill-*`
+carrier (markdown-spec §6.4) never enters the content, so it is absent here; math, footnotes, task lists and definition lists
 enter it as literal text (markdown-spec §6.2, §6.3).
+
+### Elements
+
+An element lowers through one dispatcher the helper defines,
+`qm-element(name, attrs, body, inline: false)`. It calls the renderer a plate
+registers under the name in the helper's `elements` state, else the built-in
+`keep`, which holds its body on one page (a `box` inline), else draws the body
+alone:
+
+```typst
+#import "@local/quillmark-helper:0.1.0": elements
+#elements.update(e => e + (stamp: (attrs, body) => text(fill: red, body)))
+```
+
+`attrs` is a dictionary keyed by attribute name, sorted, and `(:)` when empty:
+
+- A declared attribute is coerced to its declared type at render leniency, and
+  one the coercion refuses passes as its string.
+- A declared `default:` fills an attribute the element leaves out.
+- A `date` or `datetime` lowers to Typst's `datetime(..)`.
+- An attribute the declaration does not name passes as its string.
+
+An undeclared block element keeps its run's structure in `#[…]`, so a run
+inside a list item stays in the item. The dispatcher's bytes fall between runs,
+so the source map holds no run for them.
 
 ### Declined images
 

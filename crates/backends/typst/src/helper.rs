@@ -584,7 +584,7 @@ pub(crate) fn node_type(node: &serde_json::Value) -> Option<&str> {
 
 /// The two date field types, distinguished by their Typst `datetime(..)` arity.
 #[derive(Clone, Copy)]
-enum DateKind {
+pub(crate) enum DateKind {
     Date,
     DateTime,
 }
@@ -606,7 +606,7 @@ fn display_literal(entries: &[(String, String)]) -> String {
 /// `None` for a string that does not parse (the empty string included), which
 /// the caller lowers to `none`. Reuses the coercion layer's own parse, so a
 /// value that reached here parses and `None` is the defensive arm.
-fn datetime_constructor(s: &str, kind: DateKind) -> Option<String> {
+pub(crate) fn datetime_constructor(s: &str, kind: DateKind) -> Option<String> {
     match kind {
         DateKind::Date => quillmark_core::quill::parse_date(s)
             .map(|(year, month, day)| format!("datetime(year: {year}, month: {month}, day: {day})")),

@@ -3,22 +3,22 @@
 //! blank line inside them or above them, at top level, in list items and in
 //! quotes; inline pairs and anchors in prose and in table cells; a tag in a
 //! code span. The import never panics, reads the document as it reads its
-//! [`strip`] but for the keys a `quill-table` around one table and a
-//! `quill-cell` around a whole table cell fold, reports each element nothing
-//! models once with its count, and the content is the fixed point of a
-//! re-import. Separately, an element's open tag carries any attribute values
-//! through the import's normalization and a table cell.
+//! [`strip`] but for the elements it models and the keys a `quill-table`
+//! around one table and a `quill-cell` around a whole table cell fold, reports
+//! each element nothing models once with its count, and the content is the
+//! fixed point of a re-import. Separately, an element's open tag carries any
+//! attribute values through the import's normalization and a table cell.
 
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
 
-use crate::carrier::{decode_attrs, element, is_attr_name, strip, Attrs, Element};
+use crate::carrier::{decode_attrs, element, is_attr_name, strip, Attrs, Element, RESERVED};
 use crate::export::to_markdown;
 use crate::html;
 use crate::import::{from_markdown, options, ImportWarning};
 use crate::island::IslandType;
-use crate::model::Content;
+use crate::model::{Content, LineKind, Mark, MarkKind};
 use crate::normalize::normalize_markdown;
 use pulldown_cmark::{Event, Parser};
 
@@ -166,14 +166,15 @@ fn is_cell_key(name: &str, value: &str) -> bool {
 }
 
 /// An element's open and closing tags and the construct it reports: an
-/// element name in the grammar spelled canonically, or a `quill-*` tag name
-/// outside it. A `quill-table` carries valid layout attributes, and one
-/// `quill-cell` valid alignment attributes.
+/// element name in the grammar spelled canonically, which the import models
+/// unless the name is reserved, or a `quill-*` tag name outside it. A
+/// `quill-table` carries valid layout attributes, and one `quill-cell` valid
+/// alignment attributes.
 #[derive(Debug, Clone)]
 struct Carrier {
     open: String,
     close: String,
-    reported: String,
+    reported: Option<String>,
     table: bool,
     /// For `quill-cell`, what it reports as a whole table cell: each attribute
     /// it cannot fold.
@@ -194,28 +195,29 @@ fn carrier() -> impl Strategy<Value = Carrier> {
                 let unread = attrs.iter().filter(|(k, v)| !is_cell_key(k, v));
                 unread.map(|(k, _)| format!("quill-cell[{k}]")).collect()
             });
+            let reported = RESERVED.contains(&name.as_str()).then(|| format!("quill-{name}"));
             let e = Element::new(name.clone(), attrs).unwrap();
-            Carrier { open: e.open_tag(), close: e.close_tag(), reported: format!("quill-{name}"), table: false, cell }
+            Carrier { open: e.open_tag(), close: e.close_tag(), reported, table: false, cell }
         });
     let table = layout().prop_map(|layout| {
         let e = Element::new("table", layout.attrs()).unwrap();
-        Carrier { open: e.open_tag(), close: e.close_tag(), reported: "quill-table".into(), table: true, cell: None }
+        Carrier { open: e.open_tag(), close: e.close_tag(), reported: Some("quill-table".into()), table: true, cell: None }
     });
     let cell = cell_keys().prop_map(|keys| {
         let e = Element::new("cell", keys.attrs()).unwrap();
         Carrier {
             open: e.open_tag(),
             close: e.close_tag(),
-            reported: "quill-cell".into(),
+            reported: Some("quill-cell".into()),
             table: false,
             cell: Some(Vec::new()),
         }
     });
-    let outside = prop_oneof![Just("quill-a--b"), Just("quill-"), Just("Quill-Keep"), Just("quill-9")];
+    let outside = prop_oneof![Just("quill-a--b"), Just("quill-"), Just("quill-9")];
     let outside = outside.prop_map(|n| Carrier {
         open: format!("<{n}>"),
         close: format!("</{n}>"),
-        reported: n.to_ascii_lowercase(),
+        reported: Some(n.to_string()),
         table: false,
         cell: None,
     });
@@ -233,7 +235,7 @@ fn token() -> impl Strategy<Value = Piece> {
         3 => word().prop_map(Piece::text),
         2 => (carrier(), word()).prop_map(|(c, w)| Piece {
             md: format!("{}{w}{}", c.open, c.close),
-            reported: vec![c.reported],
+            reported: c.reported.into_iter().collect(),
             cell: c.cell,
             ..Piece::default()
         }),
@@ -252,8 +254,12 @@ fn line() -> impl Strategy<Value = Piece> {
     ]
 }
 
+/// Lines holding text: a block element around nothing but anchors holds an
+/// empty paragraph, which no stripped document spells.
 fn paragraph() -> impl Strategy<Value = Piece> {
-    prop::collection::vec(line(), 1..4).prop_map(|lines| Piece::join(lines, "\n"))
+    prop::collection::vec(line(), 1..4)
+        .prop_map(|lines| Piece::join(lines, "\n"))
+        .prop_filter("a paragraph holds text", |p| p.other)
 }
 
 fn table() -> impl Strategy<Value = Piece> {
@@ -310,7 +316,7 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             let body = Piece::join(blocks, "\n\n");
             let (a, b) = (if pad_open { "\n\n" } else { "\n" }, if pad_close { "\n\n" } else { "\n" });
             let folds = c.table && body.tables == 1 && !body.other;
-            let mut reported: Vec<String> = (!folds).then_some(c.reported).into_iter().collect();
+            let mut reported: Vec<String> = c.reported.filter(|_| !folds).into_iter().collect();
             reported.extend(body.reported);
             Piece {
                 md: format!("{}{a}{}{b}{}", c.open, body.md, c.close),
@@ -344,8 +350,31 @@ fn document() -> impl Strategy<Value = Piece> {
     prop::collection::vec(block(), 1..4).prop_map(|blocks| Piece::join(blocks, "\n\n"))
 }
 
-/// `content` with no table layout keys and no cell alignment keys, which
-/// `strip` takes with the `quill-table` and `quill-cell` tags.
+/// What [`strip`] leaves of `content`: its text; its islands without the table
+/// and cell keys `strip` takes with the `quill-table` and `quill-cell` tags,
+/// or the element marks in a cell; its marks but the elements; and each line's
+/// kind, continuation and containers but the elements, named by shape. An
+/// element's edge ends a list `strip` leaves running, so a list item's
+/// ordinal and instance are not compared.
+fn stripped(content: &Content) -> (String, Content, Vec<Mark>, Vec<(LineKind, bool, Vec<&'static str>)>) {
+    let marks = content.marks.iter().filter(|m| !matches!(m.kind, MarkKind::Element { .. })).cloned().collect();
+    let lines = content
+        .lines
+        .iter()
+        .map(|l| {
+            let path = l.containers.iter().map(|c| c.tag()).filter(|&t| t != "element").collect();
+            (l.kind.clone(), l.continues, path)
+        })
+        .collect();
+    let mut islands = without_layout(content);
+    islands.text.clear();
+    islands.lines.clear();
+    islands.marks.clear();
+    (content.text.clone(), islands, marks, lines)
+}
+
+/// `content` with no table layout keys, no cell alignment keys and no cell
+/// element marks.
 fn without_layout(content: &Content) -> Content {
     let mut content = content.clone();
     for island in content.islands.iter_mut().filter(|i| i.island_type == IslandType::Table) {
@@ -358,6 +387,9 @@ fn without_layout(content: &Content) -> Content {
             if let Some(cell) = cell.as_object_mut() {
                 cell.remove("align");
                 cell.remove("valign");
+                if let Some(marks) = cell.get_mut("marks").and_then(serde_json::Value::as_array_mut) {
+                    marks.retain(|m| m.get("type").and_then(serde_json::Value::as_str) != Some("element"));
+                }
             }
         };
         if let Some(header) = island.props.get_mut("header").and_then(serde_json::Value::as_array_mut) {
@@ -401,13 +433,13 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
     #[test]
-    fn the_carrier_is_transparent_and_strips_to_the_same_content(doc in document()) {
+    fn the_carrier_strips_to_the_same_content_but_its_elements(doc in document()) {
         let imported = from_markdown(&doc.md).unwrap();
         prop_assert_eq!(imported.content.validate(), Ok(()), "{}", doc.md);
 
-        let stripped = from_markdown(&strip(&doc.md)).unwrap();
-        prop_assert_eq!(&*stripped.content, &without_layout(&imported.content), "{}\n---\n{}", doc.md, strip(&doc.md));
-        prop_assert!(stripped.warnings.is_empty(), "{:?}", stripped.warnings);
+        let bare = from_markdown(&strip(&doc.md)).unwrap();
+        prop_assert_eq!(stripped(&bare.content), stripped(&imported.content), "{}\n---\n{}", doc.md, strip(&doc.md));
+        prop_assert!(bare.warnings.is_empty(), "{:?}", bare.warnings);
 
         let mut expected: Vec<(String, usize)> = Vec::new();
         for c in &doc.reported {

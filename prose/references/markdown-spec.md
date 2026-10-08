@@ -379,7 +379,7 @@ else an HTML block holds depends on its type:
 
 | HTML block (CommonMark §4.6) | What imports |
 |---|---|
-| Type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<quill-keep>` | Everything but the tags. Each line holding only tags drops, and every other line parses as markdown, as though a blank line stood above and below each tag line; a line opening with a type-6 tag keeps the text after it. A `quill-*` tag is the carrier §6.4 defines. |
+| Type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<quill-keep>` | Everything but the tags. Each line holding only tags drops, and every other line parses as markdown, as though a blank line stood above and below each tag line; a line opening with a type-6 tag keeps the text after it. A `quill-*` tag is the carrier §6.4 defines, whose elements wrap what their tags hold. |
 | Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after its end marker (`-->`, `?>`, `>`, `]]>`, the closing tag) on its last line is a paragraph of its own. |
 
 Inside a type 6 or 7 block, a line opening a type 1–5 block or a fence keeps
@@ -395,10 +395,15 @@ A line holding only tags is a tag line wherever it stands outside code:
 - Between list items, it keeps the item before it open as a blank line would,
   so the items on either side stay one list.
 
+A tag line holding an element's tag (§6.4) stands where its own indentation
+puts it: under a paragraph's text it keeps its own container prefix, and it
+does not continue the list item before it. Its element opens or closes there.
+
 The allowlist is inline: `<u>` or `<br>` alone on its line is a tag line like
 any other. An import reports each dropped opening tag by its lowercase name,
 under `parse::dropped_construct`; a closing tag, a comment, the content of a
-type 1–5 block and `quill-anchor` (§6.4) report nothing.
+type 1–5 block, `quill-anchor` and an element that closes (§6.4) report
+nothing.
 
 Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
 an injection vector for downstream HTML-producing tooling; `<u>` is an
@@ -504,11 +509,39 @@ J. Doe
 Text with a <quill-keep note="a &amp; b">pair</quill-keep> inside a line.
 ```
 
-**An element nothing folds or models** is transparent: its tags drop, what it
-wraps imports, and `parse::dropped_construct` reports it under its tag name
-(`quill-keep`), as any raw tag (§6.2). Every element but `anchor`, a `table`
-block wrapper and a `cell` pair wrapping a whole table cell is one. A
-`quill-*` tag outside the grammar is a raw tag reported the same way.
+**An element** of any name but the reserved three is stored, whatever quill
+reads the document:
+
+- A pair of tag lines wraps the blocks between them in the element, inside the
+  containers around its open tag. The close tag closes the element where it is
+  the innermost container open; a close tag naming no innermost element drops
+  without a report. A pair wrapping nothing holds one empty paragraph.
+- A pair inside one inline run (a paragraph's, a heading's, a list item's or a
+  table cell's) marks the text between. A close tag closes the innermost open
+  element of its name, so an element crosses other marks and elements freely.
+- Each attribute in the grammar is kept as its string. One refused drops alone,
+  reported as `quill-<name>[<attr>]`.
+- Two adjacent block runs of one element stay two. Inline, a run unions with
+  an adjacent or overlapping run of the same name and attributes.
+- A quill renders an element only where its `honors:` declares the name at the
+  scope it stands at, and renders what it wraps unwrapped elsewhere.
+
+**An element that does not close** is transparent: its tags drop, what it wraps
+imports, and `parse::dropped_construct` reports it under its tag name
+(`quill-keep`), as any raw tag (§6.2). That covers a block element still open
+where its list item, quote or body ends, an inline one still open at its run's
+end, an inline pair holding nothing, a self-closing tag, and an open tag in an
+image's alt text. A `quill-*` tag outside the grammar is a raw tag reported
+the same way.
+
+Export writes an inline element's tags outside the emphasis delimiters closing
+and opening where it stands, so a tag never sits at a delimiter run's edge,
+where its `<` or `>` would change the run's flanking. A delimiter run spanning
+that position stays open around the tag.
+
+```markdown
+**bold <quill-hl tone="warm">both** highlit</quill-hl>
+```
 
 **`quill-table`** is a block wrapper around one pipe table, and folds its
 attributes into the table's layout, whatever quill reads the document:
@@ -573,7 +606,8 @@ reads the document:
   drops alone, reported as `quill-cell[<name>]`.
 - A quill renders an attribute only where its `honors:` declares it, as for
   `quill-table`.
-- A `quill-cell` outside a table cell is an element nothing folds.
+- A `quill-cell` outside a table cell is transparent, reported as
+  `quill-cell`.
 
 **`quill-anchor`** is reserved for an anchor's read-only spelling,
 `<quill-anchor ref="…"></quill-anchor>`, which the annotated export writes and
@@ -592,7 +626,7 @@ A <quill-anchor ref="c1"></quill-anchor>**flagged** phrase.
 ```
 
 **Strip.** Stripping the carrier from a markdown string removes every `quill-*`
-tag the import drops as markup and keeps what a wrapper holds; a tag in a code
+tag the import reads as markup and keeps what a wrapper holds; a tag in a code
 span, a fence, a comment or another tag's attribute stays. A line left holding
 only container markers becomes a blank line inside them, and a list item's
 marker left bare loses the blank lines after it, which would end the item.
@@ -633,6 +667,9 @@ Before CommonMark parsing, each body region is normalized:
      table.
    - A block of tag lines that ends a list item is indented into the item, a
      blank line between its lines.
+   - A line holding an element's tag keeps its own prefix in both cases above:
+     it is neither written inside the paragraph's containers nor indented into
+     the item. A piece split off it keeps the line's indentation.
    - A link reference definition labelled `^…` has its `[` backslash-escaped.
 
    A blank line written inside a container carries the container's `>`

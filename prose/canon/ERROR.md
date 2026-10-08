@@ -196,16 +196,20 @@ families:
   `construct` and `count` in `args` and the field's `DocPath` in `path`: the
   warning the render raises as `backend::declined_construct`. A one-shot
   render leaves it out of `RenderResult.warnings`, which carry the backend's.
-- **`validation::undeclared_construct`: a stored knob the quill does not
-  honor.** `Quill::validate` warns once per (content field, knob) where the
-  field stores a table or cell knob the quill's `honors:` leaves out
+- **`validation::undeclared_construct`: a stored knob or element the quill
+  does not honor.** `Quill::validate` warns once per (content field, knob) where
+  the field stores a table or cell knob the quill's `honors:` leaves out
   ([QUILL.md](QUILL.md#honors)), with `construct` (`table.widths`,
   `table.align`, `table.breakable`, `cell.align`, `cell.valign`) and `count`
   (the tables, or cells, storing it) in `args` and the field's `DocPath` in
-  `path`. The render lays those tables out as if the knob were absent and raises
-  nothing of its own, so a one-shot render carries this warning. A backend
-  declining tables outright raises none: its `declined_construct` already
-  covers the table.
+  `path`. It warns the same once per (content field, element name) where the
+  field stores an element the quill does not declare at its scope, with
+  `construct` `element.<name>` and `count` the runs and marks of that name. The
+  render lays those tables out as if the knob were absent, and renders what the
+  element wraps, raising nothing of its own, so a one-shot render carries this
+  warning. A backend declining tables outright raises none for a knob: its
+  `declined_construct` already covers the table. One lowering no element
+  (acroform) raises none for an element.
 - **Compile warnings**: the Typst backend maps the compiler's non-fatal
   diagnostics (font fallback, overfull pages, …) through the same span
   resolution as errors. They are state of the session's current compile:

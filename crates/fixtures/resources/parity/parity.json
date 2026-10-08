@@ -1321,13 +1321,20 @@
     }
   },
   {
-    "name": "carrier.block",
+    "name": "container.element",
     "markdown": "<quill-keep>\n\n**Signed**\n\n</quill-keep>",
     "content": {
       "islands": [],
       "lines": [
         {
-          "containers": [],
+          "containers": [
+            {
+              "attrs": {
+                "name": "keep"
+              },
+              "container": "element"
+            }
+          ],
           "kind": "para"
         }
       ],
@@ -1341,7 +1348,451 @@
       "text": "Signed"
     },
     "typst": [
-      "#strong[Signed]"
+      "#[\n#strong[Signed]"
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "#qm-element(\"keep\", (:))[\n#strong[Signed]"
+      ],
+      "signals": {
+        "render": []
+      }
+    }
+  },
+  {
+    "name": "container.element.attrs",
+    "markdown": "<quill-keep note=\"x\">\n\nText\n\n</quill-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "name": "keep",
+                "note": "x"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "#[\nText"
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "#qm-element(\"keep\", (\"note\": \"x\"))[\nText"
+      ],
+      "signals": {
+        "render": []
+      }
+    }
+  },
+  {
+    "name": "container.element.instance",
+    "markdown": "<quill-keep>\n\none\n\n</quill-keep>\n\n<quill-keep>\n\ntwo\n\n</quill-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "name": "keep"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "name": "keep"
+              },
+              "container": "element",
+              "instance": 1
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "#[\none",
+      "#[\ntwo"
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "#qm-element(\"keep\", (:))[\none",
+        "#qm-element(\"keep\", (:))[\ntwo"
+      ],
+      "signals": {
+        "render": []
+      }
+    }
+  },
+  {
+    "name": "container.element.in_item",
+    "markdown": "- <quill-keep>\n\n  one\n\n  </quill-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": false,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item"
+            },
+            {
+              "attrs": {
+                "name": "keep"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one"
+    },
+    "typst": [
+      "- #[\n  one"
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "- #qm-element(\"keep\", (:))[\n  one"
+      ],
+      "signals": {
+        "render": []
+      }
+    }
+  },
+  {
+    "name": "container.element.around_list",
+    "markdown": "<quill-keep>\n\n- one\n- two\n\n</quill-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "name": "keep"
+              },
+              "container": "element"
+            },
+            {
+              "attrs": {
+                "ordered": false,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "name": "keep"
+              },
+              "container": "element"
+            },
+            {
+              "attrs": {
+                "ordered": false,
+                "ordinal": 1,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "#[\n- one\n- two"
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "#qm-element(\"keep\", (:))[\n- one\n- two"
+      ],
+      "signals": {
+        "render": []
+      }
+    }
+  },
+  {
+    "name": "mark.element",
+    "markdown": "A <quill-hl tone=\"cool\">pair</quill-hl> here.",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "attrs": {
+            "name": "hl",
+            "tone": "cool"
+          },
+          "end": 6,
+          "start": 2,
+          "type": "element"
+        }
+      ],
+      "text": "A pair here."
+    },
+    "typst": [
+      "A pair here."
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "A #qm-element(\"hl\", (\"tone\": \"cool\"), inline: true)[pair] here."
+      ],
+      "signals": {
+        "render": []
+      }
+    }
+  },
+  {
+    "name": "mark.element.scope",
+    "markdown": "A <quill-keep>pair</quill-keep> here.",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "attrs": {
+            "name": "keep"
+          },
+          "end": 6,
+          "start": 2,
+          "type": "element"
+        }
+      ],
+      "text": "A pair here."
+    },
+    "typst": [
+      "A pair here."
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    }
+  },
+  {
+    "name": "mark.element.crossing",
+    "markdown": "<quill-hl>a **b</quill-hl> c**",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "attrs": {
+            "name": "hl"
+          },
+          "end": 3,
+          "start": 0,
+          "type": "element"
+        },
+        {
+          "end": 5,
+          "start": 2,
+          "type": "strong"
+        }
+      ],
+      "text": "a b c"
+    },
+    "typst": [
+      "a #strong[b c]"
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "#qm-element(\"hl\", (\"tone\": \"warm\"), inline: true)[a #strong[b]]#strong[ c]"
+      ],
+      "signals": {
+        "render": []
+      }
+    }
+  },
+  {
+    "name": "island.table.cell.element",
+    "markdown": "| <quill-hl>a</quill-hl> |\n| --- |",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [
+                  {
+                    "attrs": {
+                      "name": "hl"
+                    },
+                    "end": 1,
+                    "start": 0,
+                    "type": "element"
+                  }
+                ],
+                "text": "a"
+              }
+            ],
+            "rows": []
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "table.header([a], )"
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "table.header([#qm-element(\"hl\", (\"tone\": \"warm\"), inline: true)[a]], )"
+      ],
+      "signals": {
+        "render": []
+      }
+    }
+  },
+  {
+    "name": "carrier.element.unclosed",
+    "markdown": "<quill-keep>\n\nText",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "Text"
     ],
     "signals": {
       "import": [
@@ -1354,8 +1805,8 @@
     }
   },
   {
-    "name": "carrier.inline",
-    "markdown": "A <quill-keep>pair</quill-keep> here.",
+    "name": "carrier.element.self_closing",
+    "markdown": "<quill-keep/>\n\nText",
     "content": {
       "islands": [],
       "lines": [
@@ -1365,10 +1816,10 @@
         }
       ],
       "marks": [],
-      "text": "A pair here."
+      "text": "Text"
     },
     "typst": [
-      "A pair here."
+      "Text"
     ],
     "signals": {
       "import": [
@@ -1377,6 +1828,75 @@
           "count": 1
         }
       ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.attr",
+    "markdown": "<quill-keep onclick=\"x\">\n\nText\n\n</quill-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "name": "keep"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "#[\nText"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "quill-keep[onclick]",
+          "count": 1
+        }
+      ],
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "#qm-element(\"keep\", (:))[\nText"
+      ],
+      "signals": {
+        "render": []
+      }
+    }
+  },
+  {
+    "name": "carrier.element.stray_close",
+    "markdown": "Text\n\n</quill-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "Text"
+    ],
+    "signals": {
+      "import": [],
       "render": []
     }
   },

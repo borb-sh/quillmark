@@ -121,8 +121,11 @@ honors:
 - **`elements`: the `quill-<name>` elements.** Each name to a `scope`
   (`block` or `inline`) and optional `attrs`, each a field schema of a scalar
   type (`string`, `enum`, `integer`, `number`, `boolean`, `date`, `datetime`),
-  read through `QuillConfig::coerce_element`. The content model holds no
-  element, so a declared element is emitted and taught, and nothing stores one.
+  read through `QuillConfig::coerce_element`. Content stores every element
+  whatever the quill declares. One the quill does not declare at its scope
+  renders what it wraps unwrapped, and `Quill::validate` says so per field and
+  name; a declared one renders through the plate's renderer
+  ([CONVERT.md](CONVERT.md#elements)).
 - **Declaring nothing** is the quill without the section: it loads, teaches,
   validates and renders as one.
 
@@ -170,7 +173,7 @@ example's `$quill`.
 - A `ui.layout: table` column that is not a leaf errors with `quill::table_column_not_leaf`, naming the column: declaring the key contracts the shape the control needs, leaving an editor only the capability decline ([SCHEMAS.md](SCHEMAS.md#schema-emission)).
 - Malformed `main.body` / `card_kinds.<name>.body` blocks, `enabled` being the one key, error with `quill::invalid_body`.
 - `honors:` refuses a malformed declaration under four codes ([markdown-spec.md](../references/markdown-spec.md) §6.4 holds the grammars):
-  - `quill::invalid_honors`: not a mapping, a key other than `table`, `cell` and `elements`, a knob list that is not a list of knob names, a knob named twice, or a knob under a backend that typesets no table (acroform).
+  - `quill::invalid_honors`: not a mapping, a key other than `table`, `cell` and `elements`, a knob list that is not a list of knob names, a knob named twice, or a knob or element under a backend that lowers none (acroform).
   - `quill::invalid_element_name`: a name outside `[a-z][a-z0-9]*(-[a-z0-9]+)*`, or one the engine reserves (`table`, `cell`, `anchor`).
   - `quill::invalid_element`: not a mapping, a key other than `scope` and `attrs`, a scope other than `block` or `inline`, or `attrs` that is not a mapping.
   - `quill::invalid_element_attr`: a name outside the carrier's attribute grammar, or a type other than a scalar.

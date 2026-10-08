@@ -6,10 +6,12 @@
 //! guard is live is `Tail`, the record of what the emitter last wrote.
 
 use quillmark_core::error::MAX_NESTING_DEPTH;
-use quillmark_core::quill::{Honors, TableKnob};
+use crate::helper::{datetime_constructor, lit, DateKind};
+use quillmark_core::quill::{ElementScope, FieldType, Honors, TableKnob};
 use quillmark_content::island::IslandType;
 use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
 use quillmark_content::normalize::is_line_separator;
+use std::collections::BTreeMap;
 use std::ops::Range;
 
 /// Does Typst's lexer read `c` as a newline where the emitter writes document
@@ -446,6 +448,10 @@ impl<'a> Emit<'a> {
                 self.emit_quote(i..j, depth);
                 Some(j)
             }
+            Container::Element { name, attrs, .. } => {
+                self.emit_element(i..j, depth, name, attrs);
+                Some(j)
+            }
         }
     }
 
@@ -586,6 +592,26 @@ impl<'a> Emit<'a> {
         self.end_newline = true;
     }
 
+    /// `#qm-element("keep", (:))[…]` around the run of an element the quill
+    /// declares at block scope, else `#[…]`, the children with nothing applied.
+    fn emit_element(&mut self, range: Range<usize>, depth: usize, name: &str, attrs: &BTreeMap<String, String>) {
+        self.open_line();
+        match element_call(self.honors, name, attrs, ElementScope::Block) {
+            Some(call) => {
+                self.out.push_str(&call);
+                self.out.push(')');
+            }
+            None => self.out.push('#'),
+        }
+        self.out.push_str("[\n");
+        self.end_newline = true;
+        self.emit_block_level(range, depth + 1);
+        self.open_line();
+        self.out.push(']');
+        self.out.push_str("\n\n");
+        self.end_newline = true;
+    }
+
     /// Leaves `end_newline` false: the caller owns the terminator.
     fn emit_segment(&mut self, range: Range<usize>) {
         let kind = self.rt.lines[range.start].kind.clone();
@@ -686,7 +712,8 @@ impl<'a> Emit<'a> {
     ) -> Vec<(Range<usize>, Range<usize>, EscapeCtx)> {
         let mut runs = Vec::new();
 
-        let (mut wraps, codes) = wraps_and_codes(self.overlapping_marks(lo, hi), lo, hi);
+        let honors = self.honors;
+        let (mut wraps, codes) = wraps_and_codes(self.overlapping_marks(lo, hi), lo, hi, honors);
         // Atomic code spans can't carry partial styling.
         clip_wraps_to_codes(&mut wraps, &codes);
 
@@ -854,7 +881,13 @@ fn next_boundary(
 
 /// The wrapping/atomic marks overlapping `[lo, hi)`, clamped to it: a mark
 /// entirely outside is dropped, one straddling is clipped to the window edges.
-fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usize, usize)>) {
+/// An element mark wraps only where `honors` declares it inline.
+fn wraps_and_codes(
+    marks: &[Mark],
+    lo: usize,
+    hi: usize,
+    honors: &Honors,
+) -> (Vec<Wrap>, Vec<(usize, usize)>) {
     let mut wraps = Vec::new();
     let mut codes = Vec::new();
     for m in marks {
@@ -879,12 +912,45 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
                 end: e,
                 open: format!("#link(\"{}\")[", escape_string(url)),
             }),
+            MarkKind::Element { name, attrs } => {
+                if let Some(call) = element_call(honors, name, attrs, ElementScope::Inline) {
+                    wraps.push(Wrap { start: s, end: e, open: format!("{call}, inline: true)[") });
+                }
+            }
             // `Anchor` is identity: a handle, with no Typst spelling.
             MarkKind::Anchor { .. } => {}
         }
     }
     codes.sort_unstable();
     (wraps, codes)
+}
+
+/// The `#qm-element(name, attrs` a call to the helper's dispatcher opens with,
+/// its argument list left open, when `honors` declares element `name` in
+/// `scope`. The attributes are a dictionary, keys sorted, each value
+/// [`Honors::element_attrs`] made: a declared `date` or `datetime` a
+/// `datetime(..)`, every other one its JSON literal.
+fn element_call(honors: &Honors, name: &str, attrs: &BTreeMap<String, String>, scope: ElementScope) -> Option<String> {
+    let decl = honors.element(name, scope)?;
+    let entries: Vec<String> = honors
+        .element_attrs(name, attrs)
+        .into_iter()
+        .map(|(attr, value)| {
+            let kind = decl.attrs.get(&attr).and_then(|schema| match schema.r#type {
+                FieldType::Date => Some(DateKind::Date),
+                FieldType::DateTime => Some(DateKind::DateTime),
+                _ => None,
+            });
+            let json = value.as_json();
+            let value = kind
+                .zip(json.as_str())
+                .and_then(|(kind, s)| datetime_constructor(s, kind))
+                .unwrap_or_else(|| lit(json));
+            format!("\"{}\": {value}", escape_string(&attr))
+        })
+        .collect();
+    let dict = if entries.is_empty() { "(:)".to_string() } else { format!("({})", entries.join(", ")) };
+    Some(format!("#qm-element(\"{}\", {dict}", escape_string(name)))
 }
 
 /// One run of a mark sweep: the atomic `#raw(..)` code span starting at `pos`,
@@ -956,9 +1022,9 @@ fn linebreak_at(out: &mut String, chars: &[char], pos: usize) -> Option<(usize, 
 /// A cell is flat inline (no islands; a `\n` is a line break), so its markup
 /// carries no source-map runs. It opens at the head of the `[…]`
 /// [`table_markup`] wraps it in, which is a line anchor.
-fn cell_markup(text: &str, marks: &[Mark]) -> String {
+fn cell_markup(text: &str, marks: &[Mark], honors: &Honors) -> String {
     let chars: Vec<char> = text.chars().collect();
-    let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len());
+    let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len(), honors);
     clip_wraps_to_codes(&mut wraps, &codes);
     let mut out = String::new();
     sweep_marks(0, chars.len(), &wraps, &mut out, Tail::Anchor, |out, pos, tail| {
@@ -1015,7 +1081,7 @@ fn table_markup(props: &serde_json::Value, honors: &Honors) -> String {
 
     let cell = |v: &Value| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
-        let body = cell_markup(&text, &marks);
+        let body = cell_markup(&text, &marks, honors);
         let key = |k: TableKnob, set: &[&'static str]| -> Option<&'static str> {
             let value = honors.declares(k).then(|| v.get(k.key())?.as_str()).flatten()?;
             set.iter().copied().find(|s| *s == value)
@@ -1986,6 +2052,78 @@ mod tests {
              align: if table.align == auto { align.alignment } else { table.align },\n  \
              table.header([a], ),\n))"
         );
+    }
+
+    fn element_honors() -> Honors {
+        let yaml = "quill: { name: q, version: 1.0.0, backend: typst, description: x }\n\
+                    honors:\n  elements:\n    keep: { scope: block, attrs: { note: { type: string } } }\n    \
+                    hl:\n      scope: inline\n      attrs:\n        size: { type: integer }\n        \
+                    day: { type: date }\n        tone: { type: enum, values: [red, blue], default: red }\n\
+                    main:\n  fields: {}\n";
+        quillmark_core::quill::QuillConfig::from_yaml_with_warnings(yaml).expect("loads").0.honors
+    }
+
+    fn emit_under(md: &str, honors: &Honors) -> String {
+        let rt = from_markdown(md).expect("import").content;
+        emit_content(&rt, honors).expect("emit").markup
+    }
+
+    /// A block element the quill declares lowers through the dispatcher around
+    /// its run, and one it does not to a bare content block, inside a list item
+    /// as at the top; adjacent runs are adjacent calls.
+    #[test]
+    fn a_block_element_lowers_through_the_dispatcher_where_declared() {
+        let honors = element_honors();
+        let cases = [
+            (
+                "<quill-keep note=\"x\">\n\npara\n\n</quill-keep>",
+                "#qm-element(\"keep\", (\"note\": \"x\"))[\npara\n\n]\n\n",
+                "#[\npara\n\n]\n\n",
+            ),
+            (
+                "- a\n- <quill-keep>\n\n  b\n\n  - c\n\n  </quill-keep>",
+                "- a\n- #qm-element(\"keep\", (:))[\n  b\n\n  - c\n  ]\n\n\n",
+                "- a\n- #[\n  b\n\n  - c\n  ]\n\n\n",
+            ),
+            (
+                "<quill-keep>\na\n</quill-keep>\n<quill-keep>\nb\n</quill-keep>",
+                "#qm-element(\"keep\", (:))[\na\n\n]\n\n#qm-element(\"keep\", (:))[\nb\n\n]\n\n",
+                "#[\na\n\n]\n\n#[\nb\n\n]\n\n",
+            ),
+        ];
+        for (md, declared, bare) in cases {
+            assert_eq!(emit_under(md, &honors), declared, "{md:?}");
+            assert_eq!(emit_under(md, &Honors::default()), bare, "{md:?}");
+        }
+    }
+
+    /// An inline element the quill declares wraps its text in a dispatcher
+    /// call, in prose and a table cell, its attributes coerced as declared, a
+    /// refused one and an undeclared one as written, a default filling one left
+    /// out; at a scope the quill does not declare it, the text stands bare.
+    #[test]
+    fn an_inline_element_wraps_where_declared() {
+        let honors = element_honors();
+        let cases = [
+            (
+                "a <quill-hl size=\"4\" day=\"2024-01-15\">b</quill-hl> c",
+                "a #qm-element(\"hl\", (\"day\": datetime(year: 2024, month: 1, day: 15), \"size\": 4, \
+                 \"tone\": \"red\"), inline: true)[b] c\n\n",
+            ),
+            (
+                "a <quill-hl size=\"big\" x=\"y\">b</quill-hl> c",
+                "a #qm-element(\"hl\", (\"size\": \"big\", \"tone\": \"red\", \"x\": \"y\"), inline: true)[b] c\n\n",
+            ),
+            (
+                "| <quill-hl>x</quill-hl> |\n|---|",
+                "#table(\n  columns: 1,\n  table.header([#qm-element(\"hl\", (\"tone\": \"red\"), inline: true)[x]], ),\n)\n\n",
+            ),
+            ("a <quill-keep>b</quill-keep> c", "a b c\n\n"),
+        ];
+        for (md, declared) in cases {
+            assert_eq!(emit_under(md, &honors), declared, "{md:?}");
+        }
+        assert_eq!(emit_under(cases[0].0, &Honors::default()), "a b c\n\n");
     }
 
     #[test]

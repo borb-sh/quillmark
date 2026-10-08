@@ -121,14 +121,15 @@ fn a_malformed_declaration_is_a_load_error_naming_its_class() {
 }
 
 #[test]
-fn a_backend_typesetting_no_table_honors_no_table_knob() {
-    let yaml = "quill: { name: f, version: 1.0.0, backend: acroform, description: x }\n\
-                honors: { cell: [align] }\nmain:\n  fields: {}\n";
-    let errors = QuillConfig::from_yaml_with_warnings(yaml).expect_err("acroform declines tables");
-    assert_eq!(codes(&errors), vec!["quill::invalid_honors"]);
-    let yaml = "quill: { name: f, version: 1.0.0, backend: acroform, description: x }\n\
-                honors: { elements: { keep: { scope: block } } }\nmain:\n  fields: {}\n";
-    assert!(QuillConfig::from_yaml_with_warnings(yaml).is_ok());
+fn a_backend_typesetting_no_table_honors_no_table_knob_and_no_element() {
+    for honors in ["{ cell: [align] }", "{ elements: { keep: { scope: block } } }"] {
+        let yaml = format!(
+            "quill: {{ name: f, version: 1.0.0, backend: acroform, description: x }}\n\
+             honors: {honors}\nmain:\n  fields: {{}}\n"
+        );
+        let errors = QuillConfig::from_yaml_with_warnings(&yaml).expect_err(honors);
+        assert_eq!(codes(&errors), vec!["quill::invalid_honors"], "{honors}");
+    }
 }
 
 #[test]
@@ -145,6 +146,66 @@ fn an_element_coerces_its_declared_attributes_and_copies_the_rest() {
     assert_eq!(coerced["size"].as_json(), &json!(4));
     assert_eq!(coerced["other"].as_json(), &json!("x"));
     assert_eq!(config.coerce_element("unknown", &attrs).unwrap(), attrs);
+}
+
+/// The attributes an element renders with: each declared one coerced, kept as
+/// written where the coercion refuses it, a declared default filling one left
+/// out, every other one as written.
+#[test]
+fn an_element_renders_with_its_coerced_attributes_and_declared_defaults() {
+    let honors = config_with_sections(DECLARING).unwrap().honors;
+    let attrs = |pairs: &[(&str, &str)]| -> std::collections::BTreeMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    };
+    let json = |attrs: std::collections::BTreeMap<String, QuillValue>| -> serde_json::Value {
+        attrs.into_iter().map(|(k, v)| (k, v.into_json())).collect()
+    };
+    assert_eq!(
+        json(honors.element_attrs("stamp", &attrs(&[("tone", "red"), ("other", "x")]))),
+        json!({ "tone": "red", "size": 3, "other": "x" })
+    );
+    assert_eq!(
+        json(honors.element_attrs("stamp", &attrs(&[("size", "4")]))),
+        json!({ "size": 4 })
+    );
+    assert_eq!(
+        json(honors.element_attrs("stamp", &attrs(&[("size", "big")]))),
+        json!({ "size": "big" })
+    );
+    assert_eq!(json(honors.element_attrs("unknown", &attrs(&[("a", "1")]))), json!({ "a": "1" }));
+    assert!(honors.element("stamp", ElementScope::Inline).is_some());
+    assert!(honors.element("stamp", ElementScope::Block).is_none());
+}
+
+/// One warning per content field and element it uses at a scope the quill
+/// does not declare, counting runs and marks, prose and cells alike.
+#[test]
+fn validate_warns_once_per_field_and_undeclared_element() {
+    let body = "\n<quill-keep>\n\na\n\n</quill-keep>\n\n<quill-keep>\n\nb\n\n</quill-keep>\n\n\
+                <quill-stamp>c</quill-stamp> <quill-keep>d</quill-keep>\n\n\
+                | <quill-stamp>e</quill-stamp> |\n| --- |\n";
+    let md = format!("~~~\n$quill: q@1.0\n$kind: main\n~~~\n{body}");
+    let doc = Document::parse(&md).expect("parses").document;
+    let undeclared = |sections: &str| -> Vec<(String, serde_json::Value)> {
+        let quill = crate::quill::quill_from_yaml(&with_header(sections));
+        quill
+            .validate(&doc)
+            .into_iter()
+            .filter(|d| d.code.as_deref() == Some("validation::undeclared_construct"))
+            .map(|d| (d.path.unwrap_or_default(), json!(d.args)))
+            .collect()
+    };
+    assert_eq!(
+        undeclared("main:\n  fields: {}\n"),
+        vec![
+            ("main.body".to_string(), json!({ "construct": "element.keep", "count": 3 })),
+            ("main.body".to_string(), json!({ "construct": "element.stamp", "count": 2 })),
+        ]
+    );
+    assert_eq!(
+        undeclared(DECLARING),
+        vec![("main.body".to_string(), json!({ "construct": "element.keep", "count": 1 }))]
+    );
 }
 
 #[test]

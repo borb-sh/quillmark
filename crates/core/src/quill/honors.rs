@@ -6,10 +6,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use indexmap::IndexMap;
 use serde::Serialize;
 
+use super::config::{Leniency, QuillConfig};
 use super::{FieldSchema, FieldType};
+use crate::value::QuillValue;
 use quillmark_content::carrier::Element;
 use quillmark_content::island::IslandType;
-use quillmark_content::model::Content;
+use quillmark_content::model::{Container, Content, Mark, MarkKind};
 
 /// A table or cell layout key the content model stores and a quill renders only
 /// where its `honors:` declares it. Column `aligns` is not one: every Typst quill
@@ -70,9 +72,6 @@ impl TableKnob {
         if !self.on_cell() {
             return tables.filter(|props| props.get(self.key()).is_some()).count();
         }
-        fn slice(v: Option<&serde_json::Value>) -> &[serde_json::Value] {
-            v.and_then(serde_json::Value::as_array).map(Vec::as_slice).unwrap_or_default()
-        }
         let cells = |props: &serde_json::Value| {
             let rows = slice(props.get("rows")).iter().flat_map(|row| slice(Some(row)));
             slice(props.get("header"))
@@ -85,6 +84,45 @@ impl TableKnob {
     }
 }
 
+fn slice(v: Option<&serde_json::Value>) -> &[serde_json::Value] {
+    v.and_then(serde_json::Value::as_array).map(Vec::as_slice).unwrap_or_default()
+}
+
+/// Each element `content` uses, by name and scope, with how many times: a run
+/// of blocks at [`ElementScope::Block`], a mark inside a line of prose or a
+/// table cell at [`ElementScope::Inline`].
+pub(crate) fn element_uses(content: &Content) -> BTreeMap<(String, ElementScope), usize> {
+    let mut names: Vec<(&str, ElementScope)> = Vec::new();
+    let mut prev: &[Container] = &[];
+    for line in &content.lines {
+        for (depth, container) in line.containers.iter().enumerate() {
+            if let Container::Element { name, .. } = container {
+                if prev.get(..=depth) != Some(&line.containers[..=depth]) {
+                    names.push((name, ElementScope::Block));
+                }
+            }
+        }
+        prev = &line.containers;
+    }
+    let inline = |m: &Mark| match &m.kind {
+        MarkKind::Element { name, .. } => Some(name.clone()),
+        _ => None,
+    };
+    let mut marks: Vec<String> = content.marks.iter().filter_map(inline).collect();
+    for island in content.islands.iter().filter(|i| i.island_type == IslandType::Table) {
+        let rows = slice(island.props.get("rows")).iter().flat_map(|row| slice(Some(row)));
+        for cell in slice(island.props.get("header")).iter().chain(rows) {
+            marks.extend(quillmark_content::serial::parse_cell(cell).1.iter().filter_map(inline));
+        }
+    }
+    let mut uses = BTreeMap::new();
+    let block = names.into_iter().map(|(name, scope)| (name.to_string(), scope));
+    for key in block.chain(marks.into_iter().map(|name| (name, ElementScope::Inline))) {
+        *uses.entry(key).or_insert(0) += 1;
+    }
+    uses
+}
+
 impl std::fmt::Display for TableKnob {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
@@ -92,7 +130,7 @@ impl std::fmt::Display for TableKnob {
 }
 
 /// Where a declared element stands: around blocks, or around a run of text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ElementScope {
     Block,
@@ -124,6 +162,42 @@ impl Honors {
 
     pub fn declares(&self, knob: TableKnob) -> bool {
         self.knobs.contains(&knob)
+    }
+
+    /// Element `name`'s declaration, when the quill declares it in `scope`.
+    pub fn element(&self, name: &str, scope: ElementScope) -> Option<&ElementDecl> {
+        self.elements.get(name).filter(|decl| decl.scope == scope)
+    }
+
+    /// Element `name`'s attributes as it renders with them: each one its
+    /// declaration names coerced at render leniency, kept as written where the
+    /// coercion refuses it; a declared `default:` filling one `attrs` leaves
+    /// out; every other one as written.
+    pub fn element_attrs(&self, name: &str, attrs: &BTreeMap<String, String>) -> BTreeMap<String, QuillValue> {
+        let as_written = |v: &String| QuillValue::from_json(v.as_str().into());
+        let Some(decl) = self.elements.get(name) else {
+            return attrs.iter().map(|(k, v)| (k.clone(), as_written(v))).collect();
+        };
+        let mut out: BTreeMap<String, QuillValue> = attrs
+            .iter()
+            .map(|(attr, value)| {
+                let written = as_written(value);
+                let coerced = match decl.attrs.get(attr) {
+                    Some(schema) => {
+                        let path = format!("honors.elements.{name}.{attr}");
+                        QuillConfig::conform_value(&written, schema, &path, Leniency::Render).unwrap_or(written)
+                    }
+                    None => written,
+                };
+                (attr.clone(), coerced)
+            })
+            .collect();
+        for (attr, schema) in &decl.attrs {
+            if let Some(default) = &schema.default {
+                out.entry(attr.clone()).or_insert_with(|| default.clone());
+            }
+        }
+        out
     }
 
     /// Each declared construct's canonical spelling, one markdown example

@@ -23,6 +23,7 @@ use crate::model::{
 };
 use serde_json::{Map, Value};
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 /// Why canonical-JSON parsing failed. Structural only: a well-formed producer
 /// (this crate's serializer, storage, a binding) never trips these.
@@ -422,11 +423,40 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
             instance,
         }),
         "quote" => Ok(Container::Quote { instance }),
+        "element" => {
+            let (name, attrs) = element_payload(o)?;
+            Ok(Container::Element { name, attrs, instance })
+        }
         other => Err(ParseError::UnknownName {
             axis: "container",
             name: other.to_string(),
         }),
     }
+}
+
+/// An element's `attrs` bag, read one way on both lanes since it has no legacy
+/// spelling: `name` an element name the carrier does not reserve, and every
+/// other key an attribute name holding a string.
+fn element_payload(o: &Map<String, Value>) -> Result<(String, BTreeMap<String, String>), ParseError> {
+    use crate::carrier::{is_attr_name, is_element_name, RESERVED};
+    let bag = o
+        .get("attrs")
+        .and_then(Value::as_object)
+        .ok_or(ParseError::Shape("element attrs"))?;
+    let name = bag
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|n| is_element_name(n) && !RESERVED.contains(n))
+        .ok_or(ParseError::Shape("element name"))?;
+    let mut attrs = BTreeMap::new();
+    for (key, value) in bag.iter().filter(|(k, _)| *k != "name") {
+        let value = value
+            .as_str()
+            .filter(|_| is_attr_name(key))
+            .ok_or(ParseError::Shape("element attr"))?;
+        attrs.insert(key.clone(), value.to_string());
+    }
+    Ok((name.to_string(), attrs))
 }
 
 /// Encode a [`Mark`] (`start`, `end`, `type`, …) into its canonical wire object.
@@ -492,6 +522,10 @@ pub fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
                 .unwrap_or_default()
                 .to_string(),
         },
+        "element" => {
+            let (name, attrs) = element_payload(o)?;
+            MarkKind::Element { name, attrs }
+        }
         other => {
             return Err(ParseError::UnknownName {
                 axis: "mark type",
@@ -1915,6 +1949,10 @@ mod tests {
             MarkKind::Strike,
             MarkKind::Code,
             MarkKind::Link { url: "u".into() },
+            MarkKind::Element {
+                name: "hl".into(),
+                attrs: [("tone".to_string(), "warm".to_string())].into(),
+            },
             MarkKind::Anchor { id: "a".into() },
         ];
         // Exhaustive on purpose: a new variant is a compile error here, where
@@ -1927,6 +1965,7 @@ mod tests {
                 | MarkKind::Strike
                 | MarkKind::Code
                 | MarkKind::Link { .. }
+                | MarkKind::Element { .. }
                 | MarkKind::Anchor { .. } => {}
             }
         }

@@ -34,8 +34,18 @@ its four surfaces:
 | Blueprint | carries it in the closing table example | teaches nothing |
 | `validate` | silent | `validation::undeclared_construct` per field |
 
-A declared element is emitted and taught, and the plate, the editor's store and
-`validate` are inert on it, deliberately: the content model holds no element.
+Each element meets it with a run that misrenders unwrapped (`keep`: a signature
+block a page break splits), and states the same four surfaces:
+
+| Surface | A declared element | An undeclared element |
+|---|---|---|
+| Plate | lowers it through the plate's renderer, else the helper's built-in | renders what it wraps |
+| Editor | offers it, from `schema().honors` | stores it all the same |
+| Blueprint | carries its spelling | teaches nothing |
+| `validate` | silent | `validation::undeclared_construct` per field and name |
+
+The inline scope ships with the block one as a stated exception, with no
+witness of its own: one declaration and one dispatcher serve both.
 
 Supported field types:
 

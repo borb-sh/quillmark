@@ -125,6 +125,26 @@ A [`matrix`](quill-yaml-reference.md#matrix-a-vocabulary-the-author-ticks) reach
 
 Each row is `(id, title, held, value, path)`, roster members in roster order and then any items an open matrix's document adds. `value` is the member's columns, `none` where unheld, and `path` its address: claiming it with `field-region` makes an unticked box clickable in an editor preview. An added item's `title` is a cell of its own, so `ink(row.value).title` prints it click-to-edit. `dict` is the dictionary that declares the matrix: `data`, a card, or a table row.
 
+### Elements
+
+A `quill-<name>` element the quill declares under [`honors.elements`](quill-yaml-reference.md#honors-section) renders through the helper's `elements` registry. A plate registers a renderer under the element's name, taking its attributes and its content:
+
+```typst
+#import "@local/quillmark-helper:0.1.0": data, elements
+
+#elements.update(e => e + (stamp: (attrs, body) => text(fill: red, body)))
+
+#data.at("$body", default: [])
+```
+
+The update applies to the content after it in the document, so it goes above the body it styles. `attrs` is a dictionary keyed by attribute name:
+
+- A declared attribute arrives at its declared type, a `date` or `datetime` as a Typst `datetime`, and one its type refuses as the string written.
+- A declared `default:` fills an attribute the document leaves out.
+- An attribute the declaration does not name arrives as its string.
+
+With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone. An element the quill does not declare at its scope draws its content alone, and `quill.validate(doc)` warns `validation::undeclared_construct`.
+
 ## Modules
 
 A plate imports the Quill's other `.typ` files by the paths Typst resolves: a

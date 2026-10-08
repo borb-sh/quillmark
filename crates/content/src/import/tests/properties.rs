@@ -2,8 +2,9 @@
 //! markdown at top level, in list items and in quotes, with and without the
 //! blank lines CommonMark wants; tags inline in prose and in cells; comments
 //! with text after them. The import never panics, every word of prose outside a
-//! comment reaches the content, each dropped opening tag is counted once, and
-//! the content is the fixed point of a re-import.
+//! comment reaches the content, each dropped opening tag is counted once (a
+//! `quill-keep` element only when left unclosed), and the content is the fixed
+//! point of a re-import.
 
 use proptest::prelude::*;
 
@@ -62,7 +63,7 @@ fn inline() -> impl Strategy<Value = Piece> {
         .prop_map(|(w, (name, attrs))| Piece {
             md: format!("<{name}{attrs}>{w}</{name}>"),
             words: vec![w],
-            tags: vec![name.to_string()],
+            tags: (name != "quill-keep").then(|| name.to_string()).into_iter().collect(),
             ..Piece::default()
         });
     prop_oneof![
@@ -196,7 +197,8 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
                 md.push_str(&format!("</{name}>"));
             }
             let folds = name == "quill-table" && closed && tables == 1 && !other;
-            if !folds {
+            let models = name == "quill-keep" && closed;
+            if !folds && !models {
                 tags.push(name.to_string());
             }
             // A closing tag straight after a table's rows is one more row to the
@@ -224,7 +226,10 @@ fn compact_nested() -> impl Strategy<Value = Piece> {
     )
         .prop_map(|(outer, inner, indent, body)| {
             let body_md = prefixed(&body.md, indent, indent);
-            let mut tags = vec![outer.to_string(), inner.to_string()];
+            let mut tags = vec![inner.to_string()];
+            if outer != "quill-keep" {
+                tags.push(outer.to_string());
+            }
             tags.extend(body.tags);
             Piece {
                 md: format!("<{outer}>\n{indent}<{inner}>\n{body_md}\n{indent}</{inner}>\n</{outer}>"),
