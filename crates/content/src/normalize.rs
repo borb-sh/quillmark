@@ -5,6 +5,7 @@
 use crate::carrier;
 use crate::html::{self, BlockKind};
 use pulldown_cmark::{Event, Options, Parser, Tag as PTag, TagEnd};
+use std::borrow::Cow;
 use std::ops::Range;
 
 /// The Unicode bidi formatting controls, which sit adjacent to `**`/`_` and
@@ -515,6 +516,9 @@ fn closes_fence(content: &str, c: char, n: usize) -> bool {
 fn html_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
     let kind = html::block_start(first.content)?;
+    if let Some(edit) = close_edit(kind, lines) {
+        return Some(edit);
+    }
     let (start, (rows, tags), tag_needs_close) = match kind.end_marker() {
         Some(_) => (last.start, (rescue_end(kind, last)?, Vec::new()), true),
         None => (first.start, transparent(lines), false),
@@ -529,6 +533,36 @@ fn html_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     })
 }
 
+/// The edit respelling a type 1 block's first closing tag as the block's own in
+/// lowercase, where it is spelled otherwise: CommonMark ends the block at that
+/// line, and the parser only at its own closing tag in lowercase.
+fn close_edit(kind: BlockKind, lines: &[SrcLine]) -> Option<Edit> {
+    let BlockKind::Verbatim(close) = kind else {
+        return None;
+    };
+    let (line, r) = lines
+        .iter()
+        .find_map(|l| html::verbatim_close(l.content).map(|r| (l, r)))?;
+    let at = line.start + line.prefix.len();
+    (&line.content[r.clone()] != close).then(|| Edit {
+        range: at + r.start..at + r.end,
+        with: close.to_string(),
+        ..Edit::default()
+    })
+}
+
+/// `s`, a kept type 1–5 block's text through its end marker, with a type 1
+/// block's closing tag respelled as [`close_edit`] respells it.
+fn respelled(kind: BlockKind, s: &str) -> Cow<'_, str> {
+    let BlockKind::Verbatim(close) = kind else {
+        return Cow::Borrowed(s);
+    };
+    match html::verbatim_close(s) {
+        Some(r) if &s[r.clone()] != close => Cow::Owned(format!("{}{close}{}", &s[..r.start], &s[r.end..])),
+        _ => Cow::Borrowed(s),
+    }
+}
+
 /// A type 1–5 block's last line, split after its end marker when text follows
 /// it, which keeps the line's indent; `None` when nothing follows, or when a
 /// piece of what follows would open a block running past the line, which then
@@ -540,7 +574,7 @@ fn rescue_end(kind: BlockKind, last: &SrcLine) -> Option<Rows> {
         return None;
     }
     let mut rows = Rows::default();
-    rows.push(format!("{}{}", last.prefix, &last.content[..at]), Kind::Raw);
+    rows.push(format!("{}{}", last.prefix, respelled(kind, &last.content[..at])), Kind::Raw);
     let prefix = format!("{}{}", continuation_of(last.prefix), shallow_lead(last.content));
     loop {
         match classify(frag) {
@@ -554,7 +588,7 @@ fn rescue_end(kind: BlockKind, last: &SrcLine) -> Option<Rows> {
             }
             Piece::Opener(kind) => {
                 let end = html::block_end(kind, frag)?;
-                rows.push(format!("{prefix}{}", &frag[..end]), Kind::Raw);
+                rows.push(format!("{prefix}{}", respelled(kind, &frag[..end])), Kind::Raw);
                 frag = frag[end..].trim_start();
             }
             Piece::Open | Piece::Fence(..) => return None,
@@ -622,7 +656,7 @@ fn transparent(lines: &[SrcLine]) -> (Rows, Vec<String>) {
                 }
                 Piece::Opener(kind) if !continuation => {
                     if let Some(end) = html::block_end(kind, t) {
-                        rows.push(format!("{prefix}{lead}{}", &t[..end]), Kind::Raw);
+                        rows.push(format!("{prefix}{lead}{}", respelled(kind, &t[..end])), Kind::Raw);
                         frag = t[end..].trim_start();
                     } else {
                         let close = (i + 1..lines.len())
@@ -635,7 +669,8 @@ fn transparent(lines: &[SrcLine]) -> (Rows, Vec<String>) {
                             rows.push(format!("{}{nest}{}", line.prefix, line.content), Kind::Raw);
                         }
                         let closing = lines[j];
-                        rows.push(format!("{}{nest}{}", closing.prefix, &closing.content[..end]), Kind::Raw);
+                        let close = respelled(kind, &closing.content[..end]);
+                        rows.push(format!("{}{nest}{close}", closing.prefix), Kind::Raw);
                         i = j;
                         indent = shallow_lead(closing.content);
                         frag = closing.content[end..].trim_start();
@@ -781,7 +816,8 @@ fn join_tag(t: &str, rest: &[SrcLine]) -> Option<(usize, usize)> {
 struct Run {
     /// The first inline event's offset.
     start: usize,
-    heading: bool,
+    /// Where the heading holding the run ends, its underline included.
+    heading: Option<usize>,
     /// Each inline HTML event's offset.
     tags: Vec<usize>,
 }
@@ -791,7 +827,7 @@ struct Run {
 struct Runs {
     open: Option<Run>,
     tables: usize,
-    heading: bool,
+    heading: Option<usize>,
 }
 
 impl Runs {
@@ -812,8 +848,8 @@ impl Runs {
             return None;
         }
         match event {
-            Event::Start(PTag::Heading { .. }) => self.heading = true,
-            Event::End(TagEnd::Heading(_)) => self.heading = false,
+            Event::Start(PTag::Heading { .. }) => self.heading = Some(range.end),
+            Event::End(TagEnd::Heading(_)) => self.heading = None,
             Event::Start(PTag::Table(_)) => self.tables += 1,
             Event::End(TagEnd::Table) => self.tables -= 1,
             _ => {}
@@ -850,11 +886,15 @@ pub(crate) fn is_inline(event: &Event) -> bool {
 /// quote markers is written inside the run's containers; a lazy one keeps its
 /// own prefix and leaves the quotes it lacks, as the blank line above it does,
 /// and so does a line holding an element tag, which closes its element where
-/// its own indentation stands. A heading's first line is never a tag line.
-fn run_tag_line_edits(src: &str, run: &Run) -> Option<Edit> {
+/// its own indentation stands. A heading's first line is never a tag line, and
+/// every tag line under a setext heading's text moves, so written, below its
+/// underline, where the heading has ended.
+fn run_tag_line_edits(src: &str, run: &Run) -> Vec<Edit> {
     let escaped = run.start > 0 && src.as_bytes()[run.start - 1] == b'\\';
     let first = SrcLine::at(src, run.start - usize::from(escaped));
     let quotes = |p: &str| p.bytes().filter(|&b| b == b'>').count();
+    let mut edits = Vec::new();
+    let mut moved = String::new();
     let mut seen = None;
     for &at in &run.tags {
         let line = SrcLine::at(src, at);
@@ -864,7 +904,7 @@ fn run_tag_line_edits(src: &str, run: &Run) -> Option<Edit> {
         seen = Some(line.start);
         let opens = line.start == first.start;
         let leads = if opens {
-            at == run.start && !run.heading
+            at == run.start && run.heading.is_none()
         } else {
             line.prefix.bytes().all(|b| matches!(b, b'>' | b' ' | b'\t'))
         };
@@ -879,19 +919,38 @@ fn run_tag_line_edits(src: &str, run: &Run) -> Option<Edit> {
         };
         let split: Vec<&str> = tags.iter().map(|t| &line.content[t.span.clone()]).collect();
         let split = split.join(&format!("\n{}", continuation_of(&cont)));
+        let range = line.start..line.end();
+        if run.heading.is_some() {
+            moved.push_str(&format!("\n{cont}{split}"));
+            edits.push(Edit {
+                range: range.start - 1..range.end,
+                ..Edit::default()
+            });
+            continue;
+        }
         let with = if opens {
             format!("{}{split}", line.prefix)
         } else {
             format!("{}\n{cont}{split}", blank_of(line.prefix))
         };
-        let range = line.start..line.end();
-        return (with != src[range.clone()]).then_some(Edit {
-            range,
-            with,
+        if with != src[range.clone()] {
+            edits.push(Edit {
+                range,
+                with,
+                ..Edit::default()
+            });
+        }
+        return edits;
+    }
+    if let Some(end) = run.heading.filter(|_| !moved.is_empty()) {
+        let underline = SrcLine::at(src, end - 1).end();
+        edits.push(Edit {
+            range: underline..underline,
+            with: moved,
             ..Edit::default()
         });
     }
-    None
+    edits
 }
 
 fn tag_row_edits(src: &str, rows: &[SrcLine]) -> Vec<Edit> {

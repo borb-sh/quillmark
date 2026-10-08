@@ -202,11 +202,11 @@ describe('Quillmark.quill', () => {
     }
   })
 
-  // `RenderResult.warnings` is the document's parse warnings ahead of the
-  // render's own, and a parse warning carries `args`: a value conform cannot
-  // rest warns and renders. `args` is declared `Record<string, unknown>`, so it
-  // must read as one on the far side.
-  it('a merged parse warning carries its args as a plain object', () => {
+  // A value conform cannot rest warns on `doc.warnings` and renders, and a
+  // render's warnings are its own: an image under Typst declines there. Each
+  // warning's `args` is declared `Record<string, unknown>`, so it must read as
+  // one on the far side.
+  it('a load warning and a render warning carry their args as plain objects', () => {
     const NOTES_QUILL_YAML = `quill:
   name: notes
   version: "1.0"
@@ -228,15 +228,22 @@ main:
     const quill = Quill.fromTree(
       makeQuill({ name: 'notes', plate: NOTES_PLATE, quillYaml: NOTES_QUILL_YAML }),
     )
-    const doc = quill.parse('~~~card-yaml\n$quill: notes\nnotes: [42]\n~~~\n\nAlpha\n')
+    const doc = quill.parse(
+      '~~~card-yaml\n$quill: notes\nnotes: [42]\n~~~\n\nAlpha ![a](https://example.com/a.png)\n',
+    )
+
+    const loaded = doc.warnings.find((d) => d.code === 'conform::field_decode')
+    expect(loaded).toBeDefined()
+    expect(loaded.args).not.toBeInstanceOf(Map)
+    expect(loaded.args.field).toBe('notes')
 
     const result = engine.render(quill, doc, { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
-
-    const w = result.warnings.find((d) => d.code === 'conform::field_decode')
-    expect(w).toBeDefined()
-    expect(w.args).not.toBeInstanceOf(Map)
-    expect(w.args.field).toBe('notes')
+    expect(result.warnings.map((d) => d.code)).not.toContain('conform::field_decode')
+    const declined = result.warnings.find((d) => d.code === 'backend::declined_construct')
+    expect(declined).toBeDefined()
+    expect(declined.args).not.toBeInstanceOf(Map)
+    expect(declined.args.construct).toBe('image')
   })
 
   it('session.regions() is always a non-null array, keyed by DocPath', () => {

@@ -46,6 +46,9 @@ impl PyQuillmark {
     /// `today` is the render date, a `datetime.date` (default
     /// `datetime.date.today()`): a `today` date field renders as it, and so does
     /// a plate's `datetime.today()`.
+    ///
+    /// The result's `warnings` are every `quill.validate(doc)` warning, then
+    /// the compile's; the load's stay on `doc.warnings`.
     #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, regions=false, today=None))]
     #[allow(clippy::too_many_arguments)]
     fn render(
@@ -70,9 +73,6 @@ impl PyQuillmark {
             .map_err(convert_render_error)?;
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
         result.regions = quillmark_core::region::regions_to_doc_path(result.regions, &kinds);
-        result
-            .warnings
-            .splice(0..0, doc.parse_warnings.iter().cloned());
         PyRenderResult::new(doc.py(), result)
     }
 

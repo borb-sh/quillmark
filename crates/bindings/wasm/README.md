@@ -400,11 +400,11 @@ A document that compiles to zero pages still produces a valid session
 `pageCount === 0` to render a "no pages to preview" UI rather than relying on
 the throw.
 
-Their `warnings` differ in reach. `engine.render` returns one list for the
-whole pipeline: `doc.warnings` (parse and `conform::*`), then every
-`quill.validate(doc)` warning, then the compile's own. A session outlives
-the document it opened from, so `session.render` and `session.warnings` carry
-the compile's alone — read `doc.warnings` and `quill.validate(doc)` beside them.
+Their `warnings` differ in reach. `engine.render` returns every
+`quill.validate(doc)` warning, then the compile's own; `session.render` and
+`session.warnings` carry the compile's alone, so read `quill.validate(doc)`
+beside them. Neither carries the load's: those stay on `doc.warnings`, and a
+revise's on its receipt.
 
 ### Canvas Preview
 

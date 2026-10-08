@@ -622,9 +622,10 @@ impl Quillmark {
     }
 
     /// Render `doc` against `quill` in one shot: `open` + `LiveSession.render`,
-    /// with `doc.warnings`, then every `quill.validate` warning, ahead of the
-    /// compile's in `warnings`. An unset `output_format` falls back to the
-    /// backend's first supported format. `today` reads as on `open`.
+    /// with every `quill.validate` warning ahead of the compile's in
+    /// `warnings`; the load's stay on `doc.warnings`. An unset `output_format`
+    /// falls back to the backend's first supported format. `today` reads as on
+    /// `open`.
     #[wasm_bindgen(js_name = render)]
     pub fn render(
         &self,
@@ -642,13 +643,10 @@ impl Quillmark {
             .inner
             .render(&quill.inner, &doc.inner, today, &rust_opts)
             .map_err(|e| WasmError::from(e).to_js_value())?;
-        let mut warnings: Vec<Diagnostic> =
-            doc.parse_warnings.iter().cloned().map(Into::into).collect();
-        warnings.extend(result.warnings.into_iter().map(Into::into));
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
         to_ts_or_throw(&RenderResult {
             artifacts: result.artifacts.into_iter().map(Into::into).collect(),
-            warnings,
+            warnings: result.warnings.into_iter().map(Into::into).collect(),
             output_format: result.output_format.into(),
             regions: quillmark_core::region::regions_to_doc_path(result.regions, &kinds)
                 .into_iter()

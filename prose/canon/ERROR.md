@@ -123,13 +123,11 @@ families:
   card costume: [CARDS.md](CARDS.md#card-row-matrix)). It advises where a load
   error would overreach — the loader sees a correlate, not the fact.
 - **Parse warnings**: the `warnings` on the `Parsed` that `Document::parse`
-  returns (e.g. a `~~~` opener missing its blank line). The CLI render and the
-  WASM and Python one-shot renders splice the whole `Parsed.warnings` carrier —
-  this family plus the `conform::*` set that `Quill::parse` appends to it —
-  into `RenderResult.warnings` ahead of the validation and compile warnings.
-  In WASM the surface that merges is the runtime `Engine.render`, reading the
-  carrier off the caller's `doc.warnings`: the backend-memory clone it renders
-  is built by `Document.fromStored`, which carries none. A tag warning
+  returns (e.g. a `~~~` opener missing its blank line), which both bindings
+  keep on `doc.warnings` beside the `conform::*` set `Quill::parse` appends.
+  They report the load, so no render carries them: a revise or a store can
+  change what the document holds after it. The CLI's `render`, which parses
+  and renders in one command, prints them ahead of the render's. A tag warning
   (`parse::unsupported_yaml_tag`) anchors at the tagged node's `path`, a
   card's under its stored `$kind` as `pathFor` mints it. One on a `$` key or
   inside `$ext` or `$seed`, which have no document address, carries none.

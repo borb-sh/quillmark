@@ -202,6 +202,10 @@ struct Inline {
     /// Each element whose open tag this run has read and whose close it awaits,
     /// its `from` the position its mark starts at.
     elements: Vec<Opened>,
+    /// Each `<u>` this run has read and whose `</u>` it awaits, innermost last:
+    /// a bare one's start position and tag offset, `None` for one carrying an
+    /// attribute, which pairs and underlines nothing.
+    underlines: Vec<Option<(usize, usize)>>,
 }
 
 impl Inline {
@@ -273,10 +277,35 @@ impl Inline {
         });
     }
 
-    /// End the run: each element still open drops as unclosed.
-    fn drop_elements(&mut self, dropped: &mut Dropped) {
+    /// Pair one `<u>` tag: a `</u>` closes the innermost open `<u>` wherever
+    /// it sits among the marks, so an underline crosses any other, and one
+    /// closing nothing drops silently.
+    fn underline(&mut self, tag: UTag) {
+        match tag {
+            UTag::Open { at } => self.underlines.push(Some((self.pos, at))),
+            UTag::Held => self.underlines.push(None),
+            UTag::Close => {
+                if let Some(Some((start, _))) = self.underlines.pop() {
+                    if start < self.pos {
+                        self.marks.push(Mark {
+                            start,
+                            end: self.pos,
+                            kind: MarkKind::Underline,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    /// End the run: each element and each bare `<u>` still open drops as
+    /// unclosed.
+    fn drop_open(&mut self, dropped: &mut Dropped) {
         for e in self.elements.drain(..) {
             dropped.add(&format!("{}{}", carrier::PREFIX, e.name), e.at);
+        }
+        for (_, at) in self.underlines.drain(..).flatten() {
+            dropped.add("u", at);
         }
     }
 
@@ -532,8 +561,13 @@ impl Builder {
 
     fn check_depth(&self) -> Result<(), ImportError> {
         // Container path plus open marks approximates the structural depth the
-        // typst backend caps; bound it identically for parity.
-        let depth = self.containers.len() + self.inline.open.len() + self.inline.elements.len();
+        // typst backend caps; bound it identically for parity. Nested
+        // underlines union into one mark, so they count once.
+        let underlined = self.inline.underlines.iter().any(Option::is_some);
+        let depth = self.containers.len()
+            + self.inline.open.len()
+            + self.inline.elements.len()
+            + usize::from(underlined);
         if depth > MAX_NESTING_DEPTH {
             return Err(ImportError::NestingTooDeep {
                 depth,
@@ -548,17 +582,21 @@ impl Builder {
         I: Iterator<Item = Fixed<'a>>,
     {
         for item in iter {
-            let (event, underline) = match item {
-                Fixed::Event(event, underline) => (event, underline),
+            let event = match item {
+                Fixed::Event(event) => event,
                 Fixed::Element(tag) => {
                     self.element_tag(tag)?;
                     continue;
                 }
+                Fixed::Underline(tag) => {
+                    self.underline_tag(tag)?;
+                    continue;
+                }
             };
             // An inline run ends at the first event outside it, and the
-            // elements it left open with it.
+            // elements and underlines it left open with it.
             if self.image_depth == 0 && self.table.is_none() && !crate::normalize::is_inline(&event) {
-                self.inline.drop_elements(&mut self.dropped);
+                self.inline.drop_open(&mut self.dropped);
             }
             // Image alt collection intercepts everything until the image closes.
             if self.image_depth > 0 {
@@ -583,7 +621,7 @@ impl Builder {
             // to the accumulator, so each cell is stored as canonical
             // `{text, marks}` with no markdown re-parse downstream.
             if self.table.is_some() {
-                self.table_event(&event, underline);
+                self.table_event(&event);
                 if matches!(event, Event::End(TagEnd::Table)) {
                     self.emit_table();
                 }
@@ -591,7 +629,7 @@ impl Builder {
             }
 
             match event {
-                Event::Start(tag) => self.start_tag(tag, underline)?,
+                Event::Start(tag) => self.start_tag(tag)?,
                 Event::End(tag) => self.end_tag(tag),
                 Event::Text(t) => {
                     if self.in_code {
@@ -643,7 +681,7 @@ impl Builder {
         Ok(())
     }
 
-    fn start_tag<'a>(&mut self, tag: Tag<'a>, underline: bool) -> Result<(), ImportError> {
+    fn start_tag<'a>(&mut self, tag: Tag<'a>) -> Result<(), ImportError> {
         match tag {
             // Block starts arm a pending line (new block, continues = false);
             // the next inline content opens it.
@@ -736,8 +774,7 @@ impl Builder {
                 self.check_depth()?;
             }
             Tag::Strong => {
-                let kind = strong_kind(underline);
-                self.open_mark(kind);
+                self.open_mark(MarkKind::Strong);
                 self.check_depth()?;
             }
             Tag::Strikethrough => {
@@ -861,6 +898,27 @@ impl Builder {
         Ok(())
     }
 
+    /// Pair one `<u>` tag in the run or table cell it stands in. In an image's
+    /// alt text, where nothing is marked, it underlines nothing.
+    fn underline_tag(&mut self, tag: UTag) -> Result<(), ImportError> {
+        if self.image_depth > 0 {
+            return Ok(());
+        }
+        if let Some(acc) = self.table.as_mut() {
+            if let Some(cell) = acc.cell.as_mut().filter(|_| acc.img_depth == 0) {
+                cell.underline(tag);
+            }
+            return Ok(());
+        }
+        if matches!(tag, UTag::Open { .. }) {
+            // Resolve an armed line first, as a mark does, so the underline
+            // starts after the line boundary.
+            self.ensure_open(LineKind::Para);
+        }
+        self.inline.underline(tag);
+        self.check_depth()
+    }
+
     /// Drop each block element still open where its list item, quote or the
     /// body ends: its tags drop and what it wraps stays, [`Self::finish`]
     /// taking it off every line's path.
@@ -906,7 +964,7 @@ impl Builder {
     /// Route one table event: structural events shape the accumulator, inline
     /// events build the open cell with the same [`Inline`] machinery prose uses.
     /// A cell is flat inline, so its marks are USV offsets into its own text.
-    fn table_event(&mut self, event: &Event, underline: bool) {
+    fn table_event(&mut self, event: &Event) {
         let Some(acc) = self.table.as_mut() else {
             return;
         };
@@ -948,7 +1006,7 @@ impl Builder {
                     while !cell.open.is_empty() {
                         cell.close_mark();
                     }
-                    cell.drop_elements(&mut self.dropped);
+                    cell.drop_open(&mut self.dropped);
                     acc.cur_row
                         .push(crate::serial::cell_to_value(&cell.text, &cell.marks));
                 }
@@ -982,7 +1040,7 @@ impl Builder {
             }
             Event::Start(Tag::Strong) => {
                 if let Some(c) = acc.cell.as_mut() {
-                    c.open_mark(strong_kind(underline));
+                    c.open_mark(MarkKind::Strong);
                 }
             }
             Event::Start(Tag::Strikethrough) => {
@@ -1032,7 +1090,7 @@ impl Builder {
     }
 
     fn finish(mut self) -> (Content, Dropped) {
-        self.inline.drop_elements(&mut self.dropped);
+        self.inline.drop_open(&mut self.dropped);
         self.drop_unclosed_blocks();
         if let Some(last) = self.cur.take() {
             self.lines.push(last);
@@ -1048,7 +1106,7 @@ impl Builder {
         if self.lines.is_empty() {
             self.lines.push(Line::new(LineKind::Para));
         }
-        // Close any marks left open (unterminated `<u>`, malformed input).
+        // Close any marks left open (malformed input).
         while !self.inline.open.is_empty() {
             self.close_mark();
         }
@@ -1086,10 +1144,9 @@ pub(crate) fn sanitize_lang(lang: &str) -> String {
 }
 
 // `MarkdownFixer` is the raw-HTML filter between pulldown and the builder: it
-// allowlists an inline `<u>…</u>` as underline (rewritten to Strong start/end,
-// the classification riding the event) and an inline `<br>` as a hard break,
-// passes each element tag the builder pairs, and drops every other raw HTML
-// event, an HTML block whole. It counts each tag it drops, so the warnings and
+// passes each inline `<u>` and `</u>` and each element tag for the builder to
+// pair, allowlists an inline `<br>` as a hard break, and drops every other raw
+// HTML event, an HTML block whole. It counts each tag it drops, so the warnings and
 // the drop cannot disagree, and reads the `quill-table` wrappers and
 // `quill-cell` pairs whose attributes `from_markdown` folds.
 // Delimiter arithmetic stays pulldown's, since a fixer that re-segments `***`
@@ -1098,10 +1155,20 @@ pub(crate) fn sanitize_lang(lang: &str) -> String {
 
 /// What the fixer hands the builder.
 enum Fixed<'a> {
-    /// A pulldown event, and whether a `Tag::Strong` start was rewritten from
-    /// `<u>` (always `false` for every other event).
-    Event(Event<'a>, bool),
+    Event(Event<'a>),
     Element(ElementTag),
+    Underline(UTag),
+}
+
+/// An inline `<u>` tag, paired by the builder as HTML pairs it.
+#[derive(Clone, Copy)]
+enum UTag {
+    /// A bare `<u>`, at this byte offset: it underlines what it wraps.
+    Open { at: usize },
+    /// A `<u>` carrying an attribute, or self-closing: it drops, and still
+    /// pairs with a `</u>`.
+    Held,
+    Close,
 }
 
 /// An open or close tag of an element the import models
@@ -1135,20 +1202,6 @@ fn cell_tag<'e>(event: &'e Event) -> Option<html::Tag<'e>> {
     }
 }
 
-fn is_bare_u(tag: &html::Tag) -> bool {
-    tag.name.eq_ignore_ascii_case("u") && tag.attrs.is_empty() && !tag.self_closing
-}
-
-/// [`MarkKind::Underline`] when the fixer rewrote a `<u>` open into this
-/// `Tag::Strong`, else [`MarkKind::Strong`]: the classification rides the
-/// event, so no site re-sniffs source bytes.
-fn strong_kind(underline: bool) -> MarkKind {
-    if underline {
-        MarkKind::Underline
-    } else {
-        MarkKind::Strong
-    }
-}
 
 /// Per construct: its count and the byte offset of its first occurrence.
 #[derive(Default)]
@@ -1376,7 +1429,7 @@ where
             }
         }
         if let Some(end) = end {
-            self.held.push_back(Fixed::Event(end, false));
+            self.held.push_back(Fixed::Event(end));
         }
     }
 
@@ -1413,7 +1466,7 @@ where
                 });
             }
         }
-        self.held.push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock), false));
+        self.held.push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock)));
     }
 
     /// One event as the builder takes it, or `None` for one that drops or
@@ -1426,14 +1479,18 @@ where
             }
             Event::InlineHtml(html) => {
                 let tag = html::tag_at(&html, 0)?;
-                if is_bare_u(&tag) && !tag.closing {
-                    return Some(Fixed::Event(Event::Start(Tag::Strong), true));
-                }
-                if is_bare_u(&tag) {
-                    return Some(Fixed::Event(Event::End(TagEnd::Strong), false));
+                if tag.name.eq_ignore_ascii_case("u") {
+                    return Some(Fixed::Underline(if tag.closing {
+                        UTag::Close
+                    } else if tag.attrs.is_empty() && !tag.self_closing {
+                        UTag::Open { at: range.start }
+                    } else {
+                        self.dropped.tag(&tag, range.start);
+                        UTag::Held
+                    }));
                 }
                 if tag.name.eq_ignore_ascii_case("br") && !tag.closing {
-                    return Some(Fixed::Event(Event::HardBreak, false));
+                    return Some(Fixed::Event(Event::HardBreak));
                 }
                 if let Some(element) = ElementTag::of(&tag, false, range.start) {
                     return Some(Fixed::Element(element));
@@ -1443,7 +1500,7 @@ where
             }
             other => {
                 self.observe(&other);
-                Fixed::Event(other, false)
+                Fixed::Event(other)
             }
         })
     }
@@ -1463,7 +1520,7 @@ where
             let (event, range) = self.inner.next()?;
             if matches!(event, Event::Start(Tag::TableCell)) {
                 self.read_cell();
-                return Some(Fixed::Event(event, false));
+                return Some(Fixed::Event(event));
             }
             if let Some(item) = self.fix(event, range) {
                 return Some(item);
@@ -1598,6 +1655,50 @@ mod tests {
             .marks
             .iter()
             .any(|m| m.kind == MarkKind::Underline && m.start == 2 && m.end == 3));
+    }
+
+    /// A `</u>` closes the innermost open `<u>` wherever it sits among the
+    /// marks, one carrying an attribute included, so it never closes a `**`
+    /// and an underline crosses one freely.
+    #[test]
+    fn a_u_pair_crosses_other_marks() {
+        let cases: &[(&str, &[Mark], &[(&str, usize)])] = &[
+            ("<u>a **b</u> c**", &[Mark::new(0, 3, MarkKind::Underline), Mark::new(2, 5, MarkKind::Strong)], &[]),
+            ("**a <u>b** c</u>", &[Mark::new(0, 3, MarkKind::Strong), Mark::new(2, 5, MarkKind::Underline)], &[]),
+            ("**bold <u class=\"x\">a</u> b**", &[Mark::new(0, 8, MarkKind::Strong)], &[("u", 1)]),
+            ("<u>a <u class=\"x\">b</u> c</u>", &[Mark::new(0, 5, MarkKind::Underline)], &[("u", 1)]),
+            ("<u>a <u>b</u> c</u>", &[Mark::new(0, 5, MarkKind::Underline)], &[]),
+            ("**a </u> b**", &[Mark::new(0, 4, MarkKind::Strong)], &[]),
+        ];
+        for (md, marks, warned) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.marks, *marks, "{md:?}");
+            assert_eq!(dropped(&imported), *warned, "{md:?}");
+        }
+    }
+
+    /// A `<u>` still open where its paragraph, heading or item text ends drops
+    /// there, reported, and underlines nothing; however many are open, the
+    /// import does not fail.
+    #[test]
+    fn an_unclosed_u_drops_where_its_run_ends() {
+        let imported = imp_fixed("<u>a\n\nb **c**");
+        assert_eq!(imported.content.text, "a\nb c");
+        assert_eq!(imported.content.marks, [Mark::new(4, 5, MarkKind::Strong)]);
+        assert_eq!(dropped(&imported), [("u", 1)]);
+
+        let imported = imp_fixed(&format!("{}x</u>", "<u>".repeat(MAX_NESTING_DEPTH + 1)));
+        assert_eq!(imported.content.marks, [Mark::new(0, 1, MarkKind::Underline)]);
+        assert_eq!(dropped(&imported), [("u", MAX_NESTING_DEPTH)]);
+
+        let imported = imp_fixed("| <u>a **b</u> c** | <u>d |\n|---|---|\n| x | y |");
+        let cells = crate::serial::table_cells(&imported.content.islands[0].props);
+        assert_eq!(
+            cells[0].1,
+            [Mark::new(0, 3, MarkKind::Underline), Mark::new(2, 5, MarkKind::Strong)]
+        );
+        assert!(cells[1].1.is_empty());
+        assert_eq!(dropped(&imported), [("u", 1)]);
     }
 
     #[test]
@@ -2381,6 +2482,46 @@ mod tests {
             assert!(rt.marks.is_empty(), "{md:?}");
             let got: Vec<usize> = rt.lines.iter().map(|l| l.containers.len()).collect();
             assert_eq!(got, *depths, "{md:?}");
+        }
+    }
+
+    /// A tag line under a setext heading's text moves below its underline,
+    /// where the heading has ended, so the heading keeps its lines; an
+    /// element's tag opens or closes its element there.
+    #[test]
+    fn a_tag_line_under_a_setext_heading_moves_below_it() {
+        let cases: &[(&str, &str, &[(&str, usize)])] = &[
+            ("a\n<span>\n===", "# a", &[("span", 1)]),
+            ("a\n<span>\n---", "## a", &[("span", 1)]),
+            ("a\n<span>\n===\nb", "# a\n\nb", &[("span", 1)]),
+            ("a\n<b> <i>\nc\n===", "# a c", &[("b", 1), ("i", 1)]),
+            ("- a\n  <span>\n  ---\n- b", "- ## a\n\n- b", &[("span", 1)]),
+            ("> a\n> <span>\n> ===\n> b", "> # a\n>\n> b", &[("span", 1)]),
+            ("<quill-keep>\n\nTitle\n</quill-keep>\n===", "<quill-keep>\n\n# Title\n\n</quill-keep>", &[]),
+        ];
+        for (md, exported, warned) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(crate::export::to_markdown(&imported.content), *exported, "{md:?}");
+            assert_eq!(dropped(&imported), *warned, "{md:?}");
+        }
+    }
+
+    /// A type 1 block ends at the first line holding any of its four closing
+    /// tags, in any case, as CommonMark ends it, so what follows imports.
+    #[test]
+    fn a_type_1_block_ends_at_any_closing_tag_in_any_case() {
+        let cases: &[(&str, &str)] = &[
+            ("<PRE>x</PRE>\n\nafter", "after"),
+            ("<pre>\nx\n</PRE> tail\n\nafter", "tail\nafter"),
+            ("<pre>\nx\n</Script>\nafter", "after"),
+            ("- <Script>\n  x\n  </SCRIPT>\n- after", "\nafter"),
+            ("<div>\n<PRE>x</PRE> after\n</div>", "after"),
+            ("<div>\n<pre>\nx\n</Pre> tail\n\npara\n</div>", "tail\npara"),
+        ];
+        for (md, text) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.text, *text, "{md:?}");
+            assert!(dropped(&imported).iter().any(|(c, _)| ["pre", "script"].contains(c)), "{md:?}");
         }
     }
 
