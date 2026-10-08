@@ -1952,6 +1952,10 @@ mod tests {
             [Mark::new(33, 34, MarkKind::Link { url: "/url".into() })]
         );
         assert_eq!(dropped(&imported), [("footnote_definition", 2)]);
+
+        let imported = imp_fixed(&format!("{}x[^1]", "[^1]: a\n\n".repeat(9)));
+        assert!(imported.content.marks.is_empty());
+        assert_eq!(dropped(&imported), [("footnote_definition", 9)]);
     }
 
     /// A tag alone on its line is a block wrapper, whatever its name: the

@@ -97,7 +97,8 @@ const TAG_JOIN_LINES: usize = 8;
 /// inside a type 6 or 7 block opens a type 1–5 block or a fence that does not
 /// close inside it, that line and the rest of the block are deleted: the
 /// unrepaired parse drops them with the block, and freed they would swallow
-/// what follows it.
+/// what follows it. Past the last round, only the footnote-shaped
+/// definitions it freed are made literal.
 fn repair(mut text: String, options: Options) -> Repaired {
     let mut footnotes = Vec::new();
     if !may_need_repair(&text) {
@@ -106,10 +107,12 @@ fn repair(mut text: String, options: Options) -> Repaired {
     for _ in 0..REPAIR_ROUNDS {
         let edits = plan(&text, options);
         if edits.is_empty() {
-            break;
+            return Repaired { text, footnotes };
         }
         text = apply(&text, &edits, &mut footnotes);
     }
+    let edits = footnotes_only(&text, options);
+    text = apply(&text, &edits, &mut footnotes);
     Repaired { text, footnotes }
 }
 
@@ -134,12 +137,9 @@ struct Edit {
 
 fn plan(src: &str, options: Options) -> Vec<Edit> {
     let parser = Parser::new_ext(src, options);
-    let mut edits: Vec<Edit> = parser
-        .reference_definitions()
-        .iter()
-        .filter(|(label, _)| label.starts_with('^'))
-        .flat_map(|(_, def)| footnote_edits(src, def.span.clone()))
-        .collect();
+    let defs = footnote_spans(&parser);
+    let mut edits: Vec<Edit> = Vec::new();
+    let mut leaves: Vec<Range<usize>> = Vec::new();
     let mut block: Option<(Vec<usize>, Option<usize>)> = None;
     let mut row: Option<usize> = None;
     let mut tag_rows: Vec<SrcLine> = Vec::new();
@@ -150,6 +150,9 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
     // block stands would have kept open.
     let mut ended: Option<usize> = None;
     for (event, range) in parser.into_offset_iter() {
+        if !defs.is_empty() && !is_container(&event) {
+            leaves.push(range.clone());
+        }
         if let Some(run) = runs.feed(&event, &range) {
             edits.extend(run_tag_line_edits(src, &run));
         }
@@ -194,8 +197,50 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
         edits.extend(run_tag_line_edits(src, &run));
     }
     edits.extend(tag_row_edits(src, &tag_rows));
+    edits.extend(footnote_plan(src, &defs, leaves));
     edits.sort_by_key(|e| (e.range.start, e.range.end));
     edits
+}
+
+/// The edits making every footnote-shaped definition of `src` literal, and
+/// nothing else.
+fn footnotes_only(src: &str, options: Options) -> Vec<Edit> {
+    let parser = Parser::new_ext(src, options);
+    let defs = footnote_spans(&parser);
+    if defs.is_empty() {
+        return Vec::new();
+    }
+    let leaves = parser
+        .into_offset_iter()
+        .filter(|(event, _)| !is_container(event))
+        .map(|(_, range)| range)
+        .collect();
+    let mut edits = footnote_plan(src, &defs, leaves);
+    edits.sort_by_key(|e| (e.range.start, e.range.end));
+    edits
+}
+
+/// The span of each label's first footnote-shaped definition.
+fn footnote_spans(parser: &Parser) -> Vec<Range<usize>> {
+    parser
+        .reference_definitions()
+        .iter()
+        .filter(|(label, _)| label.starts_with('^'))
+        .map(|(_, def)| def.span.clone())
+        .collect()
+}
+
+/// The edits for `defs` and for every later definition of their labels,
+/// `leaves` being the ranges of the parse's events that are not containers.
+fn footnote_plan(src: &str, defs: &[Range<usize>], leaves: Vec<Range<usize>>) -> Vec<Edit> {
+    if defs.is_empty() {
+        return Vec::new();
+    }
+    let repeats = footnote_definitions(src, leaves)
+        .into_iter()
+        .filter(|&at| defs.iter().all(|d| d.start != at))
+        .map(|at| at..at);
+    defs.iter().cloned().chain(repeats).flat_map(|def| footnote_edits(src, def)).collect()
 }
 
 /// Apply `edits`, sorted by start, skipping one that overlaps an edit already
@@ -786,6 +831,49 @@ fn tag_row_edits(src: &str, rows: &[SrcLine]) -> Vec<Edit> {
     edits
 }
 
+fn is_container(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Start(PTag::BlockQuote(_) | PTag::List(_) | PTag::Item)
+            | Event::End(TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item)
+    )
+}
+
+/// The start of each footnote-shaped definition, the repeats of a label the
+/// parser's map omits included: each `[^label]:` opening a line inside its
+/// containers where no leaf block or inline event reaches, a definition being
+/// the one block the parse emits nothing for.
+fn footnote_definitions(src: &str, mut leaves: Vec<Range<usize>>) -> Vec<usize> {
+    leaves.sort_by_key(|r| r.start);
+    let mut reach = Vec::with_capacity(leaves.len());
+    let mut end = 0;
+    for r in &leaves {
+        end = end.max(r.end);
+        reach.push(end);
+    }
+    let covered = |at: usize| {
+        let k = leaves.partition_point(|r| r.start <= at);
+        k > 0 && reach[k - 1] > at
+    };
+    src.match_indices("[^")
+        .map(|(at, _)| at)
+        .filter(|&at| {
+            if covered(at) {
+                return false;
+            }
+            let line = src[..at].rfind('\n').map_or(0, |i| i + 1);
+            let lead = src[..at][line..].bytes().all(|b| {
+                b.is_ascii_digit() || matches!(b, b'>' | b' ' | b'\t' | b'-' | b'+' | b'*' | b'.' | b')')
+            });
+            let label = &src[at + 2..];
+            let shaped = label
+                .find(['[', ']', '\\', '\n'])
+                .is_some_and(|i| i > 0 && label[i..].starts_with("]:"));
+            lead && shaped
+        })
+        .collect()
+}
+
 /// The `[` escape making a footnote-shaped definition literal, and a blank line
 /// after it where the next line would otherwise continue its paragraph.
 fn footnote_edits(src: &str, def: Range<usize>) -> Vec<Edit> {
@@ -890,13 +978,16 @@ mod tests {
     }
 
     /// A footnote's offset is minted in the round that escapes it and carried
-    /// through every edit a later round lands ahead of it.
+    /// through every edit a later round lands ahead of it, a definition the
+    /// last round frees among them.
     #[test]
     fn a_footnote_offset_follows_the_edits_before_it() {
+        let nested: String = (0..REPAIR_ROUNDS).map(|d| format!("{}- <div>\n", "  ".repeat(d))).collect();
         for md in [
             "[^1]: a",
             "<div>\n<div>text\n</div>\n\n> [^1]: a",
             "- <div>\n  > <span>\n  > [^x]: b\n  </div>\n\n[^1]: a",
+            &format!("{nested}{}- [^1]: a", "  ".repeat(REPAIR_ROUNDS)),
         ] {
             let r = normalized(md);
             assert!(!r.footnotes.is_empty(), "{md:?}");
