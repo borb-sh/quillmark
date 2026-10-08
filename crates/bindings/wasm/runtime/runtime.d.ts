@@ -416,11 +416,10 @@ export declare class Engine {
 	 * synchronously before the first await, so the caller may `free()` them as
 	 * soon as this call returns.
 	 *
-	 * {@link RenderResult.warnings} carries the whole pipeline's, in order:
-	 * `doc.warnings` (parse and `conform::*`), every `quill.validate(doc)`
-	 * warning, then the compile's own. A {@link LiveSession} outlives the
-	 * document it opened from, so {@link LiveSession.render} carries the
-	 * compile's alone: read `doc.warnings` and `quill.validate(doc)` beside it.
+	 * {@link RenderResult.warnings} carries every `quill.validate(doc)` warning,
+	 * then the compile's own. The load's (parse and `conform::*`) stay on
+	 * `doc.warnings`, and a revise's on its receipt. A {@link LiveSession}
+	 * carries the compile's alone: read `quill.validate(doc)` beside it.
 	 *
 	 * `today` reads as on {@link open}. An `options` key outside
 	 * {@link RenderOptions} rejects, `today` among them.

@@ -661,12 +661,10 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     expect(formats).toContain('svg')
   })
 
-  // ERROR.md § "Warning flow": `RenderResult.warnings` is pipeline order, the
-  // load's ahead of the backend render's. Only the runtime layer can merge
-  // them — the document clone it renders comes through `fromStored`, which
-  // carries no warnings, so the backend build's own merge has nothing to
-  // prepend.
-  it('render fronts RenderResult.warnings with the load warnings, leaving doc.warnings intact', async () => {
+  // ERROR.md § "Warning flow": a render reports what the render sees. The
+  // load's warnings stay on `doc.warnings`, so a revise never leaves a render
+  // reporting a drop the document no longer holds.
+  it('render leaves the load warnings on doc.warnings', async () => {
     const quill = makeRuntimeQuill()
     const doc = quill.parse(TEST_MARKDOWN.replace('title: ', 'title: !shout '))
     const loadCodes = doc.warnings.map((d) => d.code)
@@ -674,7 +672,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
 
     const result = await new Engine().render(quill, doc, { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
-    expect(result.warnings.slice(0, loadCodes.length)).toEqual(doc.warnings)
+    expect(result.warnings.map((d) => d.code)).not.toContain('parse::unsupported_yaml_tag')
     expect(doc.warnings.map((d) => d.code)).toEqual(loadCodes)
   })
 
