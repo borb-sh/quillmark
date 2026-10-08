@@ -719,7 +719,8 @@ fn is_inline(event: &Event) -> bool {
 /// own prefix and leaves the quotes it lacks, as the blank line above it does.
 /// A heading's first line is never a tag line.
 fn run_tag_line_edits(src: &str, run: &Run) -> Option<Edit> {
-    let first = SrcLine::at(src, run.start);
+    let escaped = run.start > 0 && src.as_bytes()[run.start - 1] == b'\\';
+    let first = SrcLine::at(src, run.start - usize::from(escaped));
     let quotes = |p: &str| p.bytes().filter(|&b| b == b'>').count();
     let mut seen = None;
     for &at in &run.tags {

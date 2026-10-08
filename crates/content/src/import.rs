@@ -1894,6 +1894,8 @@ mod tests {
             ("- a\n  <x>\n      b\n- c", "a\nb\nc", &[1, 1, 1]),
             ("- <a></a>\n  text", "text", &[1]),
             ("a\n<x>\n    <p>\n    <!-- c -->b\n    <img src=\"p.png\"> c\n    </p>\n</x>", "a\nb  c", &[0, 0]),
+            ("   \\*a\n<span>\nb", "*a\nb", &[0, 0]),
+            (">    \\*a\n> <span>\n> b", "*a\nb", &[1, 1]),
         ];
         for (md, text, depths) in cases {
             let rt = imp_fixed(md).content;
