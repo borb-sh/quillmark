@@ -1180,7 +1180,7 @@
   },
   {
     "name": "html.block6.table",
-    "markdown": "<div align=\"center\">\n| a | b |\n| --- | --- |\n| 1 | 2 |\n</div>",
+    "markdown": "<div align=\"center\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</div>",
     "content": {
       "islands": [
         {
@@ -1249,18 +1249,10 @@
           "kind": "para"
         }
       ],
-      "marks": [
-        {
-          "end": 6,
-          "start": 0,
-          "type": "strong"
-        }
-      ],
-      "text": "Signed J. Doe"
+      "marks": [],
+      "text": ""
     },
-    "typst": [
-      "#strong[Signed] J. Doe"
-    ],
+    "typst": [],
     "signals": {
       "import": [
         {
@@ -1329,17 +1321,13 @@
         {
           "containers": [],
           "kind": "para"
-        },
-        {
-          "containers": [],
-          "kind": "para"
         }
       ],
       "marks": [],
-      "text": "Above\nBelow"
+      "text": "Above"
     },
     "typst": [
-      "Above\n\nBelow"
+      "Above"
     ],
     "signals": {
       "import": [
@@ -1375,10 +1363,11 @@
             {
               "attrs": {
                 "ordered": true,
-                "ordinal": 1,
+                "ordinal": 0,
                 "start": 1
               },
-              "container": "list_item"
+              "container": "list_item",
+              "instance": 1
             }
           ],
           "kind": "para"
@@ -1389,7 +1378,7 @@
     },
     "typst": [
       "1. First",
-      "+ Second"
+      "1. Second"
     ],
     "signals": {
       "import": [
@@ -1711,6 +1700,70 @@
     },
     "typst": [
       "table.header([#qm-element(\"hl\", (:), inline: true)[a]], )"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.tight",
+    "markdown": "<quill-keep>\n**Signed**\n</quill-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "name": "keep"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 6,
+          "start": 0,
+          "type": "strong"
+        }
+      ],
+      "text": "Signed"
+    },
+    "typst": [
+      "#qm-element(\"keep\", (:))[\n#strong[Signed]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.void",
+    "markdown": "<quill-sig></quill-sig>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "name": "sig"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": ""
+    },
+    "typst": [
+      "#qm-element(\"sig\", (:))["
     ],
     "signals": {
       "import": [],

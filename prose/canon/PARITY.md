@@ -21,8 +21,8 @@ markdown, stored JSON, op wire, Typst lowering, validate and signal cells, and
 2. **Pure import.** `from_markdown` is a function of its text alone: it reads no
    quill, declaration or session.
 3. **Fixed point.** `from_markdown(to_markdown(c)) == c`, except for anchors,
-   which a markdown write keeps by diff-rebase (`revise`, `rebase`), never by
-   the projection.
+   which a markdown write keeps by diff-rebase (`revise`, `rebase`), and by
+   the annotated read's tag where the diff loses one, never by the projection.
 4. **No silent lane.** For every construct, quill and backend, the outcome is
    honored, inert with a signal, or refused at the write. The signal reaches
    every door that meets the construct: a markdown drop the parse, import or
@@ -112,7 +112,7 @@ An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
 The annotated read spells it at its start as a `quill-anchor` tag the import
 drops, so the markdown cell stays `carries opaquely`: a write keeps an anchor by
-diff-rebase, never by its tag. The row's corpus entry pins the spelling under
+diff-rebase, and a revise re-homes one the diff drops at its tag. The row's corpus entry pins the spelling under
 `annotated`.
 
 An element lowers through the helper's dispatcher, which draws it with the
@@ -158,12 +158,14 @@ above, or markup the content does not store.
 | `html.u`: inline `<u>` in any case, underline | spells | spells | spells | honors | silent: honored | none |
 | `html.u.attrs`: `<u>` carrying an attribute | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `u` |
 | `html.span`: other inline HTML | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `span` |
-| `html.block6.table`: a type 6 block, `<div>`, around a table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
-| `html.block6.text`: a type 6 block, `<center>`, around text | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `center` |
+| `html.block6.table`: a type 6 block, `<div>`, with blank lines around a table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
+| `html.block6.text`: a type 6 block, `<center>`, tight around text, dropping it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `center` |
 | `html.block1`: a type 1 block, `<pre>` | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `pre` |
 | `html.comment` | silent: honored | n/a | n/a | n/a | n/a | none |
-| `html.tag_line.paragraph`: a tag line under paragraph text | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
-| `html.tag_line.list`: a tag line between list items | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
+| `html.tag_line.paragraph`: a type 6 tag line under paragraph text, dropping what follows to the blank line | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
+| `html.tag_line.list`: a tag line between list items, ending the list | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
+| `carrier.element.tight`: element tag lines tight around markdown | spells | spells | spells | honors | silent: honored | none |
+| `carrier.element.void`: an element around nothing, its pair on one line | spells | spells | spells | honors | silent: honored | none |
 | `carrier.element.unclosed`: an element still open where the body ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
 | `carrier.element.self_closing`: a self-closing element tag | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
 | `carrier.element.attr`: an element attribute outside the grammar | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep[onclick]` |

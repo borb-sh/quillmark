@@ -29,7 +29,7 @@ Task lists, autolinks beyond CommonMark's, and other GFM features are **not** en
 
 ### Raw HTML is not rendered, except `<u>` and `<br>`
 
-CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML syntactically (so it does not break paragraph structure) but **discards every tag**, with two exceptions: `<u>…</u>` renders as underline, and an inline `<br>` is a line break.
+CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, and a `quill-*` pair is an element.
 
 ```markdown
 <u>This is underlined</u>, even <u>across word boundaries</u>.
@@ -37,8 +37,10 @@ CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML 
 <!-- HTML comments are also dropped -->
 
 <div align="center">
-| The div's tags drop; | its table stays |
+
+| The blank lines keep this table: | the div's tags drop |
 |---|---|
+
 </div>
 ```
 
@@ -46,12 +48,13 @@ Why: Typst (the rendering backend) has no HTML renderer, and arbitrary HTML pass
 
 Consequences:
 
-- `<br>`, `<br/>`, `<br />` (any case) are a line break, in a paragraph or a table cell: `| line one<br>line two |`. Outside a table, a CommonMark hard break does the same: two trailing spaces before a newline, or a trailing `\` before a newline. In a paragraph, a `<br>` with no text before it on its line produces nothing. A `<br>` alone on a line is a tag line like any other, below.
+- `<br>`, `<br/>`, `<br />` (any case) are a line break, in a paragraph or a table cell: `| line one<br>line two |`. Outside a table, a CommonMark hard break does the same: two trailing spaces before a newline, or a trailing `\` before a newline. In a paragraph, a `<br>` with no text before it on its line produces nothing. A `<br>` alone on a line opens an HTML block, below.
 - HTML entities decode as CommonMark specifies: `Fish &amp; chips, &#65;BC` reads `Fish & chips, ABC`.
-- A tag on a line of its own wraps markdown rather than hiding it: `<div>`, `<center>`, `<details>` or any other tag line drops, and the lines between parse as markdown whether or not blank lines surround the tags. Under a paragraph's text, a tag line ends the paragraph. Between list items, it leaves the list one list, as a blank line would. Embedded SVG draws nothing: its tags drop like any other, and text it holds reads as text.
+- An HTML block drops as CommonMark reads it. A line starting with a tag such as `<div>`, `<center>` or `<details>` opens a block that runs to the next blank line, so markdown on the lines under it drops with it; a blank line after the tag line keeps what follows. Embedded SVG draws nothing.
+- A line holding only `quill-*` tags is the exception: it drops, and the lines around it parse as markdown, as though blank lines surrounded it.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
-- A `quill-<name>` pair is kept as an element around what it holds: tag lines around blocks (`<quill-keep>` above a signature, `</quill-keep>` below it), or a pair inside a line around text. A quill whose plate registers a renderer for the element draws it that way, and any other renders what it holds. One left unclosed drops like any other tag.
+- A `quill-<name>` pair is kept as an element around what it holds: tag lines around blocks (`<quill-keep>` above a signature, `</quill-keep>` below it), or a pair inside a line around text. An empty pair, `<quill-sig></quill-sig>`, is an element that holds nothing. A quill whose plate registers a renderer for the element draws it that way, and any other renders what it holds. One left unclosed drops like any other tag.
 - Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included; comments, `<quill-anchor>` tags and a `quill-*` element that closes are not.
 
 ### A footnote-shaped definition is text

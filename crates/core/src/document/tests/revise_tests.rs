@@ -259,3 +259,26 @@ fn revising_with_the_annotated_read_keeps_every_anchor() {
     assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
     assert_eq!(doc, before);
 }
+
+/// An anchor the diff drops lands at its tag in the card the markdown spells
+/// it in, and the receipt no longer names it.
+#[test]
+fn a_dropped_anchor_lands_at_its_tag_in_its_card() {
+    let mut doc = stored();
+    let receipt = doc
+        .revise(
+            "~~~\n$quill: q\nsubject: The subject line, edited\n~~~\n\nMain prose stays here.\n\n\
+~~~\n$kind: aside\n~~~\n\nAn inserted aside.\n\n\
+~~~\n$kind: note\n~~~\n\nSecond note about pears.\n\n\
+~~~\n$kind: note\n~~~\n\nFirst note, now <quill-anchor ref=\"a1\"></quill-anchor>about kiwi.\n",
+        )
+        .unwrap();
+
+    assert_eq!(receipt.alignment, vec![None, Some(1), Some(0)]);
+    let kiwi = doc.cards()[2].body();
+    assert_eq!(anchor_ids(kiwi), ["a1"]);
+    let at = kiwi.marks.iter().find(|m| matches!(&m.kind, MarkKind::Anchor { .. })).unwrap().start;
+    assert_eq!(kiwi.text.chars().skip(at).collect::<String>(), "about kiwi.");
+    let dropped: Vec<&str> = receipt.dropped_anchors.iter().map(|d| d.id.as_str()).collect();
+    assert_eq!(dropped, ["x1"]);
+}

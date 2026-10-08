@@ -843,10 +843,16 @@ impl Content {
                 .all(|l| l.kind == LineKind::Para && l.containers.is_empty())
     }
 
-    /// Whether the text is empty or whitespace-only. An [`ISLAND_SLOT`] is not
-    /// whitespace, so an island-bearing content is never blank.
+    /// Whether the text is empty or whitespace-only and no line sits in an
+    /// element, which a plate draws around nothing (a signature line). An
+    /// [`ISLAND_SLOT`] is not whitespace, so an island-bearing content is never
+    /// blank.
     pub fn is_blank(&self) -> bool {
         self.text.trim().is_empty()
+            && !self
+                .lines
+                .iter()
+                .any(|l| l.containers.iter().any(|c| matches!(c, Container::Element { .. })))
     }
 
     /// Number of `\n`-separated segments: the required `lines.len()`.

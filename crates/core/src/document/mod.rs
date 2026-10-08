@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::import::{from_markdown as import_markdown, Imported};
+use quillmark_content::import::{from_markdown_tagged, AnchorTag, Imported};
 use quillmark_content::model::Normalized;
 
 use crate::error::ParseError;
@@ -19,13 +19,20 @@ pub(crate) fn import_body(md: &str) -> Result<Normalized, ImportError> {
 
 /// [`import_body`] keeping the import's warnings.
 pub(crate) fn import_body_warned(md: &str) -> Result<Imported, ImportError> {
+    import_body_tagged(md).map(|(imported, _)| imported)
+}
+
+/// [`import_body_warned`] keeping the anchor tags the markdown carries, which
+/// only a revise reads.
+pub(crate) fn import_body_tagged(md: &str) -> Result<(Imported, Vec<AnchorTag>), ImportError> {
     if md.is_empty() {
-        Ok(Imported {
+        let imported = Imported {
             content: Normalized::empty(),
             warnings: Vec::new(),
-        })
+        };
+        Ok((imported, Vec::new()))
     } else {
-        import_markdown(md)
+        from_markdown_tagged(md)
     }
 }
 
@@ -505,8 +512,13 @@ impl Document {
     /// [`ParseError`] variants.
     #[doc(alias = "from_markdown")]
     pub fn parse(markdown: &str) -> Result<Parsed, ParseError> {
-        assemble::decompose_with_warnings(markdown)
-            .map(|(document, warnings)| Parsed { document, warnings })
+        Self::parse_tagged(markdown).map(|(parsed, _)| parsed)
+    }
+
+    /// [`Document::parse`], with each body's anchor tags: the main card's
+    /// first, then each composable card's in order.
+    pub(crate) fn parse_tagged(markdown: &str) -> Result<(Parsed, Vec<Vec<AnchorTag>>), ParseError> {
+        assemble::decompose(markdown).map(|(document, warnings, tags)| (Parsed { document, warnings }, tags))
     }
 
     pub fn main(&self) -> &Card {

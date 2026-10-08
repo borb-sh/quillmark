@@ -442,8 +442,8 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
     expect(warnings).toEqual([])
   })
 
-  it('importMarkdown imports the table under a centering div and warns of the div', () => {
-    const { content, warnings } = importMarkdown('<div align="center">\n| a | b |\n|---|---|\n</div>')
+  it('importMarkdown imports the table a blank line sets apart from a centering div and warns of the div', () => {
+    const { content, warnings } = importMarkdown('<div align="center">\n\n| a | b |\n|---|---|\n\n</div>')
     expect(content.islands.map((i) => i.type)).toEqual(['table'])
     expect(warnings).toEqual([
       {

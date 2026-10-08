@@ -572,16 +572,18 @@ read-only in markdown.**
   half-enforcement.
 - **Opaque and invariant.** The runtime never rewrites an id. Positions rebase
   through splices (`map_pos`); the id passes untouched. A mark whose text is
-  deleted, or moved-and-rewritten in one round, drops *whole*: never
-  partially, never re-id'd (the documented diff-rebase residual).
+  deleted, or moved-and-rewritten in one round with no tag naming it, drops
+  *whole*: never partially, never re-id'd (the documented diff-rebase
+  residual).
 
 No markdown round-trip guarantee: `to_markdown` emits nothing for an anchor and
 import mints none, so a cold export→import loses every anchor.
 
 The annotated read (`export::to_markdown_annotated`,
 `Document::to_markdown_annotated`) spells each prose anchor as
-`<quill-anchor ref="ID"></quill-anchor>` at its start, a spelling import drops
-unreported ([markdown-spec.md](../references/markdown-spec.md) §6.4).
+`<quill-anchor ref="ID"></quill-anchor>` at its start, a spelling a cold
+import drops unreported ([markdown-spec.md](../references/markdown-spec.md)
+§6.4).
 
 - A range anchor reads as its start, and keeps its range through `revise`.
 - A code-block line, a block island's line and an empty line hold no tag. A
@@ -596,8 +598,12 @@ Anchors are edit-lane infrastructure: they survive only through diff-rebase
 `Document::revise`, which aligns cards by `$kind` and text and rebases each
 aligned body and content field; an anchor on a card it cannot align drops, and
 the receipt names it. Reading the annotated markdown and writing it back
-through `revise` is the round trip: the import drops the tags, so the write
-keeps what a write of the plain markdown keeps. Non-rendering is a property of
+through `revise` is the round trip: the diff keeps what a write of the plain
+markdown keeps, and an anchor it drops lands at the one tag naming it, a point
+there or its span where the same text follows the tag. A tag never moves an
+anchor the diff keeps, since the read places some tags away from their
+anchors, and names only an id the stored field holds, so the revise mints
+none. Non-rendering is a property of
 review-time metadata, not a gap; a future render projection (proof annotations,
 PDF destinations) would render the referent or a position, never the id, so
 this policy holds either way.

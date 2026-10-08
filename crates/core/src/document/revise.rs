@@ -1,7 +1,8 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use quillmark_content::delta::{diff_import, rebase_onto, Delta};
+use quillmark_content::delta::{diff_import, rebase_onto_tagged, Delta};
+use quillmark_content::import::AnchorTag;
 use quillmark_content::model::{Content, MarkKind, Normalized};
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
@@ -56,7 +57,9 @@ impl Document {
     /// ([`alignment`](DocumentRevised::alignment)). An aligned card's body, and
     /// each field whose stored value is a content object and whose incoming
     /// value is a markdown string, revise as [`Card::revise_body`] and
-    /// [`Card::revise_field`] do, so surviving anchors rebase. Everything else
+    /// [`Card::revise_field`] do, so surviving anchors rebase, and one the
+    /// rebase drops lands at its `<quill-anchor ref>` tag where the markdown
+    /// carries exactly one. Everything else
     /// lands as the markdown spells it: scalars, `$quill`, `$seed`, YAML
     /// comments, inserted cards, and removed cards dropped.
     ///
@@ -73,11 +76,14 @@ impl Document {
     ///
     /// Errors as [`Document::parse`] does, and then leaves `self` unchanged.
     pub fn revise(&mut self, markdown: &str) -> Result<DocumentRevised, ParseError> {
-        let parsed = Document::parse(markdown)?;
-        Ok(self.revise_parsed(parsed))
+        let (parsed, tags) = Document::parse_tagged(markdown)?;
+        Ok(self.revise_parsed(parsed, &tags))
     }
 
-    pub(crate) fn revise_parsed(&mut self, parsed: Parsed) -> DocumentRevised {
+    /// `tags` holds each incoming body's anchor tags, as
+    /// [`Document::parse_tagged`] returns them.
+    pub(crate) fn revise_parsed(&mut self, parsed: Parsed, tags: &[Vec<AnchorTag>]) -> DocumentRevised {
+        let body_tags = |i: usize| tags.get(i).map(Vec::as_slice).unwrap_or_default();
         let Parsed {
             document: incoming,
             mut warnings,
@@ -98,6 +104,7 @@ impl Document {
         let main = revise_card(
             &self.main,
             main,
+            body_tags(0),
             &DocPath::main(),
             true,
             &mut deltas,
@@ -113,7 +120,7 @@ impl Document {
                 Some((i, pairing)) => {
                     kept[i] = Some(j);
                     let carry_ext = pairing == Pairing::Text || same_kinds;
-                    revise_card(&self.cards[i], card, &at, carry_ext, &mut deltas, &mut warnings)
+                    revise_card(&self.cards[i], card, body_tags(j + 1), &at, carry_ext, &mut deltas, &mut warnings)
                 }
                 None => card,
             };
@@ -165,18 +172,20 @@ fn card_text(card: &Card) -> String {
     out
 }
 
-/// `incoming` with `stored`'s anchors rebased onto its body and content
-/// fields, and `stored`'s `$ext` when `incoming` omits it and `carry_ext`.
+/// `incoming` with `stored`'s anchors rebased onto its body, `body_tags`
+/// re-homing one the rebase drops, and onto its content fields, and `stored`'s
+/// `$ext` when `incoming` omits it and `carry_ext`.
 fn revise_card(
     stored: &Card,
     mut incoming: Card,
+    body_tags: &[AnchorTag],
     at: &DocPath,
     carry_ext: bool,
     deltas: &mut Vec<FieldDelta>,
     warnings: &mut Vec<Diagnostic>,
 ) -> Card {
     let body = std::mem::replace(incoming.body_mut(), Normalized::empty());
-    let (body, delta) = rebase_onto(stored.body(), body);
+    let (body, delta) = rebase_onto_tagged(stored.body(), body, body_tags);
     *incoming.body_mut() = body;
     deltas.push(FieldDelta {
         path: at.body(),
