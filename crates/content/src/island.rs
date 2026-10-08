@@ -164,4 +164,46 @@ mod tests {
             assert_eq!(props, once, "{key}: {value} is not a fixed point");
         }
     }
+
+    /// A cell's `align` is absent when invalid or equal to its column's
+    /// `aligns` entry, its `valign` when invalid or `top`, in the header and
+    /// the body alike; every other cell key rides.
+    #[test]
+    fn normalize_props_settles_the_cell_alignment_keys() {
+        use serde_json::{json, Value};
+        let absent = Value::Null;
+        let cases: &[(Value, &str, Value)] = &[
+            (json!("left"), "align", json!("left")),
+            (json!("center"), "align", json!("center")),
+            (json!("right"), "align", absent.clone()),
+            (json!("none"), "align", absent.clone()),
+            (json!("middle"), "align", absent.clone()),
+            (json!("Left"), "align", absent.clone()),
+            (json!(["left"]), "align", absent.clone()),
+            (json!("horizon"), "valign", json!("horizon")),
+            (json!("bottom"), "valign", json!("bottom")),
+            (json!("top"), "valign", absent.clone()),
+            (json!("middle"), "valign", absent.clone()),
+            (json!(1), "valign", absent.clone()),
+        ];
+        for (value, key, settled) in cases {
+            let mut cell = json!({"text": "c", "marks": [], "x_host": "kept"});
+            cell[*key] = value.clone();
+            let mut props = json!({
+                "aligns": ["none", "right"],
+                "header": [{"text": "h"}, cell.clone()],
+                "rows": [[{"text": "a"}, cell]],
+            });
+            IslandType::Table.normalize_props(&mut props);
+            for at in ["/header/1", "/rows/0/1"] {
+                let cell = props.pointer(at).unwrap();
+                assert_eq!(cell.get(*key).unwrap_or(&absent), settled, "{key}: {value} at {at}");
+                assert_eq!(cell["x_host"], "kept", "{key}: {value} at {at}");
+            }
+
+            let once = props.clone();
+            IslandType::Table.normalize_props(&mut props);
+            assert_eq!(props, once, "{key}: {value} is not a fixed point");
+        }
+    }
 }

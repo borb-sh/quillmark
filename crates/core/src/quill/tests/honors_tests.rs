@@ -176,11 +176,11 @@ intro: # richtext<markdown>
 }
 
 /// Each knob the blueprint's table carries is one the import folds into the
-/// table it wraps.
+/// table or cell it wraps.
 #[test]
-fn the_blueprint_table_imports_carrying_each_declared_table_knob() {
+fn the_blueprint_table_imports_carrying_each_declared_knob() {
     let config = config_with_sections(
-        "honors: { table: [widths, align, breakable] }\nmain:\n  fields: {}\n",
+        "honors: { table: [widths, align, breakable], cell: [align, valign] }\nmain:\n  fields: {}\n",
     )
     .unwrap();
     let blueprint = config.blueprint();
@@ -193,9 +193,9 @@ fn the_blueprint_table_imports_carrying_each_declared_table_knob() {
         .collect();
     let content = crate::document::import_body(&example).expect("imports");
     let props = &content.islands[0].props;
-    for knob in [TableKnob::Widths, TableKnob::Align, TableKnob::Breakable] {
-        assert!(props.get(knob.key()).is_some(), "{knob} in {props}");
-        assert_eq!(knob.count_in(&content), 1);
+    assert_eq!(content.islands.len(), 1, "{example}");
+    for &knob in TableKnob::ALL {
+        assert_eq!(knob.count_in(&content), 1, "{knob} in {props}");
     }
 }
 

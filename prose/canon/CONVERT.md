@@ -184,9 +184,10 @@ reads and the shape the WASM boundary pins:
   to the widest, so `columns:` and `align:` agree.
   The optional layout keys `widths`, `align` and `breakable`
   ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") are
-  read where the quill declares them (see [above](#element-mapping)); an
-  undeclared one draws as if absent: auto-fit, at the quill's placement,
-  breaking across pages.
+  read where the quill declares them (see [above](#element-mapping)), and so
+  are a cell's optional `align` and `valign`; an undeclared one draws as if
+  absent: auto-fit, at the quill's placement, breaking across pages, a cell at
+  its column's alignment and at the top.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. What `url` names is undecided (see [Declined images](#declined-images)).
 

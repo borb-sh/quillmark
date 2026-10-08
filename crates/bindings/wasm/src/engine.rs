@@ -295,10 +295,16 @@ export type ContentMarkKind =
 
 /** A cell in a `TableProps`. `marks` rides the prose `ContentMark` shape, but
  * each mark's `start`/`end` are USV offsets into this cell's `text`, not into
- * `Content.text`. A `\n` in `text` is a line break. */
+ * `Content.text`. A `\n` in `text` is a line break. An alignment key at its
+ * default is absent. */
 export interface TableCell {
     text: string;
     marks: ContentMark[];
+    /** The cell's horizontal alignment where it differs from its column's
+     * `aligns` entry; absent is the column's. */
+    align?: "left" | "center" | "right";
+    /** The cell's vertical alignment; absent is `top`. */
+    valign?: "horizon" | "bottom";
 }
 
 /** `props` of a `type: "table"` island: a pipe table normalized to one column

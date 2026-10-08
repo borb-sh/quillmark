@@ -346,10 +346,19 @@ default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
 | `align` | the table's placement: `left`, `center` or `right` | the quill's placement |
 | `breakable` | `false` keeps the table on one page | `true` |
 
+A cell names `text`, `marks` and two alignment keys, each absent at its
+default and when invalid:
+
+| Key | Value | Default |
+|---|---|---|
+| `align` | the cell's horizontal alignment: `left`, `center` or `right`; absent where it equals its column's `aligns` entry | its column's `aligns` entry |
+| `valign` | the cell's vertical alignment: `horizon` or `bottom` | `top` |
+
 `widths` are weights, not lengths, so each quill decides what full width is,
-and a quill lays out each key only where its `honors:` declares it
-([QUILL.md](QUILL.md#honors)). The keys ride the opaque props carrier, which an older reader round-trips, so
-adding them is no storage-version event.
+and a quill lays out each table and cell key only where its `honors:` declares
+it ([QUILL.md](QUILL.md#honors)). The keys ride the opaque props carrier and a
+cell's own keys, which an older reader round-trips, so adding them is no
+storage-version event.
 
 Two rules bound the payload:
 

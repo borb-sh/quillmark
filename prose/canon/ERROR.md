@@ -135,9 +135,11 @@ families:
   inside `$ext` or `$seed`, which have no document address, carries none.
   A body's markdown import adds `parse::dropped_construct`, one per construct
   it dropped (a raw tag by its lowercase name, `footnote_definition`,
-  `quill-table` for a `quill-table` wrapper not holding exactly one table, or
+  `quill-table` for a `quill-table` wrapper not holding exactly one table,
   `quill-table[<attr>]` for a wrapper attribute the engine does not name or
-  cannot read) with its `count`, anchored at the body (`main.body`, `cards.<kind>[<i>].body`)
+  cannot read, `quill-cell` for a `quill-cell` tag in a table cell it does not
+  wrap whole, or `quill-cell[<attr>]` for such an attribute on a pair that
+  does) with its `count`, anchored at the body (`main.body`, `cards.<kind>[<i>].body`)
   after its card's tag warnings.
 - **`parse::dropped_construct` off a markdown write.** The diagnostic a parse
   adds, minted by `quillmark_core::document::dropped_construct`, also rides
