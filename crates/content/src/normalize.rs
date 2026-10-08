@@ -66,11 +66,13 @@ fn admit_chars(s: &str) -> String {
     s.chars().filter_map(admit_char).collect()
 }
 
-/// The text the import parses, and the byte offset in it of each
-/// footnote-shaped definition the repair made literal.
+/// The text the import parses, the byte offset in it of each footnote-shaped
+/// definition the repair made literal, and the name of each opening tag on
+/// the lines it deleted, at the offset just past what replaced them.
 pub(crate) struct Repaired {
     pub(crate) text: String,
     pub(crate) footnotes: Vec<usize>,
+    pub(crate) tags: Vec<(usize, String)>,
 }
 
 /// Every markdown normalization in order (spec §7): CRLF → LF, bidi controls
@@ -99,21 +101,25 @@ const TAG_JOIN_LINES: usize = 8;
 /// unrepaired parse drops them with the block, and freed they would swallow
 /// what follows it. Past the last round, only the footnote-shaped
 /// definitions it freed are made literal.
-fn repair(mut text: String, options: Options) -> Repaired {
-    let mut footnotes = Vec::new();
-    if !may_need_repair(&text) {
-        return Repaired { text, footnotes };
+fn repair(text: String, options: Options) -> Repaired {
+    let mut r = Repaired {
+        text,
+        footnotes: Vec::new(),
+        tags: Vec::new(),
+    };
+    if !may_need_repair(&r.text) {
+        return r;
     }
     for _ in 0..REPAIR_ROUNDS {
-        let edits = plan(&text, options);
+        let edits = plan(&r.text, options);
         if edits.is_empty() {
-            return Repaired { text, footnotes };
+            return r;
         }
-        text = apply(&text, &edits, &mut footnotes);
+        apply(&mut r, &edits);
     }
-    let edits = footnotes_only(&text, options);
-    text = apply(&text, &edits, &mut footnotes);
-    Repaired { text, footnotes }
+    let edits = footnotes_only(&r.text, options);
+    apply(&mut r, &edits);
+    r
 }
 
 /// Whether some line could open an HTML block, hold a table row of tags, or
@@ -128,11 +134,14 @@ fn may_need_repair(s: &str) -> bool {
     })
 }
 
+#[derive(Default)]
 struct Edit {
     range: Range<usize>,
     with: String,
     /// The `[` escape of a footnote-shaped definition.
     footnote: bool,
+    /// The opening tags of the lines it deletes, by name.
+    tags: Vec<String>,
 }
 
 fn plan(src: &str, options: Options) -> Vec<Edit> {
@@ -243,37 +252,42 @@ fn footnote_plan(src: &str, defs: &[Range<usize>], leaves: Vec<Range<usize>>) ->
     defs.iter().cloned().chain(repeats).flat_map(|def| footnote_edits(src, def)).collect()
 }
 
-/// Apply `edits`, sorted by start, skipping one that overlaps an edit already
-/// applied (the next round plans it again). `footnotes` are offsets into `src`;
-/// they come back as offsets into the result, the new escapes appended.
-fn apply(src: &str, edits: &[Edit], footnotes: &mut Vec<usize>) -> String {
+/// Apply `edits`, sorted by start, to `r.text`, skipping one that overlaps an
+/// edit already applied (the next round plans it again). The offsets `r`
+/// holds move with the text, and the applied edits' own are appended.
+fn apply(r: &mut Repaired, edits: &[Edit]) {
+    let src = &r.text;
     let mut out = String::with_capacity(src.len() + 64);
     let mut taken = 0;
     let mut applied: Vec<(Range<usize>, Range<usize>)> = Vec::new();
-    let mut fresh = Vec::new();
+    let mut footnotes = Vec::new();
+    let mut tags = Vec::new();
     for e in edits {
         if e.range.start < taken {
             continue;
         }
         out.push_str(&src[taken..e.range.start]);
         if e.footnote {
-            fresh.push(out.len());
+            footnotes.push(out.len());
         }
         let new_start = out.len();
         out.push_str(&e.with);
+        tags.extend(e.tags.iter().map(|name| (out.len(), name.clone())));
         applied.push((e.range.clone(), new_start..out.len()));
         taken = e.range.end;
     }
     out.push_str(&src[taken..]);
-    for p in footnotes.iter_mut() {
-        *p = match applied.iter().rev().find(|(old, _)| old.start <= *p) {
-            None => *p,
-            Some((old, new)) if *p < old.end => new.start,
-            Some((old, new)) => new.end + (*p - old.end),
-        };
+    let moved = |p: usize| match applied.iter().rev().find(|(old, _)| old.start <= p) {
+        None => p,
+        Some((old, new)) if p < old.end => new.start,
+        Some((old, new)) => new.end + (p - old.end),
+    };
+    for p in r.footnotes.iter_mut().chain(r.tags.iter_mut().map(|(p, _)| p)) {
+        *p = moved(*p);
     }
-    footnotes.extend(fresh);
-    out
+    r.footnotes.extend(footnotes);
+    r.tags.extend(tags);
+    r.text = out;
 }
 
 /// A block of tag lines that ended the list item opening at `item`, written
@@ -302,7 +316,7 @@ fn into_item(src: &str, item: usize, lines: &[SrcLine]) -> Option<Edit> {
     Some(Edit {
         range: first.start..last.end(),
         with: with.join(&format!("\n{blank}\n")),
-        footnote: false,
+        ..Edit::default()
     })
 }
 
@@ -495,8 +509,8 @@ fn closes_fence(content: &str, c: char, n: usize) -> bool {
 fn html_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
     let kind = html::block_start(first.content)?;
-    let (start, rows, tag_needs_close) = match kind.end_marker() {
-        Some(_) => (last.start, rescue_end(kind, last)?, true),
+    let (start, (rows, tags), tag_needs_close) = match kind.end_marker() {
+        Some(_) => (last.start, (rescue_end(kind, last)?, Vec::new()), true),
         None => (first.start, transparent(lines), false),
     };
     let end = last.end();
@@ -504,7 +518,8 @@ fn html_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     (with != src[start..end]).then_some(Edit {
         range: start..end,
         with,
-        footnote: false,
+        tags,
+        ..Edit::default()
     })
 }
 
@@ -548,8 +563,8 @@ fn rescue_end(kind: BlockKind, last: &SrcLine) -> Option<Rows> {
 }
 
 /// A type 6 or 7 block's lines, its tags padded out so every other line parses
-/// as markdown.
-fn transparent(lines: &[SrcLine]) -> Rows {
+/// as markdown, and the opening tags of the lines it deletes.
+fn transparent(lines: &[SrcLine]) -> (Rows, Vec<String>) {
     let mut rows = Rows::default();
     // Four columns of indent past a block start make an indented code line, so
     // a line that starts a block drops them, and the lines continuing it drop
@@ -592,7 +607,7 @@ fn transparent(lines: &[SrcLine]) -> Rows {
                         let close = (i + 1..lines.len())
                             .find_map(|j| html::block_end(kind, lines[j].content).map(|end| (j, end)));
                         let Some((j, end)) = close else {
-                            break 'lines;
+                            return (rows, opening_tags(t, &lines[i + 1..]));
                         };
                         rows.push(format!("{prefix}{lead}{t}"), Kind::Raw);
                         for line in &lines[i + 1..j] {
@@ -608,7 +623,7 @@ fn transparent(lines: &[SrcLine]) -> Rows {
                     let close = (i + 1..lines.len())
                         .find(|&j| closes_fence(strip_columns(lines[j].content, dedent), c, n));
                     let Some(j) = close else {
-                        break 'lines;
+                        return (rows, opening_tags(t, &lines[i + 1..]));
                     };
                     rows.push(format!("{prefix}{lead}{t}"), Kind::Raw);
                     for line in &lines[i + 1..=j] {
@@ -655,7 +670,18 @@ fn transparent(lines: &[SrcLine]) -> Rows {
         }
         i += 1;
     }
-    rows
+    (rows, Vec::new())
+}
+
+/// The names of the opening tags in `first` and the lines after it, read as
+/// one type 6 block reads them.
+fn opening_tags(first: &str, rest: &[SrcLine]) -> Vec<String> {
+    let text: Vec<&str> = std::iter::once(first).chain(rest.iter().map(|l| l.content)).collect();
+    html::tags(&text.join("\n"))
+        .into_iter()
+        .filter(|t| !t.closing)
+        .map(|t| t.name.to_string())
+        .collect()
 }
 
 /// `line` without up to `n` columns of leading indentation.
@@ -799,7 +825,7 @@ fn run_tag_line_edits(src: &str, run: &Run) -> Option<Edit> {
         return (with != src[range.clone()]).then_some(Edit {
             range,
             with,
-            footnote: false,
+            ..Edit::default()
         });
     }
     None
@@ -824,7 +850,7 @@ fn tag_row_edits(src: &str, rows: &[SrcLine]) -> Vec<Edit> {
         edits.push(Edit {
             range: first.start..end,
             with: out.finish(&blank, next_line_continues(src, end), true),
-            footnote: false,
+            ..Edit::default()
         });
         k = to;
     }
@@ -881,6 +907,7 @@ fn footnote_edits(src: &str, def: Range<usize>) -> Vec<Edit> {
         range: def.start..def.start + 1,
         with: "\\[".to_string(),
         footnote: true,
+        ..Edit::default()
     }];
     let end = src[def.end..].find('\n').map_or(src.len(), |i| def.end + i);
     if next_line_continues(src, end) {
@@ -888,7 +915,7 @@ fn footnote_edits(src: &str, def: Range<usize>) -> Vec<Edit> {
         edits.push(Edit {
             range: end..end,
             with: format!("\n{}", blank_of(prefix)),
-            footnote: false,
+            ..Edit::default()
         });
     }
     edits

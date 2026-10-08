@@ -106,7 +106,7 @@ pub(crate) fn options() -> Options {
 /// closing tag never does.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let options = options();
-    let Repaired { text, footnotes } = normalize_markdown(markdown, options);
+    let Repaired { text, footnotes, tags } = normalize_markdown(markdown, options);
     let mut fixer = MarkdownFixer::new(Parser::new_ext(&text, options).into_offset_iter());
     let mut b = Builder::new();
     b.run(&mut fixer)?;
@@ -114,6 +114,9 @@ pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let (mut dropped, folds) = fixer.finish();
     for at in footnotes {
         dropped.add("footnote_definition", at);
+    }
+    for (at, name) in tags {
+        dropped.opening(&name, at);
     }
     let mut tables: Vec<&mut Island> = content
         .islands
@@ -932,10 +935,16 @@ impl Dropped {
     /// folds counts like any tag; `quill-anchor`, the engine's own read-only
     /// spelling of an anchor, is written to be dropped and counts nothing.
     fn tag(&mut self, tag: &html::Tag, at: usize) {
-        if tag.closing || carrier::element(tag.name).is_some_and(|e| e == "anchor") {
+        if !tag.closing {
+            self.opening(tag.name, at);
+        }
+    }
+
+    fn opening(&mut self, name: &str, at: usize) {
+        if carrier::element(name).is_some_and(|e| e == "anchor") {
             return;
         }
-        self.add(&tag.name.to_ascii_lowercase(), at);
+        self.add(&name.to_ascii_lowercase(), at);
     }
 
     fn into_warnings(mut self) -> Vec<ImportWarning> {
@@ -1819,7 +1828,8 @@ mod tests {
 
     /// A line inside a type 6/7 block that opens a comment, a `<pre>` or a fence
     /// keeps it whole when it closes inside the block; when it does not, it drops
-    /// with the rest of the block rather than swallowing what follows.
+    /// with the rest of the block, its tags counted, rather than swallowing what
+    /// follows.
     #[test]
     fn a_freed_line_never_swallows_what_follows_its_block() {
         let cases: &[(&str, &str)] = &[
@@ -1837,6 +1847,9 @@ mod tests {
         for (md, text) in cases {
             assert_eq!(imp_fixed(md).content.text, *text, "{md:?}");
         }
+        let imported = imp_fixed("<div>\n```\n<b>x</b> <quill-anchor ref=\"r\">\n</div>");
+        assert_eq!(imported.content.text, "");
+        assert_eq!(dropped(&imported), [("div", 1), ("b", 1)]);
     }
 
     /// Text after a type 1–5 block's end marker on its last line moves to a
