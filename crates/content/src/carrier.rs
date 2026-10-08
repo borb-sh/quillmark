@@ -230,11 +230,11 @@ impl Element {
     }
 
     /// The block wrapper around `children`: each tag alone on its line, a blank
-    /// line between it and the children. A container's prefix on each line is
-    /// the caller's.
+    /// line between it and the children, or the pair on one line around none.
+    /// A container's prefix on each line is the caller's.
     pub fn wrap_block(&self, children: &str) -> String {
         if children.is_empty() {
-            return format!("{}\n\n{}", self.open_tag(), self.close_tag());
+            return format!("{}{}", self.open_tag(), self.close_tag());
         }
         format!("{}\n\n{children}\n\n{}", self.open_tag(), self.close_tag())
     }
@@ -518,7 +518,7 @@ mod tests {
         assert_eq!(e.wrap_inline("x"), format!("{}x</quill-table>", e.open_tag()));
         let keep = Element::new("keep", BTreeMap::new()).unwrap();
         assert_eq!(keep.wrap_block("a\n\nb"), "<quill-keep>\n\na\n\nb\n\n</quill-keep>");
-        assert_eq!(keep.wrap_block(""), "<quill-keep>\n\n</quill-keep>");
+        assert_eq!(keep.wrap_block(""), "<quill-keep></quill-keep>");
 
         assert_eq!(Element::new("A", BTreeMap::new()), Err(Refused::Name("A".into())));
         assert_eq!(
