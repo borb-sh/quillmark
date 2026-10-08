@@ -506,9 +506,9 @@ Text with a <quill-keep note="a &amp; b">pair</quill-keep> inside a line.
 
 **An element nothing folds or models** is transparent: its tags drop, what it
 wraps imports, and `parse::dropped_construct` reports it under its tag name
-(`quill-keep`), as any raw tag (§6.2). Every element but `anchor` and a
-`table` block wrapper is one. A `quill-*` tag outside the grammar is a raw tag
-reported the same way.
+(`quill-keep`), as any raw tag (§6.2). Every element but `anchor`, a `table`
+block wrapper and a `cell` pair wrapping a whole table cell is one. A
+`quill-*` tag outside the grammar is a raw tag reported the same way.
 
 **`quill-table`** is a block wrapper around one pipe table, and folds its
 attributes into the table's layout, whatever quill reads the document:
@@ -536,14 +536,60 @@ attributes into the table's layout, whatever quill reads the document:
   only around a table holding a value other than its default.
 - Column alignment stays in the delimiter row. Its dash counts carry no width,
   since a formatter pads them to the column.
+- A quill renders an attribute only where its `honors:` declares it, and lays
+  the table out as if the attribute were absent elsewhere; the import keeps it
+  either way.
 - A wrapper holding anything but exactly one table drops whole: its tags drop,
   what it holds imports, and `parse::dropped_construct` reports `quill-table`.
 - An attribute other than these three, and one whose value is outside its
   spelling, drops alone, reported as `quill-table[<name>]`.
 
+**`quill-cell`** is an inline pair around a table cell's whole content, in the
+header row or the body, and folds its attributes into the cell, whatever quill
+reads the document:
+
+| Attribute | Value | Default |
+|---|---|---|
+| `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's, from the delimiter row |
+| `valign` | the cell's vertical alignment: `top`, `horizon` or `bottom` | `top` |
+
+```markdown
+| Item | Qty |
+| --- | ---: |
+| <quill-cell valign="bottom">Total</quill-cell> | <quill-cell align="center">42</quill-cell> |
+```
+
+- A pair folds when its open tag is the cell's first inline and its close tag
+  the cell's last, and the cell holds no other `quill-cell` tag. What it wraps
+  is the cell's content as written, edge whitespace included.
+- A pair that does not wrap the whole cell folds nothing: text or markup
+  before or after it, a second pair, a nested pair and an unclosed pair each
+  leave the cell as written, its `quill-cell` tags dropped, and
+  `parse::dropped_construct` reports each open tag as `quill-cell`.
+- An `align` equal to its column's and a `valign` of `top` store nothing, and
+  export writes the pair only around a cell holding a value other than its
+  default.
+- An attribute other than these two, and one whose value is outside its set,
+  drops alone, reported as `quill-cell[<name>]`.
+- A quill renders an attribute only where its `honors:` declares it, as for
+  `quill-table`.
+- A `quill-cell` outside a table cell is an element nothing folds.
+
 **`quill-anchor`** is reserved for an anchor's read-only spelling,
-`<quill-anchor ref="…"></quill-anchor>`, which no export writes. Import drops
-it without a report, inline or alone on its line.
+`<quill-anchor ref="…"></quill-anchor>`, which the annotated export writes and
+no plain export does. Import drops it without a report, inline or alone on its
+line. The annotated export writes one inline at each anchor's start:
+
+- after the delimiters of the marks closing there and before those opening
+  there;
+- at a code span's or link's start, for an anchor inside one;
+- in no code block, block island's line, table cell or empty line;
+- at the end of a line whose tags in place would change what it imports to,
+  and nowhere on a line where the end changes it too.
+
+```markdown
+A <quill-anchor ref="c1"></quill-anchor>**flagged** phrase.
+```
 
 **Strip.** Stripping the carrier from a markdown string removes every `quill-*`
 tag the import drops as markup and keeps what a wrapper holds; a tag in a code

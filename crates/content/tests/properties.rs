@@ -6,7 +6,8 @@
 use proptest::prelude::*;
 use quillmark_content::island::IslandType;
 use quillmark_content::delta::{diff_import, Delta, Op};
-use quillmark_content::export::to_markdown;
+use quillmark_content::carrier::strip;
+use quillmark_content::export::{to_markdown, to_markdown_annotated};
 use quillmark_content::import::from_markdown;
 use quillmark_content::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
 use quillmark_content::ops::{IslandOp, LineOp, MarkOp};
@@ -439,6 +440,42 @@ proptest! {
         prop_assert!(anchor.is_some(), "anchor lost across surviving edit");
         let anchor = anchor.unwrap();
         prop_assert_eq!(&new_rt.text[anchor.start..anchor.end], a.as_str());
+    }
+
+    /// The annotated read is the plain projection plus tags the import drops,
+    /// so it imports as the plain one does, and it lists every prose anchor
+    /// once, in `(start, id)` order.
+    #[test]
+    fn the_annotated_read_imports_as_the_plain_one(
+        md in prop_oneof![document(), delimiter_run()],
+        spans in prop::collection::vec((0usize..4096, 0usize..8, any::<bool>()), 1..5),
+    ) {
+        let mut rt = from_markdown(&md).unwrap().content.into_content();
+        let len = rt.len_usv();
+        for (k, &(at, width, zero_width)) in spans.iter().enumerate() {
+            let start = at % (len + 1);
+            let end = if zero_width { start } else { (start + width).min(len) };
+            rt.marks.push(Mark::new(start, end, MarkKind::Anchor { id: format!("{k}\"&<b>") }));
+        }
+        let rt = rt.into_normalized();
+        prop_assert_eq!(rt.validate(), Ok(()), "anchored content invalid for {:?}", md);
+
+        let plain = to_markdown(&rt);
+        let read = to_markdown_annotated(&rt);
+        prop_assert_eq!(&strip(&read.markdown), &plain, "more than tags added: {:?}", read.markdown);
+        prop_assert_eq!(
+            from_markdown(&read.markdown).unwrap().content,
+            from_markdown(&plain).unwrap().content,
+            "the read imports apart from the plain projection.\n read:  {:?}\n plain: {:?}",
+            read.markdown, plain
+        );
+        let mut want: Vec<(usize, &str)> = rt.marks.iter().filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some((m.start, id.as_str())),
+            _ => None,
+        }).collect();
+        want.sort_unstable();
+        let got: Vec<&str> = read.anchors.iter().map(|a| a.id.as_str()).collect();
+        prop_assert_eq!(got, want.into_iter().map(|(_, id)| id).collect::<Vec<_>>());
     }
 
 }

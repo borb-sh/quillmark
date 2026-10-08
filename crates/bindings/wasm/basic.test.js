@@ -924,6 +924,22 @@ Card body.
     expect(doc.warnings).toEqual([])
   })
 
+  it('toAnnotatedMarkdown spells each anchor at its start and lists it at its path', () => {
+    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nMain **body**.\n\n~~~\n$kind: note\n~~~\n\nA note.\n')
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 5, end: 9, type: 'anchor', attrs: { id: 'b' } }] })
+    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 2, end: 2, type: 'anchor', attrs: { id: 'n' } }] })
+    const read = doc.toAnnotatedMarkdown()
+    expect(read.markdown).toContain('Main <quill-anchor ref="b"></quill-anchor>**body**.')
+    expect(read.markdown).toContain('A <quill-anchor ref="n"></quill-anchor>note.')
+    expect(read.anchors).toEqual([
+      { id: 'b', path: 'main.body', line: 'Main body.' },
+      { id: 'n', path: 'cards.note[0].body', line: 'A note.' },
+    ])
+
+    expect(doc.reviseDocument(read.markdown).droppedAnchors).toEqual([])
+    expect(doc.toAnnotatedMarkdown()).toEqual(read)
+  })
+
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     const addr = { card: 0, field: 'foo' }
@@ -1047,6 +1063,25 @@ card_kinds:
     expect(schema.main.fields.title).toBeDefined()
     expect(schema.card_kinds.main).toBeUndefined()
     expect(schema.card_kinds.indorsement.fields.signature_block).toBeDefined()
+  })
+
+  it('emits the honors declaration on the schema', () => {
+    const yaml = META_QUILL_YAML.replace(
+      'main:\n',
+      'honors:\n  cell: [valign]\n  table: [widths]\n  elements:\n    keep: { scope: block }\n\nmain:\n',
+    )
+    const quill = Quill.fromTree(
+      makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: yaml }),
+    )
+    expect(JSON.parse(JSON.stringify(quill.schema)).honors).toEqual({
+      table: ['widths'],
+      cell: ['valign'],
+      elements: { keep: { scope: 'block' } },
+    })
+    const bare = Quill.fromTree(
+      makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: META_QUILL_YAML }),
+    )
+    expect(bare.schema.honors).toBeUndefined()
   })
 
   it('surfaces the load\'s advisory diagnostics on quill.warnings', () => {

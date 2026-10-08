@@ -134,9 +134,10 @@ fn table() -> impl Strategy<Value = Piece> {
 fn comment() -> impl Strategy<Value = Piece> {
     (prop::collection::vec(word(), 1..3), any::<bool>(), prop::option::of(paragraph())).prop_map(
         |(hidden, multiline, tail)| {
+            // Text after the comment's line-closing `-->` is a paragraph of its
+            // own, so only the words in it make the piece other: a tail of
+            // nothing but tags is a tag line.
             let mut p = tail.unwrap_or_default();
-            // On one line with text after it, the comment is the paragraph's.
-            p.other |= !multiline && !p.md.is_empty();
             let sep = if multiline { "\n" } else { " " };
             p.md = format!("<!--{sep}{}{sep}-->{}", hidden.join(" "), p.md);
             p

@@ -13,6 +13,8 @@ Schema authoring lives in `Quill.yaml` under:
 - `main.fields`
 - `card_kinds.<card_name>.fields`
 - optional `ui` and `body` blocks on `main` and each card kind
+- optional `honors`, the markup the plate renders beyond prose
+  ([QUILL.md](QUILL.md#honors))
 
 **What earns a key here.** A key earns its place when some surface is otherwise
 *wrong*, not merely underserved, and wrong needs a witness: a document that
@@ -21,6 +23,19 @@ preference is not a witness. A key then states its behavior on all four
 surfaces — plate, editor, blueprint, `validate` — and "inert here, deliberately"
 is a valid answer that is written down. A key costs its teaching surface from
 the day it exists, which is why the bar is the defect and not the convenience.
+
+Each `honors` knob meets it with a table that misrenders without it, and states
+its four surfaces:
+
+| Surface | A declared knob | An undeclared knob |
+|---|---|---|
+| Plate | lowers it | lays the table out as if it were absent |
+| Editor | offers its control, from `schema().honors` | stores it all the same: content is quill-free |
+| Blueprint | carries it in the closing table example | teaches nothing |
+| `validate` | silent | `validation::undeclared_construct` per field |
+
+A declared element is emitted and taught, and the plate, the editor's store and
+`validate` are inert on it, deliberately: the content model holds no element.
 
 Supported field types:
 
@@ -1009,7 +1024,10 @@ metadata, not schema fields, and do not appear in `fields`.
 
 For LLM/MCP authoring, see [BLUEPRINT.md](BLUEPRINT.md): `blueprint()` emits a document-shaped, pre-filled Markdown reference that's denser than schema for prompt-time use.
 
-Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name).
+Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name),
+optional `honors` (emitted when the quill declares anything: `table` and `cell`
+knob lists in vocabulary order, `elements` keyed by name, each with its `scope`
+and `attrs`).
 `main` and each entry in `card_kinds` share the same `CardSchema` shape:
 `fields` (map keyed by field name), optional `title`, optional `description`,
 optional `ui`, optional `body`. Each `FieldSchema` includes `type`, optional

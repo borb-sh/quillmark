@@ -37,8 +37,8 @@
 pub use quillmark_core::{
     backend::Backend,
     document::{
-        Card, Document, DocumentRevised, DroppedAnchor, EditError, FieldDelta, ImportError, Parsed,
-        Revised,
+        AnnotatedMarkdown, Card, Document, DocumentAnchor, DocumentRevised, DroppedAnchor,
+        EditError, FieldDelta, ImportError, Parsed, Revised,
     },
     error::{
         Diagnostic, Location, ParseError, RenderError, RenderResult, Severity, DOCUMENT_FILE,

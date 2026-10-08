@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use quillmark_core::{
     error::{Diagnostic, RenderError},
-    quill::{build_transform_schema, Quill},
+    quill::Quill,
 };
 
 use typst::syntax::package::PackageSpec;
@@ -72,7 +72,7 @@ pub fn workspace(source: &Quill, json_data: &serde_json::Value) -> Result<Worksp
     };
     let warnings = crate::quill_world(source, &plate)?.load_warnings().to_vec();
 
-    let meta = SchemaMeta::from_schema_json(build_transform_schema(source.config()).as_json());
+    let meta = SchemaMeta::from_config(source.config());
     let (lib_typ, _) = helper::generate_lib_typ(json_data, &meta)
         .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
     let helper_dir = PathBuf::from(PACKAGES_DIR)

@@ -794,19 +794,12 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 /// - **Arrays where arrays belong.** A present non-array `header`, `aligns`, or
 ///   row carries no cells, so it becomes an empty array.
 /// - **Layout keys absent at their default.** See [`normalize_table_layout`].
+/// - **Cell alignment keys absent at their default.** See [`canon_cell_align`].
 pub(crate) fn normalize_table_props(props: &mut Value) {
     let cols = table_cols(props);
     let Some(obj) = props.as_object_mut() else {
         return;
     };
-    let header = obj.entry("header").or_insert_with(|| Value::Array(vec![]));
-    if !header.is_array() {
-        *header = Value::Array(vec![]);
-    }
-    pad_row(header, cols);
-    if let Some(h) = header.as_array_mut() {
-        h.iter_mut().for_each(canon_cell);
-    }
     let aligns = obj.entry("aligns").or_insert_with(|| Value::Array(vec![]));
     if !aligns.is_array() {
         *aligns = Value::Array(vec![]);
@@ -816,15 +809,26 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
             a.push(Value::String("none".into()));
         }
     }
+    let aligns = aligns.as_array().cloned().unwrap_or_default();
+    let canon_row = |row: &mut Value| {
+        pad_row(row, cols);
+        if let Some(r) = row.as_array_mut() {
+            for (k, cell) in r.iter_mut().enumerate() {
+                canon_cell(cell, aligns.get(k));
+            }
+        }
+    };
+    let header = obj.entry("header").or_insert_with(|| Value::Array(vec![]));
+    if !header.is_array() {
+        *header = Value::Array(vec![]);
+    }
+    canon_row(header);
     if let Some(rows) = obj.get_mut("rows").and_then(Value::as_array_mut) {
         for row in rows.iter_mut() {
             if !row.is_array() {
                 *row = Value::Array(vec![]);
             }
-            pad_row(row, cols);
-            if let Some(r) = row.as_array_mut() {
-                r.iter_mut().for_each(canon_cell);
-            }
+            canon_row(row);
         }
     }
     normalize_table_layout(obj, cols);
@@ -910,10 +914,11 @@ fn is_cell_break(c: char) -> bool {
     c == '\r' || crate::normalize::is_line_separator(c)
 }
 
-/// Space a cell's stray line-break chars (1:1, so mark offsets hold) and
-/// re-normalize its marks. Writes back into the cell's **own** object rather
+/// Space a cell's stray line-break chars (1:1, so mark offsets hold),
+/// re-normalize its marks and settle its alignment keys against `column`, its
+/// column's `aligns` entry. Writes back into the cell's **own** object rather
 /// than minting a fresh one, so a key this build does not recognize survives.
-fn canon_cell(cell: &mut Value) {
+fn canon_cell(cell: &mut Value, column: Option<&Value>) {
     let (text, mut marks) = parse_cell(cell);
     let text = if text.contains(is_cell_break) {
         text.replace(is_cell_break, " ")
@@ -930,9 +935,27 @@ fn canon_cell(cell: &mut Value) {
     let canon = cell_to_value(&text, &crate::model::normalize_marks(marks));
     match (cell.as_object_mut(), canon) {
         // Overwrite the canonical keys, leave the rest.
-        (Some(o), Value::Object(fields)) => o.extend(fields),
+        (Some(o), Value::Object(fields)) => {
+            o.extend(fields);
+            canon_cell_align(o, column);
+        }
         // A non-object cell holds no keys to preserve.
         (_, canon) => *cell = canon,
+    }
+}
+
+/// A cell's alignment keys, each absent at its default or when invalid:
+///
+/// - `align`: `left`, `center` or `right`; absent where it equals `column`,
+///   its column's `aligns` entry, which a cell's alignment folds with.
+/// - `valign`: `horizon` or `bottom`; `top` is the default.
+fn canon_cell_align(cell: &mut Map<String, Value>, column: Option<&Value>) {
+    let align = cell.get("align");
+    if !matches!(align.and_then(Value::as_str), Some("left" | "center" | "right")) || align == column {
+        cell.remove("align");
+    }
+    if !matches!(cell.get("valign").and_then(Value::as_str), Some("horizon" | "bottom")) {
+        cell.remove("valign");
     }
 }
 

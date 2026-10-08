@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc dbae656fbc3d7432efa1d1f3963007ed9b1c1a3102fc820bf0cd0a0e91961ff8 # shrinks to doc = Piece { md: "<div align=\"center\">\n\n> <!-- aa0 -->aa0\n> aa0\n<quill-keep>\n    <p>\n    <img src=\"p.png\"> aa0\n    </p>\n</quill-keep>", words: ["aa0", "aa0", "aa0"], tags: ["div", "quill-keep", "p", "img"], table: false }
 cc 3a6be3a8e7164c57c512da30e3edc40239c776be0958bc6e1ad554bc4bcd7c61 # shrinks to doc = Piece { md: "<div align=\"center\">\n\naa0\n<quill-keep>\n    <p>\n    <!-- aa0 -->aa0\n    <img src=\"p.png\"> aa0\n    </p>\n</quill-keep>", words: ["aa0", "aa0", "aa0"], tags: ["div", "quill-keep", "p", "img"], table: false }
+cc a2991f41ece902c8251a7f6db6d1f7f0335902ae1f947320d01d315e0ff9337f # shrinks to doc = Piece { md: "<div align=\"center\">\n> <quill-table widths=\"1 2\">\n> <!-- aa0 --><img src=\"p.png\">\n> | aa0 |\n> |---|\n> | aa0 |\n> </quill-table>", .. }

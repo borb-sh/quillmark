@@ -7,8 +7,9 @@ use std::collections::BTreeSet;
 
 use quillmark::{Diagnostic, Document, OutputFormat, Quill, Quillmark, RenderOptions};
 use quillmark_content::{
-    export::to_markdown,
+    export::{to_markdown, to_markdown_annotated},
     import::{from_markdown, ImportWarning},
+    model::MarkKind,
     serial,
 };
 use quillmark_fixtures::{quills_path, resource_path};
@@ -16,7 +17,12 @@ use serde_json::{json, Value};
 
 mod common;
 
-const FRONTMATTER: &str = "~~~\n$quill: table_demo@0.1.0\n$kind: main\ntitle: Parity\n~~~\n";
+/// The quill declaring no knob, then the one declaring every knob.
+const QUILLS: [&str; 2] = ["table_demo", "table_honors"];
+
+fn frontmatter(quill: &str) -> String {
+    format!("~~~\n$quill: {quill}@0.1.0\n$kind: main\ntitle: Parity\n~~~\n")
+}
 
 #[test]
 fn every_entry_holds_on_every_surface() {
@@ -33,12 +39,14 @@ fn every_entry_holds_on_every_surface() {
     }
 
     let engine = Quillmark::new();
-    let quill = quillmark::quill_from_path(quills_path("table_demo")).expect("table_demo loads");
+    let quills = QUILLS.map(|name| {
+        quillmark::quill_from_path(quills_path(name)).unwrap_or_else(|e| panic!("{name} loads: {e:?}"))
+    });
     let failures: Vec<String> = corpus
         .iter()
         .flat_map(|entry| {
             let name = entry["name"].as_str().unwrap_or_default();
-            check(entry, &engine, &quill)
+            check(entry, &engine, &quills)
                 .into_iter()
                 .map(move |f| format!("{name}: {f}"))
         })
@@ -46,7 +54,28 @@ fn every_entry_holds_on_every_surface() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
+/// What an entry expects of one quill's surfaces: its own `typst` and
+/// `signals`, or, for the declaring quill, its `declared` override of each.
+struct Expected<'a> {
+    typst: &'a Value,
+    render: &'a Value,
+    validate: Value,
+}
+
+impl<'a> Expected<'a> {
+    fn of(entry: &'a Value, declaring: bool) -> Self {
+        let declared = declaring.then(|| entry.get("declared")).flatten();
+        let typst = declared.and_then(|d| d.get("typst")).unwrap_or(&entry["typst"]);
+        let signals = declared.and_then(|d| d.get("signals")).unwrap_or(&entry["signals"]);
+        Expected {
+            typst,
+            render: &signals["render"],
+            validate: signals.get("validate").cloned().unwrap_or(json!([])),
+        }
+    }
+}
+
+fn check(entry: &Value, engine: &Quillmark, quills: &[Quill; 2]) -> Vec<String> {
     let mut failures = Vec::new();
     let stored = &entry["content"];
     let content = match serial::from_canonical_value(stored) {
@@ -57,6 +86,9 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
         failures.push(format!("content is not canonical: {}", canonical(&content)));
     }
     let import_signals = &entry["signals"]["import"];
+    if let Some(annotated) = entry.get("annotated") {
+        failures.extend(check_annotated(annotated, &content));
+    }
 
     let doc = match entry["markdown"].as_str() {
         Some(markdown) => {
@@ -86,7 +118,7 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
                 Err(e) => failures.push(format!("to_markdown does not re-import: {e}")),
             }
 
-            let parsed = match Document::parse(&format!("{FRONTMATTER}\n{markdown}\n")) {
+            let parsed = match Document::parse(&format!("{}\n{markdown}\n", frontmatter(QUILLS[0]))) {
                 Ok(p) => p,
                 Err(e) => return [failures, vec![format!("a body does not parse: {e}")]].concat(),
             };
@@ -106,38 +138,58 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
             if import_signals.as_array().is_none_or(|a| !a.is_empty()) {
                 failures.push("an entry with no markdown declares import signals".into());
             }
-            let mut doc = Document::parse(FRONTMATTER).expect("frontmatter parses").document;
+            let mut doc = Document::parse(&frontmatter(QUILLS[0])).expect("frontmatter parses").document;
             doc.main_mut().overwrite_body(content);
             doc
         }
     };
 
-    let lowering = match lowering(quill, &doc) {
+    for (quill, declaring) in quills.iter().zip([false, true]) {
+        let mut doc = doc.clone();
+        if declaring {
+            let mut bound = Document::parse(&frontmatter(quill.name())).expect("frontmatter parses").document;
+            bound.main_mut().overwrite_body(doc.main().body().clone());
+            doc = bound;
+        }
+        let expected = Expected::of(entry, declaring);
+        failures.extend(
+            surfaces(&expected, engine, quill, &doc)
+                .into_iter()
+                .map(|f| format!("{}: {f}", quill.name())),
+        );
+    }
+    failures
+}
+
+/// The lowering, `validate` and a one-shot render of `doc` through `quill`.
+fn surfaces(expected: &Expected, engine: &Quillmark, quill: &Quill, doc: &Document) -> Vec<String> {
+    let mut failures = Vec::new();
+    let lowering = match lowering(quill, doc) {
         Ok(l) => l,
-        Err(e) => return [failures, vec![e]].concat(),
+        Err(e) => return vec![e],
     };
-    for property in entry["typst"].as_array().into_iter().flatten() {
+    for property in expected.typst.as_array().into_iter().flatten() {
         let property = property.as_str().unwrap_or_default();
         if !lowering.contains(property) {
             failures.push(format!("lowering lacks {property:?}:\n{lowering}"));
         }
     }
 
-    let validated = quill.validate(&doc);
+    let validated = quill.validate(doc);
     let codes: Value = validated.iter().filter_map(|d| d.code.clone()).collect();
-    if codes != *entry["signals"].get("validate").unwrap_or(&json!([])) {
+    if codes != expected.validate {
         failures.push(format!("validate warns {codes}"));
     }
 
     match engine.render(
         quill,
-        &doc,
+        doc,
         common::test_date(),
         &RenderOptions::default().with_output_format(OutputFormat::Svg),
     ) {
         Ok(result) => {
             let codes: Value = result.warnings.iter().filter_map(|d| d.code.clone()).collect();
-            if codes != entry["signals"]["render"] {
+            if codes != *expected.render {
                 failures.push(format!("render warns {codes}"));
             }
             let at_validate = declines(&validated, "validation::declined_construct");
@@ -149,6 +201,31 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
             }
         }
         Err(e) => failures.push(format!("render fails: {e:?}")),
+    }
+    failures
+}
+
+/// `annotated` is the content's annotated read, and imports, warning nothing,
+/// as the content without its anchors.
+fn check_annotated(annotated: &Value, content: &quillmark::Normalized) -> Vec<String> {
+    let Some(annotated) = annotated.as_str() else {
+        return vec!["annotated is not a string".into()];
+    };
+    let mut failures = Vec::new();
+    let read = to_markdown_annotated(content).markdown;
+    if read != annotated {
+        failures.push(format!("to_markdown_annotated writes {read:?}"));
+    }
+    let mut unanchored = content.clone().into_content();
+    unanchored.marks.retain(|m| !matches!(m.kind, MarkKind::Anchor { .. }));
+    match from_markdown(annotated) {
+        Ok(i) if i.content == unanchored.into_normalized() && i.warnings.is_empty() => {}
+        Ok(i) => failures.push(format!(
+            "annotated imports as {}, warning {:?}",
+            canonical(&i.content),
+            i.warnings
+        )),
+        Err(e) => failures.push(format!("annotated does not import: {e}")),
     }
     failures
 }
