@@ -1,9 +1,9 @@
 //! Raw HTML as CommonMark 0.31.2 reads it: §6.6's open and closing tags and
 //! §4.6's HTML-block start and end conditions, at the line grain the import's
-//! repair works at. Where the two disagree this follows `pulldown_cmark` 0.13,
-//! since the repair predicts the blocks that parser builds: a type-1 block ends
-//! only at the lowercase closing tag of its own name, and a type-7 tag holds no
-//! line ending.
+//! repair works at. A type-7 tag holds no line ending, as in `pulldown_cmark`
+//! 0.13, whose blocks the repair predicts. A type-1 block ends at any of its
+//! four closing tags in any case, as in CommonMark; that parser reads only the
+//! block's own in lowercase, so the repair respells the one that ends it.
 
 use std::ops::Range;
 
@@ -26,7 +26,8 @@ pub(crate) struct Tag<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BlockKind {
     /// Type 1: `<pre`, `<script`, `<style` or `<textarea`, ending at the line
-    /// holding the closing tag carried here.
+    /// holding any of their closing tags ([`verbatim_close`]). The parser ends
+    /// it only at the closing tag carried here.
     Verbatim(&'static str),
     /// Type 2: `<!--`, ending at `-->`.
     Comment,
@@ -277,8 +278,25 @@ pub(crate) fn block_start(line: &str) -> Option<BlockKind> {
 /// The byte offset just past the marker on `line` that ends a block of `kind`,
 /// or `None` where the line leaves it open (always, for types 6 and 7).
 pub(crate) fn block_end(kind: BlockKind, line: &str) -> Option<usize> {
+    if let BlockKind::Verbatim(_) = kind {
+        return verbatim_close(line).map(|r| r.end);
+    }
     let marker = kind.end_marker()?;
     line.find(marker).map(|at| at + marker.len())
+}
+
+/// The first closing tag on `line` that ends a type 1 block: `</pre>`,
+/// `</script>`, `</style>` or `</textarea>`, in any case.
+pub(crate) fn verbatim_close(line: &str) -> Option<Range<usize>> {
+    line.match_indices("</").find_map(|(at, _)| {
+        VERBATIM.iter().find_map(|(_, close)| {
+            let end = at + close.len();
+            line.as_bytes()
+                .get(at..end)
+                .is_some_and(|b| b.eq_ignore_ascii_case(close.as_bytes()))
+                .then_some(at..end)
+        })
+    })
 }
 
 #[cfg(test)]
@@ -363,8 +381,10 @@ mod tests {
     fn a_block_ends_past_its_marker() {
         assert_eq!(block_end(BlockKind::Comment, "<!-- a --> b"), Some(10));
         assert_eq!(block_end(BlockKind::Comment, "<!-->x"), Some(5));
-        assert_eq!(block_end(BlockKind::Verbatim("</pre>"), "x</PRE>"), None);
+        assert_eq!(block_end(BlockKind::Verbatim("</pre>"), "x</PRE>"), Some(7));
         assert_eq!(block_end(BlockKind::Verbatim("</pre>"), "x</pre>y"), Some(7));
+        assert_eq!(block_end(BlockKind::Verbatim("</pre>"), "x</Script>y</pre>"), Some(10));
+        assert_eq!(block_end(BlockKind::Verbatim("</pre>"), "x</pre >"), None);
         assert_eq!(block_end(BlockKind::Declaration, "<!X a>b"), Some(6));
         assert_eq!(block_end(BlockKind::Tag, "</span>"), None);
     }

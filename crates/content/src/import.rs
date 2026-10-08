@@ -2485,6 +2485,46 @@ mod tests {
         }
     }
 
+    /// A tag line under a setext heading's text moves below its underline,
+    /// where the heading has ended, so the heading keeps its lines; an
+    /// element's tag opens or closes its element there.
+    #[test]
+    fn a_tag_line_under_a_setext_heading_moves_below_it() {
+        let cases: &[(&str, &str, &[(&str, usize)])] = &[
+            ("a\n<span>\n===", "# a", &[("span", 1)]),
+            ("a\n<span>\n---", "## a", &[("span", 1)]),
+            ("a\n<span>\n===\nb", "# a\n\nb", &[("span", 1)]),
+            ("a\n<b> <i>\nc\n===", "# a c", &[("b", 1), ("i", 1)]),
+            ("- a\n  <span>\n  ---\n- b", "- ## a\n\n- b", &[("span", 1)]),
+            ("> a\n> <span>\n> ===\n> b", "> # a\n>\n> b", &[("span", 1)]),
+            ("<quill-keep>\n\nTitle\n</quill-keep>\n===", "<quill-keep>\n\n# Title\n\n</quill-keep>", &[]),
+        ];
+        for (md, exported, warned) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(crate::export::to_markdown(&imported.content), *exported, "{md:?}");
+            assert_eq!(dropped(&imported), *warned, "{md:?}");
+        }
+    }
+
+    /// A type 1 block ends at the first line holding any of its four closing
+    /// tags, in any case, as CommonMark ends it, so what follows imports.
+    #[test]
+    fn a_type_1_block_ends_at_any_closing_tag_in_any_case() {
+        let cases: &[(&str, &str)] = &[
+            ("<PRE>x</PRE>\n\nafter", "after"),
+            ("<pre>\nx\n</PRE> tail\n\nafter", "tail\nafter"),
+            ("<pre>\nx\n</Script>\nafter", "after"),
+            ("- <Script>\n  x\n  </SCRIPT>\n- after", "\nafter"),
+            ("<div>\n<PRE>x</PRE> after\n</div>", "after"),
+            ("<div>\n<pre>\nx\n</Pre> tail\n\npara\n</div>", "tail\npara"),
+        ];
+        for (md, text) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.text, *text, "{md:?}");
+            assert!(dropped(&imported).iter().any(|(c, _)| ["pre", "script"].contains(c)), "{md:?}");
+        }
+    }
+
     /// A tag line drops as a blank line does, so it keeps a list item open as a
     /// blank line would: the list on either side of a wrapper's tag is one
     /// list. A quote the item sits in does not reach a tag outside it.
