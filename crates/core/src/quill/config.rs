@@ -2113,6 +2113,13 @@ impl QuillConfig {
             ));
             out.knobs.clear();
         }
+        if !out.elements.is_empty() && !crate::backend::lowers_elements(backend) {
+            errors.push(invalid(
+                format!("The {backend} backend lowers no element, so it honors none"),
+                "Remove `honors.elements`.".to_string(),
+            ));
+            out.elements.clear();
+        }
         out
     }
 

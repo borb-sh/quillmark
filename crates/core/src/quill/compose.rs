@@ -1,14 +1,14 @@
 //! Consumer-facing operations on a [`Quill`]: validation, seeding, and the
 //! blank-filled compile to backend wire JSON. Pure reads of the config.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::str::FromStr;
 
 use indexmap::IndexMap;
 
 use super::resolved::FieldSource;
 use super::{
-    seed, CalendarDate, CardSchema, CoercionError, FieldSchema, FieldType, Leniency, Quill,
+    seed, CalendarDate, CardSchema, CoercionError, ElementScope, FieldSchema, FieldType, Leniency, Quill,
     QuillConfig, MATRIX_HELD_KEY, MATRIX_TITLE_KEY, TODAY, VARIANT_DISCRIMINANT_KEY,
 };
 use crate::normalize::{normalize_document, normalize_field_name};
@@ -1144,10 +1144,13 @@ pub(crate) fn body_disabled_warning(path: &DocPath, card: &str) -> Diagnostic {
 /// the quill's backend [`declines`](crate::backend::declines): the warning
 /// that field's render raises as `backend::declined_construct`. Beside it, one
 /// `validation::undeclared_construct` per content field and stored table knob
-/// the quill's `honors:` leaves out, where the backend typesets tables at all.
+/// the quill's `honors:` leaves out, where the backend typesets tables at all,
+/// and one per content field and element it uses at a scope `honors:` does not
+/// declare, where the backend lowers elements.
 fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     let tables = !crate::backend::declines(&config.backend).contains(&super::BlockConstruct::Table);
+    let elements = crate::backend::lowers_elements(&config.backend);
     let mut each = |at: &DocPath, content: &crate::Content| {
         for (construct, count) in crate::backend::declined_in(&config.backend, content) {
             diags.push(declined_construct_warning(&config.backend, construct, count, at));
@@ -1158,6 +1161,20 @@ fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
             if count > 0 {
                 diags.push(undeclared_construct_warning(&config.name, knob, count, at));
             }
+        }
+        if !elements {
+            return;
+        }
+        let mut undeclared: BTreeMap<String, (usize, Vec<ElementScope>)> = BTreeMap::new();
+        for ((name, scope), count) in super::honors::element_uses(content) {
+            if config.honors.element(&name, scope).is_none() {
+                let entry = undeclared.entry(name).or_default();
+                entry.0 += count;
+                entry.1.push(scope);
+            }
+        }
+        for (name, (count, scopes)) in undeclared {
+            diags.push(undeclared_element_warning(&config.name, &name, &scopes, count, at));
         }
     };
     for (schema, card, path) in schema_cards(config, doc) {
@@ -1216,6 +1233,32 @@ pub(crate) fn undeclared_construct_warning(
         key = knob.key()
     ))
     .with_arg("construct", knob.as_str().into())
+    .with_arg("count", count.into())
+}
+
+pub(crate) fn undeclared_element_warning(
+    quill: &str,
+    name: &str,
+    scopes: &[ElementScope],
+    count: usize,
+    path: &DocPath,
+) -> Diagnostic {
+    let (at, declare) = match scopes {
+        [ElementScope::Block] => ("around blocks", " with `scope: block`"),
+        [ElementScope::Inline] => ("inside a line", " with `scope: inline`"),
+        _ => ("around blocks or inside a line", ""),
+    };
+    let verb = if count == 1 { "renders" } else { "render" };
+    Diagnostic::new(
+        Severity::Warning,
+        format!("quill `{quill}` does not honor `quill-{name}` {at}: {count} in this field {verb} without it"),
+    )
+    .with_code("validation::undeclared_construct".to_string())
+    .with_path(path.to_string())
+    .with_hint(format!(
+        "Remove the `quill-{name}` tags, or declare `honors.elements.{name}`{declare} in the quill."
+    ))
+    .with_arg("construct", format!("element.{name}").into())
     .with_arg("count", count.into())
 }
 
