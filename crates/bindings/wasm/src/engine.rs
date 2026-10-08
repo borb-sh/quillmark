@@ -126,6 +126,29 @@ export interface QuillSchema {
     main: QuillCardSchema;
     /** Present only when the quill declares at least one named card kind. */
     card_kinds?: Record<string, QuillCardSchema>;
+    /** The markup the quill's plate renders beyond prose, for every body and
+     *  content field. Present only when the quill declares any. A table or cell
+     *  key it leaves out still stores, and renders as if absent. */
+    honors?: QuillHonors;
+}
+
+/** A quill's `honors:` section. */
+export interface QuillHonors {
+    /** The `TableProps` keys the plate lays out, in this order. */
+    table?: ("widths" | "align" | "breakable")[];
+    /** The `TableCell` keys the plate lays out, in this order. */
+    cell?: ("align" | "valign")[];
+    /** The `quill-<name>` elements the plate renders, keyed by name. */
+    elements?: Record<string, QuillElementSchema>;
+}
+
+/** One declared `quill-<name>` element. */
+export interface QuillElementSchema {
+    /** `block` wraps blocks; `inline` wraps a run of text. */
+    scope: "block" | "inline";
+    /** Each attribute's schema, of a scalar type, key order the declaration
+     *  order. */
+    attrs?: Record<string, QuillFieldSchema>;
 }
 
 /**

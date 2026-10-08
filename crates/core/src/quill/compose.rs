@@ -1142,12 +1142,22 @@ pub(crate) fn body_disabled_warning(path: &DocPath, card: &str) -> Diagnostic {
 
 /// One `validation::declined_construct` per content field and construct that
 /// the quill's backend [`declines`](crate::backend::declines): the warning
-/// that field's render raises as `backend::declined_construct`.
+/// that field's render raises as `backend::declined_construct`. Beside it, one
+/// `validation::undeclared_construct` per content field and stored table knob
+/// the quill's `honors:` leaves out, where the backend typesets tables at all.
 fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
+    let tables = !crate::backend::declines(&config.backend).contains(&super::BlockConstruct::Table);
     let mut each = |at: &DocPath, content: &crate::Content| {
         for (construct, count) in crate::backend::declined_in(&config.backend, content) {
             diags.push(declined_construct_warning(&config.backend, construct, count, at));
+        }
+        let undeclared = super::TableKnob::ALL.iter().filter(|&&k| tables && !config.honors.declares(k));
+        for &knob in undeclared {
+            let count = knob.count_in(content);
+            if count > 0 {
+                diags.push(undeclared_construct_warning(&config.name, knob, count, at));
+            }
         }
     };
     for (schema, card, path) in schema_cards(config, doc) {
@@ -1181,6 +1191,31 @@ pub(crate) fn declined_construct_warning(
     .with_code("validation::declined_construct".to_string())
     .with_path(path.to_string())
     .with_arg("construct", construct.as_str().into())
+    .with_arg("count", count.into())
+}
+
+pub(crate) fn undeclared_construct_warning(
+    quill: &str,
+    knob: super::TableKnob,
+    count: usize,
+    path: &DocPath,
+) -> Diagnostic {
+    let (noun, owner) = if knob.on_cell() { ("cell", "cells") } else { ("table", "tables") };
+    let owners = if count == 1 { noun } else { owner };
+    Diagnostic::new(
+        Severity::Warning,
+        format!(
+            "quill `{quill}` does not honor `{knob}`: {count} {owners} in this field store it, \
+             and the render lays them out without it"
+        ),
+    )
+    .with_code("validation::undeclared_construct".to_string())
+    .with_path(path.to_string())
+    .with_hint(format!(
+        "Remove the `{key}` key, or declare it under the quill's `honors.{noun}`.",
+        key = knob.key()
+    ))
+    .with_arg("construct", knob.as_str().into())
     .with_arg("count", count.into())
 }
 

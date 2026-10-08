@@ -360,8 +360,11 @@ fn emit_orphan_inlines(out: &mut String, ctx: EmitCtx<'_>, container_len: usize,
 
 fn push_comment_line(out: &mut String, indent: usize, text: &str) {
     push_indent(out, indent);
-    out.push_str("# ");
-    out.push_str(text);
+    out.push('#');
+    if !text.is_empty() {
+        out.push(' ');
+        out.push_str(text);
+    }
     out.push('\n');
 }
 

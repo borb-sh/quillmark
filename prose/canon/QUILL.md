@@ -74,8 +74,9 @@ missing or malformed template surfaces as a render-time error, not a load error.
 ## `Quill.yaml` Rules
 
 One required top-level section, `quill` (bundle metadata); optional `main`
-(document fields), `card_kinds` (card kind definitions), and a backend-named
-section (`typst`). Top-level keys naming a backend are reserved, and the engine
+(document fields), `card_kinds` (card kind definitions), `honors` (the markup
+the plate renders beyond prose, [below](#honors)), and a backend-named section
+(`typst`). Top-level keys naming a backend are reserved, and the engine
 reads exactly one: the section named by `quill.backend`. A section named for any
 other backend is `quill::unknown_section`, the same refusal a typo gets. Every
 key, type, and UI property is documented in the
@@ -92,6 +93,43 @@ Identity resolution:
   section, never in `quill:`, and reach a backend as
   `QuillConfig::backend_config`.
 - `quill.ui` (a `UiCardSchema`, same shape as `card_kinds.<name>.ui`) is a fallback for `main.ui`: the `main` card uses `main.ui` when present, otherwise `quill.ui`.
+
+## Honors
+
+`honors:` declares what the plate renders beyond prose, once for every body and
+content field of the quill: the plate decides once, and the blueprint teaches
+once.
+
+```yaml
+honors:
+  table: [widths, align, breakable]
+  cell: [align, valign]
+  elements:
+    keep:
+      scope: block          # block | inline
+      attrs:
+        note: { type: string }
+```
+
+- **`table`, `cell`: the knobs.** A subset of the table keys `widths`, `align`
+  and `breakable`, and of the cell keys `align` and `valign`
+  ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#content-vocabularies)). Column
+  `aligns` is not a knob: every Typst quill honors it. A knob the quill leaves
+  out renders as if absent, and `Quill::validate` says so per field
+  (`validation::undeclared_construct`, [ERROR.md](ERROR.md)). Content stores
+  every knob whatever the quill declares: import never reads a quill.
+- **`elements`: the `quill-<name>` elements.** Each name to a `scope`
+  (`block` or `inline`) and optional `attrs`, each a field schema of a scalar
+  type (`string`, `enum`, `integer`, `number`, `boolean`, `date`, `datetime`),
+  read through `QuillConfig::coerce_element`. The content model holds no
+  element, so a declared element is emitted and taught, and nothing stores one.
+- **Declaring nothing** is the quill without the section: it loads, teaches,
+  validates and renders as one.
+
+`schema()` emits the section as `honors`, knobs in the order above, when the
+quill declares anything ([SCHEMAS.md](SCHEMAS.md#what-earns-a-key)); the
+blueprint closes the root payload with one example per declared construct
+([BLUEPRINT.md](BLUEPRINT.md#markup-a-quill-honors)).
 
 ## The example document
 
@@ -131,6 +169,7 @@ example's `$quill`.
 - Malformed `quill.ui` / `main.ui` / `card_kinds.<name>.ui` blocks error with `quill::invalid_ui` rather than being silently discarded; one spelling `title` is hinted to the card's own `title:`.
 - A `ui.layout: table` column that is not a leaf errors with `quill::table_column_not_leaf`, naming the column: declaring the key contracts the shape the control needs, leaving an editor only the capability decline ([SCHEMAS.md](SCHEMAS.md#schema-emission)).
 - Malformed `main.body` / `card_kinds.<name>.body` blocks, `enabled` being the one key, error with `quill::invalid_body`.
+- `honors:` errors with `quill::invalid_honors` where it is not a mapping, holds a key other than `table`, `cell` and `elements`, gives a knob list that is not a list of knob names, names a knob twice, or declares a knob under a backend that typesets no table (acroform). An element name outside the carrier grammar `[a-z][a-z0-9]*(-[a-z0-9]+)*`, or one the engine reserves (`table`, `cell`, `anchor`), errors with `quill::invalid_element_name`; an element that is not a mapping, holds a key other than `scope` and `attrs`, lacks a `block` or `inline` scope, or gives `attrs` that is not a mapping, with `quill::invalid_element`; an attribute named outside the carrier's attribute grammar or typed other than a scalar, with `quill::invalid_element_attr` ([markdown-spec.md](../references/markdown-spec.md) §6.4).
 - A card declaring more than `MAX_FIELD_COUNT` (1000) fields errors with `quill::too_many_fields`: seeding and the blueprint build one card-yaml block per card schema, so the block's cap is the schema's to meet. Counted per card over declared fields alone — nested `properties`, array `items`, and `variants:` cells ride inside the field declaring them.
 
 Errors flow through `RenderError` (a non-empty `Vec<Diagnostic>`) and surface to bindings as a structured array (`err.diagnostics` in WASM, `.diagnostics` attribute in Python).

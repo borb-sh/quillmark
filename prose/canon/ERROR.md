@@ -167,7 +167,8 @@ families:
   malformed input, and the document does not render; a `Warning` is unclaimed
   input, which renders. The warnings are
   `cardinality`, `out_of_variant`, `unknown_card`, `body_disabled`,
-  `unknown_field`, `declined_construct`, and the `$seed` checks, which warn
+  `unknown_field`, `declined_construct`, `undeclared_construct`, and the
+  `$seed` checks, which warn
   whatever their class because no render reads `$seed`.
   The render gate consults only the fatal set. A one-shot render
   (`Quillmark::render`) carries every one of these warnings on
@@ -192,6 +193,16 @@ families:
   `construct` and `count` in `args` and the field's `DocPath` in `path`: the
   warning the render raises as `backend::declined_construct`. A one-shot
   render leaves it out of `RenderResult.warnings`, which carry the backend's.
+- **`validation::undeclared_construct`: a stored knob the quill does not
+  honor.** `Quill::validate` warns once per (content field, knob) where the
+  field stores a table or cell knob the quill's `honors:` leaves out
+  ([QUILL.md](QUILL.md#honors)), with `construct` (`table.widths`,
+  `table.align`, `table.breakable`, `cell.align`, `cell.valign`) and `count`
+  (the tables, or cells, storing it) in `args` and the field's `DocPath` in
+  `path`. The render lays those tables out as if the knob were absent and raises
+  nothing of its own, so a one-shot render carries this warning. A backend
+  declining tables outright raises none: its `declined_construct` already
+  covers the table.
 - **Compile warnings**: the Typst backend maps the compiler's non-fatal
   diagnostics (font fallback, overfull pages, …) through the same span
   resolution as errors. They are state of the session's current compile:
@@ -419,6 +430,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::not_inline` | `trailingNewline`? | structured |
 | `validation::not_plain` | — | code-determined |
 | `validation::declined_construct` | `construct`, `count` | structured |
+| `validation::undeclared_construct` | `construct`, `count` | structured |
 | `edit::invalid_field_name` | `field` | structured |
 | `edit::unknown_field` | `field` | structured |
 | `edit::invalid_kind_name` | `kind` | structured |
