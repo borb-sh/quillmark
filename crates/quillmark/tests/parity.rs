@@ -7,8 +7,9 @@ use std::collections::BTreeSet;
 
 use quillmark::{Diagnostic, Document, OutputFormat, Quill, Quillmark, RenderOptions};
 use quillmark_content::{
-    export::to_markdown,
+    export::{to_markdown, to_markdown_annotated},
     import::{from_markdown, ImportWarning},
+    model::MarkKind,
     serial,
 };
 use quillmark_fixtures::{quills_path, resource_path};
@@ -85,6 +86,9 @@ fn check(entry: &Value, engine: &Quillmark, quills: &[Quill; 2]) -> Vec<String> 
         failures.push(format!("content is not canonical: {}", canonical(&content)));
     }
     let import_signals = &entry["signals"]["import"];
+    if let Some(annotated) = entry.get("annotated") {
+        failures.extend(check_annotated(annotated, &content));
+    }
 
     let doc = match entry["markdown"].as_str() {
         Some(markdown) => {
@@ -197,6 +201,31 @@ fn surfaces(expected: &Expected, engine: &Quillmark, quill: &Quill, doc: &Docume
             }
         }
         Err(e) => failures.push(format!("render fails: {e:?}")),
+    }
+    failures
+}
+
+/// `annotated` is the content's annotated read, and imports, warning nothing,
+/// as the content without its anchors.
+fn check_annotated(annotated: &Value, content: &quillmark::Normalized) -> Vec<String> {
+    let Some(annotated) = annotated.as_str() else {
+        return vec!["annotated is not a string".into()];
+    };
+    let mut failures = Vec::new();
+    let read = to_markdown_annotated(content).markdown;
+    if read != annotated {
+        failures.push(format!("to_markdown_annotated writes {read:?}"));
+    }
+    let mut unanchored = content.clone().into_content();
+    unanchored.marks.retain(|m| !matches!(m.kind, MarkKind::Anchor { .. }));
+    match from_markdown(annotated) {
+        Ok(i) if i.content == unanchored.into_normalized() && i.warnings.is_empty() => {}
+        Ok(i) => failures.push(format!(
+            "annotated imports as {}, warning {:?}",
+            canonical(&i.content),
+            i.warnings
+        )),
+        Err(e) => failures.push(format!("annotated does not import: {e}")),
     }
     failures
 }

@@ -108,6 +108,10 @@ as one wide list: the `instance` boundary does not reach the page.
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
+The annotated read spells it at its start as a `quill-anchor` tag the import
+drops, so the markdown cell stays `carries opaquely`: a write keeps an anchor by
+diff-rebase, never by its tag. The row's corpus entry pins the spelling under
+`annotated`.
 
 ### Islands
 
@@ -182,6 +186,7 @@ matrix row:
 |---|---|
 | `name` | the row's name |
 | `markdown` | the row's spelling, or `null` where markdown spells none (`mark.anchor`, the unnamed keys) |
+| `annotated` | `to_markdown_annotated(content)`'s markdown, on a row whose construct has a read-only spelling (`mark.anchor`); absent elsewhere |
 | `content` | the canonical stored content, `serial::to_canonical_value`, pretty-printed so a change diffs by line |
 | `typst` | substrings the body's lowering contains, never a whole emission |
 | `signals.import` | `{construct, count}` per `parse::dropped_construct` the import raises, in order |
@@ -198,6 +203,8 @@ fails:
   a body holding it through `Document::parse`.
 - A spelled entry's `to_markdown(content)` re-imports to `content`, the fixed
   point. An entry markdown cannot spell is checked on the other surfaces only.
+- An entry's `annotated` is `to_markdown_annotated(content)`'s markdown, and
+  imports, warning nothing, to `content` without its anchors.
 - The rest runs through two fixture quills: `table_demo`, which declares no
   knob, against `typst` and `signals`, and `table_honors`, which declares every
   knob, against `declared` where the entry has one.
@@ -213,9 +220,10 @@ markup wrapped reaches the page.
 
 `scripts/build-wasm.sh` ships the file at the root of `@quillmark/wasm` as
 `parity.json`, and the package's `parity.test.js` round-trips every spelled
-entry through `importMarkdown` and `exportMarkdown`. A downstream codec pins the
-copy in the package version it imports: decoding each `content` into its own
-state and encoding it back yields `content`.
+entry through `importMarkdown` and `exportMarkdown`, and imports each
+`annotated` read. A downstream codec pins the copy in the package version it
+imports: decoding each `content` into its own state and encoding it back yields
+`content`.
 
 A construct enters the engine with its row and its entry, and a change to what
 a surface does with one edits both.

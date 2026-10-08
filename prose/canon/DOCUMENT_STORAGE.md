@@ -489,7 +489,7 @@ follow from that.
 | Unique across       | the `Content`'s islands                            | the `Content`'s prose marks                        |
 | Required            | yes: `insert` rejects the empty id                 | yes: the empty id is rejected                     |
 | On collision        | `insert` rejects; `validate` scans                 | `add` rejects                                      |
-| Markdown round-trip | re-minted identically                              | lost: export emits none, import mints none        |
+| Markdown round-trip | re-minted identically                              | carried by revise; spelled read-only by the annotated export |
 
 A card is addressed by index and carries no id handle. A consumer needing a durable per-card key carries one in `$ext` under its own namespace ([CARDS.md](CARDS.md) § Out-of-band Metadata), which the engine round-trips and never interprets.
 
@@ -527,15 +527,15 @@ The two compose because minting reads the *live* ids: deleting the highest islan
 ## Anchor-id identity
 
 An anchor (`MarkKind::Anchor { id }`) sits at the caller-minted end of the mint
-axis (§ The two id handles) because it has **no markdown projection**: it
+axis (§ The two id handles) because it has **no markdown codec**: it
 names an external referent (a comment thread, an editor bookmark) that no
 content determines. The never-ambient rule therefore cannot apply, and need not:
 that rule exists to keep *import* a pure function of markdown, and import mints
 no anchor, so equal markdown still imports to equal bytes.
 
 The policy: **an anchor id is caller-supplied, unique per `Content`, opaque and
-invariant while the mark lives; the mark is best-effort under edits and absent
-from markdown.**
+invariant while the mark lives; the mark is best-effort under edits and
+read-only in markdown.**
 
 - **Caller-supplied.** The engine mints no anchor id and cannot: only the
   consumer knows the referent. Each consumer (editor, MCP writer) supplies its
@@ -561,18 +561,32 @@ from markdown.**
   deleted, or moved-and-rewritten in one round, drops *whole*: never
   partially, never re-id'd (the documented diff-rebase residual).
 
-No markdown round-trip guarantee: export emits nothing for an anchor and import
-mints none, so a cold export→import loses every anchor. The carrier reserves
-`<quill-anchor>` for an anchor's read-only spelling, which no export writes and
-import drops unreported ([markdown-spec.md](../references/markdown-spec.md)
-§6.4). Anchors are edit-lane
-infrastructure: they survive only through diff-rebase (`revise` / `rebase`).
-A whole-document markdown write keeps them through `Document::revise`, which
-aligns cards by `$kind` and text and rebases each aligned body and content
-field; an anchor on a card it cannot align drops, and the receipt names it.
-Non-rendering is a property of review-time metadata, not a gap; a future render
-projection (proof annotations, PDF destinations) would render the referent or a
-position, never the id, so this policy holds either way.
+No markdown round-trip guarantee: `to_markdown` emits nothing for an anchor and
+import mints none, so a cold export→import loses every anchor.
+
+The annotated read (`export::to_markdown_annotated`,
+`Document::to_markdown_annotated`) spells each prose anchor as
+`<quill-anchor ref="ID"></quill-anchor>` at its start, a spelling import drops
+unreported ([markdown-spec.md](../references/markdown-spec.md) §6.4).
+
+- A range anchor reads as its start, and keeps its range through `revise`.
+- A code-block line, a block island's line and an empty line hold no tag. A
+  line whose tags in place would change what it imports to holds them at its
+  end, or none where that changes it too.
+- The read lists every prose anchor with the text of its line, spelled or not,
+  so a consumer locates the anchor whose tag a writer lost. An anchor in a table
+  cell is outside the read, as it is outside the op surface.
+
+Anchors are edit-lane infrastructure: they survive only through diff-rebase
+(`revise` / `rebase`). A whole-document markdown write keeps them through
+`Document::revise`, which aligns cards by `$kind` and text and rebases each
+aligned body and content field; an anchor on a card it cannot align drops, and
+the receipt names it. Reading the annotated markdown and writing it back
+through `revise` is the round trip: the import drops the tags, so the write
+keeps what a write of the plain markdown keeps. Non-rendering is a property of
+review-time metadata, not a gap; a future render projection (proof annotations,
+PDF destinations) would render the referent or a position, never the id, so
+this policy holds either way.
 
 ## Schema Versioning
 
