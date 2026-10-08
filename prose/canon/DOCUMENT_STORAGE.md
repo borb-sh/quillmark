@@ -346,8 +346,9 @@ default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
 | `align` | the table's placement: `left`, `center` or `right` | the quill's placement |
 | `breakable` | `false` keeps the table on one page | `true` |
 
-`widths` are weights, not lengths, so each quill decides what full width is.
-The keys ride the opaque props carrier, which an older reader round-trips, so
+`widths` are weights, not lengths, so each quill decides what full width is,
+and a quill lays out each key only where its `honors:` declares it
+([QUILL.md](QUILL.md#honors)). The keys ride the opaque props carrier, which an older reader round-trips, so
 adding them is no storage-version event.
 
 Two rules bound the payload:

@@ -1435,7 +1435,20 @@
     ],
     "signals": {
       "import": [],
-      "render": []
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "columns: (1fr, 2fr)"
+      ],
+      "signals": {
+        "render": []
+      }
     }
   },
   {
@@ -1634,7 +1647,20 @@
     ],
     "signals": {
       "import": [],
-      "render": []
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "columns: (1fr, 2fr, auto)"
+      ],
+      "signals": {
+        "render": []
+      }
     }
   },
   {
@@ -1745,7 +1771,20 @@
     ],
     "signals": {
       "import": [],
-      "render": []
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "#context align(center, table("
+      ],
+      "signals": {
+        "render": []
+      }
     }
   },
   {
@@ -1801,7 +1840,20 @@
     ],
     "signals": {
       "import": [],
-      "render": []
+      "render": [
+        "validation::undeclared_construct"
+      ],
+      "validate": [
+        "validation::undeclared_construct"
+      ]
+    },
+    "declared": {
+      "typst": [
+        "#block(breakable: false)[#table("
+      ],
+      "signals": {
+        "render": []
+      }
     }
   },
   {

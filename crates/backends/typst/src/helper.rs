@@ -228,7 +228,7 @@ impl<'m> Codegen<'m> {
         };
         match from_canonical_value(value) {
             Ok(rt) if !rt.is_blank() => {
-                match emit(&rt) {
+                match emit(&rt, self.meta.honors()) {
                     Ok(ec) => self.content_block(path, ec),
                     Err(e) => {
                         self.emit_error.get_or_insert(e);

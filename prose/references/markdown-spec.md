@@ -536,6 +536,9 @@ attributes into the table's layout, whatever quill reads the document:
   only around a table holding a value other than its default.
 - Column alignment stays in the delimiter row. Its dash counts carry no width,
   since a formatter pads them to the column.
+- A quill renders an attribute only where its `honors:` declares it, and lays
+  the table out as if the attribute were absent elsewhere; the import keeps it
+  either way.
 - A wrapper holding anything but exactly one table drops whole: its tags drop,
   what it holds imports, and `parse::dropped_construct` reports `quill-table`.
 - An attribute other than these three, and one whose value is outside its

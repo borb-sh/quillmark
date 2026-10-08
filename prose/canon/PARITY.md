@@ -30,10 +30,11 @@ construct. A conformance corpus pins every row: an engine test asserts it, and
    can hold it.
 6. **Carry or refuse.** A surface that cannot spell a construct carries it
    opaquely or refuses the write. It never re-encodes without it.
-7. **One declaration.** What a quill honors is declared once in `Quill.yaml`,
-   and render, `validate`, `schema()` and the blueprint read that declaration.
-   `Quill.yaml` declares no body construct, so every Typst quill honors the set
-   [CONVERT.md](CONVERT.md) maps.
+7. **One declaration.** What a quill honors is declared once, in `Quill.yaml`'s
+   `honors:` ([QUILL.md](QUILL.md#honors)), and render, `validate`, `schema()`
+   and the blueprint read that declaration. It names the table and cell knobs
+   and the elements; no other body construct is declared, so every Typst quill
+   honors the rest of the set [CONVERT.md](CONVERT.md) maps.
 
 Where the code falls short of an invariant, the matrix cell says so:
 `drops silently` is the outcome invariants 4 and 6 rule out, and on a stored
@@ -50,7 +51,7 @@ import meets. The columns:
 | Stored JSON | the canonical content, `serial::to_canonical_value` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") |
 | Op wire | the authored lane: `overwrite` (`serial::from_authored_value`) and a `ChangeBundle`'s ops |
 | Typst lowering | `emit_content`, as [CONVERT.md](CONVERT.md) § "Element mapping" maps it |
-| Blueprint | what `QuillConfig::blueprint` teaches ([BLUEPRINT.md](BLUEPRINT.md) § "Richtext fields"): no body construct, so `n/a` on every row |
+| Blueprint | what `QuillConfig::blueprint` teaches: the example closing the root payload for a declared construct ([BLUEPRINT.md](BLUEPRINT.md) § "Markup a quill honors"), and `n/a` for every other body construct |
 | Validate | `Quill::validate`'s verdict on the stored construct |
 | Signal | the code a cell reports under, with its `construct` arg |
 
@@ -64,7 +65,7 @@ import meets. The columns:
 | silent: honored | no signal, and none is owed: the outcome is the one the construct asks for |
 | n/a | the surface never meets the construct: past the markdown column, a spelling the import does not store |
 | drops silently | outside the vocabulary: the surface loses the construct and nothing reports it; in the validate column, the render loses it and `validate` says nothing |
-| inert | the lowering reads no declaration for the key and draws as if it were absent, and `validate` says nothing; borb-sh/quillmark#2083 brings the signal |
+| declared | the surface honors the key where the quill's `honors:` declares it; elsewhere the lowering draws as if it were absent, the blueprint teaches nothing, and `validate` and a one-shot render warn under `validation::undeclared_construct` |
 
 ### Lines
 
@@ -117,10 +118,10 @@ An anchor draws nothing, which is how the lowering honors it, and a cold
 | `island.table.cell.break`: a cell's `\n`, spelled `<br>` | spells | spells | spells | honors | n/a | silent: honored | none |
 | `island.table.props.unnamed`: a props key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | n/a | drops silently | none |
 | `island.table.cell.unnamed`: a cell key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | n/a | drops silently | none |
-| `island.table.props.widths`: column weights, `null` an auto-fit column | spells | spells | spells | inert | n/a | inert | none |
+| `island.table.props.widths`: column weights, `null` an auto-fit column | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `table.widths` |
 | `island.table.props.widths.auto`: every column auto-fit, the default | spells | spells | spells | silent: honored | n/a | silent: honored | none |
-| `island.table.props.align`: the table's placement | spells | spells | spells | inert | n/a | inert | none |
-| `island.table.props.breakable`: `false`, the table kept on one page | spells | spells | spells | inert | n/a | inert | none |
+| `island.table.props.align`: the table's placement | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `table.align` |
+| `island.table.props.breakable`: `false`, the table kept on one page | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `table.breakable` |
 | `island.table.props.breakable.true`: `true`, the default | spells | spells | spells | silent: honored | n/a | silent: honored | none |
 | `island.image` | spells | spells | spells | declines with a signal | n/a | declines with a signal | `backend::declined_construct`, `validation::declined_construct`, `image` |
 
@@ -150,7 +151,7 @@ above, or markup the content does not store.
 | `html.tag_line.list`: a tag line between list items | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
 | `carrier.block`: a `quill-*` wrapper nothing models, a type 7 block | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
 | `carrier.inline`: a `quill-*` pair nothing models, inside a line | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
-| `carrier.table`: the reserved `quill-table` around a table | spells | spells | spells | inert | n/a | inert | none |
+| `carrier.table`: the reserved `quill-table` around a table | spells | spells | spells | declared | declared | declared | `validation::undeclared_construct`, `table.widths` |
 | `carrier.table.holds_other`: a `quill-table` around anything but one table | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table` |
 | `carrier.table.attr`: a `quill-table` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[foo]` |
 | `carrier.table.value`: a `quill-table` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[widths]` |
@@ -178,6 +179,7 @@ matrix row:
 | `signals.import` | `{construct, count}` per `parse::dropped_construct` the import raises, in order |
 | `signals.render` | the codes a one-shot render's warnings carry, in order |
 | `signals.validate` | the codes `Quill::validate` reports, in order; absent is none |
+| `declared` | where the declaring quill's surfaces differ: its own `typst`, and its own `signals` in place of `render` and `validate` |
 
 `crates/quillmark/tests/parity.rs` asserts each entry and names every one that
 fails:
@@ -188,10 +190,12 @@ fails:
   a body holding it through `Document::parse`.
 - A spelled entry's `to_markdown(content)` re-imports to `content`, the fixed
   point. An entry markdown cannot spell is checked on the other surfaces only.
+- The rest runs through two fixture quills: `table_demo`, which declares no
+  knob, against `typst` and `signals`, and `table_honors`, which declares every
+  knob, against `declared` where the entry has one.
 - The body's block in the generated helper, which is `emit_content`'s markup,
   contains every `typst` substring.
-- A render through the `table_demo` fixture quill warns exactly
-  `signals.render`.
+- A one-shot render warns exactly `signals.render`.
 - `Quill::validate` on that document reports exactly `signals.validate`, and
   its `validation::declined_construct` set (path, construct, count) is the
   render's `backend::declined_construct` set.

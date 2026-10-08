@@ -22,7 +22,7 @@ use quillmark_core::{
     backend::Backend,
     error::{Diagnostic, RenderError, RenderResult, Severity},
     quill::{
-        build_transform_schema, BlockConstruct, CalendarDate, Quill, QuillConfig,
+        build_transform_schema, BlockConstruct, CalendarDate, Honors, Quill, QuillConfig,
         QUILLMARK_ROSTER_KEY,
     },
     region::{ContentHit, RenderedRegion},
@@ -450,8 +450,7 @@ impl Backend for TypstBackend {
     ) -> Result<LiveSession, RenderError> {
         let plate = read_plate(source)?;
 
-        let transform_schema = build_transform_schema(source.config());
-        let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
+        let schema_meta = SchemaMeta::from_config(source.config());
         // Built in two steps rather than through `new_with_data` so codegen's own
         // diagnostic code survives: boxing it into the world-creation error would
         // relabel a bad date `typst::world_creation`.
@@ -702,6 +701,8 @@ pub(crate) struct SchemaMeta {
     /// Serialized once: the schema is fixed for a session's lifetime, and every
     /// update splices this same literal into the generated `lib.typ`.
     meta_literal: String,
+    /// What the quill's `honors:` declares, which the content lowering reads.
+    honors: Honors,
 }
 
 impl Default for SchemaMeta {
@@ -730,9 +731,22 @@ impl SchemaMeta {
             cards,
             schema: schema_json.clone(),
             meta_literal: String::new(),
+            honors: Honors::default(),
         };
         meta.meta_literal = helper::lit(&meta.address_json());
         meta
+    }
+
+    /// The meta a session over `config` lowers by: its transform schema and its
+    /// `honors:`.
+    pub(crate) fn from_config(config: &QuillConfig) -> Self {
+        let mut meta = Self::from_schema_json(build_transform_schema(config).as_json());
+        meta.honors = config.honors.clone();
+        meta
+    }
+
+    pub(crate) fn honors(&self) -> &Honors {
+        &self.honors
     }
 
     /// The address tables the helper's `_qm-node` walks.

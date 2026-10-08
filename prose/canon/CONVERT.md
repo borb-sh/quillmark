@@ -125,7 +125,18 @@ is a lowering bug, never a document's.
 | `table` island | `#table(columns: N, align: (…), table.header(…), …)` |
 
 Table alignment maps `none→auto`, `left`, `center`, `right`; the `align:`
-argument is emitted only when at least one column is non-default. A table cell is
+argument is emitted only when at least one column is non-default.
+
+A layout knob lowers only where the quill's `honors:` declares it
+([QUILL.md](QUILL.md#honors)), and as if absent elsewhere:
+
+| Knob | Lowering |
+|---|---|
+| `widths` | `columns: (2fr, 1fr, auto)`, a weight to `fr` and `null` to `auto`, in place of `columns: N` |
+| `align` | `#context align(center, table(…))`; a column at `none` takes `align.alignment`, and with no column aligned the table takes `table.align` where the plate sets one, else `align.alignment`, so the placement moves the table and no text inside it |
+| `breakable: false` | `#block(breakable: false)[…]` around the whole, outermost: the block spans the width a placement aligns within |
+| cell `align`, `valign` | `table.cell(align: right + bottom)[…]` in place of `[…]`, which Typst folds with the column's alignment |
+ A table cell is
 canonical `{text, marks}`, lowered through the same mark sweep as prose: a
 formatted cell reaches `#strong[…]` / `#emph[…]` / `#raw(…)` / `#link(…)[…]`, not
 an escaped source slice. A `\n` in a cell's text is a line break and lowers to
@@ -173,8 +184,9 @@ reads and the shape the WASM boundary pins:
   to the widest, so `columns:` and `align:` agree.
   The optional layout keys `widths`, `align` and `breakable`
   ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") are
-  not read: the table draws auto-fit, at the quill's placement, and breaks
-  across pages.
+  read where the quill declares them (see [above](#element-mapping)); an
+  undeclared one draws as if absent: auto-fit, at the quill's placement,
+  breaking across pages.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. What `url` names is undecided (see [Declined images](#declined-images)).
 
