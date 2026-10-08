@@ -187,8 +187,9 @@ families:
   construct but the paragraph. `quillmark_core::backend::declines` is the
   table, keyed by backend id.
 - **`validation::declined_construct`: the decline, ahead of the render.**
-  `Quill::validate` walks every content field and body against the quill's
-  backend's row of that table and warns once per (field, construct), with
+  `Quill::validate` walks every content field and body the render would
+  draw, schema defaults and coercion applied, against the quill's backend's
+  row of that table and warns once per (field, construct), with
   `construct` and `count` in `args` and the field's `DocPath` in `path`: the
   warning the render raises as `backend::declined_construct`. A one-shot
   render leaves it out of `RenderResult.warnings`, which carry the backend's.
