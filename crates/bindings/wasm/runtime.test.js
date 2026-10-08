@@ -599,8 +599,14 @@ describe('@quillmark/wasm: container run boundaries', () => {
     remints(LIST, list({ start: 3 }), [0, 1])
     remints(LIST, list({ ordinal: 4 }), [0, 1])
     remints(QUOTE, QUOTE, [0, 1])
+    // An element welds on its whole attribute bag, its name among them.
+    const element = (attrs) => ({ container: 'element', attrs: { name: 'keep', ...attrs } })
+    remints(element({ note: 'x' }), element({ note: 'x' }), [0, 1])
     // A shape the projection can tell apart needs no discriminator.
     remints(LIST, list({ ordered: true }), [0, 0])
+    remints(element({ note: 'x' }), element({ note: 'y' }), [0, 0])
+    remints(element({ note: 'x' }), element({}), [0, 0])
+    remints(element({}), { container: 'element', attrs: { name: 'hold' } }, [0, 0])
   })
 
   it('alternates only across runs that would weld', () => {

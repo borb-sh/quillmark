@@ -38,10 +38,15 @@ fn container_tags() -> Vec<&'static str> {
             instance: 0,
         },
         Container::Quote { instance: 0 },
+        Container::Element {
+            name: String::new(),
+            attrs: Default::default(),
+            instance: 0,
+        },
     ];
     for c in &all {
         match c {
-            Container::ListItem { .. } | Container::Quote { .. } => {}
+            Container::ListItem { .. } | Container::Quote { .. } | Container::Element { .. } => {}
         }
     }
     all.iter().map(Container::tag).collect()
@@ -57,6 +62,10 @@ fn mark_type_tags() -> Vec<&'static str> {
         MarkKind::Code,
         MarkKind::Link { url: String::new() },
         MarkKind::Anchor { id: String::new() },
+        MarkKind::Element {
+            name: String::new(),
+            attrs: Default::default(),
+        },
     ];
     for k in &all {
         match k {
@@ -66,7 +75,8 @@ fn mark_type_tags() -> Vec<&'static str> {
             | MarkKind::Strike
             | MarkKind::Code
             | MarkKind::Link { .. }
-            | MarkKind::Anchor { .. } => {}
+            | MarkKind::Anchor { .. }
+            | MarkKind::Element { .. } => {}
         }
     }
     all.iter().map(MarkKind::tag).collect()

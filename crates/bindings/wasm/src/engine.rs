@@ -276,7 +276,13 @@ export type ContentContainer =
           attrs: { ordered: boolean; start: number; ordinal: number };
           instance?: number;
       }
-    | { container: "quote"; instance?: number };
+    | { container: "quote"; instance?: number }
+    | { container: "element"; attrs: ElementAttrs; instance?: number };
+
+/** A carrier element's name and attributes, one bag: `name` is the part of its
+ * `quill-<name>` tag after the prefix, and every other key an attribute as
+ * written. */
+export type ElementAttrs = { name: string; [attr: string]: string };
 
 /** A mark over char range `[start, end)` into `Content.text`. `type` is a
  * closed set, so `type === "link"` narrows `attrs` to `{ url: string }` with no
@@ -291,7 +297,8 @@ export type ContentMark = { start: number; end: number } & ContentMarkKind;
 export type ContentMarkKind =
     | { type: "strong" | "emph" | "underline" | "strike" | "code" }
     | { type: "link"; attrs: { url: string } }
-    | { type: "anchor"; attrs: { id: string } };
+    | { type: "anchor"; attrs: { id: string } }
+    | { type: "element"; attrs: ElementAttrs };
 
 /** A cell in a `TableProps`. `marks` rides the prose `ContentMark` shape, but
  * each mark's `start`/`end` are USV offsets into this cell's `text`, not into
@@ -946,7 +953,7 @@ impl Document {
     /// tag advances only when the wire format changes, not on every release.
     #[wasm_bindgen(js_name = currentStorageVersion)]
     pub fn current_storage_version() -> String {
-        quillmark_core::document::STORAGE_V0_116_0.to_string()
+        quillmark_core::document::STORAGE_V0_124_0.to_string()
     }
 
     /// The Quillmark Markdown rules, re-exposed from core. Constant across

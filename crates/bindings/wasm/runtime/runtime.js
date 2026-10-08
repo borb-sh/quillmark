@@ -263,9 +263,10 @@ function requireLocalQuill(quill, method) {
 // `runtime.test.js` § "container run boundaries" stamps a pair and re-imports
 // it, where `Content::normalize` re-mints against the Rust predicate. A tag the
 // table omits welds with nothing, so `tests/known_names_drift.rs` pins that
-// every container has an entry.
+// every container has an entry. An entry of `'*'` welds on the whole bag: an
+// element's attributes are open, its name among them.
 
-const WELD_KEYS = { list_item: ['ordered'], quote: [] };
+const WELD_KEYS = { list_item: ['ordered'], quote: [], element: '*' };
 
 /**
  * @param {import('../core/wasm.js').ContentContainer} a
@@ -278,7 +279,20 @@ function weldsWith(a, b) {
 	// `hasOwn`, so a tag colliding with an `Object.prototype` member answers
 	// `false` rather than reaching a function.
 	if (!Object.hasOwn(WELD_KEYS, a.container)) return false;
-	return WELD_KEYS[a.container].every((k) => a.attrs?.[k] === b.attrs?.[k]);
+	const keys = WELD_KEYS[a.container];
+	if (keys === '*') return sameBag(a.attrs, b.attrs);
+	return keys.every((k) => a.attrs?.[k] === b.attrs?.[k]);
+}
+
+/**
+ * @param {Record<string, unknown> | undefined} a
+ * @param {Record<string, unknown> | undefined} b
+ * @returns {boolean}
+ */
+function sameBag(a, b) {
+	const [x, y] = [a ?? {}, b ?? {}];
+	const keys = Object.keys(x);
+	return keys.length === Object.keys(y).length && keys.every((k) => Object.hasOwn(y, k) && x[k] === y[k]);
 }
 
 /**
