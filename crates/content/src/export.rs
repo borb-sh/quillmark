@@ -361,8 +361,8 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
         // An element outside the carrier grammar has no spelling, so what it
         // wraps is written bare.
         Container::Element { name, attrs, .. } => match crate::carrier::modeled(name, attrs) {
-            Some(element) => out.push_str(&element.wrap_block(inner)),
-            None => out.push_str(inner),
+            Ok(element) => out.push_str(&element.wrap_block(inner)),
+            Err(_) => out.push_str(inner),
         },
     }
 }

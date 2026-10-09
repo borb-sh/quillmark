@@ -52,6 +52,7 @@ pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
 /// the spelling that keeps it.
 fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
     use quillmark_content::carrier::RESERVED_ATTRS;
+    const TIGHT: &str = "Markdown on the lines under a tag line drops with it, up to the next blank line.";
     let some = |one: &str, many: &str| if n == 1 { format!("a {one}") } else { format!("{n} {many}") };
     let some_in_field = |one: &str, many: &str| {
         if n == 1 {
@@ -74,7 +75,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
             attr,
             match attr.as_str() {
                 "widths" => {
-                    "`widths` is a positive whole number or `auto` per column, such as `widths=\"2 1 auto\"`."
+                    "`widths` is a whole number from 1 to 2^53 - 1, or `auto`, per column, such as `widths=\"2 1 auto\"`."
                         .to_string()
                 }
                 "align" => "`align` is `left`, `center` or `right`.".to_string(),
@@ -95,18 +96,20 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 "markdown import dropped {} in this field",
                 some("`<quill-table>` wrapper", "`<quill-table>` wrappers")
             ),
-            "A `<quill-table>` wraps exactly one pipe table, its two tags each alone on a line with a blank \
-             line between each tag and the table."
-                .to_string(),
+            format!(
+                "A `<quill-table>` wraps exactly one pipe table, its two tags each alone on a line with a blank \
+                 line between each tag and the table. {TIGHT}"
+            ),
         ),
         Dropped::BadName(_) => (
             format!(
                 "markdown import does not carry raw HTML: {} dropped",
                 some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
             ),
-            "An element name after `quill-` is lowercase words of letters and digits joined by single `-`, \
-             opening with a letter."
-                .to_string(),
+            format!(
+                "An element name after `quill-` is lowercase words of letters and digits joined by single `-`, \
+                 opening with a letter. {TIGHT}"
+            ),
         ),
         Dropped::Element(_) => (
             format!(
@@ -115,8 +118,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
             ),
             format!(
                 "Write `<{tag}>` and `</{tag}>` each alone on a line with a blank line above and below, \
-                 or, around nothing, on two lines with nothing between. Markdown on the lines under a tag line \
-                 drops with it, up to the next blank line."
+                 or, around nothing, on two lines with nothing between. {TIGHT}"
             ),
         ),
         Dropped::Tag(name) => match name.as_str() {

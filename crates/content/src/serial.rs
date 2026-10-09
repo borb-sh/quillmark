@@ -863,9 +863,10 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
 
 /// A table's layout keys, each absent at its default or when invalid:
 ///
-/// - `widths`: one entry per column, each a positive integer weight or `null`
-///   for an auto-fit column, padded with `null` or truncated to `cols`. All
-///   `null`, or any other entry, is absent.
+/// - `widths`: one entry per column, each an integer weight in
+///   `1..=`[`MAX_WEIGHT`](crate::carrier::table::MAX_WEIGHT) or `null` for an
+///   auto-fit column, padded with `null` or truncated to `cols`. All `null`,
+///   or any other entry, is absent.
 /// - `align`: `left`, `center` or `right`.
 fn normalize_table_layout(obj: &mut Map<String, Value>, cols: usize) {
     match obj.get("widths").and_then(|w| settle_widths(w, cols)) {
@@ -883,7 +884,7 @@ fn settle_widths(widths: &Value, cols: usize) -> Option<Value> {
         .iter()
         .map(|w| match w {
             Value::Null => Some(None),
-            w => w.as_u64().filter(|&n| n > 0).map(Some),
+            w => w.as_u64().filter(|n| (1..=crate::carrier::table::MAX_WEIGHT).contains(n)).map(Some),
         })
         .collect::<Option<Vec<Option<u64>>>>()?;
     weights.resize(cols, None);

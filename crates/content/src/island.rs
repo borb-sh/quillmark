@@ -140,6 +140,8 @@ mod tests {
             (json!([1, -1, 1]), "widths", absent.clone()),
             (json!([1, 1.5, 1]), "widths", absent.clone()),
             (json!([1, "2", 1]), "widths", absent.clone()),
+            (json!([9007199254740992u64, 1]), "widths", absent.clone()),
+            (json!([9007199254740991u64, 1]), "widths", json!([9007199254740991u64, 1, null])),
             (json!("1 2 3"), "widths", absent.clone()),
             (json!(2), "widths", absent.clone()),
             (json!("center"), "align", json!("center")),

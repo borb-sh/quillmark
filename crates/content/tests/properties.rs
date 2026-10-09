@@ -150,16 +150,21 @@ fn block() -> impl Strategy<Value = String> {
         )),
         prop::collection::vec(clean_word(), 1..4)
             .prop_map(|ls| format!("```\n{}\n```", ls.join("\n"))),
-        // Carrier elements: at the top level, around a list, in an item, and
-        // two adjacent runs, which only the tags between them keep apart.
-        prose().prop_map(|p| format!("<quill-keep note=\"x\">\n{p}\n</quill-keep>")),
-        (prose(), prose()).prop_map(|(a, b)| format!("<quill-keep>\n- {a}\n- {b}\n</quill-keep>")),
+        // Carrier elements: at the top level, around a list, in an item, two
+        // adjacent runs, which only the tags between them keep apart, and one
+        // around nothing.
+        prose().prop_map(|p| format!("<quill-keep note=\"x\">\n\n{p}\n\n</quill-keep>")),
+        (prose(), prose()).prop_map(|(a, b)| format!("<quill-keep>\n\n- {a}\n- {b}\n\n</quill-keep>")),
         (prose(), prose()).prop_map(|(a, b)| format!("- {a}\n- <quill-keep>\n\n  {b}\n\n  </quill-keep>")),
         (prose(), prose()).prop_map(|(a, b)| format!(
-            "<quill-keep>\n{a}\n</quill-keep>\n<quill-keep>\n{b}\n</quill-keep>"
+            "<quill-keep>\n\n{a}\n\n</quill-keep>\n\n<quill-keep>\n\n{b}\n\n</quill-keep>"
         )),
+        Just("<quill-sig>\n</quill-sig>".to_string()),
         (clean_word(), clean_word())
             .prop_map(|(a, b)| format!("| {a} | {b} |\n| --- | --- |\n| 1 | 2 |")),
+        (clean_word(), clean_word(), 1u64..9).prop_map(|(a, b, w)| format!(
+            "<quill-table align=\"center\" widths=\"{w} auto\">\n\n| {a} | {b} |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>"
+        )),
     ]
 }
 
