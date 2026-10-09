@@ -748,3 +748,30 @@ fn test_yaml_error_in_composable_card_names_the_block() {
     let loc = diag.location.expect("the diagnostic carries a location");
     assert_eq!(loc.line, line_of(markdown, "unit: a: b"));
 }
+
+/// The value parse reads a block's root node alone, so text past one that
+/// closes on its own line refuses at that text, where it dropped; comments and
+/// a `...` may follow it.
+#[test]
+fn text_past_a_closed_root_value_refuses_at_its_line() {
+    for (block, past) in [
+        ("{$kind: note, a: 1}\nb: 2", "b: 2"),
+        ("[a]\n# c\n- b", "- b"),
+        ("\"note\"\nb: 2", "b: 2"),
+        ("{$kind: note}\n...\n[", "["),
+    ] {
+        let md = format!("~~~\n$quill: q\n~~~\n\n~~~\n{block}\n~~~\n");
+        let diag = decompose(&md).unwrap_err().to_diagnostic();
+        assert_eq!(
+            diag.code.as_deref(),
+            Some("parse::yaml_error_with_location"),
+            "{block}"
+        );
+        let loc = diag.location.expect("the refusal carries a location");
+        assert_eq!((loc.line, loc.column), (line_of(&md, past), 1), "{block}");
+    }
+
+    let md = "~~~\n$quill: q\n~~~\n\n~~~\n{$kind: note, a: 1} # c\n# d\n...\n# e\n~~~\n";
+    let doc = decompose(md).expect("comments and an end marker may follow the root");
+    assert_eq!(doc.cards()[0].payload().get("a").map(|v| v.as_json().clone()), Some(serde_json::json!(1)));
+}
