@@ -18,8 +18,8 @@ pub struct PdfUpdate {
     xref_offset: usize,
     /// The base PDF's catalog (`/Root`) object id.
     pub catalog_id: u32,
-    /// Next free object id, seeded at the trailer `/Size`. Hand out via
-    /// [`alloc_id`](crate::writer::alloc_id).
+    /// Next free object id, seeded at the trailer `/Size` or past every id the
+    /// base names. Hand out via [`alloc_id`](crate::writer::alloc_id).
     pub next_id: u32,
     /// Objects to write in this revision; callers push their own onto it.
     pub objects: Vec<UpdatedObject>,
@@ -49,10 +49,11 @@ impl PdfUpdate {
             .and_then(|v| std::str::from_utf8(v.trim_ascii()).ok())
             .and_then(|s| s.parse::<u32>().ok())
             .ok_or_else(|| err(CODE_PARSE, "/Size missing or malformed in trailer"))?;
-        // One counter seeded at `/Size`, so created ids never collide with the
-        // base's. `alloc_id` bounds it: a malformed large `/Size` errors instead
-        // of handing out an id that collides or that no reference admits.
-        let mut next_id = size;
+        // One counter seeded at `/Size`, or past it where the base names an id
+        // at or above it, so created ids never collide with the base's.
+        // `alloc_id` bounds it: a malformed large `/Size` errors instead of
+        // handing out an id that collides or that no reference admits.
+        let mut next_id = size.max(idx.unnamed_from());
         let mut objects: Vec<UpdatedObject> = Vec::new();
         let info = read_info_source(idx, trailer);
         let new_info_ref = apply_producer_stamp(idx, info, producer, &mut next_id, &mut objects)?;

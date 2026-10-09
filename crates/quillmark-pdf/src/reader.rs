@@ -6,11 +6,11 @@
 //! ## Input contract
 //!
 //! The base PDF must be traditional-xref, unencrypted, inline-annots,
-//! bounded-tree, well-formed: a classic `xref` table (not an xref *stream*), no
-//! `/Encrypt`, page `/Annots` written inline rather than as an indirect
-//! reference, a `/Pages` tree of any depth that reaches each node once and
-//! stays under 100 000 nodes, and every dictionary the reader meets naming each
-//! key once, with a value. That is the precise inverse of the scanner's error
+//! bounded-tree, well-formed: a classic `xref` table in every section (not an
+//! xref *stream*, nor a hybrid trailer naming `/XRefStm`), no `/Encrypt`, page
+//! `/Annots` written inline rather than as an indirect reference, a `/Pages`
+//! tree of any depth that reaches each node once and stays under 100 000 nodes,
+//! and every dictionary the reader meets naming each key once, with a value. That is the precise inverse of the scanner's error
 //! branches.
 //! `hayro-syntax` is read-only and exposes no byte spans, so it cannot drive a
 //! byte-splice append; hence this bespoke scanner.
@@ -61,6 +61,38 @@ pub(crate) fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<
         ));
     }
     Ok(())
+}
+
+/// Bail if a section the trailer chains to through `/Prev` is an xref stream,
+/// or the trailer of any names `/XRefStm`: a hybrid file (ISO 32000-1
+/// §7.5.8.4) keeps objects in object streams, where they carry no `obj` header
+/// and the index would read each as absent. The walk ends quietly at a `/Prev`
+/// that reaches no section.
+fn assert_no_object_streams(pdf: &[u8], trailer: &[u8]) -> Result<(), PdfError> {
+    let mut trailer = trailer;
+    let mut seen = HashSet::new();
+    loop {
+        if find_dict_value(trailer, "XRefStm").is_some() {
+            return Err(err(
+                CODE_XREF_STREAM,
+                "PDF is a hybrid file whose trailer names /XRefStm; objects in its object \
+                 streams are unreadable here, so only traditional xref is supported",
+            ));
+        }
+        let Some(prev) = find_dict_value(trailer, "Prev")
+            .and_then(|v| std::str::from_utf8(v).ok()?.parse::<usize>().ok())
+            .filter(|&prev| prev < pdf.len() && seen.insert(prev))
+        else {
+            return Ok(());
+        };
+        if obj_header_id(&pdf[prev..]).is_some() {
+            return assert_traditional_xref(pdf, prev);
+        }
+        match find_trailer_dict(pdf, prev) {
+            Ok(prior) if pdf[prev..].starts_with(b"xref") => trailer = prior,
+            _ => return Ok(()),
+        }
+    }
 }
 
 /// The inner trailer dict (between `<<` and `>>`) for the xref section at
@@ -218,26 +250,45 @@ const MAX_REFERENCE_CHAIN: usize = 8;
 pub(crate) struct ObjectIndex<'a> {
     pdf: &'a [u8],
     starts: HashMap<u32, usize>,
+    unnamed_from: u32,
 }
 
 impl<'a> ObjectIndex<'a> {
     pub fn new(pdf: &'a [u8]) -> Self {
         let mut starts = HashMap::new();
+        let mut unnamed_from = 0u32;
         let mut i = 0;
         while i < pdf.len() {
             if let Some(ni) = skip_stream_body(pdf, i).or_else(|| skip_string_or_comment(pdf, i)) {
                 i = ni;
                 continue;
             }
-            if pdf[i].is_ascii_digit()
-                && (i == 0 || is_pdf_ws(pdf[i - 1]))
-                && let Some(id) = obj_header_id(&pdf[i..])
-            {
-                starts.insert(id, i);
+            if pdf[i].is_ascii_digit() && (i == 0 || is_pdf_delim(pdf[i - 1])) {
+                let header = (i == 0 || is_pdf_ws(pdf[i - 1]))
+                    .then(|| obj_header_id(&pdf[i..]))
+                    .flatten();
+                if let Some(id) = header {
+                    starts.insert(id, i);
+                }
+                if let Some(id) = header.or_else(|| parse_indirect_ref(&pdf[i..]).map(|(id, _)| id))
+                {
+                    unnamed_from = unnamed_from.max(id.saturating_add(1));
+                }
             }
             i += 1;
         }
-        Self { pdf, starts }
+        Self {
+            pdf,
+            starts,
+            unnamed_from,
+        }
+    }
+
+    /// The least id that no object header or reference in the base names, nor
+    /// any id above it. A reference past the trailer's `/Size` names no object,
+    /// so an update allocating from here leaves it naming none.
+    pub fn unnamed_from(&self) -> u32 {
+        self.unnamed_from
     }
 
     /// The indexed bytes, for the scans that read no object.
@@ -587,11 +638,13 @@ fn skip_ws_and_comments(b: &[u8], start: usize) -> usize {
 /// past it, so a scanner steps over raw `<<`/`>>`/`[`/`]`/`endobj` bytes without
 /// reading them as structure; the sharp case is a hex string's closing `>`
 /// forming a `>>` against the enclosing dict's own. `None` when `b[i]` opens none
-/// of them.
+/// of them; either `<` of a `<<` opens none.
 fn skip_string_or_comment(b: &[u8], i: usize) -> Option<usize> {
     match b.get(i)? {
         b'(' => Some(skip_pdf_string(b, i)),
-        b'<' if b.get(i + 1) != Some(&b'<') => Some(skip_pdf_hex_string(b, i)),
+        b'<' if b.get(i + 1) != Some(&b'<') && (i == 0 || b[i - 1] != b'<') => {
+            Some(skip_pdf_hex_string(b, i))
+        }
         b'%' => {
             let mut j = i + 1;
             while j < b.len() && b[j] != b'\n' && b[j] != b'\r' {
@@ -820,8 +873,8 @@ fn skip_ws(s: &[u8]) -> &[u8] {
 }
 
 /// Open the base's trailer: the xref offset, the trailer dict, and the catalog
-/// (`/Root`) object id, after refusing an xref stream. `code` carries the
-/// caller's error code for a missing or malformed `/Root`.
+/// (`/Root`) object id, after refusing an xref stream and a hybrid file.
+/// `code` carries the caller's error code for a missing or malformed `/Root`.
 pub(crate) fn open_trailer<'a>(
     pdf: &'a [u8],
     code: &'static str,
@@ -829,6 +882,7 @@ pub(crate) fn open_trailer<'a>(
     let xref_offset = find_startxref(pdf)?;
     assert_traditional_xref(pdf, xref_offset)?;
     let trailer = find_trailer_dict(pdf, xref_offset)?;
+    assert_no_object_streams(pdf, trailer)?;
     let (catalog_id, _) = find_dict_value(trailer, "Root")
         .and_then(parse_indirect_ref)
         .ok_or_else(|| err(code, "/Root missing or malformed in trailer"))?;
@@ -1437,6 +1491,15 @@ mod tests {
         let idx = ObjectIndex::new(pdf);
         let (s, e) = idx.object_bytes(4).expect("found object 4");
         assert_eq!(&pdf[s..e], b"4 0 obj\n<< /V (new) >>\nendobj");
+    }
+
+    #[test]
+    fn a_dict_opening_hides_no_endobj_or_reference() {
+        let pdf = b"%PDF\n3 0 obj\n<< /T (x>endobj) /X 41 0 R >>\nendobj\n";
+        let idx = ObjectIndex::new(pdf);
+        let (s, e) = idx.object_bytes(3).expect("found object 3");
+        assert!(pdf[s..e].ends_with(b">>\nendobj"));
+        assert_eq!(idx.unnamed_from(), 42);
     }
 
     #[test]
