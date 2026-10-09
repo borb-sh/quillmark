@@ -366,6 +366,16 @@ describe('Document editor surface: storeFields', () => {
     expect(write(Object.create(Object.assign(Object.create(null), { crad: 0 })))).toThrow('unknown key `crad`')
     expect(field(doc.main, 'title')).not.toBe('x')
   })
+
+  it('an address whose read throws is refused, and the document stays writable', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const trap = new Proxy({}, { ownKeys: () => { throw new Error('ownKeys trap') } })
+    expect(() => doc.storeFields(trap, { title: 'x' })).toThrow(
+      'addr must be a plain object, not one whose read throws: ownKeys trap'
+    )
+    doc.storeFields({}, { title: 'y' })
+    expect(field(doc.main, 'title')).toBe('y')
+  })
 })
 
 describe('Document editor surface: setQuillRef / overwrite / revise', () => {

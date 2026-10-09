@@ -2420,8 +2420,26 @@ fn reject_unknown_keys(
     if !value.is_object() {
         return Ok(());
     }
-    let proto = js_sys::Reflect::get_prototype_of(value)?;
-    if !proto.is_null() && !js_sys::Reflect::get_prototype_of(&proto)?.is_null() {
+    // A `Proxy` trap's throw returns rather than unwinding through the verb,
+    // which would leave its handle borrowed.
+    let unreadable = |err: JsValue| {
+        let cause = match err.dyn_ref::<js_sys::Error>() {
+            Some(e) => String::from(e.message()),
+            None => err.as_string().unwrap_or_else(|| format!("{err:?}")),
+        };
+        WasmError::from(format!("{what} must be a plain object, not one whose read throws: {cause}"))
+            .to_js_value()
+    };
+    let prototype = |o: &JsValue| js_sys::Reflect::get_prototype_of(o).map_err(unreadable);
+    let names = |o: &JsValue| -> Result<Vec<String>, JsValue> {
+        Ok(js_sys::Reflect::own_keys(o)
+            .map_err(unreadable)?
+            .iter()
+            .filter_map(|key| key.as_string())
+            .collect())
+    };
+    let proto = prototype(value)?;
+    if !proto.is_null() && !prototype(&proto)?.is_null() {
         let passed = if value.is_instance_of::<js_sys::Map>() {
             "a `Map`"
         } else {
@@ -2431,16 +2449,11 @@ fn reject_unknown_keys(
             WasmError::from(format!("{what} must be a plain object, not {passed}")).to_js_value(),
         );
     }
-    let names = |o: &js_sys::Object| -> Vec<String> {
-        js_sys::Object::get_own_property_names(o)
-            .iter()
-            .filter_map(|key| key.as_string())
-            .collect()
-    };
-    let mut keys = names(value.unchecked_ref());
+    let mut keys = names(value)?;
     if !proto.is_null() {
-        let builtin = names(&js_sys::Reflect::get_prototype_of(&js_sys::Object::new())?);
-        keys.extend(names(&proto).into_iter().filter(|k| !builtin.contains(k)));
+        let object_proto = prototype(&js_sys::Object::new())?;
+        let builtin = names(&object_proto)?;
+        keys.extend(names(&proto)?.into_iter().filter(|k| !builtin.contains(k)));
     }
     match keys.into_iter().find(|k| !known.contains(&k.as_str())) {
         Some(k) => Err(WasmError::from(refusal(&k)).to_js_value()),
