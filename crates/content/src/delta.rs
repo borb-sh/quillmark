@@ -235,7 +235,7 @@ const CHAR_DIFF_LIMIT: usize = 5_000;
 /// granularity so a paragraph reorder surfaces as whole-line insert spans the
 /// move detector can match (char Myers fragments reordered blocks). Within a
 /// run of replaced lines, a line paired with a rewrite of itself
-/// ([`refine_replace`]) diffs by char, so an edit to one word of a paragraph
+/// diffs by char, so an edit to one word of a paragraph
 /// leaves the rest of it retained. Above `CHAR_DIFF_LIMIT` chars, a char
 /// diff skips Myers entirely and uses `coarse_replace` instead.
 pub fn diff(base: &str, new: &str) -> Delta {
