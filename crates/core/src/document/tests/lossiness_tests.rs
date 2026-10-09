@@ -948,8 +948,8 @@ fn a_comment_inside_a_plain_scalar_is_a_located_refusal() {
 }
 
 #[test]
-fn a_refused_quill_table_attribute_names_the_attribute_not_an_element() {
-    let doc = Document::parse("~~~\n$quill: q\n~~~\n\n<quill-table widths=\"x\">\n\n| a |\n|---|\n| b |\n\n</quill-table>\n")
+fn a_refused_qm_table_attribute_names_the_attribute_not_an_element() {
+    let doc = Document::parse("~~~\n$quill: q\n~~~\n\n<qm-table widths=\"x\">\n\n| a |\n|---|\n| b |\n\n</qm-table>\n")
         .unwrap();
     let message = &doc
         .warnings
@@ -957,7 +957,7 @@ fn a_refused_quill_table_attribute_names_the_attribute_not_an_element() {
         .find(|w| w.code.as_deref() == Some("parse::dropped_construct"))
         .expect("the refused attribute warns")
         .message;
-    assert!(message.contains("`widths` attribute of `<quill-table>`"), "{message}");
+    assert!(message.contains("`widths` attribute of `<qm-table>`"), "{message}");
 }
 
 /// The value holds a merge's keys in the mapping holding the merge, so a tag

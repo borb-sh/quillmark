@@ -71,7 +71,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
     let tag = construct.to_string();
     match construct {
         Dropped::TableAttr(attr) => attr_dropped(
-            "quill-table",
+            "qm-table",
             attr,
             match attr.as_str() {
                 "widths" => {
@@ -79,7 +79,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                         .to_string()
                 }
                 "align" => "`align` is `left`, `center` or `right`.".to_string(),
-                _ => "`<quill-table>` takes `widths` and `align`.".to_string(),
+                _ => "`<qm-table>` takes `widths` and `align`.".to_string(),
             },
         ),
         Dropped::ElementAttr { element, attr } => attr_dropped(
@@ -94,10 +94,10 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
         Dropped::Table => (
             format!(
                 "markdown import dropped {} in this field",
-                some("`<quill-table>` wrapper", "`<quill-table>` wrappers")
+                some("`<qm-table>` wrapper", "`<qm-table>` wrappers")
             ),
             format!(
-                "A `<quill-table>` wraps exactly one pipe table, its two tags each alone on a line with a blank \
+                "A `<qm-table>` wraps exactly one pipe table, its two tags each alone on a line with a blank \
                  line between each tag and the table. {TIGHT}"
             ),
         ),
@@ -107,7 +107,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
             ),
             format!(
-                "An element name after `quill-` is lowercase words of letters and digits joined by single `-`, \
+                "An element name after `qm-` is lowercase words of letters and digits joined by single `-`, \
                  opening with a letter. {TIGHT}"
             ),
         ),
@@ -140,7 +140,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                     "markdown import does not carry raw HTML: {} dropped",
                     some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
                 ),
-                "Raw HTML imports nothing but `<u>`, `<br>` and the `quill-*` tags. Where a line opens with a \
+                "Raw HTML imports nothing but `<u>`, `<br>` and the `qm-*` tags. Where a line opens with a \
                  tag, its block runs to the next blank line and drops whole, markdown included; a blank line \
                  under the tag line keeps what follows."
                     .to_string(),

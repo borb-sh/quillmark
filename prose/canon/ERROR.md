@@ -134,13 +134,13 @@ families:
   A body's markdown import adds `parse::dropped_construct`, one per construct
   it dropped, with its `count`, anchored at the body (`main.body`,
   `cards.<kind>[<i>].body`) after its card's tag warnings. The `construct` is:
-  - a raw tag's lowercase name: `div`, a `quill-*` name outside the carrier
-    grammar such as `quill-a--b`, or `quill-anchor` where its block drops
+  - a raw tag's lowercase name: `div`, a `qm-*` name outside the carrier
+    grammar such as `qm-a--b`, or `qm-anchor` where its block drops
     markdown;
-  - `quill-<name>` for an element tag that drops: left unclosed,
+  - `qm-<name>` for an element tag that drops: left unclosed,
     self-closing, inside a line, or tight against markdown;
-  - `quill-table` for a `quill-table` wrapper that drops whole;
-  - `quill-table[<attr>]` or `quill-<name>[<attr>]` for one attribute that
+  - `qm-table` for a `qm-table` wrapper that drops whole;
+  - `qm-table[<attr>]` or `qm-<name>[<attr>]` for one attribute that
     drops.
 
   A parse reports a body's drops alone, since it knows no field's type: a

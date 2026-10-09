@@ -582,7 +582,7 @@ import mints none, so a cold export→import loses every anchor.
 
 The annotated read (`export::to_markdown_annotated`,
 `Document::to_markdown_annotated`) spells each prose anchor as
-`<quill-anchor ref="ID"></quill-anchor>` at its start, a spelling a cold
+`<qm-anchor ref="ID"></qm-anchor>` at its start, a spelling a cold
 import drops unreported ([markdown-spec.md](../references/markdown-spec.md)
 §6.4).
 

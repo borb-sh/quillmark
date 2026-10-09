@@ -115,7 +115,7 @@ renderer a plate registers under its name ([CONVERT.md](CONVERT.md#elements)).
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
-The annotated read spells it at its start as a `quill-anchor` tag the import
+The annotated read spells it at its start as a `qm-anchor` tag the import
 drops, so the markdown cell stays `carries opaquely`: a write keeps an anchor by
 diff-rebase alone. The row's corpus entry pins the spelling under
 `annotated`.
@@ -137,7 +137,7 @@ diff-rebase alone. The row's corpus entry pins the spelling under
 A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
 mint it without a key the engine does not name.
 
-`widths` and `align` are spelled on a `quill-table` wrapper
+`widths` and `align` are spelled on a `qm-table` wrapper
 ([markdown-spec.md](../references/markdown-spec.md) §6.4). Each is absent at
 its default, so a default row stores no key.
 
@@ -158,19 +158,19 @@ above, or markup the content does not store.
 | `html.comment` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `html.tag_line.paragraph`: a type 6 tag line under paragraph text, dropping what follows to the blank line | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
 | `html.tag_line.list`: a tag line between list items, ending the list | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
-| `carrier.element.tight`: element tag lines tight around markdown, dropping it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
+| `carrier.element.tight`: element tag lines tight around markdown, dropping it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
 | `carrier.element.void`: an element around nothing | spells | spells | spells | honors | silent: honored | none |
-| `carrier.element.unclosed`: an element still open where the body ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
-| `carrier.element.self_closing`: a self-closing element tag | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
-| `carrier.element.inline`: an element pair inside a line | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-hl` |
-| `carrier.element.attr`: an element attribute outside the grammar | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep[onclick]` |
+| `carrier.element.unclosed`: an element still open where the body ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
+| `carrier.element.self_closing`: a self-closing element tag | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
+| `carrier.element.inline`: an element pair inside a line | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-hl` |
+| `carrier.element.attr`: an element attribute outside the grammar | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep[onclick]` |
 | `carrier.element.stray_close`: an element close tag with nothing open | silent: honored | n/a | n/a | n/a | n/a | none |
-| `carrier.element.stray_close.tight`: an element close tag with nothing open, tight above markdown it drops | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
-| `carrier.table`: the reserved `quill-table` around a table | spells | spells | spells | honors | silent: honored | none |
-| `carrier.table.holds_other`: a `quill-table` around anything but one table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table` |
-| `carrier.table.attr`: a `quill-table` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[foo]` |
-| `carrier.table.value`: a `quill-table` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[widths]` |
-| `carrier.anchor`: an echoed `quill-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
+| `carrier.element.stray_close.tight`: an element close tag with nothing open, tight above markdown it drops | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
+| `carrier.table`: the reserved `qm-table` around a table | spells | spells | spells | honors | silent: honored | none |
+| `carrier.table.holds_other`: a `qm-table` around anything but one table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table` |
+| `carrier.table.attr`: a `qm-table` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table[foo]` |
+| `carrier.table.value`: a `qm-table` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table[widths]` |
+| `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
 | `markdown.cell_image`: an image in a table cell | drops silently | n/a | n/a | n/a | n/a | none |
 

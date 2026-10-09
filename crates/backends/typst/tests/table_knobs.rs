@@ -53,7 +53,7 @@ fn every_knob_compiles_and_moves_the_table() {
     let quill = quill();
     let plain = origins(&svg(&quill, PLAIN));
     for attrs in ["align=\"center\"", "widths=\"2 1\"", "align=\"center\" widths=\"2 1\""] {
-        let knobs = format!("<quill-table {attrs}>\n\n{PLAIN}\n\n</quill-table>");
+        let knobs = format!("<qm-table {attrs}>\n\n{PLAIN}\n\n</qm-table>");
         let moved = origins(&svg(&quill, &knobs));
         assert_eq!(moved.len(), plain.len(), "{attrs}: {moved:?}");
         assert_ne!(moved, plain, "{attrs} moves the table");
@@ -66,7 +66,7 @@ fn every_knob_compiles_and_moves_the_table() {
 #[test]
 fn placing_a_table_keeps_its_cells_aligned_as_they_were() {
     let table = "| A wide header cell |\n| --- |\n| x |";
-    let placed = format!("<quill-table align=\"center\">\n\n{table}\n\n</quill-table>");
+    let placed = format!("<qm-table align=\"center\">\n\n{table}\n\n</qm-table>");
     for set in ["", "#set table(align: right)\n", "#set align(right)\n"] {
         let plate = PLATE.replace("#data", &format!("{set}#data"));
         let quill = common::quill_with_plate(

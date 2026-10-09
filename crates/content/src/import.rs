@@ -27,9 +27,9 @@
 //!   break is a `Rule` line carrying no text.
 //! - Raw HTML produces no content beyond the allowlist and the carrier. An HTML
 //!   block drops whole, as CommonMark runs it; one of tag lines alone passes
-//!   its carrier tags on. A `quill-table` wrapper pairs as an element does,
+//!   its carrier tags on. A `qm-table` wrapper pairs as an element does,
 //!   and folds its attributes into the props of the one table it wraps.
-//! - A `quill-*` element the carrier does not reserve is modeled: a pair of tag
+//! - A `qm-*` element the carrier does not reserve is modeled: a pair of tag
 //!   lines wraps the blocks between them in a [`Container::Element`]. One left
 //!   unclosed drops, what it wraps importing as written.
 
@@ -85,23 +85,23 @@ pub enum ImportWarning {
 /// name `parse::dropped_construct` reports it under, given with each variant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Dropped {
-    /// A raw tag outside the carrier, or a `quill-anchor` reported with the
+    /// A raw tag outside the carrier, or a `qm-anchor` reported with the
     /// markdown its HTML block drops: its lowercase name (`span`, `u`).
     Tag(String),
     /// A tag named with the carrier's prefix and no element name after it: its
-    /// lowercase name (`quill-a--b`).
+    /// lowercase name (`qm-a--b`).
     BadName(String),
-    /// A `quill-table` wrapper that drops as an element does, or that does not
-    /// hold exactly one table: `quill-table`.
+    /// A `qm-table` wrapper that drops as an element does, or that does not
+    /// hold exactly one table: `qm-table`.
     Table,
-    /// A `quill-table` attribute the wrapper does not fold:
-    /// `quill-table[<attr>]`.
+    /// A `qm-table` attribute the wrapper does not fold:
+    /// `qm-table[<attr>]`.
     TableAttr(String),
     /// An element left unclosed, self-closing, inside a line or tight against
-    /// markdown: `quill-<name>`.
+    /// markdown: `qm-<name>`.
     Element(String),
     /// An element attribute outside the grammar, or one repeating a name
-    /// already read: `quill-<name>[<attr>]`.
+    /// already read: `qm-<name>[<attr>]`.
     ElementAttr { element: String, attr: String },
 }
 
@@ -140,7 +140,7 @@ pub(crate) fn options() -> Options {
 /// `<pre>`, `<script>`, `<style>` or `<textarea>` block's included, and a block
 /// holding no other opening tag under its first where it drops markdown with
 /// it. A comment, the content of a type 1–5 HTML block and any other closing
-/// tag or `quill-anchor` tag drop silently.
+/// tag or `qm-anchor` tag drop silently.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let options = options();
     let text = normalize_markdown(markdown, options);
@@ -314,7 +314,7 @@ struct Opened {
 enum Frame {
     /// An element, around its container's `instance`.
     Element { name: String, instance: u64 },
-    /// A `quill-table` wrapper, opened with `islands` minted and `lines`
+    /// A `qm-table` wrapper, opened with `islands` minted and `lines`
     /// [emitted](Builder::emitted), and whether another opened inside it.
     Table { islands: usize, lines: usize, holds_wrapper: bool },
 }
@@ -899,7 +899,7 @@ impl Builder {
         }
     }
 
-    /// Fold a closed `quill-table` wrapper's attributes into the table it
+    /// Fold a closed `qm-table` wrapper's attributes into the table it
     /// wraps, where what it wraps imported as that table alone: one island and
     /// its one line, inside no container but an element. Otherwise the wrapper
     /// drops whole. Each attribute the engine does not name or cannot read
@@ -1233,13 +1233,13 @@ enum UTag {
 enum Wrapper {
     /// An element, by its name.
     Element(String),
-    /// The table a `quill-table` wrapper folds into.
+    /// The table a `qm-table` wrapper folds into.
     Table,
 }
 
 impl Wrapper {
     /// The wrapper a tag named `tag_name` opens or closes: none for
-    /// `quill-anchor` or a name outside the carrier.
+    /// `qm-anchor` or a name outside the carrier.
     fn named(tag_name: &str) -> Option<Self> {
         match carrier::element(tag_name)? {
             name if name == "anchor" => None,
@@ -1299,7 +1299,7 @@ impl Drops {
     }
 
     /// An opening tag. A carrier tag nothing folds counts as its element, its
-    /// wrapper or its bad name; `quill-anchor`, the engine's own read-only
+    /// wrapper or its bad name; `qm-anchor`, the engine's own read-only
     /// spelling of an anchor, is written to be dropped and counts nothing.
     fn tag(&mut self, tag: &html::Tag, at: usize) {
         if !tag.closing {
@@ -2069,9 +2069,9 @@ mod tests {
         assert_eq!(table_rows(&imported.content), [["1", "2"]]);
         assert_eq!(dropped(&imported), [("div", 1)]);
 
-        let imported = imp_fixed("<quill-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</quill-keep>");
+        let imported = imp_fixed("<qm-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</qm-keep>");
         assert_eq!(imported.content.text, "");
-        assert_eq!(dropped(&imported), [("quill-keep", 1)]);
+        assert_eq!(dropped(&imported), [("qm-keep", 1)]);
     }
 
     fn layout(rt: &Normalized) -> serde_json::Value {
@@ -2087,16 +2087,16 @@ mod tests {
     #[test]
     fn a_table_wrapper_folds_its_attributes_into_the_table_it_holds() {
         let table = "| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |";
-        let canonical = "<quill-table align=\"center\" widths=\"2 6 auto\">\n\n\
-                         | a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</quill-table>";
+        let canonical = "<qm-table align=\"center\" widths=\"2 6 auto\">\n\n\
+                         | a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</qm-table>";
         let expected = serde_json::json!({"align": "center", "widths": [2, 6, null]});
         let cases = [
-            (format!("<quill-table widths=\"2 6\" align=center>\n\n{table}\n\n</quill-table>"), 0),
-            (format!("<Quill-Table widths=\" 2  6 auto \" align=\"center\">\n\n{table}\n\n</Quill-Table>\n\nafter"), 0),
-            (format!("- item\n- <quill-table widths=\"2 6\" align=\"center\">\n\n  {}\n\n  </quill-table>", table.replace('\n', "\n  ")), 1),
-            (format!("- item\n\n<quill-table widths=\"2 6\" align=\"center\">\n\n{table}\n\n</quill-table>"), 0),
-            (format!("> <quill-table widths=\"2 6 auto auto\" align=\"center\">\n>\n> {}\n>\n> </quill-table>", table.replace('\n', "\n> ")), 1),
-            (format!("<quill-table widths=\"2 6\" align=\"center\">\n\n<quill-keep>\n\n{table}\n\n</quill-keep>\n\n</quill-table>"), 1),
+            (format!("<qm-table widths=\"2 6\" align=center>\n\n{table}\n\n</qm-table>"), 0),
+            (format!("<Qm-Table widths=\" 2  6 auto \" align=\"center\">\n\n{table}\n\n</Qm-Table>\n\nafter"), 0),
+            (format!("- item\n- <qm-table widths=\"2 6\" align=\"center\">\n\n  {}\n\n  </qm-table>", table.replace('\n', "\n  ")), 1),
+            (format!("- item\n\n<qm-table widths=\"2 6\" align=\"center\">\n\n{table}\n\n</qm-table>"), 0),
+            (format!("> <qm-table widths=\"2 6 auto auto\" align=\"center\">\n>\n> {}\n>\n> </qm-table>", table.replace('\n', "\n> ")), 1),
+            (format!("<qm-table widths=\"2 6\" align=\"center\">\n\n<qm-keep>\n\n{table}\n\n</qm-keep>\n\n</qm-table>"), 1),
         ];
         for (md, containers) in &cases {
             let imported = imp_fixed(md);
@@ -2115,7 +2115,7 @@ mod tests {
             canonical.split('\n').map(|l| if l.is_empty() { ">".to_string() } else { format!("> {l}") }).collect::<Vec<_>>().join("\n")
         );
 
-        let defaults = imp_fixed(&format!("<quill-table widths=\"auto auto\">\n\n{table}\n\n</quill-table>"));
+        let defaults = imp_fixed(&format!("<qm-table widths=\"auto auto\">\n\n{table}\n\n</qm-table>"));
         assert_eq!(dropped(&defaults), []);
         assert_eq!(layout(&defaults.content), serde_json::json!({}));
         assert_eq!(crate::export::to_markdown(&defaults.content), from_markdown(table).map(|i| crate::export::to_markdown(&i.content)).unwrap());
@@ -2125,30 +2125,30 @@ mod tests {
     fn a_table_wrapper_holding_anything_but_one_table_drops_whole() {
         let t = "| a |\n|---|\n| 1 |";
         for md in [
-            "<quill-table align=\"center\">\n\npara\n\n</quill-table>".to_string(),
-            format!("<quill-table align=\"center\">\n\n{t}\n\n{t}\n\n</quill-table>"),
-            format!("<quill-table align=\"center\">\n\n{t}\n\npara\n\n</quill-table>"),
-            format!("<quill-table align=\"center\">\n\n- {}\n\n</quill-table>", t.replace('\n', "\n  ")),
-            format!("<quill-table align=\"center\">\n\n{t}"),
-            "<quill-table align=\"center\">\n\n</quill-table>".to_string(),
-            format!("<quill-table align=\"center\"/>\n\n{t}"),
+            "<qm-table align=\"center\">\n\npara\n\n</qm-table>".to_string(),
+            format!("<qm-table align=\"center\">\n\n{t}\n\n{t}\n\n</qm-table>"),
+            format!("<qm-table align=\"center\">\n\n{t}\n\npara\n\n</qm-table>"),
+            format!("<qm-table align=\"center\">\n\n- {}\n\n</qm-table>", t.replace('\n', "\n  ")),
+            format!("<qm-table align=\"center\">\n\n{t}"),
+            "<qm-table align=\"center\">\n\n</qm-table>".to_string(),
+            format!("<qm-table align=\"center\"/>\n\n{t}"),
         ] {
             let imported = imp_fixed(&md);
-            assert_eq!(dropped(&imported), [("quill-table", 1)], "{md:?}");
+            assert_eq!(dropped(&imported), [("qm-table", 1)], "{md:?}");
             assert!(imported.content.islands.iter().all(|i| i.props.get("align").is_none()), "{md:?}");
         }
 
-        let nested = imp_fixed(&format!("<quill-table align=\"left\">\n\n<quill-table align=\"right\">\n\n{t}\n\n</quill-table>\n\n</quill-table>"));
-        assert_eq!(dropped(&nested), [("quill-table", 1)]);
+        let nested = imp_fixed(&format!("<qm-table align=\"left\">\n\n<qm-table align=\"right\">\n\n{t}\n\n</qm-table>\n\n</qm-table>"));
+        assert_eq!(dropped(&nested), [("qm-table", 1)]);
         assert_eq!(layout(&nested.content), serde_json::json!({"align": "right"}));
 
         for md in [
-            format!("- <quill-table align=\"center\">\n\n{t}\n\n</quill-table>"),
-            format!("> <quill-table align=\"center\">\n\n{t}\n\n</quill-table>"),
-            format!("<quill-table align=\"center\">\n\n<quill-keep>\n\n</quill-table>\n\n{t}\n\n</quill-keep>"),
+            format!("- <qm-table align=\"center\">\n\n{t}\n\n</qm-table>"),
+            format!("> <qm-table align=\"center\">\n\n{t}\n\n</qm-table>"),
+            format!("<qm-table align=\"center\">\n\n<qm-keep>\n\n</qm-table>\n\n{t}\n\n</qm-keep>"),
         ] {
             let imported = imp_fixed(&md);
-            assert_eq!(dropped(&imported), [("quill-table", 1)], "{md:?}");
+            assert_eq!(dropped(&imported), [("qm-table", 1)], "{md:?}");
             assert_eq!(layout(&imported.content), serde_json::json!({}), "{md:?}");
         }
     }
@@ -2157,21 +2157,21 @@ mod tests {
     fn a_table_wrapper_drops_each_attribute_it_cannot_read() {
         let t = "| a | b |\n|---|---|\n| 1 | 2 |";
         let cases: &[(&str, &[(&str, usize)], serde_json::Value)] = &[
-            ("foo=\"1\" align=\"left\"", &[("quill-table[foo]", 1)], serde_json::json!({"align": "left"})),
-            ("style=\"x\" onclick=\"y\" breakable=\"false\"", &[("quill-table[breakable]", 1), ("quill-table[onclick]", 1), ("quill-table[style]", 1)], serde_json::json!({})),
-            ("widths=\"a b\" align=\"middle\" breakable=\"no\"", &[("quill-table[align]", 1), ("quill-table[breakable]", 1), ("quill-table[widths]", 1)], serde_json::json!({})),
-            ("widths=\"0 1\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
-            ("widths=\"+1 2\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
-            ("widths=\"1 null\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
-            ("widths=\"1 *\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
-            ("widths=\"1.5 2\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
-            ("widths=\"9007199254740992 1\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
+            ("foo=\"1\" align=\"left\"", &[("qm-table[foo]", 1)], serde_json::json!({"align": "left"})),
+            ("style=\"x\" onclick=\"y\" breakable=\"false\"", &[("qm-table[breakable]", 1), ("qm-table[onclick]", 1), ("qm-table[style]", 1)], serde_json::json!({})),
+            ("widths=\"a b\" align=\"middle\" breakable=\"no\"", &[("qm-table[align]", 1), ("qm-table[breakable]", 1), ("qm-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"0 1\"", &[("qm-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"+1 2\"", &[("qm-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"1 null\"", &[("qm-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"1 *\"", &[("qm-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"1.5 2\"", &[("qm-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"9007199254740992 1\"", &[("qm-table[widths]", 1)], serde_json::json!({})),
             ("widths=\"9007199254740991 1\"", &[], serde_json::json!({"widths": [9007199254740991u64, 1]})),
-            ("breakable", &[("quill-table[breakable]", 1)], serde_json::json!({})),
-            ("align=\"left\" align=\"right\"", &[("quill-table[align]", 1)], serde_json::json!({"align": "left"})),
+            ("breakable", &[("qm-table[breakable]", 1)], serde_json::json!({})),
+            ("align=\"left\" align=\"right\"", &[("qm-table[align]", 1)], serde_json::json!({"align": "left"})),
         ];
         for (attrs, warned, kept) in cases {
-            let md = format!("<quill-table {attrs}>\n\n{t}\n\n</quill-table>");
+            let md = format!("<qm-table {attrs}>\n\n{t}\n\n</qm-table>");
             let imported = imp_fixed(&md);
             let mut got = dropped(&imported);
             got.sort();
@@ -2181,12 +2181,12 @@ mod tests {
     }
 
     /// A type-7 tag cannot interrupt a pipe table, so the parser reads
-    /// `</quill-table>` after the rows as one more row; the repair ends the
+    /// `</qm-table>` after the rows as one more row; the repair ends the
     /// table there instead. A type-6 tag (`</div>`) interrupts it on its own,
     /// and its block drops with the text it holds.
     #[test]
     fn a_row_of_tags_ends_its_table() {
-        for close in ["</quill-table>", "</quill-keep></quill-table>"] {
+        for close in ["</qm-table>", "</qm-keep></qm-table>"] {
             let rt = imp_fixed(&format!("| a | b |\n|---|---|\n| 1 | 2 |\n{close}\nnext")).content;
             assert_eq!(table_rows(&rt), [["1", "2"]], "{close}");
             assert_eq!(rt.text, "\u{FFFC}\nnext", "{close}");
@@ -2195,7 +2195,7 @@ mod tests {
         assert_eq!(table_rows(&imported.content), [["1", "2"]]);
         assert_eq!(imported.content.text, "\u{FFFC}");
         assert_eq!(dropped(&imported), [("div", 1)]);
-        let rt = imp_fixed("> | a |\n> |---|\n> | 1 |\n> </quill-table>\n> next").content;
+        let rt = imp_fixed("> | a |\n> |---|\n> | 1 |\n> </qm-table>\n> next").content;
         assert_eq!(table_rows(&rt), [["1"]]);
         assert!(rt.lines.iter().all(|l| l.containers.len() == 1), "{:?}", rt.lines);
     }
@@ -2252,10 +2252,10 @@ mod tests {
 
     /// One count per open or self-closing tag, by lowercase name, in order of
     /// first occurrence: closing tags, comments, a `<pre>` block's content, the
-    /// inline allowlist, `quill-anchor` and a block element count nothing. A
+    /// inline allowlist, `qm-anchor` and a block element count nothing. A
     /// tag of the allowlist inside an HTML block drops with it and counts. An
     /// element inside a line, or one that drops unclosed, counts under
-    /// `quill-<name>`, and a `quill-*` name outside the grammar under its full
+    /// `qm-<name>`, and a `qm-*` name outside the grammar under its full
     /// name. A block holding no other opening tag counts its first where it
     /// drops text with it.
     #[test]
@@ -2263,9 +2263,9 @@ mod tests {
         let md = "<div>\n<span>a</span> <SPAN>b</SPAN><br> <u>c</u> <img src=x/>\n</div>\n\n\
                   <!-- <em>not markup</em> -->\n\n<pre><b>x</b></pre>\n\n\
                   x <span>y</span> <u>z</u><br>w\n\n\
-                  <quill-anchor id=\"x\">t</quill-anchor> <quill-keep>k</quill-keep>\n\
-                  <QUILL-ANCHOR ref=\"y\"></QUILL-ANCHOR>\n<Quill-Keep>\n\n\
-                  | <span>cell</span> |\n|---|\n| <hr/> <quill-a--b>z</quill-a--b> |\n\n\
+                  <qm-anchor id=\"x\">t</qm-anchor> <qm-keep>k</qm-keep>\n\
+                  <QM-ANCHOR ref=\"y\"></QM-ANCHOR>\n<Qm-Keep>\n\n\
+                  | <span>cell</span> |\n|---|\n| <hr/> <qm-a--b>z</qm-a--b> |\n\n\
                   </Center>\ndropped";
         let imported = imp_fixed(md);
         assert_eq!(
@@ -2277,9 +2277,9 @@ mod tests {
                 ("u", 1),
                 ("img", 1),
                 ("pre", 1),
-                ("quill-keep", 2),
+                ("qm-keep", 2),
                 ("hr", 1),
-                ("quill-a--b", 1),
+                ("qm-a--b", 1),
                 ("center", 1)
             ]
         );
@@ -2288,17 +2288,17 @@ mod tests {
     }
 
     /// A block that drops markdown reports under its first tag where no
-    /// opening tag in it counts: a stray close tag, `quill-anchor`, and a close
+    /// opening tag in it counts: a stray close tag, `qm-anchor`, and a close
     /// whose element then drops unclosed or closes later, reported once.
     #[test]
     fn a_block_dropping_markdown_reports_under_its_first_tag() {
         let cases = [
-            ("a\n\n</quill-keep>\ntext", ("quill-keep", 1)),
-            ("a\n\n</quill-table>\ntext", ("quill-table", 1)),
-            ("a\n\n</quill-anchor>\ntext", ("quill-anchor", 1)),
-            ("<quill-anchor ref=\"x\">\ntext", ("quill-anchor", 1)),
-            ("<quill-keep>\n\nx\n\n</quill-keep>\ntext", ("quill-keep", 1)),
-            ("<quill-keep>\n\nx\n\n</quill-keep>\ntext\n\n</quill-keep>", ("quill-keep", 1)),
+            ("a\n\n</qm-keep>\ntext", ("qm-keep", 1)),
+            ("a\n\n</qm-table>\ntext", ("qm-table", 1)),
+            ("a\n\n</qm-anchor>\ntext", ("qm-anchor", 1)),
+            ("<qm-anchor ref=\"x\">\ntext", ("qm-anchor", 1)),
+            ("<qm-keep>\n\nx\n\n</qm-keep>\ntext", ("qm-keep", 1)),
+            ("<qm-keep>\n\nx\n\n</qm-keep>\ntext\n\n</qm-keep>", ("qm-keep", 1)),
         ];
         for (md, report) in cases {
             let imported = imp_fixed(md);
@@ -2315,7 +2315,7 @@ mod tests {
         for (md, tag) in [
             ("before\n\n<script>\nlet a = 1;\n\nlet b = 2;\n</script>\n\nafter", "script"),
             ("before\n\n<style>p { color: red }</style>\n\nafter", "style"),
-            ("before\n\n<textarea>\n**not**\n\n<quill-keep>\n</textarea> tail\n\nafter", "textarea"),
+            ("before\n\n<textarea>\n**not**\n\n<qm-keep>\n</textarea> tail\n\nafter", "textarea"),
         ] {
             let imported = imp_fixed(md);
             assert_eq!(imported.content.text, "before\nafter", "{md:?}");
@@ -2329,22 +2329,22 @@ mod tests {
     /// CommonMark, so the element it would close drops.
     #[test]
     fn a_carrier_tag_among_raw_tag_lines_wraps_as_its_lines_read() {
-        let imported = imp_fixed("<div>\n<quill-keep>\n\npara\n\n</quill-keep>\n</div>\n\nafter");
+        let imported = imp_fixed("<div>\n<qm-keep>\n\npara\n\n</qm-keep>\n</div>\n\nafter");
         assert_eq!(imported.content.text, "para\nafter");
         assert_eq!(container_tags(&imported.content), [&["element"][..], &[]]);
         assert_eq!(dropped(&imported), [("div", 1)]);
 
-        let imported = imp_fixed("<div><quill-keep>\n\npara\n\n</quill-keep></div>\n\nafter");
+        let imported = imp_fixed("<div><qm-keep>\n\npara\n\n</qm-keep></div>\n\nafter");
         assert_eq!(imported.content.text, "para\nafter");
         assert!(imported.content.lines.iter().all(|l| l.containers.is_empty()));
-        assert_eq!(dropped(&imported), [("div", 1), ("quill-keep", 1)]);
+        assert_eq!(dropped(&imported), [("div", 1), ("qm-keep", 1)]);
     }
 
     /// CRLF line endings import as LF ones do, through every block the
     /// carrier, a table cell's break and a fence hold.
     #[test]
     fn crlf_imports_as_lf() {
-        let lf = "<quill-keep note=\"a\">\n\n| A | B |\n|---|---|\n| <u>x</u> | y<br>z |\n\n</quill-keep>\n\n\
+        let lf = "<qm-keep note=\"a\">\n\n| A | B |\n|---|---|\n| <u>x</u> | y<br>z |\n\n</qm-keep>\n\n\
                   - item\n  more\n\n> quote\n\n```\ncode\n```\n\n<span>x</span>\n";
         let crlf = lf.replace('\n', "\r\n");
         let (lf, crlf) = (imp_fixed(lf), imp_fixed(&crlf));
@@ -2363,12 +2363,12 @@ mod tests {
     #[test]
     fn an_element_tag_line_wraps_the_blocks_it_holds() {
         let cases: &[(&str, &str, &[&[&str]])] = &[
-            ("<quill-keep>\n\npara\n\n</quill-keep>", "para", &[&["element"]]),
-            ("<quill-keep>\n\n- a\n- b\n\n</quill-keep>", "a\nb", &[&["element", "list_item"], &["element", "list_item"]]),
-            ("- <quill-keep>\n\n  a\n\n  </quill-keep>\n- b", "a\nb", &[&["list_item", "element"], &["list_item"]]),
-            ("> <quill-keep>\n>\n> q\n>\n> </quill-keep>", "q", &[&["quote", "element"]]),
-            ("<quill-keep>\n</quill-keep>", "", &[&["element"]]),
-            ("- a\n\n<quill-keep>\n\n- b\n\n</quill-keep>", "a\nb", &[&["list_item"], &["element", "list_item"]]),
+            ("<qm-keep>\n\npara\n\n</qm-keep>", "para", &[&["element"]]),
+            ("<qm-keep>\n\n- a\n- b\n\n</qm-keep>", "a\nb", &[&["element", "list_item"], &["element", "list_item"]]),
+            ("- <qm-keep>\n\n  a\n\n  </qm-keep>\n- b", "a\nb", &[&["list_item", "element"], &["list_item"]]),
+            ("> <qm-keep>\n>\n> q\n>\n> </qm-keep>", "q", &[&["quote", "element"]]),
+            ("<qm-keep>\n</qm-keep>", "", &[&["element"]]),
+            ("- a\n\n<qm-keep>\n\n- b\n\n</qm-keep>", "a\nb", &[&["list_item"], &["element", "list_item"]]),
         ];
         for (md, text, tags) in cases {
             let imported = imp_fixed(md);
@@ -2377,7 +2377,7 @@ mod tests {
             assert!(imported.warnings.is_empty(), "{md:?}");
         }
 
-        let rt = imp_fixed("<quill-keep name=\"x\">\n\na\n\n</quill-keep>\n<quill-keep name=\"x\">\n\nb\n\n</quill-keep>").content;
+        let rt = imp_fixed("<qm-keep name=\"x\">\n\na\n\n</qm-keep>\n<qm-keep name=\"x\">\n\nb\n\n</qm-keep>").content;
         let keep = |instance| Container::Element {
             name: "keep".into(),
             attrs: [("name".to_string(), "x".to_string())].into(),
@@ -2387,46 +2387,46 @@ mod tests {
         assert_eq!(rt.lines[1].containers, [keep(1)]);
     }
 
-    /// An inline element pair drops its tags and reports `quill-<name>` once
+    /// An inline element pair drops its tags and reports `qm-<name>` once
     /// per open tag, in prose, a heading and a table cell, what it holds
     /// importing as written.
     #[test]
     fn an_inline_element_pair_drops() {
         for (md, text) in [
-            ("a <quill-hl tone=\"warm\">b</quill-hl> c", "a b c"),
-            ("<quill-hl>a **b</quill-hl> c**", "a b c"),
-            ("# a <quill-hl>b</quill-hl>", "a b"),
+            ("a <qm-hl tone=\"warm\">b</qm-hl> c", "a b c"),
+            ("<qm-hl>a **b</qm-hl> c**", "a b c"),
+            ("# a <qm-hl>b</qm-hl>", "a b"),
         ] {
             let imported = imp_fixed(md);
             assert_eq!(imported.content.text, text, "{md:?}");
             assert!(imported.content.marks.iter().all(|m| m.kind == MarkKind::Strong), "{md:?}");
-            assert_eq!(dropped(&imported), [("quill-hl", 1)], "{md:?}");
+            assert_eq!(dropped(&imported), [("qm-hl", 1)], "{md:?}");
         }
 
-        let imported = imp_fixed("| <quill-hl>x</quill-hl> y |\n|---|");
+        let imported = imp_fixed("| <qm-hl>x</qm-hl> y |\n|---|");
         let (text, marks) = crate::serial::parse_cell(&imported.content.islands[0].props["header"][0]);
         assert_eq!(text, "x y");
         assert!(marks.is_empty());
-        assert_eq!(dropped(&imported), [("quill-hl", 1)]);
+        assert_eq!(dropped(&imported), [("qm-hl", 1)]);
     }
 
     /// An element the carrier cannot read drops its tags and reports
-    /// `quill-<name>`, what it wraps importing; one whose tag line is tight
+    /// `qm-<name>`, what it wraps importing; one whose tag line is tight
     /// against markdown drops with the block it opens. An attribute outside the
     /// grammar drops alone. A close tag with nothing to close, set apart by
     /// blank lines, drops silently.
     #[test]
     fn an_element_drops_where_it_does_not_close() {
         let cases: &[(&str, &str, &[(&str, usize)])] = &[
-            ("<quill-keep>\n\na", "a", &[("quill-keep", 1)]),
-            ("<quill-keep/>\n\na", "a", &[("quill-keep", 1)]),
-            ("- <quill-keep>\n\n  a\n- b\n\n</quill-keep>", "a\nb", &[("quill-keep", 1)]),
-            ("> <quill-keep>\n>\n> a\n\n</quill-keep>", "a", &[("quill-keep", 1)]),
-            ("</quill-keep>\n\na", "a", &[]),
-            ("<quill-keep>\na\n</quill-keep>\n\nb", "b", &[("quill-keep", 1)]),
-            ("<quill-keep>\n\na\n</quill-keep>", "a ", &[("quill-keep", 1)]),
-            ("a <quill-hl>b", "a b", &[("quill-hl", 1)]),
-            ("a<quill-hl></quill-hl>b", "ab", &[("quill-hl", 1)]),
+            ("<qm-keep>\n\na", "a", &[("qm-keep", 1)]),
+            ("<qm-keep/>\n\na", "a", &[("qm-keep", 1)]),
+            ("- <qm-keep>\n\n  a\n- b\n\n</qm-keep>", "a\nb", &[("qm-keep", 1)]),
+            ("> <qm-keep>\n>\n> a\n\n</qm-keep>", "a", &[("qm-keep", 1)]),
+            ("</qm-keep>\n\na", "a", &[]),
+            ("<qm-keep>\na\n</qm-keep>\n\nb", "b", &[("qm-keep", 1)]),
+            ("<qm-keep>\n\na\n</qm-keep>", "a ", &[("qm-keep", 1)]),
+            ("a <qm-hl>b", "a b", &[("qm-hl", 1)]),
+            ("a<qm-hl></qm-hl>b", "ab", &[("qm-hl", 1)]),
         ];
         for (md, text, warned) in cases {
             let imported = imp_fixed(md);
@@ -2439,7 +2439,7 @@ mod tests {
             assert_eq!(dropped(&imported), *warned, "{md:?}");
         }
 
-        let imported = imp_fixed("<quill-keep onclick=\"x\" note=\"y\">\n\na\n\n</quill-keep>");
+        let imported = imp_fixed("<qm-keep onclick=\"x\" note=\"y\">\n\na\n\n</qm-keep>");
         assert_eq!(
             imported.content.lines[0].containers,
             [Container::Element {
@@ -2448,11 +2448,11 @@ mod tests {
                 instance: 0,
             }]
         );
-        assert_eq!(dropped(&imported), [("quill-keep[onclick]", 1)]);
+        assert_eq!(dropped(&imported), [("qm-keep[onclick]", 1)]);
 
         let imported = imp_fixed(
-            "<quill-keep note=\"a\" note=\"b\" class=\"c\">\n\nx\n\n</quill-keep>\n\n\
-             <quill-keep CLASS=\"d\">\n\ny\n\n</quill-keep>",
+            "<qm-keep note=\"a\" note=\"b\" class=\"c\">\n\nx\n\n</qm-keep>\n\n\
+             <qm-keep CLASS=\"d\">\n\ny\n\n</qm-keep>",
         );
         let attrs: Vec<_> = imported.content.lines.iter().map(|l| &l.containers).collect();
         assert_eq!(
@@ -2466,6 +2466,6 @@ mod tests {
                 &vec![Container::Element { name: "keep".into(), attrs: [].into(), instance: 0 }],
             ]
         );
-        assert_eq!(dropped(&imported), [("quill-keep[note]", 1), ("quill-keep[class]", 2)]);
+        assert_eq!(dropped(&imported), [("qm-keep[note]", 1), ("qm-keep[class]", 2)]);
     }
 }

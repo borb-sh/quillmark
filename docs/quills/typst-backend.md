@@ -127,7 +127,7 @@ Each row is `(id, title, held, value, path)`, roster members in roster order and
 
 ### Elements
 
-A `quill-<name>` element renders through the helper's `elements` registry. A plate registers a renderer under the element's name, taking its attributes and its content:
+A `qm-<name>` element renders through the helper's `elements` registry. A plate registers a renderer under the element's name, taking its attributes and its content:
 
 ```typst
 #import "@local/quillmark-helper:0.1.0": data, elements
@@ -137,11 +137,11 @@ A `quill-<name>` element renders through the helper's `elements` registry. A pla
 #data.at("$body", default: [])
 ```
 
-The dispatcher reads the registry's final value, so the update may stand anywhere in the plate. An element around nothing, `<quill-sig>` on the line above `</quill-sig>`, calls its renderer with a body that draws nothing, `[ ]`, which suits a signature line or a stamp. `attrs` is a dictionary of the element's attributes keyed by name, each value a string with its entities decoded: `note="a &amp; b"` arrives as `"a & b"`. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone.
+The dispatcher reads the registry's final value, so the update may stand anywhere in the plate. An element around nothing, `<qm-sig>` on the line above `</qm-sig>`, calls its renderer with a body that draws nothing, `[ ]`, which suits a signature line or a stamp. `attrs` is a dictionary of the element's attributes keyed by name, each value a string with its entities decoded: `note="a &amp; b"` arrives as `"a & b"`. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone.
 
 ### Tables
 
-A table in content lowers to a call of Typst's `table`, so `#set table(..)` and `#show table: ..` reach it. The call always passes `columns`, and passes `align` where the document aligns a column, so a set rule's `columns` never applies and its `align` applies only to a table aligning no column. A `quill-table` wrapper's `widths` lower to `fr` tracks, `auto` for an auto-fit column, and its `align` places the table with `align(..)` without moving the text in its cells.
+A table in content lowers to a call of Typst's `table`, so `#set table(..)` and `#show table: ..` reach it. The call always passes `columns`, and passes `align` where the document aligns a column, so a set rule's `columns` never applies and its `align` applies only to a table aligning no column. A `qm-table` wrapper's `widths` lower to `fr` tracks, `auto` for an auto-fit column, and its `align` places the table with `align(..)` without moving the text in its cells.
 
 ## Modules
 

@@ -65,7 +65,7 @@ pub struct AnchorRead {
 }
 
 /// [`to_markdown`] with each prose anchor spelled
-/// `<quill-anchor ref="ID"></quill-anchor>` at its `start`, a read-only
+/// `<qm-anchor ref="ID"></qm-anchor>` at its `start`, a read-only
 /// spelling the import drops, so the markdown imports as [`to_markdown`]'s
 /// does. A range anchor reads as its start.
 ///
@@ -1663,9 +1663,9 @@ mod tests {
             ("link", "see [our site](https://example.com) now"),
             ("table", "| a | b |\n| --- | --- |\n| 1 | 2 |"),
             ("image", "see ![a cat](cat.png) here"),
-            ("element", "<quill-keep note=\"x\">\n\npara\n\n</quill-keep>"),
-            ("element_around_list", "<quill-keep>\n\n- a\n\n- b\n\n</quill-keep>"),
-            ("element_in_item", "- <quill-keep>\n\n  a\n\n  </quill-keep>"),
+            ("element", "<qm-keep note=\"x\">\n\npara\n\n</qm-keep>"),
+            ("element_around_list", "<qm-keep>\n\n- a\n\n- b\n\n</qm-keep>"),
+            ("element_in_item", "- <qm-keep>\n\n  a\n\n  </qm-keep>"),
         ] {
             println!("construct: {label}");
             round_trips(md);
@@ -2108,7 +2108,7 @@ mod tests {
     }
 
     fn tag(id: &str) -> String {
-        format!("<quill-anchor ref=\"{id}\"></quill-anchor>")
+        format!("<qm-anchor ref=\"{id}\"></qm-anchor>")
     }
 
     /// The read imports as the plain projection does, anchors gone.
@@ -2223,7 +2223,7 @@ mod tests {
         let read = to_markdown_annotated(&rt);
         assert_eq!(
             read.markdown,
-            "a<quill-anchor ref=\"a&quot;&amp;&lt;b&gt;\"></quill-anchor>b"
+            "a<qm-anchor ref=\"a&quot;&amp;&lt;b&gt;\"></qm-anchor>b"
         );
         assert_eq!(read_ids(&read), ["a\"&<b>"]);
         reads_as_plain(&read, &rt);
