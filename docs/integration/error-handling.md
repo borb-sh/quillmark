@@ -69,7 +69,7 @@ Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning
 
 - **Parse warnings** (e.g. a `~~~` opener missing its blank line) carried on the parsed document (`doc.warnings`). A render does not carry them: they report the load, and a revise can change what the document holds after it.
 - **`parse::dropped_construct`**: markdown the content cannot carry, one per construct, carrying `construct` and `count` in `args`. `construct` is a raw tag's lowercase name, such as `div`, or the `quill-*` tag that dropped: `quill-keep` for an element, `quill-table` for a table wrapper, `quill-table[widths]` for one attribute.
-    - A parse anchors it at the body (`main.body`, `cards.<kind>[<i>].body`) on `doc.warnings`. A `richtext` field's markdown string imports with no warning.
+    - A parse anchors it at the body (`main.body`, `cards.<kind>[<i>].body`) on `doc.warnings`. A `richtext` field's markdown string reports at the field (`main.subject`, `cards.<kind>[<i>].items[0]`): on `doc.warnings` from `quill.parse`, and from `quill.validate(doc)` on a document loaded without its quill. A typed `set` imports a markdown string with no warning.
     - `revise` and the writer's `reviseBody` / `reviseField` return it as `{ delta, warnings }`, anchored at the address written; Python's `revise_body` / `revise_field` return the list.
     - The writer's `reviseDocument` returns it among its receipt's `warnings`, and Python's `revise_document` returns the list.
     - `addCard` returns it as a list, anchored at the placed card's body; `importMarkdown` and `rebase` return it beside the content, with no path.

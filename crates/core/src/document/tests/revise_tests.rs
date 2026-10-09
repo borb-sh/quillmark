@@ -209,6 +209,31 @@ fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
     assert_eq!(dropped, ["cards.note[0].items[1]#i1"]);
 }
 
+/// An anchor in content nested in a field revises with the item holding it,
+/// matched by index, so an edit elsewhere in the item keeps it.
+#[test]
+fn an_anchor_in_a_fields_list_item_survives_an_edit_to_its_item() {
+    let mut doc = stored();
+    let item = crate::document::import_body("an item to flag").unwrap();
+    let items = serde_json::json!([
+        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
+        to_canonical_value(&anchored(&item, "flag", "i1")),
+    ]);
+    doc.card_mut(0)
+        .unwrap()
+        .store_field("items", QuillValue::from_json(items))
+        .unwrap();
+
+    let markdown = doc.to_markdown().replace("an item to flag", "an edited item to flag");
+    let receipt = doc.revise(&markdown).unwrap();
+    assert!(receipt.dropped_anchors.iter().all(|d| d.id != "i1"), "{receipt:?}");
+    let items = doc.cards()[0].payload().get("items").unwrap().as_json().clone();
+    let item = quillmark_content::serial::from_canonical_value(&items[1]).unwrap();
+    assert_eq!(item.text, "an edited item to flag");
+    assert_eq!(anchor_ids(&item), ["i1"]);
+    assert!(items[0].is_object(), "an unanchored item revises to content too");
+}
+
 #[test]
 fn a_deleted_card_never_hands_its_ext_to_an_edited_neighbour() {
     let mut doc = parse(

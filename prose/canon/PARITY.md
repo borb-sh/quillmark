@@ -36,9 +36,9 @@ Where the code falls short of an invariant, the matrix cell says so:
 `drops silently` is the outcome invariants 4 and 6 rule out, and on a stored
 construct's markdown cell it is also where the fixed point fails.
 
-The matrix reads a body. A `richtext` field's markdown string drops what it
-cannot carry with no signal wherever it imports, a parse's conform and a typed
-`set` among them; a revise is the one write that reports a field's drops
+The matrix reads a body. A `richtext` field's markdown string reports what
+it drops where a conform, a revise or `validate` imports it; a typed `set`
+and a card inserted with a string body drop it with no signal
 ([ERROR.md](ERROR.md#warning-flow)).
 
 ## The matrix

@@ -526,6 +526,8 @@ The id stays in the hash input, so "canonical bytes == hash input" holds exact: 
 
 The importer is not the only minter: `IslandOp::Insert` carries the id of the island it lands, and the apply refuses the empty id and one already live in the field (`ApplyError::EmptyIslandId`, `ApplyError::IslandIdCollision`), since `IslandOp::Set` addresses by it. That producer is bound by the same never-ambient rule: continue the positional sequence past the field's highest `isl-{n}`, never a UUID, a clock reading, or a session counter. Import purity is unaffected either way, since export drops island ids and no edit-minted id reaches markdown; the rule holds at edit time so two producers making the same edit reach the same bytes.
 
+A markdown revise (`diff_import`, `rebase`, every `revise` verb) keeps the ids too, though its import mints positionally: an island equal to a stored one in the longest run of equal islands the two sequences share keeps that island's id, as does each island of a stretch between two of those where both sides hold as many islands of the same types in order (a table edited in place). Every other island the revise lands mints past the highest `isl-{n}` the field held before it, so none takes a dropped island's id.
+
 The continuation rule mints a *new* island. Re-landing a dropped one is not a mint: the delete freed the id and it travels back with its island, so restoring a deletion restores the bytes. A pasted copy of a live island is new and mints fresh. Swapping the two cases is `IslandIdCollision` on the paste, or a silently renamed island on the restore.
 
 The two compose because minting reads the *live* ids: deleting the highest island frees its number for the next mint, and restoring that delete would then collide. Linear undo never reaches that state, since a mint made after a delete is undone before it. A producer with non-linear history (selective undo, a merge) owns the case, and the apply refuses it rather than aliasing two islands.
@@ -565,7 +567,11 @@ read-only in markdown.**
 - **Opaque and invariant.** The runtime never rewrites an id. Positions rebase
   through splices (`map_pos`); the id passes untouched. A mark whose text is
   deleted, or moved-and-rewritten in one round, drops *whole*: never
-  partially, never re-id'd (the documented diff-rebase residual).
+  partially, never re-id'd (the documented diff-rebase residual). A revise
+  diffs one-line text by character and longer text by line, so a mark on a
+  line the revise rewrites keeps its place only where its text, four
+  characters or more, recurs in the line's new text, its first occurrence
+  there taking it; a point mark recurs by the text beside it.
 
 No markdown round-trip guarantee: `to_markdown` emits nothing for an anchor and
 import mints none, so a cold export→import loses every anchor.

@@ -208,6 +208,7 @@ fn validate_fails_a_quill_whose_example_warns() {
         ] {
             assert!(stderr.contains(code), "{args:?} lacks {code}: {stderr}");
         }
+        assert!(!stderr.contains("backend::declined_construct"), "{args:?} reports the image twice: {stderr}");
     }
 }
 

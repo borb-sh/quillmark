@@ -143,8 +143,10 @@ families:
   - `quill-table[<attr>]` or `quill-<name>[<attr>]` for one attribute that
     drops.
 
-  A parse reports a body's drops alone: a `richtext` field's markdown string
-  imports with no report.
+  A parse reports a body's drops alone, since it knows no field's type: a
+  `richtext` field's markdown string reports its drops at its path from
+  `Quill::conform`, which `Quill::parse` runs, and from `Quill::validate`
+  while the field still holds the string.
 - **`parse::dropped_construct` off a markdown write.** The diagnostic a parse
   adds, minted by `quillmark_core::document::dropped_construct`, also rides
   the write that imported the markdown. A revise returns it on its `Revised`
@@ -155,9 +157,10 @@ families:
   field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
   at the placed card's body, WASM `importMarkdown` and `rebase` beside the
   content with no `path`, and Python's `revise_body` / `revise_field` /
-  `revise_document` / `add_card` as a list. Any other write importing a
-  `richtext` string, such as a conform, a typed `set` or a card inserted with
-  a string body, drops without it.
+  `revise_document` / `add_card` as a list. A conform reports a `richtext`
+  string's drops beside its `conform::*` warnings, and `validate` a string's
+  the field still holds. A typed `set` or a card inserted with a string body
+  drops without it.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each

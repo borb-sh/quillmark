@@ -140,8 +140,9 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                     "markdown import does not carry raw HTML: {} dropped",
                     some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
                 ),
-                "A line opening with a tag runs to the next blank line and drops whole, markdown included; a \
-                 blank line under the tag line keeps what follows."
+                "Raw HTML imports nothing but `<u>`, `<br>` and the `quill-*` tags. Where a line opens with a \
+                 tag, its block runs to the next blank line and drops whole, markdown included; a blank line \
+                 under the tag line keeps what follows."
                     .to_string(),
             ),
         },
