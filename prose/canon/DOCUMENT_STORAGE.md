@@ -567,7 +567,11 @@ read-only in markdown.**
 - **Opaque and invariant.** The runtime never rewrites an id. Positions rebase
   through splices (`map_pos`); the id passes untouched. A mark whose text is
   deleted, or moved-and-rewritten in one round, drops *whole*: never
-  partially, never re-id'd (the documented diff-rebase residual).
+  partially, never re-id'd (the documented diff-rebase residual). A revise
+  diffs one-line text by character and longer text by line, so a mark on a
+  line the revise rewrites keeps its place only where its text, four
+  characters or more, recurs in the line's new text, its first occurrence
+  there taking it; a point mark recurs by the text beside it.
 
 No markdown round-trip guarantee: `to_markdown` emits nothing for an anchor and
 import mints none, so a cold export→import loses every anchor.
