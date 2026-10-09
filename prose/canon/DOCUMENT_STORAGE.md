@@ -568,10 +568,11 @@ read-only in markdown.**
   through splices (`map_pos`); the id passes untouched. A mark whose text is
   deleted, or moved-and-rewritten in one round, drops *whole*: never
   partially, never re-id'd (the documented diff-rebase residual). A revise
-  diffs by line, then by character within a line it rewrites: one sharing
-  half its words or more with the line it replaces, where neither occurs whole
-  elsewhere. A mark keeps its place through such a rewrite wherever its text
-  is untouched. A line replaced by different text is a deletion, and a mark
+  diffs by line, then by character within a line it rewrites. Replaced lines
+  pair from either end of their run, old with new, while a pair is a rewrite:
+  each line at most 5,000 characters, the two sharing half their words or
+  more, and neither occurring whole on the other side. A mark keeps its place
+  through such a rewrite wherever its text is untouched. A line replaced by different text is a deletion, and a mark
   in it moves only where its text, four characters or more, recurs in text the
   revise inserted, its first occurrence there taking it; a point mark recurs
   by the text beside it.
