@@ -132,6 +132,45 @@ fn a_tag_keeps_its_value_and_warns_at_its_path() {
     assert_eq!(again.document, out.document, "{md}");
 }
 
+/// What a body's import drops warns at that body's path, after its card's tag
+/// warnings and in card order, one diagnostic per construct with its count.
+#[test]
+fn a_body_import_warns_per_dropped_construct_at_the_body() {
+    let src = "~~~\n$quill: q\n$kind: main\nfrom: !t A\n~~~\n\n\
+               <div align=\"center\">\n| a | b |\n|---|---|\n</div>\n\
+               <span>one</span> <span>two</span>\n\n\
+               ~~~\n$kind: note\nto: !t B\n~~~\n\ntext <kbd>K</kbd>\n";
+    let out = Document::parse(src).unwrap();
+    assert_eq!(
+        anchors(&out),
+        [
+            ("parse::unsupported_yaml_tag", Some("main.from")),
+            ("parse::dropped_construct", Some("main.body")),
+            ("parse::dropped_construct", Some("main.body")),
+            ("parse::unsupported_yaml_tag", Some("cards.note[0].to")),
+            ("parse::dropped_construct", Some("cards.note[0].body")),
+        ]
+    );
+    let args: Vec<_> = out
+        .warnings
+        .iter()
+        .filter(|w| w.code.as_deref() == Some("parse::dropped_construct"))
+        .map(|w| (w.args["construct"].clone(), w.args["count"].clone()))
+        .collect();
+    assert_eq!(
+        args,
+        [
+            (serde_json::json!("div"), serde_json::json!(1)),
+            (serde_json::json!("span"), serde_json::json!(2)),
+            (serde_json::json!("kbd"), serde_json::json!(1)),
+        ]
+    );
+    assert!(out
+        .warnings
+        .iter()
+        .all(|w| w.severity == crate::error::Severity::Warning));
+}
+
 /// A `$seed` / `$ext` value is opaque, with no document address, so a tag
 /// inside one warns without a `path`.
 #[test]
@@ -366,7 +405,7 @@ fn a_stored_or_wired_comment_reads_without_the_whitespace_ending_it() {
     use crate::document::{Card, CardWire, PayloadItemWire};
 
     let mut doc: Document = serde_json::from_value(serde_json::json!({
-        "schema": "quillmark/document@0.116.0",
+        "schema": "quillmark/document@0.124.0",
         "main": {
             "payload": {
                 "items": [
@@ -906,4 +945,33 @@ fn a_comment_inside_a_plain_scalar_is_a_located_refusal() {
         panic!("expected a located YAML error, got {err:?}");
     };
     assert_eq!((line, column), (6, 3), "anchored at `  bbb` in the source");
+}
+
+#[test]
+fn a_refused_qm_table_attribute_names_the_attribute_not_an_element() {
+    let doc = Document::parse("~~~\n$quill: q\n~~~\n\n<qm-table widths=\"x\">\n\n| a |\n|---|\n| b |\n\n</qm-table>\n")
+        .unwrap();
+    let message = &doc
+        .warnings
+        .iter()
+        .find(|w| w.code.as_deref() == Some("parse::dropped_construct"))
+        .expect("the refused attribute warns")
+        .message;
+    assert!(message.contains("`widths` attribute of `<qm-table>`"), "{message}");
+}
+
+/// The value holds a merge's keys in the mapping holding the merge, so a tag
+/// inside the merge warns at that key's path there.
+#[test]
+fn a_tag_inside_a_merge_warns_where_the_value_holds_it() {
+    for (yaml, path) in [
+        ("m: {<<: {x: !t 1}}", "main.m.x"),
+        ("m:\n  <<: [{a: 1}, {x: !t 1}]", "main.m.x"),
+        ("m: {<<: !t {x: 1}}", "main.m"),
+        ("<<: {x: !t 1}", "main.x"),
+    ] {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{yaml}\n~~~\n");
+        let out = Document::parse(&src).unwrap();
+        assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some(path))], "{yaml}");
+    }
 }

@@ -20,6 +20,7 @@ use crate::document::meta::{validate_composable_kind, CardKindError};
 use crate::error::diag_args;
 use crate::document::payload::MetaKey;
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
+use crate::error::Diagnostic;
 use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
 use crate::value::{PathSegment, QuillValue};
 use crate::version::QuillReference;
@@ -601,6 +602,41 @@ pub(crate) fn resolve_field_write(
     Ok(stored)
 }
 
+/// The receipt of a markdown revise: the text [`Delta`] an editor bridge maps
+/// its positions through, and one `parse::dropped_construct` warning per
+/// construct the import dropped
+/// ([`dropped_construct`](crate::document::dropped_construct)). A [`Card`]
+/// verb does not know the card's address, so its warnings carry no `path`; a
+/// caller that does anchors them with [`with_path`](Self::with_path).
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+#[must_use = "carries the import's warnings; read `.warnings` or bind it"]
+pub struct Revised {
+    pub delta: Delta,
+    pub warnings: Vec<Diagnostic>,
+}
+
+impl Revised {
+    /// Anchor every warning at `path`, the revised body or field.
+    pub fn with_path(mut self, path: &crate::path::DocPath) -> Self {
+        let at = path.to_string();
+        for warning in &mut self.warnings {
+            warning.path = Some(at.clone());
+        }
+        self
+    }
+}
+
+/// [`diff_import`] `body` against `base`, minting the import's warnings.
+pub(super) fn revise_import(
+    base: &quillmark_content::model::Content,
+    body: impl Into<String>,
+) -> Result<(Normalized, Revised), EditError> {
+    let (content, delta, warnings) = diff_import(base, &body.into()).map_err(EditError::Import)?;
+    let warnings = warnings.into_iter().map(crate::document::dropped_construct).collect();
+    Ok((content, Revised { delta, warnings }))
+}
+
 /// The mutable door onto a card already placed in a [`Document`]: every
 /// `&mut self` verb [`Card`] carries, forwarded, and no way to replace the card
 /// itself. Reads arrive through [`Deref`](std::ops::Deref).
@@ -687,12 +723,12 @@ impl<'a> CardMut<'a> {
     }
 
     /// [`Card::revise_body`].
-    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Delta, EditError> {
+    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Revised, EditError> {
         self.0.revise_body(body)
     }
 
     /// [`Card::revise_field`].
-    pub fn revise_field(&mut self, name: &str, body: impl Into<String>) -> Result<Delta, EditError> {
+    pub fn revise_field(&mut self, name: &str, body: impl Into<String>) -> Result<Revised, EditError> {
         self.0.revise_field(name, body)
     }
 
@@ -726,7 +762,7 @@ impl<'a> CardMut<'a> {
         name: &str,
         body: impl Into<String>,
         schema: &FieldSchema,
-    ) -> Result<Delta, EditError> {
+    ) -> Result<Revised, EditError> {
         self.0.revise_field_checked(name, body, schema)
     }
 }
@@ -1114,25 +1150,25 @@ impl Card {
 
     /// Revise the body from an authored markdown string: edit semantics. Imports
     /// the markdown, diffs it against the current body so surviving identity
-    /// anchors rebase (formatting marks are re-derived), and returns the text
-    /// [`Delta`] an editor bridge maps its own positions through
-    /// ([`Delta::map_pos`]). An over-nested input returns [`EditError::Import`]
-    /// rather than degrading to the empty content.
-    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Delta, EditError> {
-        let (content, delta) =
-            diff_import(self.body(), &body.into()).map_err(EditError::Import)?;
+    /// anchors rebase (formatting marks are re-derived), and returns the
+    /// [`Revised`] receipt: the text [`Delta`] an editor bridge maps its own
+    /// positions through ([`Delta::map_pos`]) and the import's
+    /// `parse::dropped_construct` warnings, unanchored. An over-nested input
+    /// returns [`EditError::Import`] rather than degrading to the empty content.
+    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Revised, EditError> {
+        let (content, revised) = revise_import(self.body(), body)?;
         self.overwrite_body(content);
-        Ok(delta)
+        Ok(revised)
     }
 
     /// Decode the field's current content (an absent field imports from empty),
     /// diff `body` against it so surviving anchors rebase, and return the new
-    /// content with its text [`Delta`]. Stores nothing: the caller lands it.
+    /// content with its receipt. Stores nothing: the caller lands it.
     fn diff_field(
         &self,
         name: &str,
         body: impl Into<String>,
-    ) -> Result<(Normalized, Delta), EditError> {
+    ) -> Result<(Normalized, Revised), EditError> {
         if !is_valid_field_name(name) {
             return Err(EditError::InvalidFieldName(name.to_string()));
         }
@@ -1141,14 +1177,14 @@ impl Card {
             Some(Err(e)) => return Err(field_decode(name, &[], Codec::Richtext, e)),
             None => Normalized::empty(),
         };
-        diff_import(&base, &body.into()).map_err(EditError::Import)
+        revise_import(&base, body)
     }
 
     /// Revise a richtext field from an authored markdown string: the field-level
     /// twin of [`revise_body`](Self::revise_body). Decodes the field's current
     /// content as the diff base (an **absent** field cold-imports from empty),
     /// rebases surviving anchors, re-stores the canonical content, and returns
-    /// the text [`Delta`].
+    /// the [`Revised`] receipt.
     ///
     /// Schema-blind: a `richtext(inline)` violation surfaces at validate/render,
     /// not here.
@@ -1165,16 +1201,17 @@ impl Card {
     /// [`EditError::Import`] on an over-nested markdown input, and
     /// [`EditError::InvalidPayload`] when an absent `name` would take the card
     /// past the §8 field count.
-    pub fn revise_field(&mut self, name: &str, body: impl Into<String>) -> Result<Delta, EditError> {
-        let (content, delta) = self.diff_field(name, body)?;
+    pub fn revise_field(&mut self, name: &str, body: impl Into<String>) -> Result<Revised, EditError> {
+        let (content, revised) = self.diff_field(name, body)?;
         self.store_field_content(name, &content)?;
-        Ok(delta)
+        Ok(revised)
     }
 
     /// Revise a content field from authored text **with schema enforcement**:
     /// [`revise_field`](Self::revise_field)'s anchor-rebasing diff, then the
-    /// conform [`commit_field`](Self::commit_field) runs. Returns the text
-    /// [`Delta`], and leaves the field unchanged on any error.
+    /// conform [`commit_field`](Self::commit_field) runs. Returns the
+    /// [`Revised`] receipt, and leaves the field unchanged on any error. A
+    /// `plaintext` field imports no markdown, so its receipt holds no warning.
     ///
     /// **Hidden** on the same terms as [`commit_field`](Self::commit_field): its
     /// door is
@@ -1185,14 +1222,19 @@ impl Card {
         name: &str,
         body: impl Into<String>,
         schema: &FieldSchema,
-    ) -> Result<Delta, EditError> {
+    ) -> Result<Revised, EditError> {
         // Decoding a `plaintext` value as markdown eats its escapes, so a
         // byte-identical revise of `a \*b\*` would commit `a *b*`. It has no
         // anchors to rebase either, so it takes the literal codec.
         if matches!(schema.r#type, FieldType::PlainText { .. }) {
-            return self.revise_field_plaintext(name, body, schema);
+            return self
+                .revise_field_plaintext(name, body, schema)
+                .map(|delta| Revised {
+                    delta,
+                    warnings: Vec::new(),
+                });
         }
-        let (content, delta) = self.diff_field(name, body)?;
+        let (content, revised) = self.diff_field(name, body)?;
         // Re-canonicalizing a content object keeps its identity marks, so the
         // schema check fires on the value the anchors survived onto.
         let canonical = quillmark_content::serial::to_canonical_value(&content);
@@ -1200,7 +1242,7 @@ impl Card {
         self.payload_mut()
             .insert(name.to_string(), stored)
             .map_err(EditError::InvalidPayload)?;
-        Ok(delta)
+        Ok(revised)
     }
 
     /// The `plaintext` arm of [`revise_field_checked`](Self::revise_field_checked).

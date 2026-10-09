@@ -1,8 +1,9 @@
 //! Markdown export: content → markdown, per island type.
 //!
 //! Marks become syntax; identity ([`MarkKind::Anchor`]) marks are **omitted**,
-//! surviving across edits via diff-rebase rather than the projection. The
-//! contract is the **content fixed point**: for a content `rt` from
+//! surviving across edits via diff-rebase rather than the projection.
+//! [`to_markdown_annotated`] spells each at its start as a read-only tag the
+//! import drops. The contract is the **content fixed point**: for a content `rt` from
 //! [`crate::import::from_markdown`], `from_markdown(to_markdown(rt)) == rt`.
 //! Markdown source is not canonical; the content is.
 //!
@@ -35,16 +36,94 @@ use crate::model::{
     Container, Island, LineKind, Mark, MarkKind, Content, Normalized, Usv, ISLAND_SLOT,
 };
 
-/// Render a content to markdown. An island projects by **type**: a type this
-/// build knows emits its markdown, any other a placeholder comment.
+/// Render a content to markdown.
 pub fn to_markdown(rt: &Normalized) -> String {
     let segments = line_segments(rt);
-    let ctx = Ctx {
+    project(&Ctx {
         rt,
         segments: &segments,
+        tags: &[],
+    })
+}
+
+/// A [`to_markdown_annotated`] read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Annotated {
+    /// [`to_markdown`]'s markdown with the anchor tags it can hold.
+    pub markdown: String,
+    /// Every prose anchor, spelled or not, in `(start, id)` order.
+    pub anchors: Vec<AnchorRead>,
+}
+
+/// One prose anchor of an [`Annotated`] read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchorRead {
+    pub id: String,
+    /// The text of the content line the anchor's start sits on, island slots
+    /// removed: what locates the anchor where a writer lost its tag.
+    pub line: String,
+}
+
+/// [`to_markdown`] with each prose anchor spelled
+/// `<qm-anchor ref="ID"></qm-anchor>` at its `start`, a read-only
+/// spelling the import drops, so the markdown imports as [`to_markdown`]'s
+/// does. A range anchor reads as its start.
+///
+/// A tag sits after the delimiters of the marks closing at its position and
+/// before those opening there. Inside a code span or a link it moves to the
+/// span's start. A code-block line, a block island's line and an empty line
+/// hold none, and neither does a table cell, whose anchors are not listed.
+/// Where a line's tags change what it imports to, they move to its end, and
+/// where that changes it too, the line holds none.
+pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
+    let segments = line_segments(rt);
+    let plain = Ctx {
+        rt,
+        segments: &segments,
+        tags: &[],
     };
+    let mut found: Vec<(Usv, &str)> = rt
+        .marks
+        .iter()
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some((m.start, id.as_str())),
+            _ => None,
+        })
+        .collect();
+    found.sort_unstable();
+    let mut tags: Vec<Vec<(Usv, &str)>> = vec![Vec::new(); segments.len()];
+    let mut anchors = Vec::with_capacity(found.len());
+    for (start, id) in found {
+        let i = segments
+            .partition_point(|s| s.end < start)
+            .min(segments.len() - 1);
+        let seg = &segments[i];
+        anchors.push(AnchorRead {
+            id: id.to_string(),
+            line: seg_str(&plain, i).chars().filter(|&c| c != ISLAND_SLOT).collect(),
+        });
+        let holds_tags = rt
+            .lines
+            .get(i)
+            .is_some_and(|l| !matches!(l.kind, LineKind::Code { .. }))
+            && seg.start < seg.end
+            && start <= seg.end
+            && block_island(&plain, i).is_none();
+        if holds_tags {
+            tags[i].push((start - seg.start, id));
+        }
+    }
+    let markdown = project(&Ctx {
+        rt,
+        segments: &segments,
+        tags: &tags,
+    });
+    Annotated { markdown, anchors }
+}
+
+fn project(ctx: &Ctx) -> String {
     let mut out = String::new();
-    emit_block(&ctx, 0..rt.lines.len(), 0, &mut out);
+    emit_block(ctx, 0..ctx.rt.lines.len(), 0, &mut out);
     // `to_markdown` projects a *value*, not a file: it emits no final newline,
     // so `writer.set("subject", "Hello")` reads back as `"Hello"`. Document-file
     // writers own the file-final newline, and import is newline-insensitive, so
@@ -61,8 +140,9 @@ pub fn to_markdown(rt: &Normalized) -> String {
 ///
 /// Tables and images having no plaintext form is a **decided limitation**: the
 /// acroform backend fills a form field from this projection, so a field bound to
-/// a table-bearing content renders the surrounding text and silently omits the
-/// table, rather than emitting a row/tab dump that would read as faithful.
+/// a table-bearing content renders the surrounding text and omits the table,
+/// under a `backend::declined_construct` warning, rather than emitting a
+/// row/tab dump that would read as faithful.
 pub fn to_plaintext(rt: &Content) -> String {
     rt.text.chars().filter(|&c| c != ISLAND_SLOT).collect()
 }
@@ -71,6 +151,9 @@ struct Ctx<'a> {
     rt: &'a Content,
     /// One entry per [`Content::lines`] entry.
     segments: &'a [Segment],
+    /// Per line, the anchor tags it holds at line-local positions, in
+    /// `(position, id)` order; empty for the plain projection.
+    tags: &'a [Vec<(Usv, &'a str)>],
 }
 
 /// One line's char range `[start, end)` into the content, with the matching byte
@@ -275,6 +358,12 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
             // one quote on re-import.
             prefix_quote(inner, out);
         }
+        // An element outside the carrier grammar has no spelling, so what it
+        // wraps is written bare.
+        Container::Element { name, attrs, .. } => match crate::carrier::modeled(name, attrs) {
+            Ok(element) => out.push_str(&element.wrap_block(inner)),
+            Err(_) => out.push_str(inner),
+        },
     }
 }
 
@@ -375,18 +464,10 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
             out.push(' ');
             // Headings never carry continuations (import maps a hard break in a
             // heading to a space), so only the first line contributes.
-            let mut inline = render_inline(ctx, range.start, false);
-            // A trailing `#` run reads as an ATX closing sequence on re-import
-            // (`# a #` → heading text "a"). One escaped hash defeats the whole
-            // closer, and `\#` re-imports as a literal `#`.
-            if inline.ends_with('#') {
-                inline.pop();
-                inline.push_str("\\#");
-            }
-            out.push_str(&inline);
+            out.push_str(&render_inline(ctx, range.start, true));
         }
         LineKind::Para => {
-            let parts: Vec<String> = range.map(|i| render_inline(ctx, i, true)).collect();
+            let parts: Vec<String> = range.map(|i| render_inline(ctx, i, false)).collect();
             out.push_str(&parts.join("\\\n"));
         }
         // `***`, not `---`: all three break spellings import alike, but `---` is
@@ -425,6 +506,22 @@ fn emit_table(isl: &Island, out: &mut String) {
     if cols == 0 {
         return;
     }
+    if let Some(wrapper) = crate::carrier::table::wrapper(&isl.props) {
+        let mut table = String::new();
+        emit_pipe_table(header, rows, aligns, cols, &mut table);
+        out.push_str(&wrapper.wrap_block(&table));
+    } else {
+        emit_pipe_table(header, rows, aligns, cols, out);
+    }
+}
+
+fn emit_pipe_table(
+    header: Option<&Vec<serde_json::Value>>,
+    rows: Option<&Vec<serde_json::Value>>,
+    aligns: Option<&Vec<serde_json::Value>>,
+    cols: usize,
+    out: &mut String,
+) {
     // Cells are canonical `{text, marks}`; each cell's markdown is rebuilt from
     // that structure, so nothing re-parses markdown and `import(export(table))`
     // is a fixed point.
@@ -531,7 +628,10 @@ fn url_is_bare_safe(url: &str) -> bool {
     depth == 0
 }
 
-fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
+/// Line `i`'s inline markdown, as a heading's text after its `#`s or as a
+/// paragraph line, which escapes what would open a block.
+fn render_inline(ctx: &Ctx, i: usize, heading: bool) -> String {
+    let escape_leading_block = !heading;
     let seg = &ctx.segments[i];
     let line_start = seg.start;
     let text = seg_str(ctx, i);
@@ -554,7 +654,9 @@ fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
     };
 
     let slots_before_line = seg.slots_before;
-    render_marked_core(
+    let tags = ctx.tags.get(i).filter(|t| !t.is_empty());
+    let mut points = tags.map(|_| Vec::with_capacity(n + 1));
+    let mut md = render_marked_core(
         &chars,
         &code_ranges,
         &fmt,
@@ -562,6 +664,7 @@ fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
         escape_punct_at,
         escape_leading_block,
         false, // prose text does not escape `|`
+        points.as_mut(),
         |pos_local| {
             let before = slots_before_line
                 + chars[..pos_local]
@@ -574,7 +677,64 @@ fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
                 markup
             })
         },
-    )
+    );
+    // A trailing `#` run reads as an ATX closing sequence on re-import
+    // (`# a #` → heading text "a"). One escaped hash defeats the whole closer,
+    // and `\#` re-imports as a literal `#`. A tag after the run sits after the
+    // escape.
+    if heading && md.ends_with('#') {
+        let end = md.len();
+        md.insert(end - 1, '\\');
+        for point in points.iter_mut().flatten().filter(|p| **p == end) {
+            *point += 1;
+        }
+    }
+    match (tags, points) {
+        (Some(tags), Some(points)) => annotate(md, &points, tags),
+        _ => md,
+    }
+}
+
+/// `md`, one line's markdown, with each of `tags` at its position's tag point
+/// in `points`. A line whose tags change what it imports to holds them at its
+/// end instead, and none where that changes it too: each spelling is read
+/// back as the net reads one, inside `,…,`.
+fn annotate(md: String, points: &[usize], tags: &[(Usv, &str)]) -> String {
+    let reads = |line: &str| {
+        crate::import::from_markdown(&format!(",{line},"))
+            .ok()
+            .map(|i| i.content)
+    };
+    let Some(plain) = reads(&md) else {
+        return md;
+    };
+    let mut inline = String::new();
+    let mut at = 0;
+    for &(pos, id) in tags {
+        let point = points[pos];
+        inline.push_str(&md[at..point]);
+        inline.push_str(&anchor_tag(id));
+        at = point;
+    }
+    inline.push_str(&md[at..]);
+    if reads(&inline).as_ref() == Some(&plain) {
+        return inline;
+    }
+    let mut at_end = md.clone();
+    for &(_, id) in tags {
+        at_end.push_str(&anchor_tag(id));
+    }
+    if reads(&at_end).as_ref() == Some(&plain) {
+        return at_end;
+    }
+    md
+}
+
+/// The carrier's canonical spelling of an anchor `id`.
+fn anchor_tag(id: &str) -> String {
+    let tag = crate::carrier::Element::new("anchor", [("ref".to_string(), id.to_string())].into())
+        .expect("`anchor` and `ref` are in the carrier grammar");
+    format!("{}{}", tag.open_tag(), tag.close_tag())
 }
 
 /// Route `marks` into the three lists [`render_marked_core`] takes, each range
@@ -620,6 +780,11 @@ fn bucket_marks(
 /// `|`→`\|` for cells; `island_markup_at` renders an island slot (prose) or
 /// yields `None` (cells carry no slot).
 ///
+/// `tag_points`, when given, receives each position's tag point, one entry
+/// per position `0..=n`: the byte offset in the result after the delimiters
+/// of the marks closing there and before those opening there. A position
+/// inside a code span or link takes the span's start's.
+///
 /// The model permits free (Peritext-style) overlap but markdown syntax nests.
 /// The sweep closes every mark ending at a boundary and reopens the deeper
 /// survivors, so a partial overlap lowers to balanced markdown
@@ -642,6 +807,7 @@ fn render_marked_core(
     escape_punct_at: Option<usize>,
     escape_leading_block: bool,
     escape_pipe: bool,
+    tag_points: Option<&mut Vec<usize>>,
     island_markup_at: impl Fn(usize) -> Option<String>,
 ) -> String {
     let n = chars.len();
@@ -714,19 +880,38 @@ fn render_marked_core(
             .then(ast_last(fmt[a].2).cmp(&ast_last(fmt[b].2)))
     });
 
+    // An underline is a `<u>` tag pair. At one position its tags sit outside
+    // the delimiters closing and opening there, so a tag's `<` and `>` never
+    // abut a delimiter from inside its run, where they would change how it
+    // flanks. An underline spanning the position stays open around the
+    // delimiters, apart from their nesting.
+    let is_underline = |fi: usize| matches!(fmt[fi].2, MarkKind::Underline);
+
     // One mark sweep over the marks `keep` selects (indices into `fmt`) → inline
-    // markdown.
-    let sweep = |keep: &[bool], d: Delims| -> String {
+    // markdown, recording each position's tag point into `points`.
+    let sweep = |keep: &[bool], d: Delims, mut points: Option<&mut Vec<usize>>| -> String {
         let mut out = String::new();
-        // Marks currently open, outermost first. Storing the `fmt` index (not
-        // `(end, kind)`) keeps each open mark's identity, so a reopened mark
-        // re-emits its OWN delimiter.
+        // Marks currently open, outermost first, underlines and delimiters
+        // apart. Storing the `fmt` index (not `(end, kind)`) keeps each open
+        // mark's identity, so a reopened mark re-emits its OWN delimiter.
         let mut stack: Vec<usize> = Vec::new();
+        let mut underlines: Vec<usize> = Vec::new();
         let (mut oi, mut li, mut ci) = (0usize, 0usize, 0usize);
         let mut pos = 0usize;
         while pos <= n {
+            // A mark whose start the cursor already passed was jumped over by
+            // an atomic span's interior and never opens; clipping keeps that
+            // set empty.
+            while oi < by_start.len() && fmt[by_start[oi]].0 < pos {
+                oi += 1;
+            }
+            let from = oi;
+            while oi < by_start.len() && fmt[by_start[oi]].0 == pos {
+                oi += 1;
+            }
+            let opening: Vec<usize> = by_start[from..oi].iter().copied().filter(|&fi| keep[fi]).collect();
+            let mut reopen: Vec<usize> = Vec::new();
             if let Some(idx) = stack.iter().position(|&fi| fmt[fi].1 == pos) {
-                let mut reopen: Vec<usize> = Vec::new();
                 while stack.len() > idx {
                     let fi = stack.pop().unwrap();
                     out.push_str(delim_close(fmt[fi].2, d));
@@ -734,25 +919,31 @@ fn render_marked_core(
                         reopen.push(fi);
                     }
                 }
-                for fi in reopen.into_iter().rev() {
-                    out.push_str(delim_open(fmt[fi].2, d));
-                    stack.push(fi);
+            }
+            let mut reopen_underlines: Vec<usize> = Vec::new();
+            if let Some(idx) = underlines.iter().position(|&fi| fmt[fi].1 == pos) {
+                while underlines.len() > idx {
+                    let fi = underlines.pop().unwrap();
+                    out.push_str("</u>");
+                    if fmt[fi].1 != pos {
+                        reopen_underlines.push(fi);
+                    }
                 }
+            }
+            let point = out.len();
+            if let Some(points) = points.as_mut() {
+                points.push(point);
+            }
+            let fresh = opening.iter().copied().filter(|&fi| is_underline(fi));
+            for fi in reopen_underlines.into_iter().rev().chain(fresh) {
+                out.push_str("<u>");
+                underlines.push(fi);
             }
             // Open formatting marks starting here BEFORE any atomic run, so a
             // formatting mark beginning at the same position as inline code/link
-            // still wraps it rather than being dropped. A mark whose start the
-            // cursor already passed was jumped over by an atomic span's interior
-            // and never opens; clipping keeps that set empty.
-            while oi < by_start.len() && fmt[by_start[oi]].0 < pos {
-                oi += 1;
-            }
-            while oi < by_start.len() && fmt[by_start[oi]].0 == pos {
-                let fi = by_start[oi];
-                oi += 1;
-                if !keep[fi] {
-                    continue;
-                }
+            // still wraps it rather than being dropped.
+            let fresh = opening.iter().copied().filter(|&fi| !is_underline(fi));
+            for fi in reopen.into_iter().rev().chain(fresh) {
                 out.push_str(delim_open(fmt[fi].2, d));
                 stack.push(fi);
             }
@@ -777,6 +968,9 @@ fn render_marked_core(
                 out.push_str("](");
                 emit_url(url, &mut out);
                 out.push(')');
+                if let Some(points) = points.as_mut() {
+                    points.resize(le, point);
+                }
                 pos = le;
                 continue;
             }
@@ -805,6 +999,9 @@ fn render_marked_core(
                     out.push(' ');
                 }
                 out.push_str(&fence);
+                if let Some(points) = points.as_mut() {
+                    points.resize(ce, point);
+                }
                 pos = ce;
                 continue;
             }
@@ -832,6 +1029,7 @@ fn render_marked_core(
         while let Some(fi) = stack.pop() {
             out.push_str(delim_close(fmt[fi].2, d));
         }
+        out.push_str(&"</u>".repeat(underlines.len()));
         out
     };
 
@@ -839,14 +1037,28 @@ fn render_marked_core(
     // over a span markdown can't represent, and it lowers to a `**`/`*`/`~~` run
     // pulldown re-reads as literal text, leaking a delimiter into the content.
     // Re-parse the rendered line and, if its plain text drifted, search for a set
-    // of flanking marks that keeps the text intact.
+    // of flanking marks that keeps the text intact. Underlines are read back
+    // beside them and dropped the same way: one the line cannot hold comes
+    // back as other markup or as nothing.
     let is_flanking = |k: &MarkKind| {
-        matches!(k, MarkKind::Strong | MarkKind::Emph | MarkKind::Strike)
+        matches!(
+            k,
+            MarkKind::Strong | MarkKind::Emph | MarkKind::Strike | MarkKind::Underline
+        )
     };
     let all = vec![true; fmt.len()];
     if !fmt.iter().any(|m| is_flanking(m.2)) {
-        return sweep(&all, DELIM_SPELLINGS[0]);
+        return sweep(&all, DELIM_SPELLINGS[0], tag_points);
     }
+    // The settled rendering, its tag points recorded by one more sweep of the
+    // same selection and spelling when the caller asks for them.
+    let mut tag_points = tag_points;
+    let mut settle = |out: String, keep: &[bool], d: Delims| -> String {
+        if let Some(points) = tag_points.take() {
+            sweep(keep, d, Some(points));
+        }
+        out
+    };
     // The probe wraps the fragment in `,…,`: parsed standalone, a leading `0. ` /
     // `# ` / `> ` would read as a list/heading/quote marker and drop a good mark.
     // A punctuation sentinel blocks every leading-block construct, preserves edge
@@ -893,12 +1105,11 @@ fn render_marked_core(
     // differently.
     let probe = |md: &str, want_marks: &[Mark]| -> Option<bool> {
         let (text, marks) = if escape_pipe {
-            let rt = crate::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |")).ok()?;
+            let rt = crate::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |")).ok()?.content;
             let cell = rt.islands.first()?.props.get("rows")?.get(0)?.get(0)?;
             crate::serial::parse_cell(cell)
         } else {
-            let rt = crate::import::from_markdown(&format!(",{md},")).ok()?;
-            let rt = rt.into_content();
+            let rt = crate::import::from_markdown(&format!(",{md},")).ok()?.content.into_content();
             (rt.text, rt.marks)
         };
         if text != want {
@@ -918,9 +1129,9 @@ fn render_marked_core(
     // and each is verified before it is used. Four probes at most.
     let intent = want_marks(&all);
     for &d in &DELIM_SPELLINGS {
-        let cand = sweep(&all, d);
+        let cand = sweep(&all, d, None);
         if probe(&cand, &intent) == Some(true) {
-            return cand;
+            return settle(cand, &all, d);
         }
     }
     // The flanking marks in document order. That order is the re-add priority
@@ -938,7 +1149,7 @@ fn render_marked_core(
         }
         mask
     };
-    let render = |keep: &[usize]| -> String { sweep(&mask_of(keep), DELIM_SPELLINGS[0]) };
+    let render = |keep: &[usize]| -> String { sweep(&mask_of(keep), DELIM_SPELLINGS[0], None) };
     let survives = |md: &str, keep: &[usize]| probe(md, &want_marks(&mask_of(keep))) == Some(true);
     // Drop the whole flanking set, then re-add by halves: a chunk that survives is
     // accepted whole, one that doesn't splits and its halves are retried, a lone
@@ -951,7 +1162,7 @@ fn render_marked_core(
     // split, so the floor is already its answer.
     let mut out = render(&[]);
     if cands.len() == 1 || !survives(&out, &[]) {
-        return out;
+        return settle(out, &mask_of(&[]), DELIM_SPELLINGS[0]);
     }
     let mut kept: Vec<usize> = Vec::new();
     // A chunk `(lo, hi)` and the `kept` length at which its trial is *already
@@ -988,7 +1199,7 @@ fn render_marked_core(
             split(&mut work, kept.len());
         }
     }
-    out
+    settle(out, &mask_of(&kept), DELIM_SPELLINGS[0])
 }
 
 /// Probes the verify-and-drop net will spend on one line before giving up and
@@ -1099,6 +1310,7 @@ fn render_cell_md(v: &serde_json::Value) -> String {
         None,
         false,
         true,
+        None,
         |_| None,
     )
 }
@@ -1128,9 +1340,8 @@ fn delim_open(kind: &MarkKind, d: Delims) -> &'static str {
     match kind {
         MarkKind::Strong => d.strong,
         MarkKind::Emph => d.emph,
-        MarkKind::Underline => "<u>",
         MarkKind::Strike => "~~",
-        // Code/Link/Anchor are handled elsewhere.
+        // Code/Link/Anchor and underlines are handled elsewhere.
         _ => "",
     }
 }
@@ -1139,7 +1350,6 @@ fn delim_close(kind: &MarkKind, d: Delims) -> &'static str {
     match kind {
         MarkKind::Strong => d.strong,
         MarkKind::Emph => d.emph,
-        MarkKind::Underline => "</u>",
         MarkKind::Strike => "~~",
         _ => "",
     }
@@ -1268,7 +1478,7 @@ mod tests {
             .into_normalized();
         rt.validate().expect("validates");
         assert_eq!(to_markdown(&rt), "~~**x**~~");
-        assert_eq!(from_markdown("**~~x~~**").unwrap(), rt);
+        assert_eq!(from_markdown("**~~x~~**").unwrap().content, rt);
     }
 
     fn li(ordinal: u64, instance: u64) -> Vec<Container> {
@@ -1333,7 +1543,7 @@ mod tests {
         for (rt, expected) in cases {
             let md = to_markdown(rt);
             assert_eq!(&md, expected);
-            assert_eq!(&from_markdown(&md).unwrap(), rt, "{md:?} did not return");
+            assert_eq!(&from_markdown(&md).unwrap().content, rt, "{md:?} did not return");
         }
     }
 
@@ -1347,19 +1557,19 @@ mod tests {
         let rt = rt.into_normalized();
         rt.validate().expect("validates");
         assert_eq!(to_markdown(&rt), "- a\n\n+ ***\n\n+ b");
-        assert_eq!(from_markdown(&to_markdown(&rt)).unwrap(), rt);
+        assert_eq!(from_markdown(&to_markdown(&rt)).unwrap().content, rt);
 
         let mut rt = stored("a\n\nb", vec![oli(0, 0), oli(0, 1), oli(1, 1)]).into_content();
         rt.lines[1].kind = LineKind::Rule;
         let rt = rt.into_normalized();
         assert_eq!(to_markdown(&rt), "1. a\n\n1) ***\n\n2) b");
-        assert_eq!(from_markdown(&to_markdown(&rt)).unwrap(), rt);
+        assert_eq!(from_markdown(&to_markdown(&rt)).unwrap().content, rt);
     }
 
     fn round_trips(md: &str) {
-        let rt = from_markdown(md).unwrap();
+        let rt = from_markdown(md).unwrap().content;
         let md2 = to_markdown(&rt);
-        let rt2 = from_markdown(&md2).unwrap();
+        let rt2 = from_markdown(&md2).unwrap().content;
         assert_eq!(
             rt, rt2,
             "content not a fixed point.\n  in:  {md:?}\n  mid: {md2:?}"
@@ -1373,7 +1583,7 @@ mod tests {
         round_trips("[![a cat](cat.png)](https://e.com)");
         round_trips("[a ![cat](cat.png) b](https://e.com)");
         assert_eq!(
-            to_markdown(&from_markdown("[![a cat](cat.png)](https://e.com)").unwrap()),
+            to_markdown(&from_markdown("[![a cat](cat.png)](https://e.com)").unwrap().content),
             "[![a cat](cat.png)](https://e.com)"
         );
     }
@@ -1382,13 +1592,13 @@ mod tests {
     /// splits around the slot, keeping both the text and the island.
     #[test]
     fn code_mark_over_island_slot_keeps_the_island() {
-        let mut rt = from_markdown("a ![x](y.png) b").unwrap().into_content();
+        let mut rt = from_markdown("a ![x](y.png) b").unwrap().content.into_content();
         rt.marks.push(Mark { start: 0, end: 5, kind: MarkKind::Code });
         let rt = rt.into_normalized();
         assert_eq!(rt.validate(), Ok(()));
         let md = to_markdown(&rt);
         assert_eq!(md, "`a `![x](y.png)` b`");
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, rt.text);
         assert_eq!(rt2.islands.len(), 1);
     }
@@ -1453,6 +1663,9 @@ mod tests {
             ("link", "see [our site](https://example.com) now"),
             ("table", "| a | b |\n| --- | --- |\n| 1 | 2 |"),
             ("image", "see ![a cat](cat.png) here"),
+            ("element", "<qm-keep note=\"x\">\n\npara\n\n</qm-keep>"),
+            ("element_around_list", "<qm-keep>\n\n- a\n\n- b\n\n</qm-keep>"),
+            ("element_in_item", "- <qm-keep>\n\n  a\n\n  </qm-keep>"),
         ] {
             println!("construct: {label}");
             round_trips(md);
@@ -1472,7 +1685,7 @@ mod tests {
     #[test]
     fn thematic_break_canonicalizes_to_stars() {
         for src in ["---", "___", "- - -"] {
-            let rt = from_markdown(&format!("one\n\n{src}\n\ntwo")).unwrap();
+            let rt = from_markdown(&format!("one\n\n{src}\n\ntwo")).unwrap().content;
             let md = to_markdown(&rt);
             assert!(md.contains("\n\n***\n\n"), "source: {src}, got: {md:?}");
         }
@@ -1486,7 +1699,7 @@ mod tests {
         for md in ["* ---", "+ ---", "- ***", "- ___", "- - ***", "- > ***"] {
             round_trips(md);
         }
-        assert_eq!(to_markdown(&from_markdown("* ---").unwrap()), "- ***");
+        assert_eq!(to_markdown(&from_markdown("* ---").unwrap().content), "- ***");
         // The shapes that never collide, pinned against a fix that trades one
         // collision for another: swapping the bullet marker to `*`/`+` starts a
         // *new* list, resetting `ordinal` on this item and every one after.
@@ -1525,11 +1738,11 @@ mod tests {
 
     #[test]
     fn leading_ordered_marker_escaped() {
-        let mut rt = from_markdown("x").unwrap().into_content();
+        let mut rt = from_markdown("x").unwrap().content.into_content();
         rt.text = "1. not a list".into();
         let rt = rt.into_normalized();
         let md = to_markdown(&rt);
-        let back = from_markdown(&md).unwrap();
+        let back = from_markdown(&md).unwrap().content;
         assert_eq!(back.lines[0].kind, LineKind::Para);
         assert!(back.lines[0].containers.is_empty());
         assert_eq!(back, rt);
@@ -1572,7 +1785,7 @@ mod tests {
                 let rt = stored(text, vec![containers.clone()]);
                 let md = to_markdown(&rt);
                 assert_eq!(
-                    &from_markdown(&md).unwrap(),
+                    &from_markdown(&md).unwrap().content,
                     &rt,
                     "{text:?} under {containers:?} did not return: {md:?}"
                 );
@@ -1582,7 +1795,7 @@ mod tests {
             let rt = rt.into_normalized();
             let md = to_markdown(&rt);
             assert_eq!(
-                &from_markdown(&md).unwrap(),
+                &from_markdown(&md).unwrap().content,
                 &rt,
                 "heading {text:?} did not return: {md:?}"
             );
@@ -1596,7 +1809,7 @@ mod tests {
         for text in ["abc   \n   def", "   \nabc", "abc\n   ", "\tabc\ndef\t"] {
             let rt = hard_break_block(text);
             let md = to_markdown(&rt);
-            assert_eq!(&from_markdown(&md).unwrap(), &rt, "{text:?} → {md:?}");
+            assert_eq!(&from_markdown(&md).unwrap().content, &rt, "{text:?} → {md:?}");
         }
     }
 
@@ -1610,7 +1823,7 @@ mod tests {
         ] {
             let rt = hard_break_block(text);
             let md = to_markdown(&rt);
-            assert_eq!(&from_markdown(&md).unwrap(), &rt, "{text:?} → {md:?}");
+            assert_eq!(&from_markdown(&md).unwrap().content, &rt, "{text:?} → {md:?}");
         }
     }
 
@@ -1621,7 +1834,7 @@ mod tests {
     #[test]
     fn a_marked_line_with_edge_whitespace_keeps_its_delimiters_out_of_the_text() {
         let rt = marked("    foo", vec![Mark::new(4, 7, MarkKind::Strong)]);
-        let back = from_markdown(&to_markdown(&rt)).unwrap();
+        let back = from_markdown(&to_markdown(&rt)).unwrap().content;
         assert_eq!(back.text, "    foo");
         assert_eq!(back, rt);
     }
@@ -1646,7 +1859,7 @@ mod tests {
         .into_normalized();
         assert_eq!(rt.validate(), Ok(()), "table island invalid");
         let md = to_markdown(&rt);
-        assert_eq!(&from_markdown(&md).unwrap(), &rt, "cell edges lost: {md:?}");
+        assert_eq!(&from_markdown(&md).unwrap().content, &rt, "cell edges lost: {md:?}");
     }
 
     /// The island writes its line whole, so a mark reaching over its slot
@@ -1656,7 +1869,7 @@ mod tests {
     /// the island's line extends the mark over its slot.
     #[test]
     fn a_mark_reaching_over_a_block_islands_slot_does_not_wrap_its_markup() {
-        let mut rt = from_markdown("[abc](u)").unwrap();
+        let mut rt = from_markdown("[abc](u)").unwrap().content;
         rt.apply_field_change(&crate::ops::ChangeBundle {
             delta: crate::delta::Delta {
                 ops: vec![
@@ -1688,7 +1901,7 @@ mod tests {
         let md = to_markdown(&rt);
         assert_eq!(md, "[a](u)\n\n| h |\n| --- |\n| c |\n\n[bc](u)");
         assert_eq!(
-            from_markdown(&md).unwrap().islands.len(),
+            from_markdown(&md).unwrap().content.islands.len(),
             1,
             "the table left the document: {md:?}"
         );
@@ -1705,7 +1918,7 @@ mod tests {
 
     #[test]
     fn formatted_cell_marks_are_structured_not_reparsed() {
-        let rt = from_markdown("| H |\n| --- |\n| **bold** |").unwrap();
+        let rt = from_markdown("| H |\n| --- |\n| **bold** |").unwrap().content;
         let cell = &rt.islands[0].props["rows"][0][0];
         assert_eq!(cell["text"], "bold");
         assert_eq!(cell["marks"][0]["type"], "strong");
@@ -1726,17 +1939,17 @@ mod tests {
             "\\<br>",
         ] {
             let md = format!("| h |\n| --- |\n| {body} |");
-            let rt = from_markdown(&md).unwrap();
+            let rt = from_markdown(&md).unwrap().content;
             assert_eq!(to_markdown(&rt), md, "cell {body:?}");
         }
-        let rt = from_markdown("| h |\n| --- |\n| \\<br> |").unwrap();
+        let rt = from_markdown("| h |\n| --- |\n| \\<br> |").unwrap().content;
         assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "<br>");
     }
 
     #[test]
     fn every_br_spelling_is_one_cell_break() {
         for br in ["<br/>", "<br />", "<BR>", "<br clear=\"all\">"] {
-            let rt = from_markdown(&format!("| h |\n| --- |\n| a{br}b |")).unwrap();
+            let rt = from_markdown(&format!("| h |\n| --- |\n| a{br}b |")).unwrap().content;
             assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "a\nb", "{br}");
             assert_eq!(to_markdown(&rt), "| h |\n| --- |\n| a<br>b |", "{br}");
         }
@@ -1784,7 +1997,7 @@ mod tests {
         assert_eq!(rt.marks, vec![Mark::new(4, 8, MarkKind::Strong)]);
 
         let md = to_markdown(&rt);
-        assert_eq!(from_markdown(&md).unwrap(), rt, "{md:?}");
+        assert_eq!(from_markdown(&md).unwrap().content, rt, "{md:?}");
     }
 
     /// The break leaves an island line where a paragraph line was, and a block
@@ -1807,7 +2020,7 @@ mod tests {
         assert!(!rt.lines[2].continues, "continuation into a block island");
 
         let md = to_markdown(&rt);
-        let back = from_markdown(&md).unwrap();
+        let back = from_markdown(&md).unwrap().content;
         assert_eq!(back.text, format!("a\n{ISLAND_SLOT}\nmore"), "{md:?}");
     }
 
@@ -1829,7 +2042,7 @@ mod tests {
         .into_normalized();
         let md = to_markdown(&over_slot);
         assert_eq!(md, "a![a](u)b");
-        let back = from_markdown(&md).unwrap();
+        let back = from_markdown(&md).unwrap().content;
         assert_eq!(back.text, over_slot.text);
         assert_eq!(back.islands.len(), 1);
         assert!(back.marks.is_empty(), "leaking mark kept: {md:?}");
@@ -1843,7 +2056,7 @@ mod tests {
         .into_normalized();
         let md = to_markdown(&before_slot);
         assert_eq!(md, "**a**![a](u)b");
-        assert_eq!(from_markdown(&md).unwrap(), before_slot);
+        assert_eq!(from_markdown(&md).unwrap().content, before_slot);
     }
 
     /// An image `alt` is the one place the character reference cannot carry an
@@ -1857,7 +2070,7 @@ mod tests {
                     .with_props(serde_json::json!({"alt": " a ", "url": "u"})),
             ],
         );
-        let back = from_markdown(&to_markdown(&rt)).unwrap();
+        let back = from_markdown(&to_markdown(&rt)).unwrap().content;
         assert_eq!(
             back.islands[0].props["alt"], "a",
             "if this ever round-trips, promote it out of the known-limits list"
@@ -1866,8 +2079,8 @@ mod tests {
 
     #[test]
     fn known_hard_break_limits() {
-        let rt = from_markdown("**one\\\ntwo**").unwrap();
-        let rt2 = from_markdown(&to_markdown(&rt)).unwrap();
+        let rt = from_markdown("**one\\\ntwo**").unwrap().content;
+        let rt2 = from_markdown(&to_markdown(&rt)).unwrap().content;
         assert!(
             rt != rt2,
             "if this ever round-trips, promote it out of the known-limits list"
@@ -1877,7 +2090,7 @@ mod tests {
 
     #[test]
     fn anchor_marks_omitted_but_text_survives() {
-        let mut rt = from_markdown("comment target here").unwrap().into_content();
+        let mut rt = from_markdown("comment target here").unwrap().content.into_content();
         rt.marks.push(Mark {
             start: 8,
             end: 14,
@@ -1885,9 +2098,149 @@ mod tests {
         });
         let rt = rt.into_normalized();
         let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "comment target here");
         assert!(!md.contains("c1"));
+    }
+
+    fn anchor(start: usize, end: usize, id: &str) -> Mark {
+        Mark::new(start, end, MarkKind::Anchor { id: id.into() })
+    }
+
+    fn tag(id: &str) -> String {
+        format!("<qm-anchor ref=\"{id}\"></qm-anchor>")
+    }
+
+    /// The read imports as the plain projection does, anchors gone.
+    fn reads_as_plain(read: &Annotated, rt: &Normalized) {
+        let plain = from_markdown(&to_markdown(rt)).unwrap().content;
+        assert!(plain.marks.iter().all(|m| !matches!(m.kind, MarkKind::Anchor { .. })));
+        assert_eq!(from_markdown(&read.markdown).unwrap().content, plain, "{:?}", read.markdown);
+    }
+
+    fn read_ids(read: &Annotated) -> Vec<&str> {
+        read.anchors.iter().map(|a| a.id.as_str()).collect()
+    }
+
+    /// A tag sits after the delimiters closing at its position and before those
+    /// opening there, so it parts no delimiter run from its text. A range anchor
+    /// reads as its start, and two anchors at one position spell in id order.
+    #[test]
+    fn a_tag_sits_between_the_marks_closing_and_opening_at_its_start() {
+        let rt = marked(
+            "abcd ef",
+            vec![
+                Mark::new(0, 2, MarkKind::Strong),
+                Mark::new(2, 4, MarkKind::Strike),
+                anchor(0, 0, "open"),
+                anchor(2, 7, "range"),
+                anchor(4, 4, "close"),
+                anchor(4, 4, "also"),
+            ],
+        );
+        let read = to_markdown_annotated(&rt);
+        assert_eq!(
+            read.markdown,
+            format!(
+                "{}**ab**{}~~cd~~{}{} ef",
+                tag("open"),
+                tag("range"),
+                tag("also"),
+                tag("close")
+            )
+        );
+        assert_eq!(read_ids(&read), ["open", "range", "also", "close"]);
+        assert!(read.anchors.iter().all(|a| a.line == "abcd ef"));
+        reads_as_plain(&read, &rt);
+    }
+
+    /// A code span or link has no position inside it a tag could take without
+    /// becoming its text, so the tag moves to the span's start.
+    #[test]
+    fn a_tag_inside_a_code_span_or_link_moves_to_its_start() {
+        let rt = marked(
+            "run code at site",
+            vec![
+                Mark::new(4, 8, MarkKind::Code),
+                Mark::new(12, 16, MarkKind::Link { url: "u".into() }),
+                Mark::new(12, 16, MarkKind::Strong),
+                anchor(6, 6, "c"),
+                anchor(14, 15, "l"),
+            ],
+        );
+        let read = to_markdown_annotated(&rt);
+        assert_eq!(
+            read.markdown,
+            format!("run {}`code` at {}**[site](u)**", tag("c"), tag("l"))
+        );
+        reads_as_plain(&read, &rt);
+    }
+
+    /// A code-block line, a block island's line and an empty line have no
+    /// inline slot that keeps their structure, so they hold no tag; their
+    /// anchors are still listed. An anchor in a table cell is outside the
+    /// anchor op surface and is neither.
+    #[test]
+    fn a_line_with_no_inline_slot_holds_no_tag() {
+        let mut rt = from_markdown("```\nfn a() {}\n```\n\n| h |\n| --- |\n| c |\n\n- a\n-\n- b")
+            .unwrap()
+            .content
+            .into_content();
+        assert_eq!(rt.text, format!("fn a() {{}}\n{ISLAND_SLOT}\na\n\nb"));
+        rt.marks.extend([anchor(3, 3, "code"), anchor(10, 10, "table"), anchor(14, 14, "empty")]);
+        rt.islands[0].props["rows"][0][0]["marks"] =
+            serde_json::json!([{"attrs": {"id": "cell"}, "end": 1, "start": 0, "type": "anchor"}]);
+        let rt = rt.into_normalized();
+        assert_eq!(rt.validate(), Ok(()));
+        assert_eq!(rt.islands[0].props["rows"][0][0]["marks"][0]["type"], "anchor");
+
+        let read = to_markdown_annotated(&rt);
+        assert_eq!(read.markdown, to_markdown(&rt));
+        let lines: Vec<(&str, &str)> =
+            read.anchors.iter().map(|a| (a.id.as_str(), a.line.as_str())).collect();
+        assert_eq!(lines, [("code", "fn a() {}"), ("table", ""), ("empty", "")]);
+    }
+
+    /// A heading's trailing `#` keeps the escape that holds it out of an ATX
+    /// closing sequence wherever its tag lands, so the read is the plain
+    /// projection with tags added.
+    #[test]
+    fn a_heading_keeps_its_trailing_hash_escape_under_a_tag() {
+        let mut rt = from_markdown("# a \\#").unwrap().content.into_content();
+        assert_eq!(rt.text, "a #");
+        rt.marks.extend([anchor(2, 2, "before"), anchor(3, 3, "after")]);
+        let rt = rt.into_normalized();
+        let read = to_markdown_annotated(&rt);
+        assert_eq!(read.markdown, format!("# a {}\\#{}", tag("before"), tag("after")));
+        reads_as_plain(&read, &rt);
+    }
+
+    /// The tag is the carrier's canonical spelling, so an id holding markup
+    /// characters is entity-encoded and the import still drops the tag whole.
+    #[test]
+    fn an_anchor_id_is_entity_encoded() {
+        let rt = marked("ab", vec![anchor(1, 1, "a\"&<b>")]);
+        let read = to_markdown_annotated(&rt);
+        assert_eq!(
+            read.markdown,
+            "a<qm-anchor ref=\"a&quot;&amp;&lt;b&gt;\"></qm-anchor>b"
+        );
+        assert_eq!(read_ids(&read), ["a\"&<b>"]);
+        reads_as_plain(&read, &rt);
+    }
+
+    /// Every tag on a line moves to its end where a tag in place would change
+    /// what the line imports to, and none is written where the end changes it
+    /// too. The lines and points here are hand-made, so each rung is met.
+    #[test]
+    fn a_line_its_tags_would_change_holds_them_at_its_end_or_not_at_all() {
+        // `!` and `[x](u)` parted by a tag are text and a link, not an image.
+        assert_eq!(
+            annotate("![x](u) y".into(), &[0, 1], &[(1, "t")]),
+            format!("![x](u) y{}", tag("t"))
+        );
+        // A trailing `\` escapes the `<` that would open the tag.
+        assert_eq!(annotate("a\\".into(), &[0, 1, 2], &[(2, "t")]), "a\\");
     }
 
     /// `strong` and `emph` share the `*` delimiter, so their overlap is
@@ -1912,7 +2265,7 @@ mod tests {
         );
         let md = to_markdown(&rt);
         assert_eq!(md, "**ab*cd***ef", "balanced, no literal `**` leak");
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "abcdef");
         // Documented limit: same-delimiter overlap degrades to its nested subset.
         assert_eq!(
@@ -1959,8 +2312,43 @@ mod tests {
                 ],
             );
             let md = to_markdown(&rt);
-            let rt2 = from_markdown(&md).unwrap();
+            let rt2 = from_markdown(&md).unwrap().content;
             assert_eq!(rt, rt2, "{k1:?}+{k2:?} overlap not a fixed point: {md:?}");
+        }
+    }
+
+    /// An underline's tags sit outside the delimiters opening and closing at
+    /// their position, so neither changes how a delimiter flanks.
+    #[test]
+    fn an_underline_sharing_an_edge_with_a_delimiter_writes_outside_it() {
+        for (text, under, strong, md) in [
+            ("xab", (1, 3), (1, 2), "x<u>**a**b</u>"),
+            ("abx", (0, 2), (1, 2), "<u>a**b**</u>x"),
+        ] {
+            let rt = marked(
+                text,
+                vec![
+                    Mark { start: under.0, end: under.1, kind: MarkKind::Underline },
+                    Mark { start: strong.0, end: strong.1, kind: MarkKind::Strong },
+                ],
+            );
+            assert_eq!(to_markdown(&rt), md);
+            assert_eq!(from_markdown(md).unwrap().content, rt);
+        }
+    }
+
+    /// An element the carrier cannot spell, under a reserved name or with an
+    /// attribute outside its grammar, writes nothing: its blocks stand
+    /// unwrapped.
+    #[test]
+    fn an_unspellable_element_writes_nothing() {
+        let unspellable: [(&str, std::collections::BTreeMap<String, String>); 2] =
+            [("table", [].into()), ("keep", [("onclick".to_string(), "x".to_string())].into())];
+        for (name, attrs) in unspellable {
+            let element = Container::Element { name: name.into(), attrs, instance: 0 };
+            let rt = Content::new("a".into(), vec![Line::new(LineKind::Para).with_containers(vec![element])])
+                .into_normalized();
+            assert_eq!(to_markdown(&rt), "a");
         }
     }
 
@@ -1985,7 +2373,7 @@ mod tests {
         );
         let md = to_markdown(&rt);
         assert_eq!(md, "**ab**`cdef`");
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "abcdef");
     }
 
@@ -2004,7 +2392,7 @@ mod tests {
             ("`a`", "a", "`a`"),
             ("`  `", "  ", "`  `"),
         ] {
-            let rt = from_markdown(md).unwrap();
+            let rt = from_markdown(md).unwrap().content;
             assert_eq!(rt.text, text, "import of {md:?}");
             assert_eq!(to_markdown(&rt), want);
             round_trips(md);
@@ -2017,11 +2405,11 @@ mod tests {
     fn ampersand_and_entities_round_trip() {
         round_trips("a & b");
         round_trips("copyright \\&copy; sign");
-        let rt = from_markdown("\\&amp;").unwrap();
+        let rt = from_markdown("\\&amp;").unwrap().content;
         assert_eq!(rt.text, "&amp;");
         let md = to_markdown(&rt);
         assert!(md.contains("\\&"), "the `&` must be escaped, got {md:?}");
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "&amp;", "entity-shaped text must not decode");
         assert_eq!(rt, rt2);
     }
@@ -2030,11 +2418,11 @@ mod tests {
     /// sequence: `# a #` would come back as "a", dropping the `#`.
     #[test]
     fn heading_trailing_hash_round_trips() {
-        let rt = from_markdown("# a \\#").unwrap();
+        let rt = from_markdown("# a \\#").unwrap().content;
         assert_eq!(rt.text, "a #");
         let md = to_markdown(&rt);
         assert!(md.contains("\\#"), "trailing `#` must be escaped, got {md:?}");
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.text, "a #", "trailing `#` must survive");
         assert_eq!(rt, rt2);
         round_trips("# heading \\#\\#");
@@ -2049,11 +2437,11 @@ mod tests {
         round_trips("see ![a\\\\b](x.png) here");
         round_trips("see ![a&b](x.png) here");
         round_trips("see ![a\\*b\\_c](x.png) here");
-        let rt = from_markdown("see ![a\\]b](x.png) here").unwrap();
+        let rt = from_markdown("see ![a\\]b](x.png) here").unwrap().content;
         assert_eq!(rt.islands.len(), 1, "one image island");
         assert_eq!(rt.islands[0].props["alt"], "a]b");
         let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         assert_eq!(rt2.islands.len(), 1, "image survived, got md {md:?}");
         assert_eq!(rt2.islands[0].props["alt"], "a]b");
     }
@@ -2097,7 +2485,7 @@ mod tests {
                 },
             )])
             .into_normalized();
-        let back = from_markdown(&to_markdown(&rt)).expect("re-imports");
+        let back = from_markdown(&to_markdown(&rt)).expect("re-imports").content;
         assert_eq!(back.text, "t x", "the display text did not leak");
         assert_eq!(
             back.marks.first().map(|m| &m.kind),
@@ -2111,7 +2499,7 @@ mod tests {
         let rt = Content::new(format!("x{ISLAND_SLOT}"), vec![Line::new(LineKind::Para)])
             .with_islands(vec![isl])
             .into_normalized();
-        let back = from_markdown(&to_markdown(&rt)).expect("re-imports");
+        let back = from_markdown(&to_markdown(&rt)).expect("re-imports").content;
         assert_eq!(back.islands.len(), 1, "the island survived");
         assert_eq!(back.islands[0].props["url"], "u%0Dv");
     }
@@ -2150,7 +2538,7 @@ mod tests {
             );
             let md = to_markdown(&rt);
             assert_eq!(md, want, "{label}");
-            assert_eq!(from_markdown(&md).unwrap().text, text, "{label}: text drift");
+            assert_eq!(from_markdown(&md).unwrap().content.text, text, "{label}: text drift");
         }
     }
 
@@ -2171,10 +2559,10 @@ mod tests {
             ("bold, emph, bold", "**a±**_b_**c**"),
             ("the same over a literal `*`", "__*__*౸*__a**0__"),
         ] {
-            let once = from_markdown(src).unwrap();
+            let once = from_markdown(src).unwrap().content;
             assert!(once.marks.len() >= 2, "{label}: nothing to lose");
             let md = to_markdown(&once);
-            let twice = from_markdown(&md).unwrap();
+            let twice = from_markdown(&md).unwrap().content;
             assert_eq!(&twice.text, &once.text, "{label}: text drift. md: {md:?}");
             assert_eq!(&twice.marks, &once.marks, "{label}: mark lost. md: {md:?}");
         }
@@ -2210,7 +2598,7 @@ mod tests {
         let md = to_markdown(&rt);
         assert_eq!(md.matches("**abcde**").count(), 16, "every good mark kept");
         assert_eq!(md.matches("**").count(), 32, "every leaking mark dropped");
-        assert_eq!(from_markdown(&md).unwrap().text, text);
+        assert_eq!(from_markdown(&md).unwrap().content.text, text);
     }
 
     /// Past the budget the net still terminates and preserves the text, dropping
@@ -2231,7 +2619,7 @@ mod tests {
         );
         let md = to_markdown(&rt);
         assert!(!md.contains('*'), "every leaking mark dropped: {md:?}");
-        assert_eq!(from_markdown(&md).unwrap().text, text);
+        assert_eq!(from_markdown(&md).unwrap().content.text, text);
     }
 
     #[test]

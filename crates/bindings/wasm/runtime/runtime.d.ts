@@ -117,7 +117,7 @@ export type {
 } from '../core/wasm.js';
 
 // Content edit vocabulary: the op-grained content model `Document`'s methods
-// speak (`applyChange(addr, bundle)`, `overwrite(addr, rt)`, `revise(…) => Delta`).
+// speak (`applyChange(addr, bundle)`, `overwrite(addr, rt)`, `revise(…) => Revised`).
 // `ContentLineKind` is the shared half of `ContentLine` and `setKind`, and
 // `ContentMarkKind` of `ContentMark` and a mark op's `add` / `remove`: lifting a
 // read value's kind whole — destructure off the envelope, spread the rest into
@@ -139,6 +139,10 @@ export type {
 	Addr,
 	CardAddr,
 	Delta,
+	Revised,
+	DocumentRevised,
+	AnnotatedMarkdown,
+	Imported,
 	Assoc,
 	IslandOp,
 	LineOp,
@@ -410,11 +414,12 @@ export declare class Engine {
 	 * synchronously before the first await, so the caller may `free()` them as
 	 * soon as this call returns.
 	 *
-	 * {@link RenderResult.warnings} carries the whole pipeline's, in order:
-	 * `doc.warnings` (parse and `conform::*`), every `quill.validate(doc)`
-	 * warning, then the compile's own. A {@link LiveSession} outlives the
-	 * document it opened from, so {@link LiveSession.render} carries the
-	 * compile's alone: read `doc.warnings` and `quill.validate(doc)` beside it.
+	 * {@link RenderResult.warnings} carries every `quill.validate(doc)` warning
+	 * but `validation::declined_construct`, which the compile raises as
+	 * `backend::declined_construct`, then the compile's own. The load's (parse
+	 * and `conform::*`) stay on `doc.warnings`, and a revise's on its receipt.
+	 * A {@link LiveSession} carries the compile's alone: read
+	 * `quill.validate(doc)` beside it.
 	 *
 	 * `today` reads as on {@link open}. An `options` key outside
 	 * {@link RenderOptions} rejects, `today` among them.
@@ -591,7 +596,7 @@ declare module '../core/wasm.js' {
 	}
 }
 
-import type { Addr, Content, Delta, PathStep, Resolved } from '../core/wasm.js';
+import type { Addr, Content, DocumentRevised, PathStep, Resolved, Revised } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -621,30 +626,44 @@ export declare class DocumentWriter {
 	 */
 	setAll(fields: Record<string, unknown>): void;
 	/**
-	 * Revise the main body from markdown; anchors rebase. Returns the text
-	 * `Delta`: a body carries no field schema to type against, so this is the
-	 * content lane's `revise` reached through the writer.
+	 * Revise the main body from markdown; anchors rebase. Returns the
+	 * `Revised` receipt, its warnings at `main.body`: a body carries no field
+	 * schema to type against, so this is the content lane's `revise` reached
+	 * through the writer.
 	 */
-	reviseBody(markdown: string): Delta;
+	reviseBody(markdown: string): Revised;
 	/**
 	 * Revise the content main-card field `name` from authored text: typed *and*
 	 * anchor-preserving. Surviving anchors rebase, then the diffed result is
 	 * schema-conformed (`richtext(inline)` rejects a multi-block result). Throws
-	 * `UnknownField` for a name the schema does not declare. Returns the `Delta`.
+	 * `UnknownField` for a name the schema does not declare. Returns the
+	 * `Revised` receipt, its warnings at the field.
 	 *
 	 * The codec comes from the declared type: `richtext` diffs markdown, while
 	 * `plaintext` diffs the literal text and never imports markdown, so a
 	 * byte-identical revise of a value carrying escapes is a byte no-op.
 	 */
-	reviseField(name: string, text: string): Delta;
+	reviseField(name: string, text: string): Revised;
+	/**
+	 * Replace the bound document with `markdown`, then conform it. Composable
+	 * cards align to the stored ones by `$kind` and text similarity, an aligned
+	 * card's body and stored content fields revise, their anchors rebasing as
+	 * {@link reviseBody}'s do, and every declared content field lands at rest.
+	 * Returns the `DocumentRevised` receipt, its `warnings` ending with the
+	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`
+	 * declares a `$quill` this quill does not answer to, or does not parse,
+	 * leaving the document unchanged.
+	 */
+	reviseDocument(markdown: string): DocumentRevised;
 	/**
 	 * Build a composable card of `kind`, typed-commit `fields` onto it, set its
 	 * body from optional markdown, and place it. `at` omitted appends, a number
 	 * inserts at that index. Transactional: a rejected field (throwing a per-field
 	 * diagnostic bundle) or an invalid kind, body, or position leaves the document
-	 * untouched.
+	 * untouched. Returns the body import's `parse::dropped_construct` warnings,
+	 * anchored at the placed card's body.
 	 */
-	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number): void;
+	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number): Diagnostic[];
 	/** Remove the composable card at `index`, returning it (or `undefined`). */
 	removeCard(index: number): Card | undefined;
 	/**
@@ -674,13 +693,16 @@ export declare class CardWriter {
 	readonly kind: string;
 	set(name: string, value: unknown): void;
 	setAll(fields: Record<string, unknown>): void;
-	/** Revise this card's body from markdown (edit semantics), returning the text `Delta`. */
-	reviseBody(markdown: string): Delta;
+	/**
+	 * Revise this card's body from markdown (edit semantics), returning the
+	 * `Revised` receipt, its warnings at the card's body.
+	 */
+	reviseBody(markdown: string): Revised;
 	/**
 	 * The card twin of {@link DocumentWriter.reviseField}. Throws `UnknownField`
 	 * for an undeclared name and `IndexOutOfRange` for a bad bound index.
 	 */
-	reviseField(name: string, text: string): Delta;
+	reviseField(name: string, text: string): Revised;
 }
 
 /**

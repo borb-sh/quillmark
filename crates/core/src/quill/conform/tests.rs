@@ -376,7 +376,8 @@ Body.
     let delta = quill
         .writer(&mut doc)
         .revise_field("note", &text)
-        .expect("revise");
+        .expect("revise")
+        .delta;
     assert!(
         delta
             .ops
@@ -386,7 +387,7 @@ Body.
     );
     assert_eq!(bytes(&doc), before, "a no-change revise moves no bytes");
 
-    quill
+    let _ = quill
         .writer(&mut doc)
         .revise_field("note", r"a \*b\* line, revised")
         .expect("revise");
@@ -457,4 +458,89 @@ Entry body.
 ",
     );
     assert_eq!(restored, bytes(&authored), "one document, two ingress routes");
+}
+
+#[test]
+fn revise_document_revises_then_conforms() {
+    use quillmark_content::model::{Mark, MarkKind};
+
+    let quill = quill();
+    let (mut doc, _) = parse_bound(&quill, MD);
+    let mut body = doc.cards()[0]
+        .field_content("body", crate::document::Codec::Richtext)
+        .unwrap()
+        .unwrap()
+        .into_content();
+    // 0..4 is "card".
+    body.marks.push(Mark::new(0, 4, MarkKind::Anchor { id: "k".into() }));
+    doc.card_mut(0)
+        .unwrap()
+        .overwrite_field("body", body.into_normalized())
+        .unwrap();
+
+    let md = MD
+        .replace("subject: Q3 **results**", "subject: Q4 **results**")
+        .replace(
+            "\n~~~card-yaml\n$kind: entry\n",
+            "\n~~~card-yaml\n$kind: entry\nbody: a fresh card\n~~~\n\n~~~card-yaml\n$kind: entry\n",
+        );
+    let receipt = quill.writer(&mut doc).revise_document(&md).expect("revise");
+    let (expected, warnings) = parse_bound(&quill, &md);
+
+    assert_eq!(receipt.alignment, vec![None, Some(0)]);
+    assert!(receipt.dropped_anchors.is_empty());
+    assert_eq!(receipt.warnings, warnings);
+    assert_eq!(doc.to_markdown(), expected.to_markdown());
+    let anchored = doc.cards()[1]
+        .field_content("body", crate::document::Codec::Richtext)
+        .unwrap()
+        .unwrap();
+    assert!(anchored
+        .marks
+        .iter()
+        .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "k")));
+    for name in ["subject", "note", "tags"] {
+        assert_eq!(
+            doc.main().payload().get(name),
+            expected.main().payload().get(name),
+            "{name} rests as the bound parse lands it"
+        );
+    }
+
+    let before = bytes(&doc);
+    let err = quill
+        .writer(&mut doc)
+        .revise_document(&md.replace("conform_test@1.0.0", "other@1.0.0"))
+        .unwrap_err();
+    assert!(matches!(err, crate::quill::BoundParseError::Mismatch(_)));
+    assert_eq!(bytes(&doc), before);
+}
+
+/// A `richtext` field's markdown string reports what its import drops at the
+/// string's path: at the bound door, whose conform lands it as content, and at
+/// `validate` while the field still holds the string.
+#[test]
+fn a_richtext_string_reports_its_drops_where_it_imports() {
+    let quill = quill();
+    let md = "~~~card-yaml\n$quill: conform_test@1.0.0\nsubject: Q3 <span>results</span>\n\
+              note: a <span>literal</span> line\ntags:\n  - one\n  - two <kbd>k</kbd>\n\
+              meta:\n  blurb: and <em>this</em>\n~~~\n";
+    let drops = |diags: &[crate::error::Diagnostic]| -> Vec<(String, String)> {
+        diags
+            .iter()
+            .filter(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
+            .map(|d| (d.path.clone().unwrap_or_default(), d.args["construct"].as_str().unwrap().to_string()))
+            .collect()
+    };
+    let expected: Vec<(String, String)> = [("main.subject", "span"), ("main.tags[1]", "kbd"), ("main.meta.blurb", "em")]
+        .into_iter()
+        .map(|(p, c)| (p.to_string(), c.to_string()))
+        .collect();
+
+    let (doc, warnings) = parse_bound(&quill, md);
+    assert_eq!(drops(&warnings), expected);
+    assert_eq!(drops(&quill.validate(&doc)), [], "a conformed field holds content");
+
+    let loaded = Document::parse(md).unwrap().document;
+    assert_eq!(drops(&quill.validate(&loaded)), expected);
 }

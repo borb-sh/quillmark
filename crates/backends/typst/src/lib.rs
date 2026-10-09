@@ -43,6 +43,8 @@ const SUPPORTED_FORMATS: &[OutputFormat] =
 /// recompiles.
 struct TypstSession {
     world: world::QuillWorld,
+    /// Walked per compile for the constructs this backend declines.
+    config: QuillConfig,
     /// Built once at `open`: the schema never changes for a session's lifetime,
     /// and codegen plus date validation read only these tables.
     schema_meta: SchemaMeta,
@@ -87,10 +89,11 @@ struct Compiled {
 fn recompile(
     world: &mut world::QuillWorld,
     data: &serde_json::Value,
+    config: &QuillConfig,
     schema_meta: &SchemaMeta,
     scalar_windows: &[overlay::FieldWindow],
 ) -> Result<Compiled, RenderError> {
-    let (mut windows, declined_images) = world
+    let mut windows = world
         .inject_helper_package(data, schema_meta)
         .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
     windows.extend(scalar_windows.iter().cloned());
@@ -107,8 +110,7 @@ fn recompile(
         world,
         compile_warnings,
         &unclosed,
-        &declined_images,
-        &card_kinds(data),
+        declined_warnings(config, data),
     );
     Ok(Compiled {
         document,
@@ -122,50 +124,20 @@ fn recompile(
     })
 }
 
-/// The `$kind` of each card in `data`'s `$cards`, in document order:
-/// [`plate_addr_to_doc_path`](quillmark_core::region::plate_addr_to_doc_path)
-/// resolves a plate-space per-kind ordinal against it.
-fn card_kinds(data: &serde_json::Value) -> Vec<Option<String>> {
-    data.get("$cards")
-        .and_then(|c| c.as_array())
-        .map(|cards| {
-            cards
-                .iter()
-                .map(|c| {
-                    c.get("$kind")
-                        .and_then(|k| k.as_str())
-                        .map(str::to_string)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// One `backend::declined_construct` per content field holding images.
-///
-/// A field whose plate address does not translate is skipped rather than
-/// anchored loosely: the warning is about *this* field, and an unanchored one
-/// names none.
-fn declined_image_warnings(
-    declined: &world::DeclinedImages,
-    card_kinds: &[Option<String>],
-) -> Vec<Diagnostic> {
-    let kinds: Vec<Option<&str>> = card_kinds.iter().map(|k| k.as_deref()).collect();
-    declined
-        .iter()
-        .filter_map(|(addr, count)| {
-            let path = quillmark_core::region::plate_addr_to_doc_path(addr, &kinds)?;
-            let diag = quillmark_core::backend::declined_construct(
-                TypstBackend.id(),
-                BlockConstruct::Image,
-                *count,
-                &path,
-            );
-            Some(diag.with_hint(
+/// [`QuillConfig::declined_in_plate`] for this backend, an image's with what a
+/// plate draws instead.
+fn declined_warnings(config: &QuillConfig, data: &serde_json::Value) -> Vec<Diagnostic> {
+    let image = serde_json::Value::from(BlockConstruct::Image.as_str());
+    config
+        .declined_in_plate(TypstBackend.id(), data)
+        .into_iter()
+        .map(|diag| match diag.args.get("construct") {
+            Some(construct) if *construct == image => diag.with_hint(
                 "what a content image's url names is undecided; a plate draws a \
                  quill asset with `#image(\"/assets/…\")`"
                     .to_string(),
-            ))
+            ),
+            _ => diag,
         })
         .collect()
 }
@@ -176,8 +148,7 @@ fn session_warnings(
     world: &world::QuillWorld,
     compile: Vec<Diagnostic>,
     unclosed: &[(usize, String)],
-    declined_images: &world::DeclinedImages,
-    card_kinds: &[Option<String>],
+    declined: Vec<Diagnostic>,
 ) -> Vec<Diagnostic> {
     let mut all = world.load_warnings().to_vec();
     all.extend(compile);
@@ -193,7 +164,7 @@ fn session_warnings(
                 .to_string(),
         )
     }));
-    all.extend(declined_image_warnings(declined_images, card_kinds));
+    all.extend(declined);
     all
 }
 
@@ -303,6 +274,7 @@ impl SessionHandle for TypstSession {
         let compiled = recompile(
             &mut self.world,
             json_data,
+            &self.config,
             &self.schema_meta,
             &self.scalar_windows,
         )?;
@@ -446,8 +418,8 @@ impl Backend for TypstBackend {
     ) -> Result<LiveSession, RenderError> {
         let plate = read_plate(source)?;
 
-        let transform_schema = build_transform_schema(source.config());
-        let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
+        let config = source.config();
+        let schema_meta = SchemaMeta::from_config(config);
         // Built in two steps rather than through `new_with_data` so codegen's own
         // diagnostic code survives: boxing it into the world-creation error would
         // relabel a bad date `typst::world_creation`.
@@ -471,20 +443,21 @@ impl Backend for TypstBackend {
             .collect();
         // No session survives to serve the load warnings, and a package they
         // name as skipped otherwise fails only as an unresolved import.
-        let live = recompile(&mut world, json_data, &schema_meta, &scalar_windows).map_err(|e| {
+        let live = recompile(&mut world, json_data, config, &schema_meta, &scalar_windows).map_err(|e| {
             let mut diags = e.into_diagnostics();
             diags.extend(world.load_warnings().iter().cloned());
             RenderError::new(diags)
         })?;
         let session = TypstSession {
             world,
+            config: config.clone(),
             schema_meta,
             scalar_windows,
             live,
         };
         Ok(LiveSession::new(
             Box::new(session),
-            source.config().clone(),
+            config.clone(),
             today,
         ))
     }
@@ -497,7 +470,8 @@ impl Default for TypstBackend {
 }
 
 pub(crate) struct Plate {
-    /// `typst.plate_file` less a leading `./`; `None` for a quill declaring none.
+    /// `typst.plate_file` less its `.` steps and empty steps; `None` for a quill
+    /// declaring none.
     pub(crate) file: Option<String>,
     /// Where the world loads the plate.
     pub(crate) path: VirtualPath,
@@ -515,6 +489,12 @@ impl Plate {
     }
 }
 
+/// `typst.plate_file` as a render reads it, or the refusal a render's `open`
+/// raises for it; `None` for a quill declaring none.
+pub fn plate_file(source: &Quill) -> Result<Option<String>, RenderError> {
+    Ok(read_plate(source)?.file)
+}
+
 /// The plate is a Typst-only notion: its filename is declared under the
 /// `typst:` backend-config section as `plate_file` and the source lives in the
 /// quill's file bundle. A quill declaring no `plate_file` renders an empty one.
@@ -522,26 +502,36 @@ impl Plate {
 /// A declared plate loads at its own path, so one Typst's path grammar refuses
 /// fails here: any stand-in name may belong to a file the quill holds.
 fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
-    let plate_file = source
+    let declared = source
         .config()
         .backend_config
         .get("plate_file")
         .and_then(|v| v.as_str());
 
-    let Some(plate_file) = plate_file else {
+    let Some(declared) = declared else {
         return Ok(Plate::undeclared(String::new()));
     };
-    let plate_file = plate_file.trim_start_matches("./");
+    let steps: Vec<&str> = declared
+        .split('/')
+        .filter(|step| !step.is_empty() && *step != ".")
+        .collect();
+    let plate_file = steps.join("/");
 
-    let bytes = source.files().get_file(plate_file).ok_or_else(|| {
-        let message = format!("plate file '{plate_file}' not found in the quill's file tree");
-        match plate_spelling_hint(plate_file, source) {
-            Some(hint) => RenderError::coded_hint("typst::plate_missing", message, hint),
-            None => RenderError::coded("typst::plate_missing", message),
-        }
-    })?;
+    let misspelled = declared.starts_with('/') || steps.contains(&"..");
+    let bytes = (!misspelled)
+        .then(|| source.files().get_file(&plate_file))
+        .flatten()
+        .ok_or_else(|| {
+            let message = format!("plate file '{declared}' not found in the quill's file tree");
+            if misspelled {
+                let hint = plate_spelling_hint(declared, source);
+                RenderError::coded_hint("typst::plate_missing", message, hint)
+            } else {
+                RenderError::coded("typst::plate_missing", message)
+            }
+        })?;
 
-    let path = VirtualPath::new(plate_file).map_err(|e| {
+    let path = VirtualPath::new(&plate_file).map_err(|e| {
         RenderError::coded_hint(
             "typst::plate_path_invalid",
             format!("plate file '{plate_file}' is not a path Typst can load ({e})"),
@@ -556,34 +546,26 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
         )
     })?;
     Ok(Plate {
-        file: Some(plate_file.to_string()),
+        file: Some(plate_file),
         path,
         text,
     })
 }
 
-/// The fix for a `plate_file` holding a leading `/` or a `..` step, which the
-/// tree lookup refuses: its spelling from the quill root where the quill holds
-/// a file there, else the rule.
-fn plate_spelling_hint(plate_file: &str, source: &Quill) -> Option<String> {
-    use std::path::{Component, Path};
-
-    if !Path::new(plate_file)
-        .components()
-        .any(|c| matches!(c, Component::RootDir | Component::ParentDir))
-    {
-        return None;
-    }
+/// The fix for a `plate_file` holding a leading `/` or a `..` step: its
+/// spelling from the quill root where the quill holds a file there, else the
+/// rule.
+fn plate_spelling_hint(plate_file: &str, source: &Quill) -> String {
     let rule = "`typst.plate_file` names a file inside the quill by its path from the quill \
                 root, with no leading `/` and no `..`";
     let spelling = VirtualPath::new(plate_file)
         .ok()
         .map(|path| path.get_without_slash().to_string())
         .filter(|path| source.files().get_file(path).is_some());
-    Some(match spelling {
+    match spelling {
         Some(path) => format!("Write `{path}`: {rule}."),
         None => format!("{rule}."),
-    })
+    }
 }
 
 /// The steps a schema address may take out of one node, and nothing else: the
@@ -685,7 +667,7 @@ impl AddressNode {
 
 /// The transform schema plus the address tree derived from it, kept apart
 /// because they answer different questions. Lowering reads the schema node
-/// ([`helper::lowering`]); the tree answers which *addresses* a plate may
+/// (`helper::lowering`); the tree answers which *addresses* a plate may
 /// write, which is the same walk with everything but the steps pruned away.
 pub(crate) struct SchemaMeta {
     /// The walk's cursor source: the same recursive projection
@@ -729,6 +711,11 @@ impl SchemaMeta {
         };
         meta.meta_literal = helper::lit(&meta.address_json());
         meta
+    }
+
+    /// The meta a session over `config` lowers by: its transform schema.
+    pub(crate) fn from_config(config: &QuillConfig) -> Self {
+        Self::from_schema_json(build_transform_schema(config).as_json())
     }
 
     /// The address tables the helper's `_qm-node` walks.
@@ -777,7 +764,7 @@ mod tests {
 
     /// The shape the seam carries for a richtext field.
     fn content(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown).expect("import");
+        let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
         quillmark_content::serial::to_canonical_value(&rt)
     }
 

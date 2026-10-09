@@ -834,7 +834,7 @@ fn accrue(boxes: &mut Vec<(usize, Aabb)>, hit: &Hit) {
 }
 
 /// The finer counterpart to [`Hit`], carrying the node range and intra-node
-/// offset that [`position_at`]/[`locate`] need and a region scan discards.
+/// offset that [`position_at`](Scan::position_at)/[`locate`](Scan::locate) need and a region scan discards.
 struct GlyphHit {
     page: usize,
     rect: Aabb,
@@ -985,7 +985,7 @@ pub(crate) fn scalar_windows(
 }
 
 /// The address tree the scan resolves a read against — the same one
-/// [`_qm-known-path`] validates a `form-field` / `field-region` path against, so
+/// `_qm-known-path` validates a `form-field` / `field-region` path against, so
 /// a scanned region path is one a claim could bind.
 struct Tables<'a> {
     root: &'a AddressNode,
@@ -1327,7 +1327,7 @@ fn selected<'a>(access: &LinkedNode<'a>, keys: &[String]) -> Option<(String, Lin
 /// The array index `node`'s parent selects off it, and the node that selection
 /// widens to. `.at(n)` is the only spelling: Typst has no `.0` field access for an
 /// array element. Any non-negative literal is admitted, matching
-/// [`_qm-known-path`]'s digit test — a negative index lexes as unary minus over
+/// `_qm-known-path`'s digit test — a negative index lexes as unary minus over
 /// the magnitude, so it never reaches the `Int` arm and needs no sign check.
 fn select_index<'a>(node: &LinkedNode<'a>) -> Option<(i64, LinkedNode<'a>)> {
     let parent = node.parent()?;
@@ -1427,11 +1427,11 @@ main:
         let schema = quillmark_core::quill::build_transform_schema(q.config());
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
         let rt = quillmark_content::import::from_markdown("A probe paragraph, PROBETOKEN.")
-            .expect("import");
+            .expect("import").content;
         let data =
             serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
         let mut world = QuillWorld::new(&q, &plate).expect("world");
-        let (windows, _) = world
+        let windows = world
             .inject_helper_package(&data, &meta)
             .expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
@@ -1493,7 +1493,7 @@ main:
             let data =
                 serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(&rt) });
             let mut world = QuillWorld::new(&q, &plate).expect("world");
-            let (windows, _) = world
+            let windows = world
                 .inject_helper_package(&data, &meta)
                 .expect("inject");
             let (doc, _) = compile_document(&world).expect("compile");
@@ -1912,11 +1912,11 @@ main:
         let schema = quillmark_core::quill::build_transform_schema(q.config());
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
         let rt =
-            quillmark_content::import::from_markdown("- Item ONE\n- Item TWO").expect("import");
+            quillmark_content::import::from_markdown("- Item ONE\n- Item TWO").expect("import").content;
         let data =
             serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(&rt) });
         let mut world = QuillWorld::new(&q, &plate).expect("world");
-        let (windows, _) = world
+        let windows = world
             .inject_helper_package(&data, &meta)
             .expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
@@ -1994,7 +1994,7 @@ main:
         let schema = quillmark_core::quill::build_transform_schema(q.config());
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
         let mut world = QuillWorld::new(&q, &plate_src).expect("world");
-        let (mut windows, _) = world
+        let mut windows = world
             .inject_helper_package(&data, &meta)
             .expect("inject");
         let main_id = world.main();
@@ -2045,7 +2045,7 @@ main:
     }
 
     fn body(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown).expect("import");
+        let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
         serde_json::json!({
             "body": quillmark_content::serial::to_canonical_value(&rt),
             "classification": "UNCLASSIFIED",

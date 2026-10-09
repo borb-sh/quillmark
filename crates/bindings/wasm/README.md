@@ -190,9 +190,9 @@ const doc = Document.storageVersionOf(content)
   : Document.fromMarkdown(content);
 ```
 
-The `schema` value (`quillmark/document@0.116.0`) is the **model version**,
+The `schema` value (`quillmark/document@0.124.0`) is the **model version**,
 not the running crate version. It is a hand-set constant, bumped only when
-the `Document` model itself changes, so every `0.116.x` patch release reads
+the `Document` model itself changes, so every `0.124.x` patch release reads
 and writes that same value.
 
 - **Upgrading is safe.** A newer build reads documents an older build's
@@ -332,7 +332,7 @@ the per-call `_commit*` ABI):
 const ed = quill.writer(doc);                       // Rust `quill.writer(doc)` twin; new DocumentWriter(quill, doc) also works
 ed.set("subject", "Q3 results");                    // strict-committed to the schema type
 ed.setAll({ qty: "3", subject: "Q3" });             // all-or-nothing batch
-ed.reviseField("subject", "Q3 **results**");        // typed AND anchor-preserving; returns a Delta
+ed.reviseField("subject", "Q3 **results**");        // typed AND anchor-preserving; returns { delta, warnings }
 ed.set("titel", "x");                               // throws UnknownField: a typo, not a fallback
 ed.card(2).set("body", "**note**");                 // composable card, resolved by its $kind
 ```
@@ -393,11 +393,12 @@ A document that compiles to zero pages still produces a valid session
 `pageCount === 0` to render a "no pages to preview" UI rather than relying on
 the throw.
 
-Their `warnings` differ in reach. `engine.render` returns one list for the
-whole pipeline: `doc.warnings` (parse and `conform::*`), then every
-`quill.validate(doc)` warning, then the compile's own. A session outlives
-the document it opened from, so `session.render` and `session.warnings` carry
-the compile's alone — read `doc.warnings` and `quill.validate(doc)` beside them.
+Their `warnings` differ in reach. `engine.render` returns every
+`quill.validate(doc)` warning but `validation::declined_construct`, which the
+compile raises as `backend::declined_construct`, then the compile's own;
+`session.render` and `session.warnings` carry the compile's alone, so read
+`quill.validate(doc)` beside them. Neither carries the load's: those stay on
+`doc.warnings`, and a revise's on its receipt.
 
 ### Canvas Preview
 
@@ -505,8 +506,12 @@ same shape applies to every throw site:
 - An object argument carrying a key its verb does not read: the render
   options, `new Engine` options, an `Addr`, a `CardInput`. Every own string
   key counts, a non-enumerable one and one holding `undefined` included. The
-  argument must be a plain object, its prototype `null` or `Object.prototype`
-  of any realm, so a `Map`, a class instance or `Object.create({ … })` throws.
+  argument must be a plain object, its prototype `null`, `Object.prototype`
+  of any realm, or a null-prototype object whose keys count too, so a `Map`, a
+  class instance or `Object.create({ … })` throws. A payload item, the fields
+  object `storeFields` takes, and a `$ext` or `$seed` value read their own
+  enumerable keys alone: a non-enumerable or inherited key there is neither
+  read nor refused.
   The diagnostic names the key or what was passed, and carries no `code`: it
   is a call site to fix, not a condition to route on.
 - `engine.render(quill, parsed)` against a quill whose *name* differs

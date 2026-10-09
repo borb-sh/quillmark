@@ -1,0 +1,2302 @@
+[
+  {
+    "name": "line.para",
+    "markdown": "Paragraph text.",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Paragraph text."
+    },
+    "typst": [
+      "Paragraph text."
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "line.heading",
+    "markdown": "## A heading",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "attrs": {
+            "level": 2
+          },
+          "containers": [],
+          "kind": "heading"
+        }
+      ],
+      "marks": [],
+      "text": "A heading"
+    },
+    "typst": [
+      "== A heading"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "line.code",
+    "markdown": "```\nplain code\n```",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "code"
+        }
+      ],
+      "marks": [],
+      "text": "plain code"
+    },
+    "typst": [
+      "#raw(block: true, \"plain code\")"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "line.code.lang",
+    "markdown": "```rust\nfn main() {}\n```",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "attrs": {
+            "lang": "rust"
+          },
+          "containers": [],
+          "kind": "code"
+        }
+      ],
+      "marks": [],
+      "text": "fn main() {}"
+    },
+    "typst": [
+      "#raw(block: true, lang: \"rust\", \"fn main() {}\")"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "line.code.html",
+    "markdown": "```\n<!-- a --> b\n```",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "code"
+        }
+      ],
+      "marks": [],
+      "text": "<!-- a --> b"
+    },
+    "typst": [
+      "#raw(block: true, \"<!-- a --> b\")"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "line.rule",
+    "markdown": "Above\n\n***\n\nBelow",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        },
+        {
+          "containers": [],
+          "kind": "rule"
+        },
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Above\n\nBelow"
+    },
+    "typst": [
+      "#line(length: 100%)"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "line.continues",
+    "markdown": "One line\\\ntwo line",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        },
+        {
+          "containers": [],
+          "continues": true,
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "One line\ntwo line"
+    },
+    "typst": [
+      "One line#linebreak()two line"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.list_item.bullet",
+    "markdown": "- one\n- two",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": false,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": false,
+                "ordinal": 1,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "- one",
+      "- two"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.list_item.ordered",
+    "markdown": "1. one\n2. two",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": true,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": true,
+                "ordinal": 1,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "1. one",
+      "+ two"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.list_item.start",
+    "markdown": "3. three\n4. four",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": true,
+                "ordinal": 0,
+                "start": 3
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": true,
+                "ordinal": 1,
+                "start": 3
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "three\nfour"
+    },
+    "typst": [
+      "3. three",
+      "+ four"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.list_item.instance",
+    "markdown": "1. one\n\n1) two",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": true,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": true,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item",
+              "instance": 1
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "1. one",
+      "1. two"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.list_item.instance.bullet",
+    "markdown": "- one\n\n+ two",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": false,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": false,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item",
+              "instance": 1
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "- one",
+      "- two"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.quote",
+    "markdown": "> quoted",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "container": "quote"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "quoted"
+    },
+    "typst": [
+      "#quote(block: true)[\nquoted"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.quote.instance",
+    "markdown": "> one\n\n> two",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "container": "quote"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "container": "quote",
+              "instance": 1
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "#quote(block: true)[\none",
+      "#quote(block: true)[\ntwo"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "mark.strong",
+    "markdown": "**bold**",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 4,
+          "start": 0,
+          "type": "strong"
+        }
+      ],
+      "text": "bold"
+    },
+    "typst": [
+      "#strong[bold]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "mark.emph",
+    "markdown": "*emph*",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 4,
+          "start": 0,
+          "type": "emph"
+        }
+      ],
+      "text": "emph"
+    },
+    "typst": [
+      "#emph[emph]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "mark.underline",
+    "markdown": "<u>underlined</u>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 10,
+          "start": 0,
+          "type": "underline"
+        }
+      ],
+      "text": "underlined"
+    },
+    "typst": [
+      "#underline[underlined]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "mark.strike",
+    "markdown": "~~gone~~",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 4,
+          "start": 0,
+          "type": "strike"
+        }
+      ],
+      "text": "gone"
+    },
+    "typst": [
+      "#strike[gone]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "mark.code",
+    "markdown": "`code`",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 4,
+          "start": 0,
+          "type": "code"
+        }
+      ],
+      "text": "code"
+    },
+    "typst": [
+      "#raw(\"code\")"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "mark.link",
+    "markdown": "[link](https://example.com)",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "attrs": {
+            "url": "https://example.com"
+          },
+          "end": 4,
+          "start": 0,
+          "type": "link"
+        }
+      ],
+      "text": "link"
+    },
+    "typst": [
+      "#link(\"https://example.com\")[link]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "mark.anchor",
+    "markdown": null,
+    "annotated": "<qm-anchor ref=\"c1\"></qm-anchor>Hi there",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "attrs": {
+            "id": "c1"
+          },
+          "end": 2,
+          "start": 0,
+          "type": "anchor"
+        }
+      ],
+      "text": "Hi there"
+    },
+    "reimports": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Hi there"
+    },
+    "typst": [
+      "Hi there"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.aligns",
+    "markdown": "| a | b | c |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "left",
+              "center",
+              "right"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              },
+              {
+                "marks": [],
+                "text": "c"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                },
+                {
+                  "marks": [],
+                  "text": "3"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "columns: 3",
+      "align: (left, center, right)"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.cell.marks",
+    "markdown": "| **a** | *b* |\n| --- | --- |\n| `c` | [d](https://example.com) |",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [
+                  {
+                    "end": 1,
+                    "start": 0,
+                    "type": "strong"
+                  }
+                ],
+                "text": "a"
+              },
+              {
+                "marks": [
+                  {
+                    "end": 1,
+                    "start": 0,
+                    "type": "emph"
+                  }
+                ],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [
+                    {
+                      "end": 1,
+                      "start": 0,
+                      "type": "code"
+                    }
+                  ],
+                  "text": "c"
+                },
+                {
+                  "marks": [
+                    {
+                      "attrs": {
+                        "url": "https://example.com"
+                      },
+                      "end": 1,
+                      "start": 0,
+                      "type": "link"
+                    }
+                  ],
+                  "text": "d"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "[#strong[a]]",
+      "[#emph[b]]",
+      "[#raw(\"c\")]",
+      "[#link(\"https://example.com\")[d]]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.cell.break",
+    "markdown": "| a |\n| --- |\n| one<br>two |",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "one\ntwo"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "[one#linebreak()two]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.props.unnamed",
+    "markdown": null,
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                }
+              ]
+            ],
+            "x_host": "kept"
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "reimports": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "columns: 1"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.cell.unnamed",
+    "markdown": null,
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a",
+                "x_host": "kept"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "reimports": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "columns: 1"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.image",
+    "markdown": "![alt text](https://example.com/a.png)",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "alt": "alt text",
+            "url": "https://example.com/a.png"
+          },
+          "type": "image"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [],
+    "signals": {
+      "import": [],
+      "render": [
+        "backend::declined_construct"
+      ],
+      "validate": [
+        "validation::declined_construct"
+      ]
+    }
+  },
+  {
+    "name": "html.br",
+    "markdown": "one<br>two",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        },
+        {
+          "containers": [],
+          "continues": true,
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "one#linebreak()two"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "html.u",
+    "markdown": "<U>loud</U>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 4,
+          "start": 0,
+          "type": "underline"
+        }
+      ],
+      "text": "loud"
+    },
+    "typst": [
+      "#underline[loud]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "html.u.attrs",
+    "markdown": "a <u class=\"x\">b</u> c",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "a b c"
+    },
+    "typst": [
+      "a b c"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "u",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.span",
+    "markdown": "a <span class=\"x\">span</span> b",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "a span b"
+    },
+    "typst": [
+      "a span b"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "span",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.block6.table",
+    "markdown": "<div align=\"center\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</div>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "columns: 2"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "div",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.block6.text",
+    "markdown": "<center>\n**Signed**\nJ. Doe\n</center>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": ""
+    },
+    "typst": [],
+    "signals": {
+      "import": [
+        {
+          "construct": "center",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.block1",
+    "markdown": "<pre>\nraw\n</pre>\n\nafter",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "after"
+    },
+    "typst": [
+      "after"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "pre",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.comment",
+    "markdown": "<!-- note --> Text",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "Text"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "html.tag_line.paragraph",
+    "markdown": "Above\n<div>\nBelow",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Above"
+    },
+    "typst": [
+      "Above"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "div",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.tag_line.list",
+    "markdown": "1. First\n<div>\n\n1. Second",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": true,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": true,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item",
+              "instance": 1
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "First\nSecond"
+    },
+    "typst": [
+      "1. First",
+      "1. Second"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "div",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "container.element",
+    "markdown": "<qm-keep>\n\n**Signed**\n\n</qm-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "$name": "keep"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 6,
+          "start": 0,
+          "type": "strong"
+        }
+      ],
+      "text": "Signed"
+    },
+    "typst": [
+      "#_qm-element(\"keep\", (:))[\n#strong[Signed]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.element.attrs",
+    "markdown": "<qm-keep note=\"x\">\n\nText\n\n</qm-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "$name": "keep",
+                "note": "x"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "#_qm-element(\"keep\", (\"note\": \"x\"))[\nText"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.element.instance",
+    "markdown": "<qm-keep>\n\none\n\n</qm-keep>\n\n<qm-keep>\n\ntwo\n\n</qm-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "$name": "keep"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "$name": "keep"
+              },
+              "container": "element",
+              "instance": 1
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "#_qm-element(\"keep\", (:))[\none",
+      "#_qm-element(\"keep\", (:))[\ntwo"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.element.in_item",
+    "markdown": "- <qm-keep>\n\n  one\n\n  </qm-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "ordered": false,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item"
+            },
+            {
+              "attrs": {
+                "$name": "keep"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one"
+    },
+    "typst": [
+      "- #_qm-element(\"keep\", (:))[\n  one"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "container.element.around_list",
+    "markdown": "<qm-keep>\n\n- one\n- two\n\n</qm-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "$name": "keep"
+              },
+              "container": "element"
+            },
+            {
+              "attrs": {
+                "ordered": false,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "$name": "keep"
+              },
+              "container": "element"
+            },
+            {
+              "attrs": {
+                "ordered": false,
+                "ordinal": 1,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "#_qm-element(\"keep\", (:))[\n- one\n- two"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.tight",
+    "markdown": "<qm-keep>\n**Signed**\n</qm-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": ""
+    },
+    "typst": [],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-keep",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.void",
+    "markdown": "<qm-sig>\n</qm-sig>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "$name": "sig"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": ""
+    },
+    "typst": [
+      "#_qm-element(\"sig\", (:))["
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.unclosed",
+    "markdown": "<qm-keep>\n\nText",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "Text"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-keep",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.self_closing",
+    "markdown": "<qm-keep/>\n\nText",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "Text"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-keep",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.inline",
+    "markdown": "A <qm-hl tone=\"cool\">pair</qm-hl> here.",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "A pair here."
+    },
+    "typst": [
+      "A pair here."
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-hl",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.attr",
+    "markdown": "<qm-keep onclick=\"x\">\n\nText\n\n</qm-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "$name": "keep"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "#_qm-element(\"keep\", (:))[\nText"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-keep[onclick]",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.stray_close",
+    "markdown": "Text\n\n</qm-keep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "Text"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.element.stray_close.tight",
+    "markdown": "Text\n\n</qm-keep>\n**Gone**",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "Text"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-keep",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.table",
+    "markdown": "<qm-table widths=\"1 2\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ],
+            "widths": [
+              1,
+              2
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "columns: (1fr, 2fr)"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.anchor",
+    "markdown": "Text <qm-anchor ref=\"c1\"></qm-anchor>here.",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text here."
+    },
+    "typst": [
+      "Text here."
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "markdown.link_title",
+    "markdown": "[a](https://example.com \"Title\")",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "attrs": {
+            "url": "https://example.com"
+          },
+          "end": 1,
+          "start": 0,
+          "type": "link"
+        }
+      ],
+      "text": "a"
+    },
+    "typst": [
+      "#link(\"https://example.com\")[a]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "markdown.cell_image",
+    "markdown": "| a |\n| --- |\n| ![pic](https://example.com/a.png) |",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "pic"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "[pic]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.props.widths",
+    "markdown": "<qm-table widths=\"25 50 auto\">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</qm-table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              },
+              {
+                "marks": [],
+                "text": "c"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                },
+                {
+                  "marks": [],
+                  "text": "3"
+                }
+              ]
+            ],
+            "widths": [
+              25,
+              50,
+              null
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "columns: (25fr, 50fr, auto)"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.props.widths.auto",
+    "markdown": "<qm-table widths=\"auto auto\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "columns: 2"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.props.align",
+    "markdown": "<qm-table align=\"center\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "align": "center",
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "#context align(center, table("
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.table.holds_other",
+    "markdown": "<qm-table align=\"center\">\n\n**Signed**\n\n</qm-table>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 6,
+          "start": 0,
+          "type": "strong"
+        }
+      ],
+      "text": "Signed"
+    },
+    "typst": [
+      "#strong[Signed]"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-table",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.table.attr",
+    "markdown": "<qm-table foo=\"1\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "columns: 2"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-table[foo]",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.table.value",
+    "markdown": "<qm-table widths=\"a b\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "columns: 2"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-table[widths]",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  }
+]

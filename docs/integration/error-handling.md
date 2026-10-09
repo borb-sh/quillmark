@@ -67,17 +67,23 @@ Before any compile, opening a Typst quill can refuse its plate: `typst::plate_mi
 
 Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning` never does. There is no lint-level configuration and no warning-to-error promotion. Warnings ride the same `Diagnostic` currency on non-fatal channels:
 
-- **Parse warnings** (e.g. a `~~~` opener missing its blank line) carried on the parsed document (`doc.warnings`) and spliced into a render's warnings.
+- **Parse warnings** (e.g. a `~~~` opener missing its blank line) carried on the parsed document (`doc.warnings`). A render does not carry them: they report the load, and a revise can change what the document holds after it.
+- **`parse::dropped_construct`**: markdown the content cannot carry, one per construct, carrying `construct` and `count` in `args`. `construct` is a raw tag's lowercase name, such as `div`, or the `qm-*` tag that dropped: `qm-keep` for an element, `qm-table` for a table wrapper, `qm-table[widths]` for one attribute.
+    - A parse anchors it at the body (`main.body`, `cards.<kind>[<i>].body`) on `doc.warnings`. A `richtext` field's markdown string reports at the field (`main.subject`, `cards.<kind>[<i>].items[0]`): on `doc.warnings` from `quill.parse`, and from `quill.validate(doc)` on a document loaded without its quill. A typed `set` imports a markdown string with no warning.
+    - `revise` and the writer's `reviseBody` / `reviseField` return it as `{ delta, warnings }`, anchored at the address written; Python's `revise_body` / `revise_field` return the list.
+    - The writer's `reviseDocument` returns it among its receipt's `warnings`, and Python's `revise_document` returns the list.
+    - `addCard` returns it as a list, anchored at the placed card's body; `importMarkdown` and `rebase` return it beside the content, with no path.
 - **Validation warnings**: `quill.validate(doc)` returns every diagnostic, and its severity says whether the document renders ([full rule](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md#what-blocks-a-render)):
     - An `Error` is input the engine cannot read as written, such as a value that is not its field's type or an enum value outside `values:`. The render fails.
-    - A `Warning` is input no declaration claims: a card with an undeclared `$kind` (`validation::unknown_card`), a body under `body.enabled: false` (`validation::body_disabled`), a key the schema does not declare (`validation::unknown_field`, whose hint names the likely fix), a stranded variant cell (`validation::out_of_variant`), elements past `max:` (`validation::cardinality`), and the `$seed` checks. The document renders without it. A one-shot render carries these warnings on `result.warnings`, after the parse warnings; a live session's warnings do not, so an editor reads `quill.validate(doc)` beside them.
+    - A `Warning` is input no declaration claims: a card with an undeclared `$kind` (`validation::unknown_card`), a body under `body.enabled: false` (`validation::body_disabled`), a key the schema does not declare (`validation::unknown_field`, whose hint names the likely fix), a stranded variant cell (`validation::out_of_variant`), elements past `max:` (`validation::cardinality`), and the `$seed` checks. The document renders without it. A one-shot render carries these warnings on `result.warnings`, ahead of the compile's; a live session's warnings do not, so an editor reads `quill.validate(doc)` beside them.
 
     A field the document leaves unanswered draws no diagnostic: it renders its `default:`, else its blank.
 
     On the CLI, `quillmark render` and `quillmark check` both print every validation warning ([CLI Reference](../cli/reference.md#check)).
 - **Compile warnings**: a backend's non-fatal diagnostics (font fallback, overfull pages), carried on `result.warnings`.
 - **Load warnings**: what the Typst backend skipped loading the quill (`typst::package_manifest`, `typst::package_entrypoint_missing`, `typst::path_skipped`) and a `typst:` key it does not read (`typst::unknown_key`), carried ahead of the compile warnings. A render or session `open` whose compile fails carries them too, in the error's `diagnostics` after its errors: an `#import` of a package skipped for its manifest fails as `typst::file_not_found`, and only the warning says why.
-- **`backend::declined_construct`**: a construct the backend typesets nothing for, one per content field, carrying `backend`, `construct` and `count` in `args` and the field's path. The Typst backend declines `image`: a markdown image in a `richtext` field reaches no page, because what its url names is undecided.
+- **`backend::declined_construct`**: a construct the backend typesets nothing for, one per content field, carrying `backend`, `construct` and `count` in `args` and the field's path. The Typst backend declines `image`: a markdown image in a `richtext` field reaches no page, because what its url names is undecided. The acroform backend declines every construct but the paragraph.
+- **`validation::declined_construct`**: the same decline, reported by `quill.validate(doc)` before any render, carrying `construct` and `count` in `args` and the field's path. A one-shot render carries the backend's code in its place.
 
 A successful render returns artifacts **and** a `warnings` list, so inspect it even on success.
 

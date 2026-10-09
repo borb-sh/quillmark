@@ -6,7 +6,7 @@
 use proptest::prelude::*;
 use quillmark_content::island::IslandType;
 use quillmark_content::delta::{diff_import, Delta, Op};
-use quillmark_content::export::to_markdown;
+use quillmark_content::export::{to_markdown, to_markdown_annotated};
 use quillmark_content::import::from_markdown;
 use quillmark_content::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
 use quillmark_content::ops::{IslandOp, LineOp, MarkOp};
@@ -149,8 +149,21 @@ fn block() -> impl Strategy<Value = String> {
         )),
         prop::collection::vec(clean_word(), 1..4)
             .prop_map(|ls| format!("```\n{}\n```", ls.join("\n"))),
+        // Carrier elements: at the top level, around a list, in an item, two
+        // adjacent runs, which only the tags between them keep apart, and one
+        // around nothing.
+        prose().prop_map(|p| format!("<qm-keep note=\"x\">\n\n{p}\n\n</qm-keep>")),
+        (prose(), prose()).prop_map(|(a, b)| format!("<qm-keep>\n\n- {a}\n- {b}\n\n</qm-keep>")),
+        (prose(), prose()).prop_map(|(a, b)| format!("- {a}\n- <qm-keep>\n\n  {b}\n\n  </qm-keep>")),
+        (prose(), prose()).prop_map(|(a, b)| format!(
+            "<qm-keep>\n\n{a}\n\n</qm-keep>\n\n<qm-keep>\n\n{b}\n\n</qm-keep>"
+        )),
+        Just("<qm-sig>\n</qm-sig>".to_string()),
         (clean_word(), clean_word())
             .prop_map(|(a, b)| format!("| {a} | {b} |\n| --- | --- |\n| 1 | 2 |")),
+        (clean_word(), clean_word(), 1u64..9).prop_map(|(a, b, w)| format!(
+            "<qm-table align=\"center\" widths=\"{w} auto\">\n\n| {a} | {b} |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>"
+        )),
     ]
 }
 
@@ -206,12 +219,12 @@ proptest! {
     /// satisfies its invariants.
     #[test]
     fn content_round_trip_and_invariants(md in document()) {
-        let rt = from_markdown(&md).unwrap();
+        let rt = from_markdown(&md).unwrap().content;
         prop_assert_eq!(rt.validate(), Ok(()), "invariants for {:?}", md);
         prop_assert_eq!(&renormalized(&rt), &*rt, "import is not the mint's fixed point for {:?}", md);
 
         let md2 = to_markdown(&rt);
-        let rt2 = from_markdown(&md2).unwrap();
+        let rt2 = from_markdown(&md2).unwrap().content;
         prop_assert_eq!(&rt, &rt2, "not a fixed point.\n in:  {:?}\n out: {:?}", md, md2);
     }
 
@@ -242,7 +255,7 @@ proptest! {
         prop_assume!(rt.validate().is_ok());
 
         let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         prop_assert_eq!(&rt2.text, &rt.text,
             "text drifted.\n in:  {:?}\n md:   {:?}\n out: {:?}", rt.text, md, rt2.text);
         prop_assert_eq!(&rt, &rt2, "not a fixed point: {:?}", md);
@@ -257,7 +270,7 @@ proptest! {
     fn overlapping_marks_export_is_text_safe(
         raw in "[a-z]{4,8}",
         x in 0usize..64, y in 0usize..64, z in 0usize..64,
-        k1i in 0u8..4, k2i in 0u8..4,
+        k1i in 0u8..5, k2i in 0u8..5,
     ) {
         let text = raw;
         let n = text.chars().count();
@@ -279,7 +292,7 @@ proptest! {
         prop_assert_eq!(&renormalized(&rt), &*rt, "the mint left a repairable shape");
 
         let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         prop_assert_eq!(rt2.validate(), Ok(()), "re-import invalid for {:?}", md);
         // Overlap never corrupts the text: no unbalanced delimiter leaks in.
         prop_assert_eq!(&rt2.text, &rt.text, "overlap corrupted text: {:?}", md);
@@ -293,7 +306,7 @@ proptest! {
             prop_assert_eq!(&rt, &rt2, "distinct-delim overlap not a fixed point: {:?}", md);
         }
         // Whatever the shape, the re-imported content is itself a fixed point.
-        prop_assert_eq!(&rt2, &from_markdown(&to_markdown(&rt2)).unwrap(),
+        prop_assert_eq!(&rt2, &from_markdown(&to_markdown(&rt2)).unwrap().content,
             "re-imported overlap content not a fixed point: {:?}", md);
     }
 
@@ -310,7 +323,7 @@ proptest! {
             ]),
             2..10,
         ),
-        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..4), 0..4),
+        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..5), 0..4),
     ) {
         // Word-char edges keep the mark-free baseline a round-trip fixed point;
         // the mixed chars live in the interior, where marks clash with flanking
@@ -325,7 +338,7 @@ proptest! {
         prop_assume!(rt.len_usv() == n);
         // Require the mark-free text to be a fixed point already, so a later
         // mismatch is mark-induced rather than an orthogonal markdown limit.
-        prop_assume!(from_markdown(&to_markdown(&rt)).unwrap().text == rt.text);
+        prop_assume!(from_markdown(&to_markdown(&rt)).unwrap().content.text == rt.text);
 
         let ops: Vec<MarkOp> = specs
             .iter()
@@ -340,13 +353,13 @@ proptest! {
         prop_assert_eq!(&renormalized(&rt), &*rt, "editor marks left a repairable shape");
 
         let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         // No clipped or dropped mark leaks a delimiter into the text. Mark
         // fidelity is not promised, only that the text survives.
         prop_assert_eq!(&rt2.text, &rt.text,
             "editor mark corrupted text.\n text: {:?}\n md:   {:?}\n out:  {:?}",
             rt.text, md, rt2.text);
-        prop_assert_eq!(&from_markdown(&to_markdown(&rt2)).unwrap().text, &rt.text,
+        prop_assert_eq!(&from_markdown(&to_markdown(&rt2)).unwrap().content.text, &rt.text,
             "text drifted on the second cycle: {:?}", md);
     }
 
@@ -360,9 +373,9 @@ proptest! {
     /// put them, so what the second pass reads is what the first pass wrote.
     #[test]
     fn a_delimiter_run_keeps_its_text(src in delimiter_run()) {
-        let once = from_markdown(&src).unwrap();
+        let once = from_markdown(&src).unwrap().content;
         let md = to_markdown(&once);
-        let twice = from_markdown(&md).unwrap();
+        let twice = from_markdown(&md).unwrap().content;
         prop_assert_eq!(&twice.text, &once.text,
             "text drifted.\n in:  {:?}\n md:  {:?}\n out: {:?}", src, md, twice.text);
 
@@ -392,7 +405,7 @@ proptest! {
         prop_assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
         prop_assert_eq!(&renormalized(&rt), &*rt, "the mint left a repairable shape");
         let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         prop_assert_eq!(&rt, &rt2, "alt/url specials not a fixed point.\n  md: {:?}", md);
     }
 
@@ -401,7 +414,7 @@ proptest! {
     /// the second.
     #[test]
     fn canonical_json_fixed_point(md in document()) {
-        let rt = from_markdown(&md).unwrap();
+        let rt = from_markdown(&md).unwrap().content;
         let json = rt.to_canonical_json();
         let back = Content::from_canonical_json(&json).unwrap();
         prop_assert_eq!(back.to_canonical_json(), json);
@@ -412,7 +425,7 @@ proptest! {
     /// Islands are ordered by slot position, so only mark order is free.
     #[test]
     fn canonical_json_order_insensitive(md in document()) {
-        let rt = from_markdown(&md).unwrap();
+        let rt = from_markdown(&md).unwrap().content;
         let mut shuffled = rt.clone().into_content();
         shuffled.marks.reverse();
         prop_assert_eq!(
@@ -425,7 +438,7 @@ proptest! {
     #[test]
     fn diff_import_preserves_surviving_anchor(a in "[a-z]{3,8}", b in "[a-z]{3,8}") {
         let base_md = format!("keep {a} here");
-        let mut base = from_markdown(&base_md).unwrap().into_content();
+        let mut base = from_markdown(&base_md).unwrap().content.into_content();
         let start = 5;
         let end = 5 + a.chars().count();
         prop_assert_eq!(&base.text[start..end], a.as_str());
@@ -433,12 +446,51 @@ proptest! {
         let base = base.into_normalized();
 
         let new_md = format!("{b} keep {a} here");
-        let (new_rt, _delta) = diff_import(&base, &new_md).unwrap();
+        let (new_rt, _delta, _) = diff_import(&base, &new_md).unwrap();
         let anchor = new_rt.marks.iter()
             .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"));
         prop_assert!(anchor.is_some(), "anchor lost across surviving edit");
         let anchor = anchor.unwrap();
         prop_assert_eq!(&new_rt.text[anchor.start..anchor.end], a.as_str());
+    }
+
+    /// The annotated read imports as the plain projection does, lists every
+    /// prose anchor once, in `(start, id)` order, and revises its content to
+    /// itself.
+    #[test]
+    fn the_annotated_read_imports_as_the_plain_one(
+        md in prop_oneof![document(), delimiter_run()],
+        spans in prop::collection::vec((0usize..4096, 0usize..8, any::<bool>()), 1..5),
+    ) {
+        let mut rt = from_markdown(&md).unwrap().content.into_content();
+        let len = rt.len_usv();
+        for (k, &(at, width, zero_width)) in spans.iter().enumerate() {
+            let start = at % (len + 1);
+            let end = if zero_width { start } else { (start + width).min(len) };
+            rt.marks.push(Mark::new(start, end, MarkKind::Anchor { id: format!("{k}\"&<b>") }));
+        }
+        let rt = rt.into_normalized();
+        prop_assert_eq!(rt.validate(), Ok(()), "anchored content invalid for {:?}", md);
+
+        let plain = to_markdown(&rt);
+        let read = to_markdown_annotated(&rt);
+        prop_assert_eq!(
+            from_markdown(&read.markdown).unwrap().content,
+            from_markdown(&plain).unwrap().content,
+            "the read imports apart from the plain projection.\n read:  {:?}\n plain: {:?}",
+            read.markdown, plain
+        );
+        let mut want: Vec<(usize, &str)> = rt.marks.iter().filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some((m.start, id.as_str())),
+            _ => None,
+        }).collect();
+        want.sort_unstable();
+        let got: Vec<&str> = read.anchors.iter().map(|a| a.id.as_str()).collect();
+        prop_assert_eq!(got, want.into_iter().map(|(_, id)| id).collect::<Vec<_>>());
+
+        let (revised, _, warnings) = diff_import(&rt, &read.markdown).unwrap();
+        prop_assert_eq!(&revised, &rt, "the read does not revise to itself: {:?}", read.markdown);
+        prop_assert!(warnings.is_empty(), "{:?}", warnings);
     }
 
 }
@@ -471,7 +523,7 @@ proptest! {
         del_seed in 0usize..4096,
         is_delete in any::<bool>(),
     ) {
-        let mut rt = from_markdown(&md).unwrap();
+        let mut rt = from_markdown(&md).unwrap().content;
         prop_assert_eq!(rt.validate(), Ok(()), "import invalid for {:?}", md);
         let len = rt.len_usv();
         let pos = pos_seed % (len + 1);
@@ -510,7 +562,7 @@ proptest! {
         is_delete in any::<bool>(),
     ) {
         const ID: &str = "anchor-\u{1f4a1}-42";
-        let mut rt = from_markdown(&md).unwrap().into_content();
+        let mut rt = from_markdown(&md).unwrap().content.into_content();
         let len = rt.len_usv();
         let a = a_seed % (len + 1);
         let b = b_seed % (len + 1);
@@ -555,7 +607,7 @@ proptest! {
         md in document(),
         pos_seed in 0usize..4096,
     ) {
-        let mut rt = from_markdown(&md).unwrap();
+        let mut rt = from_markdown(&md).unwrap().content;
         let at = pos_seed % (rt.len_usv() + 1);
         let op = IslandOp::Insert {
             at,
@@ -577,7 +629,7 @@ proptest! {
         s_seed in 0usize..4096,
         e_seed in 0usize..4096,
     ) {
-        let mut rt = from_markdown(&md).unwrap();
+        let mut rt = from_markdown(&md).unwrap().content;
         let len = rt.len_usv();
         let a = s_seed % (len + 1);
         let b = e_seed % (len + 1);
@@ -601,7 +653,7 @@ proptest! {
         line_seed in 0usize..64,
         which in 0u8..6,
     ) {
-        let mut rt = from_markdown(&md).unwrap();
+        let mut rt = from_markdown(&md).unwrap().content;
         let len = rt.len_usv();
         let nlines = rt.lines.len().max(1);
         let line = line_seed % nlines;
@@ -651,6 +703,7 @@ fn cell_token() -> impl Strategy<Value = String> {
         clean_word().prop_map(|w| format!("**{w}<br>{w}**")),
         clean_word().prop_map(|w| format!("<br>{w}")),
         clean_word().prop_map(|w| format!("{w}<br>")),
+        clean_word().prop_map(|w| format!("<qm-hl>{w}</qm-hl>")),
     ]
 }
 
@@ -671,7 +724,7 @@ fn import_row(contents: &[String]) -> Vec<Value> {
     let delim = vec!["---"; cols].join(" | ");
     let body = vec!["x"; cols].join(" | ");
     let md = format!("| {header} |\n| {delim} |\n| {body} |");
-    let rt = from_markdown(&md).unwrap();
+    let rt = from_markdown(&md).unwrap().content;
     rt.islands[0].props["header"].as_array().unwrap().clone()
 }
 
@@ -720,7 +773,7 @@ proptest! {
         }
 
         let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         prop_assert_eq!(&rt, &rt2, "table not a fixed point.\n  md: {:?}", md);
     }
 }
@@ -737,7 +790,7 @@ proptest! {
             prop::sample::select(vec!['a', 'b', '9', '\n', ' ']),
             1..10,
         ),
-        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..5), 0..4),
+        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..6), 0..4),
     ) {
         let text: String = chars.into_iter().collect();
         let n = text.chars().count();
@@ -745,7 +798,7 @@ proptest! {
             .iter()
             .map(|&(a, b, k)| {
                 let (s, e) = (a % (n + 1), b % (n + 1));
-                let kind = if k == 4 { MarkKind::Code } else { ov_kind(k) };
+                let kind = if k == 5 { MarkKind::Code } else { ov_kind(k) };
                 quillmark_content::serial::mark_to_value(&Mark::new(s.min(e), s.max(e), kind))
             })
             .collect();
@@ -759,13 +812,13 @@ proptest! {
         prop_assert_eq!(&renormalized(&rt), &*rt, "the table mint is not a fixed point");
 
         let md = to_markdown(&rt);
-        let rt2 = from_markdown(&md).unwrap();
+        let rt2 = from_markdown(&md).unwrap().content;
         let rows = rt2.islands.first().map(|i| i.props["rows"].clone());
         prop_assert_eq!(rows.as_ref().and_then(|r| r.as_array()).map(Vec::len), Some(1),
             "the row split: {:?}", md);
         let cell = &rt2.islands[0].props["rows"][0][0];
         prop_assert_eq!(cell["text"].as_str(), Some(text.as_str()), "cell text drifted: {:?}", md);
-        prop_assert_eq!(&from_markdown(&to_markdown(&rt2)).unwrap(), &rt2,
+        prop_assert_eq!(&from_markdown(&to_markdown(&rt2)).unwrap().content, &rt2,
             "the re-import is not a fixed point: {:?}", md);
 
         // A break flanks a delimiter as the punctuation `<br>` is, so the same
@@ -784,7 +837,7 @@ proptest! {
                 vec![vec![json!({"text": commas, "marks": wire})]],
             )
             .into_normalized();
-            let twin2 = from_markdown(&to_markdown(&twin)).unwrap();
+            let twin2 = from_markdown(&to_markdown(&twin)).unwrap().content;
             let marks_of = |rt: &Normalized| {
                 let mut marks = quillmark_content::serial::parse_cell(&rt.islands[0].props["rows"][0][0]).1;
                 // Off the twin's `,` where the cell holds a `\n`, as a stored edge is.
@@ -815,7 +868,15 @@ proptest! {
 /// branch; the noise arm keeps the rest of the space.
 const DECODE_DISCRIMINATORS: &[&str] = &[
     "text", "lines", "marks", "islands", "kind", "attrs", "op", "line", "at", "delta", "ops",
-    "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end",
+    "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end", "container", "type",
+    "$name", "element", "instance", "containers", "continues", "id", "props", "url", "level",
+    "ordered", "ordinal", "rows", "aligns", "widths", "align", "list_item", "quote", "table",
+];
+
+/// Every op tag the line, mark and island decoders read.
+const OP_TAGS: &[&str] = &[
+    "add", "remove", "removeAnchor", "split", "join", "setKind", "setContainers", "setContinues",
+    "set", "insert",
 ];
 
 fn decode_key() -> impl Strategy<Value = String> {
@@ -868,7 +929,7 @@ proptest! {
     /// argument decoding is.
     #[test]
     fn op_wire_decode_never_panics_past_the_tag(
-        op in prop::sample::select(&["add", "remove", "split", "merge", "set", "unset"][..]),
+        op in prop::sample::select(OP_TAGS),
         rest in prop::collection::hash_map(decode_key(), decode_json(), 0..6),
     ) {
         let mut obj: serde_json::Map<String, Value> = rest.into_iter().collect();
@@ -876,6 +937,22 @@ proptest! {
         let v = Value::Object(obj);
         let _ = quillmark_content::ops::line_op_from_value(&v);
         let _ = quillmark_content::ops::mark_op_from_value(&v);
+        let _ = quillmark_content::ops::island_op_from_value(&v);
+    }
+
+    /// A line's containers inside an envelope that decodes up to them, on
+    /// both lanes.
+    #[test]
+    fn container_decode_never_panics(containers in prop::collection::vec(decode_json(), 0..4)) {
+        let content = serde_json::json!({
+            "text": "a",
+            "lines": [{"kind": "para", "containers": containers}],
+            "marks": [],
+            "islands": [],
+        });
+        let _ = quillmark_content::serial::from_canonical_value(&content);
+        let op = serde_json::json!({"op": "setContainers", "line": 0, "containers": containers});
+        let _ = quillmark_content::ops::line_op_from_value(&op);
     }
 }
 
@@ -887,9 +964,9 @@ fn fixture_bodies_import_and_are_valid() {
         "extended_metadata_demo.md",
     ] {
         let md = fixture_body(name);
-        let rt = from_markdown(&md).unwrap_or_else(|e| panic!("import {name}: {e}"));
+        let rt = from_markdown(&md).unwrap_or_else(|e| panic!("import {name}: {e}")).content;
         assert_eq!(rt.validate(), Ok(()), "{name} invariants");
-        let rt2 = from_markdown(&to_markdown(&rt)).unwrap();
+        let rt2 = from_markdown(&to_markdown(&rt)).unwrap().content;
         assert_eq!(rt, rt2, "{name} content not a fixed point");
     }
 }

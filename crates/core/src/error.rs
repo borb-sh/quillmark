@@ -920,8 +920,8 @@ card_kinds:
                 .unwrap_or_else(|| panic!("no `{code}` sample from the seed probe"));
             add(code, sample.args.clone());
         }
-        // The tag warning is minted at assembly, so the sample is a document
-        // carrying a tag.
+        // The tag and drop warnings are minted at assembly, so each sample is a
+        // document carrying one.
         let tagged =
             crate::document::Document::parse("~~~\n$quill: q\n$kind: main\nother: !env Y\n~~~\n")
                 .expect("tag probe parses");
@@ -931,6 +931,25 @@ card_kinds:
             .find(|d| d.code.as_deref() == Some("parse::unsupported_yaml_tag"))
             .expect("no `parse::unsupported_yaml_tag` sample from the tag probe");
         add("parse::unsupported_yaml_tag", sample.args.clone());
+        let dropped =
+            crate::document::Document::parse("~~~\n$quill: q\n$kind: main\n~~~\n\n<span>x</span>\n")
+                .expect("drop probe parses");
+        let sample = dropped
+            .warnings
+            .iter()
+            .find(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
+            .expect("no `parse::dropped_construct` sample from the drop probe");
+        add(crate::document::DROPPED_CONSTRUCT, sample.args.clone());
+        add(
+            "validation::declined_construct",
+            crate::quill::compose::declined_construct_warning(
+                "typst",
+                crate::quill::BlockConstruct::Image,
+                2,
+                &path.body(),
+            )
+            .args,
+        );
         add(
             "backend::declined_construct",
             crate::backend::declined_construct(

@@ -67,7 +67,7 @@ quillmark render ./my-quill
 
 ### check
 
-Check markdown documents against a quill's schema, printing every diagnostic each one draws: parse warnings, then every `validation::*` diagnostic. It does not compile the plate, so a plate failure or a construct the backend declines (`backend::declined_construct`) is `render`'s to report.
+Check markdown documents against a quill's schema, printing every diagnostic each one draws: parse warnings, then every `validation::*` diagnostic. It does not compile the plate, so a plate failure is `render`'s to report; a construct the quill's backend declines draws `validation::declined_construct`, the warning `render` reports as `backend::declined_construct`.
 
 ```bash
 quillmark check [OPTIONS] <QUILL_PATH> <MARKDOWN_FILE>...

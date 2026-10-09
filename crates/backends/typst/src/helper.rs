@@ -38,12 +38,11 @@ pub struct ContentMap {
     pub path: String,
     pub block: Range<usize>,
     pub segments: Vec<SegmentMap>,
-    /// [`Emission::declined_images`] for this block.
-    pub declined_images: usize,
 }
 
-/// The source plus each content block's [`ContentMap`]. `Err` only when a
-/// content exceeds the nesting bound, which import already caps.
+/// The source plus each content block's [`ContentMap`]. `Err` only on data
+/// the seam already refuses: a content past the nesting bound, or a non-blank
+/// date that will not parse ([`EmitError`]).
 pub fn generate_lib_typ(
     data: &serde_json::Value,
     meta: &SchemaMeta,
@@ -93,21 +92,19 @@ pub fn generate_lib_typ(
     let mut windows: Vec<ContentMap> = cg
         .windows
         .into_iter()
-        .map(|(path, block, segments, declined_images)| ContentMap {
+        .map(|(path, block, segments)| ContentMap {
             path,
             block: (block.start + blocks_at)..(block.end + blocks_at),
             segments: segments
                 .into_iter()
                 .map(|s| rebase_segment(s, blocks_at))
                 .collect(),
-            declined_images,
         })
         .collect();
     windows.extend(data_literal.windows.into_iter().map(|(path, block)| ContentMap {
         path,
         block: (block.start + data_at)..(block.end + data_at),
         segments: Vec::new(),
-        declined_images: 0,
     }));
     Ok((out, windows))
 }
@@ -125,7 +122,7 @@ fn rebase_segment(mut s: SegmentMap, shift: usize) -> SegmentMap {
 struct Codegen<'m> {
     meta: &'m SchemaMeta,
     blocks: String,
-    windows: Vec<(String, Range<usize>, Vec<SegmentMap>, usize)>,
+    windows: Vec<(String, Range<usize>, Vec<SegmentMap>)>,
     counter: usize,
     emit_error: Option<EmitError>,
     /// `(schema address, block binding)` per present date. Backs `_qm-display`.
@@ -151,7 +148,6 @@ impl<'m> Codegen<'m> {
     fn content_block(&mut self, path: &str, ec: Emission) -> String {
         let id = format!("_qm_c{}", self.counter);
         self.counter += 1;
-        let declined_images = ec.declined_images;
         self.blocks.push_str("#let ");
         self.blocks.push_str(&id);
         self.blocks.push_str(" = ");
@@ -169,8 +165,7 @@ impl<'m> Codegen<'m> {
             .into_iter()
             .map(|s| rebase_segment(s, markup_at))
             .collect();
-        self.windows
-            .push((path.to_string(), start..end, segments, declined_images));
+        self.windows.push((path.to_string(), start..end, segments));
         id
     }
 
@@ -192,7 +187,7 @@ impl<'m> Codegen<'m> {
         let text_end = self.blocks.len();
         self.blocks.push('\n');
         self.windows
-            .push((path.to_string(), text_start..text_end, Vec::new(), 0));
+            .push((path.to_string(), text_start..text_end, Vec::new()));
         self.display.push((path.to_string(), id.clone()));
         id
     }
@@ -748,7 +743,7 @@ mod tests {
     }
 
     fn content(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown).expect("import");
+        let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
         quillmark_content::serial::to_canonical_value(&rt)
     }
 
@@ -823,7 +818,7 @@ mod tests {
     fn segment_maps_index_the_generated_lib_typ() {
         let meta = meta_from(serde_json::json!({ "properties": { "intro": richtext_field() } }));
         let rt = quillmark_content::import::from_markdown("Hello **bold**.\n\nSecond para.")
-            .expect("import");
+            .expect("import").content;
         let data =
             serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
         let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();

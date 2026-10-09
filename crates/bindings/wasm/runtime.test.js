@@ -174,24 +174,34 @@ card_kinds:
     expect(fieldOf(ed.document.main, 'qty')).toBe(5)
   })
 
-  it('reviseBody / reviseField write from markdown and return a Delta', () => {
+  it('reviseBody / reviseField write from markdown and return the receipt', () => {
     const quill = buildQuill()
     const ed = quill.writer(blankDoc())
-    expect(Array.isArray(ed.reviseBody('New **body**.').ops)).toBe(true)
+    expect(Array.isArray(ed.reviseBody('New **body**.').delta.ops)).toBe(true)
     expect(ed.document.bodyMarkdown()).toBe('New **body**.')
-    expect(Array.isArray(ed.reviseField('subject', 'Q3 **results**').ops)).toBe(true)
+    const { delta, warnings } = ed.reviseField('subject', 'Q3 <kbd>**results**</kbd>')
+    expect(Array.isArray(delta.ops)).toBe(true)
+    expect(warnings.map((w) => [w.code, w.path])).toEqual([
+      ['parse::dropped_construct', 'main.subject'],
+    ])
     expect(quill.reader(ed.document).get('subject')).toBe('Q3 **results**')
   })
 
   it('addCard commits fields and body; removeCard returns the card', () => {
     const ed = buildQuill().writer(blankDoc())
     // `body` here is the card's richtext FIELD; the third arg is the card body.
-    ed.addCard('note', { body: 'Field **body**.' }, 'Card body text.')
+    expect(ed.addCard('note', { body: 'Field **body**.' }, 'Card body text.')).toEqual([])
     expect(ed.document.cards[0].kind).toBe('note')
     expect(exportMarkdown(fieldOf(ed.document.cards[0], 'body'))).toBe('Field **body**.')
     expect(exportMarkdown(ed.document.cards[0].body)).toBe('Card body text.')
     expect(ed.removeCard(0).kind).toBe('note')
     expect(ed.document.cards).toHaveLength(0)
+
+    ed.addCard('note', {}, 'First.')
+    expect(ed.addCard('note', {}, 'x <span>y</span>', 0).map((w) => [w.code, w.path])).toEqual([
+      ['parse::dropped_construct', 'cards.note[0].body'],
+    ])
+    expect(exportMarkdown(ed.document.cards[0].body)).toBe('x y')
   })
 
   it('card(i).set / reviseBody / reviseField address the composable card', () => {
@@ -201,12 +211,47 @@ card_kinds:
     const ed = buildQuill().writer(doc)
     ed.card(0).set('body', 'Card **body**.')
     expect(exportMarkdown(fieldOf(doc.cards[0], 'body'))).toBe('Card **body**.')
-    expect(Array.isArray(ed.card(0).reviseBody('Card body md.').ops)).toBe(true)
+    expect(ed.card(0).reviseBody('Card <span>body</span> md.').warnings[0].path).toBe(
+      'cards.note[0].body'
+    )
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body md.')
     // card(i).reviseField is the typed, anchor-preserving field write.
-    const delta = ed.card(0).reviseField('body', 'Revised **field**.')
+    const { delta } = ed.card(0).reviseField('body', 'Revised **field**.')
     expect(exportMarkdown(fieldOf(doc.cards[0], 'body'))).toBe('Revised **field**.')
     expect(Array.isArray(delta.ops)).toBe(true)
+  })
+
+  it('reviseDocument revises the whole document, then conforms it, clearing the load warnings', () => {
+    const quill = buildQuill()
+    const doc = quill.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\n<span>Body.</span>\n\n~~~card-yaml\n$kind: note\nbody: kept\n~~~\n')
+    expect(doc.warnings.map((w) => [w.code, w.path])).toEqual([['parse::dropped_construct', 'main.body']])
+    const ed = quill.writer(doc)
+    const receipt = ed.reviseDocument(
+      '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nbody: kept\n~~~\n',
+    )
+    expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'warnings'])
+    expect(receipt.droppedAnchors).toEqual([])
+    expect(receipt.warnings).toEqual([])
+    expect(doc.warnings).toEqual([])
+    expect(fieldOf(doc.main, 'subject')).toHaveProperty('text', 'Q3 results')
+    expect(() => ed.reviseDocument('~~~card-yaml\n$quill: other\n~~~\n')).toThrow()
+    expect(quill.reader(doc).get('subject')).toBe('Q3 **results**')
+  })
+
+  it('reviseDocument names each anchor it drops at the address the document held it', () => {
+    const quill = buildQuill()
+    const doc = quill.parse(
+      '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nFirst note.\n',
+    )
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }] })
+    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 6, end: 10, type: 'anchor', attrs: { id: 'n' } }] })
+    const receipt = quill
+      .writer(doc)
+      .reviseDocument('~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n')
+    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', id: 'n' }])
+    expect(receipt.warnings).toEqual([])
+    expect(doc.main.body.marks).toEqual([{ start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }])
+    expect(doc.cards).toEqual([])
   })
 
   it('a bad card index throws at write time, not at card()', () => {
@@ -566,7 +611,7 @@ describe('@quillmark/wasm: container run boundaries', () => {
   const remints = (a, b, expected) => {
     const [x, y] = assignInstances([a, b])
     expect([x, y].map((c) => c.instance)).toEqual(expected)
-    const back = importMarkdown(exportMarkdown(content(x, y)))
+    const back = importMarkdown(exportMarkdown(content(x, y))).content
     expect(back.lines.map((l) => l.containers[0].instance)).toEqual(
       expected.map((n) => n || undefined)
     )
@@ -579,8 +624,14 @@ describe('@quillmark/wasm: container run boundaries', () => {
     remints(LIST, list({ start: 3 }), [0, 1])
     remints(LIST, list({ ordinal: 4 }), [0, 1])
     remints(QUOTE, QUOTE, [0, 1])
+    // An element welds on its whole attribute bag, its name among them.
+    const element = (attrs) => ({ container: 'element', attrs: { $name: 'keep', ...attrs } })
+    remints(element({ note: 'x' }), element({ note: 'x' }), [0, 1])
     // A shape the projection can tell apart needs no discriminator.
     remints(LIST, list({ ordered: true }), [0, 0])
+    remints(element({ note: 'x' }), element({ note: 'y' }), [0, 0])
+    remints(element({ note: 'x' }), element({}), [0, 0])
+    remints(element({}), { container: 'element', attrs: { $name: 'hold' } }, [0, 0])
   })
 
   it('alternates only across runs that would weld', () => {
@@ -635,12 +686,10 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     expect(formats).toContain('svg')
   })
 
-  // ERROR.md § "Warning flow": `RenderResult.warnings` is pipeline order, the
-  // load's ahead of the backend render's. Only the runtime layer can merge
-  // them — the document clone it renders comes through `fromStored`, which
-  // carries no warnings, so the backend build's own merge has nothing to
-  // prepend.
-  it('render fronts RenderResult.warnings with the load warnings, leaving doc.warnings intact', async () => {
+  // ERROR.md § "Warning flow": a render reports what the render sees. The
+  // load's warnings stay on `doc.warnings`, so a revise never leaves a render
+  // reporting a drop the document no longer holds.
+  it('render leaves the load warnings on doc.warnings', async () => {
     const quill = makeRuntimeQuill()
     const doc = quill.parse(TEST_MARKDOWN.replace('title: ', 'title: !shout '))
     const loadCodes = doc.warnings.map((d) => d.code)
@@ -648,7 +697,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
 
     const result = await new Engine().render(quill, doc, { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
-    expect(result.warnings.slice(0, loadCodes.length)).toEqual(doc.warnings)
+    expect(result.warnings.map((d) => d.code)).not.toContain('parse::unsupported_yaml_tag')
     expect(doc.warnings.map((d) => d.code)).toEqual(loadCodes)
   })
 
@@ -750,6 +799,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
       [new Map([['format', 'svg']]), 'not a `Map`'],
       [new (class { format = 'svg' })(), 'render options must be a plain object'],
       [{ format: 'pdf', today: undefined }, 'unknown key `today`'],
+      [Object.create(Object.assign(Object.create(null), { today: '2026-03-14' })), 'unknown key `today`'],
     ]) {
       expect(message(await render(options).catch((e) => e))).toContain(refusal)
     }
@@ -759,14 +809,46 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
       [new Map([['backends', {}]]), 'not a `Map`'],
       [new (class { backends = {} })(), 'Engine options must be a plain object'],
       [{ backends: {}, backend: undefined }, 'unknown key `backend`'],
+      [Object.create(Object.assign(Object.create(null), { backend: {} })), 'unknown key `backend`'],
     ]) {
       expect(message(caughtFrom(() => new Engine(options)))).toContain(refusal)
     }
 
-    for (const plain of [() => Object.create(null), () => vm.runInNewContext('({})')]) {
+    const plains = [
+      () => Object.create(null),
+      () => vm.runInNewContext('({})'),
+      () => Object.create(Object.create(null)),
+    ]
+    for (const plain of plains) {
       expect((await render(Object.assign(plain(), { format: 'svg' }))).outputFormat).toBe('svg')
       expect(() => new Engine(Object.assign(plain(), { backends: {} }))).not.toThrow()
     }
+  })
+
+  it('an options object whose read throws is refused, and the engine still renders', async () => {
+    const message = (err) => {
+      expect(isQuillmarkError(err), String(err)).toBe(true)
+      return err.diagnostics[0].message
+    }
+    const engine = new Engine()
+    const quill = makeRuntimeQuill()
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const revoked = Proxy.revocable({}, {})
+    revoked.revoke()
+    for (const options of [
+      new Proxy({}, { ownKeys: () => { throw new Error('ownKeys trap') } }),
+      new Proxy({}, { getPrototypeOf: () => { throw new Error('getPrototypeOf trap') } }),
+      revoked.proxy,
+    ]) {
+      expect(message(await engine.render(quill, doc, options).catch((e) => e))).toContain(
+        'render options must be a plain object, not one whose read throws'
+      )
+      expect(message(caughtFrom(() => new Engine(options)))).toContain(
+        'Engine options must be a plain object, not one whose read throws'
+      )
+    }
+    expect(message(await engine.render(quill, doc, revoked.proxy).catch((e) => e))).toContain('revoked')
+    expect((await engine.render(quill, doc, { format: 'svg' })).outputFormat).toBe('svg')
   })
 
   // A loader that wraps the real backend module so `Quill.fromTree` calls are

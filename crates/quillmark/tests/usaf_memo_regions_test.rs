@@ -75,7 +75,7 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
     );
 
     let mut edited = parsed.clone();
-    quillmark::TypedWriter::new(quill.config(), &mut edited)
+    let _ = quillmark::TypedWriter::new(quill.config(), &mut edited)
         .card(0)
         .expect("the indorsement card")
         .revise_body("The indorsement **body**, rebuilt by render-body.")

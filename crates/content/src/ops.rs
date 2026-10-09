@@ -1196,7 +1196,7 @@ mod tests {
 
     #[test]
     fn apply_text_delta_rebases_marks() {
-        let mut rt = from_markdown("hello").unwrap().into_content();
+        let mut rt = from_markdown("hello").unwrap().content.into_content();
         rt.marks.push(Mark {
             start: 1,
             end: 4,
@@ -1215,7 +1215,7 @@ mod tests {
     }
 
     fn anchored(text: &str, at: Usv) -> crate::model::Normalized {
-        let mut rt = from_markdown(text).unwrap();
+        let mut rt = from_markdown(text).unwrap().content;
         rt.apply_mark_ops(&[MarkOp::Add {
             start: at,
             end: at,
@@ -1270,7 +1270,7 @@ mod tests {
 
     #[test]
     fn an_insert_at_a_range_marks_edge_stays_outside_the_span() {
-        let mut at_start = from_markdown("hello world").unwrap();
+        let mut at_start = from_markdown("hello world").unwrap().content;
         at_start
             .apply_mark_ops(&[MarkOp::Add {
                 start: 6,
@@ -1283,7 +1283,7 @@ mod tests {
             .unwrap();
         assert_eq!(strong_at(&at_start), (7, 12));
 
-        let mut at_end = from_markdown("hello world").unwrap();
+        let mut at_end = from_markdown("hello world").unwrap().content;
         at_end
             .apply_mark_ops(&[MarkOp::Add {
                 start: 0,
@@ -1296,7 +1296,7 @@ mod tests {
             .unwrap();
         assert_eq!(strong_at(&at_end), (0, 5));
 
-        let mut at_end_island = from_markdown("hello world").unwrap();
+        let mut at_end_island = from_markdown("hello world").unwrap().content;
         at_end_island
             .apply_mark_ops(&[MarkOp::Add {
                 start: 0,
@@ -1355,7 +1355,7 @@ mod tests {
                 kind: LineKind::Para,
             }],
         ] {
-            let mut rt = from_markdown("ab cd").unwrap();
+            let mut rt = from_markdown("ab cd").unwrap().content;
             rt.apply_mark_ops(&[
                 MarkOp::Add {
                     start: 0,
@@ -1404,7 +1404,7 @@ mod tests {
     fn apply_text_delta_pads_short_prepend() {
         // A prepend naming only its inserted text (no trailing retain) still
         // splices against the whole content.
-        let mut rt = from_markdown("hello").unwrap();
+        let mut rt = from_markdown("hello").unwrap().content;
         rt.apply_text_delta(&Delta {
             ops: vec![Op::Insert("NEW ".into())],
         })
@@ -1416,7 +1416,7 @@ mod tests {
     fn apply_text_delta_rejects_over_long_delta() {
         // Consuming more base than exists is a wrong-revision delta, not an
         // abbreviated one.
-        let mut rt = from_markdown("hi").unwrap();
+        let mut rt = from_markdown("hi").unwrap().content;
         assert!(matches!(
             rt.apply_text_delta(&Delta {
                 ops: vec![Op::Retain(99)],
@@ -1434,7 +1434,7 @@ mod tests {
             "delta": { "ops": [{ "retain": usize::MAX }, { "retain": 2 }] }
         }))
         .unwrap();
-        let mut rt = from_markdown("hi").unwrap();
+        let mut rt = from_markdown("hi").unwrap().content;
         assert!(matches!(
             rt.apply_field_change(&bundle),
             Err(ApplyError::DeltaBaseMismatch { .. })
@@ -1444,7 +1444,7 @@ mod tests {
 
     #[test]
     fn apply_mark_ops_remove_punches_hole() {
-        let mut rt = from_markdown("abcdef").unwrap();
+        let mut rt = from_markdown("abcdef").unwrap().content;
         rt.apply_mark_ops(&[MarkOp::Add {
             start: 0,
             end: 6,
@@ -1468,7 +1468,7 @@ mod tests {
 
     #[test]
     fn apply_mark_ops_remove_at_edge_leaves_no_zero_width() {
-        let mut rt = from_markdown("abcdef").unwrap();
+        let mut rt = from_markdown("abcdef").unwrap().content;
         rt.apply_mark_ops(&[MarkOp::Add {
             start: 0,
             end: 6,
@@ -1492,7 +1492,7 @@ mod tests {
 
     #[test]
     fn apply_mark_ops_remove_covering_range_drops_mark() {
-        let mut rt = from_markdown("abcdef").unwrap();
+        let mut rt = from_markdown("abcdef").unwrap().content;
         rt.apply_mark_ops(&[MarkOp::Add {
             start: 2,
             end: 4,
@@ -1511,7 +1511,7 @@ mod tests {
     #[test]
     fn apply_mark_ops_remove_non_formatting_drops_whole() {
         let anchor = || MarkKind::Anchor { id: "a".into() };
-        let mut rt = from_markdown("abcdef").unwrap().into_content();
+        let mut rt = from_markdown("abcdef").unwrap().content.into_content();
         rt.marks.push(Mark {
             start: 0,
             end: 6,
@@ -1535,7 +1535,7 @@ mod tests {
     /// path too.
     #[test]
     fn a_failed_op_list_leaves_the_token_canonical() {
-        let mut rt = from_markdown("**a**b").unwrap();
+        let mut rt = from_markdown("**a**b").unwrap().content;
         let ops = [
             MarkOp::Add {
                 start: 0,
@@ -1554,7 +1554,7 @@ mod tests {
 
     #[test]
     fn line_op_split_and_join() {
-        let mut rt = from_markdown("onetwo").unwrap();
+        let mut rt = from_markdown("onetwo").unwrap().content;
         rt.apply_line_ops(&[LineOp::Split { at: 3 }]).unwrap();
         assert_eq!(rt.text, "one\ntwo");
         assert_eq!(rt.lines.len(), 2);
@@ -1567,7 +1567,7 @@ mod tests {
 
     #[test]
     fn line_op_set_kind() {
-        let mut rt = from_markdown("title").unwrap();
+        let mut rt = from_markdown("title").unwrap().content;
         rt.apply_line_ops(&[LineOp::SetKind {
             line: 0,
             kind: LineKind::Heading { level: 2 },
@@ -1580,7 +1580,7 @@ mod tests {
     /// settles it to what the text spells, leaving the text itself alone.
     #[test]
     fn line_op_set_kind_over_contradicting_text_settles_to_what_the_text_spells() {
-        let mut rt = from_markdown("hello world").unwrap();
+        let mut rt = from_markdown("hello world").unwrap().content;
         assert_eq!(
             rt.apply_line_ops(&[LineOp::SetKind {
                 line: 0,
@@ -1595,7 +1595,7 @@ mod tests {
         // Tagging a table island's line `Code` would fence the slot, which
         // re-imports as nothing. The demotion settles it back to the `Para` the
         // line started as, and the table still projects.
-        let mut tbl = from_markdown("| a | b |\n|---|---|\n| 1 | 2 |").unwrap();
+        let mut tbl = from_markdown("| a | b |\n|---|---|\n| 1 | 2 |").unwrap().content;
         assert_eq!(
             tbl.apply_line_ops(&[LineOp::SetKind {
                 line: 0,
@@ -1613,7 +1613,7 @@ mod tests {
     /// take it, leaving the projection untouched.
     #[test]
     fn set_continues_lands_only_where_a_block_can_continue() {
-        let mut rt = from_markdown("- a\n\npara").unwrap();
+        let mut rt = from_markdown("- a\n\npara").unwrap().content;
         assert_ne!(rt.lines[0].containers, rt.lines[1].containers);
         assert_eq!(
             rt.apply_line_ops(&[LineOp::SetContinues {
@@ -1625,7 +1625,7 @@ mod tests {
         assert!(!rt.lines[1].continues, "the crossing is cleared");
 
         // Inside one container it is an ordinary hard break.
-        let mut rt = from_markdown("- a\n\n  b").unwrap();
+        let mut rt = from_markdown("- a\n\n  b").unwrap().content;
         assert_eq!(rt.lines[0].containers, rt.lines[1].containers);
         assert_eq!(
             rt.apply_line_ops(&[LineOp::SetContinues {
@@ -1637,7 +1637,7 @@ mod tests {
         assert!(rt.lines[1].continues);
 
         for markdown in ["# a\n\nb", "| h |\n| --- |\n| c |\n\nb", "***\n\nb"] {
-            let mut rt = from_markdown(markdown).unwrap();
+            let mut rt = from_markdown(markdown).unwrap().content;
             let line = rt.lines.len() - 1;
             assert_eq!(
                 rt.apply_line_ops(&[LineOp::SetContinues {
@@ -1655,7 +1655,7 @@ mod tests {
         // block a continuation already follows. That retag is accepted and the
         // terminal `normalize` clears the flag, so the continuation lands as
         // the paragraph it is rather than vanishing.
-        let mut rt = from_markdown("a\\\nb").unwrap();
+        let mut rt = from_markdown("a\\\nb").unwrap().content;
         assert!(rt.lines[1].continues, "a hard break is a continuation");
         assert_eq!(
             rt.apply_line_ops(&[LineOp::SetKind {
@@ -1675,7 +1675,7 @@ mod tests {
     /// `validate` buys.
     #[test]
     fn join_across_two_paths_leaves_a_valid_content() {
-        let mut rt = from_markdown("- a\n\npara\\\nbroken").unwrap();
+        let mut rt = from_markdown("- a\n\npara\\\nbroken").unwrap().content;
         let seam = rt
             .lines
             .iter()
@@ -1690,7 +1690,7 @@ mod tests {
 
     #[test]
     fn line_op_set_containers_is_depth_capped() {
-        let mut rt = from_markdown("hi").unwrap();
+        let mut rt = from_markdown("hi").unwrap().content;
         let deep = vec![Container::Quote { instance: 0 }; crate::MAX_NESTING_DEPTH + 1];
         assert_eq!(
             rt.apply_line_ops(&[LineOp::SetContainers {
@@ -1708,7 +1708,7 @@ mod tests {
 
     #[test]
     fn line_op_set_kind_range_checks_the_heading_level() {
-        let mut rt = from_markdown("t").unwrap();
+        let mut rt = from_markdown("t").unwrap().content;
         assert_eq!(
             rt.apply_line_ops(&[LineOp::SetKind {
                 line: 0,
@@ -1727,7 +1727,7 @@ mod tests {
 
     #[test]
     fn line_op_set_continues_sets_and_clears() {
-        let mut rt = from_markdown("one two").unwrap();
+        let mut rt = from_markdown("one two").unwrap().content;
         rt.apply_text_delta(&diff("one two", "one\ntwo")).unwrap();
         assert!(!rt.lines[1].continues, "delta-split newline is a new block");
 
@@ -1757,7 +1757,7 @@ mod tests {
     /// reader: the mint clears it and the content is what it was.
     #[test]
     fn line_op_set_continues_on_the_first_line_clears() {
-        let mut rt = from_markdown("one two").unwrap();
+        let mut rt = from_markdown("one two").unwrap().content;
         rt.apply_text_delta(&diff("one two", "one\ntwo")).unwrap();
         let before = rt.clone();
         for continues in [true, false] {
@@ -1805,7 +1805,7 @@ mod tests {
     #[test]
     fn insert_bidi_control_is_stripped() {
         // Import's Trojan-source defense is not bypassed by the delta channel.
-        let mut rt = from_markdown("ab").unwrap();
+        let mut rt = from_markdown("ab").unwrap().content;
         let d = Delta {
             ops: vec![
                 Op::Retain(1),
@@ -1823,7 +1823,7 @@ mod tests {
         // A space keeps the words apart without minting the line break Typst
         // would read, and which would make `- item` a bullet.
         for sep in ['\u{000B}', '\u{000C}', '\u{0085}', '\u{2028}', '\u{2029}'] {
-            let mut rt = from_markdown("ab").unwrap();
+            let mut rt = from_markdown("ab").unwrap().content;
             let d = Delta {
                 ops: vec![Op::Retain(2), Op::Insert(format!("{sep}- item"))],
             };
@@ -1836,7 +1836,7 @@ mod tests {
 
     #[test]
     fn insert_crlf_keeps_the_newline_and_splits() {
-        let mut rt = from_markdown("ab").unwrap();
+        let mut rt = from_markdown("ab").unwrap().content;
         let d = Delta {
             ops: vec![Op::Retain(1), Op::Insert("\r\n".into()), Op::Retain(1)],
         };
@@ -1914,7 +1914,7 @@ mod tests {
     /// the field survives an edit a whole-value `overwrite` would have cleared.
     #[test]
     fn island_set_edits_props_and_keeps_the_field_anchors() {
-        let mut rt = from_markdown("intro\n\n| H |\n| --- |\n| a |").unwrap();
+        let mut rt = from_markdown("intro\n\n| H |\n| --- |\n| a |").unwrap().content;
         assert_eq!(rt.islands.len(), 1, "one table island");
         let id = rt.islands[0].id.clone();
         rt.apply_mark_ops(&[MarkOp::Add {
@@ -1943,7 +1943,7 @@ mod tests {
 
     #[test]
     fn island_set_rejects_an_unknown_id() {
-        let mut rt = from_markdown("| H |\n| --- |\n| a |").unwrap();
+        let mut rt = from_markdown("| H |\n| --- |\n| a |").unwrap().content;
         let before = rt.clone();
         assert_eq!(
             rt.apply_field_change(&island_bundle(vec![IslandOp::Set {
@@ -1959,7 +1959,7 @@ mod tests {
 
     #[test]
     fn island_insert_adds_the_slot_and_its_entry() {
-        let mut rt = from_markdown("ab").unwrap();
+        let mut rt = from_markdown("ab").unwrap().content;
         rt.apply_mark_ops(&[MarkOp::Add {
             start: 0,
             end: 1,
@@ -1991,7 +1991,7 @@ mod tests {
     /// post-delta-only reading, which errors neither way.
     #[test]
     fn island_inserts_apply_in_sequence() {
-        let mut rt = from_markdown("xabc").unwrap();
+        let mut rt = from_markdown("xabc").unwrap().content;
         rt.apply_field_change(&ChangeBundle {
             // Post-delta: the deleted `x` is out of the frame the ops read.
             delta: diff("xabc", "abc"),
@@ -2026,7 +2026,7 @@ mod tests {
 
     #[test]
     fn slot_bearing_splice_splits_into_delta_and_insert() {
-        let mut rt = from_markdown("ab").unwrap();
+        let mut rt = from_markdown("ab").unwrap().content;
         let before = rt.clone();
 
         let paste = format!("x{ISLAND_SLOT}y");
@@ -2063,7 +2063,7 @@ mod tests {
     /// the island whole, leaving the `Para` the line was throughout.
     #[test]
     fn block_island_restore_reproduces_the_content() {
-        let mut rt = from_markdown("intro").unwrap();
+        let mut rt = from_markdown("intro").unwrap().content;
         rt.apply_field_change(&ChangeBundle {
             delta: diff("intro", "intro\n"),
             island_ops: vec![IslandOp::Insert {
@@ -2103,7 +2103,7 @@ mod tests {
         let table = |id: &str| {
             Island::new(id.into(), IslandType::Table).with_props(table_props("H", "a"))
         };
-        let mut rt = from_markdown("ab").unwrap();
+        let mut rt = from_markdown("ab").unwrap().content;
         let before = rt.clone();
         assert_eq!(
             rt.apply_field_change(&island_bundle(vec![IslandOp::Insert {
@@ -2150,7 +2150,7 @@ mod tests {
     /// line apart again, so the placement holds however the content was reached.
     #[test]
     fn a_join_onto_a_block_island_line_is_undone_by_the_mint() {
-        let mut rt = from_markdown("ab\n\n| H |\n| --- |\n| a |").unwrap();
+        let mut rt = from_markdown("ab\n\n| H |\n| --- |\n| a |").unwrap().content;
         let before = rt.clone();
         rt.apply_line_ops(&[LineOp::Join { line: 0 }]).unwrap();
         assert_eq!(rt.validate(), Ok(()));
@@ -2161,7 +2161,7 @@ mod tests {
     /// non-empty and unused, since `Set` addresses by it.
     #[test]
     fn island_insert_id_and_position_rules() {
-        let mut rt = from_markdown("ab").unwrap();
+        let mut rt = from_markdown("ab").unwrap().content;
         assert_eq!(
             rt.apply_field_change(&island_bundle(vec![IslandOp::Insert {
                 at: 1,
@@ -2195,7 +2195,7 @@ mod tests {
     /// it, and the field's anchors stay.
     #[test]
     fn block_island_lands_in_one_bundle() {
-        let mut rt = from_markdown("intro").unwrap();
+        let mut rt = from_markdown("intro").unwrap().content;
         rt.apply_mark_ops(&[MarkOp::Add {
             start: 0,
             end: 5,
@@ -2229,7 +2229,7 @@ mod tests {
 
     #[test]
     fn apply_field_change_bundle_order() {
-        let mut rt = from_markdown("abc").unwrap();
+        let mut rt = from_markdown("abc").unwrap().content;
         let d = diff("abc", "abXc");
         rt.apply_field_change(&mark_bundle(
             d,
@@ -2251,7 +2251,7 @@ mod tests {
 
     #[test]
     fn apply_field_change_is_all_or_nothing() {
-        let mut rt = from_markdown("abc").unwrap();
+        let mut rt = from_markdown("abc").unwrap().content;
         let before = rt.clone();
         let d = diff("abc", "abXc");
         let err = rt.apply_field_change(&mark_bundle(
@@ -2284,7 +2284,7 @@ mod tests {
 
         let noop = || diff("abcd", "abcd");
 
-        let mut rt = from_markdown("abcd").unwrap();
+        let mut rt = from_markdown("abcd").unwrap().content;
         rt.apply_field_change(&mark_bundle(noop(), vec![add(0, 2, "x")]))
             .unwrap();
         assert_eq!(
@@ -2292,7 +2292,7 @@ mod tests {
             Err(ApplyError::AnchorIdCollision { id: "x".into() })
         );
 
-        let mut rt = from_markdown("abcd").unwrap();
+        let mut rt = from_markdown("abcd").unwrap().content;
         assert_eq!(
             rt.apply_field_change(&mark_bundle(noop(), vec![add(0, 2, "")])),
             Err(ApplyError::EmptyAnchorId)
@@ -2300,7 +2300,7 @@ mod tests {
 
         // Remove-then-add of the same id in one bundle: ops apply in sequence,
         // so the id is free by the time the `add` runs.
-        let mut rt = from_markdown("abcd").unwrap();
+        let mut rt = from_markdown("abcd").unwrap().content;
         rt.apply_field_change(&mark_bundle(noop(), vec![add(0, 2, "x")]))
             .unwrap();
         rt.apply_field_change(&mark_bundle(
@@ -2419,7 +2419,7 @@ mod tests {
 
     #[test]
     fn split_line_rebases_mark_across_the_split_point() {
-        let mut rt = from_markdown("abcd").unwrap();
+        let mut rt = from_markdown("abcd").unwrap().content;
         rt.apply_mark_ops(&[MarkOp::Add {
             start: 1,
             end: 3,
@@ -2442,7 +2442,7 @@ mod tests {
 
     #[test]
     fn join_line_rebases_marks_to_final_text_coordinates() {
-        let mut rt = from_markdown("ab").unwrap().into_content();
+        let mut rt = from_markdown("ab").unwrap().content.into_content();
         rt.apply_text_delta(&diff("ab", "ab\ncd")).unwrap();
         rt.marks.push(Mark {
             start: 2,
@@ -2464,7 +2464,7 @@ mod tests {
 
     #[test]
     fn field_change_terminal_normalize_matches_per_stage_normalize() {
-        let start = from_markdown("hello world").unwrap();
+        let start = from_markdown("hello world").unwrap().content;
         let text_delta = diff("hello world", "hello brave world");
         let line_ops = vec![LineOp::Split { at: 5 }]; // after "hello"
         let mark_ops = vec![MarkOp::Add {

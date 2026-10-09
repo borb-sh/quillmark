@@ -38,10 +38,15 @@ fn container_tags() -> Vec<&'static str> {
             instance: 0,
         },
         Container::Quote { instance: 0 },
+        Container::Element {
+            name: String::new(),
+            attrs: Default::default(),
+            instance: 0,
+        },
     ];
     for c in &all {
         match c {
-            Container::ListItem { .. } | Container::Quote { .. } => {}
+            Container::ListItem { .. } | Container::Quote { .. } | Container::Element { .. } => {}
         }
     }
     all.iter().map(Container::tag).collect()

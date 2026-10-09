@@ -89,6 +89,11 @@ w.set_all({"title": "T", "author": "A"})  # atomic batch; one diagnostic per bad
 w.revise_body("A **taro** essay.")        # body write (edit semantics; a body has no field schema)
 w.revise_field("bio", "make it **bold**") # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
+                                          # revise_body, revise_field and add_card return the parse::dropped_construct
+                                          # warnings their markdown import raised: [Diagnostic, ...]
+w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors rebase,
+                                          # then conform; returns the parse's, each revised field's and the
+                                          # conform::* warnings, and clears doc.warnings
 w.remove_card(0)
 w.set("author", "Issa", card=0)           # every verb takes card=: None is main, an int the composable card
 ```
@@ -117,7 +122,9 @@ doc.card(0)["kind"]                       # the composable card's $kind
 
 ```python
 result.artifacts            # [Artifact, ...]
-result.warnings             # [Diagnostic, ...]: parse, then quill.validate, then compile
+result.warnings             # [Diagnostic, ...]: quill.validate's but validation::declined_construct,
+                            # then the compile's, backend::declined_construct among them;
+                            # the load's stay on doc.warnings
 result.format               # OutputFormat
 
 artifact.format             # OutputFormat

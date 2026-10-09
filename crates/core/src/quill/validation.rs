@@ -1090,7 +1090,7 @@ main:
     #[test]
     fn rejects_richtext_inline_with_multi_block_content() {
         let config = config_with("    tag:\n      type: richtext\n      inline: true", "");
-        let rt = quillmark_content::import::from_markdown("one\n\ntwo").unwrap();
+        let rt = quillmark_content::import::from_markdown("one\n\ntwo").unwrap().content;
         let content = quillmark_content::serial::to_canonical_value(&rt);
         let doc = doc_from_fm(&[("tag", content)]);
         let errors = validate_typed_document(&config, &doc).unwrap_err();
@@ -1126,7 +1126,7 @@ main:
     #[test]
     fn accepts_richtext_inline_single_para_content() {
         let config = config_with("    tag:\n      type: richtext\n      inline: true", "");
-        let rt = quillmark_content::import::from_markdown("one line only").unwrap();
+        let rt = quillmark_content::import::from_markdown("one line only").unwrap().content;
         let content = quillmark_content::serial::to_canonical_value(&rt);
         let doc = doc_from_fm(&[("tag", content)]);
         assert!(validate_typed_document(&config, &doc).is_ok());

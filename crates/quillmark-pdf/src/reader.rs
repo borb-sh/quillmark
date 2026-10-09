@@ -6,15 +6,16 @@
 //! ## Input contract
 //!
 //! The base PDF must be traditional-xref, unencrypted, inline-annots,
-//! bounded-tree, well-formed: a classic `xref` table (not an xref *stream*), no
-//! `/Encrypt`, page `/Annots` written inline rather than as an indirect
-//! reference, a `/Pages` tree of any depth that reaches each node once and
-//! stays under 100 000 nodes, and every dictionary the reader meets naming each
-//! key once, with a value. That is the precise inverse of the scanner's error
+//! bounded-tree, well-formed: a classic `xref` table in every section (not an
+//! xref *stream*, nor a hybrid trailer naming `/XRefStm`), no `/Encrypt`, page
+//! `/Annots` written inline rather than as an indirect reference, a `/Pages`
+//! tree of any depth that reaches each node once and stays under 100 000 nodes,
+//! and every dictionary the reader meets naming each key once, with a value. That is the precise inverse of the scanner's error
 //! branches.
 //! `hayro-syntax` is read-only and exposes no byte spans, so it cannot drive a
 //! byte-splice append; hence this bespoke scanner.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use crate::error::PdfError;
@@ -62,6 +63,38 @@ pub(crate) fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<
     Ok(())
 }
 
+/// Bail if a section the trailer chains to through `/Prev` is an xref stream,
+/// or the trailer of any names `/XRefStm`: a hybrid file (ISO 32000-1
+/// §7.5.8.4) keeps objects in object streams, where they carry no `obj` header
+/// and the index would read each as absent. The walk ends quietly at a `/Prev`
+/// that reaches no section.
+fn assert_no_object_streams(pdf: &[u8], trailer: &[u8]) -> Result<(), PdfError> {
+    let mut trailer = trailer;
+    let mut seen = HashSet::new();
+    loop {
+        if find_dict_value(trailer, "XRefStm").is_some() {
+            return Err(err(
+                CODE_XREF_STREAM,
+                "PDF is a hybrid file whose trailer names /XRefStm; objects in its object \
+                 streams are unreadable here, so only traditional xref is supported",
+            ));
+        }
+        let Some(prev) = find_dict_value(trailer, "Prev")
+            .and_then(|v| std::str::from_utf8(v).ok()?.parse::<usize>().ok())
+            .filter(|&prev| prev < pdf.len() && seen.insert(prev))
+        else {
+            return Ok(());
+        };
+        if obj_header_id(&pdf[prev..]).is_some() {
+            return assert_traditional_xref(pdf, prev);
+        }
+        match find_trailer_dict(pdf, prev) {
+            Ok(prior) if pdf[prev..].starts_with(b"xref") => trailer = prior,
+            _ => return Ok(()),
+        }
+    }
+}
+
 /// The inner trailer dict (between `<<` and `>>`) for the xref section at
 /// `xref_offset`, [`well_formed`] and queryable with [`find_dict_value`].
 pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8], PdfError> {
@@ -78,11 +111,14 @@ pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8],
 
 /// What the trailer's `/Info` gives the producer stamp to rewrite.
 pub(crate) enum InfoSource<'a> {
-    /// Object `id`, rewritten in place under the trailer's existing reference.
+    /// Object `id`, rewritten in place under the trailer's existing reference:
+    /// the one its chain of references ends at.
     Object(u32),
     /// Entries for a fresh object whose reference replaces the trailer's
-    /// `/Info`: a direct dict's — ISO 32000-1 Table 15 asks for an indirect
-    /// reference, which not every writer honours — or none, when the trailer
+    /// `/Info`: a direct dict's, up to the end of its last one so no trailing
+    /// comment runs over what follows — ISO 32000-1 Table 15 asks for an
+    /// indirect reference, which not every writer honours — or none, when the
+    /// trailer
     /// carries no `/Info` or one this reader cannot read: not a dict, or one
     /// [`well_formed`] refuses.
     Entries(&'a [u8]),
@@ -92,15 +128,17 @@ pub(crate) fn read_info_source<'t>(idx: &ObjectIndex, trailer: &'t [u8]) -> Info
     let Some(value) = idx.value(trailer, "Info") else {
         return InfoSource::Entries(b"");
     };
-    if let Some((id, _)) = parse_indirect_ref(value) {
-        return InfoSource::Object(id);
+    if parse_indirect_ref(value).is_some() {
+        return idx
+            .referent(value)
+            .map_or(InfoSource::Entries(b""), InfoSource::Object);
     }
     let trimmed = value.trim_ascii();
     if trimmed.starts_with(b"<<")
         && let Some(entries) = extract_outer_dict(trimmed)
         && well_formed(entries, CODE_PARSE, "/Info").is_ok()
     {
-        return InfoSource::Entries(entries);
+        return InfoSource::Entries(&entries[..entries_end(entries)]);
     }
     InfoSource::Entries(b"")
 }
@@ -217,26 +255,45 @@ const MAX_REFERENCE_CHAIN: usize = 8;
 pub(crate) struct ObjectIndex<'a> {
     pdf: &'a [u8],
     starts: HashMap<u32, usize>,
+    unnamed_from: u32,
 }
 
 impl<'a> ObjectIndex<'a> {
     pub fn new(pdf: &'a [u8]) -> Self {
         let mut starts = HashMap::new();
+        let mut unnamed_from = 0u32;
         let mut i = 0;
         while i < pdf.len() {
             if let Some(ni) = skip_stream_body(pdf, i).or_else(|| skip_string_or_comment(pdf, i)) {
                 i = ni;
                 continue;
             }
-            if pdf[i].is_ascii_digit()
-                && (i == 0 || is_pdf_ws(pdf[i - 1]))
-                && let Some(id) = obj_header_id(&pdf[i..])
-            {
-                starts.insert(id, i);
+            if pdf[i].is_ascii_digit() && (i == 0 || is_pdf_delim(pdf[i - 1])) {
+                let header = (i == 0 || is_pdf_ws(pdf[i - 1]))
+                    .then(|| obj_header_id(&pdf[i..]))
+                    .flatten();
+                if let Some(id) = header {
+                    starts.insert(id, i);
+                }
+                if let Some(id) = header.or_else(|| parse_indirect_ref(&pdf[i..]).map(|(id, _)| id))
+                {
+                    unnamed_from = unnamed_from.max(id.saturating_add(1));
+                }
             }
             i += 1;
         }
-        Self { pdf, starts }
+        Self {
+            pdf,
+            starts,
+            unnamed_from,
+        }
+    }
+
+    /// The least id that no object header or reference in the base names, nor
+    /// any id above it. A reference past the trailer's `/Size` names no object,
+    /// so an update allocating from here leaves it naming none.
+    pub fn unnamed_from(&self) -> u32 {
+        self.unnamed_from
     }
 
     /// The indexed bytes, for the scans that read no object.
@@ -268,6 +325,20 @@ impl<'a> ObjectIndex<'a> {
     /// reads as written, a reference unresolved.
     pub fn value<'d>(&self, dict: &'d [u8], key: &str) -> Option<&'d [u8]> {
         find_dict_value(dict, key).filter(|value| !self.resolves_to_null(value))
+    }
+
+    /// The id of the object a chain of references from `value` ends at, the
+    /// first holding no reference. `None` where `value` is no reference, a
+    /// link names no object, or the chain runs past [`MAX_REFERENCE_CHAIN`].
+    fn referent(&self, value: &[u8]) -> Option<u32> {
+        let (mut id, _) = parse_indirect_ref(value)?;
+        for _ in 0..MAX_REFERENCE_CHAIN {
+            match parse_indirect_ref(self.body(id)?) {
+                Some((next, _)) => id = next,
+                None => return Some(id),
+            }
+        }
+        None
     }
 
     fn resolves_to_null(&self, value: &[u8]) -> bool {
@@ -400,18 +471,48 @@ fn is_obj_header_tail(rest: &[u8]) -> bool {
 /// `null`: ISO 32000-1 §7.3.9 makes the two the same entry, so every read goes
 /// through here.
 pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
-    let entry = find_dict_entry(dict_bytes, key)?;
+    let (_, entry) = find_dict_entry(dict_bytes, key)?;
     let value = &entry[skip_ws_and_comments(entry, 0)..];
     (value != b"null").then_some(value)
 }
 
-/// [`find_dict_value`] without the `null` filter: the entry a rewrite replaces,
-/// whatever it holds.
-fn find_dict_entry<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
+/// [`find_dict_value`] without the `null` filter: the key token as written and
+/// the entry a rewrite replaces, whatever it holds.
+fn find_dict_entry<'a>(dict_bytes: &'a [u8], key: &str) -> Option<(&'a [u8], &'a [u8])> {
     let key_marker = format!("/{key}");
-    dict_entries(dict_bytes)
-        .find(|&(name, _)| name == key_marker.as_bytes())
-        .map(|(_, entry)| entry)
+    dict_entries(dict_bytes).find(|&(name, _)| is_name(name, key_marker.as_bytes()))
+}
+
+/// Whether the name token `token` is `name` (`/AcroForm`) once each `#xx`
+/// escape in it is decoded, so `/Acro#46orm` is `/AcroForm` (ISO 32000-1
+/// §7.3.5).
+pub(crate) fn is_name(token: &[u8], name: &[u8]) -> bool {
+    *decode_name(token) == *name
+}
+
+/// `token` with each `#xx` escape decoded. A `#` not followed by two hex
+/// digits stands for itself.
+fn decode_name(token: &[u8]) -> Cow<'_, [u8]> {
+    if !token.contains(&b'#') {
+        return Cow::Borrowed(token);
+    }
+    let hex = |c: u8| char::from(c).to_digit(16);
+    let mut out = Vec::with_capacity(token.len());
+    let mut i = 0;
+    while i < token.len() {
+        let digit = |at: usize| token.get(at).and_then(|&c| hex(c));
+        match (token[i], digit(i + 1), digit(i + 2)) {
+            (b'#', Some(hi), Some(lo)) => {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+            }
+            (c, _, _) => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    Cow::Owned(out)
 }
 
 /// Each entry of a dict's inner bytes, in order, as its key Name (`/Pages`)
@@ -450,9 +551,8 @@ fn dict_entries(dict: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
 /// of such a dict is safe.
 fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d [u8], PdfError> {
     let mut keys = HashSet::new();
-    let mut end = 0;
     for (key, entry) in dict_entries(dict) {
-        if !keys.insert(key) {
+        if !keys.insert(decode_name(key)) {
             return Err(err(
                 code,
                 format!(
@@ -471,9 +571,8 @@ fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d
                 ),
             ));
         }
-        end = entry.as_ptr() as usize + entry.len() - dict.as_ptr() as usize;
     }
-    if skip_ws_and_comments(dict, end) < dict.len() {
+    if skip_ws_and_comments(dict, entries_end(dict)) < dict.len() {
         return Err(err(
             code,
             format!("{what} dict holds a token where a key belongs"),
@@ -482,13 +581,27 @@ fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d
     Ok(dict)
 }
 
-/// The inner bytes of the dictionary `value` writes inline, or `None` for any
-/// other value and for a dictionary [`well_formed`] refuses.
-pub(crate) fn as_dict(value: &[u8]) -> Option<&[u8]> {
+/// The index just past the last entry [`dict_entries`] reads in `dict`.
+fn entries_end(dict: &[u8]) -> usize {
+    dict_entries(dict).last().map_or(0, |(_, entry)| {
+        entry.as_ptr() as usize + entry.len() - dict.as_ptr() as usize
+    })
+}
+
+/// The inner bytes of the dictionary `value` writes inline, [`well_formed`],
+/// or `None` for any other value. A dictionary that does not close or that
+/// [`well_formed`] refuses is `Err` under `code`, `what` naming it.
+pub(crate) fn as_dict<'v>(
+    value: &'v [u8],
+    code: &'static str,
+    what: &str,
+) -> Result<Option<&'v [u8]>, PdfError> {
     if !value.starts_with(b"<<") {
-        return None;
+        return Ok(None);
     }
-    well_formed(extract_outer_dict(value)?, CODE_PARSE, "dictionary").ok()
+    let dict = extract_outer_dict(value)
+        .ok_or_else(|| err(code, format!("{what} dict not parseable")))?;
+    well_formed(dict, code, what).map(Some)
 }
 
 /// Each element of the array `value` writes inline, in order, from its first
@@ -512,16 +625,16 @@ pub(crate) fn array_elements(value: &[u8]) -> impl Iterator<Item = &[u8]> {
 /// one included, else appended, so a [`well_formed`] dict names `key` exactly
 /// once after.
 pub(crate) fn set_dict_value(dict: &[u8], key: &str, new_value: &[u8]) -> Vec<u8> {
-    let Some(value) = find_dict_entry(dict, key) else {
+    let Some((key_token, value)) = find_dict_entry(dict, key) else {
         let mut out = dict.to_vec();
         out.extend_from_slice(format!(" /{key} ").as_bytes());
         out.extend_from_slice(new_value);
         return out;
     };
-    // The entry's own subslice locates the key span by pointer subtraction
+    // The entry's own subslices locate the key span by pointer subtraction
     // rather than a re-scan, so a `key` token inside another value cannot match.
     let value_start = value.as_ptr() as usize - dict.as_ptr() as usize;
-    let key_at = value_start - (1 + key.len());
+    let key_at = key_token.as_ptr() as usize - dict.as_ptr() as usize;
     let mut out = dict[..key_at].to_vec();
     out.extend_from_slice(format!("/{key} ").as_bytes());
     out.extend_from_slice(new_value);
@@ -549,11 +662,13 @@ fn skip_ws_and_comments(b: &[u8], start: usize) -> usize {
 /// past it, so a scanner steps over raw `<<`/`>>`/`[`/`]`/`endobj` bytes without
 /// reading them as structure; the sharp case is a hex string's closing `>`
 /// forming a `>>` against the enclosing dict's own. `None` when `b[i]` opens none
-/// of them.
+/// of them; either `<` of a `<<` opens none.
 fn skip_string_or_comment(b: &[u8], i: usize) -> Option<usize> {
     match b.get(i)? {
         b'(' => Some(skip_pdf_string(b, i)),
-        b'<' if b.get(i + 1) != Some(&b'<') => Some(skip_pdf_hex_string(b, i)),
+        b'<' if b.get(i + 1) != Some(&b'<') && (i == 0 || b[i - 1] != b'<') => {
+            Some(skip_pdf_hex_string(b, i))
+        }
         b'%' => {
             let mut j = i + 1;
             while j < b.len() && b[j] != b'\n' && b[j] != b'\r' {
@@ -631,13 +746,13 @@ fn read_value_end(b: &[u8], start: usize) -> Option<usize> {
         c if c.is_ascii_digit() || c == b'-' || c == b'+' || c == b'.' => {
             // Possibly `N N R`; the standalone-R check rejects `5 0 Rect`.
             let num_end = read_number_end(b, i);
-            let mut j = ws_end(b, num_end);
+            let mut j = skip_ws_and_comments(b, num_end);
             let n2_start = j;
             while j < b.len() && b[j].is_ascii_digit() {
                 j += 1;
             }
             if j > n2_start {
-                j = ws_end(b, j);
+                j = skip_ws_and_comments(b, j);
                 if b.get(j).copied() == Some(b'R') && b.get(j + 1).is_none_or(|c| is_pdf_delim(*c))
                 {
                     return Some(j + 1);
@@ -710,19 +825,19 @@ fn is_pdf_delim(c: u8) -> bool {
 }
 
 pub(crate) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
-    let s = skip_ws(s);
+    let s = &s[skip_ws_and_comments(s, 0)..];
     let mut i = 0;
     while i < s.len() && s[i].is_ascii_digit() {
         i += 1;
     }
     let id: u32 = std::str::from_utf8(&s[..i]).ok()?.parse().ok()?;
-    let s = skip_ws(&s[i..]);
+    let s = &s[skip_ws_and_comments(s, i)..];
     let mut i = 0;
     while i < s.len() && s[i].is_ascii_digit() {
         i += 1;
     }
     let generation: u16 = std::str::from_utf8(&s[..i]).ok()?.parse().ok()?;
-    let s = skip_ws(&s[i..]);
+    let s = &s[skip_ws_and_comments(s, i)..];
     if !s.starts_with(b"R") {
         return None;
     }
@@ -782,8 +897,8 @@ fn skip_ws(s: &[u8]) -> &[u8] {
 }
 
 /// Open the base's trailer: the xref offset, the trailer dict, and the catalog
-/// (`/Root`) object id, after refusing an xref stream. `code` carries the
-/// caller's error code for a missing or malformed `/Root`.
+/// (`/Root`) object id, after refusing an xref stream and a hybrid file.
+/// `code` carries the caller's error code for a missing or malformed `/Root`.
 pub(crate) fn open_trailer<'a>(
     pdf: &'a [u8],
     code: &'static str,
@@ -791,6 +906,7 @@ pub(crate) fn open_trailer<'a>(
     let xref_offset = find_startxref(pdf)?;
     assert_traditional_xref(pdf, xref_offset)?;
     let trailer = find_trailer_dict(pdf, xref_offset)?;
+    assert_no_object_streams(pdf, trailer)?;
     let (catalog_id, _) = find_dict_value(trailer, "Root")
         .and_then(parse_indirect_ref)
         .ok_or_else(|| err(code, "/Root missing or malformed in trailer"))?;
@@ -849,19 +965,27 @@ pub(crate) fn walk_page_tree(idx: &ObjectIndex, catalog_id: u32) -> Result<Vec<P
             return Err(err(CODE_PARSE, "page tree exceeds 100 000 nodes"));
         }
         let dict = idx.dict(node_id, CODE_PARSE, &format!("page node {node_id}"))?;
-        let typ = find_dict_value(dict, "Type")
-            .map(|b| String::from_utf8_lossy(b.trim_ascii()).into_owned())
-            .unwrap_or_default();
-        if typ.starts_with("/Pages") {
-            let kids = find_dict_value(dict, "Kids")
+        if find_dict_value(dict, "Type").is_some_and(|typ| is_name(typ, b"/Pages")) {
+            let kids = idx
+                .value(dict, "Kids")
+                .and_then(|kids| idx.resolve(kids))
                 .ok_or_else(|| err(CODE_PARSE, "/Pages node missing /Kids"))?;
+            if !(kids.starts_with(b"[") && kids.ends_with(b"]")) {
+                return Err(err(CODE_PARSE, format!("page node {node_id} /Kids is not an array")));
+            }
             let mut kid_ancestors = Vec::with_capacity(ancestors.len() + 1);
             kid_ancestors.push(node_id);
             kid_ancestors.extend_from_slice(&ancestors);
-            let mut kid_ids: Vec<u32> = parse_ref_array(kids)
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect();
+            let mut kid_ids = array_elements(kids)
+                .map(|kid| {
+                    parse_indirect_ref(kid).map(|(id, _)| id).ok_or_else(|| {
+                        err(
+                            CODE_PARSE,
+                            format!("page node {node_id} /Kids holds a non-reference"),
+                        )
+                    })
+                })
+                .collect::<Result<Vec<u32>, _>>()?;
             kid_ids.reverse();
             stack.extend(kid_ids.into_iter().map(|id| (id, kid_ancestors.clone())));
         } else {
@@ -923,36 +1047,6 @@ pub(crate) fn assert_unrotated_pages<'p>(
         }
     }
     Ok(())
-}
-
-pub(crate) fn parse_ref_array(bytes: &[u8]) -> Vec<(u32, u16)> {
-    let mut s = bytes;
-    if let Some(l) = s.iter().position(|&b| b == b'[') {
-        s = &s[l + 1..];
-    }
-    if let Some(r) = s.iter().position(|&b| b == b']') {
-        s = &s[..r];
-    }
-    let mut out = Vec::new();
-    let mut cur = s;
-    loop {
-        cur = skip_ws(cur);
-        if cur.is_empty() {
-            break;
-        }
-        match parse_indirect_ref(cur) {
-            Some((id, generation)) => {
-                out.push((id, generation));
-                if let Some(pos) = cur.iter().position(|&b| b == b'R') {
-                    cur = &cur[pos + 1..];
-                } else {
-                    break;
-                }
-            }
-            None => break,
-        }
-    }
-    out
 }
 
 /// Parse a 4-number array (`[x0 y0 x1 y1]`) such as `/MediaBox`.
@@ -1191,6 +1285,38 @@ mod tests {
     }
 
     #[test]
+    fn a_name_reads_through_its_escapes() {
+        let dict = b"/Acro#46orm 7 0 R /Ty#70e /P#61ges /X #23";
+        assert_eq!(find_dict_value(dict, "AcroForm"), Some(&b"7 0 R"[..]));
+        assert!(is_name(find_dict_value(dict, "Type").unwrap(), b"/Pages"));
+        assert!(is_name(b"/A#2", b"/A#2") && !is_name(b"/A#zz", b"/A"));
+        assert_eq!(
+            set_dict_value(b"/Acro#46orm null /X 1", "AcroForm", b"9 0 R"),
+            b"/AcroForm 9 0 R /X 1"
+        );
+        let pdf = b"%PDF\n1 0 obj\n<< /AcroForm 1 /Acro#46orm 2 >>\nendobj\n";
+        let e = ObjectIndex::new(pdf)
+            .dict(1, CODE_PARSE, "catalog")
+            .expect_err("a key named twice in two spellings");
+        assert_eq!(e.code, CODE_PARSE);
+    }
+
+    #[test]
+    fn a_comment_stands_for_white_space_inside_a_reference() {
+        assert_eq!(parse_indirect_ref(b"%a\n7 %b\r0%c\nR"), Some((7, 0)));
+        assert_eq!(
+            find_dict_value(b"/Pages 2 %c\n0 R /X 1", "Pages"),
+            Some(&b"2 %c\n0 R"[..])
+        );
+        let pdf = b"%PDF\n1 0 obj\n<< /Type /Catalog /Pages 2 %c\n0 R >>\nendobj\n\
+                    2 0 obj\n<< /Type /Pages /Kids [3 %c\n0 R %c\n4 0\n%c\nR] /Count 2 >>\nendobj\n\
+                    3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n\
+                    4 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n";
+        let pages = walk_page_tree(&ObjectIndex::new(pdf), 1).expect("page tree walks");
+        assert_eq!(pages.iter().map(|page| page.id).collect::<Vec<_>>(), [3, 4]);
+    }
+
+    #[test]
     fn a_dict_holding_a_stray_token_or_a_key_with_no_value_is_refused() {
         for inner in [
             "/Lang /en{US} /AcroForm 7 0 R",
@@ -1281,13 +1407,6 @@ mod tests {
         let dict = b" /Arr [1 2 %x]\n 3] /After (real) ";
         let after = find_dict_value(dict, "After").expect("/After after the array");
         assert_eq!(after.trim_ascii(), b"(real)");
-    }
-
-    #[test]
-    fn ref_array_parses_basic() {
-        let bytes = b"[5 0 R 7 0 R 9 0 R]";
-        let v = parse_ref_array(bytes);
-        assert_eq!(v, vec![(5u32, 0u16), (7, 0), (9, 0)]);
     }
 
     #[test]
@@ -1399,6 +1518,15 @@ mod tests {
         let idx = ObjectIndex::new(pdf);
         let (s, e) = idx.object_bytes(4).expect("found object 4");
         assert_eq!(&pdf[s..e], b"4 0 obj\n<< /V (new) >>\nendobj");
+    }
+
+    #[test]
+    fn a_dict_opening_hides_no_endobj_or_reference() {
+        let pdf = b"%PDF\n3 0 obj\n<< /T (x>endobj) /X 41 0 R >>\nendobj\n";
+        let idx = ObjectIndex::new(pdf);
+        let (s, e) = idx.object_bytes(3).expect("found object 3");
+        assert!(pdf[s..e].ends_with(b">>\nendobj"));
+        assert_eq!(idx.unnamed_from(), 42);
     }
 
     #[test]

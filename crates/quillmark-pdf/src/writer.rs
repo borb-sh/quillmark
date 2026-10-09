@@ -40,14 +40,14 @@ pub(crate) fn type1_font_object(
 }
 
 /// Hand out the next object id from `next`, bounded at `i32::MAX` so a
-/// malformed large `/Size` errors instead of wrapping into a colliding id or
+/// malformed large `/Size` or base id errors instead of wrapping into a colliding id or
 /// handing out one no reference admits.
 pub(crate) fn alloc_id(next: &mut u32) -> Result<u32, PdfError> {
     let id = *next;
     if id > MAX_ID {
         return Err(err(
             CODE_PARSE,
-            "PDF object id space exhausted (/Size too large)",
+            "PDF object id space exhausted (/Size, or an id the base names, too large)",
         ));
     }
     *next = id + 1;

@@ -23,6 +23,7 @@ use crate::model::{
 };
 use serde_json::{Map, Value};
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 /// Why canonical-JSON parsing failed. Structural only: a well-formed producer
 /// (this crate's serializer, storage, a binding) never trips these.
@@ -422,11 +423,41 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
             instance,
         }),
         "quote" => Ok(Container::Quote { instance }),
+        "element" => {
+            let (name, attrs) = element_payload(o)?;
+            Ok(Container::Element { name, attrs, instance })
+        }
         other => Err(ParseError::UnknownName {
             axis: "container",
             name: other.to_string(),
         }),
     }
+}
+
+/// An element's `attrs` bag, read one way on both lanes since it has no legacy
+/// spelling: `$name` an element name the carrier does not reserve, and every
+/// other key an attribute name holding a string.
+fn element_payload(o: &Map<String, Value>) -> Result<(String, BTreeMap<String, String>), ParseError> {
+    use crate::carrier::{is_attr_name, is_element_name, RESERVED};
+    use crate::model::ELEMENT_NAME;
+    let bag = o
+        .get("attrs")
+        .and_then(Value::as_object)
+        .ok_or(ParseError::Shape("element attrs"))?;
+    let name = bag
+        .get(ELEMENT_NAME)
+        .and_then(Value::as_str)
+        .filter(|n| is_element_name(n) && !RESERVED.contains(n))
+        .ok_or(ParseError::Shape("element name"))?;
+    let mut attrs = BTreeMap::new();
+    for (key, value) in bag.iter().filter(|(k, _)| *k != ELEMENT_NAME) {
+        let value = value
+            .as_str()
+            .filter(|_| is_attr_name(key))
+            .ok_or(ParseError::Shape("element attr"))?;
+        attrs.insert(key.clone(), value.to_string());
+    }
+    Ok((name.to_string(), attrs))
 }
 
 /// Encode a [`Mark`] (`start`, `end`, `type`, …) into its canonical wire object.
@@ -793,19 +824,12 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 ///   zero-width) so equal cells serialize to equal bytes.
 /// - **Arrays where arrays belong.** A present non-array `header`, `aligns`, or
 ///   row carries no cells, so it becomes an empty array.
+/// - **Layout keys absent at their default.** See [`normalize_table_layout`].
 pub(crate) fn normalize_table_props(props: &mut Value) {
     let cols = table_cols(props);
     let Some(obj) = props.as_object_mut() else {
         return;
     };
-    let header = obj.entry("header").or_insert_with(|| Value::Array(vec![]));
-    if !header.is_array() {
-        *header = Value::Array(vec![]);
-    }
-    pad_row(header, cols);
-    if let Some(h) = header.as_array_mut() {
-        h.iter_mut().for_each(canon_cell);
-    }
     let aligns = obj.entry("aligns").or_insert_with(|| Value::Array(vec![]));
     if !aligns.is_array() {
         *aligns = Value::Array(vec![]);
@@ -815,17 +839,59 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
             a.push(Value::String("none".into()));
         }
     }
+    let canon_row = |row: &mut Value| {
+        pad_row(row, cols);
+        if let Some(r) = row.as_array_mut() {
+            r.iter_mut().for_each(canon_cell);
+        }
+    };
+    let header = obj.entry("header").or_insert_with(|| Value::Array(vec![]));
+    if !header.is_array() {
+        *header = Value::Array(vec![]);
+    }
+    canon_row(header);
     if let Some(rows) = obj.get_mut("rows").and_then(Value::as_array_mut) {
         for row in rows.iter_mut() {
             if !row.is_array() {
                 *row = Value::Array(vec![]);
             }
-            pad_row(row, cols);
-            if let Some(r) = row.as_array_mut() {
-                r.iter_mut().for_each(canon_cell);
-            }
+            canon_row(row);
         }
     }
+    normalize_table_layout(obj, cols);
+}
+
+/// A table's layout keys, each absent at its default or when invalid:
+///
+/// - `widths`: one entry per column, each an integer weight in
+///   `1..=`[`MAX_WEIGHT`](crate::carrier::table::MAX_WEIGHT) or `null` for an
+///   auto-fit column, padded with `null` or truncated to `cols`. All `null`,
+///   or any other entry, is absent.
+/// - `align`: `left`, `center` or `right`.
+fn normalize_table_layout(obj: &mut Map<String, Value>, cols: usize) {
+    match obj.get("widths").and_then(|w| settle_widths(w, cols)) {
+        Some(w) => obj.insert("widths".into(), w),
+        None => obj.remove("widths"),
+    };
+    if !obj.get("align").and_then(Value::as_str).is_some_and(|a| crate::island::TABLE_ALIGNS.contains(&a)) {
+        obj.remove("align");
+    }
+}
+
+fn settle_widths(widths: &Value, cols: usize) -> Option<Value> {
+    let mut weights = widths
+        .as_array()?
+        .iter()
+        .map(|w| match w {
+            Value::Null => Some(None),
+            w => w.as_u64().filter(|n| (1..=crate::carrier::table::MAX_WEIGHT).contains(n)).map(Some),
+        })
+        .collect::<Option<Vec<Option<u64>>>>()?;
+    weights.resize(cols, None);
+    weights
+        .iter()
+        .any(Option::is_some)
+        .then(|| weights.into_iter().map(|w| w.map_or(Value::Null, Value::from)).collect())
 }
 
 /// A table's canonical column count: the widest of its header, any body row, and
@@ -1740,7 +1806,7 @@ mod tests {
         assert_eq!(rt.marks, vec![Mark::new(4, 8, MarkKind::Strong)]);
 
         let md = crate::export::to_markdown(&rt);
-        let back = crate::import::from_markdown(&md).expect("re-imports");
+        let back = crate::import::from_markdown(&md).expect("re-imports").content;
         assert_eq!(back, rt, "{md:?}");
     }
 

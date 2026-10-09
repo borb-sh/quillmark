@@ -16,10 +16,6 @@ use quillmark_core::{
     quill::{CalendarDate, Quill},
 };
 
-/// One `(plate address, count)` per content field holding image islands, which
-/// this backend draws nothing for.
-pub(crate) type DeclinedImages = Vec<(String, usize)>;
-
 /// One shape for assets and package files alike, so a consumer routing on the
 /// code need not know which.
 fn skipped_path(path: &Path, err: impl std::fmt::Display) -> Diagnostic {
@@ -215,7 +211,7 @@ impl QuillWorld {
     {
         let mut world = Self::new(source, plate)?;
 
-        let (windows, _declined) = world.inject_helper_package(data, meta)?;
+        let windows = world.inject_helper_package(data, meta)?;
 
         Ok((world, windows))
     }
@@ -256,23 +252,17 @@ impl QuillWorld {
     /// `set_source` on the helper `lib.typ` makes a repeat injection (a session
     /// edit) an incremental reparse rather than a fresh parse. The helper's
     /// `typst.toml` is constant and set once at construction. Returns each
-    /// generated content block's byte window, paired with the helper file's id
-    /// (the span scan's classification table), beside this injection's
-    /// [`DeclinedImages`].
+    /// generated content block's byte window, paired with the helper file's id:
+    /// the span scan's classification table.
     pub(crate) fn inject_helper_package(
         &mut self,
         data: &serde_json::Value,
         meta: &crate::SchemaMeta,
-    ) -> Result<(Vec<crate::overlay::FieldWindow>, DeclinedImages), crate::emit::EmitError> {
+    ) -> Result<Vec<crate::overlay::FieldWindow>, crate::emit::EmitError> {
         let file = Self::helper_fid("lib.typ");
         let (src, windows) = helper::generate_lib_typ(data, meta)?;
         self.set_source(file, &src);
-        let declined = windows
-            .iter()
-            .filter(|w| w.declined_images > 0)
-            .map(|w| (w.path.clone(), w.declined_images))
-            .collect();
-        let windows = windows
+        Ok(windows
             .into_iter()
             .map(|w| crate::overlay::FieldWindow {
                 path: w.path,
@@ -280,8 +270,7 @@ impl QuillWorld {
                 range: w.block,
                 segments: w.segments,
             })
-            .collect();
-        Ok((windows, declined))
+            .collect())
     }
 
     /// Project root only: an asset is the plate's to reach, and nothing

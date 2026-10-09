@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e35539d761d3bdaa474f367132cc6df8db1d7c014ce8240aa5e00634d52ff29b # shrinks to doc = Piece { md: "<qm-keep>\n- aa0\n</qm-keep>\n\n- aa0\n  <qm-keep>\n  aa0\n  </qm-keep>", reported: ["qm-keep", "qm-keep"] }
+cc b75e7b00edfea33487aedbf3c8b8519c3f703080775ffc336c06bd5d100774dc # shrinks to doc = Piece { md: "- aa0\n  <qm-keep>\n  aa0\n  </qm-keep>\n\n<qm-anchor ref=\"\"></qm-anchor>\n\n- aa0\n  <qm-keep>\n  aa0\n  </qm-keep>", reported: ["qm-keep", "qm-keep"] }
+cc 23941cd0a207d9a86a02efd88f4e5b9e8edcf5d356fa7c1fd0e4a55aadba1084 # shrinks to doc = Piece { md: "- <qm-keep>\n  <qm-anchor ref=\"\"></qm-anchor>\n  </qm-keep>\n\n<qm-keep>\n> <qm-anchor ref=\"\"></qm-anchor>\n</qm-keep>", reported: ["qm-keep", "qm-keep"] }
+cc f415d02c1d3ab556dc034460075757c381f20e7bb16dfcd2c64923bedb21b064 # shrinks to doc = Piece { md: "> aa0\n> <qm-keep>\n> <qm-anchor ref=\"\"></qm-anchor>\n> </qm-keep>", reported: [], tables: 0, other: true, cell: None }
+cc e325328e0eb4beb1947ea3f89cfa1abf509227f48af84afe4713a55f6dac7f4f # shrinks to doc = Piece { md: "<qm-table>\n\n<qm-keep>\n\n| aa0 |\n|---|\n| aa0 |\n\n</qm-keep>\n\n</qm-table>", reported: [], tables: 1, other: true }

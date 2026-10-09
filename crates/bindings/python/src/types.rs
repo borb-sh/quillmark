@@ -46,6 +46,11 @@ impl PyQuillmark {
     /// `today` is the render date, a `datetime.date` (default
     /// `datetime.date.today()`): a `today` date field renders as it, and so does
     /// a plate's `datetime.today()`.
+    ///
+    /// The result's `warnings` are every `quill.validate(doc)` warning but
+    /// `validation::declined_construct`, which the compile raises as
+    /// `backend::declined_construct`, then the compile's; the load's stay on
+    /// `doc.warnings`.
     #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, regions=false, today=None))]
     #[allow(clippy::too_many_arguments)]
     fn render(
@@ -70,9 +75,6 @@ impl PyQuillmark {
             .map_err(convert_render_error)?;
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
         result.regions = quillmark_core::region::regions_to_doc_path(result.regions, &kinds);
-        result
-            .warnings
-            .splice(0..0, doc.parse_warnings.iter().cloned());
         PyRenderResult::new(doc.py(), result)
     }
 
@@ -203,8 +205,8 @@ impl PyQuill {
     }
 
     /// Validate `doc` against this quill's schema, returning a list of diagnostic
-    /// dicts (empty when the document is valid). Forwards the canonical
-    /// `validation::*` diagnostics the engine emits.
+    /// dicts: an error blocks a render, a warning does not. Forwards the
+    /// canonical `validation::*` diagnostics the engine emits.
     fn validate<'py>(
         &self,
         py: Python<'py>,
@@ -412,7 +414,7 @@ impl PyDocument {
     /// Storage version this build writes.
     #[staticmethod]
     fn current_storage_version() -> &'static str {
-        quillmark_core::document::STORAGE_V0_116_0
+        quillmark_core::document::STORAGE_V0_124_0
     }
 
     /// The Quillmark Markdown rules.
@@ -428,7 +430,9 @@ impl PyDocument {
         quillmark_core::version::quill_ref_hint()
     }
 
-    /// Emit canonical Quillmark Markdown. Round-trip safe.
+    /// Emit canonical Quillmark Markdown. Round-trip safe but for content: a
+    /// body or content field holds what its markdown spells, so its anchors
+    /// drop and its island ids re-mint. `to_stored` keeps both.
     fn to_markdown(&self) -> String {
         self.inner.to_markdown()
     }
@@ -814,10 +818,16 @@ impl PyWriter {
         .map_err(|errs| convert_edit_errors(errs, &target.base))
     }
 
-    /// Revise a body from markdown; anchors rebase. The `Delta` receipt is
-    /// discarded, as on `revise_field`.
+    /// Revise a body from markdown; anchors rebase. Returns the import's
+    /// `parse::dropped_construct` warnings, anchored at the body; the text
+    /// `Delta` is discarded, as on `revise_field`.
     #[pyo3(signature = (markdown, card=None))]
-    fn revise_body(&self, py: Python<'_>, markdown: &str, card: Option<isize>) -> PyResult<()> {
+    fn revise_body(
+        &self,
+        py: Python<'_>,
+        markdown: &str,
+        card: Option<isize>,
+    ) -> PyResult<Vec<PyDiagnostic>> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -829,7 +839,7 @@ impl PyWriter {
                 .map_err(|e| convert_edit_error(e, &target.base))?
                 .revise_body(markdown),
         }
-        .map(|_| ())
+        .map(|revised| py_diagnostics(revised.warnings))
         .map_err(|e| convert_edit_error(e, &target.base))
     }
 
@@ -839,7 +849,8 @@ impl PyWriter {
     /// Surviving anchors rebase, then the diffed result is schema-conformed, so a
     /// `richtext(inline)` field rejects a multi-block result with
     /// `edit::field_not_inline`. Raises `edit::unknown_field` for an undeclared
-    /// name. The text `Delta` is discarded.
+    /// name. Returns the import's `parse::dropped_construct` warnings, anchored
+    /// at the field; the text `Delta` is discarded.
     #[pyo3(signature = (name, text, card=None))]
     fn revise_field(
         &self,
@@ -847,7 +858,7 @@ impl PyWriter {
         name: &str,
         text: &str,
         card: Option<isize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Vec<PyDiagnostic>> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -859,8 +870,34 @@ impl PyWriter {
                 .map_err(|e| convert_edit_error(e, &target.base))?
                 .revise_field(name, text),
         }
-        .map(|_| ())
+        .map(|revised| py_diagnostics(revised.warnings))
         .map_err(|e| convert_edit_error(e, &target.base))
+    }
+
+    /// Replace the bound document with `markdown`, then conform it: composable
+    /// cards align to the stored ones by `$kind` and text, and each aligned
+    /// body and richtext field revises as `revise_body` / `revise_field` do.
+    /// Everything else lands as written; an omitted `$ext` keeps the stored one
+    /// on the main card, on a card that aligned by text, and on one that aligned
+    /// by position only when the `$kind` sequence is unchanged. Returns the warnings, the `conform::*` ones last,
+    /// and clears the document's load `warnings`; the receipt's dropped anchors
+    /// are discarded. Raises `QuillmarkError` on a parse
+    /// failure or a `$quill` this quill does not answer to, leaving the
+    /// document unchanged.
+    fn revise_document(&self, py: Python<'_>, markdown: &str) -> PyResult<Vec<PyDiagnostic>> {
+        let quill = self.quill.borrow(py);
+        let mut doc = self.doc.borrow_mut(py);
+        let revised = quill
+            .inner
+            .writer(&mut doc.inner)
+            .revise_document(markdown)
+            .map_err(|e| {
+                let diags = e.to_diagnostics();
+                let message = quillmark_core::error::RenderError::summary_message(&diags);
+                raise_with_diagnostics(diags, message)
+            })?;
+        doc.parse_warnings.clear();
+        Ok(py_diagnostics(revised.warnings))
     }
 
     /// Build a composable card of `kind`, typed-commit `fields` onto it, set its
@@ -868,7 +905,8 @@ impl PyWriter {
     /// appends, `Some(i)` inserts at index `i`, and a position out of range
     /// raises. Transactional: a rejected field (raising a per-field diagnostic
     /// bundle) or an invalid kind, body, or position leaves the document
-    /// untouched.
+    /// untouched. Returns the body import's `parse::dropped_construct` warnings,
+    /// anchored at the placed card's body.
     #[pyo3(signature = (kind, fields=None, body=None, at=None))]
     fn add_card(
         &self,
@@ -877,7 +915,7 @@ impl PyWriter {
         fields: Option<Bound<'_, PyDict>>,
         body: Option<String>,
         at: Option<isize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Vec<PyDiagnostic>> {
         let batch = match fields {
             Some(f) => pydict_to_field_batch(&f)?,
             None => Vec::new(),
@@ -893,6 +931,7 @@ impl PyWriter {
             .inner
             .writer(&mut doc.inner)
             .add_card(kind, batch, body.as_deref(), at)
+            .map(py_diagnostics)
             .map_err(|errs| convert_edit_errors(errs, &quillmark_core::path::DocPath::new()))
     }
 
@@ -1179,6 +1218,10 @@ impl PyArtifact {
 #[derive(Clone)]
 pub struct PyDiagnostic {
     pub(crate) inner: Diagnostic,
+}
+
+fn py_diagnostics(diags: Vec<Diagnostic>) -> Vec<PyDiagnostic> {
+    diags.into_iter().map(|inner| PyDiagnostic { inner }).collect()
 }
 
 #[pymethods]

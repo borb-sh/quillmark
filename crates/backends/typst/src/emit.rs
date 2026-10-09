@@ -9,6 +9,7 @@ use quillmark_core::error::MAX_NESTING_DEPTH;
 use quillmark_content::island::IslandType;
 use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
 use quillmark_content::normalize::is_line_separator;
+use std::collections::BTreeMap;
 use std::ops::Range;
 
 /// Does Typst's lexer read `c` as a newline where the emitter writes document
@@ -254,30 +255,19 @@ pub struct Emission {
     pub markup: String,
     /// One entry per emitted segment, in generation order.
     pub segments: Vec<SegmentMap>,
-    /// Image islands this emission drew nothing for. Counted off `islands`
-    /// rather than off the slots, so an image counts wherever it sits.
-    pub declined_images: usize,
 }
 
 impl Emission {
     /// A syntax error in emitted markup is a lowering bug, never a document's.
     /// Typst's parser is the only faithful judge of its own grammar, so debug
     /// builds run it over every emission.
-    fn new(rt: &Content, markup: String, segments: Vec<SegmentMap>) -> Self {
+    fn new(markup: String, segments: Vec<SegmentMap>) -> Self {
         debug_assert!(
             !typst::syntax::parse(&markup).diagnosis().errors,
             "emitted markup does not parse: {:?}\n{markup:?}",
             typst::syntax::parse(&markup).errors_and_warnings().0,
         );
-        Emission {
-            markup,
-            segments,
-            declined_images: rt
-                .islands
-                .iter()
-                .filter(|i| i.island_type == IslandType::Image)
-                .count(),
-        }
+        Emission { markup, segments }
     }
 }
 
@@ -304,6 +294,7 @@ impl EmitError {
     }
 }
 
+/// Lower `rt` to Typst markup.
 pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
     let max_depth = rt
         .lines
@@ -320,7 +311,7 @@ pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
     let mut e = Emit::new(rt);
     let n = rt.lines.len();
     e.emit_block_level(0..n, 0);
-    Ok(Emission::new(rt, e.out, e.segments))
+    Ok(Emission::new(e.out, e.segments))
 }
 
 /// Lower an [`is_inline`] content to pure inline markup, omitting the block
@@ -336,7 +327,7 @@ pub(crate) fn emit_content_inline(rt: &Normalized) -> Result<Emission, EmitError
     // `is_inline` guarantees depth 0, so `emit_content`'s nesting guard is moot.
     let mut e = Emit::new(rt);
     e.emit_segment(0..rt.lines.len());
-    Ok(Emission::new(rt, e.out, e.segments))
+    Ok(Emission::new(e.out, e.segments))
 }
 
 struct Emit<'a> {
@@ -443,6 +434,10 @@ impl<'a> Emit<'a> {
             }
             Container::Quote { .. } => {
                 self.emit_quote(i..j, depth);
+                Some(j)
+            }
+            Container::Element { name, attrs, .. } => {
+                self.emit_element(i..j, depth, name, attrs);
                 Some(j)
             }
         }
@@ -577,6 +572,19 @@ impl<'a> Emit<'a> {
     fn emit_quote(&mut self, range: Range<usize>, depth: usize) {
         self.open_line();
         self.out.push_str("#quote(block: true)[\n");
+        self.end_newline = true;
+        self.emit_block_level(range, depth + 1);
+        self.open_line();
+        self.out.push(']');
+        self.out.push_str("\n\n");
+        self.end_newline = true;
+    }
+
+    /// `#_qm-element("keep", (:))[…]` around an element's run.
+    fn emit_element(&mut self, range: Range<usize>, depth: usize, name: &str, attrs: &BTreeMap<String, String>) {
+        self.open_line();
+        self.out.push_str(&element_call(name, attrs));
+        self.out.push_str("[\n");
         self.end_newline = true;
         self.emit_block_level(range, depth + 1);
         self.open_line();
@@ -731,8 +739,8 @@ impl<'a> Emit<'a> {
         };
         match isl.island_type {
             // Declined: what a content image's url names is undecided, so this
-            // backend draws none and `Emission::declined_images` counts them
-            // for the warning saying so.
+            // backend draws none and `backend::declines` names it for the
+            // warning saying so.
             IslandType::Image => String::new(),
             IslandType::Table => table_markup(&isl.props),
         }
@@ -886,6 +894,18 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
     (wraps, codes)
 }
 
+/// `#_qm-element(name, attrs)`, a call to the helper's dispatcher before its
+/// body. The attributes are a dictionary of strings, keys sorted, `(:)` when
+/// empty.
+fn element_call(name: &str, attrs: &BTreeMap<String, String>) -> String {
+    let entries: Vec<String> = attrs
+        .iter()
+        .map(|(attr, value)| format!("\"{}\": \"{}\"", escape_string(attr), escape_string(value)))
+        .collect();
+    let dict = if entries.is_empty() { "(:)".to_string() } else { format!("({})", entries.join(", ")) };
+    format!("#_qm-element(\"{}\", {dict})", escape_string(name))
+}
+
 /// One run of a mark sweep: the atomic `#raw(..)` code span starting at `pos`,
 /// or the plain text up to the next boundary. Returns the position after it, the
 /// [`Tail`] it leaves, and its `(content, generated, context)` pair, `generated`
@@ -971,8 +991,14 @@ fn cell_markup(text: &str, marks: &[Mark]) -> String {
 }
 
 /// Each cell is canonical `{text, marks}` rendered through [`cell_markup`], with
-/// no markdown re-parse.
+/// no markdown re-parse. The layout keys lower as:
+///
+/// - `widths`: `columns: (2fr, auto)` in place of `columns: 2`.
+/// - `align`: `align(center, table(…))` under `context`, where each cell
+///   aligning by default takes the alignment the table stands in, so placing a
+///   table moves no text inside it.
 fn table_markup(props: &serde_json::Value) -> String {
+    use serde_json::Value;
     let header = props.get("header").and_then(|v| v.as_array());
     let rows = props.get("rows").and_then(|v| v.as_array());
     let aligns = props.get("aligns").and_then(|v| v.as_array());
@@ -992,39 +1018,58 @@ fn table_markup(props: &serde_json::Value) -> String {
         return String::new();
     }
 
-    let cell = |v: &serde_json::Value| {
+    let placement = props
+        .get("align")
+        .and_then(Value::as_str)
+        .filter(|a| quillmark_content::island::TABLE_ALIGNS.contains(a));
+    // Placed, the table is a call under `context`, so a cell aligning by default
+    // reads the alignment outside the placement rather than the placement's.
+    let inherited = "align.alignment";
+
+    let cell = |v: &Value| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
-        cell_markup(&text, &marks)
+        format!("[{}]", cell_markup(&text, &marks))
     };
 
-    let mut out = String::from("#table(\n");
-    out.push_str(&format!("  columns: {},\n", cols));
-    if let Some(al) = aligns {
-        if al
-            .iter()
-            .any(|a| a.as_str().map(|s| s != "none").unwrap_or(false))
-        {
-            out.push_str("  align: (");
-            for (i, a) in al.iter().enumerate() {
-                if i > 0 {
-                    out.push_str(", ");
-                }
-                out.push_str(match a.as_str().unwrap_or("none") {
-                    "left" => "left",
-                    "center" => "center",
-                    "right" => "right",
-                    _ => "auto",
-                });
-            }
-            out.push_str("),\n");
+    let mut out = String::from("table(\n");
+    match props.get("widths").and_then(Value::as_array) {
+        Some(weights) => {
+            let tracks: Vec<String> = (0..cols)
+                .map(|i| match weights.get(i).and_then(Value::as_u64) {
+                    Some(n) => format!("{n}fr"),
+                    None => "auto".to_string(),
+                })
+                .collect();
+            out.push_str(&format!("  columns: ({}),\n", tracks.join(", ")));
         }
+        None => out.push_str(&format!("  columns: {},\n", cols)),
+    }
+    let aligned = aligns.filter(|al| al.iter().any(|a| a.as_str().is_some_and(|s| s != "none")));
+    if let Some(al) = aligned {
+        out.push_str("  align: (");
+        for (i, a) in al.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(match a.as_str().unwrap_or("none") {
+                "left" => "left",
+                "center" => "center",
+                "right" => "right",
+                _ if placement.is_some() => inherited,
+                _ => "auto",
+            });
+        }
+        out.push_str("),\n");
+    } else if placement.is_some() {
+        out.push_str(&format!(
+            "  align: if table.align == auto {{ {inherited} }} else {{ table.align }},\n"
+        ));
     }
     out.push_str("  table.header(");
     if let Some(h) = header {
         for c in h {
-            out.push('[');
             out.push_str(&cell(c));
-            out.push_str("], ");
+            out.push_str(", ");
         }
     }
     out.push_str("),\n");
@@ -1033,16 +1078,18 @@ fn table_markup(props: &serde_json::Value) -> String {
             if let Some(r) = row.as_array() {
                 out.push_str("  ");
                 for c in r {
-                    out.push('[');
                     out.push_str(&cell(c));
-                    out.push_str("], ");
+                    out.push_str(", ");
                 }
                 out.push('\n');
             }
         }
     }
     out.push(')');
-    out
+    match placement {
+        Some(at) => format!("#context align({at}, {out})"),
+        None => format!("#{out}"),
+    }
 }
 
 #[cfg(test)]
@@ -1054,7 +1101,7 @@ mod tests {
     use typst::syntax::SyntaxKind;
 
     fn emit(md: &str) -> Emission {
-        let rt = from_markdown(md).expect("import");
+        let rt = from_markdown(md).expect("import").content;
         assert_eq!(rt.validate(), Ok(()), "content invariants for {md:?}");
         emit_content(&rt).expect("emit")
     }
@@ -1225,7 +1272,7 @@ mod tests {
 
     #[test]
     fn inline_emits_no_block_terminator() {
-        let rt = from_markdown("A **bold** subject").expect("import");
+        let rt = from_markdown("A **bold** subject").expect("import").content;
         assert!(rt.is_inline());
         let inline = emit_content_inline(&rt).expect("emit").markup;
         assert_eq!(inline, "A #strong[bold] subject");
@@ -1237,7 +1284,7 @@ mod tests {
     #[test]
     fn inline_falls_back_to_block_for_non_inline_content() {
         for md in ["# Heading", "one\n\ntwo", "- item"] {
-            let rt = from_markdown(md).expect("import");
+            let rt = from_markdown(md).expect("import").content;
             assert!(!rt.is_inline(), "{md:?} is not inline");
             assert_eq!(
                 emit_content_inline(&rt).expect("emit").markup,
@@ -1711,7 +1758,7 @@ mod tests {
     #[test]
     fn runs_map_content_to_generated_bytes() {
         for md in sample_inputs() {
-            let rt = from_markdown(md).unwrap();
+            let rt = from_markdown(md).unwrap().content;
             let ec = emit_content(&rt).unwrap();
             let chars: Vec<char> = rt.text.chars().collect();
             for seg in &ec.segments {
@@ -1882,18 +1929,83 @@ mod tests {
     }
 
     #[test]
+    fn the_layout_keys_lower_to_typst() {
+        let props = serde_json::json!({
+            "header": [
+                { "text": "a", "marks": [] },
+                { "text": "b", "marks": [] },
+            ],
+            "rows": [[{ "text": "1", "marks": [] }, { "text": "2", "marks": [] }]],
+            "aligns": ["none", "left"],
+            "widths": [2, null],
+            "align": "center",
+        });
+        assert_eq!(
+            table_markup(&props),
+            "#context align(center, table(\n  columns: (2fr, auto),\n  \
+             align: (align.alignment, left),\n  \
+             table.header([a], [b], ),\n  \
+             [1], [2], \n))"
+        );
+    }
+
+    /// Placed with no column aligned, a cell takes the plate's `table.align`,
+    /// else the alignment the table stands in.
+    #[test]
+    fn a_placed_table_without_column_aligns_inherits_the_cells_alignment() {
+        let props = serde_json::json!({
+            "header": [{ "text": "a", "marks": [] }],
+            "rows": [],
+            "aligns": ["none"],
+            "align": "right",
+        });
+        assert_eq!(
+            table_markup(&props),
+            "#context align(right, table(\n  columns: 1,\n  \
+             align: if table.align == auto { align.alignment } else { table.align },\n  \
+             table.header([a], ),\n))"
+        );
+    }
+
+    fn emit_md(md: &str) -> String {
+        let rt = from_markdown(md).expect("import").content;
+        emit_content(&rt).expect("emit").markup
+    }
+
+    /// A block element lowers through the dispatcher around its run, inside a
+    /// list item as at the top; adjacent runs are adjacent calls.
+    #[test]
+    fn a_block_element_lowers_through_the_dispatcher() {
+        let cases = [
+            (
+                "<qm-keep note=\"x\">\n\npara\n\n</qm-keep>",
+                "#_qm-element(\"keep\", (\"note\": \"x\"))[\npara\n\n]\n\n",
+            ),
+            (
+                "- a\n- <qm-keep>\n\n  b\n\n  - c\n\n  </qm-keep>",
+                "- a\n- #_qm-element(\"keep\", (:))[\n  b\n\n  - c\n  ]\n\n\n",
+            ),
+            (
+                "<qm-keep>\n\na\n\n</qm-keep>\n<qm-keep>\n\nb\n\n</qm-keep>",
+                "#_qm-element(\"keep\", (:))[\na\n\n]\n\n#_qm-element(\"keep\", (:))[\nb\n\n]\n\n",
+            ),
+        ];
+        for (md, want) in cases {
+            assert_eq!(emit_md(md), want, "{md:?}");
+        }
+    }
+
+    #[test]
     fn empty_table_emits_nothing() {
         let props = serde_json::json!({ "header": [], "aligns": [], "rows": [] });
         assert_eq!(table_markup(&props), "");
     }
 
     #[test]
-    fn an_image_island_draws_nothing_and_is_counted() {
+    fn an_image_island_draws_nothing() {
         let ec = emit("before ![alt](assets/logo.svg) after\n\n![x](y.png)");
         assert!(!ec.markup.contains("#image"), "got {:?}", ec.markup);
         assert!(!ec.markup.contains("assets/logo.svg"), "got {:?}", ec.markup);
-        assert_eq!(ec.declined_images, 2);
-        assert_eq!(emit("no images here").declined_images, 0);
     }
 
     #[test]

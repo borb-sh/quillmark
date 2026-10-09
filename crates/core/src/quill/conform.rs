@@ -16,7 +16,8 @@ use crate::{
     value::QuillValue,
 };
 
-use super::CardSchema;
+use super::compose::markdown_drops;
+use super::{CardSchema, QuillConfig};
 
 /// The failure of the bound door ([`Quill::parse`]): the markdown did not
 /// parse, or it parsed under a `$quill` this quill does not answer to. Nothing
@@ -69,7 +70,9 @@ impl Quill {
     }
 
     /// Land `doc`'s declared content fields at their canonical rest, returning
-    /// the `conform::*` diagnostics for the values that would not commit.
+    /// the `conform::*` diagnostics for the values that would not commit, and
+    /// a `parse::dropped_construct` at each `richtext` markdown string whose
+    /// import drops a construct.
     ///
     /// The document's `$quill` is checked against this quill **before any
     /// mutation**, so a mismatch (`quill::name_mismatch` /
@@ -82,12 +85,20 @@ impl Quill {
     /// An equal value is **not written**: every write path clears the field's
     /// `nested_comments`, so an unguarded conform would strip YAML comments and
     /// move bytes on an untouched document. Idempotent: a second call is a byte
-    /// no-op and re-emits the identical diagnostics.
+    /// no-op and re-emits the identical `conform::*` diagnostics; a string's
+    /// drops report at the call that imports it.
     pub fn conform(&self, doc: &mut Document) -> Result<Vec<Diagnostic>, RenderError> {
+        self.config().conform(doc)
+    }
+}
+
+impl QuillConfig {
+    /// [`Quill::conform`] over the schema alone, for a door that holds only the
+    /// config.
+    pub(crate) fn conform(&self, doc: &mut Document) -> Result<Vec<Diagnostic>, RenderError> {
         self.check_quill_reference(doc)?;
-        let config = self.config();
         let mut diags = Vec::new();
-        conform_card(&config.main, doc.main_card_mut(), &DocPath::main(), &mut diags);
+        conform_card(&self.main, doc.main_card_mut(), &DocPath::main(), &mut diags);
         for (index, card) in doc.cards_vec_mut().iter_mut().enumerate() {
             // A card whose `$kind` declares no schema has no declared field to
             // conform: it passes untouched, as the render gate passes it. The
@@ -95,7 +106,7 @@ impl Quill {
             let Some(kind) = card.kind().map(str::to_string) else {
                 continue;
             };
-            let Some(schema) = config.card_kind(&kind) else {
+            let Some(schema) = self.card_kind(&kind) else {
                 continue;
             };
             conform_card(schema, card, &DocPath::card(Some(&kind), index), &mut diags);
@@ -130,6 +141,7 @@ fn conform_card(
         match resolve_field_write(name, value.clone(), field) {
             Ok(conformed) => {
                 if &conformed != value {
+                    diags.extend(markdown_drops(field, value.as_json(), &base.field(name)));
                     updates.push((name.clone(), conformed));
                 }
             }

@@ -6,18 +6,146 @@
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::import::from_markdown as import_markdown;
+use quillmark_content::import::{from_markdown as import_markdown, Imported};
 use quillmark_content::model::Normalized;
 
 use crate::error::ParseError;
 use crate::version::QuillReference;
-use crate::error::Diagnostic;
+use crate::error::{Diagnostic, Severity};
 
 pub(crate) fn import_body(md: &str) -> Result<Normalized, ImportError> {
+    import_body_warned(md).map(|imported| imported.content)
+}
+
+/// [`import_body`] keeping the import's warnings.
+pub(crate) fn import_body_warned(md: &str) -> Result<Imported, ImportError> {
     if md.is_empty() {
-        Ok(Normalized::empty())
+        Ok(Imported {
+            content: Normalized::empty(),
+            warnings: Vec::new(),
+        })
     } else {
         import_markdown(md)
+    }
+}
+
+/// The diagnostic code a markdown import's dropped construct rides.
+pub const DROPPED_CONSTRUCT: &str = "parse::dropped_construct";
+
+/// The warning a markdown import owes what it could not carry: `count` of
+/// `construct` dropped from one field. It carries no `path`: the caller that
+/// knows the field's address attaches it. Non-fatal: the rest of the markdown
+/// imports.
+pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
+    let ImportWarning::DroppedConstruct { construct, count } = warning;
+    let (message, hint) = dropped_message(&construct, count);
+    let mut args = std::collections::BTreeMap::new();
+    args.insert("construct".to_string(), construct.to_string().into());
+    args.insert("count".to_string(), count.into());
+    Diagnostic::new(Severity::Warning, message)
+        .with_code(DROPPED_CONSTRUCT.to_string())
+        .with_hint(hint)
+        .with_args(args)
+}
+
+/// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
+/// the spelling that keeps it.
+fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
+    use quillmark_content::carrier::RESERVED_ATTRS;
+    const TIGHT: &str = "Markdown on the lines under a tag line drops with it, up to the next blank line.";
+    let some = |one: &str, many: &str| if n == 1 { format!("a {one}") } else { format!("{n} {many}") };
+    let some_in_field = |one: &str, many: &str| {
+        if n == 1 {
+            format!("a {one} in this field was")
+        } else {
+            format!("{n} {many} in this field were")
+        }
+    };
+    let attr_dropped = |tag: &str, attr: &str, hint: String| {
+        let on = if n == 1 { String::new() } else { format!(" on {n} tags") };
+        (
+            format!("markdown import dropped the `{attr}` attribute of `<{tag}>`{on} in this field"),
+            hint,
+        )
+    };
+    let tag = construct.to_string();
+    match construct {
+        Dropped::TableAttr(attr) => attr_dropped(
+            "qm-table",
+            attr,
+            match attr.as_str() {
+                "widths" => {
+                    "`widths` is a whole number from 1 to 2^53 - 1, or `auto`, per column, such as `widths=\"2 1 auto\"`."
+                        .to_string()
+                }
+                "align" => "`align` is `left`, `center` or `right`.".to_string(),
+                _ => "`<qm-table>` takes `widths` and `align`.".to_string(),
+            },
+        ),
+        Dropped::ElementAttr { element, attr } => attr_dropped(
+            &Dropped::Element(element.clone()).to_string(),
+            attr,
+            format!(
+                "An attribute name is lowercase letters, digits and `_`, opening with a letter, once per tag, \
+                 and none of `{}` or a name opening `on`.",
+                RESERVED_ATTRS.join("`, `")
+            ),
+        ),
+        Dropped::Table => (
+            format!(
+                "markdown import dropped {} in this field",
+                some("`<qm-table>` wrapper", "`<qm-table>` wrappers")
+            ),
+            format!(
+                "A `<qm-table>` wraps exactly one pipe table, its two tags each alone on a line with a blank \
+                 line between each tag and the table. {TIGHT}"
+            ),
+        ),
+        Dropped::BadName(_) => (
+            format!(
+                "markdown import does not carry raw HTML: {} dropped",
+                some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
+            ),
+            format!(
+                "An element name after `qm-` is lowercase words of letters and digits joined by single `-`, \
+                 opening with a letter. {TIGHT}"
+            ),
+        ),
+        Dropped::Element(_) => (
+            format!(
+                "markdown import dropped {} in this field",
+                some(&format!("`<{tag}>` element"), &format!("`<{tag}>` elements"))
+            ),
+            format!(
+                "Write `<{tag}>` and `</{tag}>` each alone on a line with a blank line above and below, \
+                 or, around nothing, on two lines with nothing between. {TIGHT}"
+            ),
+        ),
+        Dropped::Tag(name) => match name.as_str() {
+            "u" => (
+                format!("markdown import dropped {} in this field", some("`<u>` tag", "`<u>` tags")),
+                "A `<u>` takes no attributes and closes with `</u>` in the paragraph, heading, list item or \
+                 table cell it opens in."
+                    .to_string(),
+            ),
+            "pre" | "script" | "style" | "textarea" => (
+                format!(
+                    "markdown import does not carry raw HTML: {} dropped",
+                    some_in_field(&format!("`<{tag}>` block"), &format!("`<{tag}>` blocks"))
+                ),
+                format!("A `<{tag}>` block drops whole, through its closing tag. Write code in a backtick fence."),
+            ),
+            _ => (
+                format!(
+                    "markdown import does not carry raw HTML: {} dropped",
+                    some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
+                ),
+                "Raw HTML imports nothing but `<u>`, `<br>` and the `qm-*` tags. Where a line opens with a \
+                 tag, its block runs to the next blank line and drops whole, markdown included; a blank line \
+                 under the tag line keeps what follows."
+                    .to_string(),
+            ),
+        },
     }
 }
 
@@ -37,7 +165,7 @@ impl ContentDecodeError {
     }
 }
 
-/// A content codec: which authored string a [`Content`] field accepts, and which
+/// A content codec: which authored string a [`Content`](quillmark_content::model::Content) field accepts, and which
 /// text a stored content projects back to. Both codecs also accept a canonical
 /// content object, so a codec is exactly the string end of the round trip. The
 /// declared type names one (`reader::content_codec`), and every schema-bound
@@ -171,6 +299,7 @@ pub(crate) fn is_line_with_trailing_newline(content: &quillmark_content::model::
     content.lines.len() == 2 && content.text.ends_with('\n')
 }
 
+pub(crate) mod align;
 pub mod assemble;
 pub mod dto;
 pub mod edit;
@@ -179,18 +308,23 @@ pub mod fences;
 pub mod meta;
 pub mod payload;
 pub(crate) mod prescan;
+pub mod revise;
 pub mod wire;
 pub(crate) mod yaml_hints;
 
 pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_112_0, STORAGE_V0_115_0,
-    STORAGE_V0_116_0, STORAGE_V0_93_0,
+    STORAGE_V0_116_0, STORAGE_V0_124_0, STORAGE_V0_93_0,
 };
-pub use edit::{CardMut, EditError};
+pub use edit::{CardMut, EditError, Revised};
+pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::import::ImportError;
+/// Taken by [`dropped_construct`], so nameable from here.
+pub use quillmark_content::import::{Dropped, ImportWarning};
 pub use meta::{is_valid_kind_name, validate_composable_kind, CardKindError};
 pub use payload::{MetaKey, Payload, PayloadItem};
+pub use revise::{DocumentRevised, DroppedAnchor};
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};

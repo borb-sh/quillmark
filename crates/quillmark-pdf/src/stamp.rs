@@ -18,7 +18,8 @@ use quillmark_core::region::RenderedRegion;
 use crate::appearance::{self, Appearance, Normal};
 use crate::error::PdfError;
 use crate::reader::{
-    array_elements, as_dict, err, parse_indirect_ref, set_dict_value, ObjectIndex, UpdatedObject,
+    array_elements, as_dict, err, is_name, parse_indirect_ref, set_dict_value, ObjectIndex,
+    UpdatedObject,
 };
 use crate::update::PdfUpdate;
 use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
@@ -118,7 +119,7 @@ fn registered_font(
     font_ids.get(at).copied()
 }
 
-/// Options for [`stamp`](crate::stamp).
+/// Options for [`stamp`](crate::stamp()).
 #[derive(Debug, Clone)]
 pub struct StampOptions {
     /// The `/Info` `/Producer` this stamp writes over whatever the base carries.
@@ -193,7 +194,7 @@ pub fn stamp(
         let pages = up.resolve_pages(&idx, fields)?;
         for (at, page) in pages.iter().enumerate() {
             let what = format!("page node {}", page.id);
-            if holds_a_widget(&idx, idx.dict(page.id, CODE_PARSE, &what)?) {
+            if holds_a_widget(&idx, idx.dict(page.id, CODE_PARSE, &what)?)? {
                 return Err(err(
                     CODE_EXISTING_ACROFORM,
                     format!(
@@ -309,18 +310,25 @@ pub fn stamp(
 
 /// Whether the page dict `page` holds a `/Subtype /Widget` annotation in its
 /// `/Annots`: the array, each element and its `/Subtype` read through any
-/// reference, as a viewer reads them.
-fn holds_a_widget<'a>(idx: &ObjectIndex<'a>, page: &'a [u8]) -> bool {
+/// reference, as a viewer reads them. An annotation dictionary the reader
+/// cannot read is `Err`, since it may be a widget.
+fn holds_a_widget<'a>(idx: &ObjectIndex<'a>, page: &'a [u8]) -> Result<bool, PdfError> {
     let Some(annots) = idx.value(page, "Annots").and_then(|annots| idx.resolve(annots)) else {
-        return false;
+        return Ok(false);
     };
-    array_elements(annots).any(|annot| {
-        idx.resolve(annot)
-            .and_then(as_dict)
-            .and_then(|annot| idx.value(annot, "Subtype"))
+    for annot in array_elements(annots).filter_map(|annot| idx.resolve(annot)) {
+        let Some(annot) = as_dict(annot, CODE_PARSE, "annotation")? else {
+            continue;
+        };
+        if idx
+            .value(annot, "Subtype")
             .and_then(|subtype| idx.resolve(subtype))
-            == Some(&b"/Widget"[..])
-    })
+            .is_some_and(|subtype| is_name(subtype, b"/Widget"))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Write `ap` as a fresh object selecting the registered face `font_id`, and
@@ -504,13 +512,27 @@ mod tests {
             (&b"/Annots [<< /Subtype /Widget >>]"[..], true),
             (b"/Annots [<< /Subtype 7 0 R >>]", true),
             (b"/Annots [<< /Subtype 8 0 R >>]", false),
+            (b"/Annots [<< /Subtype /Wid#67et >>]", true),
         ] {
             assert_eq!(
-                holds_a_widget(&idx, page),
+                holds_a_widget(&idx, page).unwrap(),
                 widget,
                 "{}",
                 String::from_utf8_lossy(page)
             );
+        }
+    }
+
+    #[test]
+    fn an_annotation_the_reader_cannot_read_is_refused() {
+        let idx = ObjectIndex::new(b"%PDF\n7 0 obj << /Subtype /Widget /Subtype /Link >> endobj\n");
+        for page in [
+            &b"/Annots [<< /Subtype /Link /Subtype /Widget >>]"[..],
+            b"/Annots [<< /Subtype /Link (stray) >>]",
+            b"/Annots [7 0 R]",
+        ] {
+            let e = holds_a_widget(&idx, page).expect_err(&String::from_utf8_lossy(page));
+            assert_eq!(e.code, CODE_PARSE);
         }
     }
 }

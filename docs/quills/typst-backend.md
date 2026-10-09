@@ -125,6 +125,24 @@ A [`matrix`](quill-yaml-reference.md#matrix-a-vocabulary-the-author-ticks) reach
 
 Each row is `(id, title, held, value, path)`, roster members in roster order and then any items an open matrix's document adds. `value` is the member's columns, `none` where unheld, and `path` its address: claiming it with `field-region` makes an unticked box clickable in an editor preview. An added item's `title` is a cell of its own, so `ink(row.value).title` prints it click-to-edit. `dict` is the dictionary that declares the matrix: `data`, a card, or a table row.
 
+### Elements
+
+A `qm-<name>` element renders through the helper's `elements` registry. A plate registers a renderer under the element's name, taking its attributes and its content:
+
+```typst
+#import "@local/quillmark-helper:0.1.0": data, elements
+
+#elements.update(e => e + (stamp: (attrs, body) => block(stroke: red, body)))
+
+#data.at("$body", default: [])
+```
+
+The dispatcher reads the registry's final value, so the update may stand anywhere in the plate. An element around nothing, `<qm-sig>` on the line above `</qm-sig>`, calls its renderer with a body that draws nothing, `[ ]`, which suits a signature line or a stamp. `attrs` is a dictionary of the element's attributes keyed by name, each value a string with its entities decoded: `note="a &amp; b"` arrives as `"a & b"`. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone.
+
+### Tables
+
+A table in content lowers to a call of Typst's `table`, so `#set table(..)` and `#show table: ..` reach it. The call always passes `columns`, and passes `align` where the document aligns a column, so a set rule's `columns` never applies and its `align` applies only to a table aligning no column. A `qm-table` wrapper's `widths` lower to `fr` tracks, `auto` for an auto-fit column, and its `align` places the table with `align(..)` without moving the text in its cells.
+
 ## Modules
 
 A plate imports the Quill's other `.typ` files by the paths Typst resolves: a
@@ -215,7 +233,7 @@ from any file.
 #image("/assets/logo.svg", width: 2cm)
 ```
 
-**A markdown image in a `richtext` field draws nothing.** `![logo](assets/logo.svg)` in document content reaches no page, and the render warns under `backend::declined_construct`, naming the field and how many images it holds.
+**A markdown image in a `richtext` field draws nothing.** `![logo](assets/logo.svg)` in document content reaches no page, and the render warns under `backend::declined_construct`, naming the field and how many images it holds; `quill.validate(doc)` warns the same under `validation::declined_construct`.
 
 What such a url names — a file in this Quill, a path beside the document, a remote address — is undecided. A document is portable across every version a `$quill` selector admits, so a path into one Quill's file tree is not a binding it can take. The construct still stores and round-trips; only the page declines it.
 

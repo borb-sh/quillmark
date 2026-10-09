@@ -12,12 +12,17 @@ use serde_json::Value;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IslandType {
     /// `{header, rows, aligns}` with inline `{text, marks}` cells, a `\n` in a
-    /// cell's text being a line break. Mark-carrying, shape-normalized (one
-    /// column count, `\n` the only line-break char a cell keeps).
+    /// cell's text being a line break, and the optional layout keys `widths`
+    /// (a weight or `null` per column) and `align` (one of [`TABLE_ALIGNS`]).
+    /// Mark-carrying, shape-normalized (one column count, `\n` the only
+    /// line-break char a cell keeps, each layout key absent at its default).
     Table,
     /// `{url, alt}`. No cell model, no shape invariants.
     Image,
 }
+
+/// The values of a table's `align` key, its placement.
+pub const TABLE_ALIGNS: [&str; 3] = ["left", "center", "right"];
 
 impl IslandType {
     /// Every known type, for a reader that needs the closed set whole.
@@ -118,6 +123,48 @@ mod tests {
             let once = props.clone();
             IslandType::Table.normalize_props(&mut props);
             assert_eq!(props, once, "normalize_props is not a fixed point");
+        }
+    }
+
+    /// `widths` settles to the column count, keeps its weights as written and
+    /// never widens the table; each layout key is absent at its default or
+    /// when invalid.
+    #[test]
+    fn normalize_props_settles_the_layout_keys() {
+        use serde_json::{json, Value};
+        let absent = Value::Null;
+        let cases: &[(Value, &str, Value)] = &[
+            (json!([2, 4, null]), "widths", json!([2, 4, null])),
+            (json!([3, null]), "widths", json!([3, null, null])),
+            (json!([6, 9, 12, 15]), "widths", json!([6, 9, 12])),
+            (json!([null, null, 5]), "widths", json!([null, null, 5])),
+            (json!([null, null, null, 4]), "widths", absent.clone()),
+            (json!([null, null]), "widths", absent.clone()),
+            (json!([]), "widths", absent.clone()),
+            (json!([1, 0, 1]), "widths", absent.clone()),
+            (json!([1, -1, 1]), "widths", absent.clone()),
+            (json!([1, 1.5, 1]), "widths", absent.clone()),
+            (json!([1, "2", 1]), "widths", absent.clone()),
+            (json!([9007199254740992u64, 1]), "widths", absent.clone()),
+            (json!([9007199254740991u64, 1]), "widths", json!([9007199254740991u64, 1, null])),
+            (json!("1 2 3"), "widths", absent.clone()),
+            (json!(2), "widths", absent.clone()),
+            (json!("center"), "align", json!("center")),
+            (json!("left"), "align", json!("left")),
+            (json!("right"), "align", json!("right")),
+            (json!("middle"), "align", absent.clone()),
+            (json!(["center"]), "align", absent.clone()),
+        ];
+        for (value, key, settled) in cases {
+            let mut props = json!({"header": ["a", "b", "c"], "rows": [["1", "2", "3"]]});
+            props[*key] = value.clone();
+            IslandType::Table.normalize_props(&mut props);
+            assert_eq!(props.get(*key).unwrap_or(&absent), settled, "{key}: {value}");
+            assert_eq!(props["header"].as_array().unwrap().len(), 3, "{key}: {value}");
+
+            let once = props.clone();
+            IslandType::Table.normalize_props(&mut props);
+            assert_eq!(props, once, "{key}: {value} is not a fixed point");
         }
     }
 }

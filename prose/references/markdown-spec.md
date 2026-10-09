@@ -21,6 +21,8 @@ an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
 - **Structured data**: card-yaml blocks (§3).
 - **Extensions**: strikethrough, pipe tables, and `<u>` for underline
   (§6.1).
+- **The `qm-*` carrier**: table layout and elements, spelled as custom
+  HTML elements (§6.4).
 
 A document containing no card-yaml blocks is ordinary CommonMark, parsed as
 such.
@@ -371,15 +373,45 @@ Body regions (the root body and every card body) are rendered as CommonMark
 
 ### 6.2 Declared Deviations from CommonMark
 
-**Raw HTML is accepted syntactically but produces no output, except
-`<u>…</u>`, which renders as underline, and an inline `<br>`, which is a
-hard break.** The parser recognises HTML per CommonMark §4.6 / §6.11,
-discards every event, and re-emits only the `<u>` wrapper and the `<br>`
-break. Rationale: Typst has no HTML renderer, and arbitrary passthrough
-would create an injection vector for downstream HTML-producing tooling;
-`<u>` is an exception because no CommonMark-native syntax covers
-underline, and `<br>` because a pipe-table row is one source line, with no
-room for a native hard break.
+**Raw HTML produces no output of its own, except an inline `<u>…</u>`, which
+renders as underline, an inline `<br>`, which is a hard break, and the
+`qm-*` carrier §6.4 defines.** The parser recognises HTML per CommonMark
+§4.6 / §6.6 and discards the HTML itself. What else an HTML block holds
+depends on its type:
+
+| HTML block (CommonMark §4.6) | What imports |
+|---|---|
+| Type 6 or 7 holding only tag lines, a `qm-*` tag among them | Nothing of its own; its carrier tags open and close what §6.4 defines. |
+| Any other type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<qm-keep>` tight against markdown | Nothing: the block drops whole, to the next blank line, as CommonMark runs it, a carrier tag in it included. |
+| Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after a comment's `-->` on its last line imports as a line of its own, unless it opens a fence or a type 1–5 block it does not close on that line. |
+
+A carrier tag line works as CommonMark reads it: a blank line above and below
+sets it apart as a block of its own. Under a paragraph's text it is inline
+HTML, which drops (§6.4).
+
+A line holding only tags, carrier or not, on the line after a pipe table's
+rows ends the table rather than adding a row.
+
+The allowlist is inline: `<u>` or `<br>` alone on its line opens an HTML block
+like any other tag. An inline `<u>` pairs with a `</u>` as HTML pairs them,
+inside its paragraph, heading, list item's text or table cell: a `</u>` closes
+the innermost `<u>` still open, whatever marks lie between, so an underline
+crosses `**` or `~~` freely. A `<u>` carrying an attribute drops and still
+takes its `</u>`, and one still open where its text ends drops. Export writes
+`<u>` and `</u>` outside the emphasis delimiters closing and opening where they
+stand, so a tag never sits at a delimiter run's edge, where its `<` or `>`
+would change the run's flanking; a delimiter run spanning that position stays
+open around the tag. An import reports each dropped opening tag by its lowercase name, under
+`parse::dropped_construct`, and a block holding no other opening tag under its
+first where it drops text with it, `qm-anchor` included; any other closing
+tag, a comment, the content of a type 1–5 block, any other `qm-anchor` and
+an element that closes (§6.4) report nothing.
+
+Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
+an injection vector for downstream HTML-producing tooling; `<u>` is an
+exception because no CommonMark-native syntax covers underline, and `<br>`
+because a pipe-table row is one source line, with no room for a native hard
+break. Every HTML block keeps CommonMark's reading, which the import reports.
 
 **A column-zero `~~~` with a blank line above it opens a card-yaml block,
 not a fenced code block, whatever its info string** (§3.2, §4). A backtick
@@ -404,16 +436,150 @@ support may come in a future revision:
   across the versions its `$quill` selector admits and declares every other
   thing it references, so a path into one quill's file tree is not a binding a
   document may take.
-- Math (`$…$`, `$$…$$`), footnotes, task lists, definition lists: not
-  supported. In markdown body text `$` is literal; inside a `~~~` card-yaml
-  payload `$` is reserved as the prefix for system-metadata keys (§3.3).
+- Math (`$…$`, `$$…$$`), task lists, definition lists: not supported; each
+  imports as the literal text it is. In markdown body text `$` is literal;
+  inside a `~~~` card-yaml payload `$` is reserved as the prefix for
+  system-metadata keys (§3.3).
+- Footnotes: not supported. A footnote-shaped definition (`[^1]: Word`) imports
+  as CommonMark reads it, a link reference definition making `[^1]` a link to
+  `Word`.
 - HTML comments: accepted syntactically, not rendered (see §6.2).
 - `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
   table cell: a hard break. In a paragraph, one with no text before it on its
-  line is dropped; in a heading it is a space; on a line of its own it is an
-  HTML block and drops whole. Outside a table, export writes the
-  CommonMark-native hard break (trailing `\\` plus newline); inside a cell it
-  writes `<br>`.
+  line is dropped; in a heading it is a space. One alone on its line, a blank
+  line above it, opens an HTML block (§6.2) and drops. Outside a table, export
+  writes the CommonMark-native hard break (trailing `\\` plus newline); inside
+  a cell it writes `<br>`.
+
+### 6.4 The `qm-*` Carrier
+
+A `qm-*` element spells what CommonMark has no syntax for, such as
+per-instance layout and anchors. Each is a CommonMark raw-HTML tag and a valid
+custom-element name, which an HTML renderer draws as its children.
+
+**Names.** A carrier tag's name is `qm-` and an element name matching
+`[a-z][a-z0-9]*(-[a-z0-9]+)*`: `qm-keep`, `qm-table`, `qm-a1-b`.
+CommonMark tag names admit no `:`, so the prefix stands where XML would write a
+namespace (`quill:keep`). A tag name reads ASCII-case-insensitively, as HTML
+names do, and the canonical spelling is lowercase. `qm-`, `qm-a--b` and
+`qm-9` carry no element.
+
+**Reserved names.** `table` is reserved for the table it wraps and `anchor`
+for the anchor spelling. Neither is ever an element of its own.
+
+**Attributes.** A name matches `[a-z][a-z0-9_]*` and is none of `style`,
+`class`, `id`, `href` and `src`, nor any name opening `on`, so the carrier
+never holds markup a downstream HTML renderer would act on (§6.2's
+rationale). An attribute outside that grammar, or one repeating a name already
+read, is refused by name. A value reads double-quoted, single-quoted or
+unquoted, and decodes `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;` and decimal or
+hexadecimal references to a Unicode scalar value; any other `&` is text.
+
+**Block only.** A carrier tag carries its construct on a tag line in an HTML
+block of tag lines alone, which a blank line above and below sets apart
+(§6.2). Inside a line, or in a block tight against markdown, it drops like any
+raw tag; `qm-anchor` drops inside a line without a report.
+
+**Canonical spelling.** An element is written with:
+
+- attributes sorted by name, each value double-quoted, with `&`, `<`, `>` and
+  `"` as `&amp;`, `&lt;`, `&gt;` and `&quot;`;
+- a `|`, a control character, a bidi control or a line separator in a value as
+  a hexadecimal reference (`&#x7C;`): a `|` ends a table cell, a line ending
+  ends the tag's line, and §7 rewrites the rest;
+- each tag alone on its line and a blank line between it and what it wraps,
+  inside the containers it sits in, or, around nothing, the pair on two lines
+  with nothing between, which an HTML renderer reads as the element where it
+  reads `<qm-sig/>` as an open tag.
+
+```markdown
+<qm-keep note="a &amp; b">
+
+**Signed**
+J. Doe
+
+</qm-keep>
+
+<qm-sig>
+</qm-sig>
+```
+
+**An element** of any name but the reserved two is stored, whatever quill
+reads the document:
+
+- A pair of tag lines wraps the blocks between them in the element, inside the
+  containers around its open tag. The close tag closes the element where it is
+  the innermost container open; a close tag naming no innermost element drops,
+  reported only where its block drops markdown (§6.2). A pair wrapping nothing holds one empty paragraph: a void
+  element, such as a signature line.
+- Each attribute in the grammar is kept as its string. One refused drops alone,
+  reported as `qm-<name>[<attr>]`.
+- Two adjacent runs of one element stay two.
+- A Typst plate renders an element through the renderer it registers under
+  the name; with none, `keep` holds what it wraps on one page and any other
+  element renders what it wraps.
+
+**An element that does not close** is transparent: its tags drop, what it wraps
+imports, and `parse::dropped_construct` reports it under its tag name
+(`qm-keep`), as any raw tag (§6.2). That covers a block element still open
+where its list item, quote or body ends, a self-closing tag, a tag inside a
+line, and one in a block tight against markdown, which drops what it holds
+with it. A `qm-*` tag outside the grammar is a raw tag reported the same
+way.
+
+**`qm-table`** is a block wrapper around one pipe table, and folds its
+attributes into the table's layout, whatever quill reads the document:
+
+| Attribute | Value | Default |
+|---|---|---|
+| `widths` | whitespace-separated column weights, each a decimal integer from 1 to 2⁵³ − 1 or `auto` for an auto-fit column | every column `auto` |
+| `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
+
+```markdown
+<qm-table align="center" widths="1 2 auto">
+
+| Item | Description | Qty |
+| --- | --- | --- |
+| A | First | 1 |
+
+</qm-table>
+```
+
+- Weights are relative and store as written: `2 4` lays out as `1 2` does. A
+  `widths` shorter than the table pads with `auto`, and a longer one drops its
+  extra entries.
+- Each attribute at its default stores nothing, and export writes the wrapper
+  only around a table holding a value other than its default.
+- Column alignment stays in the delimiter row. Its dash counts carry no width,
+  since a formatter pads them to the column.
+- The wrapper pairs as an element does: inside the containers around its open
+  tag, closed where it is the innermost container open. It holds one table
+  when that table is all that imports between its tags, inside no container
+  but an element.
+- A wrapper holding anything else or another `qm-table`, or still open
+  where its list item, quote or body ends, drops whole: its tags drop, what it
+  holds imports, and `parse::dropped_construct` reports `qm-table`.
+- An attribute other than these two, and one whose value is outside its
+  spelling, drops alone, reported as `qm-table[<name>]`. A `qm-keep`
+  around the wrapper keeps the table on one page.
+
+**`qm-anchor`** is reserved for an anchor's read-only spelling,
+`<qm-anchor ref="…"></qm-anchor>`, which the annotated export writes and
+no plain export does. Import drops it without a report, inline or alone on its
+line, unless its line drops markdown with it (§6.2), and mints no anchor from
+it. The annotated export writes one inline at
+each anchor's start:
+
+- after the delimiters of the marks closing there and before those opening
+  there;
+- at a code span's or link's start, for an anchor inside one;
+- in no code block, block island's line, table cell or empty line;
+- at the end of a line whose tags in place would change what it imports to,
+  and nowhere on a line where the end changes it too.
+
+```markdown
+A <qm-anchor ref="c1"></qm-anchor>**flagged** phrase.
+```
 
 ## 7. Input Normalization
 
@@ -435,10 +601,18 @@ Before CommonMark parsing, each body region is normalized:
    text after one is read as a block marker the author never wrote and two
    in a row split the paragraph. All five are Unicode whitespace, so a
    space keeps the words they part apart.
-4. **HTML comment fence repair.** If `-->` is followed by non-whitespace
-   text on the same line, insert a newline after `-->` so the trailing
-   text reaches the paragraph parser instead of being consumed by the
-   CommonMark HTML-block rule (type 2).
+4. **Parser-guided repair.** The text is parsed, edited inside the spans that
+   parse locates, and parsed again; text in a fenced or indented code block is
+   never edited.
+   - On a comment's last line, text after its `-->` moves to a line of its
+     own, keeping the line's indent.
+   - A pipe-table row holding only tags gets a blank line above it, ending the
+     table.
+
+   A blank line written inside a container carries the container's `>`
+   markers, and one closes split-off text the next line would otherwise
+   continue lazily. Split-off text that opens another comment is repaired by
+   a further round.
 
 Normalization is applied identically to the root body and every card
 body. It is not applied to YAML payload values.

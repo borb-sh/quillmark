@@ -6,7 +6,8 @@
 //! `to_markdown` round-trips the document. Written in any layout, with comments
 //! at any column, a document settles after one emission. Over arbitrary fence
 //! bodies neither the prescan nor the parse panics, and the prescan's parser
-//! reads to the end of each body the value parse reads.
+//! reads the root node of each body the value parse reads and refuses what
+//! follows it.
 
 use std::collections::HashMap;
 
@@ -14,7 +15,7 @@ use proptest::prelude::*;
 use serde_json::{Map, Value};
 use serde_saphyr::granit_parser::{Event, Parser, ScanError};
 
-use super::super::{options, prescan_fence_content};
+use super::super::{options, prescan_fence_content, Refusal};
 use crate::document::{Document, NestedComment, PayloadItem};
 use crate::value::{PathSegment, QuillValue};
 
@@ -975,17 +976,20 @@ fn arb_line() -> impl Strategy<Value = String> {
         .prop_map(|(i, d, k, v, c)| format!("{i}{d}{k}{v}{c}"))
 }
 
-/// The error the prescan's parser meets ahead of the end of `body`'s root
-/// node, which is all of `body` the value parse reads.
-fn root_refusal(body: &str) -> Option<ScanError> {
+/// The error the prescan's parser meets in `body`, and whether it lies inside
+/// the root node, which is all of `body` the value parse reads.
+fn refusal(body: &str) -> Option<(ScanError, bool)> {
     let mut open = 0usize;
+    let mut inside = true;
     for next in Parser::new_from_str_with_options(body, options()) {
         match next {
-            Err(refusal) => return Some(refusal),
+            Err(refusal) => return Some((refusal, inside)),
             Ok((Event::MappingStart(..) | Event::SequenceStart(..), _)) => open += 1,
-            Ok((Event::MappingEnd | Event::SequenceEnd, _)) if open == 1 => return None,
-            Ok((Event::MappingEnd | Event::SequenceEnd, _)) => open -= 1,
-            Ok((Event::Scalar(..) | Event::Alias(..), _)) if open == 0 => return None,
+            Ok((Event::MappingEnd | Event::SequenceEnd, _)) => {
+                open -= 1;
+                inside &= open > 0;
+            }
+            Ok((Event::Scalar(..) | Event::Alias(..), _)) => inside &= open > 0,
             Ok(_) => {}
         }
     }
@@ -1030,16 +1034,24 @@ proptest! {
         let _ = prescan_fence_content(&body);
     }
 
-    /// The prescan ends its scan at its parser's error and leaves the refusal
-    /// to the value parse, so its parser reads all the value parse reads: a
-    /// comment past an error of its own would drop.
+    /// The value parse reads the root node and the prescan the whole body, so
+    /// the prescan's parser reads the root as the value parse does and refuses
+    /// what follows it: text past the root would drop.
     #[test]
     fn the_prescan_parser_reads_what_the_value_parse_reads(
         body in prop_oneof![arb_body(), arb_run(), arb_text()],
     ) {
         if crate::value::parse_yaml::<Value>(&body).is_ok() {
-            let refusal = root_refusal(&body);
-            prop_assert!(refusal.is_none(), "{:?}\n{}", refusal, body);
+            if let Some((refusal, inside)) = refusal(&body) {
+                prop_assert!(!inside, "{:?}\n{}", refusal, body);
+                prop_assert!(
+                    matches!(
+                        prescan_fence_content(&body),
+                        Err(Refusal::PastRoot { .. } | Refusal::SharedKey { .. })
+                    ),
+                    "{:?}\n{}", refusal, body
+                );
+            }
         }
     }
 

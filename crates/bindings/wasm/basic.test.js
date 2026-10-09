@@ -202,11 +202,11 @@ describe('Quillmark.quill', () => {
     }
   })
 
-  // `RenderResult.warnings` is the document's parse warnings ahead of the
-  // render's own, and a parse warning carries `args`: a value conform cannot
-  // rest warns and renders. `args` is declared `Record<string, unknown>`, so it
-  // must read as one on the far side.
-  it('a merged parse warning carries its args as a plain object', () => {
+  // A value conform cannot rest warns on `doc.warnings` and renders, and a
+  // render's warnings are its own: an image under Typst declines there. Each
+  // warning's `args` is declared `Record<string, unknown>`, so it must read as
+  // one on the far side.
+  it('a load warning and a render warning carry their args as plain objects', () => {
     const NOTES_QUILL_YAML = `quill:
   name: notes
   version: "1.0"
@@ -228,15 +228,22 @@ main:
     const quill = Quill.fromTree(
       makeQuill({ name: 'notes', plate: NOTES_PLATE, quillYaml: NOTES_QUILL_YAML }),
     )
-    const doc = quill.parse('~~~card-yaml\n$quill: notes\nnotes: [42]\n~~~\n\nAlpha\n')
+    const doc = quill.parse(
+      '~~~card-yaml\n$quill: notes\nnotes: [42]\n~~~\n\nAlpha ![a](https://example.com/a.png)\n',
+    )
+
+    const loaded = doc.warnings.find((d) => d.code === 'conform::field_decode')
+    expect(loaded).toBeDefined()
+    expect(loaded.args).not.toBeInstanceOf(Map)
+    expect(loaded.args.field).toBe('notes')
 
     const result = engine.render(quill, doc, { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
-
-    const w = result.warnings.find((d) => d.code === 'conform::field_decode')
-    expect(w).toBeDefined()
-    expect(w.args).not.toBeInstanceOf(Map)
-    expect(w.args.field).toBe('notes')
+    expect(result.warnings.map((d) => d.code)).not.toContain('conform::field_decode')
+    const declined = result.warnings.find((d) => d.code === 'backend::declined_construct')
+    expect(declined).toBeDefined()
+    expect(declined.args).not.toBeInstanceOf(Map)
+    expect(declined.args.construct).toBe('image')
   })
 
   it('session.regions() is always a non-null array, keyed by DocPath', () => {
@@ -356,7 +363,18 @@ describe('Document editor surface: storeFields', () => {
     expect(write(new Map([['card', 0]]))).toThrow('addr must be a plain object, not a `Map`')
     expect(write(Object.create({ card: 0 }))).toThrow('addr must be a plain object')
     expect(write(Object.defineProperty({}, 'crad', { value: 0 }))).toThrow('unknown key `crad`')
+    expect(write(Object.create(Object.assign(Object.create(null), { crad: 0 })))).toThrow('unknown key `crad`')
     expect(field(doc.main, 'title')).not.toBe('x')
+  })
+
+  it('an address whose read throws is refused, and the document stays writable', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const trap = new Proxy({}, { ownKeys: () => { throw new Error('ownKeys trap') } })
+    expect(() => doc.storeFields(trap, { title: 'x' })).toThrow(
+      'addr must be a plain object, not one whose read throws: ownKeys trap'
+    )
+    doc.storeFields({}, { title: 'y' })
+    expect(field(doc.main, 'title')).toBe('y')
   })
 })
 
@@ -373,14 +391,15 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
 
   it('revise({}, md) revises the main body and returns the text delta', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const delta = doc.revise({}, 'Body from **markdown**.')
+    const { delta, warnings } = doc.revise({}, 'Body from **markdown**.')
     expect(exportMarkdown(doc.main.body)).toBe('Body from **markdown**.')
     expect(Array.isArray(delta.ops)).toBe(true)
+    expect(warnings).toEqual([])
   })
 
   it('overwrite({}, rt) writes a content object', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.overwrite({}, importMarkdown('Content **body** here.'))
+    doc.overwrite({}, importMarkdown('Content **body** here.').content)
     expect(doc.main.body.text).toBe('Content body here.')
     expect(exportMarkdown(doc.main.body)).toBe('Content **body** here.')
   })
@@ -402,12 +421,12 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     let deep = []
     for (let i = 0; i < 5000; i++) deep = [deep]
-    const rt = importMarkdown('body')
+    const rt = importMarkdown('body').content
     rt.islands = [{ id: 'i1', type: 'image', props: deep }]
     // Matched on the message: a slot/shape complaint would pass a bare toThrow
     // while the depth door stayed open.
     expect(() => doc.overwrite({}, rt)).toThrow(/nests deeper/)
-    doc.overwrite({}, importMarkdown('after'))
+    doc.overwrite({}, importMarkdown('after').content)
     expect(doc.main.body.text).toBe('after')
   })
 
@@ -427,10 +446,25 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
 
 describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () => {
   it('importMarkdown ∘ exportMarkdown round-trips a body', () => {
-    const rt = importMarkdown('A **bold** line.')
+    const { content: rt, warnings } = importMarkdown('A **bold** line.')
     expect(typeof rt).toBe('object')
     expect(rt.text).toBe('A bold line.')
     expect(exportMarkdown(rt)).toBe('A **bold** line.')
+    expect(warnings).toEqual([])
+  })
+
+  it('importMarkdown imports the table a blank line sets apart from a centering div and warns of the div', () => {
+    const { content, warnings } = importMarkdown('<div align="center">\n\n| a | b |\n|---|---|\n\n</div>')
+    expect(content.islands.map((i) => i.type)).toEqual(['table'])
+    expect(warnings).toEqual([
+      {
+        severity: 'warning',
+        code: 'parse::dropped_construct',
+        message: expect.any(String),
+        hint: expect.any(String),
+        args: { construct: 'div', count: 1 },
+      },
+    ])
   })
 
   it('answers the canonical form on every Content lane, a zero instance omitted', () => {
@@ -438,12 +472,12 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
     // back. `instance` costs a key only where two adjacent runs would weld.
     const written = (rt) => rt.lines.flatMap((l) => l.containers).map((c) => c.instance)
 
-    expect(written(importMarkdown('> a\n\n- b'))).toEqual([undefined, undefined])
-    expect(written(rebase(importMarkdown('> a'), '> a\n\n- b').content)).toEqual([
+    expect(written(importMarkdown('> a\n\n- b').content)).toEqual([undefined, undefined])
+    expect(written(rebase(importMarkdown('> a').content, '> a\n\n- b').content)).toEqual([
       undefined,
       undefined,
     ])
-    expect(written(importMarkdown('- a\n\n* b'))).toEqual([undefined, 1])
+    expect(written(importMarkdown('- a\n\n* b').content)).toEqual([undefined, 1])
 
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: commit_test\n~~~\n\n> a\n\n- b')
     expect(written(doc.main.body)).toEqual([undefined, undefined])
@@ -456,23 +490,75 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
   })
 
   it('rebase computes a content + delta and mapPos maps a position through it', () => {
-    const base = importMarkdown('hello world')
-    const { content, delta } = rebase(base, 'hello brave world')
+    const base = importMarkdown('hello world').content
+    const { content, delta, warnings } = rebase(base, 'hello brave world')
     expect(content.text).toBe('hello brave world')
+    expect(warnings).toEqual([])
     expect(Array.isArray(delta.ops)).toBe(true)
     // A caret at the end of "hello " stays; one after "world" shifts past "brave ".
     expect(mapPos(delta, 6, 'before')).toBe(6)
     expect(mapPos(delta, 11, 'after')).toBe(17)
   })
+
+  it('a stored null crosses as null, both ways', () => {
+    const md = '<qm-table widths="1 2 auto">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</qm-table>'
+    const { content } = importMarkdown(md)
+    expect(content.islands[0].props.widths).toEqual([1, 2, null])
+    expect(content.islands[0].props.widths[2]).toBeNull()
+    expect(importMarkdown(exportMarkdown(content)).content).toEqual(content)
+
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\nnote: null\n~~~\n')
+    expect(doc.getStored('note')).toBeNull()
+  })
+
+  // A weight is a JS number, exact up to `Number.MAX_SAFE_INTEGER`; one past it
+  // drops at the import rather than reaching a read that cannot carry it.
+  it('a column weight crosses exactly up to the largest safe integer, and drops past it', () => {
+    const table = (widths) =>
+      `<qm-table widths="${widths}">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>`
+    const { content, warnings } = importMarkdown(table(`${Number.MAX_SAFE_INTEGER} 1`))
+    expect(warnings).toEqual([])
+    expect(content.islands[0].props.widths).toEqual([Number.MAX_SAFE_INTEGER, 1])
+    expect(exportMarkdown(content)).toContain(`widths="${Number.MAX_SAFE_INTEGER} 1"`)
+
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n')
+    doc.overwrite({}, content)
+    expect(Document.fromStored(doc.toStored()).main.body).toEqual(content)
+
+    const past = importMarkdown(table('9007199254740992 1'))
+    expect(past.content.islands[0].props.widths).toBeUndefined()
+    expect(past.warnings.map((w) => w.args.construct)).toEqual(['qm-table[widths]'])
+  })
+
+  it('rebase returns the drops of the markdown it imports, with no path', () => {
+    const { content, warnings } = rebase(importMarkdown('a b').content, 'a <span>b</span>')
+    expect(content.text).toBe('a b')
+    expect(warnings).toEqual([
+      {
+        severity: 'warning',
+        code: 'parse::dropped_construct',
+        message: expect.any(String),
+        hint: expect.any(String),
+        args: { construct: 'span', count: 1 },
+      },
+    ])
+  })
+
+  it('loadStored clears the parse warnings a document carried', () => {
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n\n<span>x</span>\n')
+    expect(doc.warnings.map((w) => [w.code, w.path])).toEqual([['parse::dropped_construct', 'main.body']])
+    doc.loadStored(doc.toStored())
+    expect(doc.warnings).toEqual([])
+  })
 })
 
 describe('Content predicates: isInline / isPlain', () => {
   it('judge the inline and plaintext constraints on a Content, throwing on a non-content', () => {
-    expect(isInline(importMarkdown('One **bold** line.'))).toBe(true)
-    expect(isInline(importMarkdown('One.\n\nTwo.'))).toBe(false)
-    expect(isInline(importMarkdown('- item'))).toBe(false)
-    expect(isPlain(importMarkdown('One.\n\nTwo.'))).toBe(true)
-    expect(isPlain(importMarkdown('One **bold** line.'))).toBe(false)
+    expect(isInline(importMarkdown('One **bold** line.').content)).toBe(true)
+    expect(isInline(importMarkdown('One.\n\nTwo.').content)).toBe(false)
+    expect(isInline(importMarkdown('- item').content)).toBe(false)
+    expect(isPlain(importMarkdown('One.\n\nTwo.').content)).toBe(true)
+    expect(isPlain(importMarkdown('One **bold** line.').content)).toBe(false)
     expect(() => isInline('One.')).toThrow()
     expect(() => isPlain({ not: 'a content' })).toThrow()
   })
@@ -625,14 +711,20 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
 
   it('revise({field}) rebases a richtext field anchor and applyChange splices it', () => {
     const doc = blankDoc()
-    // revise the field from markdown (edit semantics), then splice a formatting
-    // mark over "bold" via applyChange.
     doc.revise({ field: 'intro' }, 'make it bold here')
     doc.applyChange(
       { field: 'intro' },
-      { markOps: [{ op: 'add', start: 8, end: 12, type: 'strong' }] },
+      { markOps: [{ op: 'add', start: 8, end: 12, type: 'anchor', attrs: { id: 'a1' } }] },
     )
-    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('make it **bold** here')
+    expect(doc.revise({ field: 'intro' }, 'now make it bold here').warnings).toEqual([])
+    expect(field(doc.main, 'intro').marks).toEqual([
+      { start: 12, end: 16, type: 'anchor', attrs: { id: 'a1' } },
+    ])
+    doc.applyChange(
+      { field: 'intro' },
+      { markOps: [{ op: 'add', start: 12, end: 16, type: 'strong' }] },
+    )
+    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('now make it **bold** here')
     // An out-of-bounds op leaves the value unchanged (all-or-nothing).
     expect(() =>
       doc.applyChange({ field: 'intro' }, { markOps: [{ op: 'add', start: 999, end: 1000, type: 'emph' }] }),
@@ -853,12 +945,42 @@ Card body.
 
   it('revise / overwrite take a card address', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
-    const delta = doc.revise({ card: 0 }, 'New card body.')
+    const { delta } = doc.revise({ card: 0 }, 'New card body.')
     expect(exportMarkdown(doc.cards[0].body)).toBe('New card body.')
     expect(Array.isArray(delta.ops)).toBe(true)
 
-    doc.overwrite({ card: 0 }, importMarkdown('Card body from **markdown**.'))
+    doc.overwrite({ card: 0 }, importMarkdown('Card body from **markdown**.').content)
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body from **markdown**.')
+  })
+
+  it('revise anchors a dropped construct at the address it wrote', () => {
+    const doc = Document.fromMarkdown(MD_WITH_CARD)
+    const { warnings } = doc.revise({ card: 0 }, 'Card <span>body</span>.')
+    expect(doc.cards[0].body.text).toBe('Card body.')
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        code: 'parse::dropped_construct',
+        path: 'cards.note[0].body',
+        args: { construct: 'span', count: 1 },
+      }),
+    ])
+    expect(doc.revise({ field: 'intro' }, '<kbd>x</kbd>').warnings[0].path).toBe('main.intro')
+  })
+
+  it('toAnnotatedMarkdown spells each anchor at its start and lists it at its path', () => {
+    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nMain **body**.\n\n~~~\n$kind: note\n~~~\n\nA note.\n')
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 5, end: 9, type: 'anchor', attrs: { id: 'b' } }] })
+    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 2, end: 2, type: 'anchor', attrs: { id: 'n' } }] })
+    const read = doc.toAnnotatedMarkdown()
+    expect(read.markdown).toContain('Main <qm-anchor ref="b"></qm-anchor>**body**.')
+    expect(read.markdown).toContain('A <qm-anchor ref="n"></qm-anchor>note.')
+    expect(read.anchors).toEqual([
+      { id: 'b', path: 'main.body', line: 'Main body.' },
+      { id: 'n', path: 'cards.note[0].body', line: 'A note.' },
+    ])
+
+    expect(Document.fromMarkdown(read.markdown).equals(Document.fromMarkdown(doc.toMarkdown()))).toBe(true)
   })
 
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
@@ -867,7 +989,7 @@ Card body.
     expectEditCode(() => doc.storeField(addr, 'x'), 'edit::index_out_of_range')
     expectEditCode(() => doc.removeField(addr), 'edit::index_out_of_range')
     expectEditCode(() => doc.revise({ card: 0 }, 'x'), 'edit::index_out_of_range')
-    expectEditCode(() => doc.overwrite({ card: 0 }, importMarkdown('x')), 'edit::index_out_of_range')
+    expectEditCode(() => doc.overwrite({ card: 0 }, importMarkdown('x').content), 'edit::index_out_of_range')
   })
 })
 

@@ -112,7 +112,7 @@ for it, anchored at the card that is full.
 
 ## Warning flow
 
-Warnings travel the same `Diagnostic` currency as errors, on six producer
+Warnings travel the same `Diagnostic` currency as errors, on these producer
 families:
 
 - **`quill::*` load warnings**: the second half of
@@ -123,16 +123,44 @@ families:
   card costume: [CARDS.md](CARDS.md#card-row-matrix)). It advises where a load
   error would overreach — the loader sees a correlate, not the fact.
 - **Parse warnings**: the `warnings` on the `Parsed` that `Document::parse`
-  returns (e.g. a `~~~` opener missing its blank line). The CLI render and the
-  WASM and Python one-shot renders splice the whole `Parsed.warnings` carrier —
-  this family plus the `conform::*` set that `Quill::parse` appends to it —
-  into `RenderResult.warnings` ahead of the validation and compile warnings.
-  In WASM the surface that merges is the runtime `Engine.render`, reading the
-  carrier off the caller's `doc.warnings`: the backend-memory clone it renders
-  is built by `Document.fromStored`, which carries none. A tag warning
+  returns (e.g. a `~~~` opener missing its blank line), which both bindings
+  keep on `doc.warnings` beside the `conform::*` set `Quill::parse` appends.
+  They report the load, so no render carries them: a revise or a store can
+  change what the document holds after it. The CLI's `render`, which parses
+  and renders in one command, prints them ahead of the render's. A tag warning
   (`parse::unsupported_yaml_tag`) anchors at the tagged node's `path`, a
   card's under its stored `$kind` as `pathFor` mints it. One on a `$` key or
   inside `$ext` or `$seed`, which have no document address, carries none.
+  A body's markdown import adds `parse::dropped_construct`, one per construct
+  it dropped, with its `count`, anchored at the body (`main.body`,
+  `cards.<kind>[<i>].body`) after its card's tag warnings. The `construct` is:
+  - a raw tag's lowercase name: `div`, a `qm-*` name outside the carrier
+    grammar such as `qm-a--b`, or `qm-anchor` where its block drops
+    markdown;
+  - `qm-<name>` for an element tag that drops: left unclosed,
+    self-closing, inside a line, or tight against markdown;
+  - `qm-table` for a `qm-table` wrapper that drops whole;
+  - `qm-table[<attr>]` or `qm-<name>[<attr>]` for one attribute that
+    drops.
+
+  A parse reports a body's drops alone, since it knows no field's type: a
+  `richtext` field's markdown string reports its drops at its path from
+  `Quill::conform`, which `Quill::parse` runs, and from `Quill::validate`
+  while the field still holds the string.
+- **`parse::dropped_construct` off a markdown write.** The diagnostic a parse
+  adds, minted by `quillmark_core::document::dropped_construct`, also rides
+  the write that imported the markdown. A revise returns it on its `Revised`
+  receipt beside the `Delta`: unanchored from a `Card` verb, which does not
+  know its address, and at the body or field from the typed writer and WASM
+  `revise`. A whole-document revise (`Document::revise`, the writer's
+  `revise_document`) carries the parse's warnings, then each revised content
+  field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
+  at the placed card's body, WASM `importMarkdown` and `rebase` beside the
+  content with no `path`, and Python's `revise_body` / `revise_field` /
+  `revise_document` / `add_card` as a list. A conform reports a `richtext`
+  string's drops beside its `conform::*` warnings, and `validate` a string's
+  the field still holds. A typed `set` or a card inserted with a string body
+  drops without it.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
@@ -151,13 +179,15 @@ families:
   malformed input, and the document does not render; a `Warning` is unclaimed
   input, which renders. The warnings are
   `cardinality`, `out_of_variant`, `unknown_card`, `body_disabled`,
-  `unknown_field`, and the `$seed` checks, which warn
+  `unknown_field`, `declined_construct`, and the
+  `$seed` checks, which warn
   whatever their class because no render reads `$seed`.
   The render gate consults only the fatal set. A one-shot render
-  (`Quillmark::render`) carries every one of these warnings on
-  `RenderResult.warnings`, ahead of the compile's. A session carries none: its
-  warnings are its current compile's, so its editor reads `Quill::validate`
-  beside it. The CLI's `render` prints them ([CLI.md](CLI.md)). Values
+  (`Quillmark::render`) carries every one of these warnings but
+  `declined_construct` on `RenderResult.warnings`, ahead of the compile's. A
+  session carries none: its warnings are its current compile's, so its editor
+  reads `Quill::validate` beside it. The CLI's `render` prints them
+  ([CLI.md](CLI.md)). Values
   are judged in the form the render floor builds from them
   ([SCHEMAS.md](SCHEMAS.md) § "Type coercion").
 - **`backend::declined_construct`: declined-construct warnings.** A backend
@@ -167,7 +197,16 @@ families:
   `quillmark_core::backend::declined_construct`. Raised at the compile that
   dropped the construct, so it rides the session's compile warnings. The Typst
   backend declines `image` in content
-  ([CONVERT.md](CONVERT.md#declined-images)); nothing else declines anything.
+  ([CONVERT.md](CONVERT.md#declined-images)), and the acroform backend every
+  construct but the paragraph. `quillmark_core::backend::declines` is the
+  table, keyed by backend id.
+- **`validation::declined_construct`: the decline, ahead of the render.**
+  `Quill::validate` walks every content field and body the render would
+  draw, schema defaults and coercion applied, against the quill's backend's
+  row of that table and warns once per (field, construct), with
+  `construct` and `count` in `args` and the field's `DocPath` in `path`: the
+  warning the render raises as `backend::declined_construct`. A one-shot
+  render leaves it out of `RenderResult.warnings`, which carry the backend's.
 - **Compile warnings**: the Typst backend maps the compiler's non-fatal
   diagnostics (font fallback, overfull pages, …) through the same span
   resolution as errors. They are state of the session's current compile:
@@ -177,9 +216,8 @@ families:
   `RenderResult.warnings` on every `render()`, including the one-shot
   `open` → `render` path.
 
-Ordering in a merged `RenderResult.warnings` is pipeline order: parse
-warnings first, then validation warnings, then compile warnings, with no dedup
-across families.
+Ordering in a merged `RenderResult.warnings` is pipeline order: validation
+warnings first, then compile warnings, with no dedup across families.
 `backend::declined_construct` dedups within itself, per field: its producer
 sees every occurrence at once, so the occurrences collapse into `count`.
 
@@ -394,6 +432,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::seed_unknown_field` | — | code-determined |
 | `validation::not_inline` | `trailingNewline`? | structured |
 | `validation::not_plain` | — | code-determined |
+| `validation::declined_construct` | `construct`, `count` | structured |
 | `edit::invalid_field_name` | `field` | structured |
 | `edit::unknown_field` | `field` | structured |
 | `edit::invalid_kind_name` | `kind` | structured |
@@ -422,6 +461,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::missing_kind` | `info`? | structured |
 | `parse::empty_input` | — | code-determined |
 | `parse::unsupported_yaml_tag` | — | code-determined |
+| `parse::dropped_construct` | `construct`, `count` | structured |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |
 | `parse::body_import` | — | fallback |

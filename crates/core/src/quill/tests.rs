@@ -1332,7 +1332,7 @@ fn plaintext_coercion_imports_verbatim_and_refuses_marks() {
     assert_eq!(quillmark_content::export::to_plaintext(&rt), "*not bold* text");
 
     let marked = quillmark_content::import::from_markdown("a **bold** word")
-        .unwrap()
+        .unwrap().content
         .into_content()
         .into_normalized();
     assert_eq!(

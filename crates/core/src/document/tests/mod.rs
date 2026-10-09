@@ -7,6 +7,7 @@ mod fence_conformance_tests;
 mod lossiness_tests;
 mod multibyte_tests;
 mod properties;
+mod revise_tests;
 mod seed_tests;
 
 use std::path::{Path, PathBuf};

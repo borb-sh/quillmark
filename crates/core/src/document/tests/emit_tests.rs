@@ -226,7 +226,7 @@ fn an_indented_plaintext_field_survives_emit_and_reparse() {
         .expect("the field projected to a markdown string");
     assert_eq!(
         quillmark_content::import::from_markdown(projected)
-            .expect("the projection re-imports")
+            .expect("the projection re-imports").content
             .text,
         text,
         "indented plaintext lost in emit:\n{md}"
@@ -238,7 +238,7 @@ fn an_indented_plaintext_field_survives_emit_and_reparse() {
 /// same value and re-encodes to different bytes.
 #[test]
 fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
-    let content = quillmark_content::import::from_markdown("> quoted").unwrap();
+    let content = quillmark_content::import::from_markdown("> quoted").unwrap().content;
     let canonical = quillmark_content::serial::to_canonical_value(&content);
     let mut spelled = canonical.clone();
     spelled["lines"][0]["containers"][0]["instance"] = serde_json::json!(0);
@@ -263,7 +263,7 @@ fn a_nested_content_cell_projects_and_ext_content_does_not() {
     use crate::value::QuillValue;
 
     let content = quillmark_content::serial::to_canonical_value(
-        &quillmark_content::import::from_markdown("and **this**").unwrap(),
+        &quillmark_content::import::from_markdown("and **this**").unwrap().content,
     );
     let meta = QuillValue::from_json(serde_json::json!({ "blurb": content.clone() }));
 

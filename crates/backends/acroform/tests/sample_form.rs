@@ -250,3 +250,33 @@ fn regions_follow_form_json_order_which_is_stamping_order() {
         ]
     );
 }
+
+#[test]
+fn a_construct_the_form_declines_warns_at_validate_and_on_the_session() {
+    let md = FILLED.replace(
+        "bio: A **bold** claim and _emphasis_.\n",
+        "bio: |\n  # Title\n\n  - one\n  - two\n\n  ![x](x.png)\n",
+    );
+    let doc = Document::parse(&md).expect("parse markdown").document;
+    let declines = |diags: &[quillmark::Diagnostic], code: &str| -> Vec<(String, String, u64)> {
+        diags
+            .iter()
+            .filter(|d| d.code.as_deref() == Some(code))
+            .map(|d| {
+                (
+                    d.path.clone().unwrap_or_default(),
+                    d.args["construct"].as_str().unwrap_or_default().to_string(),
+                    d.args["count"].as_u64().unwrap_or_default(),
+                )
+            })
+            .collect()
+    };
+    let expected: Vec<(String, String, u64)> = [("heading", 1), ("list", 1), ("image", 1)]
+        .iter()
+        .map(|&(c, n)| ("main.bio".to_string(), c.to_string(), n))
+        .collect();
+
+    assert_eq!(declines(&quill().validate(&doc), "validation::declined_construct"), expected);
+    let session = open_session(&md);
+    assert_eq!(declines(session.warnings(), "backend::declined_construct"), expected);
+}

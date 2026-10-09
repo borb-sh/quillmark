@@ -638,7 +638,7 @@ impl QuillConfig {
                         "richtext",
                         format!("markdown import failed: {e}"),
                     )
-                })?;
+                })?.content;
                 inline_check(&rt)?;
                 Ok(QuillValue::from_json(
                     quillmark_content::serial::to_canonical_value(&rt),
@@ -1605,7 +1605,7 @@ impl QuillConfig {
     ///
     /// Delegates type/enum/format/recursion checking to
     /// [`super::validation::validate_schema_literal`] (the shared conformance
-    /// primitive) then converts each [`ValidationError`] into a Quill.yaml
+    /// primitive) then converts each [`ValidationError`](crate::quill::validation::ValidationError) into a Quill.yaml
     /// load-time diagnostic with an author-friendly hint.
     fn validate_default(
         value: &QuillValue,

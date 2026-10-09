@@ -2,6 +2,8 @@
 `quill.reader(doc)` reads, both against the quill's schema. The quill-free
 mutator surface is `test_document.py`."""
 
+import json
+
 import pytest
 from quillmark import Document, Quill, QuillmarkError
 
@@ -97,16 +99,87 @@ def test_card_selector_targets_the_composable_card_on_both_lanes():
 
 def test_writer_revise_field():
     """revise_field diff-imports markdown into a richtext field under the same
-    guards as `set`."""
+    guards as `set`, returning what the import dropped at the field."""
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
-    w.revise_field("bio", "make it **bold**")
+    assert w.revise_field("bio", "make it **bold**") == []
+    assert quill.reader(doc).get("bio") == "make it **bold**"
+    (dropped,) = w.revise_field("bio", "make it <kbd>**bold**</kbd>")
+    assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"
     with raises_edit_code("edit::field_not_inline"):
         w.revise_field("headline", "line one\n\nline two")
     with raises_edit_code("edit::unknown_field"):
         w.revise_field("nope", "x")
+
+
+def test_writer_revise_document():
+    """revise_document replaces the document from markdown, conforms it, and
+    returns the warnings, clearing the load's; a foreign `$quill` raises and
+    changes nothing."""
+    quill = richtext_quill()
+    doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\n<span>Body.</span>\n")
+    assert [d.code for d in doc.warnings] == ["parse::dropped_construct"]
+    w = quill.writer(doc)
+    assert w.revise_field("bio", "make it **bold**") == []
+    (dropped,) = w.revise_document(
+        "~~~\n$quill: sample_form@0.1.0\nbio: make it <kbd>**bold**</kbd>\n~~~\n\nBody.\n"
+    )
+    assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
+    assert quill.reader(doc).get("bio") == "make it **bold**"
+    assert doc.warnings == []
+    before = doc.to_markdown()
+    with pytest.raises(QuillmarkError):
+        w.revise_document("~~~\n$quill: other\n~~~\n")
+    assert doc.to_markdown() == before
+
+
+def test_an_anchor_survives_the_field_and_document_revises():
+    """revise_field and revise_document rebase an anchor the stored field
+    holds; Python reaches anchors only through storage."""
+    quill = richtext_quill()
+    doc = Document("sample_form@0.1.0")
+    quill.writer(doc).revise_field("bio", "make it bold here")
+    stored = json.loads(doc.to_stored())
+    (bio,) = [i for i in stored["main"]["payload"]["items"] if i.get("key") == "bio"]
+    bio["value"]["marks"] = [{"start": 8, "end": 12, "type": "anchor", "attrs": {"id": "a1"}}]
+    doc = Document.from_stored(json.dumps(stored))
+
+    def bio_marks():
+        items = json.loads(doc.to_stored())["main"]["payload"]["items"]
+        return [i for i in items if i.get("key") == "bio"][0]["value"]["marks"]
+
+    w = quill.writer(doc)
+    assert w.revise_field("bio", "now make it bold here") == []
+    assert bio_marks() == [{"attrs": {"id": "a1"}, "end": 16, "start": 12, "type": "anchor"}]
+    assert w.revise_document("~~~\n$quill: sample_form@0.1.0\nbio: so now make it bold here\n~~~\n") == []
+    assert bio_marks() == [{"attrs": {"id": "a1"}, "end": 19, "start": 15, "type": "anchor"}]
+
+
+def test_markdown_writes_return_their_drops_at_the_body_written():
+    """revise_body and add_card return the import's drops, each at the body
+    it wrote."""
+    quill = taro_quill()
+    doc = Document("taro@0.1.0")
+    w = quill.writer(doc)
+
+    def drops(warnings):
+        return [(d.code, d.path, d.args["construct"]) for d in warnings]
+
+    assert drops(w.revise_body("a <kbd>b</kbd>")) == [
+        ("parse::dropped_construct", "main.body", "kbd")
+    ]
+    assert drops(w.add_card("quotes", {"author": "A"}, "x <span>y</span>")) == [
+        ("parse::dropped_construct", "cards.quotes[0].body", "span")
+    ]
+    assert drops(w.add_card("quotes", {"author": "B"}, "<em>z</em>", at=0)) == [
+        ("parse::dropped_construct", "cards.quotes[0].body", "em")
+    ]
+    assert drops(w.revise_body("c <kbd>d</kbd>", card=1)) == [
+        ("parse::dropped_construct", "cards.quotes[1].body", "kbd")
+    ]
+    assert quill.reader(doc).body_markdown(card=1) == "c d"
 
 
 def test_view_interprets_by_declared_type():

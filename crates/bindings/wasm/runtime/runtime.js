@@ -162,11 +162,11 @@ function quillmarkError(code, message, hint) {
 }
 
 /**
- * Throw on options that are not a plain object, or on an own key of them
- * outside `known`. The JS twin of the binding's `reject_unknown_keys`, in the
- * uncoded shape it throws: a misspelled optional key would otherwise read as
- * absent, and a read reaches a key up the prototype chain that no own-key walk
- * sees.
+ * Throw on options that are not a plain object, or on a key of them, or of a
+ * null-prototype object they inherit from, outside `known`. The JS twin of the
+ * binding's `reject_unknown_keys`, in the uncoded shape it throws: a misspelled
+ * optional key would otherwise read as absent, and a read reaches a key up the
+ * prototype chain that no own-key walk sees.
  * @param {unknown} options
  * @param {string[]} known
  * @param {string} what the options' name, for the message
@@ -174,8 +174,28 @@ function quillmarkError(code, message, hint) {
  */
 function rejectUnknownKeys(options, known, what) {
 	if (options == null) return;
-	const proto = Object.getPrototypeOf(options);
 	let message;
+	try {
+		message = unknownKeyRefusal(options, known, what);
+	} catch (e) {
+		const cause = e instanceof Error ? e.message : String(e);
+		message = `${what} must be a plain object, not one whose read throws: ${cause}`;
+	}
+	if (message === undefined) return;
+	const err = /** @type {any} */ (new Error(message));
+	err.diagnostics = [{ severity: 'error', message }];
+	throw err;
+}
+
+/**
+ * The refusal `rejectUnknownKeys` throws, if any. A `Proxy` trap may throw.
+ * @param {unknown} options
+ * @param {string[]} known
+ * @param {string} what
+ * @returns {string | undefined}
+ */
+function unknownKeyRefusal(options, known, what) {
+	const proto = Object.getPrototypeOf(options);
 	if (proto !== null && Object.getPrototypeOf(proto) !== null) {
 		const passed =
 			options instanceof Map
@@ -183,15 +203,16 @@ function rejectUnknownKeys(options, known, what) {
 				: typeof options === 'object'
 					? 'one inheriting from another object'
 					: `a ${typeof options}`;
-		message = `${what} must be a plain object, not ${passed}`;
-	} else {
-		const key = Object.getOwnPropertyNames(options).find((k) => !known.includes(k));
-		if (key === undefined) return;
-		message = `${what} have unknown key \`${key}\`; ${what} take only \`${known.join('`, `')}\``;
+		return `${what} must be a plain object, not ${passed}`;
 	}
-	const err = /** @type {any} */ (new Error(message));
-	err.diagnostics = [{ severity: 'error', message }];
-	throw err;
+	const keys = Object.getOwnPropertyNames(options);
+	if (proto !== null) {
+		const builtin = Object.getOwnPropertyNames(Object.prototype);
+		keys.push(...Object.getOwnPropertyNames(proto).filter((k) => !builtin.includes(k)));
+	}
+	const key = keys.find((k) => !known.includes(k));
+	if (key === undefined) return undefined;
+	return `${what} have unknown key \`${key}\`; ${what} take only \`${known.join('`, `')}\``;
 }
 
 // These checks deliver the ERROR, not the rejection, at the seams that cross
@@ -263,9 +284,10 @@ function requireLocalQuill(quill, method) {
 // `runtime.test.js` § "container run boundaries" stamps a pair and re-imports
 // it, where `Content::normalize` re-mints against the Rust predicate. A tag the
 // table omits welds with nothing, so `tests/known_names_drift.rs` pins that
-// every container has an entry.
+// every container has an entry. An entry of `'*'` welds on the whole bag: an
+// element's attributes are open, its name among them.
 
-const WELD_KEYS = { list_item: ['ordered'], quote: [] };
+const WELD_KEYS = { list_item: ['ordered'], quote: [], element: '*' };
 
 /**
  * @param {import('../core/wasm.js').ContentContainer} a
@@ -278,7 +300,20 @@ function weldsWith(a, b) {
 	// `hasOwn`, so a tag colliding with an `Object.prototype` member answers
 	// `false` rather than reaching a function.
 	if (!Object.hasOwn(WELD_KEYS, a.container)) return false;
-	return WELD_KEYS[a.container].every((k) => a.attrs?.[k] === b.attrs?.[k]);
+	const keys = WELD_KEYS[a.container];
+	if (keys === '*') return sameBag(a.attrs, b.attrs);
+	return keys.every((k) => a.attrs?.[k] === b.attrs?.[k]);
+}
+
+/**
+ * @param {Record<string, unknown> | undefined} a
+ * @param {Record<string, unknown> | undefined} b
+ * @returns {boolean}
+ */
+function sameBag(a, b) {
+	const [x, y] = [a ?? {}, b ?? {}];
+	const keys = Object.keys(x);
+	return keys.length === Object.keys(y).length && keys.every((k) => Object.hasOwn(y, k) && x[k] === y[k]);
 }
 
 /**
@@ -510,15 +545,10 @@ export class Engine {
 	 * memory and run `fn` against the backend engine. Only `render`/`open` call
 	 * this, so `doc` is always present.
 	 *
-	 * OWNERSHIP WINDOW: both caller handles are snapshotted (`doc.toStored()` and
-	 * `doc.warnings`, and `quill.toTree()` on a clone-cache miss) BEFORE the first
-	 * await. The backend load below is a real suspension point, so reading the
+	 * OWNERSHIP WINDOW: both caller handles are snapshotted (`doc.toStored()`,
+	 * and `quill.toTree()` on a clone-cache miss) BEFORE the first await. The backend load below is a real suspension point, so reading the
 	 * handles after it would race a caller that `free()`s them as soon as this
 	 * call returns its promise ("null pointer passed to rust").
-	 *
-	 * `docWarnings` rides the context because the storage DTO does not carry
-	 * them: `fromStored` clears the load's warnings, so the backend clone knows
-	 * nothing of them and `render` splices the snapshot back in.
 	 *
 	 * Clone lifetimes differ by design: the `doc` clone is TRANSIENT, freed in
 	 * the `finally` of every call, while the `quill` clone is CACHED and is not
@@ -528,13 +558,12 @@ export class Engine {
 	 * @param {string} method the caller's name, for the rejection message
 	 * @param {Quill} quill
 	 * @param {Document} doc
-	 * @param {(ctx: { mod: any, engine: any, quill: any, doc: any, docWarnings: any[] }) => any} fn
+	 * @param {(ctx: { mod: any, engine: any, quill: any, doc: any }) => any} fn
 	 */
 	async #withClones(method, quill, doc, fn) {
 		const backendId = this.#backendOf(quill, method);
 		requireLocalDoc(doc, method);
 		const docJson = doc.toStored();
-		const docWarnings = doc.warnings;
 		const quillTree = this.#quillClones.get(this.#descriptorFor(backendId).load)?.has(quill)
 			? null
 			: quill.toTree();
@@ -546,7 +575,7 @@ export class Engine {
 		let backendDoc = null;
 		try {
 			backendDoc = mod.Document.fromStored(docJson);
-			return fn({ mod, engine, quill: backendQuill, doc: backendDoc, docWarnings });
+			return fn({ mod, engine, quill: backendQuill, doc: backendDoc });
 		} finally {
 			backendDoc?.free();
 		}
@@ -564,11 +593,7 @@ export class Engine {
 			'engine.render(quill, doc)',
 			quill,
 			doc,
-			({ engine, quill: q, doc: d, docWarnings }) => {
-				const result = engine.render(q, d, options ?? undefined, today);
-				result.warnings = docWarnings.concat(result.warnings);
-				return result;
-			}
+			({ engine, quill: q, doc: d }) => engine.render(q, d, options ?? undefined, today)
 		);
 	}
 
@@ -756,7 +781,7 @@ export class DocumentWriter {
 	}
 	/**
 	 * @param {string} markdown
-	 * @returns {import('../core/wasm.js').Delta}
+	 * @returns {import('../core/wasm.js').Revised}
 	 */
 	reviseBody(markdown) {
 		return this.#doc.revise({}, markdown);
@@ -764,17 +789,24 @@ export class DocumentWriter {
 	/**
 	 * @param {string} name
 	 * @param {string} text
-	 * @returns {import('../core/wasm.js').Delta}
+	 * @returns {import('../core/wasm.js').Revised}
 	 */
 	reviseField(name, text) {
 		return this.#doc._reviseField(this.#quill, name, text);
+	}
+	/**
+	 * @param {string} markdown
+	 * @returns {import('../core/wasm.js').DocumentRevised}
+	 */
+	reviseDocument(markdown) {
+		return this.#doc._reviseDocument(this.#quill, markdown);
 	}
 	/**
 	 * @param {string} kind
 	 * @param {Record<string, unknown>} [fields]
 	 * @param {string} [body]
 	 * @param {number} [at] insertion index; appends when omitted
-	 * @returns {void}
+	 * @returns {import('../core/wasm.js').Diagnostic[]}
 	 */
 	addCard(kind, fields, body, at) {
 		return this.#doc._addCard(this.#quill, kind, fields, body, at);
@@ -837,7 +869,7 @@ export class CardWriter {
 	}
 	/**
 	 * @param {string} markdown
-	 * @returns {import('../core/wasm.js').Delta}
+	 * @returns {import('../core/wasm.js').Revised}
 	 */
 	reviseBody(markdown) {
 		return this.#doc.revise({ card: this.#index }, markdown);
@@ -845,7 +877,7 @@ export class CardWriter {
 	/**
 	 * @param {string} name
 	 * @param {string} text
-	 * @returns {import('../core/wasm.js').Delta}
+	 * @returns {import('../core/wasm.js').Revised}
 	 */
 	reviseField(name, text) {
 		return this.#doc._reviseField(this.#quill, { card: this.#index, field: name }, text);

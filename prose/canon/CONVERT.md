@@ -17,7 +17,7 @@ this page documents how the backend lowers the content it produces.
 
 ```
 emit_content(&Normalized) -> Result<Emission, EmitError>
-  ├─ block walk    lines → headings, paragraphs, code fences, lists, quotes, islands
+  ├─ block walk    lines → headings, paragraphs, code fences, lists, quotes, elements, islands
   ├─ mark sweep    anchored marks → nested #strong[…] / #emph[…] / #link(…)[…] / …
   └─ source map    per-segment (content ↔ gen) windows + one (content, gen) pair per run
 ```
@@ -121,14 +121,23 @@ is a lowering bug, never a document's.
 | `Container::ListItem` (bullet) | `- ` |
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
 | `Container::Quote` | `#quote(block: true)[…]` |
+| `Container::Element{name, attrs}` | `#_qm-element("name", (…))[…]` (see [Elements](#elements)) |
 | `image` island | nothing, plus one `backend::declined_construct` warning per field (see [Declined images](#declined-images)) |
 | `table` island | `#table(columns: N, align: (…), table.header(…), …)` |
 
 Table alignment maps `none→auto`, `left`, `center`, `right`; the `align:`
-argument is emitted only when at least one column is non-default. A table cell is
-canonical `{text, marks}`, lowered through the same mark sweep as prose: a
-formatted cell reaches `#strong[…]` / `#emph[…]` / `#raw(…)` / `#link(…)[…]`, not
-an escaped source slice. A `\n` in a cell's text is a line break and lowers to
+argument is emitted only when at least one column is non-default.
+
+The table's layout keys lower as:
+
+| Knob | Lowering |
+|---|---|
+| `widths` | `columns: (2fr, 1fr, auto)`, a weight to `fr` and `null` to `auto`, in place of `columns: N` |
+| `align` | `#context align(center, table(…))`; a column at `none` takes `align.alignment`, and with no column aligned the table takes `table.align` where the plate sets one, else `align.alignment`, so the placement moves the table and no text inside it |
+
+A table cell is canonical `{text, marks}`, lowered through the same mark sweep
+as prose: a formatted cell reaches `#strong[…]` / `#emph[…]` / `#raw(…)` /
+`#link(…)[…]`, not an escaped source slice. A `\n` in a cell's text is a line break and lowers to
 `#linebreak()`, as a prose hard break does.
 
 **Block quotes render** as `#quote(block: true)[…]`: the one lowering
@@ -141,9 +150,30 @@ leaves and containers alike: what the content nests, the markup nests.
 
 Anchor marks emit nothing; an `image` island emits nothing (see
 [Declined images](#declined-images)).
-Content that import never admits into the content: raw HTML other than `<u>`
-and an inline `<br>` (a hard break), HTML comments, math, footnotes, task lists,
-definition lists (markdown-spec §6.3): is absent here.
+Raw HTML other than an inline `<u>`, `<br>` (a hard break) and the `qm-*`
+carrier (markdown-spec §6.4) never enters the content, so it is absent here; math, task lists and definition lists
+enter it as literal text (markdown-spec §6.2, §6.3).
+
+### Elements
+
+An element lowers through one dispatcher the helper defines,
+`_qm-element(name, attrs, body)`. It calls the renderer a plate registers under
+the name in the helper's `elements` state as `render(attrs, body)`, else the
+built-in `keep`, which holds its body on one page, else draws the body alone.
+It reads the state's final value, so a plate's update may stand after the
+content it renders:
+
+```typst
+#import "@local/quillmark-helper:0.1.0": elements
+#elements.update(e => e + (stamp: (attrs, body) => text(fill: red, body)))
+```
+
+`attrs` is a dictionary of strings keyed by attribute name, sorted, and `(:)`
+when empty: each attribute as the document stores it.
+
+An element's call keeps its run's structure in its `[…]`, so a run inside
+a list item stays in the item. The dispatcher's bytes fall between runs, so the
+source map holds no run for them.
 
 ### Declined images
 
@@ -171,6 +201,10 @@ reads and the shape the WASM boundary pins:
   above); `aligns` is one `none | left | center | right` per column. Import
   normalizes to a single column count: header, every row, and `aligns` padded
   to the widest, so `columns:` and `align:` agree.
+  The optional layout keys `widths` and `align`
+  ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") lower
+  as [above](#element-mapping); an absent one draws at its default: auto-fit,
+  at the plate's placement.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. What `url` names is undecided (see [Declined images](#declined-images)).
 
@@ -195,17 +229,17 @@ Each segment records a `SegmentMap`:
 
 ```rust
 struct SegmentMap {
-    content: Range<usize>,                                 // USV, the segment's content span
-    gen:    Range<usize>,                                 // bytes into `markup`
-    runs:   Vec<(Range<usize>, Range<usize>, EscapeCtx)>, // (content USV, gen bytes) per text run
+    content:   Range<usize>,                                 // USV, the segment's content span
+    generated: Range<usize>,                                 // bytes into `markup`
+    runs:      Vec<(Range<usize>, Range<usize>, EscapeCtx)>, // (content USV, generated bytes) per text run
 }
 enum EscapeCtx { Markup, StringLit }
 ```
 
 A **run** is one plain-text stretch between marks, islands, and line breaks;
-`gen` slices exactly `escape_markup(content_slice)` (or `escape_string` for code /
+its generated bytes are exactly `escape_markup(content_slice)` (or `escape_string` for code /
 string-literal runs). Structural bytes: mark delimiters, container syntax,
-`#linebreak()`: fall between runs, inside `gen` but under no run. This is the
+`#linebreak()`: fall between runs, inside `generated` but under no run. This is the
 only place a per-segment source map can be produced, because it is the only place
 that both lowers the content and knows the resulting byte layout.
 
