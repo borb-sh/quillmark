@@ -2,8 +2,8 @@
 //!
 //! Input is normalized by `normalize::normalize_markdown` (CRLF→LF, bidi
 //! controls dropped, line separators spaced, then the parser-guided repair that
-//! frees the markdown inside an HTML block and makes a footnote-shaped
-//! definition literal) so the content invariants hold by construction, then
+//! splits text off a comment's line and ends a table at a row of tags) so the
+//! content invariants hold by construction, then
 //! parsed with `pulldown_cmark` (CommonMark + strikethrough + pipe tables) and
 //! walked into a [`Content`]. This is the one place the `<u>`/`<br>` allowlist
 //! runs, and the one place a dropped raw tag is counted into the
@@ -25,16 +25,13 @@
 //!   re-mints the same sequence.
 //! - Tables and images are islands, block and inline respectively; a thematic
 //!   break is a `Rule` line carrying no text.
-//! - Raw HTML produces no content beyond the allowlist and the carrier. A tag
-//!   alone on its line is a block wrapper: it drops, and the lines around it
-//!   parse as markdown. A type 1–5 HTML block (`<pre>`, a comment, …) drops
-//!   whole. A `quill-table` wrapper around one table folds its attributes into
-//!   the table's props, and a `quill-cell` pair around a whole table cell into
-//!   the cell.
+//! - Raw HTML produces no content beyond the allowlist and the carrier. An HTML
+//!   block drops whole, as CommonMark runs it; one of tag lines alone passes
+//!   its carrier tags on. A `quill-table` wrapper around one table folds its
+//!   attributes into the table's props.
 //! - A `quill-*` element the carrier does not reserve is modeled: a pair of tag
-//!   lines wraps the blocks between them in a [`Container::Element`], and a pair
-//!   inside one inline run marks the text between with a [`MarkKind::Element`].
-//!   One left unclosed drops, what it wraps importing as written.
+//!   lines wraps the blocks between them in a [`Container::Element`]. One left
+//!   unclosed drops, what it wraps importing as written.
 
 use crate::model::{
     Container, Island, Line, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
@@ -82,15 +79,14 @@ impl std::error::Error for ImportError {}
 pub enum ImportWarning {
     /// `count` instances of `construct` dropped: a raw tag by its lowercase
     /// name (`span`, `div`, `x-note`), counted at its open or self-closing
-    /// form; `footnote_definition` for a footnote-shaped definition imported
-    /// as literal text; `quill-table` for a `quill-table` wrapper not holding
-    /// exactly one table, and `quill-table[<attr>]` for an attribute one
-    /// holding a table cannot fold; `quill-cell` for a `quill-cell` tag in a
-    /// table cell it does not wrap whole, and `quill-cell[<attr>]` for an
-    /// attribute one wrapping its cell cannot fold; `quill-<name>` for an
-    /// element left unclosed, self-closing, or paired inline around nothing,
-    /// and `quill-<name>[<attr>]` for an attribute one cannot carry. One entry
-    /// per construct.
+    /// form; `footnote_definition` for a footnote-shaped definition, which
+    /// CommonMark reads as a link reference definition; `quill-table` for a
+    /// `quill-table` wrapper not holding exactly one table, and
+    /// `quill-table[<attr>]` for an attribute one holding a table cannot fold;
+    /// `quill-cell` for a `quill-cell` tag; `quill-<name>` for an element left
+    /// unclosed, self-closing, inside a line or tight against markdown, and
+    /// `quill-<name>[<attr>]` for an attribute one cannot carry. One entry per
+    /// construct.
     DroppedConstruct { construct: String, count: usize },
 }
 
@@ -111,33 +107,17 @@ pub(crate) fn options() -> Options {
     options
 }
 
-/// A `<quill-anchor ref="ID">` tag an import read: the anchor's id and the
-/// char offset in the imported text it stands at. Only the revise lane reads
-/// one ([`crate::delta::rebase_onto_tagged`]); the content holds none.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AnchorTag {
-    pub id: String,
-    pub at: usize,
-}
-
 /// Import markdown into a normalized, validated [`Content`], with an
 /// [`ImportWarning`] per construct it dropped. A comment, the content of a type
 /// 1–5 HTML block and a `quill-anchor` tag drop silently; a `<pre>`,
 /// `<script>`, `<style>` or `<textarea>` block's opening tag counts, and a
 /// closing tag never does.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
-    from_markdown_tagged(markdown).map(|(imported, _)| imported)
-}
-
-/// [`from_markdown`], with each anchor tag in prose outside a table cell or an
-/// image, in order: where the tag reads, not an anchor.
-pub fn from_markdown_tagged(markdown: &str) -> Result<(Imported, Vec<AnchorTag>), ImportError> {
     let options = options();
     let Repaired { text, footnotes } = normalize_markdown(markdown, options);
     let mut fixer = MarkdownFixer::new(Parser::new_ext(&text, options).into_offset_iter());
     let mut b = Builder::new();
     b.run(&mut fixer)?;
-    let anchor_tags = b.take_anchor_tags();
     let (mut content, elements) = b.finish();
     let (mut dropped, folds) = fixer.finish();
     dropped.absorb(elements);
@@ -149,22 +129,16 @@ pub fn from_markdown_tagged(markdown: &str) -> Result<(Imported, Vec<AnchorTag>)
         .iter_mut()
         .filter(|i| i.island_type == IslandType::Table)
         .collect();
-    for Fold { table, at, keys } in folds {
-        let into = tables.get_mut(table).and_then(|t| t.props.pointer_mut(&at));
+    for Fold { table, keys } in folds {
+        let into = tables.get_mut(table).map(|t| &mut t.props);
         if let Some(o) = into.and_then(serde_json::Value::as_object_mut) {
             o.extend(keys);
         }
     }
-    let content = content.into_normalized();
-    let len = content.text.chars().count();
-    let anchor_tags = anchor_tags.into_iter().map(|t| AnchorTag { at: t.at.min(len), ..t }).collect();
-    Ok((
-        Imported {
-            content,
-            warnings: dropped.into_warnings(),
-        },
-        anchor_tags,
-    ))
+    Ok(Imported {
+        content: content.into_normalized(),
+        warnings: dropped.into_warnings(),
+    })
 }
 
 /// Import plain text (literal) into a [`Content`]: the literal-codec sibling of
@@ -218,9 +192,6 @@ struct Inline {
     marks: Vec<Mark>,
     /// `(kind, start)` for each mark opened but not yet closed.
     open: Vec<(MarkKind, usize)>,
-    /// Each element whose open tag this run has read and whose close it awaits,
-    /// its `from` the position its mark starts at.
-    elements: Vec<Opened>,
     /// Each `<u>` this run has read and whose `</u>` it awaits, innermost last:
     /// a bare one's start position and tag offset, `None` for one carrying an
     /// attribute, which pairs and underlines nothing.
@@ -269,33 +240,6 @@ impl Inline {
         }
     }
 
-    fn open_element(&mut self, name: String, attrs: carrier::Attrs, at: usize) {
-        self.elements.push(Opened::new(name, attrs, at, self.pos as u64));
-    }
-
-    /// Close the innermost open element named `name`, wherever it sits among
-    /// the marks: an element mark crosses any other. A close naming none drops
-    /// silently, and a pair around nothing drops as its element.
-    fn close_element(&mut self, name: &str, dropped: &mut Dropped) {
-        let Some(i) = self.elements.iter().rposition(|e| e.name == name) else {
-            return;
-        };
-        let e = self.elements.remove(i);
-        let start = e.from as usize;
-        if start == self.pos {
-            return dropped.add(&format!("{}{}", carrier::PREFIX, e.name), e.at);
-        }
-        e.report_refused(dropped);
-        self.marks.push(Mark {
-            start,
-            end: self.pos,
-            kind: MarkKind::Element {
-                name: e.name,
-                attrs: e.attrs,
-            },
-        });
-    }
-
     /// Pair one `<u>` tag: a `</u>` closes the innermost open `<u>` wherever
     /// it sits among the marks, so an underline crosses any other, and one
     /// closing nothing drops silently.
@@ -317,12 +261,8 @@ impl Inline {
         }
     }
 
-    /// End the run: each element and each bare `<u>` still open drops as
-    /// unclosed.
+    /// End the run: each bare `<u>` still open drops as unclosed.
     fn drop_open(&mut self, dropped: &mut Dropped) {
-        for e in self.elements.drain(..) {
-            dropped.add(&format!("{}{}", carrier::PREFIX, e.name), e.at);
-        }
         for (_, at) in self.underlines.drain(..).flatten() {
             dropped.add("u", at);
         }
@@ -343,13 +283,12 @@ impl Inline {
 /// An element whose open tag the import has read and whose close it awaits.
 struct Opened {
     name: String,
-    attrs: std::collections::BTreeMap<String, String>,
     /// The attributes outside the carrier grammar, reported once the element
     /// closes: an unclosed element drops whole, and reports only itself.
     refused: Vec<String>,
     /// The open tag's byte offset.
     at: usize,
-    /// An inline element's start position, or a block element's instance.
+    /// The block element's instance.
     from: u64,
 }
 
@@ -357,7 +296,6 @@ impl Opened {
     fn new(name: String, attrs: carrier::Attrs, at: usize, from: u64) -> Self {
         Opened {
             name,
-            attrs: attrs.values,
             refused: attrs.refused,
             at,
             from,
@@ -414,10 +352,6 @@ struct Builder {
     /// The element tags this walk drops: an unclosed element, an inline pair
     /// around nothing, an attribute outside the grammar.
     dropped: Dropped,
-    /// Anchor tags read, each at the position it stands at.
-    anchor_tags: Vec<AnchorTag>,
-    /// Anchor tags read where a line is yet to open, placed at its start.
-    waiting_anchors: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -480,30 +414,7 @@ impl Builder {
             blocks: Vec::new(),
             unclosed: Vec::new(),
             dropped: Dropped::default(),
-            anchor_tags: Vec::new(),
-            waiting_anchors: Vec::new(),
         }
-    }
-
-    fn anchor_tag(&mut self, id: String) {
-        if self.image_depth > 0 || self.table.is_some() {
-            return;
-        }
-        if self.cur.is_some() && self.pending.is_none() {
-            self.anchor_tags.push(AnchorTag { id, at: self.inline.pos });
-        } else {
-            self.waiting_anchors.push(id);
-        }
-    }
-
-    fn place_waiting_anchors(&mut self) {
-        let at = self.inline.pos;
-        self.anchor_tags.extend(self.waiting_anchors.drain(..).map(|id| AnchorTag { id, at }));
-    }
-
-    fn take_anchor_tags(&mut self) -> Vec<AnchorTag> {
-        self.place_waiting_anchors();
-        std::mem::take(&mut self.anchor_tags)
     }
 
     /// Open a fresh line with `kind` and the current container path. The first
@@ -534,7 +445,6 @@ impl Builder {
         } else if self.cur.is_none() {
             self.open_line(default, false);
         }
-        self.place_waiting_anchors();
     }
 
     fn push_inline(&mut self, s: &str) {
@@ -613,7 +523,6 @@ impl Builder {
         let underlined = self.inline.underlines.iter().any(Option::is_some);
         let depth = self.containers.len()
             + self.inline.open.len()
-            + self.inline.elements.len()
             + usize::from(underlined);
         if depth > MAX_NESTING_DEPTH {
             return Err(ImportError::NestingTooDeep {
@@ -637,10 +546,6 @@ impl Builder {
                 }
                 Fixed::Underline(tag) => {
                     self.underline_tag(tag)?;
-                    continue;
-                }
-                Fixed::Anchor(id) => {
-                    self.anchor_tag(id);
                     continue;
                 }
             };
@@ -888,9 +793,8 @@ impl Builder {
         }
     }
 
-    /// Pair one element tag: a tag line opens or closes a block element, any
-    /// other an inline one in the run or table cell it stands in. In an
-    /// image's alt text, where nothing is marked, an open tag drops.
+    /// Pair one element tag: a tag line opens or closes a block element. Any
+    /// other open tag drops, and any other close tag drops silently.
     fn element_tag(&mut self, tag: ElementTag) -> Result<(), ImportError> {
         let ElementTag { name, attrs, block, at } = tag;
         let report = |dropped: &mut Dropped, attrs: &Option<carrier::Attrs>| {
@@ -898,18 +802,8 @@ impl Builder {
                 dropped.add(&format!("{}{name}", carrier::PREFIX), at);
             }
         };
-        if self.image_depth > 0 {
+        if self.image_depth > 0 || self.table.is_some() || !block {
             report(&mut self.dropped, &attrs);
-            return Ok(());
-        }
-        if let Some(acc) = self.table.as_mut() {
-            match acc.cell.as_mut().filter(|_| acc.img_depth == 0) {
-                Some(cell) => match attrs {
-                    Some(attrs) => cell.open_element(name, attrs, at),
-                    None => cell.close_element(&name, &mut self.dropped),
-                },
-                None => report(&mut self.dropped, &attrs),
-            }
             return Ok(());
         }
         match (attrs, block) {
@@ -937,14 +831,7 @@ impl Builder {
                     }
                 }
             }
-            (Some(attrs), false) => {
-                // Resolve an armed line first, as a mark does, so the element
-                // starts after the line boundary.
-                self.ensure_open(LineKind::Para);
-                self.inline.open_element(name, attrs, at);
-                self.check_depth()?;
-            }
-            (None, false) => self.inline.close_element(&name, &mut self.dropped),
+            (_, false) => {}
         }
         Ok(())
     }
@@ -1198,8 +1085,8 @@ pub(crate) fn sanitize_lang(lang: &str) -> String {
 // passes each inline `<u>` and `</u>` and each element tag for the builder to
 // pair, allowlists an inline `<br>` as a hard break, and drops every other raw
 // HTML event, an HTML block whole. It counts each tag it drops, so the warnings and
-// the drop cannot disagree, and reads the `quill-table` wrappers and
-// `quill-cell` pairs whose attributes `from_markdown` folds.
+// the drop cannot disagree, and reads the `quill-table` wrappers whose
+// attributes `from_markdown` folds.
 // Delimiter arithmetic stays pulldown's, since a fixer that re-segments `***`
 // runs can only disagree with CommonMark, and disagreeing means deleting an
 // asterisk the author typed.
@@ -1209,8 +1096,6 @@ enum Fixed<'a> {
     Event(Event<'a>),
     Element(ElementTag),
     Underline(UTag),
-    /// An inline `quill-anchor` open tag's `ref`.
-    Anchor(String),
 }
 
 /// An inline `<u>` tag, paired by the builder as HTML pairs it.
@@ -1246,15 +1131,6 @@ impl ElementTag {
         })
     }
 }
-
-/// The `quill-cell` tag `event` is, if it is one.
-fn cell_tag<'e>(event: &'e Event) -> Option<html::Tag<'e>> {
-    match event {
-        Event::InlineHtml(h) => html::tag_at(h, 0).filter(|t| carrier::element(t.name).as_deref() == Some("cell")),
-        _ => None,
-    }
-}
-
 
 /// Per construct: its count and the byte offset of its first occurrence.
 #[derive(Default)]
@@ -1316,22 +1192,15 @@ struct MarkdownFixer<'a, I> {
     wrappers: Vec<TableWrapper>,
     tables: usize,
     in_table: bool,
-    /// The open table row's pointer into its table's props, `/header` or
-    /// `/rows/<n>`, and the cells it has opened.
-    row: (String, usize),
-    body_rows: usize,
     folds: Vec<Fold>,
-    /// A table cell's events, read through its end and passed on once its
-    /// fold is decided, and an HTML block's element tags ahead of its end.
+    /// An HTML block's element tags ahead of its end.
     held: VecDeque<Fixed<'a>>,
 }
 
-/// The keys a carrier element folds into the table island of ordinal `table`:
-/// into its props, or into one of its cells, by `at`, a JSON pointer into the
-/// props.
+/// The keys a `quill-table` wrapper folds into the props of the table island
+/// of ordinal `table`.
 struct Fold {
     table: usize,
-    at: String,
     keys: serde_json::Map<String, serde_json::Value>,
 }
 
@@ -1357,8 +1226,6 @@ where
             wrappers: Vec::new(),
             tables: 0,
             in_table: false,
-            row: (String::new(), 0),
-            body_rows: 0,
             folds: Vec::new(),
             held: VecDeque::new(),
         }
@@ -1382,12 +1249,6 @@ where
                 }
                 self.tables += 1;
                 self.in_table = true;
-                self.body_rows = 0;
-            }
-            Event::Start(Tag::TableHead) => self.row = ("/header".into(), 0),
-            Event::Start(Tag::TableRow) => {
-                self.row = (format!("/rows/{}", self.body_rows), 0);
-                self.body_rows += 1;
             }
             Event::End(TagEnd::Table) => self.in_table = false,
             // The repair writes a tag line after a list item into the item, so
@@ -1413,7 +1274,7 @@ where
             return self.dropped.add("quill-table", w.at);
         }
         let keys = self.fold_attrs("quill-table", w.attrs, w.at, carrier::table::prop);
-        self.folds.push(Fold { table, at: String::new(), keys });
+        self.folds.push(Fold { table, keys });
     }
 
     /// The keys `attrs` fold through `read`, each attribute refused or read as
@@ -1440,56 +1301,12 @@ where
         keys
     }
 
-    /// Read the table cell just opened through its end into `held`. A
-    /// `quill-cell` pair whose open tag is the cell's first event and whose
-    /// close tag its last, with no other `quill-cell` tag between, folds its
-    /// attributes into the cell and its tags pass on nothing; otherwise every
-    /// tag drops as it does anywhere.
-    fn read_cell(&mut self) {
-        let at = format!("{}/{}", self.row.0, self.row.1);
-        self.row.1 += 1;
-        let mut events = Vec::new();
-        let mut end = None;
-        for (event, range) in self.inner.by_ref() {
-            if matches!(event, Event::End(TagEnd::TableCell)) {
-                end = Some(event);
-                break;
-            }
-            events.push((event, range));
-        }
-        let tags: Vec<usize> = (0..events.len()).filter(|&i| cell_tag(&events[i].0).is_some()).collect();
-        let pair = match tags[..] {
-            [0, last] if last + 1 == events.len() => {
-                let open = cell_tag(&events[0].0).filter(|t| !t.closing && !t.self_closing);
-                let close = cell_tag(&events[last].0).filter(|t| t.closing);
-                open.zip(close).map(|(open, _)| (carrier::decode_attrs(&open.attrs), events[0].1.start))
-            }
-            _ => None,
-        };
-        let inner = match pair {
-            Some((attrs, start)) => {
-                let keys = self.fold_attrs("quill-cell", attrs, start, carrier::cell::key);
-                self.folds.push(Fold { table: self.tables - 1, at, keys });
-                events.pop();
-                events.remove(0);
-                events
-            }
-            None => events,
-        };
-        for (event, range) in inner {
-            if let Some(item) = self.fix(event, range) {
-                self.held.push_back(item);
-            }
-        }
-        if let Some(end) = end {
-            self.held.push_back(Fixed::Event(end));
-        }
-    }
-
     /// Consume an HTML block through its end, counting its
     /// [markup tags](html::block_tags), and its first tag where it holds only
-    /// closing tags and the text it drops with them. Only its element tags and
-    /// the block's end reach the builder, queued in `held`.
+    /// closing tags and the text it drops with them. A block of tag lines alone
+    /// passes its carrier tags on, its element tags and its end reaching the
+    /// builder through `held`; one that drops text with them drops them too,
+    /// each open tag counted.
     fn drop_html_block(&mut self, at: usize) {
         let mut text = String::new();
         for (event, _) in self.inner.by_ref() {
@@ -1507,9 +1324,9 @@ where
             }
         }
         for tag in tags {
-            if let Some(element) = ElementTag::of(&tag, true, at) {
+            if let Some(element) = ElementTag::of(&tag, true, at).filter(|_| !swallows) {
                 self.held.push_back(Fixed::Element(element));
-            } else if tag.self_closing || carrier::element(tag.name).as_deref() != Some("table") {
+            } else if swallows || tag.self_closing || carrier::element(tag.name).as_deref() != Some("table") {
                 self.dropped.tag(&tag, at);
             } else if tag.closing {
                 if let Some(w) = self.wrappers.pop() {
@@ -1556,10 +1373,6 @@ where
                 if let Some(element) = ElementTag::of(&tag, false, range.start) {
                     return Some(Fixed::Element(element));
                 }
-                if carrier::element(tag.name).is_some_and(|e| e == "anchor") && !tag.closing {
-                    let id = carrier::decode_attrs(&tag.attrs).values.remove("ref")?;
-                    return Some(Fixed::Anchor(id));
-                }
                 self.dropped.tag(&tag, range.start);
                 return None;
             }
@@ -1583,10 +1396,6 @@ where
                 return Some(item);
             }
             let (event, range) = self.inner.next()?;
-            if matches!(event, Event::Start(Tag::TableCell)) {
-                self.read_cell();
-                return Some(Fixed::Event(event));
-            }
             if let Some(item) = self.fix(event, range) {
                 return Some(item);
             }
@@ -2199,10 +2008,11 @@ mod tests {
             .collect()
     }
 
-        /// A foreign HTML block drops whole, as CommonMark reads it; a carrier tag
-    /// line tight against markdown frees it.
+    /// An HTML block drops whole, as CommonMark reads it, a carrier tag's
+    /// included: a tag line tight against markdown takes the markdown with it,
+    /// and blank lines set the markdown apart.
     #[test]
-    fn a_foreign_html_block_drops_whole_and_a_carrier_tag_line_frees_its_markdown() {
+    fn a_tag_line_tight_against_markdown_drops_its_block() {
         for (md, tag) in [
             ("<div align=\"center\">\n| a | b |\n|---|---|\n| 1 | 2 |\n</div>", "div"),
             ("<x-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</x-keep>", "x-keep"),
@@ -2219,16 +2029,15 @@ mod tests {
         assert_eq!(dropped(&imported), [("div", 1)]);
 
         let imported = imp_fixed("<quill-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</quill-keep>");
-        assert_eq!(imported.content.text, "\u{FFFC}");
-        assert_eq!(table_rows(&imported.content), [["1", "2"]]);
-        assert_eq!(dropped(&imported), []);
+        assert_eq!(imported.content.text, "");
+        assert_eq!(dropped(&imported), [("quill-keep", 1)]);
     }
 
     fn layout(rt: &Normalized) -> serde_json::Value {
         let [island] = rt.islands.as_slice() else {
             panic!("one island expected: {:?}", rt.islands);
         };
-        let keys = ["widths", "align", "breakable"];
+        let keys = ["widths", "align"];
         let props = island.props.as_object().unwrap();
         let kept = props.iter().filter(|(k, _)| keys.contains(&k.as_str()));
         serde_json::Value::Object(kept.map(|(k, v)| (k.clone(), v.clone())).collect())
@@ -2237,22 +2046,22 @@ mod tests {
     #[test]
     fn a_table_wrapper_folds_its_attributes_into_the_table_it_holds() {
         let table = "| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |";
-        let canonical = "<quill-table align=\"center\" breakable=\"false\" widths=\"1 3 auto\">\n\n\
+        let canonical = "<quill-table align=\"center\" widths=\"1 3 auto\">\n\n\
                          | a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</quill-table>";
-        let expected = serde_json::json!({"align": "center", "breakable": false, "widths": [1, 3, null]});
+        let expected = serde_json::json!({"align": "center", "widths": [1, 3, null]});
         let cases = [
-            (format!("<quill-table widths=\"2 6\" align=center BREAKABLE='false'>\n{table}\n</quill-table>"), 0),
-            (format!("<Quill-Table widths=\" 2  6 auto \" breakable=\"false\" align=\"center\">\n\n{table}\n\n</Quill-Table>\n\nafter"), 0),
-            (format!("- item\n- <quill-table widths=\"2 6\" align=\"center\" breakable=\"false\">\n\n  {}\n\n  </quill-table>", table.replace('\n', "\n  ")), 1),
-            (format!("- item\n\n<quill-table widths=\"2 6\" align=\"center\" breakable=\"false\">\n\n{table}\n\n</quill-table>"), 0),
-            (format!("> <quill-table widths=\"2 6 auto auto\" align=\"center\" breakable=\"false\">\n> {}\n> </quill-table>", table.replace('\n', "\n> ")), 1),
+            (format!("<quill-table widths=\"2 6\" align=center>\n\n{table}\n\n</quill-table>"), 0),
+            (format!("<Quill-Table widths=\" 2  6 auto \" align=\"center\">\n\n{table}\n\n</Quill-Table>\n\nafter"), 0),
+            (format!("- item\n- <quill-table widths=\"2 6\" align=\"center\">\n\n  {}\n\n  </quill-table>", table.replace('\n', "\n  ")), 1),
+            (format!("- item\n\n<quill-table widths=\"2 6\" align=\"center\">\n\n{table}\n\n</quill-table>"), 0),
+            (format!("> <quill-table widths=\"2 6 auto auto\" align=\"center\">\n>\n> {}\n>\n> </quill-table>", table.replace('\n', "\n> ")), 1),
         ];
         for (md, containers) in &cases {
             let imported = imp_fixed(md);
             assert_eq!(dropped(&imported), [], "{md:?}");
             let rt = &imported.content;
             let props = &rt.islands.iter().find(|i| i.island_type == IslandType::Table).unwrap().props;
-            for key in ["widths", "align", "breakable"] {
+            for key in ["widths", "align"] {
                 assert_eq!(props[key], expected[key], "{key} in {md:?}");
             }
             let (_, line) = rt.text.split('\n').zip(&rt.lines).find(|(t, _)| t.contains(ISLAND_SLOT)).unwrap();
@@ -2264,7 +2073,7 @@ mod tests {
             canonical.split('\n').map(|l| if l.is_empty() { ">".to_string() } else { format!("> {l}") }).collect::<Vec<_>>().join("\n")
         );
 
-        let defaults = imp_fixed(&format!("<quill-table widths=\"auto auto\" breakable=\"true\">\n{table}\n</quill-table>"));
+        let defaults = imp_fixed(&format!("<quill-table widths=\"auto auto\">\n\n{table}\n\n</quill-table>"));
         assert_eq!(dropped(&defaults), []);
         assert_eq!(layout(&defaults.content), serde_json::json!({}));
         assert_eq!(crate::export::to_markdown(&defaults.content), from_markdown(table).map(|i| crate::export::to_markdown(&i.content)).unwrap());
@@ -2298,7 +2107,7 @@ mod tests {
         let t = "| a | b |\n|---|---|\n| 1 | 2 |";
         let cases: &[(&str, &[(&str, usize)], serde_json::Value)] = &[
             ("foo=\"1\" align=\"left\"", &[("quill-table[foo]", 1)], serde_json::json!({"align": "left"})),
-            ("style=\"x\" onclick=\"y\" breakable=\"false\"", &[("quill-table[onclick]", 1), ("quill-table[style]", 1)], serde_json::json!({"breakable": false})),
+            ("style=\"x\" onclick=\"y\" breakable=\"false\"", &[("quill-table[breakable]", 1), ("quill-table[onclick]", 1), ("quill-table[style]", 1)], serde_json::json!({})),
             ("widths=\"a b\" align=\"middle\" breakable=\"no\"", &[("quill-table[align]", 1), ("quill-table[breakable]", 1), ("quill-table[widths]", 1)], serde_json::json!({})),
             ("widths=\"0 1\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
             ("widths=\"+1 2\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
@@ -2318,81 +2127,25 @@ mod tests {
         }
     }
 
-    /// A cell's `align` and `valign`, by its JSON pointer into the one table's
-    /// props.
-    fn cell_keys(rt: &Normalized, at: &str) -> serde_json::Value {
-        let [island] = rt.islands.as_slice() else {
-            panic!("one island expected: {:?}", rt.islands);
-        };
-        let cell = island.props.pointer(at).unwrap().as_object().unwrap();
-        let kept = cell.iter().filter(|(k, _)| ["align", "valign"].contains(&k.as_str()));
-        serde_json::Value::Object(kept.map(|(k, v)| (k.clone(), v.clone())).collect())
-    }
-
+    /// A `quill-cell` tag drops wherever it stands, the cell importing as its
+    /// [`strip`](crate::carrier::strip) does, each open tag reported.
     #[test]
-    fn a_cell_pair_around_its_whole_cell_folds_its_attributes_into_the_cell() {
-        let md = "| <quill-cell valign=\"bottom\">h</quill-cell> | b |\n| --- | ---: |\n\
-                  | <Quill-Cell VALIGN=horizon align='center'>**1** <u>x</u></Quill-Cell> \
-                  | <quill-cell align=\"left\"> 2 </quill-cell> |";
-        let imported = imp_fixed(md);
-        assert_eq!(dropped(&imported), []);
-        let rt = &imported.content;
-        assert_eq!(cell_keys(rt, "/header/0"), serde_json::json!({"valign": "bottom"}));
-        assert_eq!(cell_keys(rt, "/header/1"), serde_json::json!({}));
-        assert_eq!(cell_keys(rt, "/rows/0/0"), serde_json::json!({"align": "center", "valign": "horizon"}));
-        assert_eq!(cell_keys(rt, "/rows/0/1"), serde_json::json!({"align": "left"}));
-        let (text, marks) = crate::serial::parse_cell(&rt.islands[0].props["rows"][0][0]);
-        assert_eq!(text, "1 x");
-        assert_eq!(marks, [Mark::new(0, 1, MarkKind::Strong), Mark::new(2, 3, MarkKind::Underline)]);
-        assert_eq!(table_rows(rt), [["1 x", " 2 "]]);
-        assert_eq!(
-            crate::export::to_markdown(rt),
-            "| <quill-cell valign=\"bottom\">h</quill-cell> | b |\n| --- | ---: |\n\
-             | <quill-cell align=\"center\" valign=\"horizon\">**1** <u>x</u></quill-cell> \
-             | <quill-cell align=\"left\">&#32;2&#32;</quill-cell> |"
-        );
-
-        let respelled = imp_fixed("| h |\n| --- |\n| <quill-cell align=\"right\">__a**__*b*</quill-cell> |");
-        let (text, marks) = crate::serial::parse_cell(&respelled.content.islands[0].props["rows"][0][0]);
-        assert_eq!(text, "a**b");
-        assert_eq!(marks, [Mark::new(0, 3, MarkKind::Strong), Mark::new(3, 4, MarkKind::Emph)]);
-        assert_eq!(cell_keys(&respelled.content, "/rows/0/0"), serde_json::json!({"align": "right"}));
-    }
-
-    #[test]
-    fn a_cell_pair_at_its_default_folds_to_nothing() {
-        let imported = imp_fixed(
-            "| h | i |\n| ---: | --- |\n| <quill-cell align=\"right\" valign=\"top\">1</quill-cell> \
-             | <quill-cell>2</quill-cell> |",
-        );
-        assert_eq!(dropped(&imported), []);
-        assert_eq!(cell_keys(&imported.content, "/rows/0/0"), serde_json::json!({}));
-        assert_eq!(crate::export::to_markdown(&imported.content), "| h | i |\n| ---: | --- |\n| 1 | 2 |");
-    }
-
-    /// The cell imports as its [`strip`](crate::carrier::strip) does, each
-    /// `quill-cell` open tag reported.
-    #[test]
-    fn a_cell_pair_not_wrapping_its_whole_cell_drops() {
+    fn a_cell_tag_drops() {
         let r = "<quill-cell align=\"right\">";
         let l = "<quill-cell align=\"left\">";
         let cases = [
+            (format!("{r}a</quill-cell>"), "a", 1),
             (format!("a {r}b</quill-cell>"), "a b", 1),
-            (format!("{r}a</quill-cell> b"), "a b", 1),
             (format!("{r}a</quill-cell>{l}b</quill-cell>"), "ab", 2),
-            (format!("{r}{l}a</quill-cell></quill-cell>"), "a", 2),
             (format!("{r}a"), "a", 1),
-            (format!("{r}a</quill-cell></quill-cell>"), "a", 1),
             ("<quill-cell align=\"right\"/>a".to_string(), "a", 1),
             (format!("**{r}a</quill-cell>**"), "a", 1),
-            (format!("<!-- c -->{r}a</quill-cell>"), "a", 1),
         ];
         for (cell, text, count) in &cases {
             let md = format!("| h |\n| --- |\n| {cell} |");
             let imported = imp_fixed(&md);
             assert_eq!(dropped(&imported), [("quill-cell", *count)], "{md:?}");
             assert_eq!(table_rows(&imported.content), [[*text]], "{md:?}");
-            assert_eq!(cell_keys(&imported.content, "/rows/0/0"), serde_json::json!({}), "{md:?}");
             assert_eq!(imported.content, imp_fixed(&crate::carrier::strip(&md)).content, "{md:?}");
         }
 
@@ -2401,32 +2154,7 @@ mod tests {
         assert_eq!(prose.content.text, "a b c");
     }
 
-    #[test]
-    fn a_cell_pair_drops_each_attribute_it_cannot_read() {
-        let cases: &[(&str, &[(&str, usize)], serde_json::Value)] = &[
-            ("foo=\"1\" align=\"right\"", &[("quill-cell[foo]", 1)], serde_json::json!({"align": "right"})),
-            ("style=\"x\" onclick=\"y\" valign=\"bottom\"", &[("quill-cell[onclick]", 1), ("quill-cell[style]", 1)], serde_json::json!({"valign": "bottom"})),
-            ("align=\"middle\" valign=\"center\"", &[("quill-cell[align]", 1), ("quill-cell[valign]", 1)], serde_json::json!({})),
-            ("align=\"Right\"", &[("quill-cell[align]", 1)], serde_json::json!({})),
-            ("valign", &[("quill-cell[valign]", 1)], serde_json::json!({})),
-            ("align=\"left\" align=\"right\"", &[("quill-cell[align]", 1)], serde_json::json!({"align": "left"})),
-        ];
-        for (attrs, warned, kept) in cases {
-            let md = format!("| <quill-cell {attrs}>h</quill-cell> |\n| --- |\n| <quill-cell {attrs}>1</quill-cell> |");
-            let imported = imp_fixed(&md);
-            let mut got = dropped(&imported);
-            got.sort();
-            let doubled: Vec<(&str, usize)> = warned.iter().map(|&(c, n)| (c, 2 * n)).collect();
-            assert_eq!(got, doubled, "{md:?}");
-            assert_eq!(cell_keys(&imported.content, "/header/0"), *kept, "{md:?}");
-            assert_eq!(cell_keys(&imported.content, "/rows/0/0"), *kept, "{md:?}");
-        }
-    }
-
     /// A type-7 tag cannot interrupt a pipe table, so the parser reads
-    /// `</quill-table>` after the rows as one more row; the repair ends the
-    /// table there instead. A type-6 tag (`</div>`) interrupts it on its own.
-        /// A type-7 tag cannot interrupt a pipe table, so the parser reads
     /// `</quill-table>` after the rows as one more row; the repair ends the
     /// table there instead. A type-6 tag (`</div>`) interrupts it on its own,
     /// and its block drops with the text it holds.
@@ -2446,62 +2174,12 @@ mod tests {
         assert!(rt.lines.iter().all(|l| l.containers.len() == 1), "{:?}", rt.lines);
     }
 
-    /// `<div>` inside a quote inside a list item: the block's lines free inside
-    /// both containers, and the item's text after the quote stays the item's.
-        /// An element's tags inside a quote inside a list item: the block's lines
-    /// free inside both containers, and the item's text after the quote stays
-    /// the item's.
+    /// Text after a comment's `-->` on its last line moves to a line of its
+    /// own, and ends there rather than joining the line after; one opening
+    /// another HTML block opens it there. Mid-line, a comment is inline HTML
+    /// and splits nothing.
     #[test]
-    fn a_nested_carrier_block_frees_its_lines_inside_their_containers() {
-        let rt = imp_fixed("- item\n  > <quill-keep>\n  > **bold** text\n  > </quill-keep>\n  after").content;
-        assert_eq!(rt.text, "item\nbold text\nafter");
-        let depths: Vec<usize> = rt.lines.iter().map(|l| l.containers.len()).collect();
-        assert_eq!(depths, [1, 3, 1]);
-        assert!(matches!(rt.lines[1].containers[1], Container::Quote { .. }));
-        assert_eq!(rt.marks, [Mark::new(5, 9, MarkKind::Strong)]);
-
-        let rt = imp_fixed("<quill-keep>\n> <quill-keep>\n> inner *em*\n> </quill-keep>\n</quill-keep>\n\nafter").content;
-        assert_eq!(rt.text, "inner em\nafter");
-        assert_eq!(rt.lines[0].containers.len(), 3);
-        assert!(matches!(rt.lines[0].containers[1], Container::Quote { .. }));
-        assert!(rt.lines[1].containers.is_empty());
-    }
-
-    /// A line inside a type 6/7 block that opens a comment, a `<pre>` or a fence
-    /// keeps it whole when it closes inside the block; when it does not, it drops
-    /// with the rest of the block, its tags counted, rather than swallowing what
-    /// follows.
-        /// A carrier tag line tight against markdown imports as though a blank line
-    /// stood above and below it, whatever the lines between open: an unclosed
-    /// comment or fence runs on as it would there, and a foreign block drops
-    /// whole.
-    #[test]
-    fn a_carrier_tag_line_reads_as_though_blank_lines_surrounded_it() {
-        let spaced = |md: &str| {
-            md.split('\n')
-                .map(|l| if l.starts_with("<quill-") || l.starts_with("</quill-") { format!("\n{l}\n") } else { l.to_string() })
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        for md in [
-            "<quill-keep>\n<!-- c\nunclosed\n</quill-keep>\n\nmore text",
-            "<quill-keep>\n<div>\npara\n</div>\n</quill-keep>\n\nafter",
-            "<quill-keep>\n    indented\n</quill-keep>",
-            "<quill-keep>\n- a\n    - b\n</quill-keep>",
-            "<quill-keep>\n<pre>\nx\n</pre> tail\n</quill-keep>",
-        ] {
-            let tight = from_markdown(md).unwrap();
-            let wide = from_markdown(&spaced(md)).unwrap();
-            assert_eq!(tight.content, wide.content, "{md:?}");
-            assert_eq!(tight.warnings, wide.warnings, "{md:?}");
-        }
-    }
-
-    /// Text after a type 1–5 block's end marker on its last line moves to a
-    /// line of its own, and ends there rather than joining the line after.
-    /// Mid-line, a comment is inline HTML and splits nothing.
-    #[test]
-    fn text_after_a_block_end_marker_imports() {
+    fn text_after_a_comment_imports() {
         let cases: &[(&str, &str)] = &[
             ("<!-- comment -->Same line text", "Same line text"),
             ("<!--\nmultiline\ncomment\n-->Trailing text", "Trailing text"),
@@ -2513,10 +2191,6 @@ mod tests {
             ("-->some text", "-->some text"),
             ("Some text before <!-- comment -->and after", "Some text before and after"),
             ("<!-- a -->Title\n===", "Title\n==="),
-            ("<pre>x</pre> tail", "tail"),
-            ("<?php x ?> tail", "tail"),
-            ("<!DOCTYPE html> tail", "tail"),
-            ("<![CDATA[x]]> tail", "tail"),
             ("<!-- a --><div>\nnext", "next"),
             ("<!-- a --><!-- b\nmore\n-->", "more -->"),
         ];
@@ -2537,107 +2211,26 @@ mod tests {
         assert_eq!(crate::export::to_markdown(&imported.content), md);
     }
 
-    /// A line holding only tags is a tag line under paragraph text too, where
-    /// CommonMark reads it as inline HTML: it ends the paragraph and opens a
-    /// block running to the paragraph's end, inside the paragraph's
-    /// containers. A lazy one leaves the quotes it lacks.
-        /// A carrier tag line under paragraph text, where CommonMark reads it as
-    /// inline HTML, ends the paragraph and opens a block running to the
-    /// paragraph's end, the line keeping its own prefix. Any other tag line
-    /// there stays inline HTML, and drops with a signal.
+    /// `[^1]: Word` is a link reference definition to CommonMark, which drops
+    /// it and makes `[^1]` a link to `Word`; each such definition, a repeated
+    /// label's included, warns.
     #[test]
-    fn a_carrier_tag_line_under_paragraph_text_opens_a_block() {
-        let cases: &[(&str, &str, &[usize])] = &[
-            ("para\n<quill-keep>\nmore\n</quill-keep>", "para\nmore", &[0, 1]),
-            ("> a\n<quill-keep>\nb\n</quill-keep>", "a\nb", &[1, 1]),
-            ("- a\n  <quill-keep>\n  b\n  </quill-keep>\n- c", "a\nb\nc", &[1, 2, 1]),
-            ("   \\*a\n<quill-keep>\nb\n</quill-keep>", "*a\nb", &[0, 1]),
-            (">    \\*a\n> <quill-keep>\n> b\n> </quill-keep>", "*a\nb", &[1, 2]),
-        ];
-        for (md, text, depths) in cases {
-            let imported = imp_fixed(md);
-            assert_eq!(imported.content.text, *text, "{md:?}");
-            assert_eq!(dropped(&imported), [], "{md:?}");
-            let got: Vec<usize> = imported.content.lines.iter().map(|l| l.containers.len()).collect();
-            assert_eq!(got, *depths, "{md:?}");
-        }
-        let imported = imp_fixed("para\n<x-keep>\nmore\n</x-keep>");
-        assert_eq!(imported.content.lines.len(), 1);
-        assert_eq!(dropped(&imported), [("x-keep", 1)]);
-    }
-
-    /// A tag line under a setext heading's text moves below its underline,
-    /// where the heading has ended, so the heading keeps its lines; an
-    /// element's tag opens or closes its element there.
-        /// A carrier tag line under a setext heading's text moves below its
-    /// underline, where the heading has ended, so the heading keeps its lines
-    /// and the element opens or closes there. Any other tag line there is the
-    /// heading's inline HTML.
-    #[test]
-    fn a_carrier_tag_line_under_a_setext_heading_moves_below_it() {
-        let cases: &[(&str, &str, &[(&str, usize)])] = &[
-            ("a\n<quill-keep>\n===\nb\n</quill-keep>", "# a\n\n<quill-keep>\n\nb\n\n</quill-keep>", &[]),
-            ("> a\n> <quill-keep>\n> ===\n> b\n> </quill-keep>", "> # a\n>\n> <quill-keep>\n>\n> b\n>\n> </quill-keep>", &[]),
-            ("<quill-keep>\n\nTitle\n</quill-keep>\n===", "<quill-keep>\n\n# Title\n\n</quill-keep>", &[]),
-            ("a\n<span>\n===", "# a&#32;", &[("span", 1)]),
-        ];
-        for (md, exported, warned) in cases {
-            let imported = imp_fixed(md);
-            assert_eq!(crate::export::to_markdown(&imported.content), *exported, "{md:?}");
-            assert_eq!(dropped(&imported), *warned, "{md:?}");
-        }
-    }
-
-    /// A type 1 block ends at the first line holding any of its four closing
-    /// tags, in any case, as CommonMark ends it, so what follows imports.
-        /// A type 1 block ends at the first line holding any of its four closing
-    /// tags, in any case, as CommonMark ends it, so what follows imports.
-    #[test]
-    fn a_type_1_block_ends_at_any_closing_tag_in_any_case() {
-        let cases: &[(&str, &str)] = &[
-            ("<PRE>x</PRE>\n\nafter", "after"),
-            ("<pre>\nx\n</PRE> tail\n\nafter", "tail\nafter"),
-            ("<pre>\nx\n</Script>\nafter", "after"),
-            ("- <Script>\n  x\n  </SCRIPT>\n- after", "\nafter"),
-            ("<quill-keep>\n<PRE>x</PRE> after\n</quill-keep>", "after"),
-            ("<quill-keep>\n<pre>\nx\n</Pre> tail\n\npara\n</quill-keep>", "tail\npara"),
-        ];
-        for (md, text) in cases {
-            let imported = imp_fixed(md);
-            assert_eq!(imported.content.text, *text, "{md:?}");
-            assert!(dropped(&imported).iter().any(|(c, _)| ["pre", "script"].contains(c)), "{md:?}");
-        }
-    }
-
-    /// A tag line drops as a blank line does, so it keeps a list item open as a
-    /// blank line would: the list on either side of a wrapper's tag is one
-    /// list. A quote the item sits in does not reach a tag outside it.
-    /// `[^1]: Word` is a link reference definition to CommonMark, which would
-    /// make `[^1]` a link to `Word`; import keeps both as the text they are.
-    /// A definition that follows it on the next line stays one.
-    #[test]
-    fn a_footnote_shaped_definition_imports_as_text() {
+    fn a_footnote_shaped_definition_warns() {
         let imported = imp_fixed("[^1]: Word\n\ntext[^1]");
-        assert_eq!(imported.content.text, "[^1]: Word\ntext[^1]");
-        assert!(imported.content.marks.is_empty());
+        assert_eq!(imported.content.text, "text^1");
+        assert_eq!(imported.content.marks, [Mark::new(4, 6, MarkKind::Link { url: "Word".into() })]);
         assert_eq!(dropped(&imported), [("footnote_definition", 1)]);
 
         let imported = imp_fixed("> [^a]: one\n> [^A]: two\n> [x]: /url\n\nsee [^a] and [x]");
-        assert_eq!(imported.content.text, "[^a]: one\n[^A]: two\nsee [^a] and x");
-        assert_eq!(
-            imported.content.marks,
-            [Mark::new(33, 34, MarkKind::Link { url: "/url".into() })]
-        );
+        assert_eq!(imported.content.text, "\nsee ^a and x");
         assert_eq!(dropped(&imported), [("footnote_definition", 2)]);
 
         let imported = imp_fixed(&format!("{}x[^1]", "[^1]: a\n\n".repeat(9)));
-        assert!(imported.content.marks.is_empty());
+        assert_eq!(imported.content.text, "x^1");
         assert_eq!(dropped(&imported), [("footnote_definition", 9)]);
     }
 
-    /// A tag alone on its line is a block wrapper, whatever its name: the
-    /// inline allowlist does not reach it.
-        /// A tag alone on its line opens an HTML block, whatever its name: the
+    /// A tag alone on its line opens an HTML block, whatever its name: the
     /// inline allowlist does not reach it.
     #[test]
     fn the_allowlist_is_inline_only() {
@@ -2652,9 +2245,9 @@ mod tests {
 
     /// One count per open or self-closing tag, by lowercase name, in order of
     /// first occurrence: closing tags, comments, a `<pre>` block's content, the
-    /// inline allowlist, `quill-anchor` and a modeled element, inline or alone
-    /// on its line, count nothing. A tag of the allowlist inside an HTML block
-    /// drops with it and counts. An element that drops unclosed counts under
+    /// inline allowlist, `quill-anchor` and a block element count nothing. A
+    /// tag of the allowlist inside an HTML block drops with it and counts. An
+    /// element inside a line, or one that drops unclosed, counts under
     /// `quill-<name>`, and a `quill-*` name outside the grammar under its full
     /// name. A block holding only closing tags counts its first where it drops
     /// text with them.
@@ -2677,7 +2270,7 @@ mod tests {
                 ("u", 1),
                 ("img", 1),
                 ("pre", 1),
-                ("quill-keep", 1),
+                ("quill-keep", 2),
                 ("footnote_definition", 1),
                 ("hr", 1),
                 ("quill-a--b", 1),
@@ -2694,18 +2287,16 @@ mod tests {
 
     /// An element tag alone on its line wraps the blocks up to its close tag,
     /// inside the containers around it, and stays where its own indentation
-    /// puts it: under paragraph text, and after a list item it does not
-    /// continue.
+    /// puts it: after a list item it does not continue.
     #[test]
     fn an_element_tag_line_wraps_the_blocks_it_holds() {
         let cases: &[(&str, &str, &[&[&str]])] = &[
-            ("<quill-keep>\npara\n</quill-keep>", "para", &[&["element"]]),
-            ("<quill-keep>\n- a\n- b\n</quill-keep>", "a\nb", &[&["element", "list_item"], &["element", "list_item"]]),
+            ("<quill-keep>\n\npara\n\n</quill-keep>", "para", &[&["element"]]),
+            ("<quill-keep>\n\n- a\n- b\n\n</quill-keep>", "a\nb", &[&["element", "list_item"], &["element", "list_item"]]),
             ("- <quill-keep>\n\n  a\n\n  </quill-keep>\n- b", "a\nb", &[&["list_item", "element"], &["list_item"]]),
-            ("<quill-keep>\n> q\n</quill-keep>", "q", &[&["element", "quote"]]),
+            ("> <quill-keep>\n>\n> q\n>\n> </quill-keep>", "q", &[&["quote", "element"]]),
             ("<quill-keep>\n</quill-keep>", "", &[&["element"]]),
-            ("para\n<quill-keep>\nmore\n</quill-keep>", "para\nmore", &[&[], &["element"]]),
-            ("- a\n\n<quill-keep>\n- b\n</quill-keep>", "a\nb", &[&["list_item"], &["element", "list_item"]]),
+            ("- a\n\n<quill-keep>\n\n- b\n\n</quill-keep>", "a\nb", &[&["list_item"], &["element", "list_item"]]),
         ];
         for (md, text, tags) in cases {
             let imported = imp_fixed(md);
@@ -2714,7 +2305,7 @@ mod tests {
             assert!(imported.warnings.is_empty(), "{md:?}");
         }
 
-        let rt = imp_fixed("<quill-keep note=\"x\">\na\n</quill-keep>\n<quill-keep note=\"x\">\nb\n</quill-keep>").content;
+        let rt = imp_fixed("<quill-keep note=\"x\">\n\na\n\n</quill-keep>\n<quill-keep note=\"x\">\n\nb\n\n</quill-keep>").content;
         let keep = |instance| Container::Element {
             name: "keep".into(),
             attrs: [("note".to_string(), "x".to_string())].into(),
@@ -2724,40 +2315,43 @@ mod tests {
         assert_eq!(rt.lines[1].containers, [keep(1)]);
     }
 
-    /// An inline element pair is an element mark over what it holds, crossing
-    /// other marks freely, in prose, a heading and a table cell.
+    /// An inline element pair drops its tags and reports `quill-<name>` once
+    /// per open tag, in prose, a heading and a table cell, what it holds
+    /// importing as written.
     #[test]
-    fn an_inline_element_pair_is_a_mark() {
-        let hl = |attrs: &[(&str, &str)]| MarkKind::Element {
-            name: "hl".into(),
-            attrs: attrs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
-        };
-        let rt = imp_fixed("a <quill-hl tone=\"warm\">b</quill-hl> c").content;
-        assert_eq!(rt.marks, [Mark::new(2, 3, hl(&[("tone", "warm")]))]);
+    fn an_inline_element_pair_drops() {
+        for (md, text) in [
+            ("a <quill-hl tone=\"warm\">b</quill-hl> c", "a b c"),
+            ("<quill-hl>a **b</quill-hl> c**", "a b c"),
+            ("# a <quill-hl>b</quill-hl>", "a b"),
+        ] {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.text, text, "{md:?}");
+            assert!(imported.content.marks.iter().all(|m| m.kind == MarkKind::Strong), "{md:?}");
+            assert_eq!(dropped(&imported), [("quill-hl", 1)], "{md:?}");
+        }
 
-        let rt = imp_fixed("<quill-hl>a **b</quill-hl> c**").content;
-        assert_eq!(rt.marks, [Mark::new(0, 3, hl(&[])), Mark::new(2, 5, MarkKind::Strong)]);
-
-        let rt = imp_fixed("# a <quill-hl>b</quill-hl>").content;
-        assert_eq!(rt.marks, [Mark::new(2, 3, hl(&[]))]);
-
-        let rt = imp_fixed("| <quill-hl>x</quill-hl> y |\n|---|").content;
-        let (text, marks) = crate::serial::parse_cell(&rt.islands[0].props["header"][0]);
+        let imported = imp_fixed("| <quill-hl>x</quill-hl> y |\n|---|");
+        let (text, marks) = crate::serial::parse_cell(&imported.content.islands[0].props["header"][0]);
         assert_eq!(text, "x y");
-        assert_eq!(marks, [Mark::new(0, 1, hl(&[]))]);
+        assert!(marks.is_empty());
+        assert_eq!(dropped(&imported), [("quill-hl", 1)]);
     }
 
     /// An element the carrier cannot read drops its tags and reports
-    /// `quill-<name>`, what it wraps importing; an attribute outside the
+    /// `quill-<name>`, what it wraps importing; one whose tag line is tight
+    /// against markdown drops with the block it opens. An attribute outside the
     /// grammar drops alone. A close tag with nothing to close drops silently.
     #[test]
     fn an_element_drops_where_it_does_not_close() {
         let cases: &[(&str, &str, &[(&str, usize)])] = &[
-            ("<quill-keep>\na", "a", &[("quill-keep", 1)]),
-            ("<quill-keep/>\na", "a", &[("quill-keep", 1)]),
-            ("- <quill-keep>\n  a\n- b\n</quill-keep>", "a\nb", &[("quill-keep", 1)]),
-            ("> <quill-keep>\n> a\n\n</quill-keep>", "a", &[("quill-keep", 1)]),
-            ("</quill-keep>\na", "a", &[]),
+            ("<quill-keep>\n\na", "a", &[("quill-keep", 1)]),
+            ("<quill-keep/>\n\na", "a", &[("quill-keep", 1)]),
+            ("- <quill-keep>\n\n  a\n- b\n\n</quill-keep>", "a\nb", &[("quill-keep", 1)]),
+            ("> <quill-keep>\n>\n> a\n\n</quill-keep>", "a", &[("quill-keep", 1)]),
+            ("</quill-keep>\n\na", "a", &[]),
+            ("<quill-keep>\na\n</quill-keep>\n\nb", "b", &[("quill-keep", 1)]),
+            ("<quill-keep>\n\na\n</quill-keep>", "a ", &[("quill-keep", 1)]),
             ("a <quill-hl>b", "a b", &[("quill-hl", 1)]),
             ("a<quill-hl></quill-hl>b", "ab", &[("quill-hl", 1)]),
         ];
@@ -2772,7 +2366,7 @@ mod tests {
             assert_eq!(dropped(&imported), *warned, "{md:?}");
         }
 
-        let imported = imp_fixed("<quill-keep onclick=\"x\" note=\"y\">\na\n</quill-keep>");
+        let imported = imp_fixed("<quill-keep onclick=\"x\" note=\"y\">\n\na\n\n</quill-keep>");
         assert_eq!(
             imported.content.lines[0].containers,
             [Container::Element {

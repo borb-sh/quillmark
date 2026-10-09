@@ -118,11 +118,10 @@ is a lowering bug, never a document's.
 | `MarkKind::Code` | `#raw("…")` (inline) |
 | `MarkKind::Link{url}` | `#link("url")[…]` (`escape_string` on the url) |
 | `MarkKind::Anchor` | nothing |
-| `MarkKind::Element{name, attrs}` | `#qm-element("name", (…), inline: true)[…]` (see [Elements](#elements)) |
 | `Container::ListItem` (bullet) | `- ` |
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
 | `Container::Quote` | `#quote(block: true)[…]` |
-| `Container::Element{name, attrs}` | `#qm-element("name", (…))[…]` |
+| `Container::Element{name, attrs}` | `#qm-element("name", (…))[…]` (see [Elements](#elements)) |
 | `image` island | nothing, plus one `backend::declined_construct` warning per field (see [Declined images](#declined-images)) |
 | `table` island | `#table(columns: N, align: (…), table.header(…), …)` |
 
@@ -135,8 +134,6 @@ The table's layout keys lower as:
 |---|---|
 | `widths` | `columns: (2fr, 1fr, auto)`, a weight to `fr` and `null` to `auto`, in place of `columns: N` |
 | `align` | `#context align(center, table(…))`; a column at `none` takes `align.alignment`, and with no column aligned the table takes `table.align` where the plate sets one, else `align.alignment`, so the placement moves the table and no text inside it |
-| `breakable: false` | `#block(breakable: false)[…]` around the whole, outermost: the block spans the width a placement aligns within |
-| cell `align`, `valign` | `table.cell(align: right + bottom)[…]` in place of `[…]`, which Typst folds with the column's alignment |
  A table cell is
 canonical `{text, marks}`, lowered through the same mark sweep as prose: a
 formatted cell reaches `#strong[…]` / `#emph[…]` / `#raw(…)` / `#link(…)[…]`, not
@@ -162,8 +159,8 @@ enter it as literal text (markdown-spec §6.2, §6.3).
 An element lowers through one dispatcher the helper defines,
 `qm-element(name, attrs, body, inline: false)`. It calls the renderer a plate
 registers under the name in the helper's `elements` state, passing `inline`,
-else the built-in `keep`, which holds its body on one page (a `box` inline),
-else draws the body alone. It reads the state's final value, so a plate's
+which is `false` for every element the content holds, else the built-in
+`keep`, which holds its body on one page, else draws the body alone. It reads the state's final value, so a plate's
 update may stand after the content it renders:
 
 ```typst
@@ -174,7 +171,7 @@ update may stand after the content it renders:
 `attrs` is a dictionary of strings keyed by attribute name, sorted, and `(:)`
 when empty: each attribute as the document stores it.
 
-A block element's call keeps its run's structure in its `[…]`, so a run inside
+An element's call keeps its run's structure in its `[…]`, so a run inside
 a list item stays in the item. The dispatcher's bytes fall between runs, so the
 source map holds no run for them.
 
@@ -204,12 +201,10 @@ reads and the shape the WASM boundary pins:
   above); `aligns` is one `none | left | center | right` per column. Import
   normalizes to a single column count: header, every row, and `aligns` padded
   to the widest, so `columns:` and `align:` agree.
-  The optional layout keys `widths`, `align` and `breakable`
+  The optional layout keys `widths` and `align`
   ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") lower
-  as [above](#element-mapping), and so do a cell's optional `align` and
-  `valign`; an absent one draws at its default: auto-fit, at the plate's
-  placement, breaking across pages, a cell at its column's alignment and at
-  the top.
+  as [above](#element-mapping); an absent one draws at its default: auto-fit,
+  at the plate's placement.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. What `url` names is undecided (see [Declined images](#declined-images)).
 

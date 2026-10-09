@@ -1265,7 +1265,7 @@
   },
   {
     "name": "html.block1",
-    "markdown": "<pre>\nraw\n</pre> after",
+    "markdown": "<pre>\nraw\n</pre>\n\nafter",
     "content": {
       "islands": [],
       "lines": [
@@ -1591,104 +1591,10 @@
     }
   },
   {
-    "name": "mark.element",
-    "markdown": "A <quill-hl tone=\"cool\">pair</quill-hl> here.",
+    "name": "carrier.element.tight",
+    "markdown": "<quill-keep>\n**Signed**\n</quill-keep>",
     "content": {
       "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "name": "hl",
-            "tone": "cool"
-          },
-          "end": 6,
-          "start": 2,
-          "type": "element"
-        }
-      ],
-      "text": "A pair here."
-    },
-    "typst": [
-      "A #qm-element(\"hl\", (\"tone\": \"cool\"), inline: true)[pair] here."
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "mark.element.crossing",
-    "markdown": "<quill-hl>a **b</quill-hl> c**",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "name": "hl"
-          },
-          "end": 3,
-          "start": 0,
-          "type": "element"
-        },
-        {
-          "end": 5,
-          "start": 2,
-          "type": "strong"
-        }
-      ],
-      "text": "a b c"
-    },
-    "typst": [
-      "#qm-element(\"hl\", (:), inline: true)[a #strong[b]]#strong[ c]"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "island.table.cell.element",
-    "markdown": "| <quill-hl>a</quill-hl> |\n| --- |",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [
-                  {
-                    "attrs": {
-                      "name": "hl"
-                    },
-                    "end": 1,
-                    "start": 0,
-                    "type": "element"
-                  }
-                ],
-                "text": "a"
-              }
-            ],
-            "rows": []
-          },
-          "type": "table"
-        }
-      ],
       "lines": [
         {
           "containers": [],
@@ -1696,54 +1602,22 @@
         }
       ],
       "marks": [],
-      "text": "￼"
+      "text": ""
     },
-    "typst": [
-      "table.header([#qm-element(\"hl\", (:), inline: true)[a]], )"
-    ],
+    "typst": [],
     "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.element.tight",
-    "markdown": "<quill-keep>\n**Signed**\n</quill-keep>",
-    "content": {
-      "islands": [],
-      "lines": [
+      "import": [
         {
-          "containers": [
-            {
-              "attrs": {
-                "name": "keep"
-              },
-              "container": "element"
-            }
-          ],
-          "kind": "para"
+          "construct": "quill-keep",
+          "count": 1
         }
       ],
-      "marks": [
-        {
-          "end": 6,
-          "start": 0,
-          "type": "strong"
-        }
-      ],
-      "text": "Signed"
-    },
-    "typst": [
-      "#qm-element(\"keep\", (:))[\n#strong[Signed]"
-    ],
-    "signals": {
-      "import": [],
       "render": []
     }
   },
   {
     "name": "carrier.element.void",
-    "markdown": "<quill-sig></quill-sig>",
+    "markdown": "<quill-sig>\n</quill-sig>",
     "content": {
       "islands": [],
       "lines": [
@@ -1825,6 +1699,33 @@
     }
   },
   {
+    "name": "carrier.element.inline",
+    "markdown": "A <quill-hl tone=\"cool\">pair</quill-hl> here.",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "A pair here."
+    },
+    "typst": [
+      "A pair here."
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "quill-hl",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
     "name": "carrier.element.attr",
     "markdown": "<quill-keep onclick=\"x\">\n\nText\n\n</quill-keep>",
     "content": {
@@ -1882,7 +1783,7 @@
   },
   {
     "name": "carrier.table",
-    "markdown": "<quill-table widths=\"1 2\">\n| a | b |\n| --- | --- |\n| 1 | 2 |\n</quill-table>",
+    "markdown": "<quill-table widths=\"1 2\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>",
     "content": {
       "islands": [
         {
@@ -1970,17 +1871,22 @@
         {
           "containers": [],
           "kind": "para"
-        },
-        {
-          "containers": [],
-          "kind": "para"
         }
       ],
-      "marks": [],
-      "text": "Text[^1]\n[^1]: Word"
+      "marks": [
+        {
+          "attrs": {
+            "url": "Word"
+          },
+          "end": 6,
+          "start": 4,
+          "type": "link"
+        }
+      ],
+      "text": "Text^1"
     },
     "typst": [
-      "Text\\[^1\\]"
+      "Text#link(\"Word\")[^1]"
     ],
     "signals": {
       "import": [
@@ -2250,117 +2156,6 @@
     }
   },
   {
-    "name": "island.table.props.breakable",
-    "markdown": "<quill-table breakable=\"false\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "breakable": false,
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "#block(breakable: false)[#table("
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "island.table.props.breakable.true",
-    "markdown": "<quill-table breakable=\"true\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "columns: 2"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
     "name": "carrier.table.holds_other",
     "markdown": "<quill-table align=\"center\">\n\n**Signed**\n\n</quill-table>",
     "content": {
@@ -2514,7 +2309,7 @@
     }
   },
   {
-    "name": "island.table.cell.align",
+    "name": "carrier.cell",
     "markdown": "| a | b |\n| --- | --- |\n| <quill-cell align=\"right\">1</quill-cell> | 2 |",
     "content": {
       "islands": [
@@ -2538,7 +2333,6 @@
             "rows": [
               [
                 {
-                  "align": "right",
                   "marks": [],
                   "text": "1"
                 },
@@ -2562,362 +2356,12 @@
       "text": "￼"
     },
     "typst": [
-      "table.cell(align: right)[1], [2]"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "island.table.cell.valign",
-    "markdown": "| a | b |\n| --- | --- |\n| <quill-cell valign=\"bottom\">1</quill-cell> | 2 |",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1",
-                  "valign": "bottom"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "table.cell(align: bottom)[1], [2]"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "island.table.cell.align_valign",
-    "markdown": "| a | b |\n| --- | --- |\n| <quill-cell align=\"center\" valign=\"horizon\">**1** one</quill-cell> | 2 |",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "align": "center",
-                  "marks": [
-                    {
-                      "end": 1,
-                      "start": 0,
-                      "type": "strong"
-                    }
-                  ],
-                  "text": "1 one",
-                  "valign": "horizon"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "table.cell(align: center + horizon)[#strong[1] one], [2]"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "island.table.cell.align.column",
-    "markdown": "| a | b |\n| --- | ---: |\n| 1 | <quill-cell align=\"right\">2</quill-cell> |",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "right"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "align: (auto, right)",
       "[1], [2]"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.cell.partial",
-    "markdown": "| a | b |\n| --- | --- |\n| 1 <quill-cell align=\"right\">one</quill-cell> | 2 |",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1 one"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "[1 one], [2]"
     ],
     "signals": {
       "import": [
         {
           "construct": "quill-cell",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.cell.attr",
-    "markdown": "| a | b |\n| --- | --- |\n| <quill-cell foo=\"1\">1</quill-cell> | 2 |",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "[1], [2]"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "quill-cell[foo]",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.cell.value",
-    "markdown": "| a | b |\n| --- | --- |\n| <quill-cell align=\"middle\">1</quill-cell> | 2 |",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "[1], [2]"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "quill-cell[align]",
           "count": 1
         }
       ],

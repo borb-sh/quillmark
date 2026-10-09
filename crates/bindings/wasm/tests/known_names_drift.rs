@@ -62,10 +62,6 @@ fn mark_type_tags() -> Vec<&'static str> {
         MarkKind::Code,
         MarkKind::Link { url: String::new() },
         MarkKind::Anchor { id: String::new() },
-        MarkKind::Element {
-            name: String::new(),
-            attrs: Default::default(),
-        },
     ];
     for k in &all {
         match k {
@@ -75,8 +71,7 @@ fn mark_type_tags() -> Vec<&'static str> {
             | MarkKind::Strike
             | MarkKind::Code
             | MarkKind::Link { .. }
-            | MarkKind::Anchor { .. }
-            | MarkKind::Element { .. } => {}
+            | MarkKind::Anchor { .. } => {}
         }
     }
     all.iter().map(MarkKind::tag).collect()

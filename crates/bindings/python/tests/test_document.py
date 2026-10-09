@@ -92,21 +92,6 @@ def test_insert_card_accepts_content_dict_body():
     assert doc.cards[1]["body"]["text"] == doc.cards[0]["body"]["text"]
 
 
-def test_to_annotated_markdown_spells_and_lists_each_anchor():
-    """The annotated read spells an anchor at its start and lists it at its
-    document path with its line; a parse of the read drops the tag."""
-    doc = Document.from_markdown(SIMPLE_MD)
-    doc.insert_card({"kind": "note", "body": "A note."})
-    body = doc.remove_card(0)["body"]
-    body["marks"].append({"type": "anchor", "attrs": {"id": "n1"}, "start": 2, "end": 2})
-    doc.insert_card({"kind": "note", "body": body})
-
-    read = doc.to_annotated_markdown()
-    assert 'A <quill-anchor ref="n1"></quill-anchor>note.' in read["markdown"]
-    assert read["anchors"] == [{"id": "n1", "path": "cards.note[0].body", "line": "A note."}]
-    assert Document.from_markdown(read["markdown"]) == Document.from_markdown(doc.to_markdown())
-
-
 def test_wire_refusal_carries_the_mutator_code():
     """A card dict whose content violates an invariant raises QuillmarkError
     under the code the addressed mutator mints, not a bare ValueError: routing

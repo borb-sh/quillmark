@@ -21,8 +21,8 @@ markdown, stored JSON, op wire, Typst lowering, validate and signal cells, and
 2. **Pure import.** `from_markdown` is a function of its text alone: it reads no
    quill, declaration or session.
 3. **Fixed point.** `from_markdown(to_markdown(c)) == c`, except for anchors,
-   which a markdown write keeps by diff-rebase (`revise`, `rebase`), and by
-   the annotated read's tag where the diff loses one, never by the projection.
+   which a markdown write keeps by diff-rebase (`revise`, `rebase`), never by
+   the projection.
 4. **No silent lane.** For every construct, quill and backend, the outcome is
    honored, inert with a signal, or refused at the write. The signal reaches
    every door that meets the construct: a markdown drop the parse, import or
@@ -105,14 +105,12 @@ as one wide list: the `instance` boundary does not reach the page.
 | `mark.code` | spells | spells | spells | honors | silent: honored | none |
 | `mark.link` | spells | spells | spells | honors | silent: honored | none |
 | `mark.anchor` | carries opaquely | spells | spells | honors | silent: honored | none |
-| `mark.element`: an element inside a line | spells | spells | spells | honors | silent: honored | none |
-| `mark.element.crossing`: an element crossing a strong run | spells | spells | spells | honors | silent: honored | none |
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
 The annotated read spells it at its start as a `quill-anchor` tag the import
 drops, so the markdown cell stays `carries opaquely`: a write keeps an anchor by
-diff-rebase, and a revise re-homes one the diff drops at its tag. The row's corpus entry pins the spelling under
+diff-rebase alone. The row's corpus entry pins the spelling under
 `annotated`.
 
 An element lowers through the helper's dispatcher, which draws it with the
@@ -130,22 +128,14 @@ renderer a plate registers under its name ([CONVERT.md](CONVERT.md#elements)).
 | `island.table.props.widths`: column weights, `null` an auto-fit column | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.widths.auto`: every column auto-fit, the default | spells | spells | spells | silent: honored | silent: honored | none |
 | `island.table.props.align`: the table's placement | spells | spells | spells | honors | silent: honored | none |
-| `island.table.props.breakable`: `false`, the table kept on one page | spells | spells | spells | honors | silent: honored | none |
-| `island.table.props.breakable.true`: `true`, the default | spells | spells | spells | silent: honored | silent: honored | none |
-| `island.table.cell.align`: a cell's horizontal alignment | spells | spells | spells | honors | silent: honored | none |
-| `island.table.cell.valign`: a cell's vertical alignment | spells | spells | spells | honors | silent: honored | none |
-| `island.table.cell.align_valign`: both, in a cell holding marks | spells | spells | spells | honors | silent: honored | none |
-| `island.table.cell.align.column`: an `align` equal to its column's, the default | spells | spells | spells | silent: honored | silent: honored | none |
-| `island.table.cell.element`: an element inside a cell | spells | spells | spells | honors | silent: honored | none |
 | `island.image` | spells | spells | spells | declines with a signal | declines with a signal | `backend::declined_construct`, `validation::declined_construct`, `image` |
 
 A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
 mint it without a key the engine does not name.
 
-`widths`, `align` and `breakable` are spelled on a `quill-table` wrapper
-([markdown-spec.md](../references/markdown-spec.md) §6.4), and a cell's `align`
-and `valign` on a `quill-cell` pair around its content. Each is absent at its
-default, so a default row stores no key.
+`widths` and `align` are spelled on a `quill-table` wrapper
+([markdown-spec.md](../references/markdown-spec.md) §6.4). Each is absent at
+its default, so a default row stores no key.
 
 ### Spellings
 
@@ -164,19 +154,18 @@ above, or markup the content does not store.
 | `html.comment` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `html.tag_line.paragraph`: a type 6 tag line under paragraph text, dropping what follows to the blank line | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
 | `html.tag_line.list`: a tag line between list items, ending the list | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
-| `carrier.element.tight`: element tag lines tight around markdown | spells | spells | spells | honors | silent: honored | none |
-| `carrier.element.void`: an element around nothing, its pair on one line | spells | spells | spells | honors | silent: honored | none |
+| `carrier.element.tight`: element tag lines tight around markdown, dropping it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
+| `carrier.element.void`: an element around nothing | spells | spells | spells | honors | silent: honored | none |
 | `carrier.element.unclosed`: an element still open where the body ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
 | `carrier.element.self_closing`: a self-closing element tag | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep` |
+| `carrier.element.inline`: an element pair inside a line | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-hl` |
 | `carrier.element.attr`: an element attribute outside the grammar | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-keep[onclick]` |
 | `carrier.element.stray_close`: an element close tag with nothing open | silent: honored | n/a | n/a | n/a | n/a | none |
 | `carrier.table`: the reserved `quill-table` around a table | spells | spells | spells | honors | silent: honored | none |
 | `carrier.table.holds_other`: a `quill-table` around anything but one table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table` |
 | `carrier.table.attr`: a `quill-table` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[foo]` |
 | `carrier.table.value`: a `quill-table` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[widths]` |
-| `carrier.cell.partial`: a `quill-cell` pair not wrapping its whole cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-cell` |
-| `carrier.cell.attr`: a `quill-cell` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-cell[foo]` |
-| `carrier.cell.value`: a `quill-cell` attribute value outside its set | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-cell[align]` |
+| `carrier.cell`: the reserved `quill-cell`, which nothing folds | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-cell` |
 | `carrier.anchor`: an echoed `quill-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.footnote_definition`: `[^1]: Word` | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `footnote_definition` |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
@@ -235,12 +224,8 @@ fails:
 A row whose construct the import does not store still has its `typst`: what the
 markup wrapped reaches the page.
 
-`scripts/build-wasm.sh` ships the file at the root of `@quillmark/wasm` as
-`parity.json`, exported as `@quillmark/wasm/parity.json`, and the package's
-`parity.test.js` round-trips every spelled entry through `importMarkdown` and
-`exportMarkdown`, and imports each `annotated` read. A downstream codec pins the
-copy in the package version it imports: decoding each `content` into its own
-state and encoding it back yields `content`.
+The WASM package's `parity.test.js` round-trips every spelled entry through
+`importMarkdown` and `exportMarkdown`, and imports each `annotated` read.
 
 A construct enters the engine with its row and its entry, and a change to what
 a surface does with one edits both.

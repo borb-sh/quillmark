@@ -110,9 +110,9 @@ impl<'a> TypedWriter<'a> {
     /// [`BoundParseError::Mismatch`] before any mutation, and a parse failure
     /// as [`BoundParseError::Parse`].
     pub fn revise_document(&mut self, markdown: &str) -> Result<DocumentRevised, BoundParseError> {
-        let (parsed, tags) = Document::parse_tagged(markdown)?;
+        let parsed = Document::parse(markdown)?;
         self.config.check_quill_reference(&parsed.document)?;
-        let mut revised = self.doc.revise_parsed(parsed, &tags);
+        let mut revised = self.doc.revise_parsed(parsed);
         revised.warnings.extend(
             self.config
                 .conform(self.doc)

@@ -910,27 +910,6 @@ Card body.
     expect(doc.revise({ field: 'intro' }, '<kbd>x</kbd>').warnings[0].path).toBe('main.intro')
   })
 
-  it('reviseDocument aligns cards, keeps an unchanged card\'s anchor and names the dropped ones', () => {
-    const doc = Document.fromMarkdown(
-      '~~~\n$quill: q\n~~~\n\nMain.\n\n~~~\n$kind: note\n~~~\n\nKeep this note.\n\n~~~\n$kind: memo\n~~~\n\nDrop this memo.\n',
-    )
-    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'k' } }] })
-    doc.applyChange({ card: 1 }, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'd' } }] })
-    const receipt = doc.reviseDocument(
-      '~~~\n$quill: q\n~~~\n\nMain.\n\n~~~\n$kind: aside\n~~~\n\nNew <span>aside</span>.\n\n~~~\n$kind: note\n~~~\n\nKeep this note.\n',
-    )
-    expect(receipt.alignment).toEqual([null, 0])
-    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.memo[1].body', id: 'd' }])
-    expect(receipt.deltas.map((d) => d.path)).toEqual(['main.body', 'cards.note[1].body'])
-    expect(receipt.warnings.map((w) => [w.code, w.path])).toEqual([
-      ['parse::dropped_construct', 'cards.aside[0].body'],
-    ])
-    expect(doc.cards[1].body.marks).toContainEqual(
-      expect.objectContaining({ type: 'anchor', attrs: { id: 'k' } }),
-    )
-    expect(doc.warnings).toEqual([])
-  })
-
   it('toAnnotatedMarkdown spells each anchor at its start and lists it at its path', () => {
     const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nMain **body**.\n\n~~~\n$kind: note\n~~~\n\nA note.\n')
     doc.applyChange({}, { markOps: [{ op: 'add', start: 5, end: 9, type: 'anchor', attrs: { id: 'b' } }] })
@@ -943,8 +922,7 @@ Card body.
       { id: 'n', path: 'cards.note[0].body', line: 'A note.' },
     ])
 
-    expect(doc.reviseDocument(read.markdown).droppedAnchors).toEqual([])
-    expect(doc.toAnnotatedMarkdown()).toEqual(read)
+    expect(Document.fromMarkdown(read.markdown).equals(Document.fromMarkdown(doc.toMarkdown()))).toBe(true)
   })
 
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {

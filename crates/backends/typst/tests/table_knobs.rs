@@ -1,4 +1,4 @@
-//! Every table and cell knob lowers and compiles, and placing a table moves no
+//! Every table knob lowers and compiles, and placing a table moves no
 //! text inside it.
 
 use quillmark_core::{
@@ -45,9 +45,9 @@ fn origins(svg: &str) -> Vec<(f64, f64)> {
         .collect()
 }
 
-const KNOBS: &str = "<quill-table align=\"center\" breakable=\"false\" widths=\"2 1\">\n\n\
+const KNOBS: &str = "<quill-table align=\"center\" widths=\"2 1\">\n\n\
                      | Item | Amount |\n| --- | --- |\n\
-                     | Total | <quill-cell align=\"right\" valign=\"bottom\">42</quill-cell> |\n\n\
+                     | Total | 42 |\n\n\
                      </quill-table>";
 
 const PLAIN: &str = "| Item | Amount |\n| --- | --- |\n| Total | 42 |";

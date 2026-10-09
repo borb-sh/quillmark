@@ -10,7 +10,6 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::ops::Range;
 
-pub(crate) mod cell;
 pub(crate) mod table;
 
 /// What every carrier tag name opens with.
@@ -138,8 +137,8 @@ pub(crate) fn modeled_tag(tag: &html::Tag) -> Option<String> {
     (!tag.self_closing).then_some(name)
 }
 
-/// The element a [`Container::Element`](crate::model::Container::Element) or
-/// [`MarkKind::Element`](crate::model::MarkKind::Element) spells: `None` for a
+/// The element a [`Container::Element`](crate::model::Container::Element)
+/// spells: `None` for a
 /// name outside the grammar or [reserved](RESERVED), or an attribute name
 /// outside its grammar, none of which the import models.
 pub fn modeled(name: &str, attrs: &BTreeMap<String, String>) -> Option<Element> {
@@ -230,11 +229,11 @@ impl Element {
     }
 
     /// The block wrapper around `children`: each tag alone on its line, a blank
-    /// line between it and the children, or the pair on one line around none.
-    /// A container's prefix on each line is the caller's.
+    /// line between it and the children, none around no children. A
+    /// container's prefix on each line is the caller's.
     pub fn wrap_block(&self, children: &str) -> String {
         if children.is_empty() {
-            return format!("{}{}", self.open_tag(), self.close_tag());
+            return format!("{}\n{}", self.open_tag(), self.close_tag());
         }
         format!("{}\n\n{children}\n\n{}", self.open_tag(), self.close_tag())
     }
@@ -518,7 +517,7 @@ mod tests {
         assert_eq!(e.wrap_inline("x"), format!("{}x</quill-table>", e.open_tag()));
         let keep = Element::new("keep", BTreeMap::new()).unwrap();
         assert_eq!(keep.wrap_block("a\n\nb"), "<quill-keep>\n\na\n\nb\n\n</quill-keep>");
-        assert_eq!(keep.wrap_block(""), "<quill-keep></quill-keep>");
+        assert_eq!(keep.wrap_block(""), "<quill-keep>\n</quill-keep>");
 
         assert_eq!(Element::new("A", BTreeMap::new()), Err(Refused::Name("A".into())));
         assert_eq!(
@@ -537,7 +536,7 @@ mod tests {
             ("> a\n> <quill-keep>\n> b", "> a\n>\n> b"),
             ("x `<quill-x>` y", "x `<quill-x>` y"),
             ("```\n<quill-x>\n```", "```\n<quill-x>\n```"),
-            ("<quill-keep>\n```\n<quill-x>\n```\n</quill-keep>", "\n```\n<quill-x>\n```\n"),
+            ("<quill-keep>\n```\n<quill-x>\n```\n</quill-keep>", "\n```\n\n```\n"),
             ("<div>\nsome <quill-x>y</quill-x>\n</div>", "<div>\nsome y\n</div>"),
             ("<!-- <quill-x> -->", "<!-- <quill-x> -->"),
             ("<span title=\"<quill-x>\">t</span>", "<span title=\"<quill-x>\">t</span>"),

@@ -1,5 +1,5 @@
 /**
- * The parity corpus as the package ships it, `pkg/parity.json`: every entry
+ * The parity corpus, `crates/fixtures/resources/parity/parity.json`: every entry
  * with a markdown spelling round-trips through the markdown codec a consumer
  * reaches, and an `annotated` read imports as its content without anchors
  * (prose/canon/PARITY.md § "The corpus").
@@ -12,12 +12,12 @@ import { init } from '@quillmark-wasm/runtime'
 
 const { importMarkdown, exportMarkdown } = await init()
 
-const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'pkg')
-const corpus = JSON.parse(readFileSync(join(PKG_DIR, 'parity.json'), 'utf8'))
+const CORPUS = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', 'resources', 'parity', 'parity.json')
+const corpus = JSON.parse(readFileSync(CORPUS, 'utf8'))
 const spelled = corpus.filter((entry) => entry.markdown !== null)
 const annotated = corpus.filter((entry) => entry.annotated !== undefined)
 
-describe('pkg/parity.json', () => {
+describe('parity.json', () => {
   it('holds entries with a markdown spelling', () => {
     expect(spelled.length).toBeGreaterThan(0)
   })

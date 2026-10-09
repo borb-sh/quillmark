@@ -4,7 +4,7 @@
 > **Base**: [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)
 > **Implementation**: `crates/core/src/document/`
 
-Quillmark Markdown is a **strict superset of CommonMark** with three declared
+Quillmark Markdown is a **strict superset of CommonMark** with two declared
 deviations (§6.2). It layers a structured-data system (the **card-yaml**
 format) on top of ordinary markdown, and selects a small, stable set of GFM
 extensions.
@@ -13,11 +13,10 @@ This document is the authoritative syntax standard.
 ## 1. Superset Statement
 
 Every valid CommonMark 0.31.2 document parses to the same block / inline
-structure under this spec, *except* for the three deviations declared in §6.2:
-raw HTML, a link reference definition labelled `^…`, and a column-zero `~~~`
-block with a blank line above it, which is a card-yaml block rather than a
-fenced code block whatever its info string (§3.2; an indented `~~~` is not a
-card-yaml opener). Additionally, this spec defines:
+structure under this spec, *except* for the two deviations declared in §6.2:
+raw HTML, and a column-zero `~~~` block with a blank line above it, which is a
+card-yaml block rather than a fenced code block whatever its info string (§3.2;
+an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
 
 - **Structured data**: card-yaml blocks (§3).
 - **Extensions**: strikethrough, pipe tables, and `<u>` for underline
@@ -380,25 +379,13 @@ depends on its type:
 
 | HTML block (CommonMark §4.6) | What imports |
 |---|---|
-| Type 6 or 7 opened by a carrier tag line: a line holding only `quill-*` tags | Everything but the tags, as though a blank line stood above and below each carrier tag line in it. |
-| Any other type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>` or `<span>` | Nothing: the block drops whole, to the next blank line, as CommonMark runs it. |
-| Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after its end marker (`-->`, `?>`, `>`, `]]>`, the closing tag) on its last line imports as a line of its own, unless it opens a fence or a type 1–5 block it does not close on that line. |
+| Type 6 or 7 holding only tag lines, a `quill-*` tag among them | Nothing of its own; its carrier tags open and close what §6.4 defines. |
+| Any other type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<quill-keep>` tight against markdown | Nothing: the block drops whole, to the next blank line, as CommonMark runs it, a carrier tag in it included. |
+| Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after a comment's `-->` on its last line imports as a line of its own, unless it opens a fence or a type 1–5 block it does not close on that line. |
 
-A type 1 block ends at the first line holding `</pre>`, `</script>`,
-`</style>` or `</textarea>`, in any case and whatever tag opened it, as
-CommonMark ends it.
-
-A carrier tag line frees the markdown beside it wherever it stands outside
-code, and the lines between two of them read as they would with blank lines
-around each: an unclosed comment or fence runs on, and a foreign tag line
-opens a block that drops whole.
-
-- Under a paragraph's text, where CommonMark reads it as inline HTML (a type 7
-  tag cannot interrupt a paragraph), it ends the paragraph and opens a type 7
-  block running to the paragraph's end. It keeps its own container prefix, so
-  its element opens or closes where its own indentation stands.
-- Under a setext heading's text, it moves below the heading's underline, one
-  tag per line, so the heading keeps its lines.
+A carrier tag line works as CommonMark reads it: a blank line above and below
+sets it apart as a block of its own. Under a paragraph's text it is inline
+HTML, which drops (§6.4).
 
 A line holding only tags, carrier or not, on the line after a pipe table's
 rows ends the table rather than adding a row.
@@ -419,15 +406,7 @@ Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
 an injection vector for downstream HTML-producing tooling; `<u>` is an
 exception because no CommonMark-native syntax covers underline, and `<br>`
 because a pipe-table row is one source line, with no room for a native hard
-break. Only the carrier's tag lines free the markdown beside them, because
-authors write an element's tags tight around what it wraps; every other HTML
-block keeps CommonMark's reading, which the import reports.
-
-**A link reference definition whose label starts with `^` is literal text**,
-and so is every reference to its label: `[^1]: Word` imports as the text
-`[^1]: Word`, and `text[^1]` as `text[^1]`. CommonMark reads the line as a
-definition, making `[^1]` a link to `Word`; the syntax is the footnote of other
-dialects, which this spec does not support (§6.3).
+break. Every HTML block keeps CommonMark's reading, which the import reports.
 
 **A column-zero `~~~` with a blank line above it opens a card-yaml block,
 not a fenced code block, whatever its info string** (§3.2, §4). A backtick
@@ -456,16 +435,17 @@ support may come in a future revision:
   imports as the literal text it is. In markdown body text `$` is literal;
   inside a `~~~` card-yaml payload `$` is reserved as the prefix for
   system-metadata keys (§3.3).
-- Footnotes: not supported. A footnote-shaped definition (`[^1]: Word`) and its
-  references import as literal text (§6.2), and the import reports each
-  definition under `parse::dropped_construct` as `footnote_definition`.
+- Footnotes: not supported. A footnote-shaped definition (`[^1]: Word`) imports
+  as CommonMark reads it, a link reference definition making `[^1]` a link to
+  `Word`, and the import reports each under `parse::dropped_construct` as
+  `footnote_definition`.
 - HTML comments: accepted syntactically, not rendered (see §6.2).
 - `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
   table cell: a hard break. In a paragraph, one with no text before it on its
-  line is dropped; in a heading it is a space. One alone on its line is a tag
-  line (§6.2): it drops, and ends a paragraph it stands under. Outside a
-  table, export writes the CommonMark-native hard break (trailing `\\` plus
-  newline); inside a cell it writes `<br>`.
+  line is dropped; in a heading it is a space. One alone on its line, a blank
+  line above it, opens an HTML block (§6.2) and drops. Outside a table, export
+  writes the CommonMark-native hard break (trailing `\\` plus newline); inside
+  a cell it writes `<br>`.
 
 ### 6.4 The `quill-*` Carrier
 
@@ -480,10 +460,10 @@ namespace (`quill:keep`). A tag name reads ASCII-case-insensitively, as HTML
 names do, and the canonical spelling is lowercase. `quill-`, `quill-a--b` and
 `quill-9` carry no element.
 
-**Reserved names.** `table` and `cell` are reserved for the construct they
-wrap, and `anchor` for the anchor spelling. A reserved name folds into its
-construct where a construct declares the fold; none is ever an element of its
-own, and a quill cannot declare one.
+**Reserved names.** `table` is reserved for the table it wraps, `anchor` for
+the anchor spelling, and `cell` for a later table-cell construct. A reserved
+name folds into its construct where a construct declares the fold; none is
+ever an element of its own, and a quill cannot declare one.
 
 **Attributes.** A name matches `[a-z][a-z0-9_]*` and is none of `style`,
 `class`, `id`, `href`, `src` and `name`, nor any name opening `on`, so the
@@ -493,9 +473,10 @@ read, is refused by name. A value reads double-quoted, single-quoted or
 unquoted, and decodes `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;` and decimal or
 hexadecimal references to a Unicode scalar value; any other `&` is text.
 
-**Scope by syntax.** Import decides a carrier tag's scope from its line, with
-no quill: a tag alone on its line is a block wrapper (a tag line, §6.2), and a
-pair inside a line is inline.
+**Block only.** A carrier tag carries its construct on a tag line in an HTML
+block of tag lines alone, which a blank line above and below sets apart
+(§6.2). Inside a line, or in a block tight against markdown, it drops like any
+raw tag; `quill-anchor` drops there without a report.
 
 **Canonical spelling.** An element is written with:
 
@@ -504,21 +485,21 @@ pair inside a line is inline.
 - a `|`, a control character, a bidi control or a line separator in a value as
   a hexadecimal reference (`&#x7C;`): a `|` ends a table cell, a line ending
   ends the tag's line, and §7 rewrites the rest;
-- a block wrapper with each tag alone on its line and a blank line between it
-  and what it wraps, inside the containers it sits in, or, around nothing, the
-  pair on one line (`<quill-sig></quill-sig>`), which an HTML renderer reads
-  as the element where it reads `<quill-sig/>` as an open tag;
-- an inline pair on one line with the text around it.
+- each tag alone on its line and a blank line between it and what it wraps,
+  inside the containers it sits in, or, around nothing, the pair on two lines
+  with nothing between, which an HTML renderer reads as the element where it
+  reads `<quill-sig/>` as an open tag.
 
 ```markdown
-<quill-keep>
+<quill-keep note="a &amp; b">
 
 **Signed**
 J. Doe
 
 </quill-keep>
 
-Text with a <quill-keep note="a &amp; b">pair</quill-keep> inside a line.
+<quill-sig>
+</quill-sig>
 ```
 
 **An element** of any name but the reserved three is stored, whatever quill
@@ -527,36 +508,27 @@ reads the document:
 - A pair of tag lines wraps the blocks between them in the element, inside the
   containers around its open tag. The close tag closes the element where it is
   the innermost container open; a close tag naming no innermost element drops
-  without a report. A pair wrapping nothing, the one-line pair included, holds
-  one empty paragraph: a void element, such as a signature line.
-- A pair inside one inline run (a paragraph's, a heading's, a list item's or a
-  table cell's) marks the text between. A close tag closes the innermost open
-  element of its name, so an element crosses other marks and elements freely.
+  without a report. A pair wrapping nothing holds one empty paragraph: a void
+  element, such as a signature line.
 - Each attribute in the grammar is kept as its string. One refused drops alone,
   reported as `quill-<name>[<attr>]`.
-- Two adjacent block runs of one element stay two. Inline, a run unions with
-  an adjacent or overlapping run of the same name and attributes.
+- Two adjacent runs of one element stay two.
 - A Typst plate renders an element through the renderer it registers under
-  the name, which learns whether the element stands inside a line; with none,
-  `keep` holds what it wraps on one page and any other element renders what
-  it wraps.
+  the name; with none, `keep` holds what it wraps on one page and any other
+  element renders what it wraps.
 
 **An element that does not close** is transparent: its tags drop, what it wraps
 imports, and `parse::dropped_construct` reports it under its tag name
 (`quill-keep`), as any raw tag (§6.2). That covers a block element still open
-where its list item, quote or body ends, an inline one still open at its run's
-end, an inline pair holding nothing, a self-closing tag, and an open tag in an
-image's alt text. A `quill-*` tag outside the grammar is a raw tag reported
-the same way.
+where its list item, quote or body ends, a self-closing tag, a tag inside a
+line, and one in a block tight against markdown, which drops what it holds
+with it. A `quill-*` tag outside the grammar is a raw tag reported the same
+way.
 
-Export writes an inline element's tags, and `<u>` and `</u>`, outside the
-emphasis delimiters closing and opening where they stand, so a tag never sits
-at a delimiter run's edge, where its `<` or `>` would change the run's
-flanking. A delimiter run spanning that position stays open around the tag.
-
-```markdown
-**bold <quill-hl tone="warm">both** highlit</quill-hl>
-```
+Export writes `<u>` and `</u>` outside the emphasis delimiters closing and
+opening where they stand, so a tag never sits at a delimiter run's edge, where
+its `<` or `>` would change the run's flanking. A delimiter run spanning that
+position stays open around the tag.
 
 **`quill-table`** is a block wrapper around one pipe table, and folds its
 attributes into the table's layout, whatever quill reads the document:
@@ -565,10 +537,9 @@ attributes into the table's layout, whatever quill reads the document:
 |---|---|---|
 | `widths` | whitespace-separated column weights, each a positive decimal integer or `auto` for an auto-fit column | every column `auto` |
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
-| `breakable` | `true`, or `false` to keep the table on one page | `true` |
 
 ```markdown
-<quill-table align="center" breakable="false" widths="1 2 auto">
+<quill-table align="center" widths="1 2 auto">
 
 | Item | Description | Qty |
 | --- | --- | --- |
@@ -586,44 +557,18 @@ attributes into the table's layout, whatever quill reads the document:
   since a formatter pads them to the column.
 - A wrapper holding anything but exactly one table drops whole: its tags drop,
   what it holds imports, and `parse::dropped_construct` reports `quill-table`.
-- An attribute other than these three, and one whose value is outside its
-  spelling, drops alone, reported as `quill-table[<name>]`.
+- An attribute other than these two, and one whose value is outside its
+  spelling, drops alone, reported as `quill-table[<name>]`. A `quill-keep`
+  around the wrapper keeps the table on one page.
 
-**`quill-cell`** is an inline pair around a table cell's whole content, in the
-header row or the body, and folds its attributes into the cell, whatever quill
-reads the document:
-
-| Attribute | Value | Default |
-|---|---|---|
-| `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's, from the delimiter row |
-| `valign` | the cell's vertical alignment: `top`, `horizon` or `bottom` | `top` |
-
-```markdown
-| Item | Qty |
-| --- | ---: |
-| <quill-cell valign="bottom">Total</quill-cell> | <quill-cell align="center">42</quill-cell> |
-```
-
-- A pair folds when its open tag is the cell's first inline and its close tag
-  the cell's last, and the cell holds no other `quill-cell` tag. What it wraps
-  is the cell's content as written, edge whitespace included.
-- A pair that does not wrap the whole cell folds nothing: text or markup
-  before or after it, a second pair, a nested pair and an unclosed pair each
-  leave the cell as written, its `quill-cell` tags dropped, and
-  `parse::dropped_construct` reports each open tag as `quill-cell`.
-- An `align` equal to its column's and a `valign` of `top` store nothing, and
-  export writes the pair only around a cell holding a value other than its
-  default.
-- An attribute other than these two, and one whose value is outside its set,
-  drops alone, reported as `quill-cell[<name>]`.
-- A `quill-cell` outside a table cell is transparent, reported as
-  `quill-cell`.
+**`quill-cell`** carries nothing: a `quill-cell` tag drops wherever it
+stands, reported as `quill-cell`.
 
 **`quill-anchor`** is reserved for an anchor's read-only spelling,
 `<quill-anchor ref="…"></quill-anchor>`, which the annotated export writes and
 no plain export does. Import drops it without a report, inline or alone on its
-line, and mints no anchor from it; a revise places an anchor its diff drops at
-the one tag naming the anchor's id. The annotated export writes one inline at each anchor's start:
+line, and mints no anchor from it. The annotated export writes one inline at
+each anchor's start:
 
 - after the delimiters of the marks closing there and before those opening
   there;
@@ -666,27 +611,15 @@ Before CommonMark parsing, each body region is normalized:
 4. **Parser-guided repair.** The text is parsed, edited inside the spans that
    parse locates, and parsed again; text in a fenced or indented code block is
    never edited.
-   - In a type 6 or 7 HTML block opened by a carrier tag line, each carrier
-     tag line gets a blank line above and below, so the block's other lines
-     reach the markdown parser (§6.2). Any other type 6 or 7 block is left as
-     the parser reads it.
-   - On a type 1–5 block's last line, text after the end marker moves to a
-     line of its own.
-   - A type 1 block's first closing tag is respelled as the block's own
-     closing tag in lowercase, so the parse ends the block where CommonMark
-     does.
-   - A carrier tag line under a paragraph's text gets a blank line above it
-     and one tag per line, opening a type 7 block, and keeps its own prefix.
-   - A carrier tag line under a setext heading's text moves below the
-     underline, one tag per line.
+   - On a comment's last line, text after its `-->` moves to a line of its
+     own, keeping the line's indent.
    - A pipe-table row holding only tags gets a blank line above it, ending the
      table.
-   - A link reference definition labelled `^…` has its `[` backslash-escaped.
 
    A blank line written inside a container carries the container's `>`
-   markers, and one closes freed text the next line would otherwise continue
-   lazily. A freed line opening a container that holds a carrier tag line of
-   its own (`> <quill-keep>`) is repaired by a further round.
+   markers, and one closes split-off text the next line would otherwise
+   continue lazily. Split-off text that opens another comment is repaired by
+   a further round.
 
 Normalization is applied identically to the root body and every card
 body. It is not applied to YAML payload values.

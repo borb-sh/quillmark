@@ -21,7 +21,7 @@ const PAGE: &str = r#"
 const STAMP: &str = r#"
 #elements.update(e => e + (stamp: (attrs, body, inline: false) => {
   assert(attrs == (day: "2024-01-15", size: "4"), message: repr(attrs))
-  assert(inline, message: "an element inside a line renders inline")
+  assert(not inline, message: "an element wraps blocks")
   text(fill: red, body)
 }))
 "#;
@@ -57,7 +57,7 @@ fn pages(quill: &Quill, markdown: &str) -> Vec<String> {
         .collect()
 }
 
-const STAMPED: &str = "a <quill-stamp size=\"4\" day=\"2024-01-15\">b</quill-stamp> c";
+const STAMPED: &str = "a\n\n<quill-stamp size=\"4\" day=\"2024-01-15\">\n\nb\n\n</quill-stamp>\n\nc";
 
 #[test]
 fn the_plates_renderer_receives_the_attributes() {
@@ -65,7 +65,7 @@ fn the_plates_renderer_receives_the_attributes() {
     let unregistered = pages(&quill(""), STAMPED);
     assert_ne!(rendered, unregistered, "the renderer colors the stamped text");
     let glyphs = |pages: &[String]| pages.iter().map(|p| p.matches("<use ").count()).sum::<usize>();
-    assert_eq!(glyphs(&unregistered), glyphs(&pages(&quill(""), "a b c")), "unregistered draws its text");
+    assert_eq!(glyphs(&unregistered), glyphs(&pages(&quill(""), "a\n\nb\n\nc")), "unregistered draws its text");
 }
 
 /// The built-in `keep` moves a run that would break across pages to the next
@@ -89,18 +89,4 @@ fn the_built_in_keep_keeps_its_run_on_one_page() {
 #[test]
 fn a_renderer_registered_after_the_content_still_renders_it() {
     assert_eq!(pages(&quill_registering_last(STAMP), STAMPED), pages(&quill(STAMP), STAMPED));
-}
-
-/// A renderer that draws a block element and an inline one differently.
-const MARK: &str = r#"
-#elements.update(e => e + (mark: (attrs, body, inline: false) => {
-  if inline { text(fill: blue, body) } else { block(fill: yellow, body) }
-}))
-"#;
-
-#[test]
-fn a_renderer_tells_a_block_element_from_an_inline_one() {
-    let block = pages(&quill(MARK), "<quill-mark>\n\nb\n\n</quill-mark>");
-    let inline = pages(&quill(MARK), "<quill-mark>b</quill-mark>");
-    assert_ne!(block, inline);
 }

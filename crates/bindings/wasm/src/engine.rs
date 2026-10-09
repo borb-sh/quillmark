@@ -274,21 +274,14 @@ export type ContentMark = { start: number; end: number } & ContentMarkKind;
 export type ContentMarkKind =
     | { type: "strong" | "emph" | "underline" | "strike" | "code" }
     | { type: "link"; attrs: { url: string } }
-    | { type: "anchor"; attrs: { id: string } }
-    | { type: "element"; attrs: ElementAttrs };
+    | { type: "anchor"; attrs: { id: string } };
 
 /** A cell in a `TableProps`. `marks` rides the prose `ContentMark` shape, but
  * each mark's `start`/`end` are USV offsets into this cell's `text`, not into
- * `Content.text`. A `\n` in `text` is a line break. An alignment key at its
- * default is absent. */
+ * `Content.text`. A `\n` in `text` is a line break. */
 export interface TableCell {
     text: string;
     marks: ContentMark[];
-    /** The cell's horizontal alignment where it differs from its column's
-     * `aligns` entry; absent is the column's. */
-    align?: "left" | "center" | "right";
-    /** The cell's vertical alignment; absent is `top`. */
-    valign?: "horizon" | "bottom";
 }
 
 /** `props` of a `type: "table"` island: a pipe table normalized to one column
@@ -304,8 +297,6 @@ export interface TableProps {
     widths?: (number | null)[];
     /** The table's placement; absent is the quill's. */
     align?: "left" | "center" | "right";
-    /** `false` keeps the table on one page; absent is breakable. */
-    breakable?: false;
 }
 
 /** `props` of a `type: "image"` island. Stores and round-trips; no backend
@@ -382,18 +373,12 @@ export interface Revised {
 }
 
 /**
- * The receipt of a whole-document revise (`reviseDocument`,
- * `writer.reviseDocument`). `deltas` holds one text change per revised body or
- * content field, at its path in the revised document. `droppedAnchors` names
- * every anchor the write did not carry, at its path in the stored document.
- * `alignment[i]` is the stored card index composable card `i` revised, `null`
- * for an inserted card; a stored index it never names was removed. `warnings`
- * are the parse's and each field import's, then the writer's `conform::*`.
+ * The receipt of `writer.reviseDocument`. `droppedAnchors` names every anchor
+ * the write did not carry, at its path in the stored document. `warnings` are
+ * the parse's and each field import's, then the writer's `conform::*`.
  */
 export interface DocumentRevised {
-    deltas: { path: string; delta: Delta }[];
     droppedAnchors: { path: string; id: string }[];
-    alignment: (number | null)[];
     warnings: Diagnostic[];
 }
 
@@ -956,7 +941,7 @@ impl Document {
     /// `toMarkdown` with each prose anchor of every body and content field
     /// spelled read-only at its start where its line can hold the tag, and
     /// listed with its field's path and line either way. An import drops every
-    /// tag, so `reviseDocument` with the markdown keeps the anchors it keeps
+    /// tag, so `writer.reviseDocument` with the markdown keeps the anchors it keeps
     /// with `toMarkdown`'s.
     #[wasm_bindgen(js_name = toAnnotatedMarkdown, unchecked_return_type = "AnnotatedMarkdown")]
     pub fn to_annotated_markdown(&self) -> Result<JsValue, JsValue> {
@@ -1529,28 +1514,8 @@ impl Document {
         serialize_nullable_or_throw(&RevisedJs::from(revised), "revise")
     }
 
-    /// Replace this document **in place** with `markdown`, keeping what the
-    /// markdown cannot spell where a card aligns: composable cards align to the
-    /// stored ones by `$kind` and text similarity, and each aligned body and
-    /// content field rebases its surviving anchors as `revise` does. Everything
-    /// else lands as written; an omitted `$ext` keeps the stored one on the main
-    /// card, on a card that aligned by text, and on one that aligned by position
-    /// only when the `$kind` sequence is unchanged. Schema-free: nothing conforms (`writer.reviseDocument` does).
-    /// Returns the `DocumentRevised` receipt and clears the load's `warnings`.
-    /// Throws on a parse failure, leaving the document unchanged.
-    #[wasm_bindgen(js_name = reviseDocument, unchecked_return_type = "DocumentRevised")]
-    pub fn revise_document(&mut self, markdown: &str) -> Result<JsValue, JsValue> {
-        let revised = self
-            .inner
-            .revise(markdown)
-            .map_err(WasmError::from)
-            .map_err(|e| e.to_js_value())?;
-        self.parse_warnings.clear();
-        serialize_nullable_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
-    }
-
-    /// The ABI under `writer.reviseDocument`: `reviseDocument`, then conform
-    /// against `quill`. Throws when `markdown` declares a `$quill` this quill
+    /// The ABI under `writer.reviseDocument`: a whole-document revise, then
+    /// conform against `quill`. Throws when `markdown` declares a `$quill` this quill
     /// does not answer to, before any mutation.
     #[wasm_bindgen(js_name = _reviseDocument, skip_typescript, unchecked_return_type = "DocumentRevised")]
     pub fn revise_document_abi(&mut self, quill: &Quill, markdown: &str) -> Result<JsValue, JsValue> {
@@ -2018,9 +1983,7 @@ impl From<quillmark_core::document::Revised> for RevisedJs {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DocumentRevisedJs {
-    deltas: Vec<FieldDeltaJs>,
     dropped_anchors: Vec<DroppedAnchorJs>,
-    alignment: Vec<Option<usize>>,
     warnings: Vec<Diagnostic>,
 }
 
@@ -2038,12 +2001,6 @@ struct DocumentAnchorJs {
 }
 
 #[derive(serde::Serialize)]
-struct FieldDeltaJs {
-    path: String,
-    delta: quillmark_core::session::Delta,
-}
-
-#[derive(serde::Serialize)]
 struct DroppedAnchorJs {
     path: String,
     id: String,
@@ -2052,14 +2009,6 @@ struct DroppedAnchorJs {
 impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
     fn from(revised: quillmark_core::document::DocumentRevised) -> Self {
         DocumentRevisedJs {
-            deltas: revised
-                .deltas
-                .into_iter()
-                .map(|d| FieldDeltaJs {
-                    path: d.path.to_string(),
-                    delta: d.delta,
-                })
-                .collect(),
             dropped_anchors: revised
                 .dropped_anchors
                 .into_iter()
@@ -2068,7 +2017,6 @@ impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
                     id: d.id,
                 })
                 .collect(),
-            alignment: revised.alignment,
             warnings: revised.warnings.into_iter().map(Into::into).collect(),
         }
     }

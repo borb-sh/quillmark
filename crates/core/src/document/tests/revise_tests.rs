@@ -2,7 +2,6 @@ use quillmark_content::model::{Mark, MarkKind, Normalized};
 use quillmark_content::serial::to_canonical_value;
 
 use crate::document::{Codec, Document};
-use crate::path::DocPath;
 use crate::value::QuillValue;
 
 use super::parse;
@@ -88,17 +87,6 @@ fn aligned_cards_keep_their_anchors_and_the_receipt_names_the_rest() {
         [
             ("cards.note[0].body".to_string(), "a1"),
             ("cards.memo[2].body".to_string(), "x1"),
-        ]
-    );
-
-    let paths: Vec<String> = receipt.deltas.iter().map(|d| d.path.to_string()).collect();
-    assert_eq!(
-        paths,
-        [
-            "main.body",
-            "main.subject",
-            "cards.note[1].body",
-            "cards.note[2].body"
         ]
     );
 }
@@ -190,7 +178,6 @@ fn dropped_anchor_paths_name_the_stored_address() {
             "cards.memo[2].body#x1",
         ]
     );
-    assert_eq!(receipt.deltas[0].path, DocPath::main_body());
 }
 
 #[test]
@@ -258,27 +245,4 @@ fn revising_with_the_annotated_read_keeps_every_anchor() {
     assert!(receipt.dropped_anchors.is_empty(), "{:?}", receipt.dropped_anchors);
     assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
     assert_eq!(doc, before);
-}
-
-/// An anchor the diff drops lands at its tag in the card the markdown spells
-/// it in, and the receipt no longer names it.
-#[test]
-fn a_dropped_anchor_lands_at_its_tag_in_its_card() {
-    let mut doc = stored();
-    let receipt = doc
-        .revise(
-            "~~~\n$quill: q\nsubject: The subject line, edited\n~~~\n\nMain prose stays here.\n\n\
-~~~\n$kind: aside\n~~~\n\nAn inserted aside.\n\n\
-~~~\n$kind: note\n~~~\n\nSecond note about pears.\n\n\
-~~~\n$kind: note\n~~~\n\nFirst note, now <quill-anchor ref=\"a1\"></quill-anchor>about kiwi.\n",
-        )
-        .unwrap();
-
-    assert_eq!(receipt.alignment, vec![None, Some(1), Some(0)]);
-    let kiwi = doc.cards()[2].body();
-    assert_eq!(anchor_ids(kiwi), ["a1"]);
-    let at = kiwi.marks.iter().find(|m| matches!(&m.kind, MarkKind::Anchor { .. })).unwrap().start;
-    assert_eq!(kiwi.text.chars().skip(at).collect::<String>(), "about kiwi.");
-    let dropped: Vec<&str> = receipt.dropped_anchors.iter().map(|d| d.id.as_str()).collect();
-    assert_eq!(dropped, ["x1"]);
 }
