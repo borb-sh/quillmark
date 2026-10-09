@@ -180,8 +180,10 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             let mut after_table = false;
             let mut after_tag = false;
             for (i, (block, gap)) in blocks.into_iter().enumerate() {
-                // A tag line under paragraph text is the paragraph's inline HTML.
-                let opens = block.md.starts_with('<') && !block.md.starts_with("<!--");
+                // A tag line under paragraph text is the paragraph's inline HTML,
+                // and two quotes on adjacent lines are one.
+                let first = block.md.trim_start_matches(['>', ' ']);
+                let opens = first.starts_with('<') && !first.starts_with("<!--");
                 if i > 0 {
                     md.push_str(if gap || after_table || after_tag || opens { "\n\n" } else { "\n" });
                 }

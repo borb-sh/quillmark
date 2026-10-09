@@ -175,7 +175,7 @@
 /// Element `name` around `body`, which the engine calls for each element in
 /// the content: the plate's renderer under `elements`, else the built-in
 /// `keep`, which keeps its body on one page, else `body` as it stands.
-#let qm-element(name, attrs, body, inline: false) = context {
+#let _qm-element(name, attrs, body, inline: false) = context {
   let render = elements.final().at(name, default: none)
   if render != none {
     render(attrs, body, inline: inline)

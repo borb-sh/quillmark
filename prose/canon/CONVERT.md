@@ -121,7 +121,7 @@ is a lowering bug, never a document's.
 | `Container::ListItem` (bullet) | `- ` |
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
 | `Container::Quote` | `#quote(block: true)[…]` |
-| `Container::Element{name, attrs}` | `#qm-element("name", (…))[…]` (see [Elements](#elements)) |
+| `Container::Element{name, attrs}` | `#_qm-element("name", (…))[…]` (see [Elements](#elements)) |
 | `image` island | nothing, plus one `backend::declined_construct` warning per field (see [Declined images](#declined-images)) |
 | `table` island | `#table(columns: N, align: (…), table.header(…), …)` |
 
@@ -157,7 +157,7 @@ enter it as literal text (markdown-spec §6.2, §6.3).
 ### Elements
 
 An element lowers through one dispatcher the helper defines,
-`qm-element(name, attrs, body, inline: false)`. It calls the renderer a plate
+`_qm-element(name, attrs, body, inline: false)`. It calls the renderer a plate
 registers under the name in the helper's `elements` state, passing `inline`,
 which is `false` for every element the content holds, else the built-in
 `keep`, which holds its body on one page, else draws the body alone. It reads the state's final value, so a plate's

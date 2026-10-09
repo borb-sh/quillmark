@@ -587,7 +587,7 @@ impl<'a> Emit<'a> {
         self.end_newline = true;
     }
 
-    /// `#qm-element("keep", (:))[…]` around an element's run.
+    /// `#_qm-element("keep", (:))[…]` around an element's run.
     fn emit_element(&mut self, range: Range<usize>, depth: usize, name: &str, attrs: &BTreeMap<String, String>) {
         self.open_line();
         self.out.push_str(&element_call(name, attrs));
@@ -902,7 +902,7 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
     (wraps, codes)
 }
 
-/// The `#qm-element(name, attrs` a call to the helper's dispatcher opens with,
+/// The `#_qm-element(name, attrs` a call to the helper's dispatcher opens with,
 /// its argument list left open. The attributes are a dictionary of strings,
 /// keys sorted, `(:)` when empty.
 fn element_call(name: &str, attrs: &BTreeMap<String, String>) -> String {
@@ -911,7 +911,7 @@ fn element_call(name: &str, attrs: &BTreeMap<String, String>) -> String {
         .map(|(attr, value)| format!("\"{}\": \"{}\"", escape_string(attr), escape_string(value)))
         .collect();
     let dict = if entries.is_empty() { "(:)".to_string() } else { format!("({})", entries.join(", ")) };
-    format!("#qm-element(\"{}\", {dict}", escape_string(name))
+    format!("#_qm-element(\"{}\", {dict}", escape_string(name))
 }
 
 /// One run of a mark sweep: the atomic `#raw(..)` code span starting at `pos`,
@@ -1988,15 +1988,15 @@ mod tests {
         let cases = [
             (
                 "<quill-keep note=\"x\">\n\npara\n\n</quill-keep>",
-                "#qm-element(\"keep\", (\"note\": \"x\"))[\npara\n\n]\n\n",
+                "#_qm-element(\"keep\", (\"note\": \"x\"))[\npara\n\n]\n\n",
             ),
             (
                 "- a\n- <quill-keep>\n\n  b\n\n  - c\n\n  </quill-keep>",
-                "- a\n- #qm-element(\"keep\", (:))[\n  b\n\n  - c\n  ]\n\n\n",
+                "- a\n- #_qm-element(\"keep\", (:))[\n  b\n\n  - c\n  ]\n\n\n",
             ),
             (
                 "<quill-keep>\n\na\n\n</quill-keep>\n<quill-keep>\n\nb\n\n</quill-keep>",
-                "#qm-element(\"keep\", (:))[\na\n\n]\n\n#qm-element(\"keep\", (:))[\nb\n\n]\n\n",
+                "#_qm-element(\"keep\", (:))[\na\n\n]\n\n#_qm-element(\"keep\", (:))[\nb\n\n]\n\n",
             ),
         ];
         for (md, want) in cases {
