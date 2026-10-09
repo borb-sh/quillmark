@@ -384,7 +384,7 @@ pub(super) fn project_content_field(value: &JsonValue) -> Option<String> {
 }
 
 /// The content `value` is, when [`project_content_field`] projects it.
-fn canonical_content(value: &JsonValue) -> Option<Normalized> {
+pub(super) fn canonical_content(value: &JsonValue) -> Option<Normalized> {
     if !value.is_object() {
         return None;
     }
