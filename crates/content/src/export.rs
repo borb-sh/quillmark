@@ -845,13 +845,7 @@ fn render_marked_core(
             m.1 -= 1;
         }
     }
-    fmt.retain(|m| {
-        m.0 < m.1
-            && match m.2 {
-                MarkKind::Element { name, attrs } => crate::carrier::modeled(name, attrs).is_some(),
-                _ => true,
-            }
-    });
+    fmt.retain(|m| m.0 < m.1);
     clip_asterisk_overlap(&mut fmt);
 
     // The slice's edge whitespace runs, found on the content chars: the heading,
@@ -886,17 +880,14 @@ fn render_marked_core(
             .then(ast_last(fmt[a].2).cmp(&ast_last(fmt[b].2)))
     });
 
-    // Each element mark's and underline's tag pair. At one position the tags
-    // sit outside the delimiters closing and opening there, so a tag's `<` and
-    // `>` never abut a delimiter from inside its run, where they would change
-    // how it flanks. A run spanning the position stays open around the tag:
-    // tags pair by name, apart from the delimiters' nesting.
+    // Each underline's tag pair. At one position the tags sit outside the
+    // delimiters closing and opening there, so a tag's `<` and `>` never abut a
+    // delimiter from inside its run, where they would change how it flanks. A
+    // run spanning the position stays open around the tag: tags pair by name,
+    // apart from the delimiters' nesting.
     let tag_pairs: Vec<Option<(String, String)>> = fmt
         .iter()
         .map(|m| match m.2 {
-            MarkKind::Element { name, attrs } => {
-                crate::carrier::modeled(name, attrs).map(|e| (e.open_tag(), e.close_tag()))
-            }
             MarkKind::Underline => Some(("<u>".into(), "</u>".into())),
             _ => None,
         })
@@ -1061,7 +1052,7 @@ fn render_marked_core(
     let is_flanking = |k: &MarkKind| {
         matches!(
             k,
-            MarkKind::Strong | MarkKind::Emph | MarkKind::Strike | MarkKind::Underline | MarkKind::Element { .. }
+            MarkKind::Strong | MarkKind::Emph | MarkKind::Strike | MarkKind::Underline
         )
     };
     let all = vec![true; fmt.len()];
@@ -1315,13 +1306,12 @@ fn clip_asterisk_overlap(fmt: &mut [(usize, usize, &MarkKind)]) {
 /// Reconstruct a table cell's markdown from its `{text, marks}`: the prose mark
 /// sweep with `|`→`\|` escaping so the cell survives re-import through
 /// `pulldown`'s pipe splitting. A cell is flat inline: no islands, no
-/// leading-block escape. A cell holding an alignment key is wrapped whole in
-/// its `quill-cell` pair.
+/// leading-block escape.
 fn render_cell_md(v: &serde_json::Value) -> String {
     let (text, marks) = crate::serial::parse_cell(v);
     let chars: Vec<char> = text.chars().collect();
     let (code_ranges, fmt, links) = bucket_marks(&marks, 0, chars.len(), true);
-    let md = render_marked_core(
+    render_marked_core(
         &chars,
         &code_ranges,
         &fmt,
@@ -1331,11 +1321,7 @@ fn render_cell_md(v: &serde_json::Value) -> String {
         true,
         None,
         |_| None,
-    );
-    match crate::carrier::cell::pair(v) {
-        Some(pair) => pair.wrap_inline(&md),
-        None => md,
-    }
+    )
 }
 
 /// Which of markdown's two spellings each asterisk-family kind is emitted with.
@@ -1689,8 +1675,6 @@ mod tests {
             ("element", "<quill-keep note=\"x\">\n\npara\n\n</quill-keep>"),
             ("element_around_list", "<quill-keep>\n\n- a\n\n- b\n\n</quill-keep>"),
             ("element_in_item", "- <quill-keep>\n\n  a\n\n  </quill-keep>"),
-            ("element_mark", "a <quill-hl tone=\"warm\">b</quill-hl> c"),
-            ("element_in_cell", "| <quill-hl>a</quill-hl> |\n| --- |"),
         ] {
             println!("construct: {label}");
             round_trips(md);
@@ -2342,35 +2326,18 @@ mod tests {
         }
     }
 
-    /// An element's tags sit outside the delimiters closing and opening where
-    /// they stand, and inside a run spanning that point, so the crossings
-    /// import mints write back as they were read.
-    #[test]
-    fn element_tags_sit_outside_the_delimiters_at_their_edge() {
-        for md in [
-            "<quill-hl>a **b</quill-hl> c**",
-            "**a <quill-hl>b** c</quill-hl>",
-            "a<quill-hl>**b</quill-hl>c**",
-            "<quill-a>x <quill-b>y</quill-b></quill-a><quill-b> z</quill-b>",
-        ] {
-            assert_eq!(to_markdown(&from_markdown(md).unwrap().content), md);
-        }
-    }
-
     /// An element the carrier cannot spell, under a reserved name or with an
-    /// attribute outside its grammar, writes nothing: a run's blocks stand
-    /// unwrapped and a mark drops.
+    /// attribute outside its grammar, writes nothing: its blocks stand
+    /// unwrapped.
     #[test]
     fn an_unspellable_element_writes_nothing() {
         let unspellable: [(&str, std::collections::BTreeMap<String, String>); 2] =
             [("table", [].into()), ("keep", [("onclick".to_string(), "x".to_string())].into())];
         for (name, attrs) in unspellable {
-            let element = Container::Element { name: name.into(), attrs: attrs.clone(), instance: 0 };
+            let element = Container::Element { name: name.into(), attrs, instance: 0 };
             let rt = Content::new("a".into(), vec![Line::new(LineKind::Para).with_containers(vec![element])])
                 .into_normalized();
             assert_eq!(to_markdown(&rt), "a");
-            let rt = marked("ab", vec![Mark::new(0, 1, MarkKind::Element { name: name.into(), attrs })]);
-            assert_eq!(to_markdown(&rt), "ab");
         }
     }
 
@@ -2562,37 +2529,6 @@ mod tests {
             assert_eq!(md, want, "{label}");
             assert_eq!(from_markdown(&md).unwrap().content.text, text, "{label}: text drift");
         }
-    }
-
-    /// A cell's `quill-cell` pair puts punctuation on both edges of its
-    /// markdown, as the net's `,` sentinels do in the probe, so what the probe
-    /// clears re-imports inside the pair as it would outside it.
-    #[test]
-    fn net_drops_a_leaking_cell_mark_inside_its_quill_cell_pair() {
-        let strong = |start, end| serde_json::json!({"end": end, "start": start, "type": "strong"});
-        let cell = serde_json::json!({
-            "align": "right",
-            "marks": [strong(1, 3), strong(8, 10)],
-            "text": "a.b and cd",
-        });
-        let rt = with_islands(
-            &ISLAND_SLOT.to_string(),
-            vec![Island::new("isl-0".into(), IslandType::Table).with_props(serde_json::json!({
-                "aligns": ["none"],
-                "header": [{"marks": [], "text": "h"}],
-                "rows": [[cell]],
-            }))],
-        );
-        let md = to_markdown(&rt);
-        assert_eq!(md, "| h |\n| --- |\n| <quill-cell align=\"right\">a.b and **cd**</quill-cell> |");
-        let back = from_markdown(&md).unwrap();
-        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
-        let cell = &back.content.islands[0].props["rows"][0][0];
-        assert_eq!(cell["align"], "right");
-        assert_eq!(
-            crate::serial::parse_cell(cell),
-            ("a.b and cd".to_string(), vec![Mark::new(8, 10, MarkKind::Strong)])
-        );
     }
 
     /// A mark whose delimiters merge with their neighbour's is re-spelled, not

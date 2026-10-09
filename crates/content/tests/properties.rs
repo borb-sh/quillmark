@@ -78,9 +78,6 @@ fn inline_token() -> impl Strategy<Value = String> {
         clean_word().prop_map(|w| format!("~~{w}~~")),
         code_span(),
         clean_word().prop_map(|w| format!("<u>{w}</u>")),
-        clean_word().prop_map(|w| format!("<quill-hl>{w}</quill-hl>")),
-        clean_word().prop_map(|w| format!("<quill-hl tone=\"warm\">**{w}**</quill-hl>")),
-        (clean_word(), clean_word()).prop_map(|(a, b)| format!("<quill-hl>{a} **{b}</quill-hl> {a}**")),
         (clean_word(), clean_word()).prop_map(|(t, u)| format!("[{t}](https://ex.com/{u})")),
         (clean_word(), special_url()).prop_map(|(t, u)| format!("[{t}](<{u}>)")),
         (special_alt(), special_url()).prop_map(|(a, u)| format!("![{a}](<{u}>)")),
@@ -188,12 +185,11 @@ fn delimiter_run() -> impl Strategy<Value = String> {
 }
 
 fn ov_kind(i: u8) -> MarkKind {
-    match i % 5 {
+    match i % 4 {
         0 => MarkKind::Strong,
         1 => MarkKind::Emph,
         2 => MarkKind::Strike,
-        3 => MarkKind::Underline,
-        _ => MarkKind::Element { name: "hl".into(), attrs: [("tone".into(), "warm".into())].into() },
+        _ => MarkKind::Underline,
     }
 }
 

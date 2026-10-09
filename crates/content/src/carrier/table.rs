@@ -11,7 +11,7 @@ const AUTO: &str = "auto";
 /// The props value attribute `name` spells with `value`, or `None` for a name
 /// the engine does not name or a value outside its spelling: `widths` is
 /// whitespace-separated tokens, each a positive decimal weight or `auto`;
-/// `align` is `left`, `center` or `right`; `breakable` is `true` or `false`.
+/// `align` is `left`, `center` or `right`.
 pub(crate) fn prop(name: &str, value: &str) -> Option<Value> {
     match name {
         "widths" => value
@@ -23,11 +23,6 @@ pub(crate) fn prop(name: &str, value: &str) -> Option<Value> {
             .collect::<Option<Vec<_>>>()
             .map(Value::Array),
         "align" => matches!(value, "left" | "center" | "right").then(|| value.into()),
-        "breakable" => match value {
-            "true" => Some(true.into()),
-            "false" => Some(false.into()),
-            _ => None,
-        },
         _ => None,
     }
 }
@@ -52,9 +47,6 @@ pub(crate) fn wrapper(props: &Value) -> Option<Element> {
     }
     if let Some(align) = props.get("align").and_then(Value::as_str) {
         attrs.insert("align".to_string(), align.to_string());
-    }
-    if let Some(breakable) = props.get("breakable").and_then(Value::as_bool) {
-        attrs.insert("breakable".to_string(), breakable.to_string());
     }
     if attrs.is_empty() {
         return None;

@@ -418,12 +418,6 @@ pub enum MarkKind {
     Link {
         url: String,
     },
-    /// A `quill-*` carrier element around a run of text, named and attributed
-    /// as [`Container::Element`] is.
-    Element {
-        name: String,
-        attrs: BTreeMap<String, String>,
-    },
     // Identity: a handle, not a property. Never merged, may be zero-width.
     /// A comment thread or stable anchor, carried by id and rebased across
     /// edits like any position. The id is caller-supplied, unique per `Content`,
@@ -484,7 +478,6 @@ impl MarkKind {
                 | MarkKind::Strike
                 | MarkKind::Code
                 | MarkKind::Link { .. }
-                | MarkKind::Element { .. }
         )
     }
 
@@ -497,7 +490,6 @@ impl MarkKind {
             MarkKind::Strike => "strike",
             MarkKind::Code => "code",
             MarkKind::Link { .. } => "link",
-            MarkKind::Element { .. } => "element",
             MarkKind::Anchor { .. } => "anchor",
         }
     }
@@ -511,7 +503,6 @@ impl MarkKind {
             | MarkKind::Strike
             | MarkKind::Code => Cow::Owned(JsonValue::Null),
             MarkKind::Link { url } => Cow::Owned(bag([("url", url.as_str().into())])),
-            MarkKind::Element { name, attrs } => Cow::Owned(element_bag(name, attrs)),
             MarkKind::Anchor { id } => Cow::Owned(bag([("id", id.as_str().into())])),
         }
     }

@@ -13,7 +13,6 @@ use crate::error::{Diagnostic, Severity};
 use super::fences::{find_metadata_blocks, UnclosedRoot};
 use super::meta::{extract_meta_items, meta_key, yaml_type_name};
 use super::payload::{MetaKey, Payload, PayloadItem};
-use quillmark_content::import::AnchorTag;
 use quillmark_content::model::Normalized;
 
 /// The parse-time half of the markdown→content boundary
@@ -23,11 +22,9 @@ fn import_body_or_parse_error(
     md: &str,
     card: &DocPath,
     warnings: &mut Vec<Diagnostic>,
-    tags: &mut Vec<Vec<AnchorTag>>,
 ) -> Result<Normalized, ParseError> {
-    let (imported, body_tags) =
-        super::import_body_tagged(md).map_err(|e| ParseError::BodyImport(e.to_string()))?;
-    tags.push(body_tags);
+    let imported =
+        super::import_body_warned(md).map_err(|e| ParseError::BodyImport(e.to_string()))?;
     let at = card.body().to_string();
     warnings.extend(
         imported
@@ -258,12 +255,12 @@ pub(super) fn build_block(
     })
 }
 
-/// Decompose markdown into a typed [`Document`], its non-fatal warnings (the
+/// Decompose markdown into a typed [`Document`] and its non-fatal warnings: the
 /// fence scan's, then each card's YAML-tag and body-import warnings in card
-/// order), and each body's anchor tags in card order.
-pub(super) fn decompose(
+/// order.
+pub(super) fn decompose_with_warnings(
     markdown: &str,
-) -> Result<(Document, Vec<Diagnostic>, Vec<Vec<AnchorTag>>), crate::error::ParseError> {
+) -> Result<(Document, Vec<Diagnostic>), crate::error::ParseError> {
     let markdown = markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown);
 
     if markdown.trim().is_empty() {
@@ -342,8 +339,7 @@ pub(super) fn decompose(
 
     let global_body = body_after(markdown, &blocks, 0);
 
-    let mut tags = Vec::new();
-    let main_body = import_body_or_parse_error(&global_body, &DocPath::main(), &mut warnings, &mut tags)?;
+    let main_body = import_body_or_parse_error(&global_body, &DocPath::main(), &mut warnings)?;
     let main = Card::from_parts(main_payload, main_body);
 
     let mut cards: Vec<Card> = Vec::new();
@@ -417,14 +413,14 @@ pub(super) fn decompose(
         warnings.extend(tag_warnings(&base, &blocks[idx]));
 
         let card_body = body_after(markdown, &blocks, idx);
-        let card_body = import_body_or_parse_error(&card_body, &base, &mut warnings, &mut tags)?;
+        let card_body = import_body_or_parse_error(&card_body, &base, &mut warnings)?;
 
         cards.push(Card::from_parts(card_payload, card_body));
     }
 
     let doc = Document::from_main_and_cards(main, cards);
 
-    Ok((doc, warnings, tags))
+    Ok((doc, warnings))
 }
 
 /// Validate a user field entering the payload from the parse path, mapping a

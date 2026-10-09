@@ -238,7 +238,7 @@ four discriminators are covered by their own rule: each is a **closed set**.
 |---|---|---|
 | Line `kind` | `para`, `heading`, `code`, `rule` | `LineKind` |
 | Container | `list_item`, `quote`, `element` | `Container` |
-| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor`, `element` | `MarkKind` |
+| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor` | `MarkKind` |
 | Island `type` | `table`, `image` | `IslandType` |
 
 A name outside one of them is `ParseError::UnknownName { axis, name }` at every
@@ -260,8 +260,8 @@ attribute grammar ([markdown-spec.md](../references/markdown-spec.md) §6.4).
 The grammar refuses an attribute called `name`, so the two never collide. A new
 element name is no storage event, since no reader is frozen at a set of names;
 the member's arrival was one (`0.124.0`). A bag outside the grammar is
-`ParseError::Shape` on both lanes. Two adjacent runs, and two overlapping
-marks, are one element where the whole bag, `name` among it, is equal.
+`ParseError::Shape` on both lanes. Container identity compares the whole bag,
+`name` among it.
 
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,
@@ -351,27 +351,18 @@ rewrites a cell's `text` and `marks` in place rather than minting a fresh
 `{text, marks}` object.
 
 A table island's props name `header`, `rows`, `aligns` (one per column:
-`none`, `left`, `center` or `right`) and three layout keys, each absent at its
+`none`, `left`, `center` or `right`) and two layout keys, each absent at its
 default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
 
 | Key | Value | Default |
 |---|---|---|
 | `widths` | one entry per column, a positive integer weight or `null` for an auto-fit column; settled to the column count and divided by the weights' GCD | every entry `null` |
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
-| `breakable` | `false` keeps the table on one page | `true` |
-
-A cell names `text`, `marks` and two alignment keys, each absent at its
-default and when invalid:
-
-| Key | Value | Default |
-|---|---|---|
-| `align` | the cell's horizontal alignment: `left`, `center` or `right`; absent where it equals its column's `aligns` entry | its column's `aligns` entry |
-| `valign` | the cell's vertical alignment: `horizon` or `bottom` | `top` |
 
 `widths` are weights, not lengths, so each plate decides what full width is.
-The keys ride the opaque props carrier and a
-cell's own keys, which an older reader round-trips, so adding them is no
-storage-version event.
+The keys ride the opaque props carrier, which an older reader round-trips, so
+adding them is no storage-version event, and a later key, such as a cell's own
+alignment, joins the same way.
 
 Two rules bound the payload:
 
@@ -596,14 +587,11 @@ import drops unreported ([markdown-spec.md](../references/markdown-spec.md)
 Anchors are edit-lane infrastructure: they survive only through diff-rebase
 (`revise` / `rebase`). A whole-document markdown write keeps them through
 `Document::revise`, which aligns cards by `$kind` and text and rebases each
-aligned body and content field; an anchor on a card it cannot align drops, and
-the receipt names it. Reading the annotated markdown and writing it back
-through `revise` is the round trip: the diff keeps what a write of the plain
-markdown keeps, and an anchor it drops lands at the one tag naming it, a point
-there or its span where the same text follows the tag. A tag never moves an
-anchor the diff keeps, since the read places some tags away from their
-anchors, and names only an id the stored field holds, so the revise mints
-none. Non-rendering is a property of
+aligned body and content field; an anchor on a card it cannot align, or one
+the diff drops, drops, and the receipt names it. Reading the annotated markdown
+and writing it back through `revise` keeps what a write of the plain markdown
+keeps: the import drops the tags, and the read shows a writer where each
+anchor sits. Non-rendering is a property of
 review-time metadata, not a gap; a future render projection (proof annotations,
 PDF destinations) would render the referent or a position, never the id, so
 this policy holds either way.
@@ -632,8 +620,8 @@ turn and moves every built-in's payload into `attrs` inside that content.
 block island's line `para`. `0.116.0` writes a field item as
 `{type: field, key, value}` and refuses a document, card, payload or payload
 item carrying a key its type does not name, where every earlier tag reads past
-one. `0.124.0` leaves the tree unchanged and adds `element` to the container and
-mark vocabularies.
+one. `0.124.0` leaves the tree unchanged and adds `element` to the container
+vocabulary.
 
 The V0_92_0 hop cold-imports the stored markdown `body` string through the same
 Markdown → richtext path `Document::parse` uses, so a pathologically

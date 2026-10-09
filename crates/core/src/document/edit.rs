@@ -609,6 +609,7 @@ pub(crate) fn resolve_field_write(
 /// verb does not know the card's address, so its warnings carry no `path`; a
 /// caller that does anchors them with [`with_path`](Self::with_path).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 #[must_use = "carries the import's warnings; read `.warnings` or bind it"]
 pub struct Revised {
     pub delta: Delta,

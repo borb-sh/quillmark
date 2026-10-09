@@ -894,11 +894,6 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
                 end: e,
                 open: format!("#link(\"{}\")[", escape_string(url)),
             }),
-            MarkKind::Element { name, attrs } => wraps.push(Wrap {
-                start: s,
-                end: e,
-                open: format!("{}, inline: true)[", element_call(name, attrs)),
-            }),
             // `Anchor` is identity: a handle, with no Typst spelling.
             MarkKind::Anchor { .. } => {}
         }
@@ -1010,10 +1005,6 @@ fn cell_markup(text: &str, marks: &[Mark]) -> String {
 /// - `align`: `align(center, table(…))` under `context`, where each cell
 ///   aligning by default takes the alignment the table stands in, so placing a
 ///   table moves no text inside it.
-/// - `breakable: false`: `block(breakable: false)[…]`, outermost, as the block
-///   spans the width a placement aligns within.
-/// - a cell's `align` and `valign`: `table.cell(align: right + bottom)[…]`,
-///   which Typst folds with the column's alignment.
 fn table_markup(props: &serde_json::Value) -> String {
     use serde_json::Value;
     let header = props.get("header").and_then(|v| v.as_array());
@@ -1039,30 +1030,13 @@ fn table_markup(props: &serde_json::Value) -> String {
         .get("align")
         .and_then(Value::as_str)
         .filter(|a| matches!(*a, "left" | "center" | "right"));
-    let unbreakable = props.get("breakable") == Some(&Value::Bool(false));
     // Placed, the table is a call under `context`, so a cell aligning by default
     // reads the alignment outside the placement rather than the placement's.
     let inherited = "align.alignment";
 
     let cell = |v: &Value| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
-        let body = cell_markup(&text, &marks);
-        let key = |k: &str, set: &[&'static str]| -> Option<&'static str> {
-            let value = v.get(k)?.as_str()?;
-            set.iter().copied().find(|s| *s == value)
-        };
-        let alignment: Vec<&str> = [
-            key("align", &["left", "center", "right"]),
-            key("valign", &["top", "horizon", "bottom"]),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        if alignment.is_empty() {
-            format!("[{body}]")
-        } else {
-            format!("table.cell(align: {})[{body}]", alignment.join(" + "))
-        }
+        format!("[{}]", cell_markup(&text, &marks))
     };
 
     let mut out = String::from("table(\n");
@@ -1120,14 +1094,10 @@ fn table_markup(props: &serde_json::Value) -> String {
         }
     }
     out.push(')');
-    let table = match placement {
+    match placement {
         Some(at) => format!("#context align({at}, {out})"),
         None => format!("#{out}"),
-    };
-    if unbreakable {
-        return format!("#block(breakable: false)[{table}]");
     }
-    table
 }
 
 #[cfg(test)]
@@ -1972,20 +1942,19 @@ mod tests {
         let props = serde_json::json!({
             "header": [
                 { "text": "a", "marks": [] },
-                { "text": "b", "marks": [], "align": "right", "valign": "bottom" },
+                { "text": "b", "marks": [] },
             ],
-            "rows": [[{ "text": "1", "marks": [], "valign": "horizon" }, { "text": "2", "marks": [] }]],
+            "rows": [[{ "text": "1", "marks": [] }, { "text": "2", "marks": [] }]],
             "aligns": ["none", "left"],
             "widths": [2, null],
             "align": "center",
-            "breakable": false,
         });
         assert_eq!(
             table_markup(&props),
-            "#block(breakable: false)[#context align(center, table(\n  columns: (2fr, auto),\n  \
+            "#context align(center, table(\n  columns: (2fr, auto),\n  \
              align: (align.alignment, left),\n  \
-             table.header([a], table.cell(align: right + bottom)[b], ),\n  \
-             table.cell(align: horizon)[1], [2], \n))]"
+             table.header([a], [b], ),\n  \
+             [1], [2], \n))"
         );
     }
 
@@ -2026,27 +1995,8 @@ mod tests {
                 "- a\n- #qm-element(\"keep\", (:))[\n  b\n\n  - c\n  ]\n\n\n",
             ),
             (
-                "<quill-keep>\na\n</quill-keep>\n<quill-keep>\nb\n</quill-keep>",
+                "<quill-keep>\n\na\n\n</quill-keep>\n<quill-keep>\n\nb\n\n</quill-keep>",
                 "#qm-element(\"keep\", (:))[\na\n\n]\n\n#qm-element(\"keep\", (:))[\nb\n\n]\n\n",
-            ),
-        ];
-        for (md, want) in cases {
-            assert_eq!(emit_md(md), want, "{md:?}");
-        }
-    }
-
-    /// An inline element wraps its text in a dispatcher call, in prose and a
-    /// table cell, its attributes passed as strings.
-    #[test]
-    fn an_inline_element_wraps_in_a_dispatcher_call() {
-        let cases = [
-            (
-                "a <quill-hl size=\"4\" day=\"2024-01-15\">b</quill-hl> c",
-                "a #qm-element(\"hl\", (\"day\": \"2024-01-15\", \"size\": \"4\"), inline: true)[b] c\n\n",
-            ),
-            (
-                "| <quill-hl>x</quill-hl> |\n|---|",
-                "#table(\n  columns: 1,\n  table.header([#qm-element(\"hl\", (:), inline: true)[x]], ),\n)\n\n",
             ),
         ];
         for (md, want) in cases {

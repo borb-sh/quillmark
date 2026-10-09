@@ -1,9 +1,8 @@
 //! The import over raw HTML placed where authors put it: tag lines wrapping
-//! markdown at top level, in list items and in quotes, a carrier's with and
-//! without the blank lines CommonMark wants and any other's with them; tags
-//! inline in prose and in cells; comments with text after them. The import
+//! markdown at top level, in list items and in quotes, with the blank lines
+//! CommonMark wants; tags inline in prose and in cells; comments with text after them. The import
 //! never panics, every word of prose outside a comment reaches the content,
-//! each dropped opening tag is counted once (a `quill-keep` element only when
+//! each dropped opening tag is counted once (a `quill-keep` tag line only when
 //! left unclosed), and the content is the fixed point of a re-import.
 
 use proptest::prelude::*;
@@ -27,9 +26,9 @@ struct Piece {
     /// Holds a block other than a pipe table, a comment or a tag line: what
     /// keeps a `quill-table` wrapper around it from folding.
     other: bool,
-    /// Ends in a foreign closing tag line, whose block takes in the lines
-    /// after it until a blank line.
-    closes_foreign: bool,
+    /// Ends in a closing tag line, whose block takes in the lines after it
+    /// until a blank line.
+    closes: bool,
 }
 
 impl Piece {
@@ -66,7 +65,7 @@ fn inline() -> impl Strategy<Value = Piece> {
         .prop_map(|(w, (name, attrs))| Piece {
             md: format!("<{name}{attrs}>{w}</{name}>"),
             words: vec![w],
-            tags: (name != "quill-keep").then(|| name.to_string()).into_iter().collect(),
+            tags: vec![name.to_string()],
             ..Piece::default()
         });
     prop_oneof![
@@ -153,9 +152,8 @@ fn leaf() -> impl Strategy<Value = Piece> {
     prop_oneof![3 => paragraph(), 1 => table(), 1 => comment()]
 }
 
-/// Tag lines around blocks, the closing tag sometimes missing: a carrier's
-/// with a blank line on either side or none, any other's with both, as a
-/// foreign block drops whole with what it holds.
+/// Tag lines around blocks with a blank line on either side, the closing tag
+/// sometimes missing.
 fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> {
     (
         prop_oneof![
@@ -169,31 +167,26 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             Just(("custom-box", "")),
         ],
         prop::collection::vec((inner, any::<bool>()), 1..3),
-        any::<bool>(),
-        any::<bool>(),
         prop::bool::weighted(0.8),
     )
-        .prop_map(|((name, attrs), blocks, pad_open, pad_close, closed)| {
+        .prop_map(|((name, attrs), blocks, closed)| {
             // An unclosed `quill-table` takes the next `</quill-table>` as its
             // own; the unit tests hold that case.
             let closed = closed || name == "quill-table";
-            let foreign = !name.starts_with("quill-");
-            let (pad_open, pad_close) = (pad_open || foreign, pad_close || foreign);
-            let mut md = format!("<{name}{attrs}>\n");
-            if pad_open {
-                md.push('\n');
-            }
+            let mut md = format!("<{name}{attrs}>\n\n");
             let mut words = Vec::new();
             let mut tags = Vec::new();
             let (mut tables, mut other) = (0, false);
             let mut after_table = false;
             let mut after_tag = false;
             for (i, (block, gap)) in blocks.into_iter().enumerate() {
+                // A tag line under paragraph text is the paragraph's inline HTML.
+                let opens = block.md.starts_with('<') && !block.md.starts_with("<!--");
                 if i > 0 {
-                    md.push_str(if gap || after_table || after_tag { "\n\n" } else { "\n" });
+                    md.push_str(if gap || after_table || after_tag || opens { "\n\n" } else { "\n" });
                 }
                 after_table = block.table;
-                after_tag = block.closes_foreign;
+                after_tag = block.closes;
                 md.push_str(&block.md);
                 words.extend(block.words);
                 tags.extend(block.tags);
@@ -201,8 +194,7 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
                 other |= block.other;
             }
             if closed {
-                md.push_str(if pad_close { "\n\n" } else { "\n" });
-                md.push_str(&format!("</{name}>"));
+                md.push_str(&format!("\n\n</{name}>"));
             }
             let folds = name == "quill-table" && closed && tables == 1 && !other;
             let models = name == "quill-keep" && closed;
@@ -215,34 +207,10 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
                 md,
                 words,
                 tags,
-                table: after_table && !(closed && pad_close),
+                table: after_table && !closed,
                 tables,
                 other: other || name == "quill-table",
-                closes_foreign: foreign && closed,
-            }
-        })
-}
-
-/// Element tag pairs with no blank line between them, the inner one indented
-/// inside the outer as HTML source nests them.
-fn compact_nested() -> impl Strategy<Value = Piece> {
-    (
-        Just("quill-keep"),
-        Just("quill-keep"),
-        prop_oneof![Just(""), Just("  ")],
-        prop_oneof![paragraph(), comment(), table()],
-    )
-        .prop_map(|(outer, inner, indent, body)| {
-            let body_md = prefixed(&body.md, indent, indent);
-            let tags = body.tags;
-            Piece {
-                md: format!("<{outer}>\n{indent}<{inner}>\n{body_md}\n{indent}</{inner}>\n</{outer}>"),
-                words: body.words,
-                tags,
-                table: false,
-                tables: body.tables,
-                other: body.other,
-                closes_foreign: false,
+                closes: closed,
             }
         })
 }
@@ -260,7 +228,6 @@ fn block() -> impl Strategy<Value = Piece> {
     let inside = prop_oneof![
         4 => leaf(),
         1 => contained(leaf()),
-        1 => compact_nested(),
         1 => wrapper(leaf()),
         1 => contained(wrapper(leaf())),
     ];
@@ -268,7 +235,6 @@ fn block() -> impl Strategy<Value = Piece> {
         2 => leaf(),
         2 => wrapper(leaf()),
         2 => wrapper(inside),
-        1 => compact_nested(),
     ]
 }
 
@@ -324,7 +290,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
     #[test]
-    fn raw_html_frees_its_markdown_and_counts_its_tags(doc in document()) {
+    fn raw_html_keeps_the_markdown_around_it_and_counts_its_tags(doc in document()) {
         let imported = from_markdown(&doc.md).unwrap();
         prop_assert_eq!(imported.content.validate(), Ok(()), "{}", doc.md);
 

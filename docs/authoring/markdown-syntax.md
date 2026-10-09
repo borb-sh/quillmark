@@ -1,6 +1,6 @@
 # Markdown Syntax
 
-Quillmark Markdown is a **strict superset of [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)** with a small set of [GitHub Flavored Markdown](https://github.github.com/gfm/) extensions and **three declared deviations**: [raw HTML](#raw-html-is-not-rendered-except-u-and-br), [footnote-shaped definitions](#a-footnote-shaped-definition-is-text) and [`~~~` fences](#a-column-zero-always-opens-a-card-yaml-block). If you already know CommonMark, you only need to learn what is on this page.
+Quillmark Markdown is a **strict superset of [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)** with a small set of [GitHub Flavored Markdown](https://github.github.com/gfm/) extensions and **two declared deviations**: [raw HTML](#raw-html-is-not-rendered-except-u-and-br) and [`~~~` fences](#a-column-zero-always-opens-a-card-yaml-block). If you already know CommonMark, you only need to learn what is on this page.
 
 For the authoritative grammar, block-detection rules, normalization, and limits, see the formal [Markdown specification](../reference/markdown-spec.md).
 
@@ -51,18 +51,10 @@ Consequences:
 - `<br>`, `<br/>`, `<br />` (any case) are a line break, in a paragraph or a table cell: `| line one<br>line two |`. Outside a table, a CommonMark hard break does the same: two trailing spaces before a newline, or a trailing `\` before a newline. In a paragraph, a `<br>` with no text before it on its line produces nothing. A `<br>` alone on a line opens an HTML block, below.
 - HTML entities decode as CommonMark specifies: `Fish &amp; chips, &#65;BC` reads `Fish & chips, ABC`.
 - An HTML block drops as CommonMark reads it. A line starting with a tag such as `<div>`, `<center>` or `<details>` opens a block that runs to the next blank line, so markdown on the lines under it drops with it; a blank line after the tag line keeps what follows. Embedded SVG draws nothing.
-- A line holding only `quill-*` tags is the exception: it drops, and the lines around it parse as markdown, as though blank lines surrounded it.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
-- A `quill-<name>` pair is kept as an element around what it holds: tag lines around blocks (`<quill-keep>` above a signature, `</quill-keep>` below it), or a pair inside a line around text. An empty pair, `<quill-sig></quill-sig>`, is an element that holds nothing. A quill whose plate registers a renderer for the element draws it that way, and any other renders what it holds. One left unclosed drops like any other tag.
+- A `quill-<name>` pair of tag lines is kept as an element around the blocks between them: `<quill-keep>` above a signature and `</quill-keep>` below it, each with a blank line on either side. With no blank line between a tag and the markdown beside it, the tag opens an HTML block like any other and drops it, as does a pair inside a line. An empty pair, `<quill-sig>` on the line above `</quill-sig>`, is an element that holds nothing. A quill whose plate registers a renderer for the element draws it that way, and any other renders what it holds. One left unclosed drops like any other tag.
 - Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included; comments, `<quill-anchor>` tags and a `quill-*` element that closes are not.
-
-### A footnote-shaped definition is text
-
-CommonMark reads `[^1]: Note` as a link reference definition, which turns every
-`[^1]` into a link to `Note`. Quillmark keeps both as the text you typed, and
-reports the definition as a `parse::dropped_construct` warning, since it
-supports no footnotes.
 
 ### A column-zero `~~~` always opens a card-yaml block
 
@@ -93,11 +85,11 @@ Consequences:
 
 ## Out of scope
 
-The following are not supported, and render as the literal text written:
+The following are not supported:
 
 - **Math** (`$…$`, `$$…$$`): `$` is treated as a literal character.
-- **Footnotes**: see [above](#a-footnote-shaped-definition-is-text).
-- **Task lists**, **definition lists**.
+- **Task lists**, **definition lists**: they render as the literal text written.
+- **Footnotes**: CommonMark reads `[^1]: Note` as a link reference definition, which drops the line and turns every `[^1]` into a link to `Note`. Quillmark reads it the same way and reports the definition as a `parse::dropped_construct` warning.
 
 A link's title (`[text](url "Title")`) drops at import, with no warning. A construct the active backend has no target for, such as an image under Typst, drops at render with a `backend::declined_construct` warning; see each backend's documentation.
 

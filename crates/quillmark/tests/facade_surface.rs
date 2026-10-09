@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use quillmark::{
     AnnotatedMarkdown, CalendarDate, CardReader, Delta, Document, DocumentAnchor, DocumentRevised,
-    DroppedAnchor, EditError, FieldDelta, FileTreeNode, ImportError, Normalized, ParseDateError,
+    DroppedAnchor, EditError, FileTreeNode, ImportError, Normalized, ParseDateError,
     Parsed, Quill, QuillReference, QuillValue, Revised, TypedReader, TypedWriter,
 };
 
@@ -84,7 +84,7 @@ fn content_lane_spells_through_the_facade() {
     assert_eq!(subject.text, "Hello world", "the emphasis rides a mark, not the text");
     assert_eq!(subject.marks.len(), 1);
 
-    let Revised { delta, warnings } = doc
+    let Revised { delta, warnings, .. } = doc
         .main_mut()
         .revise_body("# Body <span>kept</span>")
         .expect("a heading imports");
@@ -107,9 +107,8 @@ fn content_lane_spells_through_the_facade() {
         .writer(&mut doc)
         .revise_document(&markdown)
         .expect("the document's own markdown revises");
-    let deltas: &[FieldDelta] = &revised.deltas;
     let dropped: &[DroppedAnchor] = &revised.dropped_anchors;
-    assert!(!deltas.is_empty() && dropped.is_empty());
+    assert!(dropped.is_empty());
 }
 
 #[test]

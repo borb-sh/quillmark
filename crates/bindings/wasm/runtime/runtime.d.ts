@@ -643,9 +643,9 @@ export declare class DocumentWriter {
 	 */
 	reviseField(name: string, text: string): Revised;
 	/**
-	 * Replace the bound document with `markdown` through
-	 * `Document.reviseDocument`, then conform it, so aligned cards keep their
-	 * anchors and every declared content field lands at rest. Returns the
+	 * Replace the bound document with `markdown`, then conform it. Composable
+	 * cards align to the stored ones by `$kind` and text similarity, aligned
+	 * cards keep their anchors, and every declared content field lands at rest. Returns the
 	 * `DocumentRevised` receipt, its `warnings` ending with the `conform::*`
 	 * ones. Throws when `markdown` declares a `$quill` this quill does not
 	 * answer to, or does not parse, leaving the document unchanged.
