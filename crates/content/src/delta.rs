@@ -266,9 +266,10 @@ pub fn diff(base: &str, new: &str) -> Delta {
 const MIN_REWRITE_RATIO: f32 = 0.5;
 
 /// Emit one run of replaced lines. Lines pair from the front, then from the
-/// back, while each pair is a rewrite: the two share at least
-/// [`MIN_REWRITE_RATIO`] of their words, and neither occurs whole on the
-/// other side, as a moved line does. A paired line diffs by char, and the
+/// back, while each pair is a rewrite: neither is longer than
+/// [`CHAR_DIFF_LIMIT`] chars, the two share at least [`MIN_REWRITE_RATIO`] of
+/// their words, and neither occurs whole on the other side, as a moved line
+/// does. A paired line diffs by char, and the
 /// unpaired middle is deleted and inserted whole.
 fn refine_replace(
     ops: &mut Vec<Op>,
@@ -278,7 +279,9 @@ fn refine_replace(
     new_set: &HashSet<&str>,
 ) {
     let rewrite = |o: &str, n: &str| {
-        !new_set.contains(line_text(o))
+        o.chars().count() <= CHAR_DIFF_LIMIT
+            && n.chars().count() <= CHAR_DIFF_LIMIT
+            && !new_set.contains(line_text(o))
             && !old_set.contains(line_text(n))
             && word_ratio(o, n) >= MIN_REWRITE_RATIO
     };
@@ -861,6 +864,26 @@ mod tests {
         };
         let base: String = (0..20).map(|i| para(i)).collect::<Vec<_>>().join("\n");
         let new: String = (0..20).map(|i| para(i + 3)).collect::<Vec<_>>().join("\n");
+        let start = std::time::Instant::now();
+        let d = diff(&base, &new);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "took {:?}",
+            start.elapsed()
+        );
+        assert_eq!(d.try_apply(&base).unwrap(), new);
+    }
+
+    #[test]
+    fn a_long_paragraph_of_shared_words_stays_fast() {
+        let words = |seed: usize| {
+            (0..160_000)
+                .map(|k| format!("w{}", (k * 7919 + seed * 104_729) % 1000))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let base = format!("h\n{}\n", words(1));
+        let new = format!("h\n{}\n", words(2));
         let start = std::time::Instant::now();
         let d = diff(&base, &new);
         assert!(
