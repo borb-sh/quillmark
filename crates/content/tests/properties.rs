@@ -6,7 +6,6 @@
 use proptest::prelude::*;
 use quillmark_content::island::IslandType;
 use quillmark_content::delta::{diff_import, Delta, Op};
-use quillmark_content::carrier::strip;
 use quillmark_content::export::{to_markdown, to_markdown_annotated};
 use quillmark_content::import::from_markdown;
 use quillmark_content::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
@@ -455,9 +454,8 @@ proptest! {
         prop_assert_eq!(&new_rt.text[anchor.start..anchor.end], a.as_str());
     }
 
-    /// The annotated read is the plain projection plus tags the import drops,
-    /// so it imports as the plain one does, and it lists every prose anchor
-    /// once, in `(start, id)` order.
+    /// The annotated read imports as the plain projection does, and it lists
+    /// every prose anchor once, in `(start, id)` order.
     #[test]
     fn the_annotated_read_imports_as_the_plain_one(
         md in prop_oneof![document(), delimiter_run()],
@@ -475,7 +473,6 @@ proptest! {
 
         let plain = to_markdown(&rt);
         let read = to_markdown_annotated(&rt);
-        prop_assert_eq!(strip(&read.markdown), strip(&plain), "more than tags added: {:?}", read.markdown);
         prop_assert_eq!(
             from_markdown(&read.markdown).unwrap().content,
             from_markdown(&plain).unwrap().content,

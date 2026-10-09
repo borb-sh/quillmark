@@ -581,13 +581,6 @@ each anchor's start:
 A <quill-anchor ref="c1"></quill-anchor>**flagged** phrase.
 ```
 
-**Strip.** Stripping the carrier from a markdown string removes every `quill-*`
-tag the import reads as markup and keeps what a wrapper holds; a tag in a code
-span, a fence, a comment or another tag's attribute stays. A line left holding
-only container markers becomes a blank line inside them, and a list item's
-marker left bare loses the blank lines after it, which would end the item.
-Every other byte stays.
-
 ## 7. Input Normalization
 
 Before CommonMark parsing, each body region is normalized:
