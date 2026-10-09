@@ -435,21 +435,22 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
 }
 
 /// An element's `attrs` bag, read one way on both lanes since it has no legacy
-/// spelling: `name` an element name the carrier does not reserve, and every
+/// spelling: `$name` an element name the carrier does not reserve, and every
 /// other key an attribute name holding a string.
 fn element_payload(o: &Map<String, Value>) -> Result<(String, BTreeMap<String, String>), ParseError> {
     use crate::carrier::{is_attr_name, is_element_name, RESERVED};
+    use crate::model::ELEMENT_NAME;
     let bag = o
         .get("attrs")
         .and_then(Value::as_object)
         .ok_or(ParseError::Shape("element attrs"))?;
     let name = bag
-        .get("name")
+        .get(ELEMENT_NAME)
         .and_then(Value::as_str)
         .filter(|n| is_element_name(n) && !RESERVED.contains(n))
         .ok_or(ParseError::Shape("element name"))?;
     let mut attrs = BTreeMap::new();
-    for (key, value) in bag.iter().filter(|(k, _)| *k != "name") {
+    for (key, value) in bag.iter().filter(|(k, _)| *k != ELEMENT_NAME) {
         let value = value
             .as_str()
             .filter(|_| is_attr_name(key))

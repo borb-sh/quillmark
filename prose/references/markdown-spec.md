@@ -469,8 +469,8 @@ name folds into its construct where a construct declares the fold; none is
 ever an element of its own, and a quill cannot declare one.
 
 **Attributes.** A name matches `[a-z][a-z0-9_]*` and is none of `style`,
-`class`, `id`, `href`, `src` and `name`, nor any name opening `on`, so the
-carrier never holds markup a downstream HTML renderer would act on (§6.2's
+`class`, `id`, `href` and `src`, nor any name opening `on`, so the carrier
+never holds markup a downstream HTML renderer would act on (§6.2's
 rationale). An attribute outside that grammar, or one repeating a name already
 read, is refused by name. A value reads double-quoted, single-quoted or
 unquoted, and decodes `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;` and decimal or

@@ -2305,10 +2305,10 @@ mod tests {
             assert!(imported.warnings.is_empty(), "{md:?}");
         }
 
-        let rt = imp_fixed("<quill-keep note=\"x\">\n\na\n\n</quill-keep>\n<quill-keep note=\"x\">\n\nb\n\n</quill-keep>").content;
+        let rt = imp_fixed("<quill-keep name=\"x\">\n\na\n\n</quill-keep>\n<quill-keep name=\"x\">\n\nb\n\n</quill-keep>").content;
         let keep = |instance| Container::Element {
             name: "keep".into(),
-            attrs: [("note".to_string(), "x".to_string())].into(),
+            attrs: [("name".to_string(), "x".to_string())].into(),
             instance,
         };
         assert_eq!(rt.lines[0].containers, [keep(0)]);

@@ -256,10 +256,10 @@ export type ContentContainer =
     | { container: "quote"; instance?: number }
     | { container: "element"; attrs: ElementAttrs; instance?: number };
 
-/** A carrier element's name and attributes, one bag: `name` is the part of its
- * `quill-<name>` tag after the prefix, and every other key an attribute as
+/** A carrier element's name and attributes, one bag: `$name` is the part of
+ * its `quill-<name>` tag after the prefix, and every other key an attribute as
  * written. */
-export type ElementAttrs = { name: string; [attr: string]: string };
+export type ElementAttrs = { $name: string; [attr: string]: string };
 
 /** A mark over char range `[start, end)` into `Content.text`. `type` is a
  * closed set, so `type === "link"` narrows `attrs` to `{ url: string }` with no

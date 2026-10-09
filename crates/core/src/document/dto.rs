@@ -1483,7 +1483,7 @@ This body and the metadata above are an indorsement card.
         );
         row["main"]["body"] = serde_json::json!({
             "islands": [],
-            "lines": [{"containers": [{"attrs": {"name": "keep"}, "container": "element"}], "kind": "para"}],
+            "lines": [{"containers": [{"attrs": {"$name": "keep"}, "container": "element"}], "kind": "para"}],
             "marks": [],
             "text": "a",
         });

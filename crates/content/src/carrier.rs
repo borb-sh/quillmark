@@ -22,7 +22,7 @@ pub const RESERVED: [&str; 3] = ["table", "cell", "anchor"];
 
 /// Attribute names outside the grammar besides every `on*`: each is one a
 /// downstream HTML renderer acts on.
-pub const RESERVED_ATTRS: [&str; 6] = ["style", "class", "id", "href", "src", "name"];
+pub const RESERVED_ATTRS: [&str; 5] = ["style", "class", "id", "href", "src"];
 
 /// Whether `name` is an element name, the part of a tag name after
 /// [`PREFIX`]: `[a-z][a-z0-9]*(-[a-z0-9]+)*`.
@@ -46,7 +46,7 @@ pub fn element(tag_name: &str) -> Option<String> {
 }
 
 /// Whether `name` is an attribute name: `[a-z][a-z0-9_]*`, neither `on*` nor
-/// one of `style`, `class`, `id`, `href`, `src`, `name`.
+/// one of `style`, `class`, `id`, `href`, `src`.
 pub fn is_attr_name(name: &str) -> bool {
     let mut b = name.bytes();
     b.next().is_some_and(|c| c.is_ascii_lowercase())
@@ -467,11 +467,11 @@ mod tests {
 
     #[test]
     fn attributes_refuse_what_a_renderer_acts_on() {
-        for name in ["widths", "align", "a_1", "ref", "x"] {
+        for name in ["widths", "align", "a_1", "ref", "x", "name"] {
             assert!(is_attr_name(name), "{name:?}");
         }
         for name in [
-            "onclick", "on", "one", "style", "class", "id", "href", "src", "name", "data-x", "_a", "1a", "A",
+            "onclick", "on", "one", "style", "class", "id", "href", "src", "data-x", "_a", "1a", "A", "$name",
         ] {
             assert!(!is_attr_name(name), "{name:?}");
         }

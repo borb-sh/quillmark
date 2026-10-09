@@ -74,7 +74,7 @@ An element around nothing is its two tags on adjacent lines, which suits a signa
 </quill-sig>
 ```
 
-An element's attributes are strings the quill reads, such as `<quill-stamp tone="urgent">`. An attribute name is lowercase letters, digits and `_`, opening with a letter. `style`, `class`, `id`, `href`, `src`, `name` and names opening `on` are refused, so the tags never carry markup a browser would act on.
+An element's attributes are strings the quill reads, such as `<quill-stamp tone="urgent">`. An attribute name is lowercase letters, digits and `_`, opening with a letter. `style`, `class`, `id`, `href`, `src` and names opening `on` are refused, so the tags never carry markup a browser would act on.
 
 ## Deviations from CommonMark
 
