@@ -450,6 +450,7 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
         severity: 'warning',
         code: 'parse::dropped_construct',
         message: expect.any(String),
+        hint: expect.any(String),
         args: { construct: 'div', count: 1 },
       },
     ])

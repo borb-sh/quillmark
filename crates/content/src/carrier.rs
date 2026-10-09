@@ -22,7 +22,7 @@ pub const RESERVED: [&str; 3] = ["table", "cell", "anchor"];
 
 /// Attribute names outside the grammar besides every `on*`: each is one a
 /// downstream HTML renderer acts on.
-const RESERVED_ATTRS: [&str; 6] = ["style", "class", "id", "href", "src", "name"];
+pub const RESERVED_ATTRS: [&str; 6] = ["style", "class", "id", "href", "src", "name"];
 
 /// Whether `name` is an element name, the part of a tag name after
 /// [`PREFIX`]: `[a-z][a-z0-9]*(-[a-z0-9]+)*`.

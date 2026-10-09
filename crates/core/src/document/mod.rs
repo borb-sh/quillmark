@@ -38,46 +38,116 @@ pub const DROPPED_CONSTRUCT: &str = "parse::dropped_construct";
 /// field's address attaches it. Non-fatal: the rest of the markdown imports.
 pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
     let ImportWarning::DroppedConstruct { construct, count } = warning;
-    let message = match (construct.as_str(), count) {
-        ("footnote_definition", 1) => {
-            "markdown import does not carry footnotes: a footnote-shaped definition in this \
-             field reads as literal text"
-                .to_string()
-        }
-        ("footnote_definition", n) => format!(
-            "markdown import does not carry footnotes: {n} footnote-shaped definitions in \
-             this field read as literal text"
-        ),
-        (attribute, n) if attribute.ends_with(']') => {
-            let (element, name) = attribute.trim_end_matches(']').split_once('[').unwrap_or((attribute, ""));
-            let times = if n == 1 { String::new() } else { format!(" on {n} wrappers") };
-            format!(
-                "markdown import refused the `{name}` attribute of `<{element}>`{times} in this \
-                 field: it names no key, or its value is outside the key's spelling"
-            )
-        }
-        (element, 1) if element.starts_with(quillmark_content::carrier::PREFIX) => format!(
-            "markdown import models no `{element}` element: its tags in this field were \
-             dropped and what it wraps kept"
-        ),
-        (element, n) if element.starts_with(quillmark_content::carrier::PREFIX) => format!(
-            "markdown import models no `{element}` element: the tags of {n} in this field \
-             were dropped and what they wrap kept"
-        ),
-        (tag, 1) => format!(
-            "markdown import does not carry raw HTML: a `<{tag}>` tag in this field was dropped"
-        ),
-        (tag, n) => format!(
-            "markdown import does not carry raw HTML: {n} `<{tag}>` tags in this field were \
-             dropped"
-        ),
-    };
+    let (message, hint) = dropped_message(&construct, count);
     let mut args = std::collections::BTreeMap::new();
     args.insert("construct".to_string(), construct.into());
     args.insert("count".to_string(), count.into());
     Diagnostic::new(Severity::Warning, message)
         .with_code(DROPPED_CONSTRUCT.to_string())
+        .with_hint(hint)
         .with_args(args)
+}
+
+/// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
+/// the spelling that keeps it.
+fn dropped_message(construct: &str, n: usize) -> (String, String) {
+    use quillmark_content::carrier::{self, PREFIX, RESERVED_ATTRS};
+    let some = |one: &str, many: &str| if n == 1 { format!("a {one}") } else { format!("{n} {many}") };
+    let some_in_field = |one: &str, many: &str| {
+        if n == 1 {
+            format!("a {one} in this field was")
+        } else {
+            format!("{n} {many} in this field were")
+        }
+    };
+    if construct == "footnote_definition" {
+        return (
+            format!(
+                "markdown import does not carry footnotes: {} read as a link definition and dropped",
+                some_in_field("footnote-shaped definition", "footnote-shaped definitions")
+            ),
+            "Write the note inline, or as a list under the text.".to_string(),
+        );
+    }
+    if let Some((tag, attr)) = construct.strip_suffix(']').and_then(|c| c.split_once('[')) {
+        let on = if n == 1 { String::new() } else { format!(" on {n} tags") };
+        let hint = match (tag, attr) {
+            ("quill-table", "widths") => {
+                "`widths` is a positive whole number or `auto` per column, such as `widths=\"2 1 auto\"`.".to_string()
+            }
+            ("quill-table", "align") => "`align` is `left`, `center` or `right`.".to_string(),
+            ("quill-table", _) => "`<quill-table>` takes `widths` and `align`.".to_string(),
+            _ => format!(
+                "An attribute name is lowercase letters, digits and `_`, opening with a letter, once per tag, \
+                 and none of `{}` or a name opening `on`.",
+                RESERVED_ATTRS.join("`, `")
+            ),
+        };
+        return (
+            format!("markdown import dropped the `{attr}` attribute of `<{tag}>`{on} in this field"),
+            hint,
+        );
+    }
+    match construct {
+        "quill-table" => (
+            format!(
+                "markdown import dropped {} in this field",
+                some("`<quill-table>` wrapper", "`<quill-table>` wrappers")
+            ),
+            "A `<quill-table>` wraps exactly one pipe table, its two tags each alone on a line with a blank \
+             line between each tag and the table."
+                .to_string(),
+        ),
+        "quill-cell" => (
+            format!(
+                "markdown import does not carry `<quill-cell>`: {} dropped",
+                some_in_field("tag", "tags")
+            ),
+            "Align a whole column in the table's delimiter row, such as `| :---: |`.".to_string(),
+        ),
+        tag if tag.starts_with(PREFIX) && carrier::element(tag).is_none() => (
+            format!(
+                "markdown import does not carry raw HTML: {} dropped",
+                some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
+            ),
+            "An element name after `quill-` is lowercase words of letters and digits joined by single `-`, \
+             opening with a letter."
+                .to_string(),
+        ),
+        element if element.starts_with(PREFIX) => (
+            format!(
+                "markdown import dropped {} in this field",
+                some(&format!("`<{element}>` element"), &format!("`<{element}>` elements"))
+            ),
+            format!(
+                "Write `<{element}>` and `</{element}>` each alone on a line with a blank line above and below, \
+                 or, around nothing, on two lines with nothing between. Markdown on the lines under a tag line \
+                 drops with it, up to the next blank line."
+            ),
+        ),
+        "u" => (
+            format!("markdown import dropped {} in this field", some("`<u>` tag", "`<u>` tags")),
+            "A `<u>` takes no attributes and closes with `</u>` in the paragraph, heading, list item or \
+             table cell it opens in."
+                .to_string(),
+        ),
+        tag @ ("pre" | "script" | "style" | "textarea") => (
+            format!(
+                "markdown import does not carry raw HTML: {} dropped",
+                some_in_field(&format!("`<{tag}>` block"), &format!("`<{tag}>` blocks"))
+            ),
+            format!("A `<{tag}>` block drops whole, through its closing tag. Write code in a backtick fence."),
+        ),
+        tag => (
+            format!(
+                "markdown import does not carry raw HTML: {} dropped",
+                some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
+            ),
+            "A line opening with a tag runs to the next blank line and drops whole, markdown included; a \
+             blank line under the tag line keeps what follows."
+                .to_string(),
+        ),
+    }
 }
 
 /// Which encoding a [`Codec::decode_value`] failure came from, so a call site
