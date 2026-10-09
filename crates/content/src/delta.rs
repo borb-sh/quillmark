@@ -30,9 +30,9 @@
 //! residual.
 
 use crate::import::{ImportWarning, Imported};
-use crate::model::{Mark, Content, Normalized};
+use crate::model::{Island, Mark, Content, Normalized};
 use serde::{Deserialize, Serialize};
-use similar::{ChangeTag, TextDiff};
+use similar::{capture_diff_slices, Algorithm, ChangeTag, DiffOp, TextDiff};
 
 /// A per-field edit against a base content. Ops apply left-to-right, consuming
 /// base positions; `Retain`/`Delete` advance the base cursor, `Insert` adds new
@@ -363,7 +363,50 @@ pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
         }
         // else: detached: the accepted residual drop.
     }
+    carry_island_ids(&base.islands, &mut new_rt.islands);
     (new_rt.into_normalized(), delta)
+}
+
+/// Give each island of `new` the id of the `base` island it continues, and
+/// every other island the next `isl-{n}` past the highest in `base`, so a
+/// revise rewrites no island's id and gives none a dropped island's. An
+/// island continues one equal to it in the longest run of equal islands the
+/// two sequences share, or, in a stretch between two of those where both
+/// sides hold as many islands of the same types in order, the one at its
+/// place: an edited table.
+fn carry_island_ids(base: &[Island], new: &mut [Island]) {
+    let key = |island: &Island| (island.island_type.as_str(), island.props.to_string());
+    let old: Vec<_> = base.iter().map(key).collect();
+    let fresh: Vec<_> = new.iter().map(key).collect();
+    let mut carried: Vec<Option<&str>> = vec![None; new.len()];
+    for op in capture_diff_slices(Algorithm::Myers, &old, &fresh) {
+        let (from, to, len) = match op {
+            DiffOp::Equal { old_index, new_index, len } => (old_index, new_index, len),
+            DiffOp::Replace { old_index, old_len, new_index, new_len }
+                if old_len == new_len
+                    && (0..old_len).all(|k| old[old_index + k].0 == fresh[new_index + k].0) =>
+            {
+                (old_index, new_index, old_len)
+            }
+            _ => continue,
+        };
+        for k in 0..len {
+            carried[to + k] = Some(&base[from + k].id);
+        }
+    }
+    let mut next = base
+        .iter()
+        .filter_map(|island| island.id.strip_prefix("isl-")?.parse::<u64>().ok())
+        .max()
+        .map_or(0, |n| n.saturating_add(1));
+    let carried: Vec<Option<String>> = carried.into_iter().map(|id| id.map(str::to_string)).collect();
+    for (island, id) in new.iter_mut().zip(carried) {
+        island.id = id.unwrap_or_else(|| {
+            let id = format!("isl-{next}");
+            next = next.saturating_add(1);
+            id
+        });
+    }
 }
 
 /// Rebase one non-formatting mark through the delta. Returns its new range, or
@@ -758,5 +801,32 @@ mod tests {
                 .to_string(),
             "target"
         );
+    }
+
+    /// A revise rewrites no island id: an island inserted above keeps the rest
+    /// theirs and takes the next past them, a table edited in place keeps its
+    /// own, a deletion leaves the survivors theirs, and a rewrite mints past
+    /// every id the field held.
+    #[test]
+    fn a_revise_rewrites_no_island_id() {
+        let tables = |heads: &[&str]| {
+            heads
+                .iter()
+                .map(|h| format!("| {h} |\n|---|\n| 1 |"))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        };
+        let ids = |c: &Content| c.islands.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
+        let base = from_markdown(&tables(&["a", "b"])).unwrap().content;
+        assert_eq!(ids(&base), ["isl-0", "isl-1"]);
+
+        let (inserted, _, _) = diff_import(&base, &tables(&["z", "a", "b"])).unwrap();
+        assert_eq!(ids(&inserted), ["isl-2", "isl-0", "isl-1"]);
+        let (edited, _, _) = diff_import(&inserted, &tables(&["z", "A", "b"])).unwrap();
+        assert_eq!(ids(&edited), ["isl-2", "isl-0", "isl-1"]);
+        let (deleted, _, _) = diff_import(&edited, &tables(&["A", "b"])).unwrap();
+        assert_eq!(ids(&deleted), ["isl-0", "isl-1"]);
+        let (rewritten, _, _) = diff_import(&deleted, &tables(&["x", "y", "w"])).unwrap();
+        assert_eq!(ids(&rewritten), ["isl-2", "isl-3", "isl-4"]);
     }
 }
