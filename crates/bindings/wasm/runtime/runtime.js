@@ -162,11 +162,11 @@ function quillmarkError(code, message, hint) {
 }
 
 /**
- * Throw on options that are not a plain object, or on an own key of them
- * outside `known`. The JS twin of the binding's `reject_unknown_keys`, in the
- * uncoded shape it throws: a misspelled optional key would otherwise read as
- * absent, and a read reaches a key up the prototype chain that no own-key walk
- * sees.
+ * Throw on options that are not a plain object, or on a key of them, or of a
+ * null-prototype object they inherit from, outside `known`. The JS twin of the
+ * binding's `reject_unknown_keys`, in the uncoded shape it throws: a misspelled
+ * optional key would otherwise read as absent, and a read reaches a key up the
+ * prototype chain that no own-key walk sees.
  * @param {unknown} options
  * @param {string[]} known
  * @param {string} what the options' name, for the message
@@ -185,7 +185,12 @@ function rejectUnknownKeys(options, known, what) {
 					: `a ${typeof options}`;
 		message = `${what} must be a plain object, not ${passed}`;
 	} else {
-		const key = Object.getOwnPropertyNames(options).find((k) => !known.includes(k));
+		const keys = Object.getOwnPropertyNames(options);
+		if (proto !== null) {
+			const builtin = Object.getOwnPropertyNames(Object.prototype);
+			keys.push(...Object.getOwnPropertyNames(proto).filter((k) => !builtin.includes(k)));
+		}
+		const key = keys.find((k) => !known.includes(k));
 		if (key === undefined) return;
 		message = `${what} have unknown key \`${key}\`; ${what} take only \`${known.join('`, `')}\``;
 	}

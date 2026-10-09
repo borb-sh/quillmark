@@ -506,8 +506,12 @@ same shape applies to every throw site:
 - An object argument carrying a key its verb does not read: the render
   options, `new Engine` options, an `Addr`, a `CardInput`. Every own string
   key counts, a non-enumerable one and one holding `undefined` included. The
-  argument must be a plain object, its prototype `null` or `Object.prototype`
-  of any realm, so a `Map`, a class instance or `Object.create({ … })` throws.
+  argument must be a plain object, its prototype `null`, `Object.prototype`
+  of any realm, or a null-prototype object whose keys count too, so a `Map`, a
+  class instance or `Object.create({ … })` throws. A payload item, the fields
+  object `storeFields` takes, and a `$ext` or `$seed` value read their own
+  enumerable keys alone: a non-enumerable or inherited key there is neither
+  read nor refused.
   The diagnostic names the key or what was passed, and carries no `code`: it
   is a call site to fix, not a condition to route on.
 - `engine.render(quill, parsed)` against a quill whose *name* differs

@@ -363,6 +363,7 @@ describe('Document editor surface: storeFields', () => {
     expect(write(new Map([['card', 0]]))).toThrow('addr must be a plain object, not a `Map`')
     expect(write(Object.create({ card: 0 }))).toThrow('addr must be a plain object')
     expect(write(Object.defineProperty({}, 'crad', { value: 0 }))).toThrow('unknown key `crad`')
+    expect(write(Object.create(Object.assign(Object.create(null), { crad: 0 })))).toThrow('unknown key `crad`')
     expect(field(doc.main, 'title')).not.toBe('x')
   })
 })

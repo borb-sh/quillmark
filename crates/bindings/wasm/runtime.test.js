@@ -799,6 +799,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
       [new Map([['format', 'svg']]), 'not a `Map`'],
       [new (class { format = 'svg' })(), 'render options must be a plain object'],
       [{ format: 'pdf', today: undefined }, 'unknown key `today`'],
+      [Object.create(Object.assign(Object.create(null), { today: '2026-03-14' })), 'unknown key `today`'],
     ]) {
       expect(message(await render(options).catch((e) => e))).toContain(refusal)
     }
@@ -808,11 +809,17 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
       [new Map([['backends', {}]]), 'not a `Map`'],
       [new (class { backends = {} })(), 'Engine options must be a plain object'],
       [{ backends: {}, backend: undefined }, 'unknown key `backend`'],
+      [Object.create(Object.assign(Object.create(null), { backend: {} })), 'unknown key `backend`'],
     ]) {
       expect(message(caughtFrom(() => new Engine(options)))).toContain(refusal)
     }
 
-    for (const plain of [() => Object.create(null), () => vm.runInNewContext('({})')]) {
+    const plains = [
+      () => Object.create(null),
+      () => vm.runInNewContext('({})'),
+      () => Object.create(Object.create(null)),
+    ]
+    for (const plain of plains) {
       expect((await render(Object.assign(plain(), { format: 'svg' }))).outputFormat).toBe('svg')
       expect(() => new Engine(Object.assign(plain(), { backends: {} }))).not.toThrow()
     }
