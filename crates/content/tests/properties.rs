@@ -83,6 +83,8 @@ fn inline_token() -> impl Strategy<Value = String> {
         // A link over an image: a mark over an island slot.
         (special_alt(), special_url(), clean_word())
             .prop_map(|(a, u, l)| format!("[![{a}](<{u}>)](https://ex.com/{l})")),
+        // A footnote reference, read off one of `document()`'s definitions.
+        prop::sample::select(vec!["[^a]", "[^B]"]).prop_map(String::from),
     ]
 }
 
@@ -136,6 +138,15 @@ fn block() -> impl Strategy<Value = String> {
         prose().prop_map(|p| format!("1. ***\n\n   {p}")),
         prose().prop_map(|p| format!("- {p}\n\n  ***")),
         prose().prop_map(|p| format!("> {p}")),
+        // Task items: mixed with plain ones, nested, loose, empty, and opening
+        // on a block a paragraph line cannot hold.
+        (prose(), prose(), prose()).prop_map(|(a, b, c)| format!("- [ ] {a}\n- [x] {b}\n- {c}")),
+        (prose(), prose()).prop_map(|(a, b)| format!("1. [x] {a}\n   - [ ] {b}")),
+        (prose(), prose()).prop_map(|(a, b)| format!("- [ ] {a}\n\n  {b}")),
+        prose().prop_map(|p| format!("- [x] \n- {p}")),
+        (1u8..=6, prose()).prop_map(|(lvl, h)| format!("- [ ]\n  {} {h}", "#".repeat(lvl as usize))),
+        prop::collection::vec(clean_word(), 1..3)
+            .prop_map(|ls| format!("- [x]\n  ```\n  {}\n  ```", ls.join("\n  "))),
         // Two adjacent sibling lists, in each spelling CommonMark reads as a
         // boundary: a bullet-char change, an ordered-delimiter change, and the
         // comment separator, which is the only one that carries a differing
@@ -168,7 +179,14 @@ fn block() -> impl Strategy<Value = String> {
 }
 
 fn document() -> impl Strategy<Value = String> {
-    prop::collection::vec(block(), 1..6).prop_map(|blocks| blocks.join("\n\n"))
+    let note = prop_oneof![
+        prose(),
+        (prose(), prose()).prop_map(|(a, b)| format!("{a}\n\n    {b}")),
+        (prose(), prose()).prop_map(|(a, b)| format!("{a}\n    - {b}")),
+    ];
+    (prop::collection::vec(block(), 1..6), note.clone(), note).prop_map(|(blocks, a, b)| {
+        format!("{}\n\n[^a]: {a}\n\n[^b]: {b}", blocks.join("\n\n"))
+    })
 }
 
 /// Emphasis delimiters run together with one char from each Unicode class
@@ -606,14 +624,20 @@ proptest! {
     fn apply_island_ops_preserves_validate(
         md in document(),
         pos_seed in 0usize..4096,
+        note in any::<bool>(),
     ) {
         let mut rt = from_markdown(&md).unwrap().content;
         let at = pos_seed % (rt.len_usv() + 1);
-        let op = IslandOp::Insert {
-            at,
-            island: Island::new("isl-prop".into(), IslandType::Image)
-                .with_props(json!({ "url": "ex.com", "alt": "a" })),
+        let island = if note {
+            Island::new("isl-prop".into(), IslandType::Footnote).with_props(json!({
+                "text": "\nnote\n",
+                "marks": [{"start": 0, "end": 5, "type": "strong"}],
+            }))
+        } else {
+            Island::new("isl-prop".into(), IslandType::Image)
+                .with_props(json!({ "url": "ex.com", "alt": "a" }))
         };
+        let op = IslandOp::Insert { at, island };
         if rt.apply_island_ops(&[op]).is_ok() {
             prop_assert_eq!(rt.validate(), Ok(()), "island op broke an invariant");
             prop_assert_eq!(&renormalized(&rt), &*rt, "the island op left a repairable shape");
@@ -871,6 +895,7 @@ const DECODE_DISCRIMINATORS: &[&str] = &[
     "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end", "container", "type",
     "$name", "element", "instance", "containers", "continues", "id", "props", "url", "level",
     "ordered", "ordinal", "rows", "aligns", "widths", "align", "list_item", "quote", "table",
+    "checked", "footnote",
 ];
 
 /// Every op tag the line, mark and island decoders read.

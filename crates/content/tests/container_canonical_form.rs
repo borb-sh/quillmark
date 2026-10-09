@@ -1,9 +1,9 @@
 //! Exhaustive guard on the container canonical form.
 //!
-//! `Content::normalize` derives `ordinal` and `instance` from run structure, and
-//! the direct-write lane — a client building containers by hand and committing
-//! them through `SetContainers` or a storage decode — is where every shape the
-//! Markdown importer never mints comes from. Two properties, checked over every
+//! `Content::normalize` derives `ordinal`, `checked` and `instance` from run
+//! structure, and the direct-write lane — a client building containers by hand
+//! and committing them through `SetContainers` or a storage decode — is where
+//! every shape the Markdown importer never mints comes from. Two properties, checked over every
 //! container-path sequence in a small space rather than sampled:
 //!
 //! 1. **Idempotence.** `normalize` is the fixed point the canonical
@@ -27,10 +27,20 @@ fn alphabet() -> Vec<Container> {
                     ordered,
                     start: 1,
                     ordinal,
+                    checked: None,
                     instance,
                 });
             }
         }
+    }
+    for (ordinal, done) in [(0u64, false), (1, true)] {
+        v.push(Container::ListItem {
+            ordered: false,
+            start: 1,
+            ordinal,
+            checked: Some(done),
+            instance: 0,
+        });
     }
     v.push(Container::Quote { instance: 0 });
     v.push(Container::Quote { instance: 1 });
@@ -130,12 +140,14 @@ fn a_start_only_difference_separates_the_runs_and_still_costs_a_discriminator() 
         ordered: true,
         start: 1,
         ordinal: 0,
+        checked: None,
         instance: 0,
     };
     let three = Container::ListItem {
         ordered: true,
         start: 3,
         ordinal: 0,
+        checked: None,
         instance: 0,
     };
     assert!(!one.same_run(&three), "start is part of the shape");
@@ -156,6 +168,7 @@ fn same_run_implies_same_weld() {
         if let Container::ListItem {
             ordered,
             ordinal,
+            checked,
             instance,
             ..
         } = c
@@ -164,6 +177,7 @@ fn same_run_implies_same_weld() {
                 ordered,
                 start: 3,
                 ordinal,
+                checked,
                 instance,
             });
         }

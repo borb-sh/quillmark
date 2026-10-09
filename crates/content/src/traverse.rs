@@ -112,6 +112,7 @@ mod tests {
             ordered: false,
             start: 1,
             ordinal,
+            checked: None,
             instance,
         }
     }

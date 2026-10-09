@@ -22,8 +22,24 @@ Quillmark enables a small, stable subset of GFM:
 | Strikethrough | `~~text~~` | Standard GFM rules; word-bounded delimiter runs. |
 | Pipe tables | `\| col \| col \|` with alignment row | Supports `:---`, `:---:`, `---:` alignment. |
 | Underline | `<u>text</u>` | An allow-listed raw-HTML tag (see [the deviation below](#raw-html-is-not-rendered-except-u-and-br)). |
+| Task lists | `- [ ] open`, `- [x] done` | A checkbox before the item's text, ticked for `[x]`. |
+| Footnotes | `text[^1]` and `[^1]: The note.` | See [Footnotes](#footnotes). |
 
-Task lists, autolinks beyond CommonMark's, and other GFM features are **not** enabled.
+Autolinks beyond CommonMark's and other GFM features are **not** enabled.
+
+### Footnotes
+
+A reference `[^label]` prints a footnote holding its definition's note. The label is any name, matched without regard to case, and the definition can sit anywhere in the body.
+
+```markdown
+The figure is from the annual report.[^src]
+
+[^src]: Finance office, *Annual Report*, page 4.
+```
+
+A note is one short passage: its paragraphs and line breaks keep their breaks, and its emphasis, code and links keep their formatting. A list, heading, code block, quote, table or rule inside a note keeps its text as lines of the note, and the import warns under `parse::dropped_construct` with `footnote[list]` and the like. A definition nothing references, a second definition of one label, and a reference inside a table cell or another note drop with a `footnote` warning. A note cited twice prints twice, once for each reference.
+
+Quillmark writes footnotes back as `[^1]`, `[^2]`, … in reading order, each definition after the body.
 
 ## Table layout and elements: `qm-*` tags
 
@@ -138,8 +154,7 @@ Consequences:
 The following are not supported:
 
 - **Math** (`$…$`, `$$…$$`): `$` is treated as a literal character.
-- **Task lists**, **definition lists**: they render as the literal text written.
-- **Footnotes**: CommonMark reads `[^1]: Note` as a link reference definition, which drops the line and turns every `[^1]` into a link to `Note`. Quillmark reads it the same way.
+- **Definition lists**: they render as the literal text written.
 
 A link's title (`[text](url "Title")`) drops at import, with no warning. A construct the active backend has no target for, such as an image under Typst, drops at render with a `backend::declined_construct` warning; see each backend's documentation.
 

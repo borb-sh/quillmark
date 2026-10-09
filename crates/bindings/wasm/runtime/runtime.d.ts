@@ -133,6 +133,7 @@ export type {
 	ContentIsland,
 	TableProps,
 	ImageProps,
+	FootnoteProps,
 	TableCell,
 	CardInput,
 	PathStep,

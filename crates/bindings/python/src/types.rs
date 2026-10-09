@@ -414,7 +414,7 @@ impl PyDocument {
     /// Storage version this build writes.
     #[staticmethod]
     fn current_storage_version() -> &'static str {
-        quillmark_core::document::STORAGE_V0_124_0
+        quillmark_core::document::STORAGE_V0_125_0
     }
 
     /// The Quillmark Markdown rules.

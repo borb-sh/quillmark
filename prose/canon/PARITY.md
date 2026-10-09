@@ -87,6 +87,7 @@ import meets. The columns:
 | `container.list_item.start`: ordered item, custom `start` | spells | spells | spells | honors | silent: honored | none |
 | `container.list_item.instance`: two adjacent ordered lists | spells | spells | spells | honors | silent: honored | none |
 | `container.list_item.instance.bullet`: two adjacent bullet lists | spells | spells | spells | drops silently | drops silently | none |
+| `container.list_item.task`: a task item, ticked and open | spells | spells | spells | honors | silent: honored | none |
 | `container.quote`: block quote | spells | spells | spells | honors | silent: honored | none |
 | `container.quote.instance`: two adjacent quotes | spells | spells | spells | honors | silent: honored | none |
 | `container.element`: an element around blocks | spells | spells | spells | honors | silent: honored | none |
@@ -100,6 +101,8 @@ as one wide list: the `instance` boundary does not reach the page.
 
 An element lowers through the helper's dispatcher, which draws it with the
 renderer a plate registers under its name ([CONVERT.md](CONVERT.md#elements)).
+A task item's body lowers the same way, through the renderer a plate sets on
+`tasks`, and a box with a tick where none is set.
 
 ### Marks
 
@@ -133,6 +136,7 @@ diff-rebase alone. The row's corpus entry pins the spelling under
 | `island.table.props.widths.auto`: every column auto-fit, the default | spells | spells | spells | silent: honored | silent: honored | none |
 | `island.table.props.align`: the table's placement | spells | spells | spells | honors | silent: honored | none |
 | `island.image` | spells | spells | spells | declines with a signal | declines with a signal | `backend::declined_construct`, `validation::declined_construct`, `image` |
+| `island.footnote`: a footnote reference and its note | spells | spells | spells | honors | silent: honored | none |
 
 A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
 mint it without a key the engine does not name.
@@ -140,6 +144,10 @@ mint it without a key the engine does not name.
 `widths` and `align` are spelled on a `qm-table` wrapper
 ([markdown-spec.md](../references/markdown-spec.md) §6.4). Each is absent at
 its default, so a default row stores no key.
+
+A footnote's island sits at its reference and holds the note as one table
+cell. Markdown writes the reference as `[^n]` and the note as a definition
+under the body, numbered in reading order.
 
 ### Spellings
 
@@ -173,6 +181,9 @@ above, or markup the content does not store.
 | `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
 | `markdown.cell_image`: an image in a table cell | drops silently | n/a | n/a | n/a | n/a | none |
+| `markdown.footnote.unused`: a footnote definition nothing references | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `footnote` |
+| `markdown.footnote.block`: a note holding a block quote, flattened to its text | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `footnote[quote]` |
+| `markdown.footnote.in_cell`: a footnote reference in a table cell, and its note | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `footnote` |
 
 `html.br` and `html.u` land as a hard break and an underline, so their cells
 past markdown read those constructs. What a markup row wraps imports as

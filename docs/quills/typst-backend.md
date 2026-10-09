@@ -139,6 +139,20 @@ A `qm-<name>` element renders through the helper's `elements` registry. A plate 
 
 The dispatcher reads the registry's final value, so the update may stand anywhere in the plate. An element around nothing, `<qm-sig>` on the line above `</qm-sig>`, calls its renderer with a body that draws nothing, `[ ]`, which suits a signature line or a stamp. `attrs` is a dictionary of the element's attributes keyed by name, each value a string with its entities decoded: `note="a &amp; b"` arrives as `"a & b"`. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone.
 
+### Task lists and footnotes
+
+A task item draws a box before its content, ticked when done. A plate replaces the box by setting the helper's `tasks` state to a renderer taking whether the task is done and the item's content. This one strikes through a done task and draws no box:
+
+```typst
+#import "@local/quillmark-helper:0.1.0": data, tasks
+
+#tasks.update(_ => (done, body) => if done { strike(body) } else { body })
+```
+
+As with `elements`, the renderer is read from the state's final value, so the update may stand anywhere in the plate.
+
+A footnote lowers to Typst's own `footnote`, so `#set footnote(..)`, `#set footnote.entry(..)` and `#show footnote: ..` style it.
+
 ### Tables
 
 A table in content lowers to a call of Typst's `table`, so `#set table(..)` and `#show table: ..` reach it. The call always passes `columns`, and passes `align` where the document aligns a column, so a set rule's `columns` never applies and its `align` applies only to a table aligning no column. A `qm-table` wrapper's `widths` lower to `fr` tracks, `auto` for an auto-fit column, and its `align` places the table with `align(..)` without moving the text in its cells.

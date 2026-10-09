@@ -18,6 +18,7 @@ serde_json = { workspace = true }
 # The markdown projection's parser. This crate is the workspace's single home
 # for a CommonMark parser; render paths consume the content, never markdown.
 pulldown-cmark = { workspace = true }
+unicase = { workspace = true }
 similar = { workspace = true }
 
 [dev-dependencies]

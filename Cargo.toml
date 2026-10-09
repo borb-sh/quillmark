@@ -48,6 +48,9 @@ indexmap = { version = "2", features = ["serde"] }
 similar = "3.1"
 
 pulldown-cmark = "0.13.0"
+# pulldown-cmark's own label fold, so a footnote reference finds the
+# definition the parser matched it to.
+unicase = "2.6"
 time = { version = "0.3.44", features = ["formatting", "parsing"] }
 # Pinned to the version the Typst toolchain (typst-pdf → krilla) already forces,
 # so the workspace links a single copy of the PDF writer.
