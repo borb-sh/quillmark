@@ -121,18 +121,18 @@ mod tests {
         }
     }
 
-    /// `widths` settles to the column count and its weights' GCD and never
-    /// widens the table; each layout key is absent at its default or when
-    /// invalid.
+    /// `widths` settles to the column count, keeps its weights as written and
+    /// never widens the table; each layout key is absent at its default or
+    /// when invalid.
     #[test]
     fn normalize_props_settles_the_layout_keys() {
         use serde_json::{json, Value};
         let absent = Value::Null;
         let cases: &[(Value, &str, Value)] = &[
-            (json!([2, 4, null]), "widths", json!([1, 2, null])),
-            (json!([3, null]), "widths", json!([1, null, null])),
-            (json!([6, 9, 12, 15]), "widths", json!([2, 3, 4])),
-            (json!([null, null, 5]), "widths", json!([null, null, 1])),
+            (json!([2, 4, null]), "widths", json!([2, 4, null])),
+            (json!([3, null]), "widths", json!([3, null, null])),
+            (json!([6, 9, 12, 15]), "widths", json!([6, 9, 12])),
+            (json!([null, null, 5]), "widths", json!([null, null, 5])),
             (json!([null, null, null, 4]), "widths", absent.clone()),
             (json!([null, null]), "widths", absent.clone()),
             (json!([]), "widths", absent.clone()),

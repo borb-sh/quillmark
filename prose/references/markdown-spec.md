@@ -546,7 +546,7 @@ attributes into the table's layout, whatever quill reads the document:
 </quill-table>
 ```
 
-- Weights are relative and divide by their GCD: `2 4` reads as `1 2`. A
+- Weights are relative and store as written: `2 4` lays out as `1 2` does. A
   `widths` shorter than the table pads with `auto`, and a longer one drops its
   extra entries.
 - Each attribute at its default stores nothing, and export writes the wrapper

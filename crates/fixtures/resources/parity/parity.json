@@ -1977,7 +1977,7 @@
   },
   {
     "name": "island.table.props.widths",
-    "markdown": "<quill-table widths=\"1 2 auto\">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</quill-table>",
+    "markdown": "<quill-table widths=\"25 50 auto\">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</quill-table>",
     "content": {
       "islands": [
         {
@@ -2019,8 +2019,8 @@
               ]
             ],
             "widths": [
-              1,
-              2,
+              25,
+              50,
               null
             ]
           },
@@ -2037,7 +2037,7 @@
       "text": "￼"
     },
     "typst": [
-      "columns: (1fr, 2fr, auto)"
+      "columns: (25fr, 50fr, auto)"
     ],
     "signals": {
       "import": [],

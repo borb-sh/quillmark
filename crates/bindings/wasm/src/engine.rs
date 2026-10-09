@@ -292,8 +292,8 @@ export interface TableProps {
     rows: TableCell[][];
     /** Per-column alignment, one entry per column. */
     aligns: ("none" | "left" | "center" | "right")[];
-    /** Per-column relative weights, divided by their GCD; `null` is an
-     * auto-fit column. Absent when every column is auto-fit. */
+    /** Per-column relative weights; `null` is an auto-fit column. Absent when
+     * every column is auto-fit. */
     widths?: (number | null)[];
     /** The table's placement; absent is the quill's. */
     align?: "left" | "center" | "right";

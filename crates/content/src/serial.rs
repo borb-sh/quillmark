@@ -864,9 +864,8 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
 /// A table's layout keys, each absent at its default or when invalid:
 ///
 /// - `widths`: one entry per column, each a positive integer weight or `null`
-///   for an auto-fit column, padded with `null` or truncated to `cols` and
-///   reduced by the GCD of its weights. All `null`, or any other entry, is
-///   absent.
+///   for an auto-fit column, padded with `null` or truncated to `cols`. All
+///   `null`, or any other entry, is absent.
 /// - `align`: `left`, `center` or `right`.
 fn normalize_table_layout(obj: &mut Map<String, Value>, cols: usize) {
     match obj.get("widths").and_then(|w| settle_widths(w, cols)) {
@@ -888,17 +887,10 @@ fn settle_widths(widths: &Value, cols: usize) -> Option<Value> {
         })
         .collect::<Option<Vec<Option<u64>>>>()?;
     weights.resize(cols, None);
-    let gcd = weights.iter().flatten().fold(0, |a, &b| gcd(a, b));
-    (gcd > 0).then(|| {
-        weights
-            .into_iter()
-            .map(|w| w.map_or(Value::Null, |n| Value::from(n / gcd)))
-            .collect()
-    })
-}
-
-fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 { a } else { gcd(b, a % b) }
+    weights
+        .iter()
+        .any(Option::is_some)
+        .then(|| weights.into_iter().map(|w| w.map_or(Value::Null, Value::from)).collect())
 }
 
 /// A table's canonical column count: the widest of its header, any body row, and

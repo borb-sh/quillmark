@@ -356,7 +356,7 @@ default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
 
 | Key | Value | Default |
 |---|---|---|
-| `widths` | one entry per column, a positive integer weight or `null` for an auto-fit column; settled to the column count and divided by the weights' GCD | every entry `null` |
+| `widths` | one entry per column, a positive integer weight or `null` for an auto-fit column; settled to the column count | every entry `null` |
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
 
 `widths` are weights, not lengths, so each plate decides what full width is.
