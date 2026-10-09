@@ -19,9 +19,8 @@ const PAGE: &str = r#"
 
 /// A renderer that compiles only when its attributes arrive as written.
 const STAMP: &str = r#"
-#elements.update(e => e + (stamp: (attrs, body, inline: false) => {
+#elements.update(e => e + (stamp: (attrs, body) => {
   assert(attrs == (day: "2024-01-15", size: "4"), message: repr(attrs))
-  assert(not inline, message: "an element wraps blocks")
   text(fill: red, body)
 }))
 "#;

@@ -157,15 +157,15 @@ enter it as literal text (markdown-spec §6.2, §6.3).
 ### Elements
 
 An element lowers through one dispatcher the helper defines,
-`_qm-element(name, attrs, body, inline: false)`. It calls the renderer a plate
-registers under the name in the helper's `elements` state, passing `inline`,
-which is `false` for every element the content holds, else the built-in
-`keep`, which holds its body on one page, else draws the body alone. It reads the state's final value, so a plate's
-update may stand after the content it renders:
+`_qm-element(name, attrs, body)`. It calls the renderer a plate registers under
+the name in the helper's `elements` state as `render(attrs, body)`, else the
+built-in `keep`, which holds its body on one page, else draws the body alone.
+It reads the state's final value, so a plate's update may stand after the
+content it renders:
 
 ```typst
 #import "@local/quillmark-helper:0.1.0": elements
-#elements.update(e => e + (stamp: (attrs, body, inline: false) => text(fill: red, body)))
+#elements.update(e => e + (stamp: (attrs, body) => text(fill: red, body)))
 ```
 
 `attrs` is a dictionary of strings keyed by attribute name, sorted, and `(:)`
