@@ -134,10 +134,11 @@ pub(crate) fn options() -> Options {
 }
 
 /// Import markdown into a normalized, validated [`Content`], with an
-/// [`ImportWarning`] per construct it dropped. A comment, the content of a type
-/// 1–5 HTML block and a `quill-anchor` tag drop silently; a `<pre>`,
-/// `<script>`, `<style>` or `<textarea>` block's opening tag counts, and a
-/// closing tag never does.
+/// [`ImportWarning`] per construct it dropped: each dropped opening tag, a
+/// `<pre>`, `<script>`, `<style>` or `<textarea>` block's included, and a block
+/// holding no other opening tag under its first where it drops markdown with
+/// it. A comment, the content of a type 1–5 HTML block and any other closing
+/// tag or `quill-anchor` tag drop silently.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let options = options();
     let text = normalize_markdown(markdown, options);
@@ -2363,7 +2364,8 @@ mod tests {
     /// An element the carrier cannot read drops its tags and reports
     /// `quill-<name>`, what it wraps importing; one whose tag line is tight
     /// against markdown drops with the block it opens. An attribute outside the
-    /// grammar drops alone. A close tag with nothing to close drops silently.
+    /// grammar drops alone. A close tag with nothing to close, set apart by
+    /// blank lines, drops silently.
     #[test]
     fn an_element_drops_where_it_does_not_close() {
         let cases: &[(&str, &str, &[(&str, usize)])] = &[
