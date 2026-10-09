@@ -970,6 +970,9 @@ pub(crate) fn walk_page_tree(idx: &ObjectIndex, catalog_id: u32) -> Result<Vec<P
                 .value(dict, "Kids")
                 .and_then(|kids| idx.resolve(kids))
                 .ok_or_else(|| err(CODE_PARSE, "/Pages node missing /Kids"))?;
+            if !(kids.starts_with(b"[") && kids.ends_with(b"]")) {
+                return Err(err(CODE_PARSE, format!("page node {node_id} /Kids is not an array")));
+            }
             let mut kid_ancestors = Vec::with_capacity(ancestors.len() + 1);
             kid_ancestors.push(node_id);
             kid_ancestors.extend_from_slice(&ancestors);

@@ -356,6 +356,18 @@ fn an_out_of_contract_input_is_refused_under_its_code() {
             "pdf::indirect_annots",
         ),
         (
+            "a /Kids that is a reference, not an array",
+            replaced(&[(b"/Kids [3 0 R]", b"/Kids 3 0 R  ")]),
+            vec![field()],
+            "pdf::parse",
+        ),
+        (
+            "a /Kids that is a number",
+            replaced(&[(b"/Kids [3 0 R]", b"/Kids 5      ")]),
+            vec![field()],
+            "pdf::parse",
+        ),
+        (
             "a hybrid file",
             insert_after(&build_base_pdf(1), b"/Root 1 0 R", b" /XRefStm 9"),
             vec![],
