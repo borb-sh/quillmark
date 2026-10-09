@@ -58,8 +58,11 @@ fn sanitize_message(raw: &str) -> String {
     out.trim_end_matches([',', ';', ' ']).to_string()
 }
 
-/// Derive an actionable hint for `message`, given the YAML `content`.
+/// Derive an actionable hint for `message`, given the YAML `content`. Only the
+/// message's first line is read: the snippet below it quotes `content`, whose
+/// words would otherwise pick the hint.
 fn derive_hint(message: &str, content: &str) -> Option<String> {
+    let message = message.lines().next().unwrap_or_default();
     if let Some(value) = non_finite_value(message) {
         let advice = format!(
             "YAML reads `{value}` as infinity or NaN, which no field holds. \
@@ -312,10 +315,9 @@ fn anchor_alias_hint(content: &str, advice: &str, example: &str) -> String {
     }
 }
 
-/// The scalar a non-finite float refusal names (`.inf`, `.nan`, `1e999`), read
-/// off the first line: the snippet below it quotes `content`.
+/// The scalar a non-finite float refusal names (`.inf`, `.nan`, `1e999`).
 fn non_finite_value(message: &str) -> Option<&str> {
-    let (_, rest) = message.lines().next()?.split_once("non-finite float `")?;
+    let (_, rest) = message.split_once("non-finite float `")?;
     rest.split_once('`').map(|(value, _)| value)
 }
 
@@ -325,8 +327,19 @@ fn flagged_key_holding<'a>(message: &str, content: &'a str, value: &str) -> Opti
     let number = flagged_line_number(message)?;
     let line = content.lines().nth(number.checked_sub(1)?)?;
     let (key, rest) = key_value_lines(line).next()?;
-    let rest = rest.split_once(" #").map_or(rest, |(v, _)| v);
-    (rest.trim_end() == value).then_some(key)
+    (uncommented(rest).trim_end() == value).then_some(key)
+}
+
+/// `value` up to its comment: a `#` at its start or after white space.
+fn uncommented(value: &str) -> &str {
+    let mut prev = None;
+    for (at, ch) in value.char_indices() {
+        if ch == '#' && prev.is_none_or(char::is_whitespace) {
+            return &value[..at];
+        }
+        prev = Some(ch);
+    }
+    value
 }
 
 /// The `key: value` lines of `content` whose key could be a YAML mapping key,
@@ -406,11 +419,7 @@ fn first_field_with_unquoted_colon(content: &str) -> Option<(String, String)> {
             continue;
         }
         // A comment's `:` is no part of the value.
-        let value = if value.starts_with('#') {
-            ""
-        } else {
-            value.split_once(" #").map_or(value, |(v, _)| v).trim_end()
-        };
+        let value = uncommented(value).trim_end();
         if value.contains(':') {
             return Some((key.trim().to_string(), value.to_string()));
         }
@@ -503,6 +512,29 @@ mod tests {
             );
             let hint = enriched.hint.expect("a hint");
             assert!(hint.contains(example), "{content:?}: {hint}");
+        }
+    }
+
+    #[test]
+    fn the_hint_reads_the_parser_words_and_cuts_a_comment_after_a_tab() {
+        for (content, wants, shuns) in [
+            (
+                "title: duplicate key report\nsummary: a long\nwrapped line\n",
+                "block scalar",
+                "at most once",
+            ),
+            ("s: .inf\t# aside\n", "`s: \".inf\"`", "field:"),
+            (
+                "title: Note\t# see: below\nsubtitle: a: b\n",
+                "`subtitle: \"a: b\"`",
+                "Note",
+            ),
+        ] {
+            let raw = crate::value::parse_yaml::<serde_json::Value>(content)
+                .expect_err("the content does not parse")
+                .to_string();
+            let hint = enrich_yaml_error(&raw, content).hint.expect("a hint");
+            assert!(hint.contains(wants) && !hint.contains(shuns), "{content:?}: {hint}");
         }
     }
 
