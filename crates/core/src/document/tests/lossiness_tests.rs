@@ -959,3 +959,19 @@ fn a_refused_quill_table_attribute_names_the_attribute_not_an_element() {
         .message;
     assert!(message.contains("`widths` attribute of `<quill-table>`"), "{message}");
 }
+
+/// The value holds a merge's keys in the mapping holding the merge, so a tag
+/// inside the merge warns at that key's path there.
+#[test]
+fn a_tag_inside_a_merge_warns_where_the_value_holds_it() {
+    for (yaml, path) in [
+        ("m: {<<: {x: !t 1}}", "main.m.x"),
+        ("m:\n  <<: [{a: 1}, {x: !t 1}]", "main.m.x"),
+        ("m: {<<: !t {x: 1}}", "main.m"),
+        ("<<: {x: !t 1}", "main.x"),
+    ] {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{yaml}\n~~~\n");
+        let out = Document::parse(&src).unwrap();
+        assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some(path))], "{yaml}");
+    }
+}

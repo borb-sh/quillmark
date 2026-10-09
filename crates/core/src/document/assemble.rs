@@ -259,6 +259,20 @@ pub(super) fn build_block(
                 ),
             }
         }
+        Refusal::SharedKey { key, line, column } => {
+            let (line, column) =
+                document_position(markdown, content_start, &yaml, Some((line, column)));
+            ParseError::YamlErrorWithLocation {
+                message: format!("duplicate mapping key: {key}"),
+                line,
+                column,
+                block_index,
+                hint: Some(format!(
+                    "Two spellings of `{key}`, such as `1` and `\"1\"`, name one field. \
+                     Keep one of them."
+                )),
+            }
+        }
     })?;
 
     Ok(MetadataBlock {

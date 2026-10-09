@@ -775,3 +775,23 @@ fn text_past_a_closed_root_value_refuses_at_its_line() {
     let doc = decompose(md).expect("comments and an end marker may follow the root");
     assert_eq!(doc.cards()[0].payload().get("a").map(|v| v.as_json().clone()), Some(serde_json::json!(1)));
 }
+
+/// `1` and `"1"` are two YAML keys and one field, so a mapping holding both
+/// refuses at the second, as a repeated key does.
+#[test]
+fn two_keys_of_one_text_refuse_at_the_second() {
+    for (block, second) in [
+        ("1: a\n\"1\": b", "\"1\": b"),
+        ("o:\n  2: a\n  '2': b\n  z: 1", "'2': b"),
+    ] {
+        let md = format!("~~~\n$quill: q\n{block}\n~~~\n");
+        let diag = decompose(&md).unwrap_err().to_diagnostic();
+        assert_eq!(
+            diag.code.as_deref(),
+            Some("parse::yaml_error_with_location"),
+            "{block}"
+        );
+        let loc = diag.location.expect("the refusal carries a location");
+        assert_eq!(loc.line, line_of(&md, second), "{block}");
+    }
+}
