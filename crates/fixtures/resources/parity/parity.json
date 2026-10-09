@@ -1863,42 +1863,6 @@
     }
   },
   {
-    "name": "markdown.footnote_definition",
-    "markdown": "Text[^1]\n\n[^1]: Word",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "url": "Word"
-          },
-          "end": 6,
-          "start": 4,
-          "type": "link"
-        }
-      ],
-      "text": "Text^1"
-    },
-    "typst": [
-      "Text#link(\"Word\")[^1]"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "footnote_definition",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
     "name": "markdown.link_title",
     "markdown": "[a](https://example.com \"Title\")",
     "content": {
@@ -2302,66 +2266,6 @@
       "import": [
         {
           "construct": "quill-table[widths]",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.cell",
-    "markdown": "| a | b |\n| --- | --- |\n| <quill-cell align=\"right\">1</quill-cell> | 2 |",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "[1], [2]"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "quill-cell",
           "count": 1
         }
       ],

@@ -440,8 +440,7 @@ support may come in a future revision:
   system-metadata keys (§3.3).
 - Footnotes: not supported. A footnote-shaped definition (`[^1]: Word`) imports
   as CommonMark reads it, a link reference definition making `[^1]` a link to
-  `Word`, and the import reports each under `parse::dropped_construct` as
-  `footnote_definition`.
+  `Word`.
 - HTML comments: accepted syntactically, not rendered (see §6.2).
 - `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
   table cell: a hard break. In a paragraph, one with no text before it on its
@@ -463,10 +462,10 @@ namespace (`quill:keep`). A tag name reads ASCII-case-insensitively, as HTML
 names do, and the canonical spelling is lowercase. `quill-`, `quill-a--b` and
 `quill-9` carry no element.
 
-**Reserved names.** `table` is reserved for the table it wraps, `anchor` for
-the anchor spelling, and `cell` for a later table-cell construct. A reserved
-name folds into its construct where a construct declares the fold; none is
-ever an element of its own, and a quill cannot declare one.
+**Reserved names.** `table` is reserved for the table it wraps and `anchor`
+for the anchor spelling. A reserved name folds into its construct where a
+construct declares the fold; neither is ever an element of its own, and a
+quill cannot declare one.
 
 **Attributes.** A name matches `[a-z][a-z0-9_]*` and is none of `style`,
 `class`, `id`, `href` and `src`, nor any name opening `on`, so the carrier
@@ -505,7 +504,7 @@ J. Doe
 </quill-sig>
 ```
 
-**An element** of any name but the reserved three is stored, whatever quill
+**An element** of any name but the reserved two is stored, whatever quill
 reads the document:
 
 - A pair of tag lines wraps the blocks between them in the element, inside the
@@ -558,9 +557,6 @@ attributes into the table's layout, whatever quill reads the document:
 - An attribute other than these two, and one whose value is outside its
   spelling, drops alone, reported as `quill-table[<name>]`. A `quill-keep`
   around the wrapper keeps the table on one page.
-
-**`quill-cell`** carries nothing: a `quill-cell` tag drops wherever it
-stands, reported as `quill-cell`.
 
 **`quill-anchor`** is reserved for an anchor's read-only spelling,
 `<quill-anchor ref="…"></quill-anchor>`, which the annotated export writes and

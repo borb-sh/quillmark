@@ -39,7 +39,7 @@ use crate::model::{
 use crate::carrier;
 use crate::html;
 use crate::island::IslandType;
-use crate::normalize::{normalize_markdown, Repaired};
+use crate::normalize::normalize_markdown;
 use crate::MAX_NESTING_DEPTH;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::collections::VecDeque;
@@ -79,14 +79,11 @@ impl std::error::Error for ImportError {}
 pub enum ImportWarning {
     /// `count` instances of `construct` dropped: a raw tag by its lowercase
     /// name (`span`, `div`, `x-note`), counted at its open or self-closing
-    /// form; `footnote_definition` for a footnote-shaped definition, which
-    /// CommonMark reads as a link reference definition; `quill-table` for a
-    /// `quill-table` wrapper not holding exactly one table, and
-    /// `quill-table[<attr>]` for an attribute one holding a table cannot fold;
-    /// `quill-cell` for a `quill-cell` tag; `quill-<name>` for an element left
-    /// unclosed, self-closing, inside a line or tight against markdown, and
-    /// `quill-<name>[<attr>]` for an attribute one cannot carry. One entry per
-    /// construct.
+    /// form; `quill-table` for a `quill-table` wrapper not holding exactly one
+    /// table, and `quill-table[<attr>]` for an attribute one holding a table
+    /// cannot fold; `quill-<name>` for an element left unclosed, self-closing,
+    /// inside a line or tight against markdown, and `quill-<name>[<attr>]` for
+    /// an attribute one cannot carry. One entry per construct.
     DroppedConstruct { construct: String, count: usize },
 }
 
@@ -114,16 +111,13 @@ pub(crate) fn options() -> Options {
 /// closing tag never does.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let options = options();
-    let Repaired { text, footnotes } = normalize_markdown(markdown, options);
+    let text = normalize_markdown(markdown, options);
     let mut fixer = MarkdownFixer::new(Parser::new_ext(&text, options).into_offset_iter());
     let mut b = Builder::new();
     b.run(&mut fixer)?;
     let (mut content, elements) = b.finish();
     let (mut dropped, folds) = fixer.finish();
     dropped.absorb(elements);
-    for at in footnotes {
-        dropped.add("footnote_definition", at);
-    }
     let mut tables: Vec<&mut Island> = content
         .islands
         .iter_mut()
@@ -2127,40 +2121,13 @@ mod tests {
         }
     }
 
-    /// A `quill-cell` tag drops wherever it stands, the cell importing as its
-    /// [`strip`](crate::carrier::strip) does, each open tag reported.
-    #[test]
-    fn a_cell_tag_drops() {
-        let r = "<quill-cell align=\"right\">";
-        let l = "<quill-cell align=\"left\">";
-        let cases = [
-            (format!("{r}a</quill-cell>"), "a", 1),
-            (format!("a {r}b</quill-cell>"), "a b", 1),
-            (format!("{r}a</quill-cell>{l}b</quill-cell>"), "ab", 2),
-            (format!("{r}a"), "a", 1),
-            ("<quill-cell align=\"right\"/>a".to_string(), "a", 1),
-            (format!("**{r}a</quill-cell>**"), "a", 1),
-        ];
-        for (cell, text, count) in &cases {
-            let md = format!("| h |\n| --- |\n| {cell} |");
-            let imported = imp_fixed(&md);
-            assert_eq!(dropped(&imported), [("quill-cell", *count)], "{md:?}");
-            assert_eq!(table_rows(&imported.content), [[*text]], "{md:?}");
-            assert_eq!(imported.content, imp_fixed(&crate::carrier::strip(&md)).content, "{md:?}");
-        }
-
-        let prose = imp_fixed(&format!("a {r}b</quill-cell> c"));
-        assert_eq!(dropped(&prose), [("quill-cell", 1)]);
-        assert_eq!(prose.content.text, "a b c");
-    }
-
     /// A type-7 tag cannot interrupt a pipe table, so the parser reads
     /// `</quill-table>` after the rows as one more row; the repair ends the
     /// table there instead. A type-6 tag (`</div>`) interrupts it on its own,
     /// and its block drops with the text it holds.
     #[test]
     fn a_row_of_tags_ends_its_table() {
-        for close in ["</quill-table>", "</quill-cell></quill-table>"] {
+        for close in ["</quill-table>", "</quill-keep></quill-table>"] {
             let rt = imp_fixed(&format!("| a | b |\n|---|---|\n| 1 | 2 |\n{close}\nnext")).content;
             assert_eq!(table_rows(&rt), [["1", "2"]], "{close}");
             assert_eq!(rt.text, "\u{FFFC}\nnext", "{close}");
@@ -2211,25 +2178,6 @@ mod tests {
         assert_eq!(crate::export::to_markdown(&imported.content), md);
     }
 
-    /// `[^1]: Word` is a link reference definition to CommonMark, which drops
-    /// it and makes `[^1]` a link to `Word`; each such definition, a repeated
-    /// label's included, warns.
-    #[test]
-    fn a_footnote_shaped_definition_warns() {
-        let imported = imp_fixed("[^1]: Word\n\ntext[^1]");
-        assert_eq!(imported.content.text, "text^1");
-        assert_eq!(imported.content.marks, [Mark::new(4, 6, MarkKind::Link { url: "Word".into() })]);
-        assert_eq!(dropped(&imported), [("footnote_definition", 1)]);
-
-        let imported = imp_fixed("> [^a]: one\n> [^A]: two\n> [x]: /url\n\nsee [^a] and [x]");
-        assert_eq!(imported.content.text, "\nsee ^a and x");
-        assert_eq!(dropped(&imported), [("footnote_definition", 2)]);
-
-        let imported = imp_fixed(&format!("{}x[^1]", "[^1]: a\n\n".repeat(9)));
-        assert_eq!(imported.content.text, "x^1");
-        assert_eq!(dropped(&imported), [("footnote_definition", 9)]);
-    }
-
     /// A tag alone on its line opens an HTML block, whatever its name: the
     /// inline allowlist does not reach it.
     #[test]
@@ -2257,7 +2205,7 @@ mod tests {
                   <!-- <em>not markup</em> -->\n\n<pre><b>x</b></pre>\n\n\
                   x <span>y</span> <u>z</u><br>w\n\n\
                   <quill-anchor id=\"x\">t</quill-anchor> <quill-keep>k</quill-keep>\n\
-                  <QUILL-ANCHOR ref=\"y\"></QUILL-ANCHOR>\n<Quill-Keep>\n\n[^1]: f\n\n\
+                  <QUILL-ANCHOR ref=\"y\"></QUILL-ANCHOR>\n<Quill-Keep>\n\n\
                   | <span>cell</span> |\n|---|\n| <hr/> <quill-a--b>z</quill-a--b> |\n\n\
                   </Center>\ndropped";
         let imported = imp_fixed(md);
@@ -2271,7 +2219,6 @@ mod tests {
                 ("img", 1),
                 ("pre", 1),
                 ("quill-keep", 2),
-                ("footnote_definition", 1),
                 ("hr", 1),
                 ("quill-a--b", 1),
                 ("center", 1)

@@ -255,7 +255,7 @@ name.
 
 `element` is a closed member over an open payload. Its `attrs` bag holds the
 element's name under `$name`, any carrier element name but the reserved
-`table`, `cell` and `anchor`, beside its attributes, each a string under a name
+`table` and `anchor`, beside its attributes, each a string under a name
 in the carrier's attribute grammar ([markdown-spec.md](../references/markdown-spec.md) §6.4).
 No attribute name opens with `$`, so the two never collide, as a card's `$kind`
 never meets a field. A new element name is no storage event, since no reader is
@@ -288,8 +288,7 @@ difference back. So the canonical form is `{id, type, props}` and holds no
 fidelity class beside them: such a record is not re-derivable from the row that
 would carry it, and does not survive a `to_markdown` → `from_markdown` hop.
 Surfacing a drop belongs to whoever runs the import, where it happens. The
-import reports the raw tags and footnote-shaped definitions it drops beside the
-content ([markdown-spec.md](../references/markdown-spec.md) §6.2 names the
+import reports the raw tags it drops beside the content ([markdown-spec.md](../references/markdown-spec.md) §6.2 names the
 silent ones), and core surfaces them as `parse::dropped_construct`
 ([ERROR.md](ERROR.md) § "Warning flow"); a cell image's url drops unreported.
 

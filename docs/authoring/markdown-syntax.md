@@ -139,7 +139,7 @@ The following are not supported:
 
 - **Math** (`$…$`, `$$…$$`): `$` is treated as a literal character.
 - **Task lists**, **definition lists**: they render as the literal text written.
-- **Footnotes**: CommonMark reads `[^1]: Note` as a link reference definition, which drops the line and turns every `[^1]` into a link to `Note`. Quillmark reads it the same way and reports the definition as a `parse::dropped_construct` warning.
+- **Footnotes**: CommonMark reads `[^1]: Note` as a link reference definition, which drops the line and turns every `[^1]` into a link to `Note`. Quillmark reads it the same way.
 
 A link's title (`[text](url "Title")`) drops at import, with no warning. A construct the active backend has no target for, such as an image under Typst, drops at render with a `backend::declined_construct` warning; see each backend's documentation.
 

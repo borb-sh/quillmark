@@ -33,9 +33,9 @@ pub(crate) fn import_body_warned(md: &str) -> Result<Imported, ImportError> {
 pub const DROPPED_CONSTRUCT: &str = "parse::dropped_construct";
 
 /// The warning a markdown import owes what it could not carry: `count` of
-/// `construct` dropped from one field, a raw tag by its lowercase name or
-/// `footnote_definition`. It carries no `path`: the caller that knows the
-/// field's address attaches it. Non-fatal: the rest of the markdown imports.
+/// `construct` dropped from one field. It carries no `path`: the caller that
+/// knows the field's address attaches it. Non-fatal: the rest of the markdown
+/// imports.
 pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
     let ImportWarning::DroppedConstruct { construct, count } = warning;
     let (message, hint) = dropped_message(&construct, count);
@@ -60,15 +60,6 @@ fn dropped_message(construct: &str, n: usize) -> (String, String) {
             format!("{n} {many} in this field were")
         }
     };
-    if construct == "footnote_definition" {
-        return (
-            format!(
-                "markdown import does not carry footnotes: {} read as a link definition and dropped",
-                some_in_field("footnote-shaped definition", "footnote-shaped definitions")
-            ),
-            "Write the note inline, or as a list under the text.".to_string(),
-        );
-    }
     if let Some((tag, attr)) = construct.strip_suffix(']').and_then(|c| c.split_once('[')) {
         let on = if n == 1 { String::new() } else { format!(" on {n} tags") };
         let hint = match (tag, attr) {
@@ -97,13 +88,6 @@ fn dropped_message(construct: &str, n: usize) -> (String, String) {
             "A `<quill-table>` wraps exactly one pipe table, its two tags each alone on a line with a blank \
              line between each tag and the table."
                 .to_string(),
-        ),
-        "quill-cell" => (
-            format!(
-                "markdown import does not carry `<quill-cell>`: {} dropped",
-                some_in_field("tag", "tags")
-            ),
-            "Align a whole column in the table's delimiter row, such as `| :---: |`.".to_string(),
         ),
         tag if tag.starts_with(PREFIX) && carrier::element(tag).is_none() => (
             format!(

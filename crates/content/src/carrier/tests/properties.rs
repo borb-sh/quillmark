@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use proptest::prelude::*;
 
-use crate::carrier::{decode_attrs, element, is_attr_name, strip, Attrs, Element, RESERVED};
+use crate::carrier::{decode_attrs, element, is_attr_name, strip, Attrs, Element};
 use crate::export::to_markdown;
 use crate::html;
 use crate::import::{from_markdown, options, ImportWarning};
@@ -111,9 +111,9 @@ impl Layout {
 }
 
 /// An element's open and closing tags and the construct it reports: an
-/// element name in the grammar spelled canonically, which the import models
-/// unless the name is reserved, or a `quill-*` tag name outside it. A
-/// `quill-table` carries valid layout attributes.
+/// element name in the grammar spelled canonically, which the import models,
+/// or a `quill-*` tag name outside it. A `quill-table` carries valid layout
+/// attributes.
 #[derive(Debug, Clone)]
 struct Carrier {
     open: String,
@@ -128,16 +128,14 @@ fn carrier() -> impl Strategy<Value = Carrier> {
     let named = (
         prop_oneof![
             Just("keep".to_string()),
-            Just("cell".to_string()),
             "[a-z][a-z0-9]{0,3}(-[a-z0-9]{1,3}){0,2}".prop_filter("anchor drops silently", |n| n != "anchor"),
         ],
         attrs(),
     )
         .prop_map(|(name, attrs)| {
-            let reported = RESERVED.contains(&name.as_str()).then(|| format!("quill-{name}"));
             let inline = format!("quill-{name}");
             let e = Element::new(name, attrs).unwrap();
-            Carrier { open: e.open_tag(), close: e.close_tag(), reported, inline, table: false }
+            Carrier { open: e.open_tag(), close: e.close_tag(), reported: None, inline, table: false }
         });
     let table = layout().prop_map(|layout| {
         let e = Element::new("table", layout.attrs()).unwrap();
@@ -383,7 +381,7 @@ proptest! {
         prop_assert_eq!(element(tag.name), Some(name));
         prop_assert_eq!(&decode_attrs(&tag.attrs), &read);
 
-        let block = normalize_markdown(&e.wrap_block("word"), options()).text;
+        let block = normalize_markdown(&e.wrap_block("word"), options());
         let tag = html::tag_at(&block, 0).unwrap();
         prop_assert_eq!(&decode_attrs(&tag.attrs), &read, "{:?}", block);
 

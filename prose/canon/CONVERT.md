@@ -151,7 +151,7 @@ leaves and containers alike: what the content nests, the markup nests.
 Anchor marks emit nothing; an `image` island emits nothing (see
 [Declined images](#declined-images)).
 Raw HTML other than an inline `<u>`, `<br>` (a hard break) and the `quill-*`
-carrier (markdown-spec §6.4) never enters the content, so it is absent here; math, footnotes, task lists and definition lists
+carrier (markdown-spec §6.4) never enters the content, so it is absent here; math, task lists and definition lists
 enter it as literal text (markdown-spec §6.2, §6.3).
 
 ### Elements

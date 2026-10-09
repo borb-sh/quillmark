@@ -66,17 +66,9 @@ fn admit_chars(s: &str) -> String {
     s.chars().filter_map(admit_char).collect()
 }
 
-/// The text the import parses, and the byte offset in it of each
-/// footnote-shaped definition, which CommonMark reads as a link reference
-/// definition and drops.
-pub(crate) struct Repaired {
-    pub(crate) text: String,
-    pub(crate) footnotes: Vec<usize>,
-}
-
 /// Every markdown normalization in order (spec §7): CRLF → LF, bidi controls
 /// dropped and line separators spaced, then [`repair`].
-pub(crate) fn normalize_markdown(markdown: &str, options: Options) -> Repaired {
+pub(crate) fn normalize_markdown(markdown: &str, options: Options) -> String {
     let cleaned = admit_chars(&normalize_line_endings(markdown));
     repair(cleaned, options)
 }
@@ -90,7 +82,7 @@ const REPAIR_ROUNDS: usize = 8;
 /// §7 step 4). Each round parses and edits only inside the spans that parse
 /// located, so a fence is never touched; the rounds end at one that plans no
 /// edit.
-fn repair(text: String, options: Options) -> Repaired {
+fn repair(text: String, options: Options) -> String {
     let mut text = text;
     if may_need_repair(&text) {
         for _ in 0..REPAIR_ROUNDS {
@@ -101,8 +93,7 @@ fn repair(text: String, options: Options) -> Repaired {
             text = apply(&text, &edits);
         }
     }
-    let footnotes = footnote_starts(&text, options);
-    Repaired { text, footnotes }
+    text
 }
 
 /// Whether some line could open an HTML block or hold a table row of tags: its
@@ -154,34 +145,6 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
     edits.extend(tag_row_edits(src, &tag_rows));
     edits.sort_by_key(|e| (e.range.start, e.range.end));
     edits
-}
-
-/// The start of each footnote-shaped definition in `src`, a repeated label's
-/// included.
-fn footnote_starts(src: &str, options: Options) -> Vec<usize> {
-    if !src.contains("[^") {
-        return Vec::new();
-    }
-    let parser = Parser::new_ext(src, options);
-    let defs: Vec<usize> = parser
-        .reference_definitions()
-        .iter()
-        .filter(|(label, _)| label.starts_with('^'))
-        .map(|(_, def)| def.span.start)
-        .collect();
-    if defs.is_empty() {
-        return Vec::new();
-    }
-    let leaves = parser
-        .into_offset_iter()
-        .filter(|(event, _)| !is_container(event))
-        .map(|(_, range)| range)
-        .collect();
-    let mut starts = footnote_definitions(src, leaves);
-    starts.extend(defs);
-    starts.sort_unstable();
-    starts.dedup();
-    starts
 }
 
 /// Apply `edits`, sorted by start, to `src`, skipping one that overlaps an
@@ -407,49 +370,6 @@ fn tag_row_edits(src: &str, rows: &[SrcLine]) -> Vec<Edit> {
     edits
 }
 
-fn is_container(event: &Event) -> bool {
-    matches!(
-        event,
-        Event::Start(PTag::BlockQuote(_) | PTag::List(_) | PTag::Item)
-            | Event::End(TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item)
-    )
-}
-
-/// The start of each footnote-shaped definition, the repeats of a label the
-/// parser's map omits included: each `[^label]:` opening a line inside its
-/// containers where no leaf block or inline event reaches, a definition being
-/// the one block the parse emits nothing for.
-fn footnote_definitions(src: &str, mut leaves: Vec<Range<usize>>) -> Vec<usize> {
-    leaves.sort_by_key(|r| r.start);
-    let mut reach = Vec::with_capacity(leaves.len());
-    let mut end = 0;
-    for r in &leaves {
-        end = end.max(r.end);
-        reach.push(end);
-    }
-    let covered = |at: usize| {
-        let k = leaves.partition_point(|r| r.start <= at);
-        k > 0 && reach[k - 1] > at
-    };
-    src.match_indices("[^")
-        .map(|(at, _)| at)
-        .filter(|&at| {
-            if covered(at) {
-                return false;
-            }
-            let line = src[..at].rfind('\n').map_or(0, |i| i + 1);
-            let lead = src[..at][line..].bytes().all(|b| {
-                b.is_ascii_digit() || matches!(b, b'>' | b' ' | b'\t' | b'-' | b'+' | b'*' | b'.' | b')')
-            });
-            let label = &src[at + 2..];
-            let shaped = label
-                .find(['[', ']', '\\', '\n'])
-                .is_some_and(|i| i > 0 && label[i..].starts_with("]:"));
-            lead && shaped
-        })
-        .collect()
-}
-
 // Applied only to the Markdown body (spec §7): YAML parsing normalizes its own
 // scalars but passes the body verbatim, and some Windows/clipboard sources
 // leave bare `\r` bytes.
@@ -509,14 +429,14 @@ mod tests {
         }
     }
 
-    fn normalized(md: &str) -> Repaired {
+    fn normalized(md: &str) -> String {
         normalize_markdown(md, crate::import::options())
     }
 
     #[test]
     fn test_normalize_markdown_basic() {
-        assert_eq!(normalized("hello").text, "hello");
-        assert_eq!(normalized("**bold** \u{202D}**more**").text, "**bold** **more**");
+        assert_eq!(normalized("hello"), "hello");
+        assert_eq!(normalized("**bold** \u{202D}**more**"), "**bold** **more**");
     }
 
     /// Fenced text is code to the parser, so no span the repair edits reaches
@@ -529,23 +449,8 @@ mod tests {
             "> ```\n> <div>x\n> [^1]: y\n> ```",
             "<div>\n\n```\n<!-- a --> b\n</div>\n```",
         ] {
-            assert_eq!(normalized(md).text, md);
+            assert_eq!(normalized(md), md);
         }
-    }
-
-    /// Each footnote-shaped definition is found where it stands, a repeated
-    /// label's and one nested in containers included, and left as written.
-    #[test]
-    fn a_footnote_definition_is_found_and_left_as_written() {
-        for md in ["[^1]: a", "> [^1]: a", "- x\n\n  [^x]: b\n\n[^x]: c", "<!-- c -->\n\n[^1]: a"] {
-            let r = normalized(md);
-            assert_eq!(r.text, md);
-            assert!(!r.footnotes.is_empty(), "{md:?}");
-            for &at in &r.footnotes {
-                assert_eq!(&r.text[at..at + 2], "[^", "{md:?}");
-            }
-        }
-        assert_eq!(normalized("- x\n\n  [^x]: b\n\n[^x]: c").footnotes.len(), 2);
     }
 
     /// Text split off after a comment keeps its line's indent, so it stays in
@@ -557,7 +462,7 @@ mod tests {
             ("- a\n\n  <!--\n  c\n  -->b", "- a\n\n  <!--\n  c\n  -->\n  b"),
         ];
         for (md, repaired) in cases {
-            assert_eq!(normalized(md).text, repaired, "{md:?}");
+            assert_eq!(normalized(md), repaired, "{md:?}");
         }
     }
 }

@@ -132,8 +132,7 @@ families:
   card's under its stored `$kind` as `pathFor` mints it. One on a `$` key or
   inside `$ext` or `$seed`, which have no document address, carries none.
   A body's markdown import adds `parse::dropped_construct`, one per construct
-  it dropped (a raw tag by its lowercase name, `footnote_definition`,
-  `quill-table` for a `quill-table` wrapper not holding exactly one table,
+  it dropped (a raw tag by its lowercase name, `quill-table` for a `quill-table` wrapper not holding exactly one table,
   `quill-table[<attr>]` for a wrapper attribute the engine does not name or
   cannot read, `quill-<name>` for an element tag left unclosed, inside a line
   or tight against markdown, or `quill-<name>[<attr>]` for an element
