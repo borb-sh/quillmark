@@ -454,8 +454,9 @@ proptest! {
         prop_assert_eq!(&new_rt.text[anchor.start..anchor.end], a.as_str());
     }
 
-    /// The annotated read imports as the plain projection does, and it lists
-    /// every prose anchor once, in `(start, id)` order.
+    /// The annotated read imports as the plain projection does, lists every
+    /// prose anchor once, in `(start, id)` order, and revises its content to
+    /// itself.
     #[test]
     fn the_annotated_read_imports_as_the_plain_one(
         md in prop_oneof![document(), delimiter_run()],
@@ -486,6 +487,10 @@ proptest! {
         want.sort_unstable();
         let got: Vec<&str> = read.anchors.iter().map(|a| a.id.as_str()).collect();
         prop_assert_eq!(got, want.into_iter().map(|(_, id)| id).collect::<Vec<_>>());
+
+        let (revised, _, warnings) = diff_import(&rt, &read.markdown).unwrap();
+        prop_assert_eq!(&revised, &rt, "the read does not revise to itself: {:?}", read.markdown);
+        prop_assert!(warnings.is_empty(), "{:?}", warnings);
     }
 
 }
@@ -864,7 +869,14 @@ proptest! {
 const DECODE_DISCRIMINATORS: &[&str] = &[
     "text", "lines", "marks", "islands", "kind", "attrs", "op", "line", "at", "delta", "ops",
     "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end", "container", "type",
-    "$name", "element", "instance",
+    "$name", "element", "instance", "containers", "continues", "id", "props", "url", "level",
+    "ordered", "ordinal", "rows", "aligns", "widths", "align", "list_item", "quote", "table",
+];
+
+/// Every op tag the line, mark and island decoders read.
+const OP_TAGS: &[&str] = &[
+    "add", "remove", "removeAnchor", "split", "join", "setKind", "setContainers", "setContinues",
+    "set", "insert",
 ];
 
 fn decode_key() -> impl Strategy<Value = String> {
@@ -917,7 +929,7 @@ proptest! {
     /// argument decoding is.
     #[test]
     fn op_wire_decode_never_panics_past_the_tag(
-        op in prop::sample::select(&["add", "remove", "split", "merge", "set", "unset"][..]),
+        op in prop::sample::select(OP_TAGS),
         rest in prop::collection::hash_map(decode_key(), decode_json(), 0..6),
     ) {
         let mut obj: serde_json::Map<String, Value> = rest.into_iter().collect();
@@ -925,6 +937,22 @@ proptest! {
         let v = Value::Object(obj);
         let _ = quillmark_content::ops::line_op_from_value(&v);
         let _ = quillmark_content::ops::mark_op_from_value(&v);
+        let _ = quillmark_content::ops::island_op_from_value(&v);
+    }
+
+    /// A line's containers inside an envelope that decodes up to them, on
+    /// both lanes.
+    #[test]
+    fn container_decode_never_panics(containers in prop::collection::vec(decode_json(), 0..4)) {
+        let content = serde_json::json!({
+            "text": "a",
+            "lines": [{"kind": "para", "containers": containers}],
+            "marks": [],
+            "islands": [],
+        });
+        let _ = quillmark_content::serial::from_canonical_value(&content);
+        let op = serde_json::json!({"op": "setContainers", "line": 0, "containers": containers});
+        let _ = quillmark_content::ops::line_op_from_value(&op);
     }
 }
 
