@@ -966,7 +966,9 @@ fn render_marked_core(
                     }
                 }
                 out.push_str("](");
-                emit_url(url, &mut out);
+                let mut dest = String::new();
+                emit_url(url, &mut dest);
+                push_piped(&dest, escape_pipe, &mut out);
                 out.push(')');
                 if let Some(points) = points.as_mut() {
                     points.resize(le, point);
@@ -994,7 +996,7 @@ fn render_marked_core(
                 if pad {
                     out.push(' ');
                 }
-                out.push_str(&content);
+                push_piped(&content, escape_pipe, &mut out);
                 if pad {
                     out.push(' ');
                 }
@@ -1366,6 +1368,17 @@ fn edge_space_ref(c: char) -> Option<&'static str> {
         ' ' => Some("&#32;"),
         '\t' => Some("&#9;"),
         _ => None,
+    }
+}
+
+/// Push `s`, a code span's content or a link's destination, with each `|`
+/// as `\|` where `escape_pipe`: a table row splits its cells at a `|` inside
+/// either, and reads `\|` as `|` before it parses the cell.
+fn push_piped(s: &str, escape_pipe: bool, out: &mut String) {
+    if escape_pipe {
+        out.push_str(&s.replace('|', "\\|"));
+    } else {
+        out.push_str(s);
     }
 }
 
@@ -1914,6 +1927,25 @@ mod tests {
         round_trips("| A |\n| --- |\n| <u>under</u> |");
         // A literal pipe inside a cell survives via `\|` re-escaping on export.
         round_trips("| A |\n| --- |\n| a \\| b |");
+    }
+
+    /// A row splits its cells at a `|` inside a code span or a link
+    /// destination too, so export writes it `\|` there as in text.
+    #[test]
+    fn a_pipe_in_a_cells_code_span_or_link_url_stays_in_its_cell() {
+        for (body, text, url) in [
+            ("`a\\|b`", "a|b", None),
+            ("`a\\\\|b`", "a\\|b", None),
+            ("[x](https://e.com/a\\|b)", "x", Some("https://e.com/a|b")),
+            ("[x](<https://e.com/a\\\\\\|b c>)", "x", Some("https://e.com/a\\|b c")),
+        ] {
+            let md = format!("| h |\n| --- |\n| {body} |");
+            let rt = from_markdown(&md).unwrap().content;
+            let cell = &rt.islands[0].props["rows"][0][0];
+            assert_eq!(cell["text"], text, "{md:?}");
+            assert_eq!(cell["marks"][0]["attrs"]["url"].as_str(), url, "{md:?}");
+            assert_eq!(to_markdown(&rt), md, "{md:?}");
+        }
     }
 
     #[test]
