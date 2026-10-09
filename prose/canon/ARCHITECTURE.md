@@ -106,8 +106,8 @@ binary). See [BINDINGS.md](BINDINGS.md).
 
 ### `quillmark-fixtures`
 
-Test resources under `resources/`, the parity corpus `@quillmark/wasm` also
-ships among them ([PARITY.md](PARITY.md)). Helper functions for test setup.
+Test resources under `resources/`, the parity corpus among them
+([PARITY.md](PARITY.md)). Helper functions for test setup.
 
 ## Core Interfaces
 

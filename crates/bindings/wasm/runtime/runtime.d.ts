@@ -414,10 +414,12 @@ export declare class Engine {
 	 * synchronously before the first await, so the caller may `free()` them as
 	 * soon as this call returns.
 	 *
-	 * {@link RenderResult.warnings} carries every `quill.validate(doc)` warning,
-	 * then the compile's own. The load's (parse and `conform::*`) stay on
-	 * `doc.warnings`, and a revise's on its receipt. A {@link LiveSession}
-	 * carries the compile's alone: read `quill.validate(doc)` beside it.
+	 * {@link RenderResult.warnings} carries every `quill.validate(doc)` warning
+	 * but `validation::declined_construct`, which the compile raises as
+	 * `backend::declined_construct`, then the compile's own. The load's (parse
+	 * and `conform::*`) stay on `doc.warnings`, and a revise's on its receipt.
+	 * A {@link LiveSession} carries the compile's alone: read
+	 * `quill.validate(doc)` beside it.
 	 *
 	 * `today` reads as on {@link open}. An `options` key outside
 	 * {@link RenderOptions} rejects, `today` among them.
@@ -644,11 +646,13 @@ export declare class DocumentWriter {
 	reviseField(name: string, text: string): Revised;
 	/**
 	 * Replace the bound document with `markdown`, then conform it. Composable
-	 * cards align to the stored ones by `$kind` and text similarity, aligned
-	 * cards keep their anchors, and every declared content field lands at rest. Returns the
-	 * `DocumentRevised` receipt, its `warnings` ending with the `conform::*`
-	 * ones. Throws when `markdown` declares a `$quill` this quill does not
-	 * answer to, or does not parse, leaving the document unchanged.
+	 * cards align to the stored ones by `$kind` and text similarity, an aligned
+	 * card's body and stored content fields revise, their anchors rebasing as
+	 * {@link reviseBody}'s do, and every declared content field lands at rest.
+	 * Returns the `DocumentRevised` receipt, its `warnings` ending with the
+	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`
+	 * declares a `$quill` this quill does not answer to, or does not parse,
+	 * leaving the document unchanged.
 	 */
 	reviseDocument(markdown: string): DocumentRevised;
 	/**

@@ -12,8 +12,7 @@ pub(crate) mod table;
 pub const PREFIX: &str = "quill-";
 
 /// Element names reserved for the table wrapper (`table`) and the anchor
-/// spelling (`anchor`): carrier names a quill never declares as its own
-/// element.
+/// spelling (`anchor`), which no stored element carries.
 pub const RESERVED: [&str; 2] = ["table", "anchor"];
 
 /// Attribute names outside the grammar besides every `on*`: each is one a

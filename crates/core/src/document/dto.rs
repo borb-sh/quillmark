@@ -119,7 +119,7 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// Frozen `0.124.0` representation of a [`Document`]: the V0_116_0 tree over
-/// the content vocabulary holding the `element` container and mark.
+/// the content vocabulary holding the `element` container.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DocumentV0_124_0 {

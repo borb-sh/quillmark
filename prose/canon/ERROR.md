@@ -112,7 +112,7 @@ for it, anchored at the card that is full.
 
 ## Warning flow
 
-Warnings travel the same `Diagnostic` currency as errors, on seven producer
+Warnings travel the same `Diagnostic` currency as errors, on these producer
 families:
 
 - **`quill::*` load warnings**: the second half of
@@ -132,22 +132,32 @@ families:
   card's under its stored `$kind` as `pathFor` mints it. One on a `$` key or
   inside `$ext` or `$seed`, which have no document address, carries none.
   A body's markdown import adds `parse::dropped_construct`, one per construct
-  it dropped (a raw tag by its lowercase name, `quill-table` for a `quill-table` wrapper not holding exactly one table,
-  `quill-table[<attr>]` for a wrapper attribute the engine does not name or
-  cannot read, `quill-<name>` for an element tag left unclosed, inside a line
-  or tight against markdown, or `quill-<name>[<attr>]` for an element
-  attribute outside the grammar) with its `count`, anchored at the body (`main.body`, `cards.<kind>[<i>].body`)
-  after its card's tag warnings.
+  it dropped, with its `count`, anchored at the body (`main.body`,
+  `cards.<kind>[<i>].body`) after its card's tag warnings. The `construct` is:
+  - a raw tag's lowercase name: `div`, a `quill-*` name outside the carrier
+    grammar such as `quill-a--b`, or `quill-anchor` where its block drops
+    markdown;
+  - `quill-<name>` for an element tag that drops: left unclosed,
+    self-closing, inside a line, or tight against markdown;
+  - `quill-table` for a `quill-table` wrapper that drops whole;
+  - `quill-table[<attr>]` or `quill-<name>[<attr>]` for one attribute that
+    drops.
+
+  A parse reports a body's drops alone: a `richtext` field's markdown string
+  imports with no report.
 - **`parse::dropped_construct` off a markdown write.** The diagnostic a parse
   adds, minted by `quillmark_core::document::dropped_construct`, also rides
   the write that imported the markdown. A revise returns it on its `Revised`
   receipt beside the `Delta`: unanchored from a `Card` verb, which does not
   know its address, and at the body or field from the typed writer and WASM
-  `revise`. `add_card` returns it at the placed card's body, WASM
-  `importMarkdown` and `rebase` beside the content with no `path`, and
-  Python's `revise_body` / `revise_field` / `add_card` as a list. Any other
-  write importing a `richtext` string, such as a conform, a typed `set` or a
-  card inserted with a string body, drops without it.
+  `revise`. A whole-document revise (`Document::revise`, the writer's
+  `revise_document`) carries the parse's warnings, then each revised content
+  field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
+  at the placed card's body, WASM `importMarkdown` and `rebase` beside the
+  content with no `path`, and Python's `revise_body` / `revise_field` /
+  `revise_document` / `add_card` as a list. Any other write importing a
+  `richtext` string, such as a conform, a typed `set` or a card inserted with
+  a string body, drops without it.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
@@ -170,10 +180,11 @@ families:
   `$seed` checks, which warn
   whatever their class because no render reads `$seed`.
   The render gate consults only the fatal set. A one-shot render
-  (`Quillmark::render`) carries every one of these warnings on
-  `RenderResult.warnings`, ahead of the compile's. A session carries none: its
-  warnings are its current compile's, so its editor reads `Quill::validate`
-  beside it. The CLI's `render` prints them ([CLI.md](CLI.md)). Values
+  (`Quillmark::render`) carries every one of these warnings but
+  `declined_construct` on `RenderResult.warnings`, ahead of the compile's. A
+  session carries none: its warnings are its current compile's, so its editor
+  reads `Quill::validate` beside it. The CLI's `render` prints them
+  ([CLI.md](CLI.md)). Values
   are judged in the form the render floor builds from them
   ([SCHEMAS.md](SCHEMAS.md) § "Type coercion").
 - **`backend::declined_construct`: declined-construct warnings.** A backend
@@ -202,9 +213,8 @@ families:
   `RenderResult.warnings` on every `render()`, including the one-shot
   `open` → `render` path.
 
-Ordering in a merged `RenderResult.warnings` is pipeline order: parse
-warnings first, then validation warnings, then compile warnings, with no dedup
-across families.
+Ordering in a merged `RenderResult.warnings` is pipeline order: validation
+warnings first, then compile warnings, with no dedup across families.
 `backend::declined_construct` dedups within itself, per field: its producer
 sees every occurrence at once, so the occurrences collapse into `count`.
 

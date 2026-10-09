@@ -36,8 +36,7 @@ use crate::model::{
     Container, Island, LineKind, Mark, MarkKind, Content, Normalized, Usv, ISLAND_SLOT,
 };
 
-/// Render a content to markdown. An island projects by **type**: a type this
-/// build knows emits its markdown, any other a placeholder comment.
+/// Render a content to markdown.
 pub fn to_markdown(rt: &Normalized) -> String {
     let segments = line_segments(rt);
     project(&Ctx {
@@ -141,8 +140,9 @@ fn project(ctx: &Ctx) -> String {
 ///
 /// Tables and images having no plaintext form is a **decided limitation**: the
 /// acroform backend fills a form field from this projection, so a field bound to
-/// a table-bearing content renders the surrounding text and silently omits the
-/// table, rather than emitting a row/tab dump that would read as faithful.
+/// a table-bearing content renders the surrounding text and omits the table,
+/// under a `backend::declined_construct` warning, rather than emitting a
+/// row/tab dump that would read as faithful.
 pub fn to_plaintext(rt: &Content) -> String {
     rt.text.chars().filter(|&c| c != ISLAND_SLOT).collect()
 }

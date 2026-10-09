@@ -47,8 +47,10 @@ impl PyQuillmark {
     /// `datetime.date.today()`): a `today` date field renders as it, and so does
     /// a plate's `datetime.today()`.
     ///
-    /// The result's `warnings` are every `quill.validate(doc)` warning, then
-    /// the compile's; the load's stay on `doc.warnings`.
+    /// The result's `warnings` are every `quill.validate(doc)` warning but
+    /// `validation::declined_construct`, which the compile raises as
+    /// `backend::declined_construct`, then the compile's; the load's stay on
+    /// `doc.warnings`.
     #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, regions=false, today=None))]
     #[allow(clippy::too_many_arguments)]
     fn render(
@@ -203,8 +205,8 @@ impl PyQuill {
     }
 
     /// Validate `doc` against this quill's schema, returning a list of diagnostic
-    /// dicts (empty when the document is valid). Forwards the canonical
-    /// `validation::*` diagnostics the engine emits.
+    /// dicts: an error blocks a render, a warning does not. Forwards the
+    /// canonical `validation::*` diagnostics the engine emits.
     fn validate<'py>(
         &self,
         py: Python<'py>,
@@ -428,7 +430,9 @@ impl PyDocument {
         quillmark_core::version::quill_ref_hint()
     }
 
-    /// Emit canonical Quillmark Markdown. Round-trip safe.
+    /// Emit canonical Quillmark Markdown. Round-trip safe but for content: a
+    /// body or content field holds what its markdown spells, so its anchors
+    /// drop and its island ids re-mint. `to_stored` keeps both.
     fn to_markdown(&self) -> String {
         self.inner.to_markdown()
     }

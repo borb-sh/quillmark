@@ -36,8 +36,9 @@ them.
   `validation::declined_construct`, then the compile's
   ([ERROR.md](ERROR.md#warning-flow)). The engine's one-shot render carries
   the last two; the CLI adds the parse carrier. A render that fails returns no
-  result, so the CLI prints the first two itself, ahead of the error. A failed
-  compile carries the backend's load warnings after its errors
+  result, so the CLI prints the parse carrier and every `Quill::validate`
+  warning itself, `validation::declined_construct` among them, ahead of the
+  error. A failed compile carries the backend's load warnings after its errors
   ([ERROR.md](ERROR.md#warning-flow)), and the CLI prints them third.
 - **`validate` compiles the plate.** It renders the three canonical documents —
   the empty document, the blueprint, the seeded document — through the quill's

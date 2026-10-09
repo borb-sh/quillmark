@@ -133,7 +133,8 @@ fn element_text(e: &Value) -> Option<String> {
 }
 
 /// A richtext content's plaintext, island slots stripped. Tables and images have
-/// no plaintext form, so a table-only content binds blank with no diagnostic.
+/// no plaintext form, so a table-only content binds blank, the session's
+/// `backend::declined_construct` warning naming the table.
 fn richtext_plaintext(v: &Value) -> Option<String> {
     let rt = quillmark_content::serial::from_canonical_value(v).ok()?;
     let text = quillmark_content::export::to_plaintext(&rt);

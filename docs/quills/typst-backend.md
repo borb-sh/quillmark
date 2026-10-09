@@ -137,7 +137,11 @@ A `quill-<name>` element renders through the helper's `elements` registry. A pla
 #data.at("$body", default: [])
 ```
 
-The dispatcher reads the registry's final value, so the update may stand anywhere in the plate. An element around nothing, `<quill-sig>` on the line above `</quill-sig>`, calls its renderer with an empty body, which suits a signature line or a stamp. `attrs` is a dictionary of the element's attributes, each the string the document wrote, keyed by name. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone.
+The dispatcher reads the registry's final value, so the update may stand anywhere in the plate. An element around nothing, `<quill-sig>` on the line above `</quill-sig>`, calls its renderer with a body that draws nothing, `[ ]`, which suits a signature line or a stamp. `attrs` is a dictionary of the element's attributes keyed by name, each value a string with its entities decoded: `note="a &amp; b"` arrives as `"a & b"`. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone.
+
+### Tables
+
+A table in content lowers to a call of Typst's `table`, so `#set table(..)` and `#show table: ..` reach it. The call always passes `columns`, and passes `align` where the document aligns a column, so a set rule's `columns` never applies and its `align` applies only to a table aligning no column. A `quill-table` wrapper's `widths` lower to `fr` tracks, `auto` for an auto-fit column, and its `align` places the table with `align(..)` without moving the text in its cells.
 
 ## Modules
 
@@ -229,7 +233,7 @@ from any file.
 #image("/assets/logo.svg", width: 2cm)
 ```
 
-**A markdown image in a `richtext` field draws nothing.** `![logo](assets/logo.svg)` in document content reaches no page, and the render warns under `backend::declined_construct`, naming the field and how many images it holds.
+**A markdown image in a `richtext` field draws nothing.** `![logo](assets/logo.svg)` in document content reaches no page, and the render warns under `backend::declined_construct`, naming the field and how many images it holds; `quill.validate(doc)` warns the same under `validation::declined_construct`.
 
 What such a url names — a file in this Quill, a path beside the document, a remote address — is undecided. A document is portable across every version a `$quill` selector admits, so a path into one Quill's file tree is not a binding it can take. The construct still stores and round-trips; only the page declines it.
 

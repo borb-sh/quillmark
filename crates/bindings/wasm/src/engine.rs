@@ -293,7 +293,8 @@ export interface TableProps {
     /** Per-column alignment, one entry per column. */
     aligns: ("none" | "left" | "center" | "right")[];
     /** Per-column relative weights; `null` is an auto-fit column. Absent when
-     * every column is auto-fit. */
+     * every column is auto-fit. A weight is an integer from 1 to
+     * `Number.MAX_SAFE_INTEGER`; any other entry drops the key. */
     widths?: (number | null)[];
     /** The table's placement; absent is the quill's. */
     align?: "left" | "center" | "right";
@@ -373,9 +374,12 @@ export interface Revised {
 }
 
 /**
- * The receipt of `writer.reviseDocument`. `droppedAnchors` names every anchor
- * the write did not carry, at its path in the stored document. `warnings` are
- * the parse's and each field import's, then the writer's `conform::*`.
+ * The receipt of `writer.reviseDocument`. `droppedAnchors` names every prose
+ * anchor the write did not carry, at its path in the stored document; a table
+ * cell's anchors drop unnamed. `warnings` are the parse's, then each revised
+ * content field's `parse::dropped_construct`, then the writer's `conform::*`.
+ * A field that lands rather than revises, on an inserted card or over no stored
+ * content, reports no drop.
  */
 export interface DocumentRevised {
     droppedAnchors: { path: string; id: string }[];
@@ -385,9 +389,10 @@ export interface DocumentRevised {
 /**
  * The read `toAnnotatedMarkdown` returns: `toMarkdown`'s markdown with a
  * read-only `<quill-anchor ref="…"></quill-anchor>` at each prose anchor's
- * start its line can hold, and every anchor of every body and content field,
- * spelled or not. Each names the `path` of its body or field and the text of
- * the `line` its start sits on, island slots removed.
+ * start its line can hold, and every prose anchor of every body and content
+ * field, spelled or not; a table cell's anchors are neither. Each names the
+ * `path` of its body or field and the text of the `line` its start sits on,
+ * island slots removed.
  */
 export interface AnnotatedMarkdown {
     markdown: string;
@@ -584,10 +589,11 @@ impl Quillmark {
     }
 
     /// Render `doc` against `quill` in one shot: `open` + `LiveSession.render`,
-    /// with every `quill.validate` warning ahead of the compile's in
-    /// `warnings`; the load's stay on `doc.warnings`. An unset `output_format`
-    /// falls back to the backend's first supported format. `today` reads as on
-    /// `open`.
+    /// with every `quill.validate` warning but `validation::declined_construct`,
+    /// which the compile raises as `backend::declined_construct`, ahead of the
+    /// compile's in `warnings`; the load's stay on `doc.warnings`. An unset
+    /// `output_format` falls back to the backend's first supported format.
+    /// `today` reads as on `open`.
     #[wasm_bindgen(js_name = render)]
     pub fn render(
         &self,
@@ -711,8 +717,8 @@ impl Quill {
         serialize_nullable_or_throw(&value, "metadata")
     }
 
-    /// Validate `doc` against this quill's schema, returning every diagnostic
-    /// (empty when the document is valid). Forwards the canonical
+    /// Validate `doc` against this quill's schema, returning every diagnostic:
+    /// an error blocks a render, a warning does not. Forwards the canonical
     /// `validation::*` diagnostics the engine emits.
     #[wasm_bindgen(js_name = validate, unchecked_return_type = "Diagnostic[]")]
     pub fn validate(&self, doc: &Document) -> Result<JsValue, JsValue> {
@@ -931,8 +937,10 @@ impl Document {
         quillmark_core::version::quill_ref_hint().to_string()
     }
 
-    /// Emit canonical Quillmark Markdown. Round-trip safe: re-parsing the
-    /// result produces a `Document` equal to `self` by value and by type.
+    /// Emit canonical Quillmark Markdown. Re-parsing the result produces a
+    /// `Document` equal to `self` by value and by type, but for content: a body
+    /// or content field holds what its markdown spells, so its anchors drop and
+    /// its island ids re-mint. `toStored` keeps both.
     #[wasm_bindgen(js_name = toMarkdown)]
     pub fn to_markdown(&self) -> String {
         self.inner.to_markdown()
@@ -1311,7 +1319,7 @@ impl Document {
     /// The non-fatal diagnostics of the load that produced this document: parse
     /// warnings, plus `conform::*` warnings when it came through `quill.parse`.
     /// Session state, not document value: `equals` and the storage DTO exclude
-    /// it, and `fromStored` / `loadStored` clear it.
+    /// it, and `fromStored` / `loadStored` / `writer.reviseDocument` clear it.
     #[wasm_bindgen(getter, js_name = warnings, unchecked_return_type = "Diagnostic[]")]
     pub fn warnings(&self) -> Result<JsValue, JsValue> {
         let diags: Vec<Diagnostic> = self

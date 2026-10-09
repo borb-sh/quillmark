@@ -36,6 +36,11 @@ Where the code falls short of an invariant, the matrix cell says so:
 `drops silently` is the outcome invariants 4 and 6 rule out, and on a stored
 construct's markdown cell it is also where the fixed point fails.
 
+The matrix reads a body. A `richtext` field's markdown string drops what it
+cannot carry with no signal wherever it imports, a parse's conform and a typed
+`set` among them; a revise is the one write that reports a field's drops
+([ERROR.md](ERROR.md#warning-flow)).
+
 ## The matrix
 
 One row per construct the content holds, and one per markdown spelling the
@@ -93,6 +98,9 @@ import meets. The columns:
 Two adjacent bullet lists lower to items a blank line parts, which Typst reads
 as one wide list: the `instance` boundary does not reach the page.
 
+An element lowers through the helper's dispatcher, which draws it with the
+renderer a plate registers under its name ([CONVERT.md](CONVERT.md#elements)).
+
 ### Marks
 
 | Row | Markdown | Stored JSON | Op wire | Typst lowering | Validate | Signal |
@@ -111,9 +119,6 @@ The annotated read spells it at its start as a `quill-anchor` tag the import
 drops, so the markdown cell stays `carries opaquely`: a write keeps an anchor by
 diff-rebase alone. The row's corpus entry pins the spelling under
 `annotated`.
-
-An element lowers through the helper's dispatcher, which draws it with the
-renderer a plate registers under its name ([CONVERT.md](CONVERT.md#elements)).
 
 ### Islands
 
@@ -222,8 +227,10 @@ fails:
 A row whose construct the import does not store still has its `typst`: what the
 markup wrapped reaches the page.
 
-The WASM package's `parity.test.js` round-trips every spelled entry through
-`importMarkdown` and `exportMarkdown`, and imports each `annotated` read.
+The WASM binding's `parity.test.js` imports every spelled entry through
+`importMarkdown` to `content`, warning `signals.import`, and `exportMarkdown`'s
+markdown back to `content`; it imports each `annotated` read to `content`
+without its anchors, warning nothing.
 
 A construct enters the engine with its row and its entry, and a change to what
 a surface does with one edits both.

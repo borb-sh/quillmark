@@ -85,13 +85,14 @@ pub enum ImportWarning {
 /// name `parse::dropped_construct` reports it under, given with each variant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Dropped {
-    /// A raw tag outside the `<u>`/`<br>` allowlist and the carrier, counted at
-    /// its open or self-closing form: its lowercase name (`span`, `u`).
+    /// A raw tag outside the carrier, or a `quill-anchor` reported with the
+    /// markdown its HTML block drops: its lowercase name (`span`, `u`).
     Tag(String),
     /// A tag named with the carrier's prefix and no element name after it: its
     /// lowercase name (`quill-a--b`).
     BadName(String),
-    /// A `quill-table` wrapper not holding exactly one table: `quill-table`.
+    /// A `quill-table` wrapper that drops as an element does, or that does not
+    /// hold exactly one table: `quill-table`.
     Table,
     /// A `quill-table` attribute the wrapper does not fold:
     /// `quill-table[<attr>]`.
@@ -99,7 +100,8 @@ pub enum Dropped {
     /// An element left unclosed, self-closing, inside a line or tight against
     /// markdown: `quill-<name>`.
     Element(String),
-    /// An element attribute outside the grammar: `quill-<name>[<attr>]`.
+    /// An element attribute outside the grammar, or one repeating a name
+    /// already read: `quill-<name>[<attr>]`.
     ElementAttr { element: String, attr: String },
 }
 
@@ -1200,8 +1202,8 @@ pub(crate) fn sanitize_lang(lang: &str) -> String {
 // `MarkdownFixer` is the raw-HTML filter between pulldown and the builder: it
 // passes each inline `<u>` and `</u>` and each carrier tag for the builder to
 // pair, allowlists an inline `<br>` as a hard break, and drops every other raw
-// HTML event, an HTML block whole. It counts each tag it drops, so the warnings
-// and the drop cannot disagree.
+// HTML event, an HTML block whole. It counts what it drops where it drops it,
+// so the warnings and the drop cannot disagree.
 // Delimiter arithmetic stays pulldown's, since a fixer that re-segments `***`
 // runs can only disagree with CommonMark, and disagreeing means deleting an
 // asterisk the author typed.

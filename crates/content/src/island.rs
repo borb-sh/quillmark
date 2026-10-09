@@ -12,8 +12,10 @@ use serde_json::Value;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IslandType {
     /// `{header, rows, aligns}` with inline `{text, marks}` cells, a `\n` in a
-    /// cell's text being a line break. Mark-carrying, shape-normalized (one
-    /// column count, `\n` the only line-break char a cell keeps).
+    /// cell's text being a line break, and the optional layout keys `widths`
+    /// (a weight or `null` per column) and `align` (one of [`TABLE_ALIGNS`]).
+    /// Mark-carrying, shape-normalized (one column count, `\n` the only
+    /// line-break char a cell keeps, each layout key absent at its default).
     Table,
     /// `{url, alt}`. No cell model, no shape invariants.
     Image,

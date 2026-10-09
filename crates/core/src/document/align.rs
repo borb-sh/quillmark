@@ -32,8 +32,8 @@ const MIN_PAIR_PERMILLE: u64 = 500;
 pub(crate) enum Pairing {
     /// Their texts match, or resemble each other more than any rival pairing.
     Text,
-    /// Same kind, unlike texts, and the only unpaired cards of that kind
-    /// between two text-aligned neighbours, taken in order.
+    /// Same kind and unlike texts, both in one gap the text pairs leave, taken
+    /// in order.
     Position,
 }
 
@@ -45,8 +45,9 @@ pub(crate) enum Pairing {
 /// unchanged cards keeps every pairing. The rest align as a diff over the kind
 /// sequence that maximizes how far each pair's similarity clears
 /// [`MIN_PAIR_PERMILLE`], so a deleted card and an inserted one never outweigh
-/// one edited card. Cards left unpaired between two consecutive text pairs
-/// then pair in order by kind.
+/// one edited card. Cards left unpaired in each gap, between two consecutive
+/// text pairs or before the first or after the last, then pair in order by
+/// kind.
 pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(usize, Pairing)>> {
     let mut out = vec![None; incoming.len()];
     let mut taken = vec![false; stored.len()];
