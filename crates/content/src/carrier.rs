@@ -1,4 +1,4 @@
-//! The `quill-*` carrier (markdown-spec §6.4): the custom elements a markdown
+//! The `qm-*` carrier (markdown-spec §6.4): the custom elements a markdown
 //! spelling rides on where CommonMark has no syntax, their name and attribute
 //! grammar, and their canonical spelling.
 
@@ -9,7 +9,7 @@ use std::fmt::Write as _;
 pub(crate) mod table;
 
 /// What every carrier tag name opens with.
-pub const PREFIX: &str = "quill-";
+pub const PREFIX: &str = "qm-";
 
 /// Element names reserved for the table wrapper (`table`) and the anchor
 /// spelling (`anchor`), which no stored element carries.
@@ -32,8 +32,8 @@ pub fn is_element_name(name: &str) -> bool {
 
 /// The element a tag named `tag_name` carries: the name after [`PREFIX`],
 /// when it is an [element name](is_element_name). HTML tag names compare
-/// ASCII-case-insensitively, so the name is read lowercased: `<Quill-Keep>`
-/// carries `keep`, and `<quill-a--b>` carries none.
+/// ASCII-case-insensitively, so the name is read lowercased: `<Qm-Keep>`
+/// carries `keep`, and `<qm-a--b>` carries none.
 pub fn element(tag_name: &str) -> Option<String> {
     let lower = tag_name.to_ascii_lowercase();
     let name = lower.strip_prefix(PREFIX)?;
@@ -243,10 +243,10 @@ mod tests {
         for name in ["", "A", "1a", "a--b", "a-", "-a", "a_b", "a.b", "ké"] {
             assert!(!is_element_name(name), "{name:?}");
         }
-        assert_eq!(element("quill-a-b").as_deref(), Some("a-b"));
-        assert_eq!(element("quill-table").as_deref(), Some("table"));
-        assert_eq!(element("Quill-A").as_deref(), Some("a"));
-        for tag in ["quill-", "quill-a--b", "quill-1", "quill", "keep", "xquill-a"] {
+        assert_eq!(element("qm-a-b").as_deref(), Some("a-b"));
+        assert_eq!(element("qm-table").as_deref(), Some("table"));
+        assert_eq!(element("Qm-A").as_deref(), Some("a"));
+        for tag in ["qm-", "qm-a--b", "qm-1", "quill", "keep", "xqm-a"] {
             assert_eq!(element(tag), None, "{tag:?}");
         }
         assert!(RESERVED.iter().all(|r| is_element_name(r)));
@@ -298,12 +298,12 @@ mod tests {
         let e = Element::new("table", values).unwrap();
         assert_eq!(
             e.open_tag(),
-            "<quill-table align=\"a&amp;b&lt;c&gt;&quot;d'e\" note=\"x&#xA;y&#x202E;&#x7C;\" widths=\"1 2\">"
+            "<qm-table align=\"a&amp;b&lt;c&gt;&quot;d'e\" note=\"x&#xA;y&#x202E;&#x7C;\" widths=\"1 2\">"
         );
-        assert_eq!(e.close_tag(), "</quill-table>");
+        assert_eq!(e.close_tag(), "</qm-table>");
         let keep = Element::new("keep", BTreeMap::new()).unwrap();
-        assert_eq!(keep.wrap_block("a\n\nb"), "<quill-keep>\n\na\n\nb\n\n</quill-keep>");
-        assert_eq!(keep.wrap_block(""), "<quill-keep>\n</quill-keep>");
+        assert_eq!(keep.wrap_block("a\n\nb"), "<qm-keep>\n\na\n\nb\n\n</qm-keep>");
+        assert_eq!(keep.wrap_block(""), "<qm-keep>\n</qm-keep>");
 
         assert_eq!(Element::new("A", BTreeMap::new()), Err(Refused::Name("A".into())));
         assert_eq!(

@@ -308,9 +308,9 @@ mod tests {
         assert!(!t.closing && t.self_closing);
         assert_eq!(t.span, 2..41);
 
-        let t = tag_at("</quill-table >", 0).unwrap();
+        let t = tag_at("</qm-table >", 0).unwrap();
         assert!(t.closing);
-        assert_eq!(t.name, "quill-table");
+        assert_eq!(t.name, "qm-table");
 
         let multi = tag_at("<img src=\"x\"\n     width=\"2\">", 0).unwrap();
         assert_eq!(multi.attrs.len(), 2);
@@ -360,7 +360,7 @@ mod tests {
             ("    <div>", None),
             ("<div-x>", Some(Tag)),
             ("<span>", Some(Tag)),
-            ("</quill-table>  ", Some(Tag)),
+            ("</qm-table>  ", Some(Tag)),
             ("<span>text", None),
             ("<span><b>", None),
             ("<span", None),

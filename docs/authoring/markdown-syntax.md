@@ -25,35 +25,35 @@ Quillmark enables a small, stable subset of GFM:
 
 Task lists, autolinks beyond CommonMark's, and other GFM features are **not** enabled.
 
-## Table layout and elements: `quill-*` tags
+## Table layout and elements: `qm-*` tags
 
-Markdown has no syntax for column widths, table placement or keeping a block on one page. Quillmark spells them with `quill-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
+Markdown has no syntax for column widths, table placement or keeping a block on one page. Quillmark spells them with `qm-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
 
-Each `quill-*` tag stands alone on its line, with a blank line above and below:
+Each `qm-*` tag stands alone on its line, with a blank line above and below:
 
 ```markdown
-<quill-keep>
+<qm-keep>
 
 **Signed**
 J. Doe
 
-</quill-keep>
+</qm-keep>
 ```
 
-Written tight against markdown, a tag line opens an HTML block that runs to the next blank line, and the block drops whole, markdown included, with a `parse::dropped_construct` warning whose hint names the fix. A tag inside a line, a self-closing tag (`<quill-keep/>`) and a tag left open drop too, keeping what they wrap.
+Written tight against markdown, a tag line opens an HTML block that runs to the next blank line, and the block drops whole, markdown included, with a `parse::dropped_construct` warning whose hint names the fix. A tag inside a line, a self-closing tag (`<qm-keep/>`) and a tag left open drop too, keeping what they wrap.
 
 ### Table widths and placement
 
-A `quill-table` around one pipe table sets its layout:
+A `qm-table` around one pipe table sets its layout:
 
 ```markdown
-<quill-table widths="2 1 auto" align="center">
+<qm-table widths="2 1 auto" align="center">
 
 | Item | Description | Qty |
 | --- | --- | --- |
 | A | First | 1 |
 
-</quill-table>
+</qm-table>
 ```
 
 | Attribute | Value | Without it |
@@ -61,26 +61,26 @@ A `quill-table` around one pipe table sets its layout:
 | `widths` | One weight per column: a positive whole number, or `auto` to fit the column to its content. Weights are relative, so `2 1` makes the first column twice as wide as the second. | Every column fits its content. |
 | `align` | Where the table sits: `left`, `center` or `right`. | The quill's placement. |
 
-Text alignment within a column stays in the delimiter row (`:---:`). A `widths` with fewer entries than the table has columns leaves the rest `auto`, and one with more ignores the extra entries. A `quill-table` around anything but one table drops, keeping what it holds.
+Text alignment within a column stays in the delimiter row (`:---:`). A `widths` with fewer entries than the table has columns leaves the rest `auto`, and one with more ignores the extra entries. A `qm-table` around anything but one table drops, keeping what it holds.
 
 ### Elements
 
-Any other `quill-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `quill-sig` or `quill-stamp-2`; `quill-anchor` is reserved. `quill-keep` is built into every Typst quill and keeps what it wraps on one page; around a `quill-table` it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent.
+Any other `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` is reserved. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a `qm-table` it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent.
 
 An element around nothing is its two tags on adjacent lines, which suits a signature line or a stamp the quill draws:
 
 ```markdown
-<quill-sig>
-</quill-sig>
+<qm-sig>
+</qm-sig>
 ```
 
-An element's attributes are strings the quill reads, such as `<quill-stamp tone="urgent">`. An attribute name is lowercase letters, digits and `_`, opening with a letter. `style`, `class`, `id`, `href`, `src` and names opening `on` are refused, so the tags never carry markup a browser would act on.
+An element's attributes are strings the quill reads, such as `<qm-stamp tone="urgent">`. An attribute name is lowercase letters, digits and `_`, opening with a letter. `style`, `class`, `id`, `href`, `src` and names opening `on` are refused, so the tags never carry markup a browser would act on.
 
 ## Deviations from CommonMark
 
 ### Raw HTML is not rendered, except `<u>` and `<br>`
 
-CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, and a `quill-*` tag spells [table layout or an element](#table-layout-and-elements-quill-tags).
+CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, and a `qm-*` tag spells [table layout or an element](#table-layout-and-elements-qm-tags).
 
 ```markdown
 <u>This is underlined</u>, even <u>across word boundaries</u>.
@@ -104,7 +104,7 @@ Consequences:
 - An HTML block drops as CommonMark reads it. A line starting with a tag such as `<div>`, `<center>` or `<details>` opens a block that runs to the next blank line, so markdown on the lines under it drops with it; a blank line after the tag line keeps what follows. Embedded SVG draws nothing.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included, through the end of its closing tag's line.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
-- Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included. Comments and a `quill-*` element that closes are not reported, and neither are closing tags and `<quill-anchor>` tags, except where the block they open drops markdown. A tag in a `richtext` field's value in the card-yaml block drops the same way, reported at the field.
+- Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included. Comments and a `qm-*` element that closes are not reported, and neither are closing tags and `<qm-anchor>` tags, except where the block they open drops markdown. A tag in a `richtext` field's value in the card-yaml block drops the same way, reported at the field.
 
 ### A column-zero `~~~` always opens a card-yaml block
 

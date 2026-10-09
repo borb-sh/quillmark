@@ -635,7 +635,7 @@
   {
     "name": "mark.anchor",
     "markdown": null,
-    "annotated": "<quill-anchor ref=\"c1\"></quill-anchor>Hi there",
+    "annotated": "<qm-anchor ref=\"c1\"></qm-anchor>Hi there",
     "content": {
       "islands": [],
       "lines": [
@@ -1392,7 +1392,7 @@
   },
   {
     "name": "container.element",
-    "markdown": "<quill-keep>\n\n**Signed**\n\n</quill-keep>",
+    "markdown": "<qm-keep>\n\n**Signed**\n\n</qm-keep>",
     "content": {
       "islands": [],
       "lines": [
@@ -1427,7 +1427,7 @@
   },
   {
     "name": "container.element.attrs",
-    "markdown": "<quill-keep note=\"x\">\n\nText\n\n</quill-keep>",
+    "markdown": "<qm-keep note=\"x\">\n\nText\n\n</qm-keep>",
     "content": {
       "islands": [],
       "lines": [
@@ -1457,7 +1457,7 @@
   },
   {
     "name": "container.element.instance",
-    "markdown": "<quill-keep>\n\none\n\n</quill-keep>\n\n<quill-keep>\n\ntwo\n\n</quill-keep>",
+    "markdown": "<qm-keep>\n\none\n\n</qm-keep>\n\n<qm-keep>\n\ntwo\n\n</qm-keep>",
     "content": {
       "islands": [],
       "lines": [
@@ -1499,7 +1499,7 @@
   },
   {
     "name": "container.element.in_item",
-    "markdown": "- <quill-keep>\n\n  one\n\n  </quill-keep>",
+    "markdown": "- <qm-keep>\n\n  one\n\n  </qm-keep>",
     "content": {
       "islands": [],
       "lines": [
@@ -1536,7 +1536,7 @@
   },
   {
     "name": "container.element.around_list",
-    "markdown": "<quill-keep>\n\n- one\n- two\n\n</quill-keep>",
+    "markdown": "<qm-keep>\n\n- one\n- two\n\n</qm-keep>",
     "content": {
       "islands": [],
       "lines": [
@@ -1592,7 +1592,7 @@
   },
   {
     "name": "carrier.element.tight",
-    "markdown": "<quill-keep>\n**Signed**\n</quill-keep>",
+    "markdown": "<qm-keep>\n**Signed**\n</qm-keep>",
     "content": {
       "islands": [],
       "lines": [
@@ -1608,7 +1608,7 @@
     "signals": {
       "import": [
         {
-          "construct": "quill-keep",
+          "construct": "qm-keep",
           "count": 1
         }
       ],
@@ -1617,7 +1617,7 @@
   },
   {
     "name": "carrier.element.void",
-    "markdown": "<quill-sig>\n</quill-sig>",
+    "markdown": "<qm-sig>\n</qm-sig>",
     "content": {
       "islands": [],
       "lines": [
@@ -1646,7 +1646,7 @@
   },
   {
     "name": "carrier.element.unclosed",
-    "markdown": "<quill-keep>\n\nText",
+    "markdown": "<qm-keep>\n\nText",
     "content": {
       "islands": [],
       "lines": [
@@ -1664,7 +1664,7 @@
     "signals": {
       "import": [
         {
-          "construct": "quill-keep",
+          "construct": "qm-keep",
           "count": 1
         }
       ],
@@ -1673,7 +1673,7 @@
   },
   {
     "name": "carrier.element.self_closing",
-    "markdown": "<quill-keep/>\n\nText",
+    "markdown": "<qm-keep/>\n\nText",
     "content": {
       "islands": [],
       "lines": [
@@ -1691,7 +1691,7 @@
     "signals": {
       "import": [
         {
-          "construct": "quill-keep",
+          "construct": "qm-keep",
           "count": 1
         }
       ],
@@ -1700,7 +1700,7 @@
   },
   {
     "name": "carrier.element.inline",
-    "markdown": "A <quill-hl tone=\"cool\">pair</quill-hl> here.",
+    "markdown": "A <qm-hl tone=\"cool\">pair</qm-hl> here.",
     "content": {
       "islands": [],
       "lines": [
@@ -1718,7 +1718,7 @@
     "signals": {
       "import": [
         {
-          "construct": "quill-hl",
+          "construct": "qm-hl",
           "count": 1
         }
       ],
@@ -1727,7 +1727,7 @@
   },
   {
     "name": "carrier.element.attr",
-    "markdown": "<quill-keep onclick=\"x\">\n\nText\n\n</quill-keep>",
+    "markdown": "<qm-keep onclick=\"x\">\n\nText\n\n</qm-keep>",
     "content": {
       "islands": [],
       "lines": [
@@ -1752,7 +1752,7 @@
     "signals": {
       "import": [
         {
-          "construct": "quill-keep[onclick]",
+          "construct": "qm-keep[onclick]",
           "count": 1
         }
       ],
@@ -1761,7 +1761,7 @@
   },
   {
     "name": "carrier.element.stray_close",
-    "markdown": "Text\n\n</quill-keep>",
+    "markdown": "Text\n\n</qm-keep>",
     "content": {
       "islands": [],
       "lines": [
@@ -1783,7 +1783,7 @@
   },
   {
     "name": "carrier.element.stray_close.tight",
-    "markdown": "Text\n\n</quill-keep>\n**Gone**",
+    "markdown": "Text\n\n</qm-keep>\n**Gone**",
     "content": {
       "islands": [],
       "lines": [
@@ -1801,7 +1801,7 @@
     "signals": {
       "import": [
         {
-          "construct": "quill-keep",
+          "construct": "qm-keep",
           "count": 1
         }
       ],
@@ -1810,7 +1810,7 @@
   },
   {
     "name": "carrier.table",
-    "markdown": "<quill-table widths=\"1 2\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>",
+    "markdown": "<qm-table widths=\"1 2\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
     "content": {
       "islands": [
         {
@@ -1869,7 +1869,7 @@
   },
   {
     "name": "carrier.anchor",
-    "markdown": "Text <quill-anchor ref=\"c1\"></quill-anchor>here.",
+    "markdown": "Text <qm-anchor ref=\"c1\"></qm-anchor>here.",
     "content": {
       "islands": [],
       "lines": [
@@ -1968,7 +1968,7 @@
   },
   {
     "name": "island.table.props.widths",
-    "markdown": "<quill-table widths=\"25 50 auto\">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</quill-table>",
+    "markdown": "<qm-table widths=\"25 50 auto\">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</qm-table>",
     "content": {
       "islands": [
         {
@@ -2037,7 +2037,7 @@
   },
   {
     "name": "island.table.props.widths.auto",
-    "markdown": "<quill-table widths=\"auto auto\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>",
+    "markdown": "<qm-table widths=\"auto auto\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
     "content": {
       "islands": [
         {
@@ -2092,7 +2092,7 @@
   },
   {
     "name": "island.table.props.align",
-    "markdown": "<quill-table align=\"center\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>",
+    "markdown": "<qm-table align=\"center\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
     "content": {
       "islands": [
         {
@@ -2148,7 +2148,7 @@
   },
   {
     "name": "carrier.table.holds_other",
-    "markdown": "<quill-table align=\"center\">\n\n**Signed**\n\n</quill-table>",
+    "markdown": "<qm-table align=\"center\">\n\n**Signed**\n\n</qm-table>",
     "content": {
       "islands": [],
       "lines": [
@@ -2172,7 +2172,7 @@
     "signals": {
       "import": [
         {
-          "construct": "quill-table",
+          "construct": "qm-table",
           "count": 1
         }
       ],
@@ -2181,7 +2181,7 @@
   },
   {
     "name": "carrier.table.attr",
-    "markdown": "<quill-table foo=\"1\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>",
+    "markdown": "<qm-table foo=\"1\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
     "content": {
       "islands": [
         {
@@ -2232,7 +2232,7 @@
     "signals": {
       "import": [
         {
-          "construct": "quill-table[foo]",
+          "construct": "qm-table[foo]",
           "count": 1
         }
       ],
@@ -2241,7 +2241,7 @@
   },
   {
     "name": "carrier.table.value",
-    "markdown": "<quill-table widths=\"a b\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>",
+    "markdown": "<qm-table widths=\"a b\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
     "content": {
       "islands": [
         {
@@ -2292,7 +2292,7 @@
     "signals": {
       "import": [
         {
-          "construct": "quill-table[widths]",
+          "construct": "qm-table[widths]",
           "count": 1
         }
       ],

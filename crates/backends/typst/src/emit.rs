@@ -1978,15 +1978,15 @@ mod tests {
     fn a_block_element_lowers_through_the_dispatcher() {
         let cases = [
             (
-                "<quill-keep note=\"x\">\n\npara\n\n</quill-keep>",
+                "<qm-keep note=\"x\">\n\npara\n\n</qm-keep>",
                 "#_qm-element(\"keep\", (\"note\": \"x\"))[\npara\n\n]\n\n",
             ),
             (
-                "- a\n- <quill-keep>\n\n  b\n\n  - c\n\n  </quill-keep>",
+                "- a\n- <qm-keep>\n\n  b\n\n  - c\n\n  </qm-keep>",
                 "- a\n- #_qm-element(\"keep\", (:))[\n  b\n\n  - c\n  ]\n\n\n",
             ),
             (
-                "<quill-keep>\n\na\n\n</quill-keep>\n<quill-keep>\n\nb\n\n</quill-keep>",
+                "<qm-keep>\n\na\n\n</qm-keep>\n<qm-keep>\n\nb\n\n</qm-keep>",
                 "#_qm-element(\"keep\", (:))[\na\n\n]\n\n#_qm-element(\"keep\", (:))[\nb\n\n]\n\n",
             ),
         ];

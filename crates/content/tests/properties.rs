@@ -152,17 +152,17 @@ fn block() -> impl Strategy<Value = String> {
         // Carrier elements: at the top level, around a list, in an item, two
         // adjacent runs, which only the tags between them keep apart, and one
         // around nothing.
-        prose().prop_map(|p| format!("<quill-keep note=\"x\">\n\n{p}\n\n</quill-keep>")),
-        (prose(), prose()).prop_map(|(a, b)| format!("<quill-keep>\n\n- {a}\n- {b}\n\n</quill-keep>")),
-        (prose(), prose()).prop_map(|(a, b)| format!("- {a}\n- <quill-keep>\n\n  {b}\n\n  </quill-keep>")),
+        prose().prop_map(|p| format!("<qm-keep note=\"x\">\n\n{p}\n\n</qm-keep>")),
+        (prose(), prose()).prop_map(|(a, b)| format!("<qm-keep>\n\n- {a}\n- {b}\n\n</qm-keep>")),
+        (prose(), prose()).prop_map(|(a, b)| format!("- {a}\n- <qm-keep>\n\n  {b}\n\n  </qm-keep>")),
         (prose(), prose()).prop_map(|(a, b)| format!(
-            "<quill-keep>\n\n{a}\n\n</quill-keep>\n\n<quill-keep>\n\n{b}\n\n</quill-keep>"
+            "<qm-keep>\n\n{a}\n\n</qm-keep>\n\n<qm-keep>\n\n{b}\n\n</qm-keep>"
         )),
-        Just("<quill-sig>\n</quill-sig>".to_string()),
+        Just("<qm-sig>\n</qm-sig>".to_string()),
         (clean_word(), clean_word())
             .prop_map(|(a, b)| format!("| {a} | {b} |\n| --- | --- |\n| 1 | 2 |")),
         (clean_word(), clean_word(), 1u64..9).prop_map(|(a, b, w)| format!(
-            "<quill-table align=\"center\" widths=\"{w} auto\">\n\n| {a} | {b} |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>"
+            "<qm-table align=\"center\" widths=\"{w} auto\">\n\n| {a} | {b} |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>"
         )),
     ]
 }
@@ -703,7 +703,7 @@ fn cell_token() -> impl Strategy<Value = String> {
         clean_word().prop_map(|w| format!("**{w}<br>{w}**")),
         clean_word().prop_map(|w| format!("<br>{w}")),
         clean_word().prop_map(|w| format!("{w}<br>")),
-        clean_word().prop_map(|w| format!("<quill-hl>{w}</quill-hl>")),
+        clean_word().prop_map(|w| format!("<qm-hl>{w}</qm-hl>")),
     ]
 }
 

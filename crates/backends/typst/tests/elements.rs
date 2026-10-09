@@ -56,7 +56,7 @@ fn pages(quill: &Quill, markdown: &str) -> Vec<String> {
         .collect()
 }
 
-const STAMPED: &str = "a\n\n<quill-stamp size=\"4\" day=\"2024-01-15\">\n\nb\n\n</quill-stamp>\n\nc";
+const STAMPED: &str = "a\n\n<qm-stamp size=\"4\" day=\"2024-01-15\">\n\nb\n\n</qm-stamp>\n\nc";
 
 #[test]
 fn the_plates_renderer_receives_the_attributes() {
@@ -73,7 +73,7 @@ fn the_plates_renderer_receives_the_attributes() {
 fn the_built_in_keep_keeps_its_run_on_one_page() {
     let filler = "line\n\n".repeat(3);
     let run = "one\n\ntwo\n\nthree";
-    let kept = format!("{filler}<quill-keep>\n\n{run}\n\n</quill-keep>");
+    let kept = format!("{filler}<qm-keep>\n\n{run}\n\n</qm-keep>");
     let glyphs = |svg: &String| svg.matches("<use ").count();
     let kept = pages(&quill(""), &kept);
     let bare = pages(&quill(""), &format!("{filler}{run}"));

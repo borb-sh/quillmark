@@ -2,7 +2,7 @@
 //! markdown at top level, in list items and in quotes, with the blank lines
 //! CommonMark wants; tags inline in prose and in cells; comments with text after them. The import
 //! never panics, every word of prose outside a comment reaches the content,
-//! each dropped opening tag is counted once (a `quill-keep` tag line only when
+//! each dropped opening tag is counted once (a `qm-keep` tag line only when
 //! left unclosed), and the content is the fixed point of a re-import.
 
 use proptest::prelude::*;
@@ -21,10 +21,10 @@ struct Piece {
     /// Ends in a pipe table, which takes in the lines after it as rows until a
     /// blank line.
     table: bool,
-    /// The pipe tables a `quill-table` wrapper around it would hold.
+    /// The pipe tables a `qm-table` wrapper around it would hold.
     tables: usize,
     /// Holds a block other than a pipe table, a comment or a tag line: what
-    /// keeps a `quill-table` wrapper around it from folding.
+    /// keeps a `qm-table` wrapper around it from folding.
     other: bool,
     /// Ends in a closing tag line, whose block takes in the lines after it
     /// until a blank line.
@@ -59,7 +59,7 @@ fn inline() -> impl Strategy<Value = Piece> {
             Just(("span", "")),
             Just(("b", " class=\"x\"")),
             Just(("font", " color=red")),
-            Just(("quill-keep", "")),
+            Just(("qm-keep", "")),
         ],
     )
         .prop_map(|(w, (name, attrs))| Piece {
@@ -79,7 +79,7 @@ fn inline() -> impl Strategy<Value = Piece> {
             ..Piece::default()
         }),
         1 => word().prop_map(|w| Piece {
-            md: format!("<quill-anchor id=\"a\">{w}</quill-anchor>"),
+            md: format!("<qm-anchor id=\"a\">{w}</qm-anchor>"),
             words: vec![w],
             tags: vec![],
             ..Piece::default()
@@ -162,17 +162,17 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             Just(("details", "")),
             Just(("p", "")),
             Just(("section", " class=x")),
-            Just(("quill-keep", "")),
-            Just(("quill-table", " widths=\"1 2\"")),
+            Just(("qm-keep", "")),
+            Just(("qm-table", " widths=\"1 2\"")),
             Just(("custom-box", "")),
         ],
         prop::collection::vec((inner, any::<bool>()), 1..3),
         prop::bool::weighted(0.8),
     )
         .prop_map(|((name, attrs), blocks, closed)| {
-            // An unclosed `quill-table` takes the next `</quill-table>` as its
+            // An unclosed `qm-table` takes the next `</qm-table>` as its
             // own; the unit tests hold that case.
-            let closed = closed || name == "quill-table";
+            let closed = closed || name == "qm-table";
             let mut md = format!("<{name}{attrs}>\n\n");
             let mut words = Vec::new();
             let mut tags = Vec::new();
@@ -198,8 +198,8 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             if closed {
                 md.push_str(&format!("\n\n</{name}>"));
             }
-            let folds = name == "quill-table" && closed && tables == 1 && !other;
-            let models = name == "quill-keep" && closed;
+            let folds = name == "qm-table" && closed && tables == 1 && !other;
+            let models = name == "qm-keep" && closed;
             if !folds && !models {
                 tags.push(name.to_string());
             }
@@ -211,7 +211,7 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
                 tags,
                 table: after_table && !closed,
                 tables,
-                other: other || name == "quill-table",
+                other: other || name == "qm-table",
                 closes: closed,
             }
         })

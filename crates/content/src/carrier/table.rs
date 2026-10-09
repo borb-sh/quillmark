@@ -1,4 +1,4 @@
-//! `quill-table`: a table island's layout props spelled as the attributes of
+//! `qm-table`: a table island's layout props spelled as the attributes of
 //! the block wrapper around its pipe table.
 
 use super::Element;

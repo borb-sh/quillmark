@@ -23,10 +23,10 @@ use pulldown_cmark::{Event, Parser};
 struct Piece {
     md: String,
     reported: Vec<String>,
-    /// The pipe tables a `quill-table` wrapper around it would hold.
+    /// The pipe tables a `qm-table` wrapper around it would hold.
     tables: usize,
     /// Holds a block other than a pipe table or a tag line: what keeps a
-    /// `quill-table` wrapper around it from folding.
+    /// `qm-table` wrapper around it from folding.
     other: bool,
 }
 
@@ -63,7 +63,7 @@ fn attrs() -> impl Strategy<Value = BTreeMap<String, String>> {
     prop::collection::btree_map(name, value, 0..3)
 }
 
-/// A `quill-table` wrapper's valid attributes: `widths` (`None` an `auto`
+/// A `qm-table` wrapper's valid attributes: `widths` (`None` an `auto`
 /// column) and `align`.
 #[derive(Debug, Clone)]
 struct Layout {
@@ -113,7 +113,7 @@ impl Layout {
 
 /// An element's open and closing tags and the construct it reports: an
 /// element name in the grammar spelled canonically, which the import models,
-/// or a `quill-*` tag name outside it. A `quill-table` carries valid layout
+/// or a `qm-*` tag name outside it. A `qm-table` carries valid layout
 /// attributes.
 #[derive(Debug, Clone)]
 struct Carrier {
@@ -134,7 +134,7 @@ fn carrier() -> impl Strategy<Value = Carrier> {
         attrs(),
     )
         .prop_map(|(name, attrs)| {
-            let inline = format!("quill-{name}");
+            let inline = format!("qm-{name}");
             let e = Element::new(name, attrs).unwrap();
             Carrier { open: e.open_tag(), close: e.close_tag(), reported: None, inline, table: false }
         });
@@ -143,12 +143,12 @@ fn carrier() -> impl Strategy<Value = Carrier> {
         Carrier {
             open: e.open_tag(),
             close: e.close_tag(),
-            reported: Some("quill-table".into()),
-            inline: "quill-table".into(),
+            reported: Some("qm-table".into()),
+            inline: "qm-table".into(),
             table: true,
         }
     });
-    let outside = prop_oneof![Just("quill-a--b"), Just("quill-"), Just("quill-9")];
+    let outside = prop_oneof![Just("qm-a--b"), Just("qm-"), Just("qm-9")];
     let outside = outside.prop_map(|n| Carrier {
         open: format!("<{n}>"),
         close: format!("</{n}>"),
@@ -177,7 +177,7 @@ fn token() -> impl Strategy<Value = Piece> {
         1 => (anchor(), word(), any::<bool>()).prop_map(|(a, w, before)| {
             Piece::text(if before { format!("{a}{w}") } else { format!("{w}{a}") })
         }),
-        1 => word().prop_map(|w| Piece::text(format!("`<quill-{w}>`"))),
+        1 => word().prop_map(|w| Piece::text(format!("`<qm-{w}>`"))),
     ]
 }
 
@@ -324,7 +324,7 @@ proptest! {
         prop_assert_eq!(&stored, &expected, "{}", md);
 
         let exported = to_markdown(&imported.content);
-        prop_assert_eq!(exported.contains("<quill-table"), !expected.is_empty(), "{}", exported);
+        prop_assert_eq!(exported.contains("<qm-table"), !expected.is_empty(), "{}", exported);
         let back = from_markdown(&exported).unwrap();
         prop_assert!(back.warnings.is_empty(), "{:?}", back.warnings);
         prop_assert_eq!(&back.content, &imported.content, "{}\n---\n{}", md, exported);

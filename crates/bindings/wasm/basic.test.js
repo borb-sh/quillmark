@@ -501,7 +501,7 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
   })
 
   it('a stored null crosses as null, both ways', () => {
-    const md = '<quill-table widths="1 2 auto">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</quill-table>'
+    const md = '<qm-table widths="1 2 auto">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</qm-table>'
     const { content } = importMarkdown(md)
     expect(content.islands[0].props.widths).toEqual([1, 2, null])
     expect(content.islands[0].props.widths[2]).toBeNull()
@@ -515,7 +515,7 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
   // drops at the import rather than reaching a read that cannot carry it.
   it('a column weight crosses exactly up to the largest safe integer, and drops past it', () => {
     const table = (widths) =>
-      `<quill-table widths="${widths}">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>`
+      `<qm-table widths="${widths}">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>`
     const { content, warnings } = importMarkdown(table(`${Number.MAX_SAFE_INTEGER} 1`))
     expect(warnings).toEqual([])
     expect(content.islands[0].props.widths).toEqual([Number.MAX_SAFE_INTEGER, 1])
@@ -527,7 +527,7 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
 
     const past = importMarkdown(table('9007199254740992 1'))
     expect(past.content.islands[0].props.widths).toBeUndefined()
-    expect(past.warnings.map((w) => w.args.construct)).toEqual(['quill-table[widths]'])
+    expect(past.warnings.map((w) => w.args.construct)).toEqual(['qm-table[widths]'])
   })
 
   it('rebase returns the drops of the markdown it imports, with no path', () => {
@@ -973,8 +973,8 @@ Card body.
     doc.applyChange({}, { markOps: [{ op: 'add', start: 5, end: 9, type: 'anchor', attrs: { id: 'b' } }] })
     doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 2, end: 2, type: 'anchor', attrs: { id: 'n' } }] })
     const read = doc.toAnnotatedMarkdown()
-    expect(read.markdown).toContain('Main <quill-anchor ref="b"></quill-anchor>**body**.')
-    expect(read.markdown).toContain('A <quill-anchor ref="n"></quill-anchor>note.')
+    expect(read.markdown).toContain('Main <qm-anchor ref="b"></qm-anchor>**body**.')
+    expect(read.markdown).toContain('A <qm-anchor ref="n"></qm-anchor>note.')
     expect(read.anchors).toEqual([
       { id: 'b', path: 'main.body', line: 'Main body.' },
       { id: 'n', path: 'cards.note[0].body', line: 'A note.' },

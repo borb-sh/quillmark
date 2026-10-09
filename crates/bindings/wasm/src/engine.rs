@@ -257,7 +257,7 @@ export type ContentContainer =
     | { container: "element"; attrs: ElementAttrs; instance?: number };
 
 /** A carrier element's name and attributes, one bag: `$name` is the part of
- * its `quill-<name>` tag after the prefix, and every other key an attribute as
+ * its `qm-<name>` tag after the prefix, and every other key an attribute as
  * written. */
 export type ElementAttrs = { $name: string; [attr: string]: string };
 
@@ -388,7 +388,7 @@ export interface DocumentRevised {
 
 /**
  * The read `toAnnotatedMarkdown` returns: `toMarkdown`'s markdown with a
- * read-only `<quill-anchor ref="…"></quill-anchor>` at each prose anchor's
+ * read-only `<qm-anchor ref="…"></qm-anchor>` at each prose anchor's
  * start its line can hold, and every prose anchor of every body and content
  * field, spelled or not; a table cell's anchors are neither. Each names the
  * `path` of its body or field and the text of the `line` its start sits on,

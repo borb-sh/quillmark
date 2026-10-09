@@ -198,7 +198,7 @@ fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
 
     let markdown = read
         .markdown
-        .replace("  - an item to <quill-anchor ref=\"i1\"></quill-anchor>flag\n", "");
+        .replace("  - an item to <qm-anchor ref=\"i1\"></qm-anchor>flag\n", "");
     assert_ne!(markdown, read.markdown);
     let receipt = doc.revise(&markdown).unwrap();
     let dropped: Vec<String> = receipt
@@ -284,7 +284,7 @@ fn the_annotated_read_lists_each_anchor_at_its_field() {
         ]
     );
     for id in ["s1", "m1", "i1", "a1", "p1", "x1"] {
-        let tag = format!("<quill-anchor ref=\"{id}\"></quill-anchor>");
+        let tag = format!("<qm-anchor ref=\"{id}\"></qm-anchor>");
         assert_eq!(read.markdown.matches(&tag).count(), 1, "{id}:\n{}", read.markdown);
     }
 }
@@ -294,7 +294,7 @@ fn revising_with_the_annotated_read_keeps_every_anchor() {
     let mut doc = stored();
     let before = doc.clone();
     let markdown = doc.to_markdown_annotated().markdown;
-    assert!(markdown.contains("<quill-anchor ref=\"s1\"></quill-anchor>"));
+    assert!(markdown.contains("<qm-anchor ref=\"s1\"></qm-anchor>"));
     let receipt = doc.revise(&markdown).unwrap();
     assert!(receipt.dropped_anchors.is_empty(), "{:?}", receipt.dropped_anchors);
     assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);

@@ -21,7 +21,7 @@ an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
 - **Structured data**: card-yaml blocks (§3).
 - **Extensions**: strikethrough, pipe tables, and `<u>` for underline
   (§6.1).
-- **The `quill-*` carrier**: table layout and elements, spelled as custom
+- **The `qm-*` carrier**: table layout and elements, spelled as custom
   HTML elements (§6.4).
 
 A document containing no card-yaml blocks is ordinary CommonMark, parsed as
@@ -375,14 +375,14 @@ Body regions (the root body and every card body) are rendered as CommonMark
 
 **Raw HTML produces no output of its own, except an inline `<u>…</u>`, which
 renders as underline, an inline `<br>`, which is a hard break, and the
-`quill-*` carrier §6.4 defines.** The parser recognises HTML per CommonMark
+`qm-*` carrier §6.4 defines.** The parser recognises HTML per CommonMark
 §4.6 / §6.6 and discards the HTML itself. What else an HTML block holds
 depends on its type:
 
 | HTML block (CommonMark §4.6) | What imports |
 |---|---|
-| Type 6 or 7 holding only tag lines, a `quill-*` tag among them | Nothing of its own; its carrier tags open and close what §6.4 defines. |
-| Any other type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<quill-keep>` tight against markdown | Nothing: the block drops whole, to the next blank line, as CommonMark runs it, a carrier tag in it included. |
+| Type 6 or 7 holding only tag lines, a `qm-*` tag among them | Nothing of its own; its carrier tags open and close what §6.4 defines. |
+| Any other type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>`, `<span>` or `<qm-keep>` tight against markdown | Nothing: the block drops whole, to the next blank line, as CommonMark runs it, a carrier tag in it included. |
 | Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after a comment's `-->` on its last line imports as a line of its own, unless it opens a fence or a type 1–5 block it does not close on that line. |
 
 A carrier tag line works as CommonMark reads it: a blank line above and below
@@ -403,8 +403,8 @@ stand, so a tag never sits at a delimiter run's edge, where its `<` or `>`
 would change the run's flanking; a delimiter run spanning that position stays
 open around the tag. An import reports each dropped opening tag by its lowercase name, under
 `parse::dropped_construct`, and a block holding no other opening tag under its
-first where it drops text with it, `quill-anchor` included; any other closing
-tag, a comment, the content of a type 1–5 block, any other `quill-anchor` and
+first where it drops text with it, `qm-anchor` included; any other closing
+tag, a comment, the content of a type 1–5 block, any other `qm-anchor` and
 an element that closes (§6.4) report nothing.
 
 Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
@@ -451,18 +451,18 @@ support may come in a future revision:
   writes the CommonMark-native hard break (trailing `\\` plus newline); inside
   a cell it writes `<br>`.
 
-### 6.4 The `quill-*` Carrier
+### 6.4 The `qm-*` Carrier
 
-A `quill-*` element spells what CommonMark has no syntax for, such as
+A `qm-*` element spells what CommonMark has no syntax for, such as
 per-instance layout and anchors. Each is a CommonMark raw-HTML tag and a valid
 custom-element name, which an HTML renderer draws as its children.
 
-**Names.** A carrier tag's name is `quill-` and an element name matching
-`[a-z][a-z0-9]*(-[a-z0-9]+)*`: `quill-keep`, `quill-table`, `quill-a1-b`.
+**Names.** A carrier tag's name is `qm-` and an element name matching
+`[a-z][a-z0-9]*(-[a-z0-9]+)*`: `qm-keep`, `qm-table`, `qm-a1-b`.
 CommonMark tag names admit no `:`, so the prefix stands where XML would write a
 namespace (`quill:keep`). A tag name reads ASCII-case-insensitively, as HTML
-names do, and the canonical spelling is lowercase. `quill-`, `quill-a--b` and
-`quill-9` carry no element.
+names do, and the canonical spelling is lowercase. `qm-`, `qm-a--b` and
+`qm-9` carry no element.
 
 **Reserved names.** `table` is reserved for the table it wraps and `anchor`
 for the anchor spelling. Neither is ever an element of its own.
@@ -478,7 +478,7 @@ hexadecimal references to a Unicode scalar value; any other `&` is text.
 **Block only.** A carrier tag carries its construct on a tag line in an HTML
 block of tag lines alone, which a blank line above and below sets apart
 (§6.2). Inside a line, or in a block tight against markdown, it drops like any
-raw tag; `quill-anchor` drops inside a line without a report.
+raw tag; `qm-anchor` drops inside a line without a report.
 
 **Canonical spelling.** An element is written with:
 
@@ -490,18 +490,18 @@ raw tag; `quill-anchor` drops inside a line without a report.
 - each tag alone on its line and a blank line between it and what it wraps,
   inside the containers it sits in, or, around nothing, the pair on two lines
   with nothing between, which an HTML renderer reads as the element where it
-  reads `<quill-sig/>` as an open tag.
+  reads `<qm-sig/>` as an open tag.
 
 ```markdown
-<quill-keep note="a &amp; b">
+<qm-keep note="a &amp; b">
 
 **Signed**
 J. Doe
 
-</quill-keep>
+</qm-keep>
 
-<quill-sig>
-</quill-sig>
+<qm-sig>
+</qm-sig>
 ```
 
 **An element** of any name but the reserved two is stored, whatever quill
@@ -513,7 +513,7 @@ reads the document:
   reported only where its block drops markdown (§6.2). A pair wrapping nothing holds one empty paragraph: a void
   element, such as a signature line.
 - Each attribute in the grammar is kept as its string. One refused drops alone,
-  reported as `quill-<name>[<attr>]`.
+  reported as `qm-<name>[<attr>]`.
 - Two adjacent runs of one element stay two.
 - A Typst plate renders an element through the renderer it registers under
   the name; with none, `keep` holds what it wraps on one page and any other
@@ -521,13 +521,13 @@ reads the document:
 
 **An element that does not close** is transparent: its tags drop, what it wraps
 imports, and `parse::dropped_construct` reports it under its tag name
-(`quill-keep`), as any raw tag (§6.2). That covers a block element still open
+(`qm-keep`), as any raw tag (§6.2). That covers a block element still open
 where its list item, quote or body ends, a self-closing tag, a tag inside a
 line, and one in a block tight against markdown, which drops what it holds
-with it. A `quill-*` tag outside the grammar is a raw tag reported the same
+with it. A `qm-*` tag outside the grammar is a raw tag reported the same
 way.
 
-**`quill-table`** is a block wrapper around one pipe table, and folds its
+**`qm-table`** is a block wrapper around one pipe table, and folds its
 attributes into the table's layout, whatever quill reads the document:
 
 | Attribute | Value | Default |
@@ -536,13 +536,13 @@ attributes into the table's layout, whatever quill reads the document:
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
 
 ```markdown
-<quill-table align="center" widths="1 2 auto">
+<qm-table align="center" widths="1 2 auto">
 
 | Item | Description | Qty |
 | --- | --- | --- |
 | A | First | 1 |
 
-</quill-table>
+</qm-table>
 ```
 
 - Weights are relative and store as written: `2 4` lays out as `1 2` does. A
@@ -556,15 +556,15 @@ attributes into the table's layout, whatever quill reads the document:
   tag, closed where it is the innermost container open. It holds one table
   when that table is all that imports between its tags, inside no container
   but an element.
-- A wrapper holding anything else or another `quill-table`, or still open
+- A wrapper holding anything else or another `qm-table`, or still open
   where its list item, quote or body ends, drops whole: its tags drop, what it
-  holds imports, and `parse::dropped_construct` reports `quill-table`.
+  holds imports, and `parse::dropped_construct` reports `qm-table`.
 - An attribute other than these two, and one whose value is outside its
-  spelling, drops alone, reported as `quill-table[<name>]`. A `quill-keep`
+  spelling, drops alone, reported as `qm-table[<name>]`. A `qm-keep`
   around the wrapper keeps the table on one page.
 
-**`quill-anchor`** is reserved for an anchor's read-only spelling,
-`<quill-anchor ref="…"></quill-anchor>`, which the annotated export writes and
+**`qm-anchor`** is reserved for an anchor's read-only spelling,
+`<qm-anchor ref="…"></qm-anchor>`, which the annotated export writes and
 no plain export does. Import drops it without a report, inline or alone on its
 line, unless its line drops markdown with it (§6.2), and mints no anchor from
 it. The annotated export writes one inline at
@@ -578,7 +578,7 @@ each anchor's start:
   and nowhere on a line where the end changes it too.
 
 ```markdown
-A <quill-anchor ref="c1"></quill-anchor>**flagged** phrase.
+A <qm-anchor ref="c1"></qm-anchor>**flagged** phrase.
 ```
 
 ## 7. Input Normalization

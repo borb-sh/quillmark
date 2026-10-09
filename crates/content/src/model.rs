@@ -216,8 +216,8 @@ pub enum Container {
     /// A block quote. Adjacent lines sharing one `Quote` are one
     /// multi-paragraph quote; two adjacent quotes differ in `instance`.
     Quote { instance: u64 },
-    /// A `quill-*` carrier element around blocks (markdown-spec §6.4): `name`
-    /// the part of its tag after `quill-`, `attrs` its attributes as written.
+    /// A `qm-*` carrier element around blocks (markdown-spec §6.4): `name`
+    /// the part of its tag after `qm-`, `attrs` its attributes as written.
     /// The member is closed and its names open: any element name the carrier
     /// does not reserve is one, so a new name is no storage event.
     Element {
