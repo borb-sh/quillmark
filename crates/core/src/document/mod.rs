@@ -98,13 +98,6 @@ fn dropped_message(construct: &str, n: usize) -> (String, String) {
              line between each tag and the table."
                 .to_string(),
         ),
-        "quill-cell" => (
-            format!(
-                "markdown import does not carry `<quill-cell>`: {} dropped",
-                some_in_field("tag", "tags")
-            ),
-            "Align a whole column in the table's delimiter row, such as `| :---: |`.".to_string(),
-        ),
         tag if tag.starts_with(PREFIX) && carrier::element(tag).is_none() => (
             format!(
                 "markdown import does not carry raw HTML: {} dropped",

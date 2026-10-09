@@ -83,10 +83,9 @@ pub enum ImportWarning {
     /// CommonMark reads as a link reference definition; `quill-table` for a
     /// `quill-table` wrapper not holding exactly one table, and
     /// `quill-table[<attr>]` for an attribute one holding a table cannot fold;
-    /// `quill-cell` for a `quill-cell` tag; `quill-<name>` for an element left
-    /// unclosed, self-closing, inside a line or tight against markdown, and
-    /// `quill-<name>[<attr>]` for an attribute one cannot carry. One entry per
-    /// construct.
+    /// `quill-<name>` for an element left unclosed, self-closing, inside a
+    /// line or tight against markdown, and `quill-<name>[<attr>]` for an
+    /// attribute one cannot carry. One entry per construct.
     DroppedConstruct { construct: String, count: usize },
 }
 
@@ -2127,40 +2126,13 @@ mod tests {
         }
     }
 
-    /// A `quill-cell` tag drops wherever it stands, the cell importing as its
-    /// [`strip`](crate::carrier::strip) does, each open tag reported.
-    #[test]
-    fn a_cell_tag_drops() {
-        let r = "<quill-cell align=\"right\">";
-        let l = "<quill-cell align=\"left\">";
-        let cases = [
-            (format!("{r}a</quill-cell>"), "a", 1),
-            (format!("a {r}b</quill-cell>"), "a b", 1),
-            (format!("{r}a</quill-cell>{l}b</quill-cell>"), "ab", 2),
-            (format!("{r}a"), "a", 1),
-            ("<quill-cell align=\"right\"/>a".to_string(), "a", 1),
-            (format!("**{r}a</quill-cell>**"), "a", 1),
-        ];
-        for (cell, text, count) in &cases {
-            let md = format!("| h |\n| --- |\n| {cell} |");
-            let imported = imp_fixed(&md);
-            assert_eq!(dropped(&imported), [("quill-cell", *count)], "{md:?}");
-            assert_eq!(table_rows(&imported.content), [[*text]], "{md:?}");
-            assert_eq!(imported.content, imp_fixed(&crate::carrier::strip(&md)).content, "{md:?}");
-        }
-
-        let prose = imp_fixed(&format!("a {r}b</quill-cell> c"));
-        assert_eq!(dropped(&prose), [("quill-cell", 1)]);
-        assert_eq!(prose.content.text, "a b c");
-    }
-
     /// A type-7 tag cannot interrupt a pipe table, so the parser reads
     /// `</quill-table>` after the rows as one more row; the repair ends the
     /// table there instead. A type-6 tag (`</div>`) interrupts it on its own,
     /// and its block drops with the text it holds.
     #[test]
     fn a_row_of_tags_ends_its_table() {
-        for close in ["</quill-table>", "</quill-cell></quill-table>"] {
+        for close in ["</quill-table>", "</quill-keep></quill-table>"] {
             let rt = imp_fixed(&format!("| a | b |\n|---|---|\n| 1 | 2 |\n{close}\nnext")).content;
             assert_eq!(table_rows(&rt), [["1", "2"]], "{close}");
             assert_eq!(rt.text, "\u{FFFC}\nnext", "{close}");

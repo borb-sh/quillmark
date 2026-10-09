@@ -15,10 +15,10 @@ pub(crate) mod table;
 /// What every carrier tag name opens with.
 pub const PREFIX: &str = "quill-";
 
-/// Element names reserved for the construct they wrap (`table`, `cell`) and
-/// for the anchor spelling (`anchor`): carrier names a quill never declares as
-/// its own element.
-pub const RESERVED: [&str; 3] = ["table", "cell", "anchor"];
+/// Element names reserved for the table wrapper (`table`) and the anchor
+/// spelling (`anchor`): carrier names a quill never declares as its own
+/// element.
+pub const RESERVED: [&str; 2] = ["table", "anchor"];
 
 /// Attribute names outside the grammar besides every `on*`: each is one a
 /// downstream HTML renderer acts on.
@@ -540,7 +540,7 @@ mod tests {
             ("<div>\nsome <quill-x>y</quill-x>\n</div>", "<div>\nsome y\n</div>"),
             ("<!-- <quill-x> -->", "<!-- <quill-x> -->"),
             ("<span title=\"<quill-x>\">t</span>", "<span title=\"<quill-x>\">t</span>"),
-            ("| <quill-cell align=\"right\">1</quill-cell> |", "| 1 |"),
+            ("| <quill-x a=\"1\">1</quill-x> |", "| 1 |"),
             ("- <quill-keep>\n\n  para\n\n  </quill-keep>", "- \n  para\n\n"),
             ("w<quill-anchor ref=\"c1\"></quill-anchor>\r\n<QUILL-A>\r\nv", "w\r\n\r\nv"),
             ("<quill-table\n  widths=\"1 2\">\n| a |\n|---|", "\n| a |\n|---|"),
