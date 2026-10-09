@@ -77,14 +77,43 @@ impl std::error::Error for ImportError {}
 /// Something the markdown spelled that the content has no place for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportWarning {
-    /// `count` instances of `construct` dropped: a raw tag by its lowercase
-    /// name (`span`, `div`, `x-note`), counted at its open or self-closing
-    /// form; `quill-table` for a `quill-table` wrapper not holding exactly one
-    /// table, and `quill-table[<attr>]` for an attribute one holding a table
-    /// cannot fold; `quill-<name>` for an element left unclosed, self-closing,
-    /// inside a line or tight against markdown, and `quill-<name>[<attr>]` for
-    /// an attribute one cannot carry. One entry per construct.
-    DroppedConstruct { construct: String, count: usize },
+    /// `count` instances of `construct` dropped. One entry per construct.
+    DroppedConstruct { construct: Dropped, count: usize },
+}
+
+/// A construct an import drops. Its [`Display`](std::fmt::Display) is the
+/// name `parse::dropped_construct` reports it under, given with each variant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Dropped {
+    /// A raw tag outside the `<u>`/`<br>` allowlist and the carrier, counted at
+    /// its open or self-closing form: its lowercase name (`span`, `u`).
+    Tag(String),
+    /// A tag named with the carrier's prefix and no element name after it: its
+    /// lowercase name (`quill-a--b`).
+    BadName(String),
+    /// A `quill-table` wrapper not holding exactly one table: `quill-table`.
+    Table,
+    /// A `quill-table` attribute the wrapper does not fold:
+    /// `quill-table[<attr>]`.
+    TableAttr(String),
+    /// An element left unclosed, self-closing, inside a line or tight against
+    /// markdown: `quill-<name>`.
+    Element(String),
+    /// An element attribute outside the grammar: `quill-<name>[<attr>]`.
+    ElementAttr { element: String, attr: String },
+}
+
+impl std::fmt::Display for Dropped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use carrier::PREFIX;
+        match self {
+            Dropped::Tag(name) | Dropped::BadName(name) => f.write_str(name),
+            Dropped::Table => write!(f, "{PREFIX}table"),
+            Dropped::TableAttr(attr) => write!(f, "{PREFIX}table[{attr}]"),
+            Dropped::Element(name) => write!(f, "{PREFIX}{name}"),
+            Dropped::ElementAttr { element, attr } => write!(f, "{PREFIX}{element}[{attr}]"),
+        }
+    }
 }
 
 /// A markdown import: the content, and what the markdown spelled that it
@@ -256,9 +285,9 @@ impl Inline {
     }
 
     /// End the run: each bare `<u>` still open drops as unclosed.
-    fn drop_open(&mut self, dropped: &mut Dropped) {
+    fn drop_open(&mut self, dropped: &mut Drops) {
         for (_, at) in self.underlines.drain(..).flatten() {
-            dropped.add("u", at);
+            dropped.add(Dropped::Tag("u".into()), at);
         }
     }
 
@@ -296,9 +325,10 @@ impl Opened {
         }
     }
 
-    fn report_refused(&self, dropped: &mut Dropped) {
+    fn report_refused(&self, dropped: &mut Drops) {
         for attr in &self.refused {
-            dropped.add(&format!("{}{}[{attr}]", carrier::PREFIX, self.name), self.at);
+            let element = self.name.clone();
+            dropped.add(Dropped::ElementAttr { element, attr: attr.clone() }, self.at);
         }
     }
 }
@@ -345,7 +375,7 @@ struct Builder {
     unclosed: Vec<u64>,
     /// The element tags this walk drops: an unclosed element, an inline pair
     /// around nothing, an attribute outside the grammar.
-    dropped: Dropped,
+    dropped: Drops,
 }
 
 #[derive(Clone)]
@@ -407,7 +437,7 @@ impl Builder {
             table: None,
             blocks: Vec::new(),
             unclosed: Vec::new(),
-            dropped: Dropped::default(),
+            dropped: Drops::default(),
         }
     }
 
@@ -791,9 +821,9 @@ impl Builder {
     /// other open tag drops, and any other close tag drops silently.
     fn element_tag(&mut self, tag: ElementTag) -> Result<(), ImportError> {
         let ElementTag { name, attrs, block, at } = tag;
-        let report = |dropped: &mut Dropped, attrs: &Option<carrier::Attrs>| {
+        let report = |dropped: &mut Drops, attrs: &Option<carrier::Attrs>| {
             if attrs.is_some() {
-                dropped.add(&format!("{}{name}", carrier::PREFIX), at);
+                dropped.add(Dropped::Element(name.clone()), at);
             }
         };
         if self.image_depth > 0 || self.table.is_some() || !block {
@@ -860,7 +890,7 @@ impl Builder {
             self.container_marks.pop();
             if let Some(e) = self.blocks.pop() {
                 self.unclosed.push(e.from);
-                self.dropped.add(&format!("{}{}", carrier::PREFIX, e.name), e.at);
+                self.dropped.add(Dropped::Element(e.name), e.at);
             }
         }
     }
@@ -1021,7 +1051,7 @@ impl Builder {
         self.mint_island(IslandType::Image, props);
     }
 
-    fn finish(mut self) -> (Content, Dropped) {
+    fn finish(mut self) -> (Content, Drops) {
         self.inline.drop_open(&mut self.dropped);
         self.drop_unclosed_blocks();
         if let Some(last) = self.cur.take() {
@@ -1128,21 +1158,21 @@ impl ElementTag {
 
 /// Per construct: its count and the byte offset of its first occurrence.
 #[derive(Default)]
-struct Dropped(Vec<(String, usize, usize)>);
+struct Drops(Vec<(Dropped, usize, usize)>);
 
-impl Dropped {
-    fn add(&mut self, construct: &str, at: usize) {
-        match self.0.iter_mut().find(|(c, ..)| c == construct) {
+impl Drops {
+    fn add(&mut self, construct: Dropped, at: usize) {
+        match self.0.iter_mut().find(|(c, ..)| *c == construct) {
             Some((_, count, first)) => {
                 *count += 1;
                 *first = (*first).min(at);
             }
-            None => self.0.push((construct.to_string(), 1, at)),
+            None => self.0.push((construct, 1, at)),
         }
     }
 
-    /// An opening tag, under its lowercase name. A carrier element nothing
-    /// folds counts like any tag; `quill-anchor`, the engine's own read-only
+    /// An opening tag. A carrier tag nothing folds counts as its element, its
+    /// wrapper or its bad name; `quill-anchor`, the engine's own read-only
     /// spelling of an anchor, is written to be dropped and counts nothing.
     fn tag(&mut self, tag: &html::Tag, at: usize) {
         if !tag.closing {
@@ -1151,14 +1181,18 @@ impl Dropped {
     }
 
     fn opening(&mut self, name: &str, at: usize) {
-        if carrier::element(name).is_some_and(|e| e == "anchor") {
-            return;
-        }
-        self.add(&name.to_ascii_lowercase(), at);
+        let construct = match carrier::element(name) {
+            Some(e) if e == "anchor" => return,
+            Some(e) if e == "table" => Dropped::Table,
+            Some(e) => Dropped::Element(e),
+            None if carrier::has_prefix(name) => Dropped::BadName(name.to_ascii_lowercase()),
+            None => Dropped::Tag(name.to_ascii_lowercase()),
+        };
+        self.add(construct, at);
     }
 
     /// Fold in another walk's drops, each at its own first offset.
-    fn absorb(&mut self, other: Dropped) {
+    fn absorb(&mut self, other: Drops) {
         for (construct, count, at) in other.0 {
             match self.0.iter_mut().find(|(c, ..)| *c == construct) {
                 Some((_, n, first)) => {
@@ -1181,7 +1215,7 @@ impl Dropped {
 
 struct MarkdownFixer<'a, I> {
     inner: I,
-    dropped: Dropped,
+    dropped: Drops,
     /// The `quill-table` block wrappers open at this point, innermost last.
     wrappers: Vec<TableWrapper>,
     tables: usize,
@@ -1216,7 +1250,7 @@ where
     fn new(inner: I) -> Self {
         Self {
             inner,
-            dropped: Dropped::default(),
+            dropped: Drops::default(),
             wrappers: Vec::new(),
             tables: 0,
             in_table: false,
@@ -1226,9 +1260,9 @@ where
     }
 
     /// The drops and the folds. A wrapper left open folds nothing.
-    fn finish(mut self) -> (Dropped, Vec<Fold>) {
+    fn finish(mut self) -> (Drops, Vec<Fold>) {
         for w in std::mem::take(&mut self.wrappers) {
-            self.dropped.add("quill-table", w.at);
+            self.dropped.add(Dropped::Table, w.at);
         }
         (self.dropped, self.folds)
     }
@@ -1262,37 +1296,24 @@ where
     /// as `quill-table[<name>]`, and the rest fold.
     fn close_wrapper(&mut self, w: TableWrapper) {
         let [table] = w.tables[..] else {
-            return self.dropped.add("quill-table", w.at);
+            return self.dropped.add(Dropped::Table, w.at);
         };
         if w.holds_other {
-            return self.dropped.add("quill-table", w.at);
+            return self.dropped.add(Dropped::Table, w.at);
         }
-        let keys = self.fold_attrs("quill-table", w.attrs, w.at, carrier::table::prop);
-        self.folds.push(Fold { table, keys });
-    }
-
-    /// The keys `attrs` fold through `read`, each attribute refused or read as
-    /// `None` dropping alone as `<construct>[<name>]`.
-    fn fold_attrs(
-        &mut self,
-        construct: &str,
-        attrs: carrier::Attrs,
-        at: usize,
-        read: fn(&str, &str) -> Option<serde_json::Value>,
-    ) -> serde_json::Map<String, serde_json::Value> {
         let mut keys = serde_json::Map::new();
-        for name in &attrs.refused {
-            self.dropped.add(&format!("{construct}[{name}]"), at);
+        for name in w.attrs.refused {
+            self.dropped.add(Dropped::TableAttr(name), w.at);
         }
-        for (name, value) in attrs.values {
-            match read(&name, &value) {
+        for (name, value) in w.attrs.values {
+            match carrier::table::prop(&name, &value) {
                 Some(v) => {
                     keys.insert(name, v);
                 }
-                None => self.dropped.add(&format!("{construct}[{name}]"), at),
+                None => self.dropped.add(Dropped::TableAttr(name), w.at),
             }
         }
-        keys
+        self.folds.push(Fold { table, keys });
     }
 
     /// Consume an HTML block through its end, counting its
@@ -1975,11 +1996,15 @@ mod tests {
         imported
     }
 
-    fn dropped(imported: &Imported) -> Vec<(&str, usize)> {
+    /// Each warning's construct as `parse::dropped_construct` names it, leaked
+    /// so a case compares it against a literal.
+    fn dropped(imported: &Imported) -> Vec<(&'static str, usize)> {
         imported
             .warnings
             .iter()
-            .map(|ImportWarning::DroppedConstruct { construct, count }| (construct.as_str(), *count))
+            .map(|ImportWarning::DroppedConstruct { construct, count }| {
+                (&*construct.to_string().leak(), *count)
+            })
             .collect()
     }
 

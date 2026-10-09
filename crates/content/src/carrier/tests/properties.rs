@@ -296,7 +296,7 @@ fn without_layout(content: &Content) -> Content {
 fn counted(warnings: &[ImportWarning]) -> Vec<(String, usize)> {
     let mut out: Vec<(String, usize)> = warnings
         .iter()
-        .map(|ImportWarning::DroppedConstruct { construct, count }| (construct.clone(), *count))
+        .map(|ImportWarning::DroppedConstruct { construct, count }| (construct.to_string(), *count))
         .collect();
     out.sort();
     out

@@ -318,7 +318,7 @@ struct Found<'a> {
     name_end: usize,
 }
 
-fn has_prefix(name: &str) -> bool {
+pub(crate) fn has_prefix(name: &str) -> bool {
     name.len() >= PREFIX.len() && name.as_bytes()[..PREFIX.len()].eq_ignore_ascii_case(PREFIX.as_bytes())
 }
 
