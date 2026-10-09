@@ -254,14 +254,14 @@ result. A malformed discriminator is a different failure and stays
 name.
 
 `element` is a closed member over an open payload. Its `attrs` bag holds the
-element's `name`, any carrier element name but the reserved `table`, `cell` and
-`anchor`, beside its attributes, each a string under a name in the carrier's
-attribute grammar ([markdown-spec.md](../references/markdown-spec.md) §6.4).
-The grammar refuses an attribute called `name`, so the two never collide. A new
-element name is no storage event, since no reader is frozen at a set of names;
-the member's arrival was one (`0.124.0`). A bag outside the grammar is
-`ParseError::Shape` on both lanes. Container identity compares the whole bag,
-`name` among it.
+element's name under `$name`, any carrier element name but the reserved
+`table`, `cell` and `anchor`, beside its attributes, each a string under a name
+in the carrier's attribute grammar ([markdown-spec.md](../references/markdown-spec.md) §6.4).
+No attribute name opens with `$`, so the two never collide, as a card's `$kind`
+never meets a field. A new element name is no storage event, since no reader is
+frozen at a set of names; the member's arrival was one (`0.124.0`). A bag
+outside the grammar is `ParseError::Shape` on both lanes. Container identity
+compares the whole bag, `$name` among it.
 
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,
@@ -356,7 +356,7 @@ default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
 
 | Key | Value | Default |
 |---|---|---|
-| `widths` | one entry per column, a positive integer weight or `null` for an auto-fit column; settled to the column count and divided by the weights' GCD | every entry `null` |
+| `widths` | one entry per column, a positive integer weight or `null` for an auto-fit column; settled to the column count | every entry `null` |
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
 
 `widths` are weights, not lengths, so each plate decides what full width is.

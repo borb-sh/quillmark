@@ -93,18 +93,14 @@ impl Layout {
     }
 
     /// The props keys a table of `cols` columns stores: `widths` settled to
-    /// `cols` and divided by its weights' GCD, each default absent.
+    /// `cols`, each default absent.
     fn stored(&self, cols: usize) -> serde_json::Map<String, serde_json::Value> {
         let mut out = serde_json::Map::new();
         if let Some(ws) = &self.widths {
             let mut ws = ws.clone();
             ws.resize(cols, None);
-            fn gcd(a: u64, b: u64) -> u64 {
-                if b == 0 { a } else { gcd(b, a % b) }
-            }
-            let gcd = ws.iter().flatten().fold(0, |a, &b| gcd(a, b));
-            if gcd > 0 {
-                out.insert("widths".into(), ws.iter().map(|w| w.map(|n| n / gcd)).collect::<Vec<_>>().into());
+            if ws.iter().any(Option::is_some) {
+                out.insert("widths".into(), ws.into());
             }
         }
         if let Some(a) = self.align {

@@ -862,7 +862,7 @@ proptest! {
 const DECODE_DISCRIMINATORS: &[&str] = &[
     "text", "lines", "marks", "islands", "kind", "attrs", "op", "line", "at", "delta", "ops",
     "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end", "container", "type",
-    "name", "element", "instance",
+    "$name", "element", "instance",
 ];
 
 fn decode_key() -> impl Strategy<Value = String> {

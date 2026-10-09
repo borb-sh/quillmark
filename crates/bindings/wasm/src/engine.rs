@@ -256,10 +256,10 @@ export type ContentContainer =
     | { container: "quote"; instance?: number }
     | { container: "element"; attrs: ElementAttrs; instance?: number };
 
-/** A carrier element's name and attributes, one bag: `name` is the part of its
- * `quill-<name>` tag after the prefix, and every other key an attribute as
+/** A carrier element's name and attributes, one bag: `$name` is the part of
+ * its `quill-<name>` tag after the prefix, and every other key an attribute as
  * written. */
-export type ElementAttrs = { name: string; [attr: string]: string };
+export type ElementAttrs = { $name: string; [attr: string]: string };
 
 /** A mark over char range `[start, end)` into `Content.text`. `type` is a
  * closed set, so `type === "link"` narrows `attrs` to `{ url: string }` with no
@@ -292,8 +292,8 @@ export interface TableProps {
     rows: TableCell[][];
     /** Per-column alignment, one entry per column. */
     aligns: ("none" | "left" | "center" | "right")[];
-    /** Per-column relative weights, divided by their GCD; `null` is an
-     * auto-fit column. Absent when every column is auto-fit. */
+    /** Per-column relative weights; `null` is an auto-fit column. Absent when
+     * every column is auto-fit. */
     widths?: (number | null)[];
     /** The table's placement; absent is the quill's. */
     align?: "left" | "center" | "right";

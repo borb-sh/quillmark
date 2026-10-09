@@ -2046,9 +2046,9 @@ mod tests {
     #[test]
     fn a_table_wrapper_folds_its_attributes_into_the_table_it_holds() {
         let table = "| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |";
-        let canonical = "<quill-table align=\"center\" widths=\"1 3 auto\">\n\n\
+        let canonical = "<quill-table align=\"center\" widths=\"2 6 auto\">\n\n\
                          | a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</quill-table>";
-        let expected = serde_json::json!({"align": "center", "widths": [1, 3, null]});
+        let expected = serde_json::json!({"align": "center", "widths": [2, 6, null]});
         let cases = [
             (format!("<quill-table widths=\"2 6\" align=center>\n\n{table}\n\n</quill-table>"), 0),
             (format!("<Quill-Table widths=\" 2  6 auto \" align=\"center\">\n\n{table}\n\n</Quill-Table>\n\nafter"), 0),
@@ -2305,10 +2305,10 @@ mod tests {
             assert!(imported.warnings.is_empty(), "{md:?}");
         }
 
-        let rt = imp_fixed("<quill-keep note=\"x\">\n\na\n\n</quill-keep>\n<quill-keep note=\"x\">\n\nb\n\n</quill-keep>").content;
+        let rt = imp_fixed("<quill-keep name=\"x\">\n\na\n\n</quill-keep>\n<quill-keep name=\"x\">\n\nb\n\n</quill-keep>").content;
         let keep = |instance| Container::Element {
             name: "keep".into(),
-            attrs: [("note".to_string(), "x".to_string())].into(),
+            attrs: [("name".to_string(), "x".to_string())].into(),
             instance,
         };
         assert_eq!(rt.lines[0].containers, [keep(0)]);

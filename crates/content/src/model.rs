@@ -155,11 +155,15 @@ impl LineKind {
     }
 }
 
-/// An element's payload bag: its `name` beside its attributes, keys ascending.
-/// The carrier refuses an attribute called `name`, so the two never collide.
+/// The key an element's payload bag holds its name under. No attribute name
+/// opens with `$`, so the two never collide.
+pub const ELEMENT_NAME: &str = "$name";
+
+/// An element's payload bag: its [`ELEMENT_NAME`] beside its attributes, keys
+/// ascending.
 fn element_bag(name: &str, attrs: &BTreeMap<String, String>) -> JsonValue {
     let mut entries: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    entries.push(("name", name));
+    entries.push((ELEMENT_NAME, name));
     entries.sort_unstable();
     JsonValue::Object(entries.into_iter().map(|(k, v)| (k.to_string(), v.into())).collect())
 }
