@@ -34,7 +34,7 @@ fn import_body_or_parse_error(
     );
     Ok(imported.content)
 }
-use super::prescan::{prescan_fence_content, NestedComment, PreItem};
+use super::prescan::{prescan_fence_content, NestedComment, PreItem, Refusal};
 use super::{Card, Document};
 
 /// A `MissingQuill` message naming the specific malformation. LLM authors hit a
@@ -235,13 +235,30 @@ pub(super) fn build_block(
         }
     }
 
-    let pre = prescan_fence_content(&content).map_err(|over| {
-        ParseError::InvalidStructure(format!(
+    let pre = prescan_fence_content(&content).map_err(|refusal| match refusal {
+        Refusal::OverBudget(over) => ParseError::InvalidStructure(format!(
             "The card-yaml block's comments and tags record their nesting paths in \
              more than {} bytes, each level above them costing its key and a fixed \
              overhead. Merge the comments, or move them nearer the top level.",
             over.budget
-        ))
+        )),
+        Refusal::PastRoot { line, column } => {
+            let (line, column) =
+                document_position(markdown, content_start, &yaml, Some((line, column)));
+            ParseError::YamlErrorWithLocation {
+                message: "text follows the block's YAML value".to_string(),
+                line,
+                column,
+                block_index,
+                hint: Some(
+                    "A card-yaml block holds one YAML value, which ends where a `{...}`, \
+                     `[...]` or quoted value written as the whole value closes, or at a `...` \
+                     line. Write each field as its own `key: value` line, or close the block \
+                     with `~~~` above this text."
+                        .to_string(),
+                ),
+            }
+        }
     })?;
 
     Ok(MetadataBlock {

@@ -66,6 +66,30 @@ pub(crate) struct OverBudget {
     pub(crate) budget: usize,
 }
 
+/// Why the scan refuses a block the value parse reads.
+#[derive(Debug)]
+pub(crate) enum Refusal {
+    OverBudget(OverBudget),
+    /// Text other than comments and a `...` follows the root node, which the
+    /// value parse reads alone; at this 1-indexed line and column.
+    PastRoot { line: usize, column: usize },
+}
+
+impl From<OverBudget> for Refusal {
+    fn from(over: OverBudget) -> Self {
+        Refusal::OverBudget(over)
+    }
+}
+
+impl Refusal {
+    fn past_root(at: Marker) -> Self {
+        Refusal::PastRoot {
+            line: at.line(),
+            column: at.col() + 1,
+        }
+    }
+}
+
 /// Bytes of recorded path a block of `len` bytes may hold. Each comment clones
 /// its container's path, so many comments under long keys would otherwise
 /// grow with the square of the input.
@@ -73,15 +97,22 @@ pub(crate) fn budget(len: usize) -> usize {
     len.saturating_mul(64).saturating_add(64 * 1024)
 }
 
-/// Scan `yaml`, the text the value parse reads. A parser error ends the scan
-/// with what it has read: the value parse is the one that refuses.
-pub(crate) fn prescan_fence_content(yaml: &str) -> Result<PreScan, OverBudget> {
+/// Scan `yaml`, which the value parse reads. That parse stops at the end of
+/// the root node, and the scan refuses anything past it but comments and a
+/// `...`: a parser error there, or a second document.
+pub(crate) fn prescan_fence_content(yaml: &str) -> Result<PreScan, Refusal> {
     let mut walk = Walk::new(yaml);
+    let mut ended = false;
     for next in Parser::new_from_str_with_options(yaml, options()) {
-        let Ok((event, span)) = next else { break };
+        let (event, span) = next.map_err(|refusal| Refusal::past_root(*refusal.marker()))?;
+        match event {
+            Event::DocumentEnd => ended = true,
+            Event::DocumentStart(..) if ended => return Err(Refusal::past_root(span.start)),
+            _ => {}
+        }
         walk.step(&event, span)?;
     }
-    walk.finish()
+    Ok(walk.finish()?)
 }
 
 /// The parser options the scan reads with, which refuse no text the value
