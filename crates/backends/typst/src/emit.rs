@@ -591,7 +591,6 @@ impl<'a> Emit<'a> {
     fn emit_element(&mut self, range: Range<usize>, depth: usize, name: &str, attrs: &BTreeMap<String, String>) {
         self.open_line();
         self.out.push_str(&element_call(name, attrs));
-        self.out.push(')');
         self.out.push_str("[\n");
         self.end_newline = true;
         self.emit_block_level(range, depth + 1);
@@ -902,16 +901,16 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
     (wraps, codes)
 }
 
-/// The `#_qm-element(name, attrs` a call to the helper's dispatcher opens with,
-/// its argument list left open. The attributes are a dictionary of strings,
-/// keys sorted, `(:)` when empty.
+/// `#_qm-element(name, attrs)`, a call to the helper's dispatcher before its
+/// body. The attributes are a dictionary of strings, keys sorted, `(:)` when
+/// empty.
 fn element_call(name: &str, attrs: &BTreeMap<String, String>) -> String {
     let entries: Vec<String> = attrs
         .iter()
         .map(|(attr, value)| format!("\"{}\": \"{}\"", escape_string(attr), escape_string(value)))
         .collect();
     let dict = if entries.is_empty() { "(:)".to_string() } else { format!("({})", entries.join(", ")) };
-    format!("#_qm-element(\"{}\", {dict}", escape_string(name))
+    format!("#_qm-element(\"{}\", {dict})", escape_string(name))
 }
 
 /// One run of a mark sweep: the atomic `#raw(..)` code span starting at `pos`,
@@ -1029,7 +1028,7 @@ fn table_markup(props: &serde_json::Value) -> String {
     let placement = props
         .get("align")
         .and_then(Value::as_str)
-        .filter(|a| matches!(*a, "left" | "center" | "right"));
+        .filter(|a| quillmark_content::island::TABLE_ALIGNS.contains(a));
     // Placed, the table is a call under `context`, so a cell aligning by default
     // reads the alignment outside the placement rather than the placement's.
     let inherited = "align.alignment";

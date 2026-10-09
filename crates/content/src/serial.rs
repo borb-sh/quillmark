@@ -873,7 +873,7 @@ fn normalize_table_layout(obj: &mut Map<String, Value>, cols: usize) {
         Some(w) => obj.insert("widths".into(), w),
         None => obj.remove("widths"),
     };
-    if !matches!(obj.get("align").and_then(Value::as_str), Some("left" | "center" | "right")) {
+    if !obj.get("align").and_then(Value::as_str).is_some_and(|a| crate::island::TABLE_ALIGNS.contains(&a)) {
         obj.remove("align");
     }
 }
