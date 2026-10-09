@@ -44,29 +44,39 @@ fn a_plate_file_typst_cannot_address_fails_at_open() {
     assert_eq!(codes, [Some("typst::plate_path_invalid")], "{diags:?}");
 }
 
-/// A `plate_file` led by `./` names the file at the quill root: the plate
-/// renders, and its diagnostics name it as they would for `plate.typ`.
+/// A `.` step or an empty one in `plate_file` drops: the plate renders, and
+/// its diagnostics name it by its path from the quill root.
 #[test]
-fn a_plate_file_led_by_dot_slash_names_the_quill_root_file() {
+fn a_plate_file_drops_its_dot_and_empty_steps() {
     use quillmark_core::types::{OutputFormat, RenderOptions};
 
-    let q = quill(
-        &YAML.replace("plate.typ", "./plate.typ"),
-        &[("plate.typ", b"#set text(font: \"nosuchfont\")\nhello\n")],
-    );
-    let session = TypstBackend
-        .open(&q, &serde_json::json!({}), common::test_date())
-        .expect("the plate loads");
-    let pdf = session
-        .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
-        .expect("the plate renders");
-    assert!(!pdf.artifacts[0].bytes.is_empty());
-    let located: Vec<_> = session
-        .warnings()
-        .iter()
-        .filter_map(|d| d.location.as_ref().map(|l| l.file.as_str()))
-        .collect();
-    assert_eq!(located, ["plate.typ"], "{:?}", session.warnings());
+    for (declared, file) in [
+        ("./plate.typ", "plate.typ"),
+        ("tpl/./plate.typ", "tpl/plate.typ"),
+        ("tpl//plate.typ", "tpl/plate.typ"),
+    ] {
+        let q = tree_quill(&[
+            ("Quill.yaml", &YAML.replace("plate.typ", declared)),
+            (file, "#set text(font: \"nosuchfont\")\nhello\n"),
+        ]);
+        assert_eq!(
+            quillmark_typst::plate_file(&q).expect("the plate loads").as_deref(),
+            Some(file)
+        );
+        let session = TypstBackend
+            .open(&q, &serde_json::json!({}), common::test_date())
+            .expect("the plate loads");
+        let pdf = session
+            .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
+            .expect("the plate renders");
+        assert!(!pdf.artifacts[0].bytes.is_empty());
+        let located: Vec<_> = session
+            .warnings()
+            .iter()
+            .filter_map(|d| d.location.as_ref().map(|l| l.file.as_str()))
+            .collect();
+        assert_eq!(located, [file], "{declared}: {:?}", session.warnings());
+    }
 }
 
 /// The tree holds no file at a path with a leading `/` or a `..` step, so such
@@ -233,8 +243,15 @@ fn a_package_file_is_located_under_its_spec() {
     assert_eq!(files, ["@local/p:0.1.0/lib.typ"], "{diags:?}");
 }
 
-/// `files` are inserted under their `/`-joined tree paths.
 fn open_err(files: &[(&str, &str)]) -> Vec<quillmark_core::error::Diagnostic> {
+    match TypstBackend.open(&tree_quill(files), &serde_json::json!({}), common::test_date()) {
+        Ok(_) => panic!("the compile must fail"),
+        Err(e) => e.into_diagnostics(),
+    }
+}
+
+/// `files` are inserted under their `/`-joined tree paths.
+fn tree_quill(files: &[(&str, &str)]) -> quillmark_core::quill::Quill {
     use quillmark_core::quill::{FileTreeNode, Quill};
     use std::collections::HashMap;
 
@@ -250,11 +267,7 @@ fn open_err(files: &[(&str, &str)]) -> Vec<quillmark_core::error::Diagnostic> {
         )
         .expect("insert");
     }
-    let q = Quill::from_tree(root).expect("load quill");
-    match TypstBackend.open(&q, &serde_json::json!({}), common::test_date()) {
-        Ok(_) => panic!("the compile must fail"),
-        Err(e) => e.into_diagnostics(),
-    }
+    Quill::from_tree(root).expect("load quill")
 }
 
 /// An import of a package the load skipped fails as the missing file it is,

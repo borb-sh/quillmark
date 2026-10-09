@@ -64,4 +64,4 @@ pub use load::{quill_from_path, tree_from_path};
 pub use orchestration::Quillmark;
 
 #[cfg(feature = "typst")]
-pub use quillmark_typst::workspace as typst_workspace;
+pub use quillmark_typst::{plate_file as typst_plate_file, workspace as typst_workspace};
