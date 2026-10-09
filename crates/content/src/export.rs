@@ -732,9 +732,9 @@ fn annotate(md: String, points: &[usize], tags: &[(Usv, &str)]) -> String {
 
 /// The carrier's canonical spelling of an anchor `id`.
 fn anchor_tag(id: &str) -> String {
-    crate::carrier::Element::new("anchor", [("ref".to_string(), id.to_string())].into())
-        .expect("`anchor` and `ref` are in the carrier grammar")
-        .wrap_inline("")
+    let tag = crate::carrier::Element::new("anchor", [("ref".to_string(), id.to_string())].into())
+        .expect("`anchor` and `ref` are in the carrier grammar");
+    format!("{}{}", tag.open_tag(), tag.close_tag())
 }
 
 /// Route `marks` into the three lists [`render_marked_core`] takes, each range
@@ -880,29 +880,22 @@ fn render_marked_core(
             .then(ast_last(fmt[a].2).cmp(&ast_last(fmt[b].2)))
     });
 
-    // Each underline's tag pair. At one position the tags sit outside the
-    // delimiters closing and opening there, so a tag's `<` and `>` never abut a
-    // delimiter from inside its run, where they would change how it flanks. A
-    // run spanning the position stays open around the tag: tags pair by name,
-    // apart from the delimiters' nesting.
-    let tag_pairs: Vec<Option<(String, String)>> = fmt
-        .iter()
-        .map(|m| match m.2 {
-            MarkKind::Underline => Some(("<u>".into(), "</u>".into())),
-            _ => None,
-        })
-        .collect();
-    let is_tag = |fi: usize| tag_pairs[fi].is_some();
+    // An underline is a `<u>` tag pair. At one position its tags sit outside
+    // the delimiters closing and opening there, so a tag's `<` and `>` never
+    // abut a delimiter from inside its run, where they would change how it
+    // flanks. An underline spanning the position stays open around the
+    // delimiters, apart from their nesting.
+    let is_underline = |fi: usize| matches!(fmt[fi].2, MarkKind::Underline);
 
     // One mark sweep over the marks `keep` selects (indices into `fmt`) → inline
     // markdown, recording each position's tag point into `points`.
     let sweep = |keep: &[bool], d: Delims, mut points: Option<&mut Vec<usize>>| -> String {
         let mut out = String::new();
-        // Marks currently open, outermost first, tags and delimiters apart.
-        // Storing the `fmt` index (not `(end, kind)`) keeps each open mark's
-        // identity, so a reopened mark re-emits its OWN delimiter.
+        // Marks currently open, outermost first, underlines and delimiters
+        // apart. Storing the `fmt` index (not `(end, kind)`) keeps each open
+        // mark's identity, so a reopened mark re-emits its OWN delimiter.
         let mut stack: Vec<usize> = Vec::new();
-        let mut tags: Vec<usize> = Vec::new();
+        let mut underlines: Vec<usize> = Vec::new();
         let (mut oi, mut li, mut ci) = (0usize, 0usize, 0usize);
         let mut pos = 0usize;
         while pos <= n {
@@ -927,13 +920,13 @@ fn render_marked_core(
                     }
                 }
             }
-            let mut reopen_tags: Vec<usize> = Vec::new();
-            if let Some(idx) = tags.iter().position(|&fi| fmt[fi].1 == pos) {
-                while tags.len() > idx {
-                    let fi = tags.pop().unwrap();
-                    out.push_str(&tag_pairs[fi].as_ref().unwrap().1);
+            let mut reopen_underlines: Vec<usize> = Vec::new();
+            if let Some(idx) = underlines.iter().position(|&fi| fmt[fi].1 == pos) {
+                while underlines.len() > idx {
+                    let fi = underlines.pop().unwrap();
+                    out.push_str("</u>");
                     if fmt[fi].1 != pos {
-                        reopen_tags.push(fi);
+                        reopen_underlines.push(fi);
                     }
                 }
             }
@@ -941,15 +934,15 @@ fn render_marked_core(
             if let Some(points) = points.as_mut() {
                 points.push(point);
             }
-            let fresh = opening.iter().copied().filter(|&fi| is_tag(fi));
-            for fi in reopen_tags.into_iter().rev().chain(fresh) {
-                out.push_str(&tag_pairs[fi].as_ref().unwrap().0);
-                tags.push(fi);
+            let fresh = opening.iter().copied().filter(|&fi| is_underline(fi));
+            for fi in reopen_underlines.into_iter().rev().chain(fresh) {
+                out.push_str("<u>");
+                underlines.push(fi);
             }
             // Open formatting marks starting here BEFORE any atomic run, so a
             // formatting mark beginning at the same position as inline code/link
             // still wraps it rather than being dropped.
-            let fresh = opening.iter().copied().filter(|&fi| !is_tag(fi));
+            let fresh = opening.iter().copied().filter(|&fi| !is_underline(fi));
             for fi in reopen.into_iter().rev().chain(fresh) {
                 out.push_str(delim_open(fmt[fi].2, d));
                 stack.push(fi);
@@ -1036,9 +1029,7 @@ fn render_marked_core(
         while let Some(fi) = stack.pop() {
             out.push_str(delim_close(fmt[fi].2, d));
         }
-        while let Some(fi) = tags.pop() {
-            out.push_str(&tag_pairs[fi].as_ref().unwrap().1);
-        }
+        out.push_str(&"</u>".repeat(underlines.len()));
         out
     };
 
@@ -1046,8 +1037,8 @@ fn render_marked_core(
     // over a span markdown can't represent, and it lowers to a `**`/`*`/`~~` run
     // pulldown re-reads as literal text, leaking a delimiter into the content.
     // Re-parse the rendered line and, if its plain text drifted, search for a set
-    // of flanking marks that keeps the text intact. Tag pairs are read back
-    // beside them and dropped the same way: a pair the line cannot hold comes
+    // of flanking marks that keeps the text intact. Underlines are read back
+    // beside them and dropped the same way: one the line cannot hold comes
     // back as other markup or as nothing.
     let is_flanking = |k: &MarkKind| {
         matches!(
@@ -1350,7 +1341,7 @@ fn delim_open(kind: &MarkKind, d: Delims) -> &'static str {
         MarkKind::Strong => d.strong,
         MarkKind::Emph => d.emph,
         MarkKind::Strike => "~~",
-        // Code/Link/Anchor and the tag pairs are handled elsewhere.
+        // Code/Link/Anchor and underlines are handled elsewhere.
         _ => "",
     }
 }

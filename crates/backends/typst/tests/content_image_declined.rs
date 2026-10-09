@@ -119,9 +119,8 @@ fn a_remote_or_missing_url_warns_rather_than_failing_the_compile() {
     }
 }
 
-/// Every content field, not only a body: the address is the one the codegen
-/// walked, translated to document-model space. Order is codegen's, which sorts
-/// keys at every level, so `$cards` precedes a main field.
+/// Every content field, not only a body, at its document address and in
+/// document order: the main card's fields, then each card's.
 #[test]
 fn a_named_field_and_a_card_body_carry_their_own_paths() {
     let data = serde_json::json!({
@@ -136,7 +135,7 @@ fn a_named_field_and_a_card_body_carry_their_own_paths() {
         .iter()
         .filter_map(|d| d.path.clone())
         .collect();
-    assert_eq!(paths, vec!["cards.note[0].body", "main.intro"]);
+    assert_eq!(paths, vec!["main.intro", "cards.note[0].body"]);
 }
 
 #[test]

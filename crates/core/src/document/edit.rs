@@ -628,7 +628,7 @@ impl Revised {
 }
 
 /// [`diff_import`] `body` against `base`, minting the import's warnings.
-fn revise_import(
+pub(super) fn revise_import(
     base: &quillmark_content::model::Content,
     body: impl Into<String>,
 ) -> Result<(Normalized, Revised), EditError> {

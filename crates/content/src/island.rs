@@ -19,6 +19,9 @@ pub enum IslandType {
     Image,
 }
 
+/// The values of a table's `align` key, its placement.
+pub const TABLE_ALIGNS: [&str; 3] = ["left", "center", "right"];
+
 impl IslandType {
     /// Every known type, for a reader that needs the closed set whole.
     pub const ALL: &'static [IslandType] = &[IslandType::Table, IslandType::Image];

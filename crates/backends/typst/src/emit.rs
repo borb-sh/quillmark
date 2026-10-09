@@ -255,26 +255,19 @@ pub struct Emission {
     pub markup: String,
     /// One entry per emitted segment, in generation order.
     pub segments: Vec<SegmentMap>,
-    /// Each construct this emission drew nothing for, with its count, as
-    /// [`quillmark_core::backend::declined_in`] reads the content.
-    pub declined: Vec<(quillmark_core::quill::BlockConstruct, usize)>,
 }
 
 impl Emission {
     /// A syntax error in emitted markup is a lowering bug, never a document's.
     /// Typst's parser is the only faithful judge of its own grammar, so debug
     /// builds run it over every emission.
-    fn new(rt: &Content, markup: String, segments: Vec<SegmentMap>) -> Self {
+    fn new(markup: String, segments: Vec<SegmentMap>) -> Self {
         debug_assert!(
             !typst::syntax::parse(&markup).diagnosis().errors,
             "emitted markup does not parse: {:?}\n{markup:?}",
             typst::syntax::parse(&markup).errors_and_warnings().0,
         );
-        Emission {
-            markup,
-            segments,
-            declined: quillmark_core::backend::declined_in("typst", rt),
-        }
+        Emission { markup, segments }
     }
 }
 
@@ -318,7 +311,7 @@ pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
     let mut e = Emit::new(rt);
     let n = rt.lines.len();
     e.emit_block_level(0..n, 0);
-    Ok(Emission::new(rt, e.out, e.segments))
+    Ok(Emission::new(e.out, e.segments))
 }
 
 /// Lower an [`is_inline`] content to pure inline markup, omitting the block
@@ -334,7 +327,7 @@ pub(crate) fn emit_content_inline(rt: &Normalized) -> Result<Emission, EmitError
     // `is_inline` guarantees depth 0, so `emit_content`'s nesting guard is moot.
     let mut e = Emit::new(rt);
     e.emit_segment(0..rt.lines.len());
-    Ok(Emission::new(rt, e.out, e.segments))
+    Ok(Emission::new(e.out, e.segments))
 }
 
 struct Emit<'a> {
@@ -591,7 +584,6 @@ impl<'a> Emit<'a> {
     fn emit_element(&mut self, range: Range<usize>, depth: usize, name: &str, attrs: &BTreeMap<String, String>) {
         self.open_line();
         self.out.push_str(&element_call(name, attrs));
-        self.out.push(')');
         self.out.push_str("[\n");
         self.end_newline = true;
         self.emit_block_level(range, depth + 1);
@@ -902,16 +894,16 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
     (wraps, codes)
 }
 
-/// The `#_qm-element(name, attrs` a call to the helper's dispatcher opens with,
-/// its argument list left open. The attributes are a dictionary of strings,
-/// keys sorted, `(:)` when empty.
+/// `#_qm-element(name, attrs)`, a call to the helper's dispatcher before its
+/// body. The attributes are a dictionary of strings, keys sorted, `(:)` when
+/// empty.
 fn element_call(name: &str, attrs: &BTreeMap<String, String>) -> String {
     let entries: Vec<String> = attrs
         .iter()
         .map(|(attr, value)| format!("\"{}\": \"{}\"", escape_string(attr), escape_string(value)))
         .collect();
     let dict = if entries.is_empty() { "(:)".to_string() } else { format!("({})", entries.join(", ")) };
-    format!("#_qm-element(\"{}\", {dict}", escape_string(name))
+    format!("#_qm-element(\"{}\", {dict})", escape_string(name))
 }
 
 /// One run of a mark sweep: the atomic `#raw(..)` code span starting at `pos`,
@@ -1029,7 +1021,7 @@ fn table_markup(props: &serde_json::Value) -> String {
     let placement = props
         .get("align")
         .and_then(Value::as_str)
-        .filter(|a| matches!(*a, "left" | "center" | "right"));
+        .filter(|a| quillmark_content::island::TABLE_ALIGNS.contains(a));
     // Placed, the table is a call under `context`, so a cell aligning by default
     // reads the alignment outside the placement rather than the placement's.
     let inherited = "align.alignment";
@@ -1106,7 +1098,6 @@ mod tests {
 
     use super::*;
     use quillmark_content::import::from_markdown;
-    use quillmark_core::quill::BlockConstruct;
     use typst::syntax::SyntaxKind;
 
     fn emit(md: &str) -> Emission {
@@ -2011,12 +2002,10 @@ mod tests {
     }
 
     #[test]
-    fn an_image_island_draws_nothing_and_is_counted() {
+    fn an_image_island_draws_nothing() {
         let ec = emit("before ![alt](assets/logo.svg) after\n\n![x](y.png)");
         assert!(!ec.markup.contains("#image"), "got {:?}", ec.markup);
         assert!(!ec.markup.contains("assets/logo.svg"), "got {:?}", ec.markup);
-        assert_eq!(ec.declined, vec![(BlockConstruct::Image, 2)]);
-        assert!(emit("no images here").declined.is_empty());
     }
 
     #[test]

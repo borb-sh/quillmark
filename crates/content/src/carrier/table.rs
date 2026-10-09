@@ -26,7 +26,7 @@ pub(crate) fn prop(name: &str, value: &str) -> Option<Value> {
             })
             .collect::<Option<Vec<_>>>()
             .map(Value::Array),
-        "align" => matches!(value, "left" | "center" | "right").then(|| value.into()),
+        "align" => crate::island::TABLE_ALIGNS.contains(&value).then(|| value.into()),
         _ => None,
     }
 }

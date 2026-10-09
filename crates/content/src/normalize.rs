@@ -197,10 +197,7 @@ impl<'a> SrcLine<'a> {
 /// A blank line inside the containers `prefix` holds: each quote's `>` kept,
 /// a list marker dropped.
 pub(crate) fn blank_of(prefix: &str) -> String {
-    let mut s: String = prefix
-        .chars()
-        .map(|c| if matches!(c, '>' | '\t') { c } else { ' ' })
-        .collect();
+    let mut s = continuation_of(prefix);
     s.truncate(s.trim_end().len());
     s
 }
@@ -226,62 +223,6 @@ fn next_line_continues(src: &str, end: usize) -> bool {
         .is_empty()
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    /// Tags only: drops as an HTML block of its own.
-    Tag,
-    /// Freed markdown, possibly a paragraph a later line continues.
-    Text,
-    /// Kept whole: a comment through its `-->`.
-    Raw,
-}
-
-enum Row {
-    Blank,
-    Line(String, Kind),
-}
-
-#[derive(Default)]
-struct Rows(Vec<Row>);
-
-impl Rows {
-    fn push(&mut self, line: String, kind: Kind) {
-        self.0.push(Row::Line(line, kind));
-    }
-
-    /// Lines of tags, padded with a blank line above and below.
-    fn tags(&mut self, lines: impl IntoIterator<Item = String>) {
-        if matches!(self.0.last(), Some(Row::Line(..))) {
-            self.0.push(Row::Blank);
-        }
-        for line in lines {
-            self.push(line, Kind::Tag);
-        }
-        self.0.push(Row::Blank);
-    }
-
-    /// The span's replacement text. A blank line closes it when the line after
-    /// would join it, the span having ended on freed text or tags.
-    fn finish(mut self, blank: &str, next_continues: bool) -> String {
-        while matches!(self.0.last(), Some(Row::Blank)) {
-            self.0.pop();
-        }
-        let close = matches!(self.0.last(), Some(Row::Line(_, Kind::Text | Kind::Tag)));
-        if close && next_continues {
-            self.0.push(Row::Blank);
-        }
-        let lines: Vec<&str> = self
-            .0
-            .iter()
-            .map(|r| match r {
-                Row::Blank => blank,
-                Row::Line(l, _) => l.as_str(),
-            })
-            .collect();
-        lines.join("\n")
-    }
-}
-
 fn fence_open(t: &str) -> bool {
     let Some(c) = t.chars().next().filter(|c| matches!(c, '`' | '~')) else {
         return false;
@@ -301,18 +242,22 @@ fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let at = html::block_end(kind, last.content)?;
     let rest = last.content[at..].trim();
     let runs_on = match html::block_start(rest) {
-        Some(k) if k.end_marker().is_some() => html::block_end(k, rest).is_none(),
+        Some(k) if !k.ends_at_blank_line() => html::block_end(k, rest).is_none(),
         _ => fence_open(rest),
     };
     if rest.is_empty() || runs_on {
         return None;
     }
-    let mut rows = Rows::default();
-    rows.push(format!("{}{}", last.prefix, &last.content[..at]), Kind::Raw);
     let prefix = format!("{}{}", continuation_of(last.prefix), shallow_lead(last.content));
-    rows.push(format!("{prefix}{rest}"), Kind::Text);
+    let mut lines = vec![
+        format!("{}{}", last.prefix, &last.content[..at]),
+        format!("{prefix}{rest}"),
+    ];
     let (start, end) = (last.start, last.end());
-    let with = rows.finish(&blank_of(last.prefix), next_line_continues(src, end));
+    if next_line_continues(src, end) {
+        lines.push(blank_of(last.prefix));
+    }
+    let with = lines.join("\n");
     (with != src[start..end]).then_some(Edit { range: start..end, with })
 }
 
@@ -356,14 +301,18 @@ fn tag_row_edits(src: &str, rows: &[SrcLine]) -> Vec<Edit> {
         let group = &rows[k..to];
         let (first, last) = (group[0], group[group.len() - 1]);
         let blank = blank_of(first.prefix);
-        let mut out = Rows(vec![Row::Blank]);
+        let mut lines = Vec::with_capacity(2 * group.len() + 1);
         for row in group {
-            out.tags([row.whole()]);
+            lines.push(blank.clone());
+            lines.push(row.whole());
         }
         let end = last.end();
+        if next_line_continues(src, end) {
+            lines.push(blank);
+        }
         edits.push(Edit {
             range: first.start..end,
-            with: out.finish(&blank, next_line_continues(src, end)),
+            with: lines.join("\n"),
         });
         k = to;
     }

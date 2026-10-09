@@ -1,9 +1,7 @@
 //! Raw HTML as CommonMark 0.31.2 reads it: §6.6's open and closing tags and
 //! §4.6's HTML-block start and end conditions, at the line grain the import's
 //! repair works at. A type-7 tag holds no line ending, as in `pulldown_cmark`
-//! 0.13, whose blocks the repair predicts. A type-1 block ends at any of its
-//! four closing tags in any case, as in CommonMark; that parser reads only the
-//! block's own in lowercase, so the repair respells the one that ends it.
+//! 0.13, whose blocks the repair predicts.
 
 use std::ops::Range;
 
@@ -25,10 +23,9 @@ pub(crate) struct Tag<'a> {
 /// The start condition a line meets, in §4.6's numbering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BlockKind {
-    /// Type 1: `<pre`, `<script`, `<style` or `<textarea`, ending to CommonMark
-    /// at the line holding any of their closing tags ([`verbatim_close`]). The
-    /// parser ends it only at the closing tag carried here, in lowercase.
-    Verbatim(&'static str),
+    /// Type 1: `<pre`, `<script`, `<style` or `<textarea`, ending at the line
+    /// holding any of their closing tags, in any case.
+    Verbatim,
     /// Type 2: `<!--`, ending at `-->`.
     Comment,
     /// Type 3: `<?`, ending at `?>`.
@@ -46,22 +43,15 @@ pub(crate) enum BlockKind {
 }
 
 impl BlockKind {
-    /// What a line must contain to end a type 1–5 block; `None` for types 6
-    /// and 7.
-    pub(crate) fn end_marker(self) -> Option<&'static str> {
-        match self {
-            BlockKind::Verbatim(close) => Some(close),
-            BlockKind::Comment => Some("-->"),
-            BlockKind::Instruction => Some("?>"),
-            BlockKind::Declaration => Some(">"),
-            BlockKind::Cdata => Some("]]>"),
-            BlockKind::BlockName | BlockKind::Tag => None,
-        }
+    /// Whether the block ends at a blank line (types 6 and 7) rather than at a
+    /// line holding its end marker (types 1–5).
+    pub(crate) fn ends_at_blank_line(self) -> bool {
+        matches!(self, BlockKind::BlockName | BlockKind::Tag)
     }
 }
 
 /// The type-6 start condition's names.
-pub(crate) const BLOCK_NAMES: [&str; 62] = [
+const BLOCK_NAMES: [&str; 62] = [
     "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center",
     "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset",
     "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5",
@@ -77,7 +67,7 @@ const VERBATIM: [(&str, &str); 4] = [
     ("textarea", "</textarea>"),
 ];
 
-pub(crate) fn is_block_name(name: &str) -> bool {
+fn is_block_name(name: &str) -> bool {
     BLOCK_NAMES.iter().any(|n| n.eq_ignore_ascii_case(name))
 }
 
@@ -196,14 +186,14 @@ pub(crate) fn tag_line(line: &str) -> Option<Vec<Tag<'_>>> {
 /// content is not markup.
 pub(crate) fn block_tags(text: &str) -> Vec<Tag<'_>> {
     match block_start(text.lines().next().unwrap_or("")) {
-        Some(BlockKind::Verbatim(_)) => text.find('<').and_then(|i| tag_at(text, i)).into_iter().collect(),
-        Some(kind) if kind.end_marker().is_some() => Vec::new(),
+        Some(BlockKind::Verbatim) => text.find('<').and_then(|i| tag_at(text, i)).into_iter().collect(),
+        Some(kind) if !kind.ends_at_blank_line() => Vec::new(),
         _ => tags(text),
     }
 }
 
 /// Every complete tag in `text`, scanned left to right.
-pub(crate) fn tags(text: &str) -> Vec<Tag<'_>> {
+fn tags(text: &str) -> Vec<Tag<'_>> {
     let mut tags = Vec::new();
     let mut i = 0;
     while let Some(off) = text[i..].find('<') {
@@ -239,12 +229,12 @@ pub(crate) fn block_start(line: &str) -> Option<BlockKind> {
     }
     let rest = line.trim_start_matches([' ', '\t']).strip_prefix('<')?;
     let b = rest.as_bytes();
-    for (name, close) in VERBATIM {
+    for (name, _) in VERBATIM {
         if b.len() >= name.len()
             && b[..name.len()].eq_ignore_ascii_case(name.as_bytes())
             && b.get(name.len()).is_none_or(|&c| c.is_ascii_whitespace() || c == b'>')
         {
-            return Some(BlockKind::Verbatim(close));
+            return Some(BlockKind::Verbatim);
         }
     }
     if rest.starts_with("!--") {
@@ -278,23 +268,27 @@ pub(crate) fn block_start(line: &str) -> Option<BlockKind> {
 /// The byte offset just past the marker on `line` that ends a block of `kind`,
 /// or `None` where the line leaves it open (always, for types 6 and 7).
 pub(crate) fn block_end(kind: BlockKind, line: &str) -> Option<usize> {
-    if let BlockKind::Verbatim(_) = kind {
-        return verbatim_close(line).map(|r| r.end);
-    }
-    let marker = kind.end_marker()?;
+    let marker = match kind {
+        BlockKind::Verbatim => return verbatim_close(line),
+        BlockKind::Comment => "-->",
+        BlockKind::Instruction => "?>",
+        BlockKind::Declaration => ">",
+        BlockKind::Cdata => "]]>",
+        BlockKind::BlockName | BlockKind::Tag => return None,
+    };
     line.find(marker).map(|at| at + marker.len())
 }
 
-/// The first closing tag on `line` that ends a type 1 block to CommonMark:
-/// `</pre>`, `</script>`, `</style>` or `</textarea>`, in any case.
-pub(crate) fn verbatim_close(line: &str) -> Option<Range<usize>> {
+/// The byte offset just past the first closing tag on `line` that ends a type
+/// 1 block: `</pre>`, `</script>`, `</style>` or `</textarea>`, in any case.
+fn verbatim_close(line: &str) -> Option<usize> {
     line.match_indices("</").find_map(|(at, _)| {
         VERBATIM.iter().find_map(|(_, close)| {
             let end = at + close.len();
             line.as_bytes()
                 .get(at..end)
                 .is_some_and(|b| b.eq_ignore_ascii_case(close.as_bytes()))
-                .then_some(at..end)
+                .then_some(end)
         })
     })
 }
@@ -350,9 +344,9 @@ mod tests {
     fn block_starts_follow_the_seven_conditions() {
         use BlockKind::*;
         let cases: &[(&str, Option<BlockKind>)] = &[
-            ("<pre>", Some(Verbatim("</pre>"))),
-            ("<SCRIPT type=x>", Some(Verbatim("</script>"))),
-            ("<textarea", Some(Verbatim("</textarea>"))),
+            ("<pre>", Some(Verbatim)),
+            ("<SCRIPT type=x>", Some(Verbatim)),
+            ("<textarea", Some(Verbatim)),
             ("<prefix>", Some(Tag)),
             ("<!-- c", Some(Comment)),
             ("<?php", Some(Instruction)),
@@ -381,10 +375,10 @@ mod tests {
     fn a_block_ends_past_its_marker() {
         assert_eq!(block_end(BlockKind::Comment, "<!-- a --> b"), Some(10));
         assert_eq!(block_end(BlockKind::Comment, "<!-->x"), Some(5));
-        assert_eq!(block_end(BlockKind::Verbatim("</pre>"), "x</PRE>"), Some(7));
-        assert_eq!(block_end(BlockKind::Verbatim("</pre>"), "x</pre>y"), Some(7));
-        assert_eq!(block_end(BlockKind::Verbatim("</pre>"), "x</Script>y</pre>"), Some(10));
-        assert_eq!(block_end(BlockKind::Verbatim("</pre>"), "x</pre >"), None);
+        assert_eq!(block_end(BlockKind::Verbatim, "x</PRE>"), Some(7));
+        assert_eq!(block_end(BlockKind::Verbatim, "x</pre>y"), Some(7));
+        assert_eq!(block_end(BlockKind::Verbatim, "x</Script>y</pre>"), Some(10));
+        assert_eq!(block_end(BlockKind::Verbatim, "x</pre >"), None);
         assert_eq!(block_end(BlockKind::Declaration, "<!X a>b"), Some(6));
         assert_eq!(block_end(BlockKind::Tag, "</span>"), None);
     }

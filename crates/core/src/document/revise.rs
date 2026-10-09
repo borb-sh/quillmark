@@ -1,14 +1,15 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use quillmark_content::delta::{diff_import, rebase_onto};
+use quillmark_content::delta::rebase_onto;
 use quillmark_content::model::{Content, MarkKind, Normalized};
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 
 use super::align::{align, Pairing, Slot};
-use super::emit::{emit_payload_items, project_content_field};
-use super::{dropped_construct, Card, Document, Parsed, Payload, PayloadItem};
+use super::edit::revise_import;
+use super::emit::{canonical_content, emit_payload_items};
+use super::{Card, Document, Parsed, Payload, PayloadItem};
 use crate::error::{Diagnostic, ParseError};
 use crate::path::DocPath;
 use crate::value::QuillValue;
@@ -164,38 +165,24 @@ fn revise_card(
     let (body, _) = rebase_onto(stored.body(), body);
     *incoming.body_mut() = body;
 
-    let revisable: Vec<(String, String)> = incoming
+    let revisable: Vec<(String, Normalized, String)> = incoming
         .payload()
         .items()
         .iter()
         .filter_map(|item| match item {
             PayloadItem::Field { key, value } => {
                 let text = value.as_json().as_str()?;
-                let stored = stored.payload().get(key)?.as_json();
-                project_content_field(stored)?;
-                Some((key.clone(), text.to_string()))
+                let base = canonical_content(stored.payload().get(key)?.as_json())?;
+                Some((key.clone(), base, text.to_string()))
             }
             _ => None,
         })
         .collect();
-    for (name, text) in revisable {
-        let base = from_canonical_value(
-            stored
-                .payload()
-                .get(&name)
-                .expect("filtered on presence above")
-                .as_json(),
-        )
-        .expect("project_content_field decoded it above");
-        let Ok((content, _, dropped)) = diff_import(&base, &text) else {
+    for (name, base, text) in revisable {
+        let Ok((content, revised)) = revise_import(&base, text) else {
             continue;
         };
-        let path = at.field(&name);
-        warnings.extend(
-            dropped
-                .into_iter()
-                .map(|w| dropped_construct(w).with_path(path.to_string())),
-        );
+        warnings.extend(revised.with_path(&at.field(&name)).warnings);
         incoming
             .payload_mut()
             .insert(name, QuillValue::from_json(to_canonical_value(&content)))

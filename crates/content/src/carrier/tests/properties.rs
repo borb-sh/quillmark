@@ -160,7 +160,8 @@ fn carrier() -> impl Strategy<Value = Carrier> {
 
 fn anchor() -> impl Strategy<Value = String> {
     any::<String>().prop_map(|r| {
-        Element::new("anchor", BTreeMap::from([("ref".to_string(), r)])).unwrap().wrap_inline("")
+        let e = Element::new("anchor", BTreeMap::from([("ref".to_string(), r)])).unwrap();
+        format!("{}{}", e.open_tag(), e.close_tag())
     })
 }
 
@@ -385,7 +386,7 @@ proptest! {
         let tag = html::tag_at(&block, 0).unwrap();
         prop_assert_eq!(&decode_attrs(&tag.attrs), &read, "{:?}", block);
 
-        let row = format!("| h |\n|---|\n| {} |", e.wrap_inline("word"));
+        let row = format!("| h |\n|---|\n| {}word{} |", e.open_tag(), e.close_tag());
         let html: Vec<String> = Parser::new_ext(&row, options())
             .filter_map(|ev| match ev {
                 Event::InlineHtml(h) => Some(h.to_string()),

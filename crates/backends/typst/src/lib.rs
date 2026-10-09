@@ -43,6 +43,8 @@ const SUPPORTED_FORMATS: &[OutputFormat] =
 /// recompiles.
 struct TypstSession {
     world: world::QuillWorld,
+    /// Walked per compile for the constructs this backend declines.
+    config: QuillConfig,
     /// Built once at `open`: the schema never changes for a session's lifetime,
     /// and codegen plus date validation read only these tables.
     schema_meta: SchemaMeta,
@@ -87,10 +89,11 @@ struct Compiled {
 fn recompile(
     world: &mut world::QuillWorld,
     data: &serde_json::Value,
+    config: &QuillConfig,
     schema_meta: &SchemaMeta,
     scalar_windows: &[overlay::FieldWindow],
 ) -> Result<Compiled, RenderError> {
-    let (mut windows, declined) = world
+    let mut windows = world
         .inject_helper_package(data, schema_meta)
         .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
     windows.extend(scalar_windows.iter().cloned());
@@ -107,8 +110,7 @@ fn recompile(
         world,
         compile_warnings,
         &unclosed,
-        &declined,
-        &card_kinds(data),
+        declined_warnings(config, data),
     );
     Ok(Compiled {
         document,
@@ -122,54 +124,20 @@ fn recompile(
     })
 }
 
-/// The `$kind` of each card in `data`'s `$cards`, in document order:
-/// [`plate_addr_to_doc_path`](quillmark_core::region::plate_addr_to_doc_path)
-/// resolves a plate-space per-kind ordinal against it.
-fn card_kinds(data: &serde_json::Value) -> Vec<Option<String>> {
-    data.get("$cards")
-        .and_then(|c| c.as_array())
-        .map(|cards| {
-            cards
-                .iter()
-                .map(|c| {
-                    c.get("$kind")
-                        .and_then(|k| k.as_str())
-                        .map(str::to_string)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// One `backend::declined_construct` per content field and construct this
-/// backend [declines](quillmark_core::backend::declines).
-///
-/// A field whose plate address does not translate is skipped rather than
-/// anchored loosely: the warning is about *this* field, and an unanchored one
-/// names none.
-fn declined_warnings(
-    declined: &world::Declined,
-    card_kinds: &[Option<String>],
-) -> Vec<Diagnostic> {
-    let kinds: Vec<Option<&str>> = card_kinds.iter().map(|k| k.as_deref()).collect();
-    declined
-        .iter()
-        .filter_map(|(addr, construct, count)| {
-            let path = quillmark_core::region::plate_addr_to_doc_path(addr, &kinds)?;
-            let diag = quillmark_core::backend::declined_construct(
-                TypstBackend.id(),
-                *construct,
-                *count,
-                &path,
-            );
-            Some(match construct {
-                BlockConstruct::Image => diag.with_hint(
-                    "what a content image's url names is undecided; a plate draws a \
-                     quill asset with `#image(\"/assets/…\")`"
-                        .to_string(),
-                ),
-                _ => diag,
-            })
+/// [`QuillConfig::declined_in_plate`] for this backend, an image's with what a
+/// plate draws instead.
+fn declined_warnings(config: &QuillConfig, data: &serde_json::Value) -> Vec<Diagnostic> {
+    let image = serde_json::Value::from(BlockConstruct::Image.as_str());
+    config
+        .declined_in_plate(TypstBackend.id(), data)
+        .into_iter()
+        .map(|diag| match diag.args.get("construct") {
+            Some(construct) if *construct == image => diag.with_hint(
+                "what a content image's url names is undecided; a plate draws a \
+                 quill asset with `#image(\"/assets/…\")`"
+                    .to_string(),
+            ),
+            _ => diag,
         })
         .collect()
 }
@@ -180,8 +148,7 @@ fn session_warnings(
     world: &world::QuillWorld,
     compile: Vec<Diagnostic>,
     unclosed: &[(usize, String)],
-    declined: &world::Declined,
-    card_kinds: &[Option<String>],
+    declined: Vec<Diagnostic>,
 ) -> Vec<Diagnostic> {
     let mut all = world.load_warnings().to_vec();
     all.extend(compile);
@@ -197,7 +164,7 @@ fn session_warnings(
                 .to_string(),
         )
     }));
-    all.extend(declined_warnings(declined, card_kinds));
+    all.extend(declined);
     all
 }
 
@@ -307,6 +274,7 @@ impl SessionHandle for TypstSession {
         let compiled = recompile(
             &mut self.world,
             json_data,
+            &self.config,
             &self.schema_meta,
             &self.scalar_windows,
         )?;
@@ -450,7 +418,8 @@ impl Backend for TypstBackend {
     ) -> Result<LiveSession, RenderError> {
         let plate = read_plate(source)?;
 
-        let schema_meta = SchemaMeta::from_config(source.config());
+        let config = source.config();
+        let schema_meta = SchemaMeta::from_config(config);
         // Built in two steps rather than through `new_with_data` so codegen's own
         // diagnostic code survives: boxing it into the world-creation error would
         // relabel a bad date `typst::world_creation`.
@@ -474,20 +443,21 @@ impl Backend for TypstBackend {
             .collect();
         // No session survives to serve the load warnings, and a package they
         // name as skipped otherwise fails only as an unresolved import.
-        let live = recompile(&mut world, json_data, &schema_meta, &scalar_windows).map_err(|e| {
+        let live = recompile(&mut world, json_data, config, &schema_meta, &scalar_windows).map_err(|e| {
             let mut diags = e.into_diagnostics();
             diags.extend(world.load_warnings().iter().cloned());
             RenderError::new(diags)
         })?;
         let session = TypstSession {
             world,
+            config: config.clone(),
             schema_meta,
             scalar_windows,
             live,
         };
         Ok(LiveSession::new(
             Box::new(session),
-            source.config().clone(),
+            config.clone(),
             today,
         ))
     }
