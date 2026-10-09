@@ -52,28 +52,32 @@ jobs:
 
       - name: Compute next version
         id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          RC: ${{ inputs.release_candidate }}
+          OVERRIDE: ${{ inputs.version_override }}
         run: |
           CURRENT=$(cargo metadata --format-version=1 --no-deps \
             | jq -r '.packages[] | select(.name == "quillmark") | .version')
 
-          NEXT=$(./scripts/next-version.sh "$CURRENT" \
-            "${{ inputs.bump }}" \
-            "${{ inputs.release_candidate }}" \
-            "${{ inputs.version_override }}")
+          NEXT=$(./scripts/next-version.sh "$CURRENT" "$BUMP" "$RC" "$OVERRIDE")
 
           echo "next=$NEXT" >> "$GITHUB_OUTPUT"
           echo "Bumping $CURRENT → $NEXT"
 
       - name: Bump workspace versions
+        env:
+          VERSION: ${{ steps.version.outputs.next }}
         run: |
-          cargo release version "${{ steps.version.outputs.next }}" \
+          cargo release version "$VERSION" \
             --workspace \
             --no-confirm \
             --execute
 
       - name: Seed changelog entry
+        env:
+          VERSION: ${{ steps.version.outputs.next }}
         run: |
-          VERSION="${{ steps.version.outputs.next }}"
           DATE=$(date +%Y-%m-%d)
 
           # Changelog baseline: the last FINAL release, so the commit range
@@ -129,8 +133,8 @@ jobs:
       - name: Push branch and open PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.next }}
         run: |
-          VERSION="${{ steps.version.outputs.next }}"
           BRANCH="release/v${VERSION}"
 
           git config user.name "github-actions[bot]"
