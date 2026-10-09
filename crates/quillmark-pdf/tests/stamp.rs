@@ -355,7 +355,24 @@ fn an_out_of_contract_input_is_refused_under_its_code() {
             vec![field()],
             "pdf::indirect_annots",
         ),
+        (
+            "a hybrid file",
+            insert_after(&build_base_pdf(1), b"/Root 1 0 R", b" /XRefStm 9"),
+            vec![],
+            "pdf::xref_stream",
+        ),
+        (
+            "an xref stream behind /Prev",
+            {
+                let base = build_base_pdf(1);
+                let prev = format!(" /Prev {}", find_sub(&base, b"1 0 obj"));
+                insert_after(&base, b"/Root 1 0 R", prev.as_bytes())
+            },
+            vec![],
+            "pdf::xref_stream",
+        ),
         ("near-u32::MAX /Size", base_with_spliced_size("4294967295"), vec![], "pdf::write"),
+        ("a reference near u32::MAX", with_page_insertion(&build_base_pdf(1), b" /X 4294967294 0 R"), vec![], "pdf::write"),
         // Ids seeded from here fit a `u32` but not the `i32` a reference holds.
         ("/Size past i32::MAX", base_with_spliced_size("2147483648"), vec![field()], "pdf::write"),
         ("field past the last page", build_base_pdf(1), vec![off_page], "pdf::update_parse"),
@@ -817,5 +834,17 @@ fn a_null_acroform_is_no_form_and_the_stamp_writes_the_one_entry() {
         let (_, af, w) = stamped_on(base, &fields);
         assert_eq!(af.get(b"Fields").unwrap().as_array().unwrap().len(), 1);
         assert!(w.contains_key("X"));
+    }
+}
+
+/// A base reference at or above `/Size` names no object, and still names none
+/// once the update writes its objects.
+#[test]
+fn a_reference_past_size_names_no_object_the_update_writes() {
+    let base = with_page_insertion(&build_base_pdf(1), b" /Annots [6 0 R] /X 9 %c\n0 R");
+    let out = stamp(base, &all_four_fields(), &StampOptions::default()).expect("stamp ok");
+    let doc = lopdf::Document::load_mem(&out).expect("lopdf reparse");
+    for id in [6, 9] {
+        assert!(doc.get_object((id, 0)).is_err(), "object {id} is written");
     }
 }

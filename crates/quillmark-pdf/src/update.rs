@@ -18,8 +18,8 @@ pub struct PdfUpdate {
     xref_offset: usize,
     /// The base PDF's catalog (`/Root`) object id.
     pub catalog_id: u32,
-    /// Next free object id, seeded at the trailer `/Size`. Hand out via
-    /// [`alloc_id`](crate::writer::alloc_id).
+    /// Next free object id, seeded at the trailer `/Size` or past every id the
+    /// base names. Hand out via [`alloc_id`](crate::writer::alloc_id).
     pub next_id: u32,
     /// Objects to write in this revision; callers push their own onto it.
     pub objects: Vec<UpdatedObject>,
@@ -49,10 +49,11 @@ impl PdfUpdate {
             .and_then(|v| std::str::from_utf8(v.trim_ascii()).ok())
             .and_then(|s| s.parse::<u32>().ok())
             .ok_or_else(|| err(CODE_PARSE, "/Size missing or malformed in trailer"))?;
-        // One counter seeded at `/Size`, so created ids never collide with the
-        // base's. `alloc_id` bounds it: a malformed large `/Size` errors instead
-        // of handing out an id that collides or that no reference admits.
-        let mut next_id = size;
+        // One counter seeded at `/Size`, or past it where the base names an id
+        // at or above it, so created ids never collide with the base's.
+        // `alloc_id` bounds it: a malformed large `/Size` errors instead of
+        // handing out an id that collides or that no reference admits.
+        let mut next_id = size.max(idx.unnamed_from());
         let mut objects: Vec<UpdatedObject> = Vec::new();
         let info = read_info_source(idx, trailer);
         let new_info_ref = apply_producer_stamp(idx, info, producer, &mut next_id, &mut objects)?;
@@ -127,7 +128,13 @@ mod tests {
 
     /// A base whose whole trailer dict is `entries`, over one catalog object.
     fn base_with_trailer(entries: &str) -> Vec<u8> {
-        let head = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+        base_with_objects("", entries)
+    }
+
+    /// [`base_with_trailer`] with `objects` written after the catalog.
+    fn base_with_objects(objects: &str, entries: &str) -> Vec<u8> {
+        let head =
+            format!("%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n{objects}");
         format!(
             "{head}xref\n0 1\n0000000000 65535 f \ntrailer\n<< {entries} >>\n\
              startxref\n{}\n%%EOF\n",
@@ -149,6 +156,8 @@ mod tests {
             ("<< /Title (x) >>", Some(&b"(x)"[..])),
             ("(not a dictionary)", None),
             ("<< /Title (x) /Title (y) >>", None),
+            ("<< /Title (x) %c\n >>", Some(b"(x)")),
+            ("<< /Title (x) /Producer (p) %c\r>>", Some(b"(x)")),
         ] {
             let base = base_with_trailer(&format!("/Size 6 /Root 1 0 R /Info {value}"));
             let out = stamped(&base);
@@ -176,5 +185,22 @@ mod tests {
                 title
             );
         }
+    }
+
+    #[test]
+    fn an_info_reference_chain_stamps_the_dict_it_ends_at() {
+        let base = base_with_objects(
+            "6 0 obj\n5 0 R\nendobj\n5 0 obj\n<< /Title (y) >>\nendobj\n",
+            "/Size 7 /Root 1 0 R /Info 6 0 R",
+        );
+        let out = stamped(&base);
+        let info = ObjectIndex::new(&out)
+            .dict(5, CODE_PARSE, "/Info")
+            .expect("/Info dict");
+        assert_eq!(
+            find_dict_value(info, "Producer").unwrap().trim_ascii(),
+            b"(Quillmark test)"
+        );
+        assert_eq!(find_dict_value(info, "Title").unwrap().trim_ascii(), b"(y)");
     }
 }

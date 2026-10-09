@@ -75,8 +75,8 @@ fn nulled_base(nulls: &[((&str, &'static str), Vec<u8>)]) -> Vec<u8> {
     let mut trailer = Vec::new();
     for ((holder, key), spelling) in nulls {
         match *holder {
-            "catalog" => base = base.catalog_raw(key, spelling.clone()),
-            "page" => base = base.page_raw(key, spelling.clone()),
+            "catalog" => base = base.catalog_raw(*key, spelling.clone()),
+            "page" => base = base.page_raw(*key, spelling.clone()),
             _ => {
                 trailer.extend_from_slice(format!(" /{key}").as_bytes());
                 trailer.extend_from_slice(spelling);
@@ -111,6 +111,19 @@ fn annots_piece() -> impl Strategy<Value = String> {
         3 => proptest::sample::select(values),
         1 => proptest::sample::select(tokens.map(str::to_string).to_vec()),
     ]
+}
+
+/// `name` with each byte `escaped` selects written as a `#xx` escape, in
+/// either case.
+fn spelled(name: &str, escaped: &[bool], upper: bool) -> String {
+    name.bytes()
+        .zip(escaped.iter().chain(std::iter::repeat(&false)))
+        .map(|(byte, &escape)| match (escape, upper) {
+            (false, _) => char::from(byte).to_string(),
+            (true, true) => format!("#{byte:02X}"),
+            (true, false) => format!("#{byte:02x}"),
+        })
+        .collect()
 }
 
 fn count(haystack: &[u8], needle: &[u8]) -> usize {
@@ -307,6 +320,36 @@ proptest! {
         prop_assert_eq!(
             page_canvas_boxes(&base).map(drop).map_err(|e| e.code),
             Err("pdf::parse")
+        );
+    }
+
+    /// ISO 32000-1 §7.3.5 writes any byte of a name as `#xx`, and §7.2.3 lets
+    /// a comment stand for white-space between a reference's tokens. A catalog
+    /// `/AcroForm` or a page's widget, its key, `/Subtype` and reference in any
+    /// of those spellings, is the form it names and refused as one.
+    #[test]
+    fn a_form_in_any_spelling_is_refused(
+        on_catalog in any::<bool>(),
+        key in proptest::collection::vec(any::<bool>(), 8),
+        subtype in proptest::collection::vec(any::<bool>(), 6),
+        upper in any::<bool>(),
+        sep in proptest::sample::select(vec![" ", "\0", "%c\n", " %c\r", "\n%c\r\n"]),
+    ) {
+        let reference = format!(" {RAW_OBJECT}{sep}0{sep}R");
+        let base = if on_catalog {
+            BasePdf::letter(1)
+                .raw_object("<< /Fields [] >>")
+                .catalog_raw(spelled("AcroForm", &key, upper), reference)
+        } else {
+            BasePdf::letter(1)
+                .raw_object(format!("<< /Subtype /{} >>", spelled("Widget", &subtype, upper)))
+                .page_raw(spelled("Annots", &key, upper), format!(" [{reference}]"))
+        };
+        prop_assert_eq!(
+            stamp(base.build(), &every_field_kind(), &StampOptions::default())
+                .map(drop)
+                .map_err(|e| e.code),
+            Err("pdf::existing_acroform")
         );
     }
 }
