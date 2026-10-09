@@ -128,7 +128,13 @@ mod tests {
 
     /// A base whose whole trailer dict is `entries`, over one catalog object.
     fn base_with_trailer(entries: &str) -> Vec<u8> {
-        let head = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+        base_with_objects("", entries)
+    }
+
+    /// [`base_with_trailer`] with `objects` written after the catalog.
+    fn base_with_objects(objects: &str, entries: &str) -> Vec<u8> {
+        let head =
+            format!("%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n{objects}");
         format!(
             "{head}xref\n0 1\n0000000000 65535 f \ntrailer\n<< {entries} >>\n\
              startxref\n{}\n%%EOF\n",
@@ -150,6 +156,8 @@ mod tests {
             ("<< /Title (x) >>", Some(&b"(x)"[..])),
             ("(not a dictionary)", None),
             ("<< /Title (x) /Title (y) >>", None),
+            ("<< /Title (x) %c\n >>", Some(b"(x)")),
+            ("<< /Title (x) /Producer (p) %c\r>>", Some(b"(x)")),
         ] {
             let base = base_with_trailer(&format!("/Size 6 /Root 1 0 R /Info {value}"));
             let out = stamped(&base);
@@ -177,5 +185,22 @@ mod tests {
                 title
             );
         }
+    }
+
+    #[test]
+    fn an_info_reference_chain_stamps_the_dict_it_ends_at() {
+        let base = base_with_objects(
+            "6 0 obj\n5 0 R\nendobj\n5 0 obj\n<< /Title (y) >>\nendobj\n",
+            "/Size 7 /Root 1 0 R /Info 6 0 R",
+        );
+        let out = stamped(&base);
+        let info = ObjectIndex::new(&out)
+            .dict(5, CODE_PARSE, "/Info")
+            .expect("/Info dict");
+        assert_eq!(
+            find_dict_value(info, "Producer").unwrap().trim_ascii(),
+            b"(Quillmark test)"
+        );
+        assert_eq!(find_dict_value(info, "Title").unwrap().trim_ascii(), b"(y)");
     }
 }

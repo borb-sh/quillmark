@@ -111,11 +111,14 @@ pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8],
 
 /// What the trailer's `/Info` gives the producer stamp to rewrite.
 pub(crate) enum InfoSource<'a> {
-    /// Object `id`, rewritten in place under the trailer's existing reference.
+    /// Object `id`, rewritten in place under the trailer's existing reference:
+    /// the one its chain of references ends at.
     Object(u32),
     /// Entries for a fresh object whose reference replaces the trailer's
-    /// `/Info`: a direct dict's — ISO 32000-1 Table 15 asks for an indirect
-    /// reference, which not every writer honours — or none, when the trailer
+    /// `/Info`: a direct dict's, up to the end of its last one so no trailing
+    /// comment runs over what follows — ISO 32000-1 Table 15 asks for an
+    /// indirect reference, which not every writer honours — or none, when the
+    /// trailer
     /// carries no `/Info` or one this reader cannot read: not a dict, or one
     /// [`well_formed`] refuses.
     Entries(&'a [u8]),
@@ -125,15 +128,17 @@ pub(crate) fn read_info_source<'t>(idx: &ObjectIndex, trailer: &'t [u8]) -> Info
     let Some(value) = idx.value(trailer, "Info") else {
         return InfoSource::Entries(b"");
     };
-    if let Some((id, _)) = parse_indirect_ref(value) {
-        return InfoSource::Object(id);
+    if parse_indirect_ref(value).is_some() {
+        return idx
+            .referent(value)
+            .map_or(InfoSource::Entries(b""), InfoSource::Object);
     }
     let trimmed = value.trim_ascii();
     if trimmed.starts_with(b"<<")
         && let Some(entries) = extract_outer_dict(trimmed)
         && well_formed(entries, CODE_PARSE, "/Info").is_ok()
     {
-        return InfoSource::Entries(entries);
+        return InfoSource::Entries(&entries[..entries_end(entries)]);
     }
     InfoSource::Entries(b"")
 }
@@ -320,6 +325,20 @@ impl<'a> ObjectIndex<'a> {
     /// reads as written, a reference unresolved.
     pub fn value<'d>(&self, dict: &'d [u8], key: &str) -> Option<&'d [u8]> {
         find_dict_value(dict, key).filter(|value| !self.resolves_to_null(value))
+    }
+
+    /// The id of the object a chain of references from `value` ends at, the
+    /// first holding no reference. `None` where `value` is no reference, a
+    /// link names no object, or the chain runs past [`MAX_REFERENCE_CHAIN`].
+    fn referent(&self, value: &[u8]) -> Option<u32> {
+        let (mut id, _) = parse_indirect_ref(value)?;
+        for _ in 0..MAX_REFERENCE_CHAIN {
+            match parse_indirect_ref(self.body(id)?) {
+                Some((next, _)) => id = next,
+                None => return Some(id),
+            }
+        }
+        None
     }
 
     fn resolves_to_null(&self, value: &[u8]) -> bool {
@@ -532,7 +551,6 @@ fn dict_entries(dict: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
 /// of such a dict is safe.
 fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d [u8], PdfError> {
     let mut keys = HashSet::new();
-    let mut end = 0;
     for (key, entry) in dict_entries(dict) {
         if !keys.insert(decode_name(key)) {
             return Err(err(
@@ -553,15 +571,21 @@ fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d
                 ),
             ));
         }
-        end = entry.as_ptr() as usize + entry.len() - dict.as_ptr() as usize;
     }
-    if skip_ws_and_comments(dict, end) < dict.len() {
+    if skip_ws_and_comments(dict, entries_end(dict)) < dict.len() {
         return Err(err(
             code,
             format!("{what} dict holds a token where a key belongs"),
         ));
     }
     Ok(dict)
+}
+
+/// The index just past the last entry [`dict_entries`] reads in `dict`.
+fn entries_end(dict: &[u8]) -> usize {
+    dict_entries(dict).last().map_or(0, |(_, entry)| {
+        entry.as_ptr() as usize + entry.len() - dict.as_ptr() as usize
+    })
 }
 
 /// The inner bytes of the dictionary `value` writes inline, [`well_formed`],
