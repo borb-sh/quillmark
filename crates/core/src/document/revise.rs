@@ -44,10 +44,11 @@ impl Document {
     /// spell where it can be matched.
     ///
     /// Cards carry no id, so the incoming composable cards align to the stored
-    /// ones by `$kind` and text similarity. An aligned card's body, and
-    /// each field whose stored value is a content object and whose incoming
-    /// value is a markdown string, revise as [`Card::revise_body`] and
-    /// [`Card::revise_field`] do, so surviving anchors rebase. Everything else
+    /// ones by `$kind` and text similarity. An aligned card's body, and each
+    /// markdown string in a field where the stored field holds a content
+    /// object, at any depth, by key in an object and by index in an array,
+    /// revise as [`Card::revise_body`] and [`Card::revise_field`] do, so
+    /// surviving anchors rebase. Everything else
     /// lands as the markdown spells it: scalars, `$quill`, `$seed`, YAML
     /// comments, inserted cards, and removed cards dropped.
     ///
@@ -57,9 +58,9 @@ impl Document {
     /// identical, so a card that merely sits where another was never takes
     /// that card's durable key.
     ///
-    /// Schema-free: nothing conforms. A field that is not a stored content
-    /// object rests as authored, and an over-nested field string lands as given
-    /// with its anchors reported dropped. The bound door is
+    /// Schema-free: nothing conforms. A string that meets no stored content
+    /// object rests as authored, and an over-nested one lands as given with
+    /// its anchors reported dropped. The bound door is
     /// [`TypedWriter::revise_document`](crate::writer::TypedWriter::revise_document).
     ///
     /// Errors as [`Document::parse`] does, and then leaves `self` unchanged.
@@ -153,8 +154,9 @@ fn card_text(card: &Card) -> String {
     out
 }
 
-/// `incoming` with `stored`'s anchors rebased onto its body and content
-/// fields, and `stored`'s `$ext` when `incoming` omits it and `carry_ext`.
+/// `incoming` with `stored`'s anchors rebased onto its body and the content
+/// in its fields, and `stored`'s `$ext` when `incoming` omits it and
+/// `carry_ext`.
 fn revise_card(
     stored: &Card,
     mut incoming: Card,
@@ -166,28 +168,25 @@ fn revise_card(
     let (body, _) = rebase_onto(stored.body(), body);
     *incoming.body_mut() = body;
 
-    let revisable: Vec<(String, Normalized, String)> = incoming
+    let fields: Vec<(String, JsonValue)> = incoming
         .payload()
         .items()
         .iter()
         .filter_map(|item| match item {
-            PayloadItem::Field { key, value } => {
-                let text = value.as_json().as_str()?;
-                let base = canonical_content(stored.payload().get(key)?.as_json())?;
-                Some((key.clone(), base, text.to_string()))
-            }
+            PayloadItem::Field { key, value } => Some((key.clone(), value.as_json().clone())),
             _ => None,
         })
         .collect();
-    for (name, base, text) in revisable {
-        let Ok((content, revised)) = revise_import(&base, text) else {
+    for (name, mut value) in fields {
+        let Some(stored) = stored.payload().get(&name) else {
             continue;
         };
-        warnings.extend(revised.with_path(&at.field(&name)).warnings);
-        incoming
-            .payload_mut()
-            .insert(name, QuillValue::from_json(to_canonical_value(&content)))
-            .expect("a replace never grows the card");
+        if revise_value(stored.as_json(), &mut value, &at.field(&name), warnings) {
+            incoming
+                .payload_mut()
+                .insert(name, QuillValue::from_json(value))
+                .expect("a replace never grows the card");
+        }
     }
 
     if carry_ext && incoming.ext().is_none() {
@@ -196,6 +195,45 @@ fn revise_card(
         }
     }
     incoming
+}
+
+/// Revise each markdown string in `incoming` that sits where `stored` holds a
+/// content object, by key in an object and by index in an array, into the
+/// content it imports with `stored`'s anchors rebased. Whether any did.
+fn revise_value(
+    stored: &JsonValue,
+    incoming: &mut JsonValue,
+    at: &DocPath,
+    warnings: &mut Vec<Diagnostic>,
+) -> bool {
+    if let Some(base) = canonical_content(stored) {
+        let JsonValue::String(text) = incoming else {
+            return false;
+        };
+        let Ok((content, revised)) = revise_import(&base, text.as_str()) else {
+            return false;
+        };
+        warnings.extend(revised.with_path(at).warnings);
+        *incoming = to_canonical_value(&content);
+        return true;
+    }
+    let mut any = false;
+    match (stored, incoming) {
+        (JsonValue::Object(stored), JsonValue::Object(incoming)) => {
+            for (key, value) in incoming.iter_mut() {
+                if let Some(stored) = stored.get(key) {
+                    any |= revise_value(stored, value, &at.field(key), warnings);
+                }
+            }
+        }
+        (JsonValue::Array(stored), JsonValue::Array(incoming)) => {
+            for (i, (stored, value)) in stored.iter().zip(incoming.iter_mut()).enumerate() {
+                any |= revise_value(stored, value, &at.index(i), warnings);
+            }
+        }
+        _ => {}
+    }
+    any
 }
 
 /// Record every anchor of `stored` that `revised` does not hold in the same
