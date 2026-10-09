@@ -515,3 +515,32 @@ fn revise_document_revises_then_conforms() {
     assert!(matches!(err, crate::quill::BoundParseError::Mismatch(_)));
     assert_eq!(bytes(&doc), before);
 }
+
+/// A `richtext` field's markdown string reports what its import drops at the
+/// string's path: at the bound door, whose conform lands it as content, and at
+/// `validate` while the field still holds the string.
+#[test]
+fn a_richtext_string_reports_its_drops_where_it_imports() {
+    let quill = quill();
+    let md = "~~~card-yaml\n$quill: conform_test@1.0.0\nsubject: Q3 <span>results</span>\n\
+              note: a <span>literal</span> line\ntags:\n  - one\n  - two <kbd>k</kbd>\n\
+              meta:\n  blurb: and <em>this</em>\n~~~\n";
+    let drops = |diags: &[crate::error::Diagnostic]| -> Vec<(String, String)> {
+        diags
+            .iter()
+            .filter(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
+            .map(|d| (d.path.clone().unwrap_or_default(), d.args["construct"].as_str().unwrap().to_string()))
+            .collect()
+    };
+    let expected: Vec<(String, String)> = [("main.subject", "span"), ("main.tags[1]", "kbd"), ("main.meta.blurb", "em")]
+        .into_iter()
+        .map(|(p, c)| (p.to_string(), c.to_string()))
+        .collect();
+
+    let (doc, warnings) = parse_bound(&quill, md);
+    assert_eq!(drops(&warnings), expected);
+    assert_eq!(drops(&quill.validate(&doc)), [], "a conformed field holds content");
+
+    let loaded = Document::parse(md).unwrap().document;
+    assert_eq!(drops(&quill.validate(&loaded)), expected);
+}

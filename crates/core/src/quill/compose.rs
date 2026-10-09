@@ -15,7 +15,7 @@ use crate::normalize::{normalize_document, normalize_field_name};
 use crate::quill::blank;
 use crate::path::DocPath;
 use crate::{
-    document::{Card, Document, Payload, SeedOverlay},
+    document::{Card, Codec, Document, Payload, SeedOverlay},
     error::{Diagnostic, RenderError, Severity},
     value::QuillValue,
     version::Version,
@@ -224,6 +224,7 @@ impl Quill {
         diags.extend(validate_variants(self.config(), doc));
         diags.extend(validate_cardinality(self.config(), doc));
         diags.extend(self.validate_seed(doc));
+        diags.extend(validate_dropped(self.config(), doc));
         diags.extend(validate_declined(self.config(), doc));
         diags
     }
@@ -1191,6 +1192,42 @@ pub(crate) fn declined_construct_warning(
     .with_arg("count", count.into())
 }
 
+/// One `parse::dropped_construct` per construct a `richtext` field's markdown
+/// string drops on the import a render runs, at the string's path. A
+/// conformed field holds content, whose drops its load reported.
+fn validate_dropped(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    for (schema, card, path) in schema_cards(config, doc) {
+        let Some(schema) = schema else { continue };
+        for (key, value) in card.payload().iter() {
+            if let Some(field) = schema.fields.get(key.as_str()) {
+                diags.extend(markdown_drops(field, value.as_json(), &path.field(key)));
+            }
+        }
+    }
+    diags
+}
+
+/// One `parse::dropped_construct` per construct that importing each markdown
+/// string `json` holds under `field` drops, at the string's path.
+pub(super) fn markdown_drops(field: &FieldSchema, json: &serde_json::Value, path: &DocPath) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    each_content_leaf(field, json, path, &mut |at, codec, leaf| {
+        let (Codec::Richtext, Some(markdown)) = (codec, leaf.as_str()) else {
+            return;
+        };
+        if let Ok(imported) = crate::document::import_body_warned(markdown) {
+            diags.extend(
+                imported
+                    .warnings
+                    .into_iter()
+                    .map(|w| crate::document::dropped_construct(w).with_path(at.to_string())),
+            );
+        }
+    });
+    diags
+}
+
 /// Call `f` on every content value `json` holds under `field`, at its path:
 /// the walk a render's content fields follow, through variants, matrices,
 /// objects and arrays.
@@ -1200,15 +1237,28 @@ fn each_content(
     path: &DocPath,
     f: &mut dyn FnMut(&DocPath, &crate::Content),
 ) {
+    each_content_leaf(field, json, path, &mut |at, codec, leaf| {
+        if let Some(Ok(content)) = codec.decode_value(leaf) {
+            f(at, &content);
+        }
+    });
+}
+
+/// [`each_content`]'s walk ahead of the decode: `f` takes each content
+/// leaf's codec and value as stored.
+fn each_content_leaf(
+    field: &FieldSchema,
+    json: &serde_json::Value,
+    path: &DocPath,
+    f: &mut dyn FnMut(&DocPath, Codec, &serde_json::Value),
+) {
     let codec = match field.r#type {
-        FieldType::RichText { .. } => Some(crate::document::Codec::Richtext),
-        FieldType::PlainText { .. } => Some(crate::document::Codec::Plaintext),
+        FieldType::RichText { .. } => Some(Codec::Richtext),
+        FieldType::PlainText { .. } => Some(Codec::Plaintext),
         _ => None,
     };
     if let Some(codec) = codec {
-        if let Some(Ok(content)) = codec.decode_value(json) {
-            f(path, &content);
-        }
+        f(path, codec, json);
         return;
     }
     if field.is_variant_bearing() {
@@ -1218,7 +1268,7 @@ fn each_content(
         };
         for (key, value) in object {
             if let Some(cell) = live.get(key) {
-                each_content(cell, value, &path.field(key), f);
+                each_content_leaf(cell, value, &path.field(key), f);
             }
         }
         return;
@@ -1232,7 +1282,7 @@ fn each_content(
             };
             let mut cells = cells.clone();
             cells.remove(MATRIX_HELD_KEY);
-            each_content(member, &serde_json::Value::Object(cells), &path.field(id), f);
+            each_content_leaf(member, &serde_json::Value::Object(cells), &path.field(id), f);
         }
         return;
     }
@@ -1240,7 +1290,7 @@ fn each_content(
         let Some(object) = json.as_object() else { return };
         for (key, value) in object {
             if let Some(prop) = props.get(key) {
-                each_content(prop, value, &path.field(key), f);
+                each_content_leaf(prop, value, &path.field(key), f);
             }
         }
         return;
@@ -1249,7 +1299,7 @@ fn each_content(
         (&field.r#type, &field.items, json.as_array())
     {
         for (index, element) in elements.iter().enumerate() {
-            each_content(items, element, &path.index(index), f);
+            each_content_leaf(items, element, &path.index(index), f);
         }
     }
 }
