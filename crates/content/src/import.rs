@@ -317,6 +317,17 @@ enum Frame {
     Table { islands: usize, lines: usize, holds_wrapper: bool },
 }
 
+impl Frame {
+    /// Whether a close tag for `wrapper` names this frame.
+    fn is(&self, wrapper: &Wrapper) -> bool {
+        match (self, wrapper) {
+            (Frame::Element { name, .. }, Wrapper::Element(closing)) => name == closing,
+            (Frame::Table { .. }, Wrapper::Table) => true,
+            _ => false,
+        }
+    }
+}
+
 struct Builder {
     /// The content text + marks; the [`Builder`] adds line/block structure around
     /// it (a `\n` boundary is [`Inline::push_raw`], inline content is the mark
@@ -562,7 +573,7 @@ impl Builder {
                 }
             };
             // An inline run ends at the first event outside it, and the
-            // elements and underlines it left open with it.
+            // underlines it left open with it.
             if self.image_depth == 0 && self.table.is_none() && !crate::normalize::is_inline(&event) {
                 self.inline.drop_open(&mut self.dropped);
             }
@@ -860,12 +871,9 @@ impl Builder {
     /// container opened inside it has closed; any other close tag drops
     /// silently.
     fn close_wrapper(&mut self, wrapper: &Wrapper) {
-        let innermost = self.blocks.last().is_some_and(|open| match (&open.frame, wrapper) {
-            (Frame::Element { name, .. }, Wrapper::Element(closing)) => {
-                name == closing && self.containers.len() == open.depth + 1
-            }
-            (Frame::Table { .. }, Wrapper::Table) => self.containers.len() == open.depth,
-            _ => false,
+        let innermost = self.blocks.last().is_some_and(|open| {
+            let own_container = usize::from(matches!(open.frame, Frame::Element { .. }));
+            open.frame.is(wrapper) && self.containers.len() == open.depth + own_container
         });
         let Some(Opened { frame, attrs, at, .. }) = self.blocks.pop_if(|_| innermost) else {
             return;
@@ -970,11 +978,7 @@ impl Builder {
     /// Report a close tag that dropped with the markdown under it, once for
     /// the innermost wrapper it names: that wrapper stays open past it.
     fn swallowed(&mut self, wrapper: Wrapper, at: usize) {
-        let open = self.blocks.iter_mut().rev().find(|open| match (&open.frame, &wrapper) {
-            (Frame::Element { name, .. }, Wrapper::Element(closing)) => name == closing,
-            (Frame::Table { .. }, Wrapper::Table) => true,
-            _ => false,
-        });
+        let open = self.blocks.iter_mut().rev().find(|open| open.frame.is(&wrapper));
         match open {
             Some(open) if open.reported => return,
             Some(open) => open.reported = true,
@@ -1279,12 +1283,16 @@ struct Drops(Vec<(Dropped, usize, usize)>);
 
 impl Drops {
     fn add(&mut self, construct: Dropped, at: usize) {
+        self.add_n(construct, 1, at);
+    }
+
+    fn add_n(&mut self, construct: Dropped, n: usize, at: usize) {
         match self.0.iter_mut().find(|(c, ..)| *c == construct) {
             Some((_, count, first)) => {
-                *count += 1;
+                *count += n;
                 *first = (*first).min(at);
             }
-            None => self.0.push((construct, 1, at)),
+            None => self.0.push((construct, n, at)),
         }
     }
 
@@ -1310,13 +1318,7 @@ impl Drops {
     /// Fold in another walk's drops, each at its own first offset.
     fn absorb(&mut self, other: Drops) {
         for (construct, count, at) in other.0 {
-            match self.0.iter_mut().find(|(c, ..)| *c == construct) {
-                Some((_, n, first)) => {
-                    *n += count;
-                    *first = (*first).min(at);
-                }
-                None => self.0.push((construct, count, at)),
-            }
+            self.add_n(construct, count, at);
         }
     }
 
