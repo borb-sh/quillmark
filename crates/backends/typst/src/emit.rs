@@ -750,9 +750,9 @@ impl<'a> Emit<'a> {
             return String::new();
         };
         match isl.island_type {
-            // Declined: what a content image's url names is undecided, so this
-            // backend draws none and `backend::declines` names it for the
-            // warning saying so.
+            // Declined: a content image's url names nothing a document can
+            // bind to (CONVERT.md § Declined images), so this backend draws
+            // none and `backend::declines` names it for the warning saying so.
             IslandType::Image => String::new(),
             IslandType::Table => table_markup(&isl.props),
             IslandType::Footnote => {

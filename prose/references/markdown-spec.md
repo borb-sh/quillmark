@@ -428,8 +428,7 @@ No other syntax deviates from CommonMark. Delimiter-run semantics for `*`,
 ### 6.3 Limited or Out of Scope
 
 The following are parsed where CommonMark or pulldown-cmark already
-handles them, but produce limited or no Quillmark-specific output; fuller
-support may come in a future revision:
+handles them, but produce limited or no Quillmark-specific output:
 
 - Images (`![alt](src)`): parsed into an `image` island carrying `{url, alt}`,
   which stores, round-trips to markdown, and reaches an editor — but no backend

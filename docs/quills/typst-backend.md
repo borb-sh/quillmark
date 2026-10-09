@@ -249,7 +249,7 @@ from any file.
 
 **A markdown image in a `richtext` field draws nothing.** `![logo](assets/logo.svg)` in document content reaches no page, and the render warns under `backend::declined_construct`, naming the field and how many images it holds; `quill.validate(doc)` warns the same under `validation::declined_construct`.
 
-What such a url names — a file in this Quill, a path beside the document, a remote address — is undecided. A document is portable across every version a `$quill` selector admits, so a path into one Quill's file tree is not a binding it can take. The construct still stores and round-trips; only the page declines it.
+The backend resolves such a url under no reading: not as a file in this Quill, a path beside the document, or a remote address. A document is portable across every version a `$quill` selector admits, so a path into one Quill's file tree is not a binding it can take. The construct still stores and round-trips; only the page declines it.
 
 ## Typesetting
 

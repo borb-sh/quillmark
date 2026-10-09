@@ -303,7 +303,7 @@ export interface TableProps {
 
 /** `props` of a `type: "image"` island. Stores and round-trips; no backend
  * typesets one, and a render that holds one warns `backend::declined_construct`,
- * because what `url` names is undecided. */
+ * because no backend resolves `url`. */
 export interface ImageProps {
     url: string;
     alt: string;
