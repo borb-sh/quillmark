@@ -1605,7 +1605,7 @@ impl QuillConfig {
     ///
     /// Delegates type/enum/format/recursion checking to
     /// [`super::validation::validate_schema_literal`] (the shared conformance
-    /// primitive) then converts each [`ValidationError`] into a Quill.yaml
+    /// primitive) then converts each [`ValidationError`](crate::quill::validation::ValidationError) into a Quill.yaml
     /// load-time diagnostic with an author-friendly hint.
     fn validate_default(
         value: &QuillValue,

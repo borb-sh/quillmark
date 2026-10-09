@@ -241,6 +241,24 @@ fn validate_reads_a_plate_file_led_by_dot_slash_from_the_quill_root() {
     ok(&["validate", dir.path().to_str().unwrap()]);
 }
 
+/// `validate` refuses a `plate_file` holding a leading `/` or a `..` step as a
+/// render does, with the spelling from the quill root, without rendering.
+#[test]
+fn validate_refuses_a_rooted_or_dot_dot_plate_file_as_a_render_does() {
+    for declared in ["/plate.typ", "tpl/../plate.typ"] {
+        let dir = quill_with_config(&format!(
+            "quill:\n  name: d\n  version: 0.1.0\n  backend: typst\n  description: d\n\
+             typst:\n  plate_file: {declared}\n"
+        ));
+        std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
+        let out = run(&["validate", dir.path().to_str().unwrap(), "--no-render"]);
+        assert_eq!(out.status.code(), Some(1), "{declared}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("typst::plate_missing"), "{declared}: {stderr}");
+        assert!(stderr.contains("Write `plate.typ`"), "{declared}: {stderr}");
+    }
+}
+
 /// A config that will not load is a quill failure, and reads as one.
 #[test]
 fn an_unloadable_quill_is_not_an_invalid_argument() {

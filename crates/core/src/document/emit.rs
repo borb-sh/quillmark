@@ -12,7 +12,7 @@
 //! ordering, indentation, and comment interleaving.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use quillmark_content::export::to_markdown_annotated;
 use quillmark_content::model::Normalized;
@@ -162,19 +162,18 @@ fn emit_meta_line(out: &mut String, key: &str, value: &str, trailer: Option<&str
     out.push('\n');
 }
 
-/// Emit an out-of-band meta block (`$ext` / `$seed`). `nested` carries comments
-/// at paths relative to the value tree. A content object in one emits
+/// Emit an out-of-band meta block (`$ext` / `$seed`), `comments` at paths
+/// relative to its value tree. A content object in one emits
 /// structurally: no load converts a projection there back.
 fn emit_meta_block(
     out: &mut String,
     key: &str,
     value: &serde_json::Map<String, JsonValue>,
     trailer: Option<&str>,
-    nested: &[NestedComment],
+    comments: &Comments<'_>,
 ) {
-    let comments = Comments::new(nested);
     let ctx = EmitCtx {
-        comments: &comments,
+        comments,
         ..EmitCtx::EMPTY
     };
     out.push_str(key);
@@ -250,11 +249,26 @@ impl<'a> Comments<'a> {
     fn new(nested: &'a [NestedComment]) -> Self {
         let mut comments = Self::EMPTY;
         for c in nested {
-            let path = c.container_path.as_slice();
-            comments.slots.entry((path, c.position, c.inline)).or_default().push(&c.text);
-            comments.containers.entry(path).or_default().push(c);
+            comments.add(&c.container_path, c);
         }
         comments
+    }
+
+    /// A payload's comments split by owning entry, each table at paths rebased
+    /// onto that entry's own value.
+    fn by_owner(nested: &'a [NestedComment]) -> HashMap<&'a str, Self> {
+        let mut owners: HashMap<&str, Self> = HashMap::new();
+        for c in nested {
+            if let Some((PathSegment::Key(head), rest)) = c.container_path.split_first() {
+                owners.entry(head).or_insert(Self::EMPTY).add(rest, c);
+            }
+        }
+        owners
+    }
+
+    fn add(&mut self, path: &'a [PathSegment], c: &'a NestedComment) {
+        self.slots.entry((path, c.position, c.inline)).or_default().push(&c.text);
+        self.containers.entry(path).or_default().push(c);
     }
 
     fn slot(&self, path: &'a [PathSegment], position: usize, inline: bool) -> &[&'a str] {
@@ -318,6 +332,8 @@ pub(super) fn emit_payload_items(out: &mut String, payload: &Payload) {
 /// collected under the card at `annotate`'s path.
 fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &Anchors)>) {
     let items = payload.items();
+    let comments = Comments::by_owner(payload.nested_comments());
+    let comments_of = |key: &str| comments.get(key).unwrap_or(EmitCtx::EMPTY.comments);
     let mut i = 0;
     while i < items.len() {
         let trailer = items.get(i + 1).and_then(|next| match next {
@@ -334,11 +350,9 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
                 emit_meta_line(out, "kind", value, trailer);
             }
             PayloadItem::Meta { key, value } => {
-                let nested = payload.nested_comments_for(key.as_str());
-                emit_meta_block(out, key.as_str(), value, trailer, &nested);
+                emit_meta_block(out, key.as_str(), value, trailer, comments_of(key.as_str()));
             }
             PayloadItem::Field { key, value } => {
-                let nested = payload.nested_comments_for(key);
                 let field = annotate.map(|(card, anchors)| (card.field(key), anchors));
                 emit_field_at(
                     out,
@@ -346,7 +360,7 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
                     value.as_json(),
                     KeyPos::Line(0),
                     EmitCtx {
-                        comments: &Comments::new(&nested),
+                        comments: comments_of(key),
                         project_content: true,
                         annotate: field.as_ref().map(|(path, anchors)| (path, *anchors)),
                         ..EmitCtx::EMPTY

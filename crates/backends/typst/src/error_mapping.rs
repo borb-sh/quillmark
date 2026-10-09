@@ -1,5 +1,5 @@
 //! Translates Typst diagnostics into Quillmark
-//! [`Diagnostic`](quillmark_core::error::Diagnostic) values.
+//! [`Diagnostic`] values.
 
 use crate::world::QuillWorld;
 use quillmark_core::error::{Diagnostic, Location, Severity};

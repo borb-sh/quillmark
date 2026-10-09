@@ -5,7 +5,7 @@ use quillmark::{
     EXAMPLE_FILE,
 };
 use indexmap::IndexMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 pub struct ValidateArgs {
@@ -119,34 +119,9 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
 }
 
 fn validate_file_references(quill: &Quill, result: &mut ValidationResult) {
-    // The tree lookup answers `None` to a path that escapes the quill and to one
-    // that is simply absent, so the component test runs first and names which of
-    // the two a `plate_file` from an untrusted Quill.yaml hit.
-    if let Some(plate_file) = quill
-        .config()
-        .backend_config
-        .get("plate_file")
-        .and_then(|v| v.as_str())
-    {
-        let rel = Path::new(plate_file.trim_start_matches("./"));
-        if rel
-            .components()
-            .any(|c| !matches!(c, std::path::Component::Normal(_)))
-        {
-            result.add(
-                Severity::Error,
-                format!(
-                    "plate_file '{}' must be a relative path within the quill (no '..' or absolute components)",
-                    plate_file
-                ),
-                "cli::plate_file_escapes_quill",
-            );
-        } else if quill.files().get_file(rel).is_none() {
-            result.add(
-                Severity::Error,
-                format!("Referenced plate_file '{}' does not exist", plate_file),
-                "cli::plate_file_missing",
-            );
+    if quill.backend_id() == "typst" {
+        if let Err(e) = quillmark::typst_plate_file(quill) {
+            result.issues.extend(e.into_diagnostics());
         }
     }
 }

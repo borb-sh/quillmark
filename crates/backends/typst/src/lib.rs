@@ -470,7 +470,8 @@ impl Default for TypstBackend {
 }
 
 pub(crate) struct Plate {
-    /// `typst.plate_file` less a leading `./`; `None` for a quill declaring none.
+    /// `typst.plate_file` less its `.` steps and empty steps; `None` for a quill
+    /// declaring none.
     pub(crate) file: Option<String>,
     /// Where the world loads the plate.
     pub(crate) path: VirtualPath,
@@ -488,6 +489,12 @@ impl Plate {
     }
 }
 
+/// `typst.plate_file` as a render reads it, or the refusal a render's `open`
+/// raises for it; `None` for a quill declaring none.
+pub fn plate_file(source: &Quill) -> Result<Option<String>, RenderError> {
+    Ok(read_plate(source)?.file)
+}
+
 /// The plate is a Typst-only notion: its filename is declared under the
 /// `typst:` backend-config section as `plate_file` and the source lives in the
 /// quill's file bundle. A quill declaring no `plate_file` renders an empty one.
@@ -495,26 +502,36 @@ impl Plate {
 /// A declared plate loads at its own path, so one Typst's path grammar refuses
 /// fails here: any stand-in name may belong to a file the quill holds.
 fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
-    let plate_file = source
+    let declared = source
         .config()
         .backend_config
         .get("plate_file")
         .and_then(|v| v.as_str());
 
-    let Some(plate_file) = plate_file else {
+    let Some(declared) = declared else {
         return Ok(Plate::undeclared(String::new()));
     };
-    let plate_file = plate_file.trim_start_matches("./");
+    let steps: Vec<&str> = declared
+        .split('/')
+        .filter(|step| !step.is_empty() && *step != ".")
+        .collect();
+    let plate_file = steps.join("/");
 
-    let bytes = source.files().get_file(plate_file).ok_or_else(|| {
-        let message = format!("plate file '{plate_file}' not found in the quill's file tree");
-        match plate_spelling_hint(plate_file, source) {
-            Some(hint) => RenderError::coded_hint("typst::plate_missing", message, hint),
-            None => RenderError::coded("typst::plate_missing", message),
-        }
-    })?;
+    let misspelled = declared.starts_with('/') || steps.contains(&"..");
+    let bytes = (!misspelled)
+        .then(|| source.files().get_file(&plate_file))
+        .flatten()
+        .ok_or_else(|| {
+            let message = format!("plate file '{declared}' not found in the quill's file tree");
+            if misspelled {
+                let hint = plate_spelling_hint(declared, source);
+                RenderError::coded_hint("typst::plate_missing", message, hint)
+            } else {
+                RenderError::coded("typst::plate_missing", message)
+            }
+        })?;
 
-    let path = VirtualPath::new(plate_file).map_err(|e| {
+    let path = VirtualPath::new(&plate_file).map_err(|e| {
         RenderError::coded_hint(
             "typst::plate_path_invalid",
             format!("plate file '{plate_file}' is not a path Typst can load ({e})"),
@@ -529,34 +546,26 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
         )
     })?;
     Ok(Plate {
-        file: Some(plate_file.to_string()),
+        file: Some(plate_file),
         path,
         text,
     })
 }
 
-/// The fix for a `plate_file` holding a leading `/` or a `..` step, which the
-/// tree lookup refuses: its spelling from the quill root where the quill holds
-/// a file there, else the rule.
-fn plate_spelling_hint(plate_file: &str, source: &Quill) -> Option<String> {
-    use std::path::{Component, Path};
-
-    if !Path::new(plate_file)
-        .components()
-        .any(|c| matches!(c, Component::RootDir | Component::ParentDir))
-    {
-        return None;
-    }
+/// The fix for a `plate_file` holding a leading `/` or a `..` step: its
+/// spelling from the quill root where the quill holds a file there, else the
+/// rule.
+fn plate_spelling_hint(plate_file: &str, source: &Quill) -> String {
     let rule = "`typst.plate_file` names a file inside the quill by its path from the quill \
                 root, with no leading `/` and no `..`";
     let spelling = VirtualPath::new(plate_file)
         .ok()
         .map(|path| path.get_without_slash().to_string())
         .filter(|path| source.files().get_file(path).is_some());
-    Some(match spelling {
+    match spelling {
         Some(path) => format!("Write `{path}`: {rule}."),
         None => format!("{rule}."),
-    })
+    }
 }
 
 /// The steps a schema address may take out of one node, and nothing else: the
@@ -658,7 +667,7 @@ impl AddressNode {
 
 /// The transform schema plus the address tree derived from it, kept apart
 /// because they answer different questions. Lowering reads the schema node
-/// ([`helper::lowering`]); the tree answers which *addresses* a plate may
+/// (`helper::lowering`); the tree answers which *addresses* a plate may
 /// write, which is the same walk with everything but the steps pruned away.
 pub(crate) struct SchemaMeta {
     /// The walk's cursor source: the same recursive projection
