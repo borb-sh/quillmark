@@ -22,6 +22,8 @@ At load the backend binds each field's value from your document data and writes 
 
 A catalog `/AcroForm null` is no form: ISO 32000-1 §7.3.9 reads an entry whose value is `null` as absent, so the background stamps and the fresh `/AcroForm` replaces the null entry. A reference to a `null` object, or to an object the file does not hold, is `null` too (§7.3.10), so `/AcroForm 7 0 R` over `7 0 obj null endobj` is no form either. Every optional entry the backend reads off `form.pdf` reads a `null` the same way, written directly or referenced.
 
+The background's cross-reference data is a classic `xref` table. One held in a cross-reference stream, or a hybrid file whose trailer names `/XRefStm` or whose `/Prev` chain reaches such a stream, is refused as `pdf::xref_stream`: objects inside an object stream are invisible to the stamp. `qpdf --object-streams=disable in.pdf form.pdf` writes a classic table.
+
 Nulling the key (PyMuPDF's `xref_set_key` sets a key to `null` rather than deleting it) strips the catalog entry alone, and the old widget annotations stay live in the page `/Annots`. A background whose page `/Annots` hold a `/Subtype /Widget`, written directly or referenced, is refused as `pdf::existing_acroform` too, whatever its catalog holds, and the message names the page.
 
 !!! note "Where the assets come from"

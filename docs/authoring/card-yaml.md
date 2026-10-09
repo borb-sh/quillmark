@@ -30,7 +30,8 @@ A card-yaml block has three parts, in order:
    other key is a user-defined data field. The payload is one YAML value:
    text after a `{...}` mapping written as the whole payload, or after a
    `...` line, fails the parse as `parse::yaml_error_with_location` at that
-   text. Comments may follow it.
+   text. Comments may follow it. A mapping names each key once: two keys of
+   one text, quoted or not (`1` and `"1"`), fail the parse at the second.
 3. **Closing fence**: a tilde run at least as long as the opener. The canonical opener and closer are both `~~~`; a longer opener (e.g. `~~~~`) requires an equally long closer.
 
 The unstructured Markdown body begins immediately after the closing `~~~`
@@ -130,7 +131,7 @@ YAML reads an unquoted value by its shape before the schema sees it, so a
 | `ratio: .5` or `5.`, a `.` with no digit on one side | `0.5`, `5.0` | `ratio: ".5"` |
 | `ext: .inf` or `.nan`, in any letter case | nothing: the parse fails | `ext: ".inf"` |
 | `id: 1e999`, a number too large to hold | nothing: the parse fails | `id: "1e999"` |
-| `text: Approve Item #12`, a space then `#` | `Approve Item`: the rest is a comment | `text: "Approve Item #12"` |
+| `text: Approve Item #12`, a space or tab then `#` | `Approve Item`: the rest is a comment | `text: "Approve Item #12"` |
 
 `quillmark check` reports only the rows that fail the parse; the rest are
 well-formed YAML, read as a number or cut at a comment. A word needs no quotes
