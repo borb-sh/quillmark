@@ -148,3 +148,14 @@ def test_render_dates_a_today_field(engine, tmp_path):
 
     local = dated_quill("local", "data.issued != none")
     engine.render(local, doc, OutputFormat.SVG)
+
+
+def test_a_render_leaves_the_load_warnings_on_the_document(engine, taro_quill_dir, taro_md):
+    """A parse's warnings report the load: `doc.warnings` keeps them and no
+    render carries them."""
+    quill = Quill.from_path(str(taro_quill_dir))
+    doc = quill.parse(taro_md.replace("I love Taro", "I <span>love</span> Taro"))
+    assert [w.code for w in doc.warnings] == ["parse::dropped_construct"]
+    result = engine.render(quill, doc, OutputFormat.SVG)
+    assert "parse::dropped_construct" not in [w.code for w in result.warnings]
+    assert [w.code for w in doc.warnings] == ["parse::dropped_construct"]

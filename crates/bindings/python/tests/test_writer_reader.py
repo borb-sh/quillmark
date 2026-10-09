@@ -114,9 +114,11 @@ def test_writer_revise_field():
 
 def test_writer_revise_document():
     """revise_document replaces the document from markdown, conforms it, and
-    returns the warnings; a foreign `$quill` raises and changes nothing."""
+    returns the warnings, clearing the load's; a foreign `$quill` raises and
+    changes nothing."""
     quill = richtext_quill()
-    doc = Document("sample_form@0.1.0")
+    doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\n<span>Body.</span>\n")
+    assert [d.code for d in doc.warnings] == ["parse::dropped_construct"]
     w = quill.writer(doc)
     assert w.revise_field("bio", "make it **bold**") == []
     (dropped,) = w.revise_document(
@@ -129,6 +131,31 @@ def test_writer_revise_document():
     with pytest.raises(QuillmarkError):
         w.revise_document("~~~\n$quill: other\n~~~\n")
     assert doc.to_markdown() == before
+
+
+def test_markdown_writes_return_their_drops_at_the_body_written():
+    """revise_body and add_card return the import's drops, each at the body
+    it wrote."""
+    quill = taro_quill()
+    doc = Document("taro@0.1.0")
+    w = quill.writer(doc)
+
+    def drops(warnings):
+        return [(d.code, d.path, d.args["construct"]) for d in warnings]
+
+    assert drops(w.revise_body("a <kbd>b</kbd>")) == [
+        ("parse::dropped_construct", "main.body", "kbd")
+    ]
+    assert drops(w.add_card("quotes", {"author": "A"}, "x <span>y</span>")) == [
+        ("parse::dropped_construct", "cards.quotes[0].body", "span")
+    ]
+    assert drops(w.add_card("quotes", {"author": "B"}, "<em>z</em>", at=0)) == [
+        ("parse::dropped_construct", "cards.quotes[0].body", "em")
+    ]
+    assert drops(w.revise_body("c <kbd>d</kbd>", card=1)) == [
+        ("parse::dropped_construct", "cards.quotes[1].body", "kbd")
+    ]
+    assert quill.reader(doc).body_markdown(card=1) == "c d"
 
 
 def test_view_interprets_by_declared_type():
