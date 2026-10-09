@@ -181,6 +181,35 @@ fn dropped_anchor_paths_name_the_stored_address() {
 }
 
 #[test]
+fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
+    let mut doc = stored();
+    let item = crate::document::import_body("an item to flag").unwrap();
+    let items = serde_json::json!([
+        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
+        to_canonical_value(&anchored(&item, "flag", "i1")),
+    ]);
+    doc.card_mut(0)
+        .unwrap()
+        .store_field("items", QuillValue::from_json(items))
+        .unwrap();
+    let read = doc.to_markdown_annotated();
+    let listed = read.anchors.iter().find(|a| a.id == "i1").unwrap();
+    assert_eq!(listed.path.to_string(), "cards.note[0].items[1]");
+
+    let markdown = read
+        .markdown
+        .replace("  - an item to <quill-anchor ref=\"i1\"></quill-anchor>flag\n", "");
+    assert_ne!(markdown, read.markdown);
+    let receipt = doc.revise(&markdown).unwrap();
+    let dropped: Vec<String> = receipt
+        .dropped_anchors
+        .iter()
+        .map(|d| format!("{}#{}", d.path, d.id))
+        .collect();
+    assert_eq!(dropped, ["cards.note[0].items[1]#i1"]);
+}
+
+#[test]
 fn a_deleted_card_never_hands_its_ext_to_an_edited_neighbour() {
     let mut doc = parse(
         "~~~\n$quill: q\n~~~\n\n\

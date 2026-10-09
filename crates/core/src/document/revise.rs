@@ -12,7 +12,7 @@ use super::emit::{canonical_content, emit_payload_items};
 use super::{Card, Document, Parsed, Payload, PayloadItem};
 use crate::error::{Diagnostic, ParseError};
 use crate::path::DocPath;
-use crate::value::QuillValue;
+use crate::value::{PathSegment, QuillValue};
 
 /// The receipt of [`Document::revise`].
 #[derive(Debug, Clone, PartialEq)]
@@ -198,19 +198,21 @@ fn revise_card(
     incoming
 }
 
-/// Record every anchor of `stored` that `revised` does not hold at the same
-/// body or field; all of them when the card was removed.
+/// Record every anchor of `stored` that `revised` does not hold in the same
+/// body or top-level field, at the address the stored card held it; all of
+/// them when the card was removed.
 fn drop_report(
     stored: &Card,
     revised: Option<&Card>,
     at: &DocPath,
     out: &mut Vec<DroppedAnchor>,
 ) {
+    let top = |f: &Option<Vec<PathSegment>>| f.as_ref().and_then(|segs| segs.first().cloned());
     let survivors = revised.map(card_anchors).unwrap_or_default();
     for (field, id) in card_anchors(stored) {
-        if !survivors.iter().any(|(f, i)| f == &field && i == &id) {
+        if !survivors.iter().any(|(f, i)| top(f) == top(&field) && i == &id) {
             let path = match &field {
-                Some(name) => at.field(name),
+                Some(segs) => segs.iter().fold(at.clone(), |p, seg| p.segment(seg)),
                 None => at.body(),
             };
             out.push(DroppedAnchor { path, id });
@@ -218,16 +220,17 @@ fn drop_report(
     }
 }
 
-/// `(field, id)` for each anchor in the card: `None` for the body, the
-/// top-level field name for an anchor in any content object inside its value.
-fn card_anchors(card: &Card) -> Vec<(Option<String>, String)> {
-    let mut out: Vec<(Option<String>, String)> = content_anchors(card.body())
+/// `(field, id)` for each anchor in the card: `None` for the body, and for a
+/// field the value path of the content object holding it, as the annotated
+/// read lists it.
+fn card_anchors(card: &Card) -> Vec<(Option<Vec<PathSegment>>, String)> {
+    let mut out: Vec<(Option<Vec<PathSegment>>, String)> = content_anchors(card.body())
         .map(|id| (None, id))
         .collect();
     for (name, value) in card.payload().iter() {
-        let mut ids = Vec::new();
-        value_anchors(value.as_json(), &mut ids);
-        out.extend(ids.into_iter().map(|id| (Some(name.clone()), id)));
+        let mut found = Vec::new();
+        value_anchors(value.as_json(), &mut vec![PathSegment::Key(name.clone())], &mut found);
+        out.extend(found.into_iter().map(|(path, id)| (Some(path), id)));
     }
     out
 }
@@ -239,13 +242,25 @@ fn content_anchors(content: &Content) -> impl Iterator<Item = String> + '_ {
     })
 }
 
-fn value_anchors(value: &JsonValue, out: &mut Vec<String>) {
-    match value {
+fn value_anchors(
+    value: &JsonValue,
+    path: &mut Vec<PathSegment>,
+    out: &mut Vec<(Vec<PathSegment>, String)>,
+) {
+    let children: Vec<(PathSegment, &JsonValue)> = match value {
         JsonValue::Object(map) => match from_canonical_value(value) {
-            Ok(content) => out.extend(content_anchors(&content)),
-            Err(_) => map.values().for_each(|v| value_anchors(v, out)),
+            Ok(content) => {
+                out.extend(content_anchors(&content).map(|id| (path.clone(), id)));
+                return;
+            }
+            Err(_) => map.iter().map(|(k, v)| (PathSegment::Key(k.clone()), v)).collect(),
         },
-        JsonValue::Array(items) => items.iter().for_each(|v| value_anchors(v, out)),
-        _ => {}
+        JsonValue::Array(items) => items.iter().enumerate().map(|(i, v)| (PathSegment::Index(i), v)).collect(),
+        _ => return,
+    };
+    for (seg, child) in children {
+        path.push(seg);
+        value_anchors(child, path, out);
+        path.pop();
     }
 }
