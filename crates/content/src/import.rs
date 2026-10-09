@@ -2128,6 +2128,8 @@ mod tests {
             ("widths=\"1 null\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
             ("widths=\"1 *\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
             ("widths=\"1.5 2\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"9007199254740992 1\"", &[("quill-table[widths]", 1)], serde_json::json!({})),
+            ("widths=\"9007199254740991 1\"", &[], serde_json::json!({"widths": [9007199254740991u64, 1]})),
             ("breakable", &[("quill-table[breakable]", 1)], serde_json::json!({})),
             ("align=\"left\" align=\"right\"", &[("quill-table[align]", 1)], serde_json::json!({"align": "left"})),
         ];

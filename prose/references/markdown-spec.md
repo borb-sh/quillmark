@@ -532,7 +532,7 @@ attributes into the table's layout, whatever quill reads the document:
 
 | Attribute | Value | Default |
 |---|---|---|
-| `widths` | whitespace-separated column weights, each a positive decimal integer or `auto` for an auto-fit column | every column `auto` |
+| `widths` | whitespace-separated column weights, each a decimal integer from 1 to 2⁵³ − 1 or `auto` for an auto-fit column | every column `auto` |
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
 
 ```markdown

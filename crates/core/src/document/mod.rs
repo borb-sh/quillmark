@@ -74,7 +74,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
             attr,
             match attr.as_str() {
                 "widths" => {
-                    "`widths` is a positive whole number or `auto` per column, such as `widths=\"2 1 auto\"`."
+                    "`widths` is a whole number from 1 to 2^53 - 1, or `auto`, per column, such as `widths=\"2 1 auto\"`."
                         .to_string()
                 }
                 "align" => "`align` is `left`, `center` or `right`.".to_string(),
