@@ -2399,17 +2399,18 @@ fn reject_deep_js_value(value: &JsValue, ctx: &str) -> Result<(), JsValue> {
     Ok(())
 }
 
-/// Refuse an object that is not plain, naming it `what`, and an own key outside
+/// Refuse an object that is not plain, naming it `what`, and a key outside
 /// `known`, worded by `refusal`. `serde_wasm_bindgen` looks up the fields a
 /// struct declares rather than visiting every key, so it never enforces
 /// `deny_unknown_fields`: a misspelled optional key would read as absent. The
 /// lookup reaches a non-enumerable key and one up the prototype chain, so the
-/// walk reads every own name and takes only a plain object: one whose prototype
-/// is `null` or has a `null` prototype itself, as `Object.prototype` of any
-/// realm does. A value that is not an object passes, for the deserializer to
-/// refuse. Object-ness is the deserializer's `typeof` test, not
-/// `instanceof Object`, which a null-prototype or cross-realm object fails yet
-/// deserializes.
+/// walk takes only a plain object, one whose prototype is `null` or has a
+/// `null` prototype itself, and reads every own name of it and of that
+/// prototype, but a name `Object.prototype` holds: the prototype is any realm's
+/// `Object.prototype` or a null-prototype object of defaults. A value that is
+/// not an object passes, for the deserializer to refuse. Object-ness is the
+/// deserializer's `typeof` test, not `instanceof Object`, which a
+/// null-prototype or cross-realm object fails yet deserializes.
 fn reject_unknown_keys(
     value: &JsValue,
     known: &[&str],
@@ -2419,8 +2420,26 @@ fn reject_unknown_keys(
     if !value.is_object() {
         return Ok(());
     }
-    let proto = js_sys::Reflect::get_prototype_of(value)?;
-    if !proto.is_null() && !js_sys::Reflect::get_prototype_of(&proto)?.is_null() {
+    // A `Proxy` trap's throw returns rather than unwinding through the verb,
+    // which would leave its handle borrowed.
+    let unreadable = |err: JsValue| {
+        let cause = match err.dyn_ref::<js_sys::Error>() {
+            Some(e) => String::from(e.message()),
+            None => err.as_string().unwrap_or_else(|| format!("{err:?}")),
+        };
+        WasmError::from(format!("{what} must be a plain object, not one whose read throws: {cause}"))
+            .to_js_value()
+    };
+    let prototype = |o: &JsValue| js_sys::Reflect::get_prototype_of(o).map_err(unreadable);
+    let names = |o: &JsValue| -> Result<Vec<String>, JsValue> {
+        Ok(js_sys::Reflect::own_keys(o)
+            .map_err(unreadable)?
+            .iter()
+            .filter_map(|key| key.as_string())
+            .collect())
+    };
+    let proto = prototype(value)?;
+    if !proto.is_null() && !prototype(&proto)?.is_null() {
         let passed = if value.is_instance_of::<js_sys::Map>() {
             "a `Map`"
         } else {
@@ -2430,11 +2449,13 @@ fn reject_unknown_keys(
             WasmError::from(format!("{what} must be a plain object, not {passed}")).to_js_value(),
         );
     }
-    match js_sys::Object::get_own_property_names(value.unchecked_ref::<js_sys::Object>())
-        .iter()
-        .filter_map(|key| key.as_string())
-        .find(|k| !known.contains(&k.as_str()))
-    {
+    let mut keys = names(value)?;
+    if !proto.is_null() {
+        let object_proto = prototype(&js_sys::Object::new())?;
+        let builtin = names(&object_proto)?;
+        keys.extend(names(&proto)?.into_iter().filter(|k| !builtin.contains(k)));
+    }
+    match keys.into_iter().find(|k| !known.contains(&k.as_str())) {
         Some(k) => Err(WasmError::from(refusal(&k)).to_js_value()),
         None => Ok(()),
     }

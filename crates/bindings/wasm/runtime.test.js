@@ -799,6 +799,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
       [new Map([['format', 'svg']]), 'not a `Map`'],
       [new (class { format = 'svg' })(), 'render options must be a plain object'],
       [{ format: 'pdf', today: undefined }, 'unknown key `today`'],
+      [Object.create(Object.assign(Object.create(null), { today: '2026-03-14' })), 'unknown key `today`'],
     ]) {
       expect(message(await render(options).catch((e) => e))).toContain(refusal)
     }
@@ -808,14 +809,46 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
       [new Map([['backends', {}]]), 'not a `Map`'],
       [new (class { backends = {} })(), 'Engine options must be a plain object'],
       [{ backends: {}, backend: undefined }, 'unknown key `backend`'],
+      [Object.create(Object.assign(Object.create(null), { backend: {} })), 'unknown key `backend`'],
     ]) {
       expect(message(caughtFrom(() => new Engine(options)))).toContain(refusal)
     }
 
-    for (const plain of [() => Object.create(null), () => vm.runInNewContext('({})')]) {
+    const plains = [
+      () => Object.create(null),
+      () => vm.runInNewContext('({})'),
+      () => Object.create(Object.create(null)),
+    ]
+    for (const plain of plains) {
       expect((await render(Object.assign(plain(), { format: 'svg' }))).outputFormat).toBe('svg')
       expect(() => new Engine(Object.assign(plain(), { backends: {} }))).not.toThrow()
     }
+  })
+
+  it('an options object whose read throws is refused, and the engine still renders', async () => {
+    const message = (err) => {
+      expect(isQuillmarkError(err), String(err)).toBe(true)
+      return err.diagnostics[0].message
+    }
+    const engine = new Engine()
+    const quill = makeRuntimeQuill()
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const revoked = Proxy.revocable({}, {})
+    revoked.revoke()
+    for (const options of [
+      new Proxy({}, { ownKeys: () => { throw new Error('ownKeys trap') } }),
+      new Proxy({}, { getPrototypeOf: () => { throw new Error('getPrototypeOf trap') } }),
+      revoked.proxy,
+    ]) {
+      expect(message(await engine.render(quill, doc, options).catch((e) => e))).toContain(
+        'render options must be a plain object, not one whose read throws'
+      )
+      expect(message(caughtFrom(() => new Engine(options)))).toContain(
+        'Engine options must be a plain object, not one whose read throws'
+      )
+    }
+    expect(message(await engine.render(quill, doc, revoked.proxy).catch((e) => e))).toContain('revoked')
+    expect((await engine.render(quill, doc, { format: 'svg' })).outputFormat).toBe('svg')
   })
 
   // A loader that wraps the real backend module so `Quill.fromTree` calls are

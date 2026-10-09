@@ -162,11 +162,11 @@ function quillmarkError(code, message, hint) {
 }
 
 /**
- * Throw on options that are not a plain object, or on an own key of them
- * outside `known`. The JS twin of the binding's `reject_unknown_keys`, in the
- * uncoded shape it throws: a misspelled optional key would otherwise read as
- * absent, and a read reaches a key up the prototype chain that no own-key walk
- * sees.
+ * Throw on options that are not a plain object, or on a key of them, or of a
+ * null-prototype object they inherit from, outside `known`. The JS twin of the
+ * binding's `reject_unknown_keys`, in the uncoded shape it throws: a misspelled
+ * optional key would otherwise read as absent, and a read reaches a key up the
+ * prototype chain that no own-key walk sees.
  * @param {unknown} options
  * @param {string[]} known
  * @param {string} what the options' name, for the message
@@ -174,8 +174,28 @@ function quillmarkError(code, message, hint) {
  */
 function rejectUnknownKeys(options, known, what) {
 	if (options == null) return;
-	const proto = Object.getPrototypeOf(options);
 	let message;
+	try {
+		message = unknownKeyRefusal(options, known, what);
+	} catch (e) {
+		const cause = e instanceof Error ? e.message : String(e);
+		message = `${what} must be a plain object, not one whose read throws: ${cause}`;
+	}
+	if (message === undefined) return;
+	const err = /** @type {any} */ (new Error(message));
+	err.diagnostics = [{ severity: 'error', message }];
+	throw err;
+}
+
+/**
+ * The refusal `rejectUnknownKeys` throws, if any. A `Proxy` trap may throw.
+ * @param {unknown} options
+ * @param {string[]} known
+ * @param {string} what
+ * @returns {string | undefined}
+ */
+function unknownKeyRefusal(options, known, what) {
+	const proto = Object.getPrototypeOf(options);
 	if (proto !== null && Object.getPrototypeOf(proto) !== null) {
 		const passed =
 			options instanceof Map
@@ -183,15 +203,16 @@ function rejectUnknownKeys(options, known, what) {
 				: typeof options === 'object'
 					? 'one inheriting from another object'
 					: `a ${typeof options}`;
-		message = `${what} must be a plain object, not ${passed}`;
-	} else {
-		const key = Object.getOwnPropertyNames(options).find((k) => !known.includes(k));
-		if (key === undefined) return;
-		message = `${what} have unknown key \`${key}\`; ${what} take only \`${known.join('`, `')}\``;
+		return `${what} must be a plain object, not ${passed}`;
 	}
-	const err = /** @type {any} */ (new Error(message));
-	err.diagnostics = [{ severity: 'error', message }];
-	throw err;
+	const keys = Object.getOwnPropertyNames(options);
+	if (proto !== null) {
+		const builtin = Object.getOwnPropertyNames(Object.prototype);
+		keys.push(...Object.getOwnPropertyNames(proto).filter((k) => !builtin.includes(k)));
+	}
+	const key = keys.find((k) => !known.includes(k));
+	if (key === undefined) return undefined;
+	return `${what} have unknown key \`${key}\`; ${what} take only \`${known.join('`, `')}\``;
 }
 
 // These checks deliver the ERROR, not the rejection, at the seams that cross
