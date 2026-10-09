@@ -289,7 +289,7 @@ pub(crate) fn is_inline(event: &Event) -> bool {
 
 /// A line holding only tags under a table's rows, which a type 7 tag cannot
 /// interrupt, so the parser reads it as one more row: set apart by blank lines,
-/// it ends the table and drops as an HTML block of its own.
+/// it ends the table and reads as an HTML block of its own.
 fn tag_row_edits(src: &str, rows: &[SrcLine]) -> Vec<Edit> {
     let mut edits = Vec::new();
     let mut k = 0;

@@ -19,15 +19,16 @@ use crate::value::QuillValue;
 #[non_exhaustive]
 #[must_use = "names the anchors the write dropped; read `.dropped_anchors` or bind it"]
 pub struct DocumentRevised {
-    /// Every anchor the stored document held that the revised one does not, at
-    /// its address in the stored document.
+    /// Every prose anchor the stored document held that the revised one does
+    /// not, at its address in the stored document. A table cell's anchors drop
+    /// unnamed.
     pub dropped_anchors: Vec<DroppedAnchor>,
     /// For each composable card of the revised document, the index of the
     /// stored card it revised, or `None` for an inserted card.
     pub(crate) alignment: Vec<Option<usize>>,
-    /// The parse warnings, then one `parse::dropped_construct` per construct a
-    /// content field's import dropped, each at its address in the revised
-    /// document.
+    /// The parse warnings, then one `parse::dropped_construct` per construct
+    /// dropped from a field revising a stored content value, each at its
+    /// address in the revised document.
     pub warnings: Vec<Diagnostic>,
 }
 

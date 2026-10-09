@@ -172,9 +172,10 @@ invariants on the way out as well as in, failing the write with a serializer
 error. The token a body rests on (`Normalized`) states that
 `Content::normalize` has run, which is weaker than validity: `validate`
 refuses only what `normalize` cannot repair — a forbidden character, two
-counts that disagree, a range or depth past a bound, a colliding id — and
-`Card::overwrite_body` takes a caller's content on that token alone. A store
-that checked only on load would accept bytes it could not read back.
+counts that disagree, a range or depth past a bound, a colliding id, an
+element outside the carrier grammar — and `Card::overwrite_body` takes a
+caller's content on that token alone. A store that checked only on load would
+accept bytes it could not read back.
 
 The guarantee follows from: struct field order is fixed in the frozen
 DTO tree; `Vec` fields preserve order by definition; the two disciplines
@@ -289,8 +290,9 @@ fidelity class beside them: such a record is not re-derivable from the row that
 would carry it, and does not survive a `to_markdown` → `from_markdown` hop.
 Surfacing a drop belongs to whoever runs the import, where it happens. The
 import reports the raw tags it drops beside the content ([markdown-spec.md](../references/markdown-spec.md) §6.2 names the
-silent ones), and core surfaces them as `parse::dropped_construct`
-([ERROR.md](ERROR.md) § "Warning flow"); a cell image's url drops unreported.
+silent ones), and core surfaces those of a body's parse and of a revise as
+`parse::dropped_construct` ([ERROR.md](ERROR.md) § "Warning flow"); a cell
+image's url drops unreported.
 
 **Container identity is path plus contiguity, and `instance` is what completes
 it.** Two adjacent lines sit in the same container iff their whole container
@@ -360,8 +362,8 @@ default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
 
 `widths` are weights, not lengths, so each plate decides what full width is.
 The keys ride the opaque props carrier, which an older reader round-trips, so
-adding them is no storage-version event, and a later key, such as a cell's own
-alignment, joins the same way.
+adding them is no storage-version event, and a later props key joins the same
+way.
 
 Two rules bound the payload:
 
@@ -562,9 +564,8 @@ read-only in markdown.**
   half-enforcement.
 - **Opaque and invariant.** The runtime never rewrites an id. Positions rebase
   through splices (`map_pos`); the id passes untouched. A mark whose text is
-  deleted, or moved-and-rewritten in one round with no tag naming it, drops
-  *whole*: never partially, never re-id'd (the documented diff-rebase
-  residual).
+  deleted, or moved-and-rewritten in one round, drops *whole*: never
+  partially, never re-id'd (the documented diff-rebase residual).
 
 No markdown round-trip guarantee: `to_markdown` emits nothing for an anchor and
 import mints none, so a cold export→import loses every anchor.
@@ -586,9 +587,10 @@ import drops unreported ([markdown-spec.md](../references/markdown-spec.md)
 Anchors are edit-lane infrastructure: they survive only through diff-rebase
 (`revise` / `rebase`). A whole-document markdown write keeps them through
 `Document::revise`, which aligns cards by `$kind` and text and rebases each
-aligned body and content field; an anchor on a card it cannot align, or one
-the diff drops, drops, and the receipt names it. Reading the annotated markdown
-and writing it back through `revise` keeps what a write of the plain markdown
+aligned body and content field; a prose anchor on a card it cannot align, or
+one the diff drops, drops, and the receipt names it. An anchor in a table cell
+drops on every markdown write, and no receipt names it. Reading the annotated
+markdown and writing it back through `revise` keeps what a write of the plain markdown
 keeps: the import drops the tags, and the read shows a writer where each
 anchor sits. Non-rendering is a property of
 review-time metadata, not a gap; a future render projection (proof annotations,

@@ -84,8 +84,8 @@ pub struct Diagnostic {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub location: Option<Location>,
-    /// Document-model path anchor (e.g. `"cards.indorsement[0].signature_block"`),
-    /// set on schema validation diagnostics and `undefined` otherwise.
+    /// Document-model path anchor (e.g. `"cards.indorsement[0].signature_block"`)
+    /// where the diagnostic has a document address, `undefined` otherwise.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]

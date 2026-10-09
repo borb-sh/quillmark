@@ -21,6 +21,8 @@ an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
 - **Structured data**: card-yaml blocks (§3).
 - **Extensions**: strikethrough, pipe tables, and `<u>` for underline
   (§6.1).
+- **The `quill-*` carrier**: table layout and elements, spelled as custom
+  HTML elements (§6.4).
 
 A document containing no card-yaml blocks is ordinary CommonMark, parsed as
 such.
@@ -463,9 +465,7 @@ names do, and the canonical spelling is lowercase. `quill-`, `quill-a--b` and
 `quill-9` carry no element.
 
 **Reserved names.** `table` is reserved for the table it wraps and `anchor`
-for the anchor spelling. A reserved name folds into its construct where a
-construct declares the fold; neither is ever an element of its own, and a
-quill cannot declare one.
+for the anchor spelling. Neither is ever an element of its own.
 
 **Attributes.** A name matches `[a-z][a-z0-9_]*` and is none of `style`,
 `class`, `id`, `href` and `src`, nor any name opening `on`, so the carrier
@@ -478,7 +478,7 @@ hexadecimal references to a Unicode scalar value; any other `&` is text.
 **Block only.** A carrier tag carries its construct on a tag line in an HTML
 block of tag lines alone, which a blank line above and below sets apart
 (§6.2). Inside a line, or in a block tight against markdown, it drops like any
-raw tag; `quill-anchor` drops there without a report.
+raw tag; `quill-anchor` drops inside a line without a report.
 
 **Canonical spelling.** An element is written with:
 
@@ -509,8 +509,8 @@ reads the document:
 
 - A pair of tag lines wraps the blocks between them in the element, inside the
   containers around its open tag. The close tag closes the element where it is
-  the innermost container open; a close tag naming no innermost element drops
-  without a report. A pair wrapping nothing holds one empty paragraph: a void
+  the innermost container open; a close tag naming no innermost element drops,
+  reported only where its block drops markdown (§6.2). A pair wrapping nothing holds one empty paragraph: a void
   element, such as a signature line.
 - Each attribute in the grammar is kept as its string. One refused drops alone,
   reported as `quill-<name>[<attr>]`.

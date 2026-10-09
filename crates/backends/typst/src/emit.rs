@@ -739,7 +739,7 @@ impl<'a> Emit<'a> {
         };
         match isl.island_type {
             // Declined: what a content image's url names is undecided, so this
-            // backend draws none and `Emission::declined` counts them for the
+            // backend draws none and `backend::declines` names it for the
             // warning saying so.
             IslandType::Image => String::new(),
             IslandType::Table => table_markup(&isl.props),

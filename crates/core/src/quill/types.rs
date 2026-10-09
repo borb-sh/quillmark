@@ -47,8 +47,10 @@ pub struct UiFieldSchema {
 
 /// A block construct a body can hold, and the vocabulary
 /// [`backend::declined_construct`](crate::backend::declined_construct) and
-/// `validation::declined_construct` name one in: the block kinds the content model distinguishes, minus the paragraph,
-/// which is the floor and cannot be declined.
+/// `validation::declined_construct` name one in: the block kinds the content
+/// model distinguishes, minus the paragraph, which is the floor and cannot be
+/// declined, and the element, which a backend with no renderer for it draws
+/// as what it wraps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockConstruct {

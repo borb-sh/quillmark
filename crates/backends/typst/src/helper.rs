@@ -40,8 +40,9 @@ pub struct ContentMap {
     pub segments: Vec<SegmentMap>,
 }
 
-/// The source plus each content block's [`ContentMap`]. `Err` only when a
-/// content exceeds the nesting bound, which import already caps.
+/// The source plus each content block's [`ContentMap`]. `Err` only on data
+/// the seam already refuses: a content past the nesting bound, or a non-blank
+/// date that will not parse ([`EmitError`]).
 pub fn generate_lib_typ(
     data: &serde_json::Value,
     meta: &SchemaMeta,
