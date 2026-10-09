@@ -1045,7 +1045,10 @@ proptest! {
             if let Some((refusal, inside)) = refusal(&body) {
                 prop_assert!(!inside, "{:?}\n{}", refusal, body);
                 prop_assert!(
-                    matches!(prescan_fence_content(&body), Err(Refusal::PastRoot { .. })),
+                    matches!(
+                        prescan_fence_content(&body),
+                        Err(Refusal::PastRoot { .. } | Refusal::SharedKey { .. })
+                    ),
                     "{:?}\n{}", refusal, body
                 );
             }

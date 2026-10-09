@@ -125,6 +125,9 @@ YAML reads an unquoted value by its shape before the schema sees it, so a
 | `batch: 2024_07`, an `_` between digits | `202407` | `batch: "2024_07"` |
 | `code: 0x1F`, a `0x`, `0o` or `0b` prefix | `31` | `code: "0x1F"` |
 | `room: 1E3`, an exponent | `1000.0` | `room: "1E3"` |
+| `phone: +15551234567`, a leading `+` | `15551234567` | `phone: "+15551234567"` |
+| `id: 18446744073709551616`, an integer past 18446744073709551615 | `1.8446744073709552e+19` | `id: "18446744073709551616"` |
+| `ratio: .5` or `5.`, a `.` with no digit on one side | `0.5`, `5.0` | `ratio: ".5"` |
 | `ext: .inf` or `.nan`, in any letter case | nothing: the parse fails | `ext: ".inf"` |
 | `id: 1e999`, a number too large to hold | nothing: the parse fails | `id: "1e999"` |
 | `text: Approve Item #12`, a space then `#` | `Approve Item`: the rest is a comment | `text: "Approve Item #12"` |

@@ -13,8 +13,9 @@
 //! again among those keys: one ahead of, on or inside a merge sits with the
 //! keys that merge brings.
 //!
-//! Every tagged node is recorded at its path, for the assembler to warn on; the
-//! value parse applies a core `!!` tag, ignores any other, and keeps no tag.
+//! Every tagged node is recorded at its path in the value, for the assembler to
+//! warn on; the value parse applies a core `!!` tag, ignores any other, and
+//! keeps no tag.
 
 use std::collections::{HashMap, HashSet};
 
@@ -73,6 +74,13 @@ pub(crate) enum Refusal {
     /// Text other than comments and a `...` follows the root node, which the
     /// value parse reads alone; at this 1-indexed line and column.
     PastRoot { line: usize, column: usize },
+    /// A mapping's second key of this text, which the value parse folds into
+    /// the first, such as `"1"` after `1`; at this 1-indexed line and column.
+    SharedKey {
+        key: String,
+        line: usize,
+        column: usize,
+    },
 }
 
 impl From<OverBudget> for Refusal {
@@ -99,7 +107,9 @@ pub(crate) fn budget(len: usize) -> usize {
 
 /// Scan `yaml`, which the value parse reads. That parse stops at the end of
 /// the root node, and the scan refuses anything past it but comments and a
-/// `...`: a parser error there, or a second document.
+/// `...`: a parser error there, or a second document. It also refuses a
+/// mapping's second key of one text, which the value parse folds into the
+/// first.
 pub(crate) fn prescan_fence_content(yaml: &str) -> Result<PreScan, Refusal> {
     let mut walk = Walk::new(yaml);
     let mut ended = false;
@@ -198,6 +208,8 @@ struct Frame {
     next_trailed: bool,
     /// Each child of a mapping, and each item of a sequence that collects.
     children: Vec<Child>,
+    /// The text of each own key of a mapping.
+    keys: HashSet<String>,
     /// A sequence keeping what each item brings: a merge's value, an item of
     /// one that collects, or one an anchor names.
     collects: bool,
@@ -551,14 +563,14 @@ impl<'a> Walk<'a> {
         })
     }
 
-    fn step(&mut self, event: &Event<'_>, span: Span) -> Result<(), OverBudget> {
+    fn step(&mut self, event: &Event<'_>, span: Span) -> Result<(), Refusal> {
         match event {
-            Event::Comment(text, placement) => self.comment(text, *placement, span),
+            Event::Comment(text, placement) => Ok(self.comment(text, *placement, span)?),
             Event::Scalar(..)
             | Event::Alias(..)
             | Event::SequenceStart(..)
             | Event::MappingStart(..) => self.node(event, span),
-            Event::SequenceEnd | Event::MappingEnd => self.end(span),
+            Event::SequenceEnd | Event::MappingEnd => Ok(self.end(span)?),
             _ => Ok(()),
         }
     }
@@ -698,7 +710,7 @@ impl<'a> Walk<'a> {
         self.record(f, At::After(index), c)
     }
 
-    fn node(&mut self, event: &Event<'_>, span: Span) -> Result<(), OverBudget> {
+    fn node(&mut self, event: &Event<'_>, span: Span) -> Result<(), Refusal> {
         let shape = Shape::of(event, &span, |tag| self.reads_null(tag));
         let top = self.live.checked_sub(1);
         let awaiting = top.is_some_and(|t| self.frames[t].awaiting_value);
@@ -714,7 +726,7 @@ impl<'a> Walk<'a> {
 
         let role = match top {
             None => Role::Root,
-            Some(t) => self.place(t, event, &span, shape),
+            Some(t) => self.place(t, event, &span, shape)?,
         };
         if let Event::Scalar(text, style, anchor @ 1.., tag) = event {
             let merge = is_merge_key(text, *style, tag.as_deref());
@@ -722,7 +734,7 @@ impl<'a> Walk<'a> {
         }
         let depth = top.map_or(0, |t| t + 1);
         if event.tag().is_some() {
-            let path = self.path(depth);
+            let path = self.merged_path(depth);
             self.charge_path(&path, 0)?;
             self.tags.push(path);
         }
@@ -752,6 +764,7 @@ impl<'a> Walk<'a> {
                 entry: None,
                 next_trailed: false,
                 children: Vec::new(),
+                keys: HashSet::new(),
                 collects: sequence && (feeds || anchor != 0),
                 merged: feeds && parent.is_some_and(|p| !p.sequence || p.merged),
                 anchor,
@@ -773,7 +786,13 @@ impl<'a> Walk<'a> {
     }
 
     /// Start the child of `frames[top]` the node at `span` begins.
-    fn place(&mut self, top: usize, event: &Event<'_>, span: &Span, shape: Shape) -> Role {
+    fn place(
+        &mut self,
+        top: usize,
+        event: &Event<'_>,
+        span: &Span,
+        shape: Shape,
+    ) -> Result<Role, Refusal> {
         let line = span.start.line();
         let frame = &mut self.frames[top];
         if frame.sequence {
@@ -790,7 +809,7 @@ impl<'a> Walk<'a> {
             if frame.collects {
                 frame.children.push(Child::Merged(Flat::of_node(event, &self.anchors)));
             }
-            return Role::Item;
+            return Ok(Role::Item);
         }
         if frame.awaiting_value {
             frame.awaiting_value = false;
@@ -800,7 +819,7 @@ impl<'a> Walk<'a> {
             if let Some(Child::Merged(flat)) = frame.children.last_mut() {
                 *flat = Flat::of_node(event, &self.anchors);
             }
-            return Role::Value;
+            return Ok(Role::Value);
         }
         let (key, merge) = match event {
             Event::Scalar(text, style, _, tag) => (
@@ -813,6 +832,15 @@ impl<'a> Walk<'a> {
             },
             _ => (None, false),
         };
+        if let Some(key) = key.as_ref().filter(|_| !merge)
+            && !frame.keys.insert(key.clone())
+        {
+            return Err(Refusal::SharedKey {
+                key: key.clone(),
+                line: span.start.line(),
+                column: span.start.col() + 1,
+            });
+        }
         let column = span.indent.unwrap_or(span.start.col());
         if frame.count == 0 {
             frame.column = column;
@@ -835,7 +863,7 @@ impl<'a> Walk<'a> {
         if let (0, Some(key), false) = (top, key, merge) {
             self.items.push(PreItem::Field { key });
         }
-        Role::Key
+        Ok(Role::Key)
     }
 
     /// Place the own-line comments waiting on a node starting at byte `start`,
@@ -1029,6 +1057,19 @@ impl<'a> Walk<'a> {
     fn path(&self, depth: usize) -> Vec<PathSegment> {
         self.frames[..depth]
             .iter()
+            .filter_map(|f| f.entry.as_ref().map(|e| e.segment.clone()))
+            .collect()
+    }
+
+    /// [`path`](Self::path) as the value holds it: through a merge, the
+    /// merged keys sit in the mapping holding the merge.
+    fn merged_path(&self, depth: usize) -> Vec<PathSegment> {
+        self.frames[..depth]
+            .iter()
+            .filter(|f| match f.sequence {
+                true => !f.merged,
+                false => !matches!(f.children.last(), Some(Child::Merged(_))),
+            })
             .filter_map(|f| f.entry.as_ref().map(|e| e.segment.clone()))
             .collect()
     }
