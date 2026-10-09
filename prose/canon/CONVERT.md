@@ -184,12 +184,12 @@ An `image` island lowers to nothing, and the compile that dropped it carries one
 counts wherever it sits, and a field holding one says so rather than losing it
 quietly.
 
-What such a `url` names is undecided. A document is quill-free but for
+No backend resolves such a `url`. A document is quill-free but for
 `$quill`, which is a *selector* ([VERSIONING](VERSIONING.md)) — `memo@1` admits
 1.0.0 and 1.1.0 alike — and everything else a document references is
 self-contained or declared. A path into one quill's file tree is neither, and
 no `DocPath`, `validate` signal or url space makes it either. A backend that
-resolved the string anyway would bind documents to a reading nothing versions.
+resolved the string would bind documents to a reading nothing versions.
 
 ### Island props
 
@@ -206,7 +206,7 @@ reads and the shape the WASM boundary pins:
   as [above](#element-mapping); an absent one draws at its default: auto-fit,
   at the plate's placement.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
-  it. What `url` names is undecided (see [Declined images](#declined-images)).
+  it. No backend resolves `url` (see [Declined images](#declined-images)).
 
 The `IslandType` dispatch (`crates/content/src/island.rs`) owns these shapes
 engine-side; the WASM surface pins them as `TableProps` / `ImageProps` /

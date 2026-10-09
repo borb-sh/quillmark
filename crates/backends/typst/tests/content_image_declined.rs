@@ -1,8 +1,8 @@
-//! An image island in a content field draws nothing and warns. What a content
-//! image's url names — a quill asset, a document-relative path, a remote url —
-//! is undecided, so the backend declines the construct outright rather than
-//! resolving one reading of it, and says so under `backend::declined_construct`
-//! against the field's own `DocPath`.
+//! An image island in a content field draws nothing and warns. A content
+//! image's url resolves under no reading — a quill asset, a document-relative
+//! path, a remote url — so the backend declines the construct outright and
+//! says so under `backend::declined_construct` against the field's own
+//! `DocPath`.
 
 use quillmark_core::{
     backend::Backend,
