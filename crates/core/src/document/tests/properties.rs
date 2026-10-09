@@ -324,7 +324,8 @@ proptest! {
     /// with other cards inserted, deleted, edited and every card reordered, an
     /// unchanged card keeps its anchor and aligns to its stored self, an anchor
     /// rests only on the card its stored card aligned to, and the receipt names
-    /// exactly the anchors the revised document no longer holds.
+    /// exactly the anchors the revised document no longer holds. The
+    /// annotated read revises the stored document to itself.
     #[test]
     fn an_unchanged_card_keeps_its_anchor_through_a_whole_document_revise(
         stored in prop::collection::vec((arb_card(), arb_fate()), 1..7),
@@ -341,6 +342,12 @@ proptest! {
             let body = super::revise_tests::anchored(card.body(), &format!("card{i}"), &format!("c{i}"));
             card.overwrite_body(body);
         }
+
+        let mut reread = doc.clone();
+        let read = doc.to_markdown_annotated().markdown;
+        let receipt = reread.revise(&read).expect("the annotated read parses");
+        prop_assert!(receipt.dropped_anchors.is_empty(), "{:?}", receipt.dropped_anchors);
+        prop_assert_eq!(&reread, &doc, "the annotated read revises to itself:\n{}", read);
 
         // (stored index if kept unchanged, kind, body)
         let mut incoming: Vec<(Option<usize>, &str, String)> = Vec::new();

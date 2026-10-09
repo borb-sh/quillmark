@@ -657,5 +657,46 @@ card_kinds:
         assert_eq!(anchors(&revised.warnings), dropped("cards.note[0].blurb"));
         let revised = ed.card(0).unwrap().revise_field("blurb", "plain").unwrap();
         assert!(revised.warnings.is_empty());
+        let added = ed.add_card("note", [("body", "b")], Some("<span>y</span>"), Some(0)).unwrap();
+        assert_eq!(anchors(&added), dropped("cards.note[0].body"));
+
+        let revised = doc.card_mut(1).unwrap().revise_body("<kbd>x</kbd>").unwrap();
+        assert_eq!(
+            anchors(&revised.warnings),
+            [(Some(crate::document::DROPPED_CONSTRUCT.to_string()), None)]
+        );
+    }
+
+    /// A whole-document revise warns the parse's drops in card order, then each
+    /// revised content field's at the field, then the conform's.
+    #[test]
+    fn revise_document_warns_the_parse_then_each_revised_field_then_the_conform() {
+        let config = config();
+        let mut doc = blank_doc();
+        let mut ed = TypedWriter::new(&config, &mut doc);
+        ed.set("subject", "Hello").unwrap();
+        let receipt = ed
+            .revise_document(
+                "~~~\n$quill: memo@1.0.0\nsubject: <kbd>Hello</kbd>\n~~~\n\n<span>Body</span>\n\n\
+                 ~~~\n$kind: note\nblurb: [42]\n~~~\n\n<em>Note</em>\n",
+            )
+            .unwrap();
+        let warnings: Vec<_> = receipt
+            .warnings
+            .iter()
+            .map(|w| {
+                let construct = w.args.get("construct").and_then(|c| c.as_str());
+                (w.code.as_deref().unwrap_or_default(), w.path.as_deref(), construct)
+            })
+            .collect();
+        assert_eq!(
+            warnings,
+            [
+                ("parse::dropped_construct", Some("main.body"), Some("span")),
+                ("parse::dropped_construct", Some("cards.note[0].body"), Some("em")),
+                ("parse::dropped_construct", Some("main.subject"), Some("kbd")),
+                ("conform::field_decode", Some("cards.note[0].blurb"), None),
+            ]
+        );
     }
 }

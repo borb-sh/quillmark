@@ -2317,6 +2317,26 @@ mod tests {
         }
     }
 
+    /// An underline's tags sit outside the delimiters opening and closing at
+    /// their position, so neither changes how a delimiter flanks.
+    #[test]
+    fn an_underline_sharing_an_edge_with_a_delimiter_writes_outside_it() {
+        for (text, under, strong, md) in [
+            ("xab", (1, 3), (1, 2), "x<u>**a**b</u>"),
+            ("abx", (0, 2), (1, 2), "<u>a**b**</u>x"),
+        ] {
+            let rt = marked(
+                text,
+                vec![
+                    Mark { start: under.0, end: under.1, kind: MarkKind::Underline },
+                    Mark { start: strong.0, end: strong.1, kind: MarkKind::Strong },
+                ],
+            );
+            assert_eq!(to_markdown(&rt), md);
+            assert_eq!(from_markdown(md).unwrap().content, rt);
+        }
+    }
+
     /// An element the carrier cannot spell, under a reserved name or with an
     /// attribute outside its grammar, writes nothing: its blocks stand
     /// unwrapped.

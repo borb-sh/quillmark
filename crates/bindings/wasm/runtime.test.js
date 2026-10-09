@@ -196,6 +196,12 @@ card_kinds:
     expect(exportMarkdown(ed.document.cards[0].body)).toBe('Card body text.')
     expect(ed.removeCard(0).kind).toBe('note')
     expect(ed.document.cards).toHaveLength(0)
+
+    ed.addCard('note', {}, 'First.')
+    expect(ed.addCard('note', {}, 'x <span>y</span>', 0).map((w) => [w.code, w.path])).toEqual([
+      ['parse::dropped_construct', 'cards.note[0].body'],
+    ])
+    expect(exportMarkdown(ed.document.cards[0].body)).toBe('x y')
   })
 
   it('card(i).set / reviseBody / reviseField address the composable card', () => {
@@ -215,18 +221,37 @@ card_kinds:
     expect(Array.isArray(delta.ops)).toBe(true)
   })
 
-  it('reviseDocument revises the whole document, then conforms it', () => {
+  it('reviseDocument revises the whole document, then conforms it, clearing the load warnings', () => {
     const quill = buildQuill()
-    const doc = quill.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nbody: kept\n~~~\n')
+    const doc = quill.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\n<span>Body.</span>\n\n~~~card-yaml\n$kind: note\nbody: kept\n~~~\n')
+    expect(doc.warnings.map((w) => [w.code, w.path])).toEqual([['parse::dropped_construct', 'main.body']])
     const ed = quill.writer(doc)
     const receipt = ed.reviseDocument(
       '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nbody: kept\n~~~\n',
     )
     expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'warnings'])
     expect(receipt.droppedAnchors).toEqual([])
+    expect(receipt.warnings).toEqual([])
+    expect(doc.warnings).toEqual([])
     expect(fieldOf(doc.main, 'subject')).toHaveProperty('text', 'Q3 results')
     expect(() => ed.reviseDocument('~~~card-yaml\n$quill: other\n~~~\n')).toThrow()
     expect(quill.reader(doc).get('subject')).toBe('Q3 **results**')
+  })
+
+  it('reviseDocument names each anchor it drops at the address the document held it', () => {
+    const quill = buildQuill()
+    const doc = quill.parse(
+      '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nFirst note.\n',
+    )
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }] })
+    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 6, end: 10, type: 'anchor', attrs: { id: 'n' } }] })
+    const receipt = quill
+      .writer(doc)
+      .reviseDocument('~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n')
+    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', id: 'n' }])
+    expect(receipt.warnings).toEqual([])
+    expect(doc.main.body.marks).toEqual([{ start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }])
+    expect(doc.cards).toEqual([])
   })
 
   it('a bad card index throws at write time, not at card()', () => {

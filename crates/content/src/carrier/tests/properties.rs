@@ -54,9 +54,13 @@ fn word() -> impl Strategy<Value = String> {
     "[a-z]{2,5}[0-9]"
 }
 
+/// Values draw from every scalar value, control characters, bidi controls and
+/// line separators among them, which the canonical spelling writes as
+/// references.
 fn attrs() -> impl Strategy<Value = BTreeMap<String, String>> {
     let name = "[a-z][a-z0-9_]{0,5}".prop_filter("attribute name", |n| is_attr_name(n));
-    prop::collection::btree_map(name, any::<String>(), 0..3)
+    let value = prop::collection::vec(any::<char>(), 0..8).prop_map(String::from_iter);
+    prop::collection::btree_map(name, value, 0..3)
 }
 
 /// A `quill-table` wrapper's valid attributes: `widths` (`None` an `auto`

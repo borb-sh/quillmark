@@ -499,6 +499,46 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\nnote: null\n~~~\n')
     expect(doc.getStored('note')).toBeNull()
   })
+
+  // A weight is a JS number, exact up to `Number.MAX_SAFE_INTEGER`; one past it
+  // drops at the import rather than reaching a read that cannot carry it.
+  it('a column weight crosses exactly up to the largest safe integer, and drops past it', () => {
+    const table = (widths) =>
+      `<quill-table widths="${widths}">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>`
+    const { content, warnings } = importMarkdown(table(`${Number.MAX_SAFE_INTEGER} 1`))
+    expect(warnings).toEqual([])
+    expect(content.islands[0].props.widths).toEqual([Number.MAX_SAFE_INTEGER, 1])
+    expect(exportMarkdown(content)).toContain(`widths="${Number.MAX_SAFE_INTEGER} 1"`)
+
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n')
+    doc.overwrite({}, content)
+    expect(Document.fromStored(doc.toStored()).main.body).toEqual(content)
+
+    const past = importMarkdown(table('9007199254740992 1'))
+    expect(past.content.islands[0].props.widths).toBeUndefined()
+    expect(past.warnings.map((w) => w.args.construct)).toEqual(['quill-table[widths]'])
+  })
+
+  it('rebase returns the drops of the markdown it imports, with no path', () => {
+    const { content, warnings } = rebase(importMarkdown('a b').content, 'a <span>b</span>')
+    expect(content.text).toBe('a b')
+    expect(warnings).toEqual([
+      {
+        severity: 'warning',
+        code: 'parse::dropped_construct',
+        message: expect.any(String),
+        hint: expect.any(String),
+        args: { construct: 'span', count: 1 },
+      },
+    ])
+  })
+
+  it('loadStored clears the parse warnings a document carried', () => {
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n\n<span>x</span>\n')
+    expect(doc.warnings.map((w) => [w.code, w.path])).toEqual([['parse::dropped_construct', 'main.body']])
+    doc.loadStored(doc.toStored())
+    expect(doc.warnings).toEqual([])
+  })
 })
 
 describe('Content predicates: isInline / isPlain', () => {
@@ -660,14 +700,20 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
 
   it('revise({field}) rebases a richtext field anchor and applyChange splices it', () => {
     const doc = blankDoc()
-    // revise the field from markdown (edit semantics), then splice a formatting
-    // mark over "bold" via applyChange.
     doc.revise({ field: 'intro' }, 'make it bold here')
     doc.applyChange(
       { field: 'intro' },
-      { markOps: [{ op: 'add', start: 8, end: 12, type: 'strong' }] },
+      { markOps: [{ op: 'add', start: 8, end: 12, type: 'anchor', attrs: { id: 'a1' } }] },
     )
-    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('make it **bold** here')
+    expect(doc.revise({ field: 'intro' }, 'now make it bold here').warnings).toEqual([])
+    expect(field(doc.main, 'intro').marks).toEqual([
+      { start: 12, end: 16, type: 'anchor', attrs: { id: 'a1' } },
+    ])
+    doc.applyChange(
+      { field: 'intro' },
+      { markOps: [{ op: 'add', start: 12, end: 16, type: 'strong' }] },
+    )
+    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('now make it **bold** here')
     // An out-of-bounds op leaves the value unchanged (all-or-nothing).
     expect(() =>
       doc.applyChange({ field: 'intro' }, { markOps: [{ op: 'add', start: 999, end: 1000, type: 'emph' }] }),

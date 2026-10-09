@@ -2307,6 +2307,52 @@ mod tests {
         }
     }
 
+    /// A `<script>`, `<style>` or `<textarea>` block drops through the line
+    /// holding its close tag, blank lines and markdown inside included, and
+    /// reports its tag once.
+    #[test]
+    fn a_raw_text_block_drops_through_its_close_and_reports_its_tag() {
+        for (md, tag) in [
+            ("before\n\n<script>\nlet a = 1;\n\nlet b = 2;\n</script>\n\nafter", "script"),
+            ("before\n\n<style>p { color: red }</style>\n\nafter", "style"),
+            ("before\n\n<textarea>\n**not**\n\n<quill-keep>\n</textarea> tail\n\nafter", "textarea"),
+        ] {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.text, "before\nafter", "{md:?}");
+            assert!(imported.content.marks.is_empty(), "{md:?}");
+            assert_eq!(dropped(&imported), [(tag, 1)], "{md:?}");
+        }
+    }
+
+    /// A block of tag lines alone passes its carrier tags on and reports the
+    /// rest; a close tag sharing its line with another is inline under
+    /// CommonMark, so the element it would close drops.
+    #[test]
+    fn a_carrier_tag_among_raw_tag_lines_wraps_as_its_lines_read() {
+        let imported = imp_fixed("<div>\n<quill-keep>\n\npara\n\n</quill-keep>\n</div>\n\nafter");
+        assert_eq!(imported.content.text, "para\nafter");
+        assert_eq!(container_tags(&imported.content), [&["element"][..], &[]]);
+        assert_eq!(dropped(&imported), [("div", 1)]);
+
+        let imported = imp_fixed("<div><quill-keep>\n\npara\n\n</quill-keep></div>\n\nafter");
+        assert_eq!(imported.content.text, "para\nafter");
+        assert!(imported.content.lines.iter().all(|l| l.containers.is_empty()));
+        assert_eq!(dropped(&imported), [("div", 1), ("quill-keep", 1)]);
+    }
+
+    /// CRLF line endings import as LF ones do, through every block the
+    /// carrier, a table cell's break and a fence hold.
+    #[test]
+    fn crlf_imports_as_lf() {
+        let lf = "<quill-keep note=\"a\">\n\n| A | B |\n|---|---|\n| <u>x</u> | y<br>z |\n\n</quill-keep>\n\n\
+                  - item\n  more\n\n> quote\n\n```\ncode\n```\n\n<span>x</span>\n";
+        let crlf = lf.replace('\n', "\r\n");
+        let (lf, crlf) = (imp_fixed(lf), imp_fixed(&crlf));
+        assert_eq!(crlf.content, lf.content);
+        assert_eq!(crlf.warnings, lf.warnings);
+        assert_eq!(dropped(&lf), [("span", 1)]);
+    }
+
     fn container_tags(rt: &Normalized) -> Vec<Vec<&'static str>> {
         rt.lines.iter().map(|l| l.containers.iter().map(Container::tag).collect()).collect()
     }
@@ -2403,5 +2449,23 @@ mod tests {
             }]
         );
         assert_eq!(dropped(&imported), [("quill-keep[onclick]", 1)]);
+
+        let imported = imp_fixed(
+            "<quill-keep note=\"a\" note=\"b\" class=\"c\">\n\nx\n\n</quill-keep>\n\n\
+             <quill-keep CLASS=\"d\">\n\ny\n\n</quill-keep>",
+        );
+        let attrs: Vec<_> = imported.content.lines.iter().map(|l| &l.containers).collect();
+        assert_eq!(
+            attrs,
+            [
+                &vec![Container::Element {
+                    name: "keep".into(),
+                    attrs: [("note".to_string(), "a".to_string())].into(),
+                    instance: 0,
+                }],
+                &vec![Container::Element { name: "keep".into(), attrs: [].into(), instance: 0 }],
+            ]
+        );
+        assert_eq!(dropped(&imported), [("quill-keep[note]", 1), ("quill-keep[class]", 2)]);
     }
 }

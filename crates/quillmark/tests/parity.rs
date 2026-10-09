@@ -3,7 +3,7 @@
 
 #![cfg(feature = "typst")]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use quillmark::{Diagnostic, Document, Normalized, OutputFormat, Quill, Quillmark, RenderOptions};
 use quillmark_content::{
@@ -24,12 +24,14 @@ fn frontmatter(quill: &str) -> String {
     format!("~~~\n$quill: {quill}@0.1.0\n$kind: main\ntitle: Parity\n~~~\n")
 }
 
+fn corpus() -> Vec<Value> {
+    serde_json::from_str(&std::fs::read_to_string(resource_path("parity/parity.json")).expect("corpus reads"))
+        .expect("corpus is a JSON array")
+}
+
 #[test]
 fn every_entry_holds_on_every_surface() {
-    let corpus: Vec<Value> = serde_json::from_str(
-        &std::fs::read_to_string(resource_path("parity/parity.json")).expect("corpus reads"),
-    )
-    .expect("corpus is a JSON array");
+    let corpus = corpus();
     assert!(!corpus.is_empty(), "the corpus holds no entry");
 
     let mut names = BTreeSet::new();
@@ -47,6 +49,56 @@ fn every_entry_holds_on_every_surface() {
             check(entry, &engine, &quill)
                 .into_iter()
                 .map(move |f| format!("{name}: {f}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+/// The matrix in `prose/canon/PARITY.md` has a row per entry and an entry per
+/// row, and a row's signal cells say what the entry's signals carry: a cell
+/// reads `declines with a signal` where its surface warns, and the Signal cell
+/// names each code and imported construct.
+#[test]
+fn the_matrix_has_a_row_per_entry_naming_its_signals() {
+    let matrix = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../prose/canon/PARITY.md"))
+        .expect("PARITY.md reads");
+    let rows: BTreeMap<&str, Vec<&str>> = matrix
+        .lines()
+        .filter_map(|line| {
+            let cells: Vec<&str> = line.strip_prefix("| `")?.split('|').map(str::trim).collect();
+            let (name, _) = cells[0].split_once('`')?;
+            (cells.len() == 8).then(|| (name, cells[1..7].to_vec()))
+        })
+        .collect();
+    let corpus = corpus();
+    let names: BTreeSet<&str> = corpus.iter().filter_map(|e| e["name"].as_str()).collect();
+    assert_eq!(rows.keys().copied().collect::<BTreeSet<_>>(), names);
+
+    let failures: Vec<String> = corpus
+        .iter()
+        .filter_map(|entry| {
+            let name = entry["name"].as_str()?;
+            let [markdown, _, _, typst, validate, signal] = rows[name][..] else {
+                return Some(format!("{name}: the row has no six cells"));
+            };
+            let signals = &entry["signals"];
+            let list = |key: &str| signals.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+            let (import, render, validated) = (list("import"), list("render"), list("validate"));
+            let mut codes: BTreeSet<&str> = render.iter().chain(&validated).filter_map(Value::as_str).collect();
+            if !import.is_empty() {
+                codes.insert("parse::dropped_construct");
+            }
+            let named: BTreeSet<&str> = signal.split('`').skip(1).step_by(2).collect();
+            let mismatches = [
+                (markdown == "declines with a signal") != !import.is_empty(),
+                (typst == "declines with a signal") != !render.is_empty(),
+                (validate == "declines with a signal") != !validated.is_empty(),
+                named.iter().filter(|t| t.contains("::")).copied().collect::<BTreeSet<_>>() != codes,
+                import.iter().any(|s| s["construct"].as_str().is_none_or(|c| !named.contains(c))),
+            ];
+            mismatches
+                .contains(&true)
+                .then(|| format!("{name}: the row reads {:?} where the entry signals {signals}", rows[name]))
         })
         .collect();
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
