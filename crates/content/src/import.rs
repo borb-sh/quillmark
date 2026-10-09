@@ -303,6 +303,9 @@ struct Opened {
     at: usize,
     /// The containers open around it.
     depth: usize,
+    /// Whether a close tag naming it dropped with markdown, which reports it
+    /// once whether or not it drops unclosed.
+    reported: bool,
 }
 
 enum Frame {
@@ -550,6 +553,10 @@ impl Builder {
                 }
                 Fixed::Underline(tag) => {
                     self.underline_tag(tag)?;
+                    continue;
+                }
+                Fixed::Swallowed(wrapper, at) => {
+                    self.swallowed(wrapper, at);
                     continue;
                 }
             };
@@ -844,7 +851,7 @@ impl Builder {
                 Frame::Element { name, instance }
             }
         };
-        self.blocks.push(Opened { frame, attrs, at, depth });
+        self.blocks.push(Opened { frame, attrs, at, depth, reported: false });
         self.check_depth()
     }
 
@@ -944,16 +951,35 @@ impl Builder {
             .map_or(0, |k| k + 1);
         let inside = self.blocks.partition_point(|open| open.depth < ending);
         for open in self.blocks.split_off(inside) {
-            match open.frame {
+            let construct = match open.frame {
                 Frame::Element { name, instance } => {
                     self.containers.pop();
                     self.container_marks.pop();
                     self.unclosed.push(instance);
-                    self.dropped.add(Dropped::Element(name), open.at);
+                    Dropped::Element(name)
                 }
-                Frame::Table { .. } => self.dropped.add(Dropped::Table, open.at),
+                Frame::Table { .. } => Dropped::Table,
+            };
+            if !open.reported {
+                self.dropped.add(construct, open.at);
             }
         }
+    }
+
+    /// Report a close tag that dropped with the markdown under it, once for
+    /// the innermost wrapper it names: that wrapper stays open past it.
+    fn swallowed(&mut self, wrapper: Wrapper, at: usize) {
+        let open = self.blocks.iter_mut().rev().find(|open| match (&open.frame, &wrapper) {
+            (Frame::Element { name, .. }, Wrapper::Element(closing)) => name == closing,
+            (Frame::Table { .. }, Wrapper::Table) => true,
+            _ => false,
+        });
+        match open {
+            Some(open) if open.reported => return,
+            Some(open) => open.reported = true,
+            None => {}
+        }
+        self.dropped.add(wrapper.dropped(), at);
     }
 
     /// A tight list item's inline content arrives with no `Paragraph` start to
@@ -1180,6 +1206,9 @@ enum Fixed<'a> {
     Event(Event<'a>),
     Carrier(CarrierTag),
     Underline(UTag),
+    /// A wrapper's close tag in an HTML block of closing tags that drops
+    /// markdown with them, at the block's byte offset.
+    Swallowed(Wrapper, usize),
 }
 
 /// An inline `<u>` tag, paired by the builder as HTML pairs it.
@@ -1319,11 +1348,11 @@ where
     }
 
     /// Consume an HTML block through its end, counting its
-    /// [markup tags](html::block_tags), and its first tag where it holds only
-    /// closing tags and the text it drops with them. A block of tag lines alone
-    /// passes its carrier tags on, they and its end reaching the builder
-    /// through `held`; one that drops text with them drops them too, each open
-    /// tag counted.
+    /// [markup tags](html::block_tags). A block of tag lines alone passes its
+    /// carrier tags on, they and its end reaching the builder through `held`;
+    /// one that drops text with them drops them too, each open tag counted, and
+    /// its first tag where no open tag counts: a wrapper's close through the
+    /// builder, which knows whether that wrapper reports already.
     fn drop_html_block(&mut self, at: usize) {
         let mut text = String::new();
         for (event, _) in self.inner.by_ref() {
@@ -1335,9 +1364,13 @@ where
         }
         let tags = html::block_tags(&text);
         let swallows = text.lines().any(|l| !l.trim().is_empty() && html::tag_line(l).is_none());
-        if let Some(first) = tags.first().filter(|_| swallows && tags.iter().all(|t| t.closing)) {
-            if carrier::element(first.name).is_none() {
-                self.dropped.opening(first.name, at);
+        let anchor = |t: &html::Tag| carrier::element(t.name).as_deref() == Some("anchor");
+        let counted = tags.iter().any(|t| !t.closing && !anchor(t));
+        if let Some(first) = tags.first().filter(|_| swallows && !counted) {
+            match Wrapper::named(first.name).filter(|_| first.closing && !first.self_closing) {
+                Some(wrapper) => self.held.push_back(Fixed::Swallowed(wrapper, at)),
+                None if anchor(first) => self.dropped.add(Dropped::Tag(first.name.to_ascii_lowercase()), at),
+                None => self.dropped.opening(first.name, at),
             }
         }
         for tag in tags {
@@ -2219,8 +2252,8 @@ mod tests {
     /// tag of the allowlist inside an HTML block drops with it and counts. An
     /// element inside a line, or one that drops unclosed, counts under
     /// `quill-<name>`, and a `quill-*` name outside the grammar under its full
-    /// name. A block holding only closing tags counts its first where it drops
-    /// text with them.
+    /// name. A block holding no other opening tag counts its first where it
+    /// drops text with it.
     #[test]
     fn dropped_tags_count_once_per_opening() {
         let md = "<div>\n<span>a</span> <SPAN>b</SPAN><br> <u>c</u> <img src=x/>\n</div>\n\n\
@@ -2248,6 +2281,26 @@ mod tests {
         );
         assert!(imp_fixed("plain **text**, `<code>`, \\<escaped>").warnings.is_empty());
         assert!(imp_fixed("</div>\n\npara").warnings.is_empty());
+    }
+
+    /// A block that drops markdown reports under its first tag where no
+    /// opening tag in it counts: a stray close tag, `quill-anchor`, and a close
+    /// whose element then drops unclosed or closes later, reported once.
+    #[test]
+    fn a_block_dropping_markdown_reports_under_its_first_tag() {
+        let cases = [
+            ("a\n\n</quill-keep>\ntext", ("quill-keep", 1)),
+            ("a\n\n</quill-table>\ntext", ("quill-table", 1)),
+            ("a\n\n</quill-anchor>\ntext", ("quill-anchor", 1)),
+            ("<quill-anchor ref=\"x\">\ntext", ("quill-anchor", 1)),
+            ("<quill-keep>\n\nx\n\n</quill-keep>\ntext", ("quill-keep", 1)),
+            ("<quill-keep>\n\nx\n\n</quill-keep>\ntext\n\n</quill-keep>", ("quill-keep", 1)),
+        ];
+        for (md, report) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(dropped(&imported), [report], "{md:?}");
+            assert!(!imported.content.text.contains("text"), "{md:?}");
+        }
     }
 
     fn container_tags(rt: &Normalized) -> Vec<Vec<&'static str>> {

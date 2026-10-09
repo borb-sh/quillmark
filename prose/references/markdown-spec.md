@@ -400,10 +400,10 @@ takes its `</u>`, and one still open where its text ends drops. Export writes
 stand, so a tag never sits at a delimiter run's edge, where its `<` or `>`
 would change the run's flanking; a delimiter run spanning that position stays
 open around the tag. An import reports each dropped opening tag by its lowercase name, under
-`parse::dropped_construct`, and a block holding only closing tags under its
-first where it drops text with them; any other closing tag, a comment, the
-content of a type 1–5 block, `quill-anchor` and an element that closes (§6.4)
-report nothing.
+`parse::dropped_construct`, and a block holding no other opening tag under its
+first where it drops text with it, `quill-anchor` included; any other closing
+tag, a comment, the content of a type 1–5 block, any other `quill-anchor` and
+an element that closes (§6.4) report nothing.
 
 Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
 an injection vector for downstream HTML-producing tooling; `<u>` is an
@@ -566,7 +566,8 @@ attributes into the table's layout, whatever quill reads the document:
 **`quill-anchor`** is reserved for an anchor's read-only spelling,
 `<quill-anchor ref="…"></quill-anchor>`, which the annotated export writes and
 no plain export does. Import drops it without a report, inline or alone on its
-line, and mints no anchor from it. The annotated export writes one inline at
+line, unless its line drops markdown with it (§6.2), and mints no anchor from
+it. The annotated export writes one inline at
 each anchor's start:
 
 - after the delimiters of the marks closing there and before those opening
