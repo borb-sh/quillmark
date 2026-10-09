@@ -22,7 +22,7 @@ let usaf_memo = quillmark_fixtures::quills_path("usaf_memo");
   - `ambiguous_strings.md` - field values YAML would otherwise coerce away from strings
 
 - **The parity corpus**, `resources/parity/parity.json`: one entry per row of the matrix in [`prose/canon/PARITY.md`](../../prose/canon/PARITY.md), holding the row's markdown, its canonical stored content, substrings its Typst lowering contains and the signals it raises.
-  `crates/quillmark/tests/parity.rs` asserts every entry, and the WASM binding's `parity.test.js` round-trips each one markdown spells through `importMarkdown` and `exportMarkdown`.
+  `crates/quillmark/tests/parity.rs` asserts every entry and holds the matrix to the corpus, and each binding runs it through its own doors: the WASM binding's `parity.test.js` and the Python binding's `tests/test_parity.py`.
 
 ## License
 

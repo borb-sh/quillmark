@@ -223,14 +223,23 @@ fails:
 - `Quill::validate` on that document reports exactly `signals.validate`, and
   its `validation::declined_construct` list (path, construct, count) is the
   render's `backend::declined_construct` list.
+- The matrix above has a row per entry and an entry per row, and a row's
+  Markdown, Typst lowering and Validate cells read `declines with a signal`
+  exactly where the entry's signals warn there, its Signal cell naming each
+  code and imported construct.
 
 A row whose construct the import does not store still has its `typst`: what the
 markup wrapped reaches the page.
 
-The WASM binding's `parity.test.js` imports every spelled entry through
-`importMarkdown` to `content`, warning `signals.import`, and `exportMarkdown`'s
-markdown back to `content`; it imports each `annotated` read to `content`
-without its anchors, warning nothing.
+Each binding runs the corpus through its own doors. The WASM binding's
+`parity.test.js` holds every entry to the markdown, op-wire, storage, revise
+and annotated assertions above, through `importMarkdown`, `fromMarkdown`,
+`overwrite`, `applyChange`, `fromStored`, `exportMarkdown`, `revise`, `rebase`
+and `toAnnotatedMarkdown`. Python, which has no content lane, holds each
+spelling through `Document.from_markdown`, each `content` through a stored
+load, the body read and `revise_body`, each `annotated` read through the parse
+and `revise_body`, and every entry's `signals.validate` and `signals.render`
+through `validate` and `render` (`tests/test_parity.py`).
 
 A construct enters the engine with its row and its entry, and a change to what
 a surface does with one edits both.
