@@ -211,24 +211,6 @@ impl Payload {
         &self.nested_comments
     }
 
-    /// The comments owned by entry `key`, rebased onto that entry's own value.
-    pub(crate) fn nested_comments_for(&self, key: &str) -> Vec<NestedComment> {
-        self.nested_comments
-            .iter()
-            .filter_map(|nc| {
-                let (PathSegment::Key(head), rest) = nc.container_path.split_first()? else {
-                    return None;
-                };
-                (head == key).then(|| NestedComment {
-                    container_path: rest.to_vec(),
-                    position: nc.position,
-                    text: nc.text.clone(),
-                    inline: nc.inline,
-                })
-            })
-            .collect()
-    }
-
     /// Drop the comments nested inside entry `key`. Every path that replaces or
     /// removes an entry runs it: the new value need not carry the positions the
     /// old one's comments sat at.
@@ -694,27 +676,5 @@ mod tests {
         let mut fm = payload_with_nested();
         fm.rename_field("a", "renamed".to_string());
         assert_eq!(owners(&fm), vec!["renamed", "b", "$ext"]);
-        assert_eq!(fm.nested_comments_for("renamed").len(), 1);
-        assert!(fm.nested_comments_for("a").is_empty());
-    }
-
-    #[test]
-    fn nested_comments_for_rebases_onto_the_entry() {
-        let fm = Payload::from_items_with_nested(
-            vec![PayloadItem::field("a", qv("1"))],
-            vec![NestedComment {
-                container_path: vec![
-                    PathSegment::Key("a".to_string()),
-                    PathSegment::Index(2),
-                ],
-                position: 1,
-                text: "deep".to_string(),
-                inline: false,
-            }],
-        );
-        let got = fm.nested_comments_for("a");
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].container_path, vec![PathSegment::Index(2)]);
-        assert_eq!(got[0].position, 1);
     }
 }

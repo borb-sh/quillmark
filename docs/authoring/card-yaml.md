@@ -27,7 +27,10 @@ A card-yaml block has three parts, in order:
    and re-emits as a bare `~~~`.
 2. **YAML payload**: a standard YAML mapping. The reserved keys `$quill`,
    `$kind`, `$ext`, and `$seed` carry system metadata (see below); every
-   other key is a user-defined data field.
+   other key is a user-defined data field. The payload is one YAML value:
+   text after a `{...}` mapping written as the whole payload, or after a
+   `...` line, fails the parse as `parse::yaml_error_with_location` at that
+   text. Comments may follow it.
 3. **Closing fence**: a tilde run at least as long as the opener. The canonical opener and closer are both `~~~`; a longer opener (e.g. `~~~~`) requires an equally long closer.
 
 The unstructured Markdown body begins immediately after the closing `~~~`

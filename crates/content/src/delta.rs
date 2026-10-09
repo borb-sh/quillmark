@@ -32,6 +32,7 @@
 use crate::import::{ImportWarning, Imported};
 use crate::model::{Island, Mark, Content, Normalized};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use similar::{capture_diff_slices, Algorithm, ChangeTag, DiffOp, TextDiff};
 
 /// A per-field edit against a base content. Ops apply left-to-right, consuming
@@ -215,7 +216,7 @@ impl Delta {
 /// verbatim-move detector's length floor.
 const MIN_MOVE: usize = 4;
 
-/// Above this many USV chars, the single-line path skips `similar`'s
+/// Above this many USV chars, a char diff skips `similar`'s
 /// char-level Myers diff and falls back to [`coarse_replace`].
 /// `TextDiff::from_chars` is O(N·D) with no deadline; on two long, unrelated
 /// single-line strings D grows with N, so cost is effectively quadratic (two
@@ -232,37 +233,119 @@ const CHAR_DIFF_LIMIT: usize = 5_000;
 ///
 /// Single-line text diffs at char granularity; multi-line text diffs at line
 /// granularity so a paragraph reorder surfaces as whole-line insert spans the
-/// move detector can match (char Myers fragments reordered blocks). Above
-/// `CHAR_DIFF_LIMIT` chars, the single-line path skips Myers entirely and
-/// uses `coarse_replace` instead.
+/// move detector can match (char Myers fragments reordered blocks). Within a
+/// run of replaced lines, a line paired with a rewrite of itself
+/// diffs by char, so an edit to one word of a paragraph
+/// leaves the rest of it retained. Above `CHAR_DIFF_LIMIT` chars, a char
+/// diff skips Myers entirely and uses `coarse_replace` instead.
 pub fn diff(base: &str, new: &str) -> Delta {
-    let multiline = base.contains('\n') || new.contains('\n');
-    if !multiline
-        && (base.chars().count() > CHAR_DIFF_LIMIT || new.chars().count() > CHAR_DIFF_LIMIT)
-    {
-        return coarse_replace(base, new);
-    }
-    let text_diff = if multiline {
-        TextDiff::from_lines(base, new)
-    } else {
-        TextDiff::from_chars(base, new)
-    };
     let mut ops = Vec::new();
-    for change in text_diff.iter_all_changes() {
-        match change.tag() {
-            ChangeTag::Equal => push_retain(&mut ops, change.value().chars().count()),
-            ChangeTag::Delete => push_delete(&mut ops, change.value().chars().count()),
-            ChangeTag::Insert => push_insert(&mut ops, change.value()),
+    if base.contains('\n') || new.contains('\n') {
+        let old_lines: Vec<&str> = base.split_inclusive('\n').collect();
+        let new_lines: Vec<&str> = new.split_inclusive('\n').collect();
+        let old_set: HashSet<&str> = old_lines.iter().map(|l| line_text(l)).collect();
+        let new_set: HashSet<&str> = new_lines.iter().map(|l| line_text(l)).collect();
+        for op in capture_diff_slices(Algorithm::Myers, &old_lines, &new_lines) {
+            let (old, new) = (op.old_range(), op.new_range());
+            match op {
+                DiffOp::Equal { .. } => {
+                    push_retain(&mut ops, old_lines[old].iter().map(|l| l.chars().count()).sum())
+                }
+                _ => refine_replace(&mut ops, &old_lines[old], &new_lines[new], &old_set, &new_set),
+            }
         }
+    } else {
+        push_char_diff(&mut ops, base, new);
     }
     Delta { ops }
 }
 
-/// Linear-time fallback for [`diff`] above [`CHAR_DIFF_LIMIT`]: trims the
+/// Below this share of words in common, a replaced line is not a rewrite of
+/// the line it pairs with but different text, kept whole so the move detector
+/// can match it elsewhere.
+const MIN_REWRITE_RATIO: f32 = 0.5;
+
+/// Emit one run of replaced lines. Lines pair from the front, then from the
+/// back, while each pair is a rewrite: the two share at least
+/// [`MIN_REWRITE_RATIO`] of their words, and neither occurs whole on the
+/// other side, as a moved line does. A paired line diffs by char, and the
+/// unpaired middle is deleted and inserted whole.
+fn refine_replace(
+    ops: &mut Vec<Op>,
+    old: &[&str],
+    new: &[&str],
+    old_set: &HashSet<&str>,
+    new_set: &HashSet<&str>,
+) {
+    let rewrite = |o: &str, n: &str| {
+        !new_set.contains(line_text(o))
+            && !old_set.contains(line_text(n))
+            && word_ratio(o, n) >= MIN_REWRITE_RATIO
+    };
+    let mut head = 0;
+    while head < old.len().min(new.len()) && rewrite(old[head], new[head]) {
+        head += 1;
+    }
+    let mut tail = 0;
+    while tail < (old.len() - head).min(new.len() - head)
+        && rewrite(old[old.len() - 1 - tail], new[new.len() - 1 - tail])
+    {
+        tail += 1;
+    }
+    for k in 0..head {
+        push_char_diff(ops, old[k], new[k]);
+    }
+    for line in &old[head..old.len() - tail] {
+        push_delete(ops, line.chars().count());
+    }
+    for line in &new[head..new.len() - tail] {
+        push_insert(ops, line);
+    }
+    for k in 0..tail {
+        push_char_diff(ops, old[old.len() - tail + k], new[new.len() - tail + k]);
+    }
+}
+
+fn line_text(line: &str) -> &str {
+    line.strip_suffix('\n').unwrap_or(line)
+}
+
+/// The share of `a`'s and `b`'s whitespace-separated words the two hold in
+/// common, in order.
+fn word_ratio(a: &str, b: &str) -> f32 {
+    let a: Vec<&str> = a.split_whitespace().collect();
+    let b: Vec<&str> = b.split_whitespace().collect();
+    if a.is_empty() && b.is_empty() {
+        return 1.0;
+    }
+    let common: usize = capture_diff_slices(Algorithm::Myers, &a, &b)
+        .iter()
+        .map(|op| match op {
+            DiffOp::Equal { len, .. } => *len,
+            _ => 0,
+        })
+        .sum();
+    (2 * common) as f32 / (a.len() + b.len()) as f32
+}
+
+fn push_char_diff(ops: &mut Vec<Op>, base: &str, new: &str) {
+    if base.chars().count() > CHAR_DIFF_LIMIT || new.chars().count() > CHAR_DIFF_LIMIT {
+        return coarse_replace(ops, base, new);
+    }
+    for change in TextDiff::from_chars(base, new).iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Equal => push_retain(ops, change.value().chars().count()),
+            ChangeTag::Delete => push_delete(ops, change.value().chars().count()),
+            ChangeTag::Insert => push_insert(ops, change.value()),
+        }
+    }
+}
+
+/// Linear-time fallback for a char diff above [`CHAR_DIFF_LIMIT`]: trims the
 /// longest common prefix and suffix and replaces only the middle. Not minimal,
 /// but an anchor in the untouched prefix or suffix still maps through a real
 /// `Retain`; only one inside the replaced middle depends on the move detector.
-fn coarse_replace(base: &str, new: &str) -> Delta {
+fn coarse_replace(ops: &mut Vec<Op>, base: &str, new: &str) {
     let base_chars: Vec<char> = base.chars().collect();
     let new_chars: Vec<char> = new.chars().collect();
     let max_common = base_chars.len().min(new_chars.len());
@@ -278,13 +361,11 @@ fn coarse_replace(base: &str, new: &str) -> Delta {
         suffix += 1;
     }
 
-    let mut ops = Vec::new();
-    push_retain(&mut ops, prefix);
-    push_delete(&mut ops, base_chars.len() - prefix - suffix);
+    push_retain(ops, prefix);
+    push_delete(ops, base_chars.len() - prefix - suffix);
     let inserted: String = new_chars[prefix..new_chars.len() - suffix].iter().collect();
-    push_insert(&mut ops, &inserted);
-    push_retain(&mut ops, suffix);
-    Delta { ops }
+    push_insert(ops, &inserted);
+    push_retain(ops, suffix);
 }
 
 fn push_retain(ops: &mut Vec<Op>, n: usize) {
@@ -713,6 +794,81 @@ mod tests {
                 .to_string(),
             "MIDDLE"
         );
+    }
+
+    fn anchored(markdown: &str, start: usize, end: usize) -> Normalized {
+        let mut base = from_markdown(markdown).unwrap().content.into_content();
+        base.marks.push(Mark {
+            start,
+            end,
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        base.into_normalized()
+    }
+
+    fn anchored_text(content: &Content) -> Option<(usize, String)> {
+        let m = content
+            .marks
+            .iter()
+            .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))?;
+        let text = &content.text[byte(&content.text, m.start)..byte(&content.text, m.end)];
+        Some((m.start, text.to_string()))
+    }
+
+    /// An edit to one word of a paragraph in a multi-paragraph body leaves an
+    /// anchor elsewhere in that paragraph where it was, however short its text
+    /// and wherever else that text recurs.
+    #[test]
+    fn an_edited_paragraph_keeps_its_anchors_in_place() {
+        let base_md = "Intro paragraph.\n\nThe tax rate and the tax base rose in Q3.";
+        let new_md = "Intro paragraph.\n\nThe tax rate and the tax base fell in Q3.";
+        let para = "Intro paragraph.\n".chars().count();
+        let second_tax = para + "The tax rate and the ".chars().count();
+        let q3 = para + "The tax rate and the tax base rose in ".chars().count();
+
+        let base = anchored(base_md, second_tax, second_tax + 3);
+        let (new_rt, _, _) = diff_import(&base, new_md).unwrap();
+        assert_eq!(anchored_text(&new_rt), Some((second_tax, "tax".into())));
+
+        let base = anchored(base_md, q3, q3 + 2);
+        let (new_rt, _, _) = diff_import(&base, new_md).unwrap();
+        assert_eq!(anchored_text(&new_rt), Some((q3, "Q3".into())));
+    }
+
+    /// An edited paragraph and a paragraph inserted beside it: the edit still
+    /// pairs with the paragraph it rewrites.
+    #[test]
+    fn an_edited_paragraph_beside_an_inserted_one_keeps_its_anchor() {
+        let base = anchored("Lead.\n\nPay the fee by Friday.", 6, 6 + "Pay the fee".len());
+        let (new_rt, _, _) =
+            diff_import(&base, "Lead.\n\nNew paragraph here.\n\nPay the fee by Monday.").unwrap();
+        assert_eq!(anchored_text(&new_rt).map(|(_, t)| t), Some("Pay the fee".into()));
+    }
+
+    /// Two different paragraphs swapping places is a move, not a rewrite: the
+    /// anchor follows its text rather than mapping into the other paragraph.
+    #[test]
+    fn swapped_paragraphs_are_moved_not_rewritten() {
+        let base = anchored("alpha beta gamma\n\ndelta epsilon zeta", 0, 16);
+        let (new_rt, _, _) = diff_import(&base, "delta epsilon zeta\n\nalpha beta gamma").unwrap();
+        assert_eq!(anchored_text(&new_rt).map(|(_, t)| t), Some("alpha beta gamma".into()));
+    }
+
+    #[test]
+    fn a_long_multi_paragraph_rewrite_stays_fast() {
+        let para = |offset: u8| {
+            (0..40).map(|k| filler(120, offset.wrapping_add(k))).collect::<Vec<_>>().join(" ")
+        };
+        let base: String = (0..20).map(|i| para(i)).collect::<Vec<_>>().join("\n");
+        let new: String = (0..20).map(|i| para(i + 3)).collect::<Vec<_>>().join("\n");
+        let start = std::time::Instant::now();
+        let d = diff(&base, &new);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "took {:?}",
+            start.elapsed()
+        );
+        assert_eq!(d.try_apply(&base).unwrap(), new);
     }
 
     fn byte(s: &str, char_idx: usize) -> usize {

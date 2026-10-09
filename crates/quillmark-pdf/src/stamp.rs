@@ -118,7 +118,7 @@ fn registered_font(
     font_ids.get(at).copied()
 }
 
-/// Options for [`stamp`](crate::stamp).
+/// Options for [`stamp`](crate::stamp()).
 #[derive(Debug, Clone)]
 pub struct StampOptions {
     /// The `/Info` `/Producer` this stamp writes over whatever the base carries.
