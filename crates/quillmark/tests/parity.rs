@@ -113,7 +113,7 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
                 .warnings
                 .iter()
                 .map(|ImportWarning::DroppedConstruct { construct, count }| {
-                    json!({ "construct": construct, "count": count })
+                    json!({ "construct": construct.to_string(), "count": count })
                 })
                 .collect();
             if warnings != *import_signals {
