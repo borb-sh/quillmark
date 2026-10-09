@@ -45,17 +45,19 @@ fn origins(svg: &str) -> Vec<(f64, f64)> {
         .collect()
 }
 
-const KNOBS: &str = "<quill-table align=\"center\" widths=\"2 1\">\n\n\
-                     | Item | Amount |\n| --- | --- |\n\
-                     | Total | 42 |\n\n\
-                     </quill-table>";
-
 const PLAIN: &str = "| Item | Amount |\n| --- | --- |\n| Total | 42 |";
 
+/// Each knob alone compiles and moves the table's text.
 #[test]
 fn every_knob_compiles_and_moves_the_table() {
     let quill = quill();
-    assert_ne!(svg(&quill, KNOBS), svg(&quill, PLAIN), "the knobs move the table");
+    let plain = origins(&svg(&quill, PLAIN));
+    for attrs in ["align=\"center\"", "widths=\"2 1\"", "align=\"center\" widths=\"2 1\""] {
+        let knobs = format!("<quill-table {attrs}>\n\n{PLAIN}\n\n</quill-table>");
+        let moved = origins(&svg(&quill, &knobs));
+        assert_eq!(moved.len(), plain.len(), "{attrs}: {moved:?}");
+        assert_ne!(moved, plain, "{attrs} moves the table");
+    }
 }
 
 /// A centered table's short cell keeps its offset from the header above it: the
