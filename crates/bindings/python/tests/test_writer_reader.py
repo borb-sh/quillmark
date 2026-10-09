@@ -2,6 +2,8 @@
 `quill.reader(doc)` reads, both against the quill's schema. The quill-free
 mutator surface is `test_document.py`."""
 
+import json
+
 import pytest
 from quillmark import Document, Quill, QuillmarkError
 
@@ -131,6 +133,28 @@ def test_writer_revise_document():
     with pytest.raises(QuillmarkError):
         w.revise_document("~~~\n$quill: other\n~~~\n")
     assert doc.to_markdown() == before
+
+
+def test_an_anchor_survives_the_field_and_document_revises():
+    """revise_field and revise_document rebase an anchor the stored field
+    holds; Python reaches anchors only through storage."""
+    quill = richtext_quill()
+    doc = Document("sample_form@0.1.0")
+    quill.writer(doc).revise_field("bio", "make it bold here")
+    stored = json.loads(doc.to_stored())
+    (bio,) = [i for i in stored["main"]["payload"]["items"] if i.get("key") == "bio"]
+    bio["value"]["marks"] = [{"start": 8, "end": 12, "type": "anchor", "attrs": {"id": "a1"}}]
+    doc = Document.from_stored(json.dumps(stored))
+
+    def bio_marks():
+        items = json.loads(doc.to_stored())["main"]["payload"]["items"]
+        return [i for i in items if i.get("key") == "bio"][0]["value"]["marks"]
+
+    w = quill.writer(doc)
+    assert w.revise_field("bio", "now make it bold here") == []
+    assert bio_marks() == [{"attrs": {"id": "a1"}, "end": 16, "start": 12, "type": "anchor"}]
+    assert w.revise_document("~~~\n$quill: sample_form@0.1.0\nbio: so now make it bold here\n~~~\n") == []
+    assert bio_marks() == [{"attrs": {"id": "a1"}, "end": 19, "start": 15, "type": "anchor"}]
 
 
 def test_markdown_writes_return_their_drops_at_the_body_written():

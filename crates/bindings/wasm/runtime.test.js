@@ -238,6 +238,22 @@ card_kinds:
     expect(quill.reader(doc).get('subject')).toBe('Q3 **results**')
   })
 
+  it('reviseDocument names each anchor it drops at the address the document held it', () => {
+    const quill = buildQuill()
+    const doc = quill.parse(
+      '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nFirst note.\n',
+    )
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }] })
+    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 6, end: 10, type: 'anchor', attrs: { id: 'n' } }] })
+    const receipt = quill
+      .writer(doc)
+      .reviseDocument('~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n')
+    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', id: 'n' }])
+    expect(receipt.warnings).toEqual([])
+    expect(doc.main.body.marks).toEqual([{ start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }])
+    expect(doc.cards).toEqual([])
+  })
+
   it('a bad card index throws at write time, not at card()', () => {
     const ed = buildQuill().writer(blankDoc())
     const cardEd = ed.card(9) // lazy: constructing the CardWriter never throws

@@ -700,14 +700,20 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
 
   it('revise({field}) rebases a richtext field anchor and applyChange splices it', () => {
     const doc = blankDoc()
-    // revise the field from markdown (edit semantics), then splice a formatting
-    // mark over "bold" via applyChange.
     doc.revise({ field: 'intro' }, 'make it bold here')
     doc.applyChange(
       { field: 'intro' },
-      { markOps: [{ op: 'add', start: 8, end: 12, type: 'strong' }] },
+      { markOps: [{ op: 'add', start: 8, end: 12, type: 'anchor', attrs: { id: 'a1' } }] },
     )
-    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('make it **bold** here')
+    expect(doc.revise({ field: 'intro' }, 'now make it bold here').warnings).toEqual([])
+    expect(field(doc.main, 'intro').marks).toEqual([
+      { start: 12, end: 16, type: 'anchor', attrs: { id: 'a1' } },
+    ])
+    doc.applyChange(
+      { field: 'intro' },
+      { markOps: [{ op: 'add', start: 12, end: 16, type: 'strong' }] },
+    )
+    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('now make it **bold** here')
     // An out-of-bounds op leaves the value unchanged (all-or-nothing).
     expect(() =>
       doc.applyChange({ field: 'intro' }, { markOps: [{ op: 'add', start: 999, end: 1000, type: 'emph' }] }),
