@@ -1782,6 +1782,33 @@
     }
   },
   {
+    "name": "carrier.element.stray_close.tight",
+    "markdown": "Text\n\n</quill-keep>\n**Gone**",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "Text"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "quill-keep",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
     "name": "carrier.table",
     "markdown": "<quill-table widths=\"1 2\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</quill-table>",
     "content": {
