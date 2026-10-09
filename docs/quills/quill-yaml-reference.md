@@ -1004,14 +1004,14 @@ Backend-specific configuration for the Typst renderer.
 
 | Key          | Type   | Required | Description |
 |--------------|--------|----------|-------------|
-| `plate_file` | string | no       | Path (relative to the quill root) to the Typst template the backend compiles |
+| `plate_file` | string | no       | Path from the quill root to the Typst template the backend compiles, steps separated by `/` |
 
 ```yaml
 typst:
   plate_file: plate.typ
 ```
 
-A `plate_file` naming no file fails the render as `typst::plate_missing`. One naming a file at a path holding a `\`, which Typst refuses, fails as `typst::plate_path_invalid`: separate the path with `/`, and rename a file whose own name holds a `\`.
+A `.` step or an empty one drops, so `./plate.typ` names `plate.typ` and `tpl//layout.typ` names `tpl/layout.typ`, the path every diagnostic and `quillmark workspace` give. A leading `/` or a `..` step is refused as `typst::plate_missing`, its hint naming the spelling from the quill root, and so is a `plate_file` naming no file. A `plate_file` naming a file at a path holding a `\`, which Typst refuses, fails as `typst::plate_path_invalid`: separate the path with `/`, and rename a file whose own name holds a `\`.
 
 Any other key under `typst` is ignored, with a `typst::unknown_key` warning on each render. Packages are not declared here: a quill vendors them under `packages/`, as the [Typst Backend Guide](typst-backend.md#typst-packages) describes.
 
