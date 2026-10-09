@@ -198,6 +198,15 @@ fn report_example(example: Example, result: &mut ValidationResult) {
         }));
 }
 
+/// Whether `render`, a compile's `backend::declined_construct`, is the decline
+/// `validated`, a `validation::declined_construct`, already reported.
+fn validated_decline(validated: &Diagnostic, render: &Diagnostic) -> bool {
+    validated.code.as_deref() == Some("validation::declined_construct")
+        && render.code.as_deref() == Some("backend::declined_construct")
+        && validated.path == render.path
+        && validated.args.get("construct") == render.args.get("construct")
+}
+
 /// A render that failed: what went wrong, then the backend's own diagnostics.
 struct RenderFailure {
     what: String,
@@ -309,12 +318,15 @@ fn validate_renders(
         Err(failure) => (Some(failure.what), failure.diagnostics),
     };
     // A warning a canonical document raised too is the plate's, not the
-    // example's; one `validate` already raised is counted once.
+    // example's; one `validate` already raised is counted once, a decline
+    // `validate` reported as `validation::declined_construct` among them.
     let fresh: Vec<Diagnostic> = diagnostics
         .into_iter()
         .filter(|d| {
             d.severity == Severity::Error
-                || (!result.issues.contains(d) && !example.diagnostics.contains(d))
+                || (!result.issues.contains(d)
+                    && !example.diagnostics.contains(d)
+                    && !example.diagnostics.iter().any(|v| validated_decline(v, d)))
         })
         .collect();
     match failed {

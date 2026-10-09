@@ -98,17 +98,17 @@ pub fn declined_construct(
 /// English enough for the engine's own sentence; a consumer wording this
 /// itself reads `construct` and `count` off `args` instead.
 pub(crate) fn plural(construct: BlockConstruct, count: usize) -> String {
-    let name = match construct {
-        BlockConstruct::Heading => "heading",
-        BlockConstruct::Rule => "horizontal rule",
-        BlockConstruct::Code => "code block",
-        BlockConstruct::List => "list",
-        BlockConstruct::Quote => "block quote",
-        BlockConstruct::Table => "table",
-        BlockConstruct::Image => "image",
+    let (one, name) = match construct {
+        BlockConstruct::Heading => ("a", "heading"),
+        BlockConstruct::Rule => ("a", "horizontal rule"),
+        BlockConstruct::Code => ("a", "code block"),
+        BlockConstruct::List => ("a", "list"),
+        BlockConstruct::Quote => ("a", "block quote"),
+        BlockConstruct::Table => ("a", "table"),
+        BlockConstruct::Image => ("an", "image"),
     };
     if count == 1 {
-        format!("a {name}")
+        format!("{one} {name}")
     } else {
         format!("{name}s")
     }
