@@ -552,8 +552,13 @@ attributes into the table's layout, whatever quill reads the document:
   only around a table holding a value other than its default.
 - Column alignment stays in the delimiter row. Its dash counts carry no width,
   since a formatter pads them to the column.
-- A wrapper holding anything but exactly one table drops whole: its tags drop,
-  what it holds imports, and `parse::dropped_construct` reports `quill-table`.
+- The wrapper pairs as an element does: inside the containers around its open
+  tag, closed where it is the innermost container open. It holds one table
+  when that table is all that imports between its tags, inside no container
+  but an element.
+- A wrapper holding anything else or another `quill-table`, or still open
+  where its list item, quote or body ends, drops whole: its tags drop, what it
+  holds imports, and `parse::dropped_construct` reports `quill-table`.
 - An attribute other than these two, and one whose value is outside its
   spelling, drops alone, reported as `quill-table[<name>]`. A `quill-keep`
   around the wrapper keeps the table on one page.

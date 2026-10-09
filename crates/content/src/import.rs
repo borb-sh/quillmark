@@ -27,8 +27,8 @@
 //!   break is a `Rule` line carrying no text.
 //! - Raw HTML produces no content beyond the allowlist and the carrier. An HTML
 //!   block drops whole, as CommonMark runs it; one of tag lines alone passes
-//!   its carrier tags on. A `quill-table` wrapper around one table folds its
-//!   attributes into the table's props.
+//!   its carrier tags on. A `quill-table` wrapper pairs as an element does,
+//!   and folds its attributes into the props of the one table it wraps.
 //! - A `quill-*` element the carrier does not reserve is modeled: a pair of tag
 //!   lines wraps the blocks between them in a [`Container::Element`]. One left
 //!   unclosed drops, what it wraps importing as written.
@@ -144,20 +144,9 @@ pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let mut fixer = MarkdownFixer::new(Parser::new_ext(&text, options).into_offset_iter());
     let mut b = Builder::new();
     b.run(&mut fixer)?;
-    let (mut content, elements) = b.finish();
-    let (mut dropped, folds) = fixer.finish();
-    dropped.absorb(elements);
-    let mut tables: Vec<&mut Island> = content
-        .islands
-        .iter_mut()
-        .filter(|i| i.island_type == IslandType::Table)
-        .collect();
-    for Fold { table, keys } in folds {
-        let into = tables.get_mut(table).map(|t| &mut t.props);
-        if let Some(o) = into.and_then(serde_json::Value::as_object_mut) {
-            o.extend(keys);
-        }
-    }
+    let (content, built) = b.finish();
+    let mut dropped = fixer.dropped;
+    dropped.absorb(built);
     Ok(Imported {
         content: content.into_normalized(),
         warnings: dropped.into_warnings(),
@@ -303,34 +292,25 @@ impl Inline {
     }
 }
 
-/// An element whose open tag the import has read and whose close it awaits.
+/// A wrapper whose open tag line the import has read and whose close it
+/// awaits.
 struct Opened {
-    name: String,
-    /// The attributes outside the carrier grammar, reported once the element
-    /// closes: an unclosed element drops whole, and reports only itself.
-    refused: Vec<String>,
+    frame: Frame,
+    /// Its attributes, reported or folded once it closes: one left unclosed
+    /// drops whole and reports only itself.
+    attrs: carrier::Attrs,
     /// The open tag's byte offset.
     at: usize,
-    /// The block element's instance.
-    from: u64,
+    /// The containers open around it.
+    depth: usize,
 }
 
-impl Opened {
-    fn new(name: String, attrs: carrier::Attrs, at: usize, from: u64) -> Self {
-        Opened {
-            name,
-            refused: attrs.refused,
-            at,
-            from,
-        }
-    }
-
-    fn report_refused(&self, dropped: &mut Drops) {
-        for attr in &self.refused {
-            let element = self.name.clone();
-            dropped.add(Dropped::ElementAttr { element, attr: attr.clone() }, self.at);
-        }
-    }
+enum Frame {
+    /// An element, around its container's `instance`.
+    Element { name: String, instance: u64 },
+    /// A `quill-table` wrapper, opened with `islands` minted and `lines`
+    /// [emitted](Builder::emitted), and whether another opened inside it.
+    Table { islands: usize, lines: usize, holds_wrapper: bool },
 }
 
 struct Builder {
@@ -368,13 +348,13 @@ struct Builder {
     image_alt: String,
     // table collection
     table: Option<TableAcc>,
-    /// The block elements open, innermost last, each's `from` its instance.
+    /// The wrappers open, innermost last.
     blocks: Vec<Opened>,
     /// The instances of block elements left unclosed, which
     /// [`Self::finish`] strips from every line's path.
     unclosed: Vec<u64>,
-    /// The element tags this walk drops: an unclosed element, an inline pair
-    /// around nothing, an attribute outside the grammar.
+    /// What this walk drops: a raw tag, an unclosed `<u>`, a wrapper left
+    /// unclosed or outside a tag line, an attribute it cannot carry.
     dropped: Drops,
 }
 
@@ -564,8 +544,8 @@ impl Builder {
         for item in iter {
             let event = match item {
                 Fixed::Event(event) => event,
-                Fixed::Element(tag) => {
-                    self.element_tag(tag)?;
+                Fixed::Carrier(tag) => {
+                    self.carrier_tag(tag)?;
                     continue;
                 }
                 Fixed::Underline(tag) => {
@@ -817,21 +797,43 @@ impl Builder {
         }
     }
 
-    /// Pair one element tag: a tag line opens or closes a block element. Any
-    /// other open tag drops, and any other close tag drops silently.
-    fn element_tag(&mut self, tag: ElementTag) -> Result<(), ImportError> {
-        let ElementTag { name, attrs, block, at } = tag;
-        let report = |dropped: &mut Drops, attrs: &Option<carrier::Attrs>| {
-            if attrs.is_some() {
-                dropped.add(Dropped::Element(name.clone()), at);
-            }
-        };
+    /// Pair one carrier tag: a tag line opens or closes a wrapper. Any other
+    /// open tag drops, and any other close tag drops silently.
+    fn carrier_tag(&mut self, tag: CarrierTag) -> Result<(), ImportError> {
+        let CarrierTag { wrapper, attrs, block, at } = tag;
         if self.image_depth > 0 || self.table.is_some() || !block {
-            report(&mut self.dropped, &attrs);
+            if attrs.is_some() {
+                self.dropped.add(wrapper.dropped(), at);
+            }
             return Ok(());
         }
-        match (attrs, block) {
-            (Some(attrs), true) => {
+        match attrs {
+            Some(attrs) => self.open_wrapper(wrapper, attrs, at),
+            None => {
+                self.close_wrapper(&wrapper);
+                Ok(())
+            }
+        }
+    }
+
+    fn open_wrapper(&mut self, wrapper: Wrapper, attrs: carrier::Attrs, at: usize) -> Result<(), ImportError> {
+        let depth = self.containers.len();
+        let frame = match wrapper {
+            Wrapper::Table => {
+                let outer = self.blocks.iter_mut().rev().find_map(|open| match &mut open.frame {
+                    Frame::Table { holds_wrapper, .. } => Some(holds_wrapper),
+                    Frame::Element { .. } => None,
+                });
+                if let Some(holds_wrapper) = outer {
+                    *holds_wrapper = true;
+                }
+                Frame::Table {
+                    islands: self.islands.len(),
+                    lines: self.emitted(),
+                    holds_wrapper: false,
+                }
+            }
+            Wrapper::Element(name) => {
                 let instance = self.mint_instance();
                 self.container_marks.push(self.emitted());
                 self.containers.push(Container::Element {
@@ -839,25 +841,75 @@ impl Builder {
                     attrs: attrs.values.clone(),
                     instance,
                 });
-                self.blocks.push(Opened::new(name, attrs, at, instance));
-                self.check_depth()?;
+                Frame::Element { name, instance }
             }
-            (None, true) => {
-                let innermost = matches!(
-                    self.containers.last(),
-                    Some(Container::Element { name: open, .. }) if *open == name
-                );
-                if innermost {
-                    let mark = self.container_marks.pop().unwrap_or(0);
-                    self.close_container(mark);
-                    if let Some(e) = self.blocks.pop() {
-                        e.report_refused(&mut self.dropped);
-                    }
+        };
+        self.blocks.push(Opened { frame, attrs, at, depth });
+        self.check_depth()
+    }
+
+    /// Close the innermost wrapper open, where `wrapper` names it and every
+    /// container opened inside it has closed; any other close tag drops
+    /// silently.
+    fn close_wrapper(&mut self, wrapper: &Wrapper) {
+        let innermost = self.blocks.last().is_some_and(|open| match (&open.frame, wrapper) {
+            (Frame::Element { name, .. }, Wrapper::Element(closing)) => {
+                name == closing && self.containers.len() == open.depth + 1
+            }
+            (Frame::Table { .. }, Wrapper::Table) => self.containers.len() == open.depth,
+            _ => false,
+        });
+        let Some(Opened { frame, attrs, at, .. }) = self.blocks.pop_if(|_| innermost) else {
+            return;
+        };
+        match frame {
+            Frame::Element { name, .. } => {
+                let mark = self.container_marks.pop().unwrap_or(0);
+                self.close_container(mark);
+                for attr in attrs.refused {
+                    let element = name.clone();
+                    self.dropped.add(Dropped::ElementAttr { element, attr }, at);
                 }
             }
-            (_, false) => {}
+            Frame::Table { islands, lines, holds_wrapper } => {
+                if holds_wrapper {
+                    self.dropped.add(Dropped::Table, at);
+                } else {
+                    self.fold_table(attrs, at, islands, lines);
+                }
+            }
         }
-        Ok(())
+    }
+
+    /// Fold a closed `quill-table` wrapper's attributes into the table it
+    /// wraps, where what it wraps imported as that table alone: one island and
+    /// its one line, inside no container but an element. Otherwise the wrapper
+    /// drops whole. Each attribute the engine does not name or cannot read
+    /// drops alone.
+    fn fold_table(&mut self, attrs: carrier::Attrs, at: usize, islands: usize, lines: usize) {
+        let depth = self.containers.len();
+        let alone = self.islands.len() == islands + 1
+            && self.islands[islands].island_type == IslandType::Table
+            && self.emitted() == lines + 1
+            && self.cur.as_ref().and_then(|l| l.containers.get(depth..)).is_some_and(|inside| {
+                inside.iter().all(|c| matches!(c, Container::Element { .. }))
+            });
+        if !alone {
+            return self.dropped.add(Dropped::Table, at);
+        }
+        for name in attrs.refused {
+            self.dropped.add(Dropped::TableAttr(name), at);
+        }
+        for (name, value) in attrs.values {
+            match carrier::table::prop(&name, &value) {
+                Some(v) => {
+                    if let Some(props) = self.islands[islands].props.as_object_mut() {
+                        props.insert(name, v);
+                    }
+                }
+                None => self.dropped.add(Dropped::TableAttr(name), at),
+            }
+        }
     }
 
     /// Pair one `<u>` tag in the run or table cell it stands in. In an image's
@@ -881,16 +933,25 @@ impl Builder {
         self.check_depth()
     }
 
-    /// Drop each block element still open where its list item, quote or the
-    /// body ends: its tags drop and what it wraps stays, [`Self::finish`]
-    /// taking it off every line's path.
+    /// Drop each wrapper still open where its list item, quote or the body
+    /// ends: its tags drop and what it wraps stays, [`Self::finish`] taking an
+    /// element off every line's path.
     fn drop_unclosed_blocks(&mut self) {
-        while matches!(self.containers.last(), Some(Container::Element { .. })) {
-            self.containers.pop();
-            self.container_marks.pop();
-            if let Some(e) = self.blocks.pop() {
-                self.unclosed.push(e.from);
-                self.dropped.add(Dropped::Element(e.name), e.at);
+        let ending = self
+            .containers
+            .iter()
+            .rposition(|c| !matches!(c, Container::Element { .. }))
+            .map_or(0, |k| k + 1);
+        let inside = self.blocks.partition_point(|open| open.depth < ending);
+        for open in self.blocks.split_off(inside) {
+            match open.frame {
+                Frame::Element { name, instance } => {
+                    self.containers.pop();
+                    self.container_marks.pop();
+                    self.unclosed.push(instance);
+                    self.dropped.add(Dropped::Element(name), open.at);
+                }
+                Frame::Table { .. } => self.dropped.add(Dropped::Table, open.at),
             }
         }
     }
@@ -1106,11 +1167,10 @@ pub(crate) fn sanitize_lang(lang: &str) -> String {
 }
 
 // `MarkdownFixer` is the raw-HTML filter between pulldown and the builder: it
-// passes each inline `<u>` and `</u>` and each element tag for the builder to
+// passes each inline `<u>` and `</u>` and each carrier tag for the builder to
 // pair, allowlists an inline `<br>` as a hard break, and drops every other raw
-// HTML event, an HTML block whole. It counts each tag it drops, so the warnings and
-// the drop cannot disagree, and reads the `quill-table` wrappers whose
-// attributes `from_markdown` folds.
+// HTML event, an HTML block whole. It counts each tag it drops, so the warnings
+// and the drop cannot disagree.
 // Delimiter arithmetic stays pulldown's, since a fixer that re-segments `***`
 // runs can only disagree with CommonMark, and disagreeing means deleting an
 // asterisk the author typed.
@@ -1118,7 +1178,7 @@ pub(crate) fn sanitize_lang(lang: &str) -> String {
 /// What the fixer hands the builder.
 enum Fixed<'a> {
     Event(Event<'a>),
-    Element(ElementTag),
+    Carrier(CarrierTag),
     Underline(UTag),
 }
 
@@ -1133,10 +1193,37 @@ enum UTag {
     Close,
 }
 
-/// An open or close tag of an element the import models
-/// ([`carrier::modeled_tag`]).
-struct ElementTag {
-    name: String,
+/// What a carrier tag line wraps.
+enum Wrapper {
+    /// An element, by its name.
+    Element(String),
+    /// The table a `quill-table` wrapper folds into.
+    Table,
+}
+
+impl Wrapper {
+    /// The wrapper a tag named `tag_name` opens or closes: none for
+    /// `quill-anchor` or a name outside the carrier.
+    fn named(tag_name: &str) -> Option<Self> {
+        match carrier::element(tag_name)? {
+            name if name == "anchor" => None,
+            name if name == "table" => Some(Wrapper::Table),
+            name => Some(Wrapper::Element(name)),
+        }
+    }
+
+    /// What it reports when it drops.
+    fn dropped(self) -> Dropped {
+        match self {
+            Wrapper::Element(name) => Dropped::Element(name),
+            Wrapper::Table => Dropped::Table,
+        }
+    }
+}
+
+/// An open or close tag of a wrapper the import pairs: not self-closing.
+struct CarrierTag {
+    wrapper: Wrapper,
     /// The open tag's attributes; `None` for a close tag.
     attrs: Option<carrier::Attrs>,
     /// Whether it stands on a tag line, in an HTML block, rather than inline.
@@ -1145,10 +1232,10 @@ struct ElementTag {
     at: usize,
 }
 
-impl ElementTag {
+impl CarrierTag {
     fn of(tag: &html::Tag, block: bool, at: usize) -> Option<Self> {
-        Some(ElementTag {
-            name: carrier::modeled_tag(tag)?,
+        Some(CarrierTag {
+            wrapper: Wrapper::named(tag.name).filter(|_| !tag.self_closing)?,
             attrs: (!tag.closing).then(|| carrier::decode_attrs(&tag.attrs)),
             block,
             at,
@@ -1181,10 +1268,9 @@ impl Drops {
     }
 
     fn opening(&mut self, name: &str, at: usize) {
-        let construct = match carrier::element(name) {
-            Some(e) if e == "anchor" => return,
-            Some(e) if e == "table" => Dropped::Table,
-            Some(e) => Dropped::Element(e),
+        let construct = match Wrapper::named(name) {
+            Some(wrapper) => wrapper.dropped(),
+            None if carrier::element(name).as_deref() == Some("anchor") => return,
             None if carrier::has_prefix(name) => Dropped::BadName(name.to_ascii_lowercase()),
             None => Dropped::Tag(name.to_ascii_lowercase()),
         };
@@ -1216,31 +1302,8 @@ impl Drops {
 struct MarkdownFixer<'a, I> {
     inner: I,
     dropped: Drops,
-    /// The `quill-table` block wrappers open at this point, innermost last.
-    wrappers: Vec<TableWrapper>,
-    tables: usize,
-    in_table: bool,
-    folds: Vec<Fold>,
-    /// An HTML block's element tags ahead of its end.
+    /// An HTML block's carrier tags ahead of its end.
     held: VecDeque<Fixed<'a>>,
-}
-
-/// The keys a `quill-table` wrapper folds into the props of the table island
-/// of ordinal `table`.
-struct Fold {
-    table: usize,
-    keys: serde_json::Map<String, serde_json::Value>,
-}
-
-/// A `quill-table` block wrapper whose open tag the fixer has read: it folds
-/// its attributes into the table island it holds when it holds exactly one
-/// table and nothing else.
-struct TableWrapper {
-    attrs: carrier::Attrs,
-    at: usize,
-    /// The ordinal among the document's tables of each table it holds.
-    tables: Vec<usize>,
-    holds_other: bool,
 }
 
 impl<'a, I> MarkdownFixer<'a, I>
@@ -1251,77 +1314,16 @@ where
         Self {
             inner,
             dropped: Drops::default(),
-            wrappers: Vec::new(),
-            tables: 0,
-            in_table: false,
-            folds: Vec::new(),
             held: VecDeque::new(),
         }
-    }
-
-    /// The drops and the folds. A wrapper left open folds nothing.
-    fn finish(mut self) -> (Drops, Vec<Fold>) {
-        for w in std::mem::take(&mut self.wrappers) {
-            self.dropped.add(Dropped::Table, w.at);
-        }
-        (self.dropped, self.folds)
-    }
-
-    /// Record what a block event passed to the builder puts inside the
-    /// innermost open wrapper.
-    fn observe(&mut self, event: &Event) {
-        match event {
-            Event::Start(Tag::Table(_)) => {
-                if let Some(w) = self.wrappers.last_mut() {
-                    w.tables.push(self.tables);
-                }
-                self.tables += 1;
-                self.in_table = true;
-            }
-            Event::End(TagEnd::Table) => self.in_table = false,
-            // The repair writes a tag line after a list item into the item, so
-            // a wrapper's open tag can sit in a container its table follows.
-            Event::End(_) => {}
-            _ if self.in_table => {}
-            _ => {
-                if let Some(w) = self.wrappers.last_mut() {
-                    w.holds_other = true;
-                }
-            }
-        }
-    }
-
-    /// A wrapper holding anything but one table drops whole as `quill-table`;
-    /// otherwise each attribute the engine does not name or cannot read drops
-    /// as `quill-table[<name>]`, and the rest fold.
-    fn close_wrapper(&mut self, w: TableWrapper) {
-        let [table] = w.tables[..] else {
-            return self.dropped.add(Dropped::Table, w.at);
-        };
-        if w.holds_other {
-            return self.dropped.add(Dropped::Table, w.at);
-        }
-        let mut keys = serde_json::Map::new();
-        for name in w.attrs.refused {
-            self.dropped.add(Dropped::TableAttr(name), w.at);
-        }
-        for (name, value) in w.attrs.values {
-            match carrier::table::prop(&name, &value) {
-                Some(v) => {
-                    keys.insert(name, v);
-                }
-                None => self.dropped.add(Dropped::TableAttr(name), w.at),
-            }
-        }
-        self.folds.push(Fold { table, keys });
     }
 
     /// Consume an HTML block through its end, counting its
     /// [markup tags](html::block_tags), and its first tag where it holds only
     /// closing tags and the text it drops with them. A block of tag lines alone
-    /// passes its carrier tags on, its element tags and its end reaching the
-    /// builder through `held`; one that drops text with them drops them too,
-    /// each open tag counted.
+    /// passes its carrier tags on, they and its end reaching the builder
+    /// through `held`; one that drops text with them drops them too, each open
+    /// tag counted.
     fn drop_html_block(&mut self, at: usize) {
         let mut text = String::new();
         for (event, _) in self.inner.by_ref() {
@@ -1339,24 +1341,9 @@ where
             }
         }
         for tag in tags {
-            if let Some(element) = ElementTag::of(&tag, true, at).filter(|_| !swallows) {
-                self.held.push_back(Fixed::Element(element));
-            } else if swallows || tag.self_closing || carrier::element(tag.name).as_deref() != Some("table") {
-                self.dropped.tag(&tag, at);
-            } else if tag.closing {
-                if let Some(w) = self.wrappers.pop() {
-                    self.close_wrapper(w);
-                }
-            } else {
-                if let Some(outer) = self.wrappers.last_mut() {
-                    outer.holds_other = true;
-                }
-                self.wrappers.push(TableWrapper {
-                    attrs: carrier::decode_attrs(&tag.attrs),
-                    at,
-                    tables: Vec::new(),
-                    holds_other: false,
-                });
+            match CarrierTag::of(&tag, true, at).filter(|_| !swallows) {
+                Some(carrier) => self.held.push_back(Fixed::Carrier(carrier)),
+                None => self.dropped.tag(&tag, at),
             }
         }
         self.held.push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock)));
@@ -1385,16 +1372,13 @@ where
                 if tag.name.eq_ignore_ascii_case("br") && !tag.closing {
                     return Some(Fixed::Event(Event::HardBreak));
                 }
-                if let Some(element) = ElementTag::of(&tag, false, range.start) {
-                    return Some(Fixed::Element(element));
+                if let Some(carrier) = CarrierTag::of(&tag, false, range.start) {
+                    return Some(Fixed::Carrier(carrier));
                 }
                 self.dropped.tag(&tag, range.start);
                 return None;
             }
-            other => {
-                self.observe(&other);
-                Fixed::Event(other)
-            }
+            other => Fixed::Event(other),
         })
     }
 }
@@ -2074,6 +2058,7 @@ mod tests {
             (format!("- item\n- <quill-table widths=\"2 6\" align=\"center\">\n\n  {}\n\n  </quill-table>", table.replace('\n', "\n  ")), 1),
             (format!("- item\n\n<quill-table widths=\"2 6\" align=\"center\">\n\n{table}\n\n</quill-table>"), 0),
             (format!("> <quill-table widths=\"2 6 auto auto\" align=\"center\">\n>\n> {}\n>\n> </quill-table>", table.replace('\n', "\n> ")), 1),
+            (format!("<quill-table widths=\"2 6\" align=\"center\">\n\n<quill-keep>\n\n{table}\n\n</quill-keep>\n\n</quill-table>"), 1),
         ];
         for (md, containers) in &cases {
             let imported = imp_fixed(md);
@@ -2119,6 +2104,16 @@ mod tests {
         let nested = imp_fixed(&format!("<quill-table align=\"left\">\n\n<quill-table align=\"right\">\n\n{t}\n\n</quill-table>\n\n</quill-table>"));
         assert_eq!(dropped(&nested), [("quill-table", 1)]);
         assert_eq!(layout(&nested.content), serde_json::json!({"align": "right"}));
+
+        for md in [
+            format!("- <quill-table align=\"center\">\n\n{t}\n\n</quill-table>"),
+            format!("> <quill-table align=\"center\">\n\n{t}\n\n</quill-table>"),
+            format!("<quill-table align=\"center\">\n\n<quill-keep>\n\n</quill-table>\n\n{t}\n\n</quill-keep>"),
+        ] {
+            let imported = imp_fixed(&md);
+            assert_eq!(dropped(&imported), [("quill-table", 1)], "{md:?}");
+            assert_eq!(layout(&imported.content), serde_json::json!({}), "{md:?}");
+        }
     }
 
     #[test]

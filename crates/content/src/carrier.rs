@@ -129,14 +129,6 @@ fn entity(s: &str) -> Option<(char, usize)> {
     Some((c, lead + n + 1))
 }
 
-/// The element `tag` opens or closes, where the import models it: an element
-/// name the carrier does not [reserve](RESERVED), on a tag that is not
-/// self-closing.
-pub(crate) fn modeled_tag(tag: &html::Tag) -> Option<String> {
-    let name = element(tag.name).filter(|n| !RESERVED.contains(&n.as_str()))?;
-    (!tag.self_closing).then_some(name)
-}
-
 /// The element a [`Container::Element`](crate::model::Container::Element)
 /// spells: `None` for a
 /// name outside the grammar or [reserved](RESERVED), or an attribute name
