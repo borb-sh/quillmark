@@ -834,7 +834,7 @@ fn accrue(boxes: &mut Vec<(usize, Aabb)>, hit: &Hit) {
 }
 
 /// The finer counterpart to [`Hit`], carrying the node range and intra-node
-/// offset that [`position_at`]/[`locate`] need and a region scan discards.
+/// offset that [`position_at`](Scan::position_at)/[`locate`](Scan::locate) need and a region scan discards.
 struct GlyphHit {
     page: usize,
     rect: Aabb,
@@ -985,7 +985,7 @@ pub(crate) fn scalar_windows(
 }
 
 /// The address tree the scan resolves a read against — the same one
-/// [`_qm-known-path`] validates a `form-field` / `field-region` path against, so
+/// `_qm-known-path` validates a `form-field` / `field-region` path against, so
 /// a scanned region path is one a claim could bind.
 struct Tables<'a> {
     root: &'a AddressNode,
@@ -1327,7 +1327,7 @@ fn selected<'a>(access: &LinkedNode<'a>, keys: &[String]) -> Option<(String, Lin
 /// The array index `node`'s parent selects off it, and the node that selection
 /// widens to. `.at(n)` is the only spelling: Typst has no `.0` field access for an
 /// array element. Any non-negative literal is admitted, matching
-/// [`_qm-known-path`]'s digit test — a negative index lexes as unary minus over
+/// `_qm-known-path`'s digit test — a negative index lexes as unary minus over
 /// the magnitude, so it never reaches the `Int` arm and needs no sign check.
 fn select_index<'a>(node: &LinkedNode<'a>) -> Option<(i64, LinkedNode<'a>)> {
     let parent = node.parent()?;

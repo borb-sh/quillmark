@@ -165,7 +165,7 @@ impl ContentDecodeError {
     }
 }
 
-/// A content codec: which authored string a [`Content`] field accepts, and which
+/// A content codec: which authored string a [`Content`](quillmark_content::model::Content) field accepts, and which
 /// text a stored content projects back to. Both codecs also accept a canonical
 /// content object, so a codec is exactly the string end of the round trip. The
 /// declared type names one (`reader::content_codec`), and every schema-bound
