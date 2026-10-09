@@ -2132,7 +2132,7 @@ export interface Resolved {
 "#;
 
 /// Parse a canonical document-model `Diagnostic.path` (`cards.<kind>[<i>].<field>`,
-/// `main.body`, `recipients[0].name`) into structured [`DocPathSeg`] segments, so
+/// `main.body`, `recipients[0].name`) into structured `DocPathSeg` segments, so
 /// a consumer routes on segments instead of regexing the string. Throws on a
 /// malformed path.
 #[wasm_bindgen(js_name = parseDocPath, unchecked_return_type = "DocPathSeg[]")]
@@ -2148,7 +2148,7 @@ pub fn parse_doc_path(path: &str) -> Result<JsValue, JsValue> {
     serialize_nullable_or_throw(&json, "parseDocPath")
 }
 
-/// Serialize structured [`DocPathSeg`] segments back to the canonical path
+/// Serialize structured `DocPathSeg` segments back to the canonical path
 /// string: the inverse of `parseDocPath`. Throws on a segment array the
 /// deserializer rejects, and on an empty one.
 #[wasm_bindgen(js_name = formatDocPath)]
@@ -2368,7 +2368,7 @@ fn js_value_to_json(value: JsValue, ctx: &str) -> Result<serde_json::Value, JsVa
         .map_err(|e| WasmError::from(format!("{}: invalid value: {}", ctx, e)).to_js_value())
 }
 
-/// Refuse a JS value nesting past [`MAX_JSON_DEPTH`] **before**
+/// Refuse a JS value nesting past [`MAX_JSON_DEPTH`](quillmark_content::MAX_JSON_DEPTH) **before**
 /// `serde_wasm_bindgen` builds it: `from_value` recurses one frame per level, so
 /// a deep enough input overflows the 1 MB wasm32 stack during conversion, and
 /// that trap takes the module down rather than surfacing as a catchable error.

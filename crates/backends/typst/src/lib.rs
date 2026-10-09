@@ -658,7 +658,7 @@ impl AddressNode {
 
 /// The transform schema plus the address tree derived from it, kept apart
 /// because they answer different questions. Lowering reads the schema node
-/// ([`helper::lowering`]); the tree answers which *addresses* a plate may
+/// (`helper::lowering`); the tree answers which *addresses* a plate may
 /// write, which is the same walk with everything but the steps pruned away.
 pub(crate) struct SchemaMeta {
     /// The walk's cursor source: the same recursive projection

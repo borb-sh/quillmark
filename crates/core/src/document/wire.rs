@@ -232,7 +232,7 @@ impl TryFrom<CardWire> for Card {
     }
 }
 
-/// Read a [`CardWire::body`] into a [`Content`] content. The body is the source
+/// Read a [`CardWire::body`] into a [`Content`](quillmark_content::model::Content) content. The body is the source
 /// of truth and reads through the richtext codec whatever the schema declares,
 /// so its accepted encodings are [`super::Codec::decode_field`]'s.
 fn body_from_wire(body: &JsonValue) -> Result<Normalized, WireError> {
