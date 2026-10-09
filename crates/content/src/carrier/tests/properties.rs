@@ -1,23 +1,20 @@
 //! The carrier placed where a writer or an author puts it: block wrappers
 //! around paragraphs, tables, lists and quotes, written canonically, at top
 //! level, in list items and in quotes; inline pairs and anchors in prose and in table cells; a tag in a
-//! code span. The import never panics, reads the document as it reads its
-//! [`strip`] but for the elements it models and the keys a `quill-table`
-//! around one table folds, reports
-//! each element nothing models once with its count, and the content is the
-//! fixed point of a re-import. Separately, an element's open tag carries any
-//! attribute values through the import's normalization and a table cell.
+//! code span. The import never panics, reports each element nothing models
+//! once with its count, and the content is the fixed point of a re-import.
+//! Separately, an element's open tag carries any attribute values through the
+//! import's normalization and a table cell.
 
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
 
-use crate::carrier::{decode_attrs, element, is_attr_name, strip, Attrs, Element};
+use crate::carrier::{decode_attrs, element, is_attr_name, Attrs, Element};
 use crate::export::to_markdown;
 use crate::html;
 use crate::import::{from_markdown, options, ImportWarning};
 use crate::island::IslandType;
-use crate::model::{Content, LineKind, Mark};
 use crate::normalize::normalize_markdown;
 use pulldown_cmark::{Event, Parser};
 
@@ -259,41 +256,6 @@ fn document() -> impl Strategy<Value = Piece> {
     prop::collection::vec(block(), 1..4).prop_map(|blocks| Piece::join(blocks, "\n\n"))
 }
 
-/// What [`strip`] leaves of `content`: its text; its islands without the table
-/// keys `strip` takes with the `quill-table` tag; its marks; and each line's
-/// kind, continuation and containers but the elements, named by shape. An
-/// element's edge ends a list `strip` leaves running, so a list item's
-/// ordinal and instance are not compared.
-fn stripped(content: &Content) -> (String, Content, Vec<Mark>, Vec<(LineKind, bool, Vec<&'static str>)>) {
-    let marks = content.marks.clone();
-    let lines = content
-        .lines
-        .iter()
-        .map(|l| {
-            let path = l.containers.iter().map(|c| c.tag()).filter(|&t| t != "element").collect();
-            (l.kind.clone(), l.continues, path)
-        })
-        .collect();
-    let mut islands = without_layout(content);
-    islands.text.clear();
-    islands.lines.clear();
-    islands.marks.clear();
-    (content.text.clone(), islands, marks, lines)
-}
-
-/// `content` with no table layout keys.
-fn without_layout(content: &Content) -> Content {
-    let mut content = content.clone();
-    for island in content.islands.iter_mut().filter(|i| i.island_type == IslandType::Table) {
-        if let Some(props) = island.props.as_object_mut() {
-            for key in ["widths", "align"] {
-                props.remove(key);
-            }
-        }
-    }
-    content
-}
-
 fn counted(warnings: &[ImportWarning]) -> Vec<(String, usize)> {
     let mut out: Vec<(String, usize)> = warnings
         .iter()
@@ -307,13 +269,9 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
     #[test]
-    fn the_carrier_strips_to_the_same_content_but_its_elements(doc in document()) {
+    fn the_carrier_imports_reports_and_reimports(doc in document()) {
         let imported = from_markdown(&doc.md).unwrap();
         prop_assert_eq!(imported.content.validate(), Ok(()), "{}", doc.md);
-
-        let bare = from_markdown(&strip(&doc.md)).unwrap();
-        prop_assert_eq!(stripped(&bare.content), stripped(&imported.content), "{}\n---\n{}", doc.md, strip(&doc.md));
-        prop_assert!(bare.warnings.is_empty(), "{:?}", bare.warnings);
 
         let mut expected: Vec<(String, usize)> = Vec::new();
         for c in &doc.reported {
@@ -407,11 +365,5 @@ proptest! {
         let pairs: Vec<(&str, &str)> = raw.iter().map(|(n, v)| (n.as_str(), v.as_str())).collect();
         let read = decode_attrs(&pairs);
         prop_assert_eq!(read.values.len() + read.refused.len(), pairs.len());
-    }
-
-    #[test]
-    fn markup_soup_strips(md in r#"([<>/!=a-z0-9 "'|*`^:#\[\]\-\t\n]|<quill-keep>|</quill-keep>|<quill-anchor ref="r">|<div>|<!--|-->|```|> |- |\r){0,60}"#) {
-        let stripped = strip(&md);
-        prop_assert_eq!(from_markdown(&stripped).unwrap().content.validate(), Ok(()), "{:?}", stripped);
     }
 }

@@ -1,14 +1,10 @@
 //! The `quill-*` carrier (markdown-spec §6.4): the custom elements a markdown
 //! spelling rides on where CommonMark has no syntax, their name and attribute
-//! grammar, their canonical spelling, and [`strip`].
+//! grammar, and their canonical spelling.
 
-use crate::html;
-use crate::import::options;
-use crate::normalize::{admit_char, blank_of, is_bidi_char, is_line_separator, normalize_markdown};
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use crate::normalize::{is_bidi_char, is_line_separator};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::ops::Range;
 
 pub(crate) mod table;
 
@@ -226,198 +222,8 @@ impl Element {
     }
 }
 
-/// `markdown` without its `quill-*` tags, keeping what a wrapper holds. A tag
-/// goes where the import reads it as markup, so one in a code span, a fence, a
-/// comment or another tag's attribute stays. A line left holding nothing but
-/// container markers is a blank line inside them, and a list item's marker
-/// left bare drops the blank lines after it, which would end the item; every
-/// other byte is kept.
-pub fn strip(markdown: &str) -> String {
-    let (admitted, source) = admitted(markdown);
-    let found = prefixed_tags(&admitted);
-    if found.is_empty() {
-        return markdown.to_string();
-    }
-    let options = options();
-    let mut marked = String::with_capacity(markdown.len() + found.len() * 4);
-    let mut at = 0;
-    for (k, tag) in found.iter().enumerate() {
-        let name_end = source[tag.name_end];
-        marked.push_str(&markdown[at..name_end]);
-        let _ = write!(marked, "{MARK}{k}");
-        at = name_end;
-    }
-    marked.push_str(&markdown[at..]);
-    let mut markup = vec![false; found.len()];
-    for name in markup_tag_names(&normalize_markdown(&marked, options), options) {
-        let index = name.rsplit_once(MARK).and_then(|(_, k)| k.parse::<usize>().ok());
-        let ours = |&k: &usize| found.get(k).is_some_and(|f| name == format!("{}{MARK}{k}", f.name));
-        if let Some(k) = index.filter(ours) {
-            markup[k] = true;
-        }
-    }
-    let spans: Vec<Range<usize>> = found
-        .iter()
-        .zip(markup)
-        .filter_map(|(tag, markup)| markup.then_some(&tag.span))
-        .map(|span| {
-            let last = source[span.end - 1];
-            source[span.start]..last + markdown[last..].chars().next().map_or(0, char::len_utf8)
-        })
-        .collect();
-    remove(markdown, &spans)
-}
-
-/// The text the import's normalization makes of `s` before its repair, and
-/// for each of its bytes the offset in `s` of the character it comes from.
-fn admitted(s: &str) -> (String, Vec<usize>) {
-    let mut text = String::with_capacity(s.len());
-    let mut source = Vec::with_capacity(s.len());
-    let mut chars = s.char_indices().peekable();
-    while let Some((i, c)) = chars.next() {
-        let c = if c == '\r' {
-            chars.next_if(|&(_, n)| n == '\n');
-            '\n'
-        } else if let Some(c) = admit_char(c) {
-            c
-        } else {
-            continue;
-        };
-        text.push(c);
-        source.resize(text.len(), i);
-    }
-    (text, source)
-}
-
-/// Appended to each `quill-*` tag's name, with the tag's index, so the
-/// import's own parse of the marked text says which tags it drops. A suffix in
-/// the tag-name charset changes no block or inline structure.
-const MARK: &str = "-x";
-
-struct Found<'a> {
-    name: &'a str,
-    span: Range<usize>,
-    name_end: usize,
-}
-
 pub(crate) fn has_prefix(name: &str) -> bool {
     name.len() >= PREFIX.len() && name.as_bytes()[..PREFIX.len()].eq_ignore_ascii_case(PREFIX.as_bytes())
-}
-
-/// Every complete tag in `s` named with [`PREFIX`], markup or not.
-fn prefixed_tags(s: &str) -> Vec<Found<'_>> {
-    s.match_indices('<')
-        .filter_map(|(i, _)| {
-            let after = &s[i + 1..];
-            let name = after.strip_prefix('/').unwrap_or(after);
-            if !has_prefix(name.get(..PREFIX.len())?) {
-                return None;
-            }
-            let tag = html::tag_at(s, i)?;
-            let name_end = i + 1 + usize::from(tag.closing) + tag.name.len();
-            Some(Found { name: tag.name, span: tag.span, name_end })
-        })
-        .collect()
-}
-
-/// The names of the tags the import drops as markup from `text`, which the
-/// repair has made its parse's input.
-fn markup_tag_names(text: &str, options: Options) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut block: Option<String> = None;
-    for event in Parser::new_ext(text, options) {
-        match event {
-            Event::Start(Tag::HtmlBlock) => block = Some(String::new()),
-            Event::Html(h) => {
-                if let Some(b) = &mut block {
-                    b.push_str(&h);
-                }
-            }
-            Event::End(TagEnd::HtmlBlock) => {
-                if let Some(b) = block.take() {
-                    names.extend(html::block_tags(&b).iter().map(|t| t.name.to_string()));
-                }
-            }
-            Event::InlineHtml(h) => names.extend(html::tag_at(&h, 0).map(|t| t.name.to_string())),
-            _ => {}
-        }
-    }
-    names
-}
-
-/// `src` without `spans`. A line a span leaves holding only container markers
-/// is a blank line inside them, as the import's repair puts a blank line above
-/// a tag line.
-fn remove(src: &str, spans: &[Range<usize>]) -> String {
-    let line_end = |from: usize| src[from..].find('\n').map_or(src.len(), |i| from + i);
-    let mut lines: Vec<String> = Vec::new();
-    let mut spans = spans.iter().peekable();
-    let mut start = 0;
-    let mut after_marker: Option<String> = None;
-    loop {
-        let mut end = line_end(start);
-        let mut cuts = Vec::new();
-        while let Some(span) = spans.next_if(|s| s.start < end) {
-            end = end.max(line_end(span.end));
-            cuts.push(span.clone());
-        }
-        let line = match cut(src, start..end, &cuts) {
-            Cut::Emptied { lead, cr } => format!("{}{cr}", blank_of(lead)),
-            Cut::Kept(kept) => kept,
-        };
-        // A list item opens with at most one empty line, so the blank lines
-        // after a marker its tags left bare would end the item.
-        let blank = blank_of(&line);
-        if !(is_blank(&line) && after_marker.as_ref() == Some(&blank)) {
-            after_marker = (!cuts.is_empty() && is_bare_marker(&line)).then_some(blank);
-            lines.push(line);
-        }
-        if end == src.len() {
-            return lines.join("\n");
-        }
-        start = end + 1;
-    }
-}
-
-enum Cut<'a> {
-    /// Nothing but container markers is left: those before the first cut, and
-    /// the line's `\r`.
-    Emptied { lead: &'a str, cr: &'static str },
-    Kept(String),
-}
-
-fn cut<'a>(src: &'a str, line: Range<usize>, cuts: &[Range<usize>]) -> Cut<'a> {
-    let Some(first) = cuts.first() else {
-        return Cut::Kept(src[line].to_string());
-    };
-    let mut kept = String::new();
-    let mut at = line.start;
-    for c in cuts {
-        kept.push_str(&src[at..c.start]);
-        at = c.end;
-    }
-    kept.push_str(&src[at..line.end]);
-    let lead = &src[line.start..first.start];
-    if lead.bytes().all(|b| matches!(b, b'>' | b' ' | b'\t')) && kept[lead.len()..].trim().is_empty() {
-        let cr = if kept.ends_with('\r') { "\r" } else { "" };
-        return Cut::Emptied { lead, cr };
-    }
-    Cut::Kept(kept)
-}
-
-fn is_blank(line: &str) -> bool {
-    line.bytes().all(|b| matches!(b, b'>' | b' ' | b'\t' | b'\r'))
-}
-
-/// Container markers ending in a list item's marker, and nothing after it.
-fn is_bare_marker(line: &str) -> bool {
-    let mut words = line.split_whitespace().filter(|w| !w.bytes().all(|b| b == b'>'));
-    let is_marker = |w: &str| {
-        matches!(w, "-" | "+" | "*")
-            || w.strip_suffix(['.', ')'])
-                .is_some_and(|n| (1..=9).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit()))
-    };
-    words.next_back().is_some_and(is_marker) && words.all(is_marker)
 }
 
 #[cfg(test)]
@@ -505,33 +311,5 @@ mod tests {
             Element::new("keep", attrs(&[("onclick", "x")])),
             Err(Refused::Attr("onclick".into()))
         );
-    }
-
-    #[test]
-    fn strip_removes_the_tags_the_import_drops() {
-        let cases: &[(&str, &str)] = &[
-            ("a <quill-keep>b</quill-keep> c", "a b c"),
-            ("<quill-keep>\n\npara\n\n</quill-keep>", "\n\npara\n\n"),
-            ("> <quill-keep>\n> para\n> </quill-keep>", ">\n> para\n>"),
-            ("> a\n<quill-keep>\n> b", "> a\n\n> b"),
-            ("> a\n> <quill-keep>\n> b", "> a\n>\n> b"),
-            ("x `<quill-x>` y", "x `<quill-x>` y"),
-            ("```\n<quill-x>\n```", "```\n<quill-x>\n```"),
-            ("<quill-keep>\n```\n<quill-x>\n```\n</quill-keep>", "\n```\n\n```\n"),
-            ("<div>\nsome <quill-x>y</quill-x>\n</div>", "<div>\nsome y\n</div>"),
-            ("<!-- <quill-x> -->", "<!-- <quill-x> -->"),
-            ("<span title=\"<quill-x>\">t</span>", "<span title=\"<quill-x>\">t</span>"),
-            ("| <quill-x a=\"1\">1</quill-x> |", "| 1 |"),
-            ("- <quill-keep>\n\n  para\n\n  </quill-keep>", "- \n  para\n\n"),
-            ("w<quill-anchor ref=\"c1\"></quill-anchor>\r\n<QUILL-A>\r\nv", "w\r\n\r\nv"),
-            ("<quill-table\n  widths=\"1 2\">\n| a |\n|---|", "\n| a |\n|---|"),
-            ("- <quill-x></quill-x>\n  text", "- \n  text"),
-            ("<quill-keep\r\n  a=\"1\">\r\ntext\r\n</quill-keep>", "\r\ntext\r\n"),
-            ("<quill-keep\u{200E}>a</quill-keep>", "a"),
-            ("<quill-keep\u{0B}a=\"1\">\n\ntext", "\n\ntext"),
-        ];
-        for (md, stripped) in cases {
-            assert_eq!(strip(md), *stripped, "{md:?}");
-        }
     }
 }

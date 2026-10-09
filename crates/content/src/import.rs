@@ -2134,7 +2134,6 @@ mod tests {
             let imported = imp_fixed(&md);
             assert_eq!(dropped(&imported), [("quill-table", 1)], "{md:?}");
             assert!(imported.content.islands.iter().all(|i| i.props.get("align").is_none()), "{md:?}");
-            assert_eq!(imported.content, imp_fixed(&crate::carrier::strip(&md)).content, "{md:?}");
         }
 
         let nested = imp_fixed(&format!("<quill-table align=\"left\">\n\n<quill-table align=\"right\">\n\n{t}\n\n</quill-table>\n\n</quill-table>"));

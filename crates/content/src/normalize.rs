@@ -196,7 +196,7 @@ impl<'a> SrcLine<'a> {
 
 /// A blank line inside the containers `prefix` holds: each quote's `>` kept,
 /// a list marker dropped.
-pub(crate) fn blank_of(prefix: &str) -> String {
+fn blank_of(prefix: &str) -> String {
     let mut s = continuation_of(prefix);
     s.truncate(s.trim_end().len());
     s
