@@ -966,7 +966,9 @@ fn render_marked_core(
                     }
                 }
                 out.push_str("](");
-                emit_url(url, &mut out);
+                let mut dest = String::new();
+                emit_url(url, &mut dest);
+                push_piped(&dest, escape_pipe, &mut out);
                 out.push(')');
                 if let Some(points) = points.as_mut() {
                     points.resize(le, point);
@@ -994,7 +996,7 @@ fn render_marked_core(
                 if pad {
                     out.push(' ');
                 }
-                out.push_str(&content);
+                push_piped(&content, escape_pipe, &mut out);
                 if pad {
                     out.push(' ');
                 }
@@ -1297,12 +1299,14 @@ fn clip_asterisk_overlap(fmt: &mut [(usize, usize, &MarkKind)]) {
 /// Reconstruct a table cell's markdown from its `{text, marks}`: the prose mark
 /// sweep with `|`→`\|` escaping so the cell survives re-import through
 /// `pulldown`'s pipe splitting. A cell is flat inline: no islands, no
-/// leading-block escape.
+/// leading-block escape. A cell holding an alignment is wrapped whole in its
+/// `qm-cell` pair, whose tags are punctuation at the content's edges as the
+/// net's `,` sentinels are.
 fn render_cell_md(v: &serde_json::Value) -> String {
     let (text, marks) = crate::serial::parse_cell(v);
     let chars: Vec<char> = text.chars().collect();
     let (code_ranges, fmt, links) = bucket_marks(&marks, 0, chars.len(), true);
-    render_marked_core(
+    let md = render_marked_core(
         &chars,
         &code_ranges,
         &fmt,
@@ -1312,7 +1316,11 @@ fn render_cell_md(v: &serde_json::Value) -> String {
         true,
         None,
         |_| None,
-    )
+    );
+    match crate::carrier::cell::pair(v) {
+        Some(pair) => pair.wrap_inline(&md),
+        None => md,
+    }
 }
 
 /// Which of markdown's two spellings each asterisk-family kind is emitted with.
@@ -1366,6 +1374,17 @@ fn edge_space_ref(c: char) -> Option<&'static str> {
         ' ' => Some("&#32;"),
         '\t' => Some("&#9;"),
         _ => None,
+    }
+}
+
+/// Push `s`, a code span's content or a link's destination, with each `|`
+/// as `\|` where `escape_pipe`: a table row splits its cells at a `|` inside
+/// either, and reads `\|` as `|` before it parses the cell.
+fn push_piped(s: &str, escape_pipe: bool, out: &mut String) {
+    if escape_pipe {
+        out.push_str(&s.replace('|', "\\|"));
+    } else {
+        out.push_str(s);
     }
 }
 
@@ -1914,6 +1933,44 @@ mod tests {
         round_trips("| A |\n| --- |\n| <u>under</u> |");
         // A literal pipe inside a cell survives via `\|` re-escaping on export.
         round_trips("| A |\n| --- |\n| a \\| b |");
+    }
+
+    /// A row splits its cells at a `|` inside a code span or a link
+    /// destination too, so export writes it `\|` there as in text.
+    #[test]
+    fn a_pipe_in_a_cells_code_span_or_link_url_stays_in_its_cell() {
+        for (body, text, url) in [
+            ("`a\\|b`", "a|b", None),
+            ("`a\\\\|b`", "a\\|b", None),
+            ("[x](https://e.com/a\\|b)", "x", Some("https://e.com/a|b")),
+            ("[x](<https://e.com/a\\\\\\|b c>)", "x", Some("https://e.com/a\\|b c")),
+        ] {
+            let md = format!("| h |\n| --- |\n| {body} |");
+            let rt = from_markdown(&md).unwrap().content;
+            let cell = &rt.islands[0].props["rows"][0][0];
+            assert_eq!(cell["text"], text, "{md:?}");
+            assert_eq!(cell["marks"][0]["attrs"]["url"].as_str(), url, "{md:?}");
+            assert_eq!(to_markdown(&rt), md, "{md:?}");
+        }
+    }
+
+    /// A cell's alignment in its set is written as a `qm-cell` pair around the
+    /// whole cell; a value outside its set is not.
+    #[test]
+    fn a_cell_alignment_exports_as_a_qm_cell_pair() {
+        let cases = [
+            (serde_json::json!({"valign": "middle", "align": "left"}), "<qm-cell align=\"left\" valign=\"middle\">**c**</qm-cell>"),
+            (serde_json::json!({"align": "center", "valign": "horizon"}), "<qm-cell align=\"center\">**c**</qm-cell>"),
+            (serde_json::json!({"align": "none", "valign": 1}), "**c**"),
+        ];
+        for (keys, cell) in cases {
+            let mut props = table().props;
+            let c = props["rows"][0][0].as_object_mut().unwrap();
+            c.extend(keys.as_object().unwrap().clone());
+            c.insert("marks".into(), serde_json::json!([{"end": 1, "start": 0, "type": "strong"}]));
+            let rt = with_islands(&ISLAND_SLOT.to_string(), vec![table().with_props(props)]);
+            assert_eq!(to_markdown(&rt), format!("| h |\n| --- |\n| {cell} |"), "{keys}");
+        }
     }
 
     #[test]

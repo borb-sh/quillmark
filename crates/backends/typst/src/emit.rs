@@ -997,6 +997,8 @@ fn cell_markup(text: &str, marks: &[Mark]) -> String {
 /// - `align`: `align(center, table(…))` under `context`, where each cell
 ///   aligning by default takes the alignment the table stands in, so placing a
 ///   table moves no text inside it.
+/// - a cell's `align` and `valign`: `table.cell(align: right + bottom)[…]`,
+///   which Typst folds with its column's alignment.
 fn table_markup(props: &serde_json::Value) -> String {
     use serde_json::Value;
     let header = props.get("header").and_then(|v| v.as_array());
@@ -1028,7 +1030,14 @@ fn table_markup(props: &serde_json::Value) -> String {
 
     let cell = |v: &Value| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
-        format!("[{}]", cell_markup(&text, &marks))
+        let body = cell_markup(&text, &marks);
+        let (align, valign) = quillmark_content::island::cell_alignment(v);
+        let valign = valign.map(|v| if v == "middle" { "horizon" } else { v });
+        match (align, valign) {
+            (None, None) => format!("[{body}]"),
+            (Some(a), None) | (None, Some(a)) => format!("table.cell(align: {a})[{body}]"),
+            (Some(a), Some(v)) => format!("table.cell(align: {a} + {v})[{body}]"),
+        }
     };
 
     let mut out = String::from("table(\n");
@@ -1946,6 +1955,27 @@ mod tests {
              align: (align.alignment, left),\n  \
              table.header([a], [b], ),\n  \
              [1], [2], \n))"
+        );
+    }
+
+    /// A cell's alignment in its set lowers to `table.cell`, `middle` as
+    /// Typst's `horizon`; a value outside its set lowers as absent.
+    #[test]
+    fn a_cells_alignment_lowers_to_table_cell() {
+        let props = serde_json::json!({
+            "header": [{ "text": "a", "marks": [], "align": "center" }, { "text": "b", "marks": [] }],
+            "rows": [
+                [{ "text": "1", "marks": [], "valign": "middle" }, { "text": "2", "marks": [], "align": "right", "valign": "bottom" }],
+                [{ "text": "3", "marks": [], "align": "middle", "valign": "horizon" }, { "text": "4", "marks": [{ "start": 0, "end": 1, "type": "strong" }], "valign": "top" }],
+            ],
+            "aligns": ["none", "left"],
+        });
+        assert_eq!(
+            table_markup(&props),
+            "#table(\n  columns: 2,\n  align: (auto, left),\n  \
+             table.header(table.cell(align: center)[a], [b], ),\n  \
+             table.cell(align: horizon)[1], table.cell(align: right + bottom)[2], \n  \
+             [3], table.cell(align: top)[#strong[4]], \n)"
         );
     }
 

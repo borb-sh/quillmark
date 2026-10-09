@@ -127,8 +127,12 @@ diff-rebase alone. The row's corpus entry pins the spelling under
 | `island.table.aligns`: table with column `aligns` | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.marks`: a cell holding marks | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.break`: a cell's `\n`, spelled `<br>` | spells | spells | spells | honors | silent: honored | none |
+| `island.table.cell.align`: a cell's horizontal alignment | spells | spells | spells | honors | silent: honored | none |
+| `island.table.cell.valign`: a cell's vertical alignment | spells | spells | spells | honors | silent: honored | none |
+| `island.table.cell.align_valign`: both, over a cell holding marks | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.unnamed`: a props key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.unnamed`: a cell key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
+| `island.table.cell.value`: a cell `valign` outside its set | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.props.widths`: column weights, `null` an auto-fit column | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.widths.auto`: every column auto-fit, the default | spells | spells | spells | silent: honored | silent: honored | none |
 | `island.table.props.align`: the table's placement | spells | spells | spells | honors | silent: honored | none |
@@ -140,6 +144,10 @@ mint it without a key the engine does not name.
 `widths` and `align` are spelled on a `qm-table` wrapper
 ([markdown-spec.md](../references/markdown-spec.md) §6.4). Each is absent at
 its default, so a default row stores no key.
+
+A cell's `align` and `valign` are spelled on a `qm-cell` pair around the cell's
+whole content (§6.4). Both rest as written, so a value outside its set rides
+as a key the engine does not name does.
 
 ### Spellings
 
@@ -170,6 +178,8 @@ above, or markup the content does not store.
 | `carrier.table.holds_other`: a `qm-table` around anything but one table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table` |
 | `carrier.table.attr`: a `qm-table` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table[foo]` |
 | `carrier.table.value`: a `qm-table` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table[widths]` |
+| `carrier.cell.partial`: a `qm-cell` pair around part of a cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell` |
+| `carrier.cell.value`: a `qm-cell` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell[valign]` |
 | `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
 | `markdown.cell_image`: an image in a table cell | drops silently | n/a | n/a | n/a | n/a | none |

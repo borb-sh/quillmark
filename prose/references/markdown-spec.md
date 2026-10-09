@@ -477,7 +477,8 @@ hexadecimal references to a Unicode scalar value; any other `&` is text.
 **Block only.** A carrier tag carries its construct on a tag line in an HTML
 block of tag lines alone, which a blank line above and below sets apart
 (§6.2). Inside a line, or in a block tight against markdown, it drops like any
-raw tag; `qm-anchor` drops inside a line without a report.
+raw tag; `qm-anchor` drops inside a line without a report. The one inline
+construct is a `qm-cell` pair around a whole table cell.
 
 **Canonical spelling.** An element is written with:
 
@@ -561,6 +562,35 @@ attributes into the table's layout, whatever quill reads the document:
 - An attribute other than these two, and one whose value is outside its
   spelling, drops alone, reported as `qm-table[<name>]`. A `qm-keep`
   around the wrapper keeps the table on one page.
+
+**`qm-cell`** is an inline pair around a table cell's whole content, in the
+header row or the body, and folds its attributes into the cell, whatever quill
+reads the document:
+
+| Attribute | Value | Default |
+|---|---|---|
+| `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's, from the delimiter row |
+| `valign` | the cell's vertical alignment: `top`, `middle` or `bottom` | the plate's |
+
+```markdown
+| Item | Notes | Qty |
+| --- | --- | ---: |
+| <qm-cell valign="bottom">Total</qm-cell> | one<br>two | <qm-cell align="center">**42**</qm-cell> |
+```
+
+- A pair folds when its open tag is the cell's first inline and its close tag
+  the cell's last, and the cell holds no other `qm-cell` tag. What it wraps is
+  the cell's content as written, edge whitespace included.
+- A pair that does not wrap its whole cell folds nothing: text or markup
+  before or after it, a second pair, a nested pair and an unclosed pair each
+  leave the cell as written, its `qm-cell` tags dropped, and
+  `parse::dropped_construct` reports each open tag as `qm-cell`.
+- Each value stores as written, one equal to its column's included, and
+  export writes the pair around every cell holding a value in its set.
+- An attribute other than these two, and one whose value is outside its set,
+  drops alone, reported as `qm-cell[<name>]`.
+- Outside a table cell `qm-cell` is no special name: a pair of tag lines is an
+  element, and a pair inside a line drops as any element's does.
 
 **`qm-anchor`** is reserved for an anchor's read-only spelling,
 `<qm-anchor ref="…"></qm-anchor>`, which the annotated export writes and
