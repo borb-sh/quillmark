@@ -395,8 +395,11 @@ like any other tag. An inline `<u>` pairs with a `</u>` as HTML pairs them,
 inside its paragraph, heading, list item's text or table cell: a `</u>` closes
 the innermost `<u>` still open, whatever marks lie between, so an underline
 crosses `**` or `~~` freely. A `<u>` carrying an attribute drops and still
-takes its `</u>`, and one still open where its text ends drops. An import
-reports each dropped opening tag by its lowercase name, under
+takes its `</u>`, and one still open where its text ends drops. Export writes
+`<u>` and `</u>` outside the emphasis delimiters closing and opening where they
+stand, so a tag never sits at a delimiter run's edge, where its `<` or `>`
+would change the run's flanking; a delimiter run spanning that position stays
+open around the tag. An import reports each dropped opening tag by its lowercase name, under
 `parse::dropped_construct`, and a block holding only closing tags under its
 first where it drops text with them; any other closing tag, a comment, the
 content of a type 1–5 block, `quill-anchor` and an element that closes (§6.4)
@@ -524,11 +527,6 @@ where its list item, quote or body ends, a self-closing tag, a tag inside a
 line, and one in a block tight against markdown, which drops what it holds
 with it. A `quill-*` tag outside the grammar is a raw tag reported the same
 way.
-
-Export writes `<u>` and `</u>` outside the emphasis delimiters closing and
-opening where they stand, so a tag never sits at a delimiter run's edge, where
-its `<` or `>` would change the run's flanking. A delimiter run spanning that
-position stays open around the tag.
 
 **`quill-table`** is a block wrapper around one pipe table, and folds its
 attributes into the table's layout, whatever quill reads the document:
