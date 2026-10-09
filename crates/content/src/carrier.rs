@@ -184,14 +184,6 @@ impl Element {
         Ok(Element { name, attrs })
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn attrs(&self) -> &BTreeMap<String, String> {
-        &self.attrs
-    }
-
     /// The open tag: attributes sorted by name, each value double-quoted with
     /// `&`, `<`, `>` and `"` as entities. A `|`, which would end a table cell,
     /// and a control character, bidi control or line separator, which the
@@ -231,11 +223,6 @@ impl Element {
             return format!("{}\n{}", self.open_tag(), self.close_tag());
         }
         format!("{}\n\n{children}\n\n{}", self.open_tag(), self.close_tag())
-    }
-
-    /// The inline pair around `inner`, on one line with the text around it.
-    pub fn wrap_inline(&self, inner: &str) -> String {
-        format!("{}{inner}{}", self.open_tag(), self.close_tag())
     }
 }
 
@@ -509,7 +496,6 @@ mod tests {
             "<quill-table align=\"a&amp;b&lt;c&gt;&quot;d'e\" note=\"x&#xA;y&#x202E;&#x7C;\" widths=\"1 2\">"
         );
         assert_eq!(e.close_tag(), "</quill-table>");
-        assert_eq!(e.wrap_inline("x"), format!("{}x</quill-table>", e.open_tag()));
         let keep = Element::new("keep", BTreeMap::new()).unwrap();
         assert_eq!(keep.wrap_block("a\n\nb"), "<quill-keep>\n\na\n\nb\n\n</quill-keep>");
         assert_eq!(keep.wrap_block(""), "<quill-keep>\n</quill-keep>");
