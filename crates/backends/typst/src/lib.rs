@@ -133,7 +133,7 @@ fn declined_warnings(config: &QuillConfig, data: &serde_json::Value) -> Vec<Diag
         .into_iter()
         .map(|diag| match diag.args.get("construct") {
             Some(construct) if *construct == image => diag.with_hint(
-                "what a content image's url names is undecided; a plate draws a \
+                "a content image's url resolves to nothing; a plate draws a \
                  quill asset with `#image(\"/assets/…\")`"
                     .to_string(),
             ),
