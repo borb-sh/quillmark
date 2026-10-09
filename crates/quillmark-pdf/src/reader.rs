@@ -15,6 +15,7 @@
 //! `hayro-syntax` is read-only and exposes no byte spans, so it cannot drive a
 //! byte-splice append; hence this bespoke scanner.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use crate::error::PdfError;
@@ -400,18 +401,48 @@ fn is_obj_header_tail(rest: &[u8]) -> bool {
 /// `null`: ISO 32000-1 §7.3.9 makes the two the same entry, so every read goes
 /// through here.
 pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
-    let entry = find_dict_entry(dict_bytes, key)?;
+    let (_, entry) = find_dict_entry(dict_bytes, key)?;
     let value = &entry[skip_ws_and_comments(entry, 0)..];
     (value != b"null").then_some(value)
 }
 
-/// [`find_dict_value`] without the `null` filter: the entry a rewrite replaces,
-/// whatever it holds.
-fn find_dict_entry<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
+/// [`find_dict_value`] without the `null` filter: the key token as written and
+/// the entry a rewrite replaces, whatever it holds.
+fn find_dict_entry<'a>(dict_bytes: &'a [u8], key: &str) -> Option<(&'a [u8], &'a [u8])> {
     let key_marker = format!("/{key}");
-    dict_entries(dict_bytes)
-        .find(|&(name, _)| name == key_marker.as_bytes())
-        .map(|(_, entry)| entry)
+    dict_entries(dict_bytes).find(|&(name, _)| is_name(name, key_marker.as_bytes()))
+}
+
+/// Whether the name token `token` is `name` (`/AcroForm`) once each `#xx`
+/// escape in it is decoded, so `/Acro#46orm` is `/AcroForm` (ISO 32000-1
+/// §7.3.5).
+pub(crate) fn is_name(token: &[u8], name: &[u8]) -> bool {
+    *decode_name(token) == *name
+}
+
+/// `token` with each `#xx` escape decoded. A `#` not followed by two hex
+/// digits stands for itself.
+fn decode_name(token: &[u8]) -> Cow<'_, [u8]> {
+    if !token.contains(&b'#') {
+        return Cow::Borrowed(token);
+    }
+    let hex = |c: u8| char::from(c).to_digit(16);
+    let mut out = Vec::with_capacity(token.len());
+    let mut i = 0;
+    while i < token.len() {
+        let digit = |at: usize| token.get(at).and_then(|&c| hex(c));
+        match (token[i], digit(i + 1), digit(i + 2)) {
+            (b'#', Some(hi), Some(lo)) => {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+            }
+            (c, _, _) => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    Cow::Owned(out)
 }
 
 /// Each entry of a dict's inner bytes, in order, as its key Name (`/Pages`)
@@ -452,7 +483,7 @@ fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d
     let mut keys = HashSet::new();
     let mut end = 0;
     for (key, entry) in dict_entries(dict) {
-        if !keys.insert(key) {
+        if !keys.insert(decode_name(key)) {
             return Err(err(
                 code,
                 format!(
@@ -482,13 +513,20 @@ fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d
     Ok(dict)
 }
 
-/// The inner bytes of the dictionary `value` writes inline, or `None` for any
-/// other value and for a dictionary [`well_formed`] refuses.
-pub(crate) fn as_dict(value: &[u8]) -> Option<&[u8]> {
+/// The inner bytes of the dictionary `value` writes inline, [`well_formed`],
+/// or `None` for any other value. A dictionary that does not close or that
+/// [`well_formed`] refuses is `Err` under `code`, `what` naming it.
+pub(crate) fn as_dict<'v>(
+    value: &'v [u8],
+    code: &'static str,
+    what: &str,
+) -> Result<Option<&'v [u8]>, PdfError> {
     if !value.starts_with(b"<<") {
-        return None;
+        return Ok(None);
     }
-    well_formed(extract_outer_dict(value)?, CODE_PARSE, "dictionary").ok()
+    let dict = extract_outer_dict(value)
+        .ok_or_else(|| err(code, format!("{what} dict not parseable")))?;
+    well_formed(dict, code, what).map(Some)
 }
 
 /// Each element of the array `value` writes inline, in order, from its first
@@ -512,16 +550,16 @@ pub(crate) fn array_elements(value: &[u8]) -> impl Iterator<Item = &[u8]> {
 /// one included, else appended, so a [`well_formed`] dict names `key` exactly
 /// once after.
 pub(crate) fn set_dict_value(dict: &[u8], key: &str, new_value: &[u8]) -> Vec<u8> {
-    let Some(value) = find_dict_entry(dict, key) else {
+    let Some((key_token, value)) = find_dict_entry(dict, key) else {
         let mut out = dict.to_vec();
         out.extend_from_slice(format!(" /{key} ").as_bytes());
         out.extend_from_slice(new_value);
         return out;
     };
-    // The entry's own subslice locates the key span by pointer subtraction
+    // The entry's own subslices locate the key span by pointer subtraction
     // rather than a re-scan, so a `key` token inside another value cannot match.
     let value_start = value.as_ptr() as usize - dict.as_ptr() as usize;
-    let key_at = value_start - (1 + key.len());
+    let key_at = key_token.as_ptr() as usize - dict.as_ptr() as usize;
     let mut out = dict[..key_at].to_vec();
     out.extend_from_slice(format!("/{key} ").as_bytes());
     out.extend_from_slice(new_value);
@@ -631,13 +669,13 @@ fn read_value_end(b: &[u8], start: usize) -> Option<usize> {
         c if c.is_ascii_digit() || c == b'-' || c == b'+' || c == b'.' => {
             // Possibly `N N R`; the standalone-R check rejects `5 0 Rect`.
             let num_end = read_number_end(b, i);
-            let mut j = ws_end(b, num_end);
+            let mut j = skip_ws_and_comments(b, num_end);
             let n2_start = j;
             while j < b.len() && b[j].is_ascii_digit() {
                 j += 1;
             }
             if j > n2_start {
-                j = ws_end(b, j);
+                j = skip_ws_and_comments(b, j);
                 if b.get(j).copied() == Some(b'R') && b.get(j + 1).is_none_or(|c| is_pdf_delim(*c))
                 {
                     return Some(j + 1);
@@ -710,19 +748,19 @@ fn is_pdf_delim(c: u8) -> bool {
 }
 
 pub(crate) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
-    let s = skip_ws(s);
+    let s = &s[skip_ws_and_comments(s, 0)..];
     let mut i = 0;
     while i < s.len() && s[i].is_ascii_digit() {
         i += 1;
     }
     let id: u32 = std::str::from_utf8(&s[..i]).ok()?.parse().ok()?;
-    let s = skip_ws(&s[i..]);
+    let s = &s[skip_ws_and_comments(s, i)..];
     let mut i = 0;
     while i < s.len() && s[i].is_ascii_digit() {
         i += 1;
     }
     let generation: u16 = std::str::from_utf8(&s[..i]).ok()?.parse().ok()?;
-    let s = skip_ws(&s[i..]);
+    let s = &s[skip_ws_and_comments(s, i)..];
     if !s.starts_with(b"R") {
         return None;
     }
@@ -849,19 +887,24 @@ pub(crate) fn walk_page_tree(idx: &ObjectIndex, catalog_id: u32) -> Result<Vec<P
             return Err(err(CODE_PARSE, "page tree exceeds 100 000 nodes"));
         }
         let dict = idx.dict(node_id, CODE_PARSE, &format!("page node {node_id}"))?;
-        let typ = find_dict_value(dict, "Type")
-            .map(|b| String::from_utf8_lossy(b.trim_ascii()).into_owned())
-            .unwrap_or_default();
-        if typ.starts_with("/Pages") {
-            let kids = find_dict_value(dict, "Kids")
+        if find_dict_value(dict, "Type").is_some_and(|typ| is_name(typ, b"/Pages")) {
+            let kids = idx
+                .value(dict, "Kids")
+                .and_then(|kids| idx.resolve(kids))
                 .ok_or_else(|| err(CODE_PARSE, "/Pages node missing /Kids"))?;
             let mut kid_ancestors = Vec::with_capacity(ancestors.len() + 1);
             kid_ancestors.push(node_id);
             kid_ancestors.extend_from_slice(&ancestors);
-            let mut kid_ids: Vec<u32> = parse_ref_array(kids)
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect();
+            let mut kid_ids = array_elements(kids)
+                .map(|kid| {
+                    parse_indirect_ref(kid).map(|(id, _)| id).ok_or_else(|| {
+                        err(
+                            CODE_PARSE,
+                            format!("page node {node_id} /Kids holds a non-reference"),
+                        )
+                    })
+                })
+                .collect::<Result<Vec<u32>, _>>()?;
             kid_ids.reverse();
             stack.extend(kid_ids.into_iter().map(|id| (id, kid_ancestors.clone())));
         } else {
@@ -923,36 +966,6 @@ pub(crate) fn assert_unrotated_pages<'p>(
         }
     }
     Ok(())
-}
-
-pub(crate) fn parse_ref_array(bytes: &[u8]) -> Vec<(u32, u16)> {
-    let mut s = bytes;
-    if let Some(l) = s.iter().position(|&b| b == b'[') {
-        s = &s[l + 1..];
-    }
-    if let Some(r) = s.iter().position(|&b| b == b']') {
-        s = &s[..r];
-    }
-    let mut out = Vec::new();
-    let mut cur = s;
-    loop {
-        cur = skip_ws(cur);
-        if cur.is_empty() {
-            break;
-        }
-        match parse_indirect_ref(cur) {
-            Some((id, generation)) => {
-                out.push((id, generation));
-                if let Some(pos) = cur.iter().position(|&b| b == b'R') {
-                    cur = &cur[pos + 1..];
-                } else {
-                    break;
-                }
-            }
-            None => break,
-        }
-    }
-    out
 }
 
 /// Parse a 4-number array (`[x0 y0 x1 y1]`) such as `/MediaBox`.
@@ -1191,6 +1204,38 @@ mod tests {
     }
 
     #[test]
+    fn a_name_reads_through_its_escapes() {
+        let dict = b"/Acro#46orm 7 0 R /Ty#70e /P#61ges /X #23";
+        assert_eq!(find_dict_value(dict, "AcroForm"), Some(&b"7 0 R"[..]));
+        assert!(is_name(find_dict_value(dict, "Type").unwrap(), b"/Pages"));
+        assert!(is_name(b"/A#2", b"/A#2") && !is_name(b"/A#zz", b"/A"));
+        assert_eq!(
+            set_dict_value(b"/Acro#46orm null /X 1", "AcroForm", b"9 0 R"),
+            b"/AcroForm 9 0 R /X 1"
+        );
+        let pdf = b"%PDF\n1 0 obj\n<< /AcroForm 1 /Acro#46orm 2 >>\nendobj\n";
+        let e = ObjectIndex::new(pdf)
+            .dict(1, CODE_PARSE, "catalog")
+            .expect_err("a key named twice in two spellings");
+        assert_eq!(e.code, CODE_PARSE);
+    }
+
+    #[test]
+    fn a_comment_stands_for_white_space_inside_a_reference() {
+        assert_eq!(parse_indirect_ref(b"%a\n7 %b\r0%c\nR"), Some((7, 0)));
+        assert_eq!(
+            find_dict_value(b"/Pages 2 %c\n0 R /X 1", "Pages"),
+            Some(&b"2 %c\n0 R"[..])
+        );
+        let pdf = b"%PDF\n1 0 obj\n<< /Type /Catalog /Pages 2 %c\n0 R >>\nendobj\n\
+                    2 0 obj\n<< /Type /Pages /Kids [3 %c\n0 R %c\n4 0\n%c\nR] /Count 2 >>\nendobj\n\
+                    3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n\
+                    4 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n";
+        let pages = walk_page_tree(&ObjectIndex::new(pdf), 1).expect("page tree walks");
+        assert_eq!(pages.iter().map(|page| page.id).collect::<Vec<_>>(), [3, 4]);
+    }
+
+    #[test]
     fn a_dict_holding_a_stray_token_or_a_key_with_no_value_is_refused() {
         for inner in [
             "/Lang /en{US} /AcroForm 7 0 R",
@@ -1281,13 +1326,6 @@ mod tests {
         let dict = b" /Arr [1 2 %x]\n 3] /After (real) ";
         let after = find_dict_value(dict, "After").expect("/After after the array");
         assert_eq!(after.trim_ascii(), b"(real)");
-    }
-
-    #[test]
-    fn ref_array_parses_basic() {
-        let bytes = b"[5 0 R 7 0 R 9 0 R]";
-        let v = parse_ref_array(bytes);
-        assert_eq!(v, vec![(5u32, 0u16), (7, 0), (9, 0)]);
     }
 
     #[test]

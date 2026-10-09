@@ -61,8 +61,8 @@ pub struct BasePdf {
     annots: Vec<Annot>,
     indirect_annots: bool,
     acroform: bool,
-    catalog_entries: Vec<(&'static str, Vec<u8>)>,
-    page_entries: Vec<(&'static str, Vec<u8>)>,
+    catalog_entries: Vec<(String, Vec<u8>)>,
+    page_entries: Vec<(String, Vec<u8>)>,
     null_object: bool,
     raw_object: Option<Vec<u8>>,
     pretty: bool,
@@ -146,15 +146,15 @@ impl BasePdf {
     /// `/key` followed by `value`'s bytes on the catalog, in place of any value
     /// this builder writes there: a spelling pdf-writer does not write, such as
     /// a NUL before the value or a comment glued to it.
-    pub fn catalog_raw(mut self, key: &'static str, value: impl Into<Vec<u8>>) -> Self {
-        self.catalog_entries.push((key, value.into()));
+    pub fn catalog_raw(mut self, key: impl Into<String>, value: impl Into<Vec<u8>>) -> Self {
+        self.catalog_entries.push((key.into(), value.into()));
         self
     }
 
     /// [`catalog_raw`](Self::catalog_raw) on every page. The page tree keeps
     /// its own `/MediaBox`, so a page nulling its one inherits it.
-    pub fn page_raw(mut self, key: &'static str, value: impl Into<Vec<u8>>) -> Self {
-        self.page_entries.push((key, value.into()));
+    pub fn page_raw(mut self, key: impl Into<String>, value: impl Into<Vec<u8>>) -> Self {
+        self.page_entries.push((key.into(), value.into()));
         self
     }
 
@@ -357,8 +357,8 @@ fn annotate(mut annot: Annotation<'_>, subtype: AnnotationType) {
     annot.subtype(subtype).rect(Rect::new(10.0, 40.0, 30.0, 60.0));
 }
 
-fn names(entries: &[(&str, Vec<u8>)], key: &str) -> bool {
-    entries.iter().any(|&(name, _)| name == key)
+fn names(entries: &[(String, Vec<u8>)], key: &str) -> bool {
+    entries.iter().any(|(name, _)| name == key)
 }
 
 /// `pdf` with `/key` and `value` written last in object `id`'s dictionary.
