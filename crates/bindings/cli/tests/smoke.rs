@@ -170,7 +170,8 @@ card_kinds:
 }
 
 /// A warning on the example fails the quill, which it fails on no canonical
-/// document, and a config-only validate reads the example too.
+/// document, and a config-only validate reads the example too: a validation
+/// warning, a markdown drop and a declined construct alike.
 #[test]
 fn validate_fails_a_quill_whose_example_warns() {
     let dir = quill_with_config(
@@ -190,7 +191,7 @@ fn validate_fails_a_quill_whose_example_warns() {
 
     std::fs::write(
         dir.path().join("example.md"),
-        "~~~\n$quill: w\ntitel: A made-up title\n~~~\n",
+        "~~~\n$quill: w\ntitel: A made-up title\n~~~\n\n<span>x</span> ![a](a.png)\n",
     )
     .expect("write example.md");
 
@@ -199,11 +200,14 @@ fn validate_fails_a_quill_whose_example_warns() {
         let out = run(args);
         assert_eq!(out.status.code(), Some(1), "{args:?} exited {:?}", out.status.code());
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(
-            stderr.contains("cli::example_not_clean")
-                && stderr.contains("validation::unknown_field"),
-            "{args:?}: {stderr}"
-        );
+        for code in [
+            "cli::example_not_clean",
+            "validation::unknown_field",
+            "parse::dropped_construct",
+            "validation::declined_construct",
+        ] {
+            assert!(stderr.contains(code), "{args:?} lacks {code}: {stderr}");
+        }
     }
 }
 

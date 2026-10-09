@@ -2403,5 +2403,23 @@ mod tests {
             }]
         );
         assert_eq!(dropped(&imported), [("quill-keep[onclick]", 1)]);
+
+        let imported = imp_fixed(
+            "<quill-keep note=\"a\" note=\"b\" class=\"c\">\n\nx\n\n</quill-keep>\n\n\
+             <quill-keep CLASS=\"d\">\n\ny\n\n</quill-keep>",
+        );
+        let attrs: Vec<_> = imported.content.lines.iter().map(|l| &l.containers).collect();
+        assert_eq!(
+            attrs,
+            [
+                &vec![Container::Element {
+                    name: "keep".into(),
+                    attrs: [("note".to_string(), "a".to_string())].into(),
+                    instance: 0,
+                }],
+                &vec![Container::Element { name: "keep".into(), attrs: [].into(), instance: 0 }],
+            ]
+        );
+        assert_eq!(dropped(&imported), [("quill-keep[note]", 1), ("quill-keep[class]", 2)]);
     }
 }
