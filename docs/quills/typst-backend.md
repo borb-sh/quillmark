@@ -141,7 +141,7 @@ The dispatcher reads the registry's final value, so the update may stand anywher
 
 ### Tables
 
-A table in content lowers to a call of Typst's `table`, so `#set table(..)` and `#show table: ..` reach it. The call always passes `columns`, and passes `align` where the document aligns a column, so a set rule's `columns` never applies and its `align` applies only to a table aligning no column. A `qm-table` wrapper's `widths` lower to `fr` tracks, `auto` for an auto-fit column, and its `align` places the table with `align(..)` without moving the text in its cells.
+A table in content lowers to a call of Typst's `table`, so `#set table(..)` and `#show table: ..` reach it. The call always passes `columns`, and passes `align` where the document aligns a column, so a set rule's `columns` never applies and its `align` applies only to a table aligning no column. A `qm-table` wrapper's `widths` lower to `fr` tracks, `auto` for an auto-fit column, and its `align` places the table with `align(..)` without moving the text in its cells. A `qm-cell` pair's `align` and `valign` lower to `table.cell(align: ..)`, `middle` as `horizon`, which Typst combines with the column's alignment, so `valign="bottom"` in a right-aligned column draws at the bottom right.
 
 ## Modules
 

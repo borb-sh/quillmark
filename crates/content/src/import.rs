@@ -28,7 +28,9 @@
 //! - Raw HTML produces no content beyond the allowlist and the carrier. An HTML
 //!   block drops whole, as CommonMark runs it; one of tag lines alone passes
 //!   its carrier tags on. A `qm-table` wrapper pairs as an element does,
-//!   and folds its attributes into the props of the one table it wraps.
+//!   and folds its attributes into the props of the one table it wraps. A
+//!   `qm-cell` pair around a table cell's whole content folds its attributes
+//!   into the cell.
 //! - A `qm-*` element the carrier does not reserve is modeled: a pair of tag
 //!   lines wraps the blocks between them in a [`Container::Element`]. One left
 //!   unclosed drops, what it wraps importing as written.
@@ -98,10 +100,12 @@ pub enum Dropped {
     /// `qm-table[<attr>]`.
     TableAttr(String),
     /// An element left unclosed, self-closing, inside a line or tight against
-    /// markdown: `qm-<name>`.
+    /// markdown, a `qm-cell` pair among them unless it wraps a whole table
+    /// cell: `qm-<name>`.
     Element(String),
     /// An element attribute outside the grammar, or one repeating a name
-    /// already read: `qm-<name>[<attr>]`.
+    /// already read, and a `qm-cell` attribute the cell does not fold:
+    /// `qm-<name>[<attr>]`.
     ElementAttr { element: String, attr: String },
 }
 
@@ -401,6 +405,85 @@ struct TableAcc {
     /// cells, but a cell has no island slot to carry one; while `> 0` the
     /// image's alt flows into the cell as plain text and its url is dropped.
     img_depth: usize,
+    /// The current cell's `qm-cell` tags.
+    pair: CellPair,
+}
+
+/// A table cell's `qm-cell` tags as they arrive. The pair folds when its open
+/// tag is the cell's first inline and its close tag the cell's last.
+#[derive(Default)]
+struct CellPair {
+    state: PairState,
+    /// Each open tag's offset, reported where no pair folds.
+    opens: Vec<usize>,
+}
+
+#[derive(Default)]
+enum PairState {
+    #[default]
+    Empty,
+    Open(carrier::Attrs),
+    Closed(carrier::Attrs),
+    /// Content before the pair or after it, or a tag no pair takes.
+    Spoiled,
+}
+
+impl CellPair {
+    fn open(&mut self, attrs: carrier::Attrs, at: usize) {
+        self.opens.push(at);
+        self.state = match std::mem::take(&mut self.state) {
+            PairState::Empty => PairState::Open(attrs),
+            _ => PairState::Spoiled,
+        };
+    }
+
+    fn close(&mut self) {
+        self.state = match std::mem::take(&mut self.state) {
+            PairState::Open(attrs) => PairState::Closed(attrs),
+            _ => PairState::Spoiled,
+        };
+    }
+
+    /// Any other inline the cell reads.
+    fn content(&mut self) {
+        if !matches!(self.state, PairState::Open(_)) {
+            self.state = PairState::Spoiled;
+        }
+    }
+
+    /// The attributes of the pair wrapping the whole cell, and its open tag's
+    /// offset. Where none does, each open tag drops as `qm-cell`.
+    fn finish(self, dropped: &mut Drops) -> Option<(carrier::Attrs, usize)> {
+        match self.state {
+            PairState::Closed(attrs) => Some((attrs, self.opens[0])),
+            _ => {
+                for at in self.opens {
+                    dropped.add(Dropped::Element(CELL.into()), at);
+                }
+                None
+            }
+        }
+    }
+}
+
+/// The element name a table cell's pair carries.
+const CELL: &str = "cell";
+
+/// Fold a `qm-cell` pair's attributes into `cell`, each one the cell does not
+/// name or cannot read dropping alone.
+fn fold_cell(cell: &mut serde_json::Value, attrs: carrier::Attrs, at: usize, dropped: &mut Drops) {
+    let attr = |attr: String| Dropped::ElementAttr { element: CELL.into(), attr };
+    for name in attrs.refused {
+        dropped.add(attr(name), at);
+    }
+    for (name, value) in attrs.values {
+        match (carrier::cell::key(&name, &value), cell.as_object_mut()) {
+            (Some(v), Some(o)) => {
+                o.insert(name, v);
+            }
+            _ => dropped.add(attr(name), at),
+        }
+    }
 }
 
 fn align_str(a: &pulldown_cmark::Alignment) -> &'static str {
@@ -748,6 +831,7 @@ impl Builder {
                     in_head: false,
                     cell: None,
                     img_depth: 0,
+                    pair: CellPair::default(),
                 });
             }
             Tag::Emphasis => {
@@ -822,6 +906,21 @@ impl Builder {
     /// open tag drops, and any other close tag drops silently.
     fn carrier_tag(&mut self, tag: CarrierTag) -> Result<(), ImportError> {
         let CarrierTag { wrapper, attrs, block, at } = tag;
+        if let Some(acc) = self.table.as_mut().filter(|acc| acc.cell.is_some()) {
+            match (&wrapper, attrs) {
+                (Wrapper::Element(name), attrs) if name == CELL && acc.img_depth == 0 => match attrs {
+                    Some(attrs) => acc.pair.open(attrs, at),
+                    None => acc.pair.close(),
+                },
+                (_, attrs) => {
+                    acc.pair.content();
+                    if attrs.is_some() {
+                        self.dropped.add(wrapper.dropped(), at);
+                    }
+                }
+            }
+            return Ok(());
+        }
         if self.image_depth > 0 || self.table.is_some() || !block {
             if attrs.is_some() {
                 self.dropped.add(wrapper.dropped(), at);
@@ -937,6 +1036,9 @@ impl Builder {
             return Ok(());
         }
         if let Some(acc) = self.table.as_mut() {
+            if acc.cell.is_some() {
+                acc.pair.content();
+            }
             if let Some(cell) = acc.cell.as_mut().filter(|_| acc.img_depth == 0) {
                 cell.underline(tag);
             }
@@ -1024,6 +1126,9 @@ impl Builder {
         let Some(acc) = self.table.as_mut() else {
             return;
         };
+        if acc.cell.is_some() && !matches!(event, Event::End(TagEnd::TableCell)) {
+            acc.pair.content();
+        }
         // An image open inside the current cell intercepts everything until it
         // closes: the alt lands as plain text and the url is dropped, a cell
         // having no slot to carry an image.
@@ -1055,7 +1160,10 @@ impl Builder {
                     acc.rows.push(row);
                 }
             }
-            Event::Start(Tag::TableCell) => acc.cell = Some(Inline::default()),
+            Event::Start(Tag::TableCell) => {
+                acc.cell = Some(Inline::default());
+                acc.pair = CellPair::default();
+            }
             Event::End(TagEnd::TableCell) => {
                 if let Some(mut cell) = acc.cell.take() {
                     // Close any marks pulldown left open (malformed input).
@@ -1063,8 +1171,11 @@ impl Builder {
                         cell.close_mark();
                     }
                     cell.drop_open(&mut self.dropped);
-                    acc.cur_row
-                        .push(crate::serial::cell_to_value(&cell.text, &cell.marks));
+                    let mut value = crate::serial::cell_to_value(&cell.text, &cell.marks);
+                    if let Some((attrs, at)) = std::mem::take(&mut acc.pair).finish(&mut self.dropped) {
+                        fold_cell(&mut value, attrs, at, &mut self.dropped);
+                    }
+                    acc.cur_row.push(value);
                 }
             }
             // Inline content of the open cell. A hard break is a `\n` in the
@@ -2177,6 +2288,119 @@ mod tests {
             got.sort();
             assert_eq!(got, *warned, "{md:?}");
             assert_eq!(layout(&imported.content), *kept, "{md:?}");
+        }
+    }
+
+    /// Each table cell's `align` and `valign`, header then body.
+    fn cell_alignments(rt: &Normalized) -> Vec<serde_json::Value> {
+        let [island] = rt.islands.as_slice() else {
+            panic!("one island expected: {:?}", rt.islands);
+        };
+        crate::serial::table_cell_values(&island.props)
+            .map(|cell| {
+                let keys = cell.as_object().unwrap().iter().filter(|(k, _)| ["align", "valign"].contains(&k.as_str()));
+                serde_json::Value::Object(keys.map(|(k, v)| (k.clone(), v.clone())).collect())
+            })
+            .collect()
+    }
+
+    /// What a pair wraps imports as the cell would without it, edge
+    /// whitespace aside, and an alignment equal to its column's stays.
+    #[test]
+    fn a_cell_pair_around_a_whole_cell_folds_its_alignment() {
+        use serde_json::json;
+        let cases: &[(&str, &str, serde_json::Value)] = &[
+            ("<qm-cell align=\"right\">1</qm-cell>", "1", json!({"align": "right"})),
+            ("<qm-cell valign=middle>1</qm-cell>", "1", json!({"valign": "middle"})),
+            (
+                "<QM-CELL VALIGN='bottom' align=\"center\">**1** <u>x</u><br>y</QM-CELL>",
+                "**1** <u>x</u><br>y",
+                json!({"align": "center", "valign": "bottom"}),
+            ),
+            ("<qm-cell align=\"left\"></qm-cell>", "", json!({"align": "left"})),
+            ("<qm-cell valign=\"top\">`a\\|b` [c](u)</qm-cell>", "`a\\|b` [c](u)", json!({"valign": "top"})),
+        ];
+        let row = |cell: &str| format!("| <qm-cell align=\"center\">h</qm-cell> | b |\n|---|:-:|\n| {cell} | 2 |");
+        for (cell, inner, keys) in cases {
+            let md = row(cell);
+            let imported = imp_fixed(&md);
+            assert_eq!(dropped(&imported), [], "{md:?}");
+            let want = [json!({"align": "center"}), json!({}), keys.clone(), json!({})];
+            assert_eq!(cell_alignments(&imported.content), want, "{md:?}");
+            let bare = from_markdown(&row(inner)).unwrap().content;
+            let cells = |rt: &Normalized| crate::serial::table_cells(&rt.islands[0].props);
+            assert_eq!(cells(&imported.content), cells(&bare), "{md:?}");
+        }
+
+        let edges = imp_fixed("| h |\n|---|\n| <qm-cell valign=\"top\"> a </qm-cell> |");
+        assert_eq!(table_rows(&edges.content), [[" a "]]);
+
+        let rt = imp_fixed("| h |\n|:-:|\n| <qm-cell valign=\"bottom\" align=\"center\">**a**</qm-cell> |").content;
+        assert_eq!(
+            crate::export::to_markdown(&rt),
+            "| h |\n| :---: |\n| <qm-cell align=\"center\" valign=\"bottom\">**a**</qm-cell> |"
+        );
+    }
+
+    /// A pair folds only around its cell's whole content; any other `qm-cell`
+    /// tag drops, each open tag reported, and the cell keeps what it wraps.
+    #[test]
+    fn a_cell_pair_that_does_not_wrap_its_whole_cell_drops() {
+        let r = "<qm-cell align=\"right\">";
+        let l = "<qm-cell align=\"left\">";
+        let cases = [
+            (format!("{r}a</qm-cell> b"), "a b", 1),
+            (format!("a {r}b</qm-cell>"), "a b", 1),
+            (format!("{r}a</qm-cell>**b**"), "ab", 1),
+            (format!("{r}a</qm-cell>{l}b</qm-cell>"), "ab", 2),
+            (format!("{r}{l}a</qm-cell></qm-cell>"), "a", 2),
+            (format!("{r}a"), "a", 1),
+            (format!("{r}a</qm-cell></qm-cell>"), "a", 1),
+            ("<qm-cell align=\"right\"/>a".to_string(), "a", 1),
+            (format!("**{r}a</qm-cell>**"), "a", 1),
+            (format!("{r}**a</qm-cell>**"), "a", 1),
+            (format!("![{r}a</qm-cell>](u)"), "a", 1),
+            ("</qm-cell>a".to_string(), "a", 0),
+        ];
+        for (cell, text, count) in &cases {
+            let md = format!("| h |\n| --- |\n| {cell} |");
+            let imported = imp_fixed(&md);
+            let want: &[(&str, usize)] = if *count == 0 { &[] } else { &[("qm-cell", *count)] };
+            assert_eq!(dropped(&imported), want, "{md:?}");
+            assert_eq!(table_rows(&imported.content), [[*text]], "{md:?}");
+            assert_eq!(cell_alignments(&imported.content), vec![serde_json::json!({}); 2], "{md:?}");
+        }
+
+        let prose = imp_fixed(&format!("a {r}b</qm-cell> c"));
+        assert_eq!(dropped(&prose), [("qm-cell", 1)]);
+        assert_eq!(prose.content.text, "a b c");
+
+        let block = imp_fixed("<qm-cell align=\"right\">\n\npara\n\n</qm-cell>");
+        assert_eq!(dropped(&block), []);
+        assert!(matches!(
+            &block.content.lines[0].containers[..],
+            [Container::Element { name, .. }] if name == "cell"
+        ));
+    }
+
+    #[test]
+    fn a_cell_pair_drops_each_attribute_it_cannot_read() {
+        use serde_json::json;
+        let cases: &[(&str, &[(&str, usize)], serde_json::Value)] = &[
+            ("align=\"middle\" valign=\"middle\"", &[("qm-cell[align]", 1)], json!({"valign": "middle"})),
+            ("valign=\"horizon\" align=\"left\"", &[("qm-cell[valign]", 1)], json!({"align": "left"})),
+            ("foo=\"1\" style=\"x\" align=\"center\"", &[("qm-cell[foo]", 1), ("qm-cell[style]", 1)], json!({"align": "center"})),
+            ("align=\"left\" align=\"right\"", &[("qm-cell[align]", 1)], json!({"align": "left"})),
+            ("align=\"Right\" valign", &[("qm-cell[align]", 1), ("qm-cell[valign]", 1)], json!({})),
+        ];
+        for (attrs, warned, kept) in cases {
+            let md = format!("| h |\n|---|\n| <qm-cell {attrs}>1</qm-cell> |");
+            let imported = imp_fixed(&md);
+            let mut got = dropped(&imported);
+            got.sort();
+            assert_eq!(got, *warned, "{md:?}");
+            assert_eq!(cell_alignments(&imported.content), [json!({}), kept.clone()], "{md:?}");
+            assert_eq!(table_rows(&imported.content), [["1"]], "{md:?}");
         }
     }
 

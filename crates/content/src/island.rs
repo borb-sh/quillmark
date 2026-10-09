@@ -14,6 +14,7 @@ pub enum IslandType {
     /// `{header, rows, aligns}` with inline `{text, marks}` cells, a `\n` in a
     /// cell's text being a line break, and the optional layout keys `widths`
     /// (a weight or `null` per column) and `align` (one of [`TABLE_ALIGNS`]).
+    /// A cell's optional `align` and `valign` are its [alignment](cell_alignment).
     /// Mark-carrying, shape-normalized (one column count, `\n` the only
     /// line-break char a cell keeps, each layout key absent at its default).
     Table,
@@ -21,8 +22,23 @@ pub enum IslandType {
     Image,
 }
 
-/// The values of a table's `align` key, its placement.
+/// The values of a table's `align` key, its placement, and of a cell's, its
+/// horizontal alignment.
 pub const TABLE_ALIGNS: [&str; 3] = ["left", "center", "right"];
+
+/// The values of a table cell's `valign` key, its vertical alignment.
+pub const CELL_VALIGNS: [&str; 3] = ["top", "middle", "bottom"];
+
+/// A table cell's `align` and `valign`, each `None` where the cell holds no
+/// value in its set. Normalization leaves both keys as stored, so a value
+/// outside its set rides as any key the engine does not name does.
+pub fn cell_alignment(cell: &Value) -> (Option<&'static str>, Option<&'static str>) {
+    let read = |key: &str, set: &[&'static str]| {
+        let value = cell.get(key)?.as_str()?;
+        set.iter().copied().find(|v| *v == value)
+    };
+    (read("align", &TABLE_ALIGNS), read("valign", &CELL_VALIGNS))
+}
 
 impl IslandType {
     /// Every known type, for a reader that needs the closed set whole.
@@ -165,6 +181,29 @@ mod tests {
             let once = props.clone();
             IslandType::Table.normalize_props(&mut props);
             assert_eq!(props, once, "{key}: {value} is not a fixed point");
+        }
+    }
+
+    /// Normalization leaves a cell's `align` and `valign` as stored, an
+    /// alignment equal to its column's and a value outside its set included,
+    /// and the read takes only a value in its set.
+    #[test]
+    fn a_cells_alignment_rides_normalization_as_stored() {
+        use serde_json::json;
+        let keys = [
+            (json!({"align": "right", "valign": "middle"}), (Some("right"), Some("middle"))),
+            (json!({"align": "middle", "valign": "horizon"}), (None, None)),
+            (json!({"align": ["left"], "valign": 1}), (None, None)),
+        ];
+        for (keys, read) in keys {
+            let mut cell = json!({"text": "c", "marks": []});
+            cell.as_object_mut().unwrap().extend(keys.as_object().unwrap().clone());
+            let mut props = json!({"aligns": ["right"], "header": [cell.clone()], "rows": [[cell.clone()]]});
+            IslandType::Table.normalize_props(&mut props);
+            for at in ["/header/0", "/rows/0/0"] {
+                assert_eq!(props.pointer(at), Some(&cell), "{keys} at {at}");
+                assert_eq!(cell_alignment(props.pointer(at).unwrap()), read, "{keys} at {at}");
+            }
         }
     }
 }
