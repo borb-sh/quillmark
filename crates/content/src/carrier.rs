@@ -130,14 +130,14 @@ fn entity(s: &str) -> Option<(char, usize)> {
 }
 
 /// The element a [`Container::Element`](crate::model::Container::Element)
-/// spells: `None` for a
-/// name outside the grammar or [reserved](RESERVED), or an attribute name
-/// outside its grammar, none of which the import models.
-pub fn modeled(name: &str, attrs: &BTreeMap<String, String>) -> Option<Element> {
+/// spells, or what the carrier refuses of it: a name outside the grammar or
+/// [reserved](RESERVED), or an attribute name outside its grammar, none of
+/// which the import models or the wires read.
+pub fn modeled(name: &str, attrs: &BTreeMap<String, String>) -> Result<Element, Refused> {
     if RESERVED.contains(&name) {
-        return None;
+        return Err(Refused::Reserved(name.to_string()));
     }
-    Element::new(name, attrs.clone()).ok()
+    Element::new(name, attrs.clone())
 }
 
 /// A name or attribute an [`Element`] refuses.
@@ -145,6 +145,8 @@ pub fn modeled(name: &str, attrs: &BTreeMap<String, String>) -> Option<Element> 
 pub enum Refused {
     /// Not an [element name](is_element_name).
     Name(String),
+    /// A [reserved](RESERVED) name, which no stored element carries.
+    Reserved(String),
     /// Not an [attribute name](is_attr_name).
     Attr(String),
 }
@@ -153,6 +155,7 @@ impl std::fmt::Display for Refused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Refused::Name(n) => write!(f, "`{n}` is not a carrier element name"),
+            Refused::Reserved(n) => write!(f, "`{n}` is a reserved carrier name"),
             Refused::Attr(a) => write!(f, "`{a}` is not a carrier attribute name"),
         }
     }

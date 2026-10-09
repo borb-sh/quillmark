@@ -690,6 +690,11 @@ pub enum Invariant {
     /// depth is reported, since the check bails at the first over-deep
     /// container.
     JsonTooDeep { what: &'static str, max: usize },
+    /// A [`Container::Element`] the carrier does not
+    /// [model](crate::carrier::modeled). Both wires refuse it ahead of the
+    /// model ([`ParseError::Shape`](crate::serial::ParseError::Shape)), so only
+    /// a Rust caller spelling the element reaches this.
+    BadElement(crate::carrier::Refused),
 }
 
 /// Whether a line's text contradicts its `kind`, which [`Content::normalize`]
@@ -1083,6 +1088,11 @@ impl Content {
                     depth: line.containers.len(),
                     max: crate::MAX_NESTING_DEPTH,
                 });
+            }
+            for c in &line.containers {
+                if let Container::Element { name, attrs, .. } = c {
+                    crate::carrier::modeled(name, attrs).map_err(Invariant::BadElement)?;
+                }
             }
         }
         // Table-cell marks: the prose range rule again, but each mark is bounded
@@ -1544,6 +1554,38 @@ mod tests {
                 islands: 0
             })
         );
+    }
+
+    /// `validate` is what a store checks before it writes: an element it passes
+    /// loads back as itself, and one it refuses never does.
+    #[test]
+    fn validate_refuses_the_elements_storage_cannot_read_back() {
+        use crate::carrier::Refused;
+        let element = |name: &str, attr: &str| {
+            let mut line = Line::new(LineKind::Para);
+            line.containers = vec![Container::Element {
+                name: name.into(),
+                attrs: [(attr.to_string(), "v".to_string())].into(),
+                instance: 0,
+            }];
+            Content::new("x".into(), vec![line])
+        };
+        let cases = [
+            (element("keep", "note"), None),
+            (element("keep", "name"), None),
+            (element("Keep", "note"), Some(Refused::Name("Keep".into()))),
+            (element("table", "widths"), Some(Refused::Reserved("table".into()))),
+            (element("anchor", "ref"), Some(Refused::Reserved("anchor".into()))),
+            (element("keep", "style"), Some(Refused::Attr("style".into()))),
+            (element("keep", "$name"), Some(Refused::Attr("$name".into()))),
+        ];
+        for (content, refused) in cases {
+            let stored = content.clone().into_normalized();
+            let loaded = crate::serial::from_canonical_value(&crate::serial::to_canonical_value(&stored));
+            let reads_back = loaded.as_ref() == Ok(&stored);
+            assert_eq!(reads_back, refused.is_none(), "{:?}", content.lines[0].containers);
+            assert_eq!(content.validate(), refused.map_or(Ok(()), |r| Err(Invariant::BadElement(r))));
+        }
     }
 
     #[test]
