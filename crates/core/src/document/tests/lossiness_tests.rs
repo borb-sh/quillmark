@@ -139,7 +139,7 @@ fn a_body_import_warns_per_dropped_construct_at_the_body() {
     let src = "~~~\n$quill: q\n$kind: main\nfrom: !t A\n~~~\n\n\
                <div align=\"center\">\n| a | b |\n|---|---|\n</div>\n\
                <span>one</span> <span>two</span>\n\n\
-               ~~~\n$kind: note\nto: !t B\n~~~\n\ntext[^1]\n\n[^1]: Word\n";
+               ~~~\n$kind: note\nto: !t B\n~~~\n\ntext <kbd>K</kbd>\n";
     let out = Document::parse(src).unwrap();
     assert_eq!(
         anchors(&out),
@@ -162,7 +162,7 @@ fn a_body_import_warns_per_dropped_construct_at_the_body() {
         [
             (serde_json::json!("div"), serde_json::json!(1)),
             (serde_json::json!("span"), serde_json::json!(2)),
-            (serde_json::json!("footnote_definition"), serde_json::json!(1)),
+            (serde_json::json!("kbd"), serde_json::json!(1)),
         ]
     );
     assert!(out

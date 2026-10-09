@@ -381,7 +381,7 @@ proptest! {
         prop_assert_eq!(element(tag.name), Some(name));
         prop_assert_eq!(&decode_attrs(&tag.attrs), &read);
 
-        let block = normalize_markdown(&e.wrap_block("word"), options()).text;
+        let block = normalize_markdown(&e.wrap_block("word"), options());
         let tag = html::tag_at(&block, 0).unwrap();
         prop_assert_eq!(&decode_attrs(&tag.attrs), &read, "{:?}", block);
 

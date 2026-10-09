@@ -267,7 +267,7 @@ pub fn strip(markdown: &str) -> String {
     }
     marked.push_str(&markdown[at..]);
     let mut markup = vec![false; found.len()];
-    for name in markup_tag_names(&normalize_markdown(&marked, options).text, options) {
+    for name in markup_tag_names(&normalize_markdown(&marked, options), options) {
         let index = name.rsplit_once(MARK).and_then(|(_, k)| k.parse::<usize>().ok());
         let ours = |&k: &usize| found.get(k).is_some_and(|f| name == format!("{}{MARK}{k}", f.name));
         if let Some(k) = index.filter(ours) {

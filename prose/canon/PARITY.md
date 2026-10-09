@@ -165,7 +165,6 @@ above, or markup the content does not store.
 | `carrier.table.attr`: a `quill-table` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[foo]` |
 | `carrier.table.value`: a `quill-table` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `quill-table[widths]` |
 | `carrier.anchor`: an echoed `quill-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
-| `markdown.footnote_definition`: `[^1]: Word` | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `footnote_definition` |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
 | `markdown.cell_image`: an image in a table cell | drops silently | n/a | n/a | n/a | n/a | none |
 

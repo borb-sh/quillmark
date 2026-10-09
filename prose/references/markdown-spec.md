@@ -440,8 +440,7 @@ support may come in a future revision:
   system-metadata keys (§3.3).
 - Footnotes: not supported. A footnote-shaped definition (`[^1]: Word`) imports
   as CommonMark reads it, a link reference definition making `[^1]` a link to
-  `Word`, and the import reports each under `parse::dropped_construct` as
-  `footnote_definition`.
+  `Word`.
 - HTML comments: accepted syntactically, not rendered (see §6.2).
 - `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
   table cell: a hard break. In a paragraph, one with no text before it on its
