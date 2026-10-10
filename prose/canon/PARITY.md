@@ -60,7 +60,7 @@ import meets. The columns:
 | spells | the surface has a form for the construct and reads it back as written |
 | carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor by diff-rebase |
 | honors | the lowering draws it as CONVERT.md maps it |
-| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render under `backend::declined_construct`, or `typst::unregistered_element` for an element, `validate` under `validation::declined_construct` |
+| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render or `validate` under `backend::declined_construct`, or a render under `typst::unregistered_element` for an element |
 | refuses | the surface rejects the write |
 | silent: honored | no signal, and none is owed: the outcome is the one the construct asks for |
 | n/a | the surface never meets the construct: past the markdown column, a spelling the import does not store |
@@ -143,7 +143,7 @@ diff-rebase alone. The row's corpus entry pins the spelling under
 | `island.table.props.widths.auto`: every column auto-fit, the default | spells | spells | spells | silent: honored | silent: honored | none |
 | `island.table.props.align`: the table's placement | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.headless`: a table drawn with no header row | spells | spells | spells | honors | silent: honored | none |
-| `island.image` | spells | spells | spells | declines with a signal | declines with a signal | `backend::declined_construct`, `validation::declined_construct`, `image` |
+| `island.image` | spells | spells | spells | declines with a signal | declines with a signal | `backend::declined_construct`, `image` |
 
 A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
 mint it without a key the engine does not name.
@@ -239,8 +239,7 @@ fails:
   contains every `typst` substring.
 - A one-shot render warns exactly `signals.render`.
 - `Quill::validate` on that document reports exactly `signals.validate`, and
-  its `validation::declined_construct` list (path, construct, count) is the
-  render's `backend::declined_construct` list.
+  its `backend::declined_construct` diagnostics are the render's.
 - The matrix above has a row per entry and an entry per row, and a row's
   Markdown, Typst lowering and Validate cells read `declines with a signal`
   exactly where the entry's signals warn there, its Signal cell naming each

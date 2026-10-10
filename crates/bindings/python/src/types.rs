@@ -48,9 +48,8 @@ impl PyQuillmark {
     /// a plate's `datetime.today()`.
     ///
     /// The result's `warnings` are every `quill.validate(doc)` warning but
-    /// `validation::declined_construct`, which the compile raises as
-    /// `backend::declined_construct`, then the compile's; the load's stay on
-    /// `doc.warnings`.
+    /// `backend::declined_construct`, then the compile's, a decline among them;
+    /// the load's stay on `doc.warnings`.
     #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, regions=false, today=None))]
     #[allow(clippy::too_many_arguments)]
     fn render(

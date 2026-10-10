@@ -596,11 +596,10 @@ impl Quillmark {
     }
 
     /// Render `doc` against `quill` in one shot: `open` + `LiveSession.render`,
-    /// with every `quill.validate` warning but `validation::declined_construct`,
-    /// which the compile raises as `backend::declined_construct`, ahead of the
-    /// compile's in `warnings`; the load's stay on `doc.warnings`. An unset
-    /// `output_format` falls back to the backend's first supported format.
-    /// `today` reads as on `open`.
+    /// with every `quill.validate` warning in `warnings`, a decline among the
+    /// compile's and the rest ahead of them; the load's stay on `doc.warnings`.
+    /// An unset `output_format` falls back to the backend's first supported
+    /// format. `today` reads as on `open`.
     #[wasm_bindgen(js_name = render)]
     pub fn render(
         &self,

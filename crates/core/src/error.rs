@@ -940,16 +940,15 @@ card_kinds:
             .find(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
             .expect("no `parse::dropped_construct` sample from the drop probe");
         add(crate::document::DROPPED_CONSTRUCT, sample.args.clone());
-        let declined = crate::backend::declined_construct(
-            "typst",
-            crate::quill::BlockConstruct::Image,
-            2,
-            &path.body(),
-        );
-        add("backend::declined_construct", declined.args.clone());
         add(
-            "validation::declined_construct",
-            crate::quill::compose::validated_decline(declined).args,
+            "backend::declined_construct",
+            crate::backend::declined_construct(
+                "typst",
+                crate::quill::BlockConstruct::Image,
+                2,
+                &path.body(),
+            )
+            .args,
         );
 
         out

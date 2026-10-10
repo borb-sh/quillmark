@@ -182,12 +182,14 @@ families:
   malformed input, and the document does not render; a `Warning` is unclaimed
   input, which renders. The warnings are
   `cardinality`, `out_of_variant`, `unknown_card`, `body_disabled`,
-  `unknown_field`, `declined_construct`, and the
+  `unknown_field`, and the
   `$seed` checks, which warn
-  whatever their class because no render reads `$seed`.
+  whatever their class because no render reads `$seed`. Beside them it
+  returns the `backend::declined_construct` warnings a render raises.
   The render gate consults only the fatal set. A one-shot render
-  (`Quillmark::render`) carries every one of these warnings but
-  `declined_construct` on `RenderResult.warnings`, ahead of the compile's. A
+  (`Quillmark::render`) carries every one of these warnings on
+  `RenderResult.warnings`, the declines among the compile's and the rest
+  ahead of them. A
   session carries none: its warnings are its current compile's, so its editor
   reads `Quill::validate` beside it. The CLI's `render` prints them
   ([CLI.md](CLI.md)). Values
@@ -198,18 +200,14 @@ families:
   (content field, construct) carrying `backend`, `construct` and `count` in
   `args` and the field's `DocPath` in `path`, minted by
   `quillmark_core::backend::declined_construct`. Raised at the compile that
-  dropped the construct, so it rides the session's compile warnings. The Typst
+  dropped the construct, so it rides the session's compile warnings, and
+  `LiveSession` mints it from the plate data rather than the backend. The Typst
   backend declines `image` in content
   ([CONVERT.md](CONVERT.md#declined-images)), and the acroform backend every
   construct but the paragraph. `quillmark_core::backend::declines` is the
-  table, keyed by backend id.
-- **`validation::declined_construct`: the decline, ahead of the render.**
-  `Quill::validate` walks every content field and body the render would
-  draw, schema defaults and coercion applied, against the quill's backend's
-  row of that table and warns once per (field, construct), with
-  `construct` and `count` in `args` and the field's `DocPath` in `path`: the
-  warning the render raises as `backend::declined_construct`. A one-shot
-  render leaves it out of `RenderResult.warnings`, which carry the backend's.
+  table, keyed by backend id. `Quill::validate` walks the plate a render
+  compiles, schema defaults and coercion applied, and returns the same
+  diagnostics, byte for byte, before any render.
 - **`typst::unregistered_element`: an element no renderer takes.** The Typst
   compile warns once per (content field, element name) the helper's dispatcher
   drew as what it wraps ([CONVERT.md](CONVERT.md#elements)), with the field's
@@ -442,7 +440,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::seed_unknown_field` | — | code-determined |
 | `validation::not_inline` | `trailingNewline`? | structured |
 | `validation::not_plain` | — | code-determined |
-| `validation::declined_construct` | `construct`, `count` | structured |
 | `edit::invalid_field_name` | `field` | structured |
 | `edit::unknown_field` | `field` | structured |
 | `edit::invalid_kind_name` | `kind` | structured |

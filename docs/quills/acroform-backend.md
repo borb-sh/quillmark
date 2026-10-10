@@ -192,7 +192,7 @@ A container has no widget shape of its own; the cells inside it do, and each bin
 
 `multiline` on a text widget comes from the schema field's `ui.multiline`, and a value holding a newline (a richtext of two paragraphs, a block scalar) widens it to multiline whatever the schema said, so the file shows every line the preview does.
 
-A text widget takes a richtext value's plaintext: the backend draws paragraphs and nothing else. A heading, rule, code block, list, quote, table or image in a content field warns `validation::declined_construct` at `validate` and `backend::declined_construct` at render, once per field and construct. The text of a heading, code block, list or quote still lands as lines; a rule, table or image lands as nothing.
+A text widget takes a richtext value's plaintext: the backend draws paragraphs and nothing else. A heading, rule, code block, list, quote, table or image in a content field warns `backend::declined_construct` at `validate` and at render, once per field and construct. The text of a heading, code block, list or quote still lands as lines; a rule, table or image lands as nothing.
 
 ### Top-left coordinates
 

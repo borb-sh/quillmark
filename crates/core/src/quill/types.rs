@@ -46,8 +46,8 @@ pub struct UiFieldSchema {
 }
 
 /// A block construct a body can hold, and the vocabulary
-/// [`backend::declined_construct`](crate::backend::declined_construct) and
-/// `validation::declined_construct` name one in: the block kinds the content
+/// [`backend::declined_construct`](crate::backend::declined_construct) names
+/// one in: the block kinds the content
 /// model distinguishes, minus the paragraph, which is the floor and cannot be
 /// declined, and the element, which a backend with no renderer for it draws
 /// as what it wraps.
@@ -74,34 +74,33 @@ impl BlockConstruct {
         Self::Image,
     ];
 
-    /// How many of this construct `content` holds: a heading, rule or code
-    /// block per block, a list or quote per container run at any depth, a
-    /// table or image per island.
-    pub fn count_in(self, content: &quillmark_content::model::Content) -> usize {
+    /// How many of each construct `content` holds, indexed by discriminant: a
+    /// heading, rule or code block per block, a list or quote per container
+    /// run at any depth, a table or image per island.
+    pub fn tally(content: &quillmark_content::model::Content) -> [usize; 7] {
         use quillmark_content::island::IslandType;
         use quillmark_content::model::{Container, LineKind};
-        let blocks = |is: fn(&LineKind) -> bool| {
-            content
-                .lines
-                .iter()
-                .filter(|l| is(&l.kind) && !l.continues)
-                .count()
-        };
-        let islands = |ty: IslandType| content.islands.iter().filter(|i| i.island_type == ty).count();
-        let all = 0..content.lines.len();
-        match self {
-            Self::Heading => blocks(|k| matches!(k, LineKind::Heading { .. })),
-            Self::Rule => blocks(|k| matches!(k, LineKind::Rule)),
-            Self::Code => blocks(|k| matches!(k, LineKind::Code { .. })),
-            Self::List => container_runs(&content.lines, all, 0, &|c| {
-                matches!(c, Container::ListItem { .. })
-            }),
-            Self::Quote => container_runs(&content.lines, all, 0, &|c| {
-                matches!(c, Container::Quote { .. })
-            }),
-            Self::Table => islands(IslandType::Table),
-            Self::Image => islands(IslandType::Image),
+        let mut counts = [0; 7];
+        for line in content.lines.iter().filter(|l| !l.continues) {
+            match line.kind {
+                LineKind::Heading { .. } => counts[Self::Heading as usize] += 1,
+                LineKind::Rule => counts[Self::Rule as usize] += 1,
+                LineKind::Code { .. } => counts[Self::Code as usize] += 1,
+                _ => {}
+            }
         }
+        visit_runs(&content.lines, 0..content.lines.len(), 0, &mut |c| match c {
+            Container::ListItem { .. } => counts[Self::List as usize] += 1,
+            Container::Quote { .. } => counts[Self::Quote as usize] += 1,
+            _ => {}
+        });
+        for island in &content.islands {
+            match island.island_type {
+                IslandType::Table => counts[Self::Table as usize] += 1,
+                IslandType::Image => counts[Self::Image as usize] += 1,
+            }
+        }
+        counts
     }
 
     /// The value that rides `backend::declined_construct`'s `construct` arg.
@@ -119,30 +118,32 @@ impl BlockConstruct {
 }
 
 /// How many runs of element `name` `content` holds, at any depth: what
-/// `typst::unregistered_element` counts, as [`BlockConstruct::count_in`]
-/// counts a list.
+/// `typst::unregistered_element` counts, as [`BlockConstruct::tally`] counts
+/// a list.
 pub fn element_runs(content: &quillmark_content::model::Content, name: &str) -> usize {
     use quillmark_content::model::Container;
-    container_runs(&content.lines, 0..content.lines.len(), 0, &|c| {
-        matches!(c, Container::Element { name: n, .. } if n == name)
-    })
+    let mut count = 0;
+    visit_runs(&content.lines, 0..content.lines.len(), 0, &mut |c| {
+        if matches!(c, Container::Element { name: n, .. } if n == name) {
+            count += 1;
+        }
+    });
+    count
 }
 
-fn container_runs(
+fn visit_runs(
     lines: &[quillmark_content::model::Line],
     range: std::ops::Range<usize>,
     depth: usize,
-    want: &dyn Fn(&quillmark_content::model::Container) -> bool,
-) -> usize {
+    f: &mut dyn FnMut(&quillmark_content::model::Container),
+) {
     use quillmark_content::traverse::{items, runs};
-    runs(lines, range, depth)
-        .map(|run| {
-            usize::from(want(run.container))
-                + items(lines, run.range, depth)
-                    .map(|item| container_runs(lines, item.range, depth + 1, want))
-                    .sum::<usize>()
-        })
-        .sum()
+    for run in runs(lines, range, depth) {
+        f(run.container);
+        for item in items(lines, run.range, depth) {
+            visit_runs(lines, item.range, depth + 1, f);
+        }
+    }
 }
 
 impl std::fmt::Display for BlockConstruct {

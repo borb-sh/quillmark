@@ -172,7 +172,7 @@ The **render** build, carrying both backends (Typst and acroform), is a **privat
 
 Backend handles never escape the `Engine`: it clones the quill tree + `doc.toStored()` into the backend's memory as serialized data and frees the clones.
 
-The storage DTO carries no warnings, so the clone the backend renders knows nothing of the load's, and `Engine.render` returns the backend render's own: `quill.validate`'s warnings but `validation::declined_construct`, then the compile's, which carry that decline as `backend::declined_construct` ([ERROR.md](ERROR.md) § "Warning flow"). The load's stay on `doc.warnings`. `LiveSession.render` carries the compile's alone.
+The storage DTO carries no warnings, so the clone the backend renders knows nothing of the load's, and `Engine.render` returns the backend render's own: `quill.validate`'s warnings but `backend::declined_construct`, then the compile's, which carry that decline ([ERROR.md](ERROR.md) § "Warning flow"). The load's stay on `doc.warnings`. `LiveSession.render` carries the compile's alone.
 
 **An options object refuses a key it does not read.** Its reader looks up the names it declares and never visits the rest (`serde_wasm_bindgen` ignores `deny_unknown_fields`), so a misspelled option would read as absent and the call go ahead on its default: `engine.render(quill, doc, { today })` would render the local date. `RenderOptions`, on both render verbs, and `EngineOptions` throw on such a key instead, as an `Addr` and a `CardInput` do, through one key walk per layer (`reject_unknown_keys` in the binding, `rejectUnknownKeys` in the runtime).
 

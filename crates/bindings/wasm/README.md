@@ -394,8 +394,8 @@ A document that compiles to zero pages still produces a valid session
 the throw.
 
 Their `warnings` differ in reach. `engine.render` returns every
-`quill.validate(doc)` warning but `validation::declined_construct`, which the
-compile raises as `backend::declined_construct`, then the compile's own;
+`quill.validate(doc)` warning but `backend::declined_construct`, then the
+compile's own, a decline among them;
 `session.render` and `session.warnings` carry the compile's alone, so read
 `quill.validate(doc)` beside them. Neither carries the load's: those stay on
 `doc.warnings`, and a revise's on its receipt.
