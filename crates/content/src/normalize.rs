@@ -246,7 +246,7 @@ fn fence_open(t: &str) -> bool {
 /// whole, as CommonMark reads it.
 fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
-    let kind = html::block_start(first.content).filter(|k| matches!(k, BlockKind::Comment))?;
+    let kind = html::block_start(first.content).filter(|k| *k == BlockKind::Marked("-->"))?;
     let at = html::block_end(kind, last.content)?;
     let rest = last.content[at..].trim();
     let runs_on = match html::block_start(rest) {
