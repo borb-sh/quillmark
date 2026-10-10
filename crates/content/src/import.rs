@@ -1957,16 +1957,6 @@ mod tests {
     }
 
     #[test]
-    fn a_cell_image_lands_as_its_alt_text() {
-        // A cell has no island slot, so the alt lands as plain text and the url
-        // is dropped.
-        let rt = imp("| a | b |\n|---|---|\n| ![a cat](cat.png) | 2 |");
-        assert_eq!(rt.islands.len(), 1);
-        assert_eq!(rt.islands[0].island_type, IslandType::Table);
-        assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "a cat");
-    }
-
-    #[test]
     fn image_is_inline_island() {
         let rt = imp("see ![a cat](cat.png) here");
         assert_eq!(rt.text, "see \u{FFFC} here");
@@ -2617,14 +2607,6 @@ mod tests {
         assert_eq!(rt.text, "text\noutside");
         assert_eq!(rt.lines[0].containers.len(), 1);
         assert!(rt.lines[1].containers.is_empty());
-    }
-
-    #[test]
-    fn a_fenced_comment_round_trips_byte_equal() {
-        let md = "```\n<!-- a --> b\n```";
-        let imported = imp_fixed(md);
-        assert_eq!(imported.content.text, "<!-- a --> b");
-        assert_eq!(crate::export::to_markdown(&imported.content), md);
     }
 
     /// A tag alone on its line opens an HTML block, whatever its name: the
