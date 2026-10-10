@@ -1021,6 +1021,7 @@ fn cell_markup(text: &str, marks: &[Mark]) -> String {
 ///   table moves no text inside it.
 /// - a cell's `align` and `valign`: `table.cell(align: right + bottom)[…]`,
 ///   which Typst folds with its column's alignment.
+/// - `headless`: the header row as the first body row, outside `table.header`.
 fn table_markup(props: &serde_json::Value) -> String {
     use serde_json::Value;
     let header = props.get("header").and_then(|v| v.as_array());
@@ -1096,14 +1097,15 @@ fn table_markup(props: &serde_json::Value) -> String {
             "  align: if table.align == auto {{ {inherited} }} else {{ table.align }},\n"
         ));
     }
-    out.push_str("  table.header(");
+    let headless = props.get("headless") == Some(&Value::Bool(true));
+    out.push_str(if headless { "  " } else { "  table.header(" });
     if let Some(h) = header {
         for c in h {
             out.push_str(&cell(c));
             out.push_str(", ");
         }
     }
-    out.push_str("),\n");
+    out.push_str(if headless { "\n" } else { "),\n" });
     if let Some(rs) = rows {
         for row in rs {
             if let Some(r) = row.as_array() {
@@ -1977,6 +1979,22 @@ mod tests {
              align: (align.alignment, left),\n  \
              table.header([a], [b], ),\n  \
              [1], [2], \n))"
+        );
+    }
+
+    /// A headless table's header row lowers as its first body row.
+    #[test]
+    fn a_headless_table_lowers_no_header() {
+        let props = serde_json::json!({
+            "header": [{ "text": "a", "marks": [], "align": "right" }, { "text": "b", "marks": [] }],
+            "rows": [[{ "text": "1", "marks": [] }, { "text": "2", "marks": [] }]],
+            "headless": true,
+        });
+        assert_eq!(
+            table_markup(&props),
+            "#table(\n  columns: 2,\n  \
+             table.cell(align: right)[a], [b], \n  \
+             [1], [2], \n)"
         );
     }
 

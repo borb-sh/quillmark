@@ -13,7 +13,8 @@ use serde_json::Value;
 pub enum IslandType {
     /// `{header, rows, aligns}` with inline `{text, marks}` cells, a `\n` in a
     /// cell's text being a line break, and the optional layout keys `widths`
-    /// (a weight or `null` per column) and `align` (one of [`TABLE_ALIGNS`]).
+    /// (a weight or `null` per column), `align` (one of [`TABLE_ALIGNS`]) and
+    /// `headless` (`true`: `header` is a body row, drawn as one).
     /// A cell's optional `align` and `valign` are its [alignment](cell_alignment).
     /// Mark-carrying, shape-normalized (one column count, `\n` the only
     /// line-break char a cell keeps, each layout key absent at its default).
@@ -170,6 +171,10 @@ mod tests {
             (json!("right"), "align", json!("right")),
             (json!("middle"), "align", absent.clone()),
             (json!(["center"]), "align", absent.clone()),
+            (json!(true), "headless", json!(true)),
+            (json!(false), "headless", absent.clone()),
+            (json!("true"), "headless", absent.clone()),
+            (json!(1), "headless", absent.clone()),
         ];
         for (value, key, settled) in cases {
             let mut props = json!({"header": ["a", "b", "c"], "rows": [["1", "2", "3"]]});

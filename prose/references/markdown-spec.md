@@ -535,6 +535,7 @@ attributes into the table's layout, whatever quill reads the document:
 |---|---|---|
 | `widths` | whitespace-separated column weights, each a decimal integer from 1 to 2⁵³ − 1 or `auto` for an auto-fit column | every column `auto` |
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
+| `headless` | bare, or the empty value: the header row is the table's first body row | a header row |
 
 ```markdown
 <qm-table align="center" widths="1 2 auto">
@@ -560,7 +561,7 @@ attributes into the table's layout, whatever quill reads the document:
 - A wrapper holding anything else or another `qm-table`, or still open
   where its list item, quote or body ends, drops whole: its tags drop, what it
   holds imports, and `parse::dropped_construct` reports `qm-table`.
-- An attribute other than these two, and one whose value is outside its
+- An attribute other than these three, and one whose value is outside its
   spelling, drops alone, reported as `qm-table[<name>]`. A `qm-keep`
   around the wrapper keeps the table on one page.
 

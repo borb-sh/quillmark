@@ -359,13 +359,14 @@ rewrites a cell's `text` and `marks` in place rather than minting a fresh
 `{text, marks}` object.
 
 A table island's props name `header`, `rows`, `aligns` (one per column:
-`none`, `left`, `center` or `right`) and two layout keys, each absent at its
+`none`, `left`, `center` or `right`) and three layout keys, each absent at its
 default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
 
 | Key | Value | Default |
 |---|---|---|
 | `widths` | one entry per column, an integer weight from 1 to 2⁵³ − 1 or `null` for an auto-fit column; settled to the column count | every entry `null` |
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
+| `headless` | `true`: `header` is the first body row, drawn as one | a header row |
 
 `widths` are weights, not lengths, so each plate decides what full width is.
 The keys ride the opaque props carrier, which an older reader round-trips, so
