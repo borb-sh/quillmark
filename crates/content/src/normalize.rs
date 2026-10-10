@@ -84,8 +84,7 @@ const REPAIR_ROUNDS: usize = 8;
 /// (markdown-spec §6.2, §7 step 4). Each round
 /// parses and edits only inside the spans that parse located, so a fence is
 /// never touched; the rounds end at one that plans no edit.
-fn repair(text: String, options: Options) -> String {
-    let mut text = text;
+fn repair(mut text: String, options: Options) -> String {
     if may_need_repair(&text) {
         for _ in 0..REPAIR_ROUNDS {
             let edits = plan(&text, options);

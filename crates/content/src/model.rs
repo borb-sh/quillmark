@@ -155,29 +155,15 @@ impl LineKind {
     }
 }
 
-/// The key an element's payload bag holds its name under. No attribute name
-/// opens with `$`, so the two never collide.
+/// The key an element's payload bag holds its name under. Every attribute name
+/// opens with a letter, which sorts after `$`, so the name leads the bag.
 pub const ELEMENT_NAME: &str = "$name";
-
-/// An element's payload bag: its [`ELEMENT_NAME`] beside its attributes, keys
-/// ascending.
-fn element_bag(name: &str, attrs: &BTreeMap<String, String>) -> JsonValue {
-    let mut entries: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    entries.push((ELEMENT_NAME, name));
-    entries.sort_unstable();
-    JsonValue::Object(entries.into_iter().map(|(k, v)| (k.to_string(), v.into())).collect())
-}
 
 /// A payload bag from its entries, which must be listed in ascending key order:
 /// [`Content::normalize`] canonicalizes an opaque bag, and a minted one is
 /// canonical by construction.
-fn bag<const N: usize>(entries: [(&str, JsonValue); N]) -> JsonValue {
-    debug_assert!(entries.windows(2).all(|w| w[0].0 < w[1].0));
-    let mut m = serde_json::Map::with_capacity(N);
-    for (k, v) in entries {
-        m.insert(k.to_string(), v);
-    }
-    JsonValue::Object(m)
+fn bag<'a>(entries: impl IntoIterator<Item = (&'a str, JsonValue)>) -> JsonValue {
+    JsonValue::Object(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
 }
 
 /// Whether a payload bag holds nothing: the two spellings of "no payload" a
@@ -273,21 +259,16 @@ impl Container {
                 ordinal,
                 checked,
                 ..
-            } => Cow::Owned(match checked {
-                Some(checked) => bag([
-                    ("checked", (*checked).into()),
-                    ("ordered", (*ordered).into()),
-                    ("ordinal", (*ordinal).into()),
-                    ("start", (*start).into()),
-                ]),
-                None => bag([
-                    ("ordered", (*ordered).into()),
-                    ("ordinal", (*ordinal).into()),
-                    ("start", (*start).into()),
-                ]),
-            }),
+            } => Cow::Owned(bag(checked.map(|c| ("checked", c.into())).into_iter().chain([
+                ("ordered", (*ordered).into()),
+                ("ordinal", (*ordinal).into()),
+                ("start", (*start).into()),
+            ]))),
             Container::Quote { .. } => Cow::Owned(JsonValue::Null),
-            Container::Element { name, attrs, .. } => Cow::Owned(element_bag(name, attrs)),
+            Container::Element { name, attrs, .. } => Cow::Owned(bag(
+                std::iter::once((ELEMENT_NAME, name.as_str().into()))
+                    .chain(attrs.iter().map(|(k, v)| (k.as_str(), v.as_str().into()))),
+            )),
         }
     }
 
