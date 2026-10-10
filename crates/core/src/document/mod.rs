@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::import::{from_markdown as import_markdown, Imported};
+use quillmark_content::import::from_markdown as import_markdown;
 use quillmark_content::model::Normalized;
 
 use crate::error::ParseError;
@@ -14,19 +14,25 @@ use crate::version::QuillReference;
 use crate::error::{Diagnostic, Severity};
 
 pub(crate) fn import_body(md: &str) -> Result<Normalized, ImportError> {
-    import_body_warned(md).map(|imported| imported.content)
+    import_markdown(md).map(|imported| imported.content)
 }
 
-/// [`import_body`] keeping the import's warnings.
-pub(crate) fn import_body_warned(md: &str) -> Result<Imported, ImportError> {
-    if md.is_empty() {
-        Ok(Imported {
-            content: Normalized::empty(),
-            warnings: Vec::new(),
-        })
-    } else {
-        import_markdown(md)
-    }
+/// [`import_body`], pushing a [`dropped_construct`] warning at `at` for each
+/// construct the import drops.
+pub(crate) fn import_body_at(
+    md: &str,
+    at: &crate::path::DocPath,
+    warnings: &mut Vec<Diagnostic>,
+) -> Result<Normalized, ImportError> {
+    let imported = import_markdown(md)?;
+    let at = at.to_string();
+    warnings.extend(
+        imported
+            .warnings
+            .into_iter()
+            .map(|w| dropped_construct(w).with_path(at.clone())),
+    );
+    Ok(imported.content)
 }
 
 /// The diagnostic code a markdown import's dropped construct rides.

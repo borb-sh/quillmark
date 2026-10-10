@@ -1216,14 +1216,7 @@ pub(super) fn markdown_drops(field: &FieldSchema, json: &serde_json::Value, path
         let (Codec::Richtext, Some(markdown)) = (codec, leaf.as_str()) else {
             return;
         };
-        if let Ok(imported) = crate::document::import_body_warned(markdown) {
-            diags.extend(
-                imported
-                    .warnings
-                    .into_iter()
-                    .map(|w| crate::document::dropped_construct(w).with_path(at.to_string())),
-            );
-        }
+        let _ = crate::document::import_body_at(markdown, at, &mut diags);
     });
     diags
 }

@@ -13,27 +13,7 @@ use crate::error::{Diagnostic, Severity};
 use super::fences::{find_metadata_blocks, UnclosedRoot};
 use super::meta::{extract_meta_items, meta_key, yaml_type_name};
 use super::payload::{MetaKey, Payload, PayloadItem};
-use quillmark_content::model::Normalized;
 
-/// The parse-time half of the markdown→content boundary
-/// ([`super::import_body`]): an over-nesting failure becomes a [`ParseError`],
-/// and each dropped construct a warning anchored at the card's body.
-fn import_body_or_parse_error(
-    md: &str,
-    card: &DocPath,
-    warnings: &mut Vec<Diagnostic>,
-) -> Result<Normalized, ParseError> {
-    let imported =
-        super::import_body_warned(md).map_err(|e| ParseError::BodyImport(e.to_string()))?;
-    let at = card.body().to_string();
-    warnings.extend(
-        imported
-            .warnings
-            .into_iter()
-            .map(|w| super::dropped_construct(w).with_path(at.clone())),
-    );
-    Ok(imported.content)
-}
 use super::prescan::{prescan_fence_content, NestedComment, PreItem, Refusal};
 use super::{Card, Document};
 
@@ -235,43 +215,44 @@ pub(super) fn build_block(
         }
     }
 
-    let pre = prescan_fence_content(&content).map_err(|refusal| match refusal {
-        Refusal::OverBudget(over) => ParseError::InvalidStructure(format!(
-            "The card-yaml block's comments and tags record their nesting paths in \
-             more than {} bytes, each level above them costing its key and a fixed \
-             overhead. Merge the comments, or move them nearer the top level.",
-            over.budget
-        )),
-        Refusal::PastRoot { line, column } => {
-            let (line, column) =
-                document_position(markdown, content_start, &yaml, Some((line, column)));
-            ParseError::YamlErrorWithLocation {
-                message: "text follows the block's YAML value".to_string(),
-                line,
-                column,
-                block_index,
-                hint: Some(
-                    "A card-yaml block holds one YAML value, which ends where a `{...}`, \
-                     `[...]` or quoted value written as the whole value closes, or at a `...` \
-                     line. Write each field as its own `key: value` line, or close the block \
-                     with `~~~` above this text."
-                        .to_string(),
-                ),
+    let pre = prescan_fence_content(&content).map_err(|refusal| {
+        let (message, hint, line, column) = match refusal {
+            Refusal::OverBudget(over) => {
+                return ParseError::InvalidStructure(format!(
+                    "The card-yaml block's comments and tags record their nesting paths in \
+                     more than {} bytes, each level above them costing its key and a fixed \
+                     overhead. Merge the comments, or move them nearer the top level.",
+                    over.budget
+                ))
             }
-        }
-        Refusal::SharedKey { key, line, column } => {
-            let (line, column) =
-                document_position(markdown, content_start, &yaml, Some((line, column)));
-            ParseError::YamlErrorWithLocation {
-                message: format!("duplicate mapping key: {key}"),
+            Refusal::PastRoot { line, column } => (
+                "text follows the block's YAML value".to_string(),
+                "A card-yaml block holds one YAML value, which ends where a `{...}`, \
+                 `[...]` or quoted value written as the whole value closes, or at a `...` \
+                 line. Write each field as its own `key: value` line, or close the block \
+                 with `~~~` above this text."
+                    .to_string(),
                 line,
                 column,
-                block_index,
-                hint: Some(format!(
+            ),
+            Refusal::SharedKey { key, line, column } => (
+                format!("duplicate mapping key: {key}"),
+                format!(
                     "Two spellings of `{key}`, such as `1` and `\"1\"`, name one field. \
                      Keep one of them."
-                )),
-            }
+                ),
+                line,
+                column,
+            ),
+        };
+        let (line, column) =
+            document_position(markdown, content_start, &yaml, Some((line, column)));
+        ParseError::YamlErrorWithLocation {
+            message,
+            line,
+            column,
+            block_index,
+            hint: Some(hint),
         }
     })?;
 
@@ -370,7 +351,8 @@ pub(super) fn decompose_with_warnings(
 
     let global_body = body_after(markdown, &blocks, 0);
 
-    let main_body = import_body_or_parse_error(&global_body, &DocPath::main(), &mut warnings)?;
+    let main_body = super::import_body_at(&global_body, &DocPath::main_body(), &mut warnings)
+        .map_err(|e| ParseError::BodyImport(e.to_string()))?;
     let main = Card::from_parts(main_payload, main_body);
 
     let mut cards: Vec<Card> = Vec::new();
@@ -444,7 +426,8 @@ pub(super) fn decompose_with_warnings(
         warnings.extend(tag_warnings(&base, &blocks[idx]));
 
         let card_body = body_after(markdown, &blocks, idx);
-        let card_body = import_body_or_parse_error(&card_body, &base, &mut warnings)?;
+        let card_body = super::import_body_at(&card_body, &base.body(), &mut warnings)
+            .map_err(|e| ParseError::BodyImport(e.to_string()))?;
 
         cards.push(Card::from_parts(card_payload, card_body));
     }
