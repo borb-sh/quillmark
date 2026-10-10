@@ -23,7 +23,7 @@ use quillmark_core::{
     backend::Backend,
     error::{Diagnostic, RenderError, RenderResult, Severity},
     quill::{
-        build_transform_schema, BlockConstruct, CalendarDate, Quill, QuillConfig,
+        build_transform_schema, CalendarDate, Quill, QuillConfig,
         QUILLMARK_ROSTER_KEY,
     },
     region::{ContentHit, RenderedRegion},
@@ -127,20 +127,18 @@ fn recompile(
     })
 }
 
-/// [`QuillConfig::declined_in_plate`] for this backend, an image's with what a
-/// plate draws instead.
+/// [`QuillConfig::declined_in_plate`] for this backend, which declines only
+/// images, with what a plate draws instead.
 fn declined_warnings(config: &QuillConfig, data: &serde_json::Value) -> Vec<Diagnostic> {
-    let image = serde_json::Value::from(BlockConstruct::Image.as_str());
     config
         .declined_in_plate(TypstBackend.id(), data)
         .into_iter()
-        .map(|diag| match diag.args.get("construct") {
-            Some(construct) if *construct == image => diag.with_hint(
+        .map(|diag| {
+            diag.with_hint(
                 "a content image's url resolves to nothing; a plate draws a \
                  quill asset with `#image(\"/assets/…\")`"
                     .to_string(),
-            ),
-            _ => diag,
+            )
         })
         .collect()
 }

@@ -545,7 +545,7 @@ impl<'a> Emit<'a> {
         self.head_inline = true;
         self.indent.push_str("  ");
         if let Some(done) = checked {
-            self.out.push_str(task_open(done));
+            self.out.push_str(&task_open(done));
         }
         self.emit_item_body(range, depth + 1);
         if checked.is_some() {
@@ -706,7 +706,7 @@ impl<'a> Emit<'a> {
             s.is_empty() || s.ends_with('\n')
         };
         head(&self.out)
-            || [true, false].iter().any(|&done| self.out.ends_with(task_open(done)))
+            || [true, false].iter().any(|&done| self.out.ends_with(&task_open(done)))
             || ["- ", "+ "]
                 .iter()
                 .any(|m| self.out.strip_suffix(m).is_some_and(head))
@@ -1014,12 +1014,8 @@ fn emit_run(
 
 /// A task item's body opens as the content block of this call, the helper's
 /// `_qm-task(done, body)`.
-fn task_open(done: bool) -> &'static str {
-    if done {
-        "#_qm-task(true)["
-    } else {
-        "#_qm-task(false)["
-    }
+fn task_open(done: bool) -> String {
+    format!("#_qm-task({done})[")
 }
 
 /// A `\n` at `pos` lowers to `#linebreak()`: the step a sweep callback takes
