@@ -7,6 +7,7 @@
 //! only; SVG and PNG render an invisible placeholder.
 
 mod compile;
+mod elements;
 /// Content → Typst-markup lowering plus its per-segment source map.
 mod emit;
 mod error_mapping;
@@ -43,7 +44,8 @@ const SUPPORTED_FORMATS: &[OutputFormat] =
 /// recompiles.
 struct TypstSession {
     world: world::QuillWorld,
-    /// Walked per compile for the constructs this backend declines.
+    /// Walked per compile for the constructs this backend declines and the
+    /// elements it draws with no renderer.
     config: QuillConfig,
     /// Built once at `open`: the schema never changes for a session's lifetime,
     /// and codegen plus date validation read only these tables.
@@ -111,6 +113,7 @@ fn recompile(
         compile_warnings,
         &unclosed,
         declined_warnings(config, data),
+        elements::unregistered(&document, config, data),
     );
     Ok(Compiled {
         document,
@@ -149,6 +152,7 @@ fn session_warnings(
     compile: Vec<Diagnostic>,
     unclosed: &[(usize, String)],
     declined: Vec<Diagnostic>,
+    unregistered: Vec<Diagnostic>,
 ) -> Vec<Diagnostic> {
     let mut all = world.load_warnings().to_vec();
     all.extend(compile);
@@ -165,6 +169,7 @@ fn session_warnings(
         )
     }));
     all.extend(declined);
+    all.extend(unregistered);
     all
 }
 

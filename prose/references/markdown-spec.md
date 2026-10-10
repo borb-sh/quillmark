@@ -518,7 +518,7 @@ reads the document:
 - Two adjacent runs of one element stay two.
 - A Typst plate renders an element through the renderer it registers under
   the name; with none, `keep` holds what it wraps on one page and any other
-  element renders what it wraps.
+  element renders what it wraps, warning `typst::unregistered_element`.
 
 **An element that does not close** is transparent: its tags drop, what it wraps
 imports, and `parse::dropped_construct` reports it under its tag name

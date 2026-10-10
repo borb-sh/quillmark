@@ -1322,7 +1322,7 @@ impl QuillConfig {
 
     /// Call `each` on every body and content field of the plate JSON `data`,
     /// at its path.
-    fn each_plate_content(
+    pub fn each_plate_content(
         &self,
         data: &serde_json::Value,
         each: &mut dyn FnMut(&DocPath, &crate::Content),
@@ -1662,6 +1662,16 @@ card_kinds:
             vec![(Heading, 1), (Rule, 1), (Code, 1), (List, 3), (Quote, 2), (Table, 1), (Image, 1)]
         );
         assert_eq!(crate::backend::declined_in("typst", &content), vec![(Image, 1)]);
+    }
+
+    #[test]
+    fn element_runs_count_each_run_of_the_name_at_any_depth() {
+        let md = "<qm-a>\n\nx\n\n</qm-a>\n\n<qm-a>\n\ny\n\n</qm-a>\n\n- <qm-a>\n\n  z\n\n  </qm-a>\n\n\
+                  <qm-b>\n\n<qm-a>\n\nw\n\n</qm-a>\n\n</qm-b>\n";
+        let content = crate::document::import_body(md).expect("imports");
+        assert_eq!(crate::quill::element_runs(&content, "a"), 4);
+        assert_eq!(crate::quill::element_runs(&content, "b"), 1);
+        assert_eq!(crate::quill::element_runs(&content, "c"), 0);
         assert!(crate::backend::declined_in("acroform", &crate::document::import_body("prose\n\nmore").unwrap()).is_empty());
     }
 

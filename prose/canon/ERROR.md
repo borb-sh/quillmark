@@ -209,6 +209,13 @@ families:
   `construct` and `count` in `args` and the field's `DocPath` in `path`: the
   warning the render raises as `backend::declined_construct`. A one-shot
   render leaves it out of `RenderResult.warnings`, which carry the backend's.
+- **`typst::unregistered_element`: an element no renderer takes.** The Typst
+  compile warns once per (content field, element name) the helper's dispatcher
+  drew as what it wraps ([CONVERT.md](CONVERT.md#elements)), with the field's
+  `DocPath` in `path`. The run count rides the message, and the names the
+  plate renders ride the hint. It rides the session's compile warnings. The
+  registry is plate code, so `validate`, which compiles nothing, has no twin
+  for it.
 - **Compile warnings**: the Typst backend maps the compiler's non-fatal
   diagnostics (font fallback, overfull pages, …) through the same span
   resolution as errors. They are state of the session's current compile:
