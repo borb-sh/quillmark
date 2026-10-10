@@ -29,6 +29,15 @@ pub(super) fn anchor_ids(content: &Normalized) -> Vec<String> {
         .collect()
 }
 
+/// For each of `markdown`'s composable cards, the card of `doc` a revise to it
+/// revises.
+pub(super) fn alignment(doc: &Document, markdown: &str) -> Vec<Option<usize>> {
+    crate::document::revise::align_cards(doc.cards(), parse(markdown).cards())
+        .into_iter()
+        .map(|pair| pair.map(|(i, _)| i))
+        .collect()
+}
+
 fn anchor_card_body(doc: &mut Document, index: usize, word: &str, id: &str) {
     let mut card = doc.card_mut(index).unwrap();
     let body = anchored(card.body(), word, id);
@@ -73,16 +82,15 @@ fn stored_with_items() -> Document {
 #[test]
 fn aligned_cards_keep_their_anchors_and_the_receipt_names_the_rest() {
     let mut doc = stored();
-    let receipt = doc
-        .revise(
-            "~~~\n$quill: q\nsubject: The subject line, edited\n~~~\n\nMain prose stays here.\n\n\
+    let md = "~~~\n$quill: q\nsubject: The subject line, edited\n~~~\n\nMain prose stays here.\n\n\
 ~~~\n$kind: aside\n~~~\n\nAn inserted aside.\n\n\
 ~~~\n$kind: note\n~~~\n\nSecond note about pears.\n\n\
-~~~\n$kind: note\n~~~\n\nFirst note about kiwi.\n",
-        )
-        .unwrap();
+~~~\n$kind: note\n~~~\n\nFirst note about kiwi.\n";
+    assert_eq!(alignment(&doc, md), vec![None, Some(1), Some(0)]);
+    let receipt = doc.revise(md).unwrap();
 
-    assert_eq!(receipt.alignment, vec![None, Some(1), Some(0)]);
+    let keys: Vec<_> = doc.cards().iter().map(|c| c.ext().map(|e| e["app"]["key"].clone())).collect();
+    assert_eq!(keys, [None, Some(serde_json::json!("n2")), Some(serde_json::json!("n1"))]);
     assert_eq!(anchor_ids(doc.main().body()), ["m1"]);
     let subject = doc
         .main()
@@ -126,10 +134,9 @@ fn an_omitted_ext_carries_when_the_card_aligns_by_text_or_the_kind_sequences_mat
     assert_eq!(doc.cards()[0].ext().unwrap()["app"]["key"], "n1");
 
     let mut doc = stored();
-    let receipt = doc
-        .revise("~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nUnrelated words entirely.\n")
-        .unwrap();
-    assert_eq!(receipt.alignment, vec![Some(0)]);
+    let md = "~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nUnrelated words entirely.\n";
+    assert_eq!(alignment(&doc, md), vec![Some(0)]);
+    let _ = doc.revise(md).unwrap();
     assert_eq!(doc.cards()[0].ext(), None);
 
     let mut doc = stored();
@@ -239,14 +246,11 @@ fn a_deleted_card_never_hands_its_ext_to_an_edited_neighbour() {
 ~~~\n$kind: note\nowner: Ann\nstatus: done\n$ext:\n  app:\n    key: ann\n~~~\n\nWrite the intro section.\n\n\
 ~~~\n$kind: note\nowner: Bob\nstatus: open\n$ext:\n  app:\n    key: bob\n~~~\n\nReview the budget table.\n",
     );
-    let receipt = doc
-        .revise(
-            "~~~\n$quill: q\n~~~\n\n\
+    let md = "~~~\n$quill: q\n~~~\n\n\
 ~~~\n$kind: note\nowner: Bob\nstatus: done\n~~~\n\nReview the budget table and sign off.\n\n\
-~~~\n$kind: note\nowner: Cy\nstatus: open\n~~~\n\nDraft the appendix.\n",
-        )
-        .unwrap();
-    assert_eq!(receipt.alignment, vec![Some(1), None]);
+~~~\n$kind: note\nowner: Cy\nstatus: open\n~~~\n\nDraft the appendix.\n";
+    assert_eq!(alignment(&doc, md), vec![Some(1), None]);
+    let _ = doc.revise(md).unwrap();
     assert_eq!(doc.cards()[0].ext().unwrap()["app"]["key"], "bob");
     assert_eq!(doc.cards()[1].ext(), None);
 }

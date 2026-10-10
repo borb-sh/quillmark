@@ -25,13 +25,7 @@ pub(crate) fn import_body_at(
     warnings: &mut Vec<Diagnostic>,
 ) -> Result<Normalized, ImportError> {
     let imported = import_markdown(md)?;
-    let at = at.to_string();
-    warnings.extend(
-        imported
-            .warnings
-            .into_iter()
-            .map(|w| dropped_construct(w).with_path(at.clone())),
-    );
+    warnings.extend(dropped_constructs(imported.warnings, Some(at)));
     Ok(imported.content)
 }
 
@@ -52,6 +46,21 @@ pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
         .with_code(DROPPED_CONSTRUCT.to_string())
         .with_hint(hint)
         .with_args(args)
+}
+
+/// One [`dropped_construct`] per warning, each at `at` when given.
+pub fn dropped_constructs(
+    warnings: Vec<ImportWarning>,
+    at: Option<&crate::path::DocPath>,
+) -> Vec<Diagnostic> {
+    let at = at.map(ToString::to_string);
+    warnings
+        .into_iter()
+        .map(|w| match &at {
+            Some(at) => dropped_construct(w).with_path(at.clone()),
+            None => dropped_construct(w),
+        })
+        .collect()
 }
 
 /// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
@@ -350,7 +359,7 @@ pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_112_0, STORAGE_V0_115_0,
     STORAGE_V0_116_0, STORAGE_V0_124_0, STORAGE_V0_93_0,
 };
-pub use edit::{CardMut, EditError, Revised};
+pub use edit::{revise_import, CardMut, EditError, Revised};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::import::ImportError;

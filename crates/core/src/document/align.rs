@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use quillmark_content::delta::{word_similarity, MAX_DIFFED_WORDS, MIN_WORD_SIMILARITY};
+
 /// One composable card as alignment reads it: its `$kind` and a text to
 /// measure similarity over.
 #[derive(Debug, Clone, Copy)]
@@ -15,17 +17,13 @@ pub(crate) struct Slot<'a> {
 /// `(words + words)²`, similarity is text equality alone.
 const MAX_DIFF_WORK: usize = 50_000_000;
 
-/// Above this many words in either text, a pair's similarity is the share of
-/// its common leading and trailing words rather than a word diff.
-const MAX_DIFFED_WORDS: usize = 2_000;
-
 /// Above this many unpaired cards on one side times the other, the cards that
 /// are not twins pair by position alone.
 const MAX_TABLE_CELLS: usize = 4_000_000;
 
 /// The similarity, in thousandths, a pair needs to align by text. Below it two
 /// cards pair only by position, between the cards that aligned by text.
-const MIN_PAIR_PERMILLE: u64 = 500;
+const MIN_PAIR_PERMILLE: u64 = (MIN_WORD_SIMILARITY * 1000.0) as u64;
 
 /// How an incoming card came to revise a stored one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,30 +166,7 @@ fn unique_twins(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<(usize, usize
 }
 
 fn similarity_permille(a: &[&str], b: &[&str]) -> u64 {
-    let ratio = if a.len().max(b.len()) > MAX_DIFFED_WORDS {
-        affix_ratio(a, b)
-    } else {
-        similar::TextDiff::from_slices(a, b).ratio()
-    };
-    (ratio.clamp(0.0, 1.0) * 1000.0).round() as u64
-}
-
-/// The share of both texts their common prefix and suffix cover.
-fn affix_ratio(a: &[&str], b: &[&str]) -> f32 {
-    let total = a.len() + b.len();
-    if total == 0 {
-        return 1.0;
-    }
-    let shorter = a.len().min(b.len());
-    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
-    let suffix = a
-        .iter()
-        .rev()
-        .zip(b.iter().rev())
-        .take(shorter - prefix)
-        .take_while(|(x, y)| x == y)
-        .count();
-    (2 * (prefix + suffix)) as f32 / total as f32
+    (word_similarity(a, b).clamp(0.0, 1.0) * 1000.0).round() as u64
 }
 
 #[cfg(test)]
@@ -266,12 +241,5 @@ mod tests {
         let incoming = [("a", "head"), ("note", "four five six"), ("b", "tail")];
         let aligned = align(&slots(&stored), &slots(&incoming));
         assert_eq!(aligned[1], Some((1, Pairing::Position)));
-    }
-
-    #[test]
-    fn affix_ratio_measures_shared_ends() {
-        assert_eq!(affix_ratio(&["a", "b", "c", "d"], &["a", "b", "c", "d"]), 1.0);
-        assert_eq!(affix_ratio(&["a", "b", "X", "d"], &["a", "b", "Y", "d"]), 0.75);
-        assert_eq!(affix_ratio(&[], &["x", "y"]), 0.0);
     }
 }

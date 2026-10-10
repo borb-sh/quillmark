@@ -260,15 +260,9 @@ pub fn diff(base: &str, new: &str) -> Delta {
     Delta { ops }
 }
 
-/// Below this share of words in common, a replaced line is not a rewrite of
-/// the line it pairs with but different text, kept whole so the move detector
-/// can match it elsewhere.
-const MIN_REWRITE_RATIO: f32 = 0.5;
-
 /// Emit one run of replaced lines. Lines pair from the front, then from the
 /// back, while each pair is a rewrite: neither is longer than
-/// [`CHAR_DIFF_LIMIT`] chars, the two share at least [`MIN_REWRITE_RATIO`] of
-/// their words, and neither occurs whole on the other side, as a moved line
+/// [`CHAR_DIFF_LIMIT`] chars, the two clear [`MIN_WORD_SIMILARITY`], and neither occurs whole on the other side, as a moved line
 /// does. A paired line diffs by char, and the
 /// unpaired middle is deleted and inserted whole.
 fn refine_replace(
@@ -283,7 +277,7 @@ fn refine_replace(
             && n.chars().count() <= CHAR_DIFF_LIMIT
             && !new_set.contains(line_text(o))
             && !old_set.contains(line_text(n))
-            && word_ratio(o, n) >= MIN_REWRITE_RATIO
+            && word_similarity(&words(o), &words(n)) >= MIN_WORD_SIMILARITY
     };
     let mut head = 0;
     while head < old.len().min(new.len()) && rewrite(old[head], new[head]) {
@@ -313,15 +307,28 @@ fn line_text(line: &str) -> &str {
     line.strip_suffix('\n').unwrap_or(line)
 }
 
-/// The share of `a`'s and `b`'s whitespace-separated words the two hold in
-/// common, in order.
-fn word_ratio(a: &str, b: &str) -> f32 {
-    let a: Vec<&str> = a.split_whitespace().collect();
-    let b: Vec<&str> = b.split_whitespace().collect();
+fn words(text: &str) -> Vec<&str> {
+    text.split_whitespace().collect()
+}
+
+/// Below this [`word_similarity`], two texts are not a rewrite of one another
+/// but different text.
+pub const MIN_WORD_SIMILARITY: f32 = 0.5;
+
+/// Above this many words in either text, [`word_similarity`] measures the
+/// common leading and trailing words rather than a word diff.
+pub const MAX_DIFFED_WORDS: usize = 2_000;
+
+/// The share of `a`'s and `b`'s words the two hold in common, in order: twice
+/// the common words over both lengths, 1 for two empty texts.
+pub fn word_similarity(a: &[&str], b: &[&str]) -> f32 {
+    if a.len().max(b.len()) > MAX_DIFFED_WORDS {
+        return affix_similarity(a, b);
+    }
     if a.is_empty() && b.is_empty() {
         return 1.0;
     }
-    let common: usize = capture_diff_slices(Algorithm::Myers, &a, &b)
+    let common: usize = capture_diff_slices(Algorithm::Myers, a, b)
         .iter()
         .map(|op| match op {
             DiffOp::Equal { len, .. } => *len,
@@ -329,6 +336,24 @@ fn word_ratio(a: &str, b: &str) -> f32 {
         })
         .sum();
     (2 * common) as f32 / (a.len() + b.len()) as f32
+}
+
+/// The share of both texts their common prefix and suffix cover.
+fn affix_similarity(a: &[&str], b: &[&str]) -> f32 {
+    let total = a.len() + b.len();
+    if total == 0 {
+        return 1.0;
+    }
+    let shorter = a.len().min(b.len());
+    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let suffix = a
+        .iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take(shorter - prefix)
+        .take_while(|(x, y)| x == y)
+        .count();
+    (2 * (prefix + suffix)) as f32 / total as f32
 }
 
 fn push_char_diff(ops: &mut Vec<Op>, base: &str, new: &str) {
@@ -428,7 +453,23 @@ pub fn diff_import(
 pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
     let mut new_rt = new.into_content();
     let delta = diff(&base.text, &new_rt.text);
+    carry_marks(base, &mut new_rt, &delta);
+    carry_island_ids(&base.islands, &mut new_rt.islands);
+    (new_rt.into_normalized(), delta)
+}
 
+/// [`rebase_onto`] without the delta, diffing only when `base` holds a mark
+/// to carry.
+pub fn rebase_marks(base: &Content, new: Normalized) -> Normalized {
+    if base.marks.iter().all(|m| m.kind.is_formatting()) {
+        let mut new_rt = new.into_content();
+        carry_island_ids(&base.islands, &mut new_rt.islands);
+        return new_rt.into_normalized();
+    }
+    rebase_onto(base, new).0
+}
+
+fn carry_marks(base: &Content, new_rt: &mut Content, delta: &Delta) {
     let base_chars: Vec<char> = base.text.chars().collect();
     let new_chars: Vec<char> = new_rt.text.chars().collect();
     let inserted = delta.inserted_spans();
@@ -438,7 +479,7 @@ pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
         if m.kind.is_formatting() {
             continue;
         }
-        if let Some((ns, ne)) = rebase_mark(&delta, &base_chars, &new_chars, &inserted, m) {
+        if let Some((ns, ne)) = rebase_mark(delta, &base_chars, &new_chars, &inserted, m) {
             new_rt.marks.push(Mark {
                 start: ns,
                 end: ne,
@@ -447,8 +488,6 @@ pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
         }
         // else: detached: the accepted residual drop.
     }
-    carry_island_ids(&base.islands, &mut new_rt.islands);
-    (new_rt.into_normalized(), delta)
 }
 
 /// Give each island of `new` the id of the `base` island it continues, and
@@ -590,6 +629,13 @@ mod tests {
     use super::*;
     use crate::import::from_markdown;
     use crate::model::MarkKind;
+
+    #[test]
+    fn affix_similarity_measures_shared_ends() {
+        assert_eq!(affix_similarity(&["a", "b", "c", "d"], &["a", "b", "c", "d"]), 1.0);
+        assert_eq!(affix_similarity(&["a", "b", "X", "d"], &["a", "b", "Y", "d"]), 0.75);
+        assert_eq!(affix_similarity(&[], &["x", "y"]), 0.0);
+    }
 
     #[test]
     fn diff_apply_round_trips() {

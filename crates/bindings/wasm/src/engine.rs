@@ -1907,7 +1907,7 @@ pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
         .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
     let out = ImportedJs {
         content: quillmark_content::serial::to_canonical_value(&imported.content),
-        warnings: dropped_constructs(imported.warnings),
+        warnings: diags(quillmark_core::document::dropped_constructs(imported.warnings, None)),
     };
     serialize_or_throw(&out, "importMarkdown")
 }
@@ -1936,12 +1936,12 @@ pub fn rebase(
     markdown: &str,
 ) -> Result<JsValue, JsValue> {
     let base = js_to_content(base, "rebase")?;
-    let (content, delta, warnings) = quillmark_content::delta::diff_import(&base, markdown)
+    let (content, revised) = quillmark_core::document::revise_import(&base, markdown)
         .map_err(|e| WasmError::from(format!("rebase: {e}")).to_js_value())?;
     let out = RebasedJs {
         content: quillmark_content::serial::to_canonical_value(&content),
-        delta,
-        warnings: dropped_constructs(warnings),
+        delta: revised.delta,
+        warnings: diags(revised.warnings),
     };
     serialize_or_throw(&out, "rebase")
 }
@@ -2023,12 +2023,6 @@ impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
 
 fn diags(ds: impl IntoIterator<Item = quillmark_core::error::Diagnostic>) -> Vec<Diagnostic> {
     ds.into_iter().map(Into::into).collect()
-}
-
-fn dropped_constructs(
-    warnings: Vec<quillmark_core::document::ImportWarning>,
-) -> Vec<Diagnostic> {
-    diags(warnings.into_iter().map(quillmark_core::document::dropped_construct))
 }
 
 /// Whether `content` satisfies the `inline` constraint of `richtext` and

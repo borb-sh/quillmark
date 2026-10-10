@@ -452,15 +452,13 @@ impl Payload {
         (!past.is_empty()).then_some((count, past))
     }
 
-    /// Swap present field `key`'s value, keeping the comments nested inside it:
-    /// the caller owns `value` holding every container those comments name.
-    pub(crate) fn swap_value(&mut self, key: &str, value: QuillValue) {
-        if let Some(v) = self.items.iter_mut().find_map(|item| match item {
-            PayloadItem::Field { key: k, value: v } if k == key => Some(v),
+    /// Each field, its value open to an edit that keeps the comments nested
+    /// inside it: the caller keeps every container those comments name.
+    pub(crate) fn fields_mut(&mut self) -> impl Iterator<Item = (&String, &mut QuillValue)> + '_ {
+        self.items.iter_mut().filter_map(|item| match item {
+            PayloadItem::Field { key, value } => Some((&*key, value)),
             _ => None,
-        }) {
-            *v = value;
-        }
+        })
     }
 
     /// Insert or replace field `key` with `value`. Position-preserving for an
