@@ -254,7 +254,7 @@ fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let at = html::block_end(kind, last.content)?;
     let rest = last.content[at..].trim();
     let runs_on = match html::block_start(rest) {
-        Some(k) if !k.ends_at_blank_line() => html::block_end(k, rest).is_none(),
+        Some(k) if k != BlockKind::Open => html::block_end(k, rest).is_none(),
         _ => fence_opener(rest).is_some(),
     };
     if rest.is_empty() || runs_on {
@@ -290,12 +290,11 @@ fn shallow_lead(line: &str) -> &str {
 /// markdown where the next line would continue it lazily.
 fn carrier_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
-    if !html::block_start(first.content).is_some_and(BlockKind::ends_at_blank_line) {
+    if html::block_start(first.content) != Some(BlockKind::Open) {
         return None;
     }
-    let tags: Vec<_> = lines.iter().map(|l| html::tag_line(l.content)).collect();
-    let carrier: Vec<bool> = tags.iter().map(|t| t.as_ref().is_some_and(|t| t.iter().all(carrier::wraps))).collect();
-    let markdown: Vec<bool> = tags.iter().map(Option::is_none).collect();
+    let carrier: Vec<bool> = lines.iter().map(|l| carrier::tag_line(l.content).is_some()).collect();
+    let markdown: Vec<bool> = lines.iter().map(|l| html::tag_line(l.content).is_none()).collect();
     let lead = |line: &SrcLine| format!("{}{}{}", line.prefix, shallow_lead(line.content), line.content.trim_start());
     let mut out = Vec::with_capacity(lines.len() + 3);
     let mut changed = false;
@@ -337,23 +336,6 @@ fn carrier_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
         range: first.start..last.end(),
         with: out.join("\n"),
     })
-}
-
-pub(crate) fn is_inline(event: &Event) -> bool {
-    match event {
-        Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak | Event::InlineHtml(_) => {
-            true
-        }
-        Event::Start(tag) => matches!(
-            tag,
-            PTag::Emphasis | PTag::Strong | PTag::Strikethrough | PTag::Link { .. } | PTag::Image { .. }
-        ),
-        Event::End(tag) => matches!(
-            tag,
-            TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link | TagEnd::Image
-        ),
-        _ => false,
-    }
 }
 
 /// A line holding only tags under a table's rows, which a type 7 tag cannot
