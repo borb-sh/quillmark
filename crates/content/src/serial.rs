@@ -425,8 +425,8 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
         }),
         "quote" => Ok(Container::Quote { instance }),
         "element" => {
-            let (name, attrs) = element_payload(o)?;
-            Ok(Container::Element { name, attrs, instance })
+            let element = element_payload(o)?;
+            Ok(Container::Element { element, instance })
         }
         other => Err(ParseError::UnknownName {
             axis: "container",
@@ -437,8 +437,8 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
 
 /// An element's `attrs` bag, read one way on both lanes since it has no legacy
 /// spelling: `$name` and string attributes the carrier
-/// [models](crate::carrier::modeled).
-fn element_payload(o: &Map<String, Value>) -> Result<(String, BTreeMap<String, String>), ParseError> {
+/// [models](crate::carrier::Element::new).
+fn element_payload(o: &Map<String, Value>) -> Result<crate::carrier::Element, ParseError> {
     use crate::carrier::Refused;
     use crate::model::ELEMENT_NAME;
     let bag = o
@@ -455,13 +455,12 @@ fn element_payload(o: &Map<String, Value>) -> Result<(String, BTreeMap<String, S
         .map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
         .collect::<Option<BTreeMap<_, _>>>()
         .ok_or(ParseError::Shape("element attr"))?;
-    crate::carrier::modeled(name, &attrs).map_err(|r| {
+    crate::carrier::Element::new(name, attrs).map_err(|r| {
         ParseError::Shape(match r {
             Refused::Attr(_) => "element attr",
             Refused::Name(_) | Refused::Reserved(_) => "element name",
         })
-    })?;
-    Ok((name.to_string(), attrs))
+    })
 }
 
 /// Encode a [`Mark`] (`start`, `end`, `type`, …) into its canonical wire object.

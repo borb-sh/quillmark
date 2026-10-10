@@ -465,8 +465,8 @@ impl<'a> Emit<'a> {
                 self.emit_quote(i..j, depth);
                 Some(j)
             }
-            Container::Element { name, attrs, .. } => {
-                self.emit_element(i..j, depth, name, attrs);
+            Container::Element { element, .. } => {
+                self.emit_element(i..j, depth, element.name(), element.attrs());
                 Some(j)
             }
         }

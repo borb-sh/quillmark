@@ -124,7 +124,7 @@ impl BlockConstruct {
 pub fn element_runs(content: &quillmark_content::model::Content, name: &str) -> usize {
     use quillmark_content::model::Container;
     container_runs(&content.lines, 0..content.lines.len(), 0, &|c| {
-        matches!(c, Container::Element { name: n, .. } if n == name)
+        matches!(c, Container::Element { element, .. } if element.name() == name)
     })
 }
 

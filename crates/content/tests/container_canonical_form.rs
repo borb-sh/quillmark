@@ -45,11 +45,9 @@ fn alphabet() -> Vec<Container> {
     v.push(Container::Quote { instance: 0 });
     v.push(Container::Quote { instance: 1 });
     for (attrs, instance) in [(&[][..], 0u64), (&[][..], 1), (&[("note", "x")][..], 0)] {
-        v.push(Container::Element {
-            name: "keep".into(),
-            attrs: attrs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
-            instance,
-        });
+        let attrs = attrs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let element = quillmark_content::carrier::Element::new("keep", attrs).unwrap();
+        v.push(Container::Element { element, instance });
     }
     v
 }

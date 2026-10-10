@@ -931,11 +931,9 @@ impl Builder {
         } else {
             let instance = self.mint_instance();
             self.container_marks.push(self.emitted());
-            self.containers.push(Container::Element {
-                name: name.clone(),
-                attrs: attrs.values.clone(),
-                instance,
-            });
+            let element = carrier::Element::new(name.clone(), attrs.values.clone())
+                .expect("a wrapper's name and kept attributes are in the grammar, and `table` opens no element");
+            self.containers.push(Container::Element { element, instance });
             Frame::Element { instance }
         };
         self.blocks.push(Opened { name, frame, attrs, at, depth, reported: false });
@@ -1564,6 +1562,10 @@ mod tests {
         let rt = from_markdown(md).unwrap().content;
         assert_eq!(rt.validate(), Ok(()), "invariants for {md:?}");
         rt
+    }
+
+    fn keep(attrs: &[(&str, &str)]) -> carrier::Element {
+        carrier::Element::new("keep", attrs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()).unwrap()
     }
 
     fn imp_plain(s: &str) -> Normalized {
@@ -2541,7 +2543,7 @@ mod tests {
         assert_eq!(dropped(&block), []);
         assert!(matches!(
             &block.content.lines[0].containers[..],
-            [Container::Element { name, .. }] if name == "cell"
+            [Container::Element { element, .. }] if element.name() == carrier::CELL
         ));
     }
 
@@ -2764,11 +2766,7 @@ mod tests {
         }
 
         let rt = imp_fixed("<qm-keep name=\"x\">\n\na\n\n</qm-keep>\n<qm-keep name=\"x\">\n\nb\n\n</qm-keep>").content;
-        let keep = |instance| Container::Element {
-            name: "keep".into(),
-            attrs: [("name".to_string(), "x".to_string())].into(),
-            instance,
-        };
+        let keep = |instance| Container::Element { element: keep(&[("name", "x")]), instance };
         assert_eq!(rt.lines[0].containers, [keep(0)]);
         assert_eq!(rt.lines[1].containers, [keep(1)]);
     }
@@ -2827,11 +2825,7 @@ mod tests {
         let imported = imp_fixed("<qm-keep onclick=\"x\" note=\"y\">\n\na\n\n</qm-keep>");
         assert_eq!(
             imported.content.lines[0].containers,
-            [Container::Element {
-                name: "keep".into(),
-                attrs: [("note".to_string(), "y".to_string())].into(),
-                instance: 0,
-            }]
+            [Container::Element { element: keep(&[("note", "y")]), instance: 0 }]
         );
         assert_eq!(dropped(&imported), [("qm-keep[onclick]", 1)]);
 
@@ -2843,12 +2837,8 @@ mod tests {
         assert_eq!(
             attrs,
             [
-                &vec![Container::Element {
-                    name: "keep".into(),
-                    attrs: [("note".to_string(), "a".to_string())].into(),
-                    instance: 0,
-                }],
-                &vec![Container::Element { name: "keep".into(), attrs: [].into(), instance: 0 }],
+                &vec![Container::Element { element: keep(&[("note", "a")]), instance: 0 }],
+                &vec![Container::Element { element: keep(&[]), instance: 0 }],
             ]
         );
         assert_eq!(dropped(&imported), [("qm-keep[note]", 1), ("qm-keep[class]", 2)]);
