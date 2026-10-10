@@ -478,16 +478,22 @@ fn carry_island_ids(base: &[Island], new: &mut [Island]) {
             carried[to + k] = Some(&base[from + k].id);
         }
     }
+    let taken: HashSet<&str> = base.iter().map(|i| i.id.as_str()).collect();
+    // `u128` counts past `isl-{u64::MAX}`; `taken` steps over an id past that,
+    // which the count does not parse.
     let mut next = base
         .iter()
         .filter_map(|island| island.id.strip_prefix("isl-")?.parse::<u64>().ok())
         .max()
-        .map_or(0, |n| n.saturating_add(1));
+        .map_or(0, |n| u128::from(n) + 1);
     let carried: Vec<Option<String>> = carried.into_iter().map(|id| id.map(str::to_string)).collect();
     for (island, id) in new.iter_mut().zip(carried) {
         island.id = id.unwrap_or_else(|| {
+            while taken.contains(format!("isl-{next}").as_str()) {
+                next += 1;
+            }
             let id = format!("isl-{next}");
-            next = next.saturating_add(1);
+            next += 1;
             id
         });
     }
@@ -1007,5 +1013,17 @@ mod tests {
         assert_eq!(ids(&deleted), ["isl-0", "isl-1"]);
         let (rewritten, _, _) = diff_import(&deleted, &tables(&["x", "y", "w"])).unwrap();
         assert_eq!(ids(&rewritten), ["isl-2", "isl-3", "isl-4"]);
+
+        let mut top = from_markdown(&tables(&["a"])).unwrap().content.into_content();
+        top.islands[0].id = format!("isl-{}", u64::MAX);
+        let (grown, _, _) = diff_import(&top, &tables(&["a", "b", "c"])).unwrap();
+        assert_eq!(
+            ids(&grown),
+            [
+                format!("isl-{}", u64::MAX),
+                format!("isl-{}", u128::from(u64::MAX) + 1),
+                format!("isl-{}", u128::from(u64::MAX) + 2),
+            ]
+        );
     }
 }
