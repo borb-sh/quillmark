@@ -1,5 +1,168 @@
 # Changelog
 
+## v0.124.0 - 2026-10-10
+
+- docs(migrations): a bare task marker ends its item at a blank line
+- docs(migrations): a <u> carrying an attribute drops and reports
+- fix(typst): a space either side of a mark's close keeps both widths
+- fix(core): the colon hint names the field whose colon opens a mapping
+- fix(content): a rebase mints island ids past isl-{u64::MAX} without repeating one
+- fix(core): a revise keeps the comments nested in a field it revises
+- test(content): an unclosed qm-keep keeps a qm-table around it from folding
+- fix(content)!: a paragraph whose first line drops whole opens without a leading space
+- fix(content): set a carrier run in an HTML block apart only where no other tag line borders it
+- fix(content): read a line of carrier tags in a paragraph at import, not by repair
+- fix(typst): typed spaces keep their width on the page
+- feat(content,typst): a headless qm-table draws its first row as a body row
+- refactor(content): a qm-cell tag carries the raw space beside it
+- feat(content)!: a line of qm-* tags is a tag line wherever it stands; an empty element writes on one line
+- feat(typst)!: an element no renderer takes warns typst::unregistered_element
+- docs(spec): a placed table stands beside no text
+- fix(content): a qm-cell pair trims the space beside its tags
+- docs: rename the qualification layer to quillification
+- fix(core): the colon hint quotes its suggested value through the emitter
+- feat(content)!: footnotes drop with a warning; task lists ride quillmark/document@0.124.0
+- feat(content)!: task lists and footnotes; storage moves to quillmark/document@0.125.0
+- feat(content,typst): a qm-cell pair aligns one table cell
+- fix(content): a pipe in a cell's code span or link url stays in its cell
+- docs: a content image's url resolves under no reading
+- content: rename the quill-* carrier prefix to qm-*
+- docs: card-yaml's one-key rule, the classic-xref base, and the 0.124 index row
+- fix(pdf)!: refuse a /Kids that is no array
+- fix(content): a revise pairs no line past the char-diff limit
+- docs(canon): split the plain-object paragraph under the line limit
+- fix(wasm): an options object whose read throws is refused, and the handle stays usable
+- fix(wasm)!: the key refusal reads a null-prototype prototype's own names
+- docs(migrations): the base-PDF reader's new refusals
+- fix(pdf): stamp a direct /Info ending in a comment, and an /Info reached through a reference chain
+- fix(pdf)!: refuse a hybrid-xref base and allocate past every id the base names
+- fix(pdf)!: read a name through its #xx escapes, a comment inside a reference, and refuse an unreadable annotation
+- fix(core)!: warn a merged tag at the value's path, and refuse two keys of one text
+- docs: list a leading `+`, an integer past u64 and `.5` among card-yaml's retyped numbers
+- fix(core): read a YAML hint off the parser's words, and cut a comment after a tab
+- docs: every private doc link resolves
+- fix(typst,cli)!: validate reads typst.plate_file as a render does
+- docs(pdf): `StampOptions` links the `stamp` function, not the module
+- perf(core): `to_markdown` groups a block's nested comments by owner once
+- fix(core)!: refuse text past a card-yaml block's root value
+- docs(content): name the line pairing without a private link
+- fix(content): a revise keeps anchors in place on a paragraph it edits
+- docs(migrations): the raw-tag row names a richtext field's warning at the field
+- docs(canon): name how far a revise carries a mark on a line it rewrites
+- fix(core,cli): validate reports an example's image once, the tag hint fits inline tags, and an image reads "an image"
+- fix(content)!: a revise keeps the island ids it can match
+- fix(core): Document::revise rebases anchors in content nested in a field
+- fix(core): a richtext field's markdown string reports its drops where a conform or validate imports it
+- test(typst): each table knob alone moves the table's text
+- test(bindings): anchors survive the field and document revises, and reviseDocument names the one it drops
+- test: the decode fuzzers reach every decoder they name, and the annotated read revises to itself
+- test(content): pin raw-text blocks, carrier tags among raw tag lines, CRLF and underline edges
+- fix(core): a revise's dropped anchor inside a field names the content holding it
+- test(bindings): pin drop receipts, cleared load warnings, and the largest column weight across JS
+- test: pin where and in what order the markdown writes report their drops
+- test(parity): the PARITY.md matrix has a row per corpus entry, naming its signals
+- test(wasm): hold every parity entry to the authored, op-wire, storage, revise, rebase and annotated lanes
+- test(python): run the parity corpus through the binding's parse, storage, revise, validate and render
+- docs: match the surface-parity docs to what the branch does
+- refactor(content): cut carrier::strip, which nothing but its own tests called
+- refactor(typst): a compile counts the constructs it declines with the plate walk validate and acroform use
+- refactor(core): a revised card decodes each stored content field once
+- refactor(content,typst): the table placement vocabulary is spelled once, and an element call closes where it is built
+- refactor(content): one drop counter and one frame match serve every wrapper the importer pairs
+- refactor(content): a repair joins its lines once, and the HTML scanner names a verbatim block without its closer
+- refactor(content): the exporter tracks underlines alone among tag pairs, and spells an anchor tag through the carrier element
+- docs(content): from_markdown names the closing and quill-anchor tags that report where their block drops markdown
+- test(parity): a stray close tag tight above markdown declines with a signal on every surface
+- test(content): the document generator spells elements apart by blank lines, so the properties reach stored ones
+- fix(content): an HTML block that drops markdown always reports, a stray close tag or quill-anchor included
+- fix(content): a table column weight is at most 2^53 - 1, so every binding reads the table it stores
+- fix(content)!: validate refuses an element outside the carrier grammar, so a store never writes one it cannot load
+- refactor(content): the builder pairs every carrier wrapper, and a quill-table folds into the island it wraps
+- refactor(content,core): an import names what it dropped as a type, and core words it by match
+- refactor(content): a footnote-shaped definition imports as CommonMark reads it, unreported
+- refactor(content): `cell` is no reserved name, so `quill-cell` is an element like any other
+- feat(typst): a plate's element renderer takes (attrs, body)
+- feat(content): quill-table widths store as written, unreduced
+- feat(content): an element stores its name under $name, and name is an attribute like any other
+- test(content): the raw HTML property sets a quoted tag line apart from quoted text above it
+- refactor(typst): the element dispatcher is the helper-private _qm-element
+- docs: the authoring guide teaches the quill-* carrier, table layout and elements
+- fix(core): a dropped construct's warning names what dropped, and its hint the spelling that keeps it
+- refactor: cut the surface-parity epic's speculative surface before 0.124
+- test(bindings): a blank line sets the table apart from the centering div it drops
+- feat(content)!: only a quill-* tag line frees markdown, and a revise places a dropped anchor at its tag
+- fix(content): an empty element exports on one line and lowers
+- feat(typst)!: an element renderer takes `inline` and reads the registry's final state
+- Defer the honors declaration out of the surface-parity epic
+- test(wasm): a load warning reads on doc.warnings and a render warning on the render, each args a plain object
+- docs(parity): the corpus section names every leg the test reads
+- test(quillmark): the parity corpus asserts the op wire, the fixed point on every entry and a revise
+- docs: the guide index names phase 5's breaks
+- docs: a render reports what the render sees, and the 0.124 guide names the break
+- fix(wasm,python)!: a one-shot render carries the render's warnings, and the load's stay on doc.warnings
+- docs: the spec and the 0.124 guide state the <u> pairing, the type 1 end and the setext tag line
+- fix(content)!: a type 1 block ends at any of its closing tags in any case, and a tag line under a setext heading moves below it
+- fix(content)!: a </u> closes the innermost open <u>, and export writes <u> outside the delimiters at its position
+- docs: elements store, lower and validate, and the storage tag is 0.124.0
+- test(parity): element rows, and table_honors declares keep and hl
+- feat(wasm)!: ContentContainer and ContentMarkKind type the element member
+- feat(typst): a declared element lowers through the helper's qm-element dispatcher
+- feat(core)!: storage moves to quillmark/document@0.124.0, and validate warns an undeclared element
+- feat(content)!: a quill-* element imports as a container or mark, and exports its tags
+- test(content): a comment's tail of nothing but tags keeps a quill-table wrapper folding
+- docs(canon): the annotated read spells an anchor read-only, and BINDINGS gains its row
+- test(parity): the mark.anchor entry pins its annotated read
+- feat(python): doc.to_annotated_markdown() returns the annotated read
+- feat(wasm): doc.toAnnotatedMarkdown() returns the annotated read
+- feat(core): Document::to_markdown_annotated lists each anchor at its DocPath
+- feat(content): to_markdown_annotated spells each prose anchor at its start
+- feat(typst): a declared table or cell knob lowers, and an undeclared one lowers as absent
+- docs(migrations): the 0.124 guide names the quill-table and quill-cell import signals
+- feat(wasm): TableCell types align and valign
+- feat(content): a quill-cell pair around a whole table cell folds its alignment into the cell
+- feat(content): a table cell carries align and valign
+- feat(core,wasm)!: a quill declares the table knobs and elements it honors
+- fix(content): a block a quote or list marker opens inside an HTML block never swallows what follows it
+- fix(content): the tags on the lines the repair deletes are counted as dropped
+- fix(content): every definition of a footnote-shaped label is made literal, the last round's included
+- fix(content): strip finds a quill-* tag in the spelling the import normalizes
+- fix(content): a tag line under an escaped first character keeps the paragraph's indent
+- fix(core,wasm): a refused quill-table attribute names the attribute, and parity.json is a package export
+- test(quillmark): parity compares declines as a sorted list and requires a typst array
+- fix(core): validate declines what the render compiles, defaults and coercion applied
+- fix(core): a whole-document revise aligns an edited card over a deleted one, and a positional pair keeps no foreign $ext
+- fix(wasm): a serde_json::Value crosses to JS with its nulls as null
+- feat(wasm): TableProps types widths, align and breakable
+- docs(canon): the table layout keys, their quill-table spelling and parity rows
+- feat(content): a quill-table wrapper folds its layout into the table it holds
+- feat(content): a table island's props carry widths, align and breakable
+- feat(core)!: validate warns validation::declined_construct where the backend draws nothing
+- docs(canon): a whole-document markdown write keeps anchors through revise, and BINDINGS gains its rows
+- feat(python): writer.revise_document revises the whole document and returns its warnings
+- feat(wasm): doc.reviseDocument and writer.reviseDocument return the whole-document revise receipt
+- feat(quillmark): the facade re-exports the whole-document revise receipt
+- feat(core): TypedWriter::revise_document revises, then conforms
+- feat(core): Document::revise, a whole-document markdown write that aligns cards and rebases their anchors
+- docs(migrations): the 0.124 guide takes one section per concern, under the step's headline
+- chore(review): import docs name every silent drop, and the repair's comments state what is
+- test(quillmark): the parity lowering is the block the helper's $body names
+- docs(migrations): the 0.124 index row names every break the guide does
+- docs: a link title drops at import, unsupported syntax renders as text, and add_card returns its warnings
+- docs(canon): the corpus fixed point binds spelled entries, and every silent import is named
+- docs(spec): quill-anchor states its reservation, and a drop reports by lowercase name
+- docs(migrations): text after a type 1 HTML block's closing tag renders
+- docs(canon): PARITY.md, the construct × surface matrix
+- test(fixtures,wasm): a parity corpus every surface round-trips
+- feat(content): the quill-* carrier grammar, its canonical spelling and strip
+- fix(content)!: a tag line under paragraph text ends the paragraph, and a tag line between list items keeps one list
+- fix(content,core): a footnote-shaped definition reports as footnote_definition
+- docs(migrations): 0.123 → 0.124
+- feat(core,wasm,python)!: a markdown import's drops reach every door as parse::dropped_construct
+- feat(content): a type 1 HTML block reports its opening tag as dropped
+- feat(content)!: an HTML block's markdown imports, and the import returns its warnings
+- fix(content)!: text after a block nested in a tight list item opens its own line
+
+
 ## v0.123.1 - 2026-10-06
 
 Upgrade path: [0.123.0 → 0.123.1](docs/migrations/0.123.0-to-0.123.1.md).
