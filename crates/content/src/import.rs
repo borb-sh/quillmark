@@ -1,6 +1,6 @@
 //! Markdown import (cold): `normalize → pulldown → content`.
 //!
-//! Input is normalized by `normalize::normalize_markdown` (CRLF→LF, bidi
+//! Input is normalized by `normalize::parse_markdown` (CRLF→LF, bidi
 //! controls dropped, line separators spaced, then the parser-guided repair that
 //! splits text off a comment's line, ends a table at a row of tags and sets a
 //! line of carrier tags in an HTML block apart) so the content invariants hold
@@ -50,9 +50,9 @@ use crate::model::{
 use crate::carrier;
 use crate::html;
 use crate::island::IslandType;
-use crate::normalize::normalize_markdown;
+use crate::normalize::parse_markdown;
 use crate::MAX_NESTING_DEPTH;
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, Options, Tag, TagEnd};
 use serde_json::json;
 use std::collections::{HashMap, VecDeque};
 use std::ops::Range;
@@ -145,10 +145,8 @@ pub(crate) fn options() -> Options {
 /// it. A comment, the content of a type 1–5 HTML block and any other closing
 /// tag or `qm-anchor` tag drop silently.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
-    let options = options();
-    let text = normalize_markdown(markdown, options);
     let mut b = Builder::default();
-    b.run(MarkdownFixer::new(&text, Parser::new_ext(&text, options).into_offset_iter()))?;
+    parse_markdown(markdown, options(), |text, events| b.run(MarkdownFixer::new(text, events.into_iter())))?;
     let (content, dropped) = b.finish();
     Ok(Imported {
         content: content.into_normalized(),
