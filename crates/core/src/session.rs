@@ -41,7 +41,13 @@ pub trait SessionHandle: Send + Sync + 'static {
     /// Transactional: on `Err` the previous compile stays live and every read
     /// keeps serving it. The returned [`ChangeSet`] reports the pages the edit
     /// visibly changed. Default: update is unsupported.
-    fn update(&mut self, _json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
+    ///
+    /// `config` is the schema the session was opened against.
+    fn update(
+        &mut self,
+        _config: &QuillConfig,
+        _json_data: &serde_json::Value,
+    ) -> Result<ChangeSet, RenderError> {
         Err(RenderError::coded(
             "backend::update_unsupported",
             "this backend's session does not support update",
@@ -172,6 +178,9 @@ pub struct LiveSession {
     /// The current compile's geometry, rebuilt by the backend at most once per
     /// compile: invariant between commits, so the commit points clear it.
     regions: OnceLock<Vec<RenderedRegion>>,
+    /// The backend's warnings for the current compile, then its
+    /// `backend::declined_construct` ones.
+    warnings: Vec<Diagnostic>,
 }
 
 impl LiveSession {
@@ -181,18 +190,30 @@ impl LiveSession {
     /// `source.config().clone()` and buys [`update`](Self::update) a document
     /// verb whose plate is always compiled by *this* config: the pairing is
     /// structural, not an obligation on the caller.
+    ///
+    /// `json_data` is the plate data `inner` compiled.
     #[doc(hidden)]
     pub fn new(
         inner: Box<dyn SessionHandle>,
         config: QuillConfig,
         today: CalendarDate,
+        json_data: &serde_json::Value,
     ) -> Self {
-        Self {
+        let mut session = Self {
             inner,
             config,
             today,
             regions: OnceLock::new(),
-        }
+            warnings: Vec::new(),
+        };
+        session.commit(json_data);
+        session
+    }
+
+    fn commit(&mut self, json_data: &serde_json::Value) {
+        self.regions.take();
+        self.warnings = self.inner.warnings().to_vec();
+        self.warnings.extend(self.config.declined_in_plate(json_data));
     }
 
     pub fn page_count(&self) -> usize {
@@ -287,14 +308,12 @@ impl LiveSession {
     /// last-good compile *and* its warnings. Also appended to
     /// [`RenderResult::warnings`], for consumers that never call `render`.
     pub fn warnings(&self) -> &[Diagnostic] {
-        self.inner.warnings()
+        &self.warnings
     }
 
     pub fn render(&self, opts: &RenderOptions) -> Result<RenderResult, RenderError> {
         let mut result = self.inner.render(opts)?;
-        result
-            .warnings
-            .extend(self.inner.warnings().iter().cloned());
+        result.warnings.extend(self.warnings.iter().cloned());
         // Attached at the wrapper, so a backend needs nothing beyond the
         // `regions` accessor it already has.
         if opts.regions {
@@ -312,8 +331,7 @@ impl LiveSession {
     /// under a schema the session was not opened against.
     pub fn update(&mut self, doc: &Document) -> Result<ChangeSet, RenderError> {
         let json_data = self.config.compile_checked(doc, self.today)?;
-        self.regions.take();
-        self.inner.update(&json_data)
+        self.update_data(&json_data)
     }
 
     /// [`update`](Self::update) with the schema layer cut away: plate data
@@ -323,8 +341,9 @@ impl LiveSession {
     /// demand, with data the schema would refuse.
     #[doc(hidden)]
     pub fn update_data(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
-        self.regions.take();
-        self.inner.update(json_data)
+        let changes = self.inner.update(&self.config, json_data)?;
+        self.commit(json_data);
+        Ok(changes)
     }
 }
 
@@ -387,7 +406,7 @@ main:
         fn page_count(&self) -> usize {
             1
         }
-        fn update(&mut self, _: &serde_json::Value) -> Result<ChangeSet, RenderError> {
+        fn update(&mut self, _: &QuillConfig, _: &serde_json::Value) -> Result<ChangeSet, RenderError> {
             self.applies += 1;
             self.current = vec![Diagnostic::new(
                 Severity::Warning,
@@ -423,6 +442,7 @@ main:
             }),
             config(),
             test_date(),
+            &serde_json::Value::Null,
         );
         assert_eq!(session.warnings()[0].message, "open-time");
 
@@ -505,7 +525,7 @@ main:
 
     #[test]
     fn field_at_tie_takes_the_later_region() {
-        let session = LiveSession::new(Box::new(TiedRegionHandle), config(), test_date());
+        let session = LiveSession::new(Box::new(TiedRegionHandle), config(), test_date(), &serde_json::Value::Null);
         assert_eq!(session.field_at(0, 5.0, 5.0, 0.0).as_deref(), Some("over"));
         // Outside both rects by the same gap: the tolerant path ties too.
         assert_eq!(session.field_at(0, 14.0, 5.0, 8.0).as_deref(), Some("over"));
@@ -513,7 +533,7 @@ main:
 
     #[test]
     fn field_boxes_derives_off_regions() {
-        let session = LiveSession::new(Box::new(RegionHandle), config(), test_date());
+        let session = LiveSession::new(Box::new(RegionHandle), config(), test_date(), &serde_json::Value::Null);
         let boxes = session.field_boxes("subject");
         assert_eq!(boxes.len(), 1, "one span-bearing region → one box");
         assert_eq!(boxes[0].field, "subject");

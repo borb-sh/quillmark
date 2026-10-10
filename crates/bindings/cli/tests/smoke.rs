@@ -204,11 +204,11 @@ fn validate_fails_a_quill_whose_example_warns() {
             "cli::example_not_clean",
             "validation::unknown_field",
             "parse::dropped_construct",
-            "validation::declined_construct",
         ] {
             assert!(stderr.contains(code), "{args:?} lacks {code}: {stderr}");
         }
-        assert!(!stderr.contains("backend::declined_construct"), "{args:?} reports the image twice: {stderr}");
+        let declines = stderr.matches("backend::declined_construct").count();
+        assert_eq!(declines, 1, "{args:?} reports the image {declines} times: {stderr}");
     }
 }
 

@@ -216,6 +216,15 @@ impl Quill {
     /// surface: read them from the [`Document`] payload and the quill schema
     /// (`quill.config().schema()`, whose key order is display order).
     pub fn validate(&self, doc: &Document) -> Vec<Diagnostic> {
+        let mut diags = self.advisories(doc);
+        diags.extend(validate_declined(self.config(), doc));
+        diags
+    }
+
+    /// [`validate`](Self::validate) less the backend's declines, which a
+    /// render's compile reports itself.
+    #[doc(hidden)]
+    pub fn advisories(&self, doc: &Document) -> Vec<Diagnostic> {
         let mut diags = match self.config().validate_document(doc) {
             Ok(()) => Vec::new(),
             Err(errors) => errors.iter().map(|e| e.to_diagnostic()).collect(),
@@ -225,7 +234,6 @@ impl Quill {
         diags.extend(validate_cardinality(self.config(), doc));
         diags.extend(self.validate_seed(doc));
         diags.extend(validate_dropped(self.config(), doc));
-        diags.extend(validate_declined(self.config(), doc));
         diags
     }
 
@@ -1141,22 +1149,18 @@ pub(crate) fn body_disabled_warning(path: &DocPath, card: &str) -> Diagnostic {
     .with_hint("Remove the body content, or set `body.enabled: true` on the card kind.".to_string())
 }
 
-/// The render's `backend::declined_construct` warnings, recoded
-/// `validation::declined_construct` and without the `backend` arg: the plate a
-/// render compiles, defaults and coercion applied. A document that does not
-/// compile draws none.
+/// The `backend::declined_construct` warnings a render of `doc` raises: the
+/// plate a render compiles, defaults and coercion applied. A document that
+/// does not compile draws none.
 fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
+    if crate::backend::declines(&config.backend).is_empty() {
+        return Vec::new();
+    }
     let any_day = CalendarDate::new(2000, 1, 1).expect("a calendar date");
     let Ok(plate) = config.compile_data(doc, any_day) else {
         return Vec::new();
     };
-    config.declined_in_plate(&plate).into_iter().map(validated_decline).collect()
-}
-
-pub(crate) fn validated_decline(mut diag: Diagnostic) -> Diagnostic {
-    diag.code = Some("validation::declined_construct".to_string());
-    diag.args.remove("backend");
-    diag
+    config.declined_in_plate(&plate)
 }
 
 /// One `parse::dropped_construct` per construct a `richtext` field's markdown
@@ -1251,15 +1255,20 @@ fn each_content_leaf(
 
 impl QuillConfig {
     /// One [`backend::declined_construct`](crate::backend::declined_construct)
-    /// per content field and construct this config's backend
+    /// per content field and construct that this config's backend
     /// [`declines`](crate::backend::declines) in `data`, the plate JSON
     /// [`compile_data`](Self::compile_data) built from this config.
     pub fn declined_in_plate(&self, data: &serde_json::Value) -> Vec<Diagnostic> {
         let backend = self.backend.as_str();
         let mut diags = Vec::new();
+        let declined = crate::backend::declines(backend);
+        if declined.is_empty() {
+            return diags;
+        }
         self.each_plate_content(data, &mut |at: &DocPath, content: &crate::Content| {
-            for &construct in crate::backend::declines(backend) {
-                let count = construct.count_in(content);
+            let counts = super::BlockConstruct::tally(content);
+            for &construct in declined {
+                let count = counts[construct as usize];
                 if count > 0 {
                     diags.push(crate::backend::declined_construct(backend, construct, count, at));
                 }
@@ -1571,7 +1580,7 @@ card_kinds:
         let mut validated: Vec<(String, serde_json::Value)> = quill
             .validate(&doc)
             .into_iter()
-            .filter(|d| d.code.as_deref() == Some("validation::declined_construct"))
+            .filter(|d| d.code.as_deref() == Some(crate::backend::DECLINED_CONSTRUCT))
             .inspect(|d| assert_eq!(d.severity, Severity::Warning))
             .map(|d| (d.path.unwrap_or_default(), json!(d.args)))
             .collect();
@@ -1579,11 +1588,11 @@ card_kinds:
         assert_eq!(
             validated,
             vec![
-                ("cards.note[0].items[1]".into(), json!({ "construct": "image", "count": 1 })),
-                ("cards.note[0].more[0]".into(), json!({ "construct": "image", "count": 1 })),
-                ("main.banner".into(), json!({ "construct": "image", "count": 1 })),
-                ("main.body".into(), json!({ "construct": "image", "count": 2 })),
-                ("main.intro".into(), json!({ "construct": "image", "count": 1 })),
+                ("cards.note[0].items[1]".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
+                ("cards.note[0].more[0]".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
+                ("main.banner".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
+                ("main.body".into(), json!({ "backend": "typst", "construct": "image", "count": 2 })),
+                ("main.intro".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
             ]
         );
     }
@@ -1594,7 +1603,8 @@ card_kinds:
                   ```\nx\ny\n```\n\n---\n\n| t |\n|---|\n| u |\n\n![i](i.png)\n";
         let content = crate::document::import_body(md).expect("imports");
         let counts = |id: &str| -> Vec<(crate::quill::BlockConstruct, usize)> {
-            crate::backend::declines(id).iter().map(|&c| (c, c.count_in(&content))).collect()
+            let tally = crate::quill::BlockConstruct::tally(&content);
+            crate::backend::declines(id).iter().map(|&c| (c, tally[c as usize])).collect()
         };
         use crate::quill::BlockConstruct::*;
         assert_eq!(

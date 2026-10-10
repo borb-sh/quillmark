@@ -72,7 +72,7 @@ pub fn declined_construct(
     args.insert("backend".to_string(), backend.into());
     args.insert("construct".to_string(), construct.as_str().into());
     args.insert("count".to_string(), count.into());
-    crate::error::Diagnostic::new(
+    let diag = crate::error::Diagnostic::new(
         crate::error::Severity::Warning,
         format!(
             "the {backend} backend does not typeset {}: {count} in this field \
@@ -82,7 +82,15 @@ pub fn declined_construct(
     )
     .with_code(DECLINED_CONSTRUCT.to_string())
     .with_path(path.to_string())
-    .with_args(args)
+    .with_args(args);
+    match (backend, construct) {
+        ("typst", BlockConstruct::Image) => diag.with_hint(
+            "a content image's url resolves to nothing; a plate draws a \
+             quill asset with `#image(\"/assets/…\")`"
+                .to_string(),
+        ),
+        _ => diag,
+    }
 }
 
 /// English enough for the engine's own sentence; a consumer wording this

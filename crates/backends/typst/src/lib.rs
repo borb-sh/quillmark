@@ -44,9 +44,6 @@ const SUPPORTED_FORMATS: &[OutputFormat] =
 /// recompiles.
 struct TypstSession {
     world: world::QuillWorld,
-    /// Walked per compile for the constructs this backend declines and the
-    /// elements it draws with no renderer.
-    config: QuillConfig,
     /// Built once at `open`: the schema never changes for a session's lifetime,
     /// and codegen plus date validation read only these tables.
     schema_meta: SchemaMeta,
@@ -112,7 +109,6 @@ fn recompile(
         world,
         compile_warnings,
         &unclosed,
-        declined_warnings(config, data),
         elements::unregistered(&document, config, data),
     );
     Ok(Compiled {
@@ -127,29 +123,12 @@ fn recompile(
     })
 }
 
-/// [`QuillConfig::declined_in_plate`] for this backend, which declines only
-/// images, with what a plate draws instead.
-fn declined_warnings(config: &QuillConfig, data: &serde_json::Value) -> Vec<Diagnostic> {
-    config
-        .declined_in_plate(data)
-        .into_iter()
-        .map(|diag| {
-            diag.with_hint(
-                "a content image's url resolves to nothing; a plate draws a \
-                 quill asset with `#image(\"/assets/…\")`"
-                    .to_string(),
-            )
-        })
-        .collect()
-}
-
 /// One order, built in one place, so an `update` that swaps only what it
 /// recompiled keeps the quill's load warnings ahead of its own.
 fn session_warnings(
     world: &world::QuillWorld,
     compile: Vec<Diagnostic>,
     unclosed: &[(usize, String)],
-    declined: Vec<Diagnostic>,
     unregistered: Vec<Diagnostic>,
 ) -> Vec<Diagnostic> {
     let mut all = world.load_warnings().to_vec();
@@ -166,7 +145,6 @@ fn session_warnings(
                 .to_string(),
         )
     }));
-    all.extend(declined);
     all.extend(unregistered);
     all
 }
@@ -273,11 +251,15 @@ impl SessionHandle for TypstSession {
         self.live.document.pages().len()
     }
 
-    fn update(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
+    fn update(
+        &mut self,
+        config: &QuillConfig,
+        json_data: &serde_json::Value,
+    ) -> Result<ChangeSet, RenderError> {
         let compiled = recompile(
             &mut self.world,
             json_data,
-            &self.config,
+            config,
             &self.schema_meta,
             &self.scalar_windows,
         )?;
@@ -453,7 +435,6 @@ impl Backend for TypstBackend {
         })?;
         let session = TypstSession {
             world,
-            config: config.clone(),
             schema_meta,
             scalar_windows,
             live,
@@ -462,6 +443,7 @@ impl Backend for TypstBackend {
             Box::new(session),
             config.clone(),
             today,
+            json_data,
         ))
     }
 }

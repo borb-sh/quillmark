@@ -122,7 +122,7 @@ doc.card(0)["kind"]                       # the composable card's $kind
 
 ```python
 result.artifacts            # [Artifact, ...]
-result.warnings             # [Diagnostic, ...]: quill.validate's but validation::declined_construct,
+result.warnings             # [Diagnostic, ...]: quill.validate's but backend::declined_construct,
                             # then the compile's, backend::declined_construct among them;
                             # the load's stay on doc.warnings
 result.format               # OutputFormat

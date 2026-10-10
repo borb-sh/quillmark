@@ -222,8 +222,8 @@ fn surfaces(entry: &Value, engine: &Quillmark, quill: &Quill, doc: &Document) ->
             if codes != signals["render"] {
                 failures.push(format!("render warns {codes}"));
             }
-            let at_validate = declines(&validated, "validation::declined_construct");
-            let at_render = declines(&result.warnings, "backend::declined_construct");
+            let at_validate = declines(&validated);
+            let at_render = declines(&result.warnings);
             if at_validate != at_render {
                 failures.push(format!(
                     "validate declines {at_validate:?} where the render declines {at_render:?}"
@@ -380,16 +380,13 @@ fn check_annotated(annotated: &Value, content: &Normalized) -> Vec<String> {
     failures
 }
 
-fn declines(diags: &[Diagnostic], code: &str) -> Vec<(String, String, String)> {
+fn declines(diags: &[Diagnostic]) -> Vec<Diagnostic> {
     let mut declines: Vec<_> = diags
         .iter()
-        .filter(|d| d.code.as_deref() == Some(code))
-        .map(|d| {
-            let arg = |k: &str| d.args.get(k).map(|v| v.to_string()).unwrap_or_default();
-            (d.path.clone().unwrap_or_default(), arg("construct"), arg("count"))
-        })
+        .filter(|d| d.code.as_deref() == Some("backend::declined_construct"))
+        .cloned()
         .collect();
-    declines.sort();
+    declines.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.message.cmp(&b.message)));
     declines
 }
 

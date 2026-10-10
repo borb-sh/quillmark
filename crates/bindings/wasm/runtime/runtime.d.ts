@@ -415,8 +415,8 @@ export declare class Engine {
 	 * soon as this call returns.
 	 *
 	 * {@link RenderResult.warnings} carries every `quill.validate(doc)` warning
-	 * but `validation::declined_construct`, which the compile raises as
-	 * `backend::declined_construct`, then the compile's own. The load's (parse
+	 * but `backend::declined_construct`, then the compile's own, a decline among
+	 * them. The load's (parse
 	 * and `conform::*`) stay on `doc.warnings`, and a revise's on its receipt.
 	 * A {@link LiveSession} carries the compile's alone: read
 	 * `quill.validate(doc)` beside it.

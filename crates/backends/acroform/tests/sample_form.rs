@@ -276,7 +276,7 @@ fn a_construct_the_form_declines_warns_at_validate_and_on_the_session() {
         .map(|&(c, n)| ("main.bio".to_string(), c.to_string(), n))
         .collect();
 
-    assert_eq!(declines(&quill().validate(&doc), "validation::declined_construct"), expected);
+    assert_eq!(declines(&quill().validate(&doc), "backend::declined_construct"), expected);
     let session = open_session(&md);
     assert_eq!(declines(session.warnings(), "backend::declined_construct"), expected);
 }
