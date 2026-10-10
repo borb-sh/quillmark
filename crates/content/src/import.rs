@@ -48,9 +48,8 @@ use crate::html;
 use crate::island::IslandType;
 use crate::normalize::normalize_markdown;
 use crate::MAX_NESTING_DEPTH;
-use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::collections::VecDeque;
-use std::iter::Peekable;
 use std::ops::Range;
 
 /// What `event` contributes to the alt text of an image being collected: one
@@ -320,7 +319,6 @@ impl Inline {
             m.start = m.start.clamp(lead, end) - lead;
             m.end = m.end.clamp(lead, end) - lead;
         }
-        self.marks.retain(|m| m.start < m.end);
     }
 }
 
@@ -443,8 +441,8 @@ struct CellPair {
     state: PairState,
     /// Each open tag's offset, reported where no pair folds.
     opens: Vec<usize>,
-    /// The chars of [`Fixed::CellEdge`] space at the cell's start and before
-    /// its last tag, which a pair that folds trims.
+    /// The raw space after the open tag and before the close tag, which a
+    /// pair that folds trims.
     edges: (usize, usize),
 }
 
@@ -459,15 +457,17 @@ enum PairState {
 }
 
 impl CellPair {
-    fn open(&mut self, attrs: carrier::Attrs, at: usize) {
+    fn open(&mut self, attrs: carrier::Attrs, at: usize, space: usize) {
         self.opens.push(at);
+        self.edges.0 = space;
         self.state = match std::mem::take(&mut self.state) {
             PairState::Empty => PairState::Open(attrs),
             _ => PairState::Spoiled,
         };
     }
 
-    fn close(&mut self) {
+    fn close(&mut self, space: usize) {
+        self.edges.1 = space;
         self.state = match std::mem::take(&mut self.state) {
             PairState::Open(attrs) => PairState::Closed(attrs),
             _ => PairState::Spoiled,
@@ -478,15 +478,6 @@ impl CellPair {
     fn content(&mut self) {
         if !matches!(self.state, PairState::Open(_)) {
             self.state = PairState::Spoiled;
-        }
-    }
-
-    /// Edge space of `n` chars, at the cell's start or before a close tag.
-    fn edge(&mut self, at_start: bool, n: usize) {
-        if at_start {
-            self.edges.0 = n;
-        } else {
-            self.edges.1 = n;
         }
     }
 
@@ -704,12 +695,6 @@ impl Builder {
                     self.dropped.add(Dropped::Footnote, at);
                     self.in_note = true;
                     continue;
-                }
-                Fixed::CellEdge(s) => {
-                    if self.cell_edge(s) {
-                        continue;
-                    }
-                    Event::Text(CowStr::Borrowed(s))
                 }
             };
             if self.in_note {
@@ -973,15 +958,15 @@ impl Builder {
     /// Pair one carrier tag: a tag line opens or closes a wrapper. Any other
     /// open tag drops, and any other close tag drops silently.
     fn carrier_tag(&mut self, tag: CarrierTag) -> Result<(), ImportError> {
-        let CarrierTag { wrapper, attrs, block, at } = tag;
+        let CarrierTag { wrapper, attrs, block, at, space } = tag;
         if self.in_note {
             return Ok(());
         }
         if let Some(acc) = self.table.as_mut().filter(|acc| acc.cell.is_some()) {
             match (&wrapper, attrs) {
                 (Wrapper::Element(name), attrs) if name == CELL && acc.img_depth == 0 => match attrs {
-                    Some(attrs) => acc.pair.open(attrs, at),
-                    None => acc.pair.close(),
+                    Some(attrs) => acc.pair.open(attrs, at, space),
+                    None => acc.pair.close(space),
                 },
                 (_, attrs) => {
                     acc.pair.content();
@@ -1191,25 +1176,6 @@ impl Builder {
             self.code_opened = true;
             self.inline.push_text(seg);
         }
-    }
-
-    /// Push [`Fixed::CellEdge`] space into the open cell, recording it for the
-    /// pair; `false` where no cell reads it as such.
-    fn cell_edge(&mut self, s: &str) -> bool {
-        if self.in_note {
-            return false;
-        }
-        let Some(acc) = self.table.as_mut().filter(|acc| acc.img_depth == 0) else {
-            return false;
-        };
-        let Some(cell) = acc.cell.as_mut() else {
-            return false;
-        };
-        acc.pair.content();
-        let start = cell.pos;
-        cell.push_text(s);
-        acc.pair.edge(start == 0, cell.pos - start);
-        true
     }
 
     /// Route one table event: structural events shape the accumulator, inline
@@ -1423,9 +1389,6 @@ enum Fixed<'a> {
     Swallowed(Wrapper, usize),
     /// A footnote definition's start, at its byte offset.
     NoteDef(usize),
-    /// Raw space and tab between an inline `qm-cell` tag and the text on its
-    /// inner side: a cell's edge where the pair folds, text elsewhere.
-    CellEdge(&'a str),
 }
 
 /// An inline `<u>` tag, paired by the builder as HTML pairs it.
@@ -1458,10 +1421,6 @@ impl Wrapper {
         }
     }
 
-    fn is_cell(&self) -> bool {
-        matches!(self, Wrapper::Element(name) if name == CELL)
-    }
-
     /// What it reports when it drops.
     fn dropped(self) -> Dropped {
         match self {
@@ -1480,6 +1439,9 @@ struct CarrierTag {
     block: bool,
     /// The tag's byte offset, or its HTML block's.
     at: usize,
+    /// The space and tab in the source on an inline tag's inner side: after an
+    /// open tag, before a close tag.
+    space: usize,
 }
 
 impl CarrierTag {
@@ -1489,6 +1451,7 @@ impl CarrierTag {
             attrs: (!tag.closing).then(|| carrier::decode_attrs(&tag.attrs)),
             block,
             at,
+            space: 0,
         })
     }
 }
@@ -1547,14 +1510,12 @@ impl Drops {
     }
 }
 
-struct MarkdownFixer<'a, I: Iterator> {
+struct MarkdownFixer<'a, I> {
     src: &'a str,
-    inner: Peekable<I>,
+    inner: I,
     dropped: Drops,
     /// An HTML block's carrier tags ahead of its end.
     held: VecDeque<Fixed<'a>>,
-    /// Whether the last event was an inline `qm-cell` open tag.
-    cell_opened: bool,
 }
 
 impl<'a, I> MarkdownFixer<'a, I>
@@ -1564,41 +1525,10 @@ where
     fn new(src: &'a str, inner: I) -> Self {
         Self {
             src,
-            inner: inner.peekable(),
+            inner,
             dropped: Drops::default(),
             held: VecDeque::new(),
-            cell_opened: false,
         }
-    }
-
-    /// Raw text at `range`, its space and tab against an inline `qm-cell`
-    /// tag on either side split off as [`Fixed::CellEdge`].
-    fn raw_text(&mut self, range: Range<usize>, cell_opened: bool) -> Option<Fixed<'a>> {
-        const EDGE: [char; 2] = [' ', '\t'];
-        let s = &self.src[range];
-        let lead = if cell_opened { s.len() - s.trim_start_matches(EDGE).len() } else { 0 };
-        let closes = matches!(
-            self.inner.peek(),
-            Some((Event::InlineHtml(h), _)) if html::tag_at(h, 0)
-                .and_then(|t| CarrierTag::of(&t, false, 0))
-                .is_some_and(|c| c.attrs.is_none() && c.wrapper.is_cell())
-        );
-        let (head, rest) = s.split_at(lead);
-        let trail = if closes { rest.len() - rest.trim_end_matches(EDGE).len() } else { 0 };
-        let (text, tail) = rest.split_at(rest.len() - trail);
-        if head.is_empty() && tail.is_empty() {
-            return Some(Fixed::Event(Event::Text(CowStr::Borrowed(text))));
-        }
-        for (part, fixed) in [
-            (head, Fixed::CellEdge(head)),
-            (text, Fixed::Event(Event::Text(CowStr::Borrowed(text)))),
-            (tail, Fixed::CellEdge(tail)),
-        ] {
-            if !part.is_empty() {
-                self.held.push_back(fixed);
-            }
-        }
-        None
     }
 
     /// Consume an HTML block through its end, counting its
@@ -1639,7 +1569,6 @@ where
     /// One event as the builder takes it, or `None` for one that drops or
     /// that `held` now carries.
     fn fix(&mut self, event: Event<'a>, range: Range<usize>) -> Option<Fixed<'a>> {
-        let cell_opened = std::mem::take(&mut self.cell_opened);
         Some(match event {
             Event::Start(Tag::HtmlBlock) => {
                 self.drop_html_block(range.start);
@@ -1660,15 +1589,18 @@ where
                 if tag.name.eq_ignore_ascii_case("br") && !tag.closing {
                     return Some(Fixed::Event(Event::HardBreak));
                 }
-                if let Some(carrier) = CarrierTag::of(&tag, false, range.start) {
-                    self.cell_opened = carrier.attrs.is_some() && carrier.wrapper.is_cell();
+                if let Some(mut carrier) = CarrierTag::of(&tag, false, range.start) {
+                    let space = |c: &char| matches!(c, ' ' | '\t');
+                    carrier.space = match carrier.attrs {
+                        Some(_) => self.src[range.end..].chars().take_while(space).count(),
+                        None => self.src[..range.start].chars().rev().take_while(space).count(),
+                    };
                     return Some(Fixed::Carrier(carrier));
                 }
                 self.dropped.tag(&tag, range.start);
                 return None;
             }
             Event::Start(Tag::FootnoteDefinition(_)) => Fixed::NoteDef(range.start),
-            Event::Text(t) if self.src[range.clone()] == *t => return self.raw_text(range, cell_opened),
             Event::FootnoteReference(label) => Fixed::Event(Event::Text(format!("[^{label}]").into())),
             other => Fixed::Event(other),
         })
@@ -2543,6 +2475,7 @@ mod tests {
             ("<qm-cell valign=\"top\">  </qm-cell>", ""),
             ("<qm-cell valign=\"top\">&#32;a&#9;</qm-cell>", " a\t"),
             ("<qm-cell valign=\"top\"> &#32; </qm-cell>", " "),
+            ("<qm-cell valign=\"top\"><u></u> a</qm-cell>", " a"),
         ] {
             let edges = imp_fixed(&format!("| h |\n|---|\n| {cell} |"));
             assert_eq!(table_rows(&edges.content), [[text]], "{cell:?}");
