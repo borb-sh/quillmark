@@ -305,7 +305,7 @@ proptest! {
         let mut counted: Vec<(String, usize)> = imported
             .warnings
             .iter()
-            .map(|ImportWarning::DroppedConstruct { construct, count }| (construct.to_string(), *count))
+            .map(|ImportWarning { construct, count }| (construct.to_string(), *count))
             .collect();
         counted.sort();
         let mut expected: Vec<(String, usize)> = Vec::new();

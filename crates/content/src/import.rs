@@ -85,11 +85,12 @@ impl std::fmt::Display for ImportError {
 }
 impl std::error::Error for ImportError {}
 
-/// Something the markdown spelled that the content has no place for.
+/// `count` instances of `construct`, something the markdown spelled that the
+/// content has no place for, dropped. One per construct.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ImportWarning {
-    /// `count` instances of `construct` dropped. One entry per construct.
-    DroppedConstruct { construct: Dropped, count: usize },
+pub struct ImportWarning {
+    pub construct: Dropped,
+    pub count: usize,
 }
 
 /// A construct an import drops. Its [`Display`](std::fmt::Display) is the
@@ -1326,7 +1327,7 @@ impl Drops {
         self.0.sort_by_key(|&(_, _, first)| first);
         self.0
             .into_iter()
-            .map(|(construct, count, _)| ImportWarning::DroppedConstruct { construct, count })
+            .map(|(construct, count, _)| ImportWarning { construct, count })
             .collect()
     }
 }
@@ -2203,7 +2204,7 @@ mod tests {
         imported
             .warnings
             .iter()
-            .map(|ImportWarning::DroppedConstruct { construct, count }| {
+            .map(|ImportWarning { construct, count }| {
                 (&*construct.to_string().leak(), *count)
             })
             .collect()

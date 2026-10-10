@@ -146,7 +146,7 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
             let warnings: Value = imported
                 .warnings
                 .iter()
-                .map(|ImportWarning::DroppedConstruct { construct, count }| {
+                .map(|ImportWarning { construct, count }| {
                     json!({ "construct": construct.to_string(), "count": count })
                 })
                 .collect();

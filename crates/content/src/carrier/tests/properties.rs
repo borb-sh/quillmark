@@ -330,7 +330,7 @@ fn cell_content() -> impl Strategy<Value = String> {
 fn counted(warnings: &[ImportWarning]) -> Vec<(String, usize)> {
     let mut out: Vec<(String, usize)> = warnings
         .iter()
-        .map(|ImportWarning::DroppedConstruct { construct, count }| (construct.to_string(), *count))
+        .map(|ImportWarning { construct, count }| (construct.to_string(), *count))
         .collect();
     out.sort();
     out
