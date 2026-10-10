@@ -33,7 +33,7 @@ pub(crate) fn unregistered(
         return Vec::new();
     };
     let mut fallen = BTreeSet::new();
-    let mut rendered = BTreeSet::new();
+    let mut rendered = BTreeSet::from(["keep".to_string()]);
     for marker in document.introspector().query(&Selector::Label(label)).iter() {
         let Ok(Value::Dict(dict)) = marker.get_by_name("value") else {
             continue;

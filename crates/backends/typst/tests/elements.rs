@@ -60,21 +60,23 @@ fn the_plates_renderer_receives_the_attributes() {
 }
 
 /// The built-in `keep` moves a run that would break across pages to the next
-/// one whole.
+/// one whole, whatever the plate's registry holds.
 #[test]
 fn the_built_in_keep_keeps_its_run_on_one_page() {
     let filler = "line\n\n".repeat(3);
     let run = "one\n\ntwo\n\nthree";
     let kept = format!("{filler}<qm-keep>\n\n{run}\n\n</qm-keep>");
     let glyphs = |svg: &String| svg.matches("<use ").count();
-    let kept = pages(&quill(""), &kept);
     let bare = pages(&quill(""), &format!("{filler}{run}"));
-    assert!(
-        glyphs(&kept[0]) < glyphs(&bare[0]),
-        "the kept run leaves the first page: {} vs {}",
-        glyphs(&kept[0]),
-        glyphs(&bare[0])
-    );
+    for plate in ["", "#elements.update((stamp: (attrs, body) => body))\n"] {
+        let kept = pages(&quill(plate), &kept);
+        assert!(
+            glyphs(&kept[0]) < glyphs(&bare[0]),
+            "under {plate:?} the kept run leaves the first page: {} vs {}",
+            glyphs(&kept[0]),
+            glyphs(&bare[0])
+        );
+    }
 }
 
 const UNREGISTERED: &str = "typst::unregistered_element";
