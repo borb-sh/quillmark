@@ -204,14 +204,15 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
                 tags.push(name.to_string());
             }
             // A closing tag straight after a table's rows is one more row to the
-            // parser, so the table runs on past it.
+            // parser, so the table runs on past it. An unclosed `qm-keep` stays
+            // innermost, so a `qm-table` around it never closes.
             Piece {
                 md,
                 words,
                 tags,
                 table: after_table && !closed,
                 tables,
-                other: other || name == "qm-table",
+                other: other || name == "qm-table" || (name == "qm-keep" && !closed),
                 closes: closed,
             }
         })
