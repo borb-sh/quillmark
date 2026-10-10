@@ -1141,55 +1141,22 @@ pub(crate) fn body_disabled_warning(path: &DocPath, card: &str) -> Diagnostic {
     .with_hint("Remove the body content, or set `body.enabled: true` on the card kind.".to_string())
 }
 
-/// One `validation::declined_construct` per content field and construct that
-/// the quill's backend [`declines`](crate::backend::declines): the warning
-/// that field's render raises as `backend::declined_construct`. The walk reads
-/// the plate a render compiles, defaults and coercion applied, and the
-/// authored document only when that compile fails.
+/// The render's `backend::declined_construct` warnings, recoded
+/// `validation::declined_construct` and without the `backend` arg: the plate a
+/// render compiles, defaults and coercion applied. A document that does not
+/// compile draws none.
 fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    let mut each = |at: &DocPath, content: &crate::Content| {
-        for (construct, count) in crate::backend::declined_in(&config.backend, content) {
-            diags.push(declined_construct_warning(&config.backend, construct, count, at));
-        }
-    };
     let any_day = CalendarDate::new(2000, 1, 1).expect("a calendar date");
-    if let Ok(plate) = config.compile_data(doc, any_day) {
-        config.each_plate_content(&plate, &mut each);
-        return diags;
-    }
-    for (schema, card, path) in schema_cards(config, doc) {
-        let Some(schema) = schema else { continue };
-        if schema.body_enabled() {
-            each(&path.body(), card.body());
-        }
-        for (key, value) in card.payload().iter() {
-            if let Some(field) = schema.fields.get(key.as_str()) {
-                each_content(field, value.as_json(), &path.field(key), &mut each);
-            }
-        }
-    }
-    diags
+    let Ok(plate) = config.compile_data(doc, any_day) else {
+        return Vec::new();
+    };
+    config.declined_in_plate(&plate).into_iter().map(validated_decline).collect()
 }
 
-pub(crate) fn declined_construct_warning(
-    backend: &str,
-    construct: super::BlockConstruct,
-    count: usize,
-    path: &DocPath,
-) -> Diagnostic {
-    Diagnostic::new(
-        Severity::Warning,
-        format!(
-            "the {backend} backend does not typeset {}: {count} in this field \
-             will not reach the page",
-            crate::backend::plural(construct, count)
-        ),
-    )
-    .with_code("validation::declined_construct".to_string())
-    .with_path(path.to_string())
-    .with_arg("construct", construct.as_str().into())
-    .with_arg("count", count.into())
+pub(crate) fn validated_decline(mut diag: Diagnostic) -> Diagnostic {
+    diag.code = Some("validation::declined_construct".to_string());
+    diag.args.remove("backend");
+    diag
 }
 
 /// One `parse::dropped_construct` per construct a `richtext` field's markdown
@@ -1228,24 +1195,9 @@ pub(super) fn markdown_drops(field: &FieldSchema, json: &serde_json::Value, path
     diags
 }
 
-/// Call `f` on every content value `json` holds under `field`, at its path:
-/// the walk a render's content fields follow, through variants, matrices,
-/// objects and arrays.
-fn each_content(
-    field: &FieldSchema,
-    json: &serde_json::Value,
-    path: &DocPath,
-    f: &mut dyn FnMut(&DocPath, &crate::Content),
-) {
-    each_content_leaf(field, json, path, &mut |at, codec, leaf| {
-        if let Some(Ok(content)) = codec.decode_value(leaf) {
-            f(at, &content);
-        }
-    });
-}
-
-/// [`each_content`]'s walk ahead of the decode: `f` takes each content
-/// leaf's codec and value as stored.
+/// Call `f` on every content leaf `json` holds under `field`, with its path,
+/// codec and value as stored: the walk a render's content fields follow,
+/// through variants, matrices, objects and arrays.
 fn each_content_leaf(
     field: &FieldSchema,
     json: &serde_json::Value,
@@ -1306,15 +1258,18 @@ fn each_content_leaf(
 
 impl QuillConfig {
     /// One [`backend::declined_construct`](crate::backend::declined_construct)
-    /// per content field and construct that `backend`
+    /// per content field and construct this config's backend
     /// [`declines`](crate::backend::declines) in `data`, the plate JSON
-    /// [`compile_data`](Self::compile_data) built from this config: the walk
-    /// [`Quill::validate`] makes over the document, so the two agree.
-    pub fn declined_in_plate(&self, backend: &str, data: &serde_json::Value) -> Vec<Diagnostic> {
+    /// [`compile_data`](Self::compile_data) built from this config.
+    pub fn declined_in_plate(&self, data: &serde_json::Value) -> Vec<Diagnostic> {
+        let backend = self.backend.as_str();
         let mut diags = Vec::new();
         self.each_plate_content(data, &mut |at: &DocPath, content: &crate::Content| {
-            for (construct, count) in crate::backend::declined_in(backend, content) {
-                diags.push(crate::backend::declined_construct(backend, construct, count, at));
+            for &construct in crate::backend::declines(backend) {
+                let count = construct.count_in(content);
+                if count > 0 {
+                    diags.push(crate::backend::declined_construct(backend, construct, count, at));
+                }
             }
         });
         diags
@@ -1334,7 +1289,11 @@ impl QuillConfig {
                         each(&path.body(), &content);
                     }
                 } else if let Some(field) = schema.fields.get(key.as_str()) {
-                    each_content(field, value, &path.field(key), each);
+                    each_content_leaf(field, value, &path.field(key), &mut |at, codec, leaf| {
+                        if let Some(Ok(content)) = codec.decode_value(leaf) {
+                            each(at, &content);
+                        }
+                    });
                 }
             }
         };
@@ -1616,15 +1575,13 @@ card_kinds:
                   ~~~\n$kind: note\nitems:\n  - plain\n  - '![z](z.png)'\nmore: '![s](s.png)'\n~~~\n";
         let doc = Document::parse(md).expect("parse").document;
 
-        let declined = |diags: Vec<Diagnostic>, code: &str| -> Vec<(String, serde_json::Value)> {
-            diags
-                .into_iter()
-                .filter(|d| d.code.as_deref() == Some(code))
-                .inspect(|d| assert_eq!(d.severity, Severity::Warning))
-                .map(|d| (d.path.unwrap_or_default(), json!(d.args)))
-                .collect()
-        };
-        let mut validated = declined(quill.validate(&doc), "validation::declined_construct");
+        let mut validated: Vec<(String, serde_json::Value)> = quill
+            .validate(&doc)
+            .into_iter()
+            .filter(|d| d.code.as_deref() == Some("validation::declined_construct"))
+            .inspect(|d| assert_eq!(d.severity, Severity::Warning))
+            .map(|d| (d.path.unwrap_or_default(), json!(d.args)))
+            .collect();
         validated.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(
             validated,
@@ -1636,18 +1593,6 @@ card_kinds:
                 ("main.intro".into(), json!({ "construct": "image", "count": 1 })),
             ]
         );
-
-        let plate = quill.compile_data(&doc, test_date()).expect("compiles");
-        let mut rendered = declined(
-            quill.config().declined_in_plate("typst", &plate),
-            crate::backend::DECLINED_CONSTRUCT,
-        );
-        for (_, args) in &mut rendered {
-            assert_eq!(args["backend"], "typst");
-            args.as_object_mut().unwrap().remove("backend");
-        }
-        rendered.sort_by(|a, b| a.0.cmp(&b.0));
-        assert_eq!(rendered, validated);
     }
 
     #[test]
@@ -1655,13 +1600,15 @@ card_kinds:
         let md = "# H\n\nprose\n\n- a\n  - b\n- c\n\n1. d\n\n> q\n>\n> > r\n\n\
                   ```\nx\ny\n```\n\n---\n\n| t |\n|---|\n| u |\n\n![i](i.png)\n";
         let content = crate::document::import_body(md).expect("imports");
-        let declined = crate::backend::declined_in("acroform", &content);
+        let counts = |id: &str| -> Vec<(crate::quill::BlockConstruct, usize)> {
+            crate::backend::declines(id).iter().map(|&c| (c, c.count_in(&content))).collect()
+        };
         use crate::quill::BlockConstruct::*;
         assert_eq!(
-            declined,
+            counts("acroform"),
             vec![(Heading, 1), (Rule, 1), (Code, 1), (List, 3), (Quote, 2), (Table, 1), (Image, 1)]
         );
-        assert_eq!(crate::backend::declined_in("typst", &content), vec![(Image, 1)]);
+        assert_eq!(counts("typst"), vec![(Image, 1)]);
     }
 
     #[test]
@@ -1672,7 +1619,6 @@ card_kinds:
         assert_eq!(crate::quill::element_runs(&content, "a"), 4);
         assert_eq!(crate::quill::element_runs(&content, "b"), 1);
         assert_eq!(crate::quill::element_runs(&content, "c"), 0);
-        assert!(crate::backend::declined_in("acroform", &crate::document::import_body("prose\n\nmore").unwrap()).is_empty());
     }
 
     #[test]

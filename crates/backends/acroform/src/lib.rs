@@ -86,7 +86,7 @@ impl Backend for AcroformBackend {
 
         let field_specs = resolve_field_specs(&bound, json_data);
         let raster = stamp_raster(&base_pdf, &field_specs)?;
-        let warnings = source.config().declined_in_plate(self.id(), json_data);
+        let warnings = source.config().declined_in_plate(json_data);
 
         Ok(LiveSession::new(
             Box::new(AcroformSession {
@@ -248,7 +248,7 @@ impl SessionHandle for AcroformSession {
 
         self.field_specs = field_specs;
         self.raster = raster;
-        self.warnings = self.config.declined_in_plate("acroform", json_data);
+        self.warnings = self.config.declined_in_plate(json_data);
 
         Ok(ChangeSet::new(self.canvas_boxes.len(), dirty_pages))
     }
