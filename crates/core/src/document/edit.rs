@@ -27,7 +27,7 @@ use crate::value::{PathSegment, QuillValue};
 use crate::version::QuillReference;
 
 /// A field plus its in-field path, rendered through
-/// [`DocPath`](crate::path::DocPath) (`recipients[0].name`), so a message names
+/// [`DocPath`] (`recipients[0].name`), so a message names
 /// the address its anchor does.
 fn render_at(field: &str, at: &[PathSegment]) -> String {
     at.iter()
@@ -234,7 +234,7 @@ impl EditError {
     /// [`Diagnostic::args`](crate::error::Diagnostic::args).
     ///
     /// `field` and `kind` ride here as well as in the anchor, because
-    /// [`DocPath`](crate::path::DocPath) renders field segments unescaped and
+    /// [`DocPath`] renders field segments unescaped and
     /// parses on `.` and `[`: a malformed name cannot be recovered from the
     /// rendered path. An `at` path is structural, so it rides the anchor alone.
     pub fn args(&self) -> BTreeMap<String, serde_json::Value> {
@@ -296,7 +296,7 @@ impl EditError {
         }
     }
 
-    /// The [`DocPath`](crate::path::DocPath) this error anchors to, relative to
+    /// The [`DocPath`] this error anchors to, relative to
     /// `base`: the card root the mutator ran against, empty for a card built
     /// before placement.
     ///
