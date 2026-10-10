@@ -53,6 +53,8 @@ pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
 fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
     use quillmark_content::carrier::RESERVED_ATTRS;
     const TIGHT: &str = "Markdown on the lines under a tag line drops with it, up to the next blank line.";
+    const BESIDE: &str =
+        "A tag line beside a line of other tags drops with the markdown under it, up to the next blank line.";
     let some = |one: &str, many: &str| if n == 1 { format!("a {one}") } else { format!("{n} {many}") };
     let some_in_field = |one: &str, many: &str| {
         if n == 1 {
@@ -115,10 +117,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 "markdown import dropped {} in this field",
                 some("`<qm-table>` wrapper", "`<qm-table>` wrappers")
             ),
-            format!(
-                "A `<qm-table>` wraps exactly one pipe table, its two tags each alone on a line with a blank \
-                 line between each tag and the table. {TIGHT}"
-            ),
+            format!("A `<qm-table>` wraps exactly one pipe table, each of its two tags on a line of its own. {BESIDE}"),
         ),
         Dropped::BadName(_) => (
             format!(
@@ -145,8 +144,9 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 some(&format!("`<{tag}>` element"), &format!("`<{tag}>` elements"))
             ),
             format!(
-                "Write `<{tag}>` and `</{tag}>` each alone on a line with a blank line above and below, \
-                 or, around nothing, on two lines with nothing between. {TIGHT}"
+                "Write `<{tag}>` and `</{tag}>` each on a line of its own, in one list item or quote, or, \
+                 around nothing, `<{tag}></{tag}>` on one line; HTML reads `<{tag}/>` as an open tag. A tag \
+                 line directly under a quote's or list item's text continues it. {BESIDE}"
             ),
         ),
         Dropped::Tag(name) => match name.as_str() {

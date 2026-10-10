@@ -138,7 +138,8 @@ families:
     grammar such as `qm-a--b`, or `qm-anchor` where its block drops
     markdown;
   - `qm-<name>` for an element tag that drops: left unclosed,
-    self-closing, inside a line, or tight against markdown;
+    self-closing, inside a line of text, or beside another tag in a block
+    tight against markdown;
   - `qm-table` for a `qm-table` wrapper that drops whole;
   - `qm-table[<attr>]` or `qm-<name>[<attr>]` for one attribute that
     drops;

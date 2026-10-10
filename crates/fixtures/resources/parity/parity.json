@@ -1957,27 +1957,37 @@
       "islands": [],
       "lines": [
         {
-          "containers": [],
+          "containers": [
+            {
+              "attrs": {
+                "$name": "keep"
+              },
+              "container": "element"
+            }
+          ],
           "kind": "para"
         }
       ],
-      "marks": [],
-      "text": ""
-    },
-    "typst": [],
-    "signals": {
-      "import": [
+      "marks": [
         {
-          "construct": "qm-keep",
-          "count": 1
+          "end": 6,
+          "start": 0,
+          "type": "strong"
         }
       ],
+      "text": "Signed"
+    },
+    "typst": [
+      "#_qm-element(\"keep\", (:))[\n#strong[Signed]"
+    ],
+    "signals": {
+      "import": [],
       "render": []
     }
   },
   {
     "name": "carrier.element.void",
-    "markdown": "<qm-sig>\n</qm-sig>",
+    "markdown": "<qm-sig></qm-sig>",
     "content": {
       "islands": [],
       "lines": [
@@ -2143,28 +2153,33 @@
   },
   {
     "name": "carrier.element.stray_close.tight",
-    "markdown": "Text\n\n</qm-keep>\n**Gone**",
+    "markdown": "Text\n\n</qm-keep>\n**Kept**",
     "content": {
       "islands": [],
       "lines": [
         {
           "containers": [],
           "kind": "para"
+        },
+        {
+          "containers": [],
+          "kind": "para"
         }
       ],
-      "marks": [],
-      "text": "Text"
+      "marks": [
+        {
+          "end": 9,
+          "start": 5,
+          "type": "strong"
+        }
+      ],
+      "text": "Text\nKept"
     },
     "typst": [
-      "Text"
+      "#strong[Kept]"
     ],
     "signals": {
-      "import": [
-        {
-          "construct": "qm-keep",
-          "count": 1
-        }
-      ],
+      "import": [],
       "render": []
     }
   },

@@ -173,14 +173,14 @@ above, or markup the content does not store.
 | `html.comment` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `html.tag_line.paragraph`: a type 6 tag line under paragraph text, dropping what follows to the blank line | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
 | `html.tag_line.list`: a tag line between list items, ending the list | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
-| `carrier.element.tight`: element tag lines tight around markdown, dropping it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
+| `carrier.element.tight`: element tag lines tight around markdown | spells | spells | spells | honors | silent: honored | none |
 | `carrier.element.void`: an element around nothing | spells | spells | spells | honors | silent: honored | none |
 | `carrier.element.unclosed`: an element still open where the body ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
 | `carrier.element.self_closing`: a self-closing element tag | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
 | `carrier.element.inline`: an element pair inside a line | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-hl` |
 | `carrier.element.attr`: an element attribute outside the grammar | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep[onclick]` |
 | `carrier.element.stray_close`: an element close tag with nothing open | silent: honored | n/a | n/a | n/a | n/a | none |
-| `carrier.element.stray_close.tight`: an element close tag with nothing open, tight above markdown it drops | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
+| `carrier.element.stray_close.tight`: an element close tag with nothing open, tight above markdown it keeps | silent: honored | n/a | n/a | n/a | n/a | none |
 | `carrier.table`: the reserved `qm-table` around a table | spells | spells | spells | honors | silent: honored | none |
 | `carrier.table.holds_other`: a `qm-table` around anything but one table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table` |
 | `carrier.table.attr`: a `qm-table` attribute the engine does not name | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table[foo]` |
