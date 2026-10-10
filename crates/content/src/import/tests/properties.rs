@@ -7,50 +7,10 @@
 
 use proptest::prelude::*;
 
+use super::generate::{contained, counted, prefixed, table, tally, word, Piece};
 use crate::export::to_markdown;
-use crate::import::{from_markdown, ImportWarning};
+use crate::import::from_markdown;
 use crate::model::Normalized;
-
-/// Generated markdown with the words it must import and the tag names it must
-/// count.
-#[derive(Debug, Clone, Default)]
-struct Piece {
-    md: String,
-    words: Vec<String>,
-    tags: Vec<String>,
-    /// Ends in a pipe table, which takes in the lines after it as rows until a
-    /// blank line.
-    table: bool,
-    /// The pipe tables a `qm-table` wrapper around it would hold.
-    tables: usize,
-    /// Holds a block other than a pipe table, a comment or a tag line: what
-    /// keeps a `qm-table` wrapper around it from folding.
-    other: bool,
-    /// Ends in a closing tag line, whose block takes in the lines after it
-    /// until a blank line.
-    closes: bool,
-}
-
-impl Piece {
-    fn join(pieces: Vec<Piece>, sep: &str) -> Piece {
-        let mut out = Piece::default();
-        for (i, p) in pieces.into_iter().enumerate() {
-            if i > 0 {
-                out.md.push_str(sep);
-            }
-            out.md.push_str(&p.md);
-            out.words.extend(p.words);
-            out.tags.extend(p.tags);
-            out.tables += p.tables;
-            out.other |= p.other;
-        }
-        out
-    }
-}
-
-fn word() -> impl Strategy<Value = String> {
-    "[a-z]{2,5}[0-9]"
-}
 
 fn inline() -> impl Strategy<Value = Piece> {
     let tagged = (
@@ -65,29 +25,27 @@ fn inline() -> impl Strategy<Value = Piece> {
         .prop_map(|(w, (name, attrs))| Piece {
             md: format!("<{name}{attrs}>{w}</{name}>"),
             words: vec![w],
-            tags: vec![name.to_string()],
+            reported: vec![name.to_string()],
             ..Piece::default()
         });
     prop_oneof![
-        3 => word().prop_map(|w| Piece { md: w.clone(), words: vec![w], tags: vec![], ..Piece::default() }),
+        3 => word().prop_map(Piece::word),
         2 => tagged,
-        1 => word().prop_map(|w| Piece { md: format!("<u>{w}</u>"), words: vec![w], tags: vec![], ..Piece::default() }),
+        1 => word().prop_map(|w| Piece { md: format!("<u>{w}</u>"), words: vec![w], ..Piece::default() }),
         1 => (word(), word()).prop_map(|(a, b)| Piece {
             md: format!("{a}<br>{b}"),
             words: vec![a, b],
-            tags: vec![],
             ..Piece::default()
         }),
         1 => word().prop_map(|w| Piece {
             md: format!("<qm-anchor id=\"a\">{w}</qm-anchor>"),
             words: vec![w],
-            tags: vec![],
             ..Piece::default()
         }),
         1 => word().prop_map(|w| Piece {
             md: format!("{w}<img src=\"p.png\">"),
             words: vec![w],
-            tags: vec!["img".into()],
+            reported: vec!["img".into()],
             ..Piece::default()
         }),
     ]
@@ -103,34 +61,14 @@ fn paragraph() -> impl Strategy<Value = Piece> {
 
 fn cell() -> impl Strategy<Value = Piece> {
     prop_oneof![
-        word().prop_map(|w| Piece { md: w.clone(), words: vec![w], tags: vec![], ..Piece::default() }),
+        word().prop_map(Piece::word),
         word().prop_map(|w| Piece {
             md: format!("<span>{w}</span>"),
             words: vec![w],
-            tags: vec!["span".into()],
+            reported: vec!["span".into()],
             ..Piece::default()
         }),
     ]
-}
-
-fn table() -> impl Strategy<Value = Piece> {
-    (1usize..4).prop_flat_map(|cols| {
-        prop::collection::vec(prop::collection::vec(cell(), cols), 2..4).prop_map(move |rows| {
-            let mut lines: Vec<Piece> = rows
-                .into_iter()
-                .map(|row| {
-                    let mut p = Piece::join(row, " | ");
-                    p.md = format!("| {} |", p.md);
-                    p
-                })
-                .collect();
-            lines.insert(
-                1,
-                Piece { md: format!("|{}", "---|".repeat(cols)), ..Piece::default() },
-            );
-            Piece { table: true, tables: 1, ..Piece::join(lines, "\n") }
-        })
-    })
 }
 
 /// A comment on one line or several, the text after it on its last line
@@ -149,7 +87,7 @@ fn comment() -> impl Strategy<Value = Piece> {
 }
 
 fn leaf() -> impl Strategy<Value = Piece> {
-    prop_oneof![3 => paragraph(), 1 => table(), 1 => comment()]
+    prop_oneof![3 => paragraph(), 1 => table(cell), 1 => comment()]
 }
 
 /// Tag lines around blocks with a blank line on either side, the closing tag
@@ -175,7 +113,7 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             let closed = closed || name == "qm-table";
             let mut md = format!("<{name}{attrs}>\n\n");
             let mut words = Vec::new();
-            let mut tags = Vec::new();
+            let mut reported = Vec::new();
             let (mut tables, mut other) = (0, false);
             let mut after_table = false;
             let mut after_tag = false;
@@ -191,7 +129,7 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
                 after_tag = block.closes;
                 md.push_str(&block.md);
                 words.extend(block.words);
-                tags.extend(block.tags);
+                reported.extend(block.reported);
                 tables += block.tables;
                 other |= block.other;
             }
@@ -201,7 +139,7 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             let folds = name == "qm-table" && closed && tables == 1 && !other;
             let models = name == "qm-keep" && closed;
             if !folds && !models {
-                tags.push(name.to_string());
+                reported.push(name.to_string());
             }
             // A closing tag straight after a table's rows is one more row to the
             // parser, so the table runs on past it. An unclosed `qm-keep` stays
@@ -209,22 +147,14 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             Piece {
                 md,
                 words,
-                tags,
+                reported,
                 table: after_table && !closed,
                 tables,
                 other: other || name == "qm-table" || (name == "qm-keep" && !closed),
                 closes: closed,
+                cell: false,
             }
         })
-}
-
-/// Blocks in a list item or a quote.
-fn contained(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> {
-    (inner, any::<bool>()).prop_map(|(mut p, list)| {
-        p.other = true;
-        p.md = if list { prefixed(&p.md, "- ", "  ") } else { prefixed(&p.md, "> ", "> ") };
-        p
-    })
 }
 
 fn block() -> impl Strategy<Value = Piece> {
@@ -239,17 +169,6 @@ fn block() -> impl Strategy<Value = Piece> {
         2 => wrapper(leaf()),
         2 => wrapper(inside),
     ]
-}
-
-fn prefixed(md: &str, first: &str, rest: &str) -> String {
-    md.split('\n')
-        .enumerate()
-        .map(|(i, line)| {
-            let p = if i == 0 { first } else { rest };
-            if line.is_empty() { p.trim_end().to_string() } else { format!("{p}{line}") }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// Blocks at top level, in a list item, or in a quote.
@@ -302,21 +221,7 @@ proptest! {
             prop_assert!(text.contains(w.as_str()), "{w:?} lost from {:?}: {text:?}", doc.md);
         }
 
-        let mut counted: Vec<(String, usize)> = imported
-            .warnings
-            .iter()
-            .map(|ImportWarning { construct, count }| (construct.to_string(), *count))
-            .collect();
-        counted.sort();
-        let mut expected: Vec<(String, usize)> = Vec::new();
-        for t in &doc.tags {
-            match expected.iter_mut().find(|(n, _)| n == t) {
-                Some((_, c)) => *c += 1,
-                None => expected.push((t.clone(), 1)),
-            }
-        }
-        expected.sort();
-        prop_assert_eq!(counted, expected, "{}", doc.md);
+        prop_assert_eq!(counted(&imported.warnings), tally(&doc.reported), "{}", doc.md);
 
         let back = from_markdown(&to_markdown(&imported.content)).unwrap();
         prop_assert_eq!(&back.content, &imported.content, "{}", doc.md);

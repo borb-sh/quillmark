@@ -1558,7 +1558,8 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    pub(crate) mod generate;
     mod properties;
 
     use super::*;
