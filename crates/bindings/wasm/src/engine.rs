@@ -382,14 +382,14 @@ export interface Revised {
 
 /**
  * The receipt of `writer.reviseDocument`. `droppedAnchors` names every prose
- * anchor the write did not carry, at its path in the stored document; a table
+ * anchor the write did not carry, at its path and line in the stored document; a table
  * cell's anchors drop unnamed. `warnings` are the parse's, then each revised
  * content field's `parse::dropped_construct`, then the writer's `conform::*`.
  * A field that lands rather than revises, on an inserted card or over no stored
  * content, reports no drop.
  */
 export interface DocumentRevised {
-    droppedAnchors: { path: string; id: string }[];
+    droppedAnchors: DocumentAnchor[];
     warnings: Diagnostic[];
 }
 
@@ -403,7 +403,13 @@ export interface DocumentRevised {
  */
 export interface AnnotatedMarkdown {
     markdown: string;
-    anchors: { id: string; path: string; line: string }[];
+    anchors: DocumentAnchor[];
+}
+
+export interface DocumentAnchor {
+    id: string;
+    path: string;
+    line: string;
 }
 
 /**
@@ -1979,7 +1985,7 @@ impl From<quillmark_core::document::Revised> for RevisedJs {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DocumentRevisedJs {
-    dropped_anchors: Vec<DroppedAnchorJs>,
+    dropped_anchors: Vec<DocumentAnchorJs>,
     warnings: Vec<Diagnostic>,
 }
 
@@ -2002,20 +2008,10 @@ impl From<quillmark_core::document::DocumentAnchor> for DocumentAnchorJs {
     }
 }
 
-#[derive(serde::Serialize)]
-struct DroppedAnchorJs {
-    path: String,
-    id: String,
-}
-
 impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
     fn from(revised: quillmark_core::document::DocumentRevised) -> Self {
         DocumentRevisedJs {
-            dropped_anchors: revised
-                .dropped_anchors
-                .into_iter()
-                .map(|d| DroppedAnchorJs { path: d.path.to_string(), id: d.id })
-                .collect(),
+            dropped_anchors: revised.dropped_anchors.into_iter().map(Into::into).collect(),
             warnings: diags(revised.warnings),
         }
     }

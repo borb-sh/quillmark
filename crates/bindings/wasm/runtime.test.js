@@ -248,7 +248,7 @@ card_kinds:
     const receipt = quill
       .writer(doc)
       .reviseDocument('~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n')
-    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', id: 'n' }])
+    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', id: 'n', line: 'First note.' }])
     expect(receipt.warnings).toEqual([])
     expect(doc.main.body.marks).toEqual([{ start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }])
     expect(doc.cards).toEqual([])
