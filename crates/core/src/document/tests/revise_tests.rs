@@ -223,6 +223,34 @@ fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
     assert_eq!(dropped, ["cards.note[0].items[1]#i1"]);
 }
 
+/// A content object stored out of canonical order emits as the structure it
+/// is and revises as authored, and an anchor in it is named when a revise
+/// drops it.
+#[test]
+fn an_anchor_in_content_stored_out_of_canonical_order_is_named_when_it_drops() {
+    let note = crate::document::import_body("a note to flag").unwrap();
+    let canonical = to_canonical_value(&anchored(&note, "flag", "n1"));
+    let reordered: serde_json::Map<String, serde_json::Value> =
+        canonical.as_object().unwrap().clone().into_iter().rev().collect();
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
+    doc.main_mut()
+        .store_field("note", QuillValue::from_json(reordered.into()))
+        .unwrap();
+
+    let receipt = doc.clone().revise(&doc.to_markdown()).unwrap();
+    assert!(receipt.dropped_anchors.is_empty(), "{receipt:?}");
+
+    let receipt = doc
+        .revise("~~~\n$quill: q\nnote: a note to flag\n~~~\n\nBody.\n")
+        .unwrap();
+    let dropped: Vec<String> = receipt
+        .dropped_anchors
+        .iter()
+        .map(|d| format!("{}#{}", d.path, d.id))
+        .collect();
+    assert_eq!(dropped, ["main.note#n1"]);
+}
+
 /// An anchor in content nested in a field revises with the item holding it,
 /// matched by index, so an edit elsewhere in the item keeps it.
 #[test]

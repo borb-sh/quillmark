@@ -7,7 +7,7 @@ use quillmark_content::delta::rebase_marks;
 use quillmark_content::export::anchors_where;
 use quillmark_content::import::from_markdown;
 use quillmark_content::model::{MarkKind, Normalized};
-use quillmark_content::serial::to_canonical_value;
+use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 
 use super::align::{align, Pairing, Slot};
@@ -22,9 +22,9 @@ use crate::value::QuillValue;
 #[non_exhaustive]
 #[must_use = "names the anchors the write dropped; read `.dropped_anchors` or bind it"]
 pub struct DocumentRevised {
-    /// Every anchor the stored document's annotated read lists that the
-    /// revised one does not list at the same address, as the stored read lists
-    /// it.
+    /// Every anchor a stored card's body or content value holds that the card
+    /// the revise aligned it to no longer holds at the same address, and every
+    /// anchor of a card the revise removed, each with the line it stood on.
     pub dropped_anchors: Vec<DocumentAnchor>,
     /// The parse warnings, then one `parse::dropped_construct` per construct
     /// dropped from a field revising a stored content value, each at its
@@ -204,9 +204,9 @@ fn revise_value(
     }
 }
 
-/// Every anchor `stored` lists at `at` that `revised` does not list there, as
-/// and in the order [`Document::to_markdown_annotated`] lists them; all of
-/// them when the card was removed.
+/// Every anchor `stored` holds at `at` that `revised` does not hold there, in
+/// the order [`Document::to_markdown_annotated`] lists anchors; all of them
+/// when the card was removed.
 fn drop_report(
     stored: &Card,
     revised: Option<&Card>,
@@ -221,17 +221,21 @@ fn drop_report(
 }
 
 /// [`drop_report`] over a field's value: each content object in `stored`, at
-/// any depth, against what `revised` holds at its place.
+/// any depth, against what `revised` holds at its place. A content object
+/// stored out of canonical order counts too, though a revise lands over it as
+/// authored rather than rebasing it.
 fn drop_value(
     stored: &JsonValue,
     revised: Option<&JsonValue>,
     at: &DocPath,
     out: &mut Vec<DocumentAnchor>,
 ) {
-    if let Some(content) = canonical_content(stored) {
+    let content_of =
+        |value: &JsonValue| value.is_object().then(|| from_canonical_value(value).ok()).flatten();
+    if let Some(content) = content_of(stored) {
         let anchored = content.marks.iter().any(|m| matches!(m.kind, MarkKind::Anchor { .. }));
         if anchored {
-            let revised = revised.and_then(canonical_content);
+            let revised = revised.and_then(content_of);
             drop_content(&content, revised.as_ref(), at, out);
         }
         return;
