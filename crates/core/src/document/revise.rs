@@ -2,27 +2,27 @@
 //! spell.
 
 use quillmark_content::delta::rebase_onto;
-use quillmark_content::model::{Content, MarkKind, Normalized};
-use quillmark_content::serial::{from_canonical_value, to_canonical_value};
+use quillmark_content::model::Normalized;
+use quillmark_content::serial::to_canonical_value;
 use serde_json::Value as JsonValue;
 
 use super::align::{align, Pairing, Slot};
 use super::edit::revise_import;
-use super::emit::{canonical_content, emit_payload_items};
+use super::emit::{canonical_content, card_anchors, emit_payload_items, DocumentAnchor};
 use super::{Card, Document, Parsed, Payload, PayloadItem};
 use crate::error::{Diagnostic, ParseError};
 use crate::path::DocPath;
-use crate::value::{PathSegment, QuillValue};
+use crate::value::QuillValue;
 
 /// The receipt of [`Document::revise`].
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 #[must_use = "names the anchors the write dropped; read `.dropped_anchors` or bind it"]
 pub struct DocumentRevised {
-    /// Every prose anchor the stored document held that the revised one does
-    /// not, at its address in the stored document. A table cell's anchors drop
-    /// unnamed.
-    pub dropped_anchors: Vec<DroppedAnchor>,
+    /// Every anchor the stored document's annotated read lists that the
+    /// revised one does not list at the same address, as the stored read lists
+    /// it.
+    pub dropped_anchors: Vec<DocumentAnchor>,
     /// For each composable card of the revised document, the index of the
     /// stored card it revised, or `None` for an inserted card.
     pub(crate) alignment: Vec<Option<usize>>,
@@ -30,13 +30,6 @@ pub struct DocumentRevised {
     /// dropped from a field revising a stored content value, each at its
     /// address in the revised document.
     pub warnings: Vec<Diagnostic>,
-}
-
-/// An anchor the revise did not carry.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DroppedAnchor {
-    pub path: DocPath,
-    pub id: String,
 }
 
 impl Document {
@@ -235,69 +228,19 @@ fn revise_value(
     any
 }
 
-/// Record every anchor of `stored` that `revised` does not hold in the same
-/// body or top-level field, at the address the stored card held it; all of
-/// them when the card was removed.
+/// Every anchor `stored` lists at `at` that `revised` does not list there, as
+/// [`Document::to_markdown_annotated`] lists them; all of them when the card
+/// was removed.
 fn drop_report(
     stored: &Card,
     revised: Option<&Card>,
     at: &DocPath,
-    out: &mut Vec<DroppedAnchor>,
+    out: &mut Vec<DocumentAnchor>,
 ) {
-    let top = |f: &Option<Vec<PathSegment>>| f.as_ref().and_then(|segs| segs.first().cloned());
-    let survivors = revised.map(card_anchors).unwrap_or_default();
-    for (field, id) in card_anchors(stored) {
-        if !survivors.iter().any(|(f, i)| top(f) == top(&field) && i == &id) {
-            let path = match &field {
-                Some(segs) => segs.iter().fold(at.clone(), |p, seg| p.segment(seg)),
-                None => at.body(),
-            };
-            out.push(DroppedAnchor { path, id });
-        }
-    }
-}
-
-/// `(field, id)` for each anchor in the card: `None` for the body, and for a
-/// field the value path of the content object holding it, as the annotated
-/// read lists it.
-fn card_anchors(card: &Card) -> Vec<(Option<Vec<PathSegment>>, String)> {
-    let mut out: Vec<(Option<Vec<PathSegment>>, String)> = content_anchors(card.body())
-        .map(|id| (None, id))
-        .collect();
-    for (name, value) in card.payload().iter() {
-        let mut found = Vec::new();
-        value_anchors(value.as_json(), &mut vec![PathSegment::Key(name.clone())], &mut found);
-        out.extend(found.into_iter().map(|(path, id)| (Some(path), id)));
-    }
-    out
-}
-
-fn content_anchors(content: &Content) -> impl Iterator<Item = String> + '_ {
-    content.marks.iter().filter_map(|m| match &m.kind {
-        MarkKind::Anchor { id } => Some(id.clone()),
-        _ => None,
-    })
-}
-
-fn value_anchors(
-    value: &JsonValue,
-    path: &mut Vec<PathSegment>,
-    out: &mut Vec<(Vec<PathSegment>, String)>,
-) {
-    let children: Vec<(PathSegment, &JsonValue)> = match value {
-        JsonValue::Object(map) => match from_canonical_value(value) {
-            Ok(content) => {
-                out.extend(content_anchors(&content).map(|id| (path.clone(), id)));
-                return;
-            }
-            Err(_) => map.iter().map(|(k, v)| (PathSegment::Key(k.clone()), v)).collect(),
-        },
-        JsonValue::Array(items) => items.iter().enumerate().map(|(i, v)| (PathSegment::Index(i), v)).collect(),
-        _ => return,
-    };
-    for (seg, child) in children {
-        path.push(seg);
-        value_anchors(child, path, out);
-        path.pop();
-    }
+    let survivors = revised.map(|card| card_anchors(card, at)).unwrap_or_default();
+    out.extend(
+        card_anchors(stored, at)
+            .into_iter()
+            .filter(|a| !survivors.iter().any(|s| s.path == a.path && s.id == a.id)),
+    );
 }

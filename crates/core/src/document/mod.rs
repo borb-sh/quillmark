@@ -352,7 +352,7 @@ pub use quillmark_content::import::ImportError;
 pub use quillmark_content::import::{Dropped, ImportWarning};
 pub use meta::{is_valid_kind_name, validate_composable_kind, CardKindError};
 pub use payload::{MetaKey, Payload, PayloadItem};
-pub use revise::{DocumentRevised, DroppedAnchor};
+pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};

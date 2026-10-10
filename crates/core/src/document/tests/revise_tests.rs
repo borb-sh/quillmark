@@ -54,6 +54,22 @@ fn stored() -> Document {
     doc
 }
 
+/// [`stored`], its first note holding an `items` list whose second item is
+/// anchored `i1`.
+fn stored_with_items() -> Document {
+    let mut doc = stored();
+    let item = crate::document::import_body("an item to flag").unwrap();
+    let items = serde_json::json!([
+        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
+        to_canonical_value(&anchored(&item, "flag", "i1")),
+    ]);
+    doc.card_mut(0)
+        .unwrap()
+        .store_field("items", QuillValue::from_json(items))
+        .unwrap();
+    doc
+}
+
 #[test]
 fn aligned_cards_keep_their_anchors_and_the_receipt_names_the_rest() {
     let mut doc = stored();
@@ -171,8 +187,8 @@ fn dropped_anchor_paths_name_the_stored_address() {
     assert_eq!(
         dropped,
         [
-            "main.body#m1",
             "main.subject#s1",
+            "main.body#m1",
             "cards.note[0].body#a1",
             "cards.note[1].body#p1",
             "cards.memo[2].body#x1",
@@ -182,16 +198,7 @@ fn dropped_anchor_paths_name_the_stored_address() {
 
 #[test]
 fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
-    let mut doc = stored();
-    let item = crate::document::import_body("an item to flag").unwrap();
-    let items = serde_json::json!([
-        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
-        to_canonical_value(&anchored(&item, "flag", "i1")),
-    ]);
-    doc.card_mut(0)
-        .unwrap()
-        .store_field("items", QuillValue::from_json(items))
-        .unwrap();
+    let mut doc = stored_with_items();
     let read = doc.to_markdown_annotated();
     let listed = read.anchors.iter().find(|a| a.id == "i1").unwrap();
     assert_eq!(listed.path.to_string(), "cards.note[0].items[1]");
@@ -213,16 +220,7 @@ fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
 /// matched by index, so an edit elsewhere in the item keeps it.
 #[test]
 fn an_anchor_in_a_fields_list_item_survives_an_edit_to_its_item() {
-    let mut doc = stored();
-    let item = crate::document::import_body("an item to flag").unwrap();
-    let items = serde_json::json!([
-        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
-        to_canonical_value(&anchored(&item, "flag", "i1")),
-    ]);
-    doc.card_mut(0)
-        .unwrap()
-        .store_field("items", QuillValue::from_json(items))
-        .unwrap();
+    let mut doc = stored_with_items();
 
     let markdown = doc.to_markdown().replace("an item to flag", "an edited item to flag");
     let receipt = doc.revise(&markdown).unwrap();
@@ -255,16 +253,7 @@ fn a_deleted_card_never_hands_its_ext_to_an_edited_neighbour() {
 
 #[test]
 fn the_annotated_read_lists_each_anchor_at_its_field() {
-    let mut doc = stored();
-    let item = crate::document::import_body("an item to flag").unwrap();
-    let items = serde_json::json!([
-        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
-        to_canonical_value(&anchored(&item, "flag", "i1")),
-    ]);
-    doc.card_mut(0)
-        .unwrap()
-        .store_field("items", QuillValue::from_json(items))
-        .unwrap();
+    let doc = stored_with_items();
 
     let read = doc.to_markdown_annotated();
     let listed: Vec<(String, &str, &str)> = read

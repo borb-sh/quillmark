@@ -98,17 +98,13 @@ impl Document {
         // Bodies are content values whose markdown is an export projection, so a
         // round-trip canonicalizes them (leading and trailing blank lines are
         // dropped: a value, not a file).
-        let main = DocPath::main();
-        emit_block(&mut out, self.main(), &main, anchors);
-        append_body(&mut out, &body_markdown(self.main().body(), &main, anchors));
+        emit_card(&mut out, self.main(), &DocPath::main(), anchors);
 
         // The separator is normalised before each block, so edited bodies that
         // lack a trailing blank line still round-trip.
         for (i, card) in self.cards().iter().enumerate() {
             ensure_blank_before_fence(&mut out);
-            let at = DocPath::card(card.kind(), i);
-            emit_block(&mut out, card, &at, anchors);
-            append_body(&mut out, &body_markdown(card.body(), &at, anchors));
+            emit_card(&mut out, card, &DocPath::card(card.kind(), i), anchors);
         }
 
         // The body projection carries no trailing newline; the emitted document
@@ -121,13 +117,21 @@ impl Document {
     }
 }
 
-/// A card body's markdown, its anchors collected at `card`'s body when
-/// `anchors` asks for them.
-fn body_markdown(body: &Normalized, card: &DocPath, anchors: Option<&Anchors>) -> String {
-    match anchors {
-        None => quillmark_content::export::to_markdown(body),
-        Some(anchors) => annotated(body, &card.body(), anchors),
-    }
+fn emit_card(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Anchors>) {
+    emit_block(out, card, at, anchors);
+    let body = match anchors {
+        None => quillmark_content::export::to_markdown(card.body()),
+        Some(anchors) => annotated(card.body(), &at.body(), anchors),
+    };
+    append_body(out, &body);
+}
+
+/// Every anchor [`Document::to_markdown_annotated`] lists for `card` placed at
+/// `at`.
+pub(super) fn card_anchors(card: &Card, at: &DocPath) -> Vec<DocumentAnchor> {
+    let anchors = Anchors::default();
+    emit_card(&mut String::new(), card, at, Some(&anchors));
+    anchors.into_inner()
 }
 
 /// `content`'s annotated markdown, its anchors pushed at `path`.
