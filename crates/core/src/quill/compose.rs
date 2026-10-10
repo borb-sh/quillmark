@@ -389,7 +389,7 @@ pub(crate) fn seed_overlay_diagnostics(
         }
         collect_unknown_in(field_schema, value, &field_path, &mut diags);
         collect_stranded(field_schema, value, &field_path, &mut diags);
-        collect_cardinality_diags(field_schema, Some(&qv), &field_path, &mut diags);
+        collect_cardinality_diags(field_schema, value, &field_path, &mut diags);
     }
     diags
 }
@@ -1181,55 +1181,11 @@ fn each_content_leaf(
     path: &DocPath,
     f: &mut dyn FnMut(&DocPath, Codec, &serde_json::Value),
 ) {
-    let codec = match field.r#type {
-        FieldType::RichText { .. } => Some(Codec::Richtext),
-        FieldType::PlainText { .. } => Some(Codec::Plaintext),
-        _ => None,
-    };
-    if let Some(codec) = codec {
-        f(path, codec, json);
-        return;
-    }
-    if field.is_variant_bearing() {
-        let Some(object) = json.as_object() else { return };
-        let Some(live) = field.variant_fields(&field.selected_member(Some(json))) else {
-            return;
-        };
-        for (key, value) in object {
-            if let Some(cell) = live.get(key) {
-                each_content_leaf(cell, value, &path.field(key), f);
-            }
-        }
-        return;
-    }
-    if matches!(field.r#type, FieldType::Matrix { .. }) {
-        let Some(object) = json.as_object() else { return };
-        for (id, cell) in object {
-            let (Some(member), Some(cells)) = (field.matrix_member(id, cell), cell.as_object())
-            else {
-                continue;
-            };
-            let mut cells = cells.clone();
-            cells.remove(MATRIX_HELD_KEY);
-            each_content_leaf(member, &serde_json::Value::Object(cells), &path.field(id), f);
-        }
-        return;
-    }
-    if let Some(props) = field.namespace_props() {
-        let Some(object) = json.as_object() else { return };
-        for (key, value) in object {
-            if let Some(prop) = props.get(key) {
-                each_content_leaf(prop, value, &path.field(key), f);
-            }
-        }
-        return;
-    }
-    if let (FieldType::Array, Some(items), Some(elements)) =
-        (&field.r#type, &field.items, json.as_array())
-    {
-        for (index, element) in elements.iter().enumerate() {
-            each_content_leaf(items, element, &path.index(index), f);
-        }
+    match field.r#type.codec() {
+        Some(codec) => f(path, codec, json),
+        None => field.each_child(json, path, &mut |child, value, at| {
+            each_content_leaf(child, value, at, f)
+        }),
     }
 }
 
@@ -1404,7 +1360,9 @@ fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic>
         let Some(schema) = schema else { continue };
         let payload = card.payload();
         for (name, field) in &schema.fields {
-            collect_cardinality_diags(field, payload.get(name), &path.field(name), &mut diags);
+            if let Some(value) = payload.get(name) {
+                collect_cardinality_diags(field, value.as_json(), &path.field(name), &mut diags);
+            }
         }
     }
     diags
@@ -1417,69 +1375,25 @@ fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic>
 /// exceed.
 fn collect_cardinality_diags(
     field: &FieldSchema,
-    value: Option<&QuillValue>,
+    json: &serde_json::Value,
     path: &DocPath,
     out: &mut Vec<Diagnostic>,
 ) {
-    let Some(json) = value.map(|v| v.as_json()).filter(|j| !j.is_null()) else {
-        return;
-    };
-
-    if field.is_variant_bearing() {
-        let Some(object) = json.as_object() else { return };
-        let member = field.selected_member(Some(json));
-        if let Some(fields) = field.variant_fields(&member) {
-            for (name, schema) in fields {
-                let cell = object.get(name).map(|j| QuillValue::from_json(j.clone()));
-                collect_cardinality_diags(schema, cell.as_ref(), &path.field(name), out);
-            }
-        }
+    if json.is_null() {
         return;
     }
-
-    if matches!(field.r#type, FieldType::Matrix { .. }) {
-        let Some(object) = json.as_object() else { return };
-        for (key, cell) in object {
-            let (Some(member), Ok(Some(cells))) = (field.matrix_member(key, cell), held_cells(cell))
-            else {
-                continue;
-            };
-            let cells = QuillValue::from_json(serde_json::Value::Object(cells));
-            collect_cardinality_diags(member, Some(&cells), &path.field(key), out);
-        }
-        return;
-    }
-
-    if let Some(props) = field.namespace_props() {
-        let Some(object) = json.as_object() else { return };
-        for (name, prop) in props {
-            let Some(cell) = object.get(name) else { continue };
-            let cell = QuillValue::from_json(cell.clone());
-            collect_cardinality_diags(prop, Some(&cell), &path.field(name), out);
-        }
-        return;
-    }
-
-    if !matches!(field.r#type, FieldType::Array) {
-        return;
-    }
-    // The count is the floor's, not the document's: a bare scalar on an array
-    // wraps to one element there, so `max: 0` sees the row it will lay out.
-    let elements = match json.as_array() {
-        Some(elements) => elements.clone(),
-        None => vec![json.clone()],
-    };
-    if let Some(max) = field.max {
-        if elements.len() > max as usize {
-            out.push(cardinality_warning(path, max, elements.len()));
+    if let (FieldType::Array, Some(max)) = (&field.r#type, field.max) {
+        // The count is the floor's, not the document's: a bare scalar on an
+        // array wraps to one element there, so `max: 0` sees the row it will
+        // lay out.
+        let count = json.as_array().map_or(1, Vec::len);
+        if count > max as usize {
+            out.push(cardinality_warning(path, max, count));
         }
     }
-    if let Some(items) = &field.items {
-        for (index, element) in elements.iter().enumerate() {
-            let element = QuillValue::from_json(element.clone());
-            collect_cardinality_diags(items, Some(&element), &path.index(index), out);
-        }
-    }
+    field.each_child(json, path, &mut |child, value, at| {
+        collect_cardinality_diags(child, value, at, out)
+    });
 }
 
 pub(crate) fn cardinality_warning(path: &DocPath, max: u32, actual: usize) -> Diagnostic {
