@@ -992,7 +992,7 @@ fn emit_run(
         && !codes.iter().any(|&(s, e)| s < pos && pos <= e)
     {
         let g0 = out.len();
-        out.push_str(&escape_indent(" "));
+        out.push('~');
         let g1 = out.len();
         return (pos + 1, Tail::Text, (pos..pos + 1, g0..g1, EscapeCtx::Indent));
     }

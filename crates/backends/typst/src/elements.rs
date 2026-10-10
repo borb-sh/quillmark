@@ -33,7 +33,7 @@ pub(crate) fn unregistered(
         return Vec::new();
     };
     let mut fallen = BTreeSet::new();
-    let mut rendered = BTreeSet::from(["keep".to_string()]);
+    let mut rendered = BTreeSet::new();
     for marker in document.introspector().query(&Selector::Label(label)).iter() {
         let Ok(Value::Dict(dict)) = marker.get_by_name("value") else {
             continue;
@@ -60,9 +60,9 @@ pub(crate) fn unregistered(
     let mut diags = Vec::new();
     config.each_plate_content(data, &mut |at: &DocPath, content: &Content| {
         for name in &fallen {
-            match element_runs(content, name) {
-                0 => {}
-                count => diags.push(warning(name, count, at, &hint)),
+            let count = element_runs(content, name);
+            if count > 0 {
+                diags.push(warning(name, count, at, &hint));
             }
         }
     });
