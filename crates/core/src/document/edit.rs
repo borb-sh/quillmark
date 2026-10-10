@@ -1127,7 +1127,8 @@ impl Card {
     ///
     /// The caller supplies `schema` because a [`Document`] holds only a `$quill`
     /// *reference*; [`crate::writer::TypedWriter`] resolves it per field and
-    /// calls this.
+    /// commits as this does, returning the `parse::dropped_construct` warnings
+    /// this discards.
     ///
     /// Returns [`EditError::InvalidFieldName`] for a malformed name,
     /// [`EditError::FieldDecode`] / [`EditError::FieldNotInline`]
@@ -1145,11 +1146,25 @@ impl Card {
         value: impl Into<QuillValue>,
         schema: &FieldSchema,
     ) -> Result<(), EditError> {
-        let (stored, _) = resolve_field_write(name, &value.into(), schema, &DocPath::new())?;
+        self.commit_field_at(name, &value.into(), schema, &DocPath::new())?;
+        Ok(())
+    }
+
+    /// [`commit_field`](Self::commit_field), returning one
+    /// `parse::dropped_construct` per construct a markdown string in `value`
+    /// dropped, at its path under `base`, the card's root.
+    pub(crate) fn commit_field_at(
+        &mut self,
+        name: &str,
+        value: &QuillValue,
+        schema: &FieldSchema,
+        base: &DocPath,
+    ) -> Result<Vec<Diagnostic>, EditError> {
+        let (stored, drops) = resolve_field_write(name, value, schema, base)?;
         self.payload_mut()
             .insert(name.to_string(), stored)
             .map_err(EditError::InvalidPayload)?;
-        Ok(())
+        Ok(drops)
     }
 
     /// Revise the body from an authored markdown string: edit semantics. Imports

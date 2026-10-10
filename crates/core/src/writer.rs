@@ -299,11 +299,7 @@ fn commit_impl(
     let Some(schema) = fields_schema.and_then(|m| m.get(name)) else {
         return Err(EditError::unknown_field(name));
     };
-    let (stored, drops) = resolve_field_write(name, &value.into(), schema, base)?;
-    card.payload_mut()
-        .insert(name.to_string(), stored)
-        .map_err(EditError::InvalidPayload)?;
-    Ok(drops)
+    card.commit_field_at(name, &value.into(), schema, base)
 }
 
 /// The anchor-preserving twin of [`commit_impl`], shared by
