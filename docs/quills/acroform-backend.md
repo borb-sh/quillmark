@@ -27,7 +27,7 @@ The background's cross-reference data is a classic `xref` table. One held in a c
 Nulling the key (PyMuPDF's `xref_set_key` sets a key to `null` rather than deleting it) strips the catalog entry alone, and the old widget annotations stay live in the page `/Annots`. A background whose page `/Annots` hold a `/Subtype /Widget`, written directly or referenced, is refused as `pdf::existing_acroform` too, whatever its catalog holds, and the message names the page.
 
 !!! note "Where the assets come from"
-    Producing a clean `form.pdf` + `form.json` from a raw source PDF (decrypt, strip, extract, verify) is the job of a separate *qualification* layer and is out of scope for the engine; the engine checks the result of the stripping, not how it was reached. V1 quills hand-author both assets; the `sample_form` fixture in `crates/fixtures/resources/quills/sample_form/` is a worked example.
+    Producing a clean `form.pdf` + `form.json` from a raw source PDF (decrypt, strip, extract, verify) is the job of a separate *quillification* layer and is out of scope for the engine; the engine checks the result of the stripping, not how it was reached. V1 quills hand-author both assets; the `sample_form` fixture in `crates/fixtures/resources/quills/sample_form/` is a worked example.
 
 ## `Quill.yaml`
 
