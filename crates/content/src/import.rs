@@ -48,8 +48,9 @@ use crate::html;
 use crate::island::IslandType;
 use crate::normalize::normalize_markdown;
 use crate::MAX_NESTING_DEPTH;
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd};
 use std::collections::VecDeque;
+use std::iter::Peekable;
 use std::ops::Range;
 
 /// What `event` contributes to the alt text of an image being collected: one
@@ -159,7 +160,7 @@ pub(crate) fn options() -> Options {
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let options = options();
     let text = normalize_markdown(markdown, options);
-    let mut fixer = MarkdownFixer::new(Parser::new_ext(&text, options).into_offset_iter());
+    let mut fixer = MarkdownFixer::new(&text, Parser::new_ext(&text, options).into_offset_iter());
     let mut b = Builder::new();
     b.run(&mut fixer)?;
     let (content, built) = b.finish();
@@ -308,6 +309,19 @@ impl Inline {
             kind: MarkKind::Code,
         });
     }
+
+    /// Drop `lead` chars from the start and `trail` from the end, the marks
+    /// moving with the text.
+    fn trim(&mut self, lead: usize, trail: usize) {
+        let end = self.pos.saturating_sub(trail).max(lead);
+        self.text = self.text.chars().skip(lead).take(end - lead).collect();
+        self.pos = end - lead;
+        for m in &mut self.marks {
+            m.start = m.start.clamp(lead, end) - lead;
+            m.end = m.end.clamp(lead, end) - lead;
+        }
+        self.marks.retain(|m| m.start < m.end);
+    }
 }
 
 /// A wrapper whose open tag line the import has read and whose close it
@@ -429,6 +443,9 @@ struct CellPair {
     state: PairState,
     /// Each open tag's offset, reported where no pair folds.
     opens: Vec<usize>,
+    /// The chars of [`Fixed::CellEdge`] space at the cell's start and before
+    /// its last tag, which a pair that folds trims.
+    edges: (usize, usize),
 }
 
 #[derive(Default)]
@@ -464,11 +481,24 @@ impl CellPair {
         }
     }
 
-    /// The attributes of the pair wrapping the whole cell, and its open tag's
-    /// offset. Where none does, each open tag drops as `qm-cell`.
-    fn finish(self, dropped: &mut Drops) -> Option<(carrier::Attrs, usize)> {
+    /// Edge space of `n` chars, at the cell's start or before a close tag.
+    fn edge(&mut self, at_start: bool, n: usize) {
+        if at_start {
+            self.edges.0 = n;
+        } else {
+            self.edges.1 = n;
+        }
+    }
+
+    /// The attributes of the pair wrapping the whole cell, which trims `cell`'s
+    /// edge space, and its open tag's offset. Where none does, each open tag
+    /// drops as `qm-cell`.
+    fn finish(self, cell: &mut Inline, dropped: &mut Drops) -> Option<(carrier::Attrs, usize)> {
         match self.state {
-            PairState::Closed(attrs) => Some((attrs, self.opens[0])),
+            PairState::Closed(attrs) => {
+                cell.trim(self.edges.0, self.edges.1);
+                Some((attrs, self.opens[0]))
+            }
             _ => {
                 for at in self.opens {
                     dropped.add(Dropped::Element(CELL.into()), at);
@@ -674,6 +704,12 @@ impl Builder {
                     self.dropped.add(Dropped::Footnote, at);
                     self.in_note = true;
                     continue;
+                }
+                Fixed::CellEdge(s) => {
+                    if self.cell_edge(s) {
+                        continue;
+                    }
+                    Event::Text(CowStr::Borrowed(s))
                 }
             };
             if self.in_note {
@@ -1157,6 +1193,25 @@ impl Builder {
         }
     }
 
+    /// Push [`Fixed::CellEdge`] space into the open cell, recording it for the
+    /// pair; `false` where no cell reads it as such.
+    fn cell_edge(&mut self, s: &str) -> bool {
+        if self.in_note {
+            return false;
+        }
+        let Some(acc) = self.table.as_mut().filter(|acc| acc.img_depth == 0) else {
+            return false;
+        };
+        let Some(cell) = acc.cell.as_mut() else {
+            return false;
+        };
+        acc.pair.content();
+        let start = cell.pos;
+        cell.push_text(s);
+        acc.pair.edge(start == 0, cell.pos - start);
+        true
+    }
+
     /// Route one table event: structural events shape the accumulator, inline
     /// events build the open cell with the same [`Inline`] machinery prose uses.
     /// A cell is flat inline, so its marks are USV offsets into its own text.
@@ -1209,8 +1264,9 @@ impl Builder {
                         cell.close_mark();
                     }
                     cell.drop_open(&mut self.dropped);
+                    let folded = std::mem::take(&mut acc.pair).finish(&mut cell, &mut self.dropped);
                     let mut value = crate::serial::cell_to_value(&cell.text, &cell.marks);
-                    if let Some((attrs, at)) = std::mem::take(&mut acc.pair).finish(&mut self.dropped) {
+                    if let Some((attrs, at)) = folded {
                         fold_cell(&mut value, attrs, at, &mut self.dropped);
                     }
                     acc.cur_row.push(value);
@@ -1367,6 +1423,9 @@ enum Fixed<'a> {
     Swallowed(Wrapper, usize),
     /// A footnote definition's start, at its byte offset.
     NoteDef(usize),
+    /// Raw space and tab between an inline `qm-cell` tag and the text on its
+    /// inner side: a cell's edge where the pair folds, text elsewhere.
+    CellEdge(&'a str),
 }
 
 /// An inline `<u>` tag, paired by the builder as HTML pairs it.
@@ -1397,6 +1456,10 @@ impl Wrapper {
             name if name == "table" => Some(Wrapper::Table),
             name => Some(Wrapper::Element(name)),
         }
+    }
+
+    fn is_cell(&self) -> bool {
+        matches!(self, Wrapper::Element(name) if name == CELL)
     }
 
     /// What it reports when it drops.
@@ -1484,23 +1547,58 @@ impl Drops {
     }
 }
 
-struct MarkdownFixer<'a, I> {
-    inner: I,
+struct MarkdownFixer<'a, I: Iterator> {
+    src: &'a str,
+    inner: Peekable<I>,
     dropped: Drops,
     /// An HTML block's carrier tags ahead of its end.
     held: VecDeque<Fixed<'a>>,
+    /// Whether the last event was an inline `qm-cell` open tag.
+    cell_opened: bool,
 }
 
 impl<'a, I> MarkdownFixer<'a, I>
 where
     I: Iterator<Item = (Event<'a>, Range<usize>)>,
 {
-    fn new(inner: I) -> Self {
+    fn new(src: &'a str, inner: I) -> Self {
         Self {
-            inner,
+            src,
+            inner: inner.peekable(),
             dropped: Drops::default(),
             held: VecDeque::new(),
+            cell_opened: false,
         }
+    }
+
+    /// Raw text at `range`, its space and tab against an inline `qm-cell`
+    /// tag on either side split off as [`Fixed::CellEdge`].
+    fn raw_text(&mut self, range: Range<usize>, cell_opened: bool) -> Option<Fixed<'a>> {
+        const EDGE: [char; 2] = [' ', '\t'];
+        let s = &self.src[range];
+        let lead = if cell_opened { s.len() - s.trim_start_matches(EDGE).len() } else { 0 };
+        let closes = matches!(
+            self.inner.peek(),
+            Some((Event::InlineHtml(h), _)) if html::tag_at(h, 0)
+                .and_then(|t| CarrierTag::of(&t, false, 0))
+                .is_some_and(|c| c.attrs.is_none() && c.wrapper.is_cell())
+        );
+        let (head, rest) = s.split_at(lead);
+        let trail = if closes { rest.len() - rest.trim_end_matches(EDGE).len() } else { 0 };
+        let (text, tail) = rest.split_at(rest.len() - trail);
+        if head.is_empty() && tail.is_empty() {
+            return Some(Fixed::Event(Event::Text(CowStr::Borrowed(text))));
+        }
+        for (part, fixed) in [
+            (head, Fixed::CellEdge(head)),
+            (text, Fixed::Event(Event::Text(CowStr::Borrowed(text)))),
+            (tail, Fixed::CellEdge(tail)),
+        ] {
+            if !part.is_empty() {
+                self.held.push_back(fixed);
+            }
+        }
+        None
     }
 
     /// Consume an HTML block through its end, counting its
@@ -1541,6 +1639,7 @@ where
     /// One event as the builder takes it, or `None` for one that drops or
     /// that `held` now carries.
     fn fix(&mut self, event: Event<'a>, range: Range<usize>) -> Option<Fixed<'a>> {
+        let cell_opened = std::mem::take(&mut self.cell_opened);
         Some(match event {
             Event::Start(Tag::HtmlBlock) => {
                 self.drop_html_block(range.start);
@@ -1562,12 +1661,14 @@ where
                     return Some(Fixed::Event(Event::HardBreak));
                 }
                 if let Some(carrier) = CarrierTag::of(&tag, false, range.start) {
+                    self.cell_opened = carrier.attrs.is_some() && carrier.wrapper.is_cell();
                     return Some(Fixed::Carrier(carrier));
                 }
                 self.dropped.tag(&tag, range.start);
                 return None;
             }
             Event::Start(Tag::FootnoteDefinition(_)) => Fixed::NoteDef(range.start),
+            Event::Text(t) if self.src[range.clone()] == *t => return self.raw_text(range, cell_opened),
             Event::FootnoteReference(label) => Fixed::Event(Event::Text(format!("[^{label}]").into())),
             other => Fixed::Event(other),
         })
@@ -2409,8 +2510,8 @@ mod tests {
             .collect()
     }
 
-    /// What a pair wraps imports as the cell would without it, edge
-    /// whitespace aside, and an alignment equal to its column's stays.
+    /// What a pair wraps imports as the cell would without it, and an
+    /// alignment equal to its column's stays.
     #[test]
     fn a_cell_pair_around_a_whole_cell_folds_its_alignment() {
         use serde_json::json;
@@ -2437,8 +2538,15 @@ mod tests {
             assert_eq!(cells(&imported.content), cells(&bare), "{md:?}");
         }
 
-        let edges = imp_fixed("| h |\n|---|\n| <qm-cell valign=\"top\"> a </qm-cell> |");
-        assert_eq!(table_rows(&edges.content), [[" a "]]);
+        for (cell, text) in [
+            ("<qm-cell valign=\"top\"> \ta  </qm-cell>", "a"),
+            ("<qm-cell valign=\"top\">  </qm-cell>", ""),
+            ("<qm-cell valign=\"top\">&#32;a&#9;</qm-cell>", " a\t"),
+            ("<qm-cell valign=\"top\"> &#32; </qm-cell>", " "),
+        ] {
+            let edges = imp_fixed(&format!("| h |\n|---|\n| {cell} |"));
+            assert_eq!(table_rows(&edges.content), [[text]], "{cell:?}");
+        }
 
         let rt = imp_fixed("| h |\n|:-:|\n| <qm-cell valign=\"bottom\" align=\"center\">**a**</qm-cell> |").content;
         assert_eq!(
