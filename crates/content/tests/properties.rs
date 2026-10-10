@@ -169,7 +169,7 @@ fn block() -> impl Strategy<Value = String> {
         (prose(), prose()).prop_map(|(a, b)| format!(
             "<qm-keep>\n\n{a}\n\n</qm-keep>\n\n<qm-keep>\n\n{b}\n\n</qm-keep>"
         )),
-        Just("<qm-sig>\n</qm-sig>".to_string()),
+        Just("<qm-sig></qm-sig>".to_string()),
         (clean_word(), clean_word())
             .prop_map(|(a, b)| format!("| {a} | {b} |\n| --- | --- |\n| 1 | 2 |")),
         (clean_word(), clean_word(), 1u64..9).prop_map(|(a, b, w)| format!(

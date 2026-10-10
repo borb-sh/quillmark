@@ -217,14 +217,23 @@ impl Element {
     }
 
     /// The block wrapper around `children`: each tag alone on its line, a blank
-    /// line between it and the children, none around no children. A
-    /// container's prefix on each line is the caller's.
+    /// line between it and the children, or the pair on one line around no
+    /// children. A container's prefix on each line is the caller's.
     pub fn wrap_block(&self, children: &str) -> String {
         if children.is_empty() {
-            return format!("{}\n{}", self.open_tag(), self.close_tag());
+            return self.wrap_inline("");
         }
         format!("{}\n\n{children}\n\n{}", self.open_tag(), self.close_tag())
     }
+}
+
+/// The tags of `line` when it holds only tags that open or close a wrapper:
+/// `qm-table` or an element, not self-closing. `qm-anchor` wraps nothing.
+pub(crate) fn tag_line(line: &str) -> Option<Vec<crate::html::Tag<'_>>> {
+    crate::html::tag_line(line).filter(|tags| {
+        tags.iter()
+            .all(|t| !t.self_closing && element(t.name).is_some_and(|name| name != "anchor"))
+    })
 }
 
 pub(crate) fn has_prefix(name: &str) -> bool {
@@ -309,7 +318,7 @@ mod tests {
         assert_eq!(e.close_tag(), "</qm-table>");
         let keep = Element::new("keep", BTreeMap::new()).unwrap();
         assert_eq!(keep.wrap_block("a\n\nb"), "<qm-keep>\n\na\n\nb\n\n</qm-keep>");
-        assert_eq!(keep.wrap_block(""), "<qm-keep>\n</qm-keep>");
+        assert_eq!(keep.wrap_block(""), "<qm-keep></qm-keep>");
 
         assert_eq!(Element::new("A", BTreeMap::new()), Err(Refused::Name("A".into())));
         assert_eq!(

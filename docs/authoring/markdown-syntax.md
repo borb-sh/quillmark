@@ -30,7 +30,7 @@ Autolinks beyond CommonMark's and other GFM features are **not** enabled.
 
 Markdown has no syntax for column widths, table placement or keeping a block on one page. Quillmark spells them with `qm-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
 
-Each `qm-*` tag stands alone on its line, with a blank line above and below:
+Each `qm-*` tag stands on a line of its own. Quillmark reads the line wherever it stands, and export writes a blank line above and below it, which GitHub and other CommonMark viewers need to render the markdown it wraps:
 
 ```markdown
 <qm-keep>
@@ -41,7 +41,7 @@ J. Doe
 </qm-keep>
 ```
 
-Written tight against markdown, a tag line opens an HTML block that runs to the next blank line, and the block drops whole, markdown included, with a `parse::dropped_construct` warning whose hint names the fix. A tag inside a line, a self-closing tag (`<qm-keep/>`) and a tag left open drop too, keeping what they wrap.
+A tag inside a line of text and a tag left open drop, keeping what they wrap, with a `parse::dropped_construct` warning whose hint names the fix. A self-closing tag (`<qm-keep/>`) is an open tag, as HTML reads it, so it drops too.
 
 ### Table widths and placement
 
@@ -85,11 +85,10 @@ The open tag comes first in the cell and the close tag last. A pair with anythin
 
 Any other `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` is reserved. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a `qm-table` it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent.
 
-An element around nothing is its two tags on adjacent lines, which suits a signature line or a stamp the quill draws:
+An element around nothing is its two tags on one line, which suits a signature line or a stamp the quill draws:
 
 ```markdown
-<qm-sig>
-</qm-sig>
+<qm-sig></qm-sig>
 ```
 
 An element's attributes are strings the quill reads, such as `<qm-stamp tone="urgent">`. An attribute name is lowercase letters, digits and `_`, opening with a letter. `style`, `class`, `id`, `href`, `src` and names opening `on` are refused, so the tags never carry markup a browser would act on.

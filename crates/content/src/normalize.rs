@@ -2,6 +2,7 @@
 //! [`from_markdown`](crate::import::from_markdown) boundary (markdown-spec §7):
 //! characters the content cannot hold, then the parser-guided repair.
 
+use crate::carrier;
 use crate::html::{self, BlockKind};
 use pulldown_cmark::{Event, Options, Parser, Tag as PTag, TagEnd};
 use std::ops::Range;
@@ -74,14 +75,15 @@ pub(crate) fn normalize_markdown(markdown: &str, options: Options) -> String {
 }
 
 /// Rounds the repair takes at most. A round leaves work for the next only where
-/// the text it splits off a comment opens another.
+/// the text it splits off a comment opens another, or a row of tags it ends a
+/// table at holds more than one carrier tag.
 const REPAIR_ROUNDS: usize = 8;
 
 /// Rewrite `text` so the parse reads the text after a comment's `-->` on its
-/// line, and ends a table at a line of tags under its rows (markdown-spec §6.2,
-/// §7 step 4). Each round parses and edits only inside the spans that parse
-/// located, so a fence is never touched; the rounds end at one that plans no
-/// edit.
+/// line, ends a table at a line of tags under its rows, and reads a line of
+/// carrier tags alone as tag lines (markdown-spec §6.2, §7 step 4). Each round
+/// parses and edits only inside the spans that parse located, so a fence is
+/// never touched; the rounds end at one that plans no edit.
 fn repair(text: String, options: Options) -> String {
     let mut text = text;
     if may_need_repair(&text) {
@@ -96,14 +98,18 @@ fn repair(text: String, options: Options) -> String {
     text
 }
 
-/// Whether some line could open an HTML block or hold a table row of tags: its
-/// first character past container markers is `<`. Text failing this has
-/// nothing to repair.
+/// Whether some line could open an HTML block, hold a table row of tags or
+/// hold carrier tags alone: its first character past container markers and a
+/// task marker is `<`. Text failing this has nothing to repair.
 fn may_need_repair(s: &str) -> bool {
     s.lines().any(|line| {
         let rest = line.trim_start_matches(|c: char| {
             c.is_ascii_whitespace() || c.is_ascii_digit() || matches!(c, '>' | '-' | '+' | '*' | '.' | ')')
         });
+        let rest = ["[ ]", "[x]", "[X]"]
+            .iter()
+            .find_map(|task| rest.strip_prefix(task))
+            .map_or(rest, str::trim_start);
         rest.starts_with('<')
     })
 }
@@ -118,7 +124,9 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
     let mut block: Option<Vec<usize>> = None;
     let mut row: Option<usize> = None;
     let mut tag_rows: Vec<SrcLine> = Vec::new();
+    let mut runs = CarrierRuns::default();
     for (event, range) in Parser::new_ext(src, options).into_offset_iter() {
+        runs.read(src, &event, &range);
         match event {
             Event::Start(PTag::HtmlBlock) => block = Some(Vec::new()),
             Event::Html(_) => {
@@ -130,6 +138,9 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
                 if let Some(starts) = block.take() {
                     let lines: Vec<SrcLine> = starts.iter().map(|&at| SrcLine::at(src, at)).collect();
                     edits.extend(comment_edit(src, &lines));
+                    if runs.notes == 0 {
+                        edits.extend(carrier_block_edit(&lines));
+                    }
                 }
             }
             Event::Start(PTag::TableRow) => row = Some(range.start),
@@ -143,6 +154,7 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
         }
     }
     edits.extend(tag_row_edits(src, &tag_rows));
+    edits.extend(runs.edits());
     edits.sort_by_key(|e| (e.range.start, e.range.end));
     edits
 }
@@ -268,6 +280,284 @@ fn shallow_lead(line: &str) -> &str {
         return "";
     }
     &line[..line.len() - line.trim_start().len()]
+}
+
+/// The edit setting each run of carrier tag lines in a type 6 or 7 HTML block
+/// apart from the markdown lines beside it, each of its tags on a line of its
+/// own, so the run reads as a block of tag lines and the markdown as itself.
+fn carrier_block_edit(lines: &[SrcLine]) -> Option<Edit> {
+    let (first, last) = (lines.first()?, lines.last()?);
+    if !html::block_start(first.content).is_some_and(BlockKind::ends_at_blank_line) {
+        return None;
+    }
+    let carrier: Vec<bool> = lines.iter().map(|l| carrier::tag_line(l.content).is_some()).collect();
+    let markdown: Vec<bool> = lines.iter().map(|l| html::tag_line(l.content).is_none()).collect();
+    let mut out = Vec::with_capacity(lines.len() + 2);
+    let mut changed = false;
+    let mut k = 0;
+    while k < lines.len() {
+        if !carrier[k] {
+            out.push(lines[k].whole());
+            k += 1;
+            continue;
+        }
+        let mut to = k + 1;
+        while to < lines.len() && carrier[to] {
+            to += 1;
+        }
+        let above = k > 0 && markdown[k - 1];
+        let below = to < lines.len() && markdown[to];
+        if above {
+            out.push(blank_of(lines[k].prefix));
+        }
+        for line in &lines[k..to] {
+            if above || below {
+                let lead = format!("{}{}", line.prefix, shallow_lead(line.content));
+                out.extend(one_per_line(line.content, &lead));
+            } else {
+                out.push(line.whole());
+            }
+        }
+        if below {
+            out.push(blank_of(lines[to - 1].prefix));
+        }
+        changed |= above || below;
+        k = to;
+    }
+    changed.then(|| Edit {
+        range: first.start..last.end(),
+        with: out.join("\n"),
+    })
+}
+
+/// Each carrier tag `content` holds on a line of its own, the first behind
+/// `lead` and the rest behind its continuation.
+fn one_per_line(content: &str, lead: &str) -> Vec<String> {
+    let rest = continuation_of(lead);
+    carrier::tag_line(content)
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+        .map(|(i, tag)| format!("{}{}", if i == 0 { lead } else { &rest }, &content[tag.span.clone()]))
+        .collect()
+}
+
+/// The lines of carrier tags alone that the parse reads as inline HTML, in a
+/// paragraph or a list item's text: each group of adjacent ones is set apart
+/// from the text around it, each tag on a line of its own. A line inside a
+/// mark, a link, a heading, a table or a footnote definition is left as it is.
+#[derive(Default)]
+struct CarrierRuns<'a> {
+    groups: Vec<CarrierGroup<'a>>,
+    open: Option<CarrierGroup<'a>>,
+    prev: Prev,
+    /// The end of the last carrier line read: its tags and the spaces between
+    /// them arrive before it.
+    line_end: usize,
+    /// Open marks and links.
+    marks: usize,
+    /// Open headings, tables and footnote definitions.
+    held: usize,
+    /// Open footnote definitions.
+    notes: usize,
+    /// Each open list item's content column.
+    items: Vec<usize>,
+}
+
+/// What the event before an inline one was.
+#[derive(Default)]
+enum Prev {
+    /// A block's start or end: an inline here opens a run.
+    #[default]
+    Block,
+    /// A task marker, at this range.
+    Task(Range<usize>),
+    /// A line break, at this range.
+    Break(Range<usize>),
+    /// A carrier line.
+    Carrier,
+    Inline,
+}
+
+struct CarrierGroup<'a> {
+    /// The break ending the text above the group's first line.
+    after: Option<Range<usize>>,
+    /// The task marker the group's first line shares.
+    task: Option<Range<usize>>,
+    /// Each line and the prefix its first tag takes.
+    lines: Vec<(SrcLine<'a>, String)>,
+    /// Whether text continues the run below the group.
+    follows: bool,
+}
+
+impl<'a> CarrierRuns<'a> {
+    fn read(&mut self, src: &'a str, event: &Event, range: &Range<usize>) {
+        if matches!(event, Event::InlineHtml(_) | Event::Text(_)) && range.start < self.line_end {
+            return;
+        }
+        match event {
+            Event::Start(PTag::Item) => {
+                self.items.push(item_column(src, range.start));
+                self.block();
+            }
+            Event::End(TagEnd::Item) => {
+                self.items.pop();
+                self.block();
+            }
+            Event::Start(PTag::Table(_) | PTag::Heading { .. }) => {
+                self.held += 1;
+                self.block();
+            }
+            Event::End(TagEnd::Table | TagEnd::Heading(_)) => {
+                self.held -= 1;
+                self.block();
+            }
+            Event::Start(PTag::FootnoteDefinition(_)) => {
+                self.held += 1;
+                self.notes += 1;
+                self.block();
+            }
+            Event::End(TagEnd::FootnoteDefinition) => {
+                self.held -= 1;
+                self.notes -= 1;
+                self.block();
+            }
+            Event::Start(
+                PTag::Emphasis | PTag::Strong | PTag::Strikethrough | PTag::Link { .. } | PTag::Image { .. },
+            ) => {
+                self.marks += 1;
+                self.inline();
+            }
+            Event::End(TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link | TagEnd::Image) => {
+                self.marks -= 1;
+                self.inline();
+            }
+            Event::TaskListMarker(_) => self.prev = Prev::Task(range.clone()),
+            Event::SoftBreak | Event::HardBreak => self.prev = Prev::Break(range.clone()),
+            Event::InlineHtml(_) if self.held == 0 && self.marks == 0 && !matches!(self.prev, Prev::Inline) => {
+                let line = SrcLine::at(src, range.start);
+                if carrier::tag_line(line.content).is_some() {
+                    self.carrier_line(src, line);
+                } else {
+                    self.inline();
+                }
+            }
+            Event::Text(_) | Event::Code(_) | Event::InlineHtml(_) | Event::FootnoteReference(_) => self.inline(),
+            _ => self.block(),
+        }
+    }
+
+    fn carrier_line(&mut self, src: &str, line: SrcLine<'a>) {
+        self.line_end = line.end();
+        let lead = lead_of(line.prefix, self.items.last().copied().unwrap_or(0));
+        match (&mut self.open, &self.prev) {
+            (Some(group), Prev::Break(_)) => group.lines.push((line, lead)),
+            _ => {
+                let (after, task) = match &self.prev {
+                    Prev::Break(r) => (Some(r.clone()), None),
+                    Prev::Task(r) if r.start >= line.start => (None, Some(r.clone())),
+                    _ => (None, None),
+                };
+                let lead = match &task {
+                    Some(task) => continuation_of(&src[line.start..task.start]),
+                    None => lead,
+                };
+                self.open = Some(CarrierGroup { after, task, lines: vec![(line, lead)], follows: false });
+            }
+        }
+        self.prev = Prev::Carrier;
+    }
+
+    fn inline(&mut self) {
+        if let Some(mut group) = self.open.take() {
+            group.follows = true;
+            self.groups.push(group);
+        }
+        self.prev = Prev::Inline;
+    }
+
+    fn block(&mut self) {
+        self.groups.extend(self.open.take());
+        self.prev = Prev::Block;
+    }
+
+    fn edits(mut self) -> Vec<Edit> {
+        self.block();
+        self.groups.iter().map(CarrierGroup::edit).collect()
+    }
+}
+
+impl CarrierGroup<'_> {
+    /// A blank line above the group where text precedes it, below it where
+    /// text follows, and each tag on a line of its own. Where the first line
+    /// shares a task marker's line, its tags move to the lines under the
+    /// marker, which a blank line would end the item at.
+    fn edit(&self) -> Edit {
+        let (first, last) = (&self.lines[0].0, &self.lines[self.lines.len() - 1].0);
+        let mut out = Vec::new();
+        let start = match (&self.after, &self.task) {
+            (Some(after), _) => {
+                out.push(String::new());
+                out.push(blank_of(first.prefix));
+                after.start
+            }
+            (None, Some(task)) => {
+                out.push(String::new());
+                task.end
+            }
+            (None, None) => first.start,
+        };
+        for (line, lead) in &self.lines {
+            out.extend(one_per_line(line.content, lead));
+        }
+        if self.follows {
+            out.push(blank_of(last.prefix));
+        }
+        Edit {
+            range: start..last.end(),
+            with: out.join("\n"),
+        }
+    }
+}
+
+/// Columns `s` spans from a line's start, a tab advancing to the next multiple
+/// of 4.
+fn columns(s: &str) -> usize {
+    s.chars().fold(0, |col, c| if c == '\t' { col + 4 - col % 4 } else { col + 1 })
+}
+
+/// The content column of the list item whose marker the line holding byte
+/// `at` opens.
+fn item_column(src: &str, at: usize) -> usize {
+    let line = SrcLine::at(src, at);
+    let body = line.content.trim_start_matches([' ', '\t']);
+    let marker = body.bytes().take_while(u8::is_ascii_digit).count() + 1;
+    let end = columns(&src[line.start..line.end() - body.len()]) + marker;
+    let rest = body.get(marker..).unwrap_or("");
+    let ws = &rest[..rest.len() - rest.trim_start_matches([' ', '\t']).len()];
+    let pad = columns(&format!("{}{ws}", " ".repeat(end))) - end;
+    if ws.len() == rest.len() || pad > 4 {
+        end + 1
+    } else {
+        end + pad
+    }
+}
+
+/// The prefix a carrier line split off its text takes: its own, unless that
+/// indents it an indented code line's four columns past the content of its
+/// innermost container, a quote or the list item whose content starts at
+/// column `item`, where it takes that content's column.
+fn lead_of(prefix: &str, item: usize) -> String {
+    let quoted = prefix.rfind('>').map_or(0, |i| {
+        let after = i + 1;
+        after + usize::from(prefix[after..].starts_with([' ', '\t']))
+    });
+    let marks = &prefix[..quoted];
+    let base = columns(marks).max(item);
+    if columns(prefix) < base + 4 {
+        return prefix.to_string();
+    }
+    format!("{marks}{}", " ".repeat(base.saturating_sub(columns(marks))))
 }
 
 pub(crate) fn is_inline(event: &Event) -> bool {
@@ -397,6 +687,37 @@ mod tests {
             "```\n<div>\ntext\n</div>\n```",
             "> ```\n> <div>x\n> [^1]: y\n> ```",
             "<div>\n\n```\n<!-- a --> b\n</div>\n```",
+        ] {
+            assert_eq!(normalized(md), md);
+        }
+    }
+
+    /// A line of carrier tags alone is set apart from the text around it, each
+    /// tag on a line of its own, inside the containers its line stands in. A
+    /// task marker sharing its line keeps the line, and an indent deeper than
+    /// an indented code line's is cut to its container's content column.
+    #[test]
+    fn a_carrier_line_is_set_apart_from_its_text() {
+        let cases = [
+            ("A\n<qm-keep>\nB", "A\n\n<qm-keep>\n\nB"),
+            ("<qm-sig></qm-sig>", "<qm-sig>\n</qm-sig>"),
+            ("<qm-keep>\nA\n</qm-keep>", "<qm-keep>\n\nA\n\n</qm-keep>"),
+            ("> A\n> <qm-a></qm-a>", "> A\n>\n> <qm-a>\n> </qm-a>"),
+            ("- [ ] <qm-sig></qm-sig>", "- [ ]\n  <qm-sig>\n  </qm-sig>"),
+            ("A\n    <qm-keep>", "A\n\n<qm-keep>"),
+            ("- a\n      <qm-keep>", "- a\n\n  <qm-keep>"),
+            ("A\\\n</qm-keep>", "A\n\n</qm-keep>"),
+        ];
+        for (md, repaired) in cases {
+            assert_eq!(normalized(md), repaired, "{md:?}");
+        }
+        for md in [
+            "*a\n<qm-keep>\nb*",
+            "A\n<qm-anchor ref=\"x\"></qm-anchor>\nB",
+            "A\n<span><qm-keep>",
+            "A\n<qm-keep/>",
+            "<div>\nA",
+            "<qm-keep>\n<qm-table>\n\nA",
         ] {
             assert_eq!(normalized(md), md);
         }

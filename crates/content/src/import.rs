@@ -2,8 +2,9 @@
 //!
 //! Input is normalized by `normalize::normalize_markdown` (CRLF→LF, bidi
 //! controls dropped, line separators spaced, then the parser-guided repair that
-//! splits text off a comment's line and ends a table at a row of tags) so the
-//! content invariants hold by construction, then
+//! splits text off a comment's line, ends a table at a row of tags and sets a
+//! line of carrier tags apart) so the content invariants hold by construction,
+//! then
 //! parsed with `pulldown_cmark` (CommonMark + strikethrough + pipe tables +
 //! task lists, and footnotes recognized only to drop them) and
 //! walked into a [`Content`]. This is the one place the `<u>`/`<br>` allowlist
@@ -104,9 +105,9 @@ pub enum Dropped {
     /// A `qm-table` attribute the wrapper does not fold:
     /// `qm-table[<attr>]`.
     TableAttr(String),
-    /// An element left unclosed, self-closing, inside a line or tight against
-    /// markdown, a `qm-cell` pair among them unless it wraps a whole table
-    /// cell: `qm-<name>`.
+    /// An element left unclosed, self-closing, inside a line of text or beside
+    /// another tag in a block tight against markdown, a `qm-cell` pair among
+    /// them unless it wraps a whole table cell: `qm-<name>`.
     Element(String),
     /// An element attribute outside the grammar, or one repeating a name
     /// already read, and a `qm-cell` attribute the cell does not fold:
@@ -2265,9 +2266,9 @@ mod tests {
             .collect()
     }
 
-    /// An HTML block drops whole, as CommonMark reads it, a carrier tag's
-    /// included: a tag line tight against markdown takes the markdown with it,
-    /// and blank lines set the markdown apart.
+    /// An HTML block drops whole, as CommonMark reads it: a tag line other
+    /// than a line of carrier tags alone, tight against markdown, takes the
+    /// markdown with it, and blank lines set the markdown apart.
     #[test]
     fn a_tag_line_tight_against_markdown_drops_its_block() {
         for (md, tag) in [
@@ -2284,10 +2285,56 @@ mod tests {
         assert_eq!(imported.content.text, "\u{FFFC}");
         assert_eq!(table_rows(&imported.content), [["1", "2"]]);
         assert_eq!(dropped(&imported), [("div", 1)]);
+    }
 
-        let imported = imp_fixed("<qm-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</qm-keep>");
-        assert_eq!(imported.content.text, "");
-        assert_eq!(dropped(&imported), [("qm-keep", 1)]);
+    /// A line holding only carrier tags reads as tag lines wherever it
+    /// stands: set apart from the markdown above and below it, inside the
+    /// containers its line stands in, each tag on a line of its own.
+    #[test]
+    fn a_line_of_carrier_tags_reads_as_tag_lines_wherever_it_stands() {
+        let cases: &[(&str, &str, &[&[&str]])] = &[
+            ("<qm-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</qm-keep>", "\u{FFFC}", &[&["element"]]),
+            ("<qm-keep>\n**Signed**\nJ. Doe\n</qm-keep>", "Signed J. Doe", &[&["element"]]),
+            ("<qm-keep>\n\nA\n</qm-keep>\nB", "A\nB", &[&["element"], &[]]),
+            ("A\n<qm-keep>\nB\n</qm-keep>", "A\nB", &[&[], &["element"]]),
+            ("A\n    <qm-keep>\nB\n</qm-keep>", "A\nB", &[&[], &["element"]]),
+            ("A\\\n</qm-keep>\nB", "A\nB", &[&[], &[]]),
+            ("- a\n  <qm-keep>\n  b\n  </qm-keep>", "a\nb", &[&["list_item"], &["list_item", "element"]]),
+            ("1. a\n<qm-keep>\n2. b\n</qm-keep>", "a\nb", &[&["list_item"], &["element", "list_item"]]),
+            ("> A\n> <qm-keep>\n> B\n> </qm-keep>", "A\nB", &[&["quote"], &["quote", "element"]]),
+            ("<qm-sig></qm-sig>", "", &[&["element"]]),
+            ("<qm-sig name=\"a\"></qm-sig>\n<qm-sig name=\"b\"></qm-sig>", "\n", &[&["element"], &["element"]]),
+            ("- [ ] <qm-sig></qm-sig>\n- [x] b", "\nb", &[&["list_item", "element"], &["list_item"]]),
+            ("<qm-keep><qm-table>\n\n| a |\n|---|\n| 1 |\n\n</qm-table></qm-keep>", "\u{FFFC}", &[&["element"]]),
+            ("| a |\n|---|\n<qm-sig></qm-sig>\nB", "\u{FFFC}\n\nB", &[&[], &["element"], &[]]),
+        ];
+        for (md, text, tags) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.text, *text, "{md:?}");
+            assert_eq!(container_tags(&imported.content), *tags, "{md:?}");
+            assert!(imported.warnings.is_empty(), "{md:?}");
+        }
+
+        let void = &imp_fixed("<qm-sig>\n</qm-sig>").content;
+        assert_eq!(crate::export::to_markdown(void), "<qm-sig></qm-sig>");
+    }
+
+    /// A line of tags that are not all carrier ones, or one inside a mark,
+    /// stays inline, its carrier tags dropping as any inline tag does.
+    #[test]
+    fn a_line_holding_other_tags_stays_inline() {
+        let cases: &[(&str, &[(&str, usize)])] = &[
+            ("A\n<span><qm-keep>\nB\n\n</qm-keep>", &[("span", 1), ("qm-keep", 1)]),
+            ("*a\n<qm-keep>\nb*\n\n</qm-keep>", &[("qm-keep", 1)]),
+            ("A\n<qm-sig/>\nB", &[("qm-sig", 1)]),
+            ("A\n<qm-anchor ref=\"x\"></qm-anchor>\nB", &[]),
+        ];
+        for (md, warned) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.lines.len(), 1, "{md:?}");
+            assert!(imported.content.lines[0].containers.is_empty(), "{md:?}");
+            assert_eq!(dropped(&imported), *warned, "{md:?}");
+        }
     }
 
     fn layout(rt: &Normalized) -> serde_json::Value {
@@ -2622,12 +2669,12 @@ mod tests {
     #[test]
     fn a_block_dropping_markdown_reports_under_its_first_tag() {
         let cases = [
-            ("a\n\n</qm-keep>\ntext", ("qm-keep", 1)),
-            ("a\n\n</qm-table>\ntext", ("qm-table", 1)),
+            ("a\n\n</qm-keep>\n</span>\ntext", ("qm-keep", 1)),
+            ("a\n\n</qm-table>\n</span>\ntext", ("qm-table", 1)),
             ("a\n\n</qm-anchor>\ntext", ("qm-anchor", 1)),
             ("<qm-anchor ref=\"x\">\ntext", ("qm-anchor", 1)),
-            ("<qm-keep>\n\nx\n\n</qm-keep>\ntext", ("qm-keep", 1)),
-            ("<qm-keep>\n\nx\n\n</qm-keep>\ntext\n\n</qm-keep>", ("qm-keep", 1)),
+            ("<qm-keep>\n\nx\n\n</qm-keep>\n</span>\ntext", ("qm-keep", 1)),
+            ("<qm-keep>\n\nx\n\n</qm-keep>\n</span>\ntext\n\n</qm-keep>", ("qm-keep", 1)),
         ];
         for (md, report) in cases {
             let imported = imp_fixed(md);
@@ -2740,10 +2787,10 @@ mod tests {
     }
 
     /// An element the carrier cannot read drops its tags and reports
-    /// `qm-<name>`, what it wraps importing; one whose tag line is tight
-    /// against markdown drops with the block it opens. An attribute outside the
-    /// grammar drops alone. A close tag with nothing to close, set apart by
-    /// blank lines, drops silently.
+    /// `qm-<name>`, what it wraps importing: one left open, a self-closing one,
+    /// which HTML reads as an open tag, and one inside a line. An attribute
+    /// outside the grammar drops alone. A close tag with nothing to close
+    /// drops silently.
     #[test]
     fn an_element_drops_where_it_does_not_close() {
         let cases: &[(&str, &str, &[(&str, usize)])] = &[
@@ -2752,8 +2799,7 @@ mod tests {
             ("- <qm-keep>\n\n  a\n- b\n\n</qm-keep>", "a\nb", &[("qm-keep", 1)]),
             ("> <qm-keep>\n>\n> a\n\n</qm-keep>", "a", &[("qm-keep", 1)]),
             ("</qm-keep>\n\na", "a", &[]),
-            ("<qm-keep>\na\n</qm-keep>\n\nb", "b", &[("qm-keep", 1)]),
-            ("<qm-keep>\n\na\n</qm-keep>", "a ", &[("qm-keep", 1)]),
+            ("a\n</qm-keep>", "a", &[]),
             ("a <qm-hl>b", "a b", &[("qm-hl", 1)]),
             ("a<qm-hl></qm-hl>b", "ab", &[("qm-hl", 1)]),
         ];

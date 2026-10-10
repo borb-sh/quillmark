@@ -114,10 +114,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 "markdown import dropped {} in this field",
                 some("`<qm-table>` wrapper", "`<qm-table>` wrappers")
             ),
-            format!(
-                "A `<qm-table>` wraps exactly one pipe table, its two tags each alone on a line with a blank \
-                 line between each tag and the table. {TIGHT}"
-            ),
+            "A `<qm-table>` wraps exactly one pipe table, each of its two tags on a line of its own.".to_string(),
         ),
         Dropped::BadName(_) => (
             format!(
@@ -144,8 +141,8 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 some(&format!("`<{tag}>` element"), &format!("`<{tag}>` elements"))
             ),
             format!(
-                "Write `<{tag}>` and `</{tag}>` each alone on a line with a blank line above and below, \
-                 or, around nothing, on two lines with nothing between. {TIGHT}"
+                "Write `<{tag}>` and `</{tag}>` each on a line of its own, or, around nothing, \
+                 `<{tag}></{tag}>` on one line. HTML reads `<{tag}/>` as an open tag."
             ),
         ),
         Dropped::Tag(name) => match name.as_str() {
