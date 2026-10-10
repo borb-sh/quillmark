@@ -680,8 +680,7 @@ impl Quill {
     /// `[]`.
     #[wasm_bindgen(getter, js_name = warnings, unchecked_return_type = "Diagnostic[]")]
     pub fn warnings(&self) -> Result<JsValue, JsValue> {
-        let diags: Vec<Diagnostic> = self.inner.warnings().iter().cloned().map(Into::into).collect();
-        serialize_or_throw(&diags, "warnings")
+        serialize_or_throw(&diags(self.inner.warnings().iter().cloned()), "warnings")
     }
 
     #[wasm_bindgen(getter, js_name = blueprint)]
@@ -955,15 +954,7 @@ impl Document {
         let read = self.inner.to_markdown_annotated();
         let js = AnnotatedMarkdownJs {
             markdown: read.markdown,
-            anchors: read
-                .anchors
-                .into_iter()
-                .map(|a| DocumentAnchorJs {
-                    id: a.id,
-                    path: a.path.to_string(),
-                    line: a.line,
-                })
-                .collect(),
+            anchors: read.anchors.into_iter().map(Into::into).collect(),
         };
         serialize_or_throw(&js, "toAnnotatedMarkdown")
     }
@@ -1702,8 +1693,7 @@ impl Document {
             .writer(&mut self.inner)
             .add_card(kind, batch, body.as_deref(), at)
             .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))?;
-        let warnings: Vec<Diagnostic> = warnings.into_iter().map(Into::into).collect();
-        serialize_or_throw(&warnings, "addCard")
+        serialize_or_throw(&diags(warnings), "addCard")
     }
 
     /// Insert a card: `at` absent appends, a number inserts at that index (in
@@ -1982,7 +1972,7 @@ impl From<quillmark_core::document::Revised> for RevisedJs {
     fn from(revised: quillmark_core::document::Revised) -> Self {
         RevisedJs {
             delta: revised.delta,
-            warnings: revised.warnings.into_iter().map(Into::into).collect(),
+            warnings: diags(revised.warnings),
         }
     }
 }
@@ -2007,6 +1997,12 @@ struct DocumentAnchorJs {
     line: String,
 }
 
+impl From<quillmark_core::document::DocumentAnchor> for DocumentAnchorJs {
+    fn from(a: quillmark_core::document::DocumentAnchor) -> Self {
+        DocumentAnchorJs { id: a.id, path: a.path.to_string(), line: a.line }
+    }
+}
+
 #[derive(serde::Serialize)]
 struct DroppedAnchorJs {
     path: String,
@@ -2019,23 +2015,21 @@ impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
             dropped_anchors: revised
                 .dropped_anchors
                 .into_iter()
-                .map(|d| DroppedAnchorJs {
-                    path: d.path.to_string(),
-                    id: d.id,
-                })
+                .map(|d| DroppedAnchorJs { path: d.path.to_string(), id: d.id })
                 .collect(),
-            warnings: revised.warnings.into_iter().map(Into::into).collect(),
+            warnings: diags(revised.warnings),
         }
     }
+}
+
+fn diags(ds: impl IntoIterator<Item = quillmark_core::error::Diagnostic>) -> Vec<Diagnostic> {
+    ds.into_iter().map(Into::into).collect()
 }
 
 fn dropped_constructs(
     warnings: Vec<quillmark_core::document::ImportWarning>,
 ) -> Vec<Diagnostic> {
-    warnings
-        .into_iter()
-        .map(|w| quillmark_core::document::dropped_construct(w).into())
-        .collect()
+    diags(warnings.into_iter().map(quillmark_core::document::dropped_construct))
 }
 
 /// Whether `content` satisfies the `inline` constraint of `richtext` and
@@ -2500,7 +2494,7 @@ fn render_result_to_ts(
 ) -> Result<Ts<RenderResult>, JsValue> {
     to_ts_or_throw(&RenderResult {
         artifacts: result.artifacts.into_iter().map(Into::into).collect(),
-        warnings: result.warnings.into_iter().map(Into::into).collect(),
+        warnings: diags(result.warnings),
         output_format: result.output_format.into(),
         regions: quillmark_core::region::regions_to_doc_path(result.regions, kinds)
             .into_iter()

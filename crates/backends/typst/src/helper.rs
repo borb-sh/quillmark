@@ -734,8 +734,6 @@ entrypoint = "lib.typ"
 mod tests {
     use super::*;
 
-    use crate::emit::escape_markup;
-    use crate::emit::EscapeCtx;
     use quillmark_core::quill::CONTENT_MEDIA_TYPE;
 
     fn meta_from(schema: serde_json::Value) -> SchemaMeta {
@@ -832,11 +830,7 @@ mod tests {
             assert!(seg.generated.start <= seg.generated.end && seg.generated.end <= lib.len());
             for (content_range, generated, ctx) in &seg.runs {
                 let src: String = chars[content_range.clone()].iter().collect();
-                let expect = match ctx {
-                    EscapeCtx::Markup => escape_markup(&src),
-                    EscapeCtx::StringLit => crate::emit::escape_string(&src),
-                    EscapeCtx::Indent => crate::emit::escape_indent(&src),
-                };
+                let expect = ctx.escape(&src);
                 assert_eq!(&lib[generated.clone()], expect, "run inverts to its content slice");
                 assert!(generated.start >= seg.generated.start && generated.end <= seg.generated.end);
                 if src == "bold" {
