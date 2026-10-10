@@ -2527,7 +2527,7 @@ mod tests {
         let [island] = rt.islands.as_slice() else {
             panic!("one island expected: {:?}", rt.islands);
         };
-        let keys = ["widths", "align"];
+        let keys = ["widths", "align", "headless"];
         let props = island.props.as_object().unwrap();
         let kept = props.iter().filter(|(k, _)| keys.contains(&k.as_str()));
         serde_json::Value::Object(kept.map(|(k, v)| (k.clone(), v.clone())).collect())
@@ -2563,6 +2563,12 @@ mod tests {
             crate::export::to_markdown(&imp_fixed(&cases[4].0).content),
             canonical.split('\n').map(|l| if l.is_empty() { ">".to_string() } else { format!("> {l}") }).collect::<Vec<_>>().join("\n")
         );
+
+        let headless = imp_fixed(&format!("<qm-table headless>\n\n{table}\n\n</qm-table>"));
+        assert_eq!(layout(&headless.content), serde_json::json!({"headless": true}));
+        let spelled = crate::export::to_markdown(&headless.content);
+        assert!(spelled.starts_with("<qm-table headless=\"\">\n\n| a | b | c |"), "{spelled:?}");
+        assert_eq!(imp_fixed(&spelled).content, headless.content);
 
         let defaults = imp_fixed(&format!("<qm-table widths=\"auto auto\">\n\n{table}\n\n</qm-table>"));
         assert_eq!(dropped(&defaults), []);
@@ -2618,6 +2624,10 @@ mod tests {
             ("widths=\"9007199254740991 1\"", &[], serde_json::json!({"widths": [9007199254740991u64, 1]})),
             ("breakable", &[("qm-table[breakable]", 1)], serde_json::json!({})),
             ("align=\"left\" align=\"right\"", &[("qm-table[align]", 1)], serde_json::json!({"align": "left"})),
+            ("headless", &[], serde_json::json!({"headless": true})),
+            ("headless=\"\" align=\"right\"", &[], serde_json::json!({"align": "right", "headless": true})),
+            ("headless=\"true\"", &[("qm-table[headless]", 1)], serde_json::json!({})),
+            ("headless=\"false\"", &[("qm-table[headless]", 1)], serde_json::json!({})),
         ];
         for (attrs, warned, kept) in cases {
             let md = format!("<qm-table {attrs}>\n\n{t}\n\n</qm-table>");

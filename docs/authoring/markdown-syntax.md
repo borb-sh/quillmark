@@ -43,7 +43,7 @@ J. Doe
 
 A tag inside a line of text, in a heading, emphasis or a link, or left open drops, keeping what it wraps, with a `parse::dropped_construct` warning whose hint names the fix. A self-closing tag (`<qm-keep/>`) is an open tag, as HTML reads it, so it drops too. A tag line directly under a quote's or list item's text continues it, as CommonMark reads it, so its pair belongs in that quote or item.
 
-### Table widths and placement
+### Table layout
 
 A `qm-table` around one pipe table sets its layout:
 
@@ -61,6 +61,7 @@ A `qm-table` around one pipe table sets its layout:
 |---|---|---|
 | `widths` | One weight per column: a positive whole number, or `auto` to fit the column to its content. Weights are relative, so `2 1` makes the first column twice as wide as the second. | Every column fits its content. |
 | `align` | Where the table sits: `left`, `center` or `right`. | The quill's placement. |
+| `headless` | No value: `<qm-table headless>`. The first row draws as an ordinary row, without the quill's header styling. | The first row is the header. |
 
 Text alignment within a column stays in the delimiter row (`:---:`). A `widths` with fewer entries than the table has columns leaves the rest `auto`, and one with more ignores the extra entries. A `qm-table` around anything but one table drops, keeping what it holds.
 

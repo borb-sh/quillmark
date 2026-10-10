@@ -44,7 +44,7 @@ what it is given and the mint settles it.
 
 ## Escape functions
 
-Two escapers guard the two Typst contexts; both live in `emit`:
+Three escapers guard two Typst contexts; all live in `emit`:
 
 - **`escape_markup`**: text in markup context. Escapes
   `\ // ~ * _ ` `` ` `` ` # [ ] { } $ < > @`, and the head of each shorthand
@@ -62,11 +62,22 @@ Two escapers guard the two Typst contexts; both live in `emit`:
   the paragraph. One character to one byte, so the per-character span scan
   stays exact, and the space is trivia the line-anchor guard holds open behind.
 
+  **Spaces hold their width.** Typst reads a run of spaces as one, so a space
+  with another behind it becomes `~`: `a.  b` writes `a.~ b`, two spaces wide
+  and still breakable at the last. Line layout trims a trailing `~` with the
+  space, so a run at a line's end adds nothing.
+
   **Smart quotes are the quill's.** `'` and `"` pass through, so Typst's
   language-aware substitution applies and a quill chooses with
   `#set smartquote(enabled: false)`. Escaping them here would settle that for
   every quill with no way back — unlike the shorthands, which the lexer decides
   and no set rule reaches.
+- **`escape_indent`**: the spaces, tabs and stray newlines opening a line,
+  which Typst drops whole. `escape_markup` with every space `~`, so typed
+  indentation reaches the page, cannot wrap off the word behind it, and keeps
+  the span scan 1:1. A line opens at the line anchor below and behind a
+  `#linebreak()`. A tab stays trivia: the editor draws it at its own width, and
+  no one byte matches that.
 - **`escape_string`**: text inside a Typst string literal. Escapes
   `\ " \n \r \t` and other control characters as `\u{…}`. Applied to `#link`
   URLs, code content, and code-fence language tags.
@@ -81,10 +92,10 @@ fails.
 
 That position is Typst's `at_start`, and it is four places: column 0, a list
 item's body head, the head of every content block `[…]` the emitter opens — one
-per wrap, one per table cell — and the spaces or tabs behind any of them, which
-Typst reads as trivia. A heading's body is none of them. The guard lands on the
-marker rather than ahead of the indentation: `\` before a space is Typst's
-linebreak, not an escape.
+per wrap, one per table cell — and the tabs behind any of them, which Typst
+reads as trivia. A heading's body is none of them. A `~` from `escape_indent`
+ends it. The guard lands on the marker rather than ahead of the tabs: `\`
+before whitespace is Typst's linebreak, not an escape.
 
 The same `\` guards the tail of a `#…` expression. Typst reads a `(` directly
 after one as that call's arguments, a `.` before an identifier as a field
@@ -135,6 +146,7 @@ The table's layout keys lower as:
 |---|---|
 | `widths` | `columns: (2fr, 1fr, auto)`, a weight to `fr` and `null` to `auto`, in place of `columns: N` |
 | `align` | `#context align(center, table(…))`; a column at `none` takes `align.alignment`, and with no column aligned the table takes `table.align` where the plate sets one, else `align.alignment`, so the placement moves the table and no text inside it |
+| `headless` | `header` lowers as the first body row, outside `table.header` |
 | a cell's `align` / `valign` | `table.cell(align: right + bottom)[…]`, `middle` as `horizon`, which Typst folds with the column's alignment; a value outside its set lowers as absent |
 
 A table cell is canonical `{text, marks}`, lowered through the same mark sweep
@@ -228,10 +240,10 @@ reads and the shape the WASM boundary pins:
   above); `aligns` is one `none | left | center | right` per column. Import
   normalizes to a single column count: header, every row, and `aligns` padded
   to the widest, so `columns:` and `align:` agree.
-  The optional layout keys `widths` and `align`, and a cell's `align` and
+  The optional layout keys `widths`, `align` and `headless`, and a cell's `align` and
   `valign` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"),
   lower as [above](#element-mapping); an absent one draws at its default:
-  auto-fit, at the plate's placement, in the column's alignment.
+  auto-fit, at the plate's placement, in the column's alignment, under a header row.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. No backend resolves `url` (see [Declined images](#declined-images)).
 

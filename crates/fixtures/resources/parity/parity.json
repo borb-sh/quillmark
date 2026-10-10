@@ -2549,6 +2549,62 @@
     }
   },
   {
+    "name": "island.table.props.headless",
+    "markdown": "<qm-table headless=\"\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "headless": true,
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "#table(\n  columns: 2,\n  [a], [b], \n  [1], [2], \n)"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
     "name": "carrier.table.holds_other",
     "markdown": "<qm-table align=\"center\">\n\n**Signed**\n\n</qm-table>",
     "content": {
