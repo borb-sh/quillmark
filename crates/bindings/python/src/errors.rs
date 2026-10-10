@@ -99,8 +99,7 @@ fn convert_edit_errors_at(errors: Vec<(quillmark_core::path::DocPath, EditError)
                 .with_path(path.to_string())
         })
         .collect();
-    let message = RenderError::summary_message(&diags);
-    raise_with_diagnostics(diags, message)
+    raise_summarized(diags)
 }
 
 /// The message is the primary diagnostic's for a single error, an
@@ -114,14 +113,20 @@ pub fn convert_render_error(err: RenderError) -> PyErr {
     raise_with_diagnostics(err.into_diagnostics(), message)
 }
 
+/// Raise `diags` under their summary: the one diagnostic's message, or an
+/// `"<N> error(s): <first>"` aggregate.
+pub fn raise_summarized(diags: Vec<Diagnostic>) -> PyErr {
+    let message = RenderError::summary_message(&diags);
+    raise_with_diagnostics(diags, message)
+}
+
 pub fn raise_with_diagnostics(diags: Vec<Diagnostic>, message: String) -> PyErr {
     Python::attach(|py| {
         let py_err = QuillmarkError::new_err(message);
-        let py_diags: Vec<crate::types::PyDiagnostic> = diags
-            .into_iter()
-            .map(|d| crate::types::PyDiagnostic { inner: d })
-            .collect();
-        let _ = py_err.value(py).as_any().setattr("diagnostics", py_diags);
+        let _ = py_err
+            .value(py)
+            .as_any()
+            .setattr("diagnostics", crate::types::py_diagnostics(diags));
         py_err
     })
 }
