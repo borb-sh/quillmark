@@ -104,9 +104,7 @@ pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8],
         .position(|w| w == needle)
         .ok_or_else(|| err(CODE_PARSE, "trailer marker not found"))?
         + xref_offset;
-    let dict = extract_outer_dict(&pdf[pos + needle.len()..])
-        .ok_or_else(|| err(CODE_PARSE, "trailer dict not parseable"))?;
-    well_formed(dict, CODE_PARSE, "trailer")
+    parse_dict(&pdf[pos + needle.len()..], CODE_PARSE, "trailer")
 }
 
 /// What the trailer's `/Info` gives the producer stamp to rewrite.
@@ -133,14 +131,10 @@ pub(crate) fn read_info_source<'t>(idx: &ObjectIndex, trailer: &'t [u8]) -> Info
             .referent(value)
             .map_or(InfoSource::Entries(b""), InfoSource::Object);
     }
-    let trimmed = value.trim_ascii();
-    if trimmed.starts_with(b"<<")
-        && let Some(entries) = extract_outer_dict(trimmed)
-        && well_formed(entries, CODE_PARSE, "/Info").is_ok()
-    {
-        return InfoSource::Entries(&entries[..entries_end(entries)]);
+    match as_dict(value.trim_ascii(), CODE_PARSE, "/Info") {
+        Ok(Some(entries)) => InfoSource::Entries(&entries[..entries_end(entries)]),
+        _ => InfoSource::Entries(b""),
     }
-    InfoSource::Entries(b"")
 }
 
 /// Carry the prior trailer's `/ID` and `/Info` forward into the update's
@@ -314,9 +308,7 @@ impl<'a> ObjectIndex<'a> {
         let (s, e) = self
             .object_bytes(id)
             .ok_or_else(|| err(code, format!("{what} not found")))?;
-        let dict = extract_outer_dict(&self.pdf[s..e])
-            .ok_or_else(|| err(code, format!("{what} dict not parseable")))?;
-        well_formed(dict, code, what)
+        parse_dict(&self.pdf[s..e], code, what)
     }
 
     /// [`find_dict_value`], reading a reference that resolves to `null` as
@@ -367,14 +359,10 @@ impl<'a> ObjectIndex<'a> {
     where
         'a: 'd,
     {
-        let mut value = value;
-        for _ in 0..MAX_REFERENCE_CHAIN {
-            let Some((id, _)) = parse_indirect_ref(value) else {
-                return Some(value);
-            };
-            value = self.body(id)?;
+        if parse_indirect_ref(value).is_none() {
+            return Some(value);
         }
-        parse_indirect_ref(value).is_none().then_some(value)
+        self.body(self.referent(value)?)
     }
 
     /// The first value object `id` holds past its header, or `None` when the
@@ -599,9 +587,14 @@ pub(crate) fn as_dict<'v>(
     if !value.starts_with(b"<<") {
         return Ok(None);
     }
-    let dict = extract_outer_dict(value)
+    parse_dict(value, code, what).map(Some)
+}
+
+/// The inner bytes of the first dictionary in `bytes`, [`well_formed`].
+fn parse_dict<'b>(bytes: &'b [u8], code: &'static str, what: &str) -> Result<&'b [u8], PdfError> {
+    let dict = extract_outer_dict(bytes)
         .ok_or_else(|| err(code, format!("{what} dict not parseable")))?;
-    well_formed(dict, code, what).map(Some)
+    well_formed(dict, code, what)
 }
 
 /// Each element of the array `value` writes inline, in order, from its first

@@ -57,16 +57,6 @@ pub fn declines(id: &str) -> &'static [BlockConstruct] {
     }
 }
 
-/// Each construct the backend `id` [`declines`] that `content` holds, with its
-/// count, in [`BlockConstruct`] order.
-pub fn declined_in(id: &str, content: &crate::Content) -> Vec<(BlockConstruct, usize)> {
-    declines(id)
-        .iter()
-        .map(|&c| (c, c.count_in(content)))
-        .filter(|&(_, n)| n > 0)
-        .collect()
-}
-
 /// The warning a backend owes a content field holding a construct it typesets
 /// nothing for: `count` of `construct` in the field `path` anchors, from
 /// `backend`. One diagnostic per (field, construct), so a producer that sees
@@ -97,7 +87,7 @@ pub fn declined_construct(
 
 /// English enough for the engine's own sentence; a consumer wording this
 /// itself reads `construct` and `count` off `args` instead.
-pub(crate) fn plural(construct: BlockConstruct, count: usize) -> String {
+fn plural(construct: BlockConstruct, count: usize) -> String {
     let (one, name) = match construct {
         BlockConstruct::Heading => ("a", "heading"),
         BlockConstruct::Rule => ("a", "horizontal rule"),

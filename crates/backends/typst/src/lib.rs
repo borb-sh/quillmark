@@ -132,7 +132,7 @@ fn recompile(
 fn declined_warnings(config: &QuillConfig, data: &serde_json::Value) -> Vec<Diagnostic> {
     let image = serde_json::Value::from(BlockConstruct::Image.as_str());
     config
-        .declined_in_plate(TypstBackend.id(), data)
+        .declined_in_plate(data)
         .into_iter()
         .map(|diag| match diag.args.get("construct") {
             Some(construct) if *construct == image => diag.with_hint(
