@@ -249,15 +249,12 @@ fails:
 A row whose construct the import does not store still has its `typst`: what the
 markup wrapped reaches the page.
 
-Each binding runs the corpus through its own doors. The WASM binding's
-`parity.test.js` holds every entry to the markdown, op-wire, storage, revise
-and annotated assertions above, through `importMarkdown`, `fromMarkdown`,
-`overwrite`, `applyChange`, `fromStored`, `exportMarkdown`, `revise`, `rebase`
-and `toAnnotatedMarkdown`. Python, which has no content lane, holds each
-spelling through `Document.from_markdown`, each `content` through a stored
-load, the body read and `revise_body`, each `annotated` read through the parse
-and `revise_body`, and every entry's `signals.validate` and `signals.render`
-through `validate` and `render` (`tests/test_parity.py`).
+Each binding holds what only it can break, the crossing: every entry's
+`content` and import warnings cross out of a markdown import and a parse, and
+`content` crosses back in through a write and storage. The WASM binding's
+`parity.test.js` goes through `importMarkdown`, `fromMarkdown`, `overwrite` and
+`fromStored`; Python's `tests/test_parity.py` through `Document.from_markdown`
+and a stored load.
 
 A construct enters the engine with its row and its entry, and a change to what
 a surface does with one edits both.
