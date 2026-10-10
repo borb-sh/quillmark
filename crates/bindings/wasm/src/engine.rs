@@ -619,15 +619,7 @@ impl Quillmark {
             .render(&quill.inner, &doc.inner, today, &rust_opts)
             .map_err(|e| WasmError::from(e).to_js_value())?;
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
-        to_ts_or_throw(&RenderResult {
-            artifacts: result.artifacts.into_iter().map(Into::into).collect(),
-            warnings: result.warnings.into_iter().map(Into::into).collect(),
-            output_format: result.output_format.into(),
-            regions: quillmark_core::region::regions_to_doc_path(result.regions, &kinds)
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        })
+        render_result_to_ts(result, &kinds)
     }
 
     /// The output formats `quill`'s backend can emit; resolves the backend but
@@ -2501,6 +2493,22 @@ fn to_ts_or_throw<T: tsify::Tsify + Serialize>(value: &T) -> Result<Ts<T>, JsVal
     Ts::from_rust(value).map_err(|e| WasmError::from(e.to_string()).to_js_value())
 }
 
+#[cfg(feature = "render")]
+fn render_result_to_ts(
+    result: quillmark_core::error::RenderResult,
+    kinds: &[Option<&str>],
+) -> Result<Ts<RenderResult>, JsValue> {
+    to_ts_or_throw(&RenderResult {
+        artifacts: result.artifacts.into_iter().map(Into::into).collect(),
+        warnings: result.warnings.into_iter().map(Into::into).collect(),
+        output_format: result.output_format.into(),
+        regions: quillmark_core::region::regions_to_doc_path(result.regions, kinds)
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+    })
+}
+
 /// The read direction of [`to_ts_or_throw`].
 #[cfg(feature = "render")]
 fn from_ts_or_throw<T: tsify::Tsify + serde::de::DeserializeOwned>(
@@ -2777,16 +2785,7 @@ impl LiveSession {
             .inner
             .render(&rust_opts)
             .map_err(|e| WasmError::from(e).to_js_value())?;
-
-        to_ts_or_throw(&RenderResult {
-            artifacts: result.artifacts.into_iter().map(Into::into).collect(),
-            warnings: result.warnings.into_iter().map(Into::into).collect(),
-            output_format: result.output_format.into(),
-            regions: quillmark_core::region::regions_to_doc_path(result.regions, &self.kinds())
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        })
+        render_result_to_ts(result, &self.kinds())
     }
 
     /// Schema-field geometry for this compiled session: each content field's
