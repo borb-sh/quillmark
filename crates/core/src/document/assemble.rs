@@ -217,12 +217,12 @@ pub(super) fn build_block(
 
     let pre = prescan_fence_content(&content).map_err(|refusal| {
         let (message, hint, line, column) = match refusal {
-            Refusal::OverBudget(over) => {
+            Refusal::OverBudget { budget } => {
                 return ParseError::InvalidStructure(format!(
                     "The card-yaml block's comments and tags record their nesting paths in \
                      more than {} bytes, each level above them costing its key and a fixed \
                      overhead. Merge the comments, or move them nearer the top level.",
-                    over.budget
+                    budget
                 ))
             }
             Refusal::PastRoot { line, column } => (

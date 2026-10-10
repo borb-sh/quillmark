@@ -61,16 +61,12 @@ pub(crate) struct PreScan {
     pub unsupported_tags: Vec<Vec<PathSegment>>,
 }
 
-/// The paths a block's comments and tags record outgrew [`budget`].
-#[derive(Debug)]
-pub(crate) struct OverBudget {
-    pub(crate) budget: usize,
-}
-
 /// Why the scan refuses a block the value parse reads.
 #[derive(Debug)]
 pub(crate) enum Refusal {
-    OverBudget(OverBudget),
+    /// The paths the block's comments and tags record outgrew this
+    /// [`budget`].
+    OverBudget { budget: usize },
     /// Text other than comments and a `...` follows the root node, which the
     /// value parse reads alone; at this 1-indexed line and column.
     PastRoot { line: usize, column: usize },
@@ -81,12 +77,6 @@ pub(crate) enum Refusal {
         line: usize,
         column: usize,
     },
-}
-
-impl From<OverBudget> for Refusal {
-    fn from(over: OverBudget) -> Self {
-        Refusal::OverBudget(over)
-    }
 }
 
 impl Refusal {
@@ -122,7 +112,7 @@ pub(crate) fn prescan_fence_content(yaml: &str) -> Result<PreScan, Refusal> {
         }
         walk.step(&event, span)?;
     }
-    Ok(walk.finish()?)
+    walk.finish()
 }
 
 /// The parser options the scan reads with, which refuse no text the value
@@ -565,17 +555,17 @@ impl<'a> Walk<'a> {
 
     fn step(&mut self, event: &Event<'_>, span: Span) -> Result<(), Refusal> {
         match event {
-            Event::Comment(text, placement) => Ok(self.comment(text, *placement, span)?),
+            Event::Comment(text, placement) => self.comment(text, *placement, span),
             Event::Scalar(..)
             | Event::Alias(..)
             | Event::SequenceStart(..)
             | Event::MappingStart(..) => self.node(event, span),
-            Event::SequenceEnd | Event::MappingEnd => Ok(self.end(span)?),
+            Event::SequenceEnd | Event::MappingEnd => self.end(span),
             _ => Ok(()),
         }
     }
 
-    fn finish(mut self) -> Result<PreScan, OverBudget> {
+    fn finish(mut self) -> Result<PreScan, Refusal> {
         self.pending.extend(self.held.take());
         let run = std::mem::take(&mut self.pending);
         if self.live == 0 {
@@ -607,7 +597,7 @@ impl<'a> Walk<'a> {
         self.gap.retain(|&(from, _)| from >= last_end);
     }
 
-    fn comment(&mut self, text: &str, placement: Placement, span: Span) -> Result<(), OverBudget> {
+    fn comment(&mut self, text: &str, placement: Placement, span: Span) -> Result<(), Refusal> {
         self.gap.push((byte(span.start), byte(span.end)));
         let c = Comment {
             text: comment_text(text),
@@ -636,7 +626,7 @@ impl<'a> Walk<'a> {
         (0..top).rev().find(|&f| !self.frames[f].flow)
     }
 
-    fn trailing(&mut self, c: Comment) -> Result<(), OverBudget> {
+    fn trailing(&mut self, c: Comment) -> Result<(), Refusal> {
         if let Some(host) = self.flow_host() {
             return self.trail(host, c);
         }
@@ -668,7 +658,7 @@ impl<'a> Walk<'a> {
     /// its trailer to the item when nothing else would keep the key on a line
     /// below the dash: `to_markdown` writes that key on the dash line, where a
     /// trailer is the item's.
-    fn trail(&mut self, f: usize, c: Comment) -> Result<(), OverBudget> {
+    fn trail(&mut self, f: usize, c: Comment) -> Result<(), Refusal> {
         let lends = self.is_item_mapping(f) && !self.frames[f].led;
         let Some(entry) = self.frames[f].entry.as_mut() else {
             return Ok(());
@@ -701,7 +691,7 @@ impl<'a> Walk<'a> {
     }
 
     /// `c` as an own-line comment after `frames[f]`'s current entry.
-    fn after(&mut self, f: usize, c: Comment) -> Result<(), OverBudget> {
+    fn after(&mut self, f: usize, c: Comment) -> Result<(), Refusal> {
         let Some(entry) = self.frames[f].entry.as_mut() else {
             return Ok(());
         };
@@ -869,7 +859,7 @@ impl<'a> Walk<'a> {
     /// Place the own-line comments waiting on a node starting at byte `start`,
     /// returning those that sit between the node and the key or dash it
     /// belongs to.
-    fn settle(&mut self, start: usize) -> Result<Vec<Comment>, OverBudget> {
+    fn settle(&mut self, start: usize) -> Result<Vec<Comment>, Refusal> {
         if self.pending.is_empty() {
             return Ok(Vec::new());
         }
@@ -931,7 +921,7 @@ impl<'a> Walk<'a> {
     /// deepest slot it is indented into: an empty value, a collection the run
     /// closes, or ahead of that next child; and never deeper than the comment
     /// before it.
-    fn place_run(&mut self, run: Vec<Comment>) -> Result<(), OverBudget> {
+    fn place_run(&mut self, run: Vec<Comment>) -> Result<(), Refusal> {
         let Some(top) = self.live.checked_sub(1) else {
             for c in run {
                 self.record(0, At::Ahead(0), c)?;
@@ -997,7 +987,7 @@ impl<'a> Walk<'a> {
         top: Option<usize>,
         shape: Shape,
         role: Role,
-    ) -> Result<bool, OverBudget> {
+    ) -> Result<bool, Refusal> {
         let Some(top) = top else {
             for c in comments {
                 self.record(0, At::Ahead(0), c)?;
@@ -1019,7 +1009,7 @@ impl<'a> Walk<'a> {
         Ok(led)
     }
 
-    fn end(&mut self, span: Span) -> Result<(), OverBudget> {
+    fn end(&mut self, span: Span) -> Result<(), Refusal> {
         let Some(top) = self.live.checked_sub(1) else {
             return Ok(());
         };
@@ -1074,7 +1064,7 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    fn charge_path(&mut self, path: &[PathSegment], extra: usize) -> Result<(), OverBudget> {
+    fn charge_path(&mut self, path: &[PathSegment], extra: usize) -> Result<(), Refusal> {
         let cost = path
             .iter()
             .map(|s| {
@@ -1086,14 +1076,14 @@ impl<'a> Walk<'a> {
             })
             .sum::<usize>()
             + extra;
-        self.left = self.left.checked_sub(cost).ok_or(OverBudget {
+        self.left = self.left.checked_sub(cost).ok_or(Refusal::OverBudget {
             budget: self.budget,
         })?;
         Ok(())
     }
 
     /// Record `c` at `at` in the collection at `depth`.
-    fn record(&mut self, depth: usize, at: At, c: Comment) -> Result<(), OverBudget> {
+    fn record(&mut self, depth: usize, at: At, c: Comment) -> Result<(), Refusal> {
         let (position, inline) = at.slot();
         let text = c.text;
         if depth == 0 {
