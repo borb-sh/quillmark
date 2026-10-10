@@ -142,12 +142,13 @@ diff-rebase alone. The row's corpus entry pins the spelling under
 | `island.table.props.widths`: column weights, `null` an auto-fit column | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.widths.auto`: every column auto-fit, the default | spells | spells | spells | silent: honored | silent: honored | none |
 | `island.table.props.align`: the table's placement | spells | spells | spells | honors | silent: honored | none |
+| `island.table.props.headless`: a table drawn with no header row | spells | spells | spells | honors | silent: honored | none |
 | `island.image` | spells | spells | spells | declines with a signal | declines with a signal | `backend::declined_construct`, `validation::declined_construct`, `image` |
 
 A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
 mint it without a key the engine does not name.
 
-`widths` and `align` are spelled on a `qm-table` wrapper
+`widths`, `align` and `headless` are spelled on a `qm-table` wrapper
 ([markdown-spec.md](../references/markdown-spec.md) §6.4). Each is absent at
 its default, so a default row stores no key.
 

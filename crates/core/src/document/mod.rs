@@ -88,7 +88,8 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                         .to_string()
                 }
                 "align" => "`align` is `left`, `center` or `right`.".to_string(),
-                _ => "`<qm-table>` takes `widths` and `align`.".to_string(),
+                "headless" => "`headless` takes no value: `<qm-table headless>`.".to_string(),
+                _ => "`<qm-table>` takes `widths`, `align` and `headless`.".to_string(),
             },
         ),
         Dropped::ElementAttr { element, attr } if element == "cell" => attr_dropped(

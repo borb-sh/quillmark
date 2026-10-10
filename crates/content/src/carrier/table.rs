@@ -15,7 +15,7 @@ pub(crate) const MAX_WEIGHT: u64 = (1 << 53) - 1;
 /// The props value attribute `name` spells with `value`, or `None` for a name
 /// the engine does not name or a value outside its spelling: `widths` is
 /// whitespace-separated tokens, each a decimal weight in `1..=`[`MAX_WEIGHT`]
-/// or `auto`; `align` is `left`, `center` or `right`.
+/// or `auto`; `align` is `left`, `center` or `right`; `headless` is bare.
 pub(crate) fn prop(name: &str, value: &str) -> Option<Value> {
     match name {
         "widths" => value
@@ -27,6 +27,7 @@ pub(crate) fn prop(name: &str, value: &str) -> Option<Value> {
             .collect::<Option<Vec<_>>>()
             .map(Value::Array),
         "align" => crate::island::TABLE_ALIGNS.contains(&value).then(|| value.into()),
+        "headless" => value.is_empty().then_some(Value::Bool(true)),
         _ => None,
     }
 }
@@ -51,6 +52,9 @@ pub(crate) fn wrapper(props: &Value) -> Option<Element> {
     }
     if let Some(align) = props.get("align").and_then(Value::as_str) {
         attrs.insert("align".to_string(), align.to_string());
+    }
+    if props.get("headless") == Some(&Value::Bool(true)) {
+        attrs.insert("headless".to_string(), String::new());
     }
     if attrs.is_empty() {
         return None;

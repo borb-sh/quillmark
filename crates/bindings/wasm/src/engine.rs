@@ -303,6 +303,8 @@ export interface TableProps {
     widths?: (number | null)[];
     /** The table's placement; absent is the quill's. */
     align?: "left" | "center" | "right";
+    /** `true` draws `header` as the first body row; absent is a header row. */
+    headless?: true;
 }
 
 /** `props` of a `type: "image"` island. Stores and round-trips; no backend
