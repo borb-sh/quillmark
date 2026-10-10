@@ -553,6 +553,8 @@ attributes into the table's layout, whatever quill reads the document:
   only around a table holding a value other than its default.
 - Column alignment stays in the delimiter row. Its dash counts carry no width,
   since a formatter pads them to the column.
+- `align` places the table in the flow, beside no text, where a browser
+  floats a `<table align="left">` or `"right"` and wraps text around it.
 - The wrapper pairs as an element does: inside the containers around its open
   tag, closed where it is the innermost container open. It holds one table
   when that table is all that imports between its tags, inside no container
