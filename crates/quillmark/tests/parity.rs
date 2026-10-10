@@ -32,7 +32,8 @@ fn corpus() -> Vec<Value> {
 #[test]
 fn every_entry_holds_on_every_surface() {
     let corpus = corpus();
-    assert!(!corpus.is_empty(), "the corpus holds no entry");
+    assert!(corpus.iter().any(|e| e["markdown"].is_null()), "the corpus holds no unspelled entry");
+    assert!(corpus.iter().any(|e| e.get("annotated").is_some()), "the corpus holds no annotated entry");
 
     let mut names = BTreeSet::new();
     for entry in &corpus {
@@ -122,6 +123,7 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
     };
     failures.extend(check_fixed_point(&content, &reimports));
     failures.extend(check_revise(&content, &reimports, &to_markdown(&content)));
+    failures.extend(check_document(&content, &reimports, entry.get("annotated").and_then(Value::as_str)));
     let import_signals = &entry["signals"]["import"];
     if let Some(annotated) = entry.get("annotated") {
         failures.extend(check_annotated(annotated, &content));
@@ -376,6 +378,43 @@ fn check_annotated(annotated: &Value, content: &Normalized) -> Vec<String> {
             i.warnings
         )),
         Err(e) => failures.push(format!("annotated does not import: {e}")),
+    }
+    failures
+}
+
+/// A document whose body holds `content` emits markdown, and an annotated read,
+/// that each parse, warning nothing, to a body holding `reimports`; the read
+/// lists each anchor of `content` at `main.body` and spells `annotated`.
+fn check_document(content: &Normalized, reimports: &Normalized, annotated: Option<&str>) -> Vec<String> {
+    let mut doc = Document::parse(&frontmatter(QUILL)).expect("frontmatter parses").document;
+    doc.main_mut().overwrite_body(content.clone());
+    let read = doc.to_markdown_annotated();
+    let mut failures: Vec<String> = [("the document", doc.to_markdown()), ("the annotated read", read.markdown.clone())]
+        .into_iter()
+        .filter_map(|(what, markdown)| match Document::parse(&markdown) {
+            Ok(p) if p.document.main().body() == reimports && p.warnings.is_empty() => None,
+            Ok(p) => Some(format!(
+                "{what} parses to a body {}, warning {:?}",
+                canonical(p.document.main().body()),
+                p.warnings
+            )),
+            Err(e) => Some(format!("{what} does not parse: {e}")),
+        })
+        .collect();
+    let listed: Vec<(String, &str)> = read.anchors.iter().map(|a| (a.path.to_string(), a.id.as_str())).collect();
+    let held: Vec<(String, &str)> = content
+        .marks
+        .iter()
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some(("main.body".to_string(), id.as_str())),
+            _ => None,
+        })
+        .collect();
+    if listed != held {
+        failures.push(format!("the annotated read lists {listed:?}"));
+    }
+    if annotated.is_some_and(|a| !read.markdown.contains(a)) {
+        failures.push(format!("the annotated read does not spell annotated:\n{}", read.markdown));
     }
     failures
 }

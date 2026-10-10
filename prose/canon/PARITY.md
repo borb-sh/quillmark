@@ -236,6 +236,10 @@ fails:
 - An entry's `annotated` is `to_markdown_annotated(content)`'s markdown,
   imports, warning nothing, to `content` without its anchors, and revises a
   body holding `content` to `content`.
+- A document whose body holds `content` emits markdown, and an annotated read,
+  that each parse through `Document::parse`, warning nothing, to a body
+  holding `reimports`; the read lists each anchor of `content` at `main.body`
+  and spells `annotated`.
 - The rest runs through the fixture quill `table_demo`, against `typst` and
   `signals`.
 - The body's block in the generated helper, which is `emit_content`'s markup,
