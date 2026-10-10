@@ -761,6 +761,9 @@ impl Builder {
                     self.open_line(LineKind::Rule, false);
                     self.rearm_item();
                 }
+                // A soft break that would open its block's first line, all
+                // before it having dropped, is nothing.
+                Event::SoftBreak if matches!(self.pending, Some((_, false))) => {}
                 Event::SoftBreak => self.push_inline(" "),
                 Event::TaskListMarker(done) => {
                     if let Some(Container::ListItem { checked, .. }) = self.containers.last_mut() {
@@ -2486,6 +2489,7 @@ mod tests {
             ("A\n<qm-keep>\n[x]: /url\nB\n</qm-keep>", "A\n[x]: /url B", &[&[], &["element"]]),
             ("A\n<qm-sig></qm-sig>\n    code", "A\n\ncode", &[&[], &["element"], &[]]),
             ("A\n<qm-sig></qm-sig>\n2. b", "A\n\n2. b", &[&[], &["element"], &[]]),
+            ("A\n<qm-sig></qm-sig>\n<span>\nB", "A\n\nB", &[&[], &["element"], &[]]),
             ("A\n<qm-sig></qm-sig>\n<qm-x>\nB\n</qm-x>", "A\n\nB", &[&[], &["element"], &["element"]]),
             ("> <qm-sig></qm-sig>\nB", "\nB", &[&["quote", "element"], &["quote"]]),
             ("- a\n  <qm-sig></qm-sig>\nb", "a\n\nb", &[&["list_item"], &["list_item", "element"], &["list_item"]]),
