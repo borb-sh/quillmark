@@ -32,7 +32,7 @@ pub use schema::{
 pub use tree::FileTreeNode;
 pub use validation::ValidationError;
 pub use types::{
-    BlockConstruct, BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType, GroupRegistry,
+    element_runs, BlockConstruct, BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType, GroupRegistry,
     GroupSchema, UiCardSchema, UiFieldSchema, VariantFields, MATRIX_HELD_KEY,
     MATRIX_RESERVED_COLUMNS, MATRIX_TITLE_KEY, VARIANT_DISCRIMINANT_KEY,
 };

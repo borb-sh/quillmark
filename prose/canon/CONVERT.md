@@ -173,6 +173,15 @@ content it renders:
 `attrs` is a dictionary of strings keyed by attribute name, sorted, and `(:)`
 when empty: each attribute as the document stores it.
 
+Where it draws the body alone, the dispatcher places a `<__qm_element__>`
+metadata ahead of it carrying the name and the registry's keys. The compile
+reads them back as one `typst::unregistered_element` warning per content field
+and fallen name. It counts that name's runs in the field, and its hint names
+`keep` and every registered name. The dispatcher reads one final registry, so
+a name that falls through once falls through everywhere, and a field the plate
+places twice counts once. A plate that means a name to draw plain registers
+`(attrs, body) => body`.
+
 An element's call keeps its run's structure in its `[…]`, so a run inside
 a list item stays in the item. The dispatcher's bytes fall between runs, so the
 source map holds no run for them.
