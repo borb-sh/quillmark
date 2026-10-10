@@ -1,5 +1,124 @@
 # Changelog
 
+## v0.124.0 - 2026-10-10
+
+Upgrade path: [0.123 → 0.124](docs/migrations/0.123-to-0.124.md).
+
+### Elements
+
+- feat(content,typst)!: **a `qm-<name>` element is stored content**, where its
+  tags dropped. A pair of tag lines wraps the blocks between them and keeps its
+  attributes as strings, and a line holding only `qm-*` tags is a tag line
+  wherever it stands outside a heading, a mark or a link. Export writes each
+  tag on its own line, and an element around nothing as its pair on one line.
+  An element left open, self-closing or inside a line of text drops and warns
+  `parse::dropped_construct` as `qm-<name>`. (#2096, #2141)
+- feat(typst)!: **a Typst quill renders an element through the renderer its
+  plate registers in the helper's `elements` state**, called `(attrs, body)`,
+  and the built-in `keep` holds its run on one page. An element no renderer
+  takes, `keep` aside, warns `typst::unregistered_element` at its field, and
+  `quillmark validate` fails an `example.md` holding one. (#2096, #2140)
+- feat(core,wasm)!: **the content types gain an element member**:
+  `Container::Element` and `Invariant::BadElement` in Rust, and `{ container:
+  "element" }` in WASM. (#2096)
+
+### Tables
+
+- feat(typst)!: **a `qm-table` wrapper lays out its table**: `widths` weights
+  the columns, `align` places the table, and a bare `headless` draws the first
+  row as a body row, with no `table.header`. (#2096, #2142)
+- feat(content,typst)!: **a `qm-cell` pair around a table cell's whole content
+  aligns that cell** through `align` and `valign`, and a stored cell's `align`
+  or `valign` renders. (#2134, #2139)
+- fix(content)!: **a `|` in a table cell's code span or link destination stays
+  in its cell**; export escapes it, where it split the cell on re-import.
+  (#2134)
+
+### Task lists and footnotes
+
+- feat(content,typst)!: **`- [ ]` and `- [x]` render a box**, ticked for
+  `[x]`, and import as the list item's `checked`, where the brackets were text.
+  A plate restyles the box through the helper's `tasks` state; `\[ ]` keeps the
+  text. (#2135)
+- feat(content)!: **a footnote definition drops with its note and warns
+  `parse::dropped_construct` (`footnote`)**, where it silently defined a link.
+  (#2135)
+
+### Raw HTML
+
+- feat(content)!: **a markdown import reports what it drops**: a raw tag, the
+  block CommonMark runs it to, and a `<u>` left open each warn
+  `parse::dropped_construct`, at the body or at a `richtext` field, and
+  `quillmark validate` fails an `example.md` holding one. (#2096)
+- fix(content)!: **an inline `<u>` pairs as HTML pairs it**, closing the
+  innermost open `<u>` and never a `**`. (#2096)
+- fix(content)!: **a fenced block holding `<!-- a --> b` keeps its line, text
+  after a block nested in a tight list item opens its own line, and a line of
+  tags after a table's rows ends the table.** (#2096)
+
+### Whitespace
+
+- fix(typst): **typed spaces keep their width on the page**: a line's leading
+  spaces indent it, and a run of spaces inside a line, a mark's close between
+  them included, is as wide as the spaces in it. (#2143, #2144)
+- fix(content)!: **a paragraph whose first line holds only tags that drop opens
+  without a leading space.** (#2141)
+
+### Revise
+
+- feat(core,wasm,python): **`reviseDocument` / `revise_document` replace a
+  whole document with markdown and keep its comment anchors, island ids and
+  `$ext` where they match**, and `toAnnotatedMarkdown` /
+  `to_markdown_annotated` show where each anchor sits. (#2096)
+- fix(content)!: **every revise keeps the island ids it can match**, and mints
+  past the field's highest, where it re-minted each by position. (#2096, #2144)
+- feat(core,wasm,python)!: **an import and a revise return their warnings**:
+  `from_markdown` returns `Imported`, a revise `Revised { delta, warnings }`,
+  and `addCard` / `add_card` a list of diagnostics. (#2096)
+- fix(core): **a revise keeps the YAML comments nested in a field it
+  revises.** (#2144)
+
+### Validation and rendering
+
+- feat(core)!: **`Quill::validate` warns `validation::declined_construct` at a
+  field holding a construct the backend will not draw**, and the acroform
+  backend warns `backend::declined_construct` at render. (#2096)
+- fix(wasm,python)!: **a one-shot render carries the render's warnings
+  alone**, not the document's parse and conform warnings. (#2096)
+- fix(typst,cli)!: **`quillmark validate` reads `typst.plate_file` as a render
+  does**, refusing it with the render's own `typst::plate_*` diagnostic. (#2096)
+
+### Storage
+
+- feat(core)!: **a save writes `quillmark/document@0.124.0`**, the first tag
+  that holds an element or a task item's `checked`. Every older row loads as
+  before; a 0.123 build refuses a 0.124 row. (#2135)
+
+### Card YAML
+
+- fix(core)!: **text after a card-yaml block's root value, and a mapping
+  holding two keys of one text, fail the parse** at the offending line, where
+  they dropped or overwrote. A tag inside a merge's value warns at the value's
+  path. (#2096)
+- fix(core): **the colon hint names the field whose `:` opens a mapping and
+  quotes its suggested value.** (#2136, #2144)
+
+### WASM
+
+- fix(wasm)!: **a JSON `null` inside a returned value crosses as `null`**, where
+  it crossed as `undefined`. (#2096)
+- fix(wasm)!: **an options object inheriting a key its verb does not read from
+  a null-prototype object throws `unknown key`**, and one whose read throws is
+  refused with the handle left usable. (#2096)
+
+### Base PDF reading
+
+- fix(pdf)!: **a hybrid-xref base fails as `pdf::xref_stream`**, a `/Kids` that
+  is no array of references and an unreadable annotation fail to parse, and a
+  name compares through its `#xx` escapes. An `/Info` reached through a
+  reference chain stamps. (#2096)
+
+
 ## v0.123.1 - 2026-10-06
 
 Upgrade path: [0.123.0 → 0.123.1](docs/migrations/0.123.0-to-0.123.1.md).
