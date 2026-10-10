@@ -157,6 +157,15 @@ As with `elements`, the renderer is read from the state's final value, so the up
 
 A table in content lowers to a call of Typst's `table`, so `#set table(..)` and `#show table: ..` reach it. The call always passes `columns`, and passes `align` where the document aligns a column, so a set rule's `columns` never applies and its `align` applies only to a table aligning no column. A `qm-table` wrapper's `widths` lower to `fr` tracks, `auto` for an auto-fit column, and its `align` places the table with `align(..)` without moving the text in its cells. A `qm-cell` pair's `align` and `valign` lower to `table.cell(align: ..)`, `middle` as `horizon`, which Typst combines with the column's alignment, so `valign="bottom"` in a right-aligned column draws at the bottom right.
 
+A `qm-table` wrapper's `headless` lowers the first row as a body row, with no `table.header`. A show rule on `table.header` does not reach its cells, so a plate styling the header row reads whether the table has one:
+
+```typst
+#show table: it => if it.children.any(c => c.func() == table.header) {
+  show table.cell.where(y: 0): set text(weight: "bold")
+  it
+} else { it }
+```
+
 ## Modules
 
 A plate imports the Quill's other `.typ` files by the paths Typst resolves: a

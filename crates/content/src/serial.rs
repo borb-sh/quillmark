@@ -869,6 +869,7 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
 ///   auto-fit column, padded with `null` or truncated to `cols`. All `null`,
 ///   or any other entry, is absent.
 /// - `align`: `left`, `center` or `right`.
+/// - `headless`: `true`.
 fn normalize_table_layout(obj: &mut Map<String, Value>, cols: usize) {
     match obj.get("widths").and_then(|w| settle_widths(w, cols)) {
         Some(w) => obj.insert("widths".into(), w),
@@ -876,6 +877,9 @@ fn normalize_table_layout(obj: &mut Map<String, Value>, cols: usize) {
     };
     if !obj.get("align").and_then(Value::as_str).is_some_and(|a| crate::island::TABLE_ALIGNS.contains(&a)) {
         obj.remove("align");
+    }
+    if obj.get("headless") != Some(&Value::Bool(true)) {
+        obj.remove("headless");
     }
 }
 
