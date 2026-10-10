@@ -172,10 +172,9 @@ invariants on the way out as well as in, failing the write with a serializer
 error. The token a body rests on (`Normalized`) states that
 `Content::normalize` has run, which is weaker than validity: `validate`
 refuses only what `normalize` cannot repair — a forbidden character, two
-counts that disagree, a range or depth past a bound, a colliding id, an
-element outside the carrier grammar — and `Card::overwrite_body` takes a
-caller's content on that token alone. A store that checked only on load would
-accept bytes it could not read back.
+counts that disagree, a range or depth past a bound, a colliding id — and
+`Card::overwrite_body` takes a caller's content on that token alone. A store
+that checked only on load would accept bytes it could not read back.
 
 The guarantee follows from: struct field order is fixed in the frozen
 DTO tree; `Vec` fields preserve order by definition; the two disciplines

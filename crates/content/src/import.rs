@@ -140,10 +140,11 @@ pub(crate) fn options() -> Options {
 
 /// Import markdown into a normalized, validated [`Content`], with an
 /// [`ImportWarning`] per construct it dropped: each dropped opening tag, a
-/// `<pre>`, `<script>`, `<style>` or `<textarea>` block's included, and a block
+/// `<pre>`, `<script>`, `<style>` or `<textarea>` block's included, a block
 /// holding no other opening tag under its first where it drops markdown with
-/// it. A comment, the content of a type 1–5 HTML block and any other closing
-/// tag or `qm-anchor` tag drop silently.
+/// it, and each footnote definition. A comment, the content of a type 1–5 HTML
+/// block or a footnote definition, and any other closing tag or `qm-anchor`
+/// tag drop silently.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let mut b = Builder::default();
     parse_markdown(markdown, options(), |text, events| b.run(MarkdownFixer::new(text, events.into_iter())))?;

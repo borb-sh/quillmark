@@ -65,7 +65,8 @@ quill.quill_ref             # "name@version"
 
 doc     = quill.parse(markdown)           # the bound door: parse + conform, the primary ingestion path
 diags   = quill.conform(doc)              # the same walk in place on a transported document ([] = at rest)
-diags   = quill.validate(parsed)          # list of validation::* diagnostic dicts ([] = valid)
+diags   = quill.validate(parsed)          # list of diagnostic dicts ([] = valid): validation::*,
+                                          # parse::dropped_construct, backend::declined_construct
 empty   = quill.empty_document()          # the empty Document: $quill + $kind: main, nothing committed
 seed    = quill.seed_document()           # starter Document: one card per kind, each its kind's seed
 example = quill.example_document()        # the quill's made-up filled-in page (example.md), pinned; None without one
@@ -89,8 +90,8 @@ w.set_all({"title": "T", "author": "A"})  # atomic batch; one diagnostic per bad
 w.revise_body("A **taro** essay.")        # body write (edit semantics; a body has no field schema)
 w.revise_field("bio", "make it **bold**") # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
-                                          # revise_body, revise_field and add_card return the parse::dropped_construct
-                                          # warnings their markdown import raised: [Diagnostic, ...]
+                                          # set, set_all, revise_body, revise_field and add_card return the
+                                          # parse::dropped_construct warnings their markdown raised: [Diagnostic, ...]
 w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors rebase,
                                           # then conform; returns the parse's, each revised field's and the
                                           # conform::* warnings, and clears doc.warnings

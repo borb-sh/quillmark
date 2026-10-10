@@ -722,8 +722,9 @@ impl Quill {
     }
 
     /// Validate `doc` against this quill's schema, returning every diagnostic:
-    /// an error blocks a render, a warning does not. Forwards the canonical
-    /// `validation::*` diagnostics the engine emits.
+    /// an error blocks a render, a warning does not. Forwards the engine's
+    /// `validation::*`, a markdown string's `parse::dropped_construct` and the
+    /// backend's `backend::declined_construct`.
     #[wasm_bindgen(js_name = validate, unchecked_return_type = "Diagnostic[]")]
     pub fn validate(&self, doc: &Document) -> Result<JsValue, JsValue> {
         let diags = self.inner.validate(&doc.inner);

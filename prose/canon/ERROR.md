@@ -143,8 +143,8 @@ families:
   - `qm-table` for a `qm-table` wrapper that drops whole;
   - `qm-table[<attr>]` or `qm-<name>[<attr>]` for one attribute that
     drops;
-  - `footnote` for a footnote definition, which drops whole while a
-    reference to it stays as text.
+  - `footnote` for a footnote definition, which drops whole, any tag in it
+    unreported, while a reference to it stays as text.
 
   A parse reports a body's drops alone, since it knows no field's type: a
   `richtext` field's markdown string reports its drops at its path from
@@ -209,7 +209,8 @@ families:
   construct but the paragraph. `quillmark_core::backend::declines` is the
   table, keyed by backend id. `Quill::validate` walks the plate a render
   compiles, schema defaults and coercion applied, and returns the same
-  diagnostics, byte for byte, before any render.
+  diagnostics, byte for byte, before any render. A document the render floor
+  refuses compiles nothing, so it draws none.
 - **`typst::unregistered_element`: an element no renderer takes.** The Typst
   compile warns once per (content field, element name) the helper's dispatcher
   drew as what it wraps ([CONVERT.md](CONVERT.md#elements)), with the field's

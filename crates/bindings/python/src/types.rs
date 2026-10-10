@@ -201,7 +201,8 @@ impl PyQuill {
 
     /// Validate `doc` against this quill's schema, returning a list of diagnostic
     /// dicts: an error blocks a render, a warning does not. Forwards the
-    /// canonical `validation::*` diagnostics the engine emits.
+    /// engine's `validation::*`, a markdown string's `parse::dropped_construct`
+    /// and the backend's `backend::declined_construct`.
     fn validate<'py>(
         &self,
         py: Python<'py>,
