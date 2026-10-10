@@ -104,24 +104,6 @@ fn the_matrix_has_a_row_per_entry_naming_its_signals() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// What an entry expects of the quill's surfaces.
-struct Expected<'a> {
-    typst: &'a Value,
-    render: &'a Value,
-    validate: Value,
-}
-
-impl<'a> Expected<'a> {
-    fn of(entry: &'a Value) -> Self {
-        let signals = &entry["signals"];
-        Expected {
-            typst: &entry["typst"],
-            render: &signals["render"],
-            validate: signals.get("validate").cloned().unwrap_or(json!([])),
-        }
-    }
-}
-
 fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
     let mut failures = Vec::new();
     let stored = &entry["content"];
@@ -198,18 +180,19 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
         }
     };
 
-    failures.extend(surfaces(&Expected::of(entry), engine, quill, &doc));
+    failures.extend(surfaces(entry, engine, quill, &doc));
     failures
 }
 
 /// The lowering, `validate` and a one-shot render of `doc` through `quill`.
-fn surfaces(expected: &Expected, engine: &Quillmark, quill: &Quill, doc: &Document) -> Vec<String> {
+fn surfaces(entry: &Value, engine: &Quillmark, quill: &Quill, doc: &Document) -> Vec<String> {
     let mut failures = Vec::new();
+    let signals = &entry["signals"];
     let lowering = match lowering(quill, doc) {
         Ok(l) => l,
         Err(e) => return vec![e],
     };
-    let Some(properties) = expected.typst.as_array() else {
+    let Some(properties) = entry["typst"].as_array() else {
         return vec!["typst is not an array".into()];
     };
     for property in properties {
@@ -224,7 +207,7 @@ fn surfaces(expected: &Expected, engine: &Quillmark, quill: &Quill, doc: &Docume
 
     let validated = quill.validate(doc);
     let codes: Value = validated.iter().filter_map(|d| d.code.clone()).collect();
-    if codes != expected.validate {
+    if codes != *signals.get("validate").unwrap_or(&json!([])) {
         failures.push(format!("validate warns {codes}"));
     }
 
@@ -236,7 +219,7 @@ fn surfaces(expected: &Expected, engine: &Quillmark, quill: &Quill, doc: &Docume
     ) {
         Ok(result) => {
             let codes: Value = result.warnings.iter().filter_map(|d| d.code.clone()).collect();
-            if codes != *expected.render {
+            if codes != signals["render"] {
                 failures.push(format!("render warns {codes}"));
             }
             let at_validate = declines(&validated, "validation::declined_construct");
