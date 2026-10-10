@@ -156,7 +156,7 @@ pub(crate) fn options() -> Options {
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let options = options();
     let text = normalize_markdown(markdown, options);
-    let mut b = Builder::new();
+    let mut b = Builder::default();
     b.run(MarkdownFixer::new(&text, Parser::new_ext(&text, options).into_offset_iter()))?;
     let (content, dropped) = b.finish();
     Ok(Imported {
@@ -349,6 +349,7 @@ enum Frame {
     Table { islands: usize, lines: usize, holds_wrapper: bool },
 }
 
+#[derive(Default)]
 struct Builder {
     /// The content text + marks; the [`Builder`] adds line/block structure around
     /// it (a `\n` boundary is [`Inline::push_raw`], inline content is the mark
@@ -363,7 +364,6 @@ struct Builder {
     /// lines (List/Quote/CodeBlock/Table) takes over.
     pending: Option<(LineKind, bool)>,
     islands: Vec<Island>,
-    island_seq: usize,
     containers: Vec<Container>,
     /// Parallel to `containers`: the [`Self::emitted`] count when each container
     /// opened, so a container that closes having emitted no line (an empty `>`
@@ -407,6 +407,7 @@ struct ListInfo {
     instance: u64,
 }
 
+#[derive(Default)]
 struct TableAcc {
     aligns: Vec<&'static str>,
     /// Cells as canonical `{text, marks}` JSON (via `serial::cell_to_value`), so
@@ -505,32 +506,6 @@ fn align_str(a: &pulldown_cmark::Alignment) -> &'static str {
 }
 
 impl Builder {
-    fn new() -> Self {
-        Builder {
-            inline: Inline::default(),
-            lines: Vec::new(),
-            cur: None,
-            pending: None,
-            islands: Vec::new(),
-            island_seq: 0,
-            containers: Vec::new(),
-            container_marks: Vec::new(),
-            list_stack: Vec::new(),
-            next_instance: 0,
-            code_lang: None,
-            in_code: false,
-            code_opened: false,
-            image_depth: 0,
-            image_url: String::new(),
-            image_alt: String::new(),
-            table: None,
-            blocks: Vec::new(),
-            unclosed: Vec::new(),
-            dropped: Drops::default(),
-            in_note: false,
-        }
-    }
-
     /// Open a fresh line with `kind` and the current container path. The first
     /// open sets the line directly; each later one first closes the previous
     /// line with a single `\n` boundary, so `lines.len()` always equals the
@@ -617,8 +592,7 @@ impl Builder {
 
     /// Minting `isl-{seq}` by position keeps import a pure function.
     fn mint_island(&mut self, kind: IslandType, props: serde_json::Value) {
-        let id = format!("isl-{}", self.island_seq);
-        self.island_seq += 1;
+        let id = format!("isl-{}", self.islands.len());
         self.islands.push(Island {
             id,
             island_type: kind,
@@ -851,13 +825,7 @@ impl Builder {
                 self.inline.push_raw(ISLAND_SLOT);
                 self.table = Some(TableAcc {
                     aligns: aligns.iter().map(align_str).collect(),
-                    header: Vec::new(),
-                    rows: Vec::new(),
-                    cur_row: Vec::new(),
-                    in_head: false,
-                    cell: None,
-                    img_depth: 0,
-                    pair: CellPair::default(),
+                    ..TableAcc::default()
                 });
             }
             Tag::Image { dest_url, .. } => {
