@@ -184,8 +184,7 @@ fn revise_card(
         if revise_value(stored.as_json(), &mut value, &at.field(&name), warnings) {
             incoming
                 .payload_mut()
-                .insert(name, QuillValue::from_json(value))
-                .expect("a replace never grows the card");
+                .swap_value(&name, QuillValue::from_json(value));
         }
     }
 
