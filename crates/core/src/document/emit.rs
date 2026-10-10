@@ -126,14 +126,6 @@ fn emit_card(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Ancho
     append_body(out, &body);
 }
 
-/// Every anchor [`Document::to_markdown_annotated`] lists for `card` placed at
-/// `at`.
-pub(super) fn card_anchors(card: &Card, at: &DocPath) -> Vec<DocumentAnchor> {
-    let anchors = Anchors::default();
-    emit_card(&mut String::new(), card, at, Some(&anchors));
-    anchors.into_inner()
-}
-
 /// `content`'s annotated markdown, its anchors pushed at `path`.
 fn annotated(content: &Normalized, path: &DocPath, anchors: &Anchors) -> String {
     let read = to_markdown_annotated(content);
@@ -330,6 +322,17 @@ fn emit_block(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Anch
 /// immediately following a non-comment item is consumed as that item's trailer.
 pub(super) fn emit_payload_items(out: &mut String, payload: &Payload) {
     emit_items(out, payload, None);
+}
+
+/// The payload's fields alone, without its comments or `$` keys.
+pub(super) fn emit_payload_fields(out: &mut String, payload: &Payload) {
+    for (key, value) in payload.iter() {
+        let ctx = EmitCtx {
+            project_content: true,
+            ..EmitCtx::EMPTY
+        };
+        emit_field_at(out, key, value.as_json(), KeyPos::Line(0), ctx, None);
+    }
 }
 
 /// [`emit_payload_items`], each content field annotated with its anchors

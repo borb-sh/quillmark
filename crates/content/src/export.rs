@@ -94,14 +94,9 @@ pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
     let mut tags: Vec<Vec<(Usv, &str)>> = vec![Vec::new(); segments.len()];
     let mut anchors = Vec::with_capacity(found.len());
     for (start, id) in found {
-        let i = segments
-            .partition_point(|s| s.end < start)
-            .min(segments.len() - 1);
+        let (i, read) = anchor_read(&plain, start, id);
+        anchors.push(read);
         let seg = &segments[i];
-        anchors.push(AnchorRead {
-            id: id.to_string(),
-            line: seg_str(&plain, i).chars().filter(|&c| c != ISLAND_SLOT).collect(),
-        });
         let holds_tags = rt
             .lines
             .get(i)
@@ -119,6 +114,41 @@ pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
         tags: &tags,
     });
     Annotated { markdown, anchors }
+}
+
+/// The anchors [`to_markdown_annotated`] lists for `rt` whose id `keep`
+/// holds, in its order, read without projecting `rt`.
+pub fn anchors_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead> {
+    let mut found: Vec<(Usv, &str)> = rt
+        .marks
+        .iter()
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } if keep(id) => Some((m.start, id.as_str())),
+            _ => None,
+        })
+        .collect();
+    if found.is_empty() {
+        return Vec::new();
+    }
+    found.sort_unstable();
+    let segments = line_segments(rt);
+    let ctx = Ctx {
+        rt,
+        segments: &segments,
+        tags: &[],
+    };
+    found.into_iter().map(|(start, id)| anchor_read(&ctx, start, id).1).collect()
+}
+
+/// The anchor `id` starting at `start`, and the index of the line it sits on.
+fn anchor_read(ctx: &Ctx, start: Usv, id: &str) -> (usize, AnchorRead) {
+    let segments = ctx.segments;
+    let i = segments.partition_point(|s| s.end < start).min(segments.len() - 1);
+    let read = AnchorRead {
+        id: id.to_string(),
+        line: seg_str(ctx, i).chars().filter(|&c| c != ISLAND_SLOT).collect(),
+    };
+    (i, read)
 }
 
 fn project(ctx: &Ctx) -> String {
