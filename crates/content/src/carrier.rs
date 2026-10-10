@@ -227,14 +227,15 @@ impl Element {
     }
 }
 
-/// Whether `tag` opens or closes a wrapper: `qm-table` or an element, not
-/// self-closing. `qm-anchor` wraps nothing.
-pub(crate) fn wraps(tag: &crate::html::Tag) -> bool {
-    !tag.self_closing && element(tag.name).is_some_and(|name| name != "anchor")
+/// The wrapper a tag named `tag_name` opens or closes: `table` or an
+/// element's name. `qm-anchor` wraps nothing.
+pub(crate) fn wrapper(tag_name: &str) -> Option<String> {
+    element(tag_name).filter(|name| name != "anchor")
 }
 
-pub(crate) fn has_prefix(name: &str) -> bool {
-    name.len() >= PREFIX.len() && name.as_bytes()[..PREFIX.len()].eq_ignore_ascii_case(PREFIX.as_bytes())
+/// Whether `tag` opens or closes a [wrapper], not self-closing.
+pub(crate) fn wraps(tag: &crate::html::Tag) -> bool {
+    !tag.self_closing && wrapper(tag.name).is_some()
 }
 
 #[cfg(test)]

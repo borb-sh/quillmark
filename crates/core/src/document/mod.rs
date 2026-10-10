@@ -87,7 +87,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              `[^label]` reference stays as written. Put the note in the prose instead."
                 .to_string(),
         ),
-        Dropped::TableAttr(attr) => attr_dropped(
+        Dropped::ElementAttr { element, attr } if element == "table" => attr_dropped(
             "qm-table",
             attr,
             match attr.as_str() {
@@ -118,7 +118,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 RESERVED_ATTRS.join("`, `")
             ),
         ),
-        Dropped::Table => (
+        Dropped::Element(name) if name == "table" => (
             format!(
                 "markdown import dropped {} in this field",
                 some("`<qm-table>` wrapper", "`<qm-table>` wrappers")
