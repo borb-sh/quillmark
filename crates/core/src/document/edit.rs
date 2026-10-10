@@ -620,20 +620,18 @@ impl Revised {
     /// Anchor every warning at `path`, the revised body or field.
     pub fn with_path(mut self, path: &crate::path::DocPath) -> Self {
         let at = path.to_string();
-        for warning in &mut self.warnings {
-            warning.path = Some(at.clone());
-        }
+        self.warnings = self.warnings.into_iter().map(|w| w.with_path(at.clone())).collect();
         self
     }
 }
 
 /// [`diff_import`] `body` against `base`, minting the import's warnings.
-pub(super) fn revise_import(
+pub fn revise_import(
     base: &quillmark_content::model::Content,
     body: impl Into<String>,
 ) -> Result<(Normalized, Revised), EditError> {
     let (content, delta, warnings) = diff_import(base, &body.into()).map_err(EditError::Import)?;
-    let warnings = warnings.into_iter().map(crate::document::dropped_construct).collect();
+    let warnings = crate::document::dropped_constructs(warnings, None);
     Ok((content, Revised { delta, warnings }))
 }
 
