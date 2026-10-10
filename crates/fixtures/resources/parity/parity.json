@@ -1117,43 +1117,6 @@
     }
   },
   {
-    "name": "island.footnote",
-    "markdown": "Cited.[^1]\n\n[^1]: The *source*.",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "marks": [
-              {
-                "end": 10,
-                "start": 4,
-                "type": "emph"
-              }
-            ],
-            "text": "The source."
-          },
-          "type": "footnote"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Cited.￼"
-    },
-    "typst": [
-      "Cited.#footnote[The #emph[source].]"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
     "name": "html.br",
     "markdown": "one<br>two",
     "content": {
@@ -2051,8 +2014,8 @@
     }
   },
   {
-    "name": "markdown.footnote.unused",
-    "markdown": "Text.\n\n[^1]: Never cited.",
+    "name": "markdown.footnote",
+    "markdown": "Cited.[^1]\n\n[^1]: The note.",
     "content": {
       "islands": [],
       "lines": [
@@ -2062,103 +2025,16 @@
         }
       ],
       "marks": [],
-      "text": "Text."
+      "text": "Cited.[^1]"
     },
     "typst": [
-      "Text."
+      "Cited."
     ],
     "signals": {
       "import": [
         {
           "construct": "footnote",
           "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "markdown.footnote.block",
-    "markdown": "Cited.[^1]\n\n[^1]: First.\n\n    > Quoted.",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "marks": [],
-            "text": "First.\nQuoted."
-          },
-          "type": "footnote"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Cited.￼"
-    },
-    "typst": [
-      "#footnote[First.#linebreak()Quoted.]"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "footnote[quote]",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "markdown.footnote.in_cell",
-    "markdown": "| a |\n|---|\n| x[^1] |\n\n[^1]: n",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "x"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "[x]"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "footnote",
-          "count": 2
         }
       ],
       "render": []

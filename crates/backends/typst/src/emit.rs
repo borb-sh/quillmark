@@ -755,10 +755,6 @@ impl<'a> Emit<'a> {
             // none and `backend::declines` names it for the warning saying so.
             IslandType::Image => String::new(),
             IslandType::Table => table_markup(&isl.props),
-            IslandType::Footnote => {
-                let (text, marks) = quillmark_content::serial::parse_cell(&isl.props);
-                format!("#footnote[{}]", cell_markup(&text, &marks))
-            }
         }
     }
 }

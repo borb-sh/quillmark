@@ -371,7 +371,6 @@ Body regions (the root body and every card body) are rendered as CommonMark
 | Pipe tables | GFM pipe-table syntax with alignment rows | Supports `:---`, `:---:`, `---:` alignment. |
 | Underline (HTML) | `<u>text</u>` | Allowlisted HTML (see §6.2). The only syntax for underline; handles intraword and arbitrary-range cases. |
 | Task lists | `- [ ] open`, `- [x] done` | GFM rules: the marker opens a list item's first paragraph. A list item's `checked`. |
-| Footnotes | `text[^1]` and a `[^1]: note` definition | GFM rules. A `footnote` island at the reference, holding the note (§6.5). |
 
 ### 6.2 Declared Deviations from CommonMark
 
@@ -441,6 +440,9 @@ handles them, but produce limited or no Quillmark-specific output:
   literal text it is. In markdown body text `$` is literal; inside a `~~~`
   card-yaml payload `$` is reserved as the prefix for system-metadata keys
   (§3.3).
+- Footnotes: not supported. A definition (`[^1]: Word`) drops whole, reported
+  under `parse::dropped_construct` as `footnote`, and a reference to one
+  imports as its text, `[^1]`.
 - HTML comments: accepted syntactically, not rendered (see §6.2).
 - `<br>` (any case, with attributes or a closing `/`) inside a paragraph or a
   table cell: a hard break. In a paragraph, one with no text before it on its
@@ -578,25 +580,6 @@ each anchor's start:
 ```markdown
 A <qm-anchor ref="c1"></qm-anchor>**flagged** phrase.
 ```
-
-### 6.5 Footnotes
-
-A footnote reference imports as a `footnote` island at its slot, inline in its
-paragraph, holding its definition's note as one table cell: `{text, marks}`,
-with the note's paragraphs and line breaks joined by `\n`. Each reference holds
-its own copy, so a note cited twice is two footnotes. A label matches its
-definition as GFM matches it, case-insensitively.
-
-What the island cannot hold drops, reported under `parse::dropped_construct`:
-
-| Spelling | Reported as |
-|---|---|
-| A definition nothing references, or a second definition of one label | `footnote` |
-| A reference in a table cell or in a note | `footnote` |
-| A heading, list, code block, block quote, table or rule in a note, which keeps its text as lines of the note | `footnote[<block>]`: `heading`, `list`, `code`, `quote`, `table`, `rule` |
-
-Export numbers the references `[^1]`, `[^2]`, … in reading order and writes
-each note as a definition after the body, a line break as `<br>`.
 
 ## 7. Input Normalization
 

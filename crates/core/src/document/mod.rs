@@ -73,19 +73,10 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
         Dropped::Footnote => (
             format!(
                 "markdown import dropped {} in this field",
-                some("footnote", "footnotes")
+                some("footnote definition", "footnote definitions")
             ),
-            "A footnote is a reference `[^label]` in prose, outside a table cell or another note, and one \
-             definition `[^label]: note` naming the same label."
-                .to_string(),
-        ),
-        Dropped::NoteBlock(block) => (
-            format!(
-                "markdown import kept the text of {} inside a footnote and dropped its structure",
-                some(&format!("{block} block"), &format!("{block} blocks"))
-            ),
-            "A footnote's note is inline text: each paragraph, list item or other block in it becomes a line \
-             of that text."
+            "Footnotes are not supported: a `[^label]: note` definition drops with its note, and a \
+             `[^label]` reference stays as written. Put the note in the prose instead."
                 .to_string(),
         ),
         Dropped::TableAttr(attr) => attr_dropped(
@@ -332,7 +323,7 @@ pub(crate) mod yaml_hints;
 
 pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_112_0, STORAGE_V0_115_0,
-    STORAGE_V0_116_0, STORAGE_V0_124_0, STORAGE_V0_125_0, STORAGE_V0_93_0,
+    STORAGE_V0_116_0, STORAGE_V0_124_0, STORAGE_V0_93_0,
 };
 pub use edit::{CardMut, EditError, Revised};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};

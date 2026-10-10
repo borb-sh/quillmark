@@ -83,7 +83,7 @@ fn inline_token() -> impl Strategy<Value = String> {
         // A link over an image: a mark over an island slot.
         (special_alt(), special_url(), clean_word())
             .prop_map(|(a, u, l)| format!("[![{a}](<{u}>)](https://ex.com/{l})")),
-        // A footnote reference, read off one of `document()`'s definitions.
+        // A footnote reference, text once `document()`'s definitions drop.
         prop::sample::select(vec!["[^a]", "[^B]"]).prop_map(String::from),
     ]
 }
@@ -624,20 +624,14 @@ proptest! {
     fn apply_island_ops_preserves_validate(
         md in document(),
         pos_seed in 0usize..4096,
-        note in any::<bool>(),
     ) {
         let mut rt = from_markdown(&md).unwrap().content;
         let at = pos_seed % (rt.len_usv() + 1);
-        let island = if note {
-            Island::new("isl-prop".into(), IslandType::Footnote).with_props(json!({
-                "text": "\nnote\n",
-                "marks": [{"start": 0, "end": 5, "type": "strong"}],
-            }))
-        } else {
-            Island::new("isl-prop".into(), IslandType::Image)
-                .with_props(json!({ "url": "ex.com", "alt": "a" }))
+        let op = IslandOp::Insert {
+            at,
+            island: Island::new("isl-prop".into(), IslandType::Image)
+                .with_props(json!({ "url": "ex.com", "alt": "a" })),
         };
-        let op = IslandOp::Insert { at, island };
         if rt.apply_island_ops(&[op]).is_ok() {
             prop_assert_eq!(rt.validate(), Ok(()), "island op broke an invariant");
             prop_assert_eq!(&renormalized(&rt), &*rt, "the island op left a repairable shape");
@@ -895,7 +889,7 @@ const DECODE_DISCRIMINATORS: &[&str] = &[
     "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end", "container", "type",
     "$name", "element", "instance", "containers", "continues", "id", "props", "url", "level",
     "ordered", "ordinal", "rows", "aligns", "widths", "align", "list_item", "quote", "table",
-    "checked", "footnote",
+    "checked",
 ];
 
 /// Every op tag the line, mark and island decoders read.

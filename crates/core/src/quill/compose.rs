@@ -1653,13 +1653,13 @@ card_kinds:
     #[test]
     fn acroform_declines_every_construct_but_the_paragraph() {
         let md = "# H\n\nprose\n\n- a\n  - b\n- c\n\n1. d\n\n> q\n>\n> > r\n\n\
-                  ```\nx\ny\n```\n\n---\n\n| t |\n|---|\n| u |\n\n![i](i.png)[^n]\n\n[^n]: note\n";
+                  ```\nx\ny\n```\n\n---\n\n| t |\n|---|\n| u |\n\n![i](i.png)\n";
         let content = crate::document::import_body(md).expect("imports");
         let declined = crate::backend::declined_in("acroform", &content);
         use crate::quill::BlockConstruct::*;
         assert_eq!(
             declined,
-            vec![(Heading, 1), (Rule, 1), (Code, 1), (List, 3), (Quote, 2), (Table, 1), (Image, 1), (Footnote, 1)]
+            vec![(Heading, 1), (Rule, 1), (Code, 1), (List, 3), (Quote, 2), (Table, 1), (Image, 1)]
         );
         assert_eq!(crate::backend::declined_in("typst", &content), vec![(Image, 1)]);
         assert!(crate::backend::declined_in("acroform", &crate::document::import_body("prose\n\nmore").unwrap()).is_empty());

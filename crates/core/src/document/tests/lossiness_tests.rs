@@ -405,7 +405,7 @@ fn a_stored_or_wired_comment_reads_without_the_whitespace_ending_it() {
     use crate::document::{Card, CardWire, PayloadItemWire};
 
     let mut doc: Document = serde_json::from_value(serde_json::json!({
-        "schema": "quillmark/document@0.125.0",
+        "schema": "quillmark/document@0.124.0",
         "main": {
             "payload": {
                 "items": [

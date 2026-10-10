@@ -1,6 +1,5 @@
 //! A task list item renders through the helper's `_qm-task`: the plate's
-//! renderer under `tasks`, else a drawn box, ticked where done. A footnote
-//! renders its note at the page foot.
+//! renderer under `tasks`, else a drawn box, ticked where done.
 
 use quillmark_core::{
     backend::Backend,
@@ -72,15 +71,4 @@ fn the_plates_task_renderer_receives_done_and_the_body() {
     let marked = svg(&quill(plate), "- [ ] a\n- [x] b");
     assert_eq!(glyphs(&marked), glyphs(&svg(&quill(""), "- N a\n- Y b")));
     svg(&quill(plate), TASKS);
-}
-
-/// A footnote's note renders at the foot of the page, numbered.
-#[test]
-fn a_footnote_renders_its_note() {
-    let bare = svg(&quill(""), "Text.");
-    let noted = svg(&quill(""), "Text.[^1]\n\n[^1]: The **note** text.");
-    assert!(
-        glyphs(&noted) >= glyphs(&bare) + "Thenotetext.".len() + 2,
-        "the note and its two numbers render"
-    );
 }

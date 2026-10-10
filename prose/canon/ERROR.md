@@ -142,10 +142,8 @@ families:
   - `qm-table` for a `qm-table` wrapper that drops whole;
   - `qm-table[<attr>]` or `qm-<name>[<attr>]` for one attribute that
     drops;
-  - `footnote` for a footnote definition nothing references, a second
-    definition of one label, or a reference in a table cell or a note;
-  - `footnote[<block>]` for a block in a note, which keeps its text as lines
-    of the note: `heading`, `list`, `code`, `quote`, `table` or `rule`.
+  - `footnote` for a footnote definition, which drops whole while a
+    reference to it stays as text.
 
   A parse reports a body's drops alone, since it knows no field's type: a
   `richtext` field's markdown string reports its drops at its path from

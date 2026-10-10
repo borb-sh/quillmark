@@ -698,17 +698,15 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
     // here rather than a silent skip.
     for island in arr_or_empty(v, "islands") {
         let ty = island.get("type").and_then(Value::as_str).unwrap_or_default();
-        let cell_marks = |cell: &Value| arr_or_empty(cell, "marks").iter().try_for_each(reject_unreadable_mark);
         match crate::island::IslandType::parse(ty) {
             Some(crate::island::IslandType::Table) => {
                 let Some(props) = island.get("props") else {
                     continue;
                 };
-                table_cell_values(props).try_for_each(cell_marks)?;
-            }
-            Some(crate::island::IslandType::Footnote) => {
-                if let Some(props) = island.get("props") {
-                    cell_marks(props)?;
+                for cell in table_cell_values(props) {
+                    for m in arr_or_empty(cell, "marks") {
+                        reject_unreadable_mark(m)?;
+                    }
                 }
             }
             // No cells; the one prop the projection writes is the url.
@@ -936,7 +934,7 @@ fn is_cell_break(c: char) -> bool {
 /// Space a cell's stray line-break chars (1:1, so mark offsets hold) and
 /// re-normalize its marks. Writes back into the cell's **own** object rather
 /// than minting a fresh one, so a key this build does not recognize survives.
-pub(crate) fn canon_cell(cell: &mut Value) {
+fn canon_cell(cell: &mut Value) {
     let (text, mut marks) = parse_cell(cell);
     let text = if text.contains(is_cell_break) {
         text.replace(is_cell_break, " ")
@@ -956,31 +954,6 @@ pub(crate) fn canon_cell(cell: &mut Value) {
         (Some(o), Value::Object(fields)) => o.extend(fields),
         // A non-object cell holds no keys to preserve.
         (_, canon) => *cell = canon,
-    }
-}
-
-/// Repair a footnote's props in place: [`canon_cell`], then the note's edge
-/// line breaks dropped, a note opening or closing on one having nothing there
-/// to break.
-pub(crate) fn normalize_note_props(props: &mut Value) {
-    canon_cell(props);
-    let (text, marks) = parse_cell(props);
-    if !text.starts_with('\n') && !text.ends_with('\n') {
-        return;
-    }
-    let chars: Vec<char> = text.chars().collect();
-    let lead = chars.iter().take_while(|&&c| c == '\n').count();
-    let end = lead.max(chars.len() - chars.iter().rev().take_while(|&&c| c == '\n').count());
-    let clip = |at: Usv| at.clamp(lead, end) - lead;
-    let marks: Vec<Mark> = marks
-        .into_iter()
-        .map(|m| Mark::new(clip(m.start), clip(m.end), m.kind))
-        .collect();
-    let text: String = chars[lead..end].iter().collect();
-    if let (Some(o), Value::Object(fields)) =
-        (props.as_object_mut(), cell_to_value(&text, &crate::model::normalize_marks(marks)))
-    {
-        o.extend(fields);
     }
 }
 
@@ -1016,7 +989,7 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
     })
 }
 
-/// The mark vocabulary's verdict on an island's cells, for
+/// The mark vocabulary's verdict on a table island's cells, for
 /// [`crate::island::IslandType::reject_unknown_cell_mark`].
 ///
 /// A cell mark reaches no other strict decode: [`parse_cell`] reads them
@@ -1025,10 +998,8 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
 /// refusing the row. A *malformed* cell mark stays skipped — that is the split
 /// canon § "an unreadable table-cell mark" sets, and it is about shape, not
 /// names.
-pub(crate) fn reject_unknown_cell_mark_name<'a>(
-    cells: impl IntoIterator<Item = &'a Value>,
-) -> Result<(), ParseError> {
-    for cell in cells {
+pub(crate) fn reject_unknown_cell_mark_name(props: &Value) -> Result<(), ParseError> {
+    for cell in table_cell_values(props) {
         for m in arr_or_empty(cell, "marks") {
             if let Err(e @ ParseError::UnknownName { .. }) = mark_from_value(m) {
                 return Err(e);

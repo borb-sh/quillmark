@@ -2209,7 +2209,6 @@ dependencies = [
  "serde",
  "serde_json",
  "similar",
- "unicase",
 ]
 
 [[package]]

@@ -125,7 +125,6 @@ is a lowering bug, never a document's.
 | `Container::Element{name, attrs}` | `#_qm-element("name", (…))[…]` (see [Elements](#elements)) |
 | `image` island | nothing, plus one `backend::declined_construct` warning per field (see [Declined images](#declined-images)) |
 | `table` island | `#table(columns: N, align: (…), table.header(…), …)` |
-| `footnote` island | `#footnote[…]`, the note lowered as a table cell is |
 
 Table alignment maps `none→auto`, `left`, `center`, `right`; the `align:`
 argument is emitted only when at least one column is non-default.
@@ -225,12 +224,10 @@ reads and the shape the WASM boundary pins:
   at the plate's placement.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. No backend resolves `url` (see [Declined images](#declined-images)).
-- **`footnote`** → `Cell`, the note, with no `\n` at either edge. Its `\n` is
-  a line break, as a cell's is.
 
 The `IslandType` dispatch (`crates/content/src/island.rs`) owns these shapes
 engine-side; the WASM surface pins them as `TableProps` / `ImageProps` /
-`FootnoteProps` / `TableCell` and types `ContentIsland.props` per the closed `type`
+`TableCell` and types `ContentIsland.props` per the closed `type`
 (`crates/bindings/wasm/src/engine.rs`).
 
 ## Mark sweep

@@ -139,7 +139,7 @@ A `qm-<name>` element renders through the helper's `elements` registry. A plate 
 
 The dispatcher reads the registry's final value, so the update may stand anywhere in the plate. An element around nothing, `<qm-sig>` on the line above `</qm-sig>`, calls its renderer with a body that draws nothing, `[ ]`, which suits a signature line or a stamp. `attrs` is a dictionary of the element's attributes keyed by name, each value a string with its entities decoded: `note="a &amp; b"` arrives as `"a & b"`. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone.
 
-### Task lists and footnotes
+### Task lists
 
 A task item draws a box before its content, ticked when done. A plate replaces the box by setting the helper's `tasks` state to a renderer taking whether the task is done and the item's content. This one strikes through a done task and draws no box:
 
@@ -150,8 +150,6 @@ A task item draws a box before its content, ticked when done. A plate replaces t
 ```
 
 As with `elements`, the renderer is read from the state's final value, so the update may stand anywhere in the plate.
-
-A footnote lowers to Typst's own `footnote`, so `#set footnote(..)`, `#set footnote.entry(..)` and `#show footnote: ..` style it.
 
 ### Tables
 

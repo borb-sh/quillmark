@@ -61,7 +61,6 @@ pub enum BlockConstruct {
     Quote,
     Table,
     Image,
-    Footnote,
 }
 
 impl BlockConstruct {
@@ -73,12 +72,11 @@ impl BlockConstruct {
         Self::Quote,
         Self::Table,
         Self::Image,
-        Self::Footnote,
     ];
 
     /// How many of this construct `content` holds: a heading, rule or code
     /// block per block, a list or quote per container run at any depth, a
-    /// table, image or footnote per island.
+    /// table or image per island.
     pub fn count_in(self, content: &quillmark_content::model::Content) -> usize {
         use quillmark_content::island::IslandType;
         use quillmark_content::model::{Container, LineKind};
@@ -103,7 +101,6 @@ impl BlockConstruct {
             }),
             Self::Table => islands(IslandType::Table),
             Self::Image => islands(IslandType::Image),
-            Self::Footnote => islands(IslandType::Footnote),
         }
     }
 
@@ -117,7 +114,6 @@ impl BlockConstruct {
             Self::Quote => "quote",
             Self::Table => "table",
             Self::Image => "image",
-            Self::Footnote => "footnote",
         }
     }
 }
