@@ -635,8 +635,8 @@ impl Revised {
 pub fn revise_import(
     base: &quillmark_content::model::Content,
     body: impl Into<String>,
-) -> Result<(Normalized, Revised), EditError> {
-    let (content, delta, warnings) = diff_import(base, &body.into()).map_err(EditError::Import)?;
+) -> Result<(Normalized, Revised), ImportError> {
+    let (content, delta, warnings) = diff_import(base, &body.into())?;
     let warnings = crate::document::dropped_constructs(warnings, None);
     Ok((content, Revised { delta, warnings }))
 }
@@ -1175,7 +1175,7 @@ impl Card {
     /// `parse::dropped_construct` warnings, unanchored. An over-nested input
     /// returns [`EditError::Import`] rather than degrading to the empty content.
     pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Revised, EditError> {
-        let (content, revised) = revise_import(self.body(), body)?;
+        let (content, revised) = revise_import(self.body(), body).map_err(EditError::Import)?;
         self.overwrite_body(content);
         Ok(revised)
     }
@@ -1196,7 +1196,7 @@ impl Card {
             Some(Err(e)) => return Err(field_decode(name, &[], Codec::Richtext, e)),
             None => Normalized::empty(),
         };
-        revise_import(&base, body)
+        revise_import(&base, body).map_err(EditError::Import)
     }
 
     /// Revise a richtext field from an authored markdown string: the field-level
