@@ -984,6 +984,18 @@ fn emit_run(
         };
         return (re, left, (pos..re, g0..g1, EscapeCtx::Indent));
     }
+    // A space behind a mark's close meets the one inside it, and Typst would
+    // collapse the pair.
+    if chars[pos] == ' '
+        && pos > 0
+        && chars[pos - 1] == ' '
+        && !codes.iter().any(|&(s, e)| s < pos && pos <= e)
+    {
+        let g0 = out.len();
+        out.push_str(&escape_indent(" "));
+        let g1 = out.len();
+        return (pos + 1, Tail::Text, (pos..pos + 1, g0..g1, EscapeCtx::Indent));
+    }
     let content: String = chars[pos..re].iter().collect();
     let guarded = match tail {
         Tail::Anchor => opens_line_anchor(&content),
