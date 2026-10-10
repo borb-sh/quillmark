@@ -159,7 +159,7 @@ pub(crate) fn options() -> Options {
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let options = options();
     let text = normalize_markdown(markdown, options);
-    let mut fixer = MarkdownFixer::new(Parser::new_ext(&text, options).into_offset_iter());
+    let mut fixer = MarkdownFixer::new(&text, Parser::new_ext(&text, options).into_offset_iter());
     let mut b = Builder::new();
     b.run(&mut fixer)?;
     let (content, built) = b.finish();
@@ -308,6 +308,18 @@ impl Inline {
             kind: MarkKind::Code,
         });
     }
+
+    /// Drop `lead` chars from the start and `trail` from the end, the marks
+    /// moving with the text.
+    fn trim(&mut self, lead: usize, trail: usize) {
+        let end = self.pos.saturating_sub(trail).max(lead);
+        self.text = self.text.chars().skip(lead).take(end - lead).collect();
+        self.pos = end - lead;
+        for m in &mut self.marks {
+            m.start = m.start.clamp(lead, end) - lead;
+            m.end = m.end.clamp(lead, end) - lead;
+        }
+    }
 }
 
 /// A wrapper whose open tag line the import has read and whose close it
@@ -429,6 +441,9 @@ struct CellPair {
     state: PairState,
     /// Each open tag's offset, reported where no pair folds.
     opens: Vec<usize>,
+    /// The raw space after the open tag and before the close tag, which a
+    /// pair that folds trims.
+    edges: (usize, usize),
 }
 
 #[derive(Default)]
@@ -442,15 +457,17 @@ enum PairState {
 }
 
 impl CellPair {
-    fn open(&mut self, attrs: carrier::Attrs, at: usize) {
+    fn open(&mut self, attrs: carrier::Attrs, at: usize, space: usize) {
         self.opens.push(at);
+        self.edges.0 = space;
         self.state = match std::mem::take(&mut self.state) {
             PairState::Empty => PairState::Open(attrs),
             _ => PairState::Spoiled,
         };
     }
 
-    fn close(&mut self) {
+    fn close(&mut self, space: usize) {
+        self.edges.1 = space;
         self.state = match std::mem::take(&mut self.state) {
             PairState::Open(attrs) => PairState::Closed(attrs),
             _ => PairState::Spoiled,
@@ -464,11 +481,15 @@ impl CellPair {
         }
     }
 
-    /// The attributes of the pair wrapping the whole cell, and its open tag's
-    /// offset. Where none does, each open tag drops as `qm-cell`.
-    fn finish(self, dropped: &mut Drops) -> Option<(carrier::Attrs, usize)> {
+    /// The attributes of the pair wrapping the whole cell, which trims `cell`'s
+    /// edge space, and its open tag's offset. Where none does, each open tag
+    /// drops as `qm-cell`.
+    fn finish(self, cell: &mut Inline, dropped: &mut Drops) -> Option<(carrier::Attrs, usize)> {
         match self.state {
-            PairState::Closed(attrs) => Some((attrs, self.opens[0])),
+            PairState::Closed(attrs) => {
+                cell.trim(self.edges.0, self.edges.1);
+                Some((attrs, self.opens[0]))
+            }
             _ => {
                 for at in self.opens {
                     dropped.add(Dropped::Element(CELL.into()), at);
@@ -937,15 +958,15 @@ impl Builder {
     /// Pair one carrier tag: a tag line opens or closes a wrapper. Any other
     /// open tag drops, and any other close tag drops silently.
     fn carrier_tag(&mut self, tag: CarrierTag) -> Result<(), ImportError> {
-        let CarrierTag { wrapper, attrs, block, at } = tag;
+        let CarrierTag { wrapper, attrs, block, at, space } = tag;
         if self.in_note {
             return Ok(());
         }
         if let Some(acc) = self.table.as_mut().filter(|acc| acc.cell.is_some()) {
             match (&wrapper, attrs) {
                 (Wrapper::Element(name), attrs) if name == CELL && acc.img_depth == 0 => match attrs {
-                    Some(attrs) => acc.pair.open(attrs, at),
-                    None => acc.pair.close(),
+                    Some(attrs) => acc.pair.open(attrs, at, space),
+                    None => acc.pair.close(space),
                 },
                 (_, attrs) => {
                     acc.pair.content();
@@ -1209,8 +1230,9 @@ impl Builder {
                         cell.close_mark();
                     }
                     cell.drop_open(&mut self.dropped);
+                    let folded = std::mem::take(&mut acc.pair).finish(&mut cell, &mut self.dropped);
                     let mut value = crate::serial::cell_to_value(&cell.text, &cell.marks);
-                    if let Some((attrs, at)) = std::mem::take(&mut acc.pair).finish(&mut self.dropped) {
+                    if let Some((attrs, at)) = folded {
                         fold_cell(&mut value, attrs, at, &mut self.dropped);
                     }
                     acc.cur_row.push(value);
@@ -1417,6 +1439,9 @@ struct CarrierTag {
     block: bool,
     /// The tag's byte offset, or its HTML block's.
     at: usize,
+    /// The space and tab in the source on an inline tag's inner side: after an
+    /// open tag, before a close tag.
+    space: usize,
 }
 
 impl CarrierTag {
@@ -1426,6 +1451,7 @@ impl CarrierTag {
             attrs: (!tag.closing).then(|| carrier::decode_attrs(&tag.attrs)),
             block,
             at,
+            space: 0,
         })
     }
 }
@@ -1485,6 +1511,7 @@ impl Drops {
 }
 
 struct MarkdownFixer<'a, I> {
+    src: &'a str,
     inner: I,
     dropped: Drops,
     /// An HTML block's carrier tags ahead of its end.
@@ -1495,8 +1522,9 @@ impl<'a, I> MarkdownFixer<'a, I>
 where
     I: Iterator<Item = (Event<'a>, Range<usize>)>,
 {
-    fn new(inner: I) -> Self {
+    fn new(src: &'a str, inner: I) -> Self {
         Self {
+            src,
             inner,
             dropped: Drops::default(),
             held: VecDeque::new(),
@@ -1561,7 +1589,12 @@ where
                 if tag.name.eq_ignore_ascii_case("br") && !tag.closing {
                     return Some(Fixed::Event(Event::HardBreak));
                 }
-                if let Some(carrier) = CarrierTag::of(&tag, false, range.start) {
+                if let Some(mut carrier) = CarrierTag::of(&tag, false, range.start) {
+                    let space = |c: &char| matches!(c, ' ' | '\t');
+                    carrier.space = match carrier.attrs {
+                        Some(_) => self.src[range.end..].chars().take_while(space).count(),
+                        None => self.src[..range.start].chars().rev().take_while(space).count(),
+                    };
                     return Some(Fixed::Carrier(carrier));
                 }
                 self.dropped.tag(&tag, range.start);
@@ -2409,8 +2442,8 @@ mod tests {
             .collect()
     }
 
-    /// What a pair wraps imports as the cell would without it, edge
-    /// whitespace aside, and an alignment equal to its column's stays.
+    /// What a pair wraps imports as the cell would without it, and an
+    /// alignment equal to its column's stays.
     #[test]
     fn a_cell_pair_around_a_whole_cell_folds_its_alignment() {
         use serde_json::json;
@@ -2437,8 +2470,16 @@ mod tests {
             assert_eq!(cells(&imported.content), cells(&bare), "{md:?}");
         }
 
-        let edges = imp_fixed("| h |\n|---|\n| <qm-cell valign=\"top\"> a </qm-cell> |");
-        assert_eq!(table_rows(&edges.content), [[" a "]]);
+        for (cell, text) in [
+            ("<qm-cell valign=\"top\"> \ta  </qm-cell>", "a"),
+            ("<qm-cell valign=\"top\">  </qm-cell>", ""),
+            ("<qm-cell valign=\"top\">&#32;a&#9;</qm-cell>", " a\t"),
+            ("<qm-cell valign=\"top\"> &#32; </qm-cell>", " "),
+            ("<qm-cell valign=\"top\"><u></u> a</qm-cell>", " a"),
+        ] {
+            let edges = imp_fixed(&format!("| h |\n|---|\n| {cell} |"));
+            assert_eq!(table_rows(&edges.content), [[text]], "{cell:?}");
+        }
 
         let rt = imp_fixed("| h |\n|:-:|\n| <qm-cell valign=\"bottom\" align=\"center\">**a**</qm-cell> |").content;
         assert_eq!(

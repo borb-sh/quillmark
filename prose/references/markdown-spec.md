@@ -553,6 +553,8 @@ attributes into the table's layout, whatever quill reads the document:
   only around a table holding a value other than its default.
 - Column alignment stays in the delimiter row. Its dash counts carry no width,
   since a formatter pads them to the column.
+- `align` places the table in the flow, beside no text, where a browser
+  floats a `<table align="left">` or `"right"` and wraps text around it.
 - The wrapper pairs as an element does: inside the containers around its open
   tag, closed where it is the innermost container open. It holds one table
   when that table is all that imports between its tags, inside no container
@@ -581,7 +583,8 @@ reads the document:
 
 - A pair folds when its open tag is the cell's first inline and its close tag
   the cell's last, and the cell holds no other `qm-cell` tag. What it wraps is
-  the cell's content as written, edge whitespace included.
+  the cell's content, trimmed of the space and tab beside each tag as a cell
+  is trimmed at its edges; `&#32;` spells an edge space.
 - A pair that does not wrap its whole cell folds nothing: text or markup
   before or after it, a second pair, a nested pair and an unclosed pair each
   leave the cell as written, its `qm-cell` tags dropped, and
