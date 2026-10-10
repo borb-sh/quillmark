@@ -22,11 +22,12 @@ use crate::document::payload::MetaKey;
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
 use crate::error::Diagnostic;
 use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
+use crate::path::DocPath;
 use crate::value::{PathSegment, QuillValue};
 use crate::version::QuillReference;
 
 /// A field plus its in-field path, rendered through
-/// [`DocPath`](crate::path::DocPath) (`recipients[0].name`), so a message names
+/// [`DocPath`] (`recipients[0].name`), so a message names
 /// the address its anchor does.
 fn render_at(field: &str, at: &[PathSegment]) -> String {
     at.iter()
@@ -233,7 +234,7 @@ impl EditError {
     /// [`Diagnostic::args`](crate::error::Diagnostic::args).
     ///
     /// `field` and `kind` ride here as well as in the anchor, because
-    /// [`DocPath`](crate::path::DocPath) renders field segments unescaped and
+    /// [`DocPath`] renders field segments unescaped and
     /// parses on `.` and `[`: a malformed name cannot be recovered from the
     /// rendered path. An `at` path is structural, so it rides the anchor alone.
     pub fn args(&self) -> BTreeMap<String, serde_json::Value> {
@@ -295,7 +296,7 @@ impl EditError {
         }
     }
 
-    /// The [`DocPath`](crate::path::DocPath) this error anchors to, relative to
+    /// The [`DocPath`] this error anchors to, relative to
     /// `base`: the card root the mutator ran against, empty for a card built
     /// before placement.
     ///
@@ -587,19 +588,24 @@ pub(crate) fn overflow_errors<'n>(
 }
 
 /// The canonical stored form of a typed field write, **without applying it**:
-/// the dry-run that lets a batch collect every violation before mutating.
+/// the dry-run that lets a batch collect every violation before mutating. Beside
+/// it, one `parse::dropped_construct` per construct a markdown string in the
+/// value dropped on its import, at its path under `base`, the card's root.
 pub(crate) fn resolve_field_write(
     name: &str,
-    value: QuillValue,
+    value: &QuillValue,
     schema: &FieldSchema,
-) -> Result<QuillValue, EditError> {
+    base: &crate::path::DocPath,
+) -> Result<(QuillValue, Vec<Diagnostic>), EditError> {
     if !is_valid_field_name(name) {
         return Err(EditError::InvalidFieldName(name.to_string()));
     }
-    let stored = QuillConfig::conform_value(&value, schema, name, Leniency::Write)
-        .map_err(|e| conform_error_to_edit(name, e))?;
+    let mut drops = Vec::new();
+    let stored =
+        QuillConfig::conform_value(value, schema, &base.field(name), Leniency::Write, &mut drops)
+            .map_err(|e| conform_error_to_edit(name, e))?;
     check_field(name, stored.as_json())?;
-    Ok(stored)
+    Ok((stored, drops))
 }
 
 /// The receipt of a markdown revise: the text [`Delta`] an editor bridge maps
@@ -620,20 +626,18 @@ impl Revised {
     /// Anchor every warning at `path`, the revised body or field.
     pub fn with_path(mut self, path: &crate::path::DocPath) -> Self {
         let at = path.to_string();
-        for warning in &mut self.warnings {
-            warning.path = Some(at.clone());
-        }
+        self.warnings = self.warnings.into_iter().map(|w| w.with_path(at.clone())).collect();
         self
     }
 }
 
 /// [`diff_import`] `body` against `base`, minting the import's warnings.
-pub(super) fn revise_import(
+pub fn revise_import(
     base: &quillmark_content::model::Content,
     body: impl Into<String>,
-) -> Result<(Normalized, Revised), EditError> {
-    let (content, delta, warnings) = diff_import(base, &body.into()).map_err(EditError::Import)?;
-    let warnings = warnings.into_iter().map(crate::document::dropped_construct).collect();
+) -> Result<(Normalized, Revised), ImportError> {
+    let (content, delta, warnings) = diff_import(base, &body.into())?;
+    let warnings = crate::document::dropped_constructs(warnings, None);
     Ok((content, Revised { delta, warnings }))
 }
 
@@ -1123,7 +1127,8 @@ impl Card {
     ///
     /// The caller supplies `schema` because a [`Document`] holds only a `$quill`
     /// *reference*; [`crate::writer::TypedWriter`] resolves it per field and
-    /// calls this.
+    /// commits as this does, returning the `parse::dropped_construct` warnings
+    /// this discards.
     ///
     /// Returns [`EditError::InvalidFieldName`] for a malformed name,
     /// [`EditError::FieldDecode`] / [`EditError::FieldNotInline`]
@@ -1141,11 +1146,25 @@ impl Card {
         value: impl Into<QuillValue>,
         schema: &FieldSchema,
     ) -> Result<(), EditError> {
-        let stored = resolve_field_write(name, value.into(), schema)?;
+        self.commit_field_at(name, &value.into(), schema, &DocPath::new())?;
+        Ok(())
+    }
+
+    /// [`commit_field`](Self::commit_field), returning one
+    /// `parse::dropped_construct` per construct a markdown string in `value`
+    /// dropped, at its path under `base`, the card's root.
+    pub(crate) fn commit_field_at(
+        &mut self,
+        name: &str,
+        value: &QuillValue,
+        schema: &FieldSchema,
+        base: &DocPath,
+    ) -> Result<Vec<Diagnostic>, EditError> {
+        let (stored, drops) = resolve_field_write(name, value, schema, base)?;
         self.payload_mut()
             .insert(name.to_string(), stored)
             .map_err(EditError::InvalidPayload)?;
-        Ok(())
+        Ok(drops)
     }
 
     /// Revise the body from an authored markdown string: edit semantics. Imports
@@ -1156,7 +1175,7 @@ impl Card {
     /// `parse::dropped_construct` warnings, unanchored. An over-nested input
     /// returns [`EditError::Import`] rather than degrading to the empty content.
     pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Revised, EditError> {
-        let (content, revised) = revise_import(self.body(), body)?;
+        let (content, revised) = revise_import(self.body(), body).map_err(EditError::Import)?;
         self.overwrite_body(content);
         Ok(revised)
     }
@@ -1177,7 +1196,7 @@ impl Card {
             Some(Err(e)) => return Err(field_decode(name, &[], Codec::Richtext, e)),
             None => Normalized::empty(),
         };
-        revise_import(&base, body)
+        revise_import(&base, body).map_err(EditError::Import)
     }
 
     /// Revise a richtext field from an authored markdown string: the field-level
@@ -1238,7 +1257,8 @@ impl Card {
         // Re-canonicalizing a content object keeps its identity marks, so the
         // schema check fires on the value the anchors survived onto.
         let canonical = quillmark_content::serial::to_canonical_value(&content);
-        let stored = resolve_field_write(name, QuillValue::from_json(canonical), schema)?;
+        let (stored, _) =
+            resolve_field_write(name, &QuillValue::from_json(canonical), schema, &DocPath::new())?;
         self.payload_mut()
             .insert(name.to_string(), stored)
             .map_err(EditError::InvalidPayload)?;
@@ -1267,7 +1287,8 @@ impl Card {
         };
         // The strict write is the codec: it runs the `from_plaintext` boundary
         // cleanup, so the committed string is what the diff must measure against.
-        let stored = resolve_field_write(name, QuillValue::from(text.into()), schema)?;
+        let (stored, _) =
+            resolve_field_write(name, &QuillValue::from(text.into()), schema, &DocPath::new())?;
         let delta = quillmark_content::delta::diff(
             &base,
             stored

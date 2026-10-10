@@ -216,16 +216,26 @@ impl Quill {
     /// surface: read them from the [`Document`] payload and the quill schema
     /// (`quill.config().schema()`, whose key order is display order).
     pub fn validate(&self, doc: &Document) -> Vec<Diagnostic> {
-        let mut diags = match self.config().validate_document(doc) {
-            Ok(()) => Vec::new(),
-            Err(errors) => errors.iter().map(|e| e.to_diagnostic()).collect(),
-        };
+        let mut diags = self.advisories(doc);
+        diags.extend(validate_declined(self.config(), doc));
+        diags
+    }
+
+    /// [`validate`](Self::validate) less the backend's declines, which a
+    /// render's compile reports itself.
+    #[doc(hidden)]
+    pub fn advisories(&self, doc: &Document) -> Vec<Diagnostic> {
+        let mut drops = Vec::new();
+        let mut diags: Vec<Diagnostic> =
+            super::validation::validate_document_values(self.config(), doc, &mut drops)
+                .iter()
+                .map(|e| e.to_diagnostic())
+                .collect();
         diags.extend(validate_unclaimed(self.config(), doc));
         diags.extend(validate_variants(self.config(), doc));
         diags.extend(validate_cardinality(self.config(), doc));
         diags.extend(self.validate_seed(doc));
-        diags.extend(validate_dropped(self.config(), doc));
-        diags.extend(validate_declined(self.config(), doc));
+        diags.extend(drops);
         diags
     }
 
@@ -379,7 +389,7 @@ pub(crate) fn seed_overlay_diagnostics(
         }
         collect_unknown_in(field_schema, value, &field_path, &mut diags);
         collect_stranded(field_schema, value, &field_path, &mut diags);
-        collect_cardinality_diags(field_schema, Some(&qv), &field_path, &mut diags);
+        collect_cardinality_diags(field_schema, value, &field_path, &mut diags);
     }
     diags
 }
@@ -437,8 +447,14 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
         let name = normalize_field_name(&raw_name);
         let entry = match schema.fields.get(&raw_name) {
             Some(field_schema) => {
-                QuillConfig::conform_value(&value, field_schema, &name, Leniency::Render)
-                    .unwrap_or(value)
+                QuillConfig::conform_value(
+                    &value,
+                    field_schema,
+                    &DocPath::new().field(&name),
+                    Leniency::Render,
+                    &mut Vec::new(),
+                )
+                .unwrap_or(value)
             }
             None => value,
         };
@@ -692,8 +708,9 @@ fn held_cells(
         tick => QuillConfig::conform_value(
             &QuillValue::from_json(tick.clone()),
             FieldSchema::matrix_tick(),
-            MATRIX_HELD_KEY,
+            &DocPath::new().field(MATRIX_HELD_KEY),
             Leniency::Render,
+            &mut Vec::new(),
         )
         .ok()
         .and_then(|v| v.as_json().as_bool())
@@ -1141,180 +1158,56 @@ pub(crate) fn body_disabled_warning(path: &DocPath, card: &str) -> Diagnostic {
     .with_hint("Remove the body content, or set `body.enabled: true` on the card kind.".to_string())
 }
 
-/// One `validation::declined_construct` per content field and construct that
-/// the quill's backend [`declines`](crate::backend::declines): the warning
-/// that field's render raises as `backend::declined_construct`. The walk reads
-/// the plate a render compiles, defaults and coercion applied, and the
-/// authored document only when that compile fails.
+/// The `backend::declined_construct` warnings a render of `doc` raises: the
+/// plate a render compiles, defaults and coercion applied. A document that
+/// does not compile draws none.
 fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    let mut each = |at: &DocPath, content: &crate::Content| {
-        for (construct, count) in crate::backend::declined_in(&config.backend, content) {
-            diags.push(declined_construct_warning(&config.backend, construct, count, at));
-        }
-    };
+    if crate::backend::declines(&config.backend).is_empty() {
+        return Vec::new();
+    }
     let any_day = CalendarDate::new(2000, 1, 1).expect("a calendar date");
-    if let Ok(plate) = config.compile_data(doc, any_day) {
-        config.each_plate_content(&plate, &mut each);
-        return diags;
-    }
-    for (schema, card, path) in schema_cards(config, doc) {
-        let Some(schema) = schema else { continue };
-        if schema.body_enabled() {
-            each(&path.body(), card.body());
-        }
-        for (key, value) in card.payload().iter() {
-            if let Some(field) = schema.fields.get(key.as_str()) {
-                each_content(field, value.as_json(), &path.field(key), &mut each);
-            }
-        }
-    }
-    diags
+    let Ok(plate) = config.compile_data(doc, any_day) else {
+        return Vec::new();
+    };
+    config.declined_in_plate(&plate)
 }
 
-pub(crate) fn declined_construct_warning(
-    backend: &str,
-    construct: super::BlockConstruct,
-    count: usize,
-    path: &DocPath,
-) -> Diagnostic {
-    Diagnostic::new(
-        Severity::Warning,
-        format!(
-            "the {backend} backend does not typeset {}: {count} in this field \
-             will not reach the page",
-            crate::backend::plural(construct, count)
-        ),
-    )
-    .with_code("validation::declined_construct".to_string())
-    .with_path(path.to_string())
-    .with_arg("construct", construct.as_str().into())
-    .with_arg("count", count.into())
-}
-
-/// One `parse::dropped_construct` per construct a `richtext` field's markdown
-/// string drops on the import a render runs, at the string's path. A
-/// conformed field holds content, whose drops its load reported.
-fn validate_dropped(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    for (schema, card, path) in schema_cards(config, doc) {
-        let Some(schema) = schema else { continue };
-        for (key, value) in card.payload().iter() {
-            if let Some(field) = schema.fields.get(key.as_str()) {
-                diags.extend(markdown_drops(field, value.as_json(), &path.field(key)));
-            }
-        }
-    }
-    diags
-}
-
-/// One `parse::dropped_construct` per construct that importing each markdown
-/// string `json` holds under `field` drops, at the string's path.
-pub(super) fn markdown_drops(field: &FieldSchema, json: &serde_json::Value, path: &DocPath) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    each_content_leaf(field, json, path, &mut |at, codec, leaf| {
-        let (Codec::Richtext, Some(markdown)) = (codec, leaf.as_str()) else {
-            return;
-        };
-        if let Ok(imported) = crate::document::import_body_warned(markdown) {
-            diags.extend(
-                imported
-                    .warnings
-                    .into_iter()
-                    .map(|w| crate::document::dropped_construct(w).with_path(at.to_string())),
-            );
-        }
-    });
-    diags
-}
-
-/// Call `f` on every content value `json` holds under `field`, at its path:
-/// the walk a render's content fields follow, through variants, matrices,
-/// objects and arrays.
-fn each_content(
-    field: &FieldSchema,
-    json: &serde_json::Value,
-    path: &DocPath,
-    f: &mut dyn FnMut(&DocPath, &crate::Content),
-) {
-    each_content_leaf(field, json, path, &mut |at, codec, leaf| {
-        if let Some(Ok(content)) = codec.decode_value(leaf) {
-            f(at, &content);
-        }
-    });
-}
-
-/// [`each_content`]'s walk ahead of the decode: `f` takes each content
-/// leaf's codec and value as stored.
+/// Call `f` on every content leaf `json` holds under `field`, with its path,
+/// codec and value as stored: the walk a render's content fields follow,
+/// through variants, matrices, objects and arrays.
 fn each_content_leaf(
     field: &FieldSchema,
     json: &serde_json::Value,
     path: &DocPath,
     f: &mut dyn FnMut(&DocPath, Codec, &serde_json::Value),
 ) {
-    let codec = match field.r#type {
-        FieldType::RichText { .. } => Some(Codec::Richtext),
-        FieldType::PlainText { .. } => Some(Codec::Plaintext),
-        _ => None,
-    };
-    if let Some(codec) = codec {
-        f(path, codec, json);
-        return;
-    }
-    if field.is_variant_bearing() {
-        let Some(object) = json.as_object() else { return };
-        let Some(live) = field.variant_fields(&field.selected_member(Some(json))) else {
-            return;
-        };
-        for (key, value) in object {
-            if let Some(cell) = live.get(key) {
-                each_content_leaf(cell, value, &path.field(key), f);
-            }
-        }
-        return;
-    }
-    if matches!(field.r#type, FieldType::Matrix { .. }) {
-        let Some(object) = json.as_object() else { return };
-        for (id, cell) in object {
-            let (Some(member), Some(cells)) = (field.matrix_member(id, cell), cell.as_object())
-            else {
-                continue;
-            };
-            let mut cells = cells.clone();
-            cells.remove(MATRIX_HELD_KEY);
-            each_content_leaf(member, &serde_json::Value::Object(cells), &path.field(id), f);
-        }
-        return;
-    }
-    if let Some(props) = field.namespace_props() {
-        let Some(object) = json.as_object() else { return };
-        for (key, value) in object {
-            if let Some(prop) = props.get(key) {
-                each_content_leaf(prop, value, &path.field(key), f);
-            }
-        }
-        return;
-    }
-    if let (FieldType::Array, Some(items), Some(elements)) =
-        (&field.r#type, &field.items, json.as_array())
-    {
-        for (index, element) in elements.iter().enumerate() {
-            each_content_leaf(items, element, &path.index(index), f);
-        }
+    match field.r#type.codec() {
+        Some(codec) => f(path, codec, json),
+        None => field.each_child(json, path, &mut |child, value, at| {
+            each_content_leaf(child, value, at, f)
+        }),
     }
 }
 
 impl QuillConfig {
     /// One [`backend::declined_construct`](crate::backend::declined_construct)
-    /// per content field and construct that `backend`
+    /// per content field and construct that this config's backend
     /// [`declines`](crate::backend::declines) in `data`, the plate JSON
-    /// [`compile_data`](Self::compile_data) built from this config: the walk
-    /// [`Quill::validate`] makes over the document, so the two agree.
-    pub fn declined_in_plate(&self, backend: &str, data: &serde_json::Value) -> Vec<Diagnostic> {
+    /// [`compile_data`](Self::compile_data) built from this config.
+    pub fn declined_in_plate(&self, data: &serde_json::Value) -> Vec<Diagnostic> {
+        let backend = self.backend.as_str();
         let mut diags = Vec::new();
+        let declined = crate::backend::declines(backend);
+        if declined.is_empty() {
+            return diags;
+        }
         self.each_plate_content(data, &mut |at: &DocPath, content: &crate::Content| {
-            for (construct, count) in crate::backend::declined_in(backend, content) {
-                diags.push(crate::backend::declined_construct(backend, construct, count, at));
+            let counts = super::BlockConstruct::tally(content);
+            for &construct in declined {
+                let count = counts[construct as usize];
+                if count > 0 {
+                    diags.push(crate::backend::declined_construct(backend, construct, count, at));
+                }
             }
         });
         diags
@@ -1334,7 +1227,11 @@ impl QuillConfig {
                         each(&path.body(), &content);
                     }
                 } else if let Some(field) = schema.fields.get(key.as_str()) {
-                    each_content(field, value, &path.field(key), each);
+                    each_content_leaf(field, value, &path.field(key), &mut |at, codec, leaf| {
+                        if let Some(Ok(imported)) = codec.decode_value(leaf) {
+                            each(at, &imported.content);
+                        }
+                    });
                 }
             }
         };
@@ -1463,7 +1360,9 @@ fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic>
         let Some(schema) = schema else { continue };
         let payload = card.payload();
         for (name, field) in &schema.fields {
-            collect_cardinality_diags(field, payload.get(name), &path.field(name), &mut diags);
+            if let Some(value) = payload.get(name) {
+                collect_cardinality_diags(field, value.as_json(), &path.field(name), &mut diags);
+            }
         }
     }
     diags
@@ -1476,69 +1375,25 @@ fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic>
 /// exceed.
 fn collect_cardinality_diags(
     field: &FieldSchema,
-    value: Option<&QuillValue>,
+    json: &serde_json::Value,
     path: &DocPath,
     out: &mut Vec<Diagnostic>,
 ) {
-    let Some(json) = value.map(|v| v.as_json()).filter(|j| !j.is_null()) else {
-        return;
-    };
-
-    if field.is_variant_bearing() {
-        let Some(object) = json.as_object() else { return };
-        let member = field.selected_member(Some(json));
-        if let Some(fields) = field.variant_fields(&member) {
-            for (name, schema) in fields {
-                let cell = object.get(name).map(|j| QuillValue::from_json(j.clone()));
-                collect_cardinality_diags(schema, cell.as_ref(), &path.field(name), out);
-            }
-        }
+    if json.is_null() {
         return;
     }
-
-    if matches!(field.r#type, FieldType::Matrix { .. }) {
-        let Some(object) = json.as_object() else { return };
-        for (key, cell) in object {
-            let (Some(member), Ok(Some(cells))) = (field.matrix_member(key, cell), held_cells(cell))
-            else {
-                continue;
-            };
-            let cells = QuillValue::from_json(serde_json::Value::Object(cells));
-            collect_cardinality_diags(member, Some(&cells), &path.field(key), out);
-        }
-        return;
-    }
-
-    if let Some(props) = field.namespace_props() {
-        let Some(object) = json.as_object() else { return };
-        for (name, prop) in props {
-            let Some(cell) = object.get(name) else { continue };
-            let cell = QuillValue::from_json(cell.clone());
-            collect_cardinality_diags(prop, Some(&cell), &path.field(name), out);
-        }
-        return;
-    }
-
-    if !matches!(field.r#type, FieldType::Array) {
-        return;
-    }
-    // The count is the floor's, not the document's: a bare scalar on an array
-    // wraps to one element there, so `max: 0` sees the row it will lay out.
-    let elements = match json.as_array() {
-        Some(elements) => elements.clone(),
-        None => vec![json.clone()],
-    };
-    if let Some(max) = field.max {
-        if elements.len() > max as usize {
-            out.push(cardinality_warning(path, max, elements.len()));
+    if let (FieldType::Array, Some(max)) = (&field.r#type, field.max) {
+        // The count is the floor's, not the document's: a bare scalar on an
+        // array wraps to one element there, so `max: 0` sees the row it will
+        // lay out.
+        let count = json.as_array().map_or(1, Vec::len);
+        if count > max as usize {
+            out.push(cardinality_warning(path, max, count));
         }
     }
-    if let Some(items) = &field.items {
-        for (index, element) in elements.iter().enumerate() {
-            let element = QuillValue::from_json(element.clone());
-            collect_cardinality_diags(items, Some(&element), &path.index(index), out);
-        }
-    }
+    field.each_child(json, path, &mut |child, value, at| {
+        collect_cardinality_diags(child, value, at, out)
+    });
 }
 
 pub(crate) fn cardinality_warning(path: &DocPath, max: u32, actual: usize) -> Diagnostic {
@@ -1616,38 +1471,24 @@ card_kinds:
                   ~~~\n$kind: note\nitems:\n  - plain\n  - '![z](z.png)'\nmore: '![s](s.png)'\n~~~\n";
         let doc = Document::parse(md).expect("parse").document;
 
-        let declined = |diags: Vec<Diagnostic>, code: &str| -> Vec<(String, serde_json::Value)> {
-            diags
-                .into_iter()
-                .filter(|d| d.code.as_deref() == Some(code))
-                .inspect(|d| assert_eq!(d.severity, Severity::Warning))
-                .map(|d| (d.path.unwrap_or_default(), json!(d.args)))
-                .collect()
-        };
-        let mut validated = declined(quill.validate(&doc), "validation::declined_construct");
+        let mut validated: Vec<(String, serde_json::Value)> = quill
+            .validate(&doc)
+            .into_iter()
+            .filter(|d| d.code.as_deref() == Some(crate::backend::DECLINED_CONSTRUCT))
+            .inspect(|d| assert_eq!(d.severity, Severity::Warning))
+            .map(|d| (d.path.unwrap_or_default(), json!(d.args)))
+            .collect();
         validated.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(
             validated,
             vec![
-                ("cards.note[0].items[1]".into(), json!({ "construct": "image", "count": 1 })),
-                ("cards.note[0].more[0]".into(), json!({ "construct": "image", "count": 1 })),
-                ("main.banner".into(), json!({ "construct": "image", "count": 1 })),
-                ("main.body".into(), json!({ "construct": "image", "count": 2 })),
-                ("main.intro".into(), json!({ "construct": "image", "count": 1 })),
+                ("cards.note[0].items[1]".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
+                ("cards.note[0].more[0]".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
+                ("main.banner".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
+                ("main.body".into(), json!({ "backend": "typst", "construct": "image", "count": 2 })),
+                ("main.intro".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
             ]
         );
-
-        let plate = quill.compile_data(&doc, test_date()).expect("compiles");
-        let mut rendered = declined(
-            quill.config().declined_in_plate("typst", &plate),
-            crate::backend::DECLINED_CONSTRUCT,
-        );
-        for (_, args) in &mut rendered {
-            assert_eq!(args["backend"], "typst");
-            args.as_object_mut().unwrap().remove("backend");
-        }
-        rendered.sort_by(|a, b| a.0.cmp(&b.0));
-        assert_eq!(rendered, validated);
     }
 
     #[test]
@@ -1655,13 +1496,16 @@ card_kinds:
         let md = "# H\n\nprose\n\n- a\n  - b\n- c\n\n1. d\n\n> q\n>\n> > r\n\n\
                   ```\nx\ny\n```\n\n---\n\n| t |\n|---|\n| u |\n\n![i](i.png)\n";
         let content = crate::document::import_body(md).expect("imports");
-        let declined = crate::backend::declined_in("acroform", &content);
+        let counts = |id: &str| -> Vec<(crate::quill::BlockConstruct, usize)> {
+            let tally = crate::quill::BlockConstruct::tally(&content);
+            crate::backend::declines(id).iter().map(|&c| (c, tally[c as usize])).collect()
+        };
         use crate::quill::BlockConstruct::*;
         assert_eq!(
-            declined,
+            counts("acroform"),
             vec![(Heading, 1), (Rule, 1), (Code, 1), (List, 3), (Quote, 2), (Table, 1), (Image, 1)]
         );
-        assert_eq!(crate::backend::declined_in("typst", &content), vec![(Image, 1)]);
+        assert_eq!(counts("typst"), vec![(Image, 1)]);
     }
 
     #[test]
@@ -1672,7 +1516,6 @@ card_kinds:
         assert_eq!(crate::quill::element_runs(&content, "a"), 4);
         assert_eq!(crate::quill::element_runs(&content, "b"), 1);
         assert_eq!(crate::quill::element_runs(&content, "c"), 0);
-        assert!(crate::backend::declined_in("acroform", &crate::document::import_body("prose\n\nmore").unwrap()).is_empty());
     }
 
     #[test]

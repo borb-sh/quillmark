@@ -1,42 +1,35 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use quillmark_content::delta::rebase_onto;
-use quillmark_content::model::{Content, MarkKind, Normalized};
+use std::collections::HashSet;
+
+use quillmark_content::delta::rebase_marks;
+use quillmark_content::export::anchors_where;
+use quillmark_content::import::from_markdown;
+use quillmark_content::model::{MarkKind, Normalized};
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 
 use super::align::{align, Pairing, Slot};
-use super::edit::revise_import;
-use super::emit::{canonical_content, emit_payload_items};
-use super::{Card, Document, Parsed, Payload, PayloadItem};
+use super::emit::{canonical_content, emit_payload_fields, DocumentAnchor};
+use super::{dropped_constructs, Card, Document, Parsed};
 use crate::error::{Diagnostic, ParseError};
 use crate::path::DocPath;
-use crate::value::{PathSegment, QuillValue};
+use crate::value::QuillValue;
 
 /// The receipt of [`Document::revise`].
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 #[must_use = "names the anchors the write dropped; read `.dropped_anchors` or bind it"]
 pub struct DocumentRevised {
-    /// Every prose anchor the stored document held that the revised one does
-    /// not, at its address in the stored document. A table cell's anchors drop
-    /// unnamed.
-    pub dropped_anchors: Vec<DroppedAnchor>,
-    /// For each composable card of the revised document, the index of the
-    /// stored card it revised, or `None` for an inserted card.
-    pub(crate) alignment: Vec<Option<usize>>,
+    /// Every anchor a stored card's body or content value holds that the card
+    /// the revise aligned it to no longer holds at the same address, and every
+    /// anchor of a card the revise removed, each with the line it stood on.
+    pub dropped_anchors: Vec<DocumentAnchor>,
     /// The parse warnings, then one `parse::dropped_construct` per construct
     /// dropped from a field revising a stored content value, each at its
     /// address in the revised document.
     pub warnings: Vec<Diagnostic>,
-}
-
-/// An anchor the revise did not carry.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DroppedAnchor {
-    pub path: DocPath,
-    pub id: String,
 }
 
 impl Document {
@@ -76,12 +69,7 @@ impl Document {
         } = parsed;
         let Document { main, cards } = incoming;
 
-        let stored_texts: Vec<String> = self.cards.iter().map(card_text).collect();
-        let incoming_texts: Vec<String> = cards.iter().map(card_text).collect();
-        let pairs = align(
-            &slots(&self.cards, &stored_texts),
-            &slots(&cards, &incoming_texts),
-        );
+        let pairs = align_cards(&self.cards, &cards);
         let same_kinds = self.cards.iter().map(Card::kind).eq(cards.iter().map(Card::kind));
 
         let mut dropped_anchors = Vec::new();
@@ -116,13 +104,19 @@ impl Document {
         }
 
         *self = Document::from_main_and_cards(main, revised_cards);
-        let alignment = pairs.into_iter().map(|pair| pair.map(|(i, _)| i)).collect();
         DocumentRevised {
             dropped_anchors,
-            alignment,
             warnings,
         }
     }
+}
+
+/// For each of `incoming`'s composable cards, the card of `stored` it revises
+/// and how they paired, or `None` for an inserted card.
+pub(super) fn align_cards(stored: &[Card], incoming: &[Card]) -> Vec<Option<(usize, Pairing)>> {
+    let stored_texts: Vec<String> = stored.iter().map(card_text).collect();
+    let incoming_texts: Vec<String> = incoming.iter().map(card_text).collect();
+    align(&slots(stored, &stored_texts), &slots(incoming, &incoming_texts))
 }
 
 fn slots<'a>(cards: &'a [Card], texts: &'a [String]) -> Vec<Slot<'a>> {
@@ -140,16 +134,8 @@ fn slots<'a>(cards: &'a [Card], texts: &'a [String]) -> Vec<Slot<'a>> {
 /// `$` keys stay out, so a writer that omits `$ext` still spells the card the
 /// stored one did.
 fn card_text(card: &Card) -> String {
-    let fields = Payload::from_items(
-        card.payload()
-            .items()
-            .iter()
-            .filter(|item| matches!(item, PayloadItem::Field { .. }))
-            .cloned()
-            .collect(),
-    );
     let mut out = String::new();
-    emit_payload_items(&mut out, &fields);
+    emit_payload_fields(&mut out, card.payload());
     out.push_str(&card.body_markdown());
     out
 }
@@ -165,26 +151,11 @@ fn revise_card(
     warnings: &mut Vec<Diagnostic>,
 ) -> Card {
     let body = std::mem::replace(incoming.body_mut(), Normalized::empty());
-    let (body, _) = rebase_onto(stored.body(), body);
-    *incoming.body_mut() = body;
+    *incoming.body_mut() = rebase_marks(stored.body(), body);
 
-    let fields: Vec<(String, JsonValue)> = incoming
-        .payload()
-        .items()
-        .iter()
-        .filter_map(|item| match item {
-            PayloadItem::Field { key, value } => Some((key.clone(), value.as_json().clone())),
-            _ => None,
-        })
-        .collect();
-    for (name, mut value) in fields {
-        let Some(stored) = stored.payload().get(&name) else {
-            continue;
-        };
-        if revise_value(stored.as_json(), &mut value, &at.field(&name), warnings) {
-            incoming
-                .payload_mut()
-                .swap_value(&name, QuillValue::from_json(value));
+    for (name, value) in incoming.payload_mut().fields_mut() {
+        if let Some(stored) = stored.payload().get(name) {
+            revise_value(stored.as_json(), value.as_json_mut(), &at.field(name), warnings);
         }
     }
 
@@ -198,106 +169,109 @@ fn revise_card(
 
 /// Revise each markdown string in `incoming` that sits where `stored` holds a
 /// content object, by key in an object and by index in an array, into the
-/// content it imports with `stored`'s anchors rebased. Whether any did.
+/// content it imports with `stored`'s anchors rebased.
 fn revise_value(
     stored: &JsonValue,
     incoming: &mut JsonValue,
     at: &DocPath,
     warnings: &mut Vec<Diagnostic>,
-) -> bool {
+) {
     if let Some(base) = canonical_content(stored) {
         let JsonValue::String(text) = incoming else {
-            return false;
+            return;
         };
-        let Ok((content, revised)) = revise_import(&base, text.as_str()) else {
-            return false;
+        let Ok(imported) = from_markdown(text) else {
+            return;
         };
-        warnings.extend(revised.with_path(at).warnings);
-        *incoming = to_canonical_value(&content);
-        return true;
+        warnings.extend(dropped_constructs(imported.warnings, Some(at)));
+        *incoming = to_canonical_value(&rebase_marks(&base, imported.content));
+        return;
     }
-    let mut any = false;
     match (stored, incoming) {
         (JsonValue::Object(stored), JsonValue::Object(incoming)) => {
             for (key, value) in incoming.iter_mut() {
                 if let Some(stored) = stored.get(key) {
-                    any |= revise_value(stored, value, &at.field(key), warnings);
+                    revise_value(stored, value, &at.field(key), warnings);
                 }
             }
         }
         (JsonValue::Array(stored), JsonValue::Array(incoming)) => {
             for (i, (stored, value)) in stored.iter().zip(incoming.iter_mut()).enumerate() {
-                any |= revise_value(stored, value, &at.index(i), warnings);
+                revise_value(stored, value, &at.index(i), warnings);
             }
         }
         _ => {}
     }
-    any
 }
 
-/// Record every anchor of `stored` that `revised` does not hold in the same
-/// body or top-level field, at the address the stored card held it; all of
-/// them when the card was removed.
+/// Every anchor `stored` holds at `at` that `revised` does not hold there, in
+/// the order [`Document::to_markdown_annotated`] lists anchors; all of them
+/// when the card was removed.
 fn drop_report(
     stored: &Card,
     revised: Option<&Card>,
     at: &DocPath,
-    out: &mut Vec<DroppedAnchor>,
+    out: &mut Vec<DocumentAnchor>,
 ) {
-    let top = |f: &Option<Vec<PathSegment>>| f.as_ref().and_then(|segs| segs.first().cloned());
-    let survivors = revised.map(card_anchors).unwrap_or_default();
-    for (field, id) in card_anchors(stored) {
-        if !survivors.iter().any(|(f, i)| top(f) == top(&field) && i == &id) {
-            let path = match &field {
-                Some(segs) => segs.iter().fold(at.clone(), |p, seg| p.segment(seg)),
-                None => at.body(),
-            };
-            out.push(DroppedAnchor { path, id });
+    for (name, value) in stored.payload().iter() {
+        let revised = revised.and_then(|card| card.payload().get(name)).map(QuillValue::as_json);
+        drop_value(value.as_json(), revised, &at.field(name), out);
+    }
+    drop_content(stored.body(), revised.map(Card::body), &at.body(), out);
+}
+
+/// [`drop_report`] over a field's value: each content object in `stored`, at
+/// any depth, against what `revised` holds at its place. A content object
+/// stored out of canonical order counts too, though a revise lands over it as
+/// authored rather than rebasing it.
+fn drop_value(
+    stored: &JsonValue,
+    revised: Option<&JsonValue>,
+    at: &DocPath,
+    out: &mut Vec<DocumentAnchor>,
+) {
+    let content_of =
+        |value: &JsonValue| value.is_object().then(|| from_canonical_value(value).ok()).flatten();
+    if let Some(content) = content_of(stored) {
+        let anchored = content.marks.iter().any(|m| matches!(m.kind, MarkKind::Anchor { .. }));
+        if anchored {
+            let revised = revised.and_then(content_of);
+            drop_content(&content, revised.as_ref(), at, out);
         }
+        return;
     }
-}
-
-/// `(field, id)` for each anchor in the card: `None` for the body, and for a
-/// field the value path of the content object holding it, as the annotated
-/// read lists it.
-fn card_anchors(card: &Card) -> Vec<(Option<Vec<PathSegment>>, String)> {
-    let mut out: Vec<(Option<Vec<PathSegment>>, String)> = content_anchors(card.body())
-        .map(|id| (None, id))
-        .collect();
-    for (name, value) in card.payload().iter() {
-        let mut found = Vec::new();
-        value_anchors(value.as_json(), &mut vec![PathSegment::Key(name.clone())], &mut found);
-        out.extend(found.into_iter().map(|(path, id)| (Some(path), id)));
-    }
-    out
-}
-
-fn content_anchors(content: &Content) -> impl Iterator<Item = String> + '_ {
-    content.marks.iter().filter_map(|m| match &m.kind {
-        MarkKind::Anchor { id } => Some(id.clone()),
-        _ => None,
-    })
-}
-
-fn value_anchors(
-    value: &JsonValue,
-    path: &mut Vec<PathSegment>,
-    out: &mut Vec<(Vec<PathSegment>, String)>,
-) {
-    let children: Vec<(PathSegment, &JsonValue)> = match value {
-        JsonValue::Object(map) => match from_canonical_value(value) {
-            Ok(content) => {
-                out.extend(content_anchors(&content).map(|id| (path.clone(), id)));
-                return;
+    match stored {
+        JsonValue::Object(map) => {
+            for (key, value) in map {
+                drop_value(value, revised.and_then(|r| r.get(key)), &at.field(key), out);
             }
-            Err(_) => map.iter().map(|(k, v)| (PathSegment::Key(k.clone()), v)).collect(),
-        },
-        JsonValue::Array(items) => items.iter().enumerate().map(|(i, v)| (PathSegment::Index(i), v)).collect(),
-        _ => return,
-    };
-    for (seg, child) in children {
-        path.push(seg);
-        value_anchors(child, path, out);
-        path.pop();
+        }
+        JsonValue::Array(items) => {
+            for (i, value) in items.iter().enumerate() {
+                drop_value(value, revised.and_then(|r| r.get(i)), &at.index(i), out);
+            }
+        }
+        _ => {}
     }
+}
+
+fn drop_content(
+    stored: &Normalized,
+    revised: Option<&Normalized>,
+    at: &DocPath,
+    out: &mut Vec<DocumentAnchor>,
+) {
+    let kept: HashSet<&str> = revised
+        .into_iter()
+        .flat_map(|content| &content.marks)
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    out.extend(anchors_where(stored, |id| !kept.contains(id)).into_iter().map(|a| DocumentAnchor {
+        id: a.id,
+        path: at.clone(),
+        line: a.line,
+    }));
 }

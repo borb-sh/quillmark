@@ -86,7 +86,6 @@ impl Backend for AcroformBackend {
 
         let field_specs = resolve_field_specs(&bound, json_data);
         let raster = stamp_raster(&base_pdf, &field_specs)?;
-        let warnings = source.config().declined_in_plate(self.id(), json_data);
 
         Ok(LiveSession::new(
             Box::new(AcroformSession {
@@ -95,11 +94,10 @@ impl Backend for AcroformBackend {
                 field_specs,
                 canvas_boxes,
                 raster,
-                config: source.config().clone(),
-                warnings,
             }),
             source.config().clone(),
             today,
+            json_data,
         ))
     }
 }
@@ -153,9 +151,6 @@ struct AcroformSession {
     /// [`stamp_raster`] of `field_specs`: the canvas path holds pages rather
     /// than bytes to reparse per paint.
     raster: HayroPdf,
-    config: QuillConfig,
-    /// The current data's `backend::declined_construct` warnings.
-    warnings: Vec<quillmark_core::error::Diagnostic>,
 }
 
 impl SessionHandle for AcroformSession {
@@ -186,10 +181,6 @@ impl SessionHandle for AcroformSession {
 
     fn page_count(&self) -> usize {
         self.canvas_boxes.len()
-    }
-
-    fn warnings(&self) -> &[quillmark_core::error::Diagnostic] {
-        &self.warnings
     }
 
     fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
@@ -232,7 +223,11 @@ impl SessionHandle for AcroformSession {
 
     /// Specs and raster swap together only after both succeed. The background
     /// never changes, so field deltas are the only visible delta.
-    fn update(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
+    fn update(
+        &mut self,
+        _config: &QuillConfig,
+        json_data: &serde_json::Value,
+    ) -> Result<ChangeSet, RenderError> {
         let field_specs = resolve_field_specs(&self.bound, json_data);
         let raster = stamp_raster(&self.base_pdf, &field_specs)?;
 
@@ -248,7 +243,6 @@ impl SessionHandle for AcroformSession {
 
         self.field_specs = field_specs;
         self.raster = raster;
-        self.warnings = self.config.declined_in_plate("acroform", json_data);
 
         Ok(ChangeSet::new(self.canvas_boxes.len(), dirty_pages))
     }

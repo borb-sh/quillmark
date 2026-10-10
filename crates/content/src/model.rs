@@ -10,7 +10,6 @@ use crate::island::IslandType;
 use crate::normalize::{is_bidi_char, is_line_separator};
 use serde_json::Value as JsonValue;
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 
 /// A position in a [`Content`], counted in Unicode scalar values (USV): never
 /// bytes, never UTF-16 units. One astral char is 1 USV / 4 UTF-8 bytes / 2
@@ -155,29 +154,15 @@ impl LineKind {
     }
 }
 
-/// The key an element's payload bag holds its name under. No attribute name
-/// opens with `$`, so the two never collide.
+/// The key an element's payload bag holds its name under. Every attribute name
+/// opens with a letter, which sorts after `$`, so the name leads the bag.
 pub const ELEMENT_NAME: &str = "$name";
-
-/// An element's payload bag: its [`ELEMENT_NAME`] beside its attributes, keys
-/// ascending.
-fn element_bag(name: &str, attrs: &BTreeMap<String, String>) -> JsonValue {
-    let mut entries: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    entries.push((ELEMENT_NAME, name));
-    entries.sort_unstable();
-    JsonValue::Object(entries.into_iter().map(|(k, v)| (k.to_string(), v.into())).collect())
-}
 
 /// A payload bag from its entries, which must be listed in ascending key order:
 /// [`Content::normalize`] canonicalizes an opaque bag, and a minted one is
 /// canonical by construction.
-fn bag<const N: usize>(entries: [(&str, JsonValue); N]) -> JsonValue {
-    debug_assert!(entries.windows(2).all(|w| w[0].0 < w[1].0));
-    let mut m = serde_json::Map::with_capacity(N);
-    for (k, v) in entries {
-        m.insert(k.to_string(), v);
-    }
-    JsonValue::Object(m)
+fn bag<'a>(entries: impl IntoIterator<Item = (&'a str, JsonValue)>) -> JsonValue {
+    JsonValue::Object(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
 }
 
 /// Whether a payload bag holds nothing: the two spellings of "no payload" a
@@ -218,13 +203,11 @@ pub enum Container {
     /// A block quote. Adjacent lines sharing one `Quote` are one
     /// multi-paragraph quote; two adjacent quotes differ in `instance`.
     Quote { instance: u64 },
-    /// A `qm-*` carrier element around blocks (markdown-spec §6.4): `name`
-    /// the part of its tag after `qm-`, `attrs` its attributes as written.
-    /// The member is closed and its names open: any element name the carrier
+    /// A `qm-*` carrier element around blocks (markdown-spec §6.4). The
+    /// member is closed and its names open: any element name the carrier
     /// does not reserve is one, so a new name is no storage event.
     Element {
-        name: String,
-        attrs: BTreeMap<String, String>,
+        element: crate::carrier::Element,
         instance: u64,
     },
 }
@@ -273,21 +256,16 @@ impl Container {
                 ordinal,
                 checked,
                 ..
-            } => Cow::Owned(match checked {
-                Some(checked) => bag([
-                    ("checked", (*checked).into()),
-                    ("ordered", (*ordered).into()),
-                    ("ordinal", (*ordinal).into()),
-                    ("start", (*start).into()),
-                ]),
-                None => bag([
-                    ("ordered", (*ordered).into()),
-                    ("ordinal", (*ordinal).into()),
-                    ("start", (*start).into()),
-                ]),
-            }),
+            } => Cow::Owned(bag(checked.map(|c| ("checked", c.into())).into_iter().chain([
+                ("ordered", (*ordered).into()),
+                ("ordinal", (*ordinal).into()),
+                ("start", (*start).into()),
+            ]))),
             Container::Quote { .. } => Cow::Owned(JsonValue::Null),
-            Container::Element { name, attrs, .. } => Cow::Owned(element_bag(name, attrs)),
+            Container::Element { element, .. } => Cow::Owned(bag(
+                std::iter::once((ELEMENT_NAME, element.name().into()))
+                    .chain(element.attrs().iter().map(|(k, v)| (k.as_str(), v.as_str().into()))),
+            )),
         }
     }
 
@@ -320,10 +298,7 @@ impl Container {
                 },
             ) => a == c && b == d,
             (Container::Quote { .. }, Container::Quote { .. }) => true,
-            (
-                Container::Element { name: a, attrs: b, .. },
-                Container::Element { name: c, attrs: d, .. },
-            ) => a == c && b == d,
+            (Container::Element { element: a, .. }, Container::Element { element: b, .. }) => a == b,
             _ => false,
         }
     }
@@ -701,11 +676,6 @@ pub enum Invariant {
     /// depth is reported, since the check bails at the first over-deep
     /// container.
     JsonTooDeep { what: &'static str, max: usize },
-    /// A [`Container::Element`] the carrier does not
-    /// [model](crate::carrier::modeled). Both wires refuse it ahead of the
-    /// model ([`ParseError::Shape`](crate::serial::ParseError::Shape)), so only
-    /// a Rust caller spelling the element reaches this.
-    BadElement(crate::carrier::Refused),
 }
 
 /// Whether a line's text contradicts its `kind`, which [`Content::normalize`]
@@ -1099,11 +1069,6 @@ impl Content {
                     depth: line.containers.len(),
                     max: crate::MAX_NESTING_DEPTH,
                 });
-            }
-            for c in &line.containers {
-                if let Container::Element { name, attrs, .. } = c {
-                    crate::carrier::modeled(name, attrs).map_err(Invariant::BadElement)?;
-                }
             }
         }
         // Table-cell marks: the prose range rule again, but each mark is bounded
@@ -1573,35 +1538,28 @@ mod tests {
         );
     }
 
-    /// `validate` is what a store checks before it writes: an element it passes
-    /// loads back as itself, and one it refuses never does.
+    /// The carrier refuses at construction each element storage could not
+    /// read back, so every element a container holds loads back as itself.
     #[test]
-    fn validate_refuses_the_elements_storage_cannot_read_back() {
-        use crate::carrier::Refused;
-        let element = |name: &str, attr: &str| {
+    fn a_constructed_element_reads_back() {
+        use crate::carrier::{Element, Refused};
+        let element = |name: &str, attr: &str| Element::new(name, [(attr.to_string(), "v".to_string())].into());
+        for attr in ["note", "name"] {
             let mut line = Line::new(LineKind::Para);
-            line.containers = vec![Container::Element {
-                name: name.into(),
-                attrs: [(attr.to_string(), "v".to_string())].into(),
-                instance: 0,
-            }];
-            Content::new("x".into(), vec![line])
-        };
-        let cases = [
-            (element("keep", "note"), None),
-            (element("keep", "name"), None),
-            (element("Keep", "note"), Some(Refused::Name("Keep".into()))),
-            (element("table", "widths"), Some(Refused::Reserved("table".into()))),
-            (element("anchor", "ref"), Some(Refused::Reserved("anchor".into()))),
-            (element("keep", "style"), Some(Refused::Attr("style".into()))),
-            (element("keep", "$name"), Some(Refused::Attr("$name".into()))),
-        ];
-        for (content, refused) in cases {
-            let stored = content.clone().into_normalized();
+            line.containers = vec![Container::Element { element: element("keep", attr).unwrap(), instance: 0 }];
+            let stored = Content::new("x".into(), vec![line]).into_normalized();
             let loaded = crate::serial::from_canonical_value(&crate::serial::to_canonical_value(&stored));
-            let reads_back = loaded.as_ref() == Ok(&stored);
-            assert_eq!(reads_back, refused.is_none(), "{:?}", content.lines[0].containers);
-            assert_eq!(content.validate(), refused.map_or(Ok(()), |r| Err(Invariant::BadElement(r))));
+            assert_eq!(loaded.as_ref(), Ok(&stored), "{attr}");
+        }
+        let refused = [
+            (element("Keep", "note"), Refused::Name("Keep".into())),
+            (element("table", "widths"), Refused::Reserved("table".into())),
+            (element("anchor", "ref"), Refused::Reserved("anchor".into())),
+            (element("keep", "style"), Refused::Attr("style".into())),
+            (element("keep", "$name"), Refused::Attr("$name".into())),
+        ];
+        for (element, refused) in refused {
+            assert_eq!(element, Err(refused));
         }
     }
 

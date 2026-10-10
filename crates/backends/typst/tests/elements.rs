@@ -32,14 +32,6 @@ fn quill(plate: &str) -> Quill {
     )
 }
 
-/// A quill whose plate registers `plate` after placing the content.
-fn quill_registering_last(plate: &str) -> Quill {
-    common::quill_with_plate(
-        &common::yaml("main:\n  fields: {}\n"),
-        &format!("{PAGE}#data.at(\"$body\", default: [])\n{plate}"),
-    )
-}
-
 /// Each page's SVG.
 fn pages(quill: &Quill, markdown: &str) -> Vec<String> {
     let data = serde_json::json!({ "$body": content(markdown) });
@@ -68,26 +60,23 @@ fn the_plates_renderer_receives_the_attributes() {
 }
 
 /// The built-in `keep` moves a run that would break across pages to the next
-/// one whole.
+/// one whole, whatever the plate's registry holds.
 #[test]
 fn the_built_in_keep_keeps_its_run_on_one_page() {
     let filler = "line\n\n".repeat(3);
     let run = "one\n\ntwo\n\nthree";
     let kept = format!("{filler}<qm-keep>\n\n{run}\n\n</qm-keep>");
     let glyphs = |svg: &String| svg.matches("<use ").count();
-    let kept = pages(&quill(""), &kept);
     let bare = pages(&quill(""), &format!("{filler}{run}"));
-    assert!(
-        glyphs(&kept[0]) < glyphs(&bare[0]),
-        "the kept run leaves the first page: {} vs {}",
-        glyphs(&kept[0]),
-        glyphs(&bare[0])
-    );
-}
-
-#[test]
-fn a_renderer_registered_after_the_content_still_renders_it() {
-    assert_eq!(pages(&quill_registering_last(STAMP), STAMPED), pages(&quill(STAMP), STAMPED));
+    for plate in ["", "#elements.update((stamp: (attrs, body) => body))\n"] {
+        let kept = pages(&quill(plate), &kept);
+        assert!(
+            glyphs(&kept[0]) < glyphs(&bare[0]),
+            "under {plate:?} the kept run leaves the first page: {} vs {}",
+            glyphs(&kept[0]),
+            glyphs(&bare[0])
+        );
+    }
 }
 
 const UNREGISTERED: &str = "typst::unregistered_element";
@@ -126,14 +115,4 @@ fn an_element_no_renderer_takes_warns_at_its_field() {
     assert!(warned[0].message.contains("`qm-kep`"), "{}", warned[0].message);
     let hint = warned[0].hint.as_deref().unwrap_or_default();
     assert!(hint.contains("`qm-keep`") && hint.contains("`qm-stamp`"), "{hint}");
-}
-
-/// A plate that means a name to draw as plain content registers the identity
-/// renderer, which silences the warning and draws what the marker drew.
-#[test]
-fn the_identity_renderer_silences_the_warning_and_moves_no_ink() {
-    let identity = "#elements.update(e => e + (stamp: (attrs, body) => body))\n";
-    assert_eq!(unregistered(&quill(""), STAMPED).len(), 1);
-    assert!(unregistered(&quill(identity), STAMPED).is_empty());
-    assert_eq!(pages(&quill(identity), STAMPED), pages(&quill(""), STAMPED));
 }

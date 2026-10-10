@@ -14,19 +14,19 @@ use crate::version::QuillReference;
 use crate::error::{Diagnostic, Severity};
 
 pub(crate) fn import_body(md: &str) -> Result<Normalized, ImportError> {
-    import_body_warned(md).map(|imported| imported.content)
+    import_markdown(md).map(|imported| imported.content)
 }
 
-/// [`import_body`] keeping the import's warnings.
-pub(crate) fn import_body_warned(md: &str) -> Result<Imported, ImportError> {
-    if md.is_empty() {
-        Ok(Imported {
-            content: Normalized::empty(),
-            warnings: Vec::new(),
-        })
-    } else {
-        import_markdown(md)
-    }
+/// [`import_body`], pushing a [`dropped_construct`] warning at `at` for each
+/// construct the import drops.
+pub(crate) fn import_body_at(
+    md: &str,
+    at: &crate::path::DocPath,
+    warnings: &mut Vec<Diagnostic>,
+) -> Result<Normalized, ImportError> {
+    let imported = import_markdown(md)?;
+    warnings.extend(dropped_constructs(imported.warnings, Some(at)));
+    Ok(imported.content)
 }
 
 /// The diagnostic code a markdown import's dropped construct rides.
@@ -37,7 +37,7 @@ pub const DROPPED_CONSTRUCT: &str = "parse::dropped_construct";
 /// knows the field's address attaches it. Non-fatal: the rest of the markdown
 /// imports.
 pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
-    let ImportWarning::DroppedConstruct { construct, count } = warning;
+    let ImportWarning { construct, count } = warning;
     let (message, hint) = dropped_message(&construct, count);
     let mut args = std::collections::BTreeMap::new();
     args.insert("construct".to_string(), construct.to_string().into());
@@ -48,10 +48,36 @@ pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
         .with_args(args)
 }
 
+/// One [`dropped_construct`] per warning, each at `at` when given.
+pub fn dropped_constructs(
+    warnings: Vec<ImportWarning>,
+    at: Option<&crate::path::DocPath>,
+) -> Vec<Diagnostic> {
+    let at = at.map(ToString::to_string);
+    warnings
+        .into_iter()
+        .map(|w| match &at {
+            Some(at) => dropped_construct(w).with_path(at.clone()),
+            None => dropped_construct(w),
+        })
+        .collect()
+}
+
+/// `words` each in backticks, joined by commas and `last` before the final one.
+fn listed(words: &[&str], last: &str) -> String {
+    let ticked: Vec<String> = words.iter().map(|w| format!("`{w}`")).collect();
+    match ticked.split_last() {
+        Some((tail, [])) => tail.clone(),
+        Some((tail, init)) => format!("{} {last} {tail}", init.join(", ")),
+        None => String::new(),
+    }
+}
+
 /// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
 /// the spelling that keeps it.
 fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
-    use quillmark_content::carrier::RESERVED_ATTRS;
+    use quillmark_content::carrier::{CELL, RESERVED_ATTRS, TABLE};
+    use quillmark_content::island::{CELL_KEYS, TABLE_ALIGNS, TABLE_KEYS};
     const TIGHT: &str = "Markdown on the lines under a tag line drops with it, up to the next blank line.";
     const BESIDE: &str =
         "A tag line beside a line of other tags drops with the markdown under it, up to the next blank line.";
@@ -71,6 +97,8 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
         )
     };
     let tag = construct.to_string();
+    let table = Dropped::Element(TABLE.into()).to_string();
+    let cell = Dropped::Element(CELL.into()).to_string();
     match construct {
         Dropped::Footnote => (
             format!(
@@ -81,26 +109,25 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              `[^label]` reference stays as written. Put the note in the prose instead."
                 .to_string(),
         ),
-        Dropped::TableAttr(attr) => attr_dropped(
-            "qm-table",
+        Dropped::ElementAttr { element, attr } if element == TABLE => attr_dropped(
+            &table,
             attr,
             match attr.as_str() {
                 "widths" => {
                     "`widths` is a whole number from 1 to 2^53 - 1, or `auto`, per column, such as `widths=\"2 1 auto\"`."
                         .to_string()
                 }
-                "align" => "`align` is `left`, `center` or `right`.".to_string(),
-                "headless" => "`headless` takes no value: `<qm-table headless>`.".to_string(),
-                _ => "`<qm-table>` takes `widths`, `align` and `headless`.".to_string(),
+                "align" => format!("`align` is {}.", listed(&TABLE_ALIGNS, "or")),
+                "headless" => format!("`headless` takes no value: `<{table} headless>`."),
+                _ => format!("`<{table}>` takes {}.", listed(&TABLE_KEYS, "and")),
             },
         ),
-        Dropped::ElementAttr { element, attr } if element == "cell" => attr_dropped(
-            "qm-cell",
+        Dropped::ElementAttr { element, attr } if element == CELL => attr_dropped(
+            &cell,
             attr,
-            match attr.as_str() {
-                "align" => "`align` is `left`, `center` or `right`.".to_string(),
-                "valign" => "`valign` is `top`, `middle` or `bottom`.".to_string(),
-                _ => "`<qm-cell>` takes `align` and `valign`.".to_string(),
+            match CELL_KEYS.iter().find(|(key, _)| key == attr) {
+                Some((key, set)) => format!("`{key}` is {}.", listed(set, "or")),
+                None => format!("`<{cell}>` takes {}.", listed(&CELL_KEYS.map(|(key, _)| key), "and")),
             },
         ),
         Dropped::ElementAttr { element, attr } => attr_dropped(
@@ -112,12 +139,12 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 RESERVED_ATTRS.join("`, `")
             ),
         ),
-        Dropped::Table => (
+        Dropped::Element(name) if name == TABLE => (
             format!(
                 "markdown import dropped {} in this field",
-                some("`<qm-table>` wrapper", "`<qm-table>` wrappers")
+                some(&format!("`<{table}>` wrapper"), &format!("`<{table}>` wrappers"))
             ),
-            format!("A `<qm-table>` wraps exactly one pipe table, each of its two tags on a line of its own. {BESIDE}"),
+            format!("A `<{table}>` wraps exactly one pipe table, each of its two tags on a line of its own. {BESIDE}"),
         ),
         Dropped::BadName(_) => (
             format!(
@@ -129,14 +156,15 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                  opening with a letter. {TIGHT}"
             ),
         ),
-        Dropped::Element(name) if name == "cell" => (
+        Dropped::Element(name) if name == CELL => (
             format!(
                 "markdown import dropped {} in this field",
-                some("`<qm-cell>` pair", "`<qm-cell>` pairs")
+                some(&format!("`<{cell}>` pair"), &format!("`<{cell}>` pairs"))
             ),
-            "A `<qm-cell>` pair wraps a table cell's whole content, such as \
-             `| <qm-cell align=\"right\">42</qm-cell> |`, with nothing before its open tag or after its close."
-                .to_string(),
+            format!(
+                "A `<{cell}>` pair wraps a table cell's whole content, such as \
+                 `| <{cell} align=\"right\">42</{cell}> |`, with nothing before its open tag or after its close."
+            ),
         ),
         Dropped::Element(_) => (
             format!(
@@ -196,7 +224,7 @@ impl ContentDecodeError {
 /// A content codec: which authored string a [`Content`](quillmark_content::model::Content) field accepts, and which
 /// text a stored content projects back to. Both codecs also accept a canonical
 /// content object, so a codec is exactly the string end of the round trip. The
-/// declared type names one (`reader::content_codec`), and every schema-bound
+/// declared type names one (`FieldType::codec`), and every schema-bound
 /// content read and projection runs the codec it names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Codec {
@@ -227,23 +255,28 @@ impl Codec {
     }
 
     /// Decode a JSON value in either accepted encoding: a canonical content
-    /// object, or an authored string read this codec's way. `None` when the value
-    /// is neither an object nor a string; the call site handles those shapes and
-    /// maps the error into its own type.
+    /// object, or an authored string read this codec's way, with what a
+    /// markdown import dropped (none from an object or literal text). `None`
+    /// when the value is neither an object nor a string; the call site handles
+    /// those shapes and maps the error into its own type.
     pub(crate) fn decode_value(
         self,
         value: &serde_json::Value,
-    ) -> Option<Result<Normalized, ContentDecodeError>> {
+    ) -> Option<Result<Imported, ContentDecodeError>> {
+        let whole = |content| Imported {
+            content,
+            warnings: Vec::new(),
+        };
         match value {
             serde_json::Value::Object(_) => Some(
                 quillmark_content::serial::from_canonical_value(value)
+                    .map(whole)
                     .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             ),
             serde_json::Value::String(s) => Some(match self {
-                Codec::Richtext => {
-                    import_body(s).map_err(|e| ContentDecodeError::BadMarkdown(e.to_string()))
-                }
-                Codec::Plaintext => Ok(quillmark_content::import::from_plaintext(s)),
+                Codec::Richtext => import_markdown(s)
+                    .map_err(|e| ContentDecodeError::BadMarkdown(e.to_string())),
+                Codec::Plaintext => Ok(whole(quillmark_content::import::from_plaintext(s))),
             }),
             _ => None,
         }
@@ -274,7 +307,7 @@ impl Codec {
         value: &serde_json::Value,
     ) -> Result<Normalized, ContentDecodeError> {
         match self.decode_value(value) {
-            Some(result) => result,
+            Some(result) => result.map(|imported| imported.content),
             None if value.is_null() => Ok(Normalized::empty()),
             None => Err(ContentDecodeError::NotContent(self.unshaped_message(value))),
         }
@@ -303,21 +336,21 @@ pub(crate) enum RichtextValueError {
 }
 
 /// The contract for a richtext value that must *become* stored content: decode
-/// either accepted encoding, enforce `inline`, canonicalize. The strict typed
-/// write and the schema-literal companion cache share it and differ only in the
-/// diagnostic they render from the error.
+/// either accepted encoding, enforce `inline`, canonicalize, and hand back what
+/// the import dropped. The strict typed write and the schema-literal companion
+/// cache share it and differ only in the diagnostic they render from the error.
 pub(crate) fn canonical_richtext_value(
     value: &serde_json::Value,
     inline: bool,
-) -> Result<serde_json::Value, RichtextValueError> {
-    let content = match Codec::Richtext.decode_value(value) {
+) -> Result<(serde_json::Value, Vec<ImportWarning>), RichtextValueError> {
+    let Imported { content, warnings } = match Codec::Richtext.decode_value(value) {
         Some(result) => result.map_err(RichtextValueError::Decode)?,
         None => return Err(RichtextValueError::Unshaped),
     };
     if inline && !content.is_inline() {
         return Err(RichtextValueError::NotInline);
     }
-    Ok(quillmark_content::serial::to_canonical_value(&content))
+    Ok((quillmark_content::serial::to_canonical_value(&content), warnings))
 }
 
 /// Whether an `inline` refusal of plain content is one line plus the empty line
@@ -344,7 +377,7 @@ pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_112_0, STORAGE_V0_115_0,
     STORAGE_V0_116_0, STORAGE_V0_124_0, STORAGE_V0_93_0,
 };
-pub use edit::{CardMut, EditError, Revised};
+pub use edit::{revise_import, CardMut, EditError, Revised};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::import::ImportError;
@@ -352,7 +385,7 @@ pub use quillmark_content::import::ImportError;
 pub use quillmark_content::import::{Dropped, ImportWarning};
 pub use meta::{is_valid_kind_name, validate_composable_kind, CardKindError};
 pub use payload::{MetaKey, Payload, PayloadItem};
-pub use revise::{DocumentRevised, DroppedAnchor};
+pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};

@@ -369,7 +369,24 @@ pub fn validate_typed_document(
     config: &QuillConfig,
     doc: &Document,
 ) -> Result<(), Vec<ValidationError>> {
-    let mut errors = validate_fields_for_card(&config.main, doc.main().payload(), &DocPath::main());
+    let errors = validate_document_values(config, doc, &mut Vec::new());
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// [`validate_typed_document`]'s errors, pushing onto `drops` one
+/// `parse::dropped_construct` per construct a `richtext` markdown string drops
+/// on the import the render floor runs, at the string's path.
+pub(crate) fn validate_document_values(
+    config: &QuillConfig,
+    doc: &Document,
+    drops: &mut Vec<Diagnostic>,
+) -> Vec<ValidationError> {
+    let mut errors =
+        validate_fields_for_card(&config.main, doc.main().payload(), &DocPath::main(), drops);
 
     // A card no declared kind claims has no field to judge, and a body under
     // `body.enabled: false` no place to fill: both render without the input
@@ -385,20 +402,17 @@ pub fn validate_typed_document(
             card_schema,
             card.payload(),
             &DocPath::card(Some(kind), index),
+            drops,
         ));
     }
-
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    errors
 }
 
 fn validate_fields_for_card(
     card: &CardSchema,
     fields: &Payload,
     base: &DocPath,
+    drops: &mut Vec<Diagnostic>,
 ) -> Vec<ValidationError> {
     let mut errors = Vec::new();
     let mut field_names: Vec<&String> = card.fields.keys().collect();
@@ -409,7 +423,7 @@ fn validate_fields_for_card(
         let path = base.field(field_name);
         // Absence is never malformed.
         if let Some(value) = fields.get(field_name) {
-            errors.extend(validate_field(schema, value, &path));
+            errors.extend(validate_value(schema, value, &path, ValueContext::Document, drops));
         }
     }
 
@@ -444,6 +458,7 @@ fn validate_value(
     value: &QuillValue,
     path: &DocPath,
     ctx: ValueContext,
+    drops: &mut Vec<Diagnostic>,
 ) -> Vec<ValidationError> {
     // Null ≡ absent: a present-null value in a document is treated as omitted
     // (no type error).
@@ -456,26 +471,36 @@ fn validate_value(
     // domain violation to `<path>.value`, a key the author never wrote.
     // `validate_variant` reads both shapes and conforms each live cell.
     if field.is_variant_bearing() {
-        return validate_variant(field, value, path, ctx);
+        return validate_variant(field, value, path, ctx, drops);
     }
 
+    let is_container = matches!(
+        field.r#type,
+        FieldType::Array | FieldType::Object | FieldType::Matrix { .. }
+    );
     let conformed = match ctx {
-        ValueContext::Document => Some(super::QuillConfig::conform_value(
-            value,
-            field,
-            &path.to_string(),
-            super::config::Leniency::Render,
-        )),
+        ValueContext::Document => {
+            let mut conform_drops = Vec::new();
+            let conformed = super::QuillConfig::conform_value(
+                value,
+                field,
+                path,
+                super::config::Leniency::Render,
+                &mut conform_drops,
+            );
+            // A refused container's leaves re-conform in the recursion below,
+            // which reports their drops.
+            if conformed.is_ok() || !is_container {
+                drops.extend(conform_drops);
+            }
+            Some(conformed)
+        }
         ValueContext::SchemaLiteral => None,
     };
     // A container's refusal belongs to the element or property that caused it,
     // which the recursion below reaches at its own path; a leaf's refusal is
     // this path's.
-    let floor_refused = matches!(conformed, Some(Err(_)))
-        && !matches!(
-            field.r#type,
-            FieldType::Array | FieldType::Object | FieldType::Matrix { .. }
-        );
+    let floor_refused = matches!(conformed, Some(Err(_))) && !is_container;
     let conformed = conformed.and_then(Result::ok);
     let value = conformed.as_ref().unwrap_or(value);
 
@@ -529,6 +554,7 @@ fn validate_value(
                             &QuillValue::from_json(item.clone()),
                             &row_path,
                             ctx,
+                            drops,
                         ));
                     }
                 }
@@ -569,6 +595,7 @@ fn validate_value(
                                 &QuillValue::from_json(serde_json::Value::Object(cells)),
                                 &member_path,
                                 ctx,
+                                drops,
                             ));
                         }
                         tick => errors.extend(validate_value(
@@ -576,6 +603,7 @@ fn validate_value(
                             &QuillValue::from_json(tick.clone()),
                             &member_path,
                             ctx,
+                            drops,
                         )),
                     }
                 }
@@ -598,6 +626,7 @@ fn validate_value(
                                 &QuillValue::from_json(property_value.clone()),
                                 &property_path,
                                 ctx,
+                                drops,
                             ));
                         }
                     }
@@ -618,7 +647,7 @@ fn validate_value(
                 let parsed = crate::document::Codec::Richtext
                     .decode_value(value.as_json())
                     .and_then(Result::ok);
-                if let Some(rt) = parsed {
+                if let Some(rt) = parsed.map(|imported| imported.content) {
                     if !rt.is_inline() {
                         errors.push(ValidationError::NotInline {
                             path: path.to_string(),
@@ -633,6 +662,7 @@ fn validate_value(
                 if let Some(rt) = crate::document::Codec::Plaintext
                     .decode_value(value.as_json())
                     .and_then(Result::ok)
+                    .map(|imported| imported.content)
                 {
                     if !rt.is_plain() {
                         errors.push(ValidationError::NotPlain {
@@ -716,6 +746,7 @@ fn validate_variant(
     value: &QuillValue,
     path: &DocPath,
     ctx: ValueContext,
+    drops: &mut Vec<Diagnostic>,
 ) -> Vec<ValidationError> {
     let mut errors = Vec::new();
     let json = value.as_json();
@@ -819,6 +850,7 @@ fn validate_variant(
                     &QuillValue::from_json(cell.clone()),
                     &path.field(name),
                     ctx,
+                    drops,
                 ));
             }
         }
@@ -833,7 +865,7 @@ pub(crate) fn validate_field(
     value: &QuillValue,
     path: &DocPath,
 ) -> Vec<ValidationError> {
-    validate_value(field, value, path, ValueContext::Document)
+    validate_value(field, value, path, ValueContext::Document, &mut Vec::new())
 }
 
 /// Validate a schema literal value (a `default:` declared in Quill.yaml)
@@ -848,7 +880,7 @@ pub(crate) fn validate_schema_literal(
     value: &QuillValue,
     path: &DocPath,
 ) -> Vec<ValidationError> {
-    validate_value(schema, value, path, ValueContext::SchemaLiteral)
+    validate_value(schema, value, path, ValueContext::SchemaLiteral, &mut Vec::new())
 }
 
 #[cfg(test)]

@@ -184,6 +184,17 @@ pub enum EscapeCtx {
     Indent,
 }
 
+#[cfg(test)]
+impl EscapeCtx {
+    pub(crate) fn escape(self, s: &str) -> String {
+        match self {
+            EscapeCtx::Markup => escape_markup(s),
+            EscapeCtx::StringLit => escape_string(s),
+            EscapeCtx::Indent => escape_indent(s),
+        }
+    }
+}
+
 /// `(content_chars, byte_len)` for the cluster at byte `i` of `generated`. Reads
 /// the escape structure back off the generated text: a lone `\/` only ever
 /// arises from the `//` coupling, `\X` escapes are self-delimiting, and `\u{..}`
@@ -454,8 +465,8 @@ impl<'a> Emit<'a> {
                 self.emit_quote(i..j, depth);
                 Some(j)
             }
-            Container::Element { name, attrs, .. } => {
-                self.emit_element(i..j, depth, name, attrs);
+            Container::Element { element, .. } => {
+                self.emit_element(i..j, depth, element.name(), element.attrs());
                 Some(j)
             }
         }
@@ -545,7 +556,7 @@ impl<'a> Emit<'a> {
         self.head_inline = true;
         self.indent.push_str("  ");
         if let Some(done) = checked {
-            self.out.push_str(task_open(done));
+            self.out.push_str(&task_open(done));
         }
         self.emit_item_body(range, depth + 1);
         if checked.is_some() {
@@ -706,7 +717,7 @@ impl<'a> Emit<'a> {
             s.is_empty() || s.ends_with('\n')
         };
         head(&self.out)
-            || [true, false].iter().any(|&done| self.out.ends_with(task_open(done)))
+            || [true, false].iter().any(|&done| self.out.ends_with(&task_open(done)))
             || ["- ", "+ "]
                 .iter()
                 .any(|m| self.out.strip_suffix(m).is_some_and(head))
@@ -992,7 +1003,7 @@ fn emit_run(
         && !codes.iter().any(|&(s, e)| s < pos && pos <= e)
     {
         let g0 = out.len();
-        out.push_str(&escape_indent(" "));
+        out.push('~');
         let g1 = out.len();
         return (pos + 1, Tail::Text, (pos..pos + 1, g0..g1, EscapeCtx::Indent));
     }
@@ -1014,12 +1025,8 @@ fn emit_run(
 
 /// A task item's body opens as the content block of this call, the helper's
 /// `_qm-task(done, body)`.
-fn task_open(done: bool) -> &'static str {
-    if done {
-        "#_qm-task(true)["
-    } else {
-        "#_qm-task(false)["
-    }
+fn task_open(done: bool) -> String {
+    format!("#_qm-task({done})[")
 }
 
 /// A `\n` at `pos` lowers to `#linebreak()`: the step a sweep callback takes
@@ -1056,8 +1063,9 @@ fn cell_markup(text: &str, marks: &[Mark]) -> String {
 ///
 /// - `widths`: `columns: (2fr, auto)` in place of `columns: 2`.
 /// - `align`: `align(center, table(…))` under `context`, where each cell
-///   aligning by default takes the alignment the table stands in, so placing a
-///   table moves no text inside it.
+///   aligning by default is set to the horizontal alignment the table stands
+///   in, so placing a table moves no text inside it, save a horizontal
+///   alignment the plate's own `table.cell` show rule sets.
 /// - a cell's `align` and `valign`: `table.cell(align: right + bottom)[…]`,
 ///   which Typst folds with its column's alignment.
 /// - `headless`: the header row as the first body row, outside `table.header`.
@@ -1082,13 +1090,7 @@ fn table_markup(props: &serde_json::Value) -> String {
         return String::new();
     }
 
-    let placement = props
-        .get("align")
-        .and_then(Value::as_str)
-        .filter(|a| quillmark_content::island::TABLE_ALIGNS.contains(a));
-    // Placed, the table is a call under `context`, so a cell aligning by default
-    // reads the alignment outside the placement rather than the placement's.
-    let inherited = "align.alignment";
+    let layout = quillmark_content::island::TableLayout::of(props);
 
     let cell = |v: &Value| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
@@ -1103,10 +1105,10 @@ fn table_markup(props: &serde_json::Value) -> String {
     };
 
     let mut out = String::from("table(\n");
-    match props.get("widths").and_then(Value::as_array) {
+    match &layout.widths {
         Some(weights) => {
             let tracks: Vec<String> = (0..cols)
-                .map(|i| match weights.get(i).and_then(Value::as_u64) {
+                .map(|i| match weights.get(i).copied().flatten() {
                     Some(n) => format!("{n}fr"),
                     None => "auto".to_string(),
                 })
@@ -1126,17 +1128,12 @@ fn table_markup(props: &serde_json::Value) -> String {
                 "left" => "left",
                 "center" => "center",
                 "right" => "right",
-                _ if placement.is_some() => inherited,
                 _ => "auto",
             });
         }
         out.push_str("),\n");
-    } else if placement.is_some() {
-        out.push_str(&format!(
-            "  align: if table.align == auto {{ {inherited} }} else {{ table.align }},\n"
-        ));
     }
-    let headless = props.get("headless") == Some(&Value::Bool(true));
+    let headless = layout.headless;
     out.push_str(if headless { "  " } else { "  table.header(" });
     if let Some(h) = header {
         for c in h {
@@ -1158,8 +1155,8 @@ fn table_markup(props: &serde_json::Value) -> String {
         }
     }
     out.push(')');
-    match placement {
-        Some(at) => format!("#context align({at}, {out})"),
+    match layout.align {
+        Some(at) => format!("#context {{ show table.cell: set align(align.alignment.x); align({at}, {out}) }}"),
         None => format!("#{out}"),
     }
 }
@@ -1425,14 +1422,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn formatted_table_cell_renders_marks() {
-        let md = "| Name | Note |\n|------|------|\n| **bold** | _italic_ |";
-        let got = emit(md).markup;
-        assert!(got.contains("#strong[bold]"), "got {got:?}");
-        assert!(got.contains("#emph[italic]"), "got {got:?}");
-    }
-
     /// Coincident `strong`+`emph` lose their source nesting order at import, so
     /// the emitter nests them in the order the canonical form stores.
     #[test]
@@ -1490,12 +1479,7 @@ mod tests {
             }
         }
         let s = chars[i].to_string();
-        let bytes = match ctx {
-            EscapeCtx::Markup => escape_markup(&s),
-            EscapeCtx::Indent => escape_indent(&s),
-            EscapeCtx::StringLit => escape_string(&s),
-        };
-        (1, bytes)
+        (1, ctx.escape(&s))
     }
 
     /// Reconstructs a run's generated bytes cluster by cluster, for
@@ -1847,11 +1831,7 @@ mod tests {
                 assert!(seg.generated.start <= seg.generated.end && seg.generated.end <= ec.markup.len());
                 for (content, generated, ctx) in &seg.runs {
                     let src: String = chars[content.clone()].iter().collect();
-                    let expect = match ctx {
-                        EscapeCtx::Markup => escape_markup(&src),
-                        EscapeCtx::StringLit => escape_string(&src),
-                        EscapeCtx::Indent => escape_indent(&src),
-                    };
+                    let expect = ctx.escape(&src);
                     assert_eq!(
                         &ec.markup[generated.clone()],
                         expect,
@@ -2011,110 +1991,6 @@ mod tests {
     }
 
     #[test]
-    fn the_layout_keys_lower_to_typst() {
-        let props = serde_json::json!({
-            "header": [
-                { "text": "a", "marks": [] },
-                { "text": "b", "marks": [] },
-            ],
-            "rows": [[{ "text": "1", "marks": [] }, { "text": "2", "marks": [] }]],
-            "aligns": ["none", "left"],
-            "widths": [2, null],
-            "align": "center",
-        });
-        assert_eq!(
-            table_markup(&props),
-            "#context align(center, table(\n  columns: (2fr, auto),\n  \
-             align: (align.alignment, left),\n  \
-             table.header([a], [b], ),\n  \
-             [1], [2], \n))"
-        );
-    }
-
-    /// A headless table's header row lowers as its first body row.
-    #[test]
-    fn a_headless_table_lowers_no_header() {
-        let props = serde_json::json!({
-            "header": [{ "text": "a", "marks": [], "align": "right" }, { "text": "b", "marks": [] }],
-            "rows": [[{ "text": "1", "marks": [] }, { "text": "2", "marks": [] }]],
-            "headless": true,
-        });
-        assert_eq!(
-            table_markup(&props),
-            "#table(\n  columns: 2,\n  \
-             table.cell(align: right)[a], [b], \n  \
-             [1], [2], \n)"
-        );
-    }
-
-    /// A cell's alignment in its set lowers to `table.cell`, `middle` as
-    /// Typst's `horizon`; a value outside its set lowers as absent.
-    #[test]
-    fn a_cells_alignment_lowers_to_table_cell() {
-        let props = serde_json::json!({
-            "header": [{ "text": "a", "marks": [], "align": "center" }, { "text": "b", "marks": [] }],
-            "rows": [
-                [{ "text": "1", "marks": [], "valign": "middle" }, { "text": "2", "marks": [], "align": "right", "valign": "bottom" }],
-                [{ "text": "3", "marks": [], "align": "middle", "valign": "horizon" }, { "text": "4", "marks": [{ "start": 0, "end": 1, "type": "strong" }], "valign": "top" }],
-            ],
-            "aligns": ["none", "left"],
-        });
-        assert_eq!(
-            table_markup(&props),
-            "#table(\n  columns: 2,\n  align: (auto, left),\n  \
-             table.header(table.cell(align: center)[a], [b], ),\n  \
-             table.cell(align: horizon)[1], table.cell(align: right + bottom)[2], \n  \
-             [3], table.cell(align: top)[#strong[4]], \n)"
-        );
-    }
-
-    /// Placed with no column aligned, a cell takes the plate's `table.align`,
-    /// else the alignment the table stands in.
-    #[test]
-    fn a_placed_table_without_column_aligns_inherits_the_cells_alignment() {
-        let props = serde_json::json!({
-            "header": [{ "text": "a", "marks": [] }],
-            "rows": [],
-            "aligns": ["none"],
-            "align": "right",
-        });
-        assert_eq!(
-            table_markup(&props),
-            "#context align(right, table(\n  columns: 1,\n  \
-             align: if table.align == auto { align.alignment } else { table.align },\n  \
-             table.header([a], ),\n))"
-        );
-    }
-
-    fn emit_md(md: &str) -> String {
-        let rt = from_markdown(md).expect("import").content;
-        emit_content(&rt).expect("emit").markup
-    }
-
-    /// A block element lowers through the dispatcher around its run, inside a
-    /// list item as at the top; adjacent runs are adjacent calls.
-    #[test]
-    fn a_block_element_lowers_through_the_dispatcher() {
-        let cases = [
-            (
-                "<qm-keep note=\"x\">\n\npara\n\n</qm-keep>",
-                "#_qm-element(\"keep\", (\"note\": \"x\"))[\npara\n\n]\n\n",
-            ),
-            (
-                "- a\n- <qm-keep>\n\n  b\n\n  - c\n\n  </qm-keep>",
-                "- a\n- #_qm-element(\"keep\", (:))[\n  b\n\n  - c\n  ]\n\n\n",
-            ),
-            (
-                "<qm-keep>\n\na\n\n</qm-keep>\n<qm-keep>\n\nb\n\n</qm-keep>",
-                "#_qm-element(\"keep\", (:))[\na\n\n]\n\n#_qm-element(\"keep\", (:))[\nb\n\n]\n\n",
-            ),
-        ];
-        for (md, want) in cases {
-            assert_eq!(emit_md(md), want, "{md:?}");
-        }
-    }
-
-    #[test]
     fn empty_table_emits_nothing() {
         let props = serde_json::json!({ "header": [], "aligns": [], "rows": [] });
         assert_eq!(table_markup(&props), "");
@@ -2200,11 +2076,7 @@ mod tests {
         for seg in &ec.segments {
             for (content, generated, ctx) in &seg.runs {
                 let src: String = chars[content.clone()].iter().collect();
-                let expect = match ctx {
-                    EscapeCtx::Markup => escape_markup(&src),
-                    EscapeCtx::StringLit => escape_string(&src),
-                    EscapeCtx::Indent => escape_indent(&src),
-                };
+                let expect = ctx.escape(&src);
                 assert_eq!(&ec.markup[generated.clone()], expect, "run slices to its escape");
             }
         }

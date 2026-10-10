@@ -57,16 +57,6 @@ pub fn declines(id: &str) -> &'static [BlockConstruct] {
     }
 }
 
-/// Each construct the backend `id` [`declines`] that `content` holds, with its
-/// count, in [`BlockConstruct`] order.
-pub fn declined_in(id: &str, content: &crate::Content) -> Vec<(BlockConstruct, usize)> {
-    declines(id)
-        .iter()
-        .map(|&c| (c, c.count_in(content)))
-        .filter(|&(_, n)| n > 0)
-        .collect()
-}
-
 /// The warning a backend owes a content field holding a construct it typesets
 /// nothing for: `count` of `construct` in the field `path` anchors, from
 /// `backend`. One diagnostic per (field, construct), so a producer that sees
@@ -82,7 +72,7 @@ pub fn declined_construct(
     args.insert("backend".to_string(), backend.into());
     args.insert("construct".to_string(), construct.as_str().into());
     args.insert("count".to_string(), count.into());
-    crate::error::Diagnostic::new(
+    let diag = crate::error::Diagnostic::new(
         crate::error::Severity::Warning,
         format!(
             "the {backend} backend does not typeset {}: {count} in this field \
@@ -92,12 +82,20 @@ pub fn declined_construct(
     )
     .with_code(DECLINED_CONSTRUCT.to_string())
     .with_path(path.to_string())
-    .with_args(args)
+    .with_args(args);
+    match (backend, construct) {
+        ("typst", BlockConstruct::Image) => diag.with_hint(
+            "a content image's url resolves to nothing; a plate draws a \
+             quill asset with `#image(\"/assets/…\")`"
+                .to_string(),
+        ),
+        _ => diag,
+    }
 }
 
 /// English enough for the engine's own sentence; a consumer wording this
 /// itself reads `construct` and `count` off `args` instead.
-pub(crate) fn plural(construct: BlockConstruct, count: usize) -> String {
+fn plural(construct: BlockConstruct, count: usize) -> String {
     let (one, name) = match construct {
         BlockConstruct::Heading => ("a", "heading"),
         BlockConstruct::Rule => ("a", "horizontal rule"),

@@ -5,6 +5,7 @@
 //! block are literal content, so a backtick fence writes one in prose.
 
 use crate::error::ParseError;
+use quillmark_content::normalize::fence_opener;
 use crate::error::{Diagnostic, Severity};
 
 use super::assemble::MetadataBlock;
@@ -61,34 +62,13 @@ pub(super) fn code_fence_on_line(
     line: &str,
     open_fence: Option<(u8, usize)>,
 ) -> Option<(u8, usize, bool)> {
-    let indent = line.as_bytes().iter().take_while(|&&b| b == b' ').count();
-    if indent > 3 {
-        return None;
-    }
-    let trimmed = &line[indent..];
-    let bytes = trimmed.as_bytes();
-    let &first = bytes.first()?;
-
-    if first != b'`' && first != b'~' {
-        return None;
-    }
-    let run_len = bytes.iter().take_while(|&&b| b == first).count();
-    if run_len < 3 {
-        return None;
-    }
-    let rest = &trimmed[run_len..];
+    let (c, n, info) = fence_opener(line)?;
     match open_fence {
-        Some((open_char, open_len)) => {
-            if first == open_char
-                && run_len >= open_len
-                && rest.chars().all(|c| c == ' ' || c == '\t')
-            {
-                Some((first, run_len, true))
-            } else {
-                None
-            }
-        }
-        None => Some((first, run_len, false)),
+        Some((open_char, open_len)) => (c == open_char
+            && n >= open_len
+            && info.trim_matches([' ', '\t']).is_empty())
+            .then_some((c, n, true)),
+        None => Some((c, n, false)),
     }
 }
 

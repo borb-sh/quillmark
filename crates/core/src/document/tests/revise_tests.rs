@@ -29,6 +29,15 @@ pub(super) fn anchor_ids(content: &Normalized) -> Vec<String> {
         .collect()
 }
 
+/// For each of `markdown`'s composable cards, the card of `doc` a revise to it
+/// revises.
+pub(super) fn alignment(doc: &Document, markdown: &str) -> Vec<Option<usize>> {
+    crate::document::revise::align_cards(doc.cards(), parse(markdown).cards())
+        .into_iter()
+        .map(|pair| pair.map(|(i, _)| i))
+        .collect()
+}
+
 fn anchor_card_body(doc: &mut Document, index: usize, word: &str, id: &str) {
     let mut card = doc.card_mut(index).unwrap();
     let body = anchored(card.body(), word, id);
@@ -54,19 +63,34 @@ fn stored() -> Document {
     doc
 }
 
+/// [`stored`], its first note holding an `items` list whose second item is
+/// anchored `i1`.
+fn stored_with_items() -> Document {
+    let mut doc = stored();
+    let item = crate::document::import_body("an item to flag").unwrap();
+    let items = serde_json::json!([
+        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
+        to_canonical_value(&anchored(&item, "flag", "i1")),
+    ]);
+    doc.card_mut(0)
+        .unwrap()
+        .store_field("items", QuillValue::from_json(items))
+        .unwrap();
+    doc
+}
+
 #[test]
 fn aligned_cards_keep_their_anchors_and_the_receipt_names_the_rest() {
     let mut doc = stored();
-    let receipt = doc
-        .revise(
-            "~~~\n$quill: q\nsubject: The subject line, edited\n~~~\n\nMain prose stays here.\n\n\
+    let md = "~~~\n$quill: q\nsubject: The subject line, edited\n~~~\n\nMain prose stays here.\n\n\
 ~~~\n$kind: aside\n~~~\n\nAn inserted aside.\n\n\
 ~~~\n$kind: note\n~~~\n\nSecond note about pears.\n\n\
-~~~\n$kind: note\n~~~\n\nFirst note about kiwi.\n",
-        )
-        .unwrap();
+~~~\n$kind: note\n~~~\n\nFirst note about kiwi.\n";
+    assert_eq!(alignment(&doc, md), vec![None, Some(1), Some(0)]);
+    let receipt = doc.revise(md).unwrap();
 
-    assert_eq!(receipt.alignment, vec![None, Some(1), Some(0)]);
+    let keys: Vec<_> = doc.cards().iter().map(|c| c.ext().map(|e| e["app"]["key"].clone())).collect();
+    assert_eq!(keys, [None, Some(serde_json::json!("n2")), Some(serde_json::json!("n1"))]);
     assert_eq!(anchor_ids(doc.main().body()), ["m1"]);
     let subject = doc
         .main()
@@ -110,10 +134,9 @@ fn an_omitted_ext_carries_when_the_card_aligns_by_text_or_the_kind_sequences_mat
     assert_eq!(doc.cards()[0].ext().unwrap()["app"]["key"], "n1");
 
     let mut doc = stored();
-    let receipt = doc
-        .revise("~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nUnrelated words entirely.\n")
-        .unwrap();
-    assert_eq!(receipt.alignment, vec![Some(0)]);
+    let md = "~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nUnrelated words entirely.\n";
+    assert_eq!(alignment(&doc, md), vec![Some(0)]);
+    let _ = doc.revise(md).unwrap();
     assert_eq!(doc.cards()[0].ext(), None);
 
     let mut doc = stored();
@@ -171,8 +194,8 @@ fn dropped_anchor_paths_name_the_stored_address() {
     assert_eq!(
         dropped,
         [
-            "main.body#m1",
             "main.subject#s1",
+            "main.body#m1",
             "cards.note[0].body#a1",
             "cards.note[1].body#p1",
             "cards.memo[2].body#x1",
@@ -182,16 +205,7 @@ fn dropped_anchor_paths_name_the_stored_address() {
 
 #[test]
 fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
-    let mut doc = stored();
-    let item = crate::document::import_body("an item to flag").unwrap();
-    let items = serde_json::json!([
-        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
-        to_canonical_value(&anchored(&item, "flag", "i1")),
-    ]);
-    doc.card_mut(0)
-        .unwrap()
-        .store_field("items", QuillValue::from_json(items))
-        .unwrap();
+    let mut doc = stored_with_items();
     let read = doc.to_markdown_annotated();
     let listed = read.anchors.iter().find(|a| a.id == "i1").unwrap();
     assert_eq!(listed.path.to_string(), "cards.note[0].items[1]");
@@ -209,20 +223,39 @@ fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
     assert_eq!(dropped, ["cards.note[0].items[1]#i1"]);
 }
 
+/// A content object stored out of canonical order emits as the structure it
+/// is and revises as authored, and an anchor in it is named when a revise
+/// drops it.
+#[test]
+fn an_anchor_in_content_stored_out_of_canonical_order_is_named_when_it_drops() {
+    let note = crate::document::import_body("a note to flag").unwrap();
+    let canonical = to_canonical_value(&anchored(&note, "flag", "n1"));
+    let reordered: serde_json::Map<String, serde_json::Value> =
+        canonical.as_object().unwrap().clone().into_iter().rev().collect();
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
+    doc.main_mut()
+        .store_field("note", QuillValue::from_json(reordered.into()))
+        .unwrap();
+
+    let receipt = doc.clone().revise(&doc.to_markdown()).unwrap();
+    assert!(receipt.dropped_anchors.is_empty(), "{receipt:?}");
+
+    let receipt = doc
+        .revise("~~~\n$quill: q\nnote: a note to flag\n~~~\n\nBody.\n")
+        .unwrap();
+    let dropped: Vec<String> = receipt
+        .dropped_anchors
+        .iter()
+        .map(|d| format!("{}#{}", d.path, d.id))
+        .collect();
+    assert_eq!(dropped, ["main.note#n1"]);
+}
+
 /// An anchor in content nested in a field revises with the item holding it,
 /// matched by index, so an edit elsewhere in the item keeps it.
 #[test]
 fn an_anchor_in_a_fields_list_item_survives_an_edit_to_its_item() {
-    let mut doc = stored();
-    let item = crate::document::import_body("an item to flag").unwrap();
-    let items = serde_json::json!([
-        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
-        to_canonical_value(&anchored(&item, "flag", "i1")),
-    ]);
-    doc.card_mut(0)
-        .unwrap()
-        .store_field("items", QuillValue::from_json(items))
-        .unwrap();
+    let mut doc = stored_with_items();
 
     let markdown = doc.to_markdown().replace("an item to flag", "an edited item to flag");
     let receipt = doc.revise(&markdown).unwrap();
@@ -241,30 +274,18 @@ fn a_deleted_card_never_hands_its_ext_to_an_edited_neighbour() {
 ~~~\n$kind: note\nowner: Ann\nstatus: done\n$ext:\n  app:\n    key: ann\n~~~\n\nWrite the intro section.\n\n\
 ~~~\n$kind: note\nowner: Bob\nstatus: open\n$ext:\n  app:\n    key: bob\n~~~\n\nReview the budget table.\n",
     );
-    let receipt = doc
-        .revise(
-            "~~~\n$quill: q\n~~~\n\n\
+    let md = "~~~\n$quill: q\n~~~\n\n\
 ~~~\n$kind: note\nowner: Bob\nstatus: done\n~~~\n\nReview the budget table and sign off.\n\n\
-~~~\n$kind: note\nowner: Cy\nstatus: open\n~~~\n\nDraft the appendix.\n",
-        )
-        .unwrap();
-    assert_eq!(receipt.alignment, vec![Some(1), None]);
+~~~\n$kind: note\nowner: Cy\nstatus: open\n~~~\n\nDraft the appendix.\n";
+    assert_eq!(alignment(&doc, md), vec![Some(1), None]);
+    let _ = doc.revise(md).unwrap();
     assert_eq!(doc.cards()[0].ext().unwrap()["app"]["key"], "bob");
     assert_eq!(doc.cards()[1].ext(), None);
 }
 
 #[test]
 fn the_annotated_read_lists_each_anchor_at_its_field() {
-    let mut doc = stored();
-    let item = crate::document::import_body("an item to flag").unwrap();
-    let items = serde_json::json!([
-        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
-        to_canonical_value(&anchored(&item, "flag", "i1")),
-    ]);
-    doc.card_mut(0)
-        .unwrap()
-        .store_field("items", QuillValue::from_json(items))
-        .unwrap();
+    let doc = stored_with_items();
 
     let read = doc.to_markdown_annotated();
     let listed: Vec<(String, &str, &str)> = read

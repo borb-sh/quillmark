@@ -167,11 +167,21 @@ card_kinds:
 
   it('set / setAll bind the quill once and strict-commit main-card fields', () => {
     const ed = buildQuill().writer(blankDoc())
-    ed.set('qty', '3') // schema field → strict coerce
+    expect(ed.set('qty', '3')).toEqual([]) // schema field → strict coerce
     expect(fieldOf(ed.document.main, 'qty')).toBe(3)
 
-    ed.setAll({ subject: 'Q3 **results**', qty: '5' })
+    expect(ed.setAll({ subject: 'Q3 **results**', qty: '5' })).toEqual([])
     expect(fieldOf(ed.document.main, 'qty')).toBe(5)
+  })
+
+  it('set / setAll return what a richtext string drops, at its path', () => {
+    const ed = buildQuill().writer(blankDoc())
+    expect(ed.set('subject', 'Q3 <kbd>x</kbd>').map((w) => [w.code, w.path])).toEqual([
+      ['parse::dropped_construct', 'main.subject'],
+    ])
+    expect(ed.setAll({ qty: '5', subject: 'Q3 <span>x</span>' }).map((w) => [w.code, w.path])).toEqual([
+      ['parse::dropped_construct', 'main.subject'],
+    ])
   })
 
   it('reviseBody / reviseField write from markdown and return the receipt', () => {
@@ -248,7 +258,7 @@ card_kinds:
     const receipt = quill
       .writer(doc)
       .reviseDocument('~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n')
-    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', id: 'n' }])
+    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', id: 'n', line: 'First note.' }])
     expect(receipt.warnings).toEqual([])
     expect(doc.main.body.marks).toEqual([{ start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }])
     expect(doc.cards).toEqual([])

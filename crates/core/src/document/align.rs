@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use quillmark_content::delta::{word_similarity, MIN_WORD_SIMILARITY};
+
 /// One composable card as alignment reads it: its `$kind` and a text to
 /// measure similarity over.
 #[derive(Debug, Clone, Copy)]
@@ -25,7 +27,7 @@ const MAX_TABLE_CELLS: usize = 4_000_000;
 
 /// The similarity, in thousandths, a pair needs to align by text. Below it two
 /// cards pair only by position, between the cards that aligned by text.
-const MIN_PAIR_PERMILLE: u64 = 500;
+const MIN_PAIR_PERMILLE: u64 = (MIN_WORD_SIMILARITY * 1000.0) as u64;
 
 /// How an incoming card came to revise a stored one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,15 +171,15 @@ fn unique_twins(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<(usize, usize
 
 fn similarity_permille(a: &[&str], b: &[&str]) -> u64 {
     let ratio = if a.len().max(b.len()) > MAX_DIFFED_WORDS {
-        affix_ratio(a, b)
+        affix_similarity(a, b)
     } else {
-        similar::TextDiff::from_slices(a, b).ratio()
+        word_similarity(a, b)
     };
     (ratio.clamp(0.0, 1.0) * 1000.0).round() as u64
 }
 
 /// The share of both texts their common prefix and suffix cover.
-fn affix_ratio(a: &[&str], b: &[&str]) -> f32 {
+fn affix_similarity(a: &[&str], b: &[&str]) -> f32 {
     let total = a.len() + b.len();
     if total == 0 {
         return 1.0;
@@ -269,9 +271,9 @@ mod tests {
     }
 
     #[test]
-    fn affix_ratio_measures_shared_ends() {
-        assert_eq!(affix_ratio(&["a", "b", "c", "d"], &["a", "b", "c", "d"]), 1.0);
-        assert_eq!(affix_ratio(&["a", "b", "X", "d"], &["a", "b", "Y", "d"]), 0.75);
-        assert_eq!(affix_ratio(&[], &["x", "y"]), 0.0);
+    fn affix_similarity_measures_shared_ends() {
+        assert_eq!(affix_similarity(&["a", "b", "c", "d"], &["a", "b", "c", "d"]), 1.0);
+        assert_eq!(affix_similarity(&["a", "b", "X", "d"], &["a", "b", "Y", "d"]), 0.75);
+        assert_eq!(affix_similarity(&[], &["x", "y"]), 0.0);
     }
 }

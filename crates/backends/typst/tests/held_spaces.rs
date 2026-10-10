@@ -37,23 +37,15 @@ fn x_of(markdown: &str, needle: char) -> f32 {
 }
 
 #[test]
-fn leading_spaces_indent_the_line() {
+fn collapsible_spaces_keep_their_width() {
     let flush = x_of("Indented", 'I');
     let indented = x_of("&#32;&#32;&#32;&#32;Indented", 'I');
     assert!(indented > flush, "four leading spaces indent: {indented} vs {flush}");
-}
 
-#[test]
-fn a_run_of_spaces_is_wider_than_one() {
     let one = x_of("a. Z", 'Z');
     let two = x_of("a.  Z", 'Z');
     let four = x_of("a.    Z", 'Z');
     assert!(one < two && two < four, "spaces hold their width: {one}, {two}, {four}");
-}
-
-#[test]
-fn spaces_either_side_of_a_mark_close_keep_both_widths() {
-    let two = x_of("a.  Z", 'Z');
-    assert_eq!(x_of("<u>a. </u> Z", 'Z'), two);
-    assert_eq!(x_of("[a. ](https://x.y) Z", 'Z'), two);
+    assert_eq!(x_of("<u>a. </u> Z", 'Z'), two, "either side of a mark close");
+    assert_eq!(x_of("[a. ](https://x.y) Z", 'Z'), two, "either side of a link close");
 }

@@ -32,7 +32,8 @@ fn corpus() -> Vec<Value> {
 #[test]
 fn every_entry_holds_on_every_surface() {
     let corpus = corpus();
-    assert!(!corpus.is_empty(), "the corpus holds no entry");
+    assert!(corpus.iter().any(|e| e["markdown"].is_null()), "the corpus holds no unspelled entry");
+    assert!(corpus.iter().any(|e| e.get("annotated").is_some()), "the corpus holds no annotated entry");
 
     let mut names = BTreeSet::new();
     for entry in &corpus {
@@ -104,24 +105,6 @@ fn the_matrix_has_a_row_per_entry_naming_its_signals() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// What an entry expects of the quill's surfaces.
-struct Expected<'a> {
-    typst: &'a Value,
-    render: &'a Value,
-    validate: Value,
-}
-
-impl<'a> Expected<'a> {
-    fn of(entry: &'a Value) -> Self {
-        let signals = &entry["signals"];
-        Expected {
-            typst: &entry["typst"],
-            render: &signals["render"],
-            validate: signals.get("validate").cloned().unwrap_or(json!([])),
-        }
-    }
-}
-
 fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
     let mut failures = Vec::new();
     let stored = &entry["content"];
@@ -140,6 +123,7 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
     };
     failures.extend(check_fixed_point(&content, &reimports));
     failures.extend(check_revise(&content, &reimports, &to_markdown(&content)));
+    failures.extend(check_document(&content, &reimports, entry.get("annotated").and_then(Value::as_str)));
     let import_signals = &entry["signals"]["import"];
     if let Some(annotated) = entry.get("annotated") {
         failures.extend(check_annotated(annotated, &content));
@@ -164,7 +148,7 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
             let warnings: Value = imported
                 .warnings
                 .iter()
-                .map(|ImportWarning::DroppedConstruct { construct, count }| {
+                .map(|ImportWarning { construct, count }| {
                     json!({ "construct": construct.to_string(), "count": count })
                 })
                 .collect();
@@ -198,18 +182,19 @@ fn check(entry: &Value, engine: &Quillmark, quill: &Quill) -> Vec<String> {
         }
     };
 
-    failures.extend(surfaces(&Expected::of(entry), engine, quill, &doc));
+    failures.extend(surfaces(entry, engine, quill, &doc));
     failures
 }
 
 /// The lowering, `validate` and a one-shot render of `doc` through `quill`.
-fn surfaces(expected: &Expected, engine: &Quillmark, quill: &Quill, doc: &Document) -> Vec<String> {
+fn surfaces(entry: &Value, engine: &Quillmark, quill: &Quill, doc: &Document) -> Vec<String> {
     let mut failures = Vec::new();
+    let signals = &entry["signals"];
     let lowering = match lowering(quill, doc) {
         Ok(l) => l,
         Err(e) => return vec![e],
     };
-    let Some(properties) = expected.typst.as_array() else {
+    let Some(properties) = entry["typst"].as_array() else {
         return vec!["typst is not an array".into()];
     };
     for property in properties {
@@ -224,7 +209,7 @@ fn surfaces(expected: &Expected, engine: &Quillmark, quill: &Quill, doc: &Docume
 
     let validated = quill.validate(doc);
     let codes: Value = validated.iter().filter_map(|d| d.code.clone()).collect();
-    if codes != expected.validate {
+    if codes != *signals.get("validate").unwrap_or(&json!([])) {
         failures.push(format!("validate warns {codes}"));
     }
 
@@ -236,11 +221,11 @@ fn surfaces(expected: &Expected, engine: &Quillmark, quill: &Quill, doc: &Docume
     ) {
         Ok(result) => {
             let codes: Value = result.warnings.iter().filter_map(|d| d.code.clone()).collect();
-            if codes != *expected.render {
+            if codes != signals["render"] {
                 failures.push(format!("render warns {codes}"));
             }
-            let at_validate = declines(&validated, "validation::declined_construct");
-            let at_render = declines(&result.warnings, "backend::declined_construct");
+            let at_validate = declines(&validated);
+            let at_render = declines(&result.warnings);
             if at_validate != at_render {
                 failures.push(format!(
                     "validate declines {at_validate:?} where the render declines {at_render:?}"
@@ -397,16 +382,50 @@ fn check_annotated(annotated: &Value, content: &Normalized) -> Vec<String> {
     failures
 }
 
-fn declines(diags: &[Diagnostic], code: &str) -> Vec<(String, String, String)> {
-    let mut declines: Vec<_> = diags
-        .iter()
-        .filter(|d| d.code.as_deref() == Some(code))
-        .map(|d| {
-            let arg = |k: &str| d.args.get(k).map(|v| v.to_string()).unwrap_or_default();
-            (d.path.clone().unwrap_or_default(), arg("construct"), arg("count"))
+/// A document whose body holds `content` emits markdown, and an annotated read,
+/// that each parse, warning nothing, to a body holding `reimports`; the read
+/// lists each anchor of `content` at `main.body` and spells `annotated`.
+fn check_document(content: &Normalized, reimports: &Normalized, annotated: Option<&str>) -> Vec<String> {
+    let mut doc = Document::parse(&frontmatter(QUILL)).expect("frontmatter parses").document;
+    doc.main_mut().overwrite_body(content.clone());
+    let read = doc.to_markdown_annotated();
+    let mut failures: Vec<String> = [("the document", doc.to_markdown()), ("the annotated read", read.markdown.clone())]
+        .into_iter()
+        .filter_map(|(what, markdown)| match Document::parse(&markdown) {
+            Ok(p) if p.document.main().body() == reimports && p.warnings.is_empty() => None,
+            Ok(p) => Some(format!(
+                "{what} parses to a body {}, warning {:?}",
+                canonical(p.document.main().body()),
+                p.warnings
+            )),
+            Err(e) => Some(format!("{what} does not parse: {e}")),
         })
         .collect();
-    declines.sort();
+    let listed: Vec<(String, &str)> = read.anchors.iter().map(|a| (a.path.to_string(), a.id.as_str())).collect();
+    let held: Vec<(String, &str)> = content
+        .marks
+        .iter()
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some(("main.body".to_string(), id.as_str())),
+            _ => None,
+        })
+        .collect();
+    if listed != held {
+        failures.push(format!("the annotated read lists {listed:?}"));
+    }
+    if annotated.is_some_and(|a| !read.markdown.contains(a)) {
+        failures.push(format!("the annotated read does not spell annotated:\n{}", read.markdown));
+    }
+    failures
+}
+
+fn declines(diags: &[Diagnostic]) -> Vec<Diagnostic> {
+    let mut declines: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("backend::declined_construct"))
+        .cloned()
+        .collect();
+    declines.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.message.cmp(&b.message)));
     declines
 }
 

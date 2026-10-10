@@ -291,7 +291,8 @@ export interface TableCell {
 
 /** `props` of a `type: "table"` island: a pipe table normalized to one column
  * count that `header`, every row of `rows`, `aligns` and `widths` all share.
- * A layout key at its default is absent. */
+ * A layout key at its default is absent; one holding a value outside its type
+ * stays as written and reads as absent. */
 export interface TableProps {
     header: TableCell[];
     rows: TableCell[][];
@@ -299,7 +300,7 @@ export interface TableProps {
     aligns: ("none" | "left" | "center" | "right")[];
     /** Per-column relative weights; `null` is an auto-fit column. Absent when
      * every column is auto-fit. A weight is an integer from 1 to
-     * `Number.MAX_SAFE_INTEGER`; any other entry drops the key. */
+     * `Number.MAX_SAFE_INTEGER`. */
     widths?: (number | null)[];
     /** The table's placement; absent is the quill's. */
     align?: "left" | "center" | "right";
@@ -382,14 +383,14 @@ export interface Revised {
 
 /**
  * The receipt of `writer.reviseDocument`. `droppedAnchors` names every prose
- * anchor the write did not carry, at its path in the stored document; a table
+ * anchor the write did not carry, at its path and line in the stored document; a table
  * cell's anchors drop unnamed. `warnings` are the parse's, then each revised
  * content field's `parse::dropped_construct`, then the writer's `conform::*`.
  * A field that lands rather than revises, on an inserted card or over no stored
  * content, reports no drop.
  */
 export interface DocumentRevised {
-    droppedAnchors: { path: string; id: string }[];
+    droppedAnchors: DocumentAnchor[];
     warnings: Diagnostic[];
 }
 
@@ -403,7 +404,13 @@ export interface DocumentRevised {
  */
 export interface AnnotatedMarkdown {
     markdown: string;
-    anchors: { id: string; path: string; line: string }[];
+    anchors: DocumentAnchor[];
+}
+
+export interface DocumentAnchor {
+    id: string;
+    path: string;
+    line: string;
 }
 
 /**
@@ -596,11 +603,10 @@ impl Quillmark {
     }
 
     /// Render `doc` against `quill` in one shot: `open` + `LiveSession.render`,
-    /// with every `quill.validate` warning but `validation::declined_construct`,
-    /// which the compile raises as `backend::declined_construct`, ahead of the
-    /// compile's in `warnings`; the load's stay on `doc.warnings`. An unset
-    /// `output_format` falls back to the backend's first supported format.
-    /// `today` reads as on `open`.
+    /// with every `quill.validate` warning in `warnings`, a decline among the
+    /// compile's and the rest ahead of them; the load's stay on `doc.warnings`.
+    /// An unset `output_format` falls back to the backend's first supported
+    /// format. `today` reads as on `open`.
     #[wasm_bindgen(js_name = render)]
     pub fn render(
         &self,
@@ -619,15 +625,7 @@ impl Quillmark {
             .render(&quill.inner, &doc.inner, today, &rust_opts)
             .map_err(|e| WasmError::from(e).to_js_value())?;
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
-        to_ts_or_throw(&RenderResult {
-            artifacts: result.artifacts.into_iter().map(Into::into).collect(),
-            warnings: result.warnings.into_iter().map(Into::into).collect(),
-            output_format: result.output_format.into(),
-            regions: quillmark_core::region::regions_to_doc_path(result.regions, &kinds)
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        })
+        render_result_to_ts(result, &kinds)
     }
 
     /// The output formats `quill`'s backend can emit; resolves the backend but
@@ -688,8 +686,7 @@ impl Quill {
     /// `[]`.
     #[wasm_bindgen(getter, js_name = warnings, unchecked_return_type = "Diagnostic[]")]
     pub fn warnings(&self) -> Result<JsValue, JsValue> {
-        let diags: Vec<Diagnostic> = self.inner.warnings().iter().cloned().map(Into::into).collect();
-        serialize_nullable_or_throw(&diags, "warnings")
+        serialize_or_throw(&diags(self.inner.warnings().iter().cloned()), "warnings")
     }
 
     #[wasm_bindgen(getter, js_name = blueprint)]
@@ -703,7 +700,7 @@ impl Quill {
     #[wasm_bindgen(getter, js_name = schema, unchecked_return_type = "QuillSchema")]
     pub fn schema(&self) -> Result<JsValue, JsValue> {
         let value = self.inner.config().schema();
-        serialize_nullable_or_throw(&value, "schema")
+        serialize_or_throw(&value, "schema")
     }
 
     /// Identity snapshot of the `quill:` section of `Quill.yaml`. Pure config:
@@ -721,16 +718,17 @@ impl Quill {
             "description": config.description,
         });
 
-        serialize_nullable_or_throw(&value, "metadata")
+        serialize_or_throw(&value, "metadata")
     }
 
     /// Validate `doc` against this quill's schema, returning every diagnostic:
-    /// an error blocks a render, a warning does not. Forwards the canonical
-    /// `validation::*` diagnostics the engine emits.
+    /// an error blocks a render, a warning does not. Forwards the engine's
+    /// `validation::*`, a markdown string's `parse::dropped_construct` and the
+    /// backend's `backend::declined_construct`.
     #[wasm_bindgen(js_name = validate, unchecked_return_type = "Diagnostic[]")]
     pub fn validate(&self, doc: &Document) -> Result<JsValue, JsValue> {
         let diags = self.inner.validate(&doc.inner);
-        serialize_nullable_or_throw(&diags, "validate")
+        serialize_or_throw(&diags, "validate")
     }
 
     /// Parse `markdown` and conform it against this quill: the primary ingestion
@@ -771,7 +769,7 @@ impl Quill {
             .conform(&mut doc.inner)
             .map_err(WasmError::from)
             .map_err(|e| e.to_js_value())?;
-        serialize_nullable_or_throw(&diags, "conform")
+        serialize_or_throw(&diags, "conform")
     }
 
     /// The resolved-value view of `doc`: the ABI under `reader.resolve()`. For
@@ -783,7 +781,7 @@ impl Quill {
     #[wasm_bindgen(js_name = _resolve, skip_typescript, unchecked_return_type = "Resolved")]
     pub fn resolve(&self, doc: &Document, today: Option<String>) -> Result<JsValue, JsValue> {
         let states = self.inner.resolve(&doc.inner, render_date(today)?);
-        serialize_nullable_or_throw(&states, "resolve")
+        serialize_or_throw(&states, "resolve")
     }
 
     /// The empty document: a main card carrying this quill's `$quill` and
@@ -963,15 +961,7 @@ impl Document {
         let read = self.inner.to_markdown_annotated();
         let js = AnnotatedMarkdownJs {
             markdown: read.markdown,
-            anchors: read
-                .anchors
-                .into_iter()
-                .map(|a| DocumentAnchorJs {
-                    id: a.id,
-                    path: a.path.to_string(),
-                    line: a.line,
-                })
-                .collect(),
+            anchors: read.anchors.into_iter().map(Into::into).collect(),
         };
         serialize_or_throw(&js, "toAnnotatedMarkdown")
     }
@@ -1024,7 +1014,7 @@ impl Document {
     pub fn cards(&self) -> Result<JsValue, JsValue> {
         let cards: Vec<quillmark_core::document::CardWire> =
             self.inner.cards().iter().map(Into::into).collect();
-        serialize_nullable_or_throw(&cards, "cards")
+        serialize_or_throw(&cards, "cards")
     }
 
     /// Read the **verbatim stored value** at `addr`: a field's raw payload value,
@@ -1052,12 +1042,12 @@ impl Document {
         let addr = Addr::from_js_or_string(&addr)?;
         let card = self.addr_card_ref(&addr)?;
         match &addr.field {
-            None => serialize_nullable_or_throw(
+            None => serialize_or_throw(
                 &quillmark_content::serial::to_canonical_value(card.body()),
                 "getStored",
             ),
             Some(field) => match card.payload().get(field) {
-                Some(v) => serialize_nullable_or_throw(v.as_json(), "getStored"),
+                Some(v) => serialize_or_throw(v.as_json(), "getStored"),
                 None => Ok(JsValue::UNDEFINED),
             },
         }
@@ -1129,7 +1119,7 @@ impl Document {
                 .map_err(|e| edit_error_to_js(&e, &base))?;
                 match read {
                     None => Ok(JsValue::UNDEFINED),
-                    Some(v) => serialize_nullable_or_throw(v.as_json(), "reader.get"),
+                    Some(v) => serialize_or_throw(v.as_json(), "reader.get"),
                 }
             }
         }
@@ -1158,7 +1148,7 @@ impl Document {
         let addr = Addr::from_js_or_string(&addr)?;
         let base = self.addr_base(&addr);
         match &addr.field {
-            None => serialize_nullable_or_throw(
+            None => serialize_or_throw(
                 &quillmark_content::serial::to_canonical_value(self.addr_card_ref(&addr)?.body()),
                 "reader.getContent",
             ),
@@ -1174,7 +1164,7 @@ impl Document {
                 .map_err(|e| edit_error_to_js(&e, &base))?;
                 match read {
                     None => Ok(JsValue::UNDEFINED),
-                    Some(content) => serialize_nullable_or_throw(
+                    Some(content) => serialize_or_throw(
                         &quillmark_content::serial::to_canonical_value(&content),
                         "reader.getContent",
                     ),
@@ -1228,7 +1218,7 @@ impl Document {
         .map_err(|e| edit_error_to_js(&e, &base))?;
         match read {
             None => Ok(JsValue::UNDEFINED),
-            Some(content) => serialize_nullable_or_throw(
+            Some(content) => serialize_or_throw(
                 &quillmark_content::serial::to_canonical_value(&content),
                 "reader.getContentAt",
             ),
@@ -1247,7 +1237,7 @@ impl Document {
         let addr = Addr::from_js(&addr)?;
         addr.require_card_only("getExt")?;
         match self.addr_card_ref(&addr)?.ext() {
-            Some(map) => serialize_nullable_or_throw(map, "getExt"),
+            Some(map) => serialize_or_throw(map, "getExt"),
             None => Ok(JsValue::UNDEFINED),
         }
     }
@@ -1272,7 +1262,7 @@ impl Document {
     #[wasm_bindgen(js_name = seedOverlay, unchecked_return_type = "Record<string, unknown> | undefined")]
     pub fn seed_overlay(&self, kind: &str) -> Result<JsValue, JsValue> {
         match self.inner.main().seed().and_then(|seed| seed.get(kind)) {
-            Some(overlay) => serialize_nullable_or_throw(overlay, "seedOverlay"),
+            Some(overlay) => serialize_or_throw(overlay, "seedOverlay"),
             None => Ok(JsValue::UNDEFINED),
         }
     }
@@ -1335,7 +1325,7 @@ impl Document {
             .cloned()
             .map(Into::into)
             .collect();
-        serialize_nullable_or_throw(&diags, "warnings")
+        serialize_or_throw(&diags, "warnings")
     }
 
     /// Store a field verbatim at `addr`, deferring coercion to render; the typed
@@ -1396,7 +1386,7 @@ impl Document {
             .remove_field(&field)
             .map_err(|e| edit_error_to_js(&e, &base))?;
         Ok(match removed {
-            Some(v) => serialize_nullable_or_throw(v.as_json(), "removeField")?,
+            Some(v) => serialize_or_throw(v.as_json(), "removeField")?,
             None => JsValue::UNDEFINED,
         })
     }
@@ -1526,7 +1516,7 @@ impl Document {
                 .map(|r| r.with_path(&base.field(field))),
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
-        serialize_nullable_or_throw(&RevisedJs::from(revised), "revise")
+        serialize_or_throw(&RevisedJs::from(revised), "revise")
     }
 
     /// The ABI under `writer.reviseDocument`: a whole-document revise, then
@@ -1540,7 +1530,7 @@ impl Document {
             .revise_document(markdown)
             .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())?;
         self.parse_warnings.clear();
-        serialize_nullable_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
+        serialize_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
     }
 
     /// Revise the content field at `addr` from authored text, typed *and*
@@ -1573,7 +1563,7 @@ impl Document {
                 .revise_field(&field, text),
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
-        serialize_nullable_or_throw(&RevisedJs::from(revised), "reviseField")
+        serialize_or_throw(&RevisedJs::from(revised), "reviseField")
     }
 
     /// **Apply** a committed content edit `bundle` at `addr`, the editor splice:
@@ -1624,27 +1614,31 @@ impl Document {
     ///
     /// The `quill` handle is passed per call because a `Document` carries only a
     /// `$quill` reference, not the resolved schema.
-    #[wasm_bindgen(js_name = _commitField, skip_typescript)]
+    ///
+    /// Returns a `parse::dropped_construct` warning per construct a `richtext`
+    /// markdown string in the value dropped, at the string's path.
+    #[wasm_bindgen(js_name = _commitField, skip_typescript, unchecked_return_type = "Diagnostic[]")]
     pub fn commit_field(
         &mut self,
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         value: JsValue,
-    ) -> Result<(), JsValue> {
+    ) -> Result<JsValue, JsValue> {
         let addr = Addr::from_js_or_string(&addr)?;
         let field = addr.require_field("commitField")?.to_string();
         let json = js_value_to_json(value, "commitField")?;
         let qv = quillmark_core::value::QuillValue::from_json(json);
         let base = self.addr_base(&addr);
         let mut writer = quill.inner.writer(&mut self.inner);
-        match addr.card {
-            None => writer.set(&field, qv).map_err(|e| edit_error_to_js(&e, &base)),
+        let warnings = match addr.card {
+            None => writer.set(&field, qv),
             Some(index) => writer
                 .card(index)
                 .map_err(|e| edit_error_to_js(&e, &base))?
-                .set(&field, qv)
-                .map_err(|e| edit_error_to_js(&e, &base)),
+                .set(&field, qv),
         }
+        .map_err(|e| edit_error_to_js(&e, &base))?;
+        serialize_or_throw(&diags(warnings), "commitField")
     }
 
     /// Batched twin of [`commitField`](Document::commit_field): typed-commit
@@ -1653,29 +1647,29 @@ impl Document {
     /// diagnostic contract as [`storeFields`](Document::store_fields) — nothing
     /// applied on error, one `diagnostics` entry per offending field, including
     /// `edit::unknown_field` for undeclared names. Throws on an out-of-range
-    /// card.
-    #[wasm_bindgen(js_name = _commitFields, skip_typescript)]
+    /// card. Returns [`commitField`](Document::commit_field)'s warnings for
+    /// every field, in batch order.
+    #[wasm_bindgen(js_name = _commitFields, skip_typescript, unchecked_return_type = "Diagnostic[]")]
     pub fn commit_fields(
         &mut self,
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
         #[wasm_bindgen(unchecked_param_type = "Record<string, unknown>")] fields: JsValue,
-    ) -> Result<(), JsValue> {
+    ) -> Result<JsValue, JsValue> {
         let addr = Addr::from_js(&addr)?;
         addr.require_card_only("commitFields")?;
         let batch = js_value_to_field_batch(&fields, "commitFields")?;
         let base = self.addr_base(&addr);
         let mut writer = quill.inner.writer(&mut self.inner);
-        match addr.card {
-            None => writer
-                .set_all(batch)
-                .map_err(|errs| edit_errors_to_js(errs, &base)),
+        let warnings = match addr.card {
+            None => writer.set_all(batch),
             Some(index) => writer
                 .card(index)
                 .map_err(|e| edit_error_to_js(&e, &base))?
-                .set_all(batch)
-                .map_err(|errs| edit_errors_to_js(errs, &base)),
+                .set_all(batch),
         }
+        .map_err(|errs| edit_errors_to_js(errs, &base))?;
+        serialize_or_throw(&diags(warnings), "commitFields")
     }
 
     /// Build a composable card of `kind`, typed-commit `fields` onto it, set its
@@ -1686,8 +1680,8 @@ impl Document {
     /// leaves the document untouched. Field errors throw the same per-field
     /// bundle as [`commitFields`](Self::commit_fields); an invalid kind or body,
     /// or a bad position, throws a single-entry bundle keyed `$kind` / `$body`.
-    /// Returns the body import's `parse::dropped_construct` warnings, anchored
-    /// at the placed card's body.
+    /// Returns the fields' `parse::dropped_construct` warnings, then the body
+    /// import's, anchored under the placed card.
     #[wasm_bindgen(js_name = _addCard, skip_typescript, unchecked_return_type = "Diagnostic[]")]
     pub fn add_card(
         &mut self,
@@ -1710,8 +1704,7 @@ impl Document {
             .writer(&mut self.inner)
             .add_card(kind, batch, body.as_deref(), at)
             .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))?;
-        let warnings: Vec<Diagnostic> = warnings.into_iter().map(Into::into).collect();
-        serialize_nullable_or_throw(&warnings, "addCard")
+        serialize_or_throw(&diags(warnings), "addCard")
     }
 
     /// Insert a card: `at` absent appends, a number inserts at that index (in
@@ -1926,9 +1919,9 @@ pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
         .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
     let out = ImportedJs {
         content: quillmark_content::serial::to_canonical_value(&imported.content),
-        warnings: dropped_constructs(imported.warnings),
+        warnings: diags(quillmark_core::document::dropped_constructs(imported.warnings, None)),
     };
-    serialize_nullable_or_throw(&out, "importMarkdown")
+    serialize_or_throw(&out, "importMarkdown")
 }
 
 /// Export canonical `Content` to its markdown projection. Throws if `rt` is not
@@ -1955,14 +1948,14 @@ pub fn rebase(
     markdown: &str,
 ) -> Result<JsValue, JsValue> {
     let base = js_to_content(base, "rebase")?;
-    let (content, delta, warnings) = quillmark_content::delta::diff_import(&base, markdown)
+    let (content, revised) = quillmark_core::document::revise_import(&base, markdown)
         .map_err(|e| WasmError::from(format!("rebase: {e}")).to_js_value())?;
     let out = RebasedJs {
         content: quillmark_content::serial::to_canonical_value(&content),
-        delta,
-        warnings: dropped_constructs(warnings),
+        delta: revised.delta,
+        warnings: diags(revised.warnings),
     };
-    serialize_nullable_or_throw(&out, "rebase")
+    serialize_or_throw(&out, "rebase")
 }
 
 #[derive(serde::Serialize)]
@@ -1990,7 +1983,7 @@ impl From<quillmark_core::document::Revised> for RevisedJs {
     fn from(revised: quillmark_core::document::Revised) -> Self {
         RevisedJs {
             delta: revised.delta,
-            warnings: revised.warnings.into_iter().map(Into::into).collect(),
+            warnings: diags(revised.warnings),
         }
     }
 }
@@ -1998,7 +1991,7 @@ impl From<quillmark_core::document::Revised> for RevisedJs {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DocumentRevisedJs {
-    dropped_anchors: Vec<DroppedAnchorJs>,
+    dropped_anchors: Vec<DocumentAnchorJs>,
     warnings: Vec<Diagnostic>,
 }
 
@@ -2015,35 +2008,23 @@ struct DocumentAnchorJs {
     line: String,
 }
 
-#[derive(serde::Serialize)]
-struct DroppedAnchorJs {
-    path: String,
-    id: String,
+impl From<quillmark_core::document::DocumentAnchor> for DocumentAnchorJs {
+    fn from(a: quillmark_core::document::DocumentAnchor) -> Self {
+        DocumentAnchorJs { id: a.id, path: a.path.to_string(), line: a.line }
+    }
 }
 
 impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
     fn from(revised: quillmark_core::document::DocumentRevised) -> Self {
         DocumentRevisedJs {
-            dropped_anchors: revised
-                .dropped_anchors
-                .into_iter()
-                .map(|d| DroppedAnchorJs {
-                    path: d.path.to_string(),
-                    id: d.id,
-                })
-                .collect(),
-            warnings: revised.warnings.into_iter().map(Into::into).collect(),
+            dropped_anchors: revised.dropped_anchors.into_iter().map(Into::into).collect(),
+            warnings: diags(revised.warnings),
         }
     }
 }
 
-fn dropped_constructs(
-    warnings: Vec<quillmark_core::document::ImportWarning>,
-) -> Vec<Diagnostic> {
-    warnings
-        .into_iter()
-        .map(|w| quillmark_core::document::dropped_construct(w).into())
-        .collect()
+fn diags(ds: impl IntoIterator<Item = quillmark_core::error::Diagnostic>) -> Vec<Diagnostic> {
+    ds.into_iter().map(Into::into).collect()
 }
 
 /// Whether `content` satisfies the `inline` constraint of `richtext` and
@@ -2152,7 +2133,7 @@ pub fn parse_doc_path(path: &str) -> Result<JsValue, JsValue> {
     // the `DocPathSeg` contract is `kind: string | null`.
     let json = serde_json::to_value(&doc_path)
         .map_err(|e| WasmError::from(format!("parseDocPath: {e}")).to_js_value())?;
-    serialize_nullable_or_throw(&json, "parseDocPath")
+    serialize_or_throw(&json, "parseDocPath")
 }
 
 /// Serialize structured `DocPathSeg` segments back to the canonical path
@@ -2222,7 +2203,7 @@ pub fn map_marks(
             .map(quillmark_content::serial::mark_to_value)
             .collect(),
     );
-    serialize_nullable_or_throw(&out, "mapMarks")
+    serialize_or_throw(&out, "mapMarks")
 }
 
 /// Map a base content position (a USV index into `Content.text`, not a UTF-16
@@ -2479,34 +2460,16 @@ fn js_value_to_object(
 }
 
 /// Throws rather than falling back to `undefined`, which reads as "property
-/// absent" and crashes callers far from the cause.
+/// absent" and crashes callers far from the cause. A `serde_json::Value::Null`
+/// crosses as `null`, not `undefined`, so an `Option` that crosses absent is
+/// skipped when `None` or declared `| null`.
 fn serialize_or_throw<T: serde::Serialize + ?Sized>(
     value: &T,
     what: &str,
 ) -> Result<JsValue, JsValue> {
-    serialize_inner(value, what, false)
-}
-
-/// [`serialize_or_throw`] for a shape whose declared type spells `null`: an
-/// absent `Option` crosses as `null` instead of as a missing property, and a
-/// `serde_json::Value::Null` as `null` instead of `undefined`. Every shape
-/// holding a `Value` crosses here; an `Option` beside it is skipped when absent
-/// or declared `| null`.
-fn serialize_nullable_or_throw<T: serde::Serialize + ?Sized>(
-    value: &T,
-    what: &str,
-) -> Result<JsValue, JsValue> {
-    serialize_inner(value, what, true)
-}
-
-fn serialize_inner<T: serde::Serialize + ?Sized>(
-    value: &T,
-    what: &str,
-    missing_as_null: bool,
-) -> Result<JsValue, JsValue> {
     let serializer = serde_wasm_bindgen::Serializer::new()
         .serialize_maps_as_objects(true)
-        .serialize_missing_as_null(missing_as_null);
+        .serialize_missing_as_null(true);
     value
         .serialize(&serializer)
         .map_err(|e| WasmError::from(format!("{what}: serialization failed: {e}")).to_js_value())
@@ -2517,6 +2480,22 @@ fn serialize_inner<T: serde::Serialize + ?Sized>(
 #[cfg(feature = "render")]
 fn to_ts_or_throw<T: tsify::Tsify + Serialize>(value: &T) -> Result<Ts<T>, JsValue> {
     Ts::from_rust(value).map_err(|e| WasmError::from(e.to_string()).to_js_value())
+}
+
+#[cfg(feature = "render")]
+fn render_result_to_ts(
+    result: quillmark_core::error::RenderResult,
+    kinds: &[Option<&str>],
+) -> Result<Ts<RenderResult>, JsValue> {
+    to_ts_or_throw(&RenderResult {
+        artifacts: result.artifacts.into_iter().map(Into::into).collect(),
+        warnings: diags(result.warnings),
+        output_format: result.output_format.into(),
+        regions: quillmark_core::region::regions_to_doc_path(result.regions, kinds)
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+    })
 }
 
 /// The read direction of [`to_ts_or_throw`].
@@ -2583,7 +2562,7 @@ fn render_options_or_throw(
 
 fn json_value_to_js(value: Option<serde_json::Value>) -> Result<JsValue, JsValue> {
     match value {
-        Some(v) => serialize_nullable_or_throw(&v, "ext value"),
+        Some(v) => serialize_or_throw(&v, "ext value"),
         None => Ok(JsValue::UNDEFINED),
     }
 }
@@ -2595,7 +2574,7 @@ fn ext_map_to_js(
 }
 
 fn card_to_js(card: &quillmark_core::document::Card) -> Result<JsValue, JsValue> {
-    serialize_nullable_or_throw(&quillmark_core::document::CardWire::from(card), "card")
+    serialize_or_throw(&quillmark_core::document::CardWire::from(card), "card")
 }
 
 fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue> {
@@ -2760,7 +2739,7 @@ impl LiveSession {
             .cloned()
             .map(Into::into)
             .collect();
-        serialize_nullable_or_throw(&diags, "warnings")
+        serialize_or_throw(&diags, "warnings")
     }
 
     /// Recompile the session against `doc`: the edit verb of a live preview. The
@@ -2795,16 +2774,7 @@ impl LiveSession {
             .inner
             .render(&rust_opts)
             .map_err(|e| WasmError::from(e).to_js_value())?;
-
-        to_ts_or_throw(&RenderResult {
-            artifacts: result.artifacts.into_iter().map(Into::into).collect(),
-            warnings: result.warnings.into_iter().map(Into::into).collect(),
-            output_format: result.output_format.into(),
-            regions: quillmark_core::region::regions_to_doc_path(result.regions, &self.kinds())
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        })
+        render_result_to_ts(result, &self.kinds())
     }
 
     /// Schema-field geometry for this compiled session: each content field's

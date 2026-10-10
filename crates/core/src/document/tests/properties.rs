@@ -369,6 +369,7 @@ proptest! {
         for (_, kind, body) in &incoming {
             md.push_str(&card_block(kind, body));
         }
+        let alignment = super::revise_tests::alignment(&doc, &md);
         let receipt = doc.revise(&md).expect("the incoming document parses");
 
         let held: Vec<Vec<String>> = doc
@@ -378,11 +379,11 @@ proptest! {
             .collect();
         for (p, (kept, _, _)) in incoming.iter().enumerate() {
             if let Some(i) = kept {
-                prop_assert_eq!(receipt.alignment[p], Some(*i));
+                prop_assert_eq!(alignment[p], Some(*i));
                 prop_assert_eq!(&held[p], &vec![format!("c{i}")]);
             }
             for id in &held[p] {
-                prop_assert_eq!(Some(id.clone()), receipt.alignment[p].map(|i| format!("c{i}")));
+                prop_assert_eq!(Some(id.clone()), alignment[p].map(|i| format!("c{i}")));
             }
         }
         let mut dropped: Vec<String> = receipt.dropped_anchors.iter().map(|d| d.id.clone()).collect();

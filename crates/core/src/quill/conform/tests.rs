@@ -487,7 +487,6 @@ fn revise_document_revises_then_conforms() {
     let receipt = quill.writer(&mut doc).revise_document(&md).expect("revise");
     let (expected, warnings) = parse_bound(&quill, &md);
 
-    assert_eq!(receipt.alignment, vec![None, Some(0)]);
     assert!(receipt.dropped_anchors.is_empty());
     assert_eq!(receipt.warnings, warnings);
     assert_eq!(doc.to_markdown(), expected.to_markdown());
@@ -542,5 +541,7 @@ fn a_richtext_string_reports_its_drops_where_it_imports() {
     assert_eq!(drops(&quill.validate(&doc)), [], "a conformed field holds content");
 
     let loaded = Document::parse(md).unwrap().document;
-    assert_eq!(drops(&quill.validate(&loaded)), expected);
+    let mut by_field = expected;
+    by_field.sort();
+    assert_eq!(drops(&quill.validate(&loaded)), by_field, "validate walks fields by name");
 }

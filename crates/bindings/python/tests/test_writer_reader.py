@@ -114,6 +114,18 @@ def test_writer_revise_field():
         w.revise_field("nope", "x")
 
 
+def test_writer_set_returns_what_its_markdown_dropped():
+    """set and set_all return a parse::dropped_construct per construct a
+    richtext string drops, at the string's path."""
+    quill = richtext_quill()
+    w = quill.writer(Document("sample_form@0.1.0"))
+    (dropped,) = w.set("bio", "make it <kbd>**bold**</kbd>")
+    assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
+    (dropped,) = w.set_all({"bio": "plain", "headline": "a <span>b</span>"})
+    assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.headline")
+    assert w.set_all({"bio": "plain"}) == []
+
+
 def test_writer_revise_document():
     """revise_document replaces the document from markdown, conforms it, and
     returns the warnings, clearing the load's; a foreign `$quill` raises and

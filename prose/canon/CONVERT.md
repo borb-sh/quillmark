@@ -133,7 +133,7 @@ is a lowering bug, never a document's.
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
 | `Container::ListItem{checked}` (task) | the item's marker, then `#_qm-task(done)[…]` around its body (see [Tasks](#tasks)) |
 | `Container::Quote` | `#quote(block: true)[…]` |
-| `Container::Element{name, attrs}` | `#_qm-element("name", (…))[…]` (see [Elements](#elements)) |
+| `Container::Element{element}` | `#_qm-element("name", (…))[…]` (see [Elements](#elements)) |
 | `image` island | nothing, plus one `backend::declined_construct` warning per field (see [Declined images](#declined-images)) |
 | `table` island | `#table(columns: N, align: (…), table.header(…), …)` |
 
@@ -145,7 +145,7 @@ The table's layout keys lower as:
 | Knob | Lowering |
 |---|---|
 | `widths` | `columns: (2fr, 1fr, auto)`, a weight to `fr` and `null` to `auto`, in place of `columns: N` |
-| `align` | `#context align(center, table(…))`; a column at `none` takes `align.alignment`, and with no column aligned the table takes `table.align` where the plate sets one, else `align.alignment`, so the placement moves the table and no text inside it |
+| `align` | `align(center, table(…))` under `context`, with `table.cell` set to the horizontal `align.alignment` the table stands in, so the placement moves the table and no text inside it, save a horizontal alignment the plate's own `table.cell` show rule sets |
 | `headless` | `header` lowers as the first body row, outside `table.header` |
 | a cell's `align` / `valign` | `table.cell(align: right + bottom)[…]`, `middle` as `horizon`, which Typst folds with the column's alignment; a value outside its set lowers as absent |
 

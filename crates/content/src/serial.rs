@@ -425,8 +425,8 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
         }),
         "quote" => Ok(Container::Quote { instance }),
         "element" => {
-            let (name, attrs) = element_payload(o)?;
-            Ok(Container::Element { name, attrs, instance })
+            let element = element_payload(o)?;
+            Ok(Container::Element { element, instance })
         }
         other => Err(ParseError::UnknownName {
             axis: "container",
@@ -436,10 +436,10 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
 }
 
 /// An element's `attrs` bag, read one way on both lanes since it has no legacy
-/// spelling: `$name` an element name the carrier does not reserve, and every
-/// other key an attribute name holding a string.
-fn element_payload(o: &Map<String, Value>) -> Result<(String, BTreeMap<String, String>), ParseError> {
-    use crate::carrier::{is_attr_name, is_element_name, RESERVED};
+/// spelling: `$name` and string attributes the carrier
+/// [models](crate::carrier::Element::new).
+fn element_payload(o: &Map<String, Value>) -> Result<crate::carrier::Element, ParseError> {
+    use crate::carrier::Refused;
     use crate::model::ELEMENT_NAME;
     let bag = o
         .get("attrs")
@@ -448,17 +448,19 @@ fn element_payload(o: &Map<String, Value>) -> Result<(String, BTreeMap<String, S
     let name = bag
         .get(ELEMENT_NAME)
         .and_then(Value::as_str)
-        .filter(|n| is_element_name(n) && !RESERVED.contains(n))
         .ok_or(ParseError::Shape("element name"))?;
-    let mut attrs = BTreeMap::new();
-    for (key, value) in bag.iter().filter(|(k, _)| *k != ELEMENT_NAME) {
-        let value = value
-            .as_str()
-            .filter(|_| is_attr_name(key))
-            .ok_or(ParseError::Shape("element attr"))?;
-        attrs.insert(key.clone(), value.to_string());
-    }
-    Ok((name.to_string(), attrs))
+    let attrs = bag
+        .iter()
+        .filter(|(k, _)| *k != ELEMENT_NAME)
+        .map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+        .collect::<Option<BTreeMap<_, _>>>()
+        .ok_or(ParseError::Shape("element attr"))?;
+    crate::carrier::Element::new(name, attrs).map_err(|r| {
+        ParseError::Shape(match r {
+            Refused::Attr(_) => "element attr",
+            Refused::Name(_) | Refused::Reserved(_) => "element name",
+        })
+    })
 }
 
 /// Encode a [`Mark`] (`start`, `end`, `type`, …) into its canonical wire object.
@@ -828,6 +830,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 /// - **Layout keys absent at their default.** See [`normalize_table_layout`].
 pub(crate) fn normalize_table_props(props: &mut Value) {
     let cols = table_cols(props);
+    let widths = crate::island::TableLayout::of(props).widths;
     let Some(obj) = props.as_object_mut() else {
         return;
     };
@@ -859,44 +862,24 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
             canon_row(row);
         }
     }
-    normalize_table_layout(obj, cols);
+    normalize_table_layout(obj, widths, cols);
 }
 
-/// A table's layout keys, each absent at its default or when invalid:
-///
-/// - `widths`: one entry per column, each an integer weight in
-///   `1..=`[`MAX_WEIGHT`](crate::carrier::table::MAX_WEIGHT) or `null` for an
-///   auto-fit column, padded with `null` or truncated to `cols`. All `null`,
-///   or any other entry, is absent.
-/// - `align`: `left`, `center` or `right`.
-/// - `headless`: `true`.
-fn normalize_table_layout(obj: &mut Map<String, Value>, cols: usize) {
-    match obj.get("widths").and_then(|w| settle_widths(w, cols)) {
-        Some(w) => obj.insert("widths".into(), w),
-        None => obj.remove("widths"),
-    };
-    if !obj.get("align").and_then(Value::as_str).is_some_and(|a| crate::island::TABLE_ALIGNS.contains(&a)) {
-        obj.remove("align");
+/// A table's layout keys, each absent at its default: `widths` holding only
+/// weights and `null`s settles to `cols`, padded with `null` or truncated, and
+/// all `null` is absent; `headless: false` is absent. A value outside its set
+/// stays as written.
+fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Option<u64>>>, cols: usize) {
+    if let Some(mut widths) = widths {
+        widths.resize(cols, None);
+        match widths.iter().any(Option::is_some) {
+            true => obj.insert("widths".into(), widths.into_iter().map(|w| w.map_or(Value::Null, Value::from)).collect()),
+            false => obj.remove("widths"),
+        };
     }
-    if obj.get("headless") != Some(&Value::Bool(true)) {
+    if obj.get("headless") == Some(&Value::Bool(false)) {
         obj.remove("headless");
     }
-}
-
-fn settle_widths(widths: &Value, cols: usize) -> Option<Value> {
-    let mut weights = widths
-        .as_array()?
-        .iter()
-        .map(|w| match w {
-            Value::Null => Some(None),
-            w => w.as_u64().filter(|n| (1..=crate::carrier::table::MAX_WEIGHT).contains(n)).map(Some),
-        })
-        .collect::<Option<Vec<Option<u64>>>>()?;
-    weights.resize(cols, None);
-    weights
-        .iter()
-        .any(Option::is_some)
-        .then(|| weights.into_iter().map(|w| w.map_or(Value::Null, Value::from)).collect())
 }
 
 /// A table's canonical column count: the widest of its header, any body row, and

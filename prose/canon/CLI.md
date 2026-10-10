@@ -25,7 +25,7 @@ them.
   each `MARKDOWN_FILE` through the bound door (`Quill::parse`) and prints the
   parse warnings and every `Quill::validate` diagnostic, under the file's path.
   It compiles nothing, so a plate failure is `render`'s to find; a construct
-  the backend declines draws `validation::declined_construct`. A document that fails to read or parse draws that one
+  the backend declines draws `backend::declined_construct`. A document that fails to read or parse draws that one
   error (`cli::unreadable_document` for a path that is missing or not UTF-8)
   and does not stop the rest. An
   `Error` exits `1`; `--strict` exits `1` on a `Warning` too, for a CI gate over
@@ -33,11 +33,11 @@ them.
 - **`render` prints what the page leaves out.** Its warnings are the parse
   carrier, then every `Quill::validate` warning, each naming unclaimed input
   ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render)) less
-  `validation::declined_construct`, then the compile's
+  `backend::declined_construct`, then the compile's, a decline among them
   ([ERROR.md](ERROR.md#warning-flow)). The engine's one-shot render carries
   the last two; the CLI adds the parse carrier. A render that fails returns no
   result, so the CLI prints the parse carrier and every `Quill::validate`
-  warning itself, `validation::declined_construct` among them, ahead of the
+  warning itself, `backend::declined_construct` among them, ahead of the
   error. A failed compile carries the backend's load warnings after its errors
   ([ERROR.md](ERROR.md#warning-flow)), and the CLI prints them third.
 - **`validate` compiles the plate.** It renders the three canonical documents —

@@ -142,6 +142,7 @@ export type {
 	Revised,
 	DocumentRevised,
 	AnnotatedMarkdown,
+	DocumentAnchor,
 	Imported,
 	Assoc,
 	IslandOp,
@@ -415,8 +416,8 @@ export declare class Engine {
 	 * soon as this call returns.
 	 *
 	 * {@link RenderResult.warnings} carries every `quill.validate(doc)` warning
-	 * but `validation::declined_construct`, which the compile raises as
-	 * `backend::declined_construct`, then the compile's own. The load's (parse
+	 * but `backend::declined_construct`, then the compile's own, a decline among
+	 * them. The load's (parse
 	 * and `conform::*`) stay on `doc.warnings`, and a revise's on its receipt.
 	 * A {@link LiveSession} carries the compile's alone: read
 	 * `quill.validate(doc)` beside it.
@@ -616,15 +617,18 @@ export declare class DocumentWriter {
 	readonly document: Document;
 	/**
 	 * Typed-commit one main-card field (strict coerce, mismatch throws now).
-	 * Throws `UnknownField` for a name the schema does not declare.
+	 * Throws `UnknownField` for a name the schema does not declare. Returns a
+	 * `parse::dropped_construct` warning per construct a `richtext` markdown
+	 * string in the value dropped, at the string's path.
 	 */
-	set(name: string, value: unknown): void;
+	set(name: string, value: unknown): Diagnostic[];
 	/**
 	 * Typed-commit several main-card fields atomically: nothing is applied on
 	 * error (throws a {@link QuillmarkError} carrying one diagnostic per
 	 * offending field, including an `UnknownField` for each undeclared name).
+	 * Returns `set`'s warnings for every field, in batch order.
 	 */
-	setAll(fields: Record<string, unknown>): void;
+	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * Revise the main body from markdown; anchors rebase. Returns the
 	 * `Revised` receipt, its warnings at `main.body`: a body carries no field
@@ -660,8 +664,8 @@ export declare class DocumentWriter {
 	 * body from optional markdown, and place it. `at` omitted appends, a number
 	 * inserts at that index. Transactional: a rejected field (throwing a per-field
 	 * diagnostic bundle) or an invalid kind, body, or position leaves the document
-	 * untouched. Returns the body import's `parse::dropped_construct` warnings,
-	 * anchored at the placed card's body.
+	 * untouched. Returns the fields' `parse::dropped_construct` warnings, then
+	 * the body import's, anchored under the placed card.
 	 */
 	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number): Diagnostic[];
 	/** Remove the composable card at `index`, returning it (or `undefined`). */
@@ -691,8 +695,8 @@ export declare class CardWriter {
 	 * index.
 	 */
 	readonly kind: string;
-	set(name: string, value: unknown): void;
-	setAll(fields: Record<string, unknown>): void;
+	set(name: string, value: unknown): Diagnostic[];
+	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * Revise this card's body from markdown (edit semantics), returning the
 	 * `Revised` receipt, its warnings at the card's body.

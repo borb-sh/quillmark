@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use quillmark::{
     AnnotatedMarkdown, CalendarDate, CardReader, Delta, Document, DocumentAnchor, DocumentRevised,
-    DroppedAnchor, EditError, FileTreeNode, ImportError, Normalized, ParseDateError,
+    EditError, FileTreeNode, ImportError, Normalized, ParseDateError,
     Parsed, Quill, QuillReference, QuillValue, Revised, TypedReader, TypedWriter,
 };
 
@@ -107,7 +107,7 @@ fn content_lane_spells_through_the_facade() {
         .writer(&mut doc)
         .revise_document(&markdown)
         .expect("the document's own markdown revises");
-    let dropped: &[DroppedAnchor] = &revised.dropped_anchors;
+    let dropped: &[DocumentAnchor] = &revised.dropped_anchors;
     assert!(dropped.is_empty());
 }
 

@@ -172,10 +172,9 @@ invariants on the way out as well as in, failing the write with a serializer
 error. The token a body rests on (`Normalized`) states that
 `Content::normalize` has run, which is weaker than validity: `validate`
 refuses only what `normalize` cannot repair — a forbidden character, two
-counts that disagree, a range or depth past a bound, a colliding id, an
-element outside the carrier grammar — and `Card::overwrite_body` takes a
-caller's content on that token alone. A store that checked only on load would
-accept bytes it could not read back.
+counts that disagree, a range or depth past a bound, a colliding id — and
+`Card::overwrite_body` takes a caller's content on that token alone. A store
+that checked only on load would accept bytes it could not read back.
 
 The guarantee follows from: struct field order is fixed in the frozen
 DTO tree; `Vec` fields preserve order by definition; the two disciplines
@@ -360,7 +359,7 @@ rewrites a cell's `text` and `marks` in place rather than minting a fresh
 
 A table island's props name `header`, `rows`, `aligns` (one per column:
 `none`, `left`, `center` or `right`) and three layout keys, each absent at its
-default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
+default:
 
 | Key | Value | Default |
 |---|---|---|
@@ -380,11 +379,10 @@ A cell names two keys of its own, each absent by default:
 | `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's `aligns` entry |
 | `valign` | the cell's vertical alignment: `top`, `middle` or `bottom` | the plate's |
 
-Normalization leaves both as stored. A value equal to its column's is an
-override that stays when the column changes, and a value outside its set is
-read as absent and rides untouched, as an unnamed key does. So naming them
-is no storage-version event: no stored byte moves, and an older reader
-carries them.
+A cell's value equal to its column's is an override that stays when the
+column changes. A table or cell key holding a value outside its set is read
+as absent and rides untouched, as an unnamed key does, so
+`from_markdown(to_markdown(c)) == c` holds where every value is in its set.
 
 Two rules bound the payload:
 

@@ -82,6 +82,10 @@ impl QuillValue {
         &self.json
     }
 
+    pub(crate) fn as_json_mut(&mut self) -> &mut serde_json::Value {
+        &mut self.json
+    }
+
     /// Convert into the underlying JSON value.
     pub fn into_json(self) -> serde_json::Value {
         self.json

@@ -37,8 +37,8 @@ Where the code falls short of an invariant, the matrix cell says so:
 construct's markdown cell it is also where the fixed point fails.
 
 The matrix reads a body. A `richtext` field's markdown string reports what
-it drops where a conform, a revise or `validate` imports it; a typed `set`
-and a card inserted with a string body drop it with no signal
+it drops where a conform, a typed `set`, a revise or `validate` imports it; a
+card inserted with a string body drops it with no signal
 ([ERROR.md](ERROR.md#warning-flow)).
 
 ## The matrix
@@ -60,7 +60,7 @@ import meets. The columns:
 | spells | the surface has a form for the construct and reads it back as written |
 | carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor by diff-rebase |
 | honors | the lowering draws it as CONVERT.md maps it |
-| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render under `backend::declined_construct`, or `typst::unregistered_element` for an element, `validate` under `validation::declined_construct` |
+| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render or `validate` under `backend::declined_construct`, or a render under `typst::unregistered_element` for an element |
 | refuses | the surface rejects the write |
 | silent: honored | no signal, and none is owed: the outcome is the one the construct asks for |
 | n/a | the surface never meets the construct: past the markdown column, a spelling the import does not store |
@@ -139,11 +139,12 @@ diff-rebase alone. The row's corpus entry pins the spelling under
 | `island.table.props.unnamed`: a props key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.unnamed`: a cell key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.value`: a cell `valign` outside its set | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
+| `island.table.props.value`: a table `align` outside its set | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.props.widths`: column weights, `null` an auto-fit column | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.widths.auto`: every column auto-fit, the default | spells | spells | spells | silent: honored | silent: honored | none |
 | `island.table.props.align`: the table's placement | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.headless`: a table drawn with no header row | spells | spells | spells | honors | silent: honored | none |
-| `island.image` | spells | spells | spells | declines with a signal | declines with a signal | `backend::declined_construct`, `validation::declined_construct`, `image` |
+| `island.image` | spells | spells | spells | declines with a signal | declines with a signal | `backend::declined_construct`, `image` |
 
 A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
 mint it without a key the engine does not name.
@@ -153,7 +154,9 @@ mint it without a key the engine does not name.
 its default, so a default row stores no key.
 
 A cell's `align` and `valign` are spelled on a `qm-cell` pair around the cell's
-whole content (§6.4). Both rest as written, so a value outside its set rides
+whole content (§6.4).
+
+A table or cell key holding a value outside its set rests as written and rides
 as a key the engine does not name does.
 
 ### Spellings
@@ -233,14 +236,17 @@ fails:
 - An entry's `annotated` is `to_markdown_annotated(content)`'s markdown,
   imports, warning nothing, to `content` without its anchors, and revises a
   body holding `content` to `content`.
+- A document whose body holds `content` emits markdown, and an annotated read,
+  that each parse through `Document::parse`, warning nothing, to a body
+  holding `reimports`; the read lists each anchor of `content` at `main.body`
+  and spells `annotated`.
 - The rest runs through the fixture quill `table_demo`, against `typst` and
   `signals`.
 - The body's block in the generated helper, which is `emit_content`'s markup,
   contains every `typst` substring.
 - A one-shot render warns exactly `signals.render`.
 - `Quill::validate` on that document reports exactly `signals.validate`, and
-  its `validation::declined_construct` list (path, construct, count) is the
-  render's `backend::declined_construct` list.
+  its `backend::declined_construct` diagnostics are the render's.
 - The matrix above has a row per entry and an entry per row, and a row's
   Markdown, Typst lowering and Validate cells read `declines with a signal`
   exactly where the entry's signals warn there, its Signal cell naming each
@@ -249,15 +255,12 @@ fails:
 A row whose construct the import does not store still has its `typst`: what the
 markup wrapped reaches the page.
 
-Each binding runs the corpus through its own doors. The WASM binding's
-`parity.test.js` holds every entry to the markdown, op-wire, storage, revise
-and annotated assertions above, through `importMarkdown`, `fromMarkdown`,
-`overwrite`, `applyChange`, `fromStored`, `exportMarkdown`, `revise`, `rebase`
-and `toAnnotatedMarkdown`. Python, which has no content lane, holds each
-spelling through `Document.from_markdown`, each `content` through a stored
-load, the body read and `revise_body`, each `annotated` read through the parse
-and `revise_body`, and every entry's `signals.validate` and `signals.render`
-through `validate` and `render` (`tests/test_parity.py`).
+Each binding holds what only it can break, the crossing: every entry's
+`content` and import warnings cross out of a markdown import and a parse, and
+`content` crosses back in through a write and storage. The WASM binding's
+`parity.test.js` goes through `importMarkdown`, `fromMarkdown`, `overwrite` and
+`fromStored`; Python's `tests/test_parity.py` through `Document.from_markdown`
+and a stored load.
 
 A construct enters the engine with its row and its entry, and a change to what
 a surface does with one edits both.

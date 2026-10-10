@@ -54,9 +54,16 @@ impl<'a> TypedWriter<'a> {
     /// rather than falling to the opaque
     /// [`Card::store_field`](crate::document::Card::store_field). Other errors
     /// are those of `Card::commit_field`.
-    pub fn set(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
+    ///
+    /// Returns a `parse::dropped_construct` warning per construct a `richtext`
+    /// markdown string in the value dropped, at the string's path.
+    pub fn set(
+        &mut self,
+        name: &str,
+        value: impl Into<QuillValue>,
+    ) -> Result<Vec<Diagnostic>, EditError> {
         let schema = Some(&self.config.main.fields);
-        commit_impl(self.doc.main_card_mut(), schema, name, value)
+        commit_impl(self.doc.main_card_mut(), schema, name, value, &DocPath::main())
     }
 
     /// Write several main-card fields atomically, the typed twin of
@@ -66,15 +73,16 @@ impl<'a> TypedWriter<'a> {
     /// offending field comes back as a `(name, error)` pair, so a caller
     /// submitting a whole form sees every typo in one pass. The §8 field count
     /// is charged over the whole batch, so a batch that would take the card
-    /// past it reports every name in the overflowing tail.
-    pub fn set_all<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
+    /// past it reports every name in the overflowing tail. Returns
+    /// [`set`](Self::set)'s warnings for every field, in batch order.
+    pub fn set_all<K, V, I>(&mut self, fields: I) -> Result<Vec<Diagnostic>, Vec<(String, EditError)>>
     where
         K: Into<String>,
         V: Into<QuillValue>,
         I: IntoIterator<Item = (K, V)>,
     {
         let schema = Some(&self.config.main.fields);
-        set_all_impl(self.doc.main_card_mut(), schema, fields)
+        set_all_impl(self.doc.main_card_mut(), schema, fields, &DocPath::main())
     }
 
     /// Revise the main card's body from markdown: edit semantics, surviving
@@ -130,8 +138,9 @@ impl<'a> TypedWriter<'a> {
     /// [`set_all`](Self::set_all); an invalid kind or body, or an out-of-range
     /// position, surfaces as a single-entry bundle keyed `$kind` / `$body`.
     ///
-    /// Returns the body import's `parse::dropped_construct` warnings, anchored
-    /// at the placed card's body.
+    /// Returns the fields' `parse::dropped_construct` warnings, as
+    /// [`set_all`](Self::set_all) returns them, then the body import's, all
+    /// anchored under the placed card.
     pub fn add_card<K, V, I>(
         &mut self,
         kind: &str,
@@ -146,17 +155,16 @@ impl<'a> TypedWriter<'a> {
     {
         let mut card = Card::new(kind).map_err(|e| vec![("$kind".to_string(), e)])?;
         let schema = self.config.card_kind(kind).map(|s| &s.fields);
-        set_all_impl(&mut card, schema, fields)?;
-        let index = at.unwrap_or(self.doc.cards().len());
-        let warnings = match body {
-            Some(md) => {
+        let base = DocPath::card(Some(kind), at.unwrap_or(self.doc.cards().len()));
+        let mut warnings = set_all_impl(&mut card, schema, fields, &base)?;
+        if let Some(md) = body {
+            warnings.extend(
                 card.revise_body(md)
                     .map_err(|e| vec![("$body".to_string(), e)])?
-                    .with_path(&DocPath::card(Some(kind), index).body())
-                    .warnings
-            }
-            None => Vec::new(),
-        };
+                    .with_path(&base.body())
+                    .warnings,
+            );
+        }
         match at {
             Some(index) => self.doc.insert_card(index, card),
             None => self.doc.push_card(card),
@@ -233,10 +241,16 @@ impl<'a> CardWriter<'a> {
     /// Write a field on this card, strict-committed against the card's
     /// [`CardSchema`](crate::quill::CardSchema). An undeclared field (or any
     /// field when the card kind is unknown) fails with
-    /// [`EditError::UnknownField`] rather than storing opaquely.
-    pub fn set(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
+    /// [`EditError::UnknownField`] rather than storing opaquely. Returns
+    /// [`TypedWriter::set`]'s warnings, under this card.
+    pub fn set(
+        &mut self,
+        name: &str,
+        value: impl Into<QuillValue>,
+    ) -> Result<Vec<Diagnostic>, EditError> {
         let schema = self.fields_schema();
-        commit_impl(self.card_mut(), schema, name, value)
+        let base = self.base();
+        commit_impl(self.card_mut(), schema, name, value, &base)
     }
 
     /// Revise this card's body from markdown (edit semantics): the card twin
@@ -259,30 +273,33 @@ impl<'a> CardWriter<'a> {
     /// Write several fields on this card atomically; see
     /// [`TypedWriter::set_all`]; an undeclared name aborts the whole batch with
     /// [`EditError::UnknownField`].
-    pub fn set_all<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
+    pub fn set_all<K, V, I>(&mut self, fields: I) -> Result<Vec<Diagnostic>, Vec<(String, EditError)>>
     where
         K: Into<String>,
         V: Into<QuillValue>,
         I: IntoIterator<Item = (K, V)>,
     {
         let schema = self.fields_schema();
-        set_all_impl(self.card_mut(), schema, fields)
+        let base = self.base();
+        set_all_impl(self.card_mut(), schema, fields, &base)
     }
 }
 
 /// Typed single-field commit shared by [`TypedWriter::set`] and
 /// [`CardWriter::set`]. A `None` schema is an unknown card kind: every name on
-/// it is undeclared.
+/// it is undeclared. `base` is the card's root, where the import's warnings
+/// anchor under the field.
 fn commit_impl(
     card: &mut Card,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
     name: &str,
     value: impl Into<QuillValue>,
-) -> Result<(), EditError> {
-    match fields_schema.and_then(|m| m.get(name)) {
-        Some(schema) => card.commit_field(name, value, schema),
-        None => Err(EditError::unknown_field(name)),
-    }
+    base: &DocPath,
+) -> Result<Vec<Diagnostic>, EditError> {
+    let Some(schema) = fields_schema.and_then(|m| m.get(name)) else {
+        return Err(EditError::unknown_field(name));
+    };
+    card.commit_field_at(name, &value.into(), schema, base)
 }
 
 /// The anchor-preserving twin of [`commit_impl`], shared by
@@ -310,7 +327,8 @@ fn set_all_impl<K, V, I>(
     card: &mut Card,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
     fields: I,
-) -> Result<(), Vec<(String, EditError)>>
+    base: &DocPath,
+) -> Result<Vec<Diagnostic>, Vec<(String, EditError)>>
 where
     K: Into<String>,
     V: Into<QuillValue>,
@@ -323,10 +341,14 @@ where
 
     let mut resolved: Vec<(String, QuillValue)> = Vec::with_capacity(fields.len());
     let mut errors: Vec<(String, EditError)> = Vec::new();
+    let mut warnings = Vec::new();
     for (name, value) in fields {
         match fields_schema.and_then(|m| m.get(&name)) {
-            Some(schema) => match resolve_field_write(&name, value, schema) {
-                Ok(stored) => resolved.push((name, stored)),
+            Some(schema) => match resolve_field_write(&name, &value, schema, base) {
+                Ok((stored, drops)) => {
+                    warnings.extend(drops);
+                    resolved.push((name, stored));
+                }
                 Err(e) => errors.push((name, e)),
             },
             None => errors.push((name.clone(), EditError::unknown_field(name))),
@@ -346,7 +368,7 @@ where
             .insert(name, stored)
             .expect("the batch's overflow was refused above");
     }
-    Ok(())
+    Ok(warnings)
 }
 
 #[cfg(test)]
@@ -628,8 +650,8 @@ card_kinds:
         );
     }
 
-    /// Each markdown verb returns the import's drops anchored at the address
-    /// it wrote.
+    /// Each verb that imports markdown returns the import's drops anchored at
+    /// the address it wrote.
     #[test]
     fn markdown_writes_anchor_their_dropped_constructs() {
         let config = config();
@@ -659,6 +681,12 @@ card_kinds:
         assert!(revised.warnings.is_empty());
         let added = ed.add_card("note", [("body", "b")], Some("<span>y</span>"), Some(0)).unwrap();
         assert_eq!(anchors(&added), dropped("cards.note[0].body"));
+        let set = ed.set("subject", "<kbd>x</kbd>").unwrap();
+        assert_eq!(anchors(&set), dropped("main.subject"));
+        let set = ed.card(1).unwrap().set_all([("blurb", "<kbd>x</kbd>")]).unwrap();
+        assert_eq!(anchors(&set), dropped("cards.note[1].blurb"));
+        let added = ed.add_card("note", [("blurb", "<em>z</em>")], None, None).unwrap();
+        assert_eq!(anchors(&added), dropped("cards.note[2].blurb"));
 
         let revised = doc.card_mut(1).unwrap().revise_body("<kbd>x</kbd>").unwrap();
         assert_eq!(

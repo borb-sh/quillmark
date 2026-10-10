@@ -60,30 +60,38 @@ fn every_knob_compiles_and_moves_the_table() {
     }
 }
 
-/// A centered table's short cell keeps its offset from the header above it: the
-/// placement aligns the table, not the text in its cells, under the plate's own
-/// cell alignment or none.
+/// A centered table's cells keep their offsets from the header's first cell:
+/// the placement aligns the table, not the text in its cells, under the
+/// plate's table alignment, its vertical cell alignment, its own alignment or
+/// none, with a column aligned or none.
 #[test]
 fn placing_a_table_keeps_its_cells_aligned_as_they_were() {
-    let table = "| A wide header cell |\n| --- |\n| x |";
-    let placed = format!("<qm-table align=\"center\">\n\n{table}\n\n</qm-table>");
-    for set in ["", "#set table(align: right)\n", "#set align(right)\n"] {
-        let plate = PLATE.replace("#data", &format!("{set}#data"));
-        let quill = common::quill_with_plate(
-            &common::yaml("main:\n  fields: {}\n"),
-            &plate,
-        );
-        let at = origins(&svg(&quill, &placed));
-        let unplaced = origins(&svg(&quill, table));
-        assert_eq!(at.len(), 2, "{at:?}");
-        let offset = |o: &[(f64, f64)]| o[1].0 - o[0].0;
-        assert!((offset(&at) - offset(&unplaced)).abs() < 1e-6, "under {set:?}: {at:?} {unplaced:?}");
-        if set.is_empty() {
-            assert!(at[0].0 > unplaced[0].0, "centered right of {unplaced:?}: {at:?}");
+    let tables = [
+        "| A wide header cell |\n| --- |\n| x |",
+        "| A wide header cell | b |\n| --- | ---: |\n| x | y |",
+        "| A wide header cell | b |\n| --- | ---: |\n| two<br>lines | y |",
+    ];
+    let sets = ["", "#set table(align: right)\n", "#set align(right)\n", "#show table.cell: set align(horizon)\n"];
+    for table in tables {
+        let placed = format!("<qm-table align=\"center\">\n\n{table}\n\n</qm-table>");
+        for set in sets {
+            let plate = PLATE.replace("#data", &format!("{set}#data"));
+            let quill = common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), &plate);
+            let at = origins(&svg(&quill, &placed));
+            let unplaced = origins(&svg(&quill, table));
+            let offsets = |o: &[(f64, f64)]| -> Vec<(f64, f64)> { o.iter().map(|p| (p.0 - o[0].0, p.1 - o[0].1)).collect() };
+            let kept = at.len() == unplaced.len()
+                && offsets(&at)
+                    .iter()
+                    .zip(offsets(&unplaced))
+                    .all(|(a, b)| (a.0 - b.0).abs() < 1e-6 && (a.1 - b.1).abs() < 1e-6);
+            assert!(kept, "{table:?} under {set:?}: {at:?} {unplaced:?}");
+            if set.is_empty() {
+                assert!(at[0].0 > unplaced[0].0, "centered right of {unplaced:?}: {at:?}");
+            }
         }
     }
 }
-
 
 /// A plate styling the header row through `table.header` styles a headed
 /// table's first row and leaves a headless table's alone.

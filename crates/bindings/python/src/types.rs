@@ -14,7 +14,7 @@ use std::sync::Arc;
 use crate::enums::{PyOutputFormat, PySeverity};
 use crate::errors::{
     card_index, convert_edit_error, convert_edit_errors, convert_render_error, convert_wire_error,
-    page_indices, raise_with_diagnostics,
+    page_indices, raise_summarized, raise_with_diagnostics,
 };
 
 #[pyclass(name = "Quillmark")]
@@ -48,9 +48,8 @@ impl PyQuillmark {
     /// a plate's `datetime.today()`.
     ///
     /// The result's `warnings` are every `quill.validate(doc)` warning but
-    /// `validation::declined_construct`, which the compile raises as
-    /// `backend::declined_construct`, then the compile's; the load's stay on
-    /// `doc.warnings`.
+    /// `backend::declined_construct`, then the compile's, a decline among them;
+    /// the load's stay on `doc.warnings`.
     #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, regions=false, today=None))]
     #[allow(clippy::too_many_arguments)]
     fn render(
@@ -150,11 +149,7 @@ impl PyQuill {
     /// `[]`.
     #[getter]
     fn warnings(&self) -> Vec<PyDiagnostic> {
-        self.inner
-            .warnings()
-            .iter()
-            .map(|d| PyDiagnostic { inner: d.clone() })
-            .collect()
+        py_diagnostics(self.inner.warnings().to_vec())
     }
 
     /// Bind this quill's schema to `doc` for typed writes. See [`PyWriter`] for
@@ -206,7 +201,8 @@ impl PyQuill {
 
     /// Validate `doc` against this quill's schema, returning a list of diagnostic
     /// dicts: an error blocks a render, a warning does not. Forwards the
-    /// canonical `validation::*` diagnostics the engine emits.
+    /// engine's `validation::*`, a markdown string's `parse::dropped_construct`
+    /// and the backend's `backend::declined_construct`.
     fn validate<'py>(
         &self,
         py: Python<'py>,
@@ -231,11 +227,10 @@ impl PyQuill {
     /// `doc.warnings`. Raises `QuillmarkError` on a parse failure, or when
     /// `markdown` declares a `$quill` this quill does not answer to.
     fn parse(&self, markdown: &str) -> PyResult<PyDocument> {
-        let parsed = self.inner.parse(markdown).map_err(|e| {
-            let diags = e.to_diagnostics();
-            let message = quillmark_core::error::RenderError::summary_message(&diags);
-            raise_with_diagnostics(diags, message)
-        })?;
+        let parsed = self
+            .inner
+            .parse(markdown)
+            .map_err(|e| raise_summarized(e.to_diagnostics()))?;
         Ok(PyDocument {
             inner: parsed.document,
             parse_warnings: parsed.warnings,
@@ -256,11 +251,10 @@ impl PyQuill {
         py: Python<'py>,
         mut doc: PyRefMut<'_, PyDocument>,
     ) -> PyResult<Bound<'py, PyList>> {
-        let diags = self.inner.conform(&mut doc.inner).map_err(|e| {
-            let diags = e.into_diagnostics();
-            let message = quillmark_core::error::RenderError::summary_message(&diags);
-            raise_with_diagnostics(diags, message)
-        })?;
+        let diags = self
+            .inner
+            .conform(&mut doc.inner)
+            .map_err(|e| raise_summarized(e.into_diagnostics()))?;
         let json_value = serde_json::to_value(&diags)
             .map_err(|e| PyValueError::new_err(format!("conform: serialization failed: {e}")))?;
         let py_obj = json_to_py(py, &json_value)?;
@@ -292,10 +286,7 @@ impl PyQuill {
         self.inner
             .example_document()
             .map(|example| {
-                let parsed = example.map_err(|diags| {
-                    let message = quillmark_core::error::RenderError::summary_message(&diags);
-                    raise_with_diagnostics(diags, message)
-                })?;
+                let parsed = example.map_err(raise_summarized)?;
                 Ok(PyDocument {
                     inner: parsed.document,
                     parse_warnings: parsed.warnings,
@@ -489,10 +480,7 @@ impl PyDocument {
 
     #[getter]
     fn warnings(&self) -> Vec<PyDiagnostic> {
-        self.parse_warnings
-            .iter()
-            .map(|d| PyDiagnostic { inner: d.clone() })
-            .collect()
+        py_diagnostics(self.parse_warnings.clone())
     }
 
     /// The main card's body as canonical Content-JSON (`{text, lines, marks,
@@ -769,7 +757,9 @@ impl PyWriter {
 
     /// Typed-commit one field (strict coerce, mismatch raises now), resolving
     /// its type from the addressed card's schema. Raises `edit::unknown_field`
-    /// for a name that schema does not declare.
+    /// for a name that schema does not declare. Returns a
+    /// `parse::dropped_construct` warning per construct a `richtext` markdown
+    /// string in the value dropped, at the string's path.
     #[pyo3(signature = (name, value, card=None))]
     fn set(
         &self,
@@ -777,7 +767,7 @@ impl PyWriter {
         name: &str,
         value: Bound<'_, PyAny>,
         card: Option<isize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Vec<PyDiagnostic>> {
         let qv = py_to_quillvalue(&value)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
@@ -790,19 +780,21 @@ impl PyWriter {
                 .map_err(|e| convert_edit_error(e, &target.base))?
                 .set(name, qv),
         }
+        .map(py_diagnostics)
         .map_err(|e| convert_edit_error(e, &target.base))
     }
 
     /// Typed-commit several fields atomically: nothing is applied on error, and
     /// the raised `QuillmarkError` carries one diagnostic per offending field
-    /// (an `edit::unknown_field` per undeclared name).
+    /// (an `edit::unknown_field` per undeclared name). Returns `set`'s warnings
+    /// for every field, in batch order.
     #[pyo3(signature = (fields, card=None))]
     fn set_all(
         &self,
         py: Python<'_>,
         fields: Bound<'_, PyDict>,
         card: Option<isize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Vec<PyDiagnostic>> {
         let batch = pydict_to_field_batch(&fields)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
@@ -815,6 +807,7 @@ impl PyWriter {
                 .map_err(|e| convert_edit_error(e, &target.base))?
                 .set_all(batch),
         }
+        .map(py_diagnostics)
         .map_err(|errs| convert_edit_errors(errs, &target.base))
     }
 
@@ -891,11 +884,7 @@ impl PyWriter {
             .inner
             .writer(&mut doc.inner)
             .revise_document(markdown)
-            .map_err(|e| {
-                let diags = e.to_diagnostics();
-                let message = quillmark_core::error::RenderError::summary_message(&diags);
-                raise_with_diagnostics(diags, message)
-            })?;
+            .map_err(|e| raise_summarized(e.to_diagnostics()))?;
         doc.parse_warnings.clear();
         Ok(py_diagnostics(revised.warnings))
     }
@@ -905,8 +894,8 @@ impl PyWriter {
     /// appends, `Some(i)` inserts at index `i`, and a position out of range
     /// raises. Transactional: a rejected field (raising a per-field diagnostic
     /// bundle) or an invalid kind, body, or position leaves the document
-    /// untouched. Returns the body import's `parse::dropped_construct` warnings,
-    /// anchored at the placed card's body.
+    /// untouched. Returns the fields' `parse::dropped_construct` warnings, then
+    /// the body import's, anchored under the placed card.
     #[pyo3(signature = (kind, fields=None, body=None, at=None))]
     fn add_card(
         &self,
@@ -1220,7 +1209,7 @@ pub struct PyDiagnostic {
     pub(crate) inner: Diagnostic,
 }
 
-fn py_diagnostics(diags: Vec<Diagnostic>) -> Vec<PyDiagnostic> {
+pub(crate) fn py_diagnostics(diags: Vec<Diagnostic>) -> Vec<PyDiagnostic> {
     diags.into_iter().map(|inner| PyDiagnostic { inner }).collect()
 }
 
@@ -1470,8 +1459,7 @@ fn pydict_to_field_batch(
         }
     }
     if !diags.is_empty() {
-        let message = quillmark_core::error::RenderError::summary_message(&diags);
-        return Err(raise_with_diagnostics(diags, message));
+        return Err(raise_summarized(diags));
     }
     Ok(batch)
 }
