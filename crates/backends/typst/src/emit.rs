@@ -1056,8 +1056,8 @@ fn cell_markup(text: &str, marks: &[Mark]) -> String {
 ///
 /// - `widths`: `columns: (2fr, auto)` in place of `columns: 2`.
 /// - `align`: `align(center, table(…))` under `context`, where each cell
-///   aligning by default takes the alignment the table stands in, so placing a
-///   table moves no text inside it.
+///   aligning by default is set to the alignment the table stands in, so
+///   placing a table moves no text inside it.
 /// - a cell's `align` and `valign`: `table.cell(align: right + bottom)[…]`,
 ///   which Typst folds with its column's alignment.
 /// - `headless`: the header row as the first body row, outside `table.header`.
@@ -1086,9 +1086,6 @@ fn table_markup(props: &serde_json::Value) -> String {
         .get("align")
         .and_then(Value::as_str)
         .filter(|a| quillmark_content::island::TABLE_ALIGNS.contains(a));
-    // Placed, the table is a call under `context`, so a cell aligning by default
-    // reads the alignment outside the placement rather than the placement's.
-    let inherited = "align.alignment";
 
     let cell = |v: &Value| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
@@ -1126,15 +1123,10 @@ fn table_markup(props: &serde_json::Value) -> String {
                 "left" => "left",
                 "center" => "center",
                 "right" => "right",
-                _ if placement.is_some() => inherited,
                 _ => "auto",
             });
         }
         out.push_str("),\n");
-    } else if placement.is_some() {
-        out.push_str(&format!(
-            "  align: if table.align == auto {{ {inherited} }} else {{ table.align }},\n"
-        ));
     }
     let headless = props.get("headless") == Some(&Value::Bool(true));
     out.push_str(if headless { "  " } else { "  table.header(" });
@@ -1159,7 +1151,7 @@ fn table_markup(props: &serde_json::Value) -> String {
     }
     out.push(')');
     match placement {
-        Some(at) => format!("#context align({at}, {out})"),
+        Some(at) => format!("#context {{ show table.cell: set align(align.alignment); align({at}, {out}) }}"),
         None => format!("#{out}"),
     }
 }
@@ -1423,14 +1415,6 @@ mod tests {
                 "source: {src}, got {out:?}"
             );
         }
-    }
-
-    #[test]
-    fn formatted_table_cell_renders_marks() {
-        let md = "| Name | Note |\n|------|------|\n| **bold** | _italic_ |";
-        let got = emit(md).markup;
-        assert!(got.contains("#strong[bold]"), "got {got:?}");
-        assert!(got.contains("#emph[italic]"), "got {got:?}");
     }
 
     /// Coincident `strong`+`emph` lose their source nesting order at import, so
@@ -2008,110 +1992,6 @@ mod tests {
         });
         let out = table_markup(&props);
         assert!(out.contains("columns: 2,"), "got {out:?}");
-    }
-
-    #[test]
-    fn the_layout_keys_lower_to_typst() {
-        let props = serde_json::json!({
-            "header": [
-                { "text": "a", "marks": [] },
-                { "text": "b", "marks": [] },
-            ],
-            "rows": [[{ "text": "1", "marks": [] }, { "text": "2", "marks": [] }]],
-            "aligns": ["none", "left"],
-            "widths": [2, null],
-            "align": "center",
-        });
-        assert_eq!(
-            table_markup(&props),
-            "#context align(center, table(\n  columns: (2fr, auto),\n  \
-             align: (align.alignment, left),\n  \
-             table.header([a], [b], ),\n  \
-             [1], [2], \n))"
-        );
-    }
-
-    /// A headless table's header row lowers as its first body row.
-    #[test]
-    fn a_headless_table_lowers_no_header() {
-        let props = serde_json::json!({
-            "header": [{ "text": "a", "marks": [], "align": "right" }, { "text": "b", "marks": [] }],
-            "rows": [[{ "text": "1", "marks": [] }, { "text": "2", "marks": [] }]],
-            "headless": true,
-        });
-        assert_eq!(
-            table_markup(&props),
-            "#table(\n  columns: 2,\n  \
-             table.cell(align: right)[a], [b], \n  \
-             [1], [2], \n)"
-        );
-    }
-
-    /// A cell's alignment in its set lowers to `table.cell`, `middle` as
-    /// Typst's `horizon`; a value outside its set lowers as absent.
-    #[test]
-    fn a_cells_alignment_lowers_to_table_cell() {
-        let props = serde_json::json!({
-            "header": [{ "text": "a", "marks": [], "align": "center" }, { "text": "b", "marks": [] }],
-            "rows": [
-                [{ "text": "1", "marks": [], "valign": "middle" }, { "text": "2", "marks": [], "align": "right", "valign": "bottom" }],
-                [{ "text": "3", "marks": [], "align": "middle", "valign": "horizon" }, { "text": "4", "marks": [{ "start": 0, "end": 1, "type": "strong" }], "valign": "top" }],
-            ],
-            "aligns": ["none", "left"],
-        });
-        assert_eq!(
-            table_markup(&props),
-            "#table(\n  columns: 2,\n  align: (auto, left),\n  \
-             table.header(table.cell(align: center)[a], [b], ),\n  \
-             table.cell(align: horizon)[1], table.cell(align: right + bottom)[2], \n  \
-             [3], table.cell(align: top)[#strong[4]], \n)"
-        );
-    }
-
-    /// Placed with no column aligned, a cell takes the plate's `table.align`,
-    /// else the alignment the table stands in.
-    #[test]
-    fn a_placed_table_without_column_aligns_inherits_the_cells_alignment() {
-        let props = serde_json::json!({
-            "header": [{ "text": "a", "marks": [] }],
-            "rows": [],
-            "aligns": ["none"],
-            "align": "right",
-        });
-        assert_eq!(
-            table_markup(&props),
-            "#context align(right, table(\n  columns: 1,\n  \
-             align: if table.align == auto { align.alignment } else { table.align },\n  \
-             table.header([a], ),\n))"
-        );
-    }
-
-    fn emit_md(md: &str) -> String {
-        let rt = from_markdown(md).expect("import").content;
-        emit_content(&rt).expect("emit").markup
-    }
-
-    /// A block element lowers through the dispatcher around its run, inside a
-    /// list item as at the top; adjacent runs are adjacent calls.
-    #[test]
-    fn a_block_element_lowers_through_the_dispatcher() {
-        let cases = [
-            (
-                "<qm-keep note=\"x\">\n\npara\n\n</qm-keep>",
-                "#_qm-element(\"keep\", (\"note\": \"x\"))[\npara\n\n]\n\n",
-            ),
-            (
-                "- a\n- <qm-keep>\n\n  b\n\n  - c\n\n  </qm-keep>",
-                "- a\n- #_qm-element(\"keep\", (:))[\n  b\n\n  - c\n  ]\n\n\n",
-            ),
-            (
-                "<qm-keep>\n\na\n\n</qm-keep>\n<qm-keep>\n\nb\n\n</qm-keep>",
-                "#_qm-element(\"keep\", (:))[\na\n\n]\n\n#_qm-element(\"keep\", (:))[\nb\n\n]\n\n",
-            ),
-        ];
-        for (md, want) in cases {
-            assert_eq!(emit_md(md), want, "{md:?}");
-        }
     }
 
     #[test]

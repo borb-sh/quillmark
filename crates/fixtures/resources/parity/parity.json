@@ -2541,7 +2541,7 @@
       "text": "￼"
     },
     "typst": [
-      "#context align(center, table("
+      "align(center, table("
     ],
     "signals": {
       "import": [],

@@ -145,7 +145,7 @@ The table's layout keys lower as:
 | Knob | Lowering |
 |---|---|
 | `widths` | `columns: (2fr, 1fr, auto)`, a weight to `fr` and `null` to `auto`, in place of `columns: N` |
-| `align` | `#context align(center, table(…))`; a column at `none` takes `align.alignment`, and with no column aligned the table takes `table.align` where the plate sets one, else `align.alignment`, so the placement moves the table and no text inside it |
+| `align` | `align(center, table(…))` under `context`, with `table.cell` set to the `align.alignment` the table stands in, so the placement moves the table and no text inside it |
 | `headless` | `header` lowers as the first body row, outside `table.header` |
 | a cell's `align` / `valign` | `table.cell(align: right + bottom)[…]`, `middle` as `horizon`, which Typst folds with the column's alignment; a value outside its set lowers as absent |
 
