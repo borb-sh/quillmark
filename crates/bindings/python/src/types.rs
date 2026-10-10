@@ -14,7 +14,7 @@ use std::sync::Arc;
 use crate::enums::{PyOutputFormat, PySeverity};
 use crate::errors::{
     card_index, convert_edit_error, convert_edit_errors, convert_render_error, convert_wire_error,
-    page_indices, raise_with_diagnostics,
+    page_indices, raise_summarized, raise_with_diagnostics,
 };
 
 #[pyclass(name = "Quillmark")]
@@ -150,11 +150,7 @@ impl PyQuill {
     /// `[]`.
     #[getter]
     fn warnings(&self) -> Vec<PyDiagnostic> {
-        self.inner
-            .warnings()
-            .iter()
-            .map(|d| PyDiagnostic { inner: d.clone() })
-            .collect()
+        py_diagnostics(self.inner.warnings().to_vec())
     }
 
     /// Bind this quill's schema to `doc` for typed writes. See [`PyWriter`] for
@@ -231,11 +227,10 @@ impl PyQuill {
     /// `doc.warnings`. Raises `QuillmarkError` on a parse failure, or when
     /// `markdown` declares a `$quill` this quill does not answer to.
     fn parse(&self, markdown: &str) -> PyResult<PyDocument> {
-        let parsed = self.inner.parse(markdown).map_err(|e| {
-            let diags = e.to_diagnostics();
-            let message = quillmark_core::error::RenderError::summary_message(&diags);
-            raise_with_diagnostics(diags, message)
-        })?;
+        let parsed = self
+            .inner
+            .parse(markdown)
+            .map_err(|e| raise_summarized(e.to_diagnostics()))?;
         Ok(PyDocument {
             inner: parsed.document,
             parse_warnings: parsed.warnings,
@@ -256,11 +251,10 @@ impl PyQuill {
         py: Python<'py>,
         mut doc: PyRefMut<'_, PyDocument>,
     ) -> PyResult<Bound<'py, PyList>> {
-        let diags = self.inner.conform(&mut doc.inner).map_err(|e| {
-            let diags = e.into_diagnostics();
-            let message = quillmark_core::error::RenderError::summary_message(&diags);
-            raise_with_diagnostics(diags, message)
-        })?;
+        let diags = self
+            .inner
+            .conform(&mut doc.inner)
+            .map_err(|e| raise_summarized(e.into_diagnostics()))?;
         let json_value = serde_json::to_value(&diags)
             .map_err(|e| PyValueError::new_err(format!("conform: serialization failed: {e}")))?;
         let py_obj = json_to_py(py, &json_value)?;
@@ -292,10 +286,7 @@ impl PyQuill {
         self.inner
             .example_document()
             .map(|example| {
-                let parsed = example.map_err(|diags| {
-                    let message = quillmark_core::error::RenderError::summary_message(&diags);
-                    raise_with_diagnostics(diags, message)
-                })?;
+                let parsed = example.map_err(raise_summarized)?;
                 Ok(PyDocument {
                     inner: parsed.document,
                     parse_warnings: parsed.warnings,
@@ -489,10 +480,7 @@ impl PyDocument {
 
     #[getter]
     fn warnings(&self) -> Vec<PyDiagnostic> {
-        self.parse_warnings
-            .iter()
-            .map(|d| PyDiagnostic { inner: d.clone() })
-            .collect()
+        py_diagnostics(self.parse_warnings.clone())
     }
 
     /// The main card's body as canonical Content-JSON (`{text, lines, marks,
@@ -891,11 +879,7 @@ impl PyWriter {
             .inner
             .writer(&mut doc.inner)
             .revise_document(markdown)
-            .map_err(|e| {
-                let diags = e.to_diagnostics();
-                let message = quillmark_core::error::RenderError::summary_message(&diags);
-                raise_with_diagnostics(diags, message)
-            })?;
+            .map_err(|e| raise_summarized(e.to_diagnostics()))?;
         doc.parse_warnings.clear();
         Ok(py_diagnostics(revised.warnings))
     }
@@ -1220,7 +1204,7 @@ pub struct PyDiagnostic {
     pub(crate) inner: Diagnostic,
 }
 
-fn py_diagnostics(diags: Vec<Diagnostic>) -> Vec<PyDiagnostic> {
+pub(crate) fn py_diagnostics(diags: Vec<Diagnostic>) -> Vec<PyDiagnostic> {
     diags.into_iter().map(|inner| PyDiagnostic { inner }).collect()
 }
 
@@ -1470,8 +1454,7 @@ fn pydict_to_field_batch(
         }
     }
     if !diags.is_empty() {
-        let message = quillmark_core::error::RenderError::summary_message(&diags);
-        return Err(raise_with_diagnostics(diags, message));
+        return Err(raise_summarized(diags));
     }
     Ok(batch)
 }
