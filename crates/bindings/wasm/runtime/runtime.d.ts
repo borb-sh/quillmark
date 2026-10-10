@@ -142,6 +142,7 @@ export type {
 	Revised,
 	DocumentRevised,
 	AnnotatedMarkdown,
+	DocumentAnchor,
 	Imported,
 	Assoc,
 	IslandOp,
