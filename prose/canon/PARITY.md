@@ -60,7 +60,7 @@ import meets. The columns:
 | spells | the surface has a form for the construct and reads it back as written |
 | carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor by diff-rebase |
 | honors | the lowering draws it as CONVERT.md maps it |
-| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render under `backend::declined_construct`, `validate` under `validation::declined_construct` |
+| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render under `backend::declined_construct`, or `typst::unregistered_element` for an element, `validate` under `validation::declined_construct` |
 | refuses | the surface rejects the write |
 | silent: honored | no signal, and none is owed: the outcome is the one the construct asks for |
 | n/a | the surface never meets the construct: past the markdown column, a spelling the import does not store |
@@ -95,12 +95,15 @@ import meets. The columns:
 | `container.element.instance`: two adjacent runs of one element | spells | spells | spells | honors | silent: honored | none |
 | `container.element.in_item`: an element in a list item | spells | spells | spells | honors | silent: honored | none |
 | `container.element.around_list`: an element around a list | spells | spells | spells | honors | silent: honored | none |
+| `container.element.unregistered`: an element no renderer takes | spells | spells | spells | declines with a signal | drops silently | `typst::unregistered_element` |
 
 Two adjacent bullet lists lower to items a blank line parts, which Typst reads
 as one wide list: the `instance` boundary does not reach the page.
 
 An element lowers through the helper's dispatcher, which draws it with the
 renderer a plate registers under its name ([CONVERT.md](CONVERT.md#elements)).
+One no renderer takes draws what it wraps, and only a compile reads the
+registry, so `validate` cannot report it.
 A task item's body lowers the same way, through the renderer a plate sets on
 `tasks`, else as a box ticked when done.
 

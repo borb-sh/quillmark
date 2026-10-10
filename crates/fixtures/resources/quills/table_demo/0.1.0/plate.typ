@@ -1,4 +1,4 @@
-#import "@local/quillmark-helper:0.1.0": data
+#import "@local/quillmark-helper:0.1.0": data, elements
 
 // The whole point of this fixture: `$body` carries a GFM table, which the
 // markdown -> Content -> Typst path lowers to `#table(...)`. Rendering the
@@ -7,3 +7,6 @@
 #underline(data.title)
 
 #data.at("$body")
+
+// The parity corpus's void `qm-sig` draws as a signature rule.
+#elements.update(e => e + (sig: (attrs, body) => line(length: 2in)))
