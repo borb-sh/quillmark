@@ -415,20 +415,16 @@ fn is_thematic_break(line: &str) -> bool {
     n >= 3
 }
 
-/// Prefix the first produced line with `first`, the rest with `cont`.
+/// Prefix the first produced line with `first`, the rest but blank ones with
+/// `cont`.
 fn prefix_lines(inner: &str, first: &str, cont: &str, out: &mut String) {
     for (idx, line) in inner.split('\n').enumerate() {
-        if idx == 0 {
-            out.push_str(first);
-            out.push_str(line);
-        } else {
+        if idx > 0 {
             out.push('\n');
-            if line.is_empty() {
-                // blank continuation line: no trailing indent
-            } else {
-                out.push_str(cont);
-                out.push_str(line);
-            }
+        }
+        if idx == 0 || !line.is_empty() {
+            out.push_str(if idx == 0 { first } else { cont });
+            out.push_str(line);
         }
     }
 }
@@ -533,54 +529,38 @@ fn emit_table(isl: &Island, out: &mut String) {
     if cols == 0 {
         return;
     }
-    if let Some(wrapper) = crate::carrier::table::wrapper(&isl.props) {
-        let mut table = String::new();
-        emit_pipe_table(header, rows, aligns, cols, &mut table);
-        out.push_str(&wrapper.wrap_block(&table));
-    } else {
-        emit_pipe_table(header, rows, aligns, cols, out);
-    }
-}
-
-fn emit_pipe_table(
-    header: Option<&Vec<serde_json::Value>>,
-    rows: Option<&Vec<serde_json::Value>>,
-    aligns: Option<&Vec<serde_json::Value>>,
-    cols: usize,
-    out: &mut String,
-) {
     // Cells are canonical `{text, marks}`; each cell's markdown is rebuilt from
     // that structure, so nothing re-parses markdown and `import(export(table))`
     // is a fixed point.
-    out.push_str("| ");
+    let mut table = String::from("| ");
     if let Some(h) = header {
-        out.push_str(&h.iter().map(render_cell_md).collect::<Vec<_>>().join(" | "));
+        table.push_str(&h.iter().map(render_cell_md).collect::<Vec<_>>().join(" | "));
     }
-    out.push_str(" |\n|");
+    table.push_str(" |\n|");
     for k in 0..cols {
         let a = aligns
             .and_then(|a| a.get(k))
             .and_then(|v| v.as_str())
             .unwrap_or("none");
-        out.push_str(match a {
+        table.push_str(match a {
             "left" => " :--- |",
             "center" => " :---: |",
             "right" => " ---: |",
             _ => " --- |",
         });
     }
-    if let Some(rs) = rows {
-        for row in rs {
-            if let Some(r) = row.as_array() {
-                // Pad/truncate so a ragged island (one that skipped
-                // normalization) still emits a rectangular table.
-                let mut cells: Vec<String> = r.iter().map(render_cell_md).collect();
-                cells.resize(cols, String::new());
-                out.push_str("\n| ");
-                out.push_str(&cells.join(" | "));
-                out.push_str(" |");
-            }
-        }
+    for r in rows.into_iter().flatten().filter_map(|row| row.as_array()) {
+        // Pad/truncate so a ragged island (one that skipped normalization)
+        // still emits a rectangular table.
+        let mut cells: Vec<String> = r.iter().map(render_cell_md).collect();
+        cells.resize(cols, String::new());
+        table.push_str("\n| ");
+        table.push_str(&cells.join(" | "));
+        table.push_str(" |");
+    }
+    match crate::carrier::table::wrapper(&isl.props) {
+        Some(wrapper) => out.push_str(&wrapper.wrap_block(&table)),
+        None => out.push_str(&table),
     }
 }
 
@@ -681,9 +661,7 @@ fn render_inline(ctx: &Ctx, i: usize, heading: bool) -> String {
     };
 
     let slots_before_line = seg.slots_before;
-    let tags = ctx.tags.get(i).filter(|t| !t.is_empty());
-    let mut points = tags.map(|_| Vec::with_capacity(n + 1));
-    let mut md = render_marked_core(
+    let (mut md, mut points) = render_marked_core(
         &chars,
         &code_ranges,
         &fmt,
@@ -691,7 +669,6 @@ fn render_inline(ctx: &Ctx, i: usize, heading: bool) -> String {
         escape_punct_at,
         escape_leading_block,
         false, // prose text does not escape `|`
-        points.as_mut(),
         |pos_local| {
             let before = slots_before_line
                 + chars[..pos_local]
@@ -712,13 +689,13 @@ fn render_inline(ctx: &Ctx, i: usize, heading: bool) -> String {
     if heading && md.ends_with('#') {
         let end = md.len();
         md.insert(end - 1, '\\');
-        for point in points.iter_mut().flatten().filter(|p| **p == end) {
+        for point in points.iter_mut().filter(|p| **p == end) {
             *point += 1;
         }
     }
-    match (tags, points) {
-        (Some(tags), Some(points)) => annotate(md, &points, tags),
-        _ => md,
+    match ctx.tags.get(i).filter(|t| !t.is_empty()) {
+        Some(tags) => annotate(md, &points, tags),
+        None => md,
     }
 }
 
@@ -759,9 +736,9 @@ fn annotate(md: String, points: &[usize], tags: &[(Usv, &str)]) -> String {
 
 /// The carrier's canonical spelling of an anchor `id`.
 fn anchor_tag(id: &str) -> String {
-    let tag = crate::carrier::Element::new("anchor", [("ref".to_string(), id.to_string())].into())
-        .expect("`anchor` and `ref` are in the carrier grammar");
-    format!("{}{}", tag.open_tag(), tag.close_tag())
+    crate::carrier::Element::new("anchor", [("ref".to_string(), id.to_string())].into())
+        .expect("`anchor` and `ref` are in the carrier grammar")
+        .wrap_inline("")
 }
 
 /// Route `marks` into the three lists [`render_marked_core`] takes, each range
@@ -807,10 +784,10 @@ fn bucket_marks(
 /// `|`→`\|` for cells; `island_markup_at` renders an island slot (prose) or
 /// yields `None` (cells carry no slot).
 ///
-/// `tag_points`, when given, receives each position's tag point, one entry
-/// per position `0..=n`: the byte offset in the result after the delimiters
-/// of the marks closing there and before those opening there. A position
-/// inside a code span or link takes the span's start's.
+/// Returns the markdown and each position's tag point, one entry per position
+/// `0..=n`: the byte offset in the markdown after the delimiters of the marks
+/// closing there and before those opening there. A position inside a code
+/// span or link takes the span's start's.
 ///
 /// The model permits free (Peritext-style) overlap but markdown syntax nests.
 /// The sweep closes every mark ending at a boundary and reopens the deeper
@@ -834,9 +811,8 @@ fn render_marked_core(
     escape_punct_at: Option<usize>,
     escape_leading_block: bool,
     escape_pipe: bool,
-    tag_points: Option<&mut Vec<usize>>,
     island_markup_at: impl Fn(usize) -> Option<String>,
-) -> String {
+) -> (String, Vec<usize>) {
     let n = chars.len();
 
     // A code span is emitted verbatim between backticks, so a slot inside it
@@ -915,9 +891,10 @@ fn render_marked_core(
     let is_underline = |fi: usize| matches!(fmt[fi].2, MarkKind::Underline);
 
     // One mark sweep over the marks `keep` selects (indices into `fmt`) → inline
-    // markdown, recording each position's tag point into `points`.
-    let sweep = |keep: &[bool], d: Delims, mut points: Option<&mut Vec<usize>>| -> String {
+    // markdown and its tag points.
+    let sweep = |keep: &[bool], d: Delims| -> (String, Vec<usize>) {
         let mut out = String::new();
+        let mut points = Vec::with_capacity(n + 1);
         // Marks currently open, outermost first, underlines and delimiters
         // apart. Storing the `fmt` index (not `(end, kind)`) keeps each open
         // mark's identity, so a reopened mark re-emits its OWN delimiter.
@@ -941,7 +918,7 @@ fn render_marked_core(
             if let Some(idx) = stack.iter().position(|&fi| fmt[fi].1 == pos) {
                 while stack.len() > idx {
                     let fi = stack.pop().unwrap();
-                    out.push_str(delim_close(fmt[fi].2, d));
+                    out.push_str(delim(fmt[fi].2, d));
                     if fmt[fi].1 != pos {
                         reopen.push(fi);
                     }
@@ -958,9 +935,7 @@ fn render_marked_core(
                 }
             }
             let point = out.len();
-            if let Some(points) = points.as_mut() {
-                points.push(point);
-            }
+            points.push(point);
             let fresh = opening.iter().copied().filter(|&fi| is_underline(fi));
             for fi in reopen_underlines.into_iter().rev().chain(fresh) {
                 out.push_str("<u>");
@@ -971,7 +946,7 @@ fn render_marked_core(
             // still wraps it rather than being dropped.
             let fresh = opening.iter().copied().filter(|&fi| !is_underline(fi));
             for fi in reopen.into_iter().rev().chain(fresh) {
-                out.push_str(delim_open(fmt[fi].2, d));
+                out.push_str(delim(fmt[fi].2, d));
                 stack.push(fi);
             }
             // A link is emitted atomically as [text](url). Nested marks in link
@@ -997,9 +972,7 @@ fn render_marked_core(
                 emit_url(url, &mut dest);
                 push_piped(&dest, escape_pipe, &mut out);
                 out.push(')');
-                if let Some(points) = points.as_mut() {
-                    points.resize(le, point);
-                }
+                points.resize(le, point);
                 pos = le;
                 continue;
             }
@@ -1028,9 +1001,7 @@ fn render_marked_core(
                     out.push(' ');
                 }
                 out.push_str(&fence);
-                if let Some(points) = points.as_mut() {
-                    points.resize(ce, point);
-                }
+                points.resize(ce, point);
                 pos = ce;
                 continue;
             }
@@ -1056,10 +1027,10 @@ fn render_marked_core(
         // Clipping keeps every wrap `end` reachable, so this normally drains
         // nothing.
         while let Some(fi) = stack.pop() {
-            out.push_str(delim_close(fmt[fi].2, d));
+            out.push_str(delim(fmt[fi].2, d));
         }
         out.push_str(&"</u>".repeat(underlines.len()));
-        out
+        (out, points)
     };
 
     // Verify-and-drop safety net. An editor's `apply_mark_ops` can build a mark
@@ -1077,17 +1048,8 @@ fn render_marked_core(
     };
     let all = vec![true; fmt.len()];
     if !fmt.iter().any(|m| is_flanking(m.2)) {
-        return sweep(&all, DELIM_SPELLINGS[0], tag_points);
+        return sweep(&all, DELIM_SPELLINGS[0]);
     }
-    // The settled rendering, its tag points recorded by one more sweep of the
-    // same selection and spelling when the caller asks for them.
-    let mut tag_points = tag_points;
-    let mut settle = |out: String, keep: &[bool], d: Delims| -> String {
-        if let Some(points) = tag_points.take() {
-            sweep(keep, d, Some(points));
-        }
-        out
-    };
     // The probe wraps the fragment in `,…,`: parsed standalone, a leading `0. ` /
     // `# ` / `> ` would read as a list/heading/quote marker and drop a good mark.
     // A punctuation sentinel blocks every leading-block construct, preserves edge
@@ -1158,9 +1120,9 @@ fn render_marked_core(
     // and each is verified before it is used. Four probes at most.
     let intent = want_marks(&all);
     for &d in &DELIM_SPELLINGS {
-        let cand = sweep(&all, d, None);
-        if probe(&cand, &intent) == Some(true) {
-            return settle(cand, &all, d);
+        let cand = sweep(&all, d);
+        if probe(&cand.0, &intent) == Some(true) {
+            return cand;
         }
     }
     // The flanking marks in document order. That order is the re-add priority
@@ -1178,7 +1140,7 @@ fn render_marked_core(
         }
         mask
     };
-    let render = |keep: &[usize]| -> String { sweep(&mask_of(keep), DELIM_SPELLINGS[0], None) };
+    let render = |keep: &[usize]| sweep(&mask_of(keep), DELIM_SPELLINGS[0]);
     let survives = |md: &str, keep: &[usize]| probe(md, &want_marks(&mask_of(keep))) == Some(true);
     // Drop the whole flanking set, then re-add by halves: a chunk that survives is
     // accepted whole, one that doesn't splits and its halves are retried, a lone
@@ -1190,8 +1152,8 @@ fn render_marked_core(
     // even that fails, no re-add can fix it. A lone candidate has nowhere to
     // split, so the floor is already its answer.
     let mut out = render(&[]);
-    if cands.len() == 1 || !survives(&out, &[]) {
-        return settle(out, &mask_of(&[]), DELIM_SPELLINGS[0]);
+    if cands.len() == 1 || !survives(&out.0, &[]) {
+        return out;
     }
     let mut kept: Vec<usize> = Vec::new();
     // A chunk `(lo, hi)` and the `kept` length at which its trial is *already
@@ -1221,14 +1183,14 @@ fn render_marked_core(
         // chunk and `trial` stays in document order.
         let trial: Vec<usize> = kept.iter().chain(&cands[lo..hi]).copied().collect();
         let md = render(&trial);
-        if survives(&md, &trial) {
+        if survives(&md.0, &trial) {
             kept = trial;
             out = md;
         } else {
             split(&mut work, kept.len());
         }
     }
-    settle(out, &mask_of(&kept), DELIM_SPELLINGS[0])
+    out
 }
 
 /// Probes the verify-and-drop net will spend on one line before giving up and
@@ -1333,17 +1295,7 @@ fn render_cell_md(v: &serde_json::Value) -> String {
     let (text, marks) = crate::serial::parse_cell(v);
     let chars: Vec<char> = text.chars().collect();
     let (code_ranges, fmt, links) = bucket_marks(&marks, 0, chars.len(), true);
-    let md = render_marked_core(
-        &chars,
-        &code_ranges,
-        &fmt,
-        &links,
-        None,
-        false,
-        true,
-        None,
-        |_| None,
-    );
+    let (md, _) = render_marked_core(&chars, &code_ranges, &fmt, &links, None, false, true, |_| None);
     match crate::carrier::cell::pair(v) {
         Some(pair) => pair.wrap_inline(&md),
         None => md,
@@ -1371,17 +1323,9 @@ const DELIM_SPELLINGS: [Delims; 4] = [
     Delims { strong: "__", emph: "_" },
 ];
 
-fn delim_open(kind: &MarkKind, d: Delims) -> &'static str {
-    match kind {
-        MarkKind::Strong => d.strong,
-        MarkKind::Emph => d.emph,
-        MarkKind::Strike => "~~",
-        // Code/Link/Anchor and underlines are handled elsewhere.
-        _ => "",
-    }
-}
-
-fn delim_close(kind: &MarkKind, d: Delims) -> &'static str {
+/// The delimiter that opens and closes `kind`. Code, link, anchor and
+/// underline are written elsewhere.
+fn delim(kind: &MarkKind, d: Delims) -> &'static str {
     match kind {
         MarkKind::Strong => d.strong,
         MarkKind::Emph => d.emph,
