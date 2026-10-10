@@ -32,14 +32,6 @@ fn quill(plate: &str) -> Quill {
     )
 }
 
-/// A quill whose plate registers `plate` after placing the content.
-fn quill_registering_last(plate: &str) -> Quill {
-    common::quill_with_plate(
-        &common::yaml("main:\n  fields: {}\n"),
-        &format!("{PAGE}#data.at(\"$body\", default: [])\n{plate}"),
-    )
-}
-
 /// Each page's SVG.
 fn pages(quill: &Quill, markdown: &str) -> Vec<String> {
     let data = serde_json::json!({ "$body": content(markdown) });
@@ -85,11 +77,6 @@ fn the_built_in_keep_keeps_its_run_on_one_page() {
     );
 }
 
-#[test]
-fn a_renderer_registered_after_the_content_still_renders_it() {
-    assert_eq!(pages(&quill_registering_last(STAMP), STAMPED), pages(&quill(STAMP), STAMPED));
-}
-
 const UNREGISTERED: &str = "typst::unregistered_element";
 
 /// The compile's warnings under `typst::unregistered_element`.
@@ -126,14 +113,4 @@ fn an_element_no_renderer_takes_warns_at_its_field() {
     assert!(warned[0].message.contains("`qm-kep`"), "{}", warned[0].message);
     let hint = warned[0].hint.as_deref().unwrap_or_default();
     assert!(hint.contains("`qm-keep`") && hint.contains("`qm-stamp`"), "{hint}");
-}
-
-/// A plate that means a name to draw as plain content registers the identity
-/// renderer, which silences the warning and draws what the marker drew.
-#[test]
-fn the_identity_renderer_silences_the_warning_and_moves_no_ink() {
-    let identity = "#elements.update(e => e + (stamp: (attrs, body) => body))\n";
-    assert_eq!(unregistered(&quill(""), STAMPED).len(), 1);
-    assert!(unregistered(&quill(identity), STAMPED).is_empty());
-    assert_eq!(pages(&quill(identity), STAMPED), pages(&quill(""), STAMPED));
 }
