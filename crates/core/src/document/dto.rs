@@ -119,7 +119,8 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// Frozen `0.124.0` representation of a [`Document`]: the V0_116_0 tree over
-/// the content vocabulary holding the `element` container.
+/// the content vocabulary holding the `element` container and a list item's
+/// `checked`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DocumentV0_124_0 {
@@ -1494,6 +1495,19 @@ This body and the metadata above are an indorsement card.
     }
 
     #[test]
+    fn a_task_survives_storage() {
+        let doc = Document::parse("~~~card-yaml\n$quill: q@1.0\n$kind: main\n~~~\n\n- [x] done\n- [ ] open\n")
+            .unwrap()
+            .document;
+        let stored = serde_json::to_string(&doc).unwrap();
+        assert_eq!(peek_storage_version(&stored).as_deref(), Some(STORAGE_V0_124_0));
+        assert!(stored.contains(r#""checked":true"#), "{stored}");
+        assert!(stored.contains(r#""checked":false"#), "{stored}");
+        let back: Document = serde_json::from_str(&stored).unwrap();
+        assert_eq!(back, doc);
+    }
+
+    #[test]
     fn root_kind_is_main_through_round_trip() {
         let doc = Document::parse(
             "~~~card-yaml\n$quill: usaf_memo@0.1\n$kind: main\ntitle: \"Hi\"\n~~~\n",
@@ -1600,6 +1614,7 @@ This body and the metadata above are an indorsement card.
                 ordered: true,
                 start: 3,
                 ordinal: 0,
+                checked: None,
                 instance: 0,
             }
         );

@@ -4,7 +4,8 @@
 //! controls dropped, line separators spaced, then the parser-guided repair that
 //! splits text off a comment's line and ends a table at a row of tags) so the
 //! content invariants hold by construction, then
-//! parsed with `pulldown_cmark` (CommonMark + strikethrough + pipe tables) and
+//! parsed with `pulldown_cmark` (CommonMark + strikethrough + pipe tables +
+//! task lists, and footnotes recognized only to drop them) and
 //! walked into a [`Content`]. This is the one place the `<u>`/`<br>` allowlist
 //! runs, and the one place a dropped raw tag is counted into the
 //! [`ImportWarning`]s an import returns beside its content.
@@ -25,6 +26,10 @@
 //!   re-mints the same sequence.
 //! - Tables and images are islands, block and inline respectively; a thematic
 //!   break is a `Rule` line carrying no text.
+//! - A task list item's marker is its [`Container::ListItem::checked`]; `[X]`
+//!   reads as `[x]`.
+//! - A footnote definition drops whole, reported, and a reference to one is
+//!   the text it is.
 //! - Raw HTML produces no content beyond the allowlist and the carrier. An HTML
 //!   block drops whole, as CommonMark runs it; one of tag lines alone passes
 //!   its carrier tags on. A `qm-table` wrapper pairs as an element does,
@@ -107,6 +112,9 @@ pub enum Dropped {
     /// already read, and a `qm-cell` attribute the cell does not fold:
     /// `qm-<name>[<attr>]`.
     ElementAttr { element: String, attr: String },
+    /// A footnote definition, which the content has no construct for:
+    /// `footnote`.
+    Footnote,
 }
 
 impl std::fmt::Display for Dropped {
@@ -118,6 +126,7 @@ impl std::fmt::Display for Dropped {
             Dropped::TableAttr(attr) => write!(f, "{PREFIX}table[{attr}]"),
             Dropped::Element(name) => write!(f, "{PREFIX}{name}"),
             Dropped::ElementAttr { element, attr } => write!(f, "{PREFIX}{element}[{attr}]"),
+            Dropped::Footnote => f.write_str("footnote"),
         }
     }
 }
@@ -136,6 +145,8 @@ pub(crate) fn options() -> Options {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
+    options.insert(Options::ENABLE_TASKLISTS);
+    options.insert(Options::ENABLE_FOOTNOTES);
     options
 }
 
@@ -377,6 +388,8 @@ struct Builder {
     /// What this walk drops: a raw tag, an unclosed `<u>`, a wrapper left
     /// unclosed or outside a tag line, an attribute it cannot carry.
     dropped: Drops,
+    /// Inside a footnote definition, whose events all drop with it.
+    in_note: bool,
 }
 
 #[derive(Clone)]
@@ -518,6 +531,7 @@ impl Builder {
             blocks: Vec::new(),
             unclosed: Vec::new(),
             dropped: Drops::default(),
+            in_note: false,
         }
     }
 
@@ -656,7 +670,19 @@ impl Builder {
                     self.swallowed(wrapper, at);
                     continue;
                 }
+                Fixed::NoteDef(at) => {
+                    self.dropped.add(Dropped::Footnote, at);
+                    self.in_note = true;
+                    continue;
+                }
             };
+            if self.in_note {
+                if matches!(event, Event::End(TagEnd::FootnoteDefinition)) {
+                    self.in_note = false;
+                    self.rearm_item();
+                }
+                continue;
+            }
             // An inline run ends at the first event outside it, and the
             // underlines it left open with it.
             if self.image_depth == 0 && self.table.is_none() && !crate::normalize::is_inline(&event) {
@@ -711,6 +737,11 @@ impl Builder {
                     self.rearm_item();
                 }
                 Event::SoftBreak => self.push_inline(" "),
+                Event::TaskListMarker(done) => {
+                    if let Some(Container::ListItem { checked, .. }) = self.containers.last_mut() {
+                        *checked = Some(done);
+                    }
+                }
                 Event::HardBreak => {
                     // A break with no text before it on its line is dropped:
                     // pulldown never emits one there, an inline `<br>` can, and
@@ -737,8 +768,7 @@ impl Builder {
                         }
                     }
                 }
-                // Html/InlineHtml already stripped or rewritten by the fixer;
-                // math/footnotes/etc. produce no content.
+                // Html/InlineHtml already stripped or rewritten by the fixer.
                 _ => {}
             }
         }
@@ -799,6 +829,7 @@ impl Builder {
                             ordered: info.ordered,
                             start: info.start,
                             ordinal,
+                            checked: None,
                             instance: info.instance,
                         }
                     }
@@ -806,6 +837,7 @@ impl Builder {
                         ordered: false,
                         start: 1,
                         ordinal: 0,
+                        checked: None,
                         instance: 0,
                     },
                 };
@@ -906,6 +938,9 @@ impl Builder {
     /// open tag drops, and any other close tag drops silently.
     fn carrier_tag(&mut self, tag: CarrierTag) -> Result<(), ImportError> {
         let CarrierTag { wrapper, attrs, block, at } = tag;
+        if self.in_note {
+            return Ok(());
+        }
         if let Some(acc) = self.table.as_mut().filter(|acc| acc.cell.is_some()) {
             match (&wrapper, attrs) {
                 (Wrapper::Element(name), attrs) if name == CELL && acc.img_depth == 0 => match attrs {
@@ -1032,7 +1067,7 @@ impl Builder {
     /// Pair one `<u>` tag in the run or table cell it stands in. In an image's
     /// alt text, where nothing is marked, it underlines nothing.
     fn underline_tag(&mut self, tag: UTag) -> Result<(), ImportError> {
-        if self.image_depth > 0 {
+        if self.image_depth > 0 || self.in_note {
             return Ok(());
         }
         if let Some(acc) = self.table.as_mut() {
@@ -1082,6 +1117,9 @@ impl Builder {
     /// Report a close tag that dropped with the markdown under it, once for
     /// the innermost wrapper it names: that wrapper stays open past it.
     fn swallowed(&mut self, wrapper: Wrapper, at: usize) {
+        if self.in_note {
+            return;
+        }
         let open = self.blocks.iter_mut().rev().find(|open| open.frame.is(&wrapper));
         match open {
             Some(open) if open.reported => return,
@@ -1327,6 +1365,8 @@ enum Fixed<'a> {
     /// A wrapper's close tag in an HTML block of closing tags that drops
     /// markdown with them, at the block's byte offset.
     Swallowed(Wrapper, usize),
+    /// A footnote definition's start, at its byte offset.
+    NoteDef(usize),
 }
 
 /// An inline `<u>` tag, paired by the builder as HTML pairs it.
@@ -1527,6 +1567,8 @@ where
                 self.dropped.tag(&tag, range.start);
                 return None;
             }
+            Event::Start(Tag::FootnoteDefinition(_)) => Fixed::NoteDef(range.start),
+            Event::FootnoteReference(label) => Fixed::Event(Event::Text(format!("[^{label}]").into())),
             other => Fixed::Event(other),
         })
     }
@@ -1839,6 +1881,7 @@ mod tests {
                 ordered: false,
                 start: 1,
                 ordinal: 0,
+                checked: None,
                 instance: 0,
             }]
         );
@@ -1848,6 +1891,7 @@ mod tests {
                 ordered: false,
                 start: 1,
                 ordinal: 1,
+                checked: None,
                 instance: 0,
             }]
         );
@@ -1862,6 +1906,7 @@ mod tests {
                 ordered: true,
                 start: 3,
                 ordinal: 0,
+                checked: None,
                 instance: 0,
             }]
         );
@@ -1871,6 +1916,7 @@ mod tests {
                 ordered: true,
                 start: 3,
                 ordinal: 1,
+                checked: None,
                 instance: 0,
             }]
         );
@@ -1887,6 +1933,7 @@ mod tests {
                 ordered: false,
                 start: 1,
                 ordinal: 0,
+                checked: None,
                 instance: 0,
             }]
         );
@@ -1963,6 +2010,64 @@ mod tests {
         assert_eq!(rt.islands[0].island_type, IslandType::Image);
         assert_eq!(rt.islands[0].props["url"], "cat.png");
         assert_eq!(rt.islands[0].props["alt"], "a cat");
+    }
+
+    /// A task marker is its item's own: a list mixes tasks and plain items,
+    /// `[X]` reads as done, and every line of an item carries its marker.
+    #[test]
+    fn a_task_marker_is_its_items_checked() {
+        let checked = |rt: &Normalized| -> Vec<Vec<Option<bool>>> {
+            rt.lines
+                .iter()
+                .map(|l| {
+                    l.containers
+                        .iter()
+                        .map(|c| match c {
+                            Container::ListItem { checked, .. } => *checked,
+                            _ => panic!("a list item: {c:?}"),
+                        })
+                        .collect()
+                })
+                .collect()
+        };
+        let rt = imp_fixed("- [ ] a\n- [X] b\n- c\n\n  more\n  - [x] d").content;
+        assert_eq!(rt.text, "a\nb\nc\nmore\nd");
+        assert_eq!(
+            checked(&rt),
+            [
+                vec![Some(false)],
+                vec![Some(true)],
+                vec![None],
+                vec![None],
+                vec![None, Some(true)],
+            ]
+        );
+        assert!(rt.lines.iter().all(|l| l.containers[0].instance() == 0), "one list");
+
+        let rt = imp_fixed("- [x]\n  # h\n\n  p").content;
+        assert_eq!(rt.lines[0].kind, LineKind::Heading { level: 1 });
+        assert_eq!(checked(&rt), [vec![Some(true)], vec![Some(true)]]);
+    }
+
+    /// A footnote definition drops whole, wherever it sits and whatever it
+    /// holds, and a reference to one is its text; with no definition the
+    /// reference was text already.
+    #[test]
+    fn a_footnote_definition_drops_and_its_reference_is_text() {
+        let cases: &[(&str, &str, &[(&str, usize)])] = &[
+            ("a[^1]\n\n[^1]: **x**\n\n    - y", "a[^1]", &[("footnote", 1)]),
+            ("[^n]: x\n\nb[^N]", "b[^N]", &[("footnote", 1)]),
+            ("- a\n\n  [^1]: <u>x</u>\n\n  b", "a\nb", &[("footnote", 1)]),
+            ("| h[^1] |\n| --- |\n| c |\n\n[^1]: x\n\n[^2]: y", "\u{FFFC}", &[("footnote", 2)]),
+            ("a[^9]", "a[^9]", &[]),
+        ];
+        for (md, text, warned) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.text, *text, "{md:?}");
+            assert_eq!(dropped(&imported), *warned, "{md:?}");
+        }
+        let table = imp_fixed("| h[^1] |\n| --- |\n| c |\n\n[^1]: x").content;
+        assert_eq!(table.islands[0].props["header"][0]["text"], "h[^1]");
     }
 
     #[test]

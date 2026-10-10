@@ -400,6 +400,53 @@
     }
   },
   {
+    "name": "container.list_item.task",
+    "markdown": "- [x] done\n- [ ] open",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "checked": true,
+                "ordered": false,
+                "ordinal": 0,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        },
+        {
+          "containers": [
+            {
+              "attrs": {
+                "checked": false,
+                "ordered": false,
+                "ordinal": 1,
+                "start": 1
+              },
+              "container": "list_item"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "done\nopen"
+    },
+    "typst": [
+      "- #_qm-task(true)[done",
+      "- #_qm-task(false)[open"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
     "name": "container.quote",
     "markdown": "> quoted",
     "content": {
@@ -2245,6 +2292,33 @@
     ],
     "signals": {
       "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "markdown.footnote",
+    "markdown": "Cited.[^1]\n\n[^1]: The note.",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Cited.[^1]"
+    },
+    "typst": [
+      "Cited."
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "footnote",
+          "count": 1
+        }
+      ],
       "render": []
     }
   },

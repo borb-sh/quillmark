@@ -483,11 +483,11 @@ impl<'a> Emit<'a> {
             .any(|c| matches!(c, Container::ListItem { .. }));
         let rt = self.rt;
         for item in quillmark_content::traverse::items(&rt.lines, range.clone(), depth) {
-            let ordinal = match item.container {
-                Container::ListItem { ordinal, .. } => *ordinal,
-                _ => 0,
+            let (ordinal, checked) = match item.container {
+                Container::ListItem { ordinal, checked, .. } => (*ordinal, *checked),
+                _ => (0, None),
             };
-            self.emit_item(item.range, depth, ordered, start, ordinal == 0);
+            self.emit_item(item.range, depth, ordered, start, ordinal == 0, checked);
         }
         if outermost {
             self.out.push('\n');
@@ -497,6 +497,7 @@ impl<'a> Emit<'a> {
 
     /// The marker is `- `, the explicit `N. ` on the first item of an ordered
     /// list starting off-1, or `+ ` (Typst auto-numbers `+` from that number).
+    /// A task's body is the content block of a `_qm-task` call.
     fn emit_item(
         &mut self,
         range: Range<usize>,
@@ -504,6 +505,7 @@ impl<'a> Emit<'a> {
         ordered: bool,
         start: u64,
         first: bool,
+        checked: Option<bool>,
     ) {
         self.open_line();
         if ordered {
@@ -522,7 +524,15 @@ impl<'a> Emit<'a> {
         self.end_newline = false;
         self.head_inline = true;
         self.indent.push_str("  ");
+        if let Some(done) = checked {
+            self.out.push_str(task_open(done));
+        }
         self.emit_item_body(range, depth + 1);
+        if checked.is_some() {
+            self.open_line();
+            self.out.push(']');
+            self.end_newline = false;
+        }
         self.indent.truncate(self.indent.len() - 2);
         self.head_inline = false;
         if !self.end_newline {
@@ -667,14 +677,16 @@ impl<'a> Emit<'a> {
 
     /// Does the segment about to open sit at a line anchor: column 0 of a
     /// generated source line, indentation ahead of it not counting, or the head of a
-    /// list item's body, which the parser reads as a line start of its own. A
-    /// heading's body is not one, and neither is any position prose has reached.
+    /// list item's body or a task's content block, which the parser reads as a
+    /// line start of its own. A heading's body is not one, and neither is any
+    /// position prose has reached.
     fn at_line_anchor(&self) -> bool {
         let head = |s: &str| {
             let s = s.trim_end_matches([' ', '\t']);
             s.is_empty() || s.ends_with('\n')
         };
         head(&self.out)
+            || [true, false].iter().any(|&done| self.out.ends_with(task_open(done)))
             || ["- ", "+ "]
                 .iter()
                 .any(|m| self.out.strip_suffix(m).is_some_and(head))
@@ -959,6 +971,16 @@ fn emit_run(
         _ => Tail::Text,
     };
     (re, left, (pos..re, g0..g1, EscapeCtx::Markup))
+}
+
+/// A task item's body opens as the content block of this call, the helper's
+/// `_qm-task(done, body)`.
+fn task_open(done: bool) -> &'static str {
+    if done {
+        "#_qm-task(true)["
+    } else {
+        "#_qm-task(false)["
+    }
 }
 
 /// A `\n` at `pos` lowers to `#linebreak()`: the step a sweep callback takes

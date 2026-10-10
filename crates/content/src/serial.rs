@@ -420,6 +420,7 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
             ordinal: payload(o, legacy, "ordinal")
                 .and_then(Value::as_u64)
                 .unwrap_or(0),
+            checked: payload(o, legacy, "checked").and_then(Value::as_bool),
             instance,
         }),
         "quote" => Ok(Container::Quote { instance }),
@@ -1247,6 +1248,7 @@ mod tests {
                 ordered: true,
                 start: 3,
                 ordinal: 1,
+                checked: None,
                 instance: 0,
             },
             Container::Quote { instance: 0 },
@@ -1345,6 +1347,7 @@ mod tests {
                 ordered: true,
                 start: 3,
                 ordinal: 0,
+                checked: None,
                 instance: 0,
             }],
             continues: false,
@@ -1840,6 +1843,7 @@ mod tests {
                 ordered: true,
                 start: 3,
                 ordinal: 1,
+                checked: None,
                 instance: 0,
             }
         );
@@ -1895,6 +1899,7 @@ mod tests {
                 ordered: true,
                 start: 3,
                 ordinal: 1,
+                checked: None,
                 instance: 0,
             }
         );

@@ -284,7 +284,11 @@ fn emit_block(ctx: &Ctx, range: std::ops::Range<usize>, depth: usize, out: &mut 
                 let key = done
                     .container
                     .expect("only the root frame opens without a container");
-                close_container(key, &done.buf, &mut parent.buf);
+                let lead = &lines[done.range.start];
+                let prose_head = lead.containers.len() == done.depth
+                    && lead.kind == LineKind::Para
+                    && block_island(ctx, done.range.start).is_none();
+                close_container(key, &done.buf, prose_head, &mut parent.buf);
             }
             None => out.push_str(&done.buf),
         }
@@ -301,13 +305,15 @@ fn block_separator(out: &mut String, first_block: bool) {
 }
 
 /// Close a container level: prefix each line of `inner`, the block emitted for
-/// it, with the container's markdown syntax.
-fn close_container(key: &Container, inner: &str, out: &mut String) {
+/// it, with the container's markdown syntax. `prose_head` says the level opens
+/// on a paragraph line of its own.
+fn close_container(key: &Container, inner: &str, prose_head: bool, out: &mut String) {
     match key {
         Container::ListItem {
             ordered,
             start,
             ordinal,
+            checked,
             instance,
         } => {
             // CommonMark starts a new list at a change of bullet char or of
@@ -336,6 +342,28 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
                 "+ ".to_string()
             };
             let indent = " ".repeat(marker.len());
+            let head = inner.split('\n').next().unwrap_or("");
+            // A task marker opens its item's paragraph, so text after it on its
+            // line is read as that paragraph whatever block it spells: any
+            // other first block moves to the line below.
+            if let Some(done) = checked {
+                let task = if *done { "[x]" } else { "[ ]" };
+                if prose_head && !head.is_empty() {
+                    prefix_lines(inner, &format!("{marker}{task} "), &indent, out);
+                } else {
+                    out.push_str(&marker);
+                    out.push_str(task);
+                    // The marker reads as one only before whitespace, and an
+                    // empty item can end the markdown.
+                    if inner.is_empty() {
+                        out.push(' ');
+                    } else {
+                        out.push('\n');
+                        prefix_lines(inner, &indent, &indent, out);
+                    }
+                }
+                return;
+            }
             // A marker run that spells a thematic break outranks the items
             // spelling it: three nested empty bullets emit `- - - `, which
             // re-imports as a `Rule` with the nesting gone. Changing a marker
@@ -344,7 +372,6 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
             // the empty item can have non-empty siblings. Moving the content to
             // the next line costs no marker and no list identity, and the check
             // runs per level, so a run of any depth breaks into pieces of two.
-            let head = inner.split('\n').next().unwrap_or("");
             if is_thematic_break(&format!("{marker}{head}")) {
                 out.push_str(marker.trim_end());
                 out.push('\n');
@@ -1505,6 +1532,7 @@ mod tests {
             ordered: false,
             start: 1,
             ordinal,
+            checked: None,
             instance,
         }]
     }
@@ -1514,8 +1542,20 @@ mod tests {
             ordered: true,
             start: 1,
             ordinal,
+            checked: None,
             instance,
         }]
+    }
+
+    /// A task marker opens its item's paragraph: an item opening on any other
+    /// block writes the marker alone above it, and an empty one ends on a
+    /// space, the marker reading as one only before whitespace.
+    #[test]
+    fn a_task_item_writes_its_marker_where_it_reads_back() {
+        for md in ["- [x] a\n\n- [ ]\n  # h", "1. [ ]\n   > q\n\n2. [x] ", "- a\n\n  - [ ] "] {
+            let rt = from_markdown(md).unwrap().content;
+            assert_eq!(to_markdown(&rt), md);
+        }
     }
 
     /// `instance` spells these, and the marker alternation CommonMark already

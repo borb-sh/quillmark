@@ -250,7 +250,8 @@ export type ContentLineKind =
 export type ContentContainer =
     | {
           container: "list_item";
-          attrs: { ordered: boolean; start: number; ordinal: number };
+          /** `checked` is present on a task item: `true` ticked, `false` open. */
+          attrs: { ordered: boolean; start: number; ordinal: number; checked?: boolean };
           instance?: number;
       }
     | { container: "quote"; instance?: number }

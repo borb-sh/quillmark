@@ -87,6 +87,7 @@ import meets. The columns:
 | `container.list_item.start`: ordered item, custom `start` | spells | spells | spells | honors | silent: honored | none |
 | `container.list_item.instance`: two adjacent ordered lists | spells | spells | spells | honors | silent: honored | none |
 | `container.list_item.instance.bullet`: two adjacent bullet lists | spells | spells | spells | drops silently | drops silently | none |
+| `container.list_item.task`: a task item, ticked and open | spells | spells | spells | honors | silent: honored | none |
 | `container.quote`: block quote | spells | spells | spells | honors | silent: honored | none |
 | `container.quote.instance`: two adjacent quotes | spells | spells | spells | honors | silent: honored | none |
 | `container.element`: an element around blocks | spells | spells | spells | honors | silent: honored | none |
@@ -100,6 +101,8 @@ as one wide list: the `instance` boundary does not reach the page.
 
 An element lowers through the helper's dispatcher, which draws it with the
 renderer a plate registers under its name ([CONVERT.md](CONVERT.md#elements)).
+A task item's body lowers the same way, through the renderer a plate sets on
+`tasks`, else as a box ticked when done.
 
 ### Marks
 
@@ -183,6 +186,7 @@ above, or markup the content does not store.
 | `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
 | `markdown.cell_image`: an image in a table cell | drops silently | n/a | n/a | n/a | n/a | none |
+| `markdown.footnote`: a footnote definition, its reference kept as text | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `footnote` |
 
 `html.br` and `html.u` land as a hard break and an underline, so their cells
 past markdown read those constructs. What a markup row wraps imports as

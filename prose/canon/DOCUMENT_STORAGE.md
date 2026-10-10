@@ -85,8 +85,8 @@ the DTO alike.
 ### Legacy schemas (V0_116_0, V0_115_0, V0_112_0, V0_93_0, V0_92_0, V0_82_0, V0_81_0)
 
 Documents written under `"schema": "quillmark/document@0.116.0"` carry the
-current tree, over the content vocabulary without `element`
-(§ Content vocabularies), and the hop decodes the `body`.
+current tree, over the content vocabulary without `element` or a list item's
+`checked` (§ Content vocabularies), and the hop decodes the `body`.
 
 Documents written under `"schema": "quillmark/document@0.115.0"` carry the
 V0_116_0 tree, and the hop is a retag. A field item under it or any older tag
@@ -263,6 +263,13 @@ never meets a field. A new element name is no storage event, since no reader is
 frozen at a set of names; the member's arrival was one (`0.124.0`). A bag
 outside the grammar is `ParseError::Shape` on both lanes. Container identity
 compares the whole bag, `$name` among it.
+
+A task item's `checked` is a `list_item` bag entry, `true` ticked and `false`
+open, absent on an item that is no task. It is the item's, like `ordinal`: two
+items differing in it sit in one list run. A reader drops a bag key it does not
+name, so a build without `checked` would read a task list as a plain one and
+save it so; the key arrived under the tag that brought `element` (`0.124.0`),
+which that reader refuses.
 
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,
@@ -644,8 +651,8 @@ turn and moves every built-in's payload into `attrs` inside that content.
 block island's line `para`. `0.116.0` writes a field item as
 `{type: field, key, value}` and refuses a document, card, payload or payload
 item carrying a key its type does not name, where every earlier tag reads past
-one. `0.124.0` leaves the tree unchanged and adds `element` to the container
-vocabulary.
+one. `0.124.0` leaves the tree unchanged, adds `element` to the container
+vocabulary and `checked` to a list item's `attrs`.
 
 The V0_92_0 hop cold-imports the stored markdown `body` string through the same
 Markdown → richtext path `Document::parse` uses, so a pathologically

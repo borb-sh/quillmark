@@ -22,8 +22,9 @@ Quillmark enables a small, stable subset of GFM:
 | Strikethrough | `~~text~~` | Standard GFM rules; word-bounded delimiter runs. |
 | Pipe tables | `\| col \| col \|` with alignment row | Supports `:---`, `:---:`, `---:` alignment. |
 | Underline | `<u>text</u>` | An allow-listed raw-HTML tag (see [the deviation below](#raw-html-is-not-rendered-except-u-and-br)). |
+| Task lists | `- [ ] open`, `- [x] done` | A checkbox before the item's text, ticked for `[x]`. |
 
-Task lists, autolinks beyond CommonMark's, and other GFM features are **not** enabled.
+Autolinks beyond CommonMark's and other GFM features are **not** enabled.
 
 ## Table layout and elements: `qm-*` tags
 
@@ -155,8 +156,8 @@ Consequences:
 The following are not supported:
 
 - **Math** (`$…$`, `$$…$$`): `$` is treated as a literal character.
-- **Task lists**, **definition lists**: they render as the literal text written.
-- **Footnotes**: CommonMark reads `[^1]: Note` as a link reference definition, which drops the line and turns every `[^1]` into a link to `Note`. Quillmark reads it the same way.
+- **Definition lists**: they render as the literal text written.
+- **Footnotes**: a `[^1]: Note` definition drops with its note and warns under `parse::dropped_construct` (`footnote`); `[^1]` stays as the text written. Put the note in the prose instead.
 
 A link's title (`[text](url "Title")`) drops at import, with no warning. A construct the active backend has no target for, such as an image under Typst, drops at render with a `backend::declined_construct` warning; see each backend's documentation.
 

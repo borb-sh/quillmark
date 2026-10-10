@@ -70,6 +70,15 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
     };
     let tag = construct.to_string();
     match construct {
+        Dropped::Footnote => (
+            format!(
+                "markdown import dropped {} in this field",
+                some("footnote definition", "footnote definitions")
+            ),
+            "Footnotes are not supported: a `[^label]: note` definition drops with its note, and a \
+             `[^label]` reference stays as written. Put the note in the prose instead."
+                .to_string(),
+        ),
         Dropped::TableAttr(attr) => attr_dropped(
             "qm-table",
             attr,

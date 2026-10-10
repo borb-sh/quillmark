@@ -120,6 +120,7 @@ is a lowering bug, never a document's.
 | `MarkKind::Anchor` | nothing |
 | `Container::ListItem` (bullet) | `- ` |
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
+| `Container::ListItem{checked}` (task) | the item's marker, then `#_qm-task(done)[…]` around its body (see [Tasks](#tasks)) |
 | `Container::Quote` | `#quote(block: true)[…]` |
 | `Container::Element{name, attrs}` | `#_qm-element("name", (…))[…]` (see [Elements](#elements)) |
 | `image` island | nothing, plus one `backend::declined_construct` warning per field (see [Declined images](#declined-images)) |
@@ -152,7 +153,7 @@ leaves and containers alike: what the content nests, the markup nests.
 Anchor marks emit nothing; an `image` island emits nothing (see
 [Declined images](#declined-images)).
 Raw HTML other than an inline `<u>`, `<br>` (a hard break) and the `qm-*`
-carrier (markdown-spec §6.4) never enters the content, so it is absent here; math, task lists and definition lists
+carrier (markdown-spec §6.4) never enters the content, so it is absent here; math and definition lists
 enter it as literal text (markdown-spec §6.2, §6.3).
 
 ### Elements
@@ -175,6 +176,22 @@ when empty: each attribute as the document stores it.
 An element's call keeps its run's structure in its `[…]`, so a run inside
 a list item stays in the item. The dispatcher's bytes fall between runs, so the
 source map holds no run for them.
+
+### Tasks
+
+A task item's body lowers into `_qm-task(done, body)`, which the helper
+defines beside `_qm-element`. It calls the renderer a plate sets on the
+helper's `tasks` state as `render(done, body)`, else draws a box ahead of the
+body, ticked when `done`. It reads the state's final value, as `elements` is
+read:
+
+```typst
+#import "@local/quillmark-helper:0.1.0": tasks
+#tasks.update(_ => (done, body) => if done { strike(body) } else { body })
+```
+
+The call opens on the marker's line and closes after the item's last block, so
+an item's later blocks and nested lists stay in it.
 
 ### Declined images
 
