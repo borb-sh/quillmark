@@ -398,6 +398,17 @@ pub const MATRIX_TITLE_KEY: &str = "title";
 pub const MATRIX_RESERVED_COLUMNS: &[&str] = &[MATRIX_HELD_KEY, MATRIX_TITLE_KEY];
 
 impl FieldType {
+    /// The codec a content leaf of this type reads and writes through, `None`
+    /// for a type that is no content leaf: the one declared-type → codec
+    /// dispatch.
+    pub(crate) fn codec(&self) -> Option<crate::document::Codec> {
+        match self {
+            FieldType::RichText { .. } => Some(crate::document::Codec::Richtext),
+            FieldType::PlainText { .. } => Some(crate::document::Codec::Plaintext),
+            _ => None,
+        }
+    }
+
     /// The `type:` token alone. An `enum`'s domain and a prose type's `inline`
     /// ride sibling keys that the loader's parse folds in, so both payloads
     /// rest at their default here.
@@ -858,6 +869,69 @@ impl FieldSchema {
             tick.default = Some(QuillValue::from_json(serde_json::Value::Bool(false)));
             tick
         })
+    }
+
+    /// Call `f` on each child value `json` holds under this field, with the
+    /// child's schema and path: the live world's cells of a variant container,
+    /// each matrix member's mapping, a typed dictionary's declared properties,
+    /// an array's elements. A bare non-null value on an array is its one
+    /// element, as the render floor wraps it. A null, a tick and an undeclared
+    /// key hold no child.
+    pub(crate) fn each_child<'s, 'v>(
+        &'s self,
+        json: &'v serde_json::Value,
+        path: &crate::path::DocPath,
+        f: &mut dyn FnMut(&'s FieldSchema, &'v serde_json::Value, &crate::path::DocPath),
+    ) {
+        if json.is_null() {
+            return;
+        }
+        let declared = |props: &'s IndexMap<String, Box<FieldSchema>>,
+                        object: &'v serde_json::Map<String, serde_json::Value>,
+                        f: &mut dyn FnMut(&'s FieldSchema, &'v serde_json::Value, &crate::path::DocPath)| {
+            for (name, prop) in props {
+                if let Some(value) = object.get(name) {
+                    f(prop, value, &path.field(name));
+                }
+            }
+        };
+        if self.is_variant_bearing() {
+            let (Some(object), Some(live)) = (
+                json.as_object(),
+                self.variant_fields(&self.selected_member(Some(json))),
+            ) else {
+                return;
+            };
+            return declared(live, object, f);
+        }
+        match &self.r#type {
+            // A member's mapping keeps its stored `held`, which no column
+            // declares (`quill::matrix_reserved_column`).
+            FieldType::Matrix { .. } => {
+                for (id, cell) in json.as_object().into_iter().flatten() {
+                    if let (Some(member), true) = (self.matrix_member(id, cell), cell.is_object()) {
+                        f(member, cell, &path.field(id));
+                    }
+                }
+            }
+            FieldType::Object => {
+                if let (Some(props), Some(object)) = (&self.properties, json.as_object()) {
+                    declared(props, object, f);
+                }
+            }
+            FieldType::Array => {
+                let Some(items) = &self.items else { return };
+                match json.as_array() {
+                    Some(elements) => {
+                        for (index, element) in elements.iter().enumerate() {
+                            f(items, element, &path.index(index));
+                        }
+                    }
+                    None => f(items, json, &path.index(0)),
+                }
+            }
+            _ => {}
+        }
     }
 
     /// The namespace a container field composes its value from: a typed

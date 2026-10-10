@@ -16,7 +16,6 @@ use crate::{
     value::QuillValue,
 };
 
-use super::compose::markdown_drops;
 use super::{CardSchema, QuillConfig};
 
 /// The failure of the bound door ([`Quill::parse`]): the markdown did not
@@ -138,10 +137,10 @@ fn conform_card(
         if !field_contains_content(field) {
             continue;
         }
-        match resolve_field_write(name, value.clone(), field) {
-            Ok(conformed) => {
+        match resolve_field_write(name, value, field, base) {
+            Ok((conformed, drops)) => {
                 if &conformed != value {
-                    diags.extend(markdown_drops(field, value.as_json(), &base.field(name)));
+                    diags.extend(drops);
                     updates.push((name.clone(), conformed));
                 }
             }

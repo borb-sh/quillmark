@@ -37,8 +37,8 @@ Where the code falls short of an invariant, the matrix cell says so:
 construct's markdown cell it is also where the fixed point fails.
 
 The matrix reads a body. A `richtext` field's markdown string reports what
-it drops where a conform, a revise or `validate` imports it; a typed `set`
-and a card inserted with a string body drop it with no signal
+it drops where a conform, a typed `set`, a revise or `validate` imports it; a
+card inserted with a string body drops it with no signal
 ([ERROR.md](ERROR.md#warning-flow)).
 
 ## The matrix

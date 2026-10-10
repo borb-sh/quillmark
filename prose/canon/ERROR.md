@@ -160,10 +160,12 @@ families:
   field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
   at the placed card's body, WASM `importMarkdown` and `rebase` beside the
   content with no `path`, and Python's `revise_body` / `revise_field` /
-  `revise_document` / `add_card` as a list. A conform reports a `richtext`
-  string's drops beside its `conform::*` warnings, and `validate` a string's
-  the field still holds. A typed `set` or a card inserted with a string body
-  drops without it.
+  `revise_document` / `add_card` as a list. A typed `set` / `set_all` returns
+  a `richtext` string's drops at the string's path (WASM `set` / `setAll`,
+  Python `set` / `set_all`), and `add_card` its fields' ahead of its body's. A
+  conform reports a string's drops beside its `conform::*` warnings, and
+  `validate` a string's the field still holds. A card inserted with a string
+  body drops without it.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each

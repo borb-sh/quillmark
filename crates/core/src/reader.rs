@@ -32,7 +32,7 @@ use indexmap::IndexMap;
 use quillmark_content::model::Normalized;
 
 use crate::document::edit::field_decode;
-use crate::document::{Card, Codec, Document, EditError};
+use crate::document::{Card, Document, EditError};
 use crate::quill::{
     resolve_document, CalendarDate, CardSchema, FieldSchema, FieldType, QuillConfig, Resolved,
 };
@@ -221,7 +221,7 @@ fn read_content(
     let leaf = schema_at(field, name, at)?;
     // The codec rides out of the dispatch: it is the declared type's, not the
     // stored shape's.
-    let codec = content_codec(&leaf.r#type).ok_or_else(|| EditError::FieldNotContent {
+    let codec = leaf.r#type.codec().ok_or_else(|| EditError::FieldNotContent {
         field: name.to_string(),
         at: at.to_vec(),
         declared: leaf.r#type.as_str().to_string(),
@@ -255,7 +255,7 @@ fn project_value(
     if value.is_null() {
         return Ok(serde_json::Value::Null);
     }
-    if let Some(codec) = content_codec(&schema.r#type) {
+    if let Some(codec) = schema.r#type.codec() {
         return match codec.decode_field(value) {
             Ok(content) => Ok(serde_json::Value::String(codec.project(&content))),
             Err(e) => Err(field_decode(name, at, codec, e)),
@@ -322,18 +322,6 @@ fn project_map<'a>(
         out.insert(key.clone(), projected);
     }
     Ok(serde_json::Value::Object(out))
-}
-
-/// The one declared-type → codec dispatch: `None` for a type that is no content
-/// leaf. Every schema-bound content read routes through this — the whole field,
-/// a nested leaf, and [`get`](TypedReader::get)'s text projection alike — so a
-/// codec change reaches all three by construction.
-fn content_codec(r#type: &FieldType) -> Option<Codec> {
-    match r#type {
-        FieldType::RichText { .. } => Some(Codec::Richtext),
-        FieldType::PlainText { .. } => Some(Codec::Plaintext),
-        _ => None,
-    }
 }
 
 /// Walk `at` through a field's schema to the type declared at that address. A

@@ -767,14 +767,14 @@ export class DocumentWriter {
 	/**
 	 * @param {string} name
 	 * @param {unknown} value
-	 * @returns {void}
+	 * @returns {import('../core/wasm.js').Diagnostic[]}
 	 */
 	set(name, value) {
 		return this.#doc._commitField(this.#quill, name, value);
 	}
 	/**
 	 * @param {Record<string, unknown>} fields
-	 * @returns {void}
+	 * @returns {import('../core/wasm.js').Diagnostic[]}
 	 */
 	setAll(fields) {
 		return this.#doc._commitFields(this.#quill, MAIN_CARD_ADDR, fields);
@@ -855,14 +855,14 @@ export class CardWriter {
 	/**
 	 * @param {string} name
 	 * @param {unknown} value
-	 * @returns {void}
+	 * @returns {import('../core/wasm.js').Diagnostic[]}
 	 */
 	set(name, value) {
 		return this.#doc._commitField(this.#quill, { card: this.#index, field: name }, value);
 	}
 	/**
 	 * @param {Record<string, unknown>} fields
-	 * @returns {void}
+	 * @returns {import('../core/wasm.js').Diagnostic[]}
 	 */
 	setAll(fields) {
 		return this.#doc._commitFields(this.#quill, { card: this.#index }, fields);

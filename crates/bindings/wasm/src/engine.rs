@@ -1613,27 +1613,31 @@ impl Document {
     ///
     /// The `quill` handle is passed per call because a `Document` carries only a
     /// `$quill` reference, not the resolved schema.
-    #[wasm_bindgen(js_name = _commitField, skip_typescript)]
+    ///
+    /// Returns a `parse::dropped_construct` warning per construct a `richtext`
+    /// markdown string in the value dropped, at the string's path.
+    #[wasm_bindgen(js_name = _commitField, skip_typescript, unchecked_return_type = "Diagnostic[]")]
     pub fn commit_field(
         &mut self,
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         value: JsValue,
-    ) -> Result<(), JsValue> {
+    ) -> Result<JsValue, JsValue> {
         let addr = Addr::from_js_or_string(&addr)?;
         let field = addr.require_field("commitField")?.to_string();
         let json = js_value_to_json(value, "commitField")?;
         let qv = quillmark_core::value::QuillValue::from_json(json);
         let base = self.addr_base(&addr);
         let mut writer = quill.inner.writer(&mut self.inner);
-        match addr.card {
-            None => writer.set(&field, qv).map_err(|e| edit_error_to_js(&e, &base)),
+        let warnings = match addr.card {
+            None => writer.set(&field, qv),
             Some(index) => writer
                 .card(index)
                 .map_err(|e| edit_error_to_js(&e, &base))?
-                .set(&field, qv)
-                .map_err(|e| edit_error_to_js(&e, &base)),
+                .set(&field, qv),
         }
+        .map_err(|e| edit_error_to_js(&e, &base))?;
+        serialize_or_throw(&diags(warnings), "commitField")
     }
 
     /// Batched twin of [`commitField`](Document::commit_field): typed-commit
@@ -1642,29 +1646,29 @@ impl Document {
     /// diagnostic contract as [`storeFields`](Document::store_fields) — nothing
     /// applied on error, one `diagnostics` entry per offending field, including
     /// `edit::unknown_field` for undeclared names. Throws on an out-of-range
-    /// card.
-    #[wasm_bindgen(js_name = _commitFields, skip_typescript)]
+    /// card. Returns [`commitField`](Document::commit_field)'s warnings for
+    /// every field, in batch order.
+    #[wasm_bindgen(js_name = _commitFields, skip_typescript, unchecked_return_type = "Diagnostic[]")]
     pub fn commit_fields(
         &mut self,
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
         #[wasm_bindgen(unchecked_param_type = "Record<string, unknown>")] fields: JsValue,
-    ) -> Result<(), JsValue> {
+    ) -> Result<JsValue, JsValue> {
         let addr = Addr::from_js(&addr)?;
         addr.require_card_only("commitFields")?;
         let batch = js_value_to_field_batch(&fields, "commitFields")?;
         let base = self.addr_base(&addr);
         let mut writer = quill.inner.writer(&mut self.inner);
-        match addr.card {
-            None => writer
-                .set_all(batch)
-                .map_err(|errs| edit_errors_to_js(errs, &base)),
+        let warnings = match addr.card {
+            None => writer.set_all(batch),
             Some(index) => writer
                 .card(index)
                 .map_err(|e| edit_error_to_js(&e, &base))?
-                .set_all(batch)
-                .map_err(|errs| edit_errors_to_js(errs, &base)),
+                .set_all(batch),
         }
+        .map_err(|errs| edit_errors_to_js(errs, &base))?;
+        serialize_or_throw(&diags(warnings), "commitFields")
     }
 
     /// Build a composable card of `kind`, typed-commit `fields` onto it, set its
@@ -1675,8 +1679,8 @@ impl Document {
     /// leaves the document untouched. Field errors throw the same per-field
     /// bundle as [`commitFields`](Self::commit_fields); an invalid kind or body,
     /// or a bad position, throws a single-entry bundle keyed `$kind` / `$body`.
-    /// Returns the body import's `parse::dropped_construct` warnings, anchored
-    /// at the placed card's body.
+    /// Returns the fields' `parse::dropped_construct` warnings, then the body
+    /// import's, anchored under the placed card.
     #[wasm_bindgen(js_name = _addCard, skip_typescript, unchecked_return_type = "Diagnostic[]")]
     pub fn add_card(
         &mut self,

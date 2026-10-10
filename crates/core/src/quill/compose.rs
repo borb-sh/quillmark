@@ -225,15 +225,17 @@ impl Quill {
     /// render's compile reports itself.
     #[doc(hidden)]
     pub fn advisories(&self, doc: &Document) -> Vec<Diagnostic> {
-        let mut diags = match self.config().validate_document(doc) {
-            Ok(()) => Vec::new(),
-            Err(errors) => errors.iter().map(|e| e.to_diagnostic()).collect(),
-        };
+        let mut drops = Vec::new();
+        let mut diags: Vec<Diagnostic> =
+            super::validation::validate_document_values(self.config(), doc, &mut drops)
+                .iter()
+                .map(|e| e.to_diagnostic())
+                .collect();
         diags.extend(validate_unclaimed(self.config(), doc));
         diags.extend(validate_variants(self.config(), doc));
         diags.extend(validate_cardinality(self.config(), doc));
         diags.extend(self.validate_seed(doc));
-        diags.extend(validate_dropped(self.config(), doc));
+        diags.extend(drops);
         diags
     }
 
@@ -387,7 +389,7 @@ pub(crate) fn seed_overlay_diagnostics(
         }
         collect_unknown_in(field_schema, value, &field_path, &mut diags);
         collect_stranded(field_schema, value, &field_path, &mut diags);
-        collect_cardinality_diags(field_schema, Some(&qv), &field_path, &mut diags);
+        collect_cardinality_diags(field_schema, value, &field_path, &mut diags);
     }
     diags
 }
@@ -445,8 +447,14 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
         let name = normalize_field_name(&raw_name);
         let entry = match schema.fields.get(&raw_name) {
             Some(field_schema) => {
-                QuillConfig::conform_value(&value, field_schema, &name, Leniency::Render)
-                    .unwrap_or(value)
+                QuillConfig::conform_value(
+                    &value,
+                    field_schema,
+                    &DocPath::new().field(&name),
+                    Leniency::Render,
+                    &mut Vec::new(),
+                )
+                .unwrap_or(value)
             }
             None => value,
         };
@@ -700,8 +708,9 @@ fn held_cells(
         tick => QuillConfig::conform_value(
             &QuillValue::from_json(tick.clone()),
             FieldSchema::matrix_tick(),
-            MATRIX_HELD_KEY,
+            &DocPath::new().field(MATRIX_HELD_KEY),
             Leniency::Render,
+            &mut Vec::new(),
         )
         .ok()
         .and_then(|v| v.as_json().as_bool())
@@ -1163,35 +1172,6 @@ fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     config.declined_in_plate(&plate)
 }
 
-/// One `parse::dropped_construct` per construct a `richtext` field's markdown
-/// string drops on the import a render runs, at the string's path. A
-/// conformed field holds content, whose drops its load reported.
-fn validate_dropped(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    for (schema, card, path) in schema_cards(config, doc) {
-        let Some(schema) = schema else { continue };
-        for (key, value) in card.payload().iter() {
-            if let Some(field) = schema.fields.get(key.as_str()) {
-                diags.extend(markdown_drops(field, value.as_json(), &path.field(key)));
-            }
-        }
-    }
-    diags
-}
-
-/// One `parse::dropped_construct` per construct that importing each markdown
-/// string `json` holds under `field` drops, at the string's path.
-pub(super) fn markdown_drops(field: &FieldSchema, json: &serde_json::Value, path: &DocPath) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    each_content_leaf(field, json, path, &mut |at, codec, leaf| {
-        let (Codec::Richtext, Some(markdown)) = (codec, leaf.as_str()) else {
-            return;
-        };
-        let _ = crate::document::import_body_at(markdown, at, &mut diags);
-    });
-    diags
-}
-
 /// Call `f` on every content leaf `json` holds under `field`, with its path,
 /// codec and value as stored: the walk a render's content fields follow,
 /// through variants, matrices, objects and arrays.
@@ -1201,55 +1181,11 @@ fn each_content_leaf(
     path: &DocPath,
     f: &mut dyn FnMut(&DocPath, Codec, &serde_json::Value),
 ) {
-    let codec = match field.r#type {
-        FieldType::RichText { .. } => Some(Codec::Richtext),
-        FieldType::PlainText { .. } => Some(Codec::Plaintext),
-        _ => None,
-    };
-    if let Some(codec) = codec {
-        f(path, codec, json);
-        return;
-    }
-    if field.is_variant_bearing() {
-        let Some(object) = json.as_object() else { return };
-        let Some(live) = field.variant_fields(&field.selected_member(Some(json))) else {
-            return;
-        };
-        for (key, value) in object {
-            if let Some(cell) = live.get(key) {
-                each_content_leaf(cell, value, &path.field(key), f);
-            }
-        }
-        return;
-    }
-    if matches!(field.r#type, FieldType::Matrix { .. }) {
-        let Some(object) = json.as_object() else { return };
-        for (id, cell) in object {
-            let (Some(member), Some(cells)) = (field.matrix_member(id, cell), cell.as_object())
-            else {
-                continue;
-            };
-            let mut cells = cells.clone();
-            cells.remove(MATRIX_HELD_KEY);
-            each_content_leaf(member, &serde_json::Value::Object(cells), &path.field(id), f);
-        }
-        return;
-    }
-    if let Some(props) = field.namespace_props() {
-        let Some(object) = json.as_object() else { return };
-        for (key, value) in object {
-            if let Some(prop) = props.get(key) {
-                each_content_leaf(prop, value, &path.field(key), f);
-            }
-        }
-        return;
-    }
-    if let (FieldType::Array, Some(items), Some(elements)) =
-        (&field.r#type, &field.items, json.as_array())
-    {
-        for (index, element) in elements.iter().enumerate() {
-            each_content_leaf(items, element, &path.index(index), f);
-        }
+    match field.r#type.codec() {
+        Some(codec) => f(path, codec, json),
+        None => field.each_child(json, path, &mut |child, value, at| {
+            each_content_leaf(child, value, at, f)
+        }),
     }
 }
 
@@ -1292,8 +1228,8 @@ impl QuillConfig {
                     }
                 } else if let Some(field) = schema.fields.get(key.as_str()) {
                     each_content_leaf(field, value, &path.field(key), &mut |at, codec, leaf| {
-                        if let Some(Ok(content)) = codec.decode_value(leaf) {
-                            each(at, &content);
+                        if let Some(Ok(imported)) = codec.decode_value(leaf) {
+                            each(at, &imported.content);
                         }
                     });
                 }
@@ -1424,7 +1360,9 @@ fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic>
         let Some(schema) = schema else { continue };
         let payload = card.payload();
         for (name, field) in &schema.fields {
-            collect_cardinality_diags(field, payload.get(name), &path.field(name), &mut diags);
+            if let Some(value) = payload.get(name) {
+                collect_cardinality_diags(field, value.as_json(), &path.field(name), &mut diags);
+            }
         }
     }
     diags
@@ -1437,69 +1375,25 @@ fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic>
 /// exceed.
 fn collect_cardinality_diags(
     field: &FieldSchema,
-    value: Option<&QuillValue>,
+    json: &serde_json::Value,
     path: &DocPath,
     out: &mut Vec<Diagnostic>,
 ) {
-    let Some(json) = value.map(|v| v.as_json()).filter(|j| !j.is_null()) else {
-        return;
-    };
-
-    if field.is_variant_bearing() {
-        let Some(object) = json.as_object() else { return };
-        let member = field.selected_member(Some(json));
-        if let Some(fields) = field.variant_fields(&member) {
-            for (name, schema) in fields {
-                let cell = object.get(name).map(|j| QuillValue::from_json(j.clone()));
-                collect_cardinality_diags(schema, cell.as_ref(), &path.field(name), out);
-            }
-        }
+    if json.is_null() {
         return;
     }
-
-    if matches!(field.r#type, FieldType::Matrix { .. }) {
-        let Some(object) = json.as_object() else { return };
-        for (key, cell) in object {
-            let (Some(member), Ok(Some(cells))) = (field.matrix_member(key, cell), held_cells(cell))
-            else {
-                continue;
-            };
-            let cells = QuillValue::from_json(serde_json::Value::Object(cells));
-            collect_cardinality_diags(member, Some(&cells), &path.field(key), out);
-        }
-        return;
-    }
-
-    if let Some(props) = field.namespace_props() {
-        let Some(object) = json.as_object() else { return };
-        for (name, prop) in props {
-            let Some(cell) = object.get(name) else { continue };
-            let cell = QuillValue::from_json(cell.clone());
-            collect_cardinality_diags(prop, Some(&cell), &path.field(name), out);
-        }
-        return;
-    }
-
-    if !matches!(field.r#type, FieldType::Array) {
-        return;
-    }
-    // The count is the floor's, not the document's: a bare scalar on an array
-    // wraps to one element there, so `max: 0` sees the row it will lay out.
-    let elements = match json.as_array() {
-        Some(elements) => elements.clone(),
-        None => vec![json.clone()],
-    };
-    if let Some(max) = field.max {
-        if elements.len() > max as usize {
-            out.push(cardinality_warning(path, max, elements.len()));
+    if let (FieldType::Array, Some(max)) = (&field.r#type, field.max) {
+        // The count is the floor's, not the document's: a bare scalar on an
+        // array wraps to one element there, so `max: 0` sees the row it will
+        // lay out.
+        let count = json.as_array().map_or(1, Vec::len);
+        if count > max as usize {
+            out.push(cardinality_warning(path, max, count));
         }
     }
-    if let Some(items) = &field.items {
-        for (index, element) in elements.iter().enumerate() {
-            let element = QuillValue::from_json(element.clone());
-            collect_cardinality_diags(items, Some(&element), &path.index(index), out);
-        }
-    }
+    field.each_child(json, path, &mut |child, value, at| {
+        collect_cardinality_diags(child, value, at, out)
+    });
 }
 
 pub(crate) fn cardinality_warning(path: &DocPath, max: u32, actual: usize) -> Diagnostic {

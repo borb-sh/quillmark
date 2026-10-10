@@ -61,8 +61,8 @@ fn seeded_rest(name: &str, value: &QuillValue, field: &crate::quill::FieldSchema
     if !crate::quill::config::field_contains_content(field) {
         return value.clone();
     }
-    crate::document::edit::resolve_field_write(name, value.clone(), field)
-        .unwrap_or_else(|_| value.clone())
+    crate::document::edit::resolve_field_write(name, value, field, &crate::path::DocPath::new())
+        .map_or_else(|_| value.clone(), |(rest, _)| rest)
 }
 
 /// `$quill` reference for the main card, as `name@version`. Falls back to a

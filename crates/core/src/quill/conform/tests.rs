@@ -541,5 +541,7 @@ fn a_richtext_string_reports_its_drops_where_it_imports() {
     assert_eq!(drops(&quill.validate(&doc)), [], "a conformed field holds content");
 
     let loaded = Document::parse(md).unwrap().document;
-    assert_eq!(drops(&quill.validate(&loaded)), expected);
+    let mut by_field = expected;
+    by_field.sort();
+    assert_eq!(drops(&quill.validate(&loaded)), by_field, "validate walks fields by name");
 }
