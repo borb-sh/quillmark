@@ -12,9 +12,17 @@ pub(crate) mod table;
 /// What every carrier tag name opens with.
 pub const PREFIX: &str = "qm-";
 
-/// Element names reserved for the table wrapper (`table`) and the anchor
-/// spelling (`anchor`), which no stored element carries.
-pub const RESERVED: [&str; 2] = ["table", "anchor"];
+/// The table wrapper's element name.
+pub const TABLE: &str = "table";
+
+/// The element name of a table cell's alignment pair.
+pub const CELL: &str = "cell";
+
+/// The anchor spelling's element name.
+pub const ANCHOR: &str = "anchor";
+
+/// Element names no stored element carries: [`TABLE`] and [`ANCHOR`].
+pub const RESERVED: [&str; 2] = [TABLE, ANCHOR];
 
 /// Attribute names outside the grammar besides every `on*`: each is one a
 /// downstream HTML renderer acts on.
@@ -230,7 +238,7 @@ impl Element {
 /// The wrapper a tag named `tag_name` opens or closes: `table` or an
 /// element's name. `qm-anchor` wraps nothing.
 pub(crate) fn wrapper(tag_name: &str) -> Option<String> {
-    element(tag_name).filter(|name| name != "anchor")
+    element(tag_name).filter(|name| name != ANCHOR)
 }
 
 /// Whether `tag` opens or closes a [wrapper], not self-closing.

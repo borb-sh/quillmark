@@ -728,7 +728,7 @@ fn annotate(md: String, points: &[usize], tags: &[(Usv, &str)]) -> String {
 
 /// The carrier's canonical spelling of an anchor `id`.
 fn anchor_tag(id: &str) -> String {
-    crate::carrier::Element::new("anchor", [("ref".to_string(), id.to_string())].into())
+    crate::carrier::Element::new(crate::carrier::ANCHOR, [("ref".to_string(), id.to_string())].into())
         .expect("`anchor` and `ref` are in the carrier grammar")
         .wrap_inline("")
 }

@@ -483,16 +483,13 @@ impl CellPair {
             }
             _ => {
                 for at in self.opens {
-                    dropped.add(Dropped::Element(CELL.into()), at);
+                    dropped.add(Dropped::Element(carrier::CELL.into()), at);
                 }
                 None
             }
         }
     }
 }
-
-/// The element name a table cell's pair carries.
-const CELL: &str = "cell";
 
 fn align_str(a: &pulldown_cmark::Alignment) -> &'static str {
     match a {
@@ -890,7 +887,7 @@ impl Builder {
         }
         if let Some(acc) = self.table.as_mut().filter(|acc| acc.cell.is_some()) {
             match attrs {
-                _ if name != CELL || self.image_depth > 0 => {
+                _ if name != carrier::CELL || self.image_depth > 0 => {
                     acc.pair.content();
                     if attrs.is_some() {
                         self.dropped.add(Dropped::Element(name), at);
@@ -918,7 +915,7 @@ impl Builder {
 
     fn open_wrapper(&mut self, name: String, attrs: carrier::Attrs, at: usize) -> Result<(), ImportError> {
         let depth = self.containers.len();
-        let frame = if name == "table" {
+        let frame = if name == carrier::TABLE {
             let outer = self.blocks.iter_mut().rev().find_map(|open| match &mut open.frame {
                 Frame::Table { holds_wrapper, .. } => Some(holds_wrapper),
                 Frame::Element { .. } => None,
@@ -1098,7 +1095,7 @@ impl Builder {
                     let folded = std::mem::take(&mut acc.pair).finish(&mut cell, &mut self.dropped);
                     let mut value = crate::serial::cell_to_value(&cell.text, &cell.marks);
                     if let Some((attrs, at)) = folded {
-                        self.dropped.fold(CELL, attrs, at, &mut value, carrier::cell::key);
+                        self.dropped.fold(carrier::CELL, attrs, at, &mut value, carrier::cell::key);
                     }
                     acc.cur_row.push(value);
                 }
@@ -1271,7 +1268,7 @@ impl CarrierTag {
 fn dropped_tag(name: &str) -> Option<Dropped> {
     let lower = name.to_ascii_lowercase();
     Some(match carrier::element(name) {
-        Some(element) if element == "anchor" => return None,
+        Some(element) if element == carrier::ANCHOR => return None,
         Some(element) => Dropped::Element(element),
         None if lower.starts_with(carrier::PREFIX) => Dropped::BadName(lower),
         None => Dropped::Tag(lower),

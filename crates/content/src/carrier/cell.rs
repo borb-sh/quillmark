@@ -26,5 +26,5 @@ pub(crate) fn pair(cell: &Value) -> Option<Element> {
         .into_iter()
         .filter_map(|(k, v)| Some((k.to_string(), v?.to_string())))
         .collect();
-    (!attrs.is_empty()).then(|| Element::new("cell", attrs).expect("cell attribute names are in the grammar"))
+    (!attrs.is_empty()).then(|| Element::new(super::CELL, attrs).expect("cell attribute names are in the grammar"))
 }

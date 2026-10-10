@@ -59,5 +59,5 @@ pub(crate) fn wrapper(props: &Value) -> Option<Element> {
     if attrs.is_empty() {
         return None;
     }
-    Some(Element::new("table", attrs).expect("layout attribute names are in the grammar"))
+    Some(Element::new(super::TABLE, attrs).expect("layout attribute names are in the grammar"))
 }
