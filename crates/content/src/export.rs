@@ -343,41 +343,33 @@ fn close_container(key: &Container, inner: &str, prose_head: bool, out: &mut Str
             };
             let indent = " ".repeat(marker.len());
             let head = inner.split('\n').next().unwrap_or("");
-            // A task marker opens its item's paragraph, so text after it on its
-            // line is read as that paragraph whatever block it spells: any
-            // other first block moves to the line below.
-            if let Some(done) = checked {
-                let task = if *done { "[x]" } else { "[ ]" };
-                if prose_head && !head.is_empty() {
-                    prefix_lines(inner, &format!("{marker}{task} "), &indent, out);
-                } else {
-                    out.push_str(&marker);
-                    out.push_str(task);
-                    // The marker reads as one only before whitespace, and an
-                    // empty item can end the markdown.
-                    if inner.is_empty() {
-                        out.push(' ');
-                    } else {
-                        out.push('\n');
-                        prefix_lines(inner, &indent, &indent, out);
-                    }
-                }
-                return;
-            }
-            // A marker run that spells a thematic break outranks the items
-            // spelling it: three nested empty bullets emit `- - - `, which
-            // re-imports as a `Rule` with the nesting gone. Changing a marker
-            // char is not the way out — a different bullet char starts a new
-            // list, resetting `ordinal` on this item and every one after it, and
-            // the empty item can have non-empty siblings. Moving the content to
-            // the next line costs no marker and no list identity, and the check
-            // runs per level, so a run of any depth breaks into pieces of two.
-            if is_thematic_break(&format!("{marker}{head}")) {
-                out.push_str(marker.trim_end());
+            // Whether the item's first block moves to the line below its
+            // marker. A task marker opens its item's paragraph, so text after
+            // it on its line is read as that paragraph whatever block it
+            // spells. A marker run that spells a thematic break outranks the
+            // items spelling it: three nested empty bullets emit `- - - `,
+            // which re-imports as a `Rule` with the nesting gone. Changing a
+            // marker char is not the way out — a different bullet char starts
+            // a new list, resetting `ordinal` on this item and every one after
+            // it, and the empty item can have non-empty siblings. Moving the
+            // content costs no marker and no list identity, and the check runs
+            // per level, so a run of any depth breaks into pieces of two.
+            let (lead, below) = match checked {
+                Some(done) => (
+                    format!("{marker}{} ", if *done { "[x]" } else { "[ ]" }),
+                    !prose_head || head.is_empty(),
+                ),
+                None => (marker.clone(), is_thematic_break(&format!("{marker}{head}"))),
+            };
+            // An empty item keeps its lead's trailing space: a task marker
+            // reads as one only before whitespace, and the item can end the
+            // markdown.
+            if below && !inner.is_empty() {
+                out.push_str(lead.trim_end());
                 out.push('\n');
                 prefix_lines(inner, &indent, &indent, out);
             } else {
-                prefix_lines(inner, &marker, &indent, out);
+                prefix_lines(inner, &lead, &indent, out);
             }
         }
         Container::Quote { .. } => {
