@@ -225,15 +225,17 @@ impl Quill {
     /// render's compile reports itself.
     #[doc(hidden)]
     pub fn advisories(&self, doc: &Document) -> Vec<Diagnostic> {
-        let mut diags = match self.config().validate_document(doc) {
-            Ok(()) => Vec::new(),
-            Err(errors) => errors.iter().map(|e| e.to_diagnostic()).collect(),
-        };
+        let mut drops = Vec::new();
+        let mut diags: Vec<Diagnostic> =
+            super::validation::validate_document_values(self.config(), doc, &mut drops)
+                .iter()
+                .map(|e| e.to_diagnostic())
+                .collect();
         diags.extend(validate_unclaimed(self.config(), doc));
         diags.extend(validate_variants(self.config(), doc));
         diags.extend(validate_cardinality(self.config(), doc));
         diags.extend(self.validate_seed(doc));
-        diags.extend(validate_dropped(self.config(), doc));
+        diags.extend(drops);
         diags
     }
 
@@ -445,8 +447,14 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
         let name = normalize_field_name(&raw_name);
         let entry = match schema.fields.get(&raw_name) {
             Some(field_schema) => {
-                QuillConfig::conform_value(&value, field_schema, &name, Leniency::Render)
-                    .unwrap_or(value)
+                QuillConfig::conform_value(
+                    &value,
+                    field_schema,
+                    &DocPath::new().field(&name),
+                    Leniency::Render,
+                    &mut Vec::new(),
+                )
+                .unwrap_or(value)
             }
             None => value,
         };
@@ -700,8 +708,9 @@ fn held_cells(
         tick => QuillConfig::conform_value(
             &QuillValue::from_json(tick.clone()),
             FieldSchema::matrix_tick(),
-            MATRIX_HELD_KEY,
+            &DocPath::new().field(MATRIX_HELD_KEY),
             Leniency::Render,
+            &mut Vec::new(),
         )
         .ok()
         .and_then(|v| v.as_json().as_bool())
@@ -1163,35 +1172,6 @@ fn validate_declined(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     config.declined_in_plate(&plate)
 }
 
-/// One `parse::dropped_construct` per construct a `richtext` field's markdown
-/// string drops on the import a render runs, at the string's path. A
-/// conformed field holds content, whose drops its load reported.
-fn validate_dropped(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    for (schema, card, path) in schema_cards(config, doc) {
-        let Some(schema) = schema else { continue };
-        for (key, value) in card.payload().iter() {
-            if let Some(field) = schema.fields.get(key.as_str()) {
-                diags.extend(markdown_drops(field, value.as_json(), &path.field(key)));
-            }
-        }
-    }
-    diags
-}
-
-/// One `parse::dropped_construct` per construct that importing each markdown
-/// string `json` holds under `field` drops, at the string's path.
-pub(super) fn markdown_drops(field: &FieldSchema, json: &serde_json::Value, path: &DocPath) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    each_content_leaf(field, json, path, &mut |at, codec, leaf| {
-        let (Codec::Richtext, Some(markdown)) = (codec, leaf.as_str()) else {
-            return;
-        };
-        let _ = crate::document::import_body_at(markdown, at, &mut diags);
-    });
-    diags
-}
-
 /// Call `f` on every content leaf `json` holds under `field`, with its path,
 /// codec and value as stored: the walk a render's content fields follow,
 /// through variants, matrices, objects and arrays.
@@ -1292,8 +1272,8 @@ impl QuillConfig {
                     }
                 } else if let Some(field) = schema.fields.get(key.as_str()) {
                     each_content_leaf(field, value, &path.field(key), &mut |at, codec, leaf| {
-                        if let Some(Ok(content)) = codec.decode_value(leaf) {
-                            each(at, &content);
+                        if let Some(Ok(imported)) = codec.decode_value(leaf) {
+                            each(at, &imported.content);
                         }
                     });
                 }

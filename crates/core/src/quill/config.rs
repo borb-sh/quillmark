@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Diagnostic, Severity, diag_args};
+use crate::path::DocPath;
 use crate::value::QuillValue;
 
 use super::types::{BODY_CARD_SCHEMA_KEYS, UI_CARD_SCHEMA_KEYS, VARIANT_DISCRIMINANT_KEY};
@@ -166,7 +167,7 @@ pub enum CoercionError {
 
 impl CoercionError {
     fn uncoercible(
-        path: &str,
+        path: &DocPath,
         value: impl std::fmt::Display,
         target: &str,
         reason: impl Into<String>,
@@ -296,13 +297,20 @@ impl QuillConfig {
         let mut coerced: IndexMap<String, QuillValue> = IndexMap::new();
         for (field_name, field_value) in fields {
             if let Some(field_schema) = schema.fields.get(field_name) {
-                let path: std::borrow::Cow<'_, str> = match card_kind {
-                    Some(kind) => format!("card_kinds.{kind}.{field_name}").into(),
-                    None => field_name.as_str().into(),
-                };
+                let path = match card_kind {
+                    Some(kind) => DocPath::new().field("card_kinds").field(kind),
+                    None => DocPath::new(),
+                }
+                .field(field_name);
                 coerced.insert(
                     field_name.clone(),
-                    Self::conform_value(field_value, field_schema, &path, Leniency::Render)?,
+                    Self::conform_value(
+                        field_value,
+                        field_schema,
+                        &path,
+                        Leniency::Render,
+                        &mut Vec::new(),
+                    )?,
                 );
             } else {
                 coerced.insert(field_name.clone(), field_value.clone());
@@ -332,8 +340,9 @@ impl QuillConfig {
     pub(crate) fn conform_value(
         value: &QuillValue,
         field_schema: &super::FieldSchema,
-        path: &str,
+        path: &DocPath,
         mode: Leniency,
+        drops: &mut Vec<Diagnostic>,
     ) -> Result<QuillValue, CoercionError> {
         use super::FieldType;
 
@@ -345,7 +354,7 @@ impl QuillConfig {
         }
 
         if field_schema.is_variant_bearing() {
-            return Self::conform_variant(json_value, field_schema, path, mode);
+            return Self::conform_variant(json_value, field_schema, path, mode, drops);
         }
 
         match field_schema.r#type {
@@ -362,8 +371,9 @@ impl QuillConfig {
                         let coerced = Self::conform_value(
                             &QuillValue::from_json(elem.clone()),
                             items,
-                            &format!("{path}[{idx}]"),
+                            &path.index(idx),
                             mode,
+                            drops,
                         )?;
                         out.push(coerced.into_json());
                     }
@@ -593,7 +603,10 @@ impl QuillConfig {
                 if mode == Leniency::Write {
                     use crate::document::RichtextValueError as E;
                     return crate::document::canonical_richtext_value(json_value, inline)
-                        .map(QuillValue::from_json)
+                        .map(|(content, dropped)| {
+                            crate::document::push_drops(dropped, path, drops);
+                            QuillValue::from_json(content)
+                        })
                         .map_err(|e| match e {
                             E::Decode(e) => CoercionError::uncoercible(
                                 path,
@@ -631,14 +644,16 @@ impl QuillConfig {
                     // layer, as the String branch leaves it.
                     return Ok(value.clone());
                 };
-                let rt = quillmark_content::import::from_markdown(&markdown).map_err(|e| {
+                let imported = quillmark_content::import::from_markdown(&markdown).map_err(|e| {
                     CoercionError::uncoercible(
                         path,
                         &markdown,
                         "richtext",
                         format!("markdown import failed: {e}"),
                     )
-                })?.content;
+                })?;
+                crate::document::push_drops(imported.warnings, path, drops);
+                let rt = imported.content;
                 inline_check(&rt)?;
                 Ok(QuillValue::from_json(
                     quillmark_content::serial::to_canonical_value(&rt),
@@ -704,7 +719,7 @@ impl QuillConfig {
             FieldType::Object => {
                 if let Some(obj) = json_value.as_object() {
                     if let Some(props) = &field_schema.properties {
-                        let coerced_obj = Self::coerce_object_props(obj, props, path, mode)?;
+                        let coerced_obj = Self::coerce_object_props(obj, props, path, mode, drops)?;
                         Ok(QuillValue::from_json(serde_json::Value::Object(
                             coerced_obj,
                         )))
@@ -736,7 +751,7 @@ impl QuillConfig {
                     };
                 };
                 Ok(QuillValue::from_json(serde_json::Value::Object(
-                    Self::coerce_matrix_members(obj, field_schema, path, mode)?,
+                    Self::coerce_matrix_members(obj, field_schema, path, mode, drops)?,
                 )))
             }
         }
@@ -754,8 +769,9 @@ impl QuillConfig {
     fn coerce_matrix_members(
         obj: &serde_json::Map<String, serde_json::Value>,
         field: &FieldSchema,
-        parent_path: &str,
+        parent_path: &DocPath,
         mode: Leniency,
+        drops: &mut Vec<Diagnostic>,
     ) -> Result<serde_json::Map<String, serde_json::Value>, CoercionError> {
         let mut out = serde_json::Map::new();
         for (id, value) in obj {
@@ -765,7 +781,7 @@ impl QuillConfig {
                 out.insert(id.clone(), value.clone());
                 continue;
             };
-            let path = format!("{parent_path}.{id}");
+            let path = parent_path.field(id);
             let coerced = match value.as_object() {
                 Some(map) => {
                     let cells = member.properties.as_ref();
@@ -775,8 +791,9 @@ impl QuillConfig {
                             Some(schema) => Self::conform_value(
                                 &QuillValue::from_json(cell.clone()),
                                 schema,
-                                &format!("{path}.{key}"),
+                                &path.field(key),
                                 mode,
+                                drops,
                             )?
                             .into_json(),
                             None => cell.clone(),
@@ -793,6 +810,7 @@ impl QuillConfig {
                     FieldSchema::matrix_tick(),
                     &path,
                     mode,
+                    drops,
                 )?
                 .into_json(),
             };
@@ -803,25 +821,25 @@ impl QuillConfig {
 
     /// Walk `obj`'s keys, coercing any that match `props` against the matching
     /// schema and copying any others through verbatim. `parent_path` is the
-    /// breadcrumb for the enclosing scope (e.g. `"foo[3]"` or `"foo"`); each
-    /// child's path is `"{parent_path}.{k}"`.
+    /// enclosing scope's path, each child's that path extended by its key.
     fn coerce_object_props(
         obj: &serde_json::Map<String, serde_json::Value>,
         props: &IndexMap<String, Box<super::FieldSchema>>,
-        parent_path: &str,
+        parent_path: &DocPath,
         mode: Leniency,
+        drops: &mut Vec<Diagnostic>,
     ) -> Result<serde_json::Map<String, serde_json::Value>, CoercionError> {
         let mut out = serde_json::Map::new();
         for (k, v) in obj {
             if let Some(prop_schema) = props.get(k) {
-                let child_path = format!("{parent_path}.{k}");
                 out.insert(
                     k.clone(),
                     Self::conform_value(
                         &QuillValue::from_json(v.clone()),
                         prop_schema,
-                        &child_path,
+                        &parent_path.field(k),
                         mode,
+                        drops,
                     )?
                     .into_json(),
                 );
@@ -845,8 +863,9 @@ impl QuillConfig {
     fn conform_variant(
         json_value: &serde_json::Value,
         field_schema: &super::FieldSchema,
-        path: &str,
+        path: &DocPath,
         mode: Leniency,
+        drops: &mut Vec<Diagnostic>,
     ) -> Result<QuillValue, CoercionError> {
         let discriminant = |v: &serde_json::Value| -> Option<String> {
             v.as_str()
@@ -893,7 +912,7 @@ impl QuillConfig {
                         }
                         Leniency::Write => {
                             return Err(CoercionError::uncoercible(
-                                &format!("{path}.{key}"),
+                                &path.field(key),
                                 value,
                                 "enum",
                                 "value is not a string",
@@ -908,8 +927,9 @@ impl QuillConfig {
                     let coerced = Self::conform_value(
                         &QuillValue::from_json(value.clone()),
                         schema,
-                        &format!("{path}.{key}"),
+                        &path.field(key),
                         mode,
+                        drops,
                     )?;
                     out.insert(key.clone(), coerced.into_json());
                 }
@@ -1902,7 +1922,13 @@ impl QuillConfig {
                 }
             } else {
                 card.fields.get(name).is_some_and(|field| {
-                    Self::conform_value(&QuillValue::from_json(value.clone()), field, name, Leniency::Write)
+                    Self::conform_value(
+                        &QuillValue::from_json(value.clone()),
+                        field,
+                        &DocPath::new().field(name),
+                        Leniency::Write,
+                        &mut Vec::new(),
+                    )
                         .is_ok_and(|seeded| {
                             dates.iter().all(|&today| {
                                 let resolve = |v: Option<&QuillValue>| {
@@ -2752,7 +2778,7 @@ fn literal_content(
         FieldType::RichText { inline } => {
             use crate::document::{ContentDecodeError as D, RichtextValueError as E};
             crate::document::canonical_richtext_value(json, *inline)
-                .map(|content| Some(QuillValue::from_json(content)))
+                .map(|(content, _)| Some(QuillValue::from_json(content)))
                 .map_err(|e| match e {
                     E::Decode(D::BadMarkdown(m)) => {
                         richtext_literal_error(label, &format!("markdown import failed: {m}"))
@@ -2771,7 +2797,7 @@ fn literal_content(
             // Shares the one object-vs-string dispatch with the validation
             // shape check.
             let rt = match crate::document::Codec::Plaintext.decode_value(json) {
-                Some(Ok(rt)) => rt,
+                Some(Ok(rt)) => rt.content,
                 Some(Err(e)) => {
                     return Err(richtext_literal_error(
                         label,

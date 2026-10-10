@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::import::from_markdown as import_markdown;
+use quillmark_content::import::{from_markdown as import_markdown, Imported};
 use quillmark_content::model::Normalized;
 
 use crate::error::ParseError;
@@ -25,14 +25,21 @@ pub(crate) fn import_body_at(
     warnings: &mut Vec<Diagnostic>,
 ) -> Result<Normalized, ImportError> {
     let imported = import_markdown(md)?;
-    let at = at.to_string();
-    warnings.extend(
-        imported
-            .warnings
-            .into_iter()
-            .map(|w| dropped_construct(w).with_path(at.clone())),
-    );
+    push_drops(imported.warnings, at, warnings);
     Ok(imported.content)
+}
+
+/// One [`dropped_construct`] per import warning, each at `at`.
+pub(crate) fn push_drops(
+    drops: Vec<ImportWarning>,
+    at: &crate::path::DocPath,
+    out: &mut Vec<Diagnostic>,
+) {
+    if drops.is_empty() {
+        return;
+    }
+    let at = at.to_string();
+    out.extend(drops.into_iter().map(|w| dropped_construct(w).with_path(at.clone())));
 }
 
 /// The diagnostic code a markdown import's dropped construct rides.
@@ -233,23 +240,28 @@ impl Codec {
     }
 
     /// Decode a JSON value in either accepted encoding: a canonical content
-    /// object, or an authored string read this codec's way. `None` when the value
-    /// is neither an object nor a string; the call site handles those shapes and
-    /// maps the error into its own type.
+    /// object, or an authored string read this codec's way, with what a
+    /// markdown import dropped (none from an object or literal text). `None`
+    /// when the value is neither an object nor a string; the call site handles
+    /// those shapes and maps the error into its own type.
     pub(crate) fn decode_value(
         self,
         value: &serde_json::Value,
-    ) -> Option<Result<Normalized, ContentDecodeError>> {
+    ) -> Option<Result<Imported, ContentDecodeError>> {
+        let whole = |content| Imported {
+            content,
+            warnings: Vec::new(),
+        };
         match value {
             serde_json::Value::Object(_) => Some(
                 quillmark_content::serial::from_canonical_value(value)
+                    .map(whole)
                     .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             ),
             serde_json::Value::String(s) => Some(match self {
-                Codec::Richtext => {
-                    import_body(s).map_err(|e| ContentDecodeError::BadMarkdown(e.to_string()))
-                }
-                Codec::Plaintext => Ok(quillmark_content::import::from_plaintext(s)),
+                Codec::Richtext => import_markdown(s)
+                    .map_err(|e| ContentDecodeError::BadMarkdown(e.to_string())),
+                Codec::Plaintext => Ok(whole(quillmark_content::import::from_plaintext(s))),
             }),
             _ => None,
         }
@@ -280,7 +292,7 @@ impl Codec {
         value: &serde_json::Value,
     ) -> Result<Normalized, ContentDecodeError> {
         match self.decode_value(value) {
-            Some(result) => result,
+            Some(result) => result.map(|imported| imported.content),
             None if value.is_null() => Ok(Normalized::empty()),
             None => Err(ContentDecodeError::NotContent(self.unshaped_message(value))),
         }
@@ -309,21 +321,21 @@ pub(crate) enum RichtextValueError {
 }
 
 /// The contract for a richtext value that must *become* stored content: decode
-/// either accepted encoding, enforce `inline`, canonicalize. The strict typed
-/// write and the schema-literal companion cache share it and differ only in the
-/// diagnostic they render from the error.
+/// either accepted encoding, enforce `inline`, canonicalize, and hand back what
+/// the import dropped. The strict typed write and the schema-literal companion
+/// cache share it and differ only in the diagnostic they render from the error.
 pub(crate) fn canonical_richtext_value(
     value: &serde_json::Value,
     inline: bool,
-) -> Result<serde_json::Value, RichtextValueError> {
-    let content = match Codec::Richtext.decode_value(value) {
+) -> Result<(serde_json::Value, Vec<ImportWarning>), RichtextValueError> {
+    let Imported { content, warnings } = match Codec::Richtext.decode_value(value) {
         Some(result) => result.map_err(RichtextValueError::Decode)?,
         None => return Err(RichtextValueError::Unshaped),
     };
     if inline && !content.is_inline() {
         return Err(RichtextValueError::NotInline);
     }
-    Ok(quillmark_content::serial::to_canonical_value(&content))
+    Ok((quillmark_content::serial::to_canonical_value(&content), warnings))
 }
 
 /// Whether an `inline` refusal of plain content is one line plus the empty line

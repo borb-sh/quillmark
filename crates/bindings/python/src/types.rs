@@ -756,7 +756,9 @@ impl PyWriter {
 
     /// Typed-commit one field (strict coerce, mismatch raises now), resolving
     /// its type from the addressed card's schema. Raises `edit::unknown_field`
-    /// for a name that schema does not declare.
+    /// for a name that schema does not declare. Returns a
+    /// `parse::dropped_construct` warning per construct a `richtext` markdown
+    /// string in the value dropped, at the string's path.
     #[pyo3(signature = (name, value, card=None))]
     fn set(
         &self,
@@ -764,7 +766,7 @@ impl PyWriter {
         name: &str,
         value: Bound<'_, PyAny>,
         card: Option<isize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Vec<PyDiagnostic>> {
         let qv = py_to_quillvalue(&value)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
@@ -777,19 +779,21 @@ impl PyWriter {
                 .map_err(|e| convert_edit_error(e, &target.base))?
                 .set(name, qv),
         }
+        .map(py_diagnostics)
         .map_err(|e| convert_edit_error(e, &target.base))
     }
 
     /// Typed-commit several fields atomically: nothing is applied on error, and
     /// the raised `QuillmarkError` carries one diagnostic per offending field
-    /// (an `edit::unknown_field` per undeclared name).
+    /// (an `edit::unknown_field` per undeclared name). Returns `set`'s warnings
+    /// for every field, in batch order.
     #[pyo3(signature = (fields, card=None))]
     fn set_all(
         &self,
         py: Python<'_>,
         fields: Bound<'_, PyDict>,
         card: Option<isize>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Vec<PyDiagnostic>> {
         let batch = pydict_to_field_batch(&fields)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
@@ -802,6 +806,7 @@ impl PyWriter {
                 .map_err(|e| convert_edit_error(e, &target.base))?
                 .set_all(batch),
         }
+        .map(py_diagnostics)
         .map_err(|errs| convert_edit_errors(errs, &target.base))
     }
 
@@ -888,8 +893,8 @@ impl PyWriter {
     /// appends, `Some(i)` inserts at index `i`, and a position out of range
     /// raises. Transactional: a rejected field (raising a per-field diagnostic
     /// bundle) or an invalid kind, body, or position leaves the document
-    /// untouched. Returns the body import's `parse::dropped_construct` warnings,
-    /// anchored at the placed card's body.
+    /// untouched. Returns the fields' `parse::dropped_construct` warnings, then
+    /// the body import's, anchored under the placed card.
     #[pyo3(signature = (kind, fields=None, body=None, at=None))]
     fn add_card(
         &self,

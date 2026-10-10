@@ -22,6 +22,7 @@ use crate::document::payload::MetaKey;
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
 use crate::error::Diagnostic;
 use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
+use crate::path::DocPath;
 use crate::value::{PathSegment, QuillValue};
 use crate::version::QuillReference;
 
@@ -587,19 +588,24 @@ pub(crate) fn overflow_errors<'n>(
 }
 
 /// The canonical stored form of a typed field write, **without applying it**:
-/// the dry-run that lets a batch collect every violation before mutating.
+/// the dry-run that lets a batch collect every violation before mutating. Beside
+/// it, one `parse::dropped_construct` per construct a markdown string in the
+/// value dropped on its import, at its path under `base`, the card's root.
 pub(crate) fn resolve_field_write(
     name: &str,
-    value: QuillValue,
+    value: &QuillValue,
     schema: &FieldSchema,
-) -> Result<QuillValue, EditError> {
+    base: &crate::path::DocPath,
+) -> Result<(QuillValue, Vec<Diagnostic>), EditError> {
     if !is_valid_field_name(name) {
         return Err(EditError::InvalidFieldName(name.to_string()));
     }
-    let stored = QuillConfig::conform_value(&value, schema, name, Leniency::Write)
-        .map_err(|e| conform_error_to_edit(name, e))?;
+    let mut drops = Vec::new();
+    let stored =
+        QuillConfig::conform_value(value, schema, &base.field(name), Leniency::Write, &mut drops)
+            .map_err(|e| conform_error_to_edit(name, e))?;
     check_field(name, stored.as_json())?;
-    Ok(stored)
+    Ok((stored, drops))
 }
 
 /// The receipt of a markdown revise: the text [`Delta`] an editor bridge maps
@@ -1141,7 +1147,7 @@ impl Card {
         value: impl Into<QuillValue>,
         schema: &FieldSchema,
     ) -> Result<(), EditError> {
-        let stored = resolve_field_write(name, value.into(), schema)?;
+        let (stored, _) = resolve_field_write(name, &value.into(), schema, &DocPath::new())?;
         self.payload_mut()
             .insert(name.to_string(), stored)
             .map_err(EditError::InvalidPayload)?;
@@ -1238,7 +1244,8 @@ impl Card {
         // Re-canonicalizing a content object keeps its identity marks, so the
         // schema check fires on the value the anchors survived onto.
         let canonical = quillmark_content::serial::to_canonical_value(&content);
-        let stored = resolve_field_write(name, QuillValue::from_json(canonical), schema)?;
+        let (stored, _) =
+            resolve_field_write(name, &QuillValue::from_json(canonical), schema, &DocPath::new())?;
         self.payload_mut()
             .insert(name.to_string(), stored)
             .map_err(EditError::InvalidPayload)?;
@@ -1267,7 +1274,8 @@ impl Card {
         };
         // The strict write is the codec: it runs the `from_plaintext` boundary
         // cleanup, so the committed string is what the diff must measure against.
-        let stored = resolve_field_write(name, QuillValue::from(text.into()), schema)?;
+        let (stored, _) =
+            resolve_field_write(name, &QuillValue::from(text.into()), schema, &DocPath::new())?;
         let delta = quillmark_content::delta::diff(
             &base,
             stored
