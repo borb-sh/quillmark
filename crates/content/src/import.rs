@@ -470,16 +470,13 @@ impl CellPair {
             }
             _ => {
                 for at in self.opens {
-                    dropped.add(Dropped::Element(CELL.into()), at);
+                    dropped.add(Dropped::Element(carrier::CELL.into()), at);
                 }
                 None
             }
         }
     }
 }
-
-/// The element name a table cell's pair carries.
-const CELL: &str = "cell";
 
 fn align_str(a: &pulldown_cmark::Alignment) -> &'static str {
     match a {
@@ -866,7 +863,7 @@ impl Builder {
         let CarrierTag { name, attrs, block, at, space } = tag;
         if let Some(acc) = self.table.as_mut().filter(|acc| acc.cell.is_some()) {
             match attrs {
-                _ if name != CELL || self.image_depth > 0 => {
+                _ if name != carrier::CELL || self.image_depth > 0 => {
                     acc.pair.content();
                     if attrs.is_some() {
                         self.dropped.add(Dropped::Element(name), at);
@@ -894,7 +891,7 @@ impl Builder {
 
     fn open_wrapper(&mut self, name: String, attrs: carrier::Attrs, at: usize) -> Result<(), ImportError> {
         let depth = self.containers.len();
-        let frame = if name == "table" {
+        let frame = if name == carrier::TABLE {
             let outer = self.blocks.iter_mut().rev().find_map(|open| match &mut open.frame {
                 Frame::Table { holds_wrapper, .. } => Some(holds_wrapper),
                 Frame::Element { .. } => None,
@@ -910,11 +907,9 @@ impl Builder {
         } else {
             let instance = self.mint_instance();
             self.container_marks.push(self.emitted());
-            self.containers.push(Container::Element {
-                name: name.clone(),
-                attrs: attrs.values.clone(),
-                instance,
-            });
+            let element = carrier::Element::new(name.clone(), attrs.values.clone())
+                .expect("a wrapper's name and kept attributes are in the grammar, and `table` opens no element");
+            self.containers.push(Container::Element { element, instance });
             Frame::Element { instance }
         };
         self.blocks.push(Opened { name, frame, attrs, at, depth, reported: false });
@@ -1071,7 +1066,7 @@ impl Builder {
                     let folded = std::mem::take(&mut acc.pair).finish(&mut cell, &mut self.dropped);
                     let mut value = crate::serial::cell_to_value(&cell.text, &cell.marks);
                     if let Some((attrs, at)) = folded {
-                        self.dropped.fold(CELL, attrs, at, &mut value, carrier::cell::key);
+                        self.dropped.fold(carrier::CELL, attrs, at, &mut value, carrier::cell::key);
                     }
                     acc.cur_row.push(value);
                 }
@@ -1251,7 +1246,7 @@ impl CarrierTag {
 fn dropped_tag(name: &str) -> Option<Dropped> {
     let lower = name.to_ascii_lowercase();
     Some(match carrier::element(name) {
-        Some(element) if element == "anchor" => return None,
+        Some(element) if element == carrier::ANCHOR => return None,
         Some(element) => Dropped::Element(element),
         None if lower.starts_with(carrier::PREFIX) => Dropped::BadName(lower),
         None => Dropped::Tag(lower),
@@ -1577,6 +1572,10 @@ pub(crate) mod tests {
         let rt = from_markdown(md).unwrap().content;
         assert_eq!(rt.validate(), Ok(()), "invariants for {md:?}");
         rt
+    }
+
+    fn keep(attrs: &[(&str, &str)]) -> carrier::Element {
+        carrier::Element::new("keep", attrs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()).unwrap()
     }
 
     fn imp_plain(s: &str) -> Normalized {
@@ -2544,7 +2543,7 @@ pub(crate) mod tests {
         assert_eq!(dropped(&block), []);
         assert!(matches!(
             &block.content.lines[0].containers[..],
-            [Container::Element { name, .. }] if name == "cell"
+            [Container::Element { element, .. }] if element.name() == carrier::CELL
         ));
     }
 
@@ -2759,11 +2758,7 @@ pub(crate) mod tests {
         }
 
         let rt = imp_fixed("<qm-keep name=\"x\">\n\na\n\n</qm-keep>\n<qm-keep name=\"x\">\n\nb\n\n</qm-keep>").content;
-        let keep = |instance| Container::Element {
-            name: "keep".into(),
-            attrs: [("name".to_string(), "x".to_string())].into(),
-            instance,
-        };
+        let keep = |instance| Container::Element { element: keep(&[("name", "x")]), instance };
         assert_eq!(rt.lines[0].containers, [keep(0)]);
         assert_eq!(rt.lines[1].containers, [keep(1)]);
     }
@@ -2822,11 +2817,7 @@ pub(crate) mod tests {
         let imported = imp_fixed("<qm-keep onclick=\"x\" note=\"y\">\n\na\n\n</qm-keep>");
         assert_eq!(
             imported.content.lines[0].containers,
-            [Container::Element {
-                name: "keep".into(),
-                attrs: [("note".to_string(), "y".to_string())].into(),
-                instance: 0,
-            }]
+            [Container::Element { element: keep(&[("note", "y")]), instance: 0 }]
         );
         assert_eq!(dropped(&imported), [("qm-keep[onclick]", 1)]);
 
@@ -2838,12 +2829,8 @@ pub(crate) mod tests {
         assert_eq!(
             attrs,
             [
-                &vec![Container::Element {
-                    name: "keep".into(),
-                    attrs: [("note".to_string(), "a".to_string())].into(),
-                    instance: 0,
-                }],
-                &vec![Container::Element { name: "keep".into(), attrs: [].into(), instance: 0 }],
+                &vec![Container::Element { element: keep(&[("note", "a")]), instance: 0 }],
+                &vec![Container::Element { element: keep(&[]), instance: 0 }],
             ]
         );
         assert_eq!(dropped(&imported), [("qm-keep[note]", 1), ("qm-keep[class]", 2)]);

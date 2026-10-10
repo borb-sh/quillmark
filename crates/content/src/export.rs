@@ -407,12 +407,7 @@ fn close_container(key: &Container, inner: &str, prose_head: bool, out: &mut Str
             // one quote on re-import.
             prefix_quote(inner, out);
         }
-        // An element outside the carrier grammar has no spelling, so what it
-        // wraps is written bare.
-        Container::Element { name, attrs, .. } => match crate::carrier::modeled(name, attrs) {
-            Ok(element) => out.push_str(&element.wrap_block(inner)),
-            Err(_) => out.push_str(inner),
-        },
+        Container::Element { element, .. } => out.push_str(&element.wrap_block(inner)),
     }
 }
 
@@ -758,7 +753,7 @@ fn annotate(md: String, points: &[usize], tags: &[(Usv, &str)]) -> String {
 
 /// The carrier's canonical spelling of an anchor `id`.
 fn anchor_tag(id: &str) -> String {
-    crate::carrier::Element::new("anchor", [("ref".to_string(), id.to_string())].into())
+    crate::carrier::Element::spelling(crate::carrier::ANCHOR, [("ref".to_string(), id.to_string())].into())
         .expect("`anchor` and `ref` are in the carrier grammar")
         .wrap_inline("")
 }
@@ -2397,21 +2392,6 @@ mod tests {
             );
             assert_eq!(to_markdown(&rt), md);
             assert_eq!(from_markdown(md).unwrap().content, rt);
-        }
-    }
-
-    /// An element the carrier cannot spell, under a reserved name or with an
-    /// attribute outside its grammar, writes nothing: its blocks stand
-    /// unwrapped.
-    #[test]
-    fn an_unspellable_element_writes_nothing() {
-        let unspellable: [(&str, std::collections::BTreeMap<String, String>); 2] =
-            [("table", [].into()), ("keep", [("onclick".to_string(), "x".to_string())].into())];
-        for (name, attrs) in unspellable {
-            let element = Container::Element { name: name.into(), attrs, instance: 0 };
-            let rt = Content::new("a".into(), vec![Line::new(LineKind::Para).with_containers(vec![element])])
-                .into_normalized();
-            assert_eq!(to_markdown(&rt), "a");
         }
     }
 

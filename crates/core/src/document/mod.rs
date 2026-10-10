@@ -63,10 +63,21 @@ pub fn dropped_constructs(
         .collect()
 }
 
+/// `words` each in backticks, joined by commas and `last` before the final one.
+fn listed(words: &[&str], last: &str) -> String {
+    let ticked: Vec<String> = words.iter().map(|w| format!("`{w}`")).collect();
+    match ticked.split_last() {
+        Some((tail, [])) => tail.clone(),
+        Some((tail, init)) => format!("{} {last} {tail}", init.join(", ")),
+        None => String::new(),
+    }
+}
+
 /// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
 /// the spelling that keeps it.
 fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
-    use quillmark_content::carrier::RESERVED_ATTRS;
+    use quillmark_content::carrier::{CELL, RESERVED_ATTRS, TABLE};
+    use quillmark_content::island::{CELL_KEYS, TABLE_ALIGNS, TABLE_KEYS};
     const TIGHT: &str = "Markdown on the lines under a tag line drops with it, up to the next blank line.";
     const BESIDE: &str =
         "A tag line beside a line of other tags drops with the markdown under it, up to the next blank line.";
@@ -86,6 +97,8 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
         )
     };
     let tag = construct.to_string();
+    let table = Dropped::Element(TABLE.into()).to_string();
+    let cell = Dropped::Element(CELL.into()).to_string();
     match construct {
         Dropped::Footnote => (
             format!(
@@ -96,26 +109,25 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              `[^label]` reference stays as written. Put the note in the prose instead."
                 .to_string(),
         ),
-        Dropped::ElementAttr { element, attr } if element == "table" => attr_dropped(
-            "qm-table",
+        Dropped::ElementAttr { element, attr } if element == TABLE => attr_dropped(
+            &table,
             attr,
             match attr.as_str() {
                 "widths" => {
                     "`widths` is a whole number from 1 to 2^53 - 1, or `auto`, per column, such as `widths=\"2 1 auto\"`."
                         .to_string()
                 }
-                "align" => "`align` is `left`, `center` or `right`.".to_string(),
-                "headless" => "`headless` takes no value: `<qm-table headless>`.".to_string(),
-                _ => "`<qm-table>` takes `widths`, `align` and `headless`.".to_string(),
+                "align" => format!("`align` is {}.", listed(&TABLE_ALIGNS, "or")),
+                "headless" => format!("`headless` takes no value: `<{table} headless>`."),
+                _ => format!("`<{table}>` takes {}.", listed(&TABLE_KEYS, "and")),
             },
         ),
-        Dropped::ElementAttr { element, attr } if element == "cell" => attr_dropped(
-            "qm-cell",
+        Dropped::ElementAttr { element, attr } if element == CELL => attr_dropped(
+            &cell,
             attr,
-            match attr.as_str() {
-                "align" => "`align` is `left`, `center` or `right`.".to_string(),
-                "valign" => "`valign` is `top`, `middle` or `bottom`.".to_string(),
-                _ => "`<qm-cell>` takes `align` and `valign`.".to_string(),
+            match CELL_KEYS.iter().find(|(key, _)| key == attr) {
+                Some((key, set)) => format!("`{key}` is {}.", listed(set, "or")),
+                None => format!("`<{cell}>` takes {}.", listed(&CELL_KEYS.map(|(key, _)| key), "and")),
             },
         ),
         Dropped::ElementAttr { element, attr } => attr_dropped(
@@ -127,12 +139,12 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 RESERVED_ATTRS.join("`, `")
             ),
         ),
-        Dropped::Element(name) if name == "table" => (
+        Dropped::Element(name) if name == TABLE => (
             format!(
                 "markdown import dropped {} in this field",
-                some("`<qm-table>` wrapper", "`<qm-table>` wrappers")
+                some(&format!("`<{table}>` wrapper"), &format!("`<{table}>` wrappers"))
             ),
-            format!("A `<qm-table>` wraps exactly one pipe table, each of its two tags on a line of its own. {BESIDE}"),
+            format!("A `<{table}>` wraps exactly one pipe table, each of its two tags on a line of its own. {BESIDE}"),
         ),
         Dropped::BadName(_) => (
             format!(
@@ -144,14 +156,15 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                  opening with a letter. {TIGHT}"
             ),
         ),
-        Dropped::Element(name) if name == "cell" => (
+        Dropped::Element(name) if name == CELL => (
             format!(
                 "markdown import dropped {} in this field",
-                some("`<qm-cell>` pair", "`<qm-cell>` pairs")
+                some(&format!("`<{cell}>` pair"), &format!("`<{cell}>` pairs"))
             ),
-            "A `<qm-cell>` pair wraps a table cell's whole content, such as \
-             `| <qm-cell align=\"right\">42</qm-cell> |`, with nothing before its open tag or after its close."
-                .to_string(),
+            format!(
+                "A `<{cell}>` pair wraps a table cell's whole content, such as \
+                 `| <{cell} align=\"right\">42</{cell}> |`, with nothing before its open tag or after its close."
+            ),
         ),
         Dropped::Element(_) => (
             format!(

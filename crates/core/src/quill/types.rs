@@ -124,7 +124,7 @@ pub fn element_runs(content: &quillmark_content::model::Content, name: &str) -> 
     use quillmark_content::model::Container;
     let mut count = 0;
     visit_runs(&content.lines, 0..content.lines.len(), 0, &mut |c| {
-        if matches!(c, Container::Element { name: n, .. } if n == name) {
+        if matches!(c, Container::Element { element, .. } if element.name() == name) {
             count += 1;
         }
     });

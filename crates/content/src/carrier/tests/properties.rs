@@ -127,7 +127,7 @@ fn carrier() -> impl Strategy<Value = Carrier> {
     )
         .prop_map(|(name, attrs)| {
             let inline = format!("qm-{name}");
-            let e = Element::new(name, attrs).unwrap();
+            let e = Element::spelling(name, attrs).unwrap();
             Carrier { open: e.open_tag(), close: e.close_tag(), reported: None, inline, table: false, cell: false }
         });
     let cell = cell_keys().prop_map(|keys| {
@@ -142,7 +142,7 @@ fn carrier() -> impl Strategy<Value = Carrier> {
         }
     });
     let table = layout().prop_map(|layout| {
-        let e = Element::new("table", layout.attrs()).unwrap();
+        let e = Element::spelling("table", layout.attrs()).unwrap();
         Carrier {
             open: e.open_tag(),
             close: e.close_tag(),
@@ -166,7 +166,7 @@ fn carrier() -> impl Strategy<Value = Carrier> {
 
 fn anchor() -> impl Strategy<Value = String> {
     any::<String>().prop_map(|r| {
-        let e = Element::new("anchor", BTreeMap::from([("ref".to_string(), r)])).unwrap();
+        let e = Element::spelling("anchor", BTreeMap::from([("ref".to_string(), r)])).unwrap();
         format!("{}{}", e.open_tag(), e.close_tag())
     })
 }
@@ -271,7 +271,7 @@ proptest! {
     ) {
         let row = format!("|{}", " c |".repeat(cols));
         let table = format!("{row}\n|{}\n{row}", "---|".repeat(cols));
-        let e = Element::new("table", layout.attrs()).unwrap();
+        let e = Element::spelling("table", layout.attrs()).unwrap();
         let wrapped = format!("{}\n\n{table}\n\n{}", e.open_tag(), e.close_tag());
         let placed = match at {
             0 => wrapped,
@@ -379,7 +379,7 @@ proptest! {
         name in "[a-z][a-z0-9]{0,3}(-[a-z0-9]{1,3}){0,2}",
         attrs in attrs(),
     ) {
-        let e = Element::new(name.clone(), attrs.clone()).unwrap();
+        let e = Element::spelling(name.clone(), attrs.clone()).unwrap();
         let read = Attrs { values: attrs, refused: Vec::new() };
 
         let open = e.open_tag();

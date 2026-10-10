@@ -139,6 +139,7 @@ diff-rebase alone. The row's corpus entry pins the spelling under
 | `island.table.props.unnamed`: a props key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.unnamed`: a cell key the engine does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.value`: a cell `valign` outside its set | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
+| `island.table.props.value`: a table `align` outside its set | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.props.widths`: column weights, `null` an auto-fit column | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.widths.auto`: every column auto-fit, the default | spells | spells | spells | silent: honored | silent: honored | none |
 | `island.table.props.align`: the table's placement | spells | spells | spells | honors | silent: honored | none |
@@ -153,7 +154,9 @@ mint it without a key the engine does not name.
 its default, so a default row stores no key.
 
 A cell's `align` and `valign` are spelled on a `qm-cell` pair around the cell's
-whole content (§6.4). Both rest as written, so a value outside its set rides
+whole content (§6.4).
+
+A table or cell key holding a value outside its set rests as written and rides
 as a key the engine does not name does.
 
 ### Spellings

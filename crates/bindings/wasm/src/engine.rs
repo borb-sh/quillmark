@@ -291,7 +291,8 @@ export interface TableCell {
 
 /** `props` of a `type: "table"` island: a pipe table normalized to one column
  * count that `header`, every row of `rows`, `aligns` and `widths` all share.
- * A layout key at its default is absent. */
+ * A layout key at its default is absent; one holding a value outside its type
+ * stays as written and reads as absent. */
 export interface TableProps {
     header: TableCell[];
     rows: TableCell[][];
@@ -299,7 +300,7 @@ export interface TableProps {
     aligns: ("none" | "left" | "center" | "right")[];
     /** Per-column relative weights; `null` is an auto-fit column. Absent when
      * every column is auto-fit. A weight is an integer from 1 to
-     * `Number.MAX_SAFE_INTEGER`; any other entry drops the key. */
+     * `Number.MAX_SAFE_INTEGER`. */
     widths?: (number | null)[];
     /** The table's placement; absent is the quill's. */
     align?: "left" | "center" | "right";

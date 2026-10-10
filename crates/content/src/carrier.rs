@@ -13,9 +13,17 @@ pub(crate) mod table;
 /// What every carrier tag name opens with.
 pub const PREFIX: &str = "qm-";
 
-/// Element names reserved for the table wrapper (`table`) and the anchor
-/// spelling (`anchor`), which no stored element carries.
-pub const RESERVED: [&str; 2] = ["table", "anchor"];
+/// The table wrapper's element name.
+pub const TABLE: &str = "table";
+
+/// The element name of a table cell's alignment pair.
+pub const CELL: &str = "cell";
+
+/// The anchor spelling's element name.
+pub const ANCHOR: &str = "anchor";
+
+/// Element names no stored element carries: [`TABLE`] and [`ANCHOR`].
+pub const RESERVED: [&str; 2] = [TABLE, ANCHOR];
 
 /// Attribute names outside the grammar besides every `on*`: each is one a
 /// downstream HTML renderer acts on.
@@ -126,17 +134,6 @@ fn entity(s: &str) -> Option<(char, usize)> {
     Some((c, lead + n + 1))
 }
 
-/// The element a [`Container::Element`](crate::model::Container::Element)
-/// spells, or what the carrier refuses of it: a name outside the grammar or
-/// [reserved](RESERVED), or an attribute name outside its grammar, none of
-/// which the import models or the wires read.
-pub fn modeled(name: &str, attrs: &BTreeMap<String, String>) -> Result<Element, Refused> {
-    if RESERVED.contains(&name) {
-        return Err(Refused::Reserved(name.to_string()));
-    }
-    Element::new(name, attrs.clone())
-}
-
 /// A name or attribute an [`Element`] refuses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
@@ -161,7 +158,8 @@ impl std::fmt::Display for Refused {
 impl std::error::Error for Refused {}
 
 /// One carrier element, its name and attributes in the grammar, and its
-/// canonical spelling.
+/// canonical spelling. What a
+/// [`Container::Element`](crate::model::Container::Element) holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Element {
     name: String,
@@ -169,8 +167,18 @@ pub struct Element {
 }
 
 impl Element {
-    /// Refuses a name or an attribute name outside the grammar.
+    /// Refuses a name outside the grammar or [reserved](RESERVED), or an
+    /// attribute name outside its grammar.
     pub fn new(name: impl Into<String>, attrs: BTreeMap<String, String>) -> Result<Self, Refused> {
+        let name = name.into();
+        if RESERVED.contains(&name.as_str()) {
+            return Err(Refused::Reserved(name));
+        }
+        Self::spelling(name, attrs)
+    }
+
+    /// The carrier's own spelling, a [reserved](RESERVED) name included.
+    pub(crate) fn spelling(name: impl Into<String>, attrs: BTreeMap<String, String>) -> Result<Self, Refused> {
         let name = name.into();
         if !is_element_name(&name) {
             return Err(Refused::Name(name));
@@ -179,6 +187,14 @@ impl Element {
             return Err(Refused::Attr(attr.clone()));
         }
         Ok(Element { name, attrs })
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn attrs(&self) -> &BTreeMap<String, String> {
+        &self.attrs
     }
 
     /// The open tag: attributes sorted by name, each value double-quoted with
@@ -231,7 +247,7 @@ impl Element {
 /// The wrapper a tag named `tag_name` opens or closes: `table` or an
 /// element's name. `qm-anchor` wraps nothing.
 pub(crate) fn wrapper(tag_name: &str) -> Option<String> {
-    element(tag_name).filter(|name| name != "anchor")
+    element(tag_name).filter(|name| name != ANCHOR)
 }
 
 /// The tags of a [tag line](html::tag_line) whose every tag opens or closes a
@@ -311,7 +327,7 @@ mod tests {
     #[test]
     fn the_open_tag_sorts_its_attributes_and_escapes_their_values() {
         let values = attrs(&[("widths", "1 2"), ("align", "a&b<c>\"d'e"), ("note", "x\ny\u{202E}|")]);
-        let e = Element::new("table", values).unwrap();
+        let e = Element::spelling(TABLE, values).unwrap();
         assert_eq!(
             e.open_tag(),
             "<qm-table align=\"a&amp;b&lt;c&gt;&quot;d'e\" note=\"x&#xA;y&#x202E;&#x7C;\" widths=\"1 2\">"
@@ -322,6 +338,8 @@ mod tests {
         assert_eq!(keep.wrap_block(""), "<qm-keep></qm-keep>");
 
         assert_eq!(Element::new("A", BTreeMap::new()), Err(Refused::Name("A".into())));
+        assert_eq!(Element::new(TABLE, BTreeMap::new()), Err(Refused::Reserved(TABLE.into())));
+        assert_eq!(Element::new(ANCHOR, BTreeMap::new()), Err(Refused::Reserved(ANCHOR.into())));
         assert_eq!(
             Element::new("keep", attrs(&[("onclick", "x")])),
             Err(Refused::Attr("onclick".into()))
