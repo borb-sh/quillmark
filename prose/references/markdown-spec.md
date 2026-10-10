@@ -386,14 +386,15 @@ depends on its type:
 | Any other type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>` or `<span>` tight against markdown | Nothing: the block drops whole, to the next blank line, as CommonMark runs it, a carrier tag in it included. |
 | Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after a comment's `-->` on its last line imports as a line of its own, unless it opens a fence or a type 1–5 block it does not close on that line. |
 
-A line holding only the open and close tags of elements and `qm-table` is a
-tag line wherever it stands, in the containers CommonMark puts it in, a lazy
+A line holding only the open and close tags of elements and `qm-table` is a tag
+line wherever it stands, in the containers CommonMark puts it in, a lazy
 continuation line's included. In a paragraph or a list item's text it ends the
 text above it, and the text under it is a paragraph of its own, read as
-CommonMark reads it there. In an HTML block §7 sets it apart from the markdown
-lines beside it. A line in a heading, a footnote definition, a mark or a link
-keeps CommonMark's reading, as does a carrier tag sharing its line with text or
-with a tag outside the carrier (§6.4).
+CommonMark reads it there. In an HTML block where no line of other tags borders
+it, §7 sets it apart from the markdown lines beside it, which read as blocks of
+their own. A line in a heading, a footnote definition, a mark or a link keeps
+CommonMark's reading, as does a carrier tag sharing its line with text or with
+a tag outside the carrier (§6.4).
 
 A line holding only tags, carrier or not, on the line after a pipe table's
 rows ends the table rather than adding a row.
@@ -649,10 +650,12 @@ Before CommonMark parsing, each body region is normalized:
      table.
    - In a type 6 or 7 HTML block outside a footnote definition, a run of
      lines each holding only the open and close tags of elements and
-     `qm-table`, none self-closing, gets a blank line above it where a line of
-     text precedes it in the block and one below it where a line of text
-     follows. A line of the run indented an indented code line's four columns
-     loses its indent.
+     `qm-table`, none self-closing, that no line of other tags borders gets a
+     blank line above it where a line of text precedes it in the block and one
+     below it where a line of text follows. The block's last line of text gets
+     one below it where the next line would continue it lazily. A line of the
+     run, or the line of text under it, indented an indented code line's four
+     columns loses its indent.
 
    A blank line written inside a container carries the container's `>`
    markers, and one closes split-off text the next line would otherwise

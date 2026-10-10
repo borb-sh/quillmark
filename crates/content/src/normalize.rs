@@ -136,7 +136,7 @@ fn plan(src: &str, options: Options) -> Vec<Edit> {
                     let lines: Vec<SrcLine> = starts.iter().map(|&at| SrcLine::at(src, at)).collect();
                     edits.extend(comment_edit(src, &lines));
                     if notes == 0 {
-                        edits.extend(carrier_block_edit(&lines));
+                        edits.extend(carrier_block_edit(src, &lines));
                     }
                 }
             }
@@ -279,21 +279,27 @@ fn shallow_lead(line: &str) -> &str {
 }
 
 /// The edit setting each run of carrier tag lines in a type 6 or 7 HTML block
-/// apart from the markdown lines beside it, so the run reads as tag lines and
-/// the markdown as itself.
-fn carrier_block_edit(lines: &[SrcLine]) -> Option<Edit> {
+/// apart from the markdown lines beside it, where no line of other tags
+/// borders the run, so the run reads as tag lines and the markdown as blocks
+/// of its own. A line the edit leaves opening a block keeps an indent only shy
+/// of an indented code line's, and a blank line closes the block's last
+/// markdown where the next line would continue it lazily.
+fn carrier_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
     if !html::block_start(first.content).is_some_and(BlockKind::ends_at_blank_line) {
         return None;
     }
-    let carrier: Vec<bool> = lines.iter().map(|l| carrier::tag_line(l.content).is_some()).collect();
-    let markdown: Vec<bool> = lines.iter().map(|l| html::tag_line(l.content).is_none()).collect();
-    let mut out = Vec::with_capacity(lines.len() + 2);
+    let tags: Vec<_> = lines.iter().map(|l| html::tag_line(l.content)).collect();
+    let carrier: Vec<bool> = tags.iter().map(|t| t.as_ref().is_some_and(|t| t.iter().all(carrier::wraps))).collect();
+    let markdown: Vec<bool> = tags.iter().map(Option::is_none).collect();
+    let lead = |line: &SrcLine| format!("{}{}{}", line.prefix, shallow_lead(line.content), line.content.trim_start());
+    let mut out = Vec::with_capacity(lines.len() + 3);
     let mut changed = false;
+    let mut opens = false;
     let mut k = 0;
     while k < lines.len() {
         if !carrier[k] {
-            out.push(lines[k].whole());
+            out.push(if std::mem::take(&mut opens) { lead(&lines[k]) } else { lines[k].whole() });
             k += 1;
             continue;
         }
@@ -301,26 +307,29 @@ fn carrier_block_edit(lines: &[SrcLine]) -> Option<Edit> {
         while to < lines.len() && carrier[to] {
             to += 1;
         }
-        let above = k > 0 && markdown[k - 1];
-        let below = to < lines.len() && markdown[to];
+        let foreign = (k > 0 && !markdown[k - 1]) || (to < lines.len() && !markdown[to]);
+        let above = !foreign && k > 0;
+        let below = !foreign && to < lines.len();
         if above {
             out.push(blank_of(lines[k].prefix));
         }
         for line in &lines[k..to] {
-            if above || below {
-                let body = line.content.trim_start();
-                out.push(format!("{}{}{body}", line.prefix, shallow_lead(line.content)));
-            } else {
-                out.push(line.whole());
-            }
+            out.push(if above || below { lead(line) } else { line.whole() });
         }
         if below {
             out.push(blank_of(lines[to - 1].prefix));
         }
         changed |= above || below;
+        opens = below;
         k = to;
     }
-    changed.then(|| Edit {
+    if !changed {
+        return None;
+    }
+    if markdown[lines.len() - 1] && next_line_continues(src, last.end()) {
+        out.push(blank_of(last.prefix));
+    }
+    Some(Edit {
         range: first.start..last.end(),
         with: out.join("\n"),
     })
@@ -459,10 +468,11 @@ mod tests {
     }
 
     /// A run of carrier tag lines in an HTML block is set apart from the
-    /// markdown lines beside it, inside the containers its lines stand in, an
-    /// indent deeper than an indented code line's dropped. A carrier line in a
-    /// paragraph is the import's to read, and a run beside a tag line outside
-    /// the carrier drops with its block.
+    /// markdown lines beside it, inside the containers its lines stand in, and
+    /// the block's last markdown from a line that would continue it lazily. A
+    /// line left opening a block loses an indented code line's indent. A
+    /// carrier line in a paragraph is the import's to read, and a run beside
+    /// a line of other tags drops with its block.
     #[test]
     fn a_carrier_line_in_an_html_block_is_set_apart_from_its_markdown() {
         let cases = [
@@ -471,6 +481,12 @@ mod tests {
             ("> <qm-keep>\n> **B**", "> <qm-keep>\n>\n> **B**"),
             ("- <qm-keep>\n  A", "- <qm-keep>\n\n  A"),
             ("<qm-keep>\n<qm-sig></qm-sig>\nA", "<qm-keep>\n<qm-sig></qm-sig>\n\nA"),
+            ("- <qm-keep>\n  A\nB", "- <qm-keep>\n\n  A\n\nB"),
+            ("> <qm-keep>\n> A\nB", "> <qm-keep>\n>\n> A\n>\nB"),
+            (
+                "<qm-keep>\n    **Signed**\n    J. Doe\n</qm-keep>",
+                "<qm-keep>\n\n**Signed**\n    J. Doe\n\n</qm-keep>",
+            ),
         ];
         for (md, repaired) in cases {
             assert_eq!(normalized(md), repaired, "{md:?}");
@@ -480,6 +496,7 @@ mod tests {
             "<qm-sig></qm-sig>\nA",
             "- [ ] <qm-sig></qm-sig>",
             "<qm-keep>\n<div>\nA",
+            "<span>\n<qm-keep>\nA",
             "<div>\nA",
             "<qm-keep>\n<qm-table>\n\nA",
             "[^n]: <qm-keep>\n    A",

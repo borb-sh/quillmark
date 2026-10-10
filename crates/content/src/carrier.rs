@@ -227,13 +227,10 @@ impl Element {
     }
 }
 
-/// The tags of `line` when it holds only tags that open or close a wrapper:
-/// `qm-table` or an element, not self-closing. `qm-anchor` wraps nothing.
-pub(crate) fn tag_line(line: &str) -> Option<Vec<crate::html::Tag<'_>>> {
-    crate::html::tag_line(line).filter(|tags| {
-        tags.iter()
-            .all(|t| !t.self_closing && element(t.name).is_some_and(|name| name != "anchor"))
-    })
+/// Whether `tag` opens or closes a wrapper: `qm-table` or an element, not
+/// self-closing. `qm-anchor` wraps nothing.
+pub(crate) fn wraps(tag: &crate::html::Tag) -> bool {
+    !tag.self_closing && element(tag.name).is_some_and(|name| name != "anchor")
 }
 
 pub(crate) fn has_prefix(name: &str) -> bool {

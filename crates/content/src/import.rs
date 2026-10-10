@@ -1451,7 +1451,7 @@ struct CarrierTag {
 impl CarrierTag {
     fn of(tag: &html::Tag, block: bool, at: usize) -> Option<Self> {
         Some(CarrierTag {
-            wrapper: Wrapper::named(tag.name).filter(|_| !tag.self_closing)?,
+            wrapper: Wrapper::named(tag.name).filter(|_| carrier::wraps(tag))?,
             attrs: (!tag.closing).then(|| carrier::decode_attrs(&tag.attrs)),
             block,
             at,
@@ -1528,6 +1528,9 @@ struct MarkdownFixer<'a, I> {
     /// Open marks, links, images, headings, tables and footnote definitions,
     /// where a line of carrier tags stays text.
     depth: usize,
+    /// The `<u>` tags open in the current inline run, where a line of carrier
+    /// tags stays text too.
+    underlines: usize,
 }
 
 impl<'a, I> MarkdownFixer<'a, I>
@@ -1543,6 +1546,7 @@ where
             ahead: None,
             line_start: false,
             depth: 0,
+            underlines: 0,
         }
     }
 
@@ -1577,24 +1581,23 @@ where
         Some((event, range))
     }
 
-    /// The end of the line `event` opens when the line holds only the open and
-    /// close tags of wrappers (markdown-spec §6.2).
-    fn tag_line(&self, event: &Event, range: &Range<usize>) -> Option<usize> {
-        if self.depth > 0 || !matches!(event, Event::InlineHtml(_)) {
+    /// The end and the tags of the line `event` opens, when it holds only the
+    /// open and close tags of wrappers (markdown-spec §6.2).
+    fn carrier_line(&self, event: &Event, range: &Range<usize>) -> Option<(usize, Vec<CarrierTag>)> {
+        if self.depth > 0 || self.underlines > 0 || !matches!(event, Event::InlineHtml(_)) {
             return None;
         }
         let end = self.src[range.start..].find('\n').map_or(self.src.len(), |i| range.start + i);
-        carrier::tag_line(&self.src[range.start..end]).map(|_| end)
+        let tags = html::tag_line(&self.src[range.start..end])?;
+        let carriers = tags.iter().map(|tag| CarrierTag::of(tag, true, range.start + tag.span.start));
+        Some((end, carriers.collect::<Option<_>>()?))
     }
 
-    /// Pass on the tags of the tag line from `start` to `end` and of each tag
+    /// Pass on the tags of a line of them ending at `end` and of each such
     /// line under it, the text that follows reading as a paragraph of its own.
-    fn take_tag_lines(&mut self, mut start: usize, mut end: usize) {
+    fn take_carrier_lines(&mut self, (mut end, mut tags): (usize, Vec<CarrierTag>)) {
         loop {
-            for tag in carrier::tag_line(&self.src[start..end]).unwrap_or_default() {
-                let at = start + tag.span.start;
-                self.held.extend(CarrierTag::of(&tag, true, at).map(Fixed::Carrier));
-            }
+            self.held.extend(tags.drain(..).map(Fixed::Carrier));
             let mut next = self.read();
             while let Some((Event::InlineHtml(_) | Event::Text(_), range)) = &next {
                 if range.start >= end {
@@ -1608,8 +1611,8 @@ where
                 return;
             }
             let Some((event, range)) = self.read() else { return };
-            match self.tag_line(&event, &range) {
-                Some(line_end) => (start, end) = (range.start, line_end),
+            match self.carrier_line(&event, &range) {
+                Some(line) => (end, tags) = line,
                 None => {
                     self.held.push_back(Fixed::Event(Event::Start(Tag::Paragraph)));
                     self.ahead = Some((event, range));
@@ -1660,17 +1663,20 @@ where
         let opens = matches!(event, Event::Start(Tag::Paragraph | Tag::Item) | Event::TaskListMarker(_));
         let line_start = std::mem::replace(&mut self.line_start, opens);
         if line_start {
-            if let Some(end) = self.tag_line(&event, &range) {
-                self.take_tag_lines(range.start, end);
+            if let Some(line) = self.carrier_line(&event, &range) {
+                self.take_carrier_lines(line);
                 return None;
             }
+        }
+        if !crate::normalize::is_inline(&event) {
+            self.underlines = 0;
         }
         Some(match event {
             Event::SoftBreak | Event::HardBreak if self.depth == 0 => {
                 let (next, at) = self.read()?;
-                match self.tag_line(&next, &at) {
-                    Some(end) => {
-                        self.take_tag_lines(at.start, end);
+                match self.carrier_line(&next, &at) {
+                    Some(line) => {
+                        self.take_carrier_lines(line);
                         return None;
                     }
                     None => self.ahead = Some((next, at)),
@@ -1684,6 +1690,11 @@ where
             Event::InlineHtml(html) => {
                 let tag = html::tag_at(&html, 0)?;
                 if tag.name.eq_ignore_ascii_case("u") {
+                    self.underlines = if tag.closing {
+                        self.underlines.saturating_sub(1)
+                    } else {
+                        self.underlines + 1
+                    };
                     return Some(Fixed::Underline(if tag.closing {
                         UTag::Close
                     } else if tag.attrs.is_empty() && !tag.self_closing {
@@ -2420,6 +2431,10 @@ mod tests {
             assert_eq!(dropped(&imported), [(tag, 1)], "{md:?}");
         }
 
+        let beside = imp_fixed("<span>\n<qm-keep>\nA\n\n</qm-keep>");
+        assert_eq!(beside.content.text, "");
+        assert_eq!(dropped(&beside), [("span", 1), ("qm-keep", 1)]);
+
         let imported = imp_fixed("<div align=\"center\">\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n</div>");
         assert_eq!(imported.content.text, "\u{FFFC}");
         assert_eq!(table_rows(&imported.content), [["1", "2"]]);
@@ -2492,6 +2507,7 @@ mod tests {
         let cases: &[(&str, &[(&str, usize)])] = &[
             ("A\n<span><qm-keep>\nB\n\n</qm-keep>", &[("span", 1), ("qm-keep", 1)]),
             ("*a\n<qm-keep>\nb*\n\n</qm-keep>", &[("qm-keep", 1)]),
+            ("<u>a\n<qm-sig></qm-sig>\nb</u>", &[("qm-sig", 1)]),
             ("A\n<qm-sig/>\nB", &[("qm-sig", 1)]),
             ("A\n<qm-anchor ref=\"x\"></qm-anchor>\nB", &[]),
         ];
