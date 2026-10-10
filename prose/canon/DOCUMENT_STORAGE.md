@@ -360,7 +360,7 @@ rewrites a cell's `text` and `marks` in place rather than minting a fresh
 
 A table island's props name `header`, `rows`, `aligns` (one per column:
 `none`, `left`, `center` or `right`) and three layout keys, each absent at its
-default and when invalid, so `from_markdown(to_markdown(c)) == c` holds:
+default:
 
 | Key | Value | Default |
 |---|---|---|
@@ -380,11 +380,10 @@ A cell names two keys of its own, each absent by default:
 | `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's `aligns` entry |
 | `valign` | the cell's vertical alignment: `top`, `middle` or `bottom` | the plate's |
 
-Normalization leaves both as stored. A value equal to its column's is an
-override that stays when the column changes, and a value outside its set is
-read as absent and rides untouched, as an unnamed key does. So naming them
-is no storage-version event: no stored byte moves, and an older reader
-carries them.
+A cell's value equal to its column's is an override that stays when the
+column changes. A table or cell key holding a value outside its set is read
+as absent and rides untouched, as an unnamed key does, so
+`from_markdown(to_markdown(c)) == c` holds where every value is in its set.
 
 Two rules bound the payload:
 

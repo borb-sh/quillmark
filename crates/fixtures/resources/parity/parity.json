@@ -1365,6 +1365,106 @@
     }
   },
   {
+    "name": "island.table.props.value",
+    "markdown": null,
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ],
+            "align": "middle"
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "reimports": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "#table(\n  columns: 2,"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
     "name": "island.image",
     "markdown": "![alt text](https://example.com/a.png)",
     "content": {

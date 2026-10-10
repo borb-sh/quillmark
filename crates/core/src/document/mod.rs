@@ -54,10 +54,21 @@ pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
         .with_args(args)
 }
 
+/// `words` each in backticks, joined by commas and `last` before the final one.
+fn listed(words: &[&str], last: &str) -> String {
+    let ticked: Vec<String> = words.iter().map(|w| format!("`{w}`")).collect();
+    match ticked.split_last() {
+        Some((tail, [])) => tail.clone(),
+        Some((tail, init)) => format!("{} {last} {tail}", init.join(", ")),
+        None => String::new(),
+    }
+}
+
 /// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
 /// the spelling that keeps it.
 fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
     use quillmark_content::carrier::{CELL, RESERVED_ATTRS, TABLE};
+    use quillmark_content::island::{CELL_KEYS, TABLE_ALIGNS, TABLE_KEYS};
     const TIGHT: &str = "Markdown on the lines under a tag line drops with it, up to the next blank line.";
     const BESIDE: &str =
         "A tag line beside a line of other tags drops with the markdown under it, up to the next blank line.";
@@ -97,18 +108,17 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                     "`widths` is a whole number from 1 to 2^53 - 1, or `auto`, per column, such as `widths=\"2 1 auto\"`."
                         .to_string()
                 }
-                "align" => "`align` is `left`, `center` or `right`.".to_string(),
+                "align" => format!("`align` is {}.", listed(&TABLE_ALIGNS, "or")),
                 "headless" => format!("`headless` takes no value: `<{table} headless>`."),
-                _ => format!("`<{table}>` takes `widths`, `align` and `headless`."),
+                _ => format!("`<{table}>` takes {}.", listed(&TABLE_KEYS, "and")),
             },
         ),
         Dropped::ElementAttr { element, attr } if element == CELL => attr_dropped(
             &cell,
             attr,
-            match attr.as_str() {
-                "align" => "`align` is `left`, `center` or `right`.".to_string(),
-                "valign" => "`valign` is `top`, `middle` or `bottom`.".to_string(),
-                _ => format!("`<{cell}>` takes `align` and `valign`."),
+            match CELL_KEYS.iter().find(|(key, _)| key == attr) {
+                Some((key, set)) => format!("`{key}` is {}.", listed(set, "or")),
+                None => format!("`<{cell}>` takes {}.", listed(&CELL_KEYS.map(|(key, _)| key), "and")),
             },
         ),
         Dropped::ElementAttr { element, attr } => attr_dropped(

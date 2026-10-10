@@ -1089,10 +1089,7 @@ fn table_markup(props: &serde_json::Value) -> String {
         return String::new();
     }
 
-    let placement = props
-        .get("align")
-        .and_then(Value::as_str)
-        .filter(|a| quillmark_content::island::TABLE_ALIGNS.contains(a));
+    let layout = quillmark_content::island::TableLayout::of(props);
 
     let cell = |v: &Value| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
@@ -1107,10 +1104,10 @@ fn table_markup(props: &serde_json::Value) -> String {
     };
 
     let mut out = String::from("table(\n");
-    match props.get("widths").and_then(Value::as_array) {
+    match &layout.widths {
         Some(weights) => {
             let tracks: Vec<String> = (0..cols)
-                .map(|i| match weights.get(i).and_then(Value::as_u64) {
+                .map(|i| match weights.get(i).copied().flatten() {
                     Some(n) => format!("{n}fr"),
                     None => "auto".to_string(),
                 })
@@ -1135,7 +1132,7 @@ fn table_markup(props: &serde_json::Value) -> String {
         }
         out.push_str("),\n");
     }
-    let headless = props.get("headless") == Some(&Value::Bool(true));
+    let headless = layout.headless;
     out.push_str(if headless { "  " } else { "  table.header(" });
     if let Some(h) = header {
         for c in h {
@@ -1157,7 +1154,7 @@ fn table_markup(props: &serde_json::Value) -> String {
         }
     }
     out.push(')');
-    match placement {
+    match layout.align {
         Some(at) => format!("#context {{ show table.cell: set align(align.alignment); align({at}, {out}) }}"),
         None => format!("#{out}"),
     }

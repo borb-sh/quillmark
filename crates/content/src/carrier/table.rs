@@ -2,20 +2,17 @@
 //! the block wrapper around its pipe table.
 
 use super::Element;
+use crate::island::{is_weight, TableLayout, TABLE_ALIGNS};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// The `widths` token for an auto-fit column, a `null` entry.
 const AUTO: &str = "auto";
 
-/// The largest column weight, JavaScript's `Number.MAX_SAFE_INTEGER`: the
-/// WASM binding hands no larger integer to JavaScript.
-pub(crate) const MAX_WEIGHT: u64 = (1 << 53) - 1;
-
 /// The props value attribute `name` spells with `value`, or `None` for a name
 /// the engine does not name or a value outside its spelling: `widths` is
-/// whitespace-separated tokens, each a decimal weight in `1..=`[`MAX_WEIGHT`]
-/// or `auto`; `align` is `left`, `center` or `right`; `headless` is bare.
+/// whitespace-separated tokens, each a decimal [weight](is_weight) or `auto`;
+/// `align` is one of [`TABLE_ALIGNS`]; `headless` is bare.
 pub(crate) fn prop(name: &str, value: &str) -> Option<Value> {
     match name {
         "widths" => value
@@ -26,7 +23,7 @@ pub(crate) fn prop(name: &str, value: &str) -> Option<Value> {
             })
             .collect::<Option<Vec<_>>>()
             .map(Value::Array),
-        "align" => crate::island::TABLE_ALIGNS.contains(&value).then(|| value.into()),
+        "align" => TABLE_ALIGNS.contains(&value).then(|| value.into()),
         "headless" => value.is_empty().then_some(Value::Bool(true)),
         _ => None,
     }
@@ -36,24 +33,22 @@ fn weight(token: &str) -> Option<u64> {
     if !token.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    token.parse().ok().filter(|n| (1..=MAX_WEIGHT).contains(n))
+    token.parse().ok().filter(|n| is_weight(*n))
 }
 
-/// The wrapper spelling normalized `props`' layout keys, or `None` when none
-/// is present.
+/// The wrapper spelling `props`' layout, or `None` where every key is at its
+/// default.
 pub(crate) fn wrapper(props: &Value) -> Option<Element> {
+    let layout = TableLayout::of(props);
     let mut attrs = BTreeMap::new();
-    if let Some(widths) = props.get("widths").and_then(Value::as_array) {
-        let tokens: Vec<String> = widths
-            .iter()
-            .map(|w| w.as_u64().map_or_else(|| AUTO.to_string(), |n| n.to_string()))
-            .collect();
+    if let Some(widths) = layout.widths {
+        let tokens: Vec<String> = widths.iter().map(|w| w.map_or_else(|| AUTO.to_string(), |n| n.to_string())).collect();
         attrs.insert("widths".to_string(), tokens.join(" "));
     }
-    if let Some(align) = props.get("align").and_then(Value::as_str) {
+    if let Some(align) = layout.align {
         attrs.insert("align".to_string(), align.to_string());
     }
-    if props.get("headless") == Some(&Value::Bool(true)) {
+    if layout.headless {
         attrs.insert("headless".to_string(), String::new());
     }
     if attrs.is_empty() {
