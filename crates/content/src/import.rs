@@ -378,7 +378,9 @@ struct Builder {
     code_lang: Option<String>,
     in_code: bool,
     code_opened: bool, // whether the current code block has opened its first line
-    // image collection
+    /// Open-image nesting. An image's alt collects into `image_alt`, or, a
+    /// table cell having no island slot, into the cell as plain text, its url
+    /// dropping.
     image_depth: usize,
     image_url: String,
     image_alt: String,
@@ -419,10 +421,6 @@ struct TableAcc {
     /// The cell currently open (between `Tag::TableCell` start/end), building its
     /// inline text + marks with the same [`Inline`] machinery prose uses.
     cell: Option<Inline>,
-    /// Open-image nesting inside the current cell. GFM permits inline images in
-    /// cells, but a cell has no island slot to carry one; while `> 0` the
-    /// image's alt flows into the cell as plain text and its url is dropped.
-    img_depth: usize,
     /// The current cell's `qm-cell` tags.
     pair: CellPair,
 }
@@ -664,13 +662,15 @@ impl Builder {
                     Event::Start(Tag::Image { .. }) => self.image_depth += 1,
                     Event::End(TagEnd::Image) => {
                         self.image_depth -= 1;
-                        if self.image_depth == 0 {
+                        if self.image_depth == 0 && self.table.is_none() {
                             self.emit_image();
                         }
                     }
                     other => {
-                        if let Some(s) = image_alt_text(other) {
-                            self.image_alt.push_str(s);
+                        let alt = image_alt_text(other).unwrap_or_default();
+                        match self.table.as_mut().and_then(|acc| acc.cell.as_mut()) {
+                            Some(cell) => cell.push_text(alt),
+                            None => self.image_alt.push_str(alt),
                         }
                     }
                 }
@@ -890,7 +890,7 @@ impl Builder {
         }
         if let Some(acc) = self.table.as_mut().filter(|acc| acc.cell.is_some()) {
             match attrs {
-                _ if name != CELL || acc.img_depth > 0 => {
+                _ if name != CELL || self.image_depth > 0 => {
                     acc.pair.content();
                     if attrs.is_some() {
                         self.dropped.add(Dropped::Element(name), at);
@@ -988,10 +988,8 @@ impl Builder {
             return Ok(());
         }
         if let Some(acc) = self.table.as_mut() {
-            if acc.cell.is_some() {
+            if let Some(cell) = acc.cell.as_mut() {
                 acc.pair.content();
-            }
-            if let Some(cell) = acc.cell.as_mut().filter(|_| acc.img_depth == 0) {
                 cell.underline(tag);
             }
             return Ok(());
@@ -1110,19 +1108,8 @@ impl Builder {
                     return;
                 };
                 acc.pair.content();
-                // An image intercepts everything until it closes: the alt lands
-                // as plain text and the url drops, a cell having no slot to
-                // carry an image.
-                if acc.img_depth > 0 {
-                    match event {
-                        Event::Start(Tag::Image { .. }) => acc.img_depth += 1,
-                        Event::End(TagEnd::Image) => acc.img_depth -= 1,
-                        other => cell.push_text(image_alt_text(other).unwrap_or_default()),
-                    }
-                    return;
-                }
                 match event {
-                    Event::Start(Tag::Image { .. }) => acc.img_depth += 1,
+                    Event::Start(Tag::Image { .. }) => self.image_depth = 1,
                     Event::Text(t) => cell.push_text(t),
                     Event::Code(t) => cell.push_code(t),
                     Event::SoftBreak => cell.push_text(" "),
