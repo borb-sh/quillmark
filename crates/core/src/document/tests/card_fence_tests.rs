@@ -45,6 +45,15 @@ fn backtick_fence_is_the_code_block_escape_hatch() {
     assert!(doc.main().body_markdown().contains("not a card"));
 }
 
+/// A backtick run whose info string holds a backtick is inline code, not a
+/// fence (CommonMark §4.5), so it shields no card below it.
+#[test]
+fn a_backtick_run_with_a_backtick_in_its_info_opens_no_fence() {
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n```a`b\n\n~~~\n$kind: note\n~~~\n";
+    let doc = Document::parse(src).unwrap().document;
+    assert_eq!(doc.cards().len(), 1);
+}
+
 #[test]
 fn tilde_code_in_a_body_fails_at_its_fence() {
     let head = "~~~\n$quill: q\n$kind: main\n~~~\n\nExample:\n\n";

@@ -230,12 +230,17 @@ fn next_line_continues(src: &str, end: usize) -> bool {
         .is_empty()
 }
 
-fn fence_open(t: &str) -> bool {
-    let Some(c) = t.chars().next().filter(|c| matches!(c, '`' | '~')) else {
-        return false;
-    };
-    let n = t.chars().take_while(|&x| x == c).count();
-    n >= 3 && (c == '~' || !t[n..].contains('`'))
+/// The fence character, run length and info string of the code fence `line`
+/// opens (CommonMark §4.5): a run of three or more backticks or tildes
+/// indented at most three spaces, a backtick fence's info string holding no
+/// backtick.
+pub fn fence_opener(line: &str) -> Option<(u8, usize, &str)> {
+    let indent = line.bytes().take_while(|&b| b == b' ').count();
+    let t = line.get(indent..).filter(|_| indent <= 3)?;
+    let c = t.bytes().next().filter(|c| matches!(c, b'`' | b'~'))?;
+    let n = t.bytes().take_while(|&b| b == c).count();
+    let info = &t[n..];
+    (n >= 3 && (c == b'~' || !info.contains('`'))).then_some((c, n, info))
 }
 
 /// The edit splitting a comment's last line after its `-->`, when text follows
@@ -250,7 +255,7 @@ fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let rest = last.content[at..].trim();
     let runs_on = match html::block_start(rest) {
         Some(k) if !k.ends_at_blank_line() => html::block_end(k, rest).is_none(),
-        _ => fence_open(rest),
+        _ => fence_opener(rest).is_some(),
     };
     if rest.is_empty() || runs_on {
         return None;
