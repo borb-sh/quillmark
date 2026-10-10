@@ -486,9 +486,8 @@ fn carry_island_ids(base: &[Island], new: &mut [Island]) {
         .filter_map(|island| island.id.strip_prefix("isl-")?.parse::<u64>().ok())
         .max()
         .map_or(0, |n| u128::from(n) + 1);
-    let carried: Vec<Option<String>> = carried.into_iter().map(|id| id.map(str::to_string)).collect();
     for (island, id) in new.iter_mut().zip(carried) {
-        island.id = id.unwrap_or_else(|| {
+        island.id = id.map(str::to_string).unwrap_or_else(|| {
             while taken.contains(format!("isl-{next}").as_str()) {
                 next += 1;
             }
