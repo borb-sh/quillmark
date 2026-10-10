@@ -835,6 +835,7 @@ mod tests {
                 let expect = match ctx {
                     EscapeCtx::Markup => escape_markup(&src),
                     EscapeCtx::StringLit => crate::emit::escape_string(&src),
+                    EscapeCtx::Indent => crate::emit::escape_indent(&src),
                 };
                 assert_eq!(&lib[generated.clone()], expect, "run inverts to its content slice");
                 assert!(generated.start >= seg.generated.start && generated.end <= seg.generated.end);

@@ -33,6 +33,11 @@ fn reads_as_newline(c: char) -> bool {
 /// Every character Typst reads as a newline but `\n` lowers to a space: no
 /// escape neutralizes one, a `\` before whitespace being Typst's linebreak.
 ///
+/// A space with another behind it is `~`: Typst reads a run of spaces as one,
+/// and a run held as non-breaking spaces closing on one breakable space is as
+/// wide as typed and still breaks. Line layout trims a trailing `~` with the
+/// space, so a run at a line's end adds nothing.
+///
 /// `'` and `"` pass through. Smart quotes are an element with a set rule, so a
 /// quill chooses with `#set smartquote(enabled: false)`; escaping them here
 /// would settle that for every quill with no way back.
@@ -54,6 +59,7 @@ pub fn escape_markup(s: &str) -> String {
                 out.push_str(r"\-")
             }
             '.' if rest.starts_with("..") => out.push_str(r"\."),
+            ' ' if rest.starts_with(' ') => out.push('~'),
             // One char to one byte, which `gen_cluster` reads back as a plain
             // cluster.
             c if reads_as_newline(c) => out.push(' '),
@@ -65,6 +71,13 @@ pub fn escape_markup(s: &str) -> String {
         }
     }
     out
+}
+
+/// [`escape_markup`] with every space `~`, for the trivia opening a line, which
+/// Typst drops whole. One byte per space keeps the source map 1:1, and the
+/// indent cannot wrap away from the word behind it.
+pub fn escape_indent(s: &str) -> String {
+    escape_markup(s).replace(' ', "~")
 }
 
 /// Inside a Typst string literal only `"` and `\` are structural; newlines and
@@ -153,6 +166,9 @@ enum Tail {
     /// Ink, then something that emitted no bytes: the text ahead abuts the text
     /// behind ([`couples_across`]).
     Seam,
+    /// A `#linebreak()`: an expression tail, and a line start for the trivia
+    /// behind it, though no marker is live.
+    Break,
 }
 
 /// The escape discipline a text run was generated under: which scan inverts its
@@ -164,6 +180,8 @@ pub enum EscapeCtx {
     Markup,
     /// [`escape_string`]: inside a `"…"` literal (`\"`, `\\`, `\n`, `\/\/` no-op).
     StringLit,
+    /// [`escape_indent`]: a line's leading trivia, read back as [`Self::Markup`].
+    Indent,
 }
 
 /// `(content_chars, byte_len)` for the cluster at byte `i` of `generated`. Reads
@@ -173,7 +191,7 @@ pub enum EscapeCtx {
 fn gen_cluster(generated: &str, i: usize, ctx: EscapeCtx) -> (usize, usize) {
     let rest = &generated[i..];
     match ctx {
-        EscapeCtx::Markup => {
+        EscapeCtx::Markup | EscapeCtx::Indent => {
             // `\/\/`, the `//` coupling: two content chars, four bytes, one cluster.
             if rest.as_bytes().starts_with(br"\/\/") {
                 return (2, 4);
@@ -461,13 +479,15 @@ impl<'a> Emit<'a> {
         self.end_newline = true;
     }
 
-    /// An empty paragraph emits nothing; every other block (an empty heading or
-    /// code fence included) still renders.
+    /// A paragraph of nothing but spaces and tabs emits nothing, as an empty one
+    /// does; every other block (an empty heading or code fence included) still
+    /// renders.
     fn emit_leaf_terminated(&mut self, range: Range<usize>) {
         let first = &self.rt.lines[range.start];
         let (lo, _) = self.line_usv[range.start];
         let (_, hi) = self.line_usv[range.end - 1];
-        if matches!(first.kind, LineKind::Para) && lo == hi {
+        let blank = self.chars[lo..hi].iter().all(|c| matches!(c, ' ' | '\t'));
+        if matches!(first.kind, LineKind::Para) && blank {
             return;
         }
         self.open_line();
@@ -925,11 +945,12 @@ fn element_call(name: &str, attrs: &BTreeMap<String, String>) -> String {
 /// line-anchor one and [`continues_expr`]'s — whose byte sits *outside* the
 /// run's window so `generated == escape_markup(content)` stays exact.
 ///
-/// Under [`Tail::Anchor`] a run opening with trivia — spaces, tabs, and the
-/// [`reads_as_newline`] characters [`escape_markup`] lowers to a space — stops
-/// at the first character that is none of them: Typst reads trivia as holding
-/// the anchor open behind it, while `\` before a space is its linebreak rather
-/// than an escape, so the guard byte has to land on the marker itself.
+/// At a line start ([`Tail::Anchor`], [`Tail::Break`]) a run opening with
+/// trivia — spaces, tabs, and the [`reads_as_newline`] characters
+/// [`escape_markup`] lowers to a space — stops at the first character that is
+/// none of them and lowers through [`escape_indent`]. A tab stays trivia and
+/// holds the anchor open behind it, while `\` before a space is its linebreak
+/// rather than an escape, so the guard byte has to land on the marker itself.
 fn emit_run(
     out: &mut String,
     pos: usize,
@@ -950,13 +971,23 @@ fn emit_run(
     }
     let mut re = next_boundary(pos, hi, chars, wraps, codes);
     let trivia = |c: char| c == ' ' || c == '\t' || reads_as_newline(c);
-    if tail == Tail::Anchor && trivia(chars[pos]) {
+    if matches!(tail, Tail::Anchor | Tail::Break) && trivia(chars[pos]) {
         re = (pos..re).find(|&p| !trivia(chars[p])).unwrap_or(re);
+        let content: String = chars[pos..re].iter().collect();
+        let g0 = out.len();
+        let indent = escape_indent(&content);
+        out.push_str(&indent);
+        let g1 = out.len();
+        let left = match tail {
+            Tail::Anchor if !indent.contains('~') => Tail::Anchor,
+            _ => Tail::Text,
+        };
+        return (re, left, (pos..re, g0..g1, EscapeCtx::Indent));
     }
     let content: String = chars[pos..re].iter().collect();
     let guarded = match tail {
         Tail::Anchor => opens_line_anchor(&content),
-        Tail::Expr => continues_expr(&content),
+        Tail::Expr | Tail::Break => continues_expr(&content),
         Tail::Seam => couples_across(out.chars().last(), &content),
         Tail::Text => false,
     };
@@ -966,11 +997,7 @@ fn emit_run(
     let g0 = out.len();
     out.push_str(&escape_markup(&content));
     let g1 = out.len();
-    let left = match tail {
-        Tail::Anchor if content.chars().all(trivia) => Tail::Anchor,
-        _ => Tail::Text,
-    };
-    (re, left, (pos..re, g0..g1, EscapeCtx::Markup))
+    (re, Tail::Text, (pos..re, g0..g1, EscapeCtx::Markup))
 }
 
 /// A task item's body opens as the content block of this call, the helper's
@@ -991,7 +1018,7 @@ fn linebreak_at(out: &mut String, chars: &[char], pos: usize) -> Option<(usize, 
         return None;
     }
     out.push_str("#linebreak()");
-    Some((pos + 1, Tail::Expr))
+    Some((pos + 1, Tail::Break))
 }
 
 /// A cell is flat inline (no islands; a `\n` is a line break), so its markup
@@ -1431,7 +1458,13 @@ mod tests {
     /// `...` alone.
     fn cluster_at(chars: &[char], i: usize, ctx: EscapeCtx) -> (usize, String) {
         let at = |k: usize| chars.get(i + k).copied();
-        if ctx == EscapeCtx::Markup {
+        if ctx == EscapeCtx::Indent && chars[i] == ' ' {
+            return (1, "~".to_string());
+        }
+        if chars[i] == ' ' && at(1) == Some(' ') && ctx != EscapeCtx::StringLit {
+            return (1, "~".to_string());
+        }
+        if ctx != EscapeCtx::StringLit {
             if chars[i] == '/' && at(1) == Some('/') {
                 return (2, r"\/\/".to_string());
             }
@@ -1447,6 +1480,7 @@ mod tests {
         let s = chars[i].to_string();
         let bytes = match ctx {
             EscapeCtx::Markup => escape_markup(&s),
+            EscapeCtx::Indent => escape_indent(&s),
             EscapeCtx::StringLit => escape_string(&s),
         };
         (1, bytes)
@@ -1512,7 +1546,9 @@ mod tests {
                 }
                 return;
             }
-            kinds.push(n.kind());
+            // `~` is the held space the escapers write, which the page reads as one.
+            let held = n.kind() == SyntaxKind::Shorthand && n.leaf_text() == "~";
+            kinds.push(if held { SyntaxKind::Space } else { n.kind() });
             match n.kind() {
                 SyntaxKind::Escape => text.push(ast::Escape::from_untyped(n).unwrap().get()),
                 SyntaxKind::Shorthand => {
@@ -1593,7 +1629,7 @@ mod tests {
             assert!(rt.validate().is_err(), "{c:?} passes the content invariants");
 
             let markup = emit_content(&rt).unwrap().markup;
-            assert_eq!(markup, " \\- item  tail = not a heading\n\n", "for {c:?}");
+            assert_eq!(markup, "~- item  tail = not a heading\n\n", "for {c:?}");
             for k in resolve(&markup).1 {
                 assert!(ALLOWED_LEAVES.contains(&k), "{c:?} lowered to a {k:?} leaf");
             }
@@ -1802,6 +1838,7 @@ mod tests {
                     let expect = match ctx {
                         EscapeCtx::Markup => escape_markup(&src),
                         EscapeCtx::StringLit => escape_string(&src),
+                        EscapeCtx::Indent => escape_indent(&src),
                     };
                     assert_eq!(
                         &ec.markup[generated.clone()],
@@ -2131,13 +2168,15 @@ mod tests {
             emit_marked("= x", vec![Mark::new(0, 3, MarkKind::Strong)]),
             "#strong[\\= x]\n\n",
         );
-        // Indentation is trivia and holds the anchor open behind it, so the guard
-        // lands on the marker: before the space it would be Typst's linebreak.
-        assert_eq!(emit_marked("  = x", vec![]), "  \\= x\n\n");
+        // Leading spaces are held as `~`, behind which no marker is live.
+        assert_eq!(emit_marked("  = x", vec![]), "~~= x\n\n");
         assert_eq!(
             emit_marked("  = x", vec![Mark::new(0, 5, MarkKind::Emph)]),
-            "#emph[  \\= x]\n\n",
+            "#emph[~~= x]\n\n",
         );
+        // A tab is trivia and holds the anchor open behind it, so the guard lands
+        // on the marker: before whitespace it would be Typst's linebreak.
+        assert_eq!(emit_marked("\t= x", vec![]), "\t\\= x\n\n");
 
         // Source-map integrity: every run's generated slice equals the escape of
         // its content, and the leading `\` is not inside any run.
@@ -2152,10 +2191,25 @@ mod tests {
                 let expect = match ctx {
                     EscapeCtx::Markup => escape_markup(&src),
                     EscapeCtx::StringLit => escape_string(&src),
+                    EscapeCtx::Indent => escape_indent(&src),
                 };
                 assert_eq!(&ec.markup[generated.clone()], expect, "run slices to its escape");
             }
         }
+    }
+
+    /// A space Typst would collapse is held as `~`: all of a line's leading
+    /// spaces, behind the anchor or a hard break, and all but the last of a run
+    /// inside the line.
+    #[test]
+    fn collapsible_spaces_are_held() {
+        assert_eq!(emit_marked("  x", vec![]), "~~x\n\n");
+        assert_eq!(emit_marked("a.  b", vec![]), "a.~ b\n\n");
+        assert_eq!(emit_marked("a   b", vec![]), "a~~ b\n\n");
+        assert_eq!(emit_marked("a b", vec![]), "a b\n\n");
+        assert_eq!(emit_marked("  x", vec![Mark::new(2, 3, MarkKind::Strong)]), "~~#strong[x]\n\n");
+        assert_eq!(emit("a\\\n&#32;&#32;(b)").markup, "a#linebreak()~~(b)\n\n");
+        assert_eq!(emit("a\n\n&#32;&#32;\n\nb").markup, "a\n\nb\n\n");
     }
 
     /// A `#…` expression the emitter wrote runs on into a `(`, a `.field` or a

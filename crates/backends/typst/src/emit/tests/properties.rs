@@ -78,9 +78,15 @@ proptest! {
         // neutralizes it (a `\` before whitespace is its own linebreak).
         let s = to_plaintext(&from_plaintext(&s));
         // Past `at_start`, whose markers are the emitter's guard, not the escaper's.
+        // A space with another behind it reads back as the `~` holding it.
         let (text, kinds) = resolve(&format!("x{}", escape_markup(&s)));
 
-        prop_assert_eq!(&text, &format!("x{s}"),
+        let held: String = s
+            .chars()
+            .zip(s.chars().skip(1).map(Some).chain([None]))
+            .map(|(c, next)| if c == ' ' && next == Some(' ') { '\u{a0}' } else { c })
+            .collect();
+        prop_assert_eq!(&text, &format!("x{held}"),
             "escaping {:?} did not reach Typst as its own characters: {:?}", s, text);
         for k in kinds {
             prop_assert!(ALLOWED_LEAVES.contains(&k),
