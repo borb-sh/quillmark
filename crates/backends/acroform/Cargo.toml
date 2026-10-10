@@ -23,7 +23,7 @@ serde_json = { workspace = true }
 # Always linked: canvas paint is unconditional, so the raster tree is not
 # feature-gated. (The no-features WASM `core` build excludes the whole acroform
 # crate, so hayro never reaches it.)
-hayro = "0.7.1"
+hayro = "0.8.0"
 
 [dev-dependencies]
 quillmark-fixtures = { workspace = true }
