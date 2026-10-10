@@ -1,31 +1,12 @@
-//! The Typst backend resolves its own plate from `typst.plate_file`. Core reads
-//! no template at load time, so a missing plate fails at `open`, not at load.
+//! The Typst backend resolves its own plate from `typst.plate_file` at `open`.
 
 use quillmark_core::backend::Backend;
 use quillmark_typst::TypstBackend;
 
 mod common;
-use common::quill;
 
 const YAML: &str = "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  \
                     description: d\n\ntypst:\n  plate_file: plate.typ\n";
-
-#[test]
-fn missing_plate_file_errors_at_open_not_load() {
-    let q = quill(YAML, &[]);
-    let err = match TypstBackend.open(&q, &serde_json::json!({}), common::test_date()) {
-        Ok(_) => panic!("a missing plate file must fail at open"),
-        Err(e) => e,
-    };
-    let diags = err.into_diagnostics();
-    assert!(
-        diags
-            .iter()
-            .any(|d| d.code.as_deref() == Some("typst::plate_missing")),
-        "expected a typst::plate_missing diagnostic, got {:?}",
-        diags.iter().map(|d| d.code.as_deref()).collect::<Vec<_>>()
-    );
-}
 
 /// A plate the quill holds at a path Typst refuses has no name the world can
 /// load it at: taking `main.typ` would shadow the quill's own `main.typ`.

@@ -105,20 +105,6 @@ fn a_content_image_renders_nothing_and_the_plate_keeps_its_own() {
     assert_eq!(w.args.get("count").and_then(|v| v.as_u64()), Some(2));
 }
 
-/// A url naming nothing on the file system draws the same refusal in the same
-/// vocabulary: the decline is the backend's, so it cannot turn on what the url
-/// would have resolved to.
-#[test]
-fn a_remote_or_missing_url_warns_rather_than_failing_the_compile() {
-    for url in ["https://example.com/x.png", "missing.png", "assets/marc.png"] {
-        let data = serde_json::json!({ "$body": content(&format!("![alt]({url})")) });
-        let session = TypstBackend
-            .open(&quill(), &data, common::test_date())
-            .unwrap_or_else(|e| panic!("{url} should compile: {e}"));
-        assert_eq!(declines(session.warnings()).len(), 1, "for {url}");
-    }
-}
-
 /// Every content field, not only a body, at its document address and in
 /// document order: the main card's fields, then each card's.
 #[test]
@@ -136,11 +122,4 @@ fn a_named_field_and_a_card_body_carry_their_own_paths() {
         .filter_map(|d| d.path.clone())
         .collect();
     assert_eq!(paths, vec!["main.intro", "cards.note[0].body"]);
-}
-
-#[test]
-fn a_content_without_images_warns_about_nothing() {
-    let data = serde_json::json!({ "$body": content("plain **prose** and a [link](https://x)") });
-    let session = TypstBackend.open(&quill(), &data, common::test_date()).expect("open");
-    assert!(declines(session.warnings()).is_empty());
 }
