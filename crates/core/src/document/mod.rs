@@ -91,6 +91,15 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 _ => "`<qm-table>` takes `widths` and `align`.".to_string(),
             },
         ),
+        Dropped::ElementAttr { element, attr } if element == "cell" => attr_dropped(
+            "qm-cell",
+            attr,
+            match attr.as_str() {
+                "align" => "`align` is `left`, `center` or `right`.".to_string(),
+                "valign" => "`valign` is `top`, `middle` or `bottom`.".to_string(),
+                _ => "`<qm-cell>` takes `align` and `valign`.".to_string(),
+            },
+        ),
         Dropped::ElementAttr { element, attr } => attr_dropped(
             &Dropped::Element(element.clone()).to_string(),
             attr,
@@ -119,6 +128,15 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 "An element name after `qm-` is lowercase words of letters and digits joined by single `-`, \
                  opening with a letter. {TIGHT}"
             ),
+        ),
+        Dropped::Element(name) if name == "cell" => (
+            format!(
+                "markdown import dropped {} in this field",
+                some("`<qm-cell>` pair", "`<qm-cell>` pairs")
+            ),
+            "A `<qm-cell>` pair wraps a table cell's whole content, such as \
+             `| <qm-cell align=\"right\">42</qm-cell> |`, with nothing before its open tag or after its close."
+                .to_string(),
         ),
         Dropped::Element(_) => (
             format!(

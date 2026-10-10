@@ -6,6 +6,7 @@ use crate::normalize::{is_bidi_char, is_line_separator};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+pub(crate) mod cell;
 pub(crate) mod table;
 
 /// What every carrier tag name opens with.
@@ -208,6 +209,11 @@ impl Element {
 
     pub fn close_tag(&self) -> String {
         format!("</{PREFIX}{}>", self.name)
+    }
+
+    /// The inline pair around `content`, its tags against it on its line.
+    pub fn wrap_inline(&self, content: &str) -> String {
+        format!("{}{content}{}", self.open_tag(), self.close_tag())
     }
 
     /// The block wrapper around `children`: each tag alone on its line, a blank

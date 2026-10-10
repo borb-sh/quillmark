@@ -372,6 +372,19 @@ The keys ride the opaque props carrier, which an older reader round-trips, so
 adding them is no storage-version event, and a later props key joins the same
 way.
 
+A cell names two keys of its own, each absent by default:
+
+| Key | Value | Default |
+|---|---|---|
+| `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's `aligns` entry |
+| `valign` | the cell's vertical alignment: `top`, `middle` or `bottom` | the plate's |
+
+Normalization leaves both as stored. A value equal to its column's is an
+override that stays when the column changes, and a value outside its set is
+read as absent and rides untouched, as an unnamed key does. So naming them
+is no storage-version event: no stored byte moves, and an older reader
+carries them.
+
 Two rules bound the payload:
 
 - **Payload depth is capped at `MAX_JSON_DEPTH` (128).** Island `props` is host

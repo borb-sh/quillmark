@@ -64,6 +64,23 @@ A `qm-table` around one pipe table sets its layout:
 
 Text alignment within a column stays in the delimiter row (`:---:`). A `widths` with fewer entries than the table has columns leaves the rest `auto`, and one with more ignores the extra entries. A `qm-table` around anything but one table drops, keeping what it holds.
 
+### Cell alignment
+
+A `qm-cell` pair around a cell's whole content aligns that one cell, in the header row or the body:
+
+```markdown
+| Item | Notes | Qty |
+| --- | --- | ---: |
+| <qm-cell valign="bottom">Total</qm-cell> | one<br>two | <qm-cell align="center">**42**</qm-cell> |
+```
+
+| Attribute | Value | Without it |
+|---|---|---|
+| `align` | `left`, `center` or `right`. | The column's alignment from the delimiter row. |
+| `valign` | `top`, `middle` or `bottom`. | The quill's vertical alignment. |
+
+The open tag comes first in the cell and the close tag last. A pair with anything else in the cell beside it drops, keeping what it wraps, with a `parse::dropped_construct` warning.
+
 ### Elements
 
 Any other `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` is reserved. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a `qm-table` it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent.

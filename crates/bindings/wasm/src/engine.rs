@@ -283,6 +283,10 @@ export type ContentMarkKind =
 export interface TableCell {
     text: string;
     marks: ContentMark[];
+    /** The cell's horizontal alignment; absent is its column's. */
+    align?: "left" | "center" | "right";
+    /** The cell's vertical alignment; absent is the quill's. */
+    valign?: "top" | "middle" | "bottom";
 }
 
 /** `props` of a `type: "table"` island: a pipe table normalized to one column
