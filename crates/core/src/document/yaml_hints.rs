@@ -410,7 +410,7 @@ fn indented_top_level_key_hint(message: &str, content: &str) -> Option<String> {
     ))
 }
 
-/// The first `key: <value>` line whose unquoted value contains a second `:`,
+/// The first `key: <value>` line whose unquoted value holds a mapping `:`,
 /// which is what raises "mapping values are not allowed in this context".
 fn first_field_with_unquoted_colon(content: &str) -> Option<(String, String)> {
     for (key, value) in key_value_lines(content) {
@@ -423,7 +423,9 @@ fn first_field_with_unquoted_colon(content: &str) -> Option<(String, String)> {
         }
         // A comment's `:` is no part of the value.
         let value = uncommented(value).trim_end();
-        if value.contains(':') {
+        // `http://x` and `12:30` are plain scalars: only a `:` before a space
+        // or at the end opens a mapping.
+        if value.ends_with(':') || value.contains(": ") || value.contains(":\t") {
             return Some((key.trim().to_string(), value.to_string()));
         }
     }
@@ -566,6 +568,14 @@ mod tests {
         let enriched = enrich_yaml_error("mapping values are not allowed in this context", content);
         let hint = enriched.hint.expect("hint should be set");
         assert!(hint.contains("subtitle: \"a: b\""), "{hint}");
+    }
+
+    #[test]
+    fn hint_for_mapping_values_passes_a_plain_scalar_holding_a_colon() {
+        let content = "url: http://x\ntime: 12:30\ntitle: a: b\n";
+        let enriched = enrich_yaml_error("mapping values are not allowed in this context", content);
+        let hint = enriched.hint.expect("hint should be set");
+        assert!(hint.contains("title: \"a: b\""), "{hint}");
     }
 
     #[test]

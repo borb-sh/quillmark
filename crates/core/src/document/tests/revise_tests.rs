@@ -300,3 +300,23 @@ fn revising_with_the_annotated_read_keeps_every_anchor() {
     assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
     assert_eq!(doc, before);
 }
+
+#[test]
+fn a_revised_fields_nested_comments_stay() {
+    let mut doc = stored();
+    let sections = serde_json::json!([{
+        "body": to_canonical_value(&crate::document::import_body("hello world").unwrap()),
+        "note": "x",
+    }]);
+    doc.main_mut()
+        .store_field("sections", QuillValue::from_json(sections))
+        .unwrap();
+    let markdown = doc
+        .to_markdown()
+        .replace("sections:\n", "sections:\n  # lead comment\n")
+        .replace("    note: x", "    # inner\n    note: x");
+    assert!(markdown.contains("# inner"), "{markdown}");
+    let _ = doc.revise(&markdown).unwrap();
+    let out = doc.to_markdown();
+    assert!(out.contains("# lead comment") && out.contains("# inner"), "{out}");
+}
