@@ -309,8 +309,7 @@ fn document() -> impl Strategy<Value = Piece> {
     prop::collection::vec(block(), 1..4).prop_map(|blocks| Piece::join(blocks, "\n\n"))
 }
 
-/// A table cell's content: words, marked or not, with edge whitespace a
-/// `qm-cell` pair keeps.
+/// A table cell's content: words, marked or not, between edge whitespace.
 fn cell_content() -> impl Strategy<Value = String> {
     let part = (word(), 0..9u8).prop_map(|(w, k)| match k {
         0 => w,
@@ -411,36 +410,47 @@ proptest! {
         at in 0..3u8,
     ) {
         let cols = aligns.len();
-        let mut lines: Vec<String> = rows
-            .iter()
-            .map(|row| {
-                let cells: Vec<String> = row[..cols]
-                    .iter()
-                    .map(|(keys, content)| match keys {
-                        Some(keys) => Element::new("cell", keys.attrs()).unwrap().wrap_inline(content),
-                        None => content.clone(),
-                    })
-                    .collect();
-                format!("| {} |", cells.join(" | "))
-            })
-            .collect();
-        let delimiter = aligns.iter().map(|a| match *a {
+        let delimiter: Vec<&str> = aligns.iter().map(|a| match *a {
             "left" => ":---",
             "center" => ":---:",
             "right" => "---:",
             _ => "---",
-        });
-        lines.insert(1, format!("| {} |", delimiter.collect::<Vec<_>>().join(" | ")));
-        let table = lines.join("\n");
-        let md = match at {
-            0 => table,
-            1 => prefixed(&table, "- ", "  "),
-            _ => prefixed(&table, "> ", "> "),
+        }).collect();
+        let table = |paired: bool| {
+            let mut lines: Vec<String> = rows
+                .iter()
+                .map(|row| {
+                    let cells: Vec<String> = row[..cols]
+                        .iter()
+                        .map(|(keys, content)| match keys {
+                            Some(keys) if paired => Element::new("cell", keys.attrs()).unwrap().wrap_inline(content),
+                            _ => content.clone(),
+                        })
+                        .collect();
+                    format!("| {} |", cells.join(" | "))
+                })
+                .collect();
+            lines.insert(1, format!("| {} |", delimiter.join(" | ")));
+            let table = lines.join("\n");
+            match at {
+                0 => table,
+                1 => prefixed(&table, "- ", "  "),
+                _ => prefixed(&table, "> ", "> "),
+            }
         };
+        let md = table(true);
 
         let imported = from_markdown(&md).unwrap();
         prop_assert!(imported.warnings.is_empty(), "{:?}: {}", imported.warnings, md);
         let island = imported.content.islands.iter().find(|i| i.island_type == IslandType::Table).unwrap();
+        let bare = from_markdown(&table(false)).unwrap().content;
+        let bare_island = bare.islands.iter().find(|i| i.island_type == IslandType::Table).unwrap();
+        prop_assert_eq!(
+            crate::serial::table_cells(&island.props),
+            crate::serial::table_cells(&bare_island.props),
+            "{}",
+            md
+        );
         let mut any = false;
         for (r, row) in rows.iter().enumerate() {
             let row_at = if r == 0 { "/header".to_string() } else { format!("/rows/{}", r - 1) };

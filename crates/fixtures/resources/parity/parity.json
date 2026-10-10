@@ -1920,6 +1920,37 @@
     }
   },
   {
+    "name": "container.element.unregistered",
+    "markdown": "<qm-kep>\n\nText\n\n</qm-kep>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [
+            {
+              "attrs": {
+                "$name": "kep"
+              },
+              "container": "element"
+            }
+          ],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "Text"
+    },
+    "typst": [
+      "#_qm-element(\"kep\", (:))[\nText"
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "typst::unregistered_element"
+      ]
+    }
+  },
+  {
     "name": "carrier.element.tight",
     "markdown": "<qm-keep>\n**Signed**\n</qm-keep>",
     "content": {

@@ -118,6 +118,16 @@ impl BlockConstruct {
     }
 }
 
+/// How many runs of element `name` `content` holds, at any depth: what
+/// `typst::unregistered_element` counts, as [`BlockConstruct::count_in`]
+/// counts a list.
+pub fn element_runs(content: &quillmark_content::model::Content, name: &str) -> usize {
+    use quillmark_content::model::Container;
+    container_runs(&content.lines, 0..content.lines.len(), 0, &|c| {
+        matches!(c, Container::Element { name: n, .. } if n == name)
+    })
+}
+
 fn container_runs(
     lines: &[quillmark_content::model::Line],
     range: std::ops::Range<usize>,
