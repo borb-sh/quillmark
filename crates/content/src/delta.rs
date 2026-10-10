@@ -262,9 +262,9 @@ pub fn diff(base: &str, new: &str) -> Delta {
 
 /// Emit one run of replaced lines. Lines pair from the front, then from the
 /// back, while each pair is a rewrite: neither is longer than
-/// [`CHAR_DIFF_LIMIT`] chars, the two clear [`MIN_WORD_SIMILARITY`], and neither occurs whole on the other side, as a moved line
-/// does. A paired line diffs by char, and the
-/// unpaired middle is deleted and inserted whole.
+/// [`CHAR_DIFF_LIMIT`] chars, the two clear [`MIN_WORD_SIMILARITY`], and
+/// neither occurs whole on the other side, as a moved line does. A paired line
+/// diffs by char, and the unpaired middle is deleted and inserted whole.
 fn refine_replace(
     ops: &mut Vec<Op>,
     old: &[&str],
@@ -315,16 +315,10 @@ fn words(text: &str) -> Vec<&str> {
 /// but different text.
 pub const MIN_WORD_SIMILARITY: f32 = 0.5;
 
-/// Above this many words in either text, [`word_similarity`] measures the
-/// common leading and trailing words rather than a word diff.
-pub const MAX_DIFFED_WORDS: usize = 2_000;
-
 /// The share of `a`'s and `b`'s words the two hold in common, in order: twice
-/// the common words over both lengths, 1 for two empty texts.
+/// the common words over both lengths, 1 for two empty texts. A word diff,
+/// quadratic in the words at worst.
 pub fn word_similarity(a: &[&str], b: &[&str]) -> f32 {
-    if a.len().max(b.len()) > MAX_DIFFED_WORDS {
-        return affix_similarity(a, b);
-    }
     if a.is_empty() && b.is_empty() {
         return 1.0;
     }
@@ -336,24 +330,6 @@ pub fn word_similarity(a: &[&str], b: &[&str]) -> f32 {
         })
         .sum();
     (2 * common) as f32 / (a.len() + b.len()) as f32
-}
-
-/// The share of both texts their common prefix and suffix cover.
-fn affix_similarity(a: &[&str], b: &[&str]) -> f32 {
-    let total = a.len() + b.len();
-    if total == 0 {
-        return 1.0;
-    }
-    let shorter = a.len().min(b.len());
-    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
-    let suffix = a
-        .iter()
-        .rev()
-        .zip(b.iter().rev())
-        .take(shorter - prefix)
-        .take_while(|(x, y)| x == y)
-        .count();
-    (2 * (prefix + suffix)) as f32 / total as f32
 }
 
 fn push_char_diff(ops: &mut Vec<Op>, base: &str, new: &str) {
@@ -631,10 +607,19 @@ mod tests {
     use crate::model::MarkKind;
 
     #[test]
-    fn affix_similarity_measures_shared_ends() {
-        assert_eq!(affix_similarity(&["a", "b", "c", "d"], &["a", "b", "c", "d"]), 1.0);
-        assert_eq!(affix_similarity(&["a", "b", "X", "d"], &["a", "b", "Y", "d"]), 0.75);
-        assert_eq!(affix_similarity(&[], &["x", "y"]), 0.0);
+    fn a_line_within_the_char_limit_pairs_by_its_word_diff_at_any_word_count() {
+        let middle = vec!["w"; 2_400].join(" ");
+        let base = format!("s {middle} e\nend");
+        let new = format!("t {middle} f\nend");
+        let retained: usize = diff(&base, &new)
+            .ops
+            .iter()
+            .map(|op| match op {
+                Op::Retain(n) => *n,
+                _ => 0,
+            })
+            .sum();
+        assert!(retained > middle.len(), "the shared middle is kept, not rewritten");
     }
 
     #[test]

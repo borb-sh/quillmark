@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use quillmark_content::delta::{word_similarity, MAX_DIFFED_WORDS, MIN_WORD_SIMILARITY};
+use quillmark_content::delta::{word_similarity, MIN_WORD_SIMILARITY};
 
 /// One composable card as alignment reads it: its `$kind` and a text to
 /// measure similarity over.
@@ -16,6 +16,10 @@ pub(crate) struct Slot<'a> {
 /// Above this much estimated diff work, summed over the same-kind pairs as
 /// `(words + words)²`, similarity is text equality alone.
 const MAX_DIFF_WORK: usize = 50_000_000;
+
+/// Above this many words in either text, a pair's similarity is the share of
+/// its common leading and trailing words rather than a word diff.
+const MAX_DIFFED_WORDS: usize = 2_000;
 
 /// Above this many unpaired cards on one side times the other, the cards that
 /// are not twins pair by position alone.
@@ -166,7 +170,30 @@ fn unique_twins(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<(usize, usize
 }
 
 fn similarity_permille(a: &[&str], b: &[&str]) -> u64 {
-    (word_similarity(a, b).clamp(0.0, 1.0) * 1000.0).round() as u64
+    let ratio = if a.len().max(b.len()) > MAX_DIFFED_WORDS {
+        affix_similarity(a, b)
+    } else {
+        word_similarity(a, b)
+    };
+    (ratio.clamp(0.0, 1.0) * 1000.0).round() as u64
+}
+
+/// The share of both texts their common prefix and suffix cover.
+fn affix_similarity(a: &[&str], b: &[&str]) -> f32 {
+    let total = a.len() + b.len();
+    if total == 0 {
+        return 1.0;
+    }
+    let shorter = a.len().min(b.len());
+    let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let suffix = a
+        .iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take(shorter - prefix)
+        .take_while(|(x, y)| x == y)
+        .count();
+    (2 * (prefix + suffix)) as f32 / total as f32
 }
 
 #[cfg(test)]
@@ -241,5 +268,12 @@ mod tests {
         let incoming = [("a", "head"), ("note", "four five six"), ("b", "tail")];
         let aligned = align(&slots(&stored), &slots(&incoming));
         assert_eq!(aligned[1], Some((1, Pairing::Position)));
+    }
+
+    #[test]
+    fn affix_similarity_measures_shared_ends() {
+        assert_eq!(affix_similarity(&["a", "b", "c", "d"], &["a", "b", "c", "d"]), 1.0);
+        assert_eq!(affix_similarity(&["a", "b", "X", "d"], &["a", "b", "Y", "d"]), 0.75);
+        assert_eq!(affix_similarity(&[], &["x", "y"]), 0.0);
     }
 }
