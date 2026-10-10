@@ -67,35 +67,50 @@ fn admit_chars(s: &str) -> String {
     s.chars().filter_map(admit_char).collect()
 }
 
-/// Every markdown normalization in order (spec §7): CRLF → LF, bidi controls
-/// dropped and line separators spaced, then [`repair`].
+/// `markdown` under every normalization in order (spec §7), CRLF → LF, bidi
+/// controls dropped and line separators spaced, then the repair, handed to `f`
+/// with its parse.
+///
+/// The repair rewrites the text so the parse reads the text after a comment's
+/// `-->` on its line, ends a table at a line of tags under its rows, and sets
+/// a line of carrier tags in an HTML block apart from the markdown beside it
+/// (markdown-spec §6.2, §7 step 4). Each round parses and edits only inside
+/// the spans that parse located, so a fence is never touched; the rounds end
+/// at one that plans no edit, whose parse `f` takes.
+pub(crate) fn parse_markdown<R>(
+    markdown: &str,
+    options: Options,
+    f: impl FnOnce(&str, Vec<(Event<'_>, Range<usize>)>) -> R,
+) -> R {
+    let mut text = admit_chars(&normalize_line_endings(markdown));
+    fn parse(text: &str, options: Options) -> Vec<(Event<'_>, Range<usize>)> {
+        Parser::new_ext(text, options).into_offset_iter().collect()
+    }
+    let parsed = 'repair: {
+        if may_need_repair(&text) {
+            for _ in 0..REPAIR_ROUNDS {
+                let events = parse(&text, options);
+                let edits = plan(&text, &events);
+                if edits.is_empty() {
+                    break 'repair Some(events);
+                }
+                text = apply(&text, &edits);
+            }
+        }
+        None
+    };
+    let events = parsed.unwrap_or_else(|| parse(&text, options));
+    f(&text, events)
+}
+
+#[cfg(test)]
 pub(crate) fn normalize_markdown(markdown: &str, options: Options) -> String {
-    let cleaned = admit_chars(&normalize_line_endings(markdown));
-    repair(cleaned, options)
+    parse_markdown(markdown, options, |text, _| text.to_string())
 }
 
 /// Rounds the repair takes at most. A round leaves work for the next only where
 /// the text it splits off a comment opens another.
 const REPAIR_ROUNDS: usize = 8;
-
-/// Rewrite `text` so the parse reads the text after a comment's `-->` on its
-/// line, ends a table at a line of tags under its rows, and sets a line of
-/// carrier tags in an HTML block apart from the markdown beside it
-/// (markdown-spec §6.2, §7 step 4). Each round
-/// parses and edits only inside the spans that parse located, so a fence is
-/// never touched; the rounds end at one that plans no edit.
-fn repair(mut text: String, options: Options) -> String {
-    if may_need_repair(&text) {
-        for _ in 0..REPAIR_ROUNDS {
-            let edits = plan(&text, options);
-            if edits.is_empty() {
-                break;
-            }
-            text = apply(&text, &edits);
-        }
-    }
-    text
-}
 
 /// Whether some line could open an HTML block or hold a table row of tags: its
 /// first character past container markers is `<`. Text failing this has
@@ -114,13 +129,13 @@ struct Edit {
     with: String,
 }
 
-fn plan(src: &str, options: Options) -> Vec<Edit> {
+fn plan(src: &str, events: &[(Event, Range<usize>)]) -> Vec<Edit> {
     let mut edits: Vec<Edit> = Vec::new();
     let mut block: Option<Vec<usize>> = None;
     let mut row: Option<usize> = None;
     let mut tag_rows: Vec<SrcLine> = Vec::new();
     let mut notes = 0usize;
-    for (event, range) in Parser::new_ext(src, options).into_offset_iter() {
+    for (event, range) in events {
         match event {
             Event::Start(PTag::FootnoteDefinition(_)) => notes += 1,
             Event::End(TagEnd::FootnoteDefinition) => notes -= 1,
@@ -230,12 +245,17 @@ fn next_line_continues(src: &str, end: usize) -> bool {
         .is_empty()
 }
 
-fn fence_open(t: &str) -> bool {
-    let Some(c) = t.chars().next().filter(|c| matches!(c, '`' | '~')) else {
-        return false;
-    };
-    let n = t.chars().take_while(|&x| x == c).count();
-    n >= 3 && (c == '~' || !t[n..].contains('`'))
+/// The fence character, run length and info string of the code fence `line`
+/// opens (CommonMark §4.5): a run of three or more backticks or tildes
+/// indented at most three spaces, a backtick fence's info string holding no
+/// backtick.
+pub fn fence_opener(line: &str) -> Option<(u8, usize, &str)> {
+    let indent = line.bytes().take_while(|&b| b == b' ').count();
+    let t = line.get(indent..).filter(|_| indent <= 3)?;
+    let c = t.bytes().next().filter(|c| matches!(c, b'`' | b'~'))?;
+    let n = t.bytes().take_while(|&b| b == c).count();
+    let info = &t[n..];
+    (n >= 3 && (c == b'~' || !info.contains('`'))).then_some((c, n, info))
 }
 
 /// The edit splitting a comment's last line after its `-->`, when text follows
@@ -249,8 +269,8 @@ fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let at = html::block_end(kind, last.content)?;
     let rest = last.content[at..].trim();
     let runs_on = match html::block_start(rest) {
-        Some(k) if !k.ends_at_blank_line() => html::block_end(k, rest).is_none(),
-        _ => fence_open(rest),
+        Some(k) if k != BlockKind::Open => html::block_end(k, rest).is_none(),
+        _ => fence_opener(rest).is_some(),
     };
     if rest.is_empty() || runs_on {
         return None;
@@ -285,12 +305,11 @@ fn shallow_lead(line: &str) -> &str {
 /// markdown where the next line would continue it lazily.
 fn carrier_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
-    if !html::block_start(first.content).is_some_and(BlockKind::ends_at_blank_line) {
+    if html::block_start(first.content) != Some(BlockKind::Open) {
         return None;
     }
-    let tags: Vec<_> = lines.iter().map(|l| html::tag_line(l.content)).collect();
-    let carrier: Vec<bool> = tags.iter().map(|t| t.as_ref().is_some_and(|t| t.iter().all(carrier::wraps))).collect();
-    let markdown: Vec<bool> = tags.iter().map(Option::is_none).collect();
+    let carrier: Vec<bool> = lines.iter().map(|l| carrier::tag_line(l.content).is_some()).collect();
+    let markdown: Vec<bool> = lines.iter().map(|l| html::tag_line(l.content).is_none()).collect();
     let lead = |line: &SrcLine| format!("{}{}{}", line.prefix, shallow_lead(line.content), line.content.trim_start());
     let mut out = Vec::with_capacity(lines.len() + 3);
     let mut changed = false;
@@ -332,23 +351,6 @@ fn carrier_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
         range: first.start..last.end(),
         with: out.join("\n"),
     })
-}
-
-pub(crate) fn is_inline(event: &Event) -> bool {
-    match event {
-        Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak | Event::InlineHtml(_) => {
-            true
-        }
-        Event::Start(tag) => matches!(
-            tag,
-            PTag::Emphasis | PTag::Strong | PTag::Strikethrough | PTag::Link { .. } | PTag::Image { .. }
-        ),
-        Event::End(tag) => matches!(
-            tag,
-            TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link | TagEnd::Image
-        ),
-        _ => false,
-    }
 }
 
 /// A line holding only tags under a table's rows, which a type 7 tag cannot

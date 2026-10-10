@@ -2,6 +2,7 @@
 //! spelling rides on where CommonMark has no syntax, their name and attribute
 //! grammar, and their canonical spelling.
 
+use crate::html;
 use crate::normalize::{is_bidi_char, is_line_separator};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -233,9 +234,11 @@ pub(crate) fn wrapper(tag_name: &str) -> Option<String> {
     element(tag_name).filter(|name| name != "anchor")
 }
 
-/// Whether `tag` opens or closes a [wrapper], not self-closing.
-pub(crate) fn wraps(tag: &crate::html::Tag) -> bool {
-    !tag.self_closing && wrapper(tag.name).is_some()
+/// The tags of a [tag line](html::tag_line) whose every tag opens or closes a
+/// [wrapper], none self-closing.
+pub(crate) fn tag_line(line: &str) -> Option<Vec<html::Tag<'_>>> {
+    let wraps = |tag: &html::Tag| !tag.self_closing && wrapper(tag.name).is_some();
+    html::tag_line(line).filter(|tags| tags.iter().all(wraps))
 }
 
 #[cfg(test)]

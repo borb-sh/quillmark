@@ -43,7 +43,7 @@ pub const DROPPED_CONSTRUCT: &str = "parse::dropped_construct";
 /// knows the field's address attaches it. Non-fatal: the rest of the markdown
 /// imports.
 pub fn dropped_construct(warning: ImportWarning) -> Diagnostic {
-    let ImportWarning::DroppedConstruct { construct, count } = warning;
+    let ImportWarning { construct, count } = warning;
     let (message, hint) = dropped_message(&construct, count);
     let mut args = std::collections::BTreeMap::new();
     args.insert("construct".to_string(), construct.to_string().into());

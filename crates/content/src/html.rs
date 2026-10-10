@@ -34,12 +34,6 @@ pub(crate) enum BlockKind {
     Open,
 }
 
-impl BlockKind {
-    pub(crate) fn ends_at_blank_line(self) -> bool {
-        self == BlockKind::Open
-    }
-}
-
 /// The type-6 start condition's names.
 const BLOCK_NAMES: [&str; 62] = [
     "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center",

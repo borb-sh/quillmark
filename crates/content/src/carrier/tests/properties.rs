@@ -14,49 +14,11 @@ use proptest::prelude::*;
 use crate::carrier::{decode_attrs, element, is_attr_name, Attrs, Element};
 use crate::export::to_markdown;
 use crate::html;
-use crate::import::{from_markdown, options, ImportWarning};
+use crate::import::tests::generate::{contained, counted, prefixed, table, tally, word, Piece};
+use crate::import::{from_markdown, options};
 use crate::island::IslandType;
 use crate::normalize::normalize_markdown;
 use pulldown_cmark::{Event, Parser};
-
-/// Generated markdown and the construct each opening tag in it reports.
-#[derive(Debug, Clone, Default)]
-struct Piece {
-    md: String,
-    reported: Vec<String>,
-    /// The pipe tables a `qm-table` wrapper around it would hold.
-    tables: usize,
-    /// Holds a block other than a pipe table or a tag line: what keeps a
-    /// `qm-table` wrapper around it from folding.
-    other: bool,
-    /// A `qm-cell` pair holding valid alignment, which folds and reports
-    /// nothing as a whole table cell.
-    cell: bool,
-}
-
-impl Piece {
-    fn text(md: String) -> Piece {
-        Piece { md, ..Piece::default() }
-    }
-
-    fn join(pieces: Vec<Piece>, sep: &str) -> Piece {
-        let mut out = Piece::default();
-        for (i, p) in pieces.into_iter().enumerate() {
-            if i > 0 {
-                out.md.push_str(sep);
-            }
-            out.md.push_str(&p.md);
-            out.reported.extend(p.reported);
-            out.tables += p.tables;
-            out.other |= p.other;
-        }
-        out
-    }
-}
-
-fn word() -> impl Strategy<Value = String> {
-    "[a-z]{2,5}[0-9]"
-}
 
 /// Values draw from every scalar value, control characters, bidi controls and
 /// line separators among them, which the canonical spelling writes as
@@ -234,49 +196,8 @@ fn paragraph() -> impl Strategy<Value = Piece> {
     prop::collection::vec(line(), 1..4).prop_map(|lines| Piece::join(lines, "\n"))
 }
 
-fn table() -> impl Strategy<Value = Piece> {
-    (1usize..4).prop_flat_map(|cols| {
-        prop::collection::vec(prop::collection::vec(token(), cols), 2..4).prop_map(move |rows| {
-            let mut lines: Vec<Piece> = rows
-                .into_iter()
-                .map(|row| {
-                    let cells = row.into_iter().map(|cell| match cell.cell {
-                        true => Piece { reported: Vec::new(), ..cell },
-                        false => cell,
-                    });
-                    let mut p = Piece::join(cells.collect(), " | ");
-                    p.md = format!("| {} |", p.md);
-                    p
-                })
-                .collect();
-            lines.insert(1, Piece::text(format!("|{}", "---|".repeat(cols))));
-            Piece { tables: 1, other: false, ..Piece::join(lines, "\n") }
-        })
-    })
-}
-
 fn leaf() -> impl Strategy<Value = Piece> {
-    prop_oneof![3 => paragraph(), 1 => table()]
-}
-
-/// Blocks in a list item or a quote.
-fn contained(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> {
-    (inner, any::<bool>()).prop_map(|(mut p, list)| {
-        p.other = true;
-        p.md = if list { prefixed(&p.md, "- ", "  ") } else { prefixed(&p.md, "> ", "> ") };
-        p
-    })
-}
-
-fn prefixed(md: &str, first: &str, rest: &str) -> String {
-    md.split('\n')
-        .enumerate()
-        .map(|(i, line)| {
-            let p = if i == 0 { first } else { rest };
-            if line.is_empty() { p.trim_end().to_string() } else { format!("{p}{line}") }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    prop_oneof![3 => paragraph(), 1 => table(token)]
 }
 
 /// A block wrapper, written canonically.
@@ -291,7 +212,7 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             reported,
             tables: body.tables,
             other: body.other || c.table,
-            cell: false,
+            ..Piece::default()
         }
     })
 }
@@ -327,15 +248,6 @@ fn cell_content() -> impl Strategy<Value = String> {
         .prop_map(|(lead, parts, trail)| format!("{lead}{}{trail}", parts.join(" ")))
 }
 
-fn counted(warnings: &[ImportWarning]) -> Vec<(String, usize)> {
-    let mut out: Vec<(String, usize)> = warnings
-        .iter()
-        .map(|ImportWarning::DroppedConstruct { construct, count }| (construct.to_string(), *count))
-        .collect();
-    out.sort();
-    out
-}
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
@@ -344,15 +256,7 @@ proptest! {
         let imported = from_markdown(&doc.md).unwrap();
         prop_assert_eq!(imported.content.validate(), Ok(()), "{}", doc.md);
 
-        let mut expected: Vec<(String, usize)> = Vec::new();
-        for c in &doc.reported {
-            match expected.iter_mut().find(|(n, _)| n == c) {
-                Some((_, n)) => *n += 1,
-                None => expected.push((c.clone(), 1)),
-            }
-        }
-        expected.sort();
-        prop_assert_eq!(counted(&imported.warnings), expected, "{}", doc.md);
+        prop_assert_eq!(counted(&imported.warnings), tally(&doc.reported), "{}", doc.md);
 
         let back = from_markdown(&to_markdown(&imported.content)).unwrap();
         prop_assert_eq!(&back.content, &imported.content, "{}", doc.md);

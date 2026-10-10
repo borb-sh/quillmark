@@ -1,6 +1,6 @@
 //! Markdown import (cold): `normalize → pulldown → content`.
 //!
-//! Input is normalized by `normalize::normalize_markdown` (CRLF→LF, bidi
+//! Input is normalized by `normalize::parse_markdown` (CRLF→LF, bidi
 //! controls dropped, line separators spaced, then the parser-guided repair that
 //! splits text off a comment's line, ends a table at a row of tags and sets a
 //! line of carrier tags in an HTML block apart) so the content invariants hold
@@ -50,22 +50,12 @@ use crate::model::{
 use crate::carrier;
 use crate::html;
 use crate::island::IslandType;
-use crate::normalize::normalize_markdown;
+use crate::normalize::parse_markdown;
 use crate::MAX_NESTING_DEPTH;
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, Options, Tag, TagEnd};
 use serde_json::json;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::ops::Range;
-
-/// What `event` contributes to the alt text of an image being collected: one
-/// rule shared by the top-level `String` accumulator and the table-cell one.
-fn image_alt_text<'e>(event: &'e Event<'e>) -> Option<&'e str> {
-    match event {
-        Event::Text(t) | Event::Code(t) => Some(t),
-        Event::SoftBreak | Event::HardBreak => Some(" "),
-        _ => None,
-    }
-}
 
 /// Import errors: just the nesting guard.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,16 +75,17 @@ impl std::fmt::Display for ImportError {
 }
 impl std::error::Error for ImportError {}
 
-/// Something the markdown spelled that the content has no place for.
+/// `count` instances of `construct`, something the markdown spelled that the
+/// content has no place for, dropped. One per construct.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ImportWarning {
-    /// `count` instances of `construct` dropped. One entry per construct.
-    DroppedConstruct { construct: Dropped, count: usize },
+pub struct ImportWarning {
+    pub construct: Dropped,
+    pub count: usize,
 }
 
 /// A construct an import drops. Its [`Display`](std::fmt::Display) is the
 /// name `parse::dropped_construct` reports it under, given with each variant.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Dropped {
     /// A raw tag outside the carrier, or a `qm-anchor` reported with the
     /// markdown its HTML block drops: its lowercase name (`span`, `u`).
@@ -154,10 +145,8 @@ pub(crate) fn options() -> Options {
 /// it. A comment, the content of a type 1–5 HTML block and any other closing
 /// tag or `qm-anchor` tag drop silently.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
-    let options = options();
-    let text = normalize_markdown(markdown, options);
     let mut b = Builder::default();
-    b.run(MarkdownFixer::new(&text, Parser::new_ext(&text, options).into_offset_iter()))?;
+    parse_markdown(markdown, options(), |text, events| b.run(MarkdownFixer::new(text, events.into_iter())))?;
     let (content, dropped) = b.finish();
     Ok(Imported {
         content: content.into_normalized(),
@@ -394,8 +383,6 @@ struct Builder {
     /// What this walk drops: a raw tag, an unclosed `<u>`, a wrapper left
     /// unclosed or outside a tag line, an attribute it cannot carry.
     dropped: Drops,
-    /// Inside a footnote definition, whose events all drop with it.
-    in_note: bool,
 }
 
 #[derive(Clone)]
@@ -638,22 +625,10 @@ impl Builder {
                     self.dropped.add(construct, at);
                     continue;
                 }
-                Fixed::NoteDef(at) => {
-                    self.dropped.add(Dropped::Footnote, at);
-                    self.in_note = true;
-                    continue;
-                }
             };
-            if self.in_note {
-                if matches!(event, Event::End(TagEnd::FootnoteDefinition)) {
-                    self.in_note = false;
-                    self.rearm_item();
-                }
-                continue;
-            }
             // An inline run ends at the first event outside it, and the
             // underlines it left open with it.
-            if self.image_depth == 0 && self.table.is_none() && !crate::normalize::is_inline(&event) {
+            if self.image_depth == 0 && self.table.is_none() && !is_inline(&event) {
                 self.inline.drop_open(&mut self.dropped);
             }
             // Image alt collection intercepts everything until the image closes.
@@ -667,7 +642,11 @@ impl Builder {
                         }
                     }
                     other => {
-                        let alt = image_alt_text(other).unwrap_or_default();
+                        let alt = match other {
+                            Event::Text(t) | Event::Code(t) => &**t,
+                            Event::SoftBreak | Event::HardBreak => " ",
+                            _ => "",
+                        };
                         match self.table.as_mut().and_then(|acc| acc.cell.as_mut()) {
                             Some(cell) => cell.push_text(alt),
                             None => self.image_alt.push_str(alt),
@@ -876,7 +855,7 @@ impl Builder {
                 self.flush_empty_block();
                 self.rearm_item();
             }
-            TagEnd::HtmlBlock => self.rearm_item(),
+            TagEnd::HtmlBlock | TagEnd::FootnoteDefinition => self.rearm_item(),
             _ => {}
         }
     }
@@ -885,9 +864,6 @@ impl Builder {
     /// open tag drops, and any other close tag drops silently.
     fn carrier_tag(&mut self, tag: CarrierTag) -> Result<(), ImportError> {
         let CarrierTag { name, attrs, block, at, space } = tag;
-        if self.in_note {
-            return Ok(());
-        }
         if let Some(acc) = self.table.as_mut().filter(|acc| acc.cell.is_some()) {
             match attrs {
                 _ if name != CELL || self.image_depth > 0 => {
@@ -984,7 +960,7 @@ impl Builder {
     /// Pair one `<u>` tag in the run or table cell it stands in. In an image's
     /// alt text, where nothing is marked, it underlines nothing.
     fn underline_tag(&mut self, tag: UTag) -> Result<(), ImportError> {
-        if self.image_depth > 0 || self.in_note {
+        if self.image_depth > 0 {
             return Ok(());
         }
         if let Some(acc) = self.table.as_mut() {
@@ -1028,9 +1004,6 @@ impl Builder {
     /// Report a close tag that dropped with the markdown under it, once for
     /// the innermost wrapper it names: that wrapper stays open past it.
     fn swallowed(&mut self, name: String, at: usize) {
-        if self.in_note {
-            return;
-        }
         match self.blocks.iter_mut().rev().find(|open| open.name == name) {
             Some(open) if open.reported => return,
             Some(open) => open.reported = true,
@@ -1191,6 +1164,15 @@ fn ends_mark(end: &TagEnd) -> bool {
     matches!(end, TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link)
 }
 
+/// Whether `event` stands inside an inline run.
+fn is_inline(event: &Event) -> bool {
+    match event {
+        Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak | Event::InlineHtml(_) => true,
+        Event::Start(tag) => matches!(tag, Tag::Image { .. }) || mark_kind(tag).is_some(),
+        Event::End(end) => matches!(end, TagEnd::Image) || ends_mark(end),
+        _ => false,
+    }
+}
 
 /// A code-block info string reduced to a language identifier: its leading run of
 /// ASCII alphanumerics and `-`/`_`/`.`/`+`. Every stored `lang` has this shape,
@@ -1220,8 +1202,6 @@ enum Fixed<'a> {
     /// A wrapper's close tag in an HTML block of closing tags that drops
     /// markdown with them, at the block's byte offset.
     Swallowed(String, usize),
-    /// A footnote definition's start, at its byte offset.
-    NoteDef(usize),
     /// A construct the fixer dropped, at its byte offset.
     Dropped(Dropped, usize),
 }
@@ -1278,18 +1258,26 @@ fn dropped_tag(name: &str) -> Option<Dropped> {
     })
 }
 
-/// Per construct: its count and the byte offset of its first occurrence.
+/// Per construct, in order of its first report: its count and the byte offset
+/// of its first occurrence.
 #[derive(Default)]
-struct Drops(Vec<(Dropped, usize, usize)>);
+struct Drops {
+    entries: Vec<(Dropped, usize, usize)>,
+    index: HashMap<Dropped, usize>,
+}
 
 impl Drops {
     fn add(&mut self, construct: Dropped, at: usize) {
-        match self.0.iter_mut().find(|(c, ..)| *c == construct) {
-            Some((_, count, first)) => {
+        match self.index.get(&construct) {
+            Some(&k) => {
+                let (_, count, first) = &mut self.entries[k];
                 *count += 1;
                 *first = (*first).min(at);
             }
-            None => self.0.push((construct, 1, at)),
+            None => {
+                self.index.insert(construct.clone(), self.entries.len());
+                self.entries.push((construct, 1, at));
+            }
         }
     }
 
@@ -1323,10 +1311,10 @@ impl Drops {
     }
 
     fn into_warnings(mut self) -> Vec<ImportWarning> {
-        self.0.sort_by_key(|&(_, _, first)| first);
-        self.0
+        self.entries.sort_by_key(|&(_, _, first)| first);
+        self.entries
             .into_iter()
-            .map(|(construct, count, _)| ImportWarning::DroppedConstruct { construct, count })
+            .map(|(construct, count, _)| ImportWarning { construct, count })
             .collect()
     }
 }
@@ -1342,8 +1330,8 @@ struct MarkdownFixer<'a, I> {
     ahead: Option<(Event<'a>, Range<usize>)>,
     /// Whether the next event opens a line of a paragraph or a list item's text.
     line_start: bool,
-    /// Open marks, links, images, headings, tables and footnote definitions,
-    /// where a line of carrier tags stays text.
+    /// Open marks, links, images, headings and tables, where a line of carrier
+    /// tags stays text.
     depth: usize,
     /// The `<u>` tags open in the current inline run, where a line of carrier
     /// tags stays text too.
@@ -1353,7 +1341,7 @@ struct MarkdownFixer<'a, I> {
 /// Whether a tag ending `end` holds a line of carrier tags as text.
 fn deepens(end: &TagEnd) -> bool {
     ends_mark(end)
-        || matches!(end, TagEnd::Image | TagEnd::Heading(_) | TagEnd::Table | TagEnd::FootnoteDefinition)
+        || matches!(end, TagEnd::Image | TagEnd::Heading(_) | TagEnd::Table)
 }
 
 impl<'a, I> MarkdownFixer<'a, I>
@@ -1399,9 +1387,9 @@ where
             return None;
         }
         let end = self.src[range.start..].find('\n').map_or(self.src.len(), |i| range.start + i);
-        let tags = html::tag_line(&self.src[range.start..end])?;
-        let carriers = tags.iter().map(|tag| CarrierTag::of(tag, true, range.start + tag.span.start));
-        Some((end, carriers.collect::<Option<_>>()?))
+        let tags = carrier::tag_line(&self.src[range.start..end])?;
+        let carriers = tags.iter().filter_map(|tag| CarrierTag::of(tag, true, range.start + tag.span.start));
+        Some((end, carriers.collect()))
     }
 
     /// Pass on the tags of a line of them ending at `end` and of each such
@@ -1469,6 +1457,24 @@ where
         self.held.push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock)));
     }
 
+    /// Consume a footnote definition through its end, which alone reaches the
+    /// builder.
+    fn drop_note(&mut self, at: usize) {
+        self.held.push_back(Fixed::Dropped(Dropped::Footnote, at));
+        let mut depth = 1;
+        for (event, _) in self.inner.by_ref() {
+            match event {
+                Event::Start(Tag::FootnoteDefinition(_)) => depth += 1,
+                Event::End(TagEnd::FootnoteDefinition) => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 {
+                break;
+            }
+        }
+        self.held.push_back(Fixed::Event(Event::End(TagEnd::FootnoteDefinition)));
+    }
+
     /// One event as the builder takes it, or `None` for one that `held` now
     /// carries or that drops.
     fn fix(&mut self, event: Event<'a>, range: Range<usize>) -> Option<Fixed<'a>> {
@@ -1480,7 +1486,7 @@ where
                 return None;
             }
         }
-        if !crate::normalize::is_inline(&event) {
+        if !is_inline(&event) {
             self.underlines = 0;
         }
         Some(match event {
@@ -1530,7 +1536,10 @@ where
                 self.drop_tag(&tag, range.start);
                 return None;
             }
-            Event::Start(Tag::FootnoteDefinition(_)) => Fixed::NoteDef(range.start),
+            Event::Start(Tag::FootnoteDefinition(_)) => {
+                self.drop_note(range.start);
+                return None;
+            }
             Event::FootnoteReference(label) => Fixed::Event(Event::Text(format!("[^{label}]").into())),
             other => Fixed::Event(other),
         })
@@ -1557,7 +1566,8 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    pub(crate) mod generate;
     mod properties;
 
     use super::*;
@@ -1956,16 +1966,6 @@ mod tests {
     }
 
     #[test]
-    fn a_cell_image_lands_as_its_alt_text() {
-        // A cell has no island slot, so the alt lands as plain text and the url
-        // is dropped.
-        let rt = imp("| a | b |\n|---|---|\n| ![a cat](cat.png) | 2 |");
-        assert_eq!(rt.islands.len(), 1);
-        assert_eq!(rt.islands[0].island_type, IslandType::Table);
-        assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "a cat");
-    }
-
-    #[test]
     fn image_is_inline_island() {
         let rt = imp("see ![a cat](cat.png) here");
         assert_eq!(rt.text, "see \u{FFFC} here");
@@ -2203,7 +2203,7 @@ mod tests {
         imported
             .warnings
             .iter()
-            .map(|ImportWarning::DroppedConstruct { construct, count }| {
+            .map(|ImportWarning { construct, count }| {
                 (&*construct.to_string().leak(), *count)
             })
             .collect()
@@ -2616,14 +2616,6 @@ mod tests {
         assert_eq!(rt.text, "text\noutside");
         assert_eq!(rt.lines[0].containers.len(), 1);
         assert!(rt.lines[1].containers.is_empty());
-    }
-
-    #[test]
-    fn a_fenced_comment_round_trips_byte_equal() {
-        let md = "```\n<!-- a --> b\n```";
-        let imported = imp_fixed(md);
-        assert_eq!(imported.content.text, "<!-- a --> b");
-        assert_eq!(crate::export::to_markdown(&imported.content), md);
     }
 
     /// A tag alone on its line opens an HTML block, whatever its name: the
