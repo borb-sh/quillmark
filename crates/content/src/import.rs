@@ -3,8 +3,8 @@
 //! Input is normalized by `normalize::normalize_markdown` (CRLF→LF, bidi
 //! controls dropped, line separators spaced, then the parser-guided repair that
 //! splits text off a comment's line, ends a table at a row of tags and sets a
-//! line of carrier tags apart) so the content invariants hold by construction,
-//! then
+//! line of carrier tags in an HTML block apart) so the content invariants hold
+//! by construction, then
 //! parsed with `pulldown_cmark` (CommonMark + strikethrough + pipe tables +
 //! task lists, and footnotes recognized only to drop them) and
 //! walked into a [`Content`]. This is the one place the `<u>`/`<br>` allowlist
@@ -13,6 +13,9 @@
 //!
 //! ## Canonicalizations
 //!
+//! - A line of carrier tags in a paragraph or a list item's text is a tag
+//!   line: the break above it ends the text, and the text under it opens a
+//!   paragraph.
 //! - A soft break is a space and a hard break a `continues` line, distinct from
 //!   a paragraph boundary. Inside a heading a hard break is a space, a heading
 //!   being one line; a setext heading spans two source lines and can carry one.
@@ -1436,7 +1439,7 @@ struct CarrierTag {
     wrapper: Wrapper,
     /// The open tag's attributes; `None` for a close tag.
     attrs: Option<carrier::Attrs>,
-    /// Whether it stands on a tag line, in an HTML block, rather than inline.
+    /// Whether it stands on a tag line rather than inside a line of text.
     block: bool,
     /// The tag's byte offset, or its HTML block's.
     at: usize,
@@ -1517,6 +1520,14 @@ struct MarkdownFixer<'a, I> {
     dropped: Drops,
     /// An HTML block's carrier tags ahead of its end.
     held: VecDeque<Fixed<'a>>,
+    /// An event read ahead, past a tag line or a line break, to see where a tag
+    /// line ends or whether one follows.
+    ahead: Option<(Event<'a>, Range<usize>)>,
+    /// Whether the next event opens a line of a paragraph or a list item's text.
+    line_start: bool,
+    /// Open marks, links, images, headings, tables and footnote definitions,
+    /// where a line of carrier tags stays text.
+    depth: usize,
 }
 
 impl<'a, I> MarkdownFixer<'a, I>
@@ -1529,6 +1540,82 @@ where
             inner,
             dropped: Drops::default(),
             held: VecDeque::new(),
+            ahead: None,
+            line_start: false,
+            depth: 0,
+        }
+    }
+
+    fn read(&mut self) -> Option<(Event<'a>, Range<usize>)> {
+        if let Some(ahead) = self.ahead.take() {
+            return Some(ahead);
+        }
+        let (event, range) = self.inner.next()?;
+        match &event {
+            Event::Start(
+                Tag::Emphasis
+                | Tag::Strong
+                | Tag::Strikethrough
+                | Tag::Link { .. }
+                | Tag::Image { .. }
+                | Tag::Heading { .. }
+                | Tag::Table(_)
+                | Tag::FootnoteDefinition(_),
+            ) => self.depth += 1,
+            Event::End(
+                TagEnd::Emphasis
+                | TagEnd::Strong
+                | TagEnd::Strikethrough
+                | TagEnd::Link
+                | TagEnd::Image
+                | TagEnd::Heading(_)
+                | TagEnd::Table
+                | TagEnd::FootnoteDefinition,
+            ) => self.depth -= 1,
+            _ => {}
+        }
+        Some((event, range))
+    }
+
+    /// The end of the line `event` opens when the line holds only the open and
+    /// close tags of wrappers (markdown-spec §6.2).
+    fn tag_line(&self, event: &Event, range: &Range<usize>) -> Option<usize> {
+        if self.depth > 0 || !matches!(event, Event::InlineHtml(_)) {
+            return None;
+        }
+        let end = self.src[range.start..].find('\n').map_or(self.src.len(), |i| range.start + i);
+        carrier::tag_line(&self.src[range.start..end]).map(|_| end)
+    }
+
+    /// Pass on the tags of the tag line from `start` to `end` and of each tag
+    /// line under it, the text that follows reading as a paragraph of its own.
+    fn take_tag_lines(&mut self, mut start: usize, mut end: usize) {
+        loop {
+            for tag in carrier::tag_line(&self.src[start..end]).unwrap_or_default() {
+                let at = start + tag.span.start;
+                self.held.extend(CarrierTag::of(&tag, true, at).map(Fixed::Carrier));
+            }
+            let mut next = self.read();
+            while let Some((Event::InlineHtml(_) | Event::Text(_), range)) = &next {
+                if range.start >= end {
+                    break;
+                }
+                next = self.read();
+            }
+            let Some((event, range)) = next else { return };
+            if !matches!(event, Event::SoftBreak | Event::HardBreak) {
+                self.ahead = Some((event, range));
+                return;
+            }
+            let Some((event, range)) = self.read() else { return };
+            match self.tag_line(&event, &range) {
+                Some(line_end) => (start, end) = (range.start, line_end),
+                None => {
+                    self.held.push_back(Fixed::Event(Event::Start(Tag::Paragraph)));
+                    self.ahead = Some((event, range));
+                    return;
+                }
+            }
         }
     }
 
@@ -1570,7 +1657,26 @@ where
     /// One event as the builder takes it, or `None` for one that drops or
     /// that `held` now carries.
     fn fix(&mut self, event: Event<'a>, range: Range<usize>) -> Option<Fixed<'a>> {
+        let opens = matches!(event, Event::Start(Tag::Paragraph | Tag::Item) | Event::TaskListMarker(_));
+        let line_start = std::mem::replace(&mut self.line_start, opens);
+        if line_start {
+            if let Some(end) = self.tag_line(&event, &range) {
+                self.take_tag_lines(range.start, end);
+                return None;
+            }
+        }
         Some(match event {
+            Event::SoftBreak | Event::HardBreak if self.depth == 0 => {
+                let (next, at) = self.read()?;
+                match self.tag_line(&next, &at) {
+                    Some(end) => {
+                        self.take_tag_lines(at.start, end);
+                        return None;
+                    }
+                    None => self.ahead = Some((next, at)),
+                }
+                Fixed::Event(event)
+            }
             Event::Start(Tag::HtmlBlock) => {
                 self.drop_html_block(range.start);
                 return None;
@@ -1619,7 +1725,7 @@ where
             if let Some(item) = self.held.pop_front() {
                 return Some(item);
             }
-            let (event, range) = self.inner.next()?;
+            let (event, range) = self.read()?;
             if let Some(item) = self.fix(event, range) {
                 return Some(item);
             }
@@ -2321,8 +2427,8 @@ mod tests {
     }
 
     /// A line holding only carrier tags reads as tag lines wherever it
-    /// stands: set apart from the markdown above and below it, inside the
-    /// containers its line stands in, each tag on a line of its own.
+    /// stands, in the containers CommonMark puts it in, lazy continuation
+    /// included.
     #[test]
     fn a_line_of_carrier_tags_reads_as_tag_lines_wherever_it_stands() {
         let cases: &[(&str, &str, &[&[&str]])] = &[
@@ -2333,7 +2439,7 @@ mod tests {
             ("A\n    <qm-keep>\nB\n</qm-keep>", "A\nB", &[&[], &["element"]]),
             ("A\\\n</qm-keep>\nB", "A\nB", &[&[], &[]]),
             ("- a\n  <qm-keep>\n  b\n  </qm-keep>", "a\nb", &[&["list_item"], &["list_item", "element"]]),
-            ("1. a\n<qm-keep>\n2. b\n</qm-keep>", "a\nb", &[&["list_item"], &["element", "list_item"]]),
+            ("> A\n<qm-keep>\n> B\n> </qm-keep>", "A\nB", &[&["quote"], &["quote", "element"]]),
             ("> A\n> <qm-keep>\n> B\n> </qm-keep>", "A\nB", &[&["quote"], &["quote", "element"]]),
             ("<qm-sig></qm-sig>", "", &[&["element"]]),
             ("<qm-sig name=\"a\"></qm-sig>\n<qm-sig name=\"b\"></qm-sig>", "\n", &[&["element"], &["element"]]),
@@ -2350,6 +2456,33 @@ mod tests {
 
         let void = &imp_fixed("<qm-sig>\n</qm-sig>").content;
         assert_eq!(crate::export::to_markdown(void), "<qm-sig></qm-sig>");
+
+        let split = imp_fixed("1. a\n<qm-keep>\n2. b\n</qm-keep>");
+        assert_eq!(container_tags(&split.content), [["list_item"], ["list_item"]]);
+        assert_eq!(dropped(&split), [("qm-keep", 1)]);
+    }
+
+    /// The text under a tag line in a paragraph reads as the paragraph read
+    /// it, a line opening a block in a fresh paragraph included, and exports
+    /// to markdown that imports the same.
+    #[test]
+    fn the_text_under_a_tag_line_keeps_its_paragraph_reading() {
+        let cases: &[(&str, &str, &[&[&str]])] = &[
+            ("A\n<qm-keep>\n[x]: /url\nB\n</qm-keep>", "A\n[x]: /url B", &[&[], &["element"]]),
+            ("A\n<qm-sig></qm-sig>\n    code", "A\n\ncode", &[&[], &["element"], &[]]),
+            ("A\n<qm-sig></qm-sig>\n2. b", "A\n\n2. b", &[&[], &["element"], &[]]),
+            ("A\n<qm-sig></qm-sig>\n<qm-x>\nB\n</qm-x>", "A\n\nB", &[&[], &["element"], &["element"]]),
+            ("> <qm-sig></qm-sig>\nB", "\nB", &[&["quote", "element"], &["quote"]]),
+            ("- a\n  <qm-sig></qm-sig>\nb", "a\n\nb", &[&["list_item"], &["list_item", "element"], &["list_item"]]),
+            ("> A\n> <qm-keep>\nB\n> </qm-keep>", "A\nB", &[&["quote"], &["quote", "element"]]),
+        ];
+        for (md, text, tags) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.text, *text, "{md:?}");
+            assert_eq!(container_tags(&imported.content), *tags, "{md:?}");
+            let again = imp_fixed(&crate::export::to_markdown(&imported.content));
+            assert_eq!(again.content, imported.content, "{md:?}");
+        }
     }
 
     /// A line of tags that are not all carrier ones, or one inside a mark,

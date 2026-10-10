@@ -30,7 +30,7 @@ Autolinks beyond CommonMark's and other GFM features are **not** enabled.
 
 Markdown has no syntax for column widths, table placement or keeping a block on one page. Quillmark spells them with `qm-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
 
-Each `qm-*` tag stands on a line of its own. Quillmark reads the line wherever it stands, and export writes a blank line above and below it, which GitHub and other CommonMark viewers need to render the markdown it wraps:
+Each `qm-*` tag stands on a line of its own, or beside other `qm-*` tags with no text between. Quillmark reads such a line wherever it stands, tight against a paragraph or a table included, and export writes a blank line above and below it, which GitHub and other CommonMark viewers need to render the markdown it wraps:
 
 ```markdown
 <qm-keep>
@@ -41,7 +41,7 @@ J. Doe
 </qm-keep>
 ```
 
-A tag inside a line of text and a tag left open drop, keeping what they wrap, with a `parse::dropped_construct` warning whose hint names the fix. A self-closing tag (`<qm-keep/>`) is an open tag, as HTML reads it, so it drops too.
+A tag inside a line of text, in a heading, emphasis or a link, or left open drops, keeping what it wraps, with a `parse::dropped_construct` warning whose hint names the fix. A self-closing tag (`<qm-keep/>`) is an open tag, as HTML reads it, so it drops too. A tag line directly under a quote's or list item's text continues it, as CommonMark reads it, so its pair belongs in that quote or item.
 
 ### Table widths and placement
 
