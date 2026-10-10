@@ -1063,8 +1063,9 @@ fn cell_markup(text: &str, marks: &[Mark]) -> String {
 ///
 /// - `widths`: `columns: (2fr, auto)` in place of `columns: 2`.
 /// - `align`: `align(center, table(…))` under `context`, where each cell
-///   aligning by default is set to the alignment the table stands in, so
-///   placing a table moves no text inside it.
+///   aligning by default is set to the horizontal alignment the table stands
+///   in, so placing a table moves no text inside it, save a horizontal
+///   alignment the plate's own `table.cell` show rule sets.
 /// - a cell's `align` and `valign`: `table.cell(align: right + bottom)[…]`,
 ///   which Typst folds with its column's alignment.
 /// - `headless`: the header row as the first body row, outside `table.header`.
@@ -1155,7 +1156,7 @@ fn table_markup(props: &serde_json::Value) -> String {
     }
     out.push(')');
     match layout.align {
-        Some(at) => format!("#context {{ show table.cell: set align(align.alignment); align({at}, {out}) }}"),
+        Some(at) => format!("#context {{ show table.cell: set align(align.alignment.x); align({at}, {out}) }}"),
         None => format!("#{out}"),
     }
 }
