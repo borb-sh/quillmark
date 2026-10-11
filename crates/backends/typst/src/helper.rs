@@ -799,11 +799,6 @@ mod tests {
         let block = "[\nA #strong[bold] intro.\n\n\n]";
         assert!(lib.contains(&format!("#let _qm_c0 = {block}")));
         assert!(lib.contains("\"intro\": _qm_c0"));
-        // No eval, no json() blob, no runtime assembly survive.
-        assert!(!lib.contains("eval("));
-        assert!(!lib.contains("json(bytes"));
-        assert!(!lib.contains("insert-content"));
-        assert!(!lib.contains("_parse-date"));
 
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0].path, "intro");

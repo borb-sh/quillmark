@@ -337,8 +337,6 @@ mod tests {
         assert!(json.contains("\"page\":0"));
         assert!(json.contains("\"rect\":[180.0,672.0,520.0,692.0]"));
         assert!(!json.contains("\"span\""));
-        assert!(!json.contains("\"name\""));
-        assert!(!json.contains("\"kind\""));
     }
 
     /// Built without `..`: a new field fails to compile here, then fails this

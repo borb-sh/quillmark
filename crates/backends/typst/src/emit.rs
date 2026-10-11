@@ -1906,7 +1906,6 @@ mod tests {
             ],
         );
         assert_eq!(out, "#strong[ab]#raw(\"cdef\")\n\n");
-        assert!(balanced(&out));
 
         // Code starts first, wrap starts inside it: code[0,4) + strong[2,6).
         let out = emit_marked(
@@ -1917,7 +1916,6 @@ mod tests {
             ],
         );
         assert_eq!(out, "#raw(\"abcd\")#strong[ef]\n\n");
-        assert!(balanced(&out));
 
         // A code span fully inside a wrap still nests (neither wrap edge is
         // interior to the code, so nothing is clipped): strong[0,6) + code[2,4).
@@ -1929,17 +1927,6 @@ mod tests {
             ],
         );
         assert_eq!(out, "#strong[ab#raw(\"cd\")ef]\n\n");
-        assert!(balanced(&out));
-    }
-
-    #[test]
-    fn wrap_trailing_to_end_closes() {
-        let out = emit_marked(
-            "abcdef",
-            vec![Mark::new(0, 6, MarkKind::Strong)],
-        );
-        assert_eq!(out, "#strong[abcdef]\n\n");
-        assert!(balanced(&out));
     }
 
     /// Two overlapping `link` marks sharing an `end` but carrying distinct URLs

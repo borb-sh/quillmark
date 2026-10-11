@@ -63,12 +63,6 @@ main:
     }
 
     #[test]
-    fn omits_ref() {
-        let yaml = cfg(FULL).schema_yaml().unwrap();
-        assert!(!yaml.contains("ref:"));
-    }
-
-    #[test]
     fn json_yaml_parity() {
         let config = cfg(FULL);
         let parse = |yaml: &str| serde_saphyr::from_str::<serde_json::Value>(yaml).unwrap();

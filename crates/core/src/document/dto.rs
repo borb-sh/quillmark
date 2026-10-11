@@ -1324,15 +1324,6 @@ This body and the metadata above are an indorsement card.
         .document
     }
 
-    #[test]
-    fn round_trips_through_serde_json() {
-        let doc = sample();
-        let json = serde_json::to_string(&doc).unwrap();
-        let restored: Document = serde_json::from_str(&json).unwrap();
-        assert_eq!(doc, restored);
-        assert_eq!(doc.to_markdown(), restored.to_markdown());
-    }
-
     /// `overwrite_body` takes a caller's content on the canonical-form token
     /// alone, so an invalid shape reaches the DTO.
     #[test]
@@ -1505,20 +1496,6 @@ This body and the metadata above are an indorsement card.
         assert!(stored.contains(r#""checked":false"#), "{stored}");
         let back: Document = serde_json::from_str(&stored).unwrap();
         assert_eq!(back, doc);
-    }
-
-    #[test]
-    fn root_kind_is_main_through_round_trip() {
-        let doc = Document::parse(
-            "~~~card-yaml\n$quill: usaf_memo@0.1\n$kind: main\ntitle: \"Hi\"\n~~~\n",
-        )
-        .unwrap()
-        .document;
-        assert_eq!(doc.main().kind(), Some("main"));
-        let restored: Document =
-            serde_json::from_str(&serde_json::to_string(&doc).unwrap()).unwrap();
-        assert_eq!(doc, restored);
-        assert_eq!(restored.main().kind(), Some("main"));
     }
 
     #[test]

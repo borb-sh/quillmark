@@ -523,35 +523,6 @@ fn test_unmatched_chevrons_preserved() {
     assert_eq!(doc.main().body_markdown(), "\\<\\<unmatched");
 }
 
-#[test]
-fn test_line_ending_normalization() {
-    for markdown in [
-        "~~~card-yaml\r\n$quill: test_quill\r\n$kind: main\r\ntitle: Test\r\n~~~\r\n\r\nBody content.",
-        "~~~card-yaml\n$quill: test_quill\r\n$kind: main\r\ntitle: Test\r\n~~~\n\nBody.",
-    ] {
-        let doc = decompose(markdown).unwrap();
-        assert_eq!(
-            doc.main().payload().get("title").unwrap().as_str().unwrap(),
-            "Test"
-        );
-    }
-}
-
-#[test]
-fn crlf_input_leaves_no_carriage_return_in_comment_text() {
-    let markdown = "~~~card-yaml\r\n$quill: test_quill\r\n$kind: main\r\n# standalone\r\ntitle: Test # trailing\r\n~~~\r\n\r\nBody.";
-    let doc = decompose(markdown).unwrap();
-    let emitted = doc.to_markdown();
-    assert!(
-        !emitted.contains('\r'),
-        "emit is LF-only, got: {emitted:?}"
-    );
-    assert!(
-        emitted.contains("# trailing\n") && emitted.contains("# standalone\n"),
-        "comment text kept its content, got: {emitted:?}"
-    );
-}
-
 /// The YAML scalar forms a card-yaml block admits, and the value each parses
 /// to. What survives *emission* is `emit`'s own scalar round-trips.
 #[test]

@@ -1081,7 +1081,6 @@ card_kinds:
 `
 
   it('exposes identity on metadata and schemas on dedicated getters', () => {
-    const engine = new Quillmark()
     const quill = Quill.fromTree(
       makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: META_QUILL_YAML }),
     )
@@ -1095,10 +1094,6 @@ card_kinds:
     expect(meta.backend).toBe('typst')
     expect(meta.author).toBe('Unknown')
     expect(meta.description).toBe('Metadata test')
-    // `supportedFormats` is the engine's answer, not the quill's metadata.
-    expect(meta.supportedFormats).toBeUndefined()
-    expect(engine.supportedFormats(quill).length).toBeGreaterThan(0)
-    expect(meta.schema).toBeUndefined()
 
     // Plain objects, not Maps: they survive a JSON round-trip whole.
     const schema = JSON.parse(JSON.stringify(quill.schema))

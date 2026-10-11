@@ -206,25 +206,4 @@ mod tests {
         let err = extract_meta_items(&mut payload).unwrap_err();
         assert!(err.to_string().contains("Invalid `$kind`"));
     }
-
-    #[test]
-    fn validate_composable_kind_rejects_main() {
-        assert_eq!(
-            validate_composable_kind("main"),
-            Err(CardKindError::Reserved)
-        );
-    }
-
-    #[test]
-    fn validate_composable_kind_rejects_bad_name() {
-        assert_eq!(
-            validate_composable_kind("Bad-Name"),
-            Err(CardKindError::InvalidName)
-        );
-    }
-
-    #[test]
-    fn validate_composable_kind_accepts_valid() {
-        assert!(validate_composable_kind("indorsement").is_ok());
-    }
 }

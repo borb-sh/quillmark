@@ -110,10 +110,9 @@ jobs:
       - name: Tests
         run: cargo test --workspace --all-features --locked
 
-      # --all-features forces `typst` on, so the zero-backend branch, the
-      # "no backends registered" path in orchestration/engine.rs and the
-      # `#[cfg(not(feature = "typst"))]` half of feature_flag_test.rs, never
-      # compiles above. The WASM `core` variant has this covered by
+      # --all-features forces `typst` on, so the zero-backend branch and the
+      # "no backends registered" path in orchestration/engine.rs never
+      # compile above. The WASM `core` variant has this covered by
       # build-wasm.sh + core.test.js; this is the native equivalent.
       - name: Tests (zero-backend configuration)
         run: cargo test -p quillmark --no-default-features --locked

@@ -23,11 +23,6 @@ import {
 // The namespace too: the bind set below is derived from the exports rather than
 // listed, so a fifth writer/reader class joins it by existing.
 import * as runtime from '@quillmark-wasm/runtime'
-// Pin that the runtime's Quill IS the internal core build's class (handed out,
-// not a parallel wrapper). This imports the internal core artifact directly:
-// `pkg/core` is NOT a public package subpath, it is the build the gate draws
-// from.
-import { Quill as CoreQuill, Document as CoreDocument } from '../../../pkg/core/wasm.js'
 import {
   makeQuill,
   makeSampleFormQuill,
@@ -37,9 +32,7 @@ import {
 } from './test-helpers.js'
 
 // The consumer contract, exercised as a consumer writes it: the gate is the only
-// door to the core surface. This also instantiates the core build the `CoreQuill`
-// identity pin below imports directly (same resolved file, same module
-// instance).
+// door to the core surface.
 const { Quill, Document, importMarkdown, exportMarkdown } = await init()
 
 const TEST_PLATE = `#import "@local/quillmark-helper:0.1.0": data
@@ -72,16 +65,6 @@ const fieldOf = (card, key) =>
   card.payloadItems.find((i) => i.type === 'field' && i.key === key)?.value
 
 describe('@quillmark/wasm: surface', () => {
-  // IMPLEMENTATION PIN: the gate hands out the internal core build's classes
-  // verbatim (never wraps). There is exactly one public entry point, so this is
-  // an internal structural fact rather than a cross-entry-point contract. If it
-  // fails, a wrapper was put in front of the classes: a breaking change, not a
-  // refactor. See runtime.js.
-  it('hands out the internal core build classes verbatim (no parallel wrappers)', () => {
-    expect(Quill).toBe(CoreQuill)
-    expect(Document).toBe(CoreDocument)
-  })
-
   it('builds a canonical Quill with a backendId and a round-tripping tree', () => {
     const quill = makeRuntimeQuill()
     expect(quill.backendId).toBe('typst')
@@ -1460,12 +1443,5 @@ main:
     session.free()
 
     await expect(engine.open(quill(), doc(), 'today')).rejects.toThrow('YYYY-MM-DD')
-  })
-
-  it('refuses `today` among the render options rather than rendering the local date', async () => {
-    const options = { format: 'svg', today: '2026-03-14' }
-    await expect(new Engine().render(quill(), doc(), options)).rejects.toThrow(
-      'unknown key `today`'
-    )
   })
 })

@@ -567,20 +567,20 @@ fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
 #[test]
 fn crlf_input_parses_as_its_lf_twin() {
     let lf = "~~~card-yaml\n$quill: q\n$kind: main\n# note\nx: # trailing\ny: keep\n~~~\n\nBody.\n";
-    let crlf = lf.replace('\n', "\r\n");
-
     let lf_out = Document::parse(lf).unwrap();
-    let crlf_out = Document::parse(&crlf).unwrap();
 
-    assert!(
-        crlf_out.warnings.is_empty(),
-        "CRLF input must parse without warnings; got: {:?}",
-        crlf_out.warnings
-    );
-    assert_eq!(
-        crlf_out.document, lf_out.document,
-        "CRLF and LF input must parse to the same document"
-    );
+    for crlf in [lf.replace('\n', "\r\n"), lf.replacen('\n', "\r\n", 3)] {
+        let crlf_out = Document::parse(&crlf).unwrap();
+        assert!(
+            crlf_out.warnings.is_empty(),
+            "CRLF input must parse without warnings; got: {:?}",
+            crlf_out.warnings
+        );
+        assert_eq!(
+            crlf_out.document, lf_out.document,
+            "CRLF and LF input must parse to the same document"
+        );
+    }
 }
 
 /// `key: !t` inside a block or quoted scalar is that scalar's text, kept

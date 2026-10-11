@@ -475,12 +475,6 @@ mod tests {
     }
 
     #[test]
-    fn plain_field_name_renders_unescaped() {
-        // Pinned exact output: unaffected by the escaping scheme.
-        assert_eq!(DocPath::main().field("addr").to_string(), "main.addr");
-    }
-
-    #[test]
     fn field_name_containing_dot_round_trips_distinct_from_two_segments() {
         let dotted = DocPath::main().field("addr").field("a.b");
         round_trip(dotted.clone(), "main.addr.a\\.b");

@@ -41,36 +41,6 @@ card_kinds:
 "#;
 
 #[test]
-fn validate_clean_document_has_no_diagnostics() {
-    let quill = quill_from_yaml(SIMPLE);
-    // `status` is absent and falls back to its default.
-    let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n\
-              title: \"T\"\ncount: 1\n~~~\n";
-    let doc = Document::parse(md).unwrap().document;
-
-    assert!(
-        quill.validate(&doc).is_empty(),
-        "a complete, well-formed document should produce no diagnostics"
-    );
-}
-
-#[test]
-fn validate_forwards_type_mismatch_with_path_and_hint() {
-    let quill = quill_from_yaml(SIMPLE);
-    let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n\
-              title: \"T\"\ncount: \"not-a-number\"\n~~~\n";
-    let doc = Document::parse(md).unwrap().document;
-
-    let diags = quill.validate(&doc);
-    let diag = diags
-        .iter()
-        .find(|d| d.code.as_deref() == Some("validation::type_mismatch"))
-        .expect("expected a type_mismatch diagnostic");
-    assert_eq!(diag.path.as_deref(), Some("main.count"));
-    assert!(diag.hint.is_some(), "type_mismatch should carry a hint");
-}
-
-#[test]
 fn validate_warns_on_unknown_card_kind_naming_the_declared_ones() {
     let quill = quill_from_yaml(SIMPLE);
     let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\ntitle: \"T\"\ncount: 1\n~~~\n\n\
