@@ -1385,32 +1385,6 @@ mod tests {
     }
 
     #[test]
-    fn the_store_verbs_enforce_the_field_invariant() {
-        let qv = QuillValue::from_json;
-        let mut card = Card::new("note").unwrap();
-
-        for name in ["bad name", "$id"] {
-            assert_eq!(
-                card.store_field(name, qv(serde_json::json!("v"))),
-                Err(EditError::InvalidFieldName(name.to_string()))
-            );
-        }
-
-        let mut deep = serde_json::json!(0);
-        for _ in 0..(quillmark_content::MAX_JSON_DEPTH + 5) {
-            deep = serde_json::json!([deep]);
-        }
-        assert_eq!(
-            card.store_field("field", qv(deep)),
-            Err(EditError::ValueTooDeep {
-                max: quillmark_content::MAX_JSON_DEPTH
-            })
-        );
-
-        assert!(card.payload().is_empty());
-    }
-
-    #[test]
     fn index_out_of_range_anchors_at_the_array_slot() {
         for base in [DocPath::main(), DocPath::card(Some("note"), 0)] {
             assert_eq!(

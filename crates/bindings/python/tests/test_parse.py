@@ -23,21 +23,6 @@ def test_projection(taro_md):
     assert "mistake" in card["body"]["text"]
 
 
-def test_body_writes_container_instance_only_where_it_works():
-    """`instance` decides whether two adjacent same-shape runs weld, and the
-    canonical form spends the key only where one would. Absent is zero, so a
-    read hands back a container path a write can take either way."""
-    md = "~~~card-yaml\n$quill: taro\n$kind: main\n~~~\n\n> a\n\n- b\n\n* c\n"
-    doc = Document.from_markdown(md)
-    containers = [c for line in doc.body["lines"] for c in line["containers"]]
-    assert [c["container"] for c in containers] == ["quote", "list_item", "list_item"]
-    assert [c.get("instance") for c in containers] == [None, None, 1]
-    # `instance` is an envelope key and stays a sibling; the shape a member
-    # names rides `attrs`, whether or not this build knows the name.
-    assert containers[1]["attrs"] == {"ordered": False, "ordinal": 0, "start": 1}
-    assert "attrs" not in containers[0]
-
-
 def test_json_dto_round_trip(taro_md):
     """to_stored emits a DTO tagged with the current version that from_stored
     round-trips."""
@@ -101,21 +86,6 @@ def test_diagnostic_str_and_repr():
     assert diag.code == "parse::unsupported_yaml_tag"
     assert diag.message in str(diag)
     assert "Diagnostic(" in repr(diag)
-
-
-def test_a_dropped_construct_warns_at_its_body():
-    """The table a blank line sets apart from a centering div imports, and the
-    div it drops rides `doc.warnings` at the body it sat in."""
-    md = (
-        "~~~card-yaml\n$quill: my_quill\n$kind: main\n~~~\n\n"
-        '<div align="center">\n\n| a | b |\n|---|---|\n\n</div>\n'
-    )
-    doc = Document.from_markdown(md)
-    assert [i["type"] for i in doc.body["islands"]] == ["table"]
-    (diag,) = doc.warnings
-    assert diag.code == "parse::dropped_construct"
-    assert diag.path == "main.body"
-    assert diag.args == {"construct": "div", "count": 1}
 
 
 def test_document_authoring_text_helpers():

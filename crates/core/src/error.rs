@@ -991,7 +991,7 @@ card_kinds:
     fn out_of_scope_codes_carry_no_args() {
         let diags = crate::quill::QuillConfig::from_yaml_with_warnings(
             r#"
-Quill:
+quill:
   name: t
   version: "1.0"
   backend: typst
@@ -1007,11 +1007,10 @@ main:
         .expect_err("a default that contradicts its type fails config validation");
 
         assert!(
-            diags.iter().any(|d| d
-                .code
-                .as_deref()
-                .is_some_and(|c| c.starts_with("quill::"))),
-            "expected a quill:: diagnostic, got {:?}",
+            diags
+                .iter()
+                .any(|d| d.code.as_deref() == Some("quill::default_type_mismatch")),
+            "expected quill::default_type_mismatch, got {:?}",
             diags.iter().map(|d| &d.code).collect::<Vec<_>>()
         );
         for d in &diags {

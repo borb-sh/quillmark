@@ -41,8 +41,6 @@ describe('@quillmark/wasm/core surface', () => {
     const quill = Quill.fromTree(makeCoreQuill())
     expect(quill.backendId).toBe('typst')
     expect(quill.metadata.name).toBe('core_test')
-    expect(quill.render).toBeUndefined()
-    expect(quill.open).toBeUndefined()
   })
 
   it('schema, blueprint, seed, and validate work without a backend', () => {

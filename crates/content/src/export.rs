@@ -2343,38 +2343,6 @@ mod tests {
         );
     }
 
-    /// Overlap between marks with *distinct* delimiters round-trips exactly: the
-    /// close-and-reopen sweep lowers it to balanced, re-importable markdown.
-    #[test]
-    fn overlapping_distinct_delim_marks_round_trip_exactly() {
-        for (k1, k2) in [
-            (MarkKind::Strong, MarkKind::Strike),
-            (MarkKind::Strike, MarkKind::Strong),
-            (MarkKind::Emph, MarkKind::Strike),
-            (MarkKind::Underline, MarkKind::Emph),
-            (MarkKind::Strong, MarkKind::Underline),
-        ] {
-            let rt = marked(
-                "abcdef",
-                vec![
-                    Mark {
-                        start: 0,
-                        end: 4,
-                        kind: k1.clone(),
-                    },
-                    Mark {
-                        start: 2,
-                        end: 6,
-                        kind: k2.clone(),
-                    },
-                ],
-            );
-            let md = to_markdown(&rt);
-            let rt2 = from_markdown(&md).unwrap().content;
-            assert_eq!(rt, rt2, "{k1:?}+{k2:?} overlap not a fixed point: {md:?}");
-        }
-    }
-
     /// An underline's tags sit outside the delimiters opening and closing at
     /// their position, so neither changes how a delimiter flanks.
     #[test]

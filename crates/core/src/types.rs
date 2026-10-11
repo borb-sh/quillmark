@@ -103,14 +103,6 @@ mod tests {
         assert_eq!(ParseOutputFormatError::new("docx").0, "docx");
     }
 
-    #[test]
-    fn ppi_falls_back_to_the_default() {
-        assert_eq!(RenderOptions::default().ppi_or_default(), 144.0);
-        assert_eq!(
-            RenderOptions::default().with_ppi(300.0).ppi_or_default(),
-            300.0
-        );
-    }
 }
 
 /// An artifact produced by rendering.

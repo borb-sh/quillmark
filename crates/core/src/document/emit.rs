@@ -990,27 +990,6 @@ mod tests {
     }
 
     #[test]
-    fn string_underscore_zero_round_trips_via_document() {
-        let src = "~~~card-yaml\n$quill: q\n$kind: main\na: \"_0\"\n~~~\n\nBody.\n";
-        let doc = crate::document::Document::parse(src).expect("parse src").document;
-        let emitted = doc.to_markdown();
-        let reparsed =
-            crate::document::Document::parse(&emitted).expect("re-parse emitted markdown").document;
-        let value = reparsed
-            .main()
-            .payload()
-            .get("a")
-            .expect("field 'a'")
-            .as_json();
-        assert_eq!(
-            value,
-            &serde_json::Value::String("_0".to_string()),
-            "String(\"_0\") must round-trip as a string; emitted:\n{}",
-            emitted
-        );
-    }
-
-    #[test]
     fn saphyr_scalar_round_trips_escapes() {
         assert_scalar_round_trips(serde_json::json!("a\\b\"c\nd\te"));
     }

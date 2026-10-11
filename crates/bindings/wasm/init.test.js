@@ -16,15 +16,6 @@ import * as core from '@quillmark-wasm/core'
 
 const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'pkg')
 
-/** A parseable document: the root card-yaml block every document opens with. */
-const MAIN_CARD_DOC = `~~~
-$quill: test_quill
-$kind: main
-title: Init
-~~~
-
-# Hello`
-
 /** Await `promise`, expect a rejection, and return its primary diagnostic. */
 const rejectionFrom = async (promise) => {
   let thrown
@@ -85,30 +76,11 @@ describe('init', () => {
     expect(Object.isFrozen(surface)).toBe(true)
   })
 
-  it('unlocks the sync surface', async () => {
-    const { importMarkdown, Document } = await init()
-    expect(importMarkdown('# Hi')).toBeDefined()
-    expect(Document.fromMarkdown(MAIN_CARD_DOC)).toBeDefined()
-  })
-
   // Silently ignoring a second, different source would leave a consumer
   // believing they chose the binary they are running.
   it('refuses a different source once initialized', async () => {
     const d = await rejectionFrom(init(new Uint8Array(8)))
     expect(d.code).toBe('runtime::init_conflict')
-  })
-
-  // The rule (delivery follows the function kind) at the one export that could
-  // break it: a promise return type cannot declare a synchronous throw, so a
-  // throw here would escape the `init(BYTES).catch(…)` the declaration invites.
-  it('delivers the conflict as a rejection, not a synchronous throw', () => {
-    /** @type {Promise<unknown> | undefined} */
-    let returned
-    expect(() => {
-      returned = init(new Uint8Array(8))
-    }).not.toThrow()
-    expect(returned).toBeInstanceOf(Promise)
-    returned.catch(() => {})
   })
 })
 

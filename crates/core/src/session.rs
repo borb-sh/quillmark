@@ -469,21 +469,6 @@ main:
                 span: Some([0, 3]),
             }]
         }
-        fn position_at(&self, _: usize, _: f32, _: f32, _: f32) -> Option<ContentHit> {
-            Some(ContentHit {
-                field: "subject".to_string(),
-                pos: 2,
-                granularity: Some(crate::region::HitGranularity::Cluster),
-            })
-        }
-        fn locate(&self, field: &str, pos: usize) -> Option<RenderedRegion> {
-            Some(RenderedRegion {
-                field: field.to_string(),
-                page: 0,
-                rect: [1.0, 2.0, 1.0, 4.0],
-                span: Some([pos, pos]),
-            })
-        }
         fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
             letter_page(page, self.page_count())
         }

@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn known_types_round_trip() {
-        for k in [IslandType::Table, IslandType::Image] {
+        for &k in IslandType::ALL {
             assert_eq!(IslandType::parse(k.as_str()), Some(k));
         }
     }

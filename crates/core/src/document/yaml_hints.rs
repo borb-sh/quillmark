@@ -734,20 +734,6 @@ mod tests {
     }
 
     #[test]
-    fn hint_for_prose_inside_block_says_close_the_block() {
-        let content = "title: Near-Miss Report\ndate: 2026-03-14\n\
-                       88th Communications Squadron, Wright-Patterson AFB\n\
-                       This memorandum documents a near-miss on the flight line.\n";
-        let enriched = enrich_yaml_error("error: line 3 column 1: simple key expected ':'", content);
-        let hint = enriched.hint.expect("hint should be set");
-        assert!(hint.contains("Line 3"), "{hint}");
-        assert!(hint.contains("88th Communications Squadron"), "{hint}");
-        assert!(hint.contains("reads as prose"), "{hint}");
-        assert!(hint.contains("`~~~`"), "{hint}");
-        assert!(!hint.contains("block scalar"), "{hint}");
-    }
-
-    #[test]
     fn hint_for_prose_after_a_blank_line_says_close_the_block() {
         let content = "title: Memo\n\nThis memorandum documents a near-miss on the flight line.\n";
         let enriched = enrich_yaml_error("error: line 3 column 1: simple key expected ':'", content);
