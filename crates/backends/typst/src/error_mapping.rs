@@ -143,25 +143,20 @@ mod tests {
         CalendarDate::new(2026, 3, 14).expect("a calendar day")
     }
 
-    /// `None` when the fixture is absent (a stripped checkout).
-    fn walk_fixture() -> Option<FileTreeNode> {
-        let quill_path = quillmark_fixtures::quills_path("usaf_memo");
-        if !quill_path.exists() {
-            return None;
-        }
-        Some(quillmark::tree_from_path(quill_path).expect("walk fixture"))
+    fn walk_fixture() -> FileTreeNode {
+        quillmark::tree_from_path(quillmark_fixtures::quills_path("usaf_memo"))
+            .expect("walk fixture")
     }
 
-    fn fixture_world() -> Option<QuillWorld> {
-        let tree = walk_fixture()?;
-        let source = Quill::from_tree(tree).expect("load source");
+    fn fixture_world() -> QuillWorld {
+        let source = Quill::from_tree(walk_fixture()).expect("load source");
         let plate = crate::read_plate(&source).expect("plate");
-        Some(QuillWorld::new(&source, &plate).expect("create world"))
+        QuillWorld::new(&source, &plate).expect("create world")
     }
 
     /// The fixture's `typst.plate_file: plate.typ` makes the backend read this.
-    fn source_with_plate(plate: &str) -> Option<Quill> {
-        let mut tree = walk_fixture()?;
+    fn source_with_plate(plate: &str) -> Quill {
+        let mut tree = walk_fixture();
         if let FileTreeNode::Directory { files } = &mut tree {
             files.insert(
                 "plate.typ".to_string(),
@@ -170,7 +165,7 @@ mod tests {
                 },
             );
         }
-        Some(Quill::from_tree(tree).expect("load source"))
+        Quill::from_tree(tree).expect("load source")
     }
 
     /// Messages Typst 0.15.1 emits, taken from a compile of each case.
@@ -222,9 +217,7 @@ mod tests {
 
     #[test]
     fn unresolvable_span_keeps_existing_typst_hint() {
-        let Some(world) = fixture_world() else {
-            return;
-        };
+        let world = fixture_world();
 
         let diag = SourceDiagnostic::error(Span::detached(), "unexpected closing bracket")
             .with_hint("try using a backslash escape: \\]");
@@ -243,11 +236,9 @@ mod tests {
     /// the code stays the shape's.
     #[test]
     fn a_missing_file_codes_by_shape_through_a_compile() {
-        let Some(source) = source_with_plate(
+        let source = source_with_plate(
             "#set page(width: 200pt, height: 200pt)\n#image(\"assets/marc.png\")\n",
-        ) else {
-            return;
-        };
+        );
 
         let diags = match TypstBackend.open(&source, &serde_json::json!({}), test_date()) {
             Ok(session) => session
@@ -275,9 +266,7 @@ mod tests {
 
     #[test]
     fn resolvable_eval_error_is_unchanged() {
-        let Some(source) = source_with_plate(EVAL_ERROR_PLATE) else {
-            return;
-        };
+        let source = source_with_plate(EVAL_ERROR_PLATE);
 
         // Compilation happens during `open`, so the error may surface there.
         let diags = match TypstBackend.open(&source, &serde_json::json!({}), test_date()) {

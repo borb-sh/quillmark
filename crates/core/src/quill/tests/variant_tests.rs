@@ -640,9 +640,20 @@ fn the_transform_schema_flattens_every_world_into_one_container() {
 #[test]
 fn the_declaration_schema_round_trips_through_a_reload() {
     let emitted = config().schema();
-    let variants = &emitted["main"]["fields"]["classification"]["variants"];
-    assert_eq!(variants["CUI"]["controlled_by"]["type"], json!("string"));
-    assert_eq!(variants["SECRET"]["declassify_on"]["type"], json!("string"));
+    let reloaded = QuillConfig::from_yaml(
+        &serde_json::to_string(&json!({
+            "quill": {
+                "name": "variant_probe",
+                "version": "0.1.0",
+                "backend": "typst",
+                "description": "Enum variant probe",
+            },
+            "main": emitted["main"],
+        }))
+        .unwrap(),
+    )
+    .expect("the declaration view reloads");
+    assert_eq!(reloaded.schema(), emitted);
 }
 
 /// A container-shaped `default:` is refused at load, and the diagnostic names
