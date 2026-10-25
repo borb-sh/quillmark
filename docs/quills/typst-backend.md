@@ -301,7 +301,7 @@ Then reference them by family name (`#set text(font: "CustomFont")`).
 
 ### Font runs in content
 
-Text a writer sets in a family, a [`qm-font`](../authoring/markdown-syntax.md#font-family) pair, lowers through the helper. The family goes ahead of the font list in force, so a character it lacks falls through to the plate's font, and a family no loaded font holds keeps the plate's font and warns `typst::unknown_font_family`. Code spans and equations keep their own font. Ship every face the plate names, so the quill renders as designed with no font from the app; a family a writer picks deviates from that default.
+Text a writer sets in a family, a [`qm-font`](../authoring/markdown-syntax.md#font-family) pair, lowers through the helper. The family goes ahead of the font list in force, so a character it lacks falls through to the plate's font, and a family the app's library lacks keeps the plate's font and warns `typst::unknown_font_family`. A writer picks only from the app's library: the quill's own fonts set the plate alone. Code spans and equations keep their own font. Ship every face the plate names, so the quill renders as designed with no font from the app; a family a writer picks deviates from that default.
 
 ## Images
 

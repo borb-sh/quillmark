@@ -121,8 +121,8 @@ A task item's body lowers the same way, through the renderer a plate sets on
 | `mark.code` | spells | spells | spells | honors | silent: honored | none |
 | `mark.link` | spells | spells | spells | honors | silent: honored | none |
 | `mark.anchor` | carries opaquely | spells | spells | honors | silent: honored | none |
-| `mark.font_family`: a run in a family a session font holds | spells | spells | spells | honors | silent: honored | none |
-| `mark.font_family.unknown`: a run in a family no session font holds | spells | spells | spells | declines with a signal | drops silently | `typst::unknown_font_family` |
+| `mark.font_family`: a run in a family the host library holds | spells | spells | spells | honors | silent: honored | none |
+| `mark.font_family.unknown`: a run in a family the host library lacks | spells | spells | spells | declines with a signal | drops silently | `typst::unknown_font_family` |
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
@@ -142,9 +142,11 @@ on where it stands:
 | a table | none over the table; a cell takes runs of its own, inside its `qm-cell` pair |
 | a footnote | over the reference; the note keeps its own family and takes runs of its own |
 
-A family no session font holds sets nothing, so its text keeps the surrounding
-family, and a render warns once per family and field. Only a session holds
-fonts, so `validate` cannot report it.
+A family the host library lacks sets nothing, so its text keeps the
+surrounding family, and a render warns once per family and field. A family only
+the quill or the fallback ships counts as lacking. Only a session holds fonts,
+so `validate` cannot report it. The corpus renders with a library holding
+Roboto.
 
 ### Islands
 

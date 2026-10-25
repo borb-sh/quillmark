@@ -135,9 +135,10 @@ impl Engine {
         Ok(self.resolve_backend(quill)?.supported_formats())
     }
 
-    /// The text faces a session of `quill` sets a `font_family` mark in, in
-    /// the order its font book holds them: the quill's own, the host's, then
-    /// the embedded fallback. Empty for a backend that reads no fonts.
+    /// The text faces a `font_family` mark may set in a session of `quill`:
+    /// the host library's, in library order. A quill's own fonts and the
+    /// embedded fallback set its plate, never a mark.
+    /// Empty for a backend that reads no fonts.
     pub fn font_faces(&self, quill: &Quill) -> Result<Vec<FontFace>, RenderError> {
         Ok(self.resolve_backend(quill)?.font_faces(quill))
     }

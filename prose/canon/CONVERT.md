@@ -262,11 +262,12 @@ lowers as three calls, Arimo resuming past Carlito:
 ```
 
 - Codegen writes the session's families, lowercased, into the helper as
-  `_qm-families`, math faces left out. `_qm-font` sets a family
-  only where `_qm-families` holds it, ahead of the font list in force filtered
-  to the same set, so a character the family lacks falls through to the
-  surrounding font and Typst's own "unknown font family" warning never fires.
-- A family the session lacks keeps the surrounding font, and the compile
+  `_qm-families`, math faces left out, and the host library's among them as
+  `_qm-offered`. `_qm-font` sets a family only where `_qm-offered` holds it,
+  ahead of the font list in force filtered to `_qm-families`, so a character
+  the family lacks falls through to the surrounding font and Typst's own
+  "unknown font family" warning never fires.
+- A family the library lacks keeps the surrounding font, and the compile
   carries one [`typst::unknown_font_family`](ERROR.md#warning-flow) warning per
   family and content field, `path` the field's `DocPath`.
 - A stretch stops at a code span, whose `raw` keeps its own font, and

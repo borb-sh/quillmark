@@ -635,8 +635,8 @@ impl Engine {
         Ok(Engine { inner })
     }
 
-    /// The text faces a session of `quill` sets a `font_family` mark in: the
-    /// quill's own, the host's, then the embedded fallback.
+    /// The text faces a `font_family` mark may set in a session of `quill`:
+    /// the host library's, in library order.
     #[wasm_bindgen(js_name = fontFaces, unchecked_return_type = "FontFace[]")]
     pub fn font_faces(&self, quill: &Quill) -> Result<JsValue, JsValue> {
         let faces = self

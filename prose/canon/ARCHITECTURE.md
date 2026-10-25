@@ -149,11 +149,14 @@ A Typst session sets type in fonts from three tiers, in font book order:
   included, and one `engine::font_unreadable` per file holding no face Typst
   reads. Sessions share its parsed faces.
 - **No system font is read**, and the acroform backend reads none of this.
-- **A family resolves at compile.** Every family a font run names is checked
-  against the session's book, and one no face holds sets nothing and warns
-  `typst::unknown_font_family` ([CONVERT.md](CONVERT.md#font-runs)).
-  `Engine::font_faces` lists the faces, each with its family, weight, style
-  and file bytes, so an editor can draw text in the face a render would use.
+- **A family resolves at compile, against the library alone.** Every family
+  a font run names is checked against the host library's families, and one it
+  lacks sets nothing and warns `typst::unknown_font_family`
+  ([CONVERT.md](CONVERT.md#font-runs)). A quill's own fonts and the fallback
+  set its plate and are never a writer's choice, so no stored document depends
+  on them and offering them later only adds choices. `Engine::font_faces` lists
+  the library's faces, each with its family, weight, style and file bytes, so
+  an editor can draw text in the face a render would use.
 
 ## Backend Implementation
 

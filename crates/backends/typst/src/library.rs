@@ -109,18 +109,15 @@ mod tests {
             .collect()
     }
 
-    /// A session lists the quill's faces, then the library's, then the
-    /// fallback only for a quill shipping no fonts.
+    /// A session lists the library's faces alone: the quill's own and the
+    /// fallback set its plate, never a mark.
     #[test]
-    fn a_session_lists_the_quills_faces_then_the_librarys() {
+    fn a_session_lists_only_the_librarys_faces() {
         let host = || FontLibrary::new(vec![taro_font("Figtree-Bold.ttf")]).expect("library");
         let shipping = quill_shipping(&[("Figtree-Regular.ttf", taro_font("Figtree-Regular.ttf"))]);
-        assert_eq!(faces_of(&shipping, host()), [("Figtree".into(), 400), ("Figtree".into(), 700)]);
-        let bare = quill_shipping(&[]);
-        assert_eq!(
-            faces_of(&bare, host()),
-            [("Figtree".into(), 700), ("Roboto".into(), 400), ("Roboto".into(), 400)]
-        );
+        assert_eq!(faces_of(&shipping, host()), [("Figtree".into(), 700)]);
+        assert_eq!(faces_of(&quill_shipping(&[]), host()), [("Figtree".into(), 700)]);
+        assert_eq!(faces_of(&shipping, FontLibrary::default()), []);
     }
 
     #[test]

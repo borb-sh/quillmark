@@ -511,10 +511,11 @@ export declare class Engine {
 	supportedFormats(quill: Quill): Promise<OutputFormat[]>;
 
 	/**
-	 * The text faces a session of `quill` sets a `font_family` mark in, in the
-	 * order its font book holds them: the quill's own, the host's, then the
-	 * embedded fallback. Loads the backend and clones the quill as `open` does;
-	 * a backend that reads no fonts answers `[]`.
+	 * The text faces a `font_family` mark may set in a session of `quill`: the
+	 * host library's, in the order of `fonts`. A quill's own fonts and the
+	 * embedded fallback set its plate, never a mark. Loads the backend and
+	 * clones the quill as `open` does; a backend that reads no fonts answers
+	 * `[]`.
 	 */
 	fontFaces(quill: Quill): Promise<FontFace[]>;
 }

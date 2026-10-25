@@ -221,16 +221,19 @@
 }
 
 /// Every family the session sets running text in, lowercased.
-#let _qm-families = {families_literal}
+#let _qm-families = {held_literal}
+
+/// The families a `font_family` mark may set: the host library's, lowercased.
+#let _qm-offered = {offered_literal}
 
 /// A run of richtext set in `family`, which Quillmark calls for each stretch
 /// one `font_family` mark sets. The family goes ahead of the surrounding fonts,
-/// so a character it lacks falls through to them. A family no session font
-/// holds sets nothing and a surrounding one stays out of the list, so Typst
-/// never warns of either.
+/// so a character it lacks falls through to them. A family the library does not
+/// offer sets nothing, and a surrounding family no session font holds stays out
+/// of the list, so Typst never warns of either.
 #let _qm-font(family, body) = context {
   let held(font) = lower(if std.type(font) == dictionary { font.name } else { font }) in _qm-families
-  if held(family) {
+  if lower(family) in _qm-offered {
     let current = text.font
     let fonts = if std.type(current) == array { current } else { (current,) }
     text(font: (family,) + fonts.filter(held), body)

@@ -149,8 +149,9 @@ pub(crate) fn session_fonts(
 }
 
 /// Whether a session face sets running text: neither a math face nor the math
-/// face's second entry under [`MATH_FAMILY`]. These are the families a
-/// `font_family` mark resolves against and the faces an editor is handed.
+/// face's second entry under [`MATH_FAMILY`]. Among the library's faces these
+/// are the families a `font_family` mark resolves against and the faces an
+/// editor is handed.
 pub(crate) fn sets_text(info: &FontInfo, font: &Font) -> bool {
     !info.flags.contains(FontFlags::MATH) && info.family == font.info().family
 }
@@ -162,8 +163,8 @@ pub(crate) struct QuillWorld {
     library: LazyHash<Library>,
     book: LazyHash<FontBook>,
     fonts: Vec<Font>,
-    /// Every family `book` holds for running text ([`sets_text`]), lowercased:
-    /// what a `font_family` mark resolves against.
+    /// The running-text families ([`sets_text`]) `book` holds, and those the
+    /// library offers a `font_family` mark.
     families: Families,
     source: Source,
     plate_file: String,
@@ -188,13 +189,18 @@ impl QuillWorld {
 
         let mut book = FontBook::new();
         let mut fonts = Vec::new();
-        let mut families = Families::new();
+        let mut families = Families::default();
         for (info, font) in session_fonts(source, library, &mut load_warnings) {
             if sets_text(&info, &font) {
-                families.insert(info.family.to_lowercase());
+                families.held.insert(info.family.to_lowercase());
             }
             book.push(info);
             fonts.push(font);
+        }
+        for font in library.faces() {
+            if sets_text(font.info(), font) {
+                families.offered.insert(font.info().family.to_lowercase());
+            }
         }
 
         Self::load_assets_from_quill(source, &mut binaries, &mut load_warnings)?;

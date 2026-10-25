@@ -31,10 +31,8 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
         today: CalendarDate,
     ) -> Result<LiveSession, RenderError>;
 
-    /// The text faces a session of `source` sets a `font_family` mark in:
-    /// the quill's own, the host's and the embedded fallback, as the
-    /// session's font book holds them. None for a backend that reads no
-    /// fonts.
+    /// The text faces a `font_family` mark may set in a session of
+    /// `source`: the host library's. None for a backend that reads no fonts.
     fn font_faces(&self, source: &Quill) -> Vec<FontFace> {
         let _ = source;
         Vec::new()

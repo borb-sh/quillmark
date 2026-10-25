@@ -39,9 +39,9 @@ impl PyEngine {
         })
     }
 
-    /// The text faces a session of `quill` sets a `font_family` mark in, in
-    /// the order its font book holds them: the quill's own, the host's, then
-    /// the embedded fallback. Each is a dict of `family`, `weight`, `style`,
+    /// The text faces a `font_family` mark may set in a session of `quill`:
+    /// the host library's, in library order. Each is a dict of `family`,
+    /// `weight`, `style`,
     /// `index` and `data` (the font file's bytes).
     fn font_faces<'py>(&self, py: Python<'py>, quill: &PyQuill) -> PyResult<Vec<Bound<'py, PyDict>>> {
         let faces = self.inner.font_faces(&quill.inner).map_err(convert_render_error)?;

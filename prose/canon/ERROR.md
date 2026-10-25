@@ -248,9 +248,10 @@ families:
   whose equations nest groups past the depth the lowering reads warns once
   more under the code, naming the depth. It rides the session's compile warnings, and `validate` has no twin
   for it.
-- **`typst::unknown_font_family`: a family no session font holds.** The
+- **`typst::unknown_font_family`: a family the host library lacks.** The
   Typst compile warns once per (content field, family) whose font runs name a
-  family none of the session's fonts holds, compared lowercased and spelled as
+  family the host's font library does not hold, a quill's own or fallback
+  family included, compared lowercased and spelled as
   the field first spells it, with the field's `DocPath` in `path` and the
   family in `args.family` ([CONVERT.md](CONVERT.md#font-runs)). Its text keeps the surrounding family.
   It rides the session's compile warnings, and `validate`, which holds no

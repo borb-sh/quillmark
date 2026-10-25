@@ -1,5 +1,5 @@
 //! Family resolution at compile: a `font_family` mark naming a family the
-//! session's fonts lack sets no family, and warns once per field.
+//! host's font library lacks sets no family, and warns once per field.
 
 use std::collections::BTreeMap;
 
@@ -8,20 +8,28 @@ use quillmark_core::path::DocPath;
 use quillmark_core::quill::QuillConfig;
 use quillmark_core::Content;
 
-/// The families a session sets running text in, lowercased.
-pub(crate) type Families = std::collections::BTreeSet<String>;
+/// A session's running-text families, lowercased.
+#[derive(Debug, Default)]
+pub(crate) struct Families {
+    /// Every family the font book holds: the quill's, the library's and the
+    /// fallback's.
+    pub(crate) held: std::collections::BTreeSet<String>,
+    /// The library's families, the ones a `font_family` mark may set.
+    pub(crate) offered: std::collections::BTreeSet<String>,
+}
 
 const CODE: &str = "typst::unknown_font_family";
 
 /// One `typst::unknown_font_family` per family a content field of the plate
-/// JSON `data` names and `families` lacks, spelled as the field first does.
+/// JSON `data` names and `families` does not offer, spelled as the field
+/// first does.
 pub(crate) fn unknown(config: &QuillConfig, data: &serde_json::Value, families: &Families) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     config.each_plate_content(data, &mut |at: &DocPath, content: &Content| {
         let mut missing: BTreeMap<String, String> = BTreeMap::new();
         for name in content.font_families() {
             let key = name.to_lowercase();
-            if !families.contains(&key) {
+            if !families.offered.contains(&key) {
                 missing.entry(key).or_insert(name);
             }
         }
@@ -29,12 +37,12 @@ pub(crate) fn unknown(config: &QuillConfig, data: &serde_json::Value, families: 
             diags.push(
                 Diagnostic::new(
                     Severity::Warning,
-                    format!("this field sets text in `{name}`, a family none of the session's fonts holds, so that text keeps the surrounding font"),
+                    format!("this field sets text in `{name}`, a family the host's font library does not hold, so that text keeps the surrounding font"),
                 )
                 .with_code(CODE.to_string())
                 .with_arg("family", name.clone().into())
                 .with_path(at.to_string())
-                .with_hint("ship the family in the quill or the host's font library, or choose a family they hold".to_string()),
+                .with_hint("add the family to the host's font library, or choose a family it holds".to_string()),
             );
         }
     });
@@ -58,14 +66,25 @@ mod tests {
             .expect("read Figtree")
     }
 
+    fn roboto() -> Vec<u8> {
+        crate::world::FALLBACK_FONTS[0].1.to_vec()
+    }
+
     fn quill(plate_head: &str) -> Quill {
+        quill_shipping(plate_head, &[])
+    }
+
+    fn quill_shipping(plate_head: &str, fonts: &[(&str, Vec<u8>)]) -> Quill {
         let plate = format!(
             "#import \"@local/quillmark-helper:0.2.0\" as qm\n#set page(width: 400pt, height: 300pt, margin: 20pt)\n{plate_head}\n#qm.data.prose\n"
         );
-        let mut files = HashMap::new();
-        files.insert("Quill.yaml".to_string(), FileTreeNode::File { contents: YAML.as_bytes().to_vec() });
-        files.insert("plate.typ".to_string(), FileTreeNode::File { contents: plate.into_bytes() });
-        Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
+        let mut root = FileTreeNode::Directory { files: HashMap::new() };
+        root.insert("Quill.yaml", FileTreeNode::File { contents: YAML.as_bytes().to_vec() }).unwrap();
+        root.insert("plate.typ", FileTreeNode::File { contents: plate.into_bytes() }).unwrap();
+        for (name, data) in fonts {
+            root.insert(format!("assets/fonts/{name}"), FileTreeNode::File { contents: data.clone() }).unwrap();
+        }
+        Quill::from_tree(root).expect("quill")
     }
 
     fn data(md: &str) -> serde_json::Value {
@@ -76,10 +95,13 @@ mod tests {
     /// Each run of text `prose` places, as `(text, family)`, and the session's
     /// warnings.
     fn runs(plate_head: &str, md: &str, library: FontLibrary) -> (Vec<(String, String)>, Vec<quillmark_core::error::Diagnostic>) {
-        let quill = quill(plate_head);
+        runs_of(&quill(plate_head), md, library)
+    }
+
+    fn runs_of(quill: &Quill, md: &str, library: FontLibrary) -> (Vec<(String, String)>, Vec<quillmark_core::error::Diagnostic>) {
         let data = data(md);
         let meta = SchemaMeta::from_schema_json(quillmark_core::quill::build_transform_schema(quill.config()).as_json());
-        let mut world = world::QuillWorld::new(&quill, &read_plate(&quill).expect("plate"), &Arc::new(library))
+        let mut world = world::QuillWorld::new(quill, &read_plate(quill).expect("plate"), &Arc::new(library))
             .expect("world");
         world.inject_helper_package(&data, &meta).expect("inject");
         let (document, mut warnings) = compile::compile_document(&world).expect("compile");
@@ -111,7 +133,7 @@ mod tests {
     /// session lacks keeps the surrounding font under one warning per field.
     #[test]
     fn a_run_sets_the_family_that_ranks_first_over_it() {
-        let library = FontLibrary::new(vec![figtree()]).expect("library");
+        let library = FontLibrary::new(vec![figtree(), roboto()]).expect("library");
         let md = "plain <qm-font family=\"figtree\">outer <qm-font family=\"Roboto\">inner</qm-font> after `mono`</qm-font> \
                   <qm-font family=\"Nope\">gone</qm-font> <qm-font family=\"Nope\">kept</qm-font>";
         let (runs, warnings) = runs("", md, library);
@@ -143,6 +165,22 @@ mod tests {
         assert_eq!(unknown(session.warnings()), 0);
         session.update_data(&data("<qm-font family=\"Nope\">a</qm-font>")).expect("update");
         assert_eq!(unknown(session.warnings()), 1);
+    }
+
+    /// A family only the quill or the fallback ships sets its plate, never a
+    /// run: the library alone offers families.
+    #[test]
+    fn a_family_the_library_lacks_keeps_the_surrounding_font() {
+        let quill = quill_shipping("", &[("Figtree-Regular.ttf", figtree())]);
+        let (runs, warnings) = runs_of(
+            &quill,
+            "plain <qm-font family=\"Figtree\">own</qm-font> <qm-font family=\"Roboto\">fallback</qm-font>",
+            FontLibrary::default(),
+        );
+        assert_eq!(family(&runs, "plain"), "Figtree");
+        assert_eq!(family(&runs, "own"), "Figtree");
+        let families: Vec<_> = warnings.iter().filter_map(|d| d.args.get("family")).collect();
+        assert_eq!(families, [&serde_json::json!("Figtree"), &serde_json::json!("Roboto")]);
     }
 
     #[test]
