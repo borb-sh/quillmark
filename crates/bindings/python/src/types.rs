@@ -27,8 +27,8 @@ pub struct PyEngine {
 #[pymethods]
 impl PyEngine {
     /// `fonts` is the host's font library: each a `.ttf`, `.otf`, `.ttc` or
-    /// `.otc` file's bytes, which every session reads after the quill's own
-    /// fonts.
+    /// `.otc` file's bytes, whose faces set only text a `font_family` mark
+    /// sets.
     /// Raises `QuillmarkError` (`engine::font_unsupported`,
     /// `engine::font_unreadable`) for a file it refuses.
     #[new]

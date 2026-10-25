@@ -1,5 +1,6 @@
-//! The host's font library: the registry tier between a quill's own fonts and
-//! the embedded fallback, parsed once per engine and shared by its sessions.
+//! The host's font library: the faces a `font_family` mark may set, apart from
+//! a quill's own fonts and the embedded fallback, parsed once per engine and
+//! shared by its sessions.
 
 use quillmark_core::error::{Diagnostic, RenderError, Severity};
 use typst::foundations::Bytes;

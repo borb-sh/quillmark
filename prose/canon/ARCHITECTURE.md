@@ -114,7 +114,7 @@ Test resources under `resources/`, the parity corpus among them
 
 - **`Engine`**: a backend registry + render dispatcher. Auto-registers one backend per enabled feature (`TypstBackend` under `typst`, `AcroformBackend` under `acroform`; both are default). `Engine::with_fonts` builds one over a host font library ([Fonts](#fonts)), and `Engine::new` is one with none. Resolves a quill's declared backend at render time (erroring `engine::backend_not_found` on no match) and owns the backend-dependent surface: `render`, `open`, `supported_formats(&quill)`, `font_faces(&quill)`. It does not construct quills.
 - **`Quill`**, The single quill type in `quillmark-core`: declarative data (file bundle + config, tagged with a declared backend id), held by value and carrying the pure config-read operations (`validate`, `schema`, `blueprint`, `seed_*`, `compile_data`, `dry_run`). Construct with `Quill::from_tree` or `quillmark::quill_from_path`; see [QUILL.md](QUILL.md)
-- **`Backend`**, Trait for output formats (`Send + Sync`): `id()`, `supported_formats()`, `open(&Quill, json, today)`, and `font_faces(&Quill)`, the text faces a session over the quill sets type in, empty by default. There is no universal template input: a backend reads whatever static inputs it needs (a Typst plate, a `form.pdf`) from the quill's own files. No canvas-capability method: canvas is required of the session seam (`SessionHandle::page_size_pt` / `render_rgba`), not declared by the backend
+- **`Backend`**, Trait for output formats (`Send + Sync`): `id()`, `supported_formats()`, `open(&Quill, json, today)`, and `font_faces(&Quill)`, the text faces a `font_family` mark may set in a session over the quill, empty by default. There is no universal template input: a backend reads whatever static inputs it needs (a Typst plate, a `form.pdf`) from the quill's own files. No canvas-capability method: canvas is required of the session seam (`SessionHandle::page_size_pt` / `render_rgba`), not declared by the backend
 - **`LiveSession`**, Opaque live session returned by `Backend::open()`: a persistent compiler whose reads serve its current compile and whose `update(&Document)` recompiles in place, transactionally, returning a `ChangeSet` of dirty pages. Born bound to the `QuillConfig` it was opened against, so the edit verb checks the `$quill` pairing and compiles through the same door as the first compile (`QuillConfig::compile_checked`) rather than trusting a caller to have done both. The canvas seam lives on `SessionHandle` (`page_size_pt`/`render_rgba`), both required, so the WASM painter dispatches generically over any session; see [PREVIEW.md](PREVIEW.md)
 - **`Document`**: Typed in-memory representation of a Quillmark Markdown file (root block, body, cards). Serializes via `serde` to a versioned JSON envelope (`StoredDocument`) for database persistence, decoupled from the evolving Markdown syntax; see [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)
 - **`Diagnostic`**: Structured error with severity, code, message, location, hint, source chain
@@ -131,13 +131,15 @@ See [PLATE_DATA.md](PLATE_DATA.md) for the Typst helper package.
 
 ## Fonts
 
-A Typst session sets type in fonts from three tiers, in font book order:
+A Typst session's font book holds faces from three sources. The quill's and
+the fallback's set the plate, and the host library's are a namespace of their
+own that only a font mark reaches:
 
-| Tier | Source | Supplied by |
-|---|---|---|
-| 1 | the quill | `.ttf`, `.otf`, `.ttc` and `.otc` files under `assets/fonts/` and inside vendored `packages/` |
-| 2 | the host library | the host, at `Engine::with_fonts`, shared by every session of the engine |
-| 3 | the fallback | embedded: Roboto, only for a quill shipping no fonts, and Noto Sans Math answering to `New Computer Modern Math` |
+| Source | Faces |
+|---|---|
+| the quill | `.ttf`, `.otf`, `.ttc` and `.otc` files under `assets/fonts/` and inside vendored `packages/` |
+| the host library | the host, at `Engine::with_fonts`, shared by every session of the engine |
+| the fallback | embedded: Roboto, only for a quill shipping no fonts, and Noto Sans Math answering to `New Computer Modern Math` |
 
 - **Only a mark reaches a library face.** The book files each library face
   under a reserved alias family, `qm-host:` and its family lowercased, with no
