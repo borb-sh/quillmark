@@ -146,10 +146,10 @@ The open tag comes first in the cell and the close tag last. A pair with anythin
 
 ### Font family
 
-A `qm-font` pair inside a line sets the font family of the text it wraps:
+A `qm-span` pair inside a line sets the font family of the text it wraps:
 
 ```markdown
-The <qm-font family="Carlito">phrase sits in **bold <qm-font family="Arimo">sans</qm-font>**</qm-font> text.
+The <qm-span family="Carlito">phrase sits in **bold <qm-span family="Arimo">sans</qm-span>**</qm-span> text.
 ```
 
 | Attribute | Value | Without it |
@@ -159,8 +159,8 @@ The <qm-font family="Carlito">phrase sits in **bold <qm-font family="Arimo">sans
 - It pairs as `<u>` does: inside a paragraph, heading, list item, table cell or footnote, across `**` or `~~` freely. Pairs nest, and the innermost pair's family sets its text, so the outer family resumes past it.
 - A family the app's library lacks keeps the surrounding font, and the render warns `typst::unknown_font_family` once per family and field. A quill's own fonts set its design and are not a choice here. An app lists the faces a writer can pick with `engine.fontFaces(quill)`.
 - Code spans and equations keep their own font, and a footnote's note keeps its own: a pair inside the note sets it.
-- In a table cell, a `qm-cell` pair goes outside any `qm-font` pair.
-- A family is a run's, never a block's: `qm-font` tag lines around blocks drop with a `qm-font` warning, and the blocks stay.
+- In a table cell, a `qm-cell` pair goes outside any `qm-span` pair.
+- A family is a run's, never a block's: `qm-span` tag lines around blocks drop with a `qm-span` warning, and the blocks stay.
 - An attribute other than `family` drops alone with a `parse::dropped_construct` warning, keeping the family. A tag setting no family or left open drops, keeping what it wraps.
 
 ### Elements

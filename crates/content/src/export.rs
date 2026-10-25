@@ -1110,7 +1110,7 @@ fn render_marked_core(
     // delimiters, apart from their nesting.
     let is_underline = |fi: usize| matches!(fmt[fi].2, MarkKind::Underline);
 
-    // A font mark is a `qm-font` pair, its tags outside the underlines' at a
+    // A font mark is a `qm-span` pair, its tags outside the underlines' at a
     // position as theirs are outside the delimiters'. Pairs nest in
     // `family_rank` order, so the family setting a character is the innermost
     // pair around it.
@@ -1620,11 +1620,11 @@ const DELIM_SPELLINGS: [Delims; 4] = [
     Delims { strong: "__", emph: "_" },
 ];
 
-/// The `qm-font` pair a `font_family` mark writes.
+/// The `qm-span` pair a `font_family` mark writes.
 fn font_pair(kind: &MarkKind) -> crate::carrier::Element {
     match kind {
-        MarkKind::FontFamily { name } => crate::carrier::font::pair(name),
-        _ => unreachable!("only a font_family mark is a qm-font pair"),
+        MarkKind::FontFamily { name } => crate::carrier::span::pair(name),
+        _ => unreachable!("only a font_family mark is a qm-span pair"),
     }
 }
 
@@ -2804,7 +2804,7 @@ mod tests {
         }
     }
 
-    /// A font mark is a `qm-font` pair, its tags outside the underlines' and
+    /// A font mark is a `qm-span` pair, its tags outside the underlines' and
     /// delimiters' at a position, so a second export spells the first.
     /// Overlapping families nest so the one setting a character is the
     /// innermost pair, and a crossing reopens the later pair past the edge.
@@ -2812,32 +2812,32 @@ mod tests {
     fn a_font_mark_writes_a_pair_nested_by_rank() {
         for (md, want) in [
             (
-                "The <qm-font family=\"Carlito\">phrase</qm-font> and **bold <qm-font family=\"Arimo\">sans</qm-font>**.",
-                "The <qm-font family=\"Carlito\">phrase</qm-font> and **bold <qm-font family=\"Arimo\">sans**</qm-font>.",
+                "The <qm-span family=\"Carlito\">phrase</qm-span> and **bold <qm-span family=\"Arimo\">sans</qm-span>**.",
+                "The <qm-span family=\"Carlito\">phrase</qm-span> and **bold <qm-span family=\"Arimo\">sans**</qm-span>.",
             ),
             (
-                "<qm-font family=\"A\">a<qm-font family=\"B\">b</qm-font>c</qm-font>",
-                "<qm-font family=\"A\">a<qm-font family=\"B\">b</qm-font>c</qm-font>",
+                "<qm-span family=\"A\">a<qm-span family=\"B\">b</qm-span>c</qm-span>",
+                "<qm-span family=\"A\">a<qm-span family=\"B\">b</qm-span>c</qm-span>",
             ),
             (
-                "x<qm-font family=\"A\"><u>**a**</u>b</qm-font>",
-                "x<qm-font family=\"A\"><u>**a**</u>b</qm-font>",
+                "x<qm-span family=\"A\"><u>**a**</u>b</qm-span>",
+                "x<qm-span family=\"A\"><u>**a**</u>b</qm-span>",
             ),
             (
-                "*a<qm-font family=\"A\">b*c</qm-font>",
-                "*a<qm-font family=\"A\">b*c</qm-font>",
+                "*a<qm-span family=\"A\">b*c</qm-span>",
+                "*a<qm-span family=\"A\">b*c</qm-span>",
             ),
             (
-                "<qm-font family=\"A\">a `b` c</qm-font>",
-                "<qm-font family=\"A\">a `b` c</qm-font>",
+                "<qm-span family=\"A\">a `b` c</qm-span>",
+                "<qm-span family=\"A\">a `b` c</qm-span>",
             ),
             (
-                "| <qm-font family=\"A&#x7C;B &quot;C&quot;\">a</qm-font> |\n| --- |",
-                "| <qm-font family=\"A&#x7C;B &quot;C&quot;\">a</qm-font> |\n| --- |",
+                "| <qm-span family=\"A&#x7C;B &quot;C&quot;\">a</qm-span> |\n| --- |",
+                "| <qm-span family=\"A&#x7C;B &quot;C&quot;\">a</qm-span> |\n| --- |",
             ),
             (
-                "a[^1]\n\n[^1]: <qm-font family=\"A\">n</qm-font>",
-                "a[^1]\n\n[^1]: <qm-font family=\"A\">n</qm-font>",
+                "a[^1]\n\n[^1]: <qm-span family=\"A\">n</qm-span>",
+                "a[^1]\n\n[^1]: <qm-span family=\"A\">n</qm-span>",
             ),
         ] {
             let rt = from_markdown(md).unwrap().content;
@@ -2849,15 +2849,15 @@ mod tests {
         for (marks, md) in [
             (
                 vec![family(0, 4, "A"), family(2, 6, "B")],
-                "<qm-font family=\"A\">ab<qm-font family=\"B\">cd</qm-font></qm-font><qm-font family=\"B\">ef</qm-font>",
+                "<qm-span family=\"A\">ab<qm-span family=\"B\">cd</qm-span></qm-span><qm-span family=\"B\">ef</qm-span>",
             ),
             (
                 vec![family(0, 6, "A"), family(0, 3, "B")],
-                "<qm-font family=\"A\"><qm-font family=\"B\">abc</qm-font>def</qm-font>",
+                "<qm-span family=\"A\"><qm-span family=\"B\">abc</qm-span>def</qm-span>",
             ),
             (
                 vec![family(0, 6, "B"), family(0, 6, "A")],
-                "<qm-font family=\"A\"><qm-font family=\"B\">abcdef</qm-font></qm-font>",
+                "<qm-span family=\"A\"><qm-span family=\"B\">abcdef</qm-span></qm-span>",
             ),
         ] {
             let rt = marked("abcdef", marks);

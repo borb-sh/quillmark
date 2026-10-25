@@ -1389,7 +1389,7 @@ title: Hi
     fn a_font_mark_alone_takes_the_newest_tag() {
         let tag = |doc: &Document| peek_storage_version(&serde_json::to_string(doc).unwrap());
         let in_body = Document::parse(
-            "~~~card-yaml\n$quill: q@1.0\n$kind: main\n~~~\n\na <qm-font family=\"Carlito\">b</qm-font>\n",
+            "~~~card-yaml\n$quill: q@1.0\n$kind: main\n~~~\n\na <qm-span family=\"Carlito\">b</qm-span>\n",
         )
         .unwrap()
         .document;

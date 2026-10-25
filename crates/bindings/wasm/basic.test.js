@@ -115,7 +115,7 @@ describe('Document JSON DTO: toStored / fromStored', () => {
     const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
     expect(typeof dto).toBe('string')
     expect(JSON.parse(dto).schema).toBe('quillmark/document@0.129.0')
-    const fonted = Document.fromMarkdown(`${TEST_MARKDOWN} <qm-font family="Carlito">Set</qm-font>`).toStored()
+    const fonted = Document.fromMarkdown(`${TEST_MARKDOWN} <qm-span family="Carlito">Set</qm-span>`).toStored()
     expect(JSON.parse(fonted).schema).toBe(Document.currentStorageVersion())
   })
 

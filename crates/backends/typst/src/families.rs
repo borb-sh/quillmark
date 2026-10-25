@@ -134,8 +134,8 @@ mod tests {
     #[test]
     fn a_run_sets_the_family_that_ranks_first_over_it() {
         let library = FontLibrary::new(vec![figtree(), roboto()]).expect("library");
-        let md = "plain <qm-font family=\"figtree\">outer <qm-font family=\"Roboto\">inner</qm-font> after `mono`</qm-font> \
-                  <qm-font family=\"Nope\">gone</qm-font> <qm-font family=\"Nope\">kept</qm-font>";
+        let md = "plain <qm-span family=\"figtree\">outer <qm-span family=\"Roboto\">inner</qm-span> after `mono`</qm-span> \
+                  <qm-span family=\"Nope\">gone</qm-span> <qm-span family=\"Nope\">kept</qm-span>";
         let (runs, warnings) = runs("", md, library);
         assert_eq!(family(&runs, "plain"), "Roboto");
         assert_eq!(family(&runs, "outer"), "Figtree");
@@ -163,7 +163,7 @@ mod tests {
             warnings.iter().filter(|d| d.code.as_deref() == Some(super::CODE)).count()
         };
         assert_eq!(unknown(session.warnings()), 0);
-        session.update_data(&data("<qm-font family=\"Nope\">a</qm-font>")).expect("update");
+        session.update_data(&data("<qm-span family=\"Nope\">a</qm-span>")).expect("update");
         assert_eq!(unknown(session.warnings()), 1);
     }
 
@@ -174,7 +174,7 @@ mod tests {
         let quill = quill_shipping("", &[("Figtree-Regular.ttf", figtree())]);
         let (runs, warnings) = runs_of(
             &quill,
-            "plain <qm-font family=\"Figtree\">own</qm-font> <qm-font family=\"Roboto\">fallback</qm-font>",
+            "plain <qm-span family=\"Figtree\">own</qm-span> <qm-span family=\"Roboto\">fallback</qm-span>",
             FontLibrary::default(),
         );
         assert_eq!(family(&runs, "plain"), "Figtree");
@@ -187,7 +187,7 @@ mod tests {
     fn a_math_face_is_no_family_a_run_sets() {
         let (runs, warnings) = runs(
             "",
-            "<qm-font family=\"Noto Sans Math\">abc</qm-font> <qm-font family=\"New Computer Modern Math\">def</qm-font>",
+            "<qm-span family=\"Noto Sans Math\">abc</qm-span> <qm-span family=\"New Computer Modern Math\">def</qm-span>",
             FontLibrary::default(),
         );
         assert_eq!(family(&runs, "abc"), "Roboto");
@@ -201,7 +201,7 @@ mod tests {
         let library = FontLibrary::new(vec![figtree()]).expect("library");
         let (runs, _) = runs(
             "#set text(font: (\"Roboto\", \"Nowhere\"))",
-            "<qm-font family=\"Figtree\">x中</qm-font>",
+            "<qm-span family=\"Figtree\">x中</qm-span>",
             library,
         );
         assert_eq!(family(&runs, "x"), "Figtree");
@@ -212,7 +212,7 @@ mod tests {
         let library = FontLibrary::new(vec![figtree()]).expect("library");
         let (runs, _) = runs(
             "",
-            "a <qm-font family=\"Figtree\">b[^1] c</qm-font>\n\n[^1]: note <qm-font family=\"Figtree\">own</qm-font>",
+            "a <qm-span family=\"Figtree\">b[^1] c</qm-span>\n\n[^1]: note <qm-span family=\"Figtree\">own</qm-span>",
             library,
         );
         let families: Vec<(&str, &str)> = runs.iter().map(|r| (r.0.as_str(), r.1.as_str())).collect();
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn an_equation_breaks_the_run() {
         let library = FontLibrary::new(vec![figtree()]).expect("library");
-        let (runs, _) = runs("", "<qm-font family=\"Figtree\">a $x$ b</qm-font>", library);
+        let (runs, _) = runs("", "<qm-span family=\"Figtree\">a $x$ b</qm-span>", library);
         assert_eq!(family(&runs, "a"), "Figtree");
         assert_ne!(family(&runs, "𝑥"), "Figtree", "{runs:?}");
         assert_eq!(family(&runs, "b"), "Figtree");

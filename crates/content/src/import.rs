@@ -239,7 +239,7 @@ struct Inline {
     /// a bare one's start position and tag offset, `None` for one carrying an
     /// attribute, which pairs and underlines nothing.
     underlines: Vec<Option<(usize, usize)>>,
-    /// Each `<qm-font>` this run has read and whose `</qm-font>` it awaits,
+    /// Each `<qm-span>` this run has read and whose `</qm-span>` it awaits,
     /// innermost last: its start position, tag offset and family, `None` for
     /// one setting nothing.
     fonts: Vec<Option<(usize, usize, String)>>,
@@ -327,14 +327,14 @@ impl Inline {
         }
     }
 
-    /// Pair one `<qm-font>` tag as [`underline`](Self::underline) pairs a
+    /// Pair one `<qm-span>` tag as [`underline`](Self::underline) pairs a
     /// `<u>`. Nested pairs set overlapping marks, an inner pair narrower than
     /// the outer ranking first over it ([`family_rank`](crate::model::family_rank)).
-    fn font(&mut self, tag: FontTag) {
+    fn font(&mut self, tag: SpanTag) {
         match tag {
-            FontTag::Open { at, family } => self.fonts.push(Some((self.pos, at, family))),
-            FontTag::Held => self.fonts.push(None),
-            FontTag::Close => {
+            SpanTag::Open { at, family } => self.fonts.push(Some((self.pos, at, family))),
+            SpanTag::Held => self.fonts.push(None),
+            SpanTag::Close => {
                 if let Some(Some((start, _, name))) = self.fonts.pop() {
                     if start < self.pos {
                         self.marks.push(Mark {
@@ -348,14 +348,14 @@ impl Inline {
         }
     }
 
-    /// End the run: each bare `<u>` and each `<qm-font>` setting something
+    /// End the run: each bare `<u>` and each `<qm-span>` setting something
     /// still open drops as unclosed.
     fn drop_open(&mut self, dropped: &mut Drops) {
         for (_, at) in self.underlines.drain(..).flatten() {
             dropped.add(Dropped::Tag("u".into()), at);
         }
         for (_, at, _) in self.fonts.drain(..).flatten() {
-            dropped.add(Dropped::Element(carrier::FONT.into()), at);
+            dropped.add(Dropped::Element(carrier::SPAN.into()), at);
         }
     }
 
@@ -794,8 +794,8 @@ impl Builder {
                     self.underline_tag(tag);
                     continue;
                 }
-                Fixed::Font(tag) => {
-                    self.font_tag(tag);
+                Fixed::Span(tag) => {
+                    self.span_tag(tag);
                     continue;
                 }
                 Fixed::Swallowed(name, at) => {
@@ -1081,7 +1081,7 @@ impl Builder {
     }
 
     /// Pair one carrier tag: a tag line opens or closes a wrapper. Any other
-    /// open tag drops, and any other close tag drops silently. A `qm-font`
+    /// open tag drops, and any other close tag drops silently. A `qm-span`
     /// tag line wraps nothing: the spelling is an inline pair's alone.
     fn carrier_tag(&mut self, tag: CarrierTag) -> Result<(), ImportError> {
         let CarrierTag { name, attrs, block, at, space } = tag;
@@ -1105,7 +1105,7 @@ impl Builder {
             return Ok(());
         }
         match attrs {
-            _ if self.image_depth > 0 || self.table.is_some() || !block || name == carrier::FONT => {
+            _ if self.image_depth > 0 || self.table.is_some() || !block || name == carrier::SPAN => {
                 if attrs.is_some() {
                     self.dropped.add(Dropped::Element(name), at);
                 }
@@ -1212,13 +1212,13 @@ impl Builder {
         self.inline.underline(tag);
     }
 
-    /// Pair one `<qm-font>` tag in the run, table cell or note it stands in,
+    /// Pair one `<qm-span>` tag in the run, table cell or note it stands in,
     /// as [`Self::underline_tag`] pairs a `<u>`. In a cell it is content, so a
     /// `qm-cell` pair stays outside it.
-    fn font_tag(&mut self, tag: FontTag) {
+    fn span_tag(&mut self, tag: SpanTag) {
         if let Some(note) = self.note.as_mut() {
             if note.img_depth == 0 {
-                if matches!(tag, FontTag::Open { .. }) {
+                if matches!(tag, SpanTag::Open { .. }) {
                     note.fill();
                 }
                 note.inline.font(tag);
@@ -1235,7 +1235,7 @@ impl Builder {
             }
             return;
         }
-        if matches!(tag, FontTag::Open { .. }) {
+        if matches!(tag, SpanTag::Open { .. }) {
             self.open_early();
         }
         self.inline.font(tag);
@@ -1691,7 +1691,7 @@ enum Fixed<'a> {
     Event(Event<'a>),
     Carrier(CarrierTag),
     Underline(UTag),
-    Font(FontTag),
+    Span(SpanTag),
     /// A wrapper's close tag in an HTML block of closing tags that drops
     /// markdown with them, at the block's byte offset.
     Swallowed(String, usize),
@@ -1717,12 +1717,12 @@ enum UTag {
     Close,
 }
 
-/// An inline `<qm-font>` tag, paired by the builder as a `<u>` is.
-enum FontTag {
+/// An inline `<qm-span>` tag, paired by the builder as a `<u>` is.
+enum SpanTag {
     /// An open tag setting a family, at this byte offset.
     Open { at: usize, family: String },
     /// An open tag setting none, or self-closing: it drops, and still pairs
-    /// with a `</qm-font>`.
+    /// with a `</qm-span>`.
     Held,
     Close,
 }
@@ -1852,7 +1852,7 @@ struct MarkdownFixer<'a, I> {
     /// Open marks, links, images, headings and tables, where a line of carrier
     /// tags stays text.
     depth: usize,
-    /// The `<u>` and `<qm-font>` tags open in the current inline run, where a
+    /// The `<u>` and `<qm-span>` tags open in the current inline run, where a
     /// line of carrier tags stays text too.
     underlines: usize,
 }
@@ -1892,24 +1892,24 @@ where
         Some((event, range))
     }
 
-    /// One inline `<qm-font>` tag, its refused attributes and a tag setting
+    /// One inline `<qm-span>` tag, its refused attributes and a tag setting
     /// nothing handed on as drops.
-    fn font_tag(&mut self, tag: &html::Tag, at: usize) -> FontTag {
+    fn span_tag(&mut self, tag: &html::Tag, at: usize) -> SpanTag {
         if tag.closing {
             self.underlines = self.underlines.saturating_sub(1);
-            return FontTag::Close;
+            return SpanTag::Close;
         }
         self.underlines += 1;
-        let (family, refused) = carrier::font::read(&carrier::decode_attrs(&tag.attrs));
+        let (family, refused) = carrier::span::read(&carrier::decode_attrs(&tag.attrs));
         for attr in refused {
-            let element = carrier::FONT.to_string();
+            let element = carrier::SPAN.to_string();
             self.held.push_back(Fixed::Dropped(Dropped::ElementAttr { element, attr }, at));
         }
         match family {
-            Some(family) if !tag.self_closing => FontTag::Open { at, family },
+            Some(family) if !tag.self_closing => SpanTag::Open { at, family },
             _ => {
                 self.drop_tag(tag, at);
-                FontTag::Held
+                SpanTag::Held
             }
         }
     }
@@ -2048,8 +2048,8 @@ where
                 if tag.name.eq_ignore_ascii_case("br") && !tag.closing {
                     return Some(Fixed::Event(Event::HardBreak));
                 }
-                if carrier::wrapper(tag.name).as_deref() == Some(carrier::FONT) {
-                    return Some(Fixed::Font(self.font_tag(&tag, range.start)));
+                if carrier::wrapper(tag.name).as_deref() == Some(carrier::SPAN) {
+                    return Some(Fixed::Span(self.span_tag(&tag, range.start)));
                 }
                 if let Some(mut carrier) = CarrierTag::of(&tag, false, range.start) {
                     let space = |c: &char| matches!(c, ' ' | '\t');
@@ -2273,33 +2273,33 @@ pub(crate) mod tests {
         assert_eq!(dropped(&imported), [("u", 1)]);
     }
 
-    /// A `qm-font` pair sets its run's family, nested pairs overlap, and an
+    /// A `qm-span` pair sets its run's family, nested pairs overlap, and an
     /// attribute it cannot read drops alone while the pair keeps the family.
     #[test]
-    fn a_qm_font_pair_sets_its_runs_family() {
+    fn a_qm_span_pair_sets_its_runs_family() {
         let family = |name: &str| MarkKind::FontFamily { name: name.into() };
         let cases: Vec<(&str, &str, Vec<Mark>, Vec<(&str, usize)>)> = vec![
             (
-                "<qm-font family=\"A\">a <qm-font family=\"B\">b</qm-font> c</qm-font>",
+                "<qm-span family=\"A\">a <qm-span family=\"B\">b</qm-span> c</qm-span>",
                 "a b c",
                 vec![Mark::new(0, 5, family("A")), Mark::new(2, 3, family("B"))],
                 vec![],
             ),
             (
-                "**a <qm-font family=\"A\">b** c</qm-font>",
+                "**a <qm-span family=\"A\">b** c</qm-span>",
                 "a b c",
                 vec![Mark::new(0, 3, MarkKind::Strong), Mark::new(2, 5, family("A"))],
                 vec![],
             ),
             (
-                "<qm-font color=\"red\" family=\"A\">a</qm-font>",
+                "<qm-span color=\"red\" family=\"A\">a</qm-span>",
                 "a",
                 vec![Mark::new(0, 1, family("A"))],
-                vec![("qm-font[color]", 1)],
+                vec![("qm-span[color]", 1)],
             ),
-            ("<qm-font>a</qm-font> <qm-font color=\"red\">b</qm-font>", "a b", vec![], vec![("qm-font", 2), ("qm-font[color]", 1)]),
-            ("<qm-font family=\" A\">a</qm-font>", "a", vec![], vec![("qm-font[family]", 1), ("qm-font", 1)]),
-            ("<qm-font family=\"A\"/>a", "a", vec![], vec![("qm-font", 1)]),
+            ("<qm-span>a</qm-span> <qm-span color=\"red\">b</qm-span>", "a b", vec![], vec![("qm-span", 2), ("qm-span[color]", 1)]),
+            ("<qm-span family=\" A\">a</qm-span>", "a", vec![], vec![("qm-span[family]", 1), ("qm-span", 1)]),
+            ("<qm-span family=\"A\"/>a", "a", vec![], vec![("qm-span", 1)]),
         ];
         for (md, text, marks, warned) in cases {
             let imported = imp_fixed(md);
@@ -2308,31 +2308,31 @@ pub(crate) mod tests {
             assert_eq!(dropped(&imported), warned, "{md:?}");
         }
 
-        let imported = imp_fixed("| <qm-font family=\"A\">a **b</qm-font> c** |\n|---|\n\na[^1]\n\n[^1]: <qm-font family=\"B\">n</qm-font>");
+        let imported = imp_fixed("| <qm-span family=\"A\">a **b</qm-span> c** |\n|---|\n\na[^1]\n\n[^1]: <qm-span family=\"B\">n</qm-span>");
         let cells = crate::serial::table_cells(&imported.content.islands[0].props);
         assert_eq!(cells[0].1, [Mark::new(0, 3, family("A")), Mark::new(2, 5, MarkKind::Strong)]);
         let (_, note) = crate::serial::parse_cell(&imported.content.islands[1].props);
         assert_eq!(note, [Mark::new(0, 1, family("B"))]);
     }
 
-    /// A tag line inside an open `qm-font` pair is its text, as one inside an
+    /// A tag line inside an open `qm-span` pair is its text, as one inside an
     /// open `<u>` is.
     #[test]
-    fn a_tag_line_inside_an_open_qm_font_pair_is_text() {
-        let imported = imp_fixed("<qm-font family=\"A\">a\n<qm-keep>\nb</qm-font>");
+    fn a_tag_line_inside_an_open_qm_span_pair_is_text() {
+        let imported = imp_fixed("<qm-span family=\"A\">a\n<qm-keep>\nb</qm-span>");
         assert_eq!(imported.content.lines.len(), 1);
         assert!(imported.content.marks.iter().all(|m| m.kind == MarkKind::FontFamily { name: "A".into() }));
     }
 
-    /// `qm-font` tag lines around blocks wrap nothing: the tags drop and warn,
+    /// `qm-span` tag lines around blocks wrap nothing: the tags drop and warn,
     /// and the blocks stay.
     #[test]
-    fn a_qm_font_tag_line_drops() {
-        let imported = imp_fixed("<qm-font family=\"A\">\n\nOne.\n\nTwo.\n\n</qm-font>");
+    fn a_qm_span_tag_line_drops() {
+        let imported = imp_fixed("<qm-span family=\"A\">\n\nOne.\n\nTwo.\n\n</qm-span>");
         assert_eq!(imported.content.text, "One.\nTwo.");
         assert!(imported.content.lines.iter().all(|l| l.containers.is_empty()));
         assert!(imported.content.marks.is_empty());
-        assert_eq!(dropped(&imported), [("qm-font", 1)]);
+        assert_eq!(dropped(&imported), [("qm-span", 1)]);
     }
 
     #[test]

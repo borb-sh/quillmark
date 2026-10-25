@@ -1,5 +1,5 @@
-//! `qm-font`: a run's font family spelled as the attribute of an inline pair
-//! around it.
+//! `qm-span`: an inline pair whose attributes spell its run's attribute marks,
+//! a font family the one it carries.
 
 use super::{Attrs, Element};
 use crate::model::is_font_family_name;
@@ -23,5 +23,5 @@ pub(crate) fn read(attrs: &Attrs) -> (Option<String>, Vec<String>) {
 /// The pair spelling a run set in `family`.
 pub(crate) fn pair(family: &str) -> Element {
     let attrs = BTreeMap::from([("family".to_string(), family.to_string())]);
-    Element::new(super::FONT, attrs).expect("`family` is in the attribute grammar")
+    Element::new(super::SPAN, attrs).expect("`family` is in the attribute grammar")
 }

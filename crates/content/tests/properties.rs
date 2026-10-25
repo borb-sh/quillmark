@@ -77,9 +77,9 @@ fn inline_token() -> impl Strategy<Value = String> {
         clean_word().prop_map(|w| format!("~~{w}~~")),
         code_span(),
         clean_word().prop_map(|w| format!("<u>{w}</u>")),
-        clean_word().prop_map(|w| format!("<qm-font family=\"Carlito\">{w}</qm-font>")),
+        clean_word().prop_map(|w| format!("<qm-span family=\"Carlito\">{w}</qm-span>")),
         (clean_word(), clean_word()).prop_map(|(w, v)| format!(
-            "<qm-font family=\"Noto Serif\">{w} <qm-font family=\"Carlito\">**{v}**</qm-font></qm-font>"
+            "<qm-span family=\"Noto Serif\">{w} <qm-span family=\"Carlito\">**{v}**</qm-span></qm-span>"
         )),
         (clean_word(), clean_word()).prop_map(|(t, u)| format!("[{t}](https://ex.com/{u})")),
         (clean_word(), special_url()).prop_map(|(t, u)| format!("[{t}](<{u}>)")),

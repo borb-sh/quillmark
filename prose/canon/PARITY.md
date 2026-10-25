@@ -226,9 +226,9 @@ above, or markup the content does not store.
 | `carrier.table.value`: a `qm-table` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table[widths]` |
 | `carrier.cell.partial`: a `qm-cell` pair around part of a cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell` |
 | `carrier.cell.value`: a `qm-cell` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell[valign]` |
-| `carrier.cell.in_font`: a `qm-cell` pair inside a `qm-font` pair, folding nothing | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell` |
-| `carrier.font.value`: a `qm-font` attribute other than `family`, the family kept | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-font[color]` |
-| `carrier.font.unclosed`: a `qm-font` still open where its text ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-font` |
+| `carrier.cell.in_font`: a `qm-cell` pair inside a `qm-span` pair, folding nothing | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell` |
+| `carrier.font.value`: a `qm-span` attribute other than `family`, the family kept | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-span[color]` |
+| `carrier.font.unclosed`: a `qm-span` still open where its text ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-span` |
 | `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
 | `markdown.cell_image`: an image in a table cell | drops silently | n/a | n/a | n/a | n/a | none |

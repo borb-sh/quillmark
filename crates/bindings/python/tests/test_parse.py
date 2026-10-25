@@ -29,7 +29,7 @@ def test_json_dto_round_trip(taro_md):
     doc = Document.from_markdown(taro_md)
     dto = doc.to_stored()
     assert Document.storage_version_of(dto) == "quillmark/document@0.129.0"
-    fonted = Document.from_markdown(taro_md + '\n<qm-font family="Carlito">Set</qm-font>\n')
+    fonted = Document.from_markdown(taro_md + '\n<qm-span family="Carlito">Set</qm-span>\n')
     assert Document.storage_version_of(fonted.to_stored()) == Document.current_storage_version()
 
     restored = Document.from_stored(dto)

@@ -495,7 +495,7 @@ of tag lines alone, and a line holding only element and `qm-table` tags is one
 wherever it stands (§6.2). Inside a line of text, or beside a tag outside the carrier in a
 block tight against markdown, it drops like any raw tag; `qm-anchor` drops
 inside a line without a report. The two inline constructs are a `qm-cell` pair
-around a whole table cell and a `qm-font` pair around a run of text.
+around a whole table cell and a `qm-span` pair around a run of text.
 
 **Canonical spelling.** An element is written with:
 
@@ -613,20 +613,21 @@ reads the document:
 - Outside a table cell `qm-cell` is no special name: a pair of tag lines is an
   element, and a pair inside a line drops as any element's does.
 
-**`qm-font`** is an inline pair setting the font family of the text it wraps,
-whatever quill reads the document:
+**`qm-span`** is an inline pair whose attributes set formatting of the text it
+wraps, whatever quill reads the document. Each attribute is a mark of its own,
+and `family` is the one it carries:
 
 | Attribute | Value | Default |
 |---|---|---|
 | `family` | a font family's name: not empty, no space at either edge, and no control character, bidi control or line separator | the surrounding text's family |
 
 ```markdown
-Pay <qm-font family="Carlito">**today**, as <qm-font family="Arimo">§4</qm-font> sets out</qm-font>.
+Pay <qm-span family="Carlito">**today**, as <qm-span family="Arimo">§4</qm-span> sets out</qm-span>.
 ```
 
 - A pair pairs as `<u>` does (§6.2): inside its paragraph, heading, list
-  item's text, table cell or footnote, a `</qm-font>` closes the innermost
-  `<qm-font>` still open, whatever marks lie between. Nested pairs import as
+  item's text, table cell or footnote, a `</qm-span>` closes the innermost
+  `<qm-span>` still open, whatever marks lie between. Nested pairs import as
   overlapping marks. A stretch of text takes the family of the pair around it
   that opens last, then of the one that closes first, then of the one later
   in canonical mark order, so an inner pair wins over its own text and the
@@ -637,16 +638,16 @@ Pay <qm-font family="Carlito">**today**, as <qm-font family="Arimo">§4</qm-font
   whose cells take pairs of their own, and a footnote's note keeps its own
   family.
 - An attribute other than `family` drops alone, reported as
-  `qm-font[<name>]`, as does a family outside its spelling. A tag setting no
+  `qm-span[<name>]`, as does a family outside its spelling. A tag setting no
   family, a self-closing tag and a pair still open where its text ends drop,
-  reported as `qm-font`.
+  reported as `qm-span`.
 - Export writes one pair per family mark, nested so the family setting each
   stretch is the innermost pair around it, and a pair crossing another's edge
   closes there and reopens past it. A pair sits inside a `qm-cell` pair, and
   outside `<u>` and the emphasis delimiters closing and opening where it
   stands, as `<u>` is (§6.2).
-- A `qm-font` tag line wraps nothing: its tags drop, the open tag reported as
-  `qm-font`, and the blocks between them stay. A family is a run's, never a
+- A `qm-span` tag line wraps nothing: its tags drop, the open tag reported as
+  `qm-span`, and the blocks between them stay. A family is a run's, never a
   block's.
 
 **`qm-anchor`** is reserved for an anchor's read-only spelling,

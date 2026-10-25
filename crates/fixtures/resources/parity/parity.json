@@ -828,7 +828,7 @@
   },
   {
     "name": "mark.font_family",
-    "markdown": "<qm-font family=\"Roboto\">set</qm-font>",
+    "markdown": "<qm-span family=\"Roboto\">set</qm-span>",
     "content": {
       "islands": [],
       "lines": [
@@ -859,7 +859,7 @@
   },
   {
     "name": "mark.font_family.unknown",
-    "markdown": "<qm-font family=\"Carlito\">set</qm-font>",
+    "markdown": "<qm-span family=\"Carlito\">set</qm-span>",
     "content": {
       "islands": [],
       "lines": [
@@ -1270,7 +1270,7 @@
   },
   {
     "name": "island.table.cell.font",
-    "markdown": "| a | b |\n| --- | --- |\n| <qm-cell align=\"center\"><qm-font family=\"Roboto\">1</qm-font></qm-cell> | <qm-font family=\"Roboto\">2</qm-font> |",
+    "markdown": "| a | b |\n| --- | --- |\n| <qm-cell align=\"center\"><qm-span family=\"Roboto\">1</qm-span></qm-cell> | <qm-span family=\"Roboto\">2</qm-span> |",
     "content": {
       "islands": [
         {
@@ -3538,7 +3538,7 @@
   },
   {
     "name": "carrier.font.value",
-    "markdown": "a <qm-font family=\"Roboto\" color=\"red\">b</qm-font> c",
+    "markdown": "a <qm-span family=\"Roboto\" color=\"red\">b</qm-span> c",
     "content": {
       "islands": [],
       "lines": [
@@ -3565,7 +3565,7 @@
     "signals": {
       "import": [
         {
-          "construct": "qm-font[color]",
+          "construct": "qm-span[color]",
           "count": 1
         }
       ],
@@ -3574,7 +3574,7 @@
   },
   {
     "name": "carrier.font.unclosed",
-    "markdown": "a <qm-font family=\"Roboto\">b c",
+    "markdown": "a <qm-span family=\"Roboto\">b c",
     "content": {
       "islands": [],
       "lines": [
@@ -3592,7 +3592,7 @@
     "signals": {
       "import": [
         {
-          "construct": "qm-font",
+          "construct": "qm-span",
           "count": 1
         }
       ],
@@ -3601,7 +3601,7 @@
   },
   {
     "name": "carrier.cell.in_font",
-    "markdown": "| a |\n| --- |\n| <qm-font family=\"Roboto\"><qm-cell align=\"center\">1</qm-cell></qm-font> |",
+    "markdown": "| a |\n| --- |\n| <qm-span family=\"Roboto\"><qm-cell align=\"center\">1</qm-cell></qm-span> |",
     "content": {
       "islands": [
         {

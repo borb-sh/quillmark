@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 pub(crate) mod cell;
-pub(crate) mod font;
+pub(crate) mod span;
 pub(crate) mod table;
 
 /// What every carrier tag name opens with.
@@ -20,8 +20,8 @@ pub const TABLE: &str = "table";
 /// The element name of a table cell's alignment pair.
 pub const CELL: &str = "cell";
 
-/// The element name of an inline font run's pair.
-pub const FONT: &str = "font";
+/// The element name of the inline pair carrying a run's attribute marks.
+pub const SPAN: &str = "span";
 
 /// The anchor spelling's element name.
 pub const ANCHOR: &str = "anchor";
