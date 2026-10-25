@@ -7,7 +7,7 @@
 
 use quillmark_core::error::MAX_NESTING_DEPTH;
 use quillmark_content::island::IslandType;
-use quillmark_content::model::{family_rank, Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
+use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
 use quillmark_content::normalize::is_line_separator;
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -1001,9 +1001,9 @@ fn wraps_and_codes(
     (wraps, codes)
 }
 
-/// One `_qm-font(family)` wrap per stretch one family sets, the one
-/// [`family_rank`] puts first among the marks over it, each as `(start, end,
-/// mark, family)` with its range clamped to the window and its mark whole. A
+/// One `_qm-font(family)` wrap per stretch one family sets, the font marks
+/// over the window each as `(start, end, mark, family)` with its range clamped
+/// to the window; normalized, no two overlap. A
 /// family is inert over a code span, whose `raw` sets its own font, and over
 /// an equation or a table, a slot `inert` holds, so a run breaks around each.
 /// A footnote's reference sits in the run and its note takes only its own
@@ -1032,11 +1032,7 @@ fn font_runs(
         if inert(a) || codes.iter().any(|&(s, e)| s <= a && a < e) {
             continue;
         }
-        let Some(&(_, _, _, family)) = fonts
-            .iter()
-            .filter(|&&(s, e, _, _)| s <= a && a < e)
-            .max_by(|x, y| family_rank((x.2.start, x.2.end, &x.2.kind), (y.2.start, y.2.end, &y.2.kind)))
-        else {
+        let Some(&(_, _, _, family)) = fonts.iter().find(|&&(s, e, _, _)| s <= a && a < e) else {
             continue;
         };
         let open = format!("#_qm-font(\"{}\")[", escape_string(family));

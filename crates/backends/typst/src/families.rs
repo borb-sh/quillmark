@@ -132,7 +132,7 @@ mod tests {
     /// sets its own run and the outer resumes past it, and a family the
     /// session lacks keeps the surrounding font under one warning per field.
     #[test]
-    fn a_run_sets_the_family_that_ranks_first_over_it() {
+    fn a_run_sets_its_family_and_an_inner_one_overrides_it() {
         let library = FontLibrary::new(vec![figtree(), roboto()]).expect("library");
         let md = "plain <qm-span family=\"figtree\">outer <qm-span family=\"Roboto\">inner</qm-span> after `mono`</qm-span> \
                   <qm-span family=\"Nope\">gone</qm-span> <qm-span family=\"Nope\">kept</qm-span>";

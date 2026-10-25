@@ -214,11 +214,18 @@ which that reader refuses.
 `font_family` carries a family's name under `attrs.name`, stored as written and
 naming no font file: a backend resolves it at render. The name is not empty,
 has no space at either edge, and holds no control character, bidi control or
-line separator (`model::is_font_family_name`). Marks of different families
-overlap as any formatting marks of different attrs do, and neither is split
-where they meet: `model::family_rank` says which sets a shared character (the
-later start, then the shorter mark, then the later in canonical order), so
-removing it uncovers the other. It arrived with `0.131.0`.
+line separator (`model::is_font_family_name`). It arrived with `0.131.0`.
+
+`font_family` is keyed (`MarkKind::is_keyed`): its tag is a key and its attrs
+the value, so a character holds at most one family and two `font_family` marks
+never overlap. Normalization settles overlap in raw input once, before the
+same-kind union: each stretch between two edges goes to the mark over it that
+starts later, then to the shorter, then to the later in canonical order. A
+`MarkOp::Add` of a keyed kind sets its value over its range, replacing every
+mark of the tag there, and a `MarkOp::Remove` takes one value off, leaving the
+stretch in no family. Storing one value per character keeps every edit local:
+a text edit never changes the family of text it keeps, and reading a
+character's family is a lookup.
 
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,

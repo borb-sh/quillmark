@@ -681,6 +681,65 @@ proptest! {
         }
     }
 
+    /// Font marks in any raw arrangement normalize to one family per
+    /// character, the one the raw marks rank first there (the later start,
+    /// then the shorter, then the later name). An `Add` of a family then sets
+    /// exactly its range, and a deletion keeps every kept character's family.
+    #[test]
+    fn font_marks_settle_to_one_family_per_character(
+        raw in prop::collection::vec((0usize..12, 0usize..12, 0usize..3), 0..6),
+        add in (0usize..12, 0usize..12, 0usize..3),
+        cut in (0usize..12, 0usize..12),
+    ) {
+        const NAMES: [&str; 3] = ["Arimo", "Bitter", "Carlito"];
+        let family = |i: usize| MarkKind::FontFamily { name: NAMES[i].into() };
+        let per_char = |marks: &[Mark], len: usize| -> Vec<Option<String>> {
+            (0..len)
+                .map(|c| {
+                    marks
+                        .iter()
+                        .filter(|m| m.start <= c && c < m.end)
+                        .filter_map(|m| match &m.kind {
+                            MarkKind::FontFamily { name } => Some((m.start, std::cmp::Reverse(m.end), name.clone())),
+                            _ => None,
+                        })
+                        .max()
+                        .map(|(_, _, name)| name)
+                })
+                .collect()
+        };
+        let overlap_free = |marks: &[Mark]| {
+            let fonts: Vec<_> = marks.iter().filter(|m| matches!(m.kind, MarkKind::FontFamily { .. })).collect();
+            fonts.windows(2).all(|w| w[0].end <= w[1].start)
+        };
+
+        let marks: Vec<Mark> = raw.iter().map(|&(a, b, f)| Mark::new(a.min(b), a.max(b), family(f))).collect();
+        let mut rt = Content::new("abcdefghijkl".into(), vec![Line::new(LineKind::Para)])
+            .with_marks(marks.clone())
+            .into_normalized();
+        let mut want = per_char(&marks, 12);
+        prop_assert_eq!(per_char(&rt.marks, 12), want.clone(), "normalize changed a family");
+        prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
+        prop_assert_eq!(&renormalized(&rt), &*rt, "the mint left a repairable shape");
+
+        let (a, b) = (add.0.min(add.1), add.0.max(add.1));
+        if a < b {
+            rt.apply_mark_ops(&[MarkOp::Add { start: a, end: b, kind: family(add.2) }]).unwrap();
+            want[a..b].fill(Some(NAMES[add.2].to_string()));
+            prop_assert_eq!(per_char(&rt.marks, 12), want.clone(), "an Add did not set its range");
+            prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
+        }
+
+        let (p, q) = (cut.0.min(cut.1), cut.0.max(cut.1));
+        let delta = Delta { ops: retain(p).into_iter().chain([Op::Delete(q - p)]).chain(retain(12 - q)).collect() };
+        if p < q {
+            rt.apply_text_delta(&delta).unwrap();
+            want.drain(p..q);
+            prop_assert_eq!(per_char(&rt.marks, 12 - (q - p)), want, "a deletion changed a kept family");
+            prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
+        }
+    }
+
     /// `apply_line_ops` preserves `validate()` across an accepted
     /// split/join/set-kind/set-continues. Split/join splice a `\n` and rebase
     /// marks through that one-char change, so keeping the imported marks

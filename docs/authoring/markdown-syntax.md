@@ -156,7 +156,7 @@ The <qm-span family="Carlito">phrase sits in **bold <qm-span family="Arimo">sans
 |---|---|---|
 | `family` | A font family the app's font library supplies, such as `Carlito`. Case does not matter. | The surrounding family. |
 
-- It pairs as `<u>` does: inside a paragraph, heading, list item, table cell or footnote, across `**` or `~~` freely. Pairs nest, and the innermost pair's family sets its text, so the outer family resumes past it.
+- It pairs as `<u>` does: inside a paragraph, heading, list item, table cell or footnote, across `**` or `~~` freely. Pairs nest: an inner pair's family sets its own text, and the outer family resumes past it. Saved and exported again, nested pairs come back side by side, one per run.
 - A family the app's library lacks keeps the surrounding font, and the render warns `typst::unknown_font_family` once per family and field. A quill's own fonts set its design and are not a choice here. An app lists the faces a writer can pick with `engine.fontFaces(quill)`.
 - Code spans and equations keep their own font, and a footnote's note keeps its own: a pair inside the note sets it.
 - In a table cell, a `qm-cell` pair goes outside any `qm-span` pair.

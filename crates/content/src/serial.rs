@@ -1946,14 +1946,18 @@ mod tests {
         );
     }
 
-    /// A font mark round-trips as its bag, overlapping another family's, and a
-    /// bag naming no family the model admits is a shape error on both lanes.
+    /// A font mark round-trips as its bag, an overlapping one settles to one
+    /// family per character, and a bag naming no family the model admits is a
+    /// shape error on both lanes.
     #[test]
     fn a_font_mark_decodes_only_a_family_it_can_hold() {
         let content = |marks: &str| format!(r#"{{"islands":[],"lines":[{{"containers":[],"kind":"para"}}],"marks":[{marks}],"text":"abc"}}"#);
+        let flat = content(r#"{"attrs":{"name":"Carlito"},"end":1,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"},{"attrs":{"name":"Carlito"},"end":3,"start":2,"type":"font_family"}"#);
+        let rt = Content::from_canonical_json(&flat).expect("decodes");
+        assert_eq!(rt.to_canonical_json(), flat);
         let json = content(r#"{"attrs":{"name":"Carlito"},"end":3,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"}"#);
         let rt = Content::from_canonical_json(&json).expect("decodes");
-        assert_eq!(rt.to_canonical_json(), json);
+        assert_eq!(rt.to_canonical_json(), flat);
         for mark in [
             r#"{"attrs":{"name":""},"end":2,"start":0,"type":"font_family"}"#,
             r#"{"attrs":{"name":" Carlito"},"end":2,"start":0,"type":"font_family"}"#,

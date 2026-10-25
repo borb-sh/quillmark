@@ -1111,9 +1111,8 @@ fn render_marked_core(
     let is_underline = |fi: usize| matches!(fmt[fi].2, MarkKind::Underline);
 
     // A font mark is a `qm-span` pair, its tags outside the underlines' at a
-    // position as theirs are outside the delimiters'. Pairs nest in
-    // `family_rank` order, so the family setting a character is the innermost
-    // pair around it.
+    // position as theirs are outside the delimiters'. Font marks never overlap,
+    // so neither do the pairs: one closes where the next opens.
     let is_font = |fi: usize| matches!(fmt[fi].2, MarkKind::FontFamily { .. });
 
     // One mark sweep over the marks `keep` selects (indices into `fmt`) → inline
@@ -1126,7 +1125,7 @@ fn render_marked_core(
         // mark's identity, so a reopened mark re-emits its OWN delimiter.
         let mut stack: Vec<usize> = Vec::new();
         let mut underlines: Vec<usize> = Vec::new();
-        let mut fonts: Vec<usize> = Vec::new();
+        let mut font: Option<usize> = None;
         let (mut oi, mut li, mut ci) = (0usize, 0usize, 0usize);
         let mut pos = 0usize;
         while pos <= n {
@@ -1161,23 +1160,15 @@ fn render_marked_core(
                     }
                 }
             }
-            let mut reopen_fonts: Vec<usize> = Vec::new();
-            if let Some(idx) = fonts.iter().position(|&fi| fmt[fi].1 == pos) {
-                while fonts.len() > idx {
-                    let fi = fonts.pop().unwrap();
-                    out.push_str(&font_pair(fmt[fi].2).close_tag());
-                    if fmt[fi].1 != pos {
-                        reopen_fonts.push(fi);
-                    }
-                }
+            if let Some(fi) = font.filter(|&fi| fmt[fi].1 == pos) {
+                out.push_str(&font_pair(fmt[fi].2).close_tag());
+                font = None;
             }
             let point = out.len();
             points.push(point);
-            let mut fresh: Vec<usize> = opening.iter().copied().filter(|&fi| is_font(fi)).collect();
-            fresh.sort_by(|&a, &b| crate::model::family_rank(fmt[a], fmt[b]));
-            for fi in reopen_fonts.into_iter().rev().chain(fresh) {
+            if let Some(fi) = opening.iter().copied().find(|&fi| is_font(fi)) {
                 out.push_str(&font_pair(fmt[fi].2).open_tag());
-                fonts.push(fi);
+                font = Some(fi);
             }
             let fresh = opening.iter().copied().filter(|&fi| is_underline(fi));
             for fi in reopen_underlines.into_iter().rev().chain(fresh) {
@@ -1286,7 +1277,7 @@ fn render_marked_core(
             out.push_str(delim(fmt[fi].2, d));
         }
         out.push_str(&"</u>".repeat(underlines.len()));
-        for fi in fonts.into_iter().rev() {
+        if let Some(fi) = font {
             out.push_str(&font_pair(fmt[fi].2).close_tag());
         }
         (out, points)
@@ -2806,10 +2797,9 @@ mod tests {
 
     /// A font mark is a `qm-span` pair, its tags outside the underlines' and
     /// delimiters' at a position, so a second export spells the first.
-    /// Overlapping families nest so the one setting a character is the
-    /// innermost pair, and a crossing reopens the later pair past the edge.
+    /// Pairs never nest: nested markdown comes back as one flat pair per run.
     #[test]
-    fn a_font_mark_writes_a_pair_nested_by_rank() {
+    fn a_font_mark_writes_flat_pairs() {
         for (md, want) in [
             (
                 "The <qm-span family=\"Carlito\">phrase</qm-span> and **bold <qm-span family=\"Arimo\">sans</qm-span>**.",
@@ -2817,7 +2807,7 @@ mod tests {
             ),
             (
                 "<qm-span family=\"A\">a<qm-span family=\"B\">b</qm-span>c</qm-span>",
-                "<qm-span family=\"A\">a<qm-span family=\"B\">b</qm-span>c</qm-span>",
+                "<qm-span family=\"A\">a</qm-span><qm-span family=\"B\">b</qm-span><qm-span family=\"A\">c</qm-span>",
             ),
             (
                 "x<qm-span family=\"A\"><u>**a**</u>b</qm-span>",
@@ -2848,16 +2838,12 @@ mod tests {
         let family = |start, end, name: &str| Mark { start, end, kind: MarkKind::FontFamily { name: name.into() } };
         for (marks, md) in [
             (
-                vec![family(0, 4, "A"), family(2, 6, "B")],
-                "<qm-span family=\"A\">ab<qm-span family=\"B\">cd</qm-span></qm-span><qm-span family=\"B\">ef</qm-span>",
+                vec![family(0, 2, "A"), family(2, 6, "B")],
+                "<qm-span family=\"A\">ab</qm-span><qm-span family=\"B\">cdef</qm-span>",
             ),
             (
-                vec![family(0, 6, "A"), family(0, 3, "B")],
-                "<qm-span family=\"A\"><qm-span family=\"B\">abc</qm-span>def</qm-span>",
-            ),
-            (
-                vec![family(0, 6, "B"), family(0, 6, "A")],
-                "<qm-span family=\"A\"><qm-span family=\"B\">abcdef</qm-span></qm-span>",
+                vec![family(1, 3, "B"), family(4, 6, "A")],
+                "a<qm-span family=\"B\">bc</qm-span>d<qm-span family=\"A\">ef</qm-span>",
             ),
         ] {
             let rt = marked("abcdef", marks);

@@ -627,11 +627,9 @@ Pay <qm-span family="Carlito">**today**, as <qm-span family="Arimo">§4</qm-span
 
 - A pair pairs as `<u>` does (§6.2): inside its paragraph, heading, list
   item's text, table cell or footnote, a `</qm-span>` closes the innermost
-  `<qm-span>` still open, whatever marks lie between. Nested pairs import as
-  overlapping marks. A stretch of text takes the family of the pair around it
-  that opens last, then of the one that closes first, then of the one later
-  in canonical mark order, so an inner pair wins over its own text and the
-  outer family resumes past it.
+  `<qm-span>` still open, whatever marks lie between. An inner pair sets its
+  family over its own text and the outer family resumes past it, so nested
+  pairs import as flat marks, one family per character.
 - A family stores as written and names no font file. A backend resolves it at
   render, and text in a family none of its fonts holds keeps the surrounding
   family. The Typst backend sets no family over a code span, math or a table,
@@ -641,9 +639,8 @@ Pay <qm-span family="Carlito">**today**, as <qm-span family="Arimo">§4</qm-span
   `qm-span[<name>]`, as does a family outside its spelling. A tag setting no
   family, a self-closing tag and a pair still open where its text ends drop,
   reported as `qm-span`.
-- Export writes one pair per family mark, nested so the family setting each
-  stretch is the innermost pair around it, and a pair crossing another's edge
-  closes there and reopens past it. A pair sits inside a `qm-cell` pair, and
+- Export writes one pair per family mark and never nests pairs, so the
+  example above comes back as three pairs side by side. A pair sits inside a `qm-cell` pair, and
   outside `<u>` and the emphasis delimiters closing and opening where it
   stands, as `<u>` is (§6.2).
 - A `qm-span` tag line wraps nothing: its tags drop, the open tag reported as

@@ -240,10 +240,22 @@ struct Inline {
     /// attribute, which pairs and underlines nothing.
     underlines: Vec<Option<(usize, usize)>>,
     /// Each `<qm-span>` this run has read and whose `</qm-span>` it awaits,
-    /// innermost last: its start position, tag offset and family, `None` for
-    /// one setting nothing.
-    fonts: Vec<Option<(usize, usize, String)>>,
+    /// innermost last, `None` for one setting nothing.
+    fonts: Vec<Option<OpenSpan>>,
 }
+
+/// An open `qm-span` pair setting a family: the stretches it sets so far,
+/// which land as marks only when it closes.
+struct OpenSpan {
+    /// The open tag's byte offset.
+    at: usize,
+    family: String,
+    /// Where its current stretch began, while no inner family sets the text.
+    from: usize,
+    /// Its stretches closed by an inner pair setting a family.
+    done: Vec<(usize, usize)>,
+}
+
 
 impl Inline {
     /// Append inline text under the [`crate::normalize::admit_char`] contract,
@@ -279,8 +291,12 @@ impl Inline {
         for (start, _) in self.underlines.iter_mut().flatten() {
             *start = (*start).min(pos);
         }
-        for (start, _, _) in self.fonts.iter_mut().flatten() {
-            *start = (*start).min(pos);
+        for span in self.fonts.iter_mut().flatten() {
+            span.from = span.from.min(pos);
+            for (start, end) in &mut span.done {
+                *start = (*start).min(pos);
+                *end = (*end).min(pos);
+            }
         }
     }
 
@@ -328,21 +344,32 @@ impl Inline {
     }
 
     /// Pair one `<qm-span>` tag as [`underline`](Self::underline) pairs a
-    /// `<u>`. Nested pairs set overlapping marks, an inner pair narrower than
-    /// the outer ranking first over it ([`family_rank`](crate::model::family_rank)).
+    /// `<u>`. An inner pair setting a family overrides the outer one over its
+    /// text, and the outer resumes past it, so the marks a run lands never
+    /// overlap; a pair setting nothing leaves the family in force.
     fn font(&mut self, tag: SpanTag) {
+        let pos = self.pos;
         match tag {
-            SpanTag::Open { at, family } => self.fonts.push(Some((self.pos, at, family))),
+            SpanTag::Open { at, family } => {
+                if let Some(outer) = self.fonts.iter_mut().rev().find_map(Option::as_mut) {
+                    outer.done.push((outer.from, pos));
+                }
+                self.fonts.push(Some(OpenSpan { at, family, from: pos, done: Vec::new() }));
+            }
             SpanTag::Held => self.fonts.push(None),
             SpanTag::Close => {
-                if let Some(Some((start, _, name))) = self.fonts.pop() {
-                    if start < self.pos {
-                        self.marks.push(Mark {
-                            start,
-                            end: self.pos,
-                            kind: MarkKind::FontFamily { name },
-                        });
+                let Some(Some(mut span)) = self.fonts.pop() else {
+                    return;
+                };
+                span.done.push((span.from, pos));
+                for (start, end) in span.done {
+                    if start < end {
+                        let kind = MarkKind::FontFamily { name: span.family.clone() };
+                        self.marks.push(Mark { start, end, kind });
                     }
+                }
+                if let Some(outer) = self.fonts.iter_mut().rev().find_map(Option::as_mut) {
+                    outer.from = pos;
                 }
             }
         }
@@ -354,8 +381,8 @@ impl Inline {
         for (_, at) in self.underlines.drain(..).flatten() {
             dropped.add(Dropped::Tag("u".into()), at);
         }
-        for (_, at, _) in self.fonts.drain(..).flatten() {
-            dropped.add(Dropped::Element(carrier::SPAN.into()), at);
+        for span in self.fonts.drain(..).flatten() {
+            dropped.add(Dropped::Element(carrier::SPAN.into()), span.at);
         }
     }
 
@@ -2273,8 +2300,9 @@ pub(crate) mod tests {
         assert_eq!(dropped(&imported), [("u", 1)]);
     }
 
-    /// A `qm-span` pair sets its run's family, nested pairs overlap, and an
-    /// attribute it cannot read drops alone while the pair keeps the family.
+    /// A `qm-span` pair sets its run's family, an inner pair overrides the
+    /// outer one over its own text, and an attribute it cannot read drops
+    /// alone while the pair keeps the family.
     #[test]
     fn a_qm_span_pair_sets_its_runs_family() {
         let family = |name: &str| MarkKind::FontFamily { name: name.into() };
@@ -2282,7 +2310,7 @@ pub(crate) mod tests {
             (
                 "<qm-span family=\"A\">a <qm-span family=\"B\">b</qm-span> c</qm-span>",
                 "a b c",
-                vec![Mark::new(0, 5, family("A")), Mark::new(2, 3, family("B"))],
+                vec![Mark::new(0, 2, family("A")), Mark::new(2, 3, family("B")), Mark::new(3, 5, family("A"))],
                 vec![],
             ),
             (
@@ -2306,6 +2334,25 @@ pub(crate) mod tests {
             assert_eq!(imported.content.text, text, "{md:?}");
             assert_eq!(imported.content.marks, marks, "{md:?}");
             assert_eq!(dropped(&imported), warned, "{md:?}");
+        }
+
+        for (md, marks) in [
+            (
+                "<qm-span family=\"Arimo\">a<qm-span family=\"Carlito\">b<qm-span family=\"Arimo\">c</qm-span>d</qm-span>e</qm-span>",
+                vec![
+                    Mark::new(0, 1, family("Arimo")),
+                    Mark::new(1, 2, family("Carlito")),
+                    Mark::new(2, 3, family("Arimo")),
+                    Mark::new(3, 4, family("Carlito")),
+                    Mark::new(4, 5, family("Arimo")),
+                ],
+            ),
+            (
+                "<qm-span family=\"Zilla\"><qm-span family=\"Arimo\">xyz</qm-span></qm-span>",
+                vec![Mark::new(0, 3, family("Arimo"))],
+            ),
+        ] {
+            assert_eq!(imp_fixed(md).content.marks, marks, "{md:?}");
         }
 
         let imported = imp_fixed("| <qm-span family=\"A\">a **b</qm-span> c** |\n|---|\n\na[^1]\n\n[^1]: <qm-span family=\"B\">n</qm-span>");

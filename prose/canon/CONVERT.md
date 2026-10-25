@@ -250,12 +250,11 @@ text fonts the quill ships.
 
 ### Font runs
 
-Family marks of different families may overlap. The sweep cuts a line at
-every edge of a family mark and of a code mark, and wraps each stretch in a
-call to the helper's `_qm-font` for the family `model::family_rank` puts
-first over it: the later start, then the shorter mark, then the later in
-canonical order. Equal neighbours merge, so `Arimo[0,9)` over `Carlito[3,6)`
-lowers as three calls, Arimo resuming past Carlito:
+Family marks never overlap ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"). The
+sweep cuts a line at every edge of a family mark and of a code mark, and wraps
+each stretch in a call to the helper's `_qm-font` for the one family a mark
+sets there, so `Arimo[0,3)`, `Carlito[3,6)`, `Arimo[6,9)` lowers as three
+calls:
 
 ```typst
 #_qm-font("Arimo")[abc]#_qm-font("Carlito")[def]#_qm-font("Arimo")[ghi]
