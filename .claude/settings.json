@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo doc:*)",
+      "Bash(RUSTDOCFLAGS=-Dwarnings cargo doc:*)",
+      "Bash(cargo fetch:*)",
+      "Bash(node scripts/check-canon.mjs)",
+      "Bash(./scripts/build-wasm.sh --ci)"
+    ]
+  }
+}

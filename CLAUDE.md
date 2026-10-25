@@ -8,7 +8,6 @@ Schema-driven document framework: Markdown + YAML card metadata → rendered PDF
 - A change that makes a canon doc stale updates it. [`prose/README.md`](prose/README.md) is normative for canon structure; `node scripts/check-canon.mjs` enforces it in CI.
 - The `Cargo.toml` version is the last *released* one; CI bumps it on release.
 - `CHANGELOG.md` is `merge=union` in `.gitattributes`, so merge `main` with local git, not GitHub's "Update branch".
-- Don't run `cargo fmt` ([`CONTRIBUTING.md`](CONTRIBUTING.md) § Pull requests).
 
 ## Tests
 
