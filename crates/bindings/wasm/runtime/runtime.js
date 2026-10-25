@@ -474,7 +474,7 @@ export class Engine {
 	#engines = new Map();
 	/** backendId → descriptor `{ load, formats }`. */
 	#loaders;
-	/** The host's font library, handed to each build's engine as it loads. */
+	/** The host's font library, copied at construction and handed to each build's engine as it loads. */
 	#fonts;
 	/**
 	 * load → WeakMap<canonical Quill, build-memory clone>, caching the
@@ -496,7 +496,7 @@ export class Engine {
 		if (!Array.isArray(fonts) || !fonts.every((font) => font instanceof Uint8Array)) {
 			throw new Error('Engine: `fonts` must be an array of Uint8Array.');
 		}
-		this.#fonts = fonts;
+		this.#fonts = fonts.map((font) => font.slice());
 		const merged = { ...DEFAULT_BACKENDS, ...(options?.backends ?? {}) };
 		/** @type {Record<string, { load: () => Promise<unknown>, formats: string[] }>} */
 		const loaders = {};
