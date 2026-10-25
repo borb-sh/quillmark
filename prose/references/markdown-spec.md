@@ -645,8 +645,9 @@ Pay <qm-font family="Carlito">**today**, as <qm-font family="Arimo">§4</qm-font
   closes there and reopens past it. A pair sits inside a `qm-cell` pair, and
   outside `<u>` and the emphasis delimiters closing and opening where it
   stands, as `<u>` is (§6.2).
-- Outside a line of text `qm-font` is no special name: a pair of tag lines is
-  an element.
+- A `qm-font` tag line wraps nothing: its tags drop, the open tag reported as
+  `qm-font`, and the blocks between them stay. A family is a run's, never a
+  block's.
 
 **`qm-anchor`** is reserved for an anchor's read-only spelling,
 `<qm-anchor ref="…"></qm-anchor>`, which the annotated export writes and

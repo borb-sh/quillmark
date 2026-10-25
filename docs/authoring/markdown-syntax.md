@@ -160,6 +160,7 @@ The <qm-font family="Carlito">phrase sits in **bold <qm-font family="Arimo">sans
 - A family no font in the render holds keeps the surrounding font, and the render warns `typst::unknown_font_family` once per family and field. An app lists the faces a quill renders in with `engine.fontFaces(quill)`.
 - Code spans and equations keep their own font, and a footnote's note keeps its own: a pair inside the note sets it.
 - In a table cell, a `qm-cell` pair goes outside any `qm-font` pair.
+- A family is a run's, never a block's: `qm-font` tag lines around blocks drop with a `qm-font` warning, and the blocks stay.
 - An attribute other than `family` drops alone with a `parse::dropped_construct` warning, keeping the family. A tag setting no family or left open drops, keeping what it wraps.
 
 ### Elements

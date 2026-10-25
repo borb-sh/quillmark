@@ -111,11 +111,12 @@ describe('Document.toMarkdown', () => {
 
 // The DTO's content rules are core's (`core/src/document/dto.rs`).
 describe('Document JSON DTO: toStored / fromStored', () => {
-  it('toStored emits a plain JSON string carrying the current schema version', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const dto = doc.toStored()
+  it('toStored emits a plain JSON string carrying the newest schema version only for a font mark', () => {
+    const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
     expect(typeof dto).toBe('string')
-    expect(JSON.parse(dto).schema).toBe(Document.currentStorageVersion())
+    expect(JSON.parse(dto).schema).toBe('quillmark/document@0.129.0')
+    const fonted = Document.fromMarkdown(`${TEST_MARKDOWN} <qm-font family="Carlito">Set</qm-font>`).toStored()
+    expect(JSON.parse(fonted).schema).toBe(Document.currentStorageVersion())
   })
 
   it('round-trips a mutated document with cards back to an equal handle', () => {
@@ -136,7 +137,7 @@ describe('Document JSON DTO: toStored / fromStored', () => {
     const outside = dto.replace('"kind":"para"', '"kind":"callout"')
     expect(outside).not.toBe(dto)
     expect(() => Document.fromStored(outside)).toThrow()
-    expect(Document.storageVersionOf(outside)).toBe(Document.currentStorageVersion())
+    expect(Document.storageVersionOf(outside)).toBe(JSON.parse(dto).schema)
   })
 
   it('storageVersionOf reads the schema tag off any payload, or undefined', () => {

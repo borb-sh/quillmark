@@ -3538,7 +3538,7 @@
   },
   {
     "name": "carrier.font.value",
-    "markdown": "a <qm-font family=\"Roboto\" size=\"large\">b</qm-font> c",
+    "markdown": "a <qm-font family=\"Roboto\" color=\"red\">b</qm-font> c",
     "content": {
       "islands": [],
       "lines": [
@@ -3565,7 +3565,7 @@
     "signals": {
       "import": [
         {
-          "construct": "qm-font[size]",
+          "construct": "qm-font[color]",
           "count": 1
         }
       ],

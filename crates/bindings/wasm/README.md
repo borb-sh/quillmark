@@ -182,10 +182,11 @@ const doc = Document.storageVersionOf(content)
   : Document.fromMarkdown(content);
 ```
 
-The `schema` value (`quillmark/document@0.131.0`) is the **model version**,
-not the running crate version. It is a hand-set constant, bumped only when
-the `Document` model itself changes, so every `0.131.x` patch release reads
-and writes that same value.
+The `schema` value (`quillmark/document@0.131.0` for a document holding a font
+mark, `@0.129.0` for any other) is the **model version**, not the running crate
+version. It is a hand-set constant, bumped only when the `Document` model
+itself changes, so every `0.131.x` patch release reads and writes those same
+values.
 
 - **Upgrading is safe.** A newer build reads documents an older build's
   *writer* produced. Each schema version's wire format is frozen and never

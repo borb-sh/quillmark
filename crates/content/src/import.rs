@@ -1081,7 +1081,8 @@ impl Builder {
     }
 
     /// Pair one carrier tag: a tag line opens or closes a wrapper. Any other
-    /// open tag drops, and any other close tag drops silently.
+    /// open tag drops, and any other close tag drops silently. A `qm-font`
+    /// tag line wraps nothing: the spelling is an inline pair's alone.
     fn carrier_tag(&mut self, tag: CarrierTag) -> Result<(), ImportError> {
         let CarrierTag { name, attrs, block, at, space } = tag;
         if let Some(note) = self.note.as_mut() {
@@ -1104,7 +1105,7 @@ impl Builder {
             return Ok(());
         }
         match attrs {
-            _ if self.image_depth > 0 || self.table.is_some() || !block => {
+            _ if self.image_depth > 0 || self.table.is_some() || !block || name == carrier::FONT => {
                 if attrs.is_some() {
                     self.dropped.add(Dropped::Element(name), at);
                 }
@@ -2291,12 +2292,12 @@ pub(crate) mod tests {
                 vec![],
             ),
             (
-                "<qm-font size=\"large\" family=\"A\">a</qm-font>",
+                "<qm-font color=\"red\" family=\"A\">a</qm-font>",
                 "a",
                 vec![Mark::new(0, 1, family("A"))],
-                vec![("qm-font[size]", 1)],
+                vec![("qm-font[color]", 1)],
             ),
-            ("<qm-font>a</qm-font> <qm-font size=\"small\">b</qm-font>", "a b", vec![], vec![("qm-font", 2), ("qm-font[size]", 1)]),
+            ("<qm-font>a</qm-font> <qm-font color=\"red\">b</qm-font>", "a b", vec![], vec![("qm-font", 2), ("qm-font[color]", 1)]),
             ("<qm-font family=\" A\">a</qm-font>", "a", vec![], vec![("qm-font[family]", 1), ("qm-font", 1)]),
             ("<qm-font family=\"A\"/>a", "a", vec![], vec![("qm-font", 1)]),
         ];
@@ -2321,6 +2322,17 @@ pub(crate) mod tests {
         let imported = imp_fixed("<qm-font family=\"A\">a\n<qm-keep>\nb</qm-font>");
         assert_eq!(imported.content.lines.len(), 1);
         assert!(imported.content.marks.iter().all(|m| m.kind == MarkKind::FontFamily { name: "A".into() }));
+    }
+
+    /// `qm-font` tag lines around blocks wrap nothing: the tags drop and warn,
+    /// and the blocks stay.
+    #[test]
+    fn a_qm_font_tag_line_drops() {
+        let imported = imp_fixed("<qm-font family=\"A\">\n\nOne.\n\nTwo.\n\n</qm-font>");
+        assert_eq!(imported.content.text, "One.\nTwo.");
+        assert!(imported.content.lines.iter().all(|l| l.containers.is_empty()));
+        assert!(imported.content.marks.is_empty());
+        assert_eq!(dropped(&imported), [("qm-font", 1)]);
     }
 
     #[test]

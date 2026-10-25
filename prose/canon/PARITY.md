@@ -225,7 +225,7 @@ above, or markup the content does not store.
 | `carrier.cell.partial`: a `qm-cell` pair around part of a cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell` |
 | `carrier.cell.value`: a `qm-cell` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell[valign]` |
 | `carrier.cell.in_font`: a `qm-cell` pair inside a `qm-font` pair, folding nothing | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell` |
-| `carrier.font.value`: a `qm-font` attribute other than `family`, the family kept | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-font[size]` |
+| `carrier.font.value`: a `qm-font` attribute other than `family`, the family kept | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-font[color]` |
 | `carrier.font.unclosed`: a `qm-font` still open where its text ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-font` |
 | `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |

@@ -601,7 +601,9 @@ The schema version is tied to the **crate version at which the `Document`
 wire format was last changed**: not the running crate version. The
 current format was fixed in `0.131.0`, so the version tag is
 `quillmark/document@0.131.0`; every later patch release writes that same
-value, because patches do not change the format.
+value, because patches do not change the format. A save writes the oldest tag
+that holds the row: one holding no `font_family` mark, in a body or a payload
+value, keeps `quillmark/document@0.129.0`, which a 0.129 or 0.130 build reads.
 
 The format is the *bytes*, not only the envelope: `0.115.0` left the DTO tree
 untouched, dropped an island's `loss` key and retired the `island` line kind
@@ -624,8 +626,9 @@ reason a load can. Only the newest DTO converts to the live `Document`.
 ## Adding a Schema Version
 
 A bump that only adds vocabulary members, as `0.131.0` did, needs none of
-the steps below: its tag aliases the newest tree, and the reader matches both
-tags into it.
+the steps below: its tag aliases the newest tree, the reader matches both
+tags into it, and the writer keeps the older tag for a row spelling none of the
+new members.
 
 When the `Document` wire format changes again:
 
