@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Content
+
+- feat(content)!: **a table writes as a GFM pipe table when pipes hold all of
+  it, and as an HTML table when it holds column widths, a placement, a cell's
+  alignment, a merged cell or other than one header row**, whichever spelling
+  the markdown used. An HTML block opening `<table>` imports as a table: the
+  subset is `table`, `thead`, `tbody`, `tfoot`, `tr`, `th` and `td`, with
+  `widths`, `aligns` and `align` on `<table>` and `colspan`, `rowspan`, `align`
+  and `valign` on a cell, whose content is inline markdown. A span stores as a
+  cell's `colspan` and `rowspan`, each cell it covers an empty placeholder, and
+  the header rows as the table's `head`, a count `headless: true` normalizes
+  to `head: 0`; the storage tag holds. What an HTML table cannot hold warns
+  `parse::dropped_construct` as `table`, `table[row]`, `table[text]` or
+  `<tag>[<attr>]`. The Typst backend draws a span through
+  `table.cell(colspan:, rowspan:)` and every header row in `table.header`.
+- feat(content)!: **a `qm-table` wrapper and a `qm-cell` pair drop on import,
+  warning `qm-table` and `qm-cell`**, so markdown written with either loses its
+  table layout; rewrite such a table as HTML.
+
 ## v0.130.0 - 2026-10-22
 
 Upgrade path: [0.129 → 0.130](docs/migrations/0.129-to-0.130.md). A stored row

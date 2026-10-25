@@ -854,6 +854,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 /// - **Arrays where arrays belong.** A present non-array `header`, `aligns`, or
 ///   row carries no cells, so it becomes an empty array.
 /// - **Layout keys absent at their default.** See [`normalize_table_layout`].
+/// - **Spans that cover only what they can.** See [`normalize_table_spans`].
 pub(crate) fn normalize_table_props(props: &mut Value) {
     let cols = table_cols(props);
     let widths = crate::island::TableLayout::of(props).widths;
@@ -889,12 +890,15 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
         }
     }
     normalize_table_layout(obj, widths, cols);
+    normalize_table_spans(props);
 }
 
 /// A table's layout keys, each absent at its default: `widths` holding only
 /// weights and `null`s settles to `cols`, padded with `null` or truncated, and
-/// all `null` is absent; `headless: false` is absent. A value outside its set
-/// stays as written.
+/// all `null` is absent; a whole-number `head` settles to at most the row
+/// count, absent at 1. A `headless` boolean is absent, a `true` one settling to
+/// `head: 0` where no `head` is stored. A value outside its set stays as
+/// written.
 fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Option<u64>>>, cols: usize) {
     if let Some(mut widths) = widths {
         widths.resize(cols, None);
@@ -903,8 +907,63 @@ fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Optio
             false => obj.remove("widths"),
         };
     }
-    if obj.get("headless") == Some(&Value::Bool(false)) {
+    if let Some(Value::Bool(headless)) = obj.get("headless") {
+        if *headless && !obj.contains_key("head") {
+            obj.insert("head".into(), 0.into());
+        }
         obj.remove("headless");
+    }
+    let rows = 1 + obj.get("rows").and_then(Value::as_array).map_or(0, Vec::len);
+    if let Some(head) = obj.get("head").and_then(Value::as_u64) {
+        match usize::try_from(head).unwrap_or(usize::MAX).min(rows) {
+            1 => obj.remove("head"),
+            head => obj.insert("head".into(), head.into()),
+        };
+    }
+}
+
+/// Each drawn cell's `colspan` and `rowspan` settled to what it covers
+/// ([`crate::island::table_spans`]), absent at 1, and each covered cell's span
+/// and alignment keys absent, since it draws nothing. A value outside its set
+/// stays as written.
+fn normalize_table_spans(props: &mut Value) {
+    use crate::island::{CELL_KEYS, CELL_SPANS};
+    let spans = crate::island::table_spans(props);
+    let in_set = |cell: &Map<String, Value>, key: &str| match cell.get(key) {
+        Some(v) if CELL_SPANS.contains(&key) => v.as_u64().is_some_and(|n| n >= 1),
+        Some(v) => CELL_KEYS.iter().any(|(k, set)| *k == key && v.as_str().is_some_and(|v| set.contains(&v))),
+        None => false,
+    };
+    let settle = |row: &mut Value, spans: &[Option<(usize, usize)>]| {
+        let cells = row.as_array_mut().into_iter().flatten().zip(spans);
+        for (cell, span) in cells {
+            let Some(cell) = cell.as_object_mut() else { continue };
+            let settled: Vec<(&str, Option<usize>)> = match span {
+                Some((w, h)) => CELL_SPANS.into_iter().zip([Some(*w), Some(*h)]).collect(),
+                None => CELL_SPANS.into_iter().chain(CELL_KEYS.map(|(k, _)| k)).map(|k| (k, None)).collect(),
+            };
+            for (key, n) in settled {
+                if !in_set(cell, key) {
+                    continue;
+                }
+                match n {
+                    Some(n) if n > 1 => cell.insert(key.into(), n.into()),
+                    _ => cell.remove(key),
+                };
+            }
+        }
+    };
+    let Some(obj) = props.as_object_mut() else {
+        return;
+    };
+    let mut spans = spans.iter();
+    if let (Some(header), Some(row)) = (obj.get_mut("header"), spans.next()) {
+        settle(header, row);
+    }
+    if let Some(rows) = obj.get_mut("rows").and_then(Value::as_array_mut) {
+        for (row, spans) in rows.iter_mut().zip(spans) {
+            settle(row, spans);
+        }
     }
 }
 

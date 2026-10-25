@@ -293,10 +293,10 @@ stating because it is not the discriminator boundary:
   discipline is for.
 
 A table cell sits on the first side because it never became a struct, and it
-earns the place: cells are where the `table` type is likeliest to grow
-(`colspan`, `rowspan`, a per-cell style handle). Canonicalization therefore
-rewrites a cell's `text` and `marks` in place rather than minting a fresh
-`{text, marks}` object.
+earns the place: a cell's alignment and span keys joined it as opaque keys an
+older reader round-trips, and a later per-cell key joins the same way.
+Canonicalization therefore rewrites a cell's `text` and `marks` in place
+rather than minting a fresh `{text, marks}` object.
 
 A `footnote` island's props are one table cell, `{text, marks}`: the note,
 with no `\n` at either edge, normalized as a cell is and keeping a key it does
@@ -325,24 +325,40 @@ default:
 |---|---|---|
 | `widths` | one entry per column, an integer weight from 1 to 2⁵³ − 1 or `null` for an auto-fit column; settled to the column count | every entry `null` |
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
-| `headless` | `true`: `header` is the first body row, drawn as one | a header row |
+| `head` | how many rows, from the top of `header` then `rows`, are header rows: a whole number, at most the row count; `0` draws `header` as the first body row | `1` |
 
 `widths` are weights, not lengths, so each plate decides what full width is.
-The keys ride the opaque props carrier, which an older reader round-trips, so
-adding them is no storage-version event, and a later props key joins the same
-way.
+A stored `headless: true` with no `head` beside it reads as `head: 0`, and
+normalization rewrites it so. The keys ride the opaque props carrier, which an
+older reader round-trips, so adding them is no storage-version event, and a
+later props key joins the same way.
 
-A cell names two keys of its own, each absent by default:
+A cell names four keys of its own, each absent by default:
 
 | Key | Value | Default |
 |---|---|---|
 | `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's `aligns` entry |
 | `valign` | the cell's vertical alignment: `top`, `middle` or `bottom` | the plate's |
+| `colspan` | the columns the cell covers, a whole number from 1 | `1` |
+| `rowspan` | the rows the cell covers, a whole number from 1 | `1` |
 
 A cell's value equal to its column's is an override that stays when the
-column changes. A table or cell key holding a value outside its set is read
-as absent and rides untouched, as an unnamed key does, so
-`from_markdown(to_markdown(c)) == c` holds where every value is in its set.
+column changes. The grid stays rectangular under a span: each cell a span
+covers holds its slot as an empty placeholder, so a merge needs no
+storage-version event. `Content::normalize` settles each span so it covers
+only what it can (`island::table_spans`):
+
+- Cells claim slots in reading order, so the earlier span wins.
+- A span covers only empty cells no other span covers, inside the grid and
+  inside its own section: the `head` rows or the body.
+- A span is stored as it covers, absent at 1, and a covered cell's span and
+  alignment keys are absent, since it draws nothing.
+
+A table or cell key holding a value outside its set is read as absent and
+rides untouched, as an unnamed key does, so `from_markdown(to_markdown(c)) ==
+c` holds where every value is in its set. Markdown writes a table as a GFM pipe
+table or as HTML, whichever holds it
+([markdown-spec.md](../references/markdown-spec.md) §6.8).
 
 Two rules bound the payload:
 

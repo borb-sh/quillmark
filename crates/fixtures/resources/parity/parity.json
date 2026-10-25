@@ -1024,7 +1024,7 @@
   },
   {
     "name": "island.table.cell.align",
-    "markdown": "| a | b |\n| --- | ---: |\n| <qm-cell align=\"center\">1</qm-cell> | 2 |",
+    "markdown": "<table aligns=\"none right\">\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td align=\"center\">1</td><td>2</td></tr>\n</tbody>\n</table>",
     "content": {
       "islands": [
         {
@@ -1081,7 +1081,7 @@
   },
   {
     "name": "island.table.cell.valign",
-    "markdown": "| a | b |\n| --- | --- |\n| <qm-cell valign=\"bottom\">1</qm-cell> | 2<br>3 |",
+    "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td valign=\"bottom\">1</td><td>2<br>3</td></tr>\n</tbody>\n</table>",
     "content": {
       "islands": [
         {
@@ -1138,7 +1138,7 @@
   },
   {
     "name": "island.table.cell.align_valign",
-    "markdown": "| a | b |\n| --- | --- |\n| <qm-cell align=\"right\" valign=\"middle\">**1** *2*</qm-cell> | 3<br>4 |",
+    "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td align=\"right\" valign=\"middle\">**1** *2*</td><td>3<br>4</td></tr>\n</tbody>\n</table>",
     "content": {
       "islands": [
         {
@@ -1198,6 +1198,137 @@
     },
     "typst": [
       "table.cell(align: right + horizon)[#strong[1] #emph[2]]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.cell.colspan",
+    "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th><th>c</th></tr>\n</thead>\n<tbody>\n<tr><td colspan=\"2\">1</td><td>2</td></tr>\n</tbody>\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              },
+              {
+                "marks": [],
+                "text": "c"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "colspan": 2,
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": ""
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "table.cell(colspan: 2)[1], [2], "
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.cell.rowspan",
+    "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td rowspan=\"2\">1</td><td>2</td></tr>\n<tr><td>3</td></tr>\n</tbody>\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "rowspan": 2,
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ],
+              [
+                {
+                  "marks": [],
+                  "text": ""
+                },
+                {
+                  "marks": [],
+                  "text": "3"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "table.cell(rowspan: 2)[1], [2], \n  [3], \n"
     ],
     "signals": {
       "import": [],
@@ -1902,6 +2033,460 @@
     }
   },
   {
+    "name": "html.table",
+    "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td>**1**</td><td>2</td></tr>\n</tbody>\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [
+                    {
+                      "end": 1,
+                      "start": 0,
+                      "type": "strong"
+                    }
+                  ],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "[#strong[1]]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "html.table.lenient",
+    "markdown": "<table>\n<tr><th>a<th>b\n<tr><td colspan=2>1\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "colspan": 2,
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": ""
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "table.header([a], [b], ),",
+      "table.cell(colspan: 2)[1]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "html.table.blank_line",
+    "markdown": "<table>\n<tr><td>a</td></tr>\n\n<tr><td>b</td></tr>\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "head": 0,
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              }
+            ],
+            "rows": []
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "[a]"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "table",
+          "count": 1
+        },
+        {
+          "construct": "tr",
+          "count": 1
+        },
+        {
+          "construct": "td",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.table.attr",
+    "markdown": "<table border=\"1\">\n<tr><td class=\"x\">a</td></tr>\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "head": 0,
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              }
+            ],
+            "rows": []
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "[a]"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "table[border]",
+          "count": 1
+        },
+        {
+          "construct": "td[class]",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.table.value",
+    "markdown": "<table>\n<tr><td colspan=\"x\">a</td><td>b</td></tr>\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "head": 0,
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": []
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "[a], [b]"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "td[colspan]",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.table.overlap",
+    "markdown": "<table>\n<tr><td>a</td><td rowspan=\"2\">b</td></tr>\n<tr><td colspan=\"2\">c</td></tr>\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "head": 0,
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "rowspan": 2,
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "c"
+                },
+                {
+                  "marks": [],
+                  "text": ""
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "table.cell(rowspan: 2)[b]",
+      "  [c], \n"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "td[colspan]",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.table.row",
+    "markdown": "<table>\n<tr><td>a</td><td>b</td></tr>\n<tr><td>c</td><td>d</td><td>e</td></tr>\n<tr><td>f</td></tr>\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "head": 0,
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "c"
+                },
+                {
+                  "marks": [],
+                  "text": "d"
+                }
+              ],
+              [
+                {
+                  "marks": [],
+                  "text": "f"
+                },
+                {
+                  "marks": [],
+                  "text": ""
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "[c], [d], ",
+      "[f], [], "
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "table[row]",
+          "count": 2
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "html.table.text",
+    "markdown": "<table>\n<caption>Roster</caption>\n<tr><td>a</td></tr>\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "head": 0,
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              }
+            ],
+            "rows": []
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "[a]"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "caption",
+          "count": 1
+        },
+        {
+          "construct": "table[text]",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
     "name": "html.block6.text",
     "markdown": "<center>\n**Signed**\nJ. Doe\n</center>",
     "content": {
@@ -2518,7 +3103,7 @@
     }
   },
   {
-    "name": "carrier.table",
+    "name": "carrier.table.reserved",
     "markdown": "<qm-table widths=\"1 2\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
     "content": {
       "islands": [
@@ -2550,10 +3135,6 @@
                   "text": "2"
                 }
               ]
-            ],
-            "widths": [
-              1,
-              2
             ]
           },
           "type": "table"
@@ -2569,10 +3150,15 @@
       "text": "￼"
     },
     "typst": [
-      "columns: (1fr, 2fr)"
+      "columns: 2"
     ],
     "signals": {
-      "import": [],
+      "import": [
+        {
+          "construct": "qm-table",
+          "count": 1
+        }
+      ],
       "render": []
     }
   },
@@ -2890,7 +3476,7 @@
   },
   {
     "name": "island.table.props.widths",
-    "markdown": "<qm-table widths=\"25 50 auto\">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</qm-table>",
+    "markdown": "<table widths=\"25 50 auto\">\n<thead>\n<tr><th>a</th><th>b</th><th>c</th></tr>\n</thead>\n<tbody>\n<tr><td>1</td><td>2</td><td>3</td></tr>\n</tbody>\n</table>",
     "content": {
       "islands": [
         {
@@ -2959,7 +3545,7 @@
   },
   {
     "name": "island.table.props.widths.auto",
-    "markdown": "<qm-table widths=\"auto auto\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
+    "markdown": "<table widths=\"auto auto\">\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td>1</td><td>2</td></tr>\n</tbody>\n</table>",
     "content": {
       "islands": [
         {
@@ -3014,7 +3600,7 @@
   },
   {
     "name": "island.table.props.align",
-    "markdown": "<qm-table align=\"center\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
+    "markdown": "<table align=\"center\">\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td>1</td><td>2</td></tr>\n</tbody>\n</table>",
     "content": {
       "islands": [
         {
@@ -3069,8 +3655,8 @@
     }
   },
   {
-    "name": "island.table.props.headless",
-    "markdown": "<qm-table headless=\"\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
+    "name": "island.table.props.head",
+    "markdown": "<table>\n<thead>\n<tr><th colspan=\"2\">Roster</th></tr>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td>1</td><td>2</td></tr>\n</tbody>\n</table>",
     "content": {
       "islands": [
         {
@@ -3080,6 +3666,74 @@
               "none",
               "none"
             ],
+            "head": 2,
+            "header": [
+              {
+                "colspan": 2,
+                "marks": [],
+                "text": "Roster"
+              },
+              {
+                "marks": [],
+                "text": ""
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "a"
+                },
+                {
+                  "marks": [],
+                  "text": "b"
+                }
+              ],
+              [
+                {
+                  "marks": [],
+                  "text": "1"
+                },
+                {
+                  "marks": [],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "table.header(table.cell(colspan: 2)[Roster], [a], [b], ),"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.props.head.zero",
+    "markdown": "<table>\n<tbody>\n<tr><td>a</td><td>b</td></tr>\n<tr><td>1</td><td>2</td></tr>\n</tbody>\n</table>",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "head": 0,
             "header": [
               {
                 "marks": [],
@@ -3090,7 +3744,6 @@
                 "text": "b"
               }
             ],
-            "headless": true,
             "rows": [
               [
                 {
@@ -3121,279 +3774,6 @@
     ],
     "signals": {
       "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.table.holds_other",
-    "markdown": "<qm-table align=\"center\">\n\n**Signed**\n\n</qm-table>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 6,
-          "start": 0,
-          "type": "strong"
-        }
-      ],
-      "text": "Signed"
-    },
-    "typst": [
-      "#strong[Signed]"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "qm-table",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.table.attr",
-    "markdown": "<qm-table foo=\"1\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "columns: 2"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "qm-table[foo]",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.table.value",
-    "markdown": "<qm-table widths=\"a b\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "columns: 2"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "qm-table[widths]",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.cell.partial",
-    "markdown": "| a | b |\n| --- | --- |\n| <qm-cell align=\"right\">1</qm-cell> more | 2 |",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1 more"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "[1 more]"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "qm-cell",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.cell.value",
-    "markdown": "| a | b |\n| --- | --- |\n| <qm-cell valign=\"horizon\">1</qm-cell> | 2 |",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "  [1], [2]"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "qm-cell[valign]",
-          "count": 1
-        }
-      ],
       "render": []
     }
   }

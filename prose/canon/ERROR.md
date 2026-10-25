@@ -146,14 +146,20 @@ families:
   it dropped, with its `count`, anchored at the body (`main.body`,
   `cards.<kind>[<i>].body`) after its card's tag warnings. The `construct` is:
   - a raw tag's lowercase name: `div`, a `qm-*` name outside the carrier
-    grammar such as `qm-a--b`, or `qm-anchor` where its block drops
-    markdown;
+    grammar such as `qm-a--b`, `qm-anchor` where its block drops
+    markdown, or a tag in an HTML table outside the subset, such as
+    `caption`;
   - `qm-<name>` for an element tag that drops: left unclosed,
     self-closing, inside a line of text, or beside another tag in a block
-    tight against markdown;
-  - `qm-table` for a `qm-table` wrapper that drops whole;
-  - `qm-table[<attr>]` or `qm-<name>[<attr>]` for one attribute that
-    drops;
+    tight against markdown, and `qm-table`, a reserved name;
+  - `qm-<name>[<attr>]` for one element attribute that drops;
+  - `table` for an HTML table its block ends before its `</table>`, at a
+    blank line or another `<table>`;
+  - `table[row]` for an HTML table's row too short or too long for its
+    grid, and `table[text]` for text outside every cell;
+  - `<tag>[<attr>]` for one attribute of an HTML table's tag that drops,
+    such as `td[class]` or `table[widths]`, or a `colspan` cut short where
+    another span covers a slot (`td[colspan]`);
   - `footnote` for a footnote definition nothing references, a second
     definition of one label, or a reference in a table cell, an image's alt
     text or a note;

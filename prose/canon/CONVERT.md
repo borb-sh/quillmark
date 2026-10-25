@@ -150,8 +150,9 @@ The table's layout keys lower as:
 |---|---|
 | `widths` | `columns: (2fr, 1fr, auto)`, a weight to `fr` and `null` to `auto`, in place of `columns: N` |
 | `align` | `align(center, table(…))` under `context`, with `table.cell` set to the horizontal `align.alignment` the table stands in, so the placement moves the table and no text inside it, save a horizontal alignment the plate's own `table.cell` show rule sets |
-| `headless` | `header` lowers as the first body row, outside `table.header` |
+| `head` | that many rows from the top lower inside one `table.header`, which Typst repeats on each page the table runs onto; at `0` none does, and `header` lowers as the first body row |
 | a cell's `align` / `valign` | `table.cell(align: right + bottom)[…]`, `middle` as `horizon`, which Typst folds with the column's alignment; a value outside its set lowers as absent |
+| a cell's `colspan` / `rowspan` | `table.cell(colspan: 2, rowspan: 3)[…]`, each cell its span covers left out, so Typst's own placement, which skips a slot a span above fills, lands every cell where the grid holds it |
 
 A table cell is canonical `{text, marks}`, lowered through the same mark sweep
 as prose: a formatted cell reaches `#strong[…]` / `#emph[…]` / `#raw(…)` /
@@ -168,7 +169,8 @@ leaves and containers alike: what the content nests, the markup nests.
 
 Anchor marks emit nothing; an `image` island emits nothing (see
 [Declined images](#declined-images)).
-Raw HTML other than an inline `<u>`, `<br>` (a hard break) and the `qm-*`
+Raw HTML other than an inline `<u>`, `<br>` (a hard break), a `<table>`
+(markdown-spec §6.8), which imports as a `table` island, and the `qm-*`
 carrier (markdown-spec §6.4) never enters the content, so it is absent here.
 
 ### Elements
@@ -273,10 +275,12 @@ reads and the shape the WASM boundary pins:
   above); `aligns` is one `none | left | center | right` per column. Import
   normalizes to a single column count: header, every row, and `aligns` padded
   to the widest, so `columns:` and `align:` agree.
-  The optional layout keys `widths`, `align` and `headless`, and a cell's `align` and
-  `valign` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"),
-  lower as [above](#element-mapping); an absent one draws at its default:
-  auto-fit, at the plate's placement, in the column's alignment, under a header row.
+  The optional layout keys `widths`, `align` and `head`, and a cell's `align`,
+  `valign`, `colspan` and `rowspan`
+  ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"), lower
+  as [above](#element-mapping); an absent one draws at its default: auto-fit,
+  at the plate's placement, in the column's alignment, under one header row,
+  in one slot.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. No backend resolves `url` (see [Declined images](#declined-images)).
 - **`footnote`** → `Cell`, the note, with no `\n` at either edge. Its `\n` is

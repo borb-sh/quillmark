@@ -1721,16 +1721,16 @@ mod tests {
     fn unrecognized_cell_key_survives_normalize() {
         let mut rt = table_rt(serde_json::json!({
             "aligns": ["none", "none"],
-            "header": [{"text": "h", "marks": [], "colspan": 2}, cell("h2")],
+            "header": [{"text": "h", "marks": [], "x_host": 2}, cell("h2")],
             "rows": [[cell("a")]],
         }));
         rt.normalize();
-        assert_eq!(rt.islands[0].props["header"][0]["colspan"], 2);
-        assert!(rt.islands[0].props["rows"][0][1].get("colspan").is_none());
+        assert_eq!(rt.islands[0].props["header"][0]["x_host"], 2);
+        assert!(rt.islands[0].props["rows"][0][1].get("x_host").is_none());
         assert!(rt
             .into_normalized()
             .to_canonical_json()
-            .contains(r#""colspan":2"#));
+            .contains(r#""x_host":2"#));
     }
 
     #[test]

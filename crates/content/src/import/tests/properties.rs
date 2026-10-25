@@ -59,9 +59,7 @@ fn paragraph() -> impl Strategy<Value = Piece> {
         prop::collection::vec(inline(), 1..4).prop_map(|p| {
             // Markup around nothing imports nothing, and the space between two
             // pieces is text.
-            let spaced = p.len() > 1;
-            let line = Piece::join(p, " ");
-            Piece { other: spaced || !line.words.is_empty(), ..line }
+            Piece::join(p, " ")
         }),
         1..3,
     )
@@ -117,13 +115,9 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
         prop::bool::weighted(0.8),
     )
         .prop_map(|((name, attrs), blocks, closed)| {
-            // An unclosed `qm-table` takes the next `</qm-table>` as its
-            // own; the unit tests hold that case.
-            let closed = closed || name == "qm-table";
             let mut md = format!("<{name}{attrs}>\n\n");
             let mut words = Vec::new();
             let mut reported = Vec::new();
-            let (mut tables, mut other) = (0, false);
             let mut after_table = false;
             let mut after_tag = false;
             for (i, (block, gap)) in blocks.into_iter().enumerate() {
@@ -139,32 +133,16 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
                 md.push_str(&block.md);
                 words.extend(block.words);
                 reported.extend(block.reported);
-                tables += block.tables;
-                other |= block.other;
             }
             if closed {
                 md.push_str(&format!("\n\n</{name}>"));
             }
-            let folds = name == "qm-table" && closed && tables == 1 && !other;
-            let models = name == "qm-keep" && closed;
-            if !folds && !models {
+            if !(name == "qm-keep" && closed) {
                 reported.push(name.to_string());
             }
             // A closing tag straight after a table's rows is one more row to the
-            // parser, so the table runs on past it. An unclosed `qm-keep` stays
-            // innermost, so a `qm-table` around it never closes, and one around
-            // nothing that imports holds its empty line.
-            let void = tables == 0 && words.is_empty();
-            Piece {
-                md,
-                words,
-                reported,
-                table: after_table && !closed,
-                tables,
-                other: other || name == "qm-table" || (name == "qm-keep" && (!closed || void)),
-                closes: closed,
-                cell: false,
-            }
+            // parser, so the table runs on past it.
+            Piece { md, words, reported, table: after_table && !closed, closes: closed }
         })
 }
 

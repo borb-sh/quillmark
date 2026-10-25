@@ -4,6 +4,7 @@
 
 use crate::carrier;
 use crate::html::{self, BlockKind};
+use crate::html_table;
 use pulldown_cmark::{Event, Options, Parser, Tag as PTag, TagEnd};
 use std::ops::Range;
 
@@ -74,9 +75,9 @@ fn admit_chars(s: &str) -> String {
 /// repair, handed to `f` with its parse.
 ///
 /// The repair rewrites the text so the parse reads the text after a comment's
-/// `-->` on its line, ends a table at a line of tags under its rows, and sets
-/// a line of carrier tags in an HTML block apart from the markdown beside it
-/// (markdown-spec §6.2, §7 step 5). Each round parses and edits only inside
+/// `-->` on its line, ends a pipe table at a line of tags under its rows, and
+/// sets a line of carrier tags in an HTML block apart from the markdown beside
+/// it (markdown-spec §6.2, §7 step 5). Each round parses and edits only inside
 /// the spans that parse located, so a fence is never touched; the rounds end
 /// at one that plans no edit, whose parse `f` takes.
 pub(crate) fn parse_markdown<R>(
@@ -302,16 +303,21 @@ fn shallow_lead(line: &str) -> &str {
 /// The edit setting each run of carrier tag lines in a type 6 or 7 HTML block
 /// apart from the markdown lines beside it, where no line of other tags
 /// borders the run, so the run reads as tag lines and the markdown as blocks
-/// of its own. A line the edit leaves opening a block keeps an indent only shy
-/// of an indented code line's, and a blank line closes the block's last
-/// markdown where the next line would continue it lazily.
+/// of its own. A line holding only an HTML table's tags reads as markdown
+/// here, and a block opening a table is the table's own. A line the edit
+/// leaves opening a block keeps an indent only shy of an indented code line's,
+/// and a blank line closes the block's last markdown where the next line would
+/// continue it lazily.
 fn carrier_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
-    if html::block_start(first.content) != Some(BlockKind::Open) {
+    if html::block_start(first.content) != Some(BlockKind::Open) || html_table::opens(first.content) {
         return None;
     }
     let carrier: Vec<bool> = lines.iter().map(|l| carrier::tag_line(l.content).is_some()).collect();
-    let markdown: Vec<bool> = lines.iter().map(|l| html::tag_line(l.content).is_none()).collect();
+    let markdown: Vec<bool> = lines
+        .iter()
+        .map(|l| html::tag_line(l.content).is_none_or(|tags| tags.iter().all(|t| html_table::is_tag(t.name))))
+        .collect();
     let lead = |line: &SrcLine| format!("{}{}{}", line.prefix, shallow_lead(line.content), line.content.trim_start());
     let mut out = Vec::with_capacity(lines.len() + 3);
     let mut changed = false;
@@ -491,6 +497,10 @@ mod tests {
                 "<qm-keep>\n    **Signed**\n    J. Doe\n</qm-keep>",
                 "<qm-keep>\n\n**Signed**\n    J. Doe\n\n</qm-keep>",
             ),
+            (
+                "<qm-keep>\n<table>\n<tr><td>a</td></tr>\n</table>\n</qm-keep>",
+                "<qm-keep>\n\n<table>\n<tr><td>a</td></tr>\n</table>\n\n</qm-keep>",
+            ),
         ];
         for (md, repaired) in cases {
             assert_eq!(normalized(md), repaired, "{md:?}");
@@ -503,6 +513,7 @@ mod tests {
             "<span>\n<qm-keep>\nA",
             "<div>\nA",
             "<qm-keep>\n<qm-table>\n\nA",
+            "<table>\n<qm-keep>\n<tr><td>a</td></tr>\n</table>",
             "[^n]: <qm-keep>\n    A",
         ] {
             assert_eq!(normalized(md), md);

@@ -12,6 +12,7 @@ pub mod carrier;
 pub mod delta;
 pub mod export;
 mod html;
+mod html_table;
 pub mod import;
 pub mod island;
 pub mod model;

@@ -7,17 +7,12 @@ use crate::normalize::{is_bidi_char, is_line_separator};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-pub(crate) mod cell;
-pub(crate) mod table;
-
 /// What every carrier tag name opens with.
 pub const PREFIX: &str = "qm-";
 
-/// The table wrapper's element name.
+/// A reserved element name: a table spells its layout on an HTML `<table>`,
+/// so `qm-table` wraps nothing and drops.
 pub const TABLE: &str = "table";
-
-/// The element name of a table cell's alignment pair.
-pub const CELL: &str = "cell";
 
 /// The anchor spelling's element name.
 pub const ANCHOR: &str = "anchor";
@@ -248,10 +243,10 @@ impl Element {
     }
 }
 
-/// The wrapper a tag named `tag_name` opens or closes: `table` or an
-/// element's name. `qm-anchor` wraps nothing.
+/// The element a tag named `tag_name` opens or closes. A [reserved](RESERVED)
+/// name wraps nothing.
 pub(crate) fn wrapper(tag_name: &str) -> Option<String> {
-    element(tag_name).filter(|name| name != ANCHOR)
+    element(tag_name).filter(|name| !RESERVED.contains(&name.as_str()))
 }
 
 /// The tags of a [tag line](html::tag_line) whose every tag opens or closes a
@@ -332,12 +327,12 @@ mod tests {
     #[test]
     fn the_open_tag_sorts_its_attributes_and_escapes_their_values() {
         let values = attrs(&[("widths", "1 2"), ("align", "a&b<c>\"d'e"), ("note", "x\ny\u{202E}|")]);
-        let e = Element::spelling(TABLE, values).unwrap();
+        let e = Element::new("box", values).unwrap();
         assert_eq!(
             e.open_tag(),
-            "<qm-table align=\"a&amp;b&lt;c&gt;&quot;d'e\" note=\"x&#xA;y&#x202E;&#x7C;\" widths=\"1 2\">"
+            "<qm-box align=\"a&amp;b&lt;c&gt;&quot;d'e\" note=\"x&#xA;y&#x202E;&#x7C;\" widths=\"1 2\">"
         );
-        assert_eq!(e.close_tag(), "</qm-table>");
+        assert_eq!(e.close_tag(), "</qm-box>");
         let keep = Element::new("keep", BTreeMap::new()).unwrap();
         assert_eq!(keep.wrap_block("a\n\nb"), "<qm-keep>\n\na\n\nb\n\n</qm-keep>");
         assert_eq!(keep.wrap_block(""), "<qm-keep></qm-keep>");
