@@ -283,10 +283,13 @@ fn spells_font_family(tree: &DocumentV0_131_0) -> bool {
     })
 }
 
+/// Whether `value` holds a `marks` list, a content value's or a table cell's,
+/// naming a `font_family` mark.
 fn json_spells_font_family(value: &serde_json::Value) -> bool {
+    let is_font = |mark: &serde_json::Value| mark.get("type").and_then(serde_json::Value::as_str) == Some("font_family");
     match value {
         serde_json::Value::Object(map) => {
-            map.get("type").and_then(serde_json::Value::as_str) == Some("font_family")
+            map.get("marks").and_then(serde_json::Value::as_array).is_some_and(|marks| marks.iter().any(is_font))
                 || map.values().any(json_spells_font_family)
         }
         serde_json::Value::Array(items) => items.iter().any(json_spells_font_family),
@@ -1384,7 +1387,7 @@ title: Hi
     }
 
     /// A save takes `0.131.0` only for a row holding a `font_family` mark, in
-    /// a body or in a field value, and is a byte-fixed point under it.
+    /// a body or in a field value's marks, and is a byte-fixed point under it.
     #[test]
     fn a_font_mark_alone_takes_the_newest_tag() {
         let tag = |doc: &Document| peek_storage_version(&serde_json::to_string(doc).unwrap());
@@ -1412,6 +1415,15 @@ title: Hi
         let in_field: Document = serde_json::from_value(row).unwrap();
         assert_eq!(tag(&in_field).as_deref(), Some(STORAGE_V0_131_0));
         assert_eq!(tag(&sample()).as_deref(), Some(STORAGE_V0_129_0));
+
+        let mut row: serde_json::Value = serde_json::to_value(sample()).unwrap();
+        row["main"]["payload"]["items"].as_array_mut().unwrap().push(serde_json::json!({
+            "type": "field",
+            "key": "style",
+            "value": { "type": "font_family", "name": "Carlito" },
+        }));
+        let plain: Document = serde_json::from_value(row).unwrap();
+        assert_eq!(tag(&plain).as_deref(), Some(STORAGE_V0_129_0));
     }
 
     /// Both tags refuse it, by two machineries: `CanonicalContent`'s
