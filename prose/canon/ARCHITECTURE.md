@@ -139,10 +139,12 @@ A Typst session sets type in fonts from three tiers, in font book order:
 | 2 | the host library | the host, at `Engine::with_fonts`, shared by every session of the engine |
 | 3 | the fallback | embedded: Roboto, only for a quill shipping no fonts, and Noto Sans Math answering to `New Computer Modern Math` |
 
-- **The quill's faces enter the book first.** Typst picks a face by variant
-  distance across every face of a family, and order breaks ties, so whether a
-  host face may fill a variant a quill's family lacks is left unsettled; it
-  touches no stored data.
+- **Only a mark reaches a library face.** The book files each library face
+  under a reserved alias family, `qm-host:` and its family lowercased, with no
+  glyph coverage, and a `font_family` mark lowers to the alias. A plate naming
+  the family, Typst's variant fill and glyph fallback never reach it, so text
+  without a mark renders alike on every host. A quill font whose family starts
+  with `qm-host:` joins the alias family.
 - **The library is frozen at construction.** `FontLibrary::new` parses each
   file once and refuses the whole set if any file fails: one
   `engine::font_unsupported` per file in another format, WOFF and WOFF2

@@ -9,13 +9,19 @@ use quillmark_core::quill::QuillConfig;
 use quillmark_core::Content;
 
 /// A session's running-text families, lowercased.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct Families {
-    /// Every family the font book holds: the quill's, the library's and the
-    /// fallback's.
+    /// The families a plate can name: the quill's and the fallback's.
     pub(crate) held: std::collections::BTreeSet<String>,
-    /// The library's families, the ones a `font_family` mark may set.
-    pub(crate) offered: std::collections::BTreeSet<String>,
+    /// The library's families, the ones a `font_family` mark may set, each
+    /// beside the [`host_alias`] the book files its faces under.
+    pub(crate) offered: BTreeMap<String, String>,
+}
+
+/// The family the font book files a library face of `family` under. No plate
+/// or fallback names it, so only a `font_family` mark reaches a library face.
+pub(crate) fn host_alias(family: &str) -> String {
+    format!("qm-host:{}", family.to_lowercase())
 }
 
 const CODE: &str = "typst::unknown_font_family";
@@ -29,7 +35,7 @@ pub(crate) fn unknown(config: &QuillConfig, data: &serde_json::Value, families: 
         let mut missing: BTreeMap<String, String> = BTreeMap::new();
         for name in content.font_families() {
             let key = name.to_lowercase();
-            if !families.offered.contains(&key) {
+            if !families.offered.contains_key(&key) {
                 missing.entry(key).or_insert(name);
             }
         }
@@ -181,6 +187,23 @@ mod tests {
         assert_eq!(family(&runs, "own"), "Figtree");
         let families: Vec<_> = warnings.iter().filter_map(|d| d.args.get("family")).collect();
         assert_eq!(families, [&serde_json::json!("Figtree"), &serde_json::json!("Roboto")]);
+    }
+
+    /// A library face sets only text a mark sets: neither a plate naming its
+    /// family nor glyph fallback reaches it.
+    #[test]
+    fn a_library_face_sets_only_marked_text() {
+        let (runs, _) = runs(
+            "#set text(font: \"Figtree\")",
+            "plain <qm-span family=\"Figtree\">set</qm-span>",
+            FontLibrary::new(vec![figtree()]).expect("library"),
+        );
+        assert_eq!(family(&runs, "plain"), "Roboto");
+        assert_eq!(family(&runs, "set"), "Figtree");
+
+        let quill = quill_shipping("", &[("Figtree-Regular.ttf", figtree())]);
+        let (runs, _) = runs_of(&quill, "plain Ж", FontLibrary::new(vec![roboto()]).expect("library"));
+        assert!(runs.iter().all(|(_, family)| family == "Figtree"), "{runs:?}");
     }
 
     #[test]

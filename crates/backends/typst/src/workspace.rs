@@ -30,7 +30,9 @@ pub const HELPER_DIR: &str = "local/quillmark-helper";
 /// vendored package's file by its path, and a package the quill does not
 /// vendor. A plate that compiles from the workspace can still fail to render,
 /// and an equation compiles there only in a math face the quill ships: the
-/// embedded one answers to Typst's math family inside Quillmark alone.
+/// embedded one answers to Typst's math family inside Quillmark alone. A
+/// library face loads there under its own family, so a plate or glyph
+/// fallback can reach it as no render lets them.
 #[non_exhaustive]
 pub struct Workspace {
     /// Paths relative to the workspace directory, every component a plain name.
@@ -76,7 +78,11 @@ pub fn workspace(
     let warnings = world.load_warnings().to_vec();
 
     let meta = SchemaMeta::from_config(source.config());
-    let (lib_typ, _) = helper::generate_lib_typ(json_data, &meta, world.families())
+    let mut families = world.families().clone();
+    for (family, alias) in &mut families.offered {
+        alias.clone_from(family);
+    }
+    let (lib_typ, _) = helper::generate_lib_typ(json_data, &meta, &families)
         .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
     let helper_dir = PathBuf::from(PACKAGES_DIR)
         .join(HELPER_DIR)

@@ -6,11 +6,11 @@ use typst::syntax::{
     package::{PackageSpec, PackageVersion},
     FileId, RootedPath, Source, VirtualPath, VirtualRoot,
 };
-use typst::text::{Font, FontBook, FontFlags, FontInfo};
+use typst::text::{Coverage, Font, FontBook, FontFlags, FontInfo};
 use typst::utils::LazyHash;
 use typst::{Library, World};
 
-use crate::families::Families;
+use crate::families::{host_alias, Families};
 use crate::{helper, FontLibrary, Plate};
 use quillmark_core::{
     error::{Diagnostic, Severity},
@@ -113,8 +113,10 @@ fn oversized_collection(path: &Path, declared: u32) -> Diagnostic {
 
 /// The session's faces in book order, each beside the info the book files it
 /// under: the quill's, then the host library's, then the embedded fallback,
-/// Roboto standing in only for a quill shipping no fonts. The math face also
-/// answers to [`MATH_FAMILY`] unless a face before it holds that family.
+/// Roboto standing in only for a quill shipping no fonts. A library face is
+/// filed under its [`host_alias`] with no coverage, so neither a plate nor
+/// glyph fallback reaches it. The math face also answers to [`MATH_FAMILY`]
+/// unless a face before it holds that family.
 pub(crate) fn session_fonts(
     source: &Quill,
     library: &FontLibrary,
@@ -128,7 +130,12 @@ pub(crate) fn session_fonts(
         }
     }
     let quill_ships = !out.is_empty();
-    out.extend(library.faces().iter().map(|font| (font.info().clone(), font.clone())));
+    out.extend(library.faces().iter().map(|font| {
+        let mut info = font.info().clone();
+        info.family = host_alias(&info.family);
+        info.coverage = Coverage::from_vec(Vec::new());
+        (info, font.clone())
+    }));
     if !quill_ships {
         for (_, data) in FALLBACK_FONTS {
             out.extend(faces(Bytes::new(data)).into_iter().flatten().map(|font| (font.info().clone(), font)));
@@ -199,7 +206,8 @@ impl QuillWorld {
         }
         for font in library.faces() {
             if sets_text(font.info(), font) {
-                families.offered.insert(font.info().family.to_lowercase());
+                let family = &font.info().family;
+                families.offered.insert(family.to_lowercase(), host_alias(family));
             }
         }
 

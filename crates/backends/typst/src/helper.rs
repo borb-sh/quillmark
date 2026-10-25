@@ -63,7 +63,14 @@ pub fn generate_lib_typ(
     let literal = |set: &std::collections::BTreeSet<String>| {
         wrap_array(set.iter().map(|f| format!("\"{}\"", escape_string(f))).collect())
     };
-    let (held_literal, offered_literal) = (literal(&families.held), literal(&families.offered));
+    let held_literal = literal(&families.held);
+    let offered_literal = wrap_dict(
+        families
+            .offered
+            .iter()
+            .map(|(family, alias)| format!("\"{}\": \"{}\"", escape_string(family), escape_string(alias)))
+            .collect(),
+    );
 
     // Placeholders are located in the *raw template* (trusted static text), never
     // in already-substituted output, so document data spelling a placeholder
