@@ -449,14 +449,12 @@ pub fn is_font_family_name(name: &str) -> bool {
             .any(|c| c.is_control() || is_bidi_char(c) || is_line_separator(c) || c == ISLAND_SLOT)
 }
 
-/// How two raw keyed marks of one tag, each `(start, end, kind)`, rank over a
-/// character both cover: the later start sets it, then the shorter mark, then
+/// How a raw keyed mark ranks over a character it shares with another of its
+/// tag, the greater setting it: the later start, then the shorter mark, then
 /// the later in canonical order. Only [`normalize_marks`] reads it, settling
 /// raw overlap once; normalized content holds none.
-fn keyed_rank(a: (Usv, Usv, &MarkKind), b: (Usv, Usv, &MarkKind)) -> std::cmp::Ordering {
-    a.0.cmp(&b.0)
-        .then(b.1.cmp(&a.1))
-        .then_with(|| a.2.sort_key().cmp(&b.2.sort_key()))
+fn keyed_rank(m: &Mark) -> (Usv, std::cmp::Reverse<Usv>, (String, String)) {
+    (m.start, std::cmp::Reverse(m.end), m.kind.sort_key())
 }
 
 /// A structured object with no honest text encoding (a table, figure, or future
@@ -1336,9 +1334,12 @@ pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
 }
 
 /// Raw keyed marks as disjoint pieces per tag: each stretch between two edges
-/// of a tag's marks goes to the mark [`keyed_rank`] puts first over it.
+/// of a tag's marks goes to the mark [`keyed_rank`] puts first over it, read
+/// off one sweep over the edges.
 fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
-    let mut by_tag: std::collections::BTreeMap<&'static str, Vec<Mark>> = Default::default();
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let mut by_tag: BTreeMap<&'static str, Vec<Mark>> = BTreeMap::new();
     for m in keyed.into_iter().filter(|m| m.start < m.end) {
         by_tag.entry(m.kind.tag()).or_default().push(m);
     }
@@ -1349,17 +1350,26 @@ fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
             out.extend(marks);
             continue;
         }
+        let ranks: Vec<_> = marks.iter().map(keyed_rank).collect();
+        let mut by_end: Vec<usize> = (0..marks.len()).collect();
+        by_end.sort_by_key(|&i| marks[i].end);
         let mut edges: Vec<Usv> = marks.iter().flat_map(|m| [m.start, m.end]).collect();
         edges.sort_unstable();
         edges.dedup();
+        let mut over = BTreeSet::new();
+        let (mut opened, mut closed) = (0, 0);
         for cut in edges.windows(2) {
             let (a, b) = (cut[0], cut[1]);
-            let winner = marks
-                .iter()
-                .filter(|m| m.start <= a && a < m.end)
-                .max_by(|x, y| keyed_rank((x.start, x.end, &x.kind), (y.start, y.end, &y.kind)));
-            if let Some(m) = winner {
-                out.push(Mark { start: a, end: b, kind: m.kind.clone() });
+            while closed < by_end.len() && marks[by_end[closed]].end <= a {
+                over.remove(&(&ranks[by_end[closed]], by_end[closed]));
+                closed += 1;
+            }
+            while opened < marks.len() && marks[opened].start <= a {
+                over.insert((&ranks[opened], opened));
+                opened += 1;
+            }
+            if let Some(&(_, i)) = over.last() {
+                out.push(Mark { start: a, end: b, kind: marks[i].kind.clone() });
             }
         }
     }

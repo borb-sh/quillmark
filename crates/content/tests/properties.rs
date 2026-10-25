@@ -684,12 +684,15 @@ proptest! {
     /// Font marks in any raw arrangement normalize to one family per
     /// character, the one the raw marks rank first there (the later start,
     /// then the shorter, then the later name). An `Add` of a family then sets
-    /// exactly its range, and a deletion keeps every kept character's family.
+    /// exactly its range, a deletion or an insertion keeps every kept
+    /// character's family, and inserted text takes a family only inside a
+    /// run of one.
     #[test]
     fn font_marks_settle_to_one_family_per_character(
         raw in prop::collection::vec((0usize..12, 0usize..12, 0usize..3), 0..6),
         add in (0usize..12, 0usize..12, 0usize..3),
         cut in (0usize..12, 0usize..12),
+        put in (0usize..13, 1usize..3),
     ) {
         const NAMES: [&str; 3] = ["Arimo", "Bitter", "Carlito"];
         let family = |i: usize| MarkKind::FontFamily { name: NAMES[i].into() };
@@ -735,9 +738,18 @@ proptest! {
         if p < q {
             rt.apply_text_delta(&delta).unwrap();
             want.drain(p..q);
-            prop_assert_eq!(per_char(&rt.marks, 12 - (q - p)), want, "a deletion changed a kept family");
+            prop_assert_eq!(per_char(&rt.marks, 12 - (q - p)), want.clone(), "a deletion changed a kept family");
             prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
         }
+
+        let len = want.len();
+        let at = put.0 % (len + 1);
+        let delta = Delta { ops: retain(at).into_iter().chain([Op::Insert("x".repeat(put.1))]).chain(retain(len - at)).collect() };
+        rt.apply_text_delta(&delta).unwrap();
+        let inside = (0 < at && at < len && want[at - 1] == want[at]).then(|| want[at].clone()).flatten();
+        want.splice(at..at, std::iter::repeat_n(inside, put.1));
+        prop_assert_eq!(per_char(&rt.marks, len + put.1), want, "an insertion changed a kept family");
+        prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
     }
 
     /// `apply_line_ops` preserves `validate()` across an accepted
