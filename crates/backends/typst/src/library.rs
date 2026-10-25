@@ -109,21 +109,18 @@ mod tests {
             .collect()
     }
 
+    /// A session lists the quill's faces, then the library's, then the
+    /// fallback only for a quill shipping no fonts.
     #[test]
-    fn a_family_a_higher_tier_holds_shadows_every_face_of_it_below() {
-        let roboto = crate::world::FALLBACK_FONTS[0].1.to_vec();
-        let host = || FontLibrary::new(vec![taro_font("Figtree-Bold.ttf"), roboto.clone()]).expect("library");
-
+    fn a_session_lists_the_quills_faces_then_the_librarys() {
+        let host = || FontLibrary::new(vec![taro_font("Figtree-Bold.ttf")]).expect("library");
         let shipping = quill_shipping(&[("Figtree-Regular.ttf", taro_font("Figtree-Regular.ttf"))]);
-        assert_eq!(faces_of(&shipping, host()), [("Figtree".into(), 400), ("Roboto".into(), 400)]);
-
+        assert_eq!(faces_of(&shipping, host()), [("Figtree".into(), 400), ("Figtree".into(), 700)]);
         let bare = quill_shipping(&[]);
         assert_eq!(
             faces_of(&bare, host()),
-            [("Figtree".into(), 700), ("Roboto".into(), 400)],
-            "the host's Roboto shadows the fallback's regular and italic alike"
+            [("Figtree".into(), 700), ("Roboto".into(), 400), ("Roboto".into(), 400)]
         );
-        assert_eq!(faces_of(&bare, FontLibrary::default()), [("Roboto".into(), 400), ("Roboto".into(), 400)]);
     }
 
     #[test]

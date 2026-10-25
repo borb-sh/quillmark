@@ -613,35 +613,38 @@ reads the document:
 - Outside a table cell `qm-cell` is no special name: a pair of tag lines is an
   element, and a pair inside a line drops as any element's does.
 
-**`qm-font`** is an inline pair setting the family and size of the text it
-wraps, whatever quill reads the document:
+**`qm-font`** is an inline pair setting the font family of the text it wraps,
+whatever quill reads the document:
 
 | Attribute | Value | Default |
 |---|---|---|
 | `family` | a font family's name: not empty, no space at either edge, and no control character, bidi control or line separator | the surrounding text's family |
-| `size` | a step from the surrounding size, `small` or `large`; `normal` is the surrounding size | the surrounding size |
 
 ```markdown
-Pay <qm-font size="large">**today**</qm-font>, as <qm-font family="Carlito" size="small">§4</qm-font> sets out.
+Pay <qm-font family="Carlito">**today**, as <qm-font family="Arimo">§4</qm-font> sets out</qm-font>.
 ```
 
 - A pair pairs as `<u>` does (§6.2): inside its paragraph, heading, list
   item's text, table cell or footnote, a `</qm-font>` closes the innermost
-  `<qm-font>` still open, whatever marks lie between. Over each stretch of text
-  the innermost open pair setting an attribute wins, so `size="normal"` inside
-  a `size="large"` pair holds its text at the surrounding size.
+  `<qm-font>` still open, whatever marks lie between. Nested pairs import as
+  overlapping marks. A stretch of text takes the family of the pair around it
+  that opens last, then of the one that closes first, then of the one later
+  in canonical mark order, so an inner pair wins over its own text and the
+  outer family resumes past it.
 - A family stores as written and names no font file. A backend resolves it at
   render, and text in a family none of its fonts holds keeps the surrounding
-  family. The Typst backend sets neither attribute over a code span, math or a
-  table, whose cells take pairs of their own, and a footnote's note keeps its
-  own family and size.
-- An attribute other than these two, and one whose value is outside its
-  spelling, drops alone, reported as `qm-font[<name>]`. A tag setting nothing,
-  a self-closing tag and a pair still open where its text ends drop, reported
-  as `qm-font`.
-- Export writes one pair around each stretch of text holding one family and
-  size, attributes sorted, inside a `qm-cell` pair, and outside `<u>` and the
-  emphasis delimiters closing and opening where it stands, as `<u>` is (§6.2).
+  family. The Typst backend sets no family over a code span, math or a table,
+  whose cells take pairs of their own, and a footnote's note keeps its own
+  family.
+- An attribute other than `family` drops alone, reported as
+  `qm-font[<name>]`, as does a family outside its spelling. A tag setting no
+  family, a self-closing tag and a pair still open where its text ends drop,
+  reported as `qm-font`.
+- Export writes one pair per family mark, nested so the family setting each
+  stretch is the innermost pair around it, and a pair crossing another's edge
+  closes there and reopens past it. A pair sits inside a `qm-cell` pair, and
+  outside `<u>` and the emphasis delimiters closing and opening where it
+  stands, as `<u>` is (§6.2).
 - Outside a line of text `qm-font` is no special name: a pair of tag lines is
   an element.
 

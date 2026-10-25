@@ -141,7 +141,6 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
 | `str(value)` | a `text` value's verbatim `str` ([Text as a str](#text-as-a-str)) |
 | `form-field(..)`, `signature-field(..)` | a form widget, bound to a field by `field:` |
 | `tasks`, `elements` | the task-item and element renderer registries |
-| `font-steps` | the size each font step sets, a `state` a plate overrides with `#qm.font-steps.update((large: ..))`, a step it leaves out keeping its default ([CONVERT.md](CONVERT.md#font-runs)) |
 
 Internals keep a `_qm-` prefix.
 

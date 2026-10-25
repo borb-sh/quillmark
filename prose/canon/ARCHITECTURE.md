@@ -131,7 +131,7 @@ See [PLATE_DATA.md](PLATE_DATA.md) for the Typst helper package.
 
 ## Fonts
 
-A Typst session sets type in fonts from three tiers, highest first:
+A Typst session sets type in fonts from three tiers, in font book order:
 
 | Tier | Source | Supplied by |
 |---|---|---|
@@ -139,11 +139,10 @@ A Typst session sets type in fonts from three tiers, highest first:
 | 2 | the host library | the host, at `Engine::with_fonts`, shared by every session of the engine |
 | 3 | the fallback | embedded: Roboto, only for a quill shipping no fonts, and Noto Sans Math answering to `New Computer Modern Math` |
 
-- **A tier excludes by family.** A family a higher tier holds drops every face
-  of it from the tiers below before the font book is built, families compared
-  lowercased. A host therefore never fills in or restyles a quill's family:
-  Typst picks a face by variant distance across every face of a family, so
-  load order alone could not keep a host's bold out of a quill's family.
+- **The quill's faces enter the book first.** Typst picks a face by variant
+  distance across every face of a family, and order breaks ties, so whether a
+  host face may fill a variant a quill's family lacks is left unsettled; it
+  touches no stored data.
 - **The library is frozen at construction.** `FontLibrary::new` parses each
   file once and refuses the whole set if any file fails: one
   `engine::font_unsupported` per file in another format, WOFF and WOFF2

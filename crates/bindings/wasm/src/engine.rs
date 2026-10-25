@@ -288,8 +288,7 @@ export type ContentMarkKind =
     | { type: "strong" | "emph" | "underline" | "strike" | "code" }
     | { type: "link"; attrs: { url: string } }
     | { type: "anchor"; attrs: { id: string } }
-    | { type: "font_family"; attrs: { name: string } }
-    | { type: "font_size"; attrs: { step: "small" | "large" } };
+    | { type: "font_family"; attrs: { name: string } };
 
 /** A cell in a `TableProps`. `marks` rides the prose `ContentMark` shape, but
  * each mark's `start`/`end` are USV offsets into this cell's `text`, not into
@@ -637,8 +636,7 @@ impl Engine {
     }
 
     /// The text faces a session of `quill` sets a `font_family` mark in: the
-    /// quill's own, the host's, then the embedded fallback, each family a
-    /// higher tier holds shadowing a lower tier's faces of it.
+    /// quill's own, the host's, then the embedded fallback.
     #[wasm_bindgen(js_name = fontFaces, unchecked_return_type = "FontFace[]")]
     pub fn font_faces(&self, quill: &Quill) -> Result<JsValue, JsValue> {
         let faces = self

@@ -436,7 +436,7 @@ pub const MARKDOWN_RULES: &str = "Quillmark Markdown rules:
 \u{2022} Prose body is the text after a block's closing `~~~`, up to the next opener or EOF. To include a literal fenced code block in prose, use a backtick fence (```); any column-zero `~~~` block is parsed as card metadata.
 \u{2022} A blank or null value (`field:`, `field: null`, `field: ~`) is the same as omitting the field: it falls back to the field's default, else its blank. `field: \"\"` is kept as written, an explicit empty value.
 \u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.
-\u{2022} In a body or richtext value, `<qm-font family=\"<family>\" size=\"small\">text</qm-font>` sets a run's font family, size step (`small` or `large`), or both. Pairs nest, the innermost winning; `size=\"normal\"` holds the surrounding size inside a sized run. Name only a family the quill or host supplies: any other keeps the surrounding font and warns.";
+\u{2022} In a body or richtext value, `<qm-font family=\"<family>\">text</qm-font>` sets a run's font family. Pairs nest, the innermost winning and the outer resuming past it. Name only a family the quill or host supplies: any other keeps the surrounding font and warns.";
 
 #[cfg(test)]
 mod tests;

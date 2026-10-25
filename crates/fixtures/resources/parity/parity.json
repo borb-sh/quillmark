@@ -850,38 +850,7 @@
       "text": "set"
     },
     "typst": [
-      "#_qm-font(\"Roboto\", none)[set]"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "mark.font_size",
-    "markdown": "<qm-font size=\"large\">big</qm-font>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "step": "large"
-          },
-          "end": 3,
-          "start": 0,
-          "type": "font_size"
-        }
-      ],
-      "text": "big"
-    },
-    "typst": [
-      "#_qm-font(none, \"large\")[big]"
+      "#_qm-font(\"Roboto\")[set]"
     ],
     "signals": {
       "import": [],
@@ -1301,7 +1270,7 @@
   },
   {
     "name": "island.table.cell.font",
-    "markdown": "| a | b |\n| --- | --- |\n| <qm-cell align=\"center\"><qm-font size=\"small\">1</qm-font></qm-cell> | <qm-font family=\"Roboto\">2</qm-font> |",
+    "markdown": "| a | b |\n| --- | --- |\n| <qm-cell align=\"center\"><qm-font family=\"Roboto\">1</qm-font></qm-cell> | <qm-font family=\"Roboto\">2</qm-font> |",
     "content": {
       "islands": [
         {
@@ -1327,11 +1296,11 @@
                   "marks": [
                     {
                       "attrs": {
-                        "step": "small"
+                        "name": "Roboto"
                       },
                       "end": 1,
                       "start": 0,
-                      "type": "font_size"
+                      "type": "font_family"
                     }
                   ],
                   "text": "1",
@@ -1366,8 +1335,8 @@
       "text": "￼"
     },
     "typst": [
-      "table.cell(align: center)[#_qm-font(none, \"small\")[1]]",
-      "[#_qm-font(\"Roboto\", none)[2]]"
+      "table.cell(align: center)[#_qm-font(\"Roboto\")[1]]",
+      "[#_qm-font(\"Roboto\")[2]]"
     ],
     "signals": {
       "import": [],
@@ -3568,48 +3537,8 @@
     }
   },
   {
-    "name": "carrier.font.normal",
-    "markdown": "<qm-font size=\"large\">a <qm-font size=\"normal\">b</qm-font> c</qm-font>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "step": "large"
-          },
-          "end": 2,
-          "start": 0,
-          "type": "font_size"
-        },
-        {
-          "attrs": {
-            "step": "large"
-          },
-          "end": 5,
-          "start": 3,
-          "type": "font_size"
-        }
-      ],
-      "text": "a b c"
-    },
-    "typst": [
-      "#_qm-font(none, \"large\")[a ]b",
-      "#_qm-font(none, \"large\")[c]"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
     "name": "carrier.font.value",
-    "markdown": "a <qm-font family=\"Roboto\" size=\"huge\">b</qm-font> c",
+    "markdown": "a <qm-font family=\"Roboto\" size=\"large\">b</qm-font> c",
     "content": {
       "islands": [],
       "lines": [
@@ -3631,7 +3560,7 @@
       "text": "a b c"
     },
     "typst": [
-      "a #_qm-font(\"Roboto\", none)[b] c"
+      "a #_qm-font(\"Roboto\")[b] c"
     ],
     "signals": {
       "import": [
@@ -3645,7 +3574,7 @@
   },
   {
     "name": "carrier.font.unclosed",
-    "markdown": "a <qm-font size=\"large\">b c",
+    "markdown": "a <qm-font family=\"Roboto\">b c",
     "content": {
       "islands": [],
       "lines": [
@@ -3672,7 +3601,7 @@
   },
   {
     "name": "carrier.cell.in_font",
-    "markdown": "| a |\n| --- |\n| <qm-font size=\"large\"><qm-cell align=\"center\">1</qm-cell></qm-font> |",
+    "markdown": "| a |\n| --- |\n| <qm-font family=\"Roboto\"><qm-cell align=\"center\">1</qm-cell></qm-font> |",
     "content": {
       "islands": [
         {
@@ -3693,11 +3622,11 @@
                   "marks": [
                     {
                       "attrs": {
-                        "step": "large"
+                        "name": "Roboto"
                       },
                       "end": 1,
                       "start": 0,
-                      "type": "font_size"
+                      "type": "font_family"
                     }
                   ],
                   "text": "1"
@@ -3718,7 +3647,7 @@
       "text": "￼"
     },
     "typst": [
-      "[#_qm-font(none, \"large\")[1]]"
+      "[#_qm-font(\"Roboto\")[1]]"
     ],
     "signals": {
       "import": [

@@ -179,7 +179,7 @@ four discriminators are covered by their own rule: each is a **closed set**.
 |---|---|---|
 | Line `kind` | `para`, `heading`, `code`, `rule`, `term` | `LineKind` |
 | Container | `list_item`, `quote`, `description`, `element` | `Container` |
-| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor`, `font_family`, `font_size` | `MarkKind` |
+| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor`, `font_family` | `MarkKind` |
 | Island `type` | `table`, `image`, `footnote`, `math` | `IslandType` |
 
 A name outside one of them is `ParseError::UnknownName { axis, name }` at every
@@ -211,15 +211,14 @@ name, so a build without `checked` would read a task list as a plain one and
 save it so; the key arrived under the tag that brought `element` (`0.124.0`),
 which that reader refuses.
 
-`font_family` and `font_size` are **keyed** marks. `font_family` carries a
-family's name under `attrs.name`, stored as written and naming no font file: a
-backend resolves it at render. The name is not empty, has no space at either
-edge, and holds no control character, bidi control or line separator
-(`model::is_font_family_name`). `font_size` carries a step, `small` or `large`,
-under `attrs.step`; the surrounding size is the absence of the mark. Two marks
-of one keyed type never overlap: `normalize` paints each over the ones before
-it, clipping them to its edges, so a stretch of text holds at most one family
-and one step. Both arrived with `0.131.0`.
+`font_family` carries a family's name under `attrs.name`, stored as written and
+naming no font file: a backend resolves it at render. The name is not empty,
+has no space at either edge, and holds no control character, bidi control or
+line separator (`model::is_font_family_name`). Marks of different families
+overlap as any formatting marks of different attrs do, and neither is split
+where they meet: `model::family_rank` says which sets a shared character (the
+later start, then the shorter mark, then the later in canonical order), so
+removing it uncovers the other. It arrived with `0.131.0`.
 
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,
@@ -615,7 +614,7 @@ carrying a key its type does not name fails the load. `0.124.0` spells `body`
 over the content vocabulary that has `element` among the containers and
 `checked` in a list item's `attrs`. `0.129.0` adds `footnote` and `math` to the
 island vocabulary, `term` to the line kinds and `description` to the
-containers. `0.131.0` adds `font_family` and `font_size` to the marks, and its
+containers. `0.131.0` adds `font_family` to the marks, and its
 DTO is `0.129.0`'s (`DocumentV0_131_0` aliases `DocumentV0_129_0`), so the
 reader opens both tags into one tree with no hop.
 

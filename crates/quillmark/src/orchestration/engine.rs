@@ -26,9 +26,8 @@ impl Engine {
 
     /// An engine whose sessions also set text in `fonts`, the host's font
     /// library: each a `.ttf`, `.otf`, `.ttc` or `.otc` file's bytes, parsed
-    /// once here and shared by every session. A family the quill ships
-    /// shadows the library's faces of it, and the library shadows the
-    /// embedded fallback's. Refused whole, one diagnostic per file, when a
+    /// once here and shared by every session, which reads them after the
+    /// quill's own fonts and before the embedded fallback. Refused whole, one diagnostic per file, when a
     /// file is another format (`engine::font_unsupported`) or holds no
     /// readable face (`engine::font_unreadable`). An acroform session reads
     /// no fonts.

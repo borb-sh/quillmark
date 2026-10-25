@@ -122,7 +122,6 @@ A task item's body lowers the same way, through the renderer a plate sets on
 | `mark.link` | spells | spells | spells | honors | silent: honored | none |
 | `mark.anchor` | carries opaquely | spells | spells | honors | silent: honored | none |
 | `mark.font_family`: a run in a family a session font holds | spells | spells | spells | honors | silent: honored | none |
-| `mark.font_size`: a run a step larger | spells | spells | spells | honors | silent: honored | none |
 | `mark.font_family.unknown`: a run in a family no session font holds | spells | spells | spells | declines with a signal | drops silently | `typst::unknown_font_family` |
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
@@ -132,16 +131,16 @@ drops, so the markdown cell stays `carries opaquely`: a write keeps an anchor by
 diff-rebase alone. The row's corpus entry pins the spelling under
 `annotated`.
 
-A font run lowers to the helper's `_qm-font` around each stretch of one family
-and size ([CONVERT.md](CONVERT.md#font-runs)). What it sets depends on where it
-stands:
+A font run lowers to the helper's `_qm-font` around each stretch one family
+sets ([CONVERT.md](CONVERT.md#font-runs)). Whether it sets that family depends
+on where it stands:
 
-| Context | Family and size |
+| Context | Family |
 |---|---|
-| a code span | neither: `raw` keeps its own font and size |
-| an inline equation | neither: math keeps its own font and size |
-| a table | neither over the table; a cell takes runs of its own, inside its `qm-cell` pair |
-| a footnote | both over the reference; the note keeps its own family and size and takes runs of its own |
+| a code span | none: `raw` keeps its own font |
+| an inline equation | none: math keeps its own font |
+| a table | none over the table; a cell takes runs of its own, inside its `qm-cell` pair |
+| a footnote | over the reference; the note keeps its own family and takes runs of its own |
 
 A family no session font holds sets nothing, so its text keeps the surrounding
 family, and a render warns once per family and field. Only a session holds
@@ -157,7 +156,7 @@ fonts, so `validate` cannot report it.
 | `island.table.cell.align`: a cell's horizontal alignment | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.valign`: a cell's vertical alignment | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.align_valign`: both, over a cell holding marks | spells | spells | spells | honors | silent: honored | none |
-| `island.table.cell.font`: a cell holding font runs, one inside its alignment pair | spells | spells | spells | honors | silent: honored | none |
+| `island.table.cell.font`: a cell holding a font run, one inside its alignment pair | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.unnamed`: a props key Quillmark does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.unnamed`: a cell key Quillmark does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.value`: a cell `valign` outside its set | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
@@ -226,8 +225,7 @@ above, or markup the content does not store.
 | `carrier.cell.partial`: a `qm-cell` pair around part of a cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell` |
 | `carrier.cell.value`: a `qm-cell` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell[valign]` |
 | `carrier.cell.in_font`: a `qm-cell` pair inside a `qm-font` pair, folding nothing | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell` |
-| `carrier.font.normal`: `size="normal"` inside a sized pair | spells | spells | spells | honors | silent: honored | none |
-| `carrier.font.value`: a `qm-font` size outside its steps, the family kept | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-font[size]` |
+| `carrier.font.value`: a `qm-font` attribute other than `family`, the family kept | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-font[size]` |
 | `carrier.font.unclosed`: a `qm-font` still open where its text ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-font` |
 | `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
@@ -239,9 +237,8 @@ above, or markup the content does not store.
 | `markdown.math.dollar`: a `$` that opens no equation | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.description.colon`: a paragraph line opening `\:`, which no term takes | silent: honored | n/a | n/a | n/a | n/a | none |
 
-`html.br` and `html.u` land as a hard break and an underline, and
-`carrier.font.normal` as a sized run with a gap, so their cells past markdown
-read those constructs. What a markup row wraps imports as
+`html.br` and `html.u` land as a hard break and an underline, so their cells
+past markdown read those constructs. What a markup row wraps imports as
 markdown and has its own row. A cell image's alt text lands as the cell's text
 and its url nowhere.
 

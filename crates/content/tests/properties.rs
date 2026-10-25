@@ -8,7 +8,7 @@ use quillmark_content::island::IslandType;
 use quillmark_content::delta::{diff_import, Delta, Op};
 use quillmark_content::export::{to_markdown, to_markdown_annotated};
 use quillmark_content::import::from_markdown;
-use quillmark_content::model::{Content, FontStep, Island, Line, LineKind, Mark, MarkKind, Normalized};
+use quillmark_content::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
 use quillmark_content::ops::{IslandOp, LineOp, MarkOp};
 use serde_json::{json, Value};
 
@@ -78,9 +78,8 @@ fn inline_token() -> impl Strategy<Value = String> {
         code_span(),
         clean_word().prop_map(|w| format!("<u>{w}</u>")),
         clean_word().prop_map(|w| format!("<qm-font family=\"Carlito\">{w}</qm-font>")),
-        clean_word().prop_map(|w| format!("<qm-font size=\"large\">{w}</qm-font>")),
         (clean_word(), clean_word()).prop_map(|(w, v)| format!(
-            "<qm-font family=\"Noto Serif\">{w} <qm-font size=\"small\">**{v}**</qm-font></qm-font>"
+            "<qm-font family=\"Noto Serif\">{w} <qm-font family=\"Carlito\">**{v}**</qm-font></qm-font>"
         )),
         (clean_word(), clean_word()).prop_map(|(t, u)| format!("[{t}](https://ex.com/{u})")),
         (clean_word(), special_url()).prop_map(|(t, u)| format!("[{t}](<{u}>)")),
@@ -224,8 +223,9 @@ fn delimiter_run() -> impl Strategy<Value = String> {
     .prop_map(|toks| toks.concat())
 }
 
-/// The formatting kinds an editor can lay over a span, keyed ones included.
-const OV_KINDS: u8 = 8;
+/// The formatting kinds an editor can lay over a span, two font families
+/// included.
+const OV_KINDS: u8 = 6;
 
 fn ov_kind(i: u8) -> MarkKind {
     match i % OV_KINDS {
@@ -234,9 +234,7 @@ fn ov_kind(i: u8) -> MarkKind {
         2 => MarkKind::Strike,
         3 => MarkKind::Underline,
         4 => MarkKind::FontFamily { name: "Carlito".into() },
-        5 => MarkKind::FontFamily { name: "Noto Serif".into() },
-        6 => MarkKind::FontSize { step: FontStep::Large },
-        _ => MarkKind::FontSize { step: FontStep::Small },
+        _ => MarkKind::FontFamily { name: "Noto Serif".into() },
     }
 }
 

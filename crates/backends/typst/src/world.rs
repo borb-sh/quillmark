@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime, Duration};
@@ -112,12 +112,9 @@ fn oversized_collection(path: &Path, declared: u32) -> Diagnostic {
 }
 
 /// The session's faces in book order, each beside the info the book files it
-/// under: the quill's, then the host library's, then the embedded fallback. A
-/// family a higher tier holds drops every face of it from a lower one, matched
-/// lowercased, since `FontBook::select` scores variant distance across a whole
-/// family and order only breaks ties. Roboto stands in only for a quill
-/// shipping no fonts, and the math face also answers to [`MATH_FAMILY`] unless
-/// a higher tier holds that family.
+/// under: the quill's, then the host library's, then the embedded fallback,
+/// Roboto standing in only for a quill shipping no fonts. The math face also
+/// answers to [`MATH_FAMILY`] unless a face before it holds that family.
 pub(crate) fn session_fonts(
     source: &Quill,
     library: &FontLibrary,
@@ -131,26 +128,17 @@ pub(crate) fn session_fonts(
         }
     }
     let quill_ships = !out.is_empty();
-    let mut held: HashSet<String> = out.iter().map(|(info, _)| info.family.to_lowercase()).collect();
-    let mut tier = |out: &mut Vec<(FontInfo, Font)>, faces: Vec<Font>| {
-        let above = held.clone();
-        for font in faces {
-            let family = font.info().family.to_lowercase();
-            if !above.contains(&family) {
-                held.insert(family);
-                out.push((font.info().clone(), font));
-            }
-        }
-    };
-    tier(&mut out, library.faces().to_vec());
+    out.extend(library.faces().iter().map(|font| (font.info().clone(), font.clone())));
     if !quill_ships {
-        let fallback = FALLBACK_FONTS.iter().flat_map(|(_, data)| faces(Bytes::new(*data)).into_iter().flatten());
-        tier(&mut out, fallback.collect());
+        for (_, data) in FALLBACK_FONTS {
+            out.extend(faces(Bytes::new(data)).into_iter().flatten().map(|font| (font.info().clone(), font)));
+        }
     }
-    if !held.contains(&MATH_FAMILY.to_lowercase()) {
+    let holds = |out: &[(FontInfo, Font)], family: &str| out.iter().any(|(info, _)| info.family.eq_ignore_ascii_case(family));
+    if !holds(&out, MATH_FAMILY) {
         for font in faces(Bytes::new(MATH_FONT.1)).into_iter().flatten() {
             let mut info = font.info().clone();
-            if !held.contains(&info.family.to_lowercase()) {
+            if !holds(&out, &info.family) {
                 out.push((info.clone(), font.clone()));
             }
             info.family = MATH_FAMILY.to_string();

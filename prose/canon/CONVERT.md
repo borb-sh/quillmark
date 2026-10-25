@@ -130,7 +130,7 @@ is a lowering bug, never a document's.
 | `MarkKind::Code` | `#raw("…")` (inline) |
 | `MarkKind::Link{url}` | `#link("url")[…]` (`escape_string` on the url) |
 | `MarkKind::Anchor` | nothing |
-| `MarkKind::FontFamily{name}`, `MarkKind::FontSize{step}` | `#_qm-font("name", "step")[…]`, one call per stretch of one family and step (see [Font runs](#font-runs)) |
+| `MarkKind::FontFamily{name}` | `#_qm-font("name")[…]`, one call per stretch one family sets (see [Font runs](#font-runs)) |
 | `Container::ListItem` (bullet) | `- ` |
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
 | `Container::ListItem{checked}` (task) | the item's marker, then `#_qm-task(done)[…]` around its body (see [Tasks](#tasks)) |
@@ -250,14 +250,15 @@ text fonts the quill ships.
 
 ### Font runs
 
-`MarkKind::FontFamily` and `MarkKind::FontSize` lower together. The sweep cuts
-a line at every edge of either and of a code mark, and wraps each stretch of
-one family and step in a call to the helper's `_qm-font`, merging equal
-neighbours:
+Family marks of different families may overlap. The sweep cuts a line at
+every edge of a family mark and of a code mark, and wraps each stretch in a
+call to the helper's `_qm-font` for the family `model::family_rank` puts
+first over it: the later start, then the shorter mark, then the later in
+canonical order. Equal neighbours merge, so `Arimo[0,9)` over `Carlito[3,6)`
+lowers as three calls, Arimo resuming past Carlito:
 
 ```typst
-#_qm-font("Carlito", "large")[…]
-#_qm-font(none, "small")[…]
+#_qm-font("Arimo")[abc]#_qm-font("Carlito")[def]#_qm-font("Arimo")[ghi]
 ```
 
 - Codegen writes the session's families, lowercased, into the helper as
@@ -268,11 +269,7 @@ neighbours:
 - A family the session lacks keeps the surrounding font, and the compile
   carries one [`typst::unknown_font_family`](ERROR.md#warning-flow) warning per
   family and content field, `path` the field's `DocPath`.
-- The step reads the helper's `font-steps`, a `state` holding
-  `(small: 0.85em, large: 1.2em)`, at its final value, so a plate's
-  `#qm.font-steps.update(..)` anywhere sets every run's size, merged over
-  the defaults. A stretch carries one step, so steps never compound.
-- A stretch stops at a code span, whose `raw` keeps its own font and size, and
+- A stretch stops at a code span, whose `raw` keeps its own font, and
   at a math or table island's slot. A footnote's slot stays inside it: a
   footnote entry takes none of its reference's styles, so the note is set by
   its own runs.

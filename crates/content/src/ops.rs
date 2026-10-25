@@ -491,9 +491,6 @@ impl Content {
                             return Err(ApplyError::AnchorIdCollision { id: id.clone() });
                         }
                     }
-                    if kind.is_keyed() {
-                        self.subtract_marks(*start, *end, |k| k.tag() == kind.tag());
-                    }
                     self.marks.push(Mark {
                         start: *start,
                         end: *end,
@@ -508,15 +505,35 @@ impl Content {
                             len,
                         });
                     }
-                    if kind.is_formatting() {
-                        self.subtract_marks(*start, *end, |k| k == kind);
-                    } else {
+                    let mut next = Vec::with_capacity(self.marks.len());
+                    for m in self.marks.drain(..) {
+                        if m.kind != *kind || !ranges_overlap(m.start, m.end, *start, *end) {
+                            next.push(m);
+                            continue;
+                        }
                         // An identity handle has no range algebra to
                         // subtract: drop the overlapping one whole.
-                        self.marks.retain(|m| {
-                            m.kind != *kind || !ranges_overlap(m.start, m.end, *start, *end)
-                        });
+                        if !kind.is_formatting() {
+                            continue;
+                        }
+                        // An edge-aligned removal yields a zero-width fragment
+                        // here; `normalize` drops it.
+                        if m.start < *start {
+                            next.push(Mark {
+                                start: m.start,
+                                end: *start,
+                                kind: m.kind.clone(),
+                            });
+                        }
+                        if *end < m.end {
+                            next.push(Mark {
+                                start: *end,
+                                end: m.end,
+                                kind: m.kind.clone(),
+                            });
+                        }
                     }
+                    self.marks = next;
                 }
                 MarkOp::RemoveAnchor { id } => {
                     self.marks
@@ -525,33 +542,6 @@ impl Content {
             }
         }
         Ok(())
-    }
-
-    /// Take `[start, end)` out of every mark whose kind `hit` picks. An
-    /// edge-aligned cut leaves a zero-width fragment; `normalize` drops it.
-    fn subtract_marks(&mut self, start: Usv, end: Usv, hit: impl Fn(&MarkKind) -> bool) {
-        let mut next = Vec::with_capacity(self.marks.len());
-        for m in self.marks.drain(..) {
-            if !hit(&m.kind) || !ranges_overlap(m.start, m.end, start, end) {
-                next.push(m);
-                continue;
-            }
-            if m.start < start {
-                next.push(Mark {
-                    start: m.start,
-                    end: start,
-                    kind: m.kind.clone(),
-                });
-            }
-            if end < m.end {
-                next.push(Mark {
-                    start: end,
-                    end: m.end,
-                    kind: m.kind,
-                });
-            }
-        }
-        self.marks = next;
     }
 
     /// Apply island ops: replace an entry by id, or insert a slot and its entry
@@ -687,9 +677,7 @@ impl Content {
     /// their `\n` splice, so the formatting-edge `\n`-trim commutes with the
     /// line ops, and `MarkOp::Remove` is coverage-set subtraction, which
     /// commutes with `normalize`'s same-kind union (`(A ∪ B) \ R = (A\R) ∪
-    /// (B\R)`). A keyed `MarkOp::Add` clips its tag's other values as it lands
-    /// rather than leaving that to `normalize`, so a later `Remove` in the same
-    /// bundle cannot uncover a value the `Add` replaced.
+    /// (B\R)`).
     pub fn apply_field_change(&mut self, bundle: &ChangeBundle) -> Result<(), ApplyError> {
         if bundle.is_delta_only() {
             return self.apply_text_delta(&bundle.delta);
@@ -1464,49 +1452,6 @@ mod tests {
             .map(|m| (m.start, m.end))
             .collect();
         assert_eq!(strong, vec![(0, 2), (4, 6)]);
-    }
-
-    /// A keyed value an `Add` replaced stays replaced when a later op in the
-    /// same bundle removes part of the new one: one bundle lands where its ops
-    /// applied one by one do.
-    #[test]
-    fn a_bundle_of_keyed_ops_lands_where_its_ops_one_by_one_do() {
-        let family = |name: &str| MarkKind::FontFamily {
-            name: name.to_string(),
-        };
-        let ops = [
-            MarkOp::Add {
-                start: 3,
-                end: 6,
-                kind: family("B"),
-            },
-            MarkOp::Remove {
-                start: 4,
-                end: 5,
-                kind: family("B"),
-            },
-        ];
-        let mut base = from_markdown("abcdefghij").unwrap().content;
-        base.apply_mark_ops(&[MarkOp::Add {
-            start: 0,
-            end: 10,
-            kind: family("A"),
-        }])
-        .unwrap();
-
-        let mut bundled = base.clone();
-        bundled
-            .apply_field_change(&ChangeBundle {
-                mark_ops: ops.to_vec(),
-                ..Default::default()
-            })
-            .unwrap();
-        let mut stepped = base;
-        for op in &ops {
-            stepped.apply_mark_ops(std::slice::from_ref(op)).unwrap();
-        }
-        assert_eq!(bundled.marks, stepped.marks);
-        assert!(!bundled.marks.iter().any(|m| m.start < 5 && 4 < m.end));
     }
 
     #[test]

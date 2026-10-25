@@ -7,7 +7,7 @@
 
 use quillmark_core::error::MAX_NESTING_DEPTH;
 use quillmark_content::island::IslandType;
-use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
+use quillmark_content::model::{family_rank, Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
 use quillmark_content::normalize::is_line_separator;
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -993,7 +993,7 @@ fn wraps_and_codes(
             }),
             // `Anchor` is identity: a handle, with no Typst spelling.
             MarkKind::Anchor { .. } => {}
-            MarkKind::FontFamily { .. } | MarkKind::FontSize { .. } => fonts.push((s, e, &m.kind)),
+            MarkKind::FontFamily { name } => fonts.push((s, e, m, name.as_str())),
         }
     }
     codes.sort_unstable();
@@ -1001,15 +1001,17 @@ fn wraps_and_codes(
     (wraps, codes)
 }
 
-/// One `_qm-font(family, step)` wrap per stretch of a single family and step.
-/// Both marks are inert over a code span, whose `raw` sets its own font and
-/// size, and over an equation or a table, a slot `inert` holds, so a run
-/// breaks around each. A footnote's reference sits in the run and its note
-/// takes only its own marks, since Typst sets a note apart from the text
-/// around its reference. A run opens past its leading spaces, which a fresh
-/// content block would hold unbreakable.
+/// One `_qm-font(family)` wrap per stretch one family sets, the one
+/// [`family_rank`] puts first among the marks over it, each as `(start, end,
+/// mark, family)` with its range clamped to the window and its mark whole. A
+/// family is inert over a code span, whose `raw` sets its own font, and over
+/// an equation or a table, a slot `inert` holds, so a run breaks around each.
+/// A footnote's reference sits in the run and its note takes only its own
+/// marks, since Typst sets a note apart from the text around its reference. A
+/// run opens past its leading spaces, which a fresh content block would hold
+/// unbreakable.
 fn font_runs(
-    fonts: &[(usize, usize, &MarkKind)],
+    fonts: &[(usize, usize, &Mark, &str)],
     codes: &[(usize, usize)],
     chars: &[char],
     inert: &dyn Fn(usize) -> bool,
@@ -1018,7 +1020,7 @@ fn font_runs(
         return Vec::new();
     };
     let hi = fonts.iter().map(|f| f.1).max().unwrap_or(lo);
-    let mut cuts: Vec<usize> = fonts.iter().flat_map(|&(s, e, _)| [s, e]).collect();
+    let mut cuts: Vec<usize> = fonts.iter().flat_map(|&(s, e, _, _)| [s, e]).collect();
     cuts.extend(codes.iter().flat_map(|&(s, e)| [s, e]).filter(|p| (lo..=hi).contains(p)));
     let inert = |p: usize| chars[p] == ISLAND_SLOT && inert(p);
     cuts.extend((lo..hi).filter(|&p| inert(p)).flat_map(|p| [p, p + 1]));
@@ -1030,23 +1032,14 @@ fn font_runs(
         if inert(a) || codes.iter().any(|&(s, e)| s <= a && a < e) {
             continue;
         }
-        let over = || fonts.iter().filter(|&&(s, e, _)| s <= a && a < e).map(|f| f.2);
-        let family = over().find_map(|k| match k {
-            MarkKind::FontFamily { name } => Some(name),
-            _ => None,
-        });
-        let step = over().find_map(|k| match k {
-            MarkKind::FontSize { step } => Some(*step),
-            _ => None,
-        });
-        if family.is_none() && step.is_none() {
+        let Some(&(_, _, _, family)) = fonts
+            .iter()
+            .filter(|&&(s, e, _, _)| s <= a && a < e)
+            .max_by(|x, y| family_rank((x.2.start, x.2.end, &x.2.kind), (y.2.start, y.2.end, &y.2.kind)))
+        else {
             continue;
-        }
-        let open = format!(
-            "#_qm-font({}, {})[",
-            family.map_or("none".to_string(), |f| format!("\"{}\"", escape_string(f))),
-            step.map_or("none".to_string(), |s| format!("\"{}\"", s.as_str())),
-        );
+        };
+        let open = format!("#_qm-font(\"{}\")[", escape_string(family));
         match runs.last_mut() {
             Some(run) if run.end == a && run.open == open => run.end = b,
             _ => {

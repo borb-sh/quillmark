@@ -18,7 +18,7 @@
 //! Storage, the render seam and the binding seam carry one canonical form.
 
 use crate::model::{
-    canonicalize_keys, is_font_family_name, Container, FontStep, Island, Line, LineKind, Mark,
+    canonicalize_keys, is_font_family_name, Container, Island, Line, LineKind, Mark,
     MarkKind, Content, Normalized, Usv,
 };
 use serde_json::{Map, Value};
@@ -528,12 +528,6 @@ pub fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
                 .filter(|name| is_font_family_name(name))
                 .ok_or(ParseError::Shape("font_family name"))?
                 .to_string(),
-        },
-        "font_size" => MarkKind::FontSize {
-            step: payload(o, legacy, "step")
-                .and_then(Value::as_str)
-                .and_then(FontStep::parse)
-                .ok_or(ParseError::Shape("font_size step"))?,
         },
         "anchor" => MarkKind::Anchor {
             id: payload(o, legacy, "id")
@@ -1325,7 +1319,6 @@ mod tests {
             MarkKind::Code,
             MarkKind::Link { url: "u".into() },
             MarkKind::FontFamily { name: "f".into() },
-            MarkKind::FontSize { step: FontStep::Large },
             MarkKind::Anchor { id: "a".into() },
         ];
         let marks: Vec<Mark> = kinds
@@ -1953,26 +1946,20 @@ mod tests {
         );
     }
 
-    /// A font mark round-trips as its bag, and a bag naming no family the model
-    /// admits, or a step outside the set, is a shape error on both lanes.
+    /// A font mark round-trips as its bag, overlapping another family's, and a
+    /// bag naming no family the model admits is a shape error on both lanes.
     #[test]
-    fn a_font_mark_decodes_only_a_family_and_step_it_can_hold() {
-        let content = |mark: &str| format!(r#"{{"islands":[],"lines":[{{"containers":[],"kind":"para"}}],"marks":[{mark}],"text":"abc"}}"#);
+    fn a_font_mark_decodes_only_a_family_it_can_hold() {
+        let content = |marks: &str| format!(r#"{{"islands":[],"lines":[{{"containers":[],"kind":"para"}}],"marks":[{marks}],"text":"abc"}}"#);
+        let json = content(r#"{"attrs":{"name":"Carlito"},"end":3,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"}"#);
+        let rt = Content::from_canonical_json(&json).expect("decodes");
+        assert_eq!(rt.to_canonical_json(), json);
         for mark in [
-            r#"{"attrs":{"name":"Carlito"},"end":2,"start":0,"type":"font_family"}"#,
-            r#"{"attrs":{"step":"small"},"end":3,"start":1,"type":"font_size"}"#,
+            r#"{"attrs":{"name":""},"end":2,"start":0,"type":"font_family"}"#,
+            r#"{"attrs":{"name":" Carlito"},"end":2,"start":0,"type":"font_family"}"#,
+            r#"{"end":2,"start":0,"type":"font_family"}"#,
         ] {
-            let json = content(mark);
-            let rt = Content::from_canonical_json(&json).expect("decodes");
-            assert_eq!(rt.to_canonical_json(), json);
-        }
-        for (mark, shape) in [
-            (r#"{"attrs":{"name":""},"end":2,"start":0,"type":"font_family"}"#, "font_family name"),
-            (r#"{"attrs":{"name":" Carlito"},"end":2,"start":0,"type":"font_family"}"#, "font_family name"),
-            (r#"{"end":2,"start":0,"type":"font_family"}"#, "font_family name"),
-            (r#"{"attrs":{"step":"normal"},"end":2,"start":0,"type":"font_size"}"#, "font_size step"),
-            (r#"{"attrs":{"step":"LARGE"},"end":2,"start":0,"type":"font_size"}"#, "font_size step"),
-        ] {
+            let shape = "font_family name";
             let json = content(mark);
             assert_eq!(Content::from_canonical_json(&json), Err(ParseError::Shape(shape)), "{mark}");
             let value: Value = serde_json::from_str(&json).unwrap();
@@ -1993,7 +1980,6 @@ mod tests {
             MarkKind::Code,
             MarkKind::Link { url: "u".into() },
             MarkKind::FontFamily { name: "f".into() },
-            MarkKind::FontSize { step: FontStep::Large },
             MarkKind::Anchor { id: "a".into() },
         ];
         // Exhaustive on purpose: a new variant is a compile error here, where
@@ -2007,7 +1993,6 @@ mod tests {
                 | MarkKind::Code
                 | MarkKind::Link { .. }
                 | MarkKind::FontFamily { .. }
-                | MarkKind::FontSize { .. }
                 | MarkKind::Anchor { .. } => {}
             }
         }

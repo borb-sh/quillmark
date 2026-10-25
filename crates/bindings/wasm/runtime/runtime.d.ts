@@ -418,9 +418,8 @@ export interface EngineOptions {
 
 	/**
 	 * The host's font library: each a `.ttf`, `.otf`, `.ttc` or `.otc` file,
-	 * which every session reads beside the quill's own fonts. A family the quill
-	 * ships shadows the library's faces of it, and the library shadows the
-	 * embedded fallback's. The bytes cross into the render build once, when it
+	 * which every session reads after the quill's own fonts and before the
+	 * embedded fallback. The bytes cross into the render build once, when it
 	 * loads, and a file it refuses rejects that load and every verb awaiting it:
 	 * `engine::font_unsupported` for another format, `engine::font_unreadable`
 	 * for a file holding no readable face. A value that is not an array of

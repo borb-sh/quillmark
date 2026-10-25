@@ -144,24 +144,23 @@ A `qm-cell` pair around a cell's whole content aligns that one cell, in the head
 
 The open tag comes first in the cell and the close tag last. A pair with anything else in the cell beside it drops, keeping what it wraps, with a `parse::dropped_construct` warning.
 
-### Font family and size
+### Font family
 
-A `qm-font` pair inside a line sets the font family, the size, or both, of the text it wraps:
+A `qm-font` pair inside a line sets the font family of the text it wraps:
 
 ```markdown
-The <qm-font family="Carlito" size="large">phrase</qm-font> and **bold <qm-font size="small">fine print</qm-font>**.
+The <qm-font family="Carlito">phrase sits in **bold <qm-font family="Arimo">sans</qm-font>**</qm-font> text.
 ```
 
 | Attribute | Value | Without it |
 |---|---|---|
 | `family` | A font family the quill or the app supplies, such as `Carlito`. Case does not matter. | The surrounding family. |
-| `size` | `small` or `large`, a step down or up from the surrounding size. `normal` is the surrounding size. | The surrounding size. |
 
-- It pairs as `<u>` does: inside a paragraph, heading, list item, table cell or footnote, across `**` or `~~` freely. Pairs nest, and the innermost one setting an attribute wins, so `size="normal"` inside a `size="large"` pair holds its text at the surrounding size.
+- It pairs as `<u>` does: inside a paragraph, heading, list item, table cell or footnote, across `**` or `~~` freely. Pairs nest, and the innermost pair's family sets its text, so the outer family resumes past it.
 - A family no font in the render holds keeps the surrounding font, and the render warns `typst::unknown_font_family` once per family and field. An app lists the faces a quill renders in with `engine.fontFaces(quill)`.
-- Code spans and equations keep their own font and size, and a footnote's note keeps its own: a pair inside the note sets it.
+- Code spans and equations keep their own font, and a footnote's note keeps its own: a pair inside the note sets it.
 - In a table cell, a `qm-cell` pair goes outside any `qm-font` pair.
-- An attribute it does not know, or a size other than the three, drops alone with a `parse::dropped_construct` warning, keeping the rest. A tag setting nothing or left open drops, keeping what it wraps.
+- An attribute other than `family` drops alone with a `parse::dropped_construct` warning, keeping the family. A tag setting no family or left open drops, keeping what it wraps.
 
 ### Elements
 

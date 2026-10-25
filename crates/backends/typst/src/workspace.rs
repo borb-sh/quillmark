@@ -8,7 +8,6 @@ use quillmark_core::{
 };
 
 use typst::syntax::package::PackageSpec;
-use typst::text::{Font, FontInfo};
 
 use crate::helper::{self, HELPER_NAME, HELPER_NAMESPACE, HELPER_VERSION};
 use crate::{world, FontLibrary, SchemaMeta};
@@ -49,11 +48,10 @@ pub struct Workspace {
 ///
 /// The generated helper package lands under `packages/` beside every vendored
 /// package, at the `{namespace}/{name}/{version}` path Typst's package
-/// resolution reads. `fonts/` holds each file the session sets type from: the
-/// quill's own, then each fallback and `library` file holding a face no higher
-/// tier shadows. A collection goes whole, so a face of it the session drops is
-/// back in the workspace. A vendored package whose manifest names no valid
-/// package spec, or names the helper's, is skipped.
+/// resolution reads. `fonts/` holds each file the session loads: the quill's
+/// own, each `library` file, and the embedded fallback when the quill ships no
+/// fonts. A vendored package whose manifest names no valid package spec, or
+/// names the helper's, is skipped.
 ///
 /// Fails with `typst::wrong_backend` for a quill of another backend, and with
 /// each plate refusal a render's `open` raises.
@@ -122,16 +120,17 @@ pub fn workspace(
         }
     }
 
-    let kept = world::session_fonts(source, library, &mut Vec::new());
-    for (path, contents) in world::quill_fonts(source) {
-        files.push((PathBuf::from(FONTS_DIR).join(path), contents.to_vec()));
-    }
-    for (name, contents) in world::FALLBACK_FONTS {
-        if kept.iter().any(|(_, font)| std::ptr::eq(font.data().as_slice(), contents)) {
+    let fonts = world::quill_fonts(source);
+    if fonts.is_empty() {
+        for (name, contents) in world::FALLBACK_FONTS {
             files.push((PathBuf::from(FONTS_DIR).join(name), contents.to_vec()));
         }
+    } else {
+        for (path, contents) in fonts {
+            files.push((PathBuf::from(FONTS_DIR).join(path), contents.to_vec()));
+        }
     }
-    files.extend(host_fonts(library, &kept));
+    files.extend(host_fonts(library));
 
     files.retain(|(path, _)| {
         path.components()
@@ -144,11 +143,11 @@ pub fn workspace(
     })
 }
 
-/// Each file of `library` holding a face the session keeps, as `host-<n>`.
-fn host_fonts(library: &FontLibrary, kept: &[(FontInfo, Font)]) -> Vec<(PathBuf, Vec<u8>)> {
+/// Each file of `library`, as `host-<n>`.
+fn host_fonts(library: &FontLibrary) -> Vec<(PathBuf, Vec<u8>)> {
     let mut held: Vec<&typst::foundations::Bytes> = Vec::new();
     for face in library.faces() {
-        if kept.iter().any(|(_, font)| font == face) && !held.contains(&face.data()) {
+        if !held.contains(&face.data()) {
             held.push(face.data());
         }
     }

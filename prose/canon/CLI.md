@@ -71,8 +71,7 @@ them.
   file and build the engine's font library from them
   ([ARCHITECTURE.md](ARCHITECTURE.md#fonts)), so a CLI render sees the fonts a
   host's would. A refused file fails the command before any render, and
-  `workspace` exports each library file holding a face the session keeps as
-  `fonts/host-<n>.<ext>`.
+  `workspace` exports each library file as `fonts/host-<n>.<ext>`.
 - **The render date is the local date.** `render`, `validate` and `workspace` supply it
   to core, which never reads a clock; `--today YYYY-MM-DD` on `render` or
   `workspace` pins it for a reproducible render. The local offset unreadable,

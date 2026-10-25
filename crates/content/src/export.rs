@@ -1110,12 +1110,11 @@ fn render_marked_core(
     // delimiters, apart from their nesting.
     let is_underline = |fi: usize| matches!(fmt[fi].2, MarkKind::Underline);
 
-    // The font marks are one `qm-font` pair per run of a single family and
-    // step, its tags outside the underlines' at a position as theirs are
-    // outside the delimiters'.
-    let is_font = |fi: usize| fmt[fi].2.is_keyed();
-    let mut fonts_by_start: Vec<usize> = (0..fmt.len()).filter(|&fi| is_font(fi)).collect();
-    fonts_by_start.sort_by_key(|&fi| fmt[fi].0);
+    // A font mark is a `qm-font` pair, its tags outside the underlines' at a
+    // position as theirs are outside the delimiters'. Pairs nest in
+    // `family_rank` order, so the family setting a character is the innermost
+    // pair around it.
+    let is_font = |fi: usize| matches!(fmt[fi].2, MarkKind::FontFamily { .. });
 
     // One mark sweep over the marks `keep` selects (indices into `fmt`) → inline
     // markdown and its tag points.
@@ -1127,36 +1126,10 @@ fn render_marked_core(
         // mark's identity, so a reopened mark re-emits its OWN delimiter.
         let mut stack: Vec<usize> = Vec::new();
         let mut underlines: Vec<usize> = Vec::new();
-        let (mut family, mut size): (Option<usize>, Option<usize>) = (None, None);
-        let mut font: Option<crate::carrier::Element> = None;
-        let (mut oi, mut li, mut ci, mut fo) = (0usize, 0usize, 0usize, 0usize);
+        let mut fonts: Vec<usize> = Vec::new();
+        let (mut oi, mut li, mut ci) = (0usize, 0usize, 0usize);
         let mut pos = 0usize;
         while pos <= n {
-            for held in [&mut family, &mut size] {
-                if held.is_some_and(|fi| fmt[fi].1 <= pos) {
-                    *held = None;
-                }
-            }
-            while fo < fonts_by_start.len() && fmt[fonts_by_start[fo]].0 <= pos {
-                let fi = fonts_by_start[fo];
-                if keep[fi] && pos < fmt[fi].1 {
-                    match fmt[fi].2 {
-                        MarkKind::FontFamily { .. } => family = Some(fi),
-                        _ => size = Some(fi),
-                    }
-                }
-                fo += 1;
-            }
-            let run = crate::carrier::font::pair(
-                family.and_then(|fi| match fmt[fi].2 {
-                    MarkKind::FontFamily { name } => Some(name.as_str()),
-                    _ => None,
-                }),
-                size.and_then(|fi| match fmt[fi].2 {
-                    MarkKind::FontSize { step } => Some(*step),
-                    _ => None,
-                }),
-            );
             // A mark whose start the cursor already passed was jumped over by
             // an atomic span's interior and never opens; clipping keeps that
             // set empty.
@@ -1188,18 +1161,23 @@ fn render_marked_core(
                     }
                 }
             }
-            if run != font {
-                if let Some(open) = font.take() {
-                    out.push_str(&open.close_tag());
+            let mut reopen_fonts: Vec<usize> = Vec::new();
+            if let Some(idx) = fonts.iter().position(|&fi| fmt[fi].1 == pos) {
+                while fonts.len() > idx {
+                    let fi = fonts.pop().unwrap();
+                    out.push_str(&font_pair(fmt[fi].2).close_tag());
+                    if fmt[fi].1 != pos {
+                        reopen_fonts.push(fi);
+                    }
                 }
             }
             let point = out.len();
             points.push(point);
-            if font.is_none() {
-                if let Some(open) = run {
-                    out.push_str(&open.open_tag());
-                    font = Some(open);
-                }
+            let mut fresh: Vec<usize> = opening.iter().copied().filter(|&fi| is_font(fi)).collect();
+            fresh.sort_by(|&a, &b| crate::model::family_rank(fmt[a], fmt[b]));
+            for fi in reopen_fonts.into_iter().rev().chain(fresh) {
+                out.push_str(&font_pair(fmt[fi].2).open_tag());
+                fonts.push(fi);
             }
             let fresh = opening.iter().copied().filter(|&fi| is_underline(fi));
             for fi in reopen_underlines.into_iter().rev().chain(fresh) {
@@ -1308,8 +1286,8 @@ fn render_marked_core(
             out.push_str(delim(fmt[fi].2, d));
         }
         out.push_str(&"</u>".repeat(underlines.len()));
-        if let Some(open) = font {
-            out.push_str(&open.close_tag());
+        for fi in fonts.into_iter().rev() {
+            out.push_str(&font_pair(fmt[fi].2).close_tag());
         }
         (out, points)
     };
@@ -1322,9 +1300,9 @@ fn render_marked_core(
     // are read back beside them and dropped the same way: one the line cannot
     // hold comes back as other markup or as nothing.
     let is_flanking = |k: &MarkKind| {
-        k.is_keyed() || matches!(
+        matches!(
             k,
-            MarkKind::Strong | MarkKind::Emph | MarkKind::Strike | MarkKind::Underline
+            MarkKind::Strong | MarkKind::Emph | MarkKind::Strike | MarkKind::Underline | MarkKind::FontFamily { .. }
         )
     };
     let all = vec![true; fmt.len()];
@@ -1642,8 +1620,16 @@ const DELIM_SPELLINGS: [Delims; 4] = [
     Delims { strong: "__", emph: "_" },
 ];
 
+/// The `qm-font` pair a `font_family` mark writes.
+fn font_pair(kind: &MarkKind) -> crate::carrier::Element {
+    match kind {
+        MarkKind::FontFamily { name } => crate::carrier::font::pair(name),
+        _ => unreachable!("only a font_family mark is a qm-font pair"),
+    }
+}
+
 /// The delimiter that opens and closes `kind`. Code, link, anchor, underline
-/// and the font marks are written elsewhere.
+/// and font family are written elsewhere.
 fn delim(kind: &MarkKind, d: Delims) -> &'static str {
     match kind {
         MarkKind::Strong => d.strong,
@@ -2818,39 +2804,40 @@ mod tests {
         }
     }
 
-    /// A font run is one `qm-font` pair per stretch of a single family and
-    /// step, its attributes sorted and its tags outside the underlines' and
+    /// A font mark is a `qm-font` pair, its tags outside the underlines' and
     /// delimiters' at a position, so a second export spells the first.
+    /// Overlapping families nest so the one setting a character is the
+    /// innermost pair, and a crossing reopens the later pair past the edge.
     #[test]
-    fn a_font_run_writes_one_pair_per_stretch_of_one_family_and_step() {
+    fn a_font_mark_writes_a_pair_nested_by_rank() {
         for (md, want) in [
             (
-                "The <qm-font size=\"large\" family=\"Carlito\">phrase</qm-font> and **bold <qm-font size=\"small\">fine print</qm-font>**.",
-                "The <qm-font family=\"Carlito\" size=\"large\">phrase</qm-font> and **bold <qm-font size=\"small\">fine print**</qm-font>.",
+                "The <qm-font family=\"Carlito\">phrase</qm-font> and **bold <qm-font family=\"Arimo\">sans</qm-font>**.",
+                "The <qm-font family=\"Carlito\">phrase</qm-font> and **bold <qm-font family=\"Arimo\">sans**</qm-font>.",
             ),
             (
-                "<qm-font family=\"A\">a<qm-font size=\"large\">b</qm-font>c</qm-font>",
-                "<qm-font family=\"A\">a</qm-font><qm-font family=\"A\" size=\"large\">b</qm-font><qm-font family=\"A\">c</qm-font>",
+                "<qm-font family=\"A\">a<qm-font family=\"B\">b</qm-font>c</qm-font>",
+                "<qm-font family=\"A\">a<qm-font family=\"B\">b</qm-font>c</qm-font>",
             ),
             (
-                "x<qm-font size=\"large\"><u>**a**</u>b</qm-font>",
-                "x<qm-font size=\"large\"><u>**a**</u>b</qm-font>",
+                "x<qm-font family=\"A\"><u>**a**</u>b</qm-font>",
+                "x<qm-font family=\"A\"><u>**a**</u>b</qm-font>",
             ),
             (
                 "*a<qm-font family=\"A\">b*c</qm-font>",
                 "*a<qm-font family=\"A\">b*c</qm-font>",
             ),
             (
-                "<qm-font size=\"large\">a `b` c</qm-font>",
-                "<qm-font size=\"large\">a `b` c</qm-font>",
+                "<qm-font family=\"A\">a `b` c</qm-font>",
+                "<qm-font family=\"A\">a `b` c</qm-font>",
             ),
             (
                 "| <qm-font family=\"A&#x7C;B &quot;C&quot;\">a</qm-font> |\n| --- |",
                 "| <qm-font family=\"A&#x7C;B &quot;C&quot;\">a</qm-font> |\n| --- |",
             ),
             (
-                "a[^1]\n\n[^1]: <qm-font size=\"small\">n</qm-font>",
-                "a[^1]\n\n[^1]: <qm-font size=\"small\">n</qm-font>",
+                "a[^1]\n\n[^1]: <qm-font family=\"A\">n</qm-font>",
+                "a[^1]\n\n[^1]: <qm-font family=\"A\">n</qm-font>",
             ),
         ] {
             let rt = from_markdown(md).unwrap().content;
@@ -2858,15 +2845,25 @@ mod tests {
             assert_eq!(from_markdown(want).unwrap().content, rt, "{want:?} did not return");
         }
 
-        let family = MarkKind::FontFamily { name: "A".into() };
-        let size = MarkKind::FontSize { step: crate::model::FontStep::Large };
-        let rt = marked(
-            "abcdef",
-            vec![Mark { start: 0, end: 4, kind: family }, Mark { start: 2, end: 6, kind: size }],
-        );
-        let md = "<qm-font family=\"A\">ab</qm-font><qm-font family=\"A\" size=\"large\">cd</qm-font><qm-font size=\"large\">ef</qm-font>";
-        assert_eq!(to_markdown(&rt), md);
-        assert_eq!(from_markdown(md).unwrap().content, rt);
+        let family = |start, end, name: &str| Mark { start, end, kind: MarkKind::FontFamily { name: name.into() } };
+        for (marks, md) in [
+            (
+                vec![family(0, 4, "A"), family(2, 6, "B")],
+                "<qm-font family=\"A\">ab<qm-font family=\"B\">cd</qm-font></qm-font><qm-font family=\"B\">ef</qm-font>",
+            ),
+            (
+                vec![family(0, 6, "A"), family(0, 3, "B")],
+                "<qm-font family=\"A\"><qm-font family=\"B\">abc</qm-font>def</qm-font>",
+            ),
+            (
+                vec![family(0, 6, "B"), family(0, 6, "A")],
+                "<qm-font family=\"A\"><qm-font family=\"B\">abcdef</qm-font></qm-font>",
+            ),
+        ] {
+            let rt = marked("abcdef", marks);
+            assert_eq!(to_markdown(&rt), md);
+            assert_eq!(from_markdown(md).unwrap().content, rt);
+        }
     }
 
     /// A formatting mark partially overlapping an atomic `code` span clips to

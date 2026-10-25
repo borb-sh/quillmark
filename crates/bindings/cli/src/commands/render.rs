@@ -46,8 +46,8 @@ pub struct RenderArgs {
     #[arg(long, value_name = "YYYY-MM-DD")]
     today: Option<CalendarDate>,
 
-    /// A font file (.ttf, .otf, .ttc, .otc) for the host font library, which a
-    /// family the quill ships shadows; repeat for more
+    /// A font file (.ttf, .otf, .ttc, .otc) for the host font library; repeat
+    /// for more
     #[arg(long = "font", value_name = "FONT_FILE")]
     fonts: Vec<PathBuf>,
 }

@@ -139,10 +139,10 @@ fn a_workspace_carries_the_load_warnings_a_render_does() {
     assert_eq!(codes, [Some("typst::package_manifest")]);
 }
 
-/// A library family shadows the fallback's: the workspace carries the
-/// library's file and none of the fallback's, as the session sets type.
+/// Every library file lands in the workspace beside the fallback, as the
+/// session loads them.
 #[test]
-fn a_workspace_carries_only_the_font_files_the_session_sets_type_from() {
+fn a_workspace_carries_the_library_font_files() {
     let q = quill(
         "quill:\n  name: t\n  version: 0.1.0\n  backend: typst\n  description: t\n",
         &[("plate.typ", b"hi\n")],
@@ -154,7 +154,7 @@ fn a_workspace_carries_only_the_font_files_the_session_sets_type_from() {
         .files
         .iter()
         .map(|(p, _)| p.to_string_lossy().into_owned())
-        .filter(|p| p.starts_with("fonts/"))
+        .filter(|p| p.starts_with("fonts/host-"))
         .collect();
     assert_eq!(fonts, ["fonts/host-0.ttf"]);
 }
