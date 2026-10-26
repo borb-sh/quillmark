@@ -227,6 +227,8 @@ stretch in no family. Storing one value per character keeps every edit local:
 a text edit never changes the family of text it keeps, and reading a
 character's family is a lookup.
 
+A formatting mark in a body never spans a `\n`: `Content::normalize` cuts it at each one, so a mark over a hard break is one mark per line, the form markdown writes and the Typst lowering draws. A link over a break is two links with one url. A table cell's marks may span its `\n`, which markdown writes as a `<br>` inside the mark's delimiters.
+
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,
 a fact the island's own type settles, so the decoder reads it as `para` — the
