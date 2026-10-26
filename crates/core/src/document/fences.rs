@@ -128,6 +128,8 @@ struct ListMarker {
     /// Whether it may interrupt a paragraph its line continues (CommonMark
     /// §5.2: not empty, and a bullet or an ordered item starting at 1).
     interrupts: bool,
+    /// Whether nothing follows the marker on its line.
+    empty: bool,
 }
 
 fn list_marker(rest: &str) -> Option<ListMarker> {
@@ -150,13 +152,13 @@ fn list_marker(rest: &str) -> Option<ListMarker> {
     };
     let gap = bytes[end..].iter().take_while(|&&b| b == b' ').count();
     if end + gap == bytes.len() {
-        return Some(ListMarker { width: end + 1, interrupts: false });
+        return Some(ListMarker { width: end + 1, interrupts: false, empty: true });
     }
     if gap == 0 {
         return None;
     }
     let width = if gap > 4 { end + 1 } else { end + gap };
-    Some(ListMarker { width, interrupts: starts_at_one })
+    Some(ListMarker { width, interrupts: starts_at_one, empty: false })
 }
 
 fn is_thematic_break(rest: &str) -> bool {
@@ -184,10 +186,10 @@ fn is_atx_heading(rest: &str) -> bool {
         && matches!(t.as_bytes().get(hashes), None | Some(b' ' | b'\t'))
 }
 
-/// A CommonMark container block: a list item, by its content width, or a
-/// block quote.
+/// A CommonMark container block: a list item, by its content width and
+/// whether it holds no content yet, or a block quote.
 enum Container {
-    Item(usize),
+    Item { width: usize, empty: bool },
     Quote,
 }
 
@@ -199,18 +201,20 @@ fn quote_content(rest: &str) -> Option<&str> {
 }
 
 /// How many of the open `containers` `line` continues, outermost first, and
-/// the line past them. A blank line continues a list item and ends a quote.
+/// the line past them. A blank line ends a quote, and a list item that holds no
+/// content yet: an item starts with at most one blank line (CommonMark §5.2).
 fn continued<'a>(containers: &[Container], line: &'a str) -> (usize, &'a str) {
     let mut rest = line;
     for (depth, container) in containers.iter().enumerate() {
         rest = match container {
-            Container::Item(_) if rest.trim().is_empty() => "",
-            Container::Item(width) if leading_spaces(rest) >= *width => &rest[*width..],
+            Container::Item { empty: true, .. } if rest.trim().is_empty() => return (depth, rest),
+            Container::Item { .. } if rest.trim().is_empty() => "",
+            Container::Item { width, .. } if leading_spaces(rest) >= *width => &rest[*width..],
             Container::Quote => match quote_content(rest) {
                 Some(quoted) => quoted,
                 None => return (depth, rest),
             },
-            Container::Item(_) => return (depth, rest),
+            Container::Item { .. } => return (depth, rest),
         };
     }
     (containers.len(), rest)
@@ -322,6 +326,13 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
         let text = lines.line_text(k);
         let columns = expand_tabs(text);
         let (matched, rest) = continued(&containers, &columns);
+        if !rest.trim().is_empty() {
+            for container in &mut containers[..matched] {
+                if let Container::Item { empty, .. } = container {
+                    *empty = false;
+                }
+            }
+        }
 
         // Inside an ordinary code block: openers are literal content.
         if let Some((ch, min, depth, _opener)) = open_code_fence {
@@ -442,7 +453,10 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
             } else {
                 match list_marker(rest) {
                     Some(marker) if marker.interrupts || !interrupting => {
-                        containers.push(Container::Item(marker.width));
+                        containers.push(Container::Item {
+                            width: marker.width,
+                            empty: marker.empty,
+                        });
                         rest = rest.get(marker.width..).unwrap_or("");
                     }
                     _ => break true,
