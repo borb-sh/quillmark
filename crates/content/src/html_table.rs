@@ -493,6 +493,27 @@ pub(crate) fn tag_spans(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     text.match_indices('<').filter_map(|(i, _)| html::tag_at(text, i).filter(|t| is_tag(t.name)).map(|t| t.span))
 }
 
+/// `text` cut at the subset's tags, in order: each piece's span, and whether
+/// it is a tag.
+pub(crate) fn tag_pieces(text: &str) -> Vec<(Range<usize>, bool)> {
+    let mut out = Vec::new();
+    let mut taken = 0;
+    for tag in tag_spans(text) {
+        if tag.start < taken {
+            continue;
+        }
+        if taken < tag.start {
+            out.push((taken..tag.start, false));
+        }
+        taken = tag.end;
+        out.push((tag, true));
+    }
+    if taken < text.len() {
+        out.push((taken..text.len(), false));
+    }
+    out
+}
+
 /// Where each maximal run of backticks in `b` starts, by its length.
 fn backtick_runs(b: &[u8]) -> HashMap<usize, Vec<usize>> {
     let mut runs: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -608,19 +629,9 @@ pub(crate) fn cell_events(src: &str) -> Vec<(Event<'_>, Range<usize>)> {
         match event {
             Event::Start(PTag::Paragraph) | Event::End(TagEnd::Paragraph) => {}
             Event::Code(code) if tag_spans(&code).next().is_some() => {
-                let mut taken = 0;
-                for tag in tag_spans(&code).collect::<Vec<_>>() {
-                    if tag.start < taken {
-                        continue;
-                    }
-                    if taken < tag.start {
-                        events.push((Event::Code(code[taken..tag.start].to_string().into()), range.clone()));
-                    }
-                    events.push((Event::Text(code[tag.clone()].to_string().into()), range.clone()));
-                    taken = tag.end;
-                }
-                if taken < code.len() {
-                    events.push((Event::Code(code[taken..].to_string().into()), range.clone()));
+                for (piece, tag) in tag_pieces(&code) {
+                    let piece = code[piece].to_string().into();
+                    events.push((if tag { Event::Text(piece) } else { Event::Code(piece) }, range.clone()));
                 }
             }
             event => events.push((event, range)),

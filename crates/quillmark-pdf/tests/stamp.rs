@@ -234,10 +234,7 @@ fn base_with_spliced_size(size: &str) -> Vec<u8> {
     let base = build_base_pdf(1);
     // Byte-level splice: the PDF binary-marker comment is not valid UTF-8.
     let needle = b"/Size 5";
-    let at = base
-        .windows(needle.len())
-        .position(|w| w == needle)
-        .expect("trailer /Size");
+    let at = find_sub(&base, needle);
     let mut tampered = base[..at].to_vec();
     tampered.extend_from_slice(format!("/Size {size}").as_bytes());
     tampered.extend_from_slice(&base[at + needle.len()..]);

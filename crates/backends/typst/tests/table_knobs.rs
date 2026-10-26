@@ -22,14 +22,7 @@ fn quill() -> Quill {
 }
 
 fn svg(quill: &Quill, markdown: &str) -> String {
-    let data = serde_json::json!({ "$body": content(markdown) });
-    let session = TypstBackend::default()
-        .open(quill, &data, common::test_date())
-        .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
-    let result = session
-        .render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
-        .expect("render");
-    String::from_utf8(result.artifacts[0].bytes.clone()).expect("svg is text")
+    common::body_svgs(quill, markdown).0.swap_remove(0)
 }
 
 /// Each text run's origin, its group's `matrix(1 0 0 -1 x y)`, in document

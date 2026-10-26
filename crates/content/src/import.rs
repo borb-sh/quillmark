@@ -2174,13 +2174,15 @@ pub(crate) mod tests {
     /// `ISLAND_SLOT` is an invariant violation the mint does not repair —
     /// `validate` reports it — so a codec that admitted one would hand out a
     /// `Normalized` that is not, and `imp_plain` would say so. The drop is also
-    /// why this codec's fixed point names the character it excludes.
+    /// why this codec's fixed point names the character it excludes. A CRLF
+    /// collapses to LF beside it.
     #[test]
     fn plaintext_drops_a_stray_slot() {
         let rt = imp_plain("a\u{FFFC}b");
         assert_eq!(rt.text, "ab");
         assert!(rt.islands.is_empty());
         assert_eq!(crate::export::to_plaintext(&rt), "ab");
+        assert_eq!(imp_plain("a\r\nb").text, "a\nb", "CRLF collapses to LF");
     }
 
     #[test]
@@ -2195,15 +2197,6 @@ pub(crate) mod tests {
         assert!(!rt.lines[0].continues);
         assert!(!rt.lines[1].continues, "the blank line is a paragraph boundary");
         assert!(!rt.lines[2].continues, "text after a blank line starts a new block");
-    }
-
-    #[test]
-    fn plaintext_strips_invariant_breakers() {
-        let rt = imp_plain("a\r\nb");
-        assert_eq!(rt.text, "a\nb", "CRLF collapses to LF");
-        let rt = imp_plain(&format!("a{ISLAND_SLOT}b"));
-        assert_eq!(rt.text, "ab", "the reserved island slot is dropped");
-        assert_eq!(rt.islands.len(), 0);
     }
 
     #[test]
@@ -2231,30 +2224,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn bold_and_italic_marks() {
-        let rt = imp("a **b** _c_");
-        assert_eq!(rt.text, "a b c");
-        // "b" at 2..3 strong, "c" at 4..5 emph
-        assert!(rt.marks.contains(&Mark {
-            start: 2,
-            end: 3,
-            kind: MarkKind::Strong
-        }));
-        assert!(rt.marks.contains(&Mark {
-            start: 4,
-            end: 5,
-            kind: MarkKind::Emph
-        }));
-    }
-
-    #[test]
-    fn underline_from_u_tag() {
-        let rt = imp("x <u>y</u> z");
-        assert_eq!(rt.text, "x y z");
-        assert!(rt
-            .marks
-            .iter()
-            .any(|m| m.kind == MarkKind::Underline && m.start == 2 && m.end == 3));
+    fn an_inline_span_imports_as_its_mark() {
+        for (md, text, mark) in [
+            ("a **b** _c_", "a b c", Mark::new(2, 3, MarkKind::Strong)),
+            ("a **b** _c_", "a b c", Mark::new(4, 5, MarkKind::Emph)),
+            ("x <u>y</u> z", "x y z", Mark::new(2, 3, MarkKind::Underline)),
+            ("run `cargo test` now", "run cargo test now", Mark::new(4, 14, MarkKind::Code)),
+        ] {
+            let rt = imp(md);
+            assert_eq!(rt.text, text, "{md}");
+            assert!(rt.marks.contains(&mark), "{md}: {:?}", rt.marks);
+        }
     }
 
     /// A `</u>` closes the innermost open `<u>` wherever it sits among the
@@ -2436,16 +2416,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn inline_code_mark() {
-        let rt = imp("run `cargo test` now");
-        assert_eq!(rt.text, "run cargo test now");
-        assert!(rt
-            .marks
-            .iter()
-            .any(|m| m.kind == MarkKind::Code && m.start == 4 && m.end == 14));
-    }
-
-    #[test]
     fn code_block_lines() {
         let rt = imp("```rust\nfn a() {}\nfn b() {}\n```");
         assert_eq!(rt.text, "fn a() {}\nfn b() {}");
@@ -2573,7 +2543,6 @@ pub(crate) mod tests {
             assert_eq!(rt.lines[0].kind, LineKind::Para);
             assert_eq!(rt.lines[1].kind, LineKind::Rule, "source: {src}");
             assert_eq!(rt.lines[2].kind, LineKind::Para);
-            // The rule line carries no text of its own.
             assert_eq!(rt.text, "one\n\ntwo");
         }
     }
@@ -2706,7 +2675,6 @@ pub(crate) mod tests {
             assert_eq!(dropped(&imported), *warned, "{md:?}");
         }
     }
-
 
     /// `$…$` is an inline equation and `$$…$$` a display one, each an island
     /// holding its TeX; where no island can sit, the source stays as text.

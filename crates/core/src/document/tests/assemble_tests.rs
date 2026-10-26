@@ -1,10 +1,6 @@
 use crate::document::Document;
 
-/// `Document::parse` with the warnings dropped — what these tests read is the
-/// document or the refusal.
-fn decompose(markdown: &str) -> Result<Document, crate::error::ParseError> {
-    Document::parse(markdown).map(|p| p.document)
-}
+use super::decompose;
 
 #[test]
 fn test_size_and_emptiness_refusals_carry_their_codes() {

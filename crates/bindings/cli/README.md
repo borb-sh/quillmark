@@ -68,6 +68,7 @@ rendered instead, so a quill previews without any authored input.
 - `--stdout` — write the artifact to stdout; all chatter moves to stderr
 - `--output-data <DATA_FILE>` — also write the compiled JSON data handed to the backend
 - `--today <YYYY-MM-DD>` — the render date: what a `today` date and a plate's `datetime.today()` render as (default: the local date)
+- `--font <FONT_FILE>` — a font file for the engine's font library, repeatable: a `.ttf`, `.otf`, `.ttc` or `.otc`
 - `--quiet` — suppress warnings and the output-destination line
 
 Warnings go to stderr, including one for each undeclared key or other input the
@@ -120,6 +121,7 @@ than the embedded one, so a plate compiling there can still fail to render; the
 
 - `-o, --output <DIR>` — workspace directory (default: `quillmark-workspace`)
 - `--today <YYYY-MM-DD>` — the render date: what a `today` date and, through the printed command's `--creation-timestamp`, a plate's `datetime.today()` render as (default: the local date)
+- `--font <FONT_FILE>` — a font file for the engine's font library, repeatable, as on `render`; written into the workspace's `fonts/`
 - `--quiet` — suppress warnings and the command line
 
 ## Exit codes

@@ -67,11 +67,11 @@ seam, and depend on `quillmark-core` directly. Filesystem walking lives here,
 so core stays filesystem-agnostic: in-memory loading is `Quill::from_tree` in
 core.
 
-### `backends/quillmark-typst`
+### `quillmark-typst`
 
 Implements `Backend` for PDF, SVG, and PNG. Lowers each content field's `Content` value to Typst markup at codegen (`emit::emit_content`), recording a per-segment source map. Resolves fonts ([Fonts](#fonts)) and assets. `workspace::workspace` exports the generated helper, the vendored packages and the fonts for Typst's own tooling ([CLI.md](CLI.md)). See [CONVERT.md](CONVERT.md) and [PLATE_DATA.md](PLATE_DATA.md).
 
-### `backends/quillmark-acroform`
+### `quillmark-acroform`
 
 The second backend: fills an existing AcroForm PDF rather than typesetting from
 scratch. It resolves card values against the quill's `Form.yaml` spec and stamps
@@ -183,5 +183,5 @@ in agreement.
 
 Implement the `Backend` trait and return a `LiveSession` wrapping a
 `SessionHandle` that does the format-specific rendering, canvas paint
-(`page_size_pt` / `render_rgba`) included. See `backends/quillmark-typst` for
+(`page_size_pt` / `render_rgba`) included. See `crates/backends/typst` for
 the reference implementation.

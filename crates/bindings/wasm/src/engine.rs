@@ -1033,8 +1033,9 @@ impl Document {
     /// The newest storage version this build writes via
     /// [`toStored`](Document::to_stored): a document spelling a font mark, a
     /// `table` element, a merged table cell or a table head 0.130 cannot draw
-    /// carries it, every other the tag before it, which a 0.130 build reads. The tag advances only when the wire format changes, not on
-    /// every release.
+    /// carries it, every other the tag before it, which a 0.130 build reads.
+    /// The tag advances only when the wire format changes, not on every
+    /// release.
     #[wasm_bindgen(js_name = currentStorageVersion)]
     pub fn current_storage_version() -> String {
         quillmark_core::document::STORAGE_V0_131_0.to_string()
@@ -2004,12 +2005,12 @@ fn js_to_content_with(
     let json = js_value_to_json(value, ctx)?;
     if !json.is_object() {
         return Err(WasmError::from(format!(
-            "{ctx}: expected a Content content object; for markdown use importMarkdown(md).content first"
+            "{ctx}: expected a Content object; for markdown use importMarkdown(md).content first"
         ))
         .to_js_value());
     }
     read(&json).map_err(|e| {
-        WasmError::from(format!("{ctx}: not a canonical Content content: {e}")).to_js_value()
+        WasmError::from(format!("{ctx}: not a canonical Content: {e}")).to_js_value()
     })
 }
 

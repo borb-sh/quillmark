@@ -158,10 +158,8 @@ fn richtext_plaintext(v: &Value) -> Option<String> {
 /// A choice value binds only if it matches one of the declared options exactly.
 fn coerce_choice(v: &Value, options: &[String]) -> Option<String> {
     let s = match v {
-        Value::String(s) => s.clone(),
-        Value::Number(n) => number_to_string(n),
-        Value::Bool(b) => b.to_string(),
-        _ => return None,
+        Value::Object(_) => return None,
+        _ => element_text(v)?,
     };
     options.iter().any(|o| o == &s).then_some(s)
 }
