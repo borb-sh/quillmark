@@ -729,14 +729,14 @@ rectangular grid a table island holds, as HTML's table model forms one:
   earlier span covers stops short of it, silently, as normalization settles
   one.
 - A row short of the grid's width pads with empty cells, each such row
-  reported as `table[row]`.
+  reported as `table:row`.
 - Each slot a span covers stores as an empty cell.
 
 **Lenient where writers are.** An unquoted value (`colspan=2`), a row directly
 under `<table>` with no `tbody`, and an omitted `</td>`, `</th>` or `</tr>`
 read as HTML reads them. `tfoot` rows read as body rows after the body's.
 Text outside every cell, a `<caption>`'s say, drops, reported as
-`table[text]`, and a comment between rows drops silently.
+`table:text`, and a comment between rows drops silently.
 
 **Cells hold inline markdown.** CommonMark reads a `<table>` as a raw HTML
 block and parses no markdown inside it, so import scans the subset itself and
@@ -766,7 +766,7 @@ second table or a wrapper's close tag reads as written.
 together**, each table's rows, the header among them, times its columns. A
 grid pads every row to its width, so a few bytes can ask for millions of
 slots, and many small tables as many as one large one; the rows past the
-slots the tables before them leave drop, reported as `table[size]`, and a
+slots the tables before them leave drop, reported as `table:size`, and a
 table whose first row alone is wider drops whole. Pipe and HTML tables draw
 on the same bound.
 

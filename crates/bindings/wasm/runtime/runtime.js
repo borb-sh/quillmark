@@ -470,12 +470,22 @@ export class Engine {
 	 */
 	/** load → Promise<build module>, memoized so each build loads once. */
 	#modules = new Map();
-	/** load → that build's engine instance (the WASM backend registry). */
+	/**
+	 * load → `{ engine }`, that build's engine instance (the WASM backend
+	 * registry), or `{ refused }`, the error its construction threw. A refusal
+	 * is the font library's, which every retry would parse and refuse again.
+	 */
 	#engines = new Map();
 	/** backendId → descriptor `{ load, formats }`. */
 	#loaders;
-	/** The host's font library, copied at construction and handed to each build's engine as it loads. */
+	/**
+	 * The host's font library, copied at construction and handed to each
+	 * build's engine as it loads; `null` once every build has had it.
+	 * @type {Uint8Array[] | null}
+	 */
 	#fonts;
+	/** How many distinct builds the loaders name. */
+	#builds;
 	/**
 	 * load → WeakMap<canonical Quill, build-memory clone>, caching the
 	 * expensive materialization. WeakMap so dropping the canonical quill makes
@@ -504,6 +514,7 @@ export class Engine {
 			loaders[id] = validateBackend(id, entry);
 		}
 		this.#loaders = loaders;
+		this.#builds = new Set(Object.values(loaders).map((descriptor) => descriptor.load)).size;
 	}
 
 	/**
@@ -561,12 +572,18 @@ export class Engine {
 		}
 		const mod = await modPromise;
 
-		let engine = this.#engines.get(load);
-		if (!engine) {
-			engine = new mod.Engine(this.#fonts);
-			this.#engines.set(load, engine);
+		let built = this.#engines.get(load);
+		if (!built) {
+			try {
+				built = { engine: new mod.Engine(this.#fonts) };
+			} catch (refused) {
+				built = { refused };
+			}
+			this.#engines.set(load, built);
+			if (this.#engines.size === this.#builds) this.#fonts = null;
 		}
-		return { mod, engine };
+		if ('refused' in built) throw built.refused;
+		return { mod, engine: built.engine };
 	}
 
 	/**

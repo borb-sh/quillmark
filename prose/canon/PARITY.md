@@ -123,6 +123,7 @@ A task item's body lowers the same way, through the renderer a plate sets on
 | `mark.anchor` | carries opaquely | spells | spells | honors | silent: honored | none |
 | `mark.font_family`: a run in a family the host library holds | spells | spells | spells | honors | silent: honored | none |
 | `mark.font_family.unknown`: a run in a family the host library lacks | spells | spells | spells | declines with a signal | drops silently | `typst::unknown_font_family` |
+| `mark.across_break`: a mark over a hard break, one mark per line | spells | spells | spells | honors | silent: honored | none |
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
@@ -219,8 +220,8 @@ above, or markup the content does not store.
 | `html.table.attr`: an attribute the HTML subset does not read, beside ones that only style the table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table[bgcolor]`, `td[nowrap]` |
 | `html.table.value`: a span value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `td[colspan]` |
 | `html.table.overlap`: a `colspan` reaching a slot a `rowspan` covers, stopping short of it | drops silently | n/a | n/a | n/a | n/a | none |
-| `html.table.row`: rows short of the grid's widest | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table[row]` |
-| `html.table.text`: a `caption` and its text outside every cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `caption`, `table[text]` |
+| `html.table.row`: rows short of the grid's widest | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table:row` |
+| `html.table.text`: a `caption` and its text outside every cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `caption`, `table:text` |
 | `html.table.tail`: prose tight under an HTML table's `</table>` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `html.block6.text`: a type 6 block, `<center>`, tight around text, dropping it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `center` |
 | `html.block1`: a type 1 block, `<pre>` | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `pre` |

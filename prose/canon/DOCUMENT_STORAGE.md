@@ -196,7 +196,7 @@ name.
 
 `element` is a closed member over an open payload. Its `attrs` bag holds the
 element's name under `$name`, any carrier element name but the reserved
-`table` and `anchor`, beside its attributes, each a string under a name
+`anchor`, beside its attributes, each a string under a name
 in the carrier's attribute grammar ([markdown-spec.md](../references/markdown-spec.md) §6.4).
 No attribute name opens with `$`, so the two never collide, as a card's `$kind`
 never meets a field. A new element name is no storage event, since no reader is
@@ -226,6 +226,10 @@ mark of the tag there, and a `MarkOp::Remove` takes one value off, leaving the
 stretch in no family. Storing one value per character keeps every edit local:
 a text edit never changes the family of text it keeps, and reading a
 character's family is a lookup.
+
+`link` is keyed the same way, its url the value: a character holds at most one link, as markdown and HTML can write no link inside another. A `MarkOp::Add` of a link over a link replaces the url there. Normalization settles keyed marks before it cuts marks at line breaks, so a split never multiplies overlapping links.
+
+A formatting mark in a body never spans a `\n`: `Content::normalize` cuts it at each one, so a mark over a hard break is one mark per line, the form markdown writes and the Typst lowering draws. A link over a break is two links with one url. A table cell's or footnote's marks may span its `\n`, which markdown writes as a `<br>` inside the mark's delimiters.
 
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,
@@ -397,7 +401,7 @@ Three rules bound the payload:
   allocation that traps. The decoder refuses such a table before the mint
   pads it, as `Invariant::TableTooLarge`, which `Content::validate` restates;
   markdown import drops the rows past the cap instead, its tables sharing
-  one cap, warning `table[size]`.
+  one cap, warning `table:size`.
 
 - **Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
   `lang`, a `link`'s `url`, a `list_item`'s shape and an `element`'s name and

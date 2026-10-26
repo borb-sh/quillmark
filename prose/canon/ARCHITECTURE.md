@@ -142,16 +142,17 @@ own that only a font mark reaches:
 | the fallback | embedded: Roboto, only for a quill shipping no fonts, and Noto Sans Math answering to `New Computer Modern Math` |
 
 - **Only a mark reaches a library face.** The book files each library face
-  under a reserved alias family, `qm-host:` and its family lowercased, with no
-  glyph coverage, and a `font_family` mark lowers to the alias. A plate naming
-  the family, Typst's variant fill and glyph fallback never reach it, so text
-  without a mark renders alike on every host. A quill font whose family starts
-  with `qm-host:` joins the alias family.
+  under an alias family, its family lowercased behind a key drawn at random
+  per library, with no glyph coverage, and a `font_family` mark lowers to the
+  alias. A plate naming the family or guessing an alias, Typst's variant fill
+  and glyph fallback never reach it, so text without a mark renders alike on
+  every host.
 - **The library is frozen at construction.** `FontLibrary::new` parses each
   file once and refuses the whole set if any file fails: one
   `engine::font_unsupported` per file in another format, WOFF and WOFF2
   included, and one `engine::font_unreadable` per file holding no face Typst
-  reads. Sessions share its parsed faces.
+  reads. Sessions share its parsed faces, and each file is held once: every
+  `FontFace` a listing returns hands out that same buffer.
 - **No system font is read**, and the acroform backend reads none of this.
 - **A family resolves at compile, against the library alone.** Every family
   a font run names is checked against the host library's families, and one it

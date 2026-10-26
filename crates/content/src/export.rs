@@ -20,8 +20,7 @@
 //!
 //! ## Codec limits
 //!
-//! These shapes markdown cannot represent do **not** round-trip. A mark spanning
-//! a hard break splits into two per-line marks. An empty line in a hard-break
+//! These shapes markdown cannot represent do **not** round-trip. An empty line in a hard-break
 //! block drops, and so does an empty paragraph beside another block, markdown
 //! spelling neither. An image `alt` loses its edge whitespace: the parser trims
 //! alt *after* decoding the character reference that carries an edge run
@@ -2382,8 +2381,12 @@ mod tests {
         assert_eq!(rt.text, format!("a\n{ISLAND_SLOT}\nbc"));
         assert_eq!(
             rt.marks,
-            vec![Mark::new(0, 6, MarkKind::Link { url: "u".into() })],
-            "the inserted line extends the link over the slot"
+            vec![
+                Mark::new(0, 1, MarkKind::Link { url: "u".into() }),
+                Mark::new(2, 3, MarkKind::Link { url: "u".into() }),
+                Mark::new(4, 6, MarkKind::Link { url: "u".into() }),
+            ],
+            "the link splits at each line join, the slot's line included"
         );
 
         let md = to_markdown(&rt);
@@ -2662,15 +2665,28 @@ mod tests {
         );
     }
 
+    /// A mark over a line join imports as one mark per line, the form export
+    /// writes, so the first import is already the fixed point.
     #[test]
-    fn known_hard_break_limits() {
-        let rt = from_markdown("**one\\\ntwo**").unwrap().content;
-        let rt2 = from_markdown(&to_markdown(&rt)).unwrap().content;
-        assert!(
-            rt != rt2,
-            "if this ever round-trips, promote it out of the known-limits list"
-        );
-        assert_eq!(rt2.marks.len(), 2, "mark split across the hard break");
+    fn a_mark_across_a_hard_break_is_a_fixed_point() {
+        let link = MarkKind::Link { url: "https://e.com".into() };
+        for (md, kind) in [
+            ("**a\\\nx**", MarkKind::Strong),
+            ("**a<br>x**", MarkKind::Strong),
+            ("*a\\\nx*", MarkKind::Emph),
+            ("~~a\\\nx~~", MarkKind::Strike),
+            ("<u>a<br>x</u>", MarkKind::Underline),
+            ("[a\\\nx](https://e.com)", link),
+        ] {
+            let rt = from_markdown(md).unwrap().content;
+            assert_eq!(rt.text, "a\nx", "{md}");
+            assert_eq!(
+                rt.marks,
+                vec![Mark::new(0, 1, kind.clone()), Mark::new(2, 3, kind)],
+                "{md}"
+            );
+            assert_eq!(from_markdown(&to_markdown(&rt)).unwrap().content, rt, "{md}");
+        }
     }
 
     #[test]

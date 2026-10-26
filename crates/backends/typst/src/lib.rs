@@ -495,27 +495,17 @@ impl Backend for TypstBackend {
     /// The library's faces that set running text, as `world::sets_text` reads
     /// them. A quill's own faces and the fallback set its plate, never a mark.
     fn font_faces(&self, _source: &Quill) -> Vec<FontFace> {
-        let mut file: Option<(typst::foundations::Bytes, Arc<[u8]>)> = None;
         self.library
-            .faces()
-            .iter()
-            .map(|font| (font.info().clone(), font))
-            .filter(|(info, font)| world::sets_text(info, font))
-            .map(|(info, font)| {
-                let data = match &file {
-                    Some((bytes, data)) if bytes == font.data() => data.clone(),
-                    _ => {
-                        let data: Arc<[u8]> = Arc::from(font.data().as_slice());
-                        file = Some((font.data().clone(), data.clone()));
-                        data
-                    }
-                };
+            .faces_with_files()
+            .filter(|(font, _)| world::sets_text(font.info(), font))
+            .map(|(font, file)| {
+                let info = font.info();
                 FontFace {
-                    family: info.family,
+                    family: info.family.clone(),
                     weight: info.variant.weight.to_number(),
                     style: css_style(info.variant.style),
                     index: font.index(),
-                    data,
+                    data: file.clone(),
                 }
             })
             .collect()
