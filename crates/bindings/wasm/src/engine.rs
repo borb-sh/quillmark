@@ -613,6 +613,16 @@ export interface FontFace {
 }
 "#;
 
+/// `bytes` copied once, straight into the buffer the font library keeps:
+/// linear memory never shrinks, so a staging copy would stay its high-water
+/// mark.
+#[cfg(feature = "render")]
+fn arc_of(bytes: &Uint8Array) -> std::sync::Arc<[u8]> {
+    let mut out: std::sync::Arc<[u8]> = std::iter::repeat_n(0, bytes.length() as usize).collect();
+    bytes.copy_to(std::sync::Arc::get_mut(&mut out).expect("a fresh buffer is unshared"));
+    out
+}
+
 #[cfg(feature = "render")]
 #[wasm_bindgen]
 impl Engine {
@@ -624,13 +634,13 @@ impl Engine {
     pub fn new(
         #[wasm_bindgen(unchecked_param_type = "Uint8Array[] | undefined")] fonts: JsValue,
     ) -> Result<Engine, JsValue> {
-        let fonts: Vec<Vec<u8>> = if fonts.is_undefined() || fonts.is_null() {
+        let fonts: Vec<std::sync::Arc<[u8]>> = if fonts.is_undefined() || fonts.is_null() {
             Vec::new()
         } else if Array::is_array(&fonts) {
             Array::from(&fonts)
                 .iter()
                 .map(|font| match font.dyn_into::<Uint8Array>() {
-                    Ok(bytes) => Ok(bytes.to_vec()),
+                    Ok(bytes) => Ok(arc_of(&bytes)),
                     Err(_) => Err(WasmError::from("fonts: every entry is a Uint8Array").to_js_value()),
                 })
                 .collect::<Result<_, _>>()?

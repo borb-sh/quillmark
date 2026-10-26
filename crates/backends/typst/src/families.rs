@@ -14,14 +14,9 @@ pub(crate) struct Families {
     /// The families a plate can name: the quill's and the fallback's.
     pub(crate) held: std::collections::BTreeSet<String>,
     /// The library's families, the ones a `font_family` mark may set, each
-    /// beside the [`host_alias`] the book files its faces under.
+    /// beside the [`FontLibrary::alias`](crate::FontLibrary::alias) the book
+    /// files its faces under.
     pub(crate) offered: BTreeMap<String, String>,
-}
-
-/// The family the font book files a library face of `family` under. No plate
-/// or fallback names it, so only a `font_family` mark reaches a library face.
-pub(crate) fn host_alias(family: &str) -> String {
-    format!("qm-host:{}", family.to_lowercase())
 }
 
 const CODE: &str = "typst::unknown_font_family";
@@ -204,6 +199,21 @@ mod tests {
         let quill = quill_shipping("", &[("Figtree-Regular.ttf", figtree())]);
         let (runs, _) = runs_of(&quill, "plain Ж", FontLibrary::new(vec![roboto()]).expect("library"));
         assert!(runs.iter().all(|(_, family)| family == "Figtree"), "{runs:?}");
+    }
+
+    /// The family a library face is filed under is drawn per library, so a
+    /// plate spelling an alias reaches no library face.
+    #[test]
+    fn a_plate_cannot_spell_a_library_faces_alias() {
+        let library = || FontLibrary::new(vec![figtree()]).expect("library");
+        assert_ne!(library().alias("Figtree"), library().alias("Figtree"));
+        let (runs, _) = runs(
+            "#set text(font: (\"qm-host:figtree\", \"Roboto\"))",
+            "plain <qm-span family=\"Figtree\">set</qm-span>",
+            library(),
+        );
+        assert_eq!(family(&runs, "plain"), "Roboto");
+        assert_eq!(family(&runs, "set"), "Figtree");
     }
 
     #[test]

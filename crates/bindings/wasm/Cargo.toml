@@ -29,6 +29,9 @@ serde-wasm-bindgen = "0.6"
 tsify = { version = "0.5.6", features = ["js"] }
 console_error_panic_hook = "0.1"
 js-sys = { workspace = true }
+# Selects the browser's `crypto.getRandomValues` for the Typst backend's
+# `getrandom`, which reads no backend of its own on wasm32-unknown-unknown.
+getrandom = { workspace = true, features = ["wasm_js"], optional = true }
 web-sys = { version = "0.3", optional = true, features = [
     "CanvasRenderingContext2d",
     "HtmlCanvasElement",
@@ -45,12 +48,12 @@ default = ["render"]
 # backends. Strict API superset of core; Typst is nearly all of the
 # artifact. The canvas painter dispatches through the core `SessionHandle`
 # seam, so the binding depends on the backend crates only transitively.
-render = ["quillmark/typst", "quillmark/acroform", "dep:web-sys"]
+render = ["quillmark/typst", "quillmark/acroform", "dep:web-sys", "dep:getrandom"]
 # Core build = no features: Document + Quill (parse / load / validate / schema
 # / seed / blueprint). No `Engine`, no Typst; `scripts/build-wasm.sh` enforces its
 # gzip ceiling.
 
 [package.metadata.cargo-machete]
 # serde_bytes is used via `#[serde(with = "serde_bytes")]` in src/types.rs,
-# which cargo-machete cannot see.
-ignored = ["serde_bytes"]
+# which cargo-machete cannot see. getrandom is here only for its feature.
+ignored = ["serde_bytes", "getrandom"]

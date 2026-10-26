@@ -10,7 +10,7 @@ use typst::text::{Coverage, Font, FontBook, FontFlags, FontInfo};
 use typst::utils::LazyHash;
 use typst::{Library, World};
 
-use crate::families::{host_alias, Families};
+use crate::families::Families;
 use crate::{helper, FontLibrary, Plate};
 use quillmark_core::{
     error::{Diagnostic, Severity},
@@ -114,7 +114,7 @@ fn oversized_collection(path: &Path, declared: u32) -> Diagnostic {
 /// The session's faces in book order, each beside the info the book files it
 /// under: the quill's, then the host library's, then the embedded fallback,
 /// Roboto standing in only for a quill shipping no fonts. A library face is
-/// filed under its [`host_alias`] with no coverage, so neither a plate nor
+/// filed under its [`FontLibrary::alias`] with no coverage, so neither a plate nor
 /// glyph fallback reaches it. The math face also answers to [`MATH_FAMILY`]
 /// unless a face before it holds that family.
 pub(crate) fn session_fonts(
@@ -132,7 +132,7 @@ pub(crate) fn session_fonts(
     let quill_ships = !out.is_empty();
     out.extend(library.faces().iter().map(|font| {
         let mut info = font.info().clone();
-        info.family = host_alias(&info.family);
+        info.family = library.alias(&info.family);
         info.coverage = Coverage::from_vec(Vec::new());
         (info, font.clone())
     }));
@@ -207,7 +207,7 @@ impl QuillWorld {
         for font in library.faces() {
             if sets_text(font.info(), font) {
                 let family = &font.info().family;
-                families.offered.insert(family.to_lowercase(), host_alias(family));
+                families.offered.insert(family.to_lowercase(), library.alias(family));
             }
         }
 
