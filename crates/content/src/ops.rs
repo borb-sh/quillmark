@@ -433,12 +433,7 @@ impl Content {
         self.text = new_text;
         let old_islands = std::mem::take(&mut self.islands);
         (self.lines, self.islands) = sync_for_delta(&old_chars, old_lines, old_islands, delta);
-        if self.lines.len() != self.segment_count() {
-            return Err(ApplyError::LineCountMismatch {
-                lines: self.lines.len(),
-                segments: self.segment_count(),
-            });
-        }
+        self.check_line_sync()?;
         Ok(())
     }
 
@@ -722,6 +717,14 @@ impl Content {
         Ok(scratch.marks)
     }
 
+    fn check_line_sync(&self) -> Result<(), ApplyError> {
+        let (lines, segments) = (self.lines.len(), self.segment_count());
+        if lines != segments {
+            return Err(ApplyError::LineCountMismatch { lines, segments });
+        }
+        Ok(())
+    }
+
     fn line_mut(&mut self, line: usize) -> Result<&mut Line, ApplyError> {
         let lines = self.lines.len();
         self.lines
@@ -735,10 +738,7 @@ impl Content {
         if at > len {
             return Err(ApplyError::SplitPositionOutOfRange { at, len });
         }
-        if at > 0 && char_indices[at - 1].1 == '\n' {
-            return Err(ApplyError::SplitAtNewline { at });
-        }
-        if at < len && char_indices[at].1 == '\n' {
+        if (at > 0 && char_indices[at - 1].1 == '\n') || (at < len && char_indices[at].1 == '\n') {
             return Err(ApplyError::SplitAtNewline { at });
         }
 
@@ -761,12 +761,7 @@ impl Content {
         new_line.continues = false;
         self.lines.insert(line_idx + 1, new_line);
 
-        if self.lines.len() != self.segment_count() {
-            return Err(ApplyError::LineCountMismatch {
-                lines: self.lines.len(),
-                segments: self.segment_count(),
-            });
-        }
+        self.check_line_sync()?;
         Ok(())
     }
 
@@ -787,12 +782,7 @@ impl Content {
 
         self.lines.remove(line + 1);
 
-        if self.lines.len() != self.segment_count() {
-            return Err(ApplyError::LineCountMismatch {
-                lines: self.lines.len(),
-                segments: self.segment_count(),
-            });
-        }
+        self.check_line_sync()?;
         Ok(())
     }
 }

@@ -68,6 +68,7 @@ rendered instead, so a quill previews without any authored input.
 - `--stdout` — write the artifact to stdout; all chatter moves to stderr
 - `--output-data <DATA_FILE>` — also write the compiled JSON data handed to the backend
 - `--today <YYYY-MM-DD>` — the render date: what a `today` date and a plate's `datetime.today()` render as (default: the local date)
+- `--font <FONT_FILE>` — a font file for the engine's font library, repeatable: a `.ttf`, `.otf`, `.ttc` or `.otc`
 - `--quiet` — suppress warnings and the output-destination line
 
 Warnings go to stderr, including one for each undeclared key or other input the

@@ -134,21 +134,11 @@ pub struct Artifact {
 }
 
 #[cfg(feature = "render")]
-impl Artifact {
-    fn mime_type_for_format(format: OutputFormat) -> String {
-        quillmark_core::types::OutputFormat::from(format)
-            .mime_type()
-            .to_string()
-    }
-}
-
-#[cfg(feature = "render")]
 impl From<quillmark_core::types::Artifact> for Artifact {
     fn from(artifact: quillmark_core::types::Artifact) -> Self {
-        let format = artifact.output_format.into();
         Artifact {
-            format,
-            mime_type: Self::mime_type_for_format(format),
+            format: artifact.output_format.into(),
+            mime_type: artifact.output_format.mime_type().to_string(),
             bytes: artifact.bytes,
         }
     }

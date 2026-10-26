@@ -39,7 +39,7 @@ my-quiver/
 
 - **`Quiver.yaml`** names the collection and describes it in one line.
 - **`package.json`** pins `quillkit`, `@quillmark/quiver` and `@quillmark/wasm`. `npm test` runs `quillkit test`, which renders every quill in the quiver and fails on any error or warning.
-- **`.prettierignore`** keeps prettier out of `quills/`. Prettier rewrites a card's `~~~` fence as a backtick fence, and a backtick fence opens no card, so a formatted document no longer parses. Keep this file if your project runs prettier.
+- **`.prettierignore`** keeps prettier out of `quills/` ([why](quillkit.md#prettier)). Keep this file if your project runs prettier.
 - **`quills/letter/0.1.0/`** is the quill. A quill lives at `quills/<name>/<version>/`, and both must match what its `Quill.yaml` declares.
 
 The quill itself is three files:

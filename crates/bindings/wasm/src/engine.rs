@@ -2005,12 +2005,12 @@ fn js_to_content_with(
     let json = js_value_to_json(value, ctx)?;
     if !json.is_object() {
         return Err(WasmError::from(format!(
-            "{ctx}: expected a Content content object; for markdown use importMarkdown(md).content first"
+            "{ctx}: expected a Content object; for markdown use importMarkdown(md).content first"
         ))
         .to_js_value());
     }
     read(&json).map_err(|e| {
-        WasmError::from(format!("{ctx}: not a canonical Content content: {e}")).to_js_value()
+        WasmError::from(format!("{ctx}: not a canonical Content: {e}")).to_js_value()
     })
 }
 

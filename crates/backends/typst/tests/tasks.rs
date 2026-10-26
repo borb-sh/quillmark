@@ -1,15 +1,10 @@
 //! A task list item renders through the helper's `_qm-task`: the plate's
 //! renderer under `tasks`, else a drawn box, ticked where done.
 
-use quillmark_core::{
-    backend::Backend,
-    quill::Quill,
-    types::{OutputFormat, RenderOptions},
-};
-use quillmark_typst::TypstBackend;
+use quillmark_core::quill::Quill;
 
 mod common;
-use common::content;
+use common::glyphs;
 
 const PAGE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -24,21 +19,7 @@ fn quill(plate: &str) -> Quill {
 }
 
 fn svg(quill: &Quill, markdown: &str) -> String {
-    let data = serde_json::json!({ "$body": content(markdown) });
-    let session = TypstBackend::default()
-        .open(quill, &data, common::test_date())
-        .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
-    let result = session
-        .render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
-        .expect("render");
-    let [page] = result.artifacts.as_slice() else {
-        panic!("one page for {markdown:?}");
-    };
-    String::from_utf8(page.bytes.clone()).expect("svg is text")
-}
-
-fn glyphs(svg: &str) -> usize {
-    svg.matches("<use ").count()
+    common::body_page(quill, markdown).0
 }
 
 const TASKS: &str = "- [ ] open\n- [x] done\n  - [ ] nested\n\n  more\n- [x]\n  # heading\n- plain";

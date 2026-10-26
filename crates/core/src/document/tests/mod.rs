@@ -20,6 +20,12 @@ pub(super) fn parse(src: &str) -> super::Document {
         .document
 }
 
+/// `Document::parse` with the warnings dropped, for a test reading the
+/// document or the refusal.
+pub(super) fn decompose(markdown: &str) -> Result<super::Document, crate::error::ParseError> {
+    super::Document::parse(markdown).map(|p| p.document)
+}
+
 /// Parse, emit, re-parse: the same document, or a panic naming `label` and the
 /// emission that broke it.
 pub(super) fn assert_round_trip(label: &str, src: &str) {

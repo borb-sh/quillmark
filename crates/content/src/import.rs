@@ -2181,6 +2181,7 @@ pub(crate) mod tests {
         assert_eq!(rt.text, "ab");
         assert!(rt.islands.is_empty());
         assert_eq!(crate::export::to_plaintext(&rt), "ab");
+        assert_eq!(imp_plain("a\r\nb").text, "a\nb", "CRLF collapses to LF");
     }
 
     #[test]
@@ -2195,15 +2196,6 @@ pub(crate) mod tests {
         assert!(!rt.lines[0].continues);
         assert!(!rt.lines[1].continues, "the blank line is a paragraph boundary");
         assert!(!rt.lines[2].continues, "text after a blank line starts a new block");
-    }
-
-    #[test]
-    fn plaintext_strips_invariant_breakers() {
-        let rt = imp_plain("a\r\nb");
-        assert_eq!(rt.text, "a\nb", "CRLF collapses to LF");
-        let rt = imp_plain(&format!("a{ISLAND_SLOT}b"));
-        assert_eq!(rt.text, "ab", "the reserved island slot is dropped");
-        assert_eq!(rt.islands.len(), 0);
     }
 
     #[test]
