@@ -22,9 +22,9 @@
 //!
 //! These shapes markdown cannot represent do **not** round-trip. An empty line
 //! in a hard-break block drops, and so does an empty paragraph beside another
-//! block, markdown spelling neither. An image `alt` loses its edge whitespace: the parser trims
-//! alt *after* decoding the character reference that carries an edge run
-//! everywhere else. A link or image `url` carrying a line ending comes back
+//! block, markdown spelling neither. An image `alt` loses its edge
+//! whitespace: the parser trims alt *after* decoding the character reference
+//! that carries an edge run everywhere else. A link or image `url` carrying a line ending comes back
 //! percent-encoded (`%0A`/`%0D`): CommonMark admits none in a destination, and
 //! the import decodes no percent escape. A `url` or `alt` carrying a character
 //! the import does not admit there (a bidi control, a line separator, a line

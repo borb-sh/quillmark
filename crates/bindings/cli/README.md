@@ -121,6 +121,7 @@ than the embedded one, so a plate compiling there can still fail to render; the
 
 - `-o, --output <DIR>` — workspace directory (default: `quillmark-workspace`)
 - `--today <YYYY-MM-DD>` — the render date: what a `today` date and, through the printed command's `--creation-timestamp`, a plate's `datetime.today()` render as (default: the local date)
+- `--font <FONT_FILE>` — a font file for the engine's font library, repeatable, as on `render`; written into the workspace's `fonts/`
 - `--quiet` — suppress warnings and the command line
 
 ## Exit codes

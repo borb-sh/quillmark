@@ -2174,7 +2174,8 @@ pub(crate) mod tests {
     /// `ISLAND_SLOT` is an invariant violation the mint does not repair —
     /// `validate` reports it — so a codec that admitted one would hand out a
     /// `Normalized` that is not, and `imp_plain` would say so. The drop is also
-    /// why this codec's fixed point names the character it excludes.
+    /// why this codec's fixed point names the character it excludes. A CRLF
+    /// collapses to LF beside it.
     #[test]
     fn plaintext_drops_a_stray_slot() {
         let rt = imp_plain("a\u{FFFC}b");
