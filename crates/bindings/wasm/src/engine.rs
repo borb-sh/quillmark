@@ -462,7 +462,9 @@ export type Assoc = "before" | "after";
 /**
  * A mark edit in final-text coordinates (post-delta, post-line-op). `add` /
  * `remove` are a `ContentMark` under an op, so a held mark spreads in whole;
- * `removeAnchor` drops one identity anchor by id. An `add` of an `anchor`
+ * `removeAnchor` drops one identity anchor by id. An `add` of a `link` or a
+ * `font_family` replaces the one under its range, and a mark added across a
+ * line break reads back as one mark per line. An `add` of an `anchor`
  * requires a non-empty `id` not already live in the field; a collision or the
  * empty id throws.
  */
