@@ -12,7 +12,7 @@ use crate::quill::{
 use crate::value::QuillValue;
 use serde_json::json;
 
-use super::text;
+use super::{codes_of, text};
 
 /// A quill whose `classification` enum brings a `CUI` field set into play:
 /// `controlled_by` with no `default:`, `category` defaulted.
@@ -67,16 +67,7 @@ fn plate(document: &Document) -> serde_json::Value {
 }
 
 fn codes(document: &Document) -> Vec<(String, String)> {
-    quill()
-        .validate(document)
-        .into_iter()
-        .map(|d| {
-            (
-                d.code.unwrap_or_default(),
-                d.path.unwrap_or_default(),
-            )
-        })
-        .collect()
+    codes_of(&quill(), document)
 }
 
 fn field(yaml: &str) -> FieldSchema {

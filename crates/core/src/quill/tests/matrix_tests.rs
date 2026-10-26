@@ -13,6 +13,8 @@ use crate::quill::{
 use crate::value::QuillValue;
 use serde_json::json;
 
+use super::codes_of;
+
 /// A four-member roster with one column.
 fn quill_yaml() -> &'static str {
     r#"
@@ -71,14 +73,6 @@ fn plate_of(yaml: &str, document: &Document) -> serde_json::Value {
 
 fn plate(document: &Document) -> serde_json::Value {
     plate_of(quill_yaml(), document)
-}
-
-fn codes_of(quill: &Quill, document: &Document) -> Vec<(String, String)> {
-    quill
-        .validate(document)
-        .into_iter()
-        .map(|d| (d.code.unwrap_or_default(), d.path.unwrap_or_default()))
-        .collect()
 }
 
 fn codes(document: &Document) -> Vec<(String, String)> {

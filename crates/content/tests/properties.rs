@@ -100,9 +100,10 @@ fn prose() -> impl Strategy<Value = String> {
     prop::collection::vec(inline_token(), 1..5).prop_map(|toks| toks.join(" "))
 }
 
-// Hard breaks join clean, non-empty *text* lines. A mark spanning a hard break,
-// or an empty line adjacent to one, is a documented codec limit (see
-// `export::tests::known_hard_break_limits`), not fuzzed here.
+// Hard breaks join clean, non-empty *text* lines. An empty line adjacent to one
+// is a documented codec limit (the `export` module docs), and a mark spanning
+// one is pinned by `export::tests::a_mark_across_a_hard_break_is_a_fixed_point`;
+// neither is fuzzed here.
 fn hard_break_line() -> impl Strategy<Value = String> {
     prop::collection::vec(clean_word(), 1..4).prop_map(|w| w.join(" "))
 }

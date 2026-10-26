@@ -20,9 +20,9 @@
 //!
 //! ## Codec limits
 //!
-//! These shapes markdown cannot represent do **not** round-trip. An empty line in a hard-break
-//! block drops, and so does an empty paragraph beside another block, markdown
-//! spelling neither. An image `alt` loses its edge whitespace: the parser trims
+//! These shapes markdown cannot represent do **not** round-trip. An empty line
+//! in a hard-break block drops, and so does an empty paragraph beside another
+//! block, markdown spelling neither. An image `alt` loses its edge whitespace: the parser trims
 //! alt *after* decoding the character reference that carries an edge run
 //! everywhere else. A link or image `url` carrying a line ending comes back
 //! percent-encoded (`%0A`/`%0D`): CommonMark admits none in a destination, and
@@ -1532,23 +1532,14 @@ fn split_around_slots(chars: &[char], start: usize, end: usize) -> Vec<(usize, u
 /// HTML table subset's tags its text holds.
 fn split_around_table_tags(chars: &[char], start: usize, end: usize) -> Vec<(usize, usize)> {
     let text: String = chars[start..end].iter().collect();
+    let mut at = start;
     let mut out = Vec::new();
-    let (mut run, mut byte, mut at) = (start, 0, start);
-    for tag in crate::html_table::tag_spans(&text) {
-        if tag.start < byte {
-            continue;
-        }
-        at += text[byte..tag.start].chars().count();
-        let len = text[tag.clone()].chars().count();
-        if run < at {
-            out.push((run, at));
+    for (piece, tag) in crate::html_table::tag_pieces(&text) {
+        let len = text[piece].chars().count();
+        if !tag {
+            out.push((at, at + len));
         }
         at += len;
-        byte = tag.end;
-        run = at;
-    }
-    if run < end {
-        out.push((run, end));
     }
     out
 }

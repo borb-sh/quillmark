@@ -304,20 +304,18 @@ fn json_spells_0_131_0(value: &serde_json::Value) -> bool {
 /// than 1, unless it is 0 beside the `headless: true` a `0.130` build reads.
 fn content_spells_0_131_0(content: &serde_json::Value) -> bool {
     use serde_json::Value;
-    let list = |v: &Value, key: &str| v.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
-    let has_font = |v: &Value| {
-        list(v, "marks")
-            .iter()
-            .any(|m| m.get("type").and_then(Value::as_str) == Some("font_family"))
-    };
-    let table_element = list(content, "lines").iter().any(|line| {
-        list(line, "containers").iter().any(|c| {
+    fn list<'a>(v: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
+        v.get(key).and_then(Value::as_array).into_iter().flatten()
+    }
+    let has_font = |v: &Value| list(v, "marks").any(|m| m.get("type").and_then(Value::as_str) == Some("font_family"));
+    let table_element = list(content, "lines").any(|line| {
+        list(line, "containers").any(|c| {
             c.get("container").and_then(Value::as_str) == Some("element")
                 && c.pointer("/attrs/$name").and_then(Value::as_str) == Some("table")
         })
     });
     let island = |island: &Value| {
-        let props = island.get("props").cloned().unwrap_or(Value::Null);
+        let props = island.get("props").unwrap_or(&Value::Null);
         match island.get("type").and_then(Value::as_str) {
             Some("table") => {
                 let head = match props.get("head").and_then(Value::as_u64) {
@@ -325,22 +323,19 @@ fn content_spells_0_131_0(content: &serde_json::Value) -> bool {
                     Some(0) => props.get("headless") != Some(&Value::Bool(true)),
                     Some(_) => true,
                 };
-                let cells = list(&props, "header")
-                    .into_iter()
-                    .chain(list(&props, "rows").iter().flat_map(|row| row.as_array().cloned().unwrap_or_default()))
-                    .collect::<Vec<_>>();
-                let spans = cells.iter().any(|cell| {
-                    quillmark_content::island::CELL_SPANS
-                        .iter()
-                        .any(|key| cell.get(*key).and_then(Value::as_u64).is_some_and(|n| n > 1))
-                });
-                head || spans || cells.iter().any(has_font)
+                let mut cells = list(props, "header").chain(list(props, "rows").flat_map(|row| row.as_array().into_iter().flatten()));
+                head || cells.any(|cell| {
+                    has_font(cell)
+                        || quillmark_content::island::CELL_SPANS
+                            .iter()
+                            .any(|key| cell.get(*key).and_then(Value::as_u64).is_some_and(|n| n > 1))
+                })
             }
-            Some("footnote") => has_font(&props),
+            Some("footnote") => has_font(props),
             _ => false,
         }
     };
-    has_font(content) || table_element || list(content, "islands").iter().any(island)
+    has_font(content) || table_element || list(content, "islands").any(island)
 }
 
 impl From<&Document> for DocumentV0_129_0 {
@@ -1496,27 +1491,23 @@ title: Hi
         );
     }
 
-    /// A `0.130` build refuses an element named `table` as a corrupt row, so
-    /// a body holding one takes `0.131.0`; another element keeps `0.129.0`.
+    /// A `0.130` build refuses an element named `table` as a corrupt row and
+    /// draws a merged cell unmerged, so a body holding either takes `0.131.0`;
+    /// another element or a plain table keeps `0.129.0`.
     #[test]
-    fn a_table_element_takes_the_newest_tag() {
-        assert_eq!(body_tag("<qm-table>\n\npara\n\n</qm-table>").as_deref(), Some(STORAGE_V0_131_0));
-        assert_eq!(body_tag("<qm-box>\n\npara\n\n</qm-box>").as_deref(), Some(STORAGE_V0_129_0));
-    }
-
-    /// A `0.130` build draws a merged cell unmerged, so a body holding a span
-    /// takes `0.131.0`; a plain table keeps `0.129.0`.
-    #[test]
-    fn a_table_span_takes_the_newest_tag() {
-        assert_eq!(
-            body_tag("<table><tr><th colspan=\"2\">h</th></tr><tr><td>a</td><td>b</td></tr></table>").as_deref(),
-            Some(STORAGE_V0_131_0)
-        );
-        assert_eq!(
-            body_tag("<table><tr><th>h</th><th>i</th></tr><tr><td rowspan=\"2\">a</td><td>b</td></tr><tr><td>c</td></tr></table>").as_deref(),
-            Some(STORAGE_V0_131_0)
-        );
-        assert_eq!(body_tag("| h | i |\n|---|---|\n| a | b |").as_deref(), Some(STORAGE_V0_129_0));
+    fn a_table_element_or_span_takes_the_newest_tag() {
+        for (markdown, tag) in [
+            ("<qm-table>\n\npara\n\n</qm-table>", STORAGE_V0_131_0),
+            ("<qm-box>\n\npara\n\n</qm-box>", STORAGE_V0_129_0),
+            ("<table><tr><th colspan=\"2\">h</th></tr><tr><td>a</td><td>b</td></tr></table>", STORAGE_V0_131_0),
+            (
+                "<table><tr><th>h</th><th>i</th></tr><tr><td rowspan=\"2\">a</td><td>b</td></tr><tr><td>c</td></tr></table>",
+                STORAGE_V0_131_0,
+            ),
+            ("| h | i |\n|---|---|\n| a | b |", STORAGE_V0_129_0),
+        ] {
+            assert_eq!(body_tag(markdown).as_deref(), Some(tag), "{markdown}");
+        }
     }
 
     /// `head` is new vocabulary: a `0.130` build draws one header row for any

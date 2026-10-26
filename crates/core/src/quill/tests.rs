@@ -66,6 +66,15 @@ fn quill_with_field(field_yaml: &str) -> Result<QuillConfig, Vec<Diagnostic>> {
     config_with_sections(&format!("main:\n  fields:\n{field_yaml}"))
 }
 
+/// Each diagnostic `quill` reports over `document`, as its code and path.
+fn codes_of(quill: &Quill, document: &Document) -> Vec<(String, String)> {
+    quill
+        .validate(document)
+        .into_iter()
+        .map(|d| (d.code.unwrap_or_default(), d.path.unwrap_or_default()))
+        .collect()
+}
+
 /// The canonical content a `text` cell carries for `s`.
 fn text(s: &str) -> serde_json::Value {
     quillmark_content::serial::to_canonical_value(&quillmark_content::import::from_plaintext(s))
