@@ -3006,10 +3006,10 @@ pub(crate) mod tests {
 
     /// What the grid cannot hold as written drops alone, reported: an
     /// attribute the subset does not read or a value outside its spelling, a
-    /// tag outside the subset and text outside every cell, a row too short for
-    /// the grid, which is as wide as its widest row, and a `colspan` cut short
-    /// where another span covers a slot. A span past its row group stops there
-    /// silently, and so does an attribute that only styles the table.
+    /// tag outside the subset and text outside every cell, and a row too short
+    /// for the grid, which is as wide as its widest row. A span past its row
+    /// group or over a slot an earlier span covers stops there silently, and an
+    /// attribute that only styles the table drops silently.
     #[test]
     fn what_an_html_table_cannot_hold_drops_alone() {
         use serde_json::json;
@@ -3036,7 +3036,7 @@ pub(crate) mod tests {
             ),
             (
                 "<table><tr><td>a</td><td rowspan=2>b</td><td>c</td></tr><tr><td colspan=3>d</td></tr></table>",
-                &[("td[colspan]", 1), ("table[row]", 1)],
+                &[],
                 json!({"aligns": ["none", "none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b", "rowspan": 2}, {"text": "c"}], "rows": [[{"text": "d"}, {"text": ""}, {"text": ""}]]}),
             ),
             (

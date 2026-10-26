@@ -340,11 +340,11 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
 /// its row no span covers. In a table with no `thead`, the rows opening its
 /// first body group, its `tbody` tag written or not, whose cells are all
 /// `<th>` are its head rows, as many as no `rowspan` among them reaches past.
-/// The grid is as wide as its widest row. A `colspan` stops short of a slot
-/// another span covers, reported; a `rowspan` stops at the end of its row
-/// group. A row too short pads, reported. Rows past
-/// [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots drop, reported. `None` for
-/// a table holding no cell, or whose first row alone is wider than that.
+/// The grid is as wide as its widest row. A `rowspan` stops at the end of its
+/// row group, and a span over a slot an earlier span covers is left for
+/// normalization to settle. A row too short pads, reported. The rows from the
+/// first that takes the grid past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS)
+/// slots drop, reported. `None` for a table holding no cell within that.
 fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
     let mut groups = raw.groups;
     if !groups.iter().any(|g| g.kind == Group::Head)
@@ -367,71 +367,13 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
         let end = rows.len() + group.rows.len();
         rows.extend(group.rows.into_iter().map(|row| (row, end)));
     }
-    let (cols, fit) = extent(&rows);
-    if cols == 0 {
-        return None;
-    }
-    if fit < rows.len() {
-        drops.push((Dropped::TableSize, rows[fit].0.at));
-        if fit == 0 {
-            return None;
-        }
-        rows.truncate(fit);
-    }
-    let mut covered = vec![vec![false; cols]; rows.len()];
-    let mut grid: Vec<Vec<Slot>> = vec![vec![Slot::Empty; cols]; rows.len()];
-    for (r, (row, end)) in rows.into_iter().enumerate() {
-        let mut x = 0;
-        let mut misfit = false;
-        for cell in row.cells {
-            while x < cols && covered[r][x] {
-                x += 1;
-            }
-            if x == cols {
-                misfit = true;
-                continue;
-            }
-            let want = cell.colspan.min(cols - x);
-            let w = 1 + (1..want).take_while(|&k| !covered[r][x + k]).count();
-            if w < want {
-                drops.push((Dropped::TableAttr { tag: cell.tag.into(), attr: "colspan".into() }, cell.at));
-            }
-            let h = cell.rowspan.min(end.min(fit) - r);
-            for slots in &mut covered[r..r + h] {
-                slots[x..x + w].fill(true);
-            }
-            let mut keys = cell.keys;
-            for (key, n) in [("colspan", w), ("rowspan", h)] {
-                if n > 1 {
-                    keys.insert(key.into(), n.into());
-                }
-            }
-            grid[r][x] = Slot::Cell(Cell { content: cell.content, at: cell.at, keys });
-            x += w;
-        }
-        if misfit || covered[r].contains(&false) {
-            drops.push((Dropped::TableRow, row.at));
-        }
-    }
-    let mut layout = raw.layout;
-    let head = head.min(grid.len());
-    if head != 1 {
-        layout.insert("head".into(), head.into());
-    }
-    let mut aligns = raw.aligns;
-    aligns.resize(cols, "none");
-    Some(Table { layout, aligns, rows: grid })
-}
-
-/// The grid's width, the widest row as [`resolve`] places its cells, and how
-/// many of `rows` fit in [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots at
-/// the width the rows up to each reach.
-fn extent(rows: &[(RawRow, usize)]) -> (usize, usize) {
     let mut covers: Vec<usize> = Vec::new();
+    let mut placed = Vec::with_capacity(rows.len());
     let mut cols = 0;
-    for (r, (row, end)) in rows.iter().enumerate() {
+    for (r, (row, end)) in rows.into_iter().enumerate() {
+        let mut cells = Vec::with_capacity(row.cells.len());
         let mut x = 0;
-        for cell in &row.cells {
+        for cell in row.cells {
             while covers.get(x).is_some_and(|&n| n > 0) {
                 x += 1;
             }
@@ -442,18 +384,50 @@ fn extent(rows: &[(RawRow, usize)]) -> (usize, usize) {
             for n in &mut covers[x..x + cell.colspan] {
                 *n = (*n).max(h);
             }
+            let mut keys = cell.keys;
+            for (key, n) in [("colspan", cell.colspan), ("rowspan", h)] {
+                if n > 1 {
+                    keys.insert(key.into(), n.into());
+                }
+            }
+            cells.push((x, Cell { content: cell.content, at: cell.at, keys }));
             x += cell.colspan;
         }
         let wide = covers.iter().rposition(|&n| n > 0).map_or(cols, |k| cols.max(k + 1));
         if (r + 1).saturating_mul(wide) > crate::MAX_TABLE_CELLS {
-            return (if r == 0 { wide } else { cols }, r);
+            drops.push((Dropped::TableSize, row.at));
+            break;
         }
         cols = wide;
+        placed.push((row.at, cells, covers.iter().filter(|&&n| n > 0).count()));
         for n in &mut covers {
             *n = n.saturating_sub(1);
         }
     }
-    (cols, rows.len())
+    if cols == 0 {
+        return None;
+    }
+    let grid: Vec<Vec<Slot>> = placed
+        .into_iter()
+        .map(|(at, cells, reach)| {
+            if reach < cols {
+                drops.push((Dropped::TableRow, at));
+            }
+            let mut slots = vec![Slot::Empty; cols];
+            for (x, cell) in cells {
+                slots[x] = Slot::Cell(cell);
+            }
+            slots
+        })
+        .collect();
+    let mut layout = raw.layout;
+    let head = head.min(grid.len());
+    if head != 1 {
+        layout.insert("head".into(), head.into());
+    }
+    let mut aligns = raw.aligns;
+    aligns.resize(cols, "none");
+    Some(Table { layout, aligns, rows: grid })
 }
 
 /// The offset just past the code span a backtick run at `i` opens: through

@@ -2356,12 +2356,7 @@
       "  [c], \n"
     ],
     "signals": {
-      "import": [
-        {
-          "construct": "td[colspan]",
-          "count": 1
-        }
-      ],
+      "import": [],
       "render": []
     }
   },

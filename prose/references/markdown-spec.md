@@ -689,8 +689,9 @@ rectangular grid a table island holds, as HTML's table model forms one:
 - The grid is as wide as its widest row, its spans included. A table holding
   no cell imports nothing.
 - A `rowspan` stops at the end of its row group, silently. A `colspan` past
-  1000 reads as 1000, as HTML reads it. A `colspan` reaching a slot an
-  earlier span covers stops short of it, reported as `td[colspan]`.
+  1000 reads as 1000, as HTML reads it. A span reaching a slot an
+  earlier span covers stops short of it, silently, as normalization settles
+  one.
 - A row short of the grid's width pads with empty cells, each such row
   reported as `table[row]`.
 - Each slot a span covers stores as an empty cell.

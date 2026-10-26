@@ -71,8 +71,7 @@ pub struct TableLayout {
     /// The table's placement, one of [`TABLE_ALIGNS`].
     pub align: Option<&'static str>,
     /// How many rows from the top of `header` then `rows` are header rows,
-    /// at most every row: `head` where it holds a whole number, `0` where it
-    /// is absent and `headless` holds `true`, else `1`.
+    /// at most every row: `head` where it holds a whole number, else `1`.
     pub head: usize,
 }
 
@@ -92,11 +91,7 @@ impl TableLayout {
                 })
                 .collect()
         });
-        let head = match props.get("head") {
-            Some(head) => head.as_u64().map_or(1, saturate),
-            None if props.get("headless") == Some(&Value::Bool(true)) => 0,
-            None => 1,
-        };
+        let head = props.get("head").and_then(Value::as_u64).map_or(1, saturate);
         TableLayout {
             widths,
             align: one_of(props.get("align"), &TABLE_ALIGNS),
@@ -352,9 +347,9 @@ mod tests {
         let read = TableLayout::of(&json!({"widths": [2, null], "align": "center", "head": 2, "rows": rows}));
         let layout = TableLayout { widths: Some(vec![Some(2), None]), align: Some("center"), head: 2 };
         assert_eq!(read, layout);
-        let outside = json!({"widths": [2, 0], "align": "middle", "head": "2", "headless": true, "rows": rows});
+        let outside = json!({"widths": [2, 0], "align": "middle", "head": "2", "rows": rows});
         assert_eq!(TableLayout::of(&outside), TableLayout::default());
-        let heads = [(json!({"headless": true}), 0), (json!({"head": 0}), 0), (json!({"head": 7}), 3)];
+        let heads = [(json!({"head": 0}), 0), (json!({"head": 7}), 3)];
         for (keys, head) in heads {
             let mut props = json!({"header": ["h"], "rows": rows});
             props.as_object_mut().unwrap().extend(keys.as_object().unwrap().clone());

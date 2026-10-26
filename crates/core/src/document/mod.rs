@@ -173,10 +173,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 }
                 ("table" | "td" | "th", "align") => format!("`align` is {}.", listed(&TABLE_ALIGNS, "or")),
                 ("table", _) => "`<table>` takes `widths`, `aligns` and `align`.".to_string(),
-                (_, "colspan" | "rowspan") => format!(
-                    "`{attr}` is a whole number from 1, and a `colspan` stops short of a cell a `rowspan` above \
-                     already covers."
-                ),
+                (_, "colspan" | "rowspan") => format!("`{attr}` is a whole number from 1."),
                 (_, "valign") => format!("`valign` is {}.", listed(&CELL_VALIGNS, "or")),
                 ("td" | "th", _) => "`<td>` and `<th>` take `colspan`, `rowspan`, `align` and `valign`.".to_string(),
                 _ => format!("`<{element}>` takes no attributes."),
