@@ -31,7 +31,7 @@ Wide #box(width: 40pt, height: 12pt, fill: black) text.
 const SCALE: f32 = 4.0;
 
 fn open() -> LiveSession {
-    TypstBackend
+    TypstBackend::default()
         .open(&quill(
             &yaml("main:\n  fields:\n    inline_field: { type: text }\n    centered_field: { type: text }\n"),
             PLATE,

@@ -19,12 +19,11 @@ cargo test --workspace
 ## Pull requests
 
 - Every commit lands on `main` and seeds the changelog, so each subject reads `type(scope): summary`, or `type(scope)!: summary` for a break. `type` is one of `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `ci`, `chore`; the scope is optional.
-- Don't run `cargo fmt`, and turn off format-on-save for this repository. The tree is not rustfmt-formatted, so formatting a file rewrites lines the change never touched.
-- Comments and docs follow the `dense-prose` skill (`.claude/skills/dense-prose/`): none by default, present tense, no history. Design docs start at [`prose/canon/INDEX.md`](prose/canon/INDEX.md); a change that makes a canon doc stale updates it (`maintain-canon`).
+- Comments and docs follow the rules in [`CLAUDE.md`](CLAUDE.md), which also covers canon upkeep. Design docs start at [`prose/canon/INDEX.md`](prose/canon/INDEX.md).
 
 ## AI-assisted work
 
-Most of Quillmark's code is written by AI coding agents working for the maintainer. Each change lands through a pull request, CI, and the maintainer's review. [`CLAUDE.md`](CLAUDE.md) and `.claude/skills/` are the instructions those agents follow, and they bind human contributors the same way.
+Most of Quillmark's code is written by AI coding agents working for the maintainer. Each change lands through a pull request, CI, and the maintainer's review. [`CLAUDE.md`](CLAUDE.md) is the instructions those agents follow, and it binds human contributors the same way.
 
 AI-assisted pull requests are welcome on the same terms as any other: you ran the tests, you can explain each change, and you answer review yourself.
 

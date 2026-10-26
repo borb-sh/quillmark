@@ -16,17 +16,9 @@ pub(crate) struct Piece {
     /// Ends in a pipe table, which takes in the lines after it as rows until a
     /// blank line.
     pub(crate) table: bool,
-    /// The pipe tables a `qm-table` wrapper around it would hold.
-    pub(crate) tables: usize,
-    /// Holds a block other than a pipe table, a comment or a tag line: what
-    /// keeps a `qm-table` wrapper around it from folding.
-    pub(crate) other: bool,
     /// Ends in a closing tag line, whose block takes in the lines after it
     /// until a blank line.
     pub(crate) closes: bool,
-    /// A `qm-cell` pair, which folds and reports nothing as a whole table
-    /// cell.
-    pub(crate) cell: bool,
 }
 
 impl Piece {
@@ -47,8 +39,6 @@ impl Piece {
             out.md.push_str(&p.md);
             out.words.extend(p.words);
             out.reported.extend(p.reported);
-            out.tables += p.tables;
-            out.other |= p.other;
         }
         out
     }
@@ -65,17 +55,13 @@ pub(crate) fn table<S: Strategy<Value = Piece>>(cell: fn() -> S) -> impl Strateg
             let mut lines: Vec<Piece> = rows
                 .into_iter()
                 .map(|row| {
-                    let cells = row.into_iter().map(|cell| match cell.cell {
-                        true => Piece { reported: Vec::new(), ..cell },
-                        false => cell,
-                    });
-                    let mut p = Piece::join(cells.collect(), " | ");
+                    let mut p = Piece::join(row, " | ");
                     p.md = format!("| {} |", p.md);
                     p
                 })
                 .collect();
             lines.insert(1, Piece::text(format!("|{}", "---|".repeat(cols))));
-            Piece { table: true, tables: 1, other: false, ..Piece::join(lines, "\n") }
+            Piece { table: true, ..Piece::join(lines, "\n") }
         })
     })
 }
@@ -83,7 +69,6 @@ pub(crate) fn table<S: Strategy<Value = Piece>>(cell: fn() -> S) -> impl Strateg
 /// Blocks in a list item or a quote.
 pub(crate) fn contained(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> {
     (inner, any::<bool>()).prop_map(|(mut p, list)| {
-        p.other = true;
         p.md = if list { prefixed(&p.md, "- ", "  ") } else { prefixed(&p.md, "> ", "> ") };
         p
     })

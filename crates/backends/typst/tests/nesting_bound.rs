@@ -85,7 +85,7 @@ fn marked_content_nested_to_the_bound_renders_and_round_trips() {
                 );
             }
             let data = serde_json::json!({ "$body": to_canonical_value(&content) });
-            let session = TypstBackend
+            let session = TypstBackend::default()
                 .open(&quill, &data, common::test_date())
                 .unwrap_or_else(|e| panic!("{markdown:?} opens: {e}"));
             assert!(session.warnings().is_empty(), "{markdown:?}: {:?}", session.warnings());

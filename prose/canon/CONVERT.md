@@ -18,7 +18,7 @@ this page documents how the backend lowers the content it produces.
 ```
 emit_content(&Normalized) -> Result<Emission, EmitError>
   ├─ block walk    lines → headings, paragraphs, code fences, lists, quotes, terms, elements, islands
-  ├─ mark sweep    anchored marks → nested #strong[…] / #emph[…] / #link(…)[…] / …
+  ├─ mark sweep    anchored marks → nested #strong[…] / #emph[…] / #link(…)[…] / #_qm-font(…)[…] / …
   └─ source map    per-segment (content ↔ gen) windows + one (content, gen) pair per run
 ```
 
@@ -130,6 +130,7 @@ is a lowering bug, never a document's.
 | `MarkKind::Code` | `#raw("…")` (inline) |
 | `MarkKind::Link{url}` | `#link("url")[…]` (`escape_string` on the url) |
 | `MarkKind::Anchor` | nothing |
+| `MarkKind::FontFamily{name}` | `#_qm-font("name")[…]`, one call per stretch one family sets (see [Font runs](#font-runs)) |
 | `Container::ListItem` (bullet) | `- ` |
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
 | `Container::ListItem{checked}` (task) | the item's marker, then `#_qm-task(done)[…]` around its body (see [Tasks](#tasks)) |
@@ -150,8 +151,9 @@ The table's layout keys lower as:
 |---|---|
 | `widths` | `columns: (2fr, 1fr, auto)`, a weight to `fr` and `null` to `auto`, in place of `columns: N` |
 | `align` | `align(center, table(…))` under `context`, with `table.cell` set to the horizontal `align.alignment` the table stands in, so the placement moves the table and no text inside it, save a horizontal alignment the plate's own `table.cell` show rule sets |
-| `headless` | `header` lowers as the first body row, outside `table.header` |
+| `head` | that many rows from the top lower inside one `table.header`, which Typst repeats on each page the table runs onto; at `0` none does, and `header` lowers as the first body row |
 | a cell's `align` / `valign` | `table.cell(align: right + bottom)[…]`, `middle` as `horizon`, which Typst folds with the column's alignment; a value outside its set lowers as absent |
+| a cell's `colspan` / `rowspan` | `table.cell(colspan: 2, rowspan: 3)[…]`, each cell its span covers left out, so Typst's own placement, which skips a slot a span above fills, lands every cell where the grid holds it |
 
 A table cell is canonical `{text, marks}`, lowered through the same mark sweep
 as prose: a formatted cell reaches `#strong[…]` / `#emph[…]` / `#raw(…)` /
@@ -168,7 +170,8 @@ leaves and containers alike: what the content nests, the markup nests.
 
 Anchor marks emit nothing; an `image` island emits nothing (see
 [Declined images](#declined-images)).
-Raw HTML other than an inline `<u>`, `<br>` (a hard break) and the `qm-*`
+Raw HTML other than an inline `<u>`, `<br>` (a hard break), a `<table>`
+(markdown-spec §6.8), which imports as a `table` island, and the `qm-*`
 carrier (markdown-spec §6.4) never enters the content, so it is absent here.
 
 ### Elements
@@ -247,6 +250,35 @@ family has the embedded Noto Sans Math, cut to the blocks an equation commonly
 draws from, answer to the name and to its own, so an equation draws whatever
 text fonts the quill ships.
 
+### Font runs
+
+Family marks never overlap ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"). The
+sweep cuts a line at every edge of a family mark and of a code mark, and wraps
+each stretch in a call to the helper's `_qm-font` for the one family a mark
+sets there, so `Arimo[0,3)`, `Carlito[3,6)`, `Arimo[6,9)` lowers as three
+calls:
+
+```typst
+#_qm-font("Arimo")[abc]#_qm-font("Carlito")[def]#_qm-font("Arimo")[ghi]
+```
+
+- Codegen writes the families a plate can name, the quill's and the
+  fallback's, lowercased, into the helper as `_qm-families`, math faces left
+  out, and the host library's as `_qm-offered`, each to the alias its faces
+  are filed under ([ARCHITECTURE.md](ARCHITECTURE.md) § Fonts). `_qm-font`
+  sets a family only where `_qm-offered` holds it, its alias ahead of the font
+  list in force filtered to `_qm-families`, so a character the family lacks
+  falls through to the surrounding font and Typst's own "unknown font family"
+  warning never fires. A workspace maps each family to itself, since Typst
+  there loads the library's files under their own families.
+- A family the library lacks keeps the surrounding font, and the compile
+  carries one [`typst::unknown_font_family`](ERROR.md#warning-flow) warning per
+  family and content field, `path` the field's `DocPath`.
+- A stretch stops at a code span, whose `raw` keeps its own font, and
+  at a math or table island's slot. A footnote's slot stays inside it: a
+  footnote entry takes none of its reference's styles, so the note is set by
+  its own runs.
+
 ### Declined images
 
 An `image` island lowers to nothing, and the compile that dropped it carries one
@@ -273,10 +305,12 @@ reads and the shape the WASM boundary pins:
   above); `aligns` is one `none | left | center | right` per column. Import
   normalizes to a single column count: header, every row, and `aligns` padded
   to the widest, so `columns:` and `align:` agree.
-  The optional layout keys `widths`, `align` and `headless`, and a cell's `align` and
-  `valign` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"),
-  lower as [above](#element-mapping); an absent one draws at its default:
-  auto-fit, at the plate's placement, in the column's alignment, under a header row.
+  The optional layout keys `widths`, `align` and `head`, and a cell's `align`,
+  `valign`, `colspan` and `rowspan`
+  ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"), lower
+  as [above](#element-mapping); an absent one draws at its default: auto-fit,
+  at the plate's placement, in the column's alignment, under one header row,
+  in one slot.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. No backend resolves `url` (see [Declined images](#declined-images)).
 - **`footnote`** → `Cell`, the note, with no `\n` at either edge. Its `\n` is
@@ -297,7 +331,8 @@ kind-ord)` and closes-and-reopens deeper survivors at each overlap boundary, so
 free overlap lowers to properly nested markup: `strong[0,4)` over `emph[2,6)`
 on `abcdef` becomes `#strong[ab#emph[cd]]#emph[ef]`, bracket-balanced. `code`
 marks render atomically as `#raw("…")` (their content is a string literal, so no
-inner mark applies).
+inner mark applies). Font marks join the sweep as [font runs](#font-runs),
+already cut so no two overlap.
 
 ## Source map
 

@@ -25,7 +25,7 @@ fn quill(plate: &str) -> Quill {
 
 fn svg(quill: &Quill, markdown: &str) -> String {
     let data = serde_json::json!({ "$body": content(markdown) });
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(quill, &data, common::test_date())
         .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
     let result = session

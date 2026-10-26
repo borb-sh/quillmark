@@ -698,6 +698,8 @@ pub(crate) fn tex_is_writable(tex: &str, display: bool) -> bool {
     &*read == tex
 }
 
+/// A table as a GFM pipe table, or as HTML where it holds what a pipe table
+/// cannot write ([`crate::html_table::writes_html`]).
 fn emit_table(isl: &Island, out: &mut String) {
     let header = isl.props.get("header").and_then(|v| v.as_array());
     let rows = isl.props.get("rows").and_then(|v| v.as_array());
@@ -706,12 +708,17 @@ fn emit_table(isl: &Island, out: &mut String) {
     if cols == 0 {
         return;
     }
+    if crate::html_table::writes_html(&isl.props) {
+        out.push_str(&crate::html_table::write(&isl.props, |cell| render_cell_md(cell, Frag::HtmlCell)));
+        return;
+    }
     // Cells are canonical `{text, marks}`; each cell's markdown is rebuilt from
     // that structure, so nothing re-parses markdown and `import(export(table))`
     // is a fixed point.
+    let pipe_cell = |cell: &serde_json::Value| render_cell_md(cell, Frag::Cell);
     let mut table = String::from("| ");
     if let Some(h) = header {
-        table.push_str(&h.iter().map(render_cell_md).collect::<Vec<_>>().join(" | "));
+        table.push_str(&h.iter().map(pipe_cell).collect::<Vec<_>>().join(" | "));
     }
     table.push_str(" |\n|");
     for k in 0..cols {
@@ -729,16 +736,13 @@ fn emit_table(isl: &Island, out: &mut String) {
     for r in rows.into_iter().flatten().filter_map(|row| row.as_array()) {
         // Pad/truncate so a ragged island (one that skipped normalization)
         // still emits a rectangular table.
-        let mut cells: Vec<String> = r.iter().map(render_cell_md).collect();
+        let mut cells: Vec<String> = r.iter().map(pipe_cell).collect();
         cells.resize(cols, String::new());
         table.push_str("\n| ");
         table.push_str(&cells.join(" | "));
         table.push_str(" |");
     }
-    match crate::carrier::table::wrapper(&isl.props) {
-        Some(wrapper) => out.push_str(&wrapper.wrap_block(&table)),
-        None => out.push_str(&table),
-    }
+    out.push_str(&table);
 }
 
 fn emit_image(isl: &Island, out: &mut String) {
@@ -1110,6 +1114,11 @@ fn render_marked_core(
     // delimiters, apart from their nesting.
     let is_underline = |fi: usize| matches!(fmt[fi].2, MarkKind::Underline);
 
+    // A font mark is a `qm-span` pair, its tags outside the underlines' at a
+    // position as theirs are outside the delimiters'. Font marks never overlap,
+    // so neither do the pairs: one closes where the next opens.
+    let is_font = |fi: usize| matches!(fmt[fi].2, MarkKind::FontFamily { .. });
+
     // One mark sweep over the marks `keep` selects (indices into `fmt`) → inline
     // markdown and its tag points.
     let sweep = |keep: &[bool], d: Delims| -> (String, Vec<usize>) {
@@ -1120,6 +1129,7 @@ fn render_marked_core(
         // mark's identity, so a reopened mark re-emits its OWN delimiter.
         let mut stack: Vec<usize> = Vec::new();
         let mut underlines: Vec<usize> = Vec::new();
+        let mut font: Option<usize> = None;
         let (mut oi, mut li, mut ci) = (0usize, 0usize, 0usize);
         let mut pos = 0usize;
         while pos <= n {
@@ -1154,8 +1164,16 @@ fn render_marked_core(
                     }
                 }
             }
+            if let Some(fi) = font.filter(|&fi| fmt[fi].1 == pos) {
+                out.push_str(&font_pair(fmt[fi].2).close_tag());
+                font = None;
+            }
             let point = out.len();
             points.push(point);
+            if let Some(fi) = opening.iter().copied().find(|&fi| is_font(fi)) {
+                out.push_str(&font_pair(fmt[fi].2).open_tag());
+                font = Some(fi);
+            }
             let fresh = opening.iter().copied().filter(|&fi| is_underline(fi));
             for fi in reopen_underlines.into_iter().rev().chain(fresh) {
                 out.push_str("<u>");
@@ -1164,7 +1182,7 @@ fn render_marked_core(
             // Open formatting marks starting here BEFORE any atomic run, so a
             // formatting mark beginning at the same position as inline code/link
             // still wraps it rather than being dropped.
-            let fresh = opening.iter().copied().filter(|&fi| !is_underline(fi));
+            let fresh = opening.iter().copied().filter(|&fi| !is_underline(fi) && !is_font(fi));
             for fi in reopen.into_iter().rev().chain(fresh) {
                 out.push_str(delim(fmt[fi].2, d));
                 stack.push(fi);
@@ -1263,6 +1281,9 @@ fn render_marked_core(
             out.push_str(delim(fmt[fi].2, d));
         }
         out.push_str(&"</u>".repeat(underlines.len()));
+        if let Some(fi) = font {
+            out.push_str(&font_pair(fmt[fi].2).close_tag());
+        }
         (out, points)
     };
 
@@ -1270,13 +1291,13 @@ fn render_marked_core(
     // over a span markdown can't represent, and it lowers to a `**`/`*`/`~~` run
     // pulldown re-reads as literal text, leaking a delimiter into the content.
     // Re-parse the rendered line and, if its plain text drifted, search for a set
-    // of flanking marks that keeps the text intact. Underlines are read back
-    // beside them and dropped the same way: one the line cannot hold comes
-    // back as other markup or as nothing.
+    // of flanking marks that keeps the text intact. Underlines and font marks
+    // are read back beside them and dropped the same way: one the line cannot
+    // hold comes back as other markup or as nothing.
     let is_flanking = |k: &MarkKind| {
         matches!(
             k,
-            MarkKind::Strong | MarkKind::Emph | MarkKind::Strike | MarkKind::Underline
+            MarkKind::Strong | MarkKind::Emph | MarkKind::Strike | MarkKind::Underline | MarkKind::FontFamily { .. }
         )
     };
     let all = vec![true; fmt.len()];
@@ -1333,6 +1354,10 @@ fn render_marked_core(
                 let rt = crate::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |")).ok()?.content;
                 let cell = rt.islands.first()?.props.get("rows")?.get(0)?.get(0)?;
                 crate::serial::parse_cell(cell)
+            }
+            Frag::HtmlCell => {
+                let rt = crate::import::from_markdown(&format!("<table><tr><td>,{md},</td></tr></table>")).ok()?.content;
+                crate::serial::parse_cell(rt.islands.first()?.props.get("header")?.get(0)?)
             }
             Frag::Note => {
                 let rt = crate::import::from_markdown(&format!("a[^1]\n\n[^1]: ,{md},")).ok()?.content;
@@ -1526,21 +1551,15 @@ fn clip_asterisk_overlap(fmt: &mut [(usize, usize, &MarkKind)]) {
 }
 
 /// Reconstruct a table cell's markdown from its `{text, marks}`: the prose mark
-/// sweep with `|`→`\|` escaping so the cell survives re-import through
-/// `pulldown`'s pipe splitting. A cell is flat inline: no islands, no
-/// leading-block escape. A cell holding an alignment is wrapped whole in its
-/// `qm-cell` pair, whose tags are punctuation at the content's edges as the
-/// net's `,` sentinels are.
-fn render_cell_md(v: &serde_json::Value) -> String {
+/// sweep, in a pipe table with `|`→`\|` escaping so the cell survives
+/// re-import through `pulldown`'s pipe splitting. A cell is flat inline: no
+/// islands, no leading-block escape.
+fn render_cell_md(v: &serde_json::Value, frag: Frag) -> String {
     let (text, marks) = crate::serial::parse_cell(v);
     let chars: Vec<char> = text.chars().collect();
     let (code_ranges, fmt, links) = bucket_marks(&marks, 0, chars.len(), true);
-    let esc = Esc { frag: Frag::Cell, dollar: escapes_dollar(text.matches('$').count(), 0) };
-    let (md, _) = render_marked_core(&chars, &code_ranges, &fmt, &links, None, false, esc, "", |_| None);
-    match crate::carrier::cell::pair(v) {
-        Some(pair) => pair.wrap_inline(&md),
-        None => md,
-    }
+    let esc = Esc { frag, dollar: escapes_dollar(text.matches('$').count(), 0) };
+    render_marked_core(&chars, &code_ranges, &fmt, &links, None, false, esc, "", |_| None).0
 }
 
 /// A footnote's note as the text of its definition: a cell's sweep on one
@@ -1559,8 +1578,10 @@ fn render_note_md(v: &serde_json::Value) -> String {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Frag {
     Prose,
-    /// A table cell: `|` escaped, a `\n` a `<br>`.
+    /// A pipe table's cell: `|` escaped, a `\n` a `<br>`.
     Cell,
+    /// An HTML table's cell: a `\n` a `<br>`.
+    HtmlCell,
     /// A footnote's note: a `\n` a `<br>`.
     Note,
 }
@@ -1594,8 +1615,16 @@ const DELIM_SPELLINGS: [Delims; 4] = [
     Delims { strong: "__", emph: "_" },
 ];
 
-/// The delimiter that opens and closes `kind`. Code, link, anchor and
-/// underline are written elsewhere.
+/// The `qm-span` pair a `font_family` mark writes.
+fn font_pair(kind: &MarkKind) -> crate::carrier::Element {
+    match kind {
+        MarkKind::FontFamily { name } => crate::carrier::span::pair(name),
+        _ => unreachable!("only a font_family mark is a qm-span pair"),
+    }
+}
+
+/// The delimiter that opens and closes `kind`. Code, link, anchor, underline
+/// and font family are written elsewhere.
 fn delim(kind: &MarkKind, d: Delims) -> &'static str {
     match kind {
         MarkKind::Strong => d.strong,
@@ -2362,23 +2391,78 @@ mod tests {
         }
     }
 
-    /// A cell's alignment in its set is written as a `qm-cell` pair around the
-    /// whole cell; a value outside its set is not.
+    fn grid_table(props: serde_json::Value) -> Normalized {
+        with_islands(&ISLAND_SLOT.to_string(), vec![Island::new("isl-0".into(), IslandType::Table).with_props(props)])
+    }
+
+    /// Storage decides the spelling: a table holding nothing a pipe table
+    /// cannot write is pipes, one key it cannot write makes it HTML, and
+    /// dropping that key makes it pipes again. A value outside its set writes
+    /// nothing, and each spelling reads back as the table it writes.
     #[test]
-    fn a_cell_alignment_exports_as_a_qm_cell_pair() {
-        let cases = [
-            (serde_json::json!({"valign": "middle", "align": "left"}), "<qm-cell align=\"left\" valign=\"middle\">**c**</qm-cell>"),
-            (serde_json::json!({"align": "center", "valign": "horizon"}), "<qm-cell align=\"center\">**c**</qm-cell>"),
-            (serde_json::json!({"align": "none", "valign": 1}), "**c**"),
+    fn a_table_is_html_exactly_where_pipes_cannot_carry_it() {
+        use serde_json::json;
+        let cell = |text: &str| json!({"marks": [], "text": text});
+        let plain = json!({"aligns": ["right", "none"], "header": [cell("a"), cell("b")], "rows": [[cell("1"), cell("")], [cell("2"), cell("3")]]});
+        let keys: &[(&str, serde_json::Value, bool)] = &[
+            ("/head", json!(0), true),
+            ("/head", json!(2), true),
+            ("/widths", json!([1, null]), true),
+            ("/align", json!("center"), true),
+            ("/rows/0/0/align", json!("left"), true),
+            ("/header/1/valign", json!("bottom"), true),
+            ("/rows/0/0/colspan", json!(2), true),
+            ("/header/0/rowspan", json!(2), false),
+            ("/rows/1/1/rowspan", json!(3), false),
+            ("/rows/0/0/colspan", json!(1), false),
+            ("/rows/0/0/valign", json!("horizon"), false),
+            ("/head", json!(1), false),
         ];
-        for (keys, cell) in cases {
-            let mut props = table().props;
-            let c = props["rows"][0][0].as_object_mut().unwrap();
-            c.extend(keys.as_object().unwrap().clone());
-            c.insert("marks".into(), serde_json::json!([{"end": 1, "start": 0, "type": "strong"}]));
-            let rt = with_islands(&ISLAND_SLOT.to_string(), vec![table().with_props(props)]);
-            assert_eq!(to_markdown(&rt), format!("| h |\n| --- |\n| {cell} |"), "{keys}");
+        let pipes = to_markdown(&grid_table(plain.clone()));
+        assert!(pipes.starts_with("| a | b |"), "{pipes}");
+        for (at, value, html) in keys {
+            let mut props = plain.clone();
+            let (parent, key) = at.rsplit_once('/').unwrap();
+            props.pointer_mut(parent).unwrap().as_object_mut().unwrap().insert(key.into(), value.clone());
+            let rt = grid_table(props);
+            let md = to_markdown(&rt);
+            assert_eq!(md.starts_with("<table"), *html, "{at}: {value} wrote {md}");
+            if !html {
+                assert_eq!(md, pipes, "{at}: {value}");
+            }
+            let back = from_markdown(&md).unwrap();
+            assert!(back.warnings.is_empty(), "{at}: {value}: {:?}", back.warnings);
+            if *value != json!("horizon") {
+                assert_eq!(back.content, rt, "{at}: {value} wrote {md}");
+            }
         }
+    }
+
+    /// An HTML cell's text writes so no `<` reads as a tag and no `&` as an
+    /// entity, a code span or a link destination holding a table tag
+    /// included, and a `|` needs no escape there.
+    #[test]
+    fn an_html_cell_writes_what_would_read_as_markup() {
+        use serde_json::json;
+        let text = "a | </td> &amp; <tr> x";
+        let marks = json!([
+            {"start": 4, "end": 9, "type": "code"},
+            {"start": 16, "end": 20, "type": "link", "attrs": {"url": "td x</tr>"}},
+            {"start": 0, "end": 1, "type": "strong"},
+        ]);
+        let rt = grid_table(json!({
+            "aligns": ["none"], "head": 0,
+            "header": [{"marks": marks, "text": text}],
+            "rows": [],
+        }));
+        let md = to_markdown(&rt);
+        assert_eq!(
+            md,
+            "<table>\n<tbody>\n<tr><td>**a** | `</td>` \\&amp; [\\<tr>](<td x\\</tr\\>>) x</td></tr>\n</tbody>\n</table>"
+        );
+        let back = from_markdown(&md).unwrap();
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+        assert_eq!(back.content, rt);
     }
 
     #[test]
@@ -2765,6 +2849,63 @@ mod tests {
                     Mark { start: strong.0, end: strong.1, kind: MarkKind::Strong },
                 ],
             );
+            assert_eq!(to_markdown(&rt), md);
+            assert_eq!(from_markdown(md).unwrap().content, rt);
+        }
+    }
+
+    /// A font mark is a `qm-span` pair, its tags outside the underlines' and
+    /// delimiters' at a position, so a second export spells the first.
+    /// Pairs never nest: nested markdown comes back as one flat pair per run.
+    #[test]
+    fn a_font_mark_writes_flat_pairs() {
+        for (md, want) in [
+            (
+                "The <qm-span family=\"Carlito\">phrase</qm-span> and **bold <qm-span family=\"Arimo\">sans</qm-span>**.",
+                "The <qm-span family=\"Carlito\">phrase</qm-span> and **bold <qm-span family=\"Arimo\">sans**</qm-span>.",
+            ),
+            (
+                "<qm-span family=\"A\">a<qm-span family=\"B\">b</qm-span>c</qm-span>",
+                "<qm-span family=\"A\">a</qm-span><qm-span family=\"B\">b</qm-span><qm-span family=\"A\">c</qm-span>",
+            ),
+            (
+                "x<qm-span family=\"A\"><u>**a**</u>b</qm-span>",
+                "x<qm-span family=\"A\"><u>**a**</u>b</qm-span>",
+            ),
+            (
+                "*a<qm-span family=\"A\">b*c</qm-span>",
+                "*a<qm-span family=\"A\">b*c</qm-span>",
+            ),
+            (
+                "<qm-span family=\"A\">a `b` c</qm-span>",
+                "<qm-span family=\"A\">a `b` c</qm-span>",
+            ),
+            (
+                "| <qm-span family=\"A&#x7C;B &quot;C&quot;\">a</qm-span> |\n| --- |",
+                "| <qm-span family=\"A&#x7C;B &quot;C&quot;\">a</qm-span> |\n| --- |",
+            ),
+            (
+                "a[^1]\n\n[^1]: <qm-span family=\"A\">n</qm-span>",
+                "a[^1]\n\n[^1]: <qm-span family=\"A\">n</qm-span>",
+            ),
+        ] {
+            let rt = from_markdown(md).unwrap().content;
+            assert_eq!(to_markdown(&rt), want, "export of {md:?}");
+            assert_eq!(from_markdown(want).unwrap().content, rt, "{want:?} did not return");
+        }
+
+        let family = |start, end, name: &str| Mark { start, end, kind: MarkKind::FontFamily { name: name.into() } };
+        for (marks, md) in [
+            (
+                vec![family(0, 2, "A"), family(2, 6, "B")],
+                "<qm-span family=\"A\">ab</qm-span><qm-span family=\"B\">cdef</qm-span>",
+            ),
+            (
+                vec![family(1, 3, "B"), family(4, 6, "A")],
+                "a<qm-span family=\"B\">bc</qm-span>d<qm-span family=\"A\">ef</qm-span>",
+            ),
+        ] {
+            let rt = marked("abcdef", marks);
             assert_eq!(to_markdown(&rt), md);
             assert_eq!(from_markdown(md).unwrap().content, rt);
         }

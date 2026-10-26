@@ -1497,3 +1497,35 @@ main:
     await expect(engine.open(quill(), doc(), 'today')).rejects.toThrow('YYYY-MM-DD')
   })
 })
+
+describe('the font library', () => {
+  const FONTS = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'resources', 'quills', 'taro', '0.1.0', 'assets', 'fonts')
+  const font = (name) => new Uint8Array(fs.readFileSync(path.join(FONTS, name)))
+  const FONTED = `${TEST_MARKDOWN}\nSet in <qm-span family="Figtree">Figtree</qm-span>.\n`
+  const unknownFamilies = (result) =>
+    result.warnings.filter((d) => d.code === 'typst::unknown_font_family').map((d) => d.args.family)
+
+  it('lists the library as it stood at construction and sets a marked run in it', async () => {
+    const fonts = [font('Figtree-Regular.ttf')]
+    const engine = new Engine({ fonts })
+    fonts.push(font('Figtree-Bold.ttf'))
+    fonts[0].fill(0)
+
+    const faces = await engine.fontFaces(makeRuntimeQuill())
+    expect(faces.map(({ family, weight, style, index }) => ({ family, weight, style, index }))).toEqual([
+      { family: 'Figtree', weight: 400, style: 'normal', index: 0 },
+    ])
+    expect(faces[0].data).toEqual(font('Figtree-Regular.ttf'))
+
+    const doc = Document.fromMarkdown(FONTED)
+    expect(unknownFamilies(await engine.render(makeRuntimeQuill(), doc, { format: 'svg' }))).toEqual([])
+    expect(unknownFamilies(await new Engine().render(makeRuntimeQuill(), doc, { format: 'svg' }))).toEqual(['Figtree'])
+  })
+
+  it('a file in another format rejects the first verb, and the option takes only Uint8Array entries', async () => {
+    const engine = new Engine({ fonts: [new TextEncoder().encode('wOF2 not a ttf')] })
+    const caught = await engine.fontFaces(makeRuntimeQuill()).catch((e) => e)
+    expect(caught.diagnostics[0].code).toBe('engine::font_unsupported')
+    expect(() => new Engine({ fonts: ['Figtree'] })).toThrow('`fonts` must be an array of Uint8Array')
+  })
+})

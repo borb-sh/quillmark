@@ -76,8 +76,8 @@ fn listed(words: &[&str], last: &str) -> String {
 /// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
 /// the spelling that keeps it.
 fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
-    use quillmark_content::carrier::{CELL, RESERVED_ATTRS, TABLE};
-    use quillmark_content::island::{CELL_KEYS, TABLE_ALIGNS, TABLE_KEYS};
+    use quillmark_content::carrier::RESERVED_ATTRS;
+    use quillmark_content::island::{CELL_VALIGNS, TABLE_ALIGNS};
     const TIGHT: &str = "Markdown on the lines under a tag line drops with it, up to the next blank line.";
     const BESIDE: &str =
         "A tag line beside a line of other tags drops with the markdown under it, up to the next blank line.";
@@ -97,8 +97,6 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
         )
     };
     let tag = construct.to_string();
-    let table = Dropped::Element(TABLE.into()).to_string();
-    let cell = Dropped::Element(CELL.into()).to_string();
     match construct {
         Dropped::Footnote => (
             format!(
@@ -127,25 +125,58 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              and a footnote's note, around TeX that is not blank; write `\\$` for a dollar sign that opens none."
                 .to_string(),
         ),
-        Dropped::ElementAttr { element, attr } if element == TABLE => attr_dropped(
-            &table,
+        Dropped::Table => (
+            format!(
+                "markdown import closed {} in this field where its HTML block ended",
+                some("`<table>`", "`<table>`s")
+            ),
+            "An HTML table is one HTML block: a blank line inside it ends the table there, and what follows \
+             reads as markdown. Close each `<table>` with `</table>` before any blank line."
+                .to_string(),
+        ),
+        Dropped::TableRow => (
+            format!(
+                "markdown import padded {} in this field to its table's columns",
+                some("table row", "table rows")
+            ),
+            "An HTML table is as wide as its widest row. A row leaves out each cell a `rowspan` above it covers, \
+             and a row short of the width pads with empty cells."
+                .to_string(),
+        ),
+        Dropped::TableSize => (
+            format!(
+                "markdown import cut {} in this field at {} cells",
+                some("table", "tables"),
+                quillmark_content::MAX_TABLE_CELLS
+            ),
+            "A table's rows times its columns stay within the bound; the rows past it drop. Split the table."
+                .to_string(),
+        ),
+        Dropped::TableText => (
+            format!(
+                "markdown import dropped {} outside every cell of an HTML table in this field",
+                some("run of text", "runs of text")
+            ),
+            "Text in an HTML table sits in a `<td>` or `<th>`; a `<caption>` and text between rows drop.".to_string(),
+        ),
+        Dropped::TableAttr { tag: element, attr } => attr_dropped(
+            element,
             attr,
-            match attr.as_str() {
-                "widths" => {
+            match (element.as_str(), attr.as_str()) {
+                ("table", "widths") => {
                     "`widths` is a whole number from 1 to 2^53 - 1, or `auto`, per column, such as `widths=\"2 1 auto\"`."
                         .to_string()
                 }
-                "align" => format!("`align` is {}.", listed(&TABLE_ALIGNS, "or")),
-                "headless" => format!("`headless` takes no value: `<{table} headless>`."),
-                _ => format!("`<{table}>` takes {}.", listed(&TABLE_KEYS, "and")),
-            },
-        ),
-        Dropped::ElementAttr { element, attr } if element == CELL => attr_dropped(
-            &cell,
-            attr,
-            match CELL_KEYS.iter().find(|(key, _)| key == attr) {
-                Some((key, set)) => format!("`{key}` is {}.", listed(set, "or")),
-                None => format!("`<{cell}>` takes {}.", listed(&CELL_KEYS.map(|(key, _)| key), "and")),
+                ("table", "aligns") => {
+                    "`aligns` is `none`, `left`, `center` or `right` per column, such as `aligns=\"left none right\"`."
+                        .to_string()
+                }
+                ("table" | "td" | "th", "align") => format!("`align` is {}.", listed(&TABLE_ALIGNS, "or")),
+                ("table", _) => "`<table>` takes `widths`, `aligns` and `align`.".to_string(),
+                (_, "colspan" | "rowspan") => format!("`{attr}` is a whole number from 1."),
+                (_, "valign") => format!("`valign` is {}.", listed(&CELL_VALIGNS, "or")),
+                ("td" | "th", _) => "`<td>` and `<th>` take `colspan`, `rowspan`, `align` and `valign`.".to_string(),
+                _ => format!("`<{element}>` takes no attributes."),
             },
         ),
         Dropped::ElementAttr { element, attr } => attr_dropped(
@@ -157,13 +188,6 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 RESERVED_ATTRS.join("`, `")
             ),
         ),
-        Dropped::Element(name) if name == TABLE => (
-            format!(
-                "markdown import dropped {} in this field",
-                some(&format!("`<{table}>` wrapper"), &format!("`<{table}>` wrappers"))
-            ),
-            format!("A `<{table}>` wraps exactly one pipe table, each of its two tags on a line of its own. {BESIDE}"),
-        ),
         Dropped::BadName(_) => (
             format!(
                 "markdown import does not carry raw HTML: {} dropped",
@@ -172,16 +196,6 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
             format!(
                 "An element name after `qm-` is lowercase words of letters and digits joined by single `-`, \
                  opening with a letter. {TIGHT}"
-            ),
-        ),
-        Dropped::Element(name) if name == CELL => (
-            format!(
-                "markdown import dropped {} in this field",
-                some(&format!("`<{cell}>` pair"), &format!("`<{cell}>` pairs"))
-            ),
-            format!(
-                "A `<{cell}>` pair wraps a table cell's whole content, such as \
-                 `| <{cell} align=\"right\">42</{cell}> |`, with nothing before its open tag or after its close."
             ),
         ),
         Dropped::Element(_) => (
@@ -214,9 +228,9 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                     "markdown import does not carry raw HTML: {} dropped",
                     some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
                 ),
-                "Raw HTML imports nothing but `<u>`, `<br>` and the `qm-*` tags. Where a line opens with a \
-                 tag, its block runs to the next blank line and drops whole, markdown included; a blank line \
-                 under the tag line keeps what follows."
+                "Raw HTML imports nothing but `<u>`, `<br>`, a `<table>` and the `qm-*` tags. Where a line \
+                 opens with any other tag, its block runs to the next blank line and drops whole, markdown \
+                 included; a blank line under the tag line keeps what follows."
                     .to_string(),
             ),
         },
@@ -410,6 +424,7 @@ pub(crate) mod yaml_hints;
 
 pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_124_0, STORAGE_V0_129_0,
+    STORAGE_V0_131_0,
 };
 pub use edit::{revise_import, CardMut, EditError, Revised};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
@@ -434,7 +449,8 @@ pub const MARKDOWN_RULES: &str = "Quillmark Markdown rules:
 \u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$ext`, `$seed`. User fields use lowercase snake_case.
 \u{2022} Prose body is the text after a block's closing `~~~`, up to the next opener or EOF. To include a literal fenced code block in prose, use a backtick fence (```); any column-zero `~~~` block is parsed as card metadata.
 \u{2022} A blank or null value (`field:`, `field: null`, `field: ~`) is the same as omitting the field: it falls back to the field's default, else its blank. `field: \"\"` is kept as written, an explicit empty value.
-\u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.";
+\u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.
+\u{2022} In a body or richtext value, `<qm-span family=\"<family>\">text</qm-span>` sets a run's font family. Pairs nest, the innermost winning and the outer resuming past it. Name only a family the host's font library supplies: any other keeps the surrounding font and warns.";
 
 #[cfg(test)]
 mod tests;

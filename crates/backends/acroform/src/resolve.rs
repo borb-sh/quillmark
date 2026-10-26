@@ -118,17 +118,17 @@ fn number_to_string(n: &serde_json::Number) -> String {
     }
 }
 
-/// Coerce a JSON value to display text. An empty result becomes `None`, so the
-/// widget carries no `/V`.
+/// Coerce a JSON value to display text. An empty array element joins as an
+/// empty line; a value with no text at all becomes `None`, so the widget
+/// carries no `/V`.
 fn coerce_text(v: &Value) -> Option<String> {
     match v {
         Value::Array(arr) => {
-            let s = arr
+            let lines: Vec<String> = arr.iter().filter_map(element_text).collect();
+            lines
                 .iter()
-                .filter_map(element_text)
-                .collect::<Vec<_>>()
-                .join("\n");
-            (!s.is_empty()).then_some(s)
+                .any(|l| !l.is_empty())
+                .then(|| lines.join("\n"))
         }
         _ => element_text(v).filter(|s| !s.is_empty()),
     }
@@ -147,12 +147,12 @@ fn element_text(e: &Value) -> Option<String> {
 }
 
 /// A richtext content's plaintext, island slots stripped. Tables and images have
-/// no plaintext form, so a table-only content binds blank, the session's
+/// no plaintext form, so a table-only content is empty text: blank as a whole
+/// value, an empty line as an array element, the session's
 /// `backend::declined_construct` warning naming the table.
 fn richtext_plaintext(v: &Value) -> Option<String> {
     let rt = quillmark_content::serial::from_canonical_value(v).ok()?;
-    let text = quillmark_content::export::to_plaintext(&rt);
-    (!text.is_empty()).then_some(text)
+    Some(quillmark_content::export::to_plaintext(&rt))
 }
 
 /// A choice value binds only if it matches one of the declared options exactly.
@@ -241,18 +241,31 @@ mod tests {
         assert_eq!(coerce_text(&json!({ "x": 1 })), None);
     }
 
+    fn el(md: &str) -> Value {
+        quillmark_content::serial::to_canonical_value(
+            &quillmark_content::import::from_markdown(md).unwrap().content,
+        )
+    }
+
     #[test]
     fn richtext_array_joins_element_plaintext() {
-        let el = |md: &str| {
-            quillmark_content::serial::to_canonical_value(
-                &quillmark_content::import::from_markdown(md).unwrap().content,
-            )
-        };
         let arr = Value::Array(vec![el("First **ref**."), el("Second _ref_.")]);
         assert_eq!(
             coerce_text(&arr).as_deref(),
             Some("First ref.\nSecond ref.")
         );
+    }
+
+    #[test]
+    fn an_empty_array_element_joins_as_an_empty_line() {
+        let rich = Value::Array(vec![el("HEADING"), el("Detail"), el(""), el("NEXT")]);
+        assert_eq!(
+            coerce_text(&rich).as_deref(),
+            Some("HEADING\nDetail\n\nNEXT")
+        );
+        assert_eq!(coerce_text(&json!(["a", "", "b"])).as_deref(), Some("a\n\nb"));
+        assert_eq!(coerce_text(&Value::Array(vec![el(""), el("")])), None);
+        assert_eq!(coerce_text(&json!(["", ""])), None);
     }
 
     #[test]

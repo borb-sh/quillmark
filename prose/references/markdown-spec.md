@@ -21,7 +21,9 @@ an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
 - **Structured data**: card-yaml blocks (§3).
 - **Extensions**: strikethrough, pipe tables, and `<u>` for underline
   (§6.1).
-- **The `qm-*` carrier**: table layout and elements, spelled as custom
+- **Tables**: a GFM pipe table, or an HTML table in a subset that spells
+  layout and merged cells (§6.8).
+- **The `qm-*` carrier**: inline font runs and elements, spelled as custom
   HTML elements (§6.4).
 
 A document containing no card-yaml blocks is ordinary CommonMark, parsed as
@@ -377,6 +379,7 @@ Body regions (the root body and every card body) are rendered as CommonMark
 |---|---|---|
 | Strikethrough | `~~text~~` | GFM rules: word-bounded delimiter runs only. |
 | Pipe tables | GFM pipe-table syntax with alignment rows | Supports `:---`, `:---:`, `---:` alignment. |
+| HTML tables | `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>` | A subset carrying column widths, placement, cell alignment and merged cells (§6.8). |
 | Underline (HTML) | `<u>text</u>` | Allowlisted HTML (see §6.2). The only syntax for underline; handles intraword and arbitrary-range cases. |
 | Task lists | `- [ ] open`, `- [x] done` | GFM rules: the marker opens a list item's first paragraph. A list item's `checked`. |
 | Footnotes | `text[^1]` and a `[^1]: note` definition | GFM rules. A `footnote` island at the reference, holding the note (§6.5). |
@@ -386,19 +389,20 @@ Body regions (the root body and every card body) are rendered as CommonMark
 ### 6.2 Declared Deviations from CommonMark
 
 **Raw HTML produces no output of its own, except an inline `<u>…</u>`, which
-renders as underline, an inline `<br>`, which is a hard break, and the
-`qm-*` carrier §6.4 defines.** The parser recognises HTML per CommonMark
-§4.6 / §6.6 and discards the HTML itself. What else an HTML block holds
-depends on its type:
+renders as underline, an inline `<br>`, which is a hard break, an HTML block
+opening `<table>`, which §6.8 reads as a table, and the `qm-*` carrier §6.4
+defines.** The parser recognises HTML per CommonMark §4.6 / §6.6 and discards
+the HTML itself. What else an HTML block holds depends on its type:
 
 | HTML block (CommonMark §4.6) | What imports |
 |---|---|
+| Type 6 opening `<table>` | Each table it holds, as §6.8 reads it. |
 | Type 6 or 7 holding only tag lines, a `qm-*` tag among them | Nothing of its own; its carrier tags open and close what §6.4 defines. |
 | Any other type 6 or 7: a tag line such as `<div>`, `<center>`, `<details>` or `<span>` tight against markdown | Nothing: the block drops whole, to the next blank line, as CommonMark runs it, a carrier tag in it included. |
 | Types 1–5: `<pre>`, `<script>`, `<style>` or `<textarea>`; a comment; a processing instruction; a declaration; CDATA | Nothing: the block drops whole. Text after a comment's `-->` on its last line imports as a line of its own, unless it opens a fence or a type 1–5 block it does not close on that line. |
 
-A line holding only the open and close tags of elements and `qm-table` is a tag
-line wherever it stands, in the containers CommonMark puts it in, a lazy
+A line holding only the open and close tags of elements is a tag line wherever
+it stands, in the containers CommonMark puts it in, a lazy
 continuation line's included. In a paragraph or a list item's text it ends the
 text above it, and the text under it is a paragraph of its own, read as
 CommonMark reads it there. In an HTML block where no line of other tags borders
@@ -472,14 +476,14 @@ per-instance layout and anchors. Each is a CommonMark raw-HTML tag and a valid
 custom-element name, which an HTML renderer draws as its children.
 
 **Names.** A carrier tag's name is `qm-` and an element name matching
-`[a-z][a-z0-9]*(-[a-z0-9]+)*`: `qm-keep`, `qm-table`, `qm-a1-b`.
+`[a-z][a-z0-9]*(-[a-z0-9]+)*`: `qm-keep`, `qm-sig`, `qm-a1-b`.
 CommonMark tag names admit no `:`, so the prefix stands where XML would write a
 namespace (`quill:keep`). A tag name reads ASCII-case-insensitively, as HTML
 names do, and the canonical spelling is lowercase. `qm-`, `qm-a--b` and
 `qm-9` carry no element.
 
-**Reserved names.** `table` is reserved for the table it wraps and `anchor`
-for the anchor spelling. Neither is ever an element of its own.
+**Reserved names.** `anchor` is reserved, the anchor spelling's, so it is
+never an element.
 
 **Attributes.** A name matches `[a-z][a-z0-9_]*` and is none of `style`,
 `class`, `id`, `href` and `src`, nor any name opening `on`, so the carrier
@@ -491,11 +495,11 @@ hexadecimal references to a Unicode scalar value, `&#0;` reading as U+FFFD as
 CommonMark reads it; any other `&` is text.
 
 **Block only.** A carrier tag carries its construct on a tag line in a block
-of tag lines alone, and a line holding only element and `qm-table` tags is one
-wherever it stands (§6.2). Inside a line of text, or beside a tag outside the carrier in a
-block tight against markdown, it drops like any raw tag; `qm-anchor` drops
-inside a line without a report. The one inline construct is a `qm-cell` pair
-around a whole table cell.
+of tag lines alone, and a line holding only element tags is one wherever it
+stands (§6.2). Inside a line of text, a table cell's included, or beside a tag
+outside the carrier in a block tight against markdown, it drops like any raw
+tag; `qm-anchor` drops inside a line without a report. The one inline
+construct is a `qm-span` pair around a run of text.
 
 **Canonical spelling.** An element is written with:
 
@@ -544,74 +548,39 @@ A `qm-*` tag outside the grammar is a raw tag reported the same way. A block
 element left open counts toward the nesting bound (§8) until its list item,
 quote or body ends.
 
-**`qm-table`** is a block wrapper around one pipe table, and folds its
-attributes into the table's layout, whatever quill reads the document:
+**`qm-span`** is an inline pair whose attributes set formatting of the text it
+wraps, whatever quill reads the document. Each attribute is a mark of its own,
+and `family` is the one it carries:
 
 | Attribute | Value | Default |
 |---|---|---|
-| `widths` | whitespace-separated column weights, each a decimal integer from 1 to 2⁵³ − 1 or `auto` for an auto-fit column | every column `auto` |
-| `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
-| `headless` | bare, or the empty value: the header row is the table's first body row | a header row |
+| `family` | a font family's name: not empty, no space at either edge, and no control character, bidi control or line separator | the surrounding text's family |
 
 ```markdown
-<qm-table align="center" widths="1 2 auto">
-
-| Item | Description | Qty |
-| --- | --- | --- |
-| A | First | 1 |
-
-</qm-table>
+Pay <qm-span family="Carlito">**today**, as <qm-span family="Arimo">§4</qm-span> sets out</qm-span>.
 ```
 
-- Weights are relative and store as written: `2 4` lays out as `1 2` does. A
-  `widths` shorter than the table pads with `auto`, and a longer one drops its
-  extra entries.
-- Each attribute at its default stores nothing, and export writes the wrapper
-  only around a table holding a value other than its default.
-- Column alignment stays in the delimiter row. Its dash counts carry no width,
-  since a formatter pads them to the column.
-- `align` places the table in the flow, beside no text, where a browser
-  floats a `<table align="left">` or `"right"` and wraps text around it.
-- The wrapper pairs as an element does: inside the containers around its open
-  tag, closed where it is the innermost container open. It holds one table
-  when that table is all that imports between its tags, inside no container
-  but an element.
-- A wrapper holding anything else or another `qm-table`, or still open
-  where its list item, quote or body ends, drops whole: its tags drop, what it
-  holds imports, and `parse::dropped_construct` reports `qm-table`.
-- An attribute other than these three, and one whose value is outside its
-  spelling, drops alone, reported as `qm-table[<name>]`. A `qm-keep`
-  around the wrapper keeps the table on one page.
-
-**`qm-cell`** is an inline pair around a table cell's whole content, in the
-header row or the body, and folds its attributes into the cell, whatever quill
-reads the document:
-
-| Attribute | Value | Default |
-|---|---|---|
-| `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's, from the delimiter row |
-| `valign` | the cell's vertical alignment: `top`, `middle` or `bottom` | the plate's |
-
-```markdown
-| Item | Notes | Qty |
-| --- | --- | ---: |
-| <qm-cell valign="bottom">Total</qm-cell> | one<br>two | <qm-cell align="center">**42**</qm-cell> |
-```
-
-- A pair folds when its open tag is the cell's first inline and its close tag
-  the cell's last, and the cell holds no other `qm-cell` tag. What it wraps is
-  the cell's content, trimmed of the space and tab beside each tag as a cell
-  is trimmed at its edges; `&#32;` spells an edge space.
-- A pair that does not wrap its whole cell folds nothing: text or markup
-  before or after it, a second pair, a nested pair and an unclosed pair each
-  leave the cell as written, its `qm-cell` tags dropped, and
-  `parse::dropped_construct` reports each open tag as `qm-cell`.
-- Each value stores as written, one equal to its column's included, and
-  export writes the pair around every cell holding a value in its set.
-- An attribute other than these two, and one whose value is outside its set,
-  drops alone, reported as `qm-cell[<name>]`.
-- Outside a table cell `qm-cell` is no special name: a pair of tag lines is an
-  element, and a pair inside a line drops as any element's does.
+- A pair pairs as `<u>` does (§6.2): inside its paragraph, heading, list
+  item's text, table cell or footnote, a `</qm-span>` closes the innermost
+  `<qm-span>` still open, whatever marks lie between. An inner pair sets its
+  family over its own text and the outer family resumes past it, so nested
+  pairs import as flat marks, one family per character.
+- A family stores as written and names no font file. A backend resolves it at
+  render, and text in a family none of its fonts holds keeps the surrounding
+  family. The Typst backend sets no family over a code span, math or a table,
+  whose cells take pairs of their own, and a footnote's note keeps its own
+  family.
+- An attribute other than `family` drops alone, reported as
+  `qm-span[<name>]`, as does a family outside its spelling. A tag setting no
+  family, a self-closing tag and a pair still open where its text ends drop,
+  reported as `qm-span`.
+- Export writes one pair per family mark and never nests pairs, so the
+  example above comes back as three pairs side by side. A pair sits outside
+  `<u>` and the emphasis delimiters closing and opening where it
+  stands, as `<u>` is (§6.2).
+- A `qm-span` tag line wraps nothing: its tags drop, the open tag reported as
+  `qm-span`, and the blocks between them stay. A family is a run's, never a
+  block's.
 
 **`qm-anchor`** is reserved for an anchor's read-only spelling,
 `<qm-anchor ref="…"></qm-anchor>`, which the annotated export writes and
@@ -690,6 +659,119 @@ blank line, then a blank line before the next term. A paragraph line opening
 re-imports with an empty description, and a description with no term above it
 writes the empty term `[]()`, which re-imports as an empty term.
 
+### 6.8 Tables
+
+A table is written in one of two spellings, each table wholly in one: a GFM
+pipe table, or an HTML table in the subset below. Import reads both into one
+table island. Export picks the spelling from what the island holds, never
+from how the source wrote it, so a plain `<table>` re-exports as pipes.
+
+**Pipes or HTML.** Export writes a pipe table exactly when the table has one
+header row and holds no `widths`, no placement, and no cell `align`, `valign`,
+`colspan` or `rowspan`. Column alignment rides the delimiter row, and a `<br>`
+in a cell is inline HTML GitHub renders, so neither forces HTML. Any other
+table writes as HTML, and one that loses its last such key writes as pipes
+again.
+
+```markdown
+<table widths="1 2 2" aligns="left left right" align="center">
+<thead>
+<tr><th colspan="3">FLIGHT X PERSONNEL</th></tr>
+<tr><th>Date</th><th colspan="2">POC</th></tr>
+</thead>
+<tbody>
+<tr><td rowspan="2" valign="middle">12 Nov</td><td>SSgt Doe</td><td>555-0101</td></tr>
+<tr><td>SrA Roe</td><td>555-0102</td></tr>
+</tbody>
+</table>
+```
+
+**The subset.** The elements are `table`, `thead`, `tbody`, `tfoot`, `tr`,
+`th` and `td`, read ASCII-case-insensitively, with these attributes:
+
+| Tag | Attribute | Value | Default |
+|---|---|---|---|
+| `table` | `widths` | whitespace-separated column weights, each a decimal integer from 1 to 2⁵³ − 1 or `auto` for an auto-fit column | every column `auto` |
+| `table` | `aligns` | whitespace-separated column alignments, each `none`, `left`, `center` or `right` | every column `none` |
+| `table` | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
+| `td`, `th` | `colspan`, `rowspan` | the columns or rows the cell covers, a whole number from 1 | `1` |
+| `td`, `th` | `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's |
+| `td`, `th` | `valign` | the cell's vertical alignment: `top`, `middle` or `bottom` | the plate's |
+
+- Any other tag outside a cell drops alone, reported under
+  `parse::dropped_construct` by its lowercase name (`caption`). Any other
+  attribute, one repeating a name already read, and a value outside its
+  spelling drop alone, reported as `<tag>[<attribute>]` (`td[nowrap]`,
+  `table[widths]`). `border`, `class`, `scope` and `style` only style a table,
+  and drop silently. An enumerated value reads ASCII-case-insensitively.
+- Weights are relative and store as written: `2 4` lays out as `1 2` does. A
+  `widths` or `aligns` shorter than the table pads with `auto` or `none`, and
+  a longer one drops its extra entries.
+- `aligns` is each column's alignment, so a cell's `align` is an override
+  that stays when its column's changes.
+- `align` places the table in the flow, beside no text, where a browser
+  floats a `<table align="left">` or `"right"` and wraps text around it.
+- The `thead` rows are the header rows, any number of them. A table with no
+  `thead` takes as its header rows the rows opening its first body group, its
+  `tbody` tag written or not, whose cells are all `<th>`, as many as no
+  `rowspan` among them reaches past, and otherwise has none. A `<th>` in a body row reads as a `<td>`.
+
+**Covered cells are left out**, as in HTML. Import resolves the rows into the
+rectangular grid a table island holds, as HTML's table model forms one:
+
+- The `thead` rows come first and the `tfoot` rows last, the body's between
+  in source order. Each cell lands in the next slot of its row no span
+  covers.
+- The grid is as wide as its widest row, its spans included. A table holding
+  no cell imports nothing.
+- A `rowspan` stops at the end of its row group, silently. A `colspan` past
+  1000 reads as 1000, as HTML reads it. A span reaching a slot an
+  earlier span covers stops short of it, silently, as normalization settles
+  one.
+- A row short of the grid's width pads with empty cells, each such row
+  reported as `table[row]`.
+- Each slot a span covers stores as an empty cell.
+
+**Lenient where writers are.** An unquoted value (`colspan=2`), a row directly
+under `<table>` with no `tbody`, and an omitted `</td>`, `</th>` or `</tr>`
+read as HTML reads them. `tfoot` rows read as body rows after the body's.
+Text outside every cell, a `<caption>`'s say, drops, reported as
+`table[text]`, and a comment between rows drops silently.
+
+**Cells hold inline markdown.** CommonMark reads a `<table>` as a raw HTML
+block and parses no markdown inside it, so import scans the subset itself and
+reads each cell's content as one line of inline markdown: `<td>**Total**</td>`
+is bold. A line break in a cell's source is a space, as HTML reads one, and a
+`<br>` is the cell's line break. A subset tag inside a code span, a comment,
+an angle-bracketed link destination or after a backslash is the cell's text.
+An equation keeps its source, reported as `math`, as in a pipe table's cell,
+and a footnote reference is its text. GitHub draws the grid and the spans but
+shows cell markdown literally.
+
+**A table is one HTML block.** CommonMark ends a type 6 block at a blank
+line, so a blank line inside a `<table>` ends the table there: the cut table
+closes its open rows, reported as `table`, and what follows reads as ordinary
+markdown, its own HTML block dropping as §6.2 reads one. A `<table>` inside an
+open one ends it the same way. This holds inside a quote or list item, where
+the block's text arrives with container prefixes stripped. What follows a
+`</table>` in its block, on its line or the next, the repair sets apart as
+markdown of its own (§7 step 5), so prose written tight under a table, a
+second table or a wrapper's close tag reads as written.
+
+**A table holds at most `MAX_TABLE_CELLS` (100 000) slots**, its rows, the
+header among them, times its columns. A grid pads every row to its width, so
+a few bytes can ask for millions of slots; the rows past the bound drop,
+reported as `table[size]`, and a table whose first row alone is wider drops
+whole. A pipe table stops at the same bound.
+
+**Export** writes the `<table>` tag, its `thead` and `tbody`, and each row on
+a line of its own, inside the containers the table sits in. The attributes
+come in the order `widths`, `aligns`, `align` and `colspan`, `rowspan`,
+`align`, `valign`, each double-quoted and only away from its default. A
+header row's cells are `<th>` and a body row's `<td>`. A cell's text is
+escaped as in a pipe table's cell, but for `|`, so no `<` reads as a tag and
+no `&` as an entity on the way back.
+
 ## 7. Input Normalization
 
 Before CommonMark parsing, each body region is normalized:
@@ -716,13 +798,20 @@ Before CommonMark parsing, each body region is normalized:
    never edited.
    - On a comment's last line, text after its `-->` moves to a line of its
      own, keeping the line's indent.
+   - In a type 6 block opening `<table>` (§6.8), what follows the first
+     `</table>` closing a table that anything but whitespace follows gets a
+     blank line above it, on a line of its own keeping the line's indent
+     where it shared the `</table>`'s line.
+   - Neither edit lands where what it sets apart opens a fence or a type 1–5
+     HTML block it does not close on its line.
    - A pipe-table row holding only tags gets a blank line above it, ending the
      table.
-   - In a type 6 or 7 HTML block outside a footnote definition, a run of
-     lines each holding only the open and close tags of elements and
-     `qm-table`, none self-closing, that no line of other tags borders gets a
+   - In a type 6 or 7 HTML block outside a footnote definition that does not
+     open `<table>`, a run of lines each holding only the open and close tags
+     of elements, none self-closing, that no line of other tags borders gets a
      blank line above it where a line of text precedes it in the block and one
-     below it where a line of text follows. The block's last line of text gets
+     below it where a line of text follows. A line holding only an HTML
+     table's tags (§6.8) counts as a line of text here. The block's last line of text gets
      one below it where the next line would continue it lazily. A line of the
      run, or the line of text under it, indented an indented code line's four
      columns loses its indent.
@@ -769,11 +858,10 @@ block.
 Markdown block nesting depth (12) is enforced at import time by the
 markdown→content parser (`Document::parse`): at every point of a body, the
 list items, quotes and elements open there number at most 12. Marks and `<u>`
-count nothing: the Typst emitter wraps a run in at most six show rules, its
-mark kinds and raw, so 12 quotes at four apiece leave Typst's show-rule depth of
-64 room for them. An element counts from its open tag until it closes or its
-list item, quote or body ends, so one left unclosed counts until then, and a
-`qm-table` wrapper counts nothing. The Typst backend re-checks at render as a
+count nothing: the Typst emitter wraps a run in at most seven show rules, its
+mark kinds, raw and a font run's `context`, so 12 quotes at four apiece leave
+Typst's show-rule depth of 64 room for them. An element counts from its open tag until it closes or its
+list item, quote or body ends, so one left unclosed counts until then. The Typst backend re-checks at render as a
 backstop for content built without importing.
 
 ## 9. Emission Contract

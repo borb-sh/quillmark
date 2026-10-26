@@ -19,7 +19,7 @@ use common::{quill_with_plate as quill, yaml};
 const PLATE: &str = "#set page(width: 200pt, height: 120pt, margin: 12pt)\nink\n";
 
 fn open() -> LiveSession {
-    TypstBackend
+    TypstBackend::default()
         .open(
             &quill(&yaml("main:\n  fields: {}\n"), PLATE),
             &serde_json::json!({}),
@@ -92,7 +92,7 @@ fn both_raster_knobs_reach_the_check_and_every_counted_page_paints() {
 #[test]
 fn the_ppi_a_refusal_names_renders_every_selected_page() {
     let plate = "#page(width: 100pt, height: 9000pt)[A]\n#page(width: 100pt, height: 12000pt)[B]\n";
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(
             &quill(&yaml("main:\n  fields: {}\n"), plate),
             &serde_json::json!({}),

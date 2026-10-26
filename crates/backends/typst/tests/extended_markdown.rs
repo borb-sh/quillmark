@@ -27,7 +27,7 @@ fn quill() -> Quill {
 /// The SVG of the one page, and the render's warnings.
 fn render(quill: &Quill, markdown: &str) -> (String, Vec<Diagnostic>) {
     let data = serde_json::json!({ "$body": content(markdown) });
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(quill, &data, common::test_date())
         .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
     let result = session

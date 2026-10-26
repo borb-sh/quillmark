@@ -6,11 +6,12 @@ use typst::syntax::{
     package::{PackageSpec, PackageVersion},
     FileId, RootedPath, Source, VirtualPath, VirtualRoot,
 };
-use typst::text::{Font, FontBook};
+use typst::text::{Coverage, Font, FontBook, FontFlags, FontInfo};
 use typst::utils::LazyHash;
 use typst::{Library, World};
 
-use crate::{helper, Plate};
+use crate::families::{host_alias, Families};
+use crate::{helper, FontLibrary, Plate};
 use quillmark_core::{
     error::{Diagnostic, Severity},
     quill::{CalendarDate, Quill},
@@ -85,7 +86,7 @@ pub(crate) const MAX_COLLECTION_FACES: u32 = 256;
 /// Every face in `data`, or the face count a collection declares past
 /// [`MAX_COLLECTION_FACES`]. A collection whose header declares more offsets
 /// than the file holds has none.
-fn faces(data: Bytes) -> Result<impl Iterator<Item = Font>, u32> {
+pub(crate) fn faces(data: Bytes) -> Result<impl Iterator<Item = Font>, u32> {
     let count = match data.first_chunk::<12>() {
         Some([b't', b't', b'c', b'f', _, _, _, _, n @ ..]) => match u32::from_be_bytes(*n) {
             n if n > MAX_COLLECTION_FACES => return Err(n),
@@ -110,6 +111,58 @@ fn oversized_collection(path: &Path, declared: u32) -> Diagnostic {
     .with_hint("Split the collection into files of fewer faces.".to_string())
 }
 
+/// The session's faces in book order, each beside the info the book files it
+/// under: the quill's, then the host library's, then the embedded fallback,
+/// Roboto standing in only for a quill shipping no fonts. A library face is
+/// filed under its [`host_alias`] with no coverage, so neither a plate nor
+/// glyph fallback reaches it. The math face also answers to [`MATH_FAMILY`]
+/// unless a face before it holds that family.
+pub(crate) fn session_fonts(
+    source: &Quill,
+    library: &FontLibrary,
+    warnings: &mut Vec<Diagnostic>,
+) -> Vec<(FontInfo, Font)> {
+    let mut out: Vec<(FontInfo, Font)> = Vec::new();
+    for (path, font_data) in quill_fonts(source) {
+        match faces(Bytes::new(font_data.to_vec())) {
+            Ok(faces) => out.extend(faces.map(|font| (font.info().clone(), font))),
+            Err(declared) => warnings.push(oversized_collection(&path, declared)),
+        }
+    }
+    let quill_ships = !out.is_empty();
+    out.extend(library.faces().iter().map(|font| {
+        let mut info = font.info().clone();
+        info.family = host_alias(&info.family);
+        info.coverage = Coverage::from_vec(Vec::new());
+        (info, font.clone())
+    }));
+    if !quill_ships {
+        for (_, data) in FALLBACK_FONTS {
+            out.extend(faces(Bytes::new(data)).into_iter().flatten().map(|font| (font.info().clone(), font)));
+        }
+    }
+    let holds = |out: &[(FontInfo, Font)], family: &str| out.iter().any(|(info, _)| info.family.eq_ignore_ascii_case(family));
+    if !holds(&out, MATH_FAMILY) {
+        for font in faces(Bytes::new(MATH_FONT.1)).into_iter().flatten() {
+            let mut info = font.info().clone();
+            if !holds(&out, &info.family) {
+                out.push((info.clone(), font.clone()));
+            }
+            info.family = MATH_FAMILY.to_string();
+            out.push((info, font));
+        }
+    }
+    out
+}
+
+/// Whether a session face sets running text: neither a math face nor the math
+/// face's second entry under [`MATH_FAMILY`]. Among the library's faces these
+/// are the families a `font_family` mark resolves against and the faces an
+/// editor is handed.
+pub(crate) fn sets_text(info: &FontInfo, font: &Font) -> bool {
+    !info.flags.contains(FontFlags::MATH) && info.family == font.info().family
+}
+
 /// Typst `World` implementation for quill-based compilation, rooted at the
 /// quill: `.typ` sources load at their quill paths, packages from
 /// `{quill}/packages/` and assets from `{quill}/assets/`.
@@ -117,6 +170,9 @@ pub(crate) struct QuillWorld {
     library: LazyHash<Library>,
     book: LazyHash<FontBook>,
     fonts: Vec<Font>,
+    /// The running-text families ([`sets_text`]) `book` holds, and those the
+    /// library offers a `font_family` mark.
+    families: Families,
     source: Source,
     plate_file: String,
     sources: HashMap<FileId, Source>,
@@ -132,6 +188,7 @@ impl QuillWorld {
     pub(crate) fn new(
         source: &Quill,
         plate: &Plate,
+        library: &FontLibrary,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut sources = HashMap::new();
         let mut binaries = HashMap::new();
@@ -139,42 +196,18 @@ impl QuillWorld {
 
         let mut book = FontBook::new();
         let mut fonts = Vec::new();
-
-        for (path, font_data) in quill_fonts(source) {
-            match faces(Bytes::new(font_data.to_vec())) {
-                Ok(faces) => {
-                    for font in faces {
-                        book.push(font.info().clone());
-                        fonts.push(font);
-                    }
-                }
-                Err(declared) => load_warnings.push(oversized_collection(&path, declared)),
+        let mut families = Families::default();
+        for (info, font) in session_fonts(source, library, &mut load_warnings) {
+            if sets_text(&info, &font) {
+                families.held.insert(info.family.to_lowercase());
             }
+            book.push(info);
+            fonts.push(font);
         }
-
-        // Fall back to the embedded Roboto faces when the quill ships no fonts.
-        if fonts.is_empty() {
-            for (_, data) in FALLBACK_FONTS {
-                let font_bytes = Bytes::new(data.to_vec());
-                for font in faces(font_bytes).into_iter().flatten() {
-                    book.push(font.info().clone());
-                    fonts.push(font);
-                }
-            }
-        }
-
-        // The embedded math face answers to its own family and to the one an
-        // equation asks for.
-        if !book.contains_family(&MATH_FAMILY.to_lowercase()) {
-            for font in faces(Bytes::new(MATH_FONT.1.to_vec())).into_iter().flatten() {
-                let mut info = font.info().clone();
-                if !book.contains_family(&info.family.to_lowercase()) {
-                    book.push(info.clone());
-                    fonts.push(font.clone());
-                }
-                info.family = MATH_FAMILY.to_string();
-                book.push(info);
-                fonts.push(font);
+        for font in library.faces() {
+            if sets_text(font.info(), font) {
+                let family = &font.info().family;
+                families.offered.insert(family.to_lowercase(), host_alias(family));
             }
         }
 
@@ -198,6 +231,7 @@ impl QuillWorld {
             library: LazyHash::new(<Library as typst::LibraryExt>::default()),
             book: LazyHash::new(book),
             fonts,
+            families,
             source,
             plate_file: plate.file.clone(),
             sources,
@@ -213,6 +247,10 @@ impl QuillWorld {
 
     pub(crate) fn load_warnings(&self) -> &[Diagnostic] {
         &self.load_warnings
+    }
+
+    pub(crate) fn families(&self) -> &Families {
+        &self.families
     }
 
     /// The file a diagnostic names for `id`: the plate by its `plate_file`, a
@@ -241,7 +279,7 @@ impl QuillWorld {
         meta: &crate::SchemaMeta,
     ) -> Result<(Self, Vec<crate::overlay::FieldWindow>), Box<dyn std::error::Error + Send + Sync>>
     {
-        let mut world = Self::new(source, plate)?;
+        let mut world = Self::new(source, plate, &FontLibrary::default())?;
 
         let windows = world.inject_helper_package(data, meta)?;
 
@@ -290,7 +328,7 @@ impl QuillWorld {
         data: &serde_json::Value,
         meta: &crate::SchemaMeta,
     ) -> Result<Vec<crate::overlay::FieldWindow>, crate::emit::EmitError> {
-        let (src, windows) = helper::generate_lib_typ(data, meta)?;
+        let (src, windows) = helper::generate_lib_typ(data, meta, &self.families)?;
         self.set_source(Self::helper_fid("lib.typ"), &src);
         Ok(windows
             .into_iter()
@@ -665,7 +703,7 @@ mod tests {
             text: "#import \"@preview/outer:1.2.0\": greet\n#greet\n".to_string(),
             ..crate::read_plate(&quill).expect("plate")
         };
-        let world = QuillWorld::new(&quill, &plate).expect("world");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world");
         crate::compile::compile_document(&world).expect("the vendored chain resolves");
     }
 
@@ -712,7 +750,7 @@ mod tests {
             ("packages/brokenpkg/lib.typ", "#let x = 1\n"),
         ]);
         let plate = crate::read_plate(&quill).expect("plate");
-        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world builds anyway");
 
         let codes: Vec<&str> = world
             .load_warnings()
@@ -736,7 +774,7 @@ mod tests {
     fn a_package_without_a_manifest_is_skipped_with_a_warning() {
         let quill = quill_with(&[("packages/bare/lib.typ", "#let x = 1\n")]);
         let plate = crate::read_plate(&quill).expect("plate");
-        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world builds anyway");
 
         let warning = world
             .load_warnings()
@@ -760,7 +798,7 @@ mod tests {
             ("packages/goodpkg/lib.typ", "#let x = 1\n"),
         ]);
         let plate = crate::read_plate(&quill).expect("plate");
-        let world = QuillWorld::new(&quill, &plate).expect("world");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world");
         assert!(
             world.load_warnings().is_empty(),
             "clean quill warned: {:?}",
@@ -781,7 +819,7 @@ mod tests {
             ("packages/oldver/lib.typ", "#let x = 1\n"),
         ]);
         let plate = crate::read_plate(&quill).expect("plate");
-        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world builds anyway");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()
@@ -800,7 +838,7 @@ mod tests {
             ("packages/escapee/lib.typ", "#let x = 1\n"),
         ]);
         let plate = crate::read_plate(&quill).expect("plate");
-        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world builds anyway");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()
@@ -819,7 +857,7 @@ mod tests {
             "[package]\nname = \"hollow\"\nversion = \"0.1.0\"\nentrypoint = \"lib.typ\"\n",
         )]);
         let plate = crate::read_plate(&quill).expect("plate");
-        let world = QuillWorld::new(&quill, &plate).expect("world");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()

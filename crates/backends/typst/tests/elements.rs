@@ -35,7 +35,7 @@ fn quill(plate: &str) -> Quill {
 /// Each page's SVG.
 fn pages(quill: &Quill, markdown: &str) -> Vec<String> {
     let data = serde_json::json!({ "$body": content(markdown) });
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(quill, &data, common::test_date())
         .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
     let result = session
@@ -84,7 +84,7 @@ const UNREGISTERED: &str = "typst::unregistered_element";
 /// The compile's warnings under `typst::unregistered_element`.
 fn unregistered(quill: &Quill, markdown: &str) -> Vec<quillmark_core::error::Diagnostic> {
     let data = serde_json::json!({ "$body": content(markdown) });
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(quill, &data, common::test_date())
         .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
     session

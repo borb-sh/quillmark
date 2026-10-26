@@ -11,7 +11,7 @@ mod common;
 use common::{content, quill_with_plate as quill, yaml};
 
 fn open(schema: &str, plate: &str, data: serde_json::Value) -> LiveSession {
-    TypstBackend
+    TypstBackend::default()
         .open(&quill(&yaml(schema), plate), &data, common::test_date())
         .expect("open")
 }
@@ -213,7 +213,7 @@ fn a_scalar_printed_in_an_imported_module_surfaces_a_region() {
             ),
         ],
     );
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(&q, &serde_json::json!({ "count": 1042 }), common::test_date())
         .expect("open");
     let regions = session.regions();
@@ -507,7 +507,7 @@ fn form_field_path_rejected_when_address_tables_are_empty() {
 #import "@local/quillmark-helper:0.2.0" as qm
 #qm.form-field("S", type: "text", value: "x", field: "subject")
 "#;
-    let err = TypstBackend
+    let err = TypstBackend::default()
         .open(
             &quill(&yaml("main:\n  body:\n    enabled: false\n"), PLATE),
             &serde_json::json!({}),
@@ -545,7 +545,7 @@ fn adversarial_codegen_inputs_still_compile() {
         Mark::new(0, 4, MarkKind::Strong),
         Mark::new(2, 6, MarkKind::Code),
     ]);
-    TypstBackend
+    TypstBackend::default()
         .open(
             &quill(
                 &yaml("main:\n  fields:\n    prose: { type: richtext, multiline: true }\n    overlap: { type: richtext, multiline: true }\n"),

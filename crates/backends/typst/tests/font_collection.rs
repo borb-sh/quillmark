@@ -60,7 +60,7 @@ fn a_ttc_under_assets_fonts_sets_every_family_it_holds() {
             .expect("insert");
     }
     let q = Quill::from_tree(root).expect("load quill");
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(&q, &serde_json::json!({}), common::test_date())
         .expect("the plate compiles");
     let unknown: Vec<_> = session
@@ -90,7 +90,7 @@ fn a_collection_header_declaring_u32_max_faces_opens_promptly() {
             .expect("insert");
     }
     let q = Quill::from_tree(root).expect("load quill");
-    TypstBackend
+    TypstBackend::default()
         .open(&q, &serde_json::json!({}), common::test_date())
         .expect("the plate compiles");
 }
@@ -115,7 +115,7 @@ fn a_collection_declaring_past_the_face_cap_loads_none_and_warns() {
             .expect("insert");
     }
     let q = Quill::from_tree(root).expect("load quill");
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(&q, &serde_json::json!({}), common::test_date())
         .expect("the plate compiles");
     let skipped: Vec<_> = session

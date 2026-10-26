@@ -8,10 +8,22 @@ pub mod workspace;
 
 use crate::errors::{CliError, Result};
 use quillmark::{CalendarDate, Diagnostic, Document, Quill};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub fn load_quill(path: &Path) -> Result<Quill> {
     Ok(quillmark::quill_from_path(path)?)
+}
+
+/// The bytes of each `--font` file, in the order given.
+pub fn read_fonts(paths: &[PathBuf]) -> Result<Vec<Vec<u8>>> {
+    paths
+        .iter()
+        .map(|path| {
+            std::fs::read(path).map_err(|e| {
+                CliError::Io(std::io::Error::new(e.kind(), format!("Failed to read font '{}': {e}", path.display())))
+            })
+        })
+        .collect()
 }
 
 /// The render date the CLI supplies: `pinned` when given, else the local date,

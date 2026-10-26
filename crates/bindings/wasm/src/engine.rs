@@ -287,7 +287,8 @@ export type ContentMark = { start: number; end: number } & ContentMarkKind;
 export type ContentMarkKind =
     | { type: "strong" | "emph" | "underline" | "strike" | "code" }
     | { type: "link"; attrs: { url: string } }
-    | { type: "anchor"; attrs: { id: string } };
+    | { type: "anchor"; attrs: { id: string } }
+    | { type: "font_family"; attrs: { name: string } };
 
 /** A cell in a `TableProps`. `marks` rides the prose `ContentMark` shape, but
  * each mark's `start`/`end` are USV offsets into this cell's `text`, not into
@@ -299,12 +300,17 @@ export interface TableCell {
     align?: "left" | "center" | "right";
     /** The cell's vertical alignment; absent is the quill's. */
     valign?: "top" | "middle" | "bottom";
+    /** The columns the cell spans, from 2; absent is one. Each cell it covers
+     * holds its slot as an empty placeholder. */
+    colspan?: number;
+    /** The rows the cell spans, from 2; absent is one. */
+    rowspan?: number;
 }
 
-/** `props` of a `type: "table"` island: a pipe table normalized to one column
- * count that `header`, every row of `rows`, `aligns` and `widths` all share.
- * A layout key at its default is absent; one holding a value outside its type
- * stays as written and reads as absent. */
+/** `props` of a `type: "table"` island: a rectangular grid normalized to one
+ * column count that `header`, every row of `rows`, `aligns` and `widths` all
+ * share. A layout key at its default is absent; one holding a value outside
+ * its type stays as written and reads as absent. */
 export interface TableProps {
     header: TableCell[];
     rows: TableCell[][];
@@ -316,8 +322,9 @@ export interface TableProps {
     widths?: (number | null)[];
     /** The table's placement; absent is the quill's. */
     align?: "left" | "center" | "right";
-    /** `true` draws `header` as the first body row; absent is a header row. */
-    headless?: true;
+    /** How many rows from the top of `header` then `rows` are header rows;
+     * `0` draws `header` as the first body row, and absent is one. */
+    head?: number;
 }
 
 /** `props` of a `type: "image"` island. Stores and round-trips; no backend
@@ -592,20 +599,78 @@ pub struct Document {
 }
 
 #[cfg(feature = "render")]
-impl Default for Engine {
-    fn default() -> Self {
-        Self::new()
-    }
+#[wasm_bindgen(typescript_custom_section)]
+const FONT_FACE_TS: &'static str = r#"
+/** One face a session sets text in, with what an editor needs for an
+ * `@font-face` rule: the family, the CSS weight and style, and the font file.
+ * `index` is the face's place in `data` where the file is a collection. */
+export interface FontFace {
+    family: string;
+    weight: number;
+    style: "normal" | "italic" | "oblique";
+    index: number;
+    data: Uint8Array;
 }
+"#;
 
 #[cfg(feature = "render")]
 #[wasm_bindgen]
 impl Engine {
+    /// An engine whose sessions also set text in `fonts`, the host's font
+    /// library: each a `.ttf`, `.otf`, `.ttc` or `.otc` file, parsed once
+    /// here. A file in another format throws `engine::font_unsupported`, and
+    /// one holding no readable face `engine::font_unreadable`.
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Engine {
-        Engine {
-            inner: quillmark::Engine::new(),
+    pub fn new(
+        #[wasm_bindgen(unchecked_param_type = "Uint8Array[] | undefined")] fonts: JsValue,
+    ) -> Result<Engine, JsValue> {
+        let fonts: Vec<Vec<u8>> = if fonts.is_undefined() || fonts.is_null() {
+            Vec::new()
+        } else if Array::is_array(&fonts) {
+            Array::from(&fonts)
+                .iter()
+                .map(|font| match font.dyn_into::<Uint8Array>() {
+                    Ok(bytes) => Ok(bytes.to_vec()),
+                    Err(_) => Err(WasmError::from("fonts: every entry is a Uint8Array").to_js_value()),
+                })
+                .collect::<Result<_, _>>()?
+        } else {
+            return Err(WasmError::from("fonts: expected an array of Uint8Array").to_js_value());
+        };
+        let inner = quillmark::Engine::with_fonts(fonts).map_err(|e| WasmError::from(e).to_js_value())?;
+        Ok(Engine { inner })
+    }
+
+    /// The text faces a `font_family` mark may set in a session of `quill`:
+    /// the host library's, in library order.
+    #[wasm_bindgen(js_name = fontFaces, unchecked_return_type = "FontFace[]")]
+    pub fn font_faces(&self, quill: &Quill) -> Result<JsValue, JsValue> {
+        let faces = self
+            .inner
+            .font_faces(&quill.inner)
+            .map_err(|e| WasmError::from(e).to_js_value())?;
+        let out = Array::new();
+        // The faces of one collection share its bytes, which cross once.
+        let mut file: Option<(*const u8, Uint8Array)> = None;
+        for face in faces {
+            let data = match &file {
+                Some((at, array)) if *at == face.data.as_ptr() => array.clone(),
+                _ => {
+                    let array = Uint8Array::from(&face.data[..]);
+                    file = Some((face.data.as_ptr(), array.clone()));
+                    array
+                }
+            };
+            let entry = js_sys::Object::new();
+            let set = |key: &str, value: JsValue| js_sys::Reflect::set(&entry, &key.into(), &value);
+            set("family", face.family.into())?;
+            set("weight", face.weight.into())?;
+            set("style", face.style.into())?;
+            set("index", face.index.into())?;
+            set("data", data.into())?;
+            out.push(&entry);
         }
+        Ok(out.into())
     }
 
     /// Open a live render session for `doc` against `quill`'s backend, on the
@@ -953,11 +1018,14 @@ impl Document {
         quillmark_core::document::peek_storage_version(json)
     }
 
-    /// Storage version this build writes via [`toStored`](Document::to_stored). The
-    /// tag advances only when the wire format changes, not on every release.
+    /// The newest storage version this build writes via
+    /// [`toStored`](Document::to_stored): a document spelling a font mark
+    /// carries it, every other the tag before it, which a build predating font
+    /// marks reads. The tag advances only when the wire format changes, not on
+    /// every release.
     #[wasm_bindgen(js_name = currentStorageVersion)]
     pub fn current_storage_version() -> String {
-        quillmark_core::document::STORAGE_V0_129_0.to_string()
+        quillmark_core::document::STORAGE_V0_131_0.to_string()
     }
 
     /// The Quillmark Markdown rules, re-exposed from core. Constant across
