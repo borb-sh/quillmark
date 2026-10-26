@@ -97,6 +97,22 @@ struct RawCell {
 struct RawRow {
     at: usize,
     cells: Vec<RawCell>,
+    /// Whether the row's cells, those the scan leaves out among them, are all
+    /// `<th>`, and the longest `rowspan` among them, 0 for a row of none.
+    th: bool,
+    rowspan: usize,
+    /// Whether the scan left out a cell past the table's slot budget.
+    cut: bool,
+}
+
+impl RawRow {
+    fn new(at: usize) -> Self {
+        Self { at, cells: Vec::new(), th: true, rowspan: 0, cut: false }
+    }
+
+    fn heading(&self) -> bool {
+        self.rowspan > 0 && self.th
+    }
 }
 
 struct RawGroup {
@@ -109,10 +125,12 @@ struct RawTable {
     layout: Map<String, Value>,
     aligns: Vec<&'static str>,
     groups: Vec<RawGroup>,
+    /// The `colspan` totals of the head, body and foot cells kept so far.
+    slots: [usize; 3],
 }
 
 /// Each table an HTML block's `text` spells and what it drops, at the source
-/// offset `at` maps a block offset to.
+/// offset `at` maps a block offset to, the tables' slots spent from `budget`.
 ///
 /// The subset's tags are structure wherever they stand outside a code span, a
 /// comment, an angle-bracketed link destination or a backslash escape in a
@@ -120,23 +138,25 @@ struct RawTable {
 /// cell drops alone, and so does text outside every cell. A `<table>` the
 /// block ends before its `</table>`, or that another `<table>` interrupts,
 /// closes there.
-pub(crate) fn scan(text: &str, at: impl Fn(usize) -> usize) -> (Vec<Table>, Vec<(Dropped, usize)>) {
-    let s = run(text, at);
+pub(crate) fn scan(text: &str, at: impl Fn(usize) -> usize, budget: &mut usize) -> (Vec<Table>, Vec<(Dropped, usize)>) {
+    let s = run(text, at, *budget);
+    *budget = s.budget;
     (s.tables, s.drops)
 }
 
 /// The offset just past each `</table>` closing a table in an HTML block's
 /// `text` that anything but whitespace follows.
 pub(crate) fn tails(text: &str) -> Vec<usize> {
-    let mut ends = run(text, |i| i).ends;
+    let mut ends = run(text, |i| i, 0).ends;
     ends.retain(|&end| !text[end..].trim().is_empty());
     ends
 }
 
-fn run<F: Fn(usize) -> usize>(text: &str, at: F) -> Scan<'_, F> {
+fn run<F: Fn(usize) -> usize>(text: &str, at: F, budget: usize) -> Scan<'_, F> {
     let mut s = Scan {
         text,
         at,
+        budget,
         tables: Vec::new(),
         drops: Vec::new(),
         ends: Vec::new(),
@@ -148,6 +168,7 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F) -> Scan<'_, F> {
     let b = text.as_bytes();
     let last_close = text.rfind("-->");
     let mut runs: Option<HashMap<usize, Vec<usize>>> = None;
+    let mut tags: Option<Vec<usize>> = None;
     let mut i = 0;
     let mut stray = false;
     while i < b.len() {
@@ -158,7 +179,9 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F) -> Scan<'_, F> {
                     continue;
                 }
                 b'`' => {
-                    i = code_span_end(b, i, runs.get_or_insert_with(|| backtick_runs(b)));
+                    let runs = runs.get_or_insert_with(|| backtick_runs(b));
+                    let tags = tags.get_or_insert_with(|| tag_spans(text).map(|t| t.start).collect());
+                    i = code_span_end(b, i, runs, tags);
                     continue;
                 }
                 b']' if text[i..].starts_with("](<") => {
@@ -203,6 +226,8 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F) -> Scan<'_, F> {
 struct Scan<'a, F> {
     text: &'a str,
     at: F,
+    /// The slots the block's tables may still take.
+    budget: usize,
     tables: Vec<Table>,
     drops: Vec<(Dropped, usize)>,
     /// The offset past each `</table>` that closes a table.
@@ -230,7 +255,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
                     "align" => one_of(value, &TABLE_ALIGNS).map(|a| layout.insert(attr.into(), a.into())).is_some(),
                     _ => false,
                 });
-                self.table = Some(RawTable { at, layout, aligns, groups: Vec::new() });
+                self.table = Some(RawTable { at, layout, aligns, groups: Vec::new(), slots: [0; 3] });
             }
             ("table", true) => {
                 if self.table.is_some() {
@@ -258,7 +283,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
             ("tr", false) => {
                 self.close_row(i);
                 self.attrs(name, tag, at, |_, _| false);
-                self.row = Some(RawRow { at, cells: Vec::new() });
+                self.row = Some(RawRow::new(at));
             }
             ("tr", true) => self.close_row(i),
             (_, false) => {
@@ -272,7 +297,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
                     "valign" => one_of(value, &CELL_VALIGNS).map(|v| keys.insert(attr.into(), v.into())).is_some(),
                     _ => false,
                 });
-                self.row.get_or_insert_with(|| RawRow { at, cells: Vec::new() });
+                self.row.get_or_insert_with(|| RawRow::new(at));
                 let start = tag.span.end;
                 let content = String::new();
                 let at = (self.at)(start);
@@ -296,13 +321,27 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
         }
     }
 
+    /// Close the open cell at block offset `end`. A cell placed past every
+    /// slot the budget leaves, by the `colspan` totals of the cells it follows
+    /// in grid order, is left out, its row marked cut: no grid holds it, and
+    /// the scan holds no more cells than a grid could.
     fn close_cell(&mut self, end: usize) {
-        if let Some(mut cell) = self.cell.take() {
-            cell.content = self.text[cell.start..end.max(cell.start)].to_string();
-            if let Some(row) = self.row.as_mut() {
-                row.cells.push(cell);
-            }
+        let (Some(mut cell), Some(row), Some(table)) = (self.cell.take(), self.row.as_mut(), self.table.as_mut()) else {
+            return;
+        };
+        row.th &= cell.tag == "th";
+        row.rowspan = row.rowspan.max(cell.rowspan);
+        let kind = match table.groups.last() {
+            Some(group) if self.group_open => group.kind,
+            _ => Group::Body,
+        } as usize;
+        table.slots[kind] = table.slots[kind].saturating_add(cell.colspan);
+        if table.slots[..=kind].iter().fold(0, |sum: usize, &n| sum.saturating_add(n)) > self.budget {
+            row.cut = true;
+            return;
         }
+        cell.content = self.text[cell.start..end.max(cell.start)].to_string();
+        row.cells.push(cell);
     }
 
     fn close_row(&mut self, end: usize) {
@@ -329,7 +368,8 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
         if cut {
             self.drops.push((Dropped::Table, raw.at));
         }
-        if let Some(table) = resolve(raw, &mut self.drops) {
+        if let Some(table) = resolve(raw, self.budget, &mut self.drops) {
+            self.budget -= table.rows.len() * table.aligns.len();
             self.tables.push(table);
         }
     }
@@ -343,20 +383,20 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
 /// The grid is as wide as its widest row. A `rowspan` stops at the end of its
 /// row group, and a span over a slot an earlier span covers is left for
 /// normalization to settle. A row too short pads, reported. The rows from the
-/// first that takes the grid past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS)
-/// slots drop, reported. `None` for a table holding no cell within that.
-fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
+/// first that takes the grid past `budget` slots drop, reported. `None` for a
+/// table holding no cell within that.
+fn resolve(raw: RawTable, budget: usize, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
     let mut groups = raw.groups;
     if !groups.iter().any(|g| g.kind == Group::Head)
         && let Some(first) = groups.first_mut().filter(|g| g.kind == Group::Body)
     {
-        let heading = |row: &RawRow| !row.cells.is_empty() && row.cells.iter().all(|c| c.tag == "th");
-        let lead = first.rows.iter().take_while(|row| heading(row)).count();
-        let contained = |n: usize| {
-            let mut spans = first.rows[..n].iter().enumerate().flat_map(|(r, row)| row.cells.iter().map(move |c| (r, c)));
-            spans.all(|(r, cell)| r.saturating_add(cell.rowspan) <= n)
-        };
-        let n = (1..=lead).rev().find(|&n| contained(n)).unwrap_or(0);
+        let (mut n, mut reach) = (0, 0);
+        for (r, row) in first.rows.iter().take_while(|row| row.heading()).enumerate() {
+            reach = reach.max(r.saturating_add(row.rowspan));
+            if reach <= r + 1 {
+                n = r + 1;
+            }
+        }
         let rows: Vec<RawRow> = first.rows.drain(..n).collect();
         groups.insert(0, RawGroup { kind: Group::Head, rows });
     }
@@ -377,7 +417,7 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
             while covers.get(x).is_some_and(|&n| n > 0) {
                 x += 1;
             }
-            if x + cell.colspan > crate::MAX_TABLE_CELLS / (r + 1) {
+            if x + cell.colspan > budget / (r + 1) {
                 past = true;
                 break;
             }
@@ -398,7 +438,7 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
             x += cell.colspan;
         }
         let wide = covers.iter().rposition(|&n| n > 0).map_or(cols, |k| cols.max(k + 1));
-        if past || (r + 1).saturating_mul(wide) > crate::MAX_TABLE_CELLS {
+        if past || row.cut || (r + 1).saturating_mul(wide) > budget {
             drops.push((Dropped::TableSize, row.at));
             break;
         }
@@ -435,14 +475,22 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
 }
 
 /// The offset just past the code span a backtick run at `i` opens: through
-/// the next run of its length in `runs`, or past the run where none closes it.
-fn code_span_end(b: &[u8], i: usize, runs: &HashMap<usize, Vec<usize>>) -> usize {
+/// the next run of its length in `runs`, or past the run where none closes it
+/// before the next of the subset's `tags`, which a code span in a cell never
+/// holds.
+fn code_span_end(b: &[u8], i: usize, runs: &HashMap<usize, Vec<usize>>, tags: &[usize]) -> usize {
     let n = b[i..].iter().take_while(|&&c| c == b'`').count();
     let starts = runs.get(&n).map_or(&[][..], Vec::as_slice);
+    let tag = tags.get(tags.partition_point(|&at| at < i + n)).copied().unwrap_or(usize::MAX);
     match starts.get(starts.partition_point(|&at| at < i + n)) {
-        Some(&at) => at + n,
-        None => i + n,
+        Some(&at) if at < tag => at + n,
+        _ => i + n,
     }
+}
+
+/// The span of each of the subset's tags in `text`, wherever it stands.
+pub(crate) fn tag_spans(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
+    text.match_indices('<').filter_map(|(i, _)| html::tag_at(text, i).filter(|t| is_tag(t.name)).map(|t| t.span))
 }
 
 /// Where each maximal run of backticks in `b` starts, by its length.
@@ -551,12 +599,33 @@ pub(crate) fn cell_source(content: &str) -> String {
 }
 
 /// The inline events of `src`, a [`cell_source`], with its sentinels taken off
-/// the text events that hold them.
+/// the text events that hold them, and each code span split around the
+/// subset's tags it holds, each tag its text, as a span the scan reads never
+/// holds one.
 pub(crate) fn cell_events(src: &str) -> Vec<(Event<'_>, Range<usize>)> {
-    let mut events: Vec<(Event, Range<usize>)> = Parser::new_ext(src, crate::import::options())
-        .into_offset_iter()
-        .filter(|(e, _)| !matches!(e, Event::Start(PTag::Paragraph) | Event::End(TagEnd::Paragraph)))
-        .collect();
+    let mut events: Vec<(Event, Range<usize>)> = Vec::new();
+    for (event, range) in Parser::new_ext(src, crate::import::options()).into_offset_iter() {
+        match event {
+            Event::Start(PTag::Paragraph) | Event::End(TagEnd::Paragraph) => {}
+            Event::Code(code) if tag_spans(&code).next().is_some() => {
+                let mut taken = 0;
+                for tag in tag_spans(&code).collect::<Vec<_>>() {
+                    if tag.start < taken {
+                        continue;
+                    }
+                    if taken < tag.start {
+                        events.push((Event::Code(code[taken..tag.start].to_string().into()), range.clone()));
+                    }
+                    events.push((Event::Text(code[tag.clone()].to_string().into()), range.clone()));
+                    taken = tag.end;
+                }
+                if taken < code.len() {
+                    events.push((Event::Code(code[taken..].to_string().into()), range.clone()));
+                }
+            }
+            event => events.push((event, range)),
+        }
+    }
     let first = events.iter().position(|(e, _)| matches!(e, Event::Text(_)));
     let last = events.iter().rposition(|(e, _)| matches!(e, Event::Text(_)));
     for (k, lead) in [(first, true), (last, false)] {

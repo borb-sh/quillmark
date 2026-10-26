@@ -5,7 +5,7 @@
 use crate::carrier;
 use crate::html::{self, BlockKind};
 use crate::html_table;
-use pulldown_cmark::{Event, Options, Parser, Tag as PTag, TagEnd};
+use pulldown_cmark::{Event, OffsetIter, Options, Parser, Tag as PTag, TagEnd};
 use std::ops::Range;
 
 /// The Unicode bidi formatting controls, which sit adjacent to `**`/`_` and
@@ -79,31 +79,24 @@ fn admit_chars(s: &str) -> String {
 /// sets a line of carrier tags in an HTML block apart from the markdown beside
 /// it (markdown-spec §6.2, §7 step 5). Each round parses and edits only inside
 /// the spans that parse located, so a fence is never touched; the rounds end
-/// at one that plans no edit, whose parse `f` takes.
+/// at one that plans no edit, and `f` takes a parse of the text they leave,
+/// read as it goes rather than held whole.
 pub(crate) fn parse_markdown<R>(
     markdown: &str,
     options: Options,
-    f: impl FnOnce(&str, Vec<(Event<'_>, Range<usize>)>) -> R,
+    f: impl FnOnce(&str, OffsetIter<'_>) -> R,
 ) -> R {
     let mut text = admit_chars(&normalize_line_endings(markdown));
-    fn parse(text: &str, options: Options) -> Vec<(Event<'_>, Range<usize>)> {
-        Parser::new_ext(text, options).into_offset_iter().collect()
-    }
-    let parsed = 'repair: {
-        if may_need_repair(&text) {
-            for _ in 0..REPAIR_ROUNDS {
-                let events = parse(&text, options);
-                let edits = plan(&text, &events);
-                if edits.is_empty() {
-                    break 'repair Some(events);
-                }
-                text = apply(&text, &edits);
+    if may_need_repair(&text) {
+        for _ in 0..REPAIR_ROUNDS {
+            let edits = plan(&text, Parser::new_ext(&text, options).into_offset_iter());
+            if edits.is_empty() {
+                break;
             }
+            text = apply(&text, &edits);
         }
-        None
-    };
-    let events = parsed.unwrap_or_else(|| parse(&text, options));
-    f(&text, events)
+    }
+    f(&text, Parser::new_ext(&text, options).into_offset_iter())
 }
 
 #[cfg(test)]
@@ -132,7 +125,7 @@ struct Edit {
     with: String,
 }
 
-fn plan(src: &str, events: &[(Event, Range<usize>)]) -> Vec<Edit> {
+fn plan<'a>(src: &str, events: impl Iterator<Item = (Event<'a>, Range<usize>)>) -> Vec<Edit> {
     let mut edits: Vec<Edit> = Vec::new();
     let mut block: Option<Vec<usize>> = None;
     let mut row: Option<usize> = None;
@@ -596,6 +589,7 @@ mod tests {
             ("<table><tr><td>a</td></tr></table> Prose.", "<table><tr><td>a</td></tr></table>\n\nProse."),
             ("> <table><tr><td>a</td></tr></table>\n> Prose.", "> <table><tr><td>a</td></tr></table>\n>\n> Prose."),
             ("- <table><tr><td>a</td></tr></table> Prose.", "- <table><tr><td>a</td></tr></table>\n\n  Prose."),
+            ("<table><tr><td>`</table>` b</td></tr></table>", "<table><tr><td>`</table>\n\n` b</td></tr></table>"),
             (
                 "<table><tr><td>a</td></tr></table>\n<table><tr><td>b</td></tr></table>",
                 "<table><tr><td>a</td></tr></table>\n\n<table><tr><td>b</td></tr></table>",
@@ -614,7 +608,6 @@ mod tests {
         }
         for md in [
             "<table><tr><td>a</td></tr></table>",
-            "<table><tr><td>`</table>` b</td></tr></table>",
             "<table><tr><td>a</td></tr></table>\n```\nx",
         ] {
             assert_eq!(normalized(md), md);

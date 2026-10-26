@@ -1045,9 +1045,16 @@ fn render_marked_core(
     // encoding for either (`` `![x](y)` `` and `` `<br>` `` are *literal* text),
     // so split each code range around every slot and `\n` it covers and let
     // the island or break render between the surviving code spans.
+    //
+    // A code span in an HTML table's cell ends at the subset's next tag, so a
+    // range holding one splits around it too, the tag written as escaped text.
     let mut code_ranges: Vec<(usize, usize)> = code_ranges
         .iter()
         .flat_map(|&(s, e)| split_around_slots(chars, s, e))
+        .flat_map(|(s, e)| match esc.frag {
+            Frag::HtmlCell => split_around_table_tags(chars, s, e),
+            _ => vec![(s, e)],
+        })
         .collect();
     // The sweep reaches the atomic spans with a cursor, so both lists are put in
     // start order here rather than re-scanned at every position.
@@ -1522,6 +1529,31 @@ fn split_around_slots(chars: &[char], start: usize, end: usize) -> Vec<(usize, u
     out
 }
 
+/// The pieces of the code range `start..end` of `chars` outside each of the
+/// HTML table subset's tags its text holds.
+fn split_around_table_tags(chars: &[char], start: usize, end: usize) -> Vec<(usize, usize)> {
+    let text: String = chars[start..end].iter().collect();
+    let mut out = Vec::new();
+    let (mut run, mut byte, mut at) = (start, 0, start);
+    for tag in crate::html_table::tag_spans(&text) {
+        if tag.start < byte {
+            continue;
+        }
+        at += text[byte..tag.start].chars().count();
+        let len = text[tag.clone()].chars().count();
+        if run < at {
+            out.push((run, at));
+        }
+        at += len;
+        byte = tag.end;
+        run = at;
+    }
+    if run < end {
+        out.push((run, end));
+    }
+    out
+}
+
 /// Nest `strong`/`emph` marks that partially overlap, by truncating the
 /// later-opening one to its enclosing sibling's end. Both render as runs of the
 /// same character, so a reopened `*` abutting a `**` would merge into an
@@ -1725,7 +1757,7 @@ fn longest_backtick_run(s: &str) -> usize {
 mod tests {
     use super::*;
     use crate::import::from_markdown;
-    use crate::model::{Line, Mark};
+    use crate::model::{Line, Mark, MarkKind};
 
     /// export∘import is the identity on the content.
     /// A content built by hand, as a client writing `Content` directly builds
@@ -2439,14 +2471,15 @@ mod tests {
     }
 
     /// An HTML cell's text writes so no `<` reads as a tag and no `&` as an
-    /// entity, a code span or a link destination holding a table tag
-    /// included, and a `|` needs no escape there.
+    /// entity, a link destination holding a table tag included, and a `|`
+    /// needs no escape there. A code span never holds a table tag, so a code
+    /// mark over one writes it as escaped text between the spans either side.
     #[test]
     fn an_html_cell_writes_what_would_read_as_markup() {
         use serde_json::json;
         let text = "a | </td> &amp; <tr> x";
         let marks = json!([
-            {"start": 4, "end": 9, "type": "code"},
+            {"start": 2, "end": 9, "type": "code"},
             {"start": 16, "end": 20, "type": "link", "attrs": {"url": "td x</tr>"}},
             {"start": 0, "end": 1, "type": "strong"},
         ]);
@@ -2458,11 +2491,14 @@ mod tests {
         let md = to_markdown(&rt);
         assert_eq!(
             md,
-            "<table>\n<tbody>\n<tr><td>**a** | `</td>` \\&amp; [\\<tr>](<td x\\</tr\\>>) x</td></tr>\n</tbody>\n</table>"
+            "<table>\n<tbody>\n<tr><td>**a** `| `\\</td> \\&amp; [\\<tr>](<td x\\</tr\\>>) x</td></tr>\n</tbody>\n</table>"
         );
         let back = from_markdown(&md).unwrap();
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
-        assert_eq!(back.content, rt);
+        let (text_back, marks_back) = crate::serial::parse_cell(&back.content.islands[0].props["header"][0]);
+        assert_eq!(text_back, text);
+        assert!(marks_back.contains(&Mark::new(2, 4, MarkKind::Code)), "{marks_back:?}");
+        assert_eq!(to_markdown(&back.content), md);
     }
 
     #[test]
