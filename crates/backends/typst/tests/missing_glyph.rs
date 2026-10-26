@@ -11,7 +11,7 @@ fn missing(a: &str) -> Vec<String> {
         &common::yaml("main:\n  fields:\n    a:\n      type: text\n"),
         "#import \"@local/quillmark-helper:0.2.0\" as qm\n#set text(font: \"Roboto\")\n#qm.data.a\n",
     );
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(&quill, &serde_json::json!({ "a": a }), common::test_date())
         .expect("the plate compiles");
     session
@@ -60,7 +60,7 @@ fn text_the_page_never_draws_warns_nothing() {
         &common::yaml("main:\n  fields:\n    a:\n      type: text\n"),
         "#set text(font: \"Roboto\")\n#link(\"https://例え.jp/パス\")[idn]\n",
     );
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(&quill, &serde_json::json!({ "a": "中文" }), common::test_date())
         .expect("the plate compiles");
     assert!(session

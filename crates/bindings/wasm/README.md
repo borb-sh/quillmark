@@ -182,10 +182,11 @@ const doc = Document.storageVersionOf(content)
   : Document.fromMarkdown(content);
 ```
 
-The `schema` value (`quillmark/document@0.129.0`) is the **model version**,
-not the running crate version. It is a hand-set constant, bumped only when
-the `Document` model itself changes, so every `0.129.x` patch release reads
-and writes that same value.
+The `schema` value (`quillmark/document@0.131.0` for a document holding a font
+mark, `@0.129.0` for any other) is the **model version**, not the running crate
+version. It is a hand-set constant, bumped only when the `Document` model
+itself changes, so every `0.131.x` patch release reads and writes those same
+values.
 
 - **Upgrading is safe.** A newer build reads documents an older build's
   *writer* produced. Each schema version's wire format is frozen and never
@@ -206,19 +207,25 @@ and writes that same value.
   read, newer than the build or retired, rather than guessing at its format.
   Don't feed documents written by a newer build back into an older one.
 
-To detect a version mismatch before parsing, use the static accessors:
+`Document.currentStorageVersion()` is the newest tag this build writes. A
+save writes the oldest tag that holds the row, so a fresh row can carry an
+older tag still read: a row with no font mark saves as
+`quillmark/document@0.129.0`. A tag other than `currentStorageVersion()` is
+therefore not a mismatch. Use `storageVersionOf` after `fromStored` throws,
+to tell "a version this build does not read" from "corrupt":
 
 ```ts
-const v = Document.storageVersionOf(blob); // undefined | string
-if (v && v !== Document.currentStorageVersion()) {
-  // payload is from a build with a different model version
+try {
+  return Document.fromStored(blob);
+} catch (err) {
+  const v = Document.storageVersionOf(blob); // undefined | string
+  // v: a tag this build does not read; undefined: not a stored document
 }
 ```
 
 `storageVersionOf` does not validate the payload: it only reads the
 `schema` field, returning `undefined` for non-JSON, non-objects, or
-payloads that don't carry one. Use it to distinguish "wrong version" from
-"corrupt" when `fromStored` throws.
+payloads that don't carry one.
 
 In short: persist the `toStored` string, resave rows under a retired tag
 before upgrading past it, never downgrade. The full design (including how

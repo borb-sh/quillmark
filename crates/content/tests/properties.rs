@@ -77,6 +77,10 @@ fn inline_token() -> impl Strategy<Value = String> {
         clean_word().prop_map(|w| format!("~~{w}~~")),
         code_span(),
         clean_word().prop_map(|w| format!("<u>{w}</u>")),
+        clean_word().prop_map(|w| format!("<qm-span family=\"Carlito\">{w}</qm-span>")),
+        (clean_word(), clean_word()).prop_map(|(w, v)| format!(
+            "<qm-span family=\"Noto Serif\">{w} <qm-span family=\"Carlito\">**{v}**</qm-span></qm-span>"
+        )),
         (clean_word(), clean_word()).prop_map(|(t, u)| format!("[{t}](https://ex.com/{u})")),
         (clean_word(), special_url()).prop_map(|(t, u)| format!("[{t}](<{u}>)")),
         (special_alt(), special_url()).prop_map(|(a, u)| format!("![{a}](<{u}>)")),
@@ -229,12 +233,18 @@ fn delimiter_run() -> impl Strategy<Value = String> {
     .prop_map(|toks| toks.concat())
 }
 
+/// The formatting kinds an editor can lay over a span, two font families
+/// included.
+const OV_KINDS: u8 = 6;
+
 fn ov_kind(i: u8) -> MarkKind {
-    match i % 4 {
+    match i % OV_KINDS {
         0 => MarkKind::Strong,
         1 => MarkKind::Emph,
         2 => MarkKind::Strike,
-        _ => MarkKind::Underline,
+        3 => MarkKind::Underline,
+        4 => MarkKind::FontFamily { name: "Carlito".into() },
+        _ => MarkKind::FontFamily { name: "Noto Serif".into() },
     }
 }
 
@@ -311,7 +321,7 @@ proptest! {
     fn overlapping_marks_export_is_text_safe(
         raw in "[a-z]{4,8}",
         x in 0usize..64, y in 0usize..64, z in 0usize..64,
-        k1i in 0u8..5, k2i in 0u8..5,
+        k1i in 0u8..OV_KINDS, k2i in 0u8..OV_KINDS,
     ) {
         let text = raw;
         let n = text.chars().count();
@@ -364,7 +374,7 @@ proptest! {
             ]),
             2..10,
         ),
-        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..5), 0..4),
+        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..OV_KINDS), 0..4),
     ) {
         // Word-char edges keep the mark-free baseline a round-trip fixed point;
         // the mixed chars live in the interior, where marks clash with flanking
@@ -681,6 +691,77 @@ proptest! {
         }
     }
 
+    /// Font marks in any raw arrangement normalize to one family per
+    /// character, the one the raw marks rank first there (the later start,
+    /// then the shorter, then the later name). An `Add` of a family then sets
+    /// exactly its range, a deletion or an insertion keeps every kept
+    /// character's family, and inserted text takes a family only inside a
+    /// run of one.
+    #[test]
+    fn font_marks_settle_to_one_family_per_character(
+        raw in prop::collection::vec((0usize..12, 0usize..12, 0usize..3), 0..6),
+        add in (0usize..12, 0usize..12, 0usize..3),
+        cut in (0usize..12, 0usize..12),
+        put in (0usize..13, 1usize..3),
+    ) {
+        const NAMES: [&str; 3] = ["Arimo", "Bitter", "Carlito"];
+        let family = |i: usize| MarkKind::FontFamily { name: NAMES[i].into() };
+        let per_char = |marks: &[Mark], len: usize| -> Vec<Option<String>> {
+            (0..len)
+                .map(|c| {
+                    marks
+                        .iter()
+                        .filter(|m| m.start <= c && c < m.end)
+                        .filter_map(|m| match &m.kind {
+                            MarkKind::FontFamily { name } => Some((m.start, std::cmp::Reverse(m.end), name.clone())),
+                            _ => None,
+                        })
+                        .max()
+                        .map(|(_, _, name)| name)
+                })
+                .collect()
+        };
+        let overlap_free = |marks: &[Mark]| {
+            let fonts: Vec<_> = marks.iter().filter(|m| matches!(m.kind, MarkKind::FontFamily { .. })).collect();
+            fonts.windows(2).all(|w| w[0].end <= w[1].start)
+        };
+
+        let marks: Vec<Mark> = raw.iter().map(|&(a, b, f)| Mark::new(a.min(b), a.max(b), family(f))).collect();
+        let mut rt = Content::new("abcdefghijkl".into(), vec![Line::new(LineKind::Para)])
+            .with_marks(marks.clone())
+            .into_normalized();
+        let mut want = per_char(&marks, 12);
+        prop_assert_eq!(per_char(&rt.marks, 12), want.clone(), "normalize changed a family");
+        prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
+        prop_assert_eq!(&renormalized(&rt), &*rt, "the mint left a repairable shape");
+
+        let (a, b) = (add.0.min(add.1), add.0.max(add.1));
+        if a < b {
+            rt.apply_mark_ops(&[MarkOp::Add { start: a, end: b, kind: family(add.2) }]).unwrap();
+            want[a..b].fill(Some(NAMES[add.2].to_string()));
+            prop_assert_eq!(per_char(&rt.marks, 12), want.clone(), "an Add did not set its range");
+            prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
+        }
+
+        let (p, q) = (cut.0.min(cut.1), cut.0.max(cut.1));
+        let delta = Delta { ops: retain(p).into_iter().chain([Op::Delete(q - p)]).chain(retain(12 - q)).collect() };
+        if p < q {
+            rt.apply_text_delta(&delta).unwrap();
+            want.drain(p..q);
+            prop_assert_eq!(per_char(&rt.marks, 12 - (q - p)), want.clone(), "a deletion changed a kept family");
+            prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
+        }
+
+        let len = want.len();
+        let at = put.0 % (len + 1);
+        let delta = Delta { ops: retain(at).into_iter().chain([Op::Insert("x".repeat(put.1))]).chain(retain(len - at)).collect() };
+        rt.apply_text_delta(&delta).unwrap();
+        let inside = (0 < at && at < len && want[at - 1] == want[at]).then(|| want[at].clone()).flatten();
+        want.splice(at..at, std::iter::repeat_n(inside, put.1));
+        prop_assert_eq!(per_char(&rt.marks, len + put.1), want, "an insertion changed a kept family");
+        prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
+    }
+
     /// `apply_line_ops` preserves `validate()` across an accepted
     /// split/join/set-kind/set-continues. Split/join splice a `\n` and rebase
     /// marks through that one-char change, so keeping the imported marks
@@ -832,7 +913,7 @@ proptest! {
             prop::sample::select(vec!['a', 'b', '9', '\n', ' ']),
             1..10,
         ),
-        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..6), 0..4),
+        specs in prop::collection::vec((0usize..64, 0usize..64, 0u8..=OV_KINDS), 0..4),
     ) {
         let text: String = chars.into_iter().collect();
         let n = text.chars().count();
@@ -840,7 +921,7 @@ proptest! {
             .iter()
             .map(|&(a, b, k)| {
                 let (s, e) = (a % (n + 1), b % (n + 1));
-                let kind = if k == 5 { MarkKind::Code } else { ov_kind(k) };
+                let kind = if k == OV_KINDS { MarkKind::Code } else { ov_kind(k) };
                 quillmark_content::serial::mark_to_value(&Mark::new(s.min(e), s.max(e), kind))
             })
             .collect();

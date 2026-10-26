@@ -7,8 +7,13 @@ use crate::normalize::{is_bidi_char, is_line_separator};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+pub(crate) mod span;
+
 /// What every carrier tag name opens with.
 pub const PREFIX: &str = "qm-";
+
+/// The element name of the inline pair carrying a run's attribute marks.
+pub const SPAN: &str = "span";
 
 /// The anchor spelling's element name.
 pub const ANCHOR: &str = "anchor";

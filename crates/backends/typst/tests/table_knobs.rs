@@ -23,7 +23,7 @@ fn quill() -> Quill {
 
 fn svg(quill: &Quill, markdown: &str) -> String {
     let data = serde_json::json!({ "$body": content(markdown) });
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(quill, &data, common::test_date())
         .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
     let result = session
@@ -149,7 +149,7 @@ fn every_head_row_repeats_with_the_header() {
         "<table>\n<thead>\n<tr><th rowspan=\"2\">first</th><th>head</th></tr>\n<tr><th>second</th></tr>\n</thead>\n{body}</table>"
     );
     let data = serde_json::json!({ "$body": content(&md) });
-    let session = TypstBackend.open(&quill, &data, common::test_date()).expect("compiles");
+    let session = TypstBackend::default().open(&quill, &data, common::test_date()).expect("compiles");
     let result = session
         .render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
         .expect("render");

@@ -1114,6 +1114,11 @@ fn render_marked_core(
     // delimiters, apart from their nesting.
     let is_underline = |fi: usize| matches!(fmt[fi].2, MarkKind::Underline);
 
+    // A font mark is a `qm-span` pair, its tags outside the underlines' at a
+    // position as theirs are outside the delimiters'. Font marks never overlap,
+    // so neither do the pairs: one closes where the next opens.
+    let is_font = |fi: usize| matches!(fmt[fi].2, MarkKind::FontFamily { .. });
+
     // One mark sweep over the marks `keep` selects (indices into `fmt`) → inline
     // markdown and its tag points.
     let sweep = |keep: &[bool], d: Delims| -> (String, Vec<usize>) {
@@ -1124,6 +1129,7 @@ fn render_marked_core(
         // mark's identity, so a reopened mark re-emits its OWN delimiter.
         let mut stack: Vec<usize> = Vec::new();
         let mut underlines: Vec<usize> = Vec::new();
+        let mut font: Option<usize> = None;
         let (mut oi, mut li, mut ci) = (0usize, 0usize, 0usize);
         let mut pos = 0usize;
         while pos <= n {
@@ -1158,8 +1164,16 @@ fn render_marked_core(
                     }
                 }
             }
+            if let Some(fi) = font.filter(|&fi| fmt[fi].1 == pos) {
+                out.push_str(&font_pair(fmt[fi].2).close_tag());
+                font = None;
+            }
             let point = out.len();
             points.push(point);
+            if let Some(fi) = opening.iter().copied().find(|&fi| is_font(fi)) {
+                out.push_str(&font_pair(fmt[fi].2).open_tag());
+                font = Some(fi);
+            }
             let fresh = opening.iter().copied().filter(|&fi| is_underline(fi));
             for fi in reopen_underlines.into_iter().rev().chain(fresh) {
                 out.push_str("<u>");
@@ -1168,7 +1182,7 @@ fn render_marked_core(
             // Open formatting marks starting here BEFORE any atomic run, so a
             // formatting mark beginning at the same position as inline code/link
             // still wraps it rather than being dropped.
-            let fresh = opening.iter().copied().filter(|&fi| !is_underline(fi));
+            let fresh = opening.iter().copied().filter(|&fi| !is_underline(fi) && !is_font(fi));
             for fi in reopen.into_iter().rev().chain(fresh) {
                 out.push_str(delim(fmt[fi].2, d));
                 stack.push(fi);
@@ -1267,6 +1281,9 @@ fn render_marked_core(
             out.push_str(delim(fmt[fi].2, d));
         }
         out.push_str(&"</u>".repeat(underlines.len()));
+        if let Some(fi) = font {
+            out.push_str(&font_pair(fmt[fi].2).close_tag());
+        }
         (out, points)
     };
 
@@ -1274,13 +1291,13 @@ fn render_marked_core(
     // over a span markdown can't represent, and it lowers to a `**`/`*`/`~~` run
     // pulldown re-reads as literal text, leaking a delimiter into the content.
     // Re-parse the rendered line and, if its plain text drifted, search for a set
-    // of flanking marks that keeps the text intact. Underlines are read back
-    // beside them and dropped the same way: one the line cannot hold comes
-    // back as other markup or as nothing.
+    // of flanking marks that keeps the text intact. Underlines and font marks
+    // are read back beside them and dropped the same way: one the line cannot
+    // hold comes back as other markup or as nothing.
     let is_flanking = |k: &MarkKind| {
         matches!(
             k,
-            MarkKind::Strong | MarkKind::Emph | MarkKind::Strike | MarkKind::Underline
+            MarkKind::Strong | MarkKind::Emph | MarkKind::Strike | MarkKind::Underline | MarkKind::FontFamily { .. }
         )
     };
     let all = vec![true; fmt.len()];
@@ -1598,8 +1615,16 @@ const DELIM_SPELLINGS: [Delims; 4] = [
     Delims { strong: "__", emph: "_" },
 ];
 
-/// The delimiter that opens and closes `kind`. Code, link, anchor and
-/// underline are written elsewhere.
+/// The `qm-span` pair a `font_family` mark writes.
+fn font_pair(kind: &MarkKind) -> crate::carrier::Element {
+    match kind {
+        MarkKind::FontFamily { name } => crate::carrier::span::pair(name),
+        _ => unreachable!("only a font_family mark is a qm-span pair"),
+    }
+}
+
+/// The delimiter that opens and closes `kind`. Code, link, anchor, underline
+/// and font family are written elsewhere.
 fn delim(kind: &MarkKind, d: Delims) -> &'static str {
     match kind {
         MarkKind::Strong => d.strong,
@@ -2824,6 +2849,63 @@ mod tests {
                     Mark { start: strong.0, end: strong.1, kind: MarkKind::Strong },
                 ],
             );
+            assert_eq!(to_markdown(&rt), md);
+            assert_eq!(from_markdown(md).unwrap().content, rt);
+        }
+    }
+
+    /// A font mark is a `qm-span` pair, its tags outside the underlines' and
+    /// delimiters' at a position, so a second export spells the first.
+    /// Pairs never nest: nested markdown comes back as one flat pair per run.
+    #[test]
+    fn a_font_mark_writes_flat_pairs() {
+        for (md, want) in [
+            (
+                "The <qm-span family=\"Carlito\">phrase</qm-span> and **bold <qm-span family=\"Arimo\">sans</qm-span>**.",
+                "The <qm-span family=\"Carlito\">phrase</qm-span> and **bold <qm-span family=\"Arimo\">sans**</qm-span>.",
+            ),
+            (
+                "<qm-span family=\"A\">a<qm-span family=\"B\">b</qm-span>c</qm-span>",
+                "<qm-span family=\"A\">a</qm-span><qm-span family=\"B\">b</qm-span><qm-span family=\"A\">c</qm-span>",
+            ),
+            (
+                "x<qm-span family=\"A\"><u>**a**</u>b</qm-span>",
+                "x<qm-span family=\"A\"><u>**a**</u>b</qm-span>",
+            ),
+            (
+                "*a<qm-span family=\"A\">b*c</qm-span>",
+                "*a<qm-span family=\"A\">b*c</qm-span>",
+            ),
+            (
+                "<qm-span family=\"A\">a `b` c</qm-span>",
+                "<qm-span family=\"A\">a `b` c</qm-span>",
+            ),
+            (
+                "| <qm-span family=\"A&#x7C;B &quot;C&quot;\">a</qm-span> |\n| --- |",
+                "| <qm-span family=\"A&#x7C;B &quot;C&quot;\">a</qm-span> |\n| --- |",
+            ),
+            (
+                "a[^1]\n\n[^1]: <qm-span family=\"A\">n</qm-span>",
+                "a[^1]\n\n[^1]: <qm-span family=\"A\">n</qm-span>",
+            ),
+        ] {
+            let rt = from_markdown(md).unwrap().content;
+            assert_eq!(to_markdown(&rt), want, "export of {md:?}");
+            assert_eq!(from_markdown(want).unwrap().content, rt, "{want:?} did not return");
+        }
+
+        let family = |start, end, name: &str| Mark { start, end, kind: MarkKind::FontFamily { name: name.into() } };
+        for (marks, md) in [
+            (
+                vec![family(0, 2, "A"), family(2, 6, "B")],
+                "<qm-span family=\"A\">ab</qm-span><qm-span family=\"B\">cdef</qm-span>",
+            ),
+            (
+                vec![family(1, 3, "B"), family(4, 6, "A")],
+                "a<qm-span family=\"B\">bc</qm-span>d<qm-span family=\"A\">ef</qm-span>",
+            ),
+        ] {
+            let rt = marked("abcdef", marks);
             assert_eq!(to_markdown(&rt), md);
             assert_eq!(from_markdown(md).unwrap().content, rt);
         }

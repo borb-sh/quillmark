@@ -27,11 +27,16 @@ use super::{Card, Document};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
 
-/// Storage version tag newly serialized documents carry.
+/// The newest storage version tag: a serialized document holding a
+/// `font_family` mark carries it, every other [`STORAGE_V0_129_0`].
 ///
 /// The wire key is spelled `schema` though it names a storage version, not a
 /// field schema: it is the serde tag [`StoredDocument`] dispatches on, and
 /// retagging it would break the versioning it exists to serve.
+pub const STORAGE_V0_131_0: &str = "quillmark/document@0.131.0";
+
+/// The tag before [`STORAGE_V0_131_0`], read, and written for a document
+/// holding no `font_family` mark.
 pub const STORAGE_V0_129_0: &str = "quillmark/document@0.129.0";
 
 /// The tag before [`STORAGE_V0_129_0`], still read.
@@ -60,6 +65,8 @@ pub fn peek_storage_version(json: &str) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "schema")]
 pub enum StoredDocument {
+    #[serde(rename = "quillmark/document@0.131.0")]
+    V0_131_0(DocumentV0_131_0),
     #[serde(rename = "quillmark/document@0.129.0")]
     V0_129_0(DocumentV0_129_0),
     #[serde(rename = "quillmark/document@0.124.0")]
@@ -97,6 +104,10 @@ impl std::fmt::Display for StorageError {
 }
 
 impl std::error::Error for StorageError {}
+
+/// Frozen `0.131.0` representation of a [`Document`]: the V0_129_0 tree over
+/// the content vocabulary holding the `font_family` mark.
+pub type DocumentV0_131_0 = DocumentV0_129_0;
 
 /// Frozen `0.129.0` representation of a [`Document`]: the V0_124_0 tree over
 /// the content vocabulary holding the `footnote` and `math` islands, the
@@ -247,7 +258,42 @@ pub enum CommentPathSegmentV0_124_0 {
 
 impl From<Document> for StoredDocument {
     fn from(doc: Document) -> Self {
-        StoredDocument::V0_129_0(DocumentV0_129_0::from(&doc))
+        let tree = DocumentV0_131_0::from(&doc);
+        if spells_font_family(&tree) {
+            StoredDocument::V0_131_0(tree)
+        } else {
+            StoredDocument::V0_129_0(tree)
+        }
+    }
+}
+
+/// Whether `tree` holds a `font_family` mark, in a body or anywhere in a
+/// payload: the one member `0.131.0` adds, so a tree without one is written
+/// under `0.129.0`, which a build predating font marks reads.
+fn spells_font_family(tree: &DocumentV0_131_0) -> bool {
+    std::iter::once(&tree.main).chain(&tree.cards).any(|card| {
+        !card.body.0.font_families().is_empty()
+            || card.payload.items.iter().any(|item| match item {
+                PayloadItemV0_124_0::Field { value, .. } => json_spells_font_family(value),
+                PayloadItemV0_124_0::Ext { value } | PayloadItemV0_124_0::Seed { value } => {
+                    value.values().any(json_spells_font_family)
+                }
+                _ => false,
+            })
+    })
+}
+
+/// Whether `value` holds a `marks` list, a content value's or a table cell's,
+/// naming a `font_family` mark.
+fn json_spells_font_family(value: &serde_json::Value) -> bool {
+    let is_font = |mark: &serde_json::Value| mark.get("type").and_then(serde_json::Value::as_str) == Some("font_family");
+    match value {
+        serde_json::Value::Object(map) => {
+            map.get("marks").and_then(serde_json::Value::as_array).is_some_and(|marks| marks.iter().any(is_font))
+                || map.values().any(json_spells_font_family)
+        }
+        serde_json::Value::Array(items) => items.iter().any(json_spells_font_family),
+        _ => false,
     }
 }
 
@@ -351,7 +397,7 @@ impl TryFrom<StoredDocument> for Document {
 
     fn try_from(stored: StoredDocument) -> Result<Self, Self::Error> {
         match stored {
-            StoredDocument::V0_129_0(payload) => Document::try_from(payload),
+            StoredDocument::V0_131_0(payload) | StoredDocument::V0_129_0(payload) => Document::try_from(payload),
             StoredDocument::V0_124_0(payload) => {
                 Document::try_from(DocumentV0_129_0::try_from(payload)?)
             }
@@ -1338,6 +1384,46 @@ title: Hi
             "V0_129_0 serialize→deserialize is a byte-fixed point"
         );
         assert_eq!(peek_storage_version(&first).as_deref(), Some(STORAGE_V0_129_0));
+    }
+
+    /// A save takes `0.131.0` only for a row holding a `font_family` mark, in
+    /// a body or in a field value's marks, and is a byte-fixed point under it.
+    #[test]
+    fn a_font_mark_alone_takes_the_newest_tag() {
+        let tag = |doc: &Document| peek_storage_version(&serde_json::to_string(doc).unwrap());
+        let in_body = Document::parse(
+            "~~~card-yaml\n$quill: q@1.0\n$kind: main\n~~~\n\na <qm-span family=\"Carlito\">b</qm-span>\n",
+        )
+        .unwrap()
+        .document;
+        let first = serde_json::to_string(&in_body).unwrap();
+        assert_eq!(peek_storage_version(&first).as_deref(), Some(STORAGE_V0_131_0));
+        let restored: Document = serde_json::from_str(&first).unwrap();
+        assert_eq!(serde_json::to_string(&restored).unwrap(), first);
+
+        let mut row: serde_json::Value = serde_json::to_value(sample()).unwrap();
+        row["main"]["payload"]["items"].as_array_mut().unwrap().push(serde_json::json!({
+            "type": "field",
+            "key": "summary",
+            "value": {
+                "islands": [],
+                "lines": [{"containers": [], "kind": "para"}],
+                "marks": [{"attrs": {"name": "Carlito"}, "end": 1, "start": 0, "type": "font_family"}],
+                "text": "a",
+            },
+        }));
+        let in_field: Document = serde_json::from_value(row).unwrap();
+        assert_eq!(tag(&in_field).as_deref(), Some(STORAGE_V0_131_0));
+        assert_eq!(tag(&sample()).as_deref(), Some(STORAGE_V0_129_0));
+
+        let mut row: serde_json::Value = serde_json::to_value(sample()).unwrap();
+        row["main"]["payload"]["items"].as_array_mut().unwrap().push(serde_json::json!({
+            "type": "field",
+            "key": "style",
+            "value": { "type": "font_family", "name": "Carlito" },
+        }));
+        let plain: Document = serde_json::from_value(row).unwrap();
+        assert_eq!(tag(&plain).as_deref(), Some(STORAGE_V0_129_0));
     }
 
     /// Both tags refuse it, by two machineries: `CanonicalContent`'s

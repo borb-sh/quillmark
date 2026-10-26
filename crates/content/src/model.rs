@@ -419,6 +419,13 @@ pub enum MarkKind {
     Link {
         url: String,
     },
+    /// The font family a run sets in, stored as written and matched against a
+    /// font book lowercased. [`is_font_family_name`] is the spelling every
+    /// decoder admits. A [keyed](MarkKind::is_keyed) mark: one family per
+    /// character.
+    FontFamily {
+        name: String,
+    },
     // Identity: a handle, not a property. Never merged, may be zero-width.
     /// A comment thread or stable anchor, carried by id and rebased across
     /// edits like any position. The id is caller-supplied, unique per `Content`,
@@ -429,6 +436,25 @@ pub enum MarkKind {
     Anchor {
         id: String,
     },
+}
+
+/// Whether `name` is a family a [`MarkKind::FontFamily`] may carry: not empty,
+/// no whitespace at either edge, and no character the content text refuses or
+/// that a font book could not hold in a name.
+pub fn is_font_family_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.trim() == name
+        && !name
+            .chars()
+            .any(|c| c.is_control() || is_bidi_char(c) || is_line_separator(c) || c == ISLAND_SLOT)
+}
+
+/// How a raw keyed mark ranks over a character it shares with another of its
+/// tag, the greater setting it: the later start, then the shorter mark, then
+/// the later in canonical order. Only [`normalize_marks`] reads it, settling
+/// raw overlap once; normalized content holds none.
+fn keyed_rank(m: &Mark) -> (Usv, std::cmp::Reverse<Usv>, (String, String)) {
+    (m.start, std::cmp::Reverse(m.end), m.kind.sort_key())
 }
 
 /// A structured object with no honest text encoding (a table, figure, or future
@@ -479,7 +505,15 @@ impl MarkKind {
                 | MarkKind::Strike
                 | MarkKind::Code
                 | MarkKind::Link { .. }
+                | MarkKind::FontFamily { .. }
         )
+    }
+
+    /// Keyed formatting: the tag is a key and the attrs its value, one value
+    /// per character, so two marks of one tag never overlap in normalized
+    /// content. A member is also [formatting](Self::is_formatting).
+    pub fn is_keyed(&self) -> bool {
+        matches!(self, MarkKind::FontFamily { .. })
     }
 
     /// The wire `type` name.
@@ -491,6 +525,7 @@ impl MarkKind {
             MarkKind::Strike => "strike",
             MarkKind::Code => "code",
             MarkKind::Link { .. } => "link",
+            MarkKind::FontFamily { .. } => "font_family",
             MarkKind::Anchor { .. } => "anchor",
         }
     }
@@ -504,6 +539,7 @@ impl MarkKind {
             | MarkKind::Strike
             | MarkKind::Code => Cow::Owned(JsonValue::Null),
             MarkKind::Link { url } => Cow::Owned(bag([("url", url.as_str().into())])),
+            MarkKind::FontFamily { name } => Cow::Owned(bag([("name", name.as_str().into())])),
             MarkKind::Anchor { id } => Cow::Owned(bag([("id", id.as_str().into())])),
         }
     }
@@ -859,6 +895,22 @@ impl Content {
                 .lines
                 .iter()
                 .any(|l| l.containers.iter().any(|c| matches!(c, Container::Element { .. })))
+    }
+
+    /// Every family a `font_family` mark names, over the text and then each
+    /// island's cells and notes, in mark order with repeats.
+    pub fn font_families(&self) -> Vec<String> {
+        let family = |m: &Mark| match &m.kind {
+            MarkKind::FontFamily { name } => Some(name.clone()),
+            _ => None,
+        };
+        let mut out: Vec<String> = self.marks.iter().filter_map(family).collect();
+        for island in &self.islands {
+            for (_, marks) in island.island_type.cell_marks(&island.props) {
+                out.extend(marks.iter().filter_map(family));
+            }
+        }
+        out
     }
 
     /// Number of `\n`-separated segments: the required `lines.len()`.
@@ -1233,10 +1285,13 @@ pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
     }
 }
 
-/// Apply the three merge rules and the canonical sort to a flat mark list:
+/// Apply the merge rules and the canonical sort to a flat mark list:
 /// same-kind formatting marks union when adjacent *or* overlapping, different
 /// kinds overlap freely (never split into runs), and an identity mark never
-/// merges. Zero-width formatting is dropped; zero-width anchors survive.
+/// merges. Keyed marks of one tag are first cut at every edge among them and
+/// each piece given to the one [`keyed_rank`] puts first, so the union that
+/// follows joins only pieces of one value and none of one tag overlap.
+/// Zero-width formatting is dropped; zero-width anchors survive.
 pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     use std::collections::BTreeMap;
 
@@ -1244,6 +1299,8 @@ pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     let mut kind_of: BTreeMap<(String, String), MarkKind> = BTreeMap::new();
     let mut passthrough: Vec<Mark> = Vec::new();
 
+    let (keyed, marks): (Vec<Mark>, Vec<Mark>) = marks.into_iter().partition(|m| m.kind.is_keyed());
+    let marks = marks.into_iter().chain(settle_keyed(keyed));
     for m in marks {
         if m.kind.is_formatting() {
             if m.start >= m.end {
@@ -1292,6 +1349,49 @@ pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     out
 }
 
+/// Raw keyed marks as disjoint pieces per tag: each stretch between two edges
+/// of a tag's marks goes to the mark [`keyed_rank`] puts first over it, read
+/// off one sweep over the edges.
+fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let mut by_tag: BTreeMap<&'static str, Vec<Mark>> = BTreeMap::new();
+    for m in keyed.into_iter().filter(|m| m.start < m.end) {
+        by_tag.entry(m.kind.tag()).or_default().push(m);
+    }
+    let mut out = Vec::new();
+    for mut marks in by_tag.into_values() {
+        marks.sort_by_key(|m| (m.start, m.end));
+        if marks.windows(2).all(|w| w[0].end <= w[1].start) {
+            out.extend(marks);
+            continue;
+        }
+        let ranks: Vec<_> = marks.iter().map(keyed_rank).collect();
+        let mut by_end: Vec<usize> = (0..marks.len()).collect();
+        by_end.sort_by_key(|&i| marks[i].end);
+        let mut edges: Vec<Usv> = marks.iter().flat_map(|m| [m.start, m.end]).collect();
+        edges.sort_unstable();
+        edges.dedup();
+        let mut over = BTreeSet::new();
+        let (mut opened, mut closed) = (0, 0);
+        for cut in edges.windows(2) {
+            let (a, b) = (cut[0], cut[1]);
+            while closed < by_end.len() && marks[by_end[closed]].end <= a {
+                over.remove(&(&ranks[by_end[closed]], by_end[closed]));
+                closed += 1;
+            }
+            while opened < marks.len() && marks[opened].start <= a {
+                over.insert((&ranks[opened], opened));
+                opened += 1;
+            }
+            if let Some(&(_, i)) = over.last() {
+                out.push(Mark { start: a, end: b, kind: marks[i].kind.clone() });
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1300,6 +1400,32 @@ mod tests {
         Mark { start, end, kind }
     }
 
+
+    /// Raw overlap among keyed marks settles before the same-key union, so
+    /// each character keeps the family the raw marks gave it and the result
+    /// holds one family per character.
+    #[test]
+    fn keyed_marks_settle_to_one_value_per_character() {
+        let family = |name: &str| MarkKind::FontFamily { name: name.into() };
+        for (raw, settled) in [
+            (
+                vec![f(0, 5, family("Arimo")), f(5, 10, family("Arimo")), f(3, 8, family("Bitter"))],
+                vec![f(0, 3, family("Arimo")), f(3, 5, family("Bitter")), f(5, 10, family("Arimo"))],
+            ),
+            (
+                vec![f(0, 6, family("Bitter")), f(0, 6, family("Arimo"))],
+                vec![f(0, 6, family("Bitter"))],
+            ),
+            (
+                vec![f(0, 4, family("Arimo")), f(2, 6, family("Bitter")), f(1, 5, MarkKind::Strong)],
+                vec![f(0, 2, family("Arimo")), f(1, 5, MarkKind::Strong), f(2, 6, family("Bitter"))],
+            ),
+        ] {
+            let once = normalize_marks(raw.clone());
+            assert_eq!(once, settled, "{raw:?}");
+            assert_eq!(normalize_marks(once.clone()), once, "{raw:?} is not a fixed point");
+        }
+    }
 
     #[test]
     fn is_blank_tracks_whitespace_and_islands() {

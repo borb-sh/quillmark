@@ -50,7 +50,7 @@ fn open(body: &str) -> Result<quillmark_core::session::LiveSession, String> {
         "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
          #set page(width: 400pt, height: 400pt, margin: 20pt)\n{body}\n"
     );
-    TypstBackend
+    TypstBackend::default()
         .open(
             &common::quill_with_plate(&common::yaml(SCHEMA), &plate),
             &data(),

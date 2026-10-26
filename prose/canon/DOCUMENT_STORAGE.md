@@ -42,7 +42,7 @@ crate-internal to `quillmark-core` and never a storage option.
 
 ## The Format
 
-The current schema (`quillmark/document@0.129.0`) carries each card's full
+The current schema (`quillmark/document@0.131.0`) carries each card's full
 ordered payload: typed `$` system metadata, user fields, and YAML
 comments interleaved in source order: as a single discriminated-union
 item list. This is what makes inline-comment preservation symmetric across
@@ -179,7 +179,7 @@ four discriminators are covered by their own rule: each is a **closed set**.
 |---|---|---|
 | Line `kind` | `para`, `heading`, `code`, `rule`, `term` | `LineKind` |
 | Container | `list_item`, `quote`, `description`, `element` | `Container` |
-| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor` | `MarkKind` |
+| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor`, `font_family` | `MarkKind` |
 | Island `type` | `table`, `image`, `footnote`, `math` | `IslandType` |
 
 A name outside one of them is `ParseError::UnknownName { axis, name }` at every
@@ -210,6 +210,22 @@ items differing in it sit in one list run. A reader drops a bag key it does not
 name, so a build without `checked` would read a task list as a plain one and
 save it so; the key arrived under the tag that brought `element` (`0.124.0`),
 which that reader refuses.
+
+`font_family` carries a family's name under `attrs.name`, stored as written and
+naming no font file: a backend resolves it at render. The name is not empty,
+has no space at either edge, and holds no control character, bidi control or
+line separator (`model::is_font_family_name`). It arrived with `0.131.0`.
+
+`font_family` is keyed (`MarkKind::is_keyed`): its tag is a key and its attrs
+the value, so a character holds at most one family and two `font_family` marks
+never overlap. Normalization settles overlap in raw input once, before the
+same-kind union: each stretch between two edges goes to the mark over it that
+starts later, then to the shorter, then to the later in canonical order. A
+`MarkOp::Add` of a keyed kind sets its value over its range, replacing every
+mark of the tag there, and a `MarkOp::Remove` takes one value off, leaving the
+stretch in no family. Storing one value per character keeps every edit local:
+a text edit never changes the family of text it keeps, and reading a
+character's family is a lookup.
 
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,
@@ -613,27 +629,36 @@ this policy holds either way.
 
 The schema version is tied to the **crate version at which the `Document`
 wire format was last changed**: not the running crate version. The
-current format was fixed in `0.129.0`, so the version tag is
-`quillmark/document@0.129.0`; every later patch release writes that same
-value, because patches do not change the format.
+current format was fixed in `0.131.0`, so the version tag is
+`quillmark/document@0.131.0`; every later patch release writes that same
+value, because patches do not change the format. A save writes the oldest tag
+that holds the row: one holding no `font_family` mark, in a body or a payload
+value, keeps `quillmark/document@0.129.0`, which a 0.129 or 0.130 build reads.
 
 The format is the *bytes*, not only the envelope: `0.115.0` left the DTO tree
 untouched, dropped an island's `loss` key and retired the `island` line kind
 (§ Content vocabularies), which is a format change because the writer emits
 different bytes for the same document — every document holding an island.
 
-`0.124.0` and `0.129.0` share one tree: a field item is
+`0.124.0`, `0.129.0` and `0.131.0` share one tree: a field item is
 `{type: field, key, value}`, and a document, card, payload or payload item
 carrying a key its type does not name fails the load. `0.124.0` spells `body`
 over the content vocabulary that has `element` among the containers and
 `checked` in a list item's `attrs`. `0.129.0` adds `footnote` and `math` to the
 island vocabulary, `term` to the line kinds and `description` to the
-containers.
+containers. `0.131.0` adds `font_family` to the marks, and its
+DTO is `0.129.0`'s (`DocumentV0_131_0` aliases `DocumentV0_129_0`), so the
+reader opens both tags into one tree with no hop.
 
 The V0_124_0 → V0_129_0 hop decodes its raw `body`, and can reject for the same
 reason a load can. Only the newest DTO converts to the live `Document`.
 
 ## Adding a Schema Version
+
+A bump that only adds vocabulary members, as `0.131.0` did, needs none of
+the steps below: its tag aliases the newest tree, the reader matches both
+tags into it, and the writer keeps the older tag for a row spelling none of the
+new members.
 
 When the `Document` wire format changes again:
 
@@ -719,7 +744,7 @@ sourcing it from a row count rather than a version number.
 
 ## Gotchas
 
-- The schema version is a hand-set constant (`STORAGE_V0_129_0`), **not**
+- The schema version is a hand-set constant (`STORAGE_V0_131_0`), **not**
   `CARGO_PKG_VERSION`: bumping it is a deliberate act tied to a model change.
 - Unknown schema versions are rejected on read, never silently ignored.
 - DTO type names carry version suffixes with underscores

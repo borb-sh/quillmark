@@ -187,6 +187,7 @@ Opening a Typst quill and compiling its plate.
 - `typst::png_encoding`
 - `typst::type_error`
 - `typst::unclosed_region`
+- `typst::unknown_font_family`
 - `typst::unknown_variable`
 - `typst::unregistered_element`
 - `typst::unsupported_tex`
@@ -242,9 +243,11 @@ The render contract every backend shares.
 
 ## `engine::`
 
-Backend dispatch.
+Backend dispatch and the host's font library.
 
 - `engine::backend_not_found`
+- `engine::font_unreadable`
+- `engine::font_unsupported`
 
 ## `cli::`
 

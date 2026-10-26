@@ -415,6 +415,30 @@ export interface EngineOptions {
 	 * `"typst"` and `"acroform"` to the bundled render build.
 	 */
 	backends?: Record<string, BackendDescriptor>;
+
+	/**
+	 * The host's font library: each a `.ttf`, `.otf`, `.ttc` or `.otc` file,
+	 * whose faces set only text a `font_family` mark sets. The bytes are
+	 * copied at construction and cross into the render build once, when it
+	 * loads, and a file it refuses rejects that load and every verb awaiting it:
+	 * `engine::font_unsupported` for another format, `engine::font_unreadable`
+	 * for a file holding no readable face. A value that is not an array of
+	 * `Uint8Array` throws at construction.
+	 */
+	fonts?: Uint8Array[];
+}
+
+/**
+ * One face a session sets text in, with what an editor needs for an
+ * `@font-face` rule: the family, the CSS weight and style, and the font file.
+ * `index` is the face's place in `data` where the file is a collection.
+ */
+export interface FontFace {
+	family: string;
+	weight: number;
+	style: 'normal' | 'italic' | 'oblique';
+	index: number;
+	data: Uint8Array;
 }
 
 /**
@@ -485,6 +509,15 @@ export declare class Engine {
 	 * backend binary or cloning the quill. Async for API stability.
 	 */
 	supportedFormats(quill: Quill): Promise<OutputFormat[]>;
+
+	/**
+	 * The text faces a `font_family` mark may set in a session of `quill`: the
+	 * host library's, in the order of `fonts`. A quill's own fonts and the
+	 * embedded fallback set its plate, never a mark. Loads the backend and
+	 * clones the quill as `open` does; a backend that reads no fonts answers
+	 * `[]`.
+	 */
+	fontFaces(quill: Quill): Promise<FontFace[]>;
 }
 
 /**

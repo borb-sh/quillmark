@@ -33,7 +33,7 @@ fn coverage_names_what_claims_reach_and_what_nothing_does() {
 #let rr = qm.data.stratifications.sorted(key: s => s.year)
 #table(columns: 2, ..rr.map(s => (qm.region(s.at("$path") + "year")[#s.year], [#s.rank])).flatten())
 "#;
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(
             &common::quill_with_plate(&common::yaml(SCHEMA), plate),
             &serde_json::json!({

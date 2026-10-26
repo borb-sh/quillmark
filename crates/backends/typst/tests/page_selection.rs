@@ -18,7 +18,7 @@ second
 
 fn session() -> LiveSession {
     let yaml = "quill:\n  name: pages\n  version: 0.1.0\n  backend: typst\n  description: page-selection acceptance quill\n\ntypst:\n  plate_file: plate.typ\n\nmain:\n  fields:\n    msg:\n      description: message\n      type: text\n";
-    TypstBackend
+    TypstBackend::default()
         .open(
             &common::quill_with_plate(yaml, PLATE),
             &json!({ "msg": "first" }),

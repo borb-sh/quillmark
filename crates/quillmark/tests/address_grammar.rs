@@ -302,7 +302,7 @@ fn bound(call: &str, address: &str) -> String {
 }
 
 fn compile(plate: &str) -> Result<quillmark::LiveSession, String> {
-    TypstBackend
+    TypstBackend::default()
         .open(&quill(plate), &data(), common::test_date())
         .map_err(|e| format!("{e}"))
 }

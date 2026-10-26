@@ -136,7 +136,7 @@ Export writes a table as pipes when pipes hold all of it, and as HTML otherwise,
 
 ## Elements: `qm-*` tags
 
-Markdown has no syntax for keeping a block on one page or for a signature line. Quillmark spells them with `qm-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
+Markdown has no syntax for a run of text's font, keeping a block on one page or a signature line. Quillmark spells them with `qm-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
 
 Each `qm-*` tag stands on a line of its own, or beside other open and close `qm-*` tags with no text between. Quillmark reads such a line wherever it stands, tight against a paragraph or a table included, and export writes a blank line above and below it, which GitHub and other CommonMark viewers need to render the markdown it wraps:
 
@@ -151,7 +151,27 @@ J. Doe
 
 A tag inside a line of text, in a heading, emphasis, a link or a table cell, or left open drops, keeping what it wraps, with a `parse::dropped_construct` warning whose hint names the fix. A self-closing tag (`<qm-keep/>`) is an open tag, as HTML reads it, so it drops too. A tag line directly under a quote's or list item's text continues it, as CommonMark reads it, so its pair belongs in that quote or item.
 
-A `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` is reserved. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a table it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent, and the render warns `typst::unregistered_element`. The warning's hint names the elements the quill renders, so a misspelled `qm-kep` shows up there.
+### Font family
+
+A `qm-span` pair inside a line sets the font family of the text it wraps:
+
+```markdown
+The <qm-span family="Carlito">phrase sits in **bold <qm-span family="Arimo">sans</qm-span>**</qm-span> text.
+```
+
+| Attribute | Value | Without it |
+|---|---|---|
+| `family` | A font family the app's font library supplies, such as `Carlito`. Case does not matter. | The surrounding family. |
+
+- It pairs as `<u>` does: inside a paragraph, heading, list item, table cell or footnote, across `**` or `~~` freely. Pairs nest: an inner pair's family sets its own text, and the outer family resumes past it. Saved and exported again, nested pairs come back side by side, one per run.
+- A family the app's library lacks keeps the surrounding font, and the render warns `typst::unknown_font_family` once per family and field. A quill's own fonts set its design and are not a choice here. An app lists the faces a writer can pick with `engine.fontFaces(quill)`.
+- Code spans and equations keep their own font, and a footnote's note keeps its own: a pair inside the note sets it.
+- A family is a run's, never a block's: `qm-span` tag lines around blocks drop with a `qm-span` warning, and the blocks stay.
+- An attribute other than `family` drops alone with a `parse::dropped_construct` warning, keeping the family. A tag setting no family or left open drops, keeping what it wraps.
+
+### Elements
+
+Any other `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` is reserved. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a table it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent, and the render warns `typst::unregistered_element`. The warning's hint names the elements the quill renders, so a misspelled `qm-kep` shows up there.
 
 An element around nothing is its two tags on one line, which suits a signature line or a stamp the quill draws:
 
@@ -165,7 +185,7 @@ An element's attributes are strings the quill reads, such as `<qm-stamp tone="ur
 
 ### Raw HTML is not rendered, except `<u>` and `<br>`
 
-CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, a `<table>` is a [table](#tables), and a `qm-*` tag spells [an element](#elements-qm-tags).
+CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, a `<table>` is a [table](#tables), a `qm-span` pair sets [a font run](#font-family), and a `qm-*` tag spells [an element](#elements-qm-tags).
 
 ```markdown
 <u>This is underlined</u>, even <u>across word boundaries</u>.

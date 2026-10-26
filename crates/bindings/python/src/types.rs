@@ -26,11 +26,37 @@ pub struct PyEngine {
 
 #[pymethods]
 impl PyEngine {
+    /// `fonts` is the host's font library: each a `.ttf`, `.otf`, `.ttc` or
+    /// `.otc` file's bytes, whose faces set only text a `font_family` mark
+    /// sets.
+    /// Raises `QuillmarkError` (`engine::font_unsupported`,
+    /// `engine::font_unreadable`) for a file it refuses.
     #[new]
-    fn new() -> Self {
-        Self {
-            inner: Engine::new(),
-        }
+    #[pyo3(signature = (fonts=None))]
+    fn new(fonts: Option<Vec<Vec<u8>>>) -> PyResult<Self> {
+        Ok(Self {
+            inner: Engine::with_fonts(fonts.unwrap_or_default()).map_err(convert_render_error)?,
+        })
+    }
+
+    /// The text faces a `font_family` mark may set in a session of `quill`:
+    /// the host library's, in library order. Each is a dict of `family`,
+    /// `weight`, `style`,
+    /// `index` and `data` (the font file's bytes).
+    fn font_faces<'py>(&self, py: Python<'py>, quill: &PyQuill) -> PyResult<Vec<Bound<'py, PyDict>>> {
+        let faces = self.inner.font_faces(&quill.inner).map_err(convert_render_error)?;
+        faces
+            .into_iter()
+            .map(|face| {
+                let dict = PyDict::new(py);
+                dict.set_item("family", face.family)?;
+                dict.set_item("weight", face.weight)?;
+                dict.set_item("style", face.style)?;
+                dict.set_item("index", face.index)?;
+                dict.set_item("data", PyBytes::new(py, &face.data))?;
+                Ok(dict)
+            })
+            .collect()
     }
 
     /// Render `doc` against `quill` in one shot, resolving `quill`'s backend on
@@ -417,10 +443,12 @@ impl PyDocument {
         quillmark_core::document::peek_storage_version(json)
     }
 
-    /// Storage version this build writes.
+    /// The newest storage version this build writes: a document spelling a
+    /// font mark carries it, every other the tag before it, which a build
+    /// predating font marks reads.
     #[staticmethod]
     fn current_storage_version() -> &'static str {
-        quillmark_core::document::STORAGE_V0_129_0
+        quillmark_core::document::STORAGE_V0_131_0
     }
 
     /// The Quillmark Markdown rules.

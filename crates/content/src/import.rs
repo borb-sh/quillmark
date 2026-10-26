@@ -257,7 +257,23 @@ struct Inline {
     /// a bare one's start position and tag offset, `None` for one carrying an
     /// attribute, which pairs and underlines nothing.
     underlines: Vec<Option<(usize, usize)>>,
+    /// Each `<qm-span>` this run has read and whose `</qm-span>` it awaits,
+    /// innermost last, `None` for one setting nothing.
+    fonts: Vec<Option<OpenSpan>>,
 }
+
+/// An open `qm-span` pair setting a family: the stretches it sets so far,
+/// which land as marks only when it closes.
+struct OpenSpan {
+    /// The open tag's byte offset.
+    at: usize,
+    family: String,
+    /// Where its current stretch began, while no inner family sets the text.
+    from: usize,
+    /// Its stretches closed by an inner pair setting a family.
+    done: Vec<(usize, usize)>,
+}
+
 
 impl Inline {
     /// Append inline text under the [`crate::normalize::admit_char`] contract,
@@ -292,6 +308,13 @@ impl Inline {
         }
         for (start, _) in self.underlines.iter_mut().flatten() {
             *start = (*start).min(pos);
+        }
+        for span in self.fonts.iter_mut().flatten() {
+            span.from = span.from.min(pos);
+            for (start, end) in &mut span.done {
+                *start = (*start).min(pos);
+                *end = (*end).min(pos);
+            }
         }
     }
 
@@ -338,10 +361,46 @@ impl Inline {
         }
     }
 
-    /// End the run: each bare `<u>` still open drops as unclosed.
+    /// Pair one `<qm-span>` tag as [`underline`](Self::underline) pairs a
+    /// `<u>`. An inner pair setting a family overrides the outer one over its
+    /// text, and the outer resumes past it, so the marks a run lands never
+    /// overlap; a pair setting nothing leaves the family in force.
+    fn font(&mut self, tag: SpanTag) {
+        let pos = self.pos;
+        match tag {
+            SpanTag::Open { at, family } => {
+                if let Some(outer) = self.fonts.iter_mut().rev().find_map(Option::as_mut) {
+                    outer.done.push((outer.from, pos));
+                }
+                self.fonts.push(Some(OpenSpan { at, family, from: pos, done: Vec::new() }));
+            }
+            SpanTag::Held => self.fonts.push(None),
+            SpanTag::Close => {
+                let Some(Some(mut span)) = self.fonts.pop() else {
+                    return;
+                };
+                span.done.push((span.from, pos));
+                for (start, end) in span.done {
+                    if start < end {
+                        let kind = MarkKind::FontFamily { name: span.family.clone() };
+                        self.marks.push(Mark { start, end, kind });
+                    }
+                }
+                if let Some(outer) = self.fonts.iter_mut().rev().find_map(Option::as_mut) {
+                    outer.from = pos;
+                }
+            }
+        }
+    }
+
+    /// End the run: each bare `<u>` and each `<qm-span>` setting something
+    /// still open drops as unclosed.
     fn drop_open(&mut self, dropped: &mut Drops) {
         for (_, at) in self.underlines.drain(..).flatten() {
             dropped.add(Dropped::Tag("u".into()), at);
+        }
+        for span in self.fonts.drain(..).flatten() {
+            dropped.add(Dropped::Element(carrier::SPAN.into()), span.at);
         }
     }
 
@@ -694,6 +753,10 @@ impl Builder {
                     self.underline_tag(tag);
                     continue;
                 }
+                Fixed::Span(tag) => {
+                    self.span_tag(tag);
+                    continue;
+                }
                 Fixed::Swallowed(name, at) => {
                     self.swallowed(name, at);
                     continue;
@@ -981,7 +1044,8 @@ impl Builder {
     }
 
     /// Pair one carrier tag: a tag line opens or closes a wrapper. Any other
-    /// open tag drops, and any other close tag drops silently.
+    /// open tag drops, and any other close tag drops silently. A `qm-span`
+    /// tag line wraps nothing: the spelling is an inline pair's alone.
     fn carrier_tag(&mut self, tag: CarrierTag) -> Result<(), ImportError> {
         let CarrierTag { name, attrs, block, at } = tag;
         if let Some(note) = self.note.as_mut() {
@@ -991,7 +1055,7 @@ impl Builder {
             return Ok(());
         }
         match attrs {
-            _ if self.image_depth > 0 || self.table.is_some() || !block => {
+            _ if self.image_depth > 0 || self.table.is_some() || !block || name == carrier::SPAN => {
                 if attrs.is_some() {
                     self.dropped.add(Dropped::Element(name), at);
                 }
@@ -1059,6 +1123,33 @@ impl Builder {
             self.open_early();
         }
         self.inline.underline(tag);
+    }
+
+    /// Pair one `<qm-span>` tag in the run, table cell or note it stands in,
+    /// as [`Self::underline_tag`] pairs a `<u>`.
+    fn span_tag(&mut self, tag: SpanTag) {
+        if let Some(note) = self.note.as_mut() {
+            if note.img_depth == 0 {
+                if matches!(tag, SpanTag::Open { .. }) {
+                    note.fill();
+                }
+                note.inline.font(tag);
+            }
+            return;
+        }
+        if self.image_depth > 0 {
+            return;
+        }
+        if let Some(acc) = self.table.as_mut() {
+            if let Some(cell) = acc.cell.as_mut() {
+                cell.font(tag);
+            }
+            return;
+        }
+        if matches!(tag, SpanTag::Open { .. }) {
+            self.open_early();
+        }
+        self.inline.font(tag);
     }
 
     /// Drop each wrapper still open where its list item, quote or the body
@@ -1583,6 +1674,7 @@ enum Fixed<'a> {
     Event(Event<'a>),
     Carrier(CarrierTag),
     Underline(UTag),
+    Span(SpanTag),
     /// A wrapper's close tag in an HTML block of closing tags that drops
     /// markdown with them, at the block's byte offset.
     Swallowed(String, usize),
@@ -1623,6 +1715,16 @@ enum UTag {
     Open { at: usize },
     /// A `<u>` carrying an attribute, or self-closing: it drops, and still
     /// pairs with a `</u>`.
+    Held,
+    Close,
+}
+
+/// An inline `<qm-span>` tag, paired by the builder as a `<u>` is.
+enum SpanTag {
+    /// An open tag setting a family, at this byte offset.
+    Open { at: usize, family: String },
+    /// An open tag setting none, or self-closing: it drops, and still pairs
+    /// with a `</qm-span>`.
     Held,
     Close,
 }
@@ -1726,8 +1828,8 @@ struct MarkdownFixer<'a, I> {
     /// Open marks, links, images, headings and tables, where a line of carrier
     /// tags stays text.
     depth: usize,
-    /// The `<u>` tags open in the current inline run, where a line of carrier
-    /// tags stays text too.
+    /// The `<u>` and `<qm-span>` tags open in the current inline run, where a
+    /// line of carrier tags stays text too.
     underlines: usize,
     /// The open pipe table's column count, the slots its rows take so far, and
     /// whether a row past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) dropped.
@@ -1777,6 +1879,28 @@ where
             _ => {}
         }
         Some((event, range))
+    }
+
+    /// One inline `<qm-span>` tag, its refused attributes and a tag setting
+    /// nothing handed on as drops.
+    fn span_tag(&mut self, tag: &html::Tag, at: usize) -> SpanTag {
+        if tag.closing {
+            self.underlines = self.underlines.saturating_sub(1);
+            return SpanTag::Close;
+        }
+        self.underlines += 1;
+        let (family, refused) = carrier::span::read(&carrier::decode_attrs(&tag.attrs));
+        for attr in refused {
+            let element = carrier::SPAN.to_string();
+            self.held.push_back(Fixed::Dropped(Dropped::ElementAttr { element, attr }, at));
+        }
+        match family {
+            Some(family) if !tag.self_closing => SpanTag::Open { at, family },
+            _ => {
+                self.drop_tag(tag, at);
+                SpanTag::Held
+            }
+        }
     }
 
     /// Hand on what an opening tag reports where it drops.
@@ -1951,6 +2075,9 @@ where
                 }
                 if tag.name.eq_ignore_ascii_case("br") && !tag.closing {
                     return Some(Fixed::Event(Event::HardBreak));
+                }
+                if carrier::wrapper(tag.name).as_deref() == Some(carrier::SPAN) {
+                    return Some(Fixed::Span(self.span_tag(&tag, range.start)));
                 }
                 if let Some(carrier) = CarrierTag::of(&tag, false, range.start) {
                     return Some(Fixed::Carrier(carrier));
@@ -2167,6 +2294,88 @@ pub(crate) mod tests {
         );
         assert!(cells[1].1.is_empty());
         assert_eq!(dropped(&imported), [("u", 1)]);
+    }
+
+    /// A `qm-span` pair sets its run's family, an inner pair overrides the
+    /// outer one over its own text, and an attribute it cannot read drops
+    /// alone while the pair keeps the family.
+    #[test]
+    fn a_qm_span_pair_sets_its_runs_family() {
+        let family = |name: &str| MarkKind::FontFamily { name: name.into() };
+        let cases: Vec<(&str, &str, Vec<Mark>, Vec<(&str, usize)>)> = vec![
+            (
+                "<qm-span family=\"A\">a <qm-span family=\"B\">b</qm-span> c</qm-span>",
+                "a b c",
+                vec![Mark::new(0, 2, family("A")), Mark::new(2, 3, family("B")), Mark::new(3, 5, family("A"))],
+                vec![],
+            ),
+            (
+                "**a <qm-span family=\"A\">b** c</qm-span>",
+                "a b c",
+                vec![Mark::new(0, 3, MarkKind::Strong), Mark::new(2, 5, family("A"))],
+                vec![],
+            ),
+            (
+                "<qm-span color=\"red\" family=\"A\">a</qm-span>",
+                "a",
+                vec![Mark::new(0, 1, family("A"))],
+                vec![("qm-span[color]", 1)],
+            ),
+            ("<qm-span>a</qm-span> <qm-span color=\"red\">b</qm-span>", "a b", vec![], vec![("qm-span", 2), ("qm-span[color]", 1)]),
+            ("<qm-span family=\" A\">a</qm-span>", "a", vec![], vec![("qm-span[family]", 1), ("qm-span", 1)]),
+            ("<qm-span family=\"A\"/>a", "a", vec![], vec![("qm-span", 1)]),
+        ];
+        for (md, text, marks, warned) in cases {
+            let imported = imp_fixed(md);
+            assert_eq!(imported.content.text, text, "{md:?}");
+            assert_eq!(imported.content.marks, marks, "{md:?}");
+            assert_eq!(dropped(&imported), warned, "{md:?}");
+        }
+
+        for (md, marks) in [
+            (
+                "<qm-span family=\"Arimo\">a<qm-span family=\"Carlito\">b<qm-span family=\"Arimo\">c</qm-span>d</qm-span>e</qm-span>",
+                vec![
+                    Mark::new(0, 1, family("Arimo")),
+                    Mark::new(1, 2, family("Carlito")),
+                    Mark::new(2, 3, family("Arimo")),
+                    Mark::new(3, 4, family("Carlito")),
+                    Mark::new(4, 5, family("Arimo")),
+                ],
+            ),
+            (
+                "<qm-span family=\"Zilla\"><qm-span family=\"Arimo\">xyz</qm-span></qm-span>",
+                vec![Mark::new(0, 3, family("Arimo"))],
+            ),
+        ] {
+            assert_eq!(imp_fixed(md).content.marks, marks, "{md:?}");
+        }
+
+        let imported = imp_fixed("| <qm-span family=\"A\">a **b</qm-span> c** |\n|---|\n\na[^1]\n\n[^1]: <qm-span family=\"B\">n</qm-span>");
+        let cells = crate::serial::table_cells(&imported.content.islands[0].props);
+        assert_eq!(cells[0].1, [Mark::new(0, 3, family("A")), Mark::new(2, 5, MarkKind::Strong)]);
+        let (_, note) = crate::serial::parse_cell(&imported.content.islands[1].props);
+        assert_eq!(note, [Mark::new(0, 1, family("B"))]);
+    }
+
+    /// A tag line inside an open `qm-span` pair is its text, as one inside an
+    /// open `<u>` is.
+    #[test]
+    fn a_tag_line_inside_an_open_qm_span_pair_is_text() {
+        let imported = imp_fixed("<qm-span family=\"A\">a\n<qm-keep>\nb</qm-span>");
+        assert_eq!(imported.content.lines.len(), 1);
+        assert!(imported.content.marks.iter().all(|m| m.kind == MarkKind::FontFamily { name: "A".into() }));
+    }
+
+    /// `qm-span` tag lines around blocks wrap nothing: the tags drop and warn,
+    /// and the blocks stay.
+    #[test]
+    fn a_qm_span_tag_line_drops() {
+        let imported = imp_fixed("<qm-span family=\"A\">\n\nOne.\n\nTwo.\n\n</qm-span>");
+        assert_eq!(imported.content.text, "One.\nTwo.");
+        assert!(imported.content.lines.iter().all(|l| l.containers.is_empty()));
+        assert!(imported.content.marks.is_empty());
+        assert_eq!(dropped(&imported), [("qm-span", 1)]);
     }
 
     #[test]

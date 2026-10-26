@@ -1,9 +1,9 @@
-use crate::commands::{load_quill, read_document, render_date};
+use crate::commands::{load_quill, read_document, read_fonts, render_date};
 use crate::errors::{CliError, Result};
 use crate::output::write_file;
 use clap::Parser;
 use quillmark::typst_workspace::{workspace, FONTS_DIR, HELPER_DIR, PACKAGES_DIR};
-use quillmark::{CalendarDate, Severity};
+use quillmark::{CalendarDate, FontLibrary, Severity};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -28,6 +28,11 @@ pub struct WorkspaceArgs {
     /// Suppress warnings and the command line; errors still print
     #[arg(long)]
     quiet: bool,
+
+    /// A font file (.ttf, .otf, .ttc, .otc) for the host font library; repeat
+    /// for more
+    #[arg(long = "font", value_name = "FONT_FILE")]
+    fonts: Vec<PathBuf>,
 }
 
 pub fn execute(args: WorkspaceArgs) -> Result<()> {
@@ -41,7 +46,8 @@ pub fn execute(args: WorkspaceArgs) -> Result<()> {
     let (document, parse_warnings) = read_document(&quill, args.markdown_file.as_deref())?;
     let today = render_date(args.today);
     let json_data = quill.compile_checked(&document, today)?;
-    let workspace = workspace(&quill, &json_data)?;
+    let library = FontLibrary::new(read_fonts(&args.fonts)?)?;
+    let workspace = workspace(&quill, &json_data, &library)?;
 
     clear_previous_export(&args.output)?;
     for (path, contents) in &workspace.files {

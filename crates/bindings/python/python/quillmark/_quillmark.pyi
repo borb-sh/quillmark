@@ -11,7 +11,7 @@ both are `Any`-shaped: their schemas are the quill's, not Python's.
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
-from typing import Any, final
+from typing import Any, Literal, TypedDict, final
 
 __all__ = [
     "Artifact",
@@ -215,9 +215,16 @@ class Reader:
     ) -> dict[str, Any] | None: ...
     def body_markdown(self, card: int | None = None) -> str: ...
 
+class FontFace(TypedDict):
+    family: str
+    weight: int
+    style: Literal["normal", "italic", "oblique"]
+    index: int
+    data: bytes
+
 @final
 class Engine:
-    def __init__(self) -> None: ...
+    def __init__(self, fonts: list[bytes] | None = None) -> None: ...
     def render(
         self,
         quill: Quill,
@@ -230,3 +237,4 @@ class Engine:
     ) -> RenderResult: ...
     def supported_formats(self, quill: Quill) -> list[OutputFormat]: ...
     def registered_backends(self) -> list[str]: ...
+    def font_faces(self, quill: Quill) -> list[FontFace]: ...

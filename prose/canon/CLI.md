@@ -67,6 +67,11 @@ them.
   document raised too is the plate's, and does not count against the example.
   A render that fails adds `cli::example_render_failed`. `--verbose` names
   whether the quill has an example, so a misspelled one reads as none.
+- **`--font` is the host library.** `render` and `workspace` take it once per
+  file and build the engine's font library from them
+  ([ARCHITECTURE.md](ARCHITECTURE.md#fonts)), so a CLI render sees the fonts a
+  host's would. A refused file fails the command before any render, and
+  `workspace` exports each library file as `fonts/host-<n>.<ext>`.
 - **The render date is the local date.** `render`, `validate` and `workspace` supply it
   to core, which never reads a clock; `--today YYYY-MM-DD` on `render` or
   `workspace` pins it for a reproducible render. The local offset unreadable,

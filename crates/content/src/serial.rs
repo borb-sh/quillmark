@@ -18,7 +18,7 @@
 //! Storage, the render seam and the binding seam carry one canonical form.
 
 use crate::model::{
-    canonicalize_keys, Container, Island, Line, LineKind, Mark,
+    canonicalize_keys, is_font_family_name, Container, Island, Line, LineKind, Mark,
     MarkKind, Content, Normalized, Usv,
 };
 use serde_json::{Map, Value};
@@ -520,6 +520,13 @@ pub fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
             url: payload(o, legacy, "url")
                 .and_then(Value::as_str)
                 .unwrap_or_default()
+                .to_string(),
+        },
+        "font_family" => MarkKind::FontFamily {
+            name: payload(o, legacy, "name")
+                .and_then(Value::as_str)
+                .filter(|name| is_font_family_name(name))
+                .ok_or(ParseError::Shape("font_family name"))?
                 .to_string(),
         },
         "anchor" => MarkKind::Anchor {
@@ -1406,6 +1413,7 @@ mod tests {
             MarkKind::Strike,
             MarkKind::Code,
             MarkKind::Link { url: "u".into() },
+            MarkKind::FontFamily { name: "f".into() },
             MarkKind::Anchor { id: "a".into() },
         ];
         let marks: Vec<Mark> = kinds
@@ -2033,6 +2041,31 @@ mod tests {
         );
     }
 
+    /// A font mark round-trips as its bag, an overlapping one settles to one
+    /// family per character, and a bag naming no family the model admits is a
+    /// shape error on both lanes.
+    #[test]
+    fn a_font_mark_decodes_only_a_family_it_can_hold() {
+        let content = |marks: &str| format!(r#"{{"islands":[],"lines":[{{"containers":[],"kind":"para"}}],"marks":[{marks}],"text":"abc"}}"#);
+        let flat = content(r#"{"attrs":{"name":"Carlito"},"end":1,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"},{"attrs":{"name":"Carlito"},"end":3,"start":2,"type":"font_family"}"#);
+        let rt = Content::from_canonical_json(&flat).expect("decodes");
+        assert_eq!(rt.to_canonical_json(), flat);
+        let json = content(r#"{"attrs":{"name":"Carlito"},"end":3,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"}"#);
+        let rt = Content::from_canonical_json(&json).expect("decodes");
+        assert_eq!(rt.to_canonical_json(), flat);
+        for mark in [
+            r#"{"attrs":{"name":""},"end":2,"start":0,"type":"font_family"}"#,
+            r#"{"attrs":{"name":" Carlito"},"end":2,"start":0,"type":"font_family"}"#,
+            r#"{"end":2,"start":0,"type":"font_family"}"#,
+        ] {
+            let shape = "font_family name";
+            let json = content(mark);
+            assert_eq!(Content::from_canonical_json(&json), Err(ParseError::Shape(shape)), "{mark}");
+            let value: Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(from_authored_value(&value), Err(ParseError::Shape(shape)), "{mark}");
+        }
+    }
+
     /// The canonical tie-break is the `(type, attrs)` pair the wire carries,
     /// read back off the value, so canonical order is a function of the stored
     /// bytes rather than of variant declaration order.
@@ -2045,6 +2078,7 @@ mod tests {
             MarkKind::Strike,
             MarkKind::Code,
             MarkKind::Link { url: "u".into() },
+            MarkKind::FontFamily { name: "f".into() },
             MarkKind::Anchor { id: "a".into() },
         ];
         // Exhaustive on purpose: a new variant is a compile error here, where
@@ -2057,6 +2091,7 @@ mod tests {
                 | MarkKind::Strike
                 | MarkKind::Code
                 | MarkKind::Link { .. }
+                | MarkKind::FontFamily { .. }
                 | MarkKind::Anchor { .. } => {}
             }
         }

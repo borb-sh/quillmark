@@ -121,6 +121,8 @@ A task item's body lowers the same way, through the renderer a plate sets on
 | `mark.code` | spells | spells | spells | honors | silent: honored | none |
 | `mark.link` | spells | spells | spells | honors | silent: honored | none |
 | `mark.anchor` | carries opaquely | spells | spells | honors | silent: honored | none |
+| `mark.font_family`: a run in a family the host library holds | spells | spells | spells | honors | silent: honored | none |
+| `mark.font_family.unknown`: a run in a family the host library lacks | spells | spells | spells | declines with a signal | drops silently | `typst::unknown_font_family` |
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
@@ -128,6 +130,23 @@ The annotated read spells it at its start as a `qm-anchor` tag the import
 drops, so the markdown cell stays `carries opaquely`: a write keeps an anchor by
 diff-rebase alone. The row's corpus entry pins the spelling under
 `annotated`.
+
+A font run lowers to the helper's `_qm-font` around each stretch one family
+sets ([CONVERT.md](CONVERT.md#font-runs)). Whether it sets that family depends
+on where it stands:
+
+| Context | Family |
+|---|---|
+| a code span | none: `raw` keeps its own font |
+| an inline equation | none: math keeps its own font |
+| a table | none over the table; a cell takes runs of its own |
+| a footnote | over the reference; the note keeps its own family and takes runs of its own |
+
+A family the host library lacks sets nothing, so its text keeps the
+surrounding family, and a render warns once per family and field. A family only
+the quill or the fallback ships counts as lacking. Only a session holds fonts,
+so `validate` cannot report it. The corpus renders with a library holding
+Roboto.
 
 ### Islands
 
@@ -141,6 +160,7 @@ diff-rebase alone. The row's corpus entry pins the spelling under
 | `island.table.cell.align_valign`: both, over a cell holding marks | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.colspan`: a cell spanning two columns | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.rowspan`: a cell spanning two rows | spells | spells | spells | honors | silent: honored | none |
+| `island.table.cell.font`: a cell holding a font run, one in an aligned cell | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.unnamed`: a props key Quillmark does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.unnamed`: a cell key Quillmark does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.value`: a cell `valign` outside its set | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
@@ -215,6 +235,8 @@ above, or markup the content does not store.
 | `carrier.element.attr`: an element attribute outside the grammar | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep[onclick]` |
 | `carrier.element.stray_close`: an element close tag with nothing open | silent: honored | n/a | n/a | n/a | n/a | none |
 | `carrier.element.stray_close.tight`: an element close tag with nothing open, tight above markdown it keeps | silent: honored | n/a | n/a | n/a | n/a | none |
+| `carrier.font.value`: a `qm-span` attribute other than `family`, the family kept | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-span[color]` |
+| `carrier.font.unclosed`: a `qm-span` still open where its text ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-span` |
 | `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
 | `markdown.cell_image`: an image in a table cell | drops silently | n/a | n/a | n/a | n/a | none |
