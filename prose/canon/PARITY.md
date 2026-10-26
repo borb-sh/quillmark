@@ -123,6 +123,7 @@ A task item's body lowers the same way, through the renderer a plate sets on
 | `mark.anchor` | carries opaquely | spells | spells | honors | silent: honored | none |
 | `mark.font_family`: a run in a family the host library holds | spells | spells | spells | honors | silent: honored | none |
 | `mark.font_family.unknown`: a run in a family the host library lacks | spells | spells | spells | declines with a signal | drops silently | `typst::unknown_font_family` |
+| `mark.across_break`: a mark over a hard break, one mark per line | spells | spells | spells | honors | silent: honored | none |
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
