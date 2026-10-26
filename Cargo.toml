@@ -74,6 +74,11 @@ quillmark-typst = { version = "0.130.0", path = "crates/backends/typst" }
 quillmark-acroform = { version = "0.130.0", path = "crates/backends/acroform" }
 quillmark = { version = "0.130.0", path = "crates/quillmark" }
 
+# The key that keeps a host library face's family unspellable by a plate. The
+# WASM binding enables `wasm_js`, the backend a library crate leaves to its
+# final binary.
+getrandom = "0.4"
+
 # WASM host seam. Target-gated in the Typst backend, unconditional in the
 # binding; one pin either way.
 js-sys = "0.3"
