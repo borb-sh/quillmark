@@ -209,7 +209,8 @@ values.
 
 `Document.currentStorageVersion()` is the newest tag this build writes. A
 save writes the oldest tag that holds the row, so a fresh row can carry an
-older tag still read: a row with no font mark saves as
+older tag still read: a row holding no font mark, `table` element, merged
+table cell or table `head` 0.130 cannot draw saves as
 `quillmark/document@0.129.0`. A tag other than `currentStorageVersion()` is
 therefore not a mismatch. Use `storageVersionOf` after `fromStored` throws,
 to tell "a version this build does not read" from "corrupt":

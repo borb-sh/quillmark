@@ -142,8 +142,9 @@ document written by the current writer.
 **One settle under a held tag.** 0.131 settles a table's props further than
 0.130 did (§ Content vocabularies), so a `@0.129.0` row 0.130 wrote holding a table's
 `headless: true`, a cell's `colspan` or `rowspan`, or a `head` it now settles
-saves once with other bytes under the same tag, and a hash over it recomputes
-once. The settle is a fixed point, so the guarantee holds for every row 0.131
+saves once with other bytes, and a hash over it recomputes once. The tag holds
+unless the settled props spell a member `0.131.0` adds, a span past 1 or a
+`head` past 1, which moves the row to `@0.131.0` (§ Schema Versioning). The settle is a fixed point, so the guarantee holds for every row 0.131
 wrote.
 
 **Resting form.** Byte-equality is over `Document` values, so it is only
@@ -650,8 +651,14 @@ wire format was last changed**: not the running crate version. The
 current format was fixed in `0.131.0`, so the version tag is
 `quillmark/document@0.131.0`; every later patch release writes that same
 value, because patches do not change the format. A save writes the oldest tag
-that holds the row: one holding no `font_family` mark, in a body or a payload
-value, keeps `quillmark/document@0.129.0`, which a 0.129 or 0.130 build reads.
+that holds the row: one holding none of the members a 0.130 build refuses or
+draws otherwise keeps `quillmark/document@0.129.0`, which a 0.129 or 0.130
+build reads. Those members are a `font_family` mark, an element named `table`,
+a table cell whose `colspan` or `rowspan` exceeds 1, and a table `head` other
+than 1, save a `head: 0` stored beside the `headless: true` a 0.130 build
+reads. The writer looks for them in each body and in each field and `$seed`
+value that decodes as content; an `$ext` value is opaque and never read
+(`dto::spells_0_131_0`).
 
 The format is the *bytes*, not only the envelope: `0.115.0` left the DTO tree
 untouched, dropped an island's `loss` key and retired the `island` line kind
@@ -664,7 +671,8 @@ carrying a key its type does not name fails the load. `0.124.0` spells `body`
 over the content vocabulary that has `element` among the containers and
 `checked` in a list item's `attrs`. `0.129.0` adds `footnote` and `math` to the
 island vocabulary, `term` to the line kinds and `description` to the
-containers. `0.131.0` adds `font_family` to the marks, and its
+containers. `0.131.0` adds `font_family` to the marks, the element name
+`table`, a table's `head` and a cell's `colspan` and `rowspan`, and its
 DTO is `0.129.0`'s (`DocumentV0_131_0` aliases `DocumentV0_129_0`), so the
 reader opens both tags into one tree with no hop.
 
@@ -676,7 +684,9 @@ reason a load can. Only the newest DTO converts to the live `Document`.
 A bump that only adds vocabulary members, as `0.131.0` did, needs none of
 the steps below: its tag aliases the newest tree, the reader matches both
 tags into it, and the writer keeps the older tag for a row spelling none of the
-new members.
+new members. A member counts as new when the older reader refuses it or draws
+it otherwise, a key it carried as unknown and now means something included,
+and the writer's check names every one.
 
 When the `Document` wire format changes again:
 
