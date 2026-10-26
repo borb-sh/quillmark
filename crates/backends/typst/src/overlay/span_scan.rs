@@ -1055,7 +1055,7 @@ main:
             .expect("import").content;
         let data =
             serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
-        let mut world = QuillWorld::new(&q, &plate).expect("world");
+        let mut world = QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
         let windows = world
             .inject_helper_package(&data, &meta)
             .expect("inject");
@@ -1125,7 +1125,7 @@ main:
             let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
             let data =
                 serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) });
-            let mut world = QuillWorld::new(&q, &plate).expect("world");
+            let mut world = QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
             let windows = world
                 .inject_helper_package(&data, &meta)
                 .expect("inject");
@@ -1206,7 +1206,7 @@ main:
             quillmark_content::import::from_markdown("- Item ONE\n- Item TWO").expect("import").content;
         let data =
             serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) });
-        let mut world = QuillWorld::new(&q, &plate).expect("world");
+        let mut world = QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
         let windows = world
             .inject_helper_package(&data, &meta)
             .expect("inject");
@@ -1285,7 +1285,7 @@ main:
         let plate_src = crate::read_plate(&q).expect("plate");
         let schema = quillmark_core::quill::build_transform_schema(q.config());
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
-        let mut world = QuillWorld::new(&q, &plate_src).expect("world");
+        let mut world = QuillWorld::new(&q, &plate_src, &crate::FontLibrary::default()).expect("world");
         let windows = world
             .inject_helper_package(&data, &meta)
             .expect("inject");

@@ -827,6 +827,70 @@
     }
   },
   {
+    "name": "mark.font_family",
+    "markdown": "<qm-span family=\"Roboto\">set</qm-span>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "attrs": {
+            "name": "Roboto"
+          },
+          "end": 3,
+          "start": 0,
+          "type": "font_family"
+        }
+      ],
+      "text": "set"
+    },
+    "typst": [
+      "#_qm-font(\"Roboto\")[set]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "mark.font_family.unknown",
+    "markdown": "<qm-span family=\"Carlito\">set</qm-span>",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "attrs": {
+            "name": "Carlito"
+          },
+          "end": 3,
+          "start": 0,
+          "type": "font_family"
+        }
+      ],
+      "text": "set"
+    },
+    "typst": [
+      "set"
+    ],
+    "signals": {
+      "import": [],
+      "render": [
+        "typst::unknown_font_family"
+      ]
+    }
+  },
+  {
     "name": "island.table.aligns",
     "markdown": "| a | b | c |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |",
     "content": {
@@ -1198,6 +1262,81 @@
     },
     "typst": [
       "table.cell(align: right + horizon)[#strong[1] #emph[2]]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
+    "name": "island.table.cell.font",
+    "markdown": "| a | b |\n| --- | --- |\n| <qm-cell align=\"center\"><qm-span family=\"Roboto\">1</qm-span></qm-cell> | <qm-span family=\"Roboto\">2</qm-span> |",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none",
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              },
+              {
+                "marks": [],
+                "text": "b"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [
+                    {
+                      "attrs": {
+                        "name": "Roboto"
+                      },
+                      "end": 1,
+                      "start": 0,
+                      "type": "font_family"
+                    }
+                  ],
+                  "text": "1",
+                  "align": "center"
+                },
+                {
+                  "marks": [
+                    {
+                      "attrs": {
+                        "name": "Roboto"
+                      },
+                      "end": 1,
+                      "start": 0,
+                      "type": "font_family"
+                    }
+                  ],
+                  "text": "2"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "table.cell(align: center)[#_qm-font(\"Roboto\")[1]]",
+      "[#_qm-font(\"Roboto\")[2]]"
     ],
     "signals": {
       "import": [],
@@ -3391,6 +3530,129 @@
       "import": [
         {
           "construct": "qm-cell[valign]",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.font.value",
+    "markdown": "a <qm-span family=\"Roboto\" color=\"red\">b</qm-span> c",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "attrs": {
+            "name": "Roboto"
+          },
+          "end": 3,
+          "start": 2,
+          "type": "font_family"
+        }
+      ],
+      "text": "a b c"
+    },
+    "typst": [
+      "a #_qm-font(\"Roboto\")[b] c"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-span[color]",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.font.unclosed",
+    "markdown": "a <qm-span family=\"Roboto\">b c",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "a b c"
+    },
+    "typst": [
+      "a b c"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-span",
+          "count": 1
+        }
+      ],
+      "render": []
+    }
+  },
+  {
+    "name": "carrier.cell.in_font",
+    "markdown": "| a |\n| --- |\n| <qm-span family=\"Roboto\"><qm-cell align=\"center\">1</qm-cell></qm-span> |",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "a"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [
+                    {
+                      "attrs": {
+                        "name": "Roboto"
+                      },
+                      "end": 1,
+                      "start": 0,
+                      "type": "font_family"
+                    }
+                  ],
+                  "text": "1"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼"
+    },
+    "typst": [
+      "[#_qm-font(\"Roboto\")[1]]"
+    ],
+    "signals": {
+      "import": [
+        {
+          "construct": "qm-cell",
           "count": 1
         }
       ],

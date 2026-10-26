@@ -90,7 +90,7 @@ A term takes several descriptions, one `: ` line each. A description holding mor
 
 ## Table layout and elements: `qm-*` tags
 
-Markdown has no syntax for column widths, table placement or keeping a block on one page. Quillmark spells them with `qm-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
+Markdown has no syntax for column widths, table placement, a run of text's font or keeping a block on one page. Quillmark spells them with `qm-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
 
 Each `qm-*` tag stands on a line of its own, or beside other open and close `qm-*` tags with no text between. Quillmark reads such a line wherever it stands, tight against a paragraph or a table included, and export writes a blank line above and below it, which GitHub and other CommonMark viewers need to render the markdown it wraps:
 
@@ -144,6 +144,25 @@ A `qm-cell` pair around a cell's whole content aligns that one cell, in the head
 
 The open tag comes first in the cell and the close tag last. A pair with anything else in the cell beside it drops, keeping what it wraps, with a `parse::dropped_construct` warning.
 
+### Font family
+
+A `qm-span` pair inside a line sets the font family of the text it wraps:
+
+```markdown
+The <qm-span family="Carlito">phrase sits in **bold <qm-span family="Arimo">sans</qm-span>**</qm-span> text.
+```
+
+| Attribute | Value | Without it |
+|---|---|---|
+| `family` | A font family the app's font library supplies, such as `Carlito`. Case does not matter. | The surrounding family. |
+
+- It pairs as `<u>` does: inside a paragraph, heading, list item, table cell or footnote, across `**` or `~~` freely. Pairs nest: an inner pair's family sets its own text, and the outer family resumes past it. Saved and exported again, nested pairs come back side by side, one per run.
+- A family the app's library lacks keeps the surrounding font, and the render warns `typst::unknown_font_family` once per family and field. A quill's own fonts set its design and are not a choice here. An app lists the faces a writer can pick with `engine.fontFaces(quill)`.
+- Code spans and equations keep their own font, and a footnote's note keeps its own: a pair inside the note sets it.
+- In a table cell, a `qm-cell` pair goes outside any `qm-span` pair.
+- A family is a run's, never a block's: `qm-span` tag lines around blocks drop with a `qm-span` warning, and the blocks stay.
+- An attribute other than `family` drops alone with a `parse::dropped_construct` warning, keeping the family. A tag setting no family or left open drops, keeping what it wraps.
+
 ### Elements
 
 Any other `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` is reserved. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a `qm-table` it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent, and the render warns `typst::unregistered_element`. The warning's hint names the elements the quill renders, so a misspelled `qm-kep` shows up there.
@@ -160,7 +179,7 @@ An element's attributes are strings the quill reads, such as `<qm-stamp tone="ur
 
 ### Raw HTML is not rendered, except `<u>` and `<br>`
 
-CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, and a `qm-*` tag spells [table layout or an element](#table-layout-and-elements-qm-tags).
+CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, and a `qm-*` tag spells [table layout, a font run or an element](#table-layout-and-elements-qm-tags).
 
 ```markdown
 <u>This is underlined</u>, even <u>across word boundaries</u>.

@@ -15,7 +15,7 @@ fn compile(
         &common::yaml("main:\n  fields:\n    classification: { type: text }\n    subject: { type: text }\n"),
         plate,
     );
-    TypstBackend.open(
+    TypstBackend::default().open(
         &source,
         &serde_json::json!({ "classification": "SECRET", "subject": "Widgets" }),
         common::test_date(),
@@ -187,7 +187,7 @@ fn a_claim_around_a_content_field_moves_none_of_its_regions() {
                  #set strike(stroke: 12pt)\n{print}\n"
             ),
         );
-        TypstBackend
+        TypstBackend::default()
             .open(
                 &source,
                 &serde_json::json!({ "subject": "Widgets", "prose": body }),

@@ -10,7 +10,7 @@ mod common;
 use common::{content, quill_with_plate as quill, yaml};
 
 fn body_session(markdown: &str) -> LiveSession {
-    TypstBackend
+    TypstBackend::default()
         .open(
             &quill(
                 &yaml("main:\n  fields:\n    prose: { type: richtext, multiline: true }\n"),
@@ -52,7 +52,7 @@ fn collapsible_spaces_keep_their_width() {
 
 #[test]
 fn a_text_value_inks_no_space_it_does_not_hold() {
-    TypstBackend
+    TypstBackend::default()
         .open(
             &quill(
                 &yaml("main:\n  fields:\n    name: { type: text }\n"),

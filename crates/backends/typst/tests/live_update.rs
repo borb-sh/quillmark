@@ -36,7 +36,7 @@ fn msg(n: usize, edit_at: Option<usize>, marker: &str) -> String {
 
 #[test]
 fn update_commits_and_dirties_only_the_touched_suffix() {
-    let backend = TypstBackend;
+    let backend = TypstBackend::default();
     let q = quill();
     let n = 60;
 
@@ -99,7 +99,7 @@ fn update_with_reordered_fields_same_content_is_clean() {
     // survives on the wire and an editor can hand `update` the same content in a
     // different key order. Canonical codegen and span-free page hashes must
     // both hold for that to stay clean.
-    let backend = TypstBackend;
+    let backend = TypstBackend::default();
     let q = two_field_quill();
 
     let opened: serde_json::Value = serde_json::from_str(
@@ -127,7 +127,7 @@ fn update_with_reordered_fields_same_content_is_clean() {
 
 #[test]
 fn update_is_transactional_on_compile_failure() {
-    let backend = TypstBackend;
+    let backend = TypstBackend::default();
     let q = quill();
 
     let mut session = backend
@@ -152,7 +152,7 @@ fn update_is_transactional_on_compile_failure() {
 
 #[test]
 fn update_tracks_page_count_growth_and_shrink() {
-    let backend = TypstBackend;
+    let backend = TypstBackend::default();
     let q = quill();
 
     let mut session = backend

@@ -21,8 +21,8 @@ an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
 - **Structured data**: card-yaml blocks (§3).
 - **Extensions**: strikethrough, pipe tables, and `<u>` for underline
   (§6.1).
-- **The `qm-*` carrier**: table layout and elements, spelled as custom
-  HTML elements (§6.4).
+- **The `qm-*` carrier**: table layout, inline font runs and elements, spelled
+  as custom HTML elements (§6.4).
 
 A document containing no card-yaml blocks is ordinary CommonMark, parsed as
 such.
@@ -494,8 +494,8 @@ CommonMark reads it; any other `&` is text.
 of tag lines alone, and a line holding only element and `qm-table` tags is one
 wherever it stands (§6.2). Inside a line of text, or beside a tag outside the carrier in a
 block tight against markdown, it drops like any raw tag; `qm-anchor` drops
-inside a line without a report. The one inline construct is a `qm-cell` pair
-around a whole table cell.
+inside a line without a report. The two inline constructs are a `qm-cell` pair
+around a whole table cell and a `qm-span` pair around a run of text.
 
 **Canonical spelling.** An element is written with:
 
@@ -612,6 +612,40 @@ reads the document:
   drops alone, reported as `qm-cell[<name>]`.
 - Outside a table cell `qm-cell` is no special name: a pair of tag lines is an
   element, and a pair inside a line drops as any element's does.
+
+**`qm-span`** is an inline pair whose attributes set formatting of the text it
+wraps, whatever quill reads the document. Each attribute is a mark of its own,
+and `family` is the one it carries:
+
+| Attribute | Value | Default |
+|---|---|---|
+| `family` | a font family's name: not empty, no space at either edge, and no control character, bidi control or line separator | the surrounding text's family |
+
+```markdown
+Pay <qm-span family="Carlito">**today**, as <qm-span family="Arimo">§4</qm-span> sets out</qm-span>.
+```
+
+- A pair pairs as `<u>` does (§6.2): inside its paragraph, heading, list
+  item's text, table cell or footnote, a `</qm-span>` closes the innermost
+  `<qm-span>` still open, whatever marks lie between. An inner pair sets its
+  family over its own text and the outer family resumes past it, so nested
+  pairs import as flat marks, one family per character.
+- A family stores as written and names no font file. A backend resolves it at
+  render, and text in a family none of its fonts holds keeps the surrounding
+  family. The Typst backend sets no family over a code span, math or a table,
+  whose cells take pairs of their own, and a footnote's note keeps its own
+  family.
+- An attribute other than `family` drops alone, reported as
+  `qm-span[<name>]`, as does a family outside its spelling. A tag setting no
+  family, a self-closing tag and a pair still open where its text ends drop,
+  reported as `qm-span`.
+- Export writes one pair per family mark and never nests pairs, so the
+  example above comes back as three pairs side by side. A pair sits inside a `qm-cell` pair, and
+  outside `<u>` and the emphasis delimiters closing and opening where it
+  stands, as `<u>` is (§6.2).
+- A `qm-span` tag line wraps nothing: its tags drop, the open tag reported as
+  `qm-span`, and the blocks between them stay. A family is a run's, never a
+  block's.
 
 **`qm-anchor`** is reserved for an anchor's read-only spelling,
 `<qm-anchor ref="…"></qm-anchor>`, which the annotated export writes and
@@ -769,9 +803,9 @@ block.
 Markdown block nesting depth (12) is enforced at import time by the
 markdown→content parser (`Document::parse`): at every point of a body, the
 list items, quotes and elements open there number at most 12. Marks and `<u>`
-count nothing: the Typst emitter wraps a run in at most six show rules, its
-mark kinds and raw, so 12 quotes at four apiece leave Typst's show-rule depth of
-64 room for them. An element counts from its open tag until it closes or its
+count nothing: the Typst emitter wraps a run in at most seven show rules, its
+mark kinds, raw and a font run's `context`, so 12 quotes at four apiece leave
+Typst's show-rule depth of 64 room for them. An element counts from its open tag until it closes or its
 list item, quote or body ends, so one left unclosed counts until then, and a
 `qm-table` wrapper counts nothing. The Typst backend re-checks at render as a
 backstop for content built without importing.

@@ -41,7 +41,9 @@ fn every_entry_holds_on_every_surface() {
         assert!(names.insert(name), "two entries named {name}");
     }
 
-    let engine = Engine::new();
+    // The corpus sets its font runs in Roboto, which only a library offers.
+    let roboto = include_bytes!("../../backends/typst/src/fonts/Roboto.ttf").to_vec();
+    let engine = Engine::with_fonts(vec![roboto]).expect("Roboto is a font library");
     let quill = quillmark::quill_from_path(quills_path(QUILL)).unwrap_or_else(|e| panic!("{QUILL} loads: {e:?}"));
     let failures: Vec<String> = corpus
         .iter()
@@ -449,7 +451,7 @@ fn lowering(quill: &Quill, doc: &Document) -> Result<String, String> {
     let data = quill
         .compile_checked(doc, common::test_date())
         .map_err(|e| format!("compile fails: {e:?}"))?;
-    let workspace = quillmark::typst_workspace::workspace(quill, &data)
+    let workspace = quillmark::typst_workspace::workspace(quill, &data, &Default::default())
         .map_err(|e| format!("workspace fails: {e:?}"))?;
     let lib = workspace
         .files

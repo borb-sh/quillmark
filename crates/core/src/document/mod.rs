@@ -410,6 +410,7 @@ pub(crate) mod yaml_hints;
 
 pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_124_0, STORAGE_V0_129_0,
+    STORAGE_V0_131_0,
 };
 pub use edit::{revise_import, CardMut, EditError, Revised};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
@@ -434,7 +435,8 @@ pub const MARKDOWN_RULES: &str = "Quillmark Markdown rules:
 \u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$ext`, `$seed`. User fields use lowercase snake_case.
 \u{2022} Prose body is the text after a block's closing `~~~`, up to the next opener or EOF. To include a literal fenced code block in prose, use a backtick fence (```); any column-zero `~~~` block is parsed as card metadata.
 \u{2022} A blank or null value (`field:`, `field: null`, `field: ~`) is the same as omitting the field: it falls back to the field's default, else its blank. `field: \"\"` is kept as written, an explicit empty value.
-\u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.";
+\u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.
+\u{2022} In a body or richtext value, `<qm-span family=\"<family>\">text</qm-span>` sets a run's font family. Pairs nest, the innermost winning and the outer resuming past it. Name only a family the host's font library supplies: any other keeps the surrounding font and warns.";
 
 #[cfg(test)]
 mod tests;

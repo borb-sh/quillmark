@@ -85,7 +85,7 @@ fn a_content_image_renders_nothing_and_the_plate_keeps_its_own() {
         "$body": content("![logo](assets/logo.svg)\n\n![rooted](/assets/logo.svg)"),
     });
 
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(&quill(), &data, common::test_date())
         .expect("an image island compiles rather than failing the render");
     let result = session
@@ -117,7 +117,7 @@ fn a_named_field_and_a_card_body_carry_their_own_paths() {
         ],
     });
 
-    let session = TypstBackend.open(&quill(), &data, common::test_date()).expect("open");
+    let session = TypstBackend::default().open(&quill(), &data, common::test_date()).expect("open");
     let paths: Vec<_> = declines(session.warnings())
         .iter()
         .filter_map(|d| d.path.clone())

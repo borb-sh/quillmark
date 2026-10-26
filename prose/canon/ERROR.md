@@ -80,7 +80,11 @@ and a scale on the canvas;
 a `RenderOptions::pages` selection naming a page the document does not have, or
 asked of a format the backend emits whole (PDF on both built-in backends), both
 minted by the shared constructors in `crates/core/src/backend.rs`;
-`engine::backend_not_found`: the quill's declared backend is not registered.
+`engine::backend_not_found`: the quill's declared backend is not registered;
+`engine::font_unsupported` / `engine::font_unreadable`: a host font file
+`Engine::with_fonts` refuses, one per file, in a format other than `.ttf`,
+`.otf`, `.ttc` and `.otc` or holding no face Typst reads
+([ARCHITECTURE.md](ARCHITECTURE.md#fonts)).
 
 `pdf::*` is the AcroForm stamping spine's own namespace (`pdf::parse`,
 `pdf::write`, `pdf::rotated_page`, `pdf::bad_rect`, …): `quillmark-pdf` carries
@@ -244,6 +248,15 @@ families:
   whose equations nest groups past the depth the lowering reads warns once
   more under the code, naming the depth. It rides the session's compile warnings, and `validate` has no twin
   for it.
+- **`typst::unknown_font_family`: a family the host library lacks.** The
+  Typst compile warns once per (content field, family) whose font runs name a
+  family the host's font library does not hold, a quill's own or fallback
+  family included, compared lowercased and spelled as
+  the field first spells it, with the field's `DocPath` in `path` and the
+  family in `args.family` ([CONVERT.md](CONVERT.md#font-runs)). Its text keeps the surrounding family.
+  It rides the session's compile warnings, and `validate`, which holds no
+  fonts, has no twin for it. The engine has no strict mode: a host needing a
+  hard failure treats the code as an error.
 - **`typst::missing_glyph`: text no font draws.** The Typst compile warns
   once, naming each character the laid-out pages draw as a `.notdef` box,
   whitespace and default-ignorables aside. It rides the session's compile
@@ -278,7 +291,7 @@ Python and WASM bindings delegate to core types:
 
 **WASM delivery follows the function kind, not the failure kind.** A synchronous verb throws; a promise-returning verb rejects; nothing does both.
 
-- The promise-returning surface is `init` plus the four `Engine` verbs (`render`, `open`, `load`, `supportedFormats`). A programming error reached through one of them (a handle that is not this copy's, `runtime::not_a_quill` / `runtime::not_a_document`; an unregistered backend, `engine::backend_not_found`) arrives as a rejection like any other failure.
+- The promise-returning surface is `init` plus the five `Engine` verbs (`render`, `open`, `load`, `supportedFormats`, `fontFaces`). A programming error reached through one of them (a handle that is not this copy's, `runtime::not_a_quill` / `runtime::not_a_document`; an unregistered backend, `engine::backend_not_found`; a refused host font, `engine::font_unsupported` / `engine::font_unreadable`) arrives as a rejection like any other failure.
 - A `WebAssembly.RuntimeError` from a backend build's `render`, `open`, or `LiveSession` `update` / `render` / `paint` becomes `runtime::backend_trapped`, the trap on `cause`, and so does a `RangeError` or `InternalError` for stack or memory exhaustion, the JavaScript engines' report of a native stack overflow inside wasm. The trap leaves the module-scoped instance undefined; the host discards the realm.
 - `init` is the one promise-returning export not declared `async`: its memo is returned by identity rather than re-wrapped per call. Its conflict guard therefore returns `Promise.reject(runtime::init_conflict)` where an `async` body would have converted a throw.
 - A synchronous throw from `init` would lose the rule at exactly one export, and silently: `Promise<void>` cannot declare it, so the declaration invites `init(BYTES).catch(…)` and the throw escapes.
