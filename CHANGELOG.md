@@ -24,6 +24,14 @@
   layout**: `qm-table` is an ordinary element name, and a `qm-cell` pair in a
   cell drops, warning `qm-cell`, so markdown written with either loses its
   table layout; rewrite such a table as HTML.
+- fix(content): **a table's `head: 0` keeps `headless: true` beside it**, so a
+  0.130 reader draws no header row on a table 0.131 saved, and a richtext
+  field holding a 0.130 `headless: true` table reads as content, exporting as
+  a table where it wrote its YAML tree. A cell a span covers keeps its `align`
+  and `valign`, drawn again once the span shrinks, and a cell holding a mark,
+  a comment anchor included, is no placeholder a span covers. A 0.130 row
+  holding `headless: true` or a cell span rewrites once when saved, under the
+  same tag.
 - fix(content)!: **a table's grid is capped at `MAX_TABLE_CELLS` (100 000)
   slots**: markdown import drops the rows past it, warning `table[size]`, and
   the stored lanes refuse such a table as `Invariant::TableTooLarge` before

@@ -4,6 +4,7 @@ mod edit_tests;
 mod emit_tests;
 mod ext_tests;
 mod fence_conformance_tests;
+mod legacy_table_tests;
 mod lossiness_tests;
 mod multibyte_tests;
 mod properties;

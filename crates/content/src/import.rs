@@ -3224,27 +3224,27 @@ pub(crate) mod tests {
             (
                 "<table border=1 bgcolor=red widths=\"0 1\"><tr><td class=x style=\"color: red\" scope=col colspan=0>a</td><td rowspan=two align=justify valign=baseline>b</td></tr></table>",
                 &[("table[bgcolor]", 1), ("table[widths]", 1), ("td[colspan]", 1), ("td[align]", 1), ("td[rowspan]", 1), ("td[valign]", 1)],
-                json!({"aligns": ["none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b"}], "rows": []}),
+                json!({"aligns": ["none", "none"], "head": 0, "headless": true, "header": [{"text": "a"}, {"text": "b"}], "rows": []}),
             ),
             (
                 "<table><caption>Roster</caption><colgroup><col></colgroup><tr><td>a</td>stray<td>b</td></tr></table>",
                 &[("caption", 1), ("table[text]", 2), ("colgroup", 1), ("col", 1)],
-                json!({"aligns": ["none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b"}], "rows": []}),
+                json!({"aligns": ["none", "none"], "head": 0, "headless": true, "header": [{"text": "a"}, {"text": "b"}], "rows": []}),
             ),
             (
                 "<table><tr><td>a</td><td>b</td></tr><tr><td>1</td></tr><tr><td>2</td><td>3</td><td>4</td></tr></table>",
                 &[("table[row]", 2)],
-                json!({"aligns": ["none", "none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b"}, {"text": ""}], "rows": [[{"text": "1"}, {"text": ""}, {"text": ""}], [{"text": "2"}, {"text": "3"}, {"text": "4"}]]}),
+                json!({"aligns": ["none", "none", "none"], "head": 0, "headless": true, "header": [{"text": "a"}, {"text": "b"}, {"text": ""}], "rows": [[{"text": "1"}, {"text": ""}, {"text": ""}], [{"text": "2"}, {"text": "3"}, {"text": "4"}]]}),
             ),
             (
                 "<table><tr><td rowspan=2>a</td><td>b</td><td>c</td></tr><tr><td></td><td>x</td><td>y</td></tr></table>",
                 &[("table[row]", 1)],
-                json!({"aligns": ["none", "none", "none", "none"], "head": 0, "header": [{"text": "a", "rowspan": 2}, {"text": "b"}, {"text": "c"}, {"text": ""}], "rows": [[{"text": ""}, {"text": ""}, {"text": "x"}, {"text": "y"}]]}),
+                json!({"aligns": ["none", "none", "none", "none"], "head": 0, "headless": true, "header": [{"text": "a", "rowspan": 2}, {"text": "b"}, {"text": "c"}, {"text": ""}], "rows": [[{"text": ""}, {"text": ""}, {"text": "x"}, {"text": "y"}]]}),
             ),
             (
                 "<table><tr><td>a</td><td rowspan=2>b</td><td>c</td></tr><tr><td colspan=3>d</td></tr></table>",
                 &[],
-                json!({"aligns": ["none", "none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b", "rowspan": 2}, {"text": "c"}], "rows": [[{"text": "d"}, {"text": ""}, {"text": ""}]]}),
+                json!({"aligns": ["none", "none", "none"], "head": 0, "headless": true, "header": [{"text": "a"}, {"text": "b", "rowspan": 2}, {"text": "c"}], "rows": [[{"text": "d"}, {"text": ""}, {"text": ""}]]}),
             ),
             (
                 "<table><thead><tr><th rowspan=5>h</th><th>a</th></tr></thead><tr><td>1</td><td colspan=3>2</td></tr></table>",

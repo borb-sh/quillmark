@@ -159,14 +159,20 @@ pub fn from_canonical_value(v: &Value) -> Result<Normalized, ParseError> {
 
 /// `v` with the retired spellings the decoder reads permanently written as the
 /// encoder writes them: an island's `loss` key dropped, a line's `island` kind
-/// spelled `para`. A caller comparing stored bytes against
-/// [`to_canonical_value`] compares this instead, so an untagged content value
-/// in a retired spelling reads as content.
+/// spelled `para`, and a table's props settled as the mint settles them, a
+/// `headless: true` or a span past what it covers among them. A caller
+/// comparing stored bytes against [`to_canonical_value`] compares this instead,
+/// so an untagged content value in a retired spelling reads as content.
 pub fn respell_retired(v: &Value) -> Value {
     let mut v = v.clone();
     if let Some(islands) = v.get_mut("islands").and_then(Value::as_array_mut) {
         for island in islands.iter_mut().filter_map(Value::as_object_mut) {
             island.shift_remove("loss");
+            if island.get("type").and_then(Value::as_str) == Some(crate::island::IslandType::Table.as_str())
+                && let Some(props) = island.get_mut("props")
+            {
+                respell_table(props);
+            }
         }
     }
     if let Some(lines) = v.get_mut("lines").and_then(Value::as_array_mut) {
@@ -177,6 +183,19 @@ pub fn respell_retired(v: &Value) -> Value {
         }
     }
     v
+}
+
+/// `props` settled as the mint settles a table's, where that changes what it
+/// holds; props the mint keeps as they are stay in their stored key order, so
+/// a comparison still sees keys out of order.
+fn respell_table(props: &mut Value) {
+    let stored = crate::model::sort_keys_owned(props.clone());
+    let mut settled = stored.clone();
+    normalize_table_props(&mut settled);
+    let settled = crate::model::sort_keys_owned(settled);
+    if settled != stored {
+        *props = settled;
+    }
 }
 
 /// Mint and check: the tail both wire lanes share, after the authored lane has
@@ -903,9 +922,10 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
 /// A table's layout keys, each absent at its default: `widths` holding only
 /// weights and `null`s settles to `cols`, padded with `null` or truncated, and
 /// all `null` is absent; a whole-number `head` settles to at most the row
-/// count, absent at 1. A `headless` boolean is absent, a `true` one settling to
-/// `head: 0` where no `head` is stored. A value outside its set stays as
-/// written.
+/// count, absent at 1. `headless: true` sits beside `head: 0`, which a 0.130
+/// reader cannot read, and is absent beside any other `head`; a stored
+/// `headless: true` settles to `head: 0` where `head` holds no whole number. A
+/// value outside its set stays as written.
 fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Option<u64>>>, cols: usize) {
     if let Some(mut widths) = widths {
         widths.resize(cols, None);
@@ -914,43 +934,38 @@ fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Optio
             false => obj.remove("widths"),
         };
     }
-    if let Some(Value::Bool(headless)) = obj.get("headless") {
-        if *headless && !obj.contains_key("head") {
-            obj.insert("head".into(), 0.into());
-        }
-        obj.remove("headless");
+    let headless = obj.get("headless").and_then(Value::as_bool);
+    if headless == Some(true) && obj.get("head").and_then(Value::as_u64).is_none() {
+        obj.insert("head".into(), 0.into());
     }
     let rows = 1 + obj.get("rows").and_then(Value::as_array).map_or(0, Vec::len);
-    if let Some(head) = obj.get("head").and_then(Value::as_u64) {
-        match usize::try_from(head).unwrap_or(usize::MAX).min(rows) {
-            1 => obj.remove("head"),
-            head => obj.insert("head".into(), head.into()),
-        };
-    }
+    let head = obj.get("head").and_then(Value::as_u64).map(|head| usize::try_from(head).unwrap_or(usize::MAX).min(rows));
+    match head {
+        Some(1) => obj.remove("head"),
+        Some(head) => obj.insert("head".into(), head.into()),
+        None => None,
+    };
+    match head {
+        Some(0) => obj.insert("headless".into(), true.into()),
+        _ if headless.is_some() => obj.remove("headless"),
+        _ => None,
+    };
 }
 
 /// Each drawn cell's `colspan` and `rowspan` settled to what it covers
 /// ([`crate::island::table_spans`]), absent at 1, and each covered cell's span
-/// and alignment keys absent, since it draws nothing. A value outside its set
-/// stays as written.
+/// keys absent. A covered cell keeps its alignment, which it draws again once
+/// no span covers it. A value outside its set stays as written.
 fn normalize_table_spans(props: &mut Value) {
-    use crate::island::{CELL_KEYS, CELL_SPANS};
+    use crate::island::CELL_SPANS;
     let spans = crate::island::table_spans(props);
-    let in_set = |cell: &Map<String, Value>, key: &str| match cell.get(key) {
-        Some(v) if CELL_SPANS.contains(&key) => v.as_u64().is_some_and(|n| n >= 1),
-        Some(v) => CELL_KEYS.iter().any(|(k, set)| *k == key && v.as_str().is_some_and(|v| set.contains(&v))),
-        None => false,
-    };
     let settle = |row: &mut Value, spans: &[Option<(usize, usize)>]| {
         let cells = row.as_array_mut().into_iter().flatten().zip(spans);
         for (cell, span) in cells {
             let Some(cell) = cell.as_object_mut() else { continue };
-            let settled: Vec<(&str, Option<usize>)> = match span {
-                Some((w, h)) => CELL_SPANS.into_iter().zip([Some(*w), Some(*h)]).collect(),
-                None => CELL_SPANS.into_iter().chain(CELL_KEYS.map(|(k, _)| k)).map(|k| (k, None)).collect(),
-            };
-            for (key, n) in settled {
-                if !in_set(cell, key) {
+            let settled = span.map_or([None, None], |(w, h)| [Some(w), Some(h)]);
+            for (key, n) in CELL_SPANS.into_iter().zip(settled) {
+                if !cell.get(key).and_then(Value::as_u64).is_some_and(|n| n >= 1) {
                     continue;
                 }
                 match n {
