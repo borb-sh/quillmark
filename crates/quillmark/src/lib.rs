@@ -44,7 +44,8 @@ pub use quillmark_core::{
     },
     quill::{
         BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType, FileTreeNode,
-        ParseDateError, Quill, QuillConfig, QuillIgnore, ValidationError, EXAMPLE_FILE,
+        ParseDateError, Quill, QuillConfig, QuillIgnore, ValidationError, BUNDLE_EXTENSION,
+        EXAMPLE_FILE,
     },
     reader::{CardReader, TypedReader},
     region::{

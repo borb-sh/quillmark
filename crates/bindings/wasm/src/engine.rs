@@ -701,6 +701,25 @@ impl Quill {
         map.into()
     }
 
+    /// Read a `.quill` bundle, the zip archive holding one quill's file tree.
+    /// Pure, as [`fromTree`](Self::from_tree) is. A bundle outside the format
+    /// throws one `quill::bundle_*` diagnostic.
+    #[wasm_bindgen(js_name = fromBundle)]
+    pub fn from_bundle(bytes: &[u8]) -> Result<Quill, JsValue> {
+        let quill = quillmark::Quill::from_bundle(bytes)
+            .map_err(|diags| WasmError { diagnostics: diags }.to_js_value())?;
+        Ok(Quill { inner: quill })
+    }
+
+    /// This quill's file tree as a `.quill` bundle, the bytes
+    /// [`fromBundle`](Self::from_bundle) reads.
+    #[wasm_bindgen(js_name = toBundle)]
+    pub fn to_bundle(&self) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .to_bundle()
+            .map_err(|diags| WasmError { diagnostics: diags }.to_js_value())
+    }
+
     /// The *declared* backend identifier (e.g. `"typst"`): intent, not a
     /// resolved capability. Capability is read from the engine.
     #[wasm_bindgen(getter, js_name = backendId)]

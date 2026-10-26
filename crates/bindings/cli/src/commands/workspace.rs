@@ -1,4 +1,4 @@
-use crate::commands::{load_quill, read_document, render_date};
+use crate::commands::{lies_within, load_quill, read_document, render_date};
 use crate::errors::{CliError, Result};
 use crate::output::write_file;
 use clap::Parser;
@@ -31,6 +31,12 @@ pub struct WorkspaceArgs {
 }
 
 pub fn execute(args: WorkspaceArgs) -> Result<()> {
+    if args.quill.is_file() {
+        return Err(CliError::InvalidArgument(format!(
+            "{} is a file; workspace needs the quill's directory, which Typst reads as its root",
+            args.quill.display()
+        )));
+    }
     let quill = load_quill(&args.quill)?;
     if lies_within(&args.output, &args.quill)? {
         return Err(CliError::InvalidArgument(format!(
@@ -113,33 +119,6 @@ fn clear_previous_export(out: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Whether `path` is `root` or under it. The part of `path` that does not exist
-/// yet resolves lexically against its nearest existing ancestor.
-fn lies_within(path: &Path, root: &Path) -> Result<bool> {
-    let root = fs::canonicalize(root)?;
-    let mut existing = std::env::current_dir()?.join(path);
-    let mut rest = Vec::new();
-    let mut resolved = loop {
-        if let Ok(canonical) = fs::canonicalize(&existing) {
-            break canonical;
-        }
-        let Some(last) = existing.components().next_back() else {
-            break PathBuf::new();
-        };
-        rest.push(last.as_os_str().to_owned());
-        if !existing.pop() {
-            break PathBuf::new();
-        }
-    };
-    for name in rest.into_iter().rev() {
-        if name == ".." {
-            resolved.pop();
-        } else {
-            resolved.push(name);
-        }
-    }
-    Ok(resolved.starts_with(root))
-}
 
 /// `path` as one POSIX shell word: bare when every character is safe, else
 /// single-quoted.

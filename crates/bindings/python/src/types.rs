@@ -147,6 +147,21 @@ impl PyQuill {
         Ok(PyQuill { inner: quill })
     }
 
+    /// Read a `.quill` bundle, the zip archive holding one quill's file tree.
+    /// A bundle outside the format raises one `quill::bundle_*` diagnostic.
+    #[staticmethod]
+    fn from_bundle(bytes: &[u8]) -> PyResult<PyQuill> {
+        let quill = Quill::from_bundle(bytes).map_err(raise_summarized)?;
+        Ok(PyQuill { inner: quill })
+    }
+
+    /// This quill's file tree as a `.quill` bundle, the bytes `from_bundle`
+    /// reads.
+    fn to_bundle<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let bytes = self.inner.to_bundle().map_err(raise_summarized)?;
+        Ok(PyBytes::new(py, &bytes))
+    }
+
     /// The declared backend identifier (e.g. `"typst"`).
     #[getter]
     fn backend_id(&self) -> String {

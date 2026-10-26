@@ -301,6 +301,30 @@ fn an_unloadable_quill_is_not_an_invalid_argument() {
     );
 }
 
+/// A packed quill is a quill path like its directory, except to `workspace`,
+/// which needs a directory for Typst's root; `pack` will not write into the
+/// quill it packs.
+#[test]
+fn pack_writes_a_bundle_every_command_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let bundle = dir.path().join("taro.quill");
+    let bundle = bundle.to_str().unwrap();
+    ok(&["pack", taro().to_str().unwrap(), "-o", bundle]);
+
+    let stdout = ok(&["schema", bundle]);
+    assert!(stdout.contains("ice_cream"), "schema omits ice_cream: {stdout}");
+    ok(&["validate", bundle]);
+
+    for args in [
+        vec!["workspace", bundle, "-o", dir.path().join("ws").to_str().unwrap()],
+        vec!["pack", taro().to_str().unwrap(), "-o", taro().join("x.quill").to_str().unwrap()],
+    ] {
+        let out = run(&args.iter().map(|a| &**a).collect::<Vec<_>>());
+        assert_eq!(out.status.code(), Some(1), "`quillmark {}` succeeded", args.join(" "));
+    }
+    assert!(!taro().join("x.quill").exists());
+}
+
 /// `-o` names a directory that does not exist yet, and the artifact still lands
 /// there.
 #[test]

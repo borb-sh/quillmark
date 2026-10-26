@@ -43,6 +43,21 @@ describe('@quillmark/wasm/core surface', () => {
     expect(quill.metadata.name).toBe('core_test')
   })
 
+  it('a quill round-trips through its .quill bundle, and other bytes are refused by code', () => {
+    const quill = Quill.fromTree(makeCoreQuill())
+    const bundle = quill.toBundle()
+    expect(bundle).toBeInstanceOf(Uint8Array)
+    expect([...Quill.fromBundle(bundle).toTree()]).toEqual([...quill.toTree()])
+
+    let caught
+    try {
+      Quill.fromBundle(enc.encode('not a zip'))
+    } catch (e) {
+      caught = e
+    }
+    expect(caught?.diagnostics?.[0]?.code).toBe('quill::bundle_invalid')
+  })
+
   it('schema, blueprint, seed, and validate work without a backend', () => {
     const quill = Quill.fromTree(makeCoreQuill())
 

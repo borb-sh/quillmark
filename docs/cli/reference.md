@@ -26,6 +26,8 @@ cargo install quillmark-cli --locked
 
 Run `validate` when a quill changes and `check` when a document does: `validate` checks the quill itself, and `check` checks documents against it.
 
+Every command but `workspace` takes a quill as its directory or as a `.quill` bundle, the one file [`pack`](#pack) writes.
+
 ### render
 
 Render a Markdown document to the specified output format.
@@ -36,7 +38,7 @@ quillmark render [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 
 **Arguments:**
 
-- `<QUILL_PATH>`: Path to quill directory
+- `<QUILL_PATH>`: Path to quill directory, or to a `.quill` bundle
 - `[MARKDOWN_FILE]`: Path to Markdown file with a root card-yaml block (optional, when omitted, the quill's seeded document is rendered: one card per kind with empty bodies, every field at its `default:` or blank)
 
 The file must open with a `~~~` block containing a `$quill:` key identifying the quill; the opener's info string is ignored.
@@ -91,7 +93,7 @@ quillmark check [OPTIONS] <QUILL_PATH> <MARKDOWN_FILE>...
 
 **Arguments:**
 
-- `<QUILL_PATH>`: Path to quill directory
+- `<QUILL_PATH>`: Path to quill directory, or to a `.quill` bundle
 - `<MARKDOWN_FILE>...`: One or more documents to check. Each document's diagnostics print under its path. A document that is missing or unreadable draws `cli::unreadable_document`, one that fails to parse draws its parse error, and neither stops the rest.
 
 **Options:**
@@ -124,7 +126,7 @@ quillmark schema <QUILL_PATH>
 
 **Arguments:**
 
-- `<QUILL_PATH>`: Path to quill directory
+- `<QUILL_PATH>`: Path to quill directory, or to a `.quill` bundle
 
 **Examples:**
 
@@ -146,7 +148,7 @@ quillmark blueprint <QUILL_PATH>
 
 **Arguments:**
 
-- `<QUILL_PATH>`: Path to quill directory
+- `<QUILL_PATH>`: Path to quill directory, or to a `.quill` bundle
 
 **Examples:**
 
@@ -183,7 +185,7 @@ quillmark validate [OPTIONS] <QUILL_PATH>
 
 **Arguments:**
 
-- `<QUILL_PATH>`: Path to quill directory
+- `<QUILL_PATH>`: Path to quill directory, or to a `.quill` bundle
 
 **Options:**
 
@@ -213,7 +215,7 @@ quillmark info <QUILL_PATH>
 
 **Arguments:**
 
-- `<QUILL_PATH>`: Path to quill directory
+- `<QUILL_PATH>`: Path to quill directory, or to a `.quill` bundle
 
 **Examples:**
 
@@ -285,6 +287,32 @@ the embedded release compiles there and fails to render.
 
 Render the quill with `quillmark render` before trusting a plate that
 compiles here.
+
+### pack
+
+Write a quill as one `.quill` bundle: its file tree as a ZIP archive, `Quill.yaml` at the archive root. The bundle is what `Quill.fromBundle` in `@quillmark/wasm` and `Quill.from_bundle` in Python read, and any command here takes it as a quill path. The quill loads first, so a quill whose `Quill.yaml` fails is not packed.
+
+```bash
+quillmark pack [OPTIONS] <QUILL_PATH>
+```
+
+**Arguments:**
+
+- `<QUILL_PATH>`: Path to quill directory, or to a `.quill` bundle
+
+**Options:**
+
+- `-o <FILE>` / `--output <FILE>`: Bundle file to write (default: `<name>@<version>.quill` in the working directory). A file inside the quill directory is refused: the next load would carry it as one of the quill's files
+
+**Failures:** a file over 32 MiB, files over 64 MiB together, more than 2048 files, or a file name holding `\`, `:` or NUL refuse the quill as `quill::bundle_too_large` or `quill::bundle_path`, since no reader would take the bundle back.
+
+**Examples:**
+
+```bash
+quillmark pack ./my-quill
+# Output written to: my_quill@1.0.0.quill
+quillmark render my_quill@1.0.0.quill input.md
+```
 
 ## Exit Codes
 
