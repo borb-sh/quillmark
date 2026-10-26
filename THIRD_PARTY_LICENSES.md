@@ -2153,14 +2153,14 @@ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH RE
 
 ## Apache License 2.0
 
-- quillmark-acroform 0.130.0 (https://github.com/borb-sh/quillmark)
-- quillmark-typst 0.130.0 (https://github.com/borb-sh/quillmark)
-- quillmark-cli 0.130.0 (https://github.com/borb-sh/quillmark)
-- quillmark-python 0.130.0
-- quillmark-content 0.130.0 (https://github.com/borb-sh/quillmark)
-- quillmark-core 0.130.0 (https://github.com/borb-sh/quillmark)
-- quillmark 0.130.0 (https://github.com/borb-sh/quillmark)
-- quillmark-pdf 0.130.0 (https://github.com/borb-sh/quillmark)
+- quillmark-acroform 0.131.0 (https://github.com/borb-sh/quillmark)
+- quillmark-typst 0.131.0 (https://github.com/borb-sh/quillmark)
+- quillmark-cli 0.131.0 (https://github.com/borb-sh/quillmark)
+- quillmark-python 0.131.0
+- quillmark-content 0.131.0 (https://github.com/borb-sh/quillmark)
+- quillmark-core 0.131.0 (https://github.com/borb-sh/quillmark)
+- quillmark 0.131.0 (https://github.com/borb-sh/quillmark)
+- quillmark-pdf 0.131.0 (https://github.com/borb-sh/quillmark)
 - ciborium-io 0.2.2 (https://github.com/enarx/ciborium)
 - ciborium-ll 0.2.2 (https://github.com/enarx/ciborium)
 - ciborium 0.2.2 (https://github.com/enarx/ciborium)
@@ -2377,6 +2377,11 @@ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH RE
 - clap 4.6.7 (https://github.com/clap-rs/clap)
 - clap_builder 4.6.7 (https://github.com/clap-rs/clap)
 - clap_derive 4.6.7 (https://github.com/clap-rs/clap)
+- serde_spanned 1.1.2 (https://github.com/toml-rs/toml)
+- toml 1.1.8+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml_datetime 1.1.2+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml_parser 1.1.5+spec-1.1.0 (https://github.com/toml-rs/toml)
+- toml_writer 1.1.3+spec-1.1.0 (https://github.com/toml-rs/toml)
 
 ~~~~text
                                  Apache License
@@ -2600,15 +2605,10 @@ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH RE
 - once_cell_polyfill 1.70.2 (https://github.com/polyfill-rs/once_cell_polyfill)
 - quick-error 2.0.1 (http://github.com/tailhook/quick-error)
 - serde_spanned 0.6.9 (https://github.com/toml-rs/toml)
-- serde_spanned 1.1.1 (https://github.com/toml-rs/toml)
 - toml 0.8.23 (https://github.com/toml-rs/toml)
-- toml 1.1.6+spec-1.1.0 (https://github.com/toml-rs/toml)
 - toml_datetime 0.6.11 (https://github.com/toml-rs/toml)
-- toml_datetime 1.1.1+spec-1.1.0 (https://github.com/toml-rs/toml)
 - toml_edit 0.22.27 (https://github.com/toml-rs/toml)
-- toml_parser 1.1.3+spec-1.1.0 (https://github.com/toml-rs/toml)
 - toml_write 0.1.2 (https://github.com/toml-rs/toml)
-- toml_writer 1.1.2+spec-1.1.0 (https://github.com/toml-rs/toml)
 
 ~~~~text
                                  Apache License
@@ -4555,7 +4555,7 @@ limitations under the License.
 - unic-langid-macros-impl 0.9.6 (https://github.com/zbraniecki/unic-locale)
 - unic-langid-macros 0.9.6 (https://github.com/zbraniecki/unic-locale)
 - unic-langid 0.9.6 (https://github.com/zbraniecki/unic-locale)
-- unicase 2.9.0 (https://github.com/seanmonstar/unicase)
+- unicase 2.10.0 (https://github.com/seanmonstar/unicase)
 - unicode-bidi-mirroring 0.4.0 (https://github.com/RazrFalcon/unicode-bidi-mirroring)
 - unicode-bidi 0.3.18 (https://github.com/servo/unicode-bidi)
 - unicode-ccc 0.4.0 (https://github.com/RazrFalcon/unicode-ccc)
@@ -5395,6 +5395,7 @@ APPENDIX: How to apply the Apache License to your work.
 
 ## Apache License 2.0
 
+- getrandom 0.4.3 (https://github.com/rust-random/getrandom)
 - rand_chacha 0.3.1 (https://github.com/rust-random/rand)
 
 ~~~~text
@@ -6247,8 +6248,8 @@ limitations under the License.
 
 ## Apache License 2.0
 
-- quillmark-wasm 0.130.0 (https://github.com/borb-sh/quillmark)
-- quillmark-fixtures 0.130.0
+- quillmark-wasm 0.131.0 (https://github.com/borb-sh/quillmark)
+- quillmark-fixtures 0.131.0
 - arraydeque 0.5.1 (https://github.com/andylokandy/arraydeque)
 - codex 0.3.0 (https://github.com/typst/codex)
 - color 0.3.3 (https://github.com/linebender/color)
@@ -6311,7 +6312,7 @@ limitations under the License.
 - serde_core 1.0.229 (https://github.com/serde-rs/serde)
 - serde_derive 1.0.229 (https://github.com/serde-rs/serde)
 - serde_derive_internals 0.29.1 (https://github.com/serde-rs/serde)
-- serde_json 1.0.151 (https://github.com/serde-rs/json)
+- serde_json 1.0.154 (https://github.com/serde-rs/json)
 - serde_path_to_error 0.1.20 (https://github.com/dtolnay/path-to-error)
 - serde_yaml 0.9.34+deprecated (https://github.com/dtolnay/serde-yaml)
 - siphasher 1.0.2 (https://github.com/jedisct1/rust-siphash)
