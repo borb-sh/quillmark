@@ -1282,11 +1282,29 @@ pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
     }
 }
 
+/// The most marks [`split_marks_at_newlines`] adds. A split grows with marks
+/// times line breaks, so a body past the bound keeps its marks whole, trimmed
+/// at their edges alone, rather than turning one mark per line into a
+/// quadratic blow-up.
+const MAX_SPLIT_MARKS: usize = 1_000_000;
+
 /// Cut each formatting mark at every `\n` in `chars`, keeping the pieces
 /// between them: prose export closes a mark at a line's end and reopens it on
 /// the next, so in prose a mark never spans a line join. Zero-width pieces are
-/// left for [`normalize_marks`] to drop.
-pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
+/// left for [`normalize_marks`] to drop. Past [`MAX_SPLIT_MARKS`] the marks are
+/// trimmed instead, as a table cell's are.
+pub(crate) fn split_marks_at_newlines(chars: &[char], mut marks: Vec<Mark>) -> Vec<Mark> {
+    let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i).collect();
+    let within = |m: &Mark| {
+        let lo = breaks.partition_point(|&b| b < m.start);
+        let hi = breaks.partition_point(|&b| b < m.end);
+        &breaks[lo..hi.max(lo)]
+    };
+    let formatting = || marks.iter().filter(|m| m.kind.is_formatting());
+    if formatting().map(|m| within(m).len()).sum::<usize>() > MAX_SPLIT_MARKS {
+        trim_marks_off_newlines(chars, &mut marks);
+        return marks;
+    }
     let mut out = Vec::with_capacity(marks.len());
     for m in marks {
         if !m.kind.is_formatting() {
@@ -1294,10 +1312,9 @@ pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<M
             continue;
         }
         let mut start = m.start;
-        let within = chars.get(m.start..m.end.min(chars.len())).unwrap_or_default();
-        for (at, _) in within.iter().enumerate().filter(|(_, c)| **c == '\n') {
-            out.push(Mark::new(start, m.start + at, m.kind.clone()));
-            start = m.start + at + 1;
+        for &at in within(&m) {
+            out.push(Mark::new(start, at, m.kind.clone()));
+            start = at + 1;
         }
         out.push(Mark::new(start.min(m.end), m.end, m.kind));
     }
@@ -2050,6 +2067,24 @@ mod tests {
             rt.validate(),
             Err(Invariant::AnchorIdCollision { id: String::new() })
         );
+    }
+
+    #[test]
+    fn normalize_keeps_marks_whole_past_the_split_bound() {
+        let lines = MAX_SPLIT_MARKS / 1000 + 1;
+        let text = "a\n".repeat(lines);
+        let links: Vec<Mark> = (0..1000)
+            .map(|i| Mark::new(0, text.chars().count(), MarkKind::Link { url: format!("u{i}") }))
+            .collect();
+        let mut rt = Content {
+            lines: vec![Line::new(LineKind::Para); lines + 1],
+            text,
+            marks: links,
+            islands: vec![],
+        };
+        rt.normalize();
+        assert_eq!(rt.marks.len(), 1000, "a mark split past the bound");
+        assert!(rt.marks.iter().all(|m| (m.start, m.end) == (0, 2 * lines - 1)));
     }
 
     #[test]
