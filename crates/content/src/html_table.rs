@@ -8,6 +8,7 @@ use crate::import::Dropped;
 use crate::island::{cell_alignment, is_weight, table_rows, table_spans, TableLayout, CELL_VALIGNS, TABLE_ALIGNS};
 use pulldown_cmark::{CowStr, Event, Parser, Tag as PTag, TagEnd};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::ops::Range;
 
 /// The subset's elements.
@@ -18,6 +19,10 @@ const COLUMN_ALIGNS: [&str; 4] = ["none", "left", "center", "right"];
 
 /// The `widths` token for an auto-fit column, a `null` entry.
 const AUTO: &str = "auto";
+
+/// Attributes that style a table and carry none of its content, dropped
+/// without a report.
+const PRESENTATIONAL: [&str; 4] = ["border", "class", "scope", "style"];
 
 /// The widest `colspan` read, the bound HTML reads one at.
 const MAX_COLSPAN: usize = 1000;
@@ -96,8 +101,6 @@ struct RawRow {
 
 struct RawGroup {
     kind: Group,
-    /// Opened by a row standing in no group tag.
-    implicit: bool,
     rows: Vec<RawRow>,
 }
 
@@ -122,10 +125,12 @@ pub(crate) fn scan(text: &str, at: impl Fn(usize) -> usize) -> (Vec<Table>, Vec<
     (s.tables, s.drops)
 }
 
-/// The offset just past the first `</table>` closing a table in an HTML
-/// block's `text` that anything but whitespace follows.
-pub(crate) fn tail(text: &str) -> Option<usize> {
-    run(text, |i| i).ends.into_iter().find(|&end| !text[end..].trim().is_empty())
+/// The offset just past each `</table>` closing a table in an HTML block's
+/// `text` that anything but whitespace follows.
+pub(crate) fn tails(text: &str) -> Vec<usize> {
+    let mut ends = run(text, |i| i).ends;
+    ends.retain(|&end| !text[end..].trim().is_empty());
+    ends
 }
 
 fn run<F: Fn(usize) -> usize>(text: &str, at: F) -> Scan<'_, F> {
@@ -141,6 +146,8 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F) -> Scan<'_, F> {
         cell: None,
     };
     let b = text.as_bytes();
+    let last_close = text.rfind("-->");
+    let mut runs: Option<HashMap<usize, Vec<usize>>> = None;
     let mut i = 0;
     let mut stray = false;
     while i < b.len() {
@@ -151,7 +158,7 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F) -> Scan<'_, F> {
                     continue;
                 }
                 b'`' => {
-                    i = code_span_end(b, i);
+                    i = code_span_end(b, i, runs.get_or_insert_with(|| backtick_runs(b)));
                     continue;
                 }
                 b']' if text[i..].starts_with("](<") => {
@@ -166,7 +173,7 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F) -> Scan<'_, F> {
             }
         }
         if b[i] == b'<' {
-            if let Some(end) = comment_end(text, i) {
+            if let Some(end) = comment_end(text, i, last_close) {
                 i = end;
                 continue;
             }
@@ -244,7 +251,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
                         _ => Group::Body,
                     };
                     if let Some(table) = self.table.as_mut() {
-                        table.groups.push(RawGroup { kind: group, implicit: false, rows: Vec::new() });
+                        table.groups.push(RawGroup { kind: group, rows: Vec::new() });
                     }
                 }
             }
@@ -284,7 +291,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
                 dropped.push(attr);
             }
         }
-        for attr in dropped {
+        for attr in dropped.into_iter().filter(|a| !PRESENTATIONAL.contains(&a.as_str())) {
             self.drops.push((Dropped::TableAttr { tag: tag_name.into(), attr }, at));
         }
     }
@@ -304,7 +311,7 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
             return;
         };
         if !self.group_open || table.groups.is_empty() {
-            table.groups.push(RawGroup { kind: Group::Body, implicit: true, rows: Vec::new() });
+            table.groups.push(RawGroup { kind: Group::Body, rows: Vec::new() });
             self.group_open = true;
         }
         if let Some(group) = table.groups.last_mut() {
@@ -330,19 +337,18 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
 
 /// The grid a table's rows resolve into, as HTML's table model forms one: the
 /// `thead` rows first and the `tfoot` rows last, each cell in the next slot of
-/// its row no span covers. In a table with no `thead`, the rows opening it
-/// outside any group tag whose cells are all `<th>` are its head rows, as many
-/// as no `rowspan` among them reaches past. The
-/// grid is as wide as its first row holding a cell. A `colspan` stops at the
-/// grid's edge, and short of a slot another span covers, reported; a
-/// `rowspan` stops at the end of its row group. A row too short pads and one
-/// too long drops its cells past the edge, reported. Rows past
+/// its row no span covers. In a table with no `thead`, the rows opening its
+/// first body group, its `tbody` tag written or not, whose cells are all
+/// `<th>` are its head rows, as many as no `rowspan` among them reaches past.
+/// The grid is as wide as its widest row. A `colspan` stops short of a slot
+/// another span covers, reported; a `rowspan` stops at the end of its row
+/// group. A row too short pads, reported. Rows past
 /// [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots drop, reported. `None` for
 /// a table holding no cell, or whose first row alone is wider than that.
 fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
     let mut groups = raw.groups;
     if !groups.iter().any(|g| g.kind == Group::Head)
-        && let Some(first) = groups.first_mut().filter(|g| g.implicit)
+        && let Some(first) = groups.first_mut().filter(|g| g.kind == Group::Body)
     {
         let heading = |row: &RawRow| !row.cells.is_empty() && row.cells.iter().all(|c| c.tag == "th");
         let lead = first.rows.iter().take_while(|row| heading(row)).count();
@@ -352,7 +358,7 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
         };
         let n = (1..=lead).rev().find(|&n| contained(n)).unwrap_or(0);
         let rows: Vec<RawRow> = first.rows.drain(..n).collect();
-        groups.insert(0, RawGroup { kind: Group::Head, implicit: true, rows });
+        groups.insert(0, RawGroup { kind: Group::Head, rows });
     }
     groups.sort_by_key(|group| group.kind as u8);
     let head: usize = groups.iter().filter(|g| g.kind == Group::Head).map(|g| g.rows.len()).sum();
@@ -361,11 +367,12 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
         let end = rows.len() + group.rows.len();
         rows.extend(group.rows.into_iter().map(|row| (row, end)));
     }
-    let first = rows.iter().find(|(row, _)| !row.cells.is_empty())?;
-    let cols = first.0.cells.iter().fold(0usize, |n, cell| n.saturating_add(cell.colspan));
-    let fit = crate::MAX_TABLE_CELLS / cols;
+    let (cols, fit) = extent(&rows);
+    if cols == 0 {
+        return None;
+    }
     if fit < rows.len() {
-        drops.push((Dropped::TableSize, rows[fit.min(rows.len() - 1)].0.at));
+        drops.push((Dropped::TableSize, rows[fit].0.at));
         if fit == 0 {
             return None;
         }
@@ -416,20 +423,61 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
     Some(Table { layout, aligns, rows: grid })
 }
 
-/// The offset just past the code span a backtick run at `i` opens, or past the
-/// run where no run of its length closes one.
-fn code_span_end(b: &[u8], i: usize) -> usize {
-    let run = |at: usize| b[at..].iter().take_while(|&&c| c == b'`').count();
-    let n = run(i);
-    let mut j = i + n;
-    while let Some(off) = b[j..].iter().position(|&c| c == b'`') {
-        let m = run(j + off);
-        if m == n {
-            return j + off + m;
+/// The grid's width, the widest row as [`resolve`] places its cells, and how
+/// many of `rows` fit in [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots at
+/// the width the rows up to each reach.
+fn extent(rows: &[(RawRow, usize)]) -> (usize, usize) {
+    let mut covers: Vec<usize> = Vec::new();
+    let mut cols = 0;
+    for (r, (row, end)) in rows.iter().enumerate() {
+        let mut x = 0;
+        for cell in &row.cells {
+            while covers.get(x).is_some_and(|&n| n > 0) {
+                x += 1;
+            }
+            let h = cell.rowspan.min(end - r);
+            if covers.len() < x + cell.colspan {
+                covers.resize(x + cell.colspan, 0);
+            }
+            for n in &mut covers[x..x + cell.colspan] {
+                *n = (*n).max(h);
+            }
+            x += cell.colspan;
         }
-        j += off + m;
+        let wide = covers.iter().rposition(|&n| n > 0).map_or(cols, |k| cols.max(k + 1));
+        if (r + 1).saturating_mul(wide) > crate::MAX_TABLE_CELLS {
+            return (if r == 0 { wide } else { cols }, r);
+        }
+        cols = wide;
+        for n in &mut covers {
+            *n = n.saturating_sub(1);
+        }
     }
-    i + n
+    (cols, rows.len())
+}
+
+/// The offset just past the code span a backtick run at `i` opens: through
+/// the next run of its length in `runs`, or past the run where none closes it.
+fn code_span_end(b: &[u8], i: usize, runs: &HashMap<usize, Vec<usize>>) -> usize {
+    let n = b[i..].iter().take_while(|&&c| c == b'`').count();
+    let starts = runs.get(&n).map_or(&[][..], Vec::as_slice);
+    match starts.get(starts.partition_point(|&at| at < i + n)) {
+        Some(&at) => at + n,
+        None => i + n,
+    }
+}
+
+/// Where each maximal run of backticks in `b` starts, by its length.
+fn backtick_runs(b: &[u8]) -> HashMap<usize, Vec<usize>> {
+    let mut runs: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut i = 0;
+    while let Some(off) = b[i..].iter().position(|&c| c == b'`') {
+        let at = i + off;
+        let n = b[at..].iter().take_while(|&&c| c == b'`').count();
+        runs.entry(n).or_default().push(at);
+        i = at + n;
+    }
+    runs
 }
 
 /// The offset just past an angle-bracketed link destination opening at `i`,
@@ -448,8 +496,9 @@ fn destination_end(b: &[u8], i: usize) -> Option<usize> {
 }
 
 /// The offset just past an HTML comment opening at `i`, as CommonMark reads
-/// one: `<!-->`, `<!--->`, or `<!--` through the next `-->`.
-fn comment_end(text: &str, i: usize) -> Option<usize> {
+/// one: `<!-->`, `<!--->`, or `<!--` through the next `-->`, which none
+/// past `last_close`, the text's last `-->`, holds.
+fn comment_end(text: &str, i: usize, last_close: Option<usize>) -> Option<usize> {
     let rest = text[i..].strip_prefix("<!--")?;
     if rest.starts_with('>') {
         return Some(i + 5);
@@ -457,6 +506,7 @@ fn comment_end(text: &str, i: usize) -> Option<usize> {
     if rest.starts_with("->") {
         return Some(i + 6);
     }
+    last_close.filter(|&at| at >= i + 4)?;
     rest.find("-->").map(|at| i + 4 + at + 3)
 }
 

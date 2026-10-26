@@ -136,11 +136,11 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
         ),
         Dropped::TableRow => (
             format!(
-                "markdown import fit {} in this field to its table's columns",
+                "markdown import padded {} in this field to its table's columns",
                 some("table row", "table rows")
             ),
-            "An HTML table is as wide as its first row. A row leaves out each cell a `rowspan` above it covers, \
-             and a row short of the width pads with empty cells while cells past it drop."
+            "An HTML table is as wide as its widest row. A row leaves out each cell a `rowspan` above it covers, \
+             and a row short of the width pads with empty cells."
                 .to_string(),
         ),
         Dropped::TableSize => (

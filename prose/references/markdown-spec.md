@@ -665,8 +665,9 @@ again.
 - Any other tag outside a cell drops alone, reported under
   `parse::dropped_construct` by its lowercase name (`caption`). Any other
   attribute, one repeating a name already read, and a value outside its
-  spelling drop alone, reported as `<tag>[<attribute>]` (`td[class]`,
-  `table[widths]`). An enumerated value reads ASCII-case-insensitively.
+  spelling drop alone, reported as `<tag>[<attribute>]` (`td[nowrap]`,
+  `table[widths]`). `border`, `class`, `scope` and `style` only style a table,
+  and drop silently. An enumerated value reads ASCII-case-insensitively.
 - Weights are relative and store as written: `2 4` lays out as `1 2` does. A
   `widths` or `aligns` shorter than the table pads with `auto` or `none`, and
   a longer one drops its extra entries.
@@ -675,9 +676,9 @@ again.
 - `align` places the table in the flow, beside no text, where a browser
   floats a `<table align="left">` or `"right"` and wraps text around it.
 - The `thead` rows are the header rows, any number of them. A table with no
-  `thead` takes as its header rows the rows opening it outside any row group
-  whose cells are all `<th>`, as many as no `rowspan` among them reaches past,
-  and otherwise has none. A `<th>` in a body row reads as a `<td>`.
+  `thead` takes as its header rows the rows opening its first body group, its
+  `tbody` tag written or not, whose cells are all `<th>`, as many as no
+  `rowspan` among them reaches past, and otherwise has none. A `<th>` in a body row reads as a `<td>`.
 
 **Covered cells are left out**, as in HTML. Import resolves the rows into the
 rectangular grid a table island holds, as HTML's table model forms one:
@@ -685,14 +686,13 @@ rectangular grid a table island holds, as HTML's table model forms one:
 - The `thead` rows come first and the `tfoot` rows last, the body's between
   in source order. Each cell lands in the next slot of its row no span
   covers.
-- The grid is as wide as its first row holding a cell. A table holding no
-  cell imports nothing.
-- A span stops at the grid's edge, and a `rowspan` at the end of its row
-  group, silently. A `colspan` past 1000 reads as 1000, as HTML reads it. A
-  `colspan` reaching a slot an earlier span covers stops short of it,
-  reported as `td[colspan]`.
-- A row too short for the grid pads with empty cells, and one too long drops
-  the cells past its edge, each such row reported as `table[row]`.
+- The grid is as wide as its widest row, its spans included. A table holding
+  no cell imports nothing.
+- A `rowspan` stops at the end of its row group, silently. A `colspan` past
+  1000 reads as 1000, as HTML reads it. A `colspan` reaching a slot an
+  earlier span covers stops short of it, reported as `td[colspan]`.
+- A row short of the grid's width pads with empty cells, each such row
+  reported as `table[row]`.
 - Each slot a span covers stores as an empty cell.
 
 **Lenient where writers are.** An unquoted value (`colspan=2`), a row directly

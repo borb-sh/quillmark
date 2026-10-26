@@ -112,7 +112,7 @@ pub(crate) fn normalize_markdown(markdown: &str, options: Options) -> String {
 }
 
 /// Rounds the repair takes at most. A round leaves work for the next only where
-/// the text it splits off a comment opens another.
+/// the text it splits off a comment or a table opens another such block.
 const REPAIR_ROUNDS: usize = 8;
 
 /// Whether some line could open an HTML block or hold a table row of tags: its
@@ -292,46 +292,72 @@ fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     (with != src[start..end]).then_some(Edit { range: start..end, with })
 }
 
-/// The whitespace leading `line` when it is shy of an indented code line's
-/// four columns, else nothing.
-/// The edit setting what follows a table's `</table>` in its HTML block apart
-/// under a blank line, keeping its line's indent, so it reads as markdown of
-/// its own rather than dropping with the block; `None` when nothing follows,
-/// or when what follows opens a fence or a type 1–5 block it does not close on
-/// its line, as [`comment_edit`] declines.
+/// The edit setting what follows each table's `</table>` in its HTML block
+/// apart under a blank line, keeping its line's indent, so it reads as
+/// markdown of its own rather than dropping with the block. The edit stops at
+/// a piece that opens a fence or a type 1–5 block it does not close on its
+/// line, as [`comment_edit`] declines one, leaving the rest in the block.
 fn table_tail_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
     if !html_table::opens(first.content) {
         return None;
     }
     let text = lines.iter().map(|l| l.content).collect::<Vec<_>>().join("\n");
-    let mut at = html_table::tail(&text)?;
-    let mut k = 0;
-    while at > lines[k].content.len() {
-        at -= lines[k].content.len() + 1;
-        k += 1;
-    }
-    let line = lines[k];
-    let (head, from) = match line.content[at..].trim() {
-        "" => (line.whole(), *lines.get(k + 1)?),
-        _ => (format!("{}{}", line.prefix, line.content[..at].trim_end()), line),
+    let mut ends = html_table::tails(&text).into_iter().peekable();
+    ends.peek()?;
+    let runs_on = |piece: &str| match html::block_start(piece) {
+        Some(k) if k != BlockKind::Open => html::block_end(k, piece).is_none(),
+        _ => fence_opener(piece).is_some(),
     };
-    let rest = if from.start == line.start { line.content[at..].trim() } else { from.content.trim() };
-    let runs_on = match html::block_start(rest) {
-        Some(k) if k != BlockKind::Open => html::block_end(k, rest).is_none(),
-        _ => fence_opener(rest).is_some(),
-    };
-    if runs_on {
-        return None;
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 4);
+    let (mut off, mut apart, mut stopped) = (0, false, false);
+    for line in lines {
+        let content = line.content;
+        if stopped {
+            out.push(line.whole());
+            continue;
+        }
+        let mut cuts = Vec::new();
+        while let Some(end) = ends.next_if(|&end| end <= off + content.len()) {
+            cuts.push(end - off);
+        }
+        off += content.len() + 1;
+        let lead = format!("{}{}", continuation_of(line.prefix), shallow_lead(content));
+        let head = &content[..cuts.first().copied().unwrap_or(content.len())];
+        if apart && !runs_on(head.trim()) {
+            out.push(blank_of(line.prefix));
+            out.push(format!("{lead}{}", head.trim()));
+        } else {
+            stopped |= apart;
+            out.push(format!("{}{}", line.prefix, if cuts.is_empty() { head } else { head.trim_end() }));
+        }
+        apart = false;
+        for (k, &cut) in cuts.iter().enumerate() {
+            let piece = content[cut..cuts.get(k + 1).copied().unwrap_or(content.len())].trim();
+            if piece.is_empty() {
+                apart = true;
+            } else if stopped || runs_on(piece) {
+                stopped = true;
+                if let Some(prev) = out.last_mut() {
+                    prev.push_str(&content[cut..]);
+                }
+                break;
+            } else {
+                out.push(blank_of(line.prefix));
+                out.push(format!("{lead}{piece}"));
+            }
+        }
     }
-    let lead = format!("{}{}", continuation_of(from.prefix), shallow_lead(from.content));
-    let mut out = vec![head, blank_of(from.prefix), format!("{lead}{rest}")];
-    if from.end() == last.end() && next_line_continues(src, last.end()) {
+    if !stopped && next_line_continues(src, last.end()) {
         out.push(blank_of(last.prefix));
     }
-    Some(Edit { range: line.start..from.end(), with: out.join("\n") })
+    let range = first.start..last.end();
+    let with = out.join("\n");
+    (with != src[range.clone()]).then_some(Edit { range, with })
 }
 
+/// The whitespace leading `line` when it is shy of an indented code line's
+/// four columns, else nothing.
 fn shallow_lead(line: &str) -> &str {
     if html::indent_columns(line) > 3 {
         return "";
@@ -561,8 +587,8 @@ mod tests {
 
     /// What follows a table's `</table>` in its HTML block is set apart under
     /// a blank line, on the same line or the next, in a quote or list item as
-    /// at the top level; a second table after the first included. A fence it
-    /// would open stays in the block.
+    /// at the top level, after every table of the block in one edit. A fence
+    /// it would open stays in the block.
     #[test]
     fn what_follows_a_table_is_set_apart() {
         let cases = [
@@ -573,6 +599,10 @@ mod tests {
             (
                 "<table><tr><td>a</td></tr></table>\n<table><tr><td>b</td></tr></table>",
                 "<table><tr><td>a</td></tr></table>\n\n<table><tr><td>b</td></tr></table>",
+            ),
+            (
+                "<table><tr><td>a</td></tr></table>\n### B\n<table><tr><td>b</td></tr></table>\nC",
+                "<table><tr><td>a</td></tr></table>\n\n### B\n<table><tr><td>b</td></tr></table>\n\nC",
             ),
             (
                 "<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n</qm-keep>",

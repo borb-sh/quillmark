@@ -2205,7 +2205,7 @@
   },
   {
     "name": "html.table.attr",
-    "markdown": "<table border=\"1\">\n<tr><td class=\"x\">a</td></tr>\n</table>",
+    "markdown": "<table border=\"1\" bgcolor=\"red\">\n<tr><td class=\"x\" nowrap>a</td></tr>\n</table>",
     "content": {
       "islands": [
         {
@@ -2241,11 +2241,11 @@
     "signals": {
       "import": [
         {
-          "construct": "table[border]",
+          "construct": "table[bgcolor]",
           "count": 1
         },
         {
-          "construct": "td[class]",
+          "construct": "td[nowrap]",
           "count": 1
         }
       ],
@@ -2375,6 +2375,7 @@
           "props": {
             "aligns": [
               "none",
+              "none",
               "none"
             ],
             "head": 0,
@@ -2386,6 +2387,10 @@
               {
                 "marks": [],
                 "text": "b"
+              },
+              {
+                "marks": [],
+                "text": ""
               }
             ],
             "rows": [
@@ -2397,12 +2402,20 @@
                 {
                   "marks": [],
                   "text": "d"
+                },
+                {
+                  "marks": [],
+                  "text": "e"
                 }
               ],
               [
                 {
                   "marks": [],
                   "text": "f"
+                },
+                {
+                  "marks": [],
+                  "text": ""
                 },
                 {
                   "marks": [],
@@ -2424,8 +2437,8 @@
       "text": "￼"
     },
     "typst": [
-      "[c], [d], ",
-      "[f], [], "
+      "[c], [d], [e]",
+      "[f], [], []"
     ],
     "signals": {
       "import": [

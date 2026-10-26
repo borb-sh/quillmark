@@ -2992,7 +2992,9 @@ pub(crate) mod tests {
             assert_eq!(warned, want, "{html:?}");
             assert_eq!(imported.content, imp_fixed(pipes).content, "{html:?}");
         }
-        let headless = imp_fixed("<table>\n<tbody>\n<tr><th>a</th></tr>\n</tbody>\n</table>");
+        let headed = imp_fixed("<table>\n<tbody>\n<tr><th>a</th></tr>\n<tr><td>1</td></tr>\n</tbody>\n</table>");
+        assert_eq!(headed.content, imp_fixed("| a |\n| --- |\n| 1 |").content);
+        let headless = imp_fixed("<table>\n<tbody>\n<tr><td>a</td></tr>\n</tbody>\n</table>");
         assert_eq!(grid(&headless.content)["head"], 0);
         let reaching = imp_fixed("<table>\n<tr><th rowspan=2>a</th><th>b</th></tr>\n<tr><th>c</th></tr>\n<tr><td>1</td><td>2</td></tr>\n</table>");
         assert_eq!(grid(&reaching.content)["head"], 2);
@@ -3004,17 +3006,17 @@ pub(crate) mod tests {
 
     /// What the grid cannot hold as written drops alone, reported: an
     /// attribute the subset does not read or a value outside its spelling, a
-    /// tag outside the subset and text outside every cell, a row too short or
-    /// too long for the grid, which is as wide as its first row, and a
-    /// `colspan` cut short where another span covers a slot. A span past the
-    /// grid's edge or its row group stops there silently.
+    /// tag outside the subset and text outside every cell, a row too short for
+    /// the grid, which is as wide as its widest row, and a `colspan` cut short
+    /// where another span covers a slot. A span past its row group stops there
+    /// silently, and so does an attribute that only styles the table.
     #[test]
     fn what_an_html_table_cannot_hold_drops_alone() {
         use serde_json::json;
         let cases: &[(&str, &[(&str, usize)], serde_json::Value)] = &[
             (
-                "<table border=1 widths=\"0 1\"><tr><td class=x colspan=0>a</td><td rowspan=two align=justify valign=baseline>b</td></tr></table>",
-                &[("table[border]", 1), ("table[widths]", 1), ("td[class]", 1), ("td[colspan]", 1), ("td[align]", 1), ("td[rowspan]", 1), ("td[valign]", 1)],
+                "<table border=1 bgcolor=red widths=\"0 1\"><tr><td class=x style=\"color: red\" scope=col colspan=0>a</td><td rowspan=two align=justify valign=baseline>b</td></tr></table>",
+                &[("table[bgcolor]", 1), ("table[widths]", 1), ("td[colspan]", 1), ("td[align]", 1), ("td[rowspan]", 1), ("td[valign]", 1)],
                 json!({"aligns": ["none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b"}], "rows": []}),
             ),
             (
@@ -3025,12 +3027,12 @@ pub(crate) mod tests {
             (
                 "<table><tr><td>a</td><td>b</td></tr><tr><td>1</td></tr><tr><td>2</td><td>3</td><td>4</td></tr></table>",
                 &[("table[row]", 2)],
-                json!({"aligns": ["none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b"}], "rows": [[{"text": "1"}, {"text": ""}], [{"text": "2"}, {"text": "3"}]]}),
+                json!({"aligns": ["none", "none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b"}, {"text": ""}], "rows": [[{"text": "1"}, {"text": ""}, {"text": ""}], [{"text": "2"}, {"text": "3"}, {"text": "4"}]]}),
             ),
             (
                 "<table><tr><td rowspan=2>a</td><td>b</td><td>c</td></tr><tr><td></td><td>x</td><td>y</td></tr></table>",
                 &[("table[row]", 1)],
-                json!({"aligns": ["none", "none", "none"], "head": 0, "header": [{"text": "a", "rowspan": 2}, {"text": "b"}, {"text": "c"}], "rows": [[{"text": ""}, {"text": ""}, {"text": "x"}]]}),
+                json!({"aligns": ["none", "none", "none", "none"], "head": 0, "header": [{"text": "a", "rowspan": 2}, {"text": "b"}, {"text": "c"}, {"text": ""}], "rows": [[{"text": ""}, {"text": ""}, {"text": "x"}, {"text": "y"}]]}),
             ),
             (
                 "<table><tr><td>a</td><td rowspan=2>b</td><td>c</td></tr><tr><td colspan=3>d</td></tr></table>",
@@ -3038,9 +3040,9 @@ pub(crate) mod tests {
                 json!({"aligns": ["none", "none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b", "rowspan": 2}, {"text": "c"}], "rows": [[{"text": "d"}, {"text": ""}, {"text": ""}]]}),
             ),
             (
-                "<table><thead><tr><th rowspan=5>h</th><th>a</th></tr></thead><tr><td>1</td><td colspan=9>2</td></tr></table>",
-                &[],
-                json!({"aligns": ["none", "none"], "header": [{"text": "h"}, {"text": "a"}], "rows": [[{"text": "1"}, {"text": "2"}]]}),
+                "<table><thead><tr><th rowspan=5>h</th><th>a</th></tr></thead><tr><td>1</td><td colspan=3>2</td></tr></table>",
+                &[("table[row]", 1)],
+                json!({"aligns": ["none", "none", "none", "none"], "header": [{"text": "h"}, {"text": "a"}, {"text": ""}, {"text": ""}], "rows": [[{"text": "1"}, {"text": "2", "colspan": 3}, {"text": ""}, {"text": ""}]]}),
             ),
         ];
         for (md, warned, want) in cases {
@@ -3061,10 +3063,37 @@ pub(crate) mod tests {
         let imported = imp_fixed("<table><tr><td>a</td></tr></table>\nSome **prose**.\n- item");
         assert!(imported.warnings.is_empty(), "{:?}", imported.warnings);
         assert_eq!(imported.content.text, "\u{FFFC}\nSome prose.\nitem");
+        let memo: String = (1..=12).map(|i| format!("### Flight {i}\n<table><tr><th>Name</th></tr><tr><td>SSgt {i}</td></tr></table>\n")).collect();
+        let memo = imp_fixed(&memo);
+        assert!(memo.warnings.is_empty(), "{:?}", memo.warnings);
+        assert_eq!(memo.content.islands.len(), 12);
+        assert!(memo.content.text.ends_with("Flight 12\n\u{FFFC}"), "{:?}", memo.content.text);
         let kept = imp_fixed("<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n</qm-keep>\n\nafter");
         assert!(kept.warnings.is_empty(), "{:?}", kept.warnings);
         assert!(matches!(kept.content.lines[0].containers.as_slice(), [Container::Element { .. }]));
         assert!(kept.content.lines[1].containers.is_empty());
+    }
+
+    /// A table is as wide as its widest row, so a title row over wider rows
+    /// pads, and its `<th>` rows in a `tbody` are its head rows.
+    #[test]
+    fn a_short_title_row_pads() {
+        let imported = imp_fixed("<table><tbody><tr><th>Roster</th></tr><tr><td>a</td><td>b</td><td>c</td></tr></tbody></table>");
+        assert_eq!(dropped(&imported), [("table[row]", 1)]);
+        assert_eq!(table_rows(&imported.content), [["a", "b", "c"]]);
+        assert_eq!(grid(&imported.content)["header"][0]["text"], "Roster");
+    }
+
+    /// An unclosed comment or code span in a table's block reads in time
+    /// linear in its length.
+    #[test]
+    fn unclosed_comments_and_code_spans_read_in_linear_time() {
+        for md in [
+            format!("<table>{}", "<!--".repeat(100_000)),
+            format!("<table><tr><td>{}</td></tr></table>", (1..1_500).map(|n| "`".repeat(n) + "x").collect::<String>()),
+        ] {
+            assert_eq!(from_markdown(&md).unwrap().content.validate(), Ok(()));
+        }
     }
 
     /// A table stops at [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots, its

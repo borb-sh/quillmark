@@ -123,14 +123,14 @@ On `<td>` and `<th>`:
 | `align` | `left`, `center` or `right`. | The column's alignment. |
 | `valign` | `top`, `middle` or `bottom`. | The quill's vertical alignment. |
 
-- The rows in `<thead>` are the header rows, as many as the table needs, and a header cell can span rows within them. A table with no `<thead>` takes its opening rows of `<th>` cells as its header, and with none of those has no header row: its first row draws as an ordinary row, without the quill's header styling.
+- The rows in `<thead>` are the header rows, as many as the table needs, and a header cell can span rows within them. A table with no `<thead>` takes its opening rows of `<th>` cells as its header, in a `<tbody>` or not, and with none of those has no header row: its first row draws as an ordinary row, without the quill's header styling.
 - A cell that a span covers is left out of its row, as HTML leaves it out. In the example, the second body row holds two cells, since `12 Nov` covers its first slot.
 - A cell holds inline markdown, on one line: `<td>**Total**</td>` is bold, and `<br>` is its line break. GitHub draws the grid and the spans, but shows the markdown in a cell as written.
 - A table is one HTML block, so a blank line inside it ends the table there; keep a table's lines together. Text right after `</table>` reads as ordinary markdown.
 - A table holds at most 100 000 cells, rows times columns; the rows past that drop, warning `table[size]`.
 - `widths` or `aligns` with fewer entries than the table has columns leaves the rest `auto` or `none`, and one with more ignores the extra entries.
 - Quillmark reads what HTML leaves out: unquoted values, a missing `<tbody>`, and missing `</td>`, `</th>` and `</tr>` tags. `<tfoot>` rows read as body rows at the end.
-- A row too short for the table, which is as wide as its first row, fills with empty cells, and a row too long drops its extra cells. Any other tag, an attribute not on this page and text outside every cell, such as a `<caption>`'s, drop. Each warns `parse::dropped_construct`, naming what dropped (`td[class]`, `table[row]`).
+- A row too short for the table, which is as wide as its widest row, fills with empty cells. Any other tag, an attribute not on this page and text outside every cell, such as a `<caption>`'s, drop, and each warns `parse::dropped_construct`, naming what dropped (`td[nowrap]`, `table[row]`). `border`, `class`, `scope` and `style` drop without a warning.
 
 Export writes a table as pipes when pipes hold all of it, and as HTML otherwise, whichever spelling the document used: a table that gains a merged cell writes as HTML, and one that loses its last merge, width or header row change writes as pipes again.
 

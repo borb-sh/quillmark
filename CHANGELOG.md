@@ -16,7 +16,9 @@
   to `head: 0`; the storage tag holds. What an HTML table cannot hold warns
   `parse::dropped_construct` as `table`, `table[row]`, `table[text]` or
   `<tag>[<attr>]`. Markdown after a `</table>` in its HTML block reads as
-  markdown of its own. The Typst backend draws a span through
+  markdown of its own. An HTML table is as wide as its widest row, a `<th>`
+  row opening its `tbody` is a header row, and `border`, `class`, `scope` and
+  `style` drop silently. The Typst backend draws a span through
   `table.cell(colspan:, rowspan:)` and every header row in `table.header`.
 - feat(content)!: **`qm-table` and `qm-cell` no longer spell a table's
   layout**: `qm-table` is an ordinary element name, and a `qm-cell` pair in a
