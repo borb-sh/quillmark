@@ -190,8 +190,18 @@ fn block() -> impl Strategy<Value = String> {
         (clean_word(), clean_word())
             .prop_map(|(a, b)| format!("| {a} | {b} |\n| --- | --- |\n| 1 | 2 |")),
         (clean_word(), clean_word(), 1u64..9).prop_map(|(a, b, w)| format!(
-            "<qm-table align=\"center\" widths=\"{w} auto\">\n\n| {a} | {b} |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>"
+            "<table align=\"center\" widths=\"{w} auto\">\n<thead>\n<tr><th>{a}</th><th>{b}</th></tr>\n</thead>\n\
+             <tbody>\n<tr><td>1</td><td>2</td></tr>\n</tbody>\n</table>"
         )),
+        // An HTML table holding a span, in a list item and in a quote, and one
+        // with nothing a pipe table cannot write, which re-exports as pipes.
+        (prose(), prose(), any::<bool>()).prop_map(|(a, b, quote)| {
+            let table = format!("<table>\n<tr><td rowspan=\"2\">{a}</td><td>{b}</td></tr>\n<tr><td>x</td></tr>\n</table>");
+            let marker = if quote { "> " } else { "- " };
+            let rest = if quote { "> " } else { "  " };
+            table.lines().enumerate().map(|(i, l)| format!("{}{l}", if i == 0 { marker } else { rest })).collect::<Vec<_>>().join("\n")
+        }),
+        (clean_word(), prose()).prop_map(|(a, b)| format!("<table><tr><th>{a}<th>h<tr><td>{b}<td>c</table>")),
     ]
 }
 
@@ -984,7 +994,7 @@ const DECODE_DISCRIMINATORS: &[&str] = &[
     "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end", "container", "type",
     "$name", "element", "instance", "containers", "continues", "id", "props", "url", "level",
     "ordered", "ordinal", "rows", "aligns", "widths", "align", "list_item", "quote", "table",
-    "checked",
+    "checked", "head", "colspan", "rowspan", "valign",
 ];
 
 /// Every op tag the line, mark and island decoders read.

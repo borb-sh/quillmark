@@ -468,7 +468,7 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
   })
 
   it('a stored null crosses as null, both ways', () => {
-    const md = '<qm-table widths="1 2 auto">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</qm-table>'
+    const md = '<table widths="1 2 auto">\n<tr><th>a</th><th>b</th><th>c</th></tr>\n<tr><td>1</td><td>2</td><td>3</td></tr>\n</table>'
     const { content } = importMarkdown(md)
     expect(content.islands[0].props.widths).toEqual([1, 2, null])
     expect(content.islands[0].props.widths[2]).toBeNull()
@@ -482,7 +482,7 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
   // drops at the import rather than reaching a read that cannot carry it.
   it('a column weight crosses exactly up to the largest safe integer, and drops past it', () => {
     const table = (widths) =>
-      `<qm-table widths="${widths}">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>`
+      `<table widths="${widths}">\n<tr><th>a</th><th>b</th></tr>\n<tr><td>1</td><td>2</td></tr>\n</table>`
     const { content, warnings } = importMarkdown(table(`${Number.MAX_SAFE_INTEGER} 1`))
     expect(warnings).toEqual([])
     expect(content.islands[0].props.widths).toEqual([Number.MAX_SAFE_INTEGER, 1])
@@ -494,7 +494,7 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
 
     const past = importMarkdown(table('9007199254740992 1'))
     expect(past.content.islands[0].props.widths).toBeUndefined()
-    expect(past.warnings.map((w) => w.args.construct)).toEqual(['qm-table[widths]'])
+    expect(past.warnings.map((w) => w.args.construct)).toEqual(['table[widths]'])
   })
 
   it('rebase returns the drops of the markdown it imports, with no path', () => {

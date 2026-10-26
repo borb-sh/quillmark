@@ -1,5 +1,5 @@
-//! Every table knob lowers and compiles, and placing a table moves no
-//! text inside it.
+//! Every table knob lowers and compiles, placing a table moves no text
+//! inside it, and a merged cell draws once across the slots it covers.
 
 use quillmark_core::{
     backend::Backend,
@@ -47,13 +47,19 @@ fn origins(svg: &str) -> Vec<(f64, f64)> {
 
 const PLAIN: &str = "| Item | Amount |\n| --- | --- |\n| Total | 42 |";
 
+/// [`PLAIN`] as an HTML table, its `<table>` tag carrying `attrs`.
+fn html(attrs: &str) -> String {
+    format!("<table{attrs}>\n<thead>\n<tr><th>Item</th><th>Amount</th></tr>\n</thead>\n<tbody>\n<tr><td>Total</td><td>42</td></tr>\n</tbody>\n</table>")
+}
+
 /// Each knob alone compiles and moves the table's text.
 #[test]
 fn every_knob_compiles_and_moves_the_table() {
     let quill = quill();
     let plain = origins(&svg(&quill, PLAIN));
-    for attrs in ["align=\"center\"", "widths=\"2 1\"", "align=\"center\" widths=\"2 1\""] {
-        let knobs = format!("<qm-table {attrs}>\n\n{PLAIN}\n\n</qm-table>");
+    assert_eq!(origins(&svg(&quill, &html(""))), plain);
+    for attrs in [" align=\"center\"", " widths=\"2 1\"", " align=\"center\" widths=\"2 1\""] {
+        let knobs = html(attrs);
         let moved = origins(&svg(&quill, &knobs));
         assert_eq!(moved.len(), plain.len(), "{attrs}: {moved:?}");
         assert_ne!(moved, plain, "{attrs} moves the table");
@@ -67,13 +73,21 @@ fn every_knob_compiles_and_moves_the_table() {
 #[test]
 fn placing_a_table_keeps_its_cells_aligned_as_they_were() {
     let tables = [
-        "| A wide header cell |\n| --- |\n| x |",
-        "| A wide header cell | b |\n| --- | ---: |\n| x | y |",
-        "| A wide header cell | b |\n| --- | ---: |\n| two<br>lines | y |",
+        ("| A wide header cell |\n| --- |\n| x |", "<tr><th>A wide header cell</th></tr>\n<tr><td>x</td></tr>", ""),
+        (
+            "| A wide header cell | b |\n| --- | ---: |\n| x | y |",
+            "<tr><th>A wide header cell</th><th>b</th></tr>\n<tr><td>x</td><td>y</td></tr>",
+            " aligns=\"none right\"",
+        ),
+        (
+            "| A wide header cell | b |\n| --- | ---: |\n| two<br>lines | y |",
+            "<tr><th>A wide header cell</th><th>b</th></tr>\n<tr><td>two<br>lines</td><td>y</td></tr>",
+            " aligns=\"none right\"",
+        ),
     ];
     let sets = ["", "#set table(align: right)\n", "#set align(right)\n", "#show table.cell: set align(horizon)\n"];
-    for table in tables {
-        let placed = format!("<qm-table align=\"center\">\n\n{table}\n\n</qm-table>");
+    for (table, rows, aligns) in tables {
+        let placed = format!("<table align=\"center\"{aligns}>\n{rows}\n</table>");
         for set in sets {
             let plate = PLATE.replace("#qm.data", &format!("{set}#qm.data"));
             let quill = common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), &plate);
@@ -105,5 +119,43 @@ fn a_headless_table_has_no_header_row_to_style() {
     let quill = common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), &plate);
     let styled = |md: &str| svg(&quill, md).matches("#ff0000").count();
     assert!(styled(PLAIN) > 0);
-    assert_eq!(styled(&format!("<qm-table headless>\n\n{PLAIN}\n\n</qm-table>")), 0);
+    let headless = "<table>\n<tbody>\n<tr><td>Item</td><td>Amount</td></tr>\n<tr><td>Total</td><td>42</td></tr>\n</tbody>\n</table>";
+    assert_eq!(styled(headless), 0);
+}
+
+/// A cell spanning two columns draws its text once, centered across both, and
+/// one spanning two rows once, between them; the covered slots draw nothing.
+#[test]
+fn a_merged_cell_draws_once_across_what_it_covers() {
+    let quill = quill();
+    let spanned = |md: &str| origins(&svg(&quill, md));
+    let row = spanned("<table>\n<tr><td>left</td><td>right</td></tr>\n<tr><td colspan=\"2\" align=\"center\">both</td></tr>\n</table>");
+    assert_eq!(row.len(), 3, "{row:?}");
+    assert!(row[2].0 > row[0].0 && row[2].0 < row[1].0, "{row:?}");
+    let mut column = spanned("<table>\n<tr><td rowspan=\"2\" valign=\"middle\">both</td><td>top</td></tr>\n<tr><td>bottom</td></tr>\n</table>");
+    assert_eq!(column.len(), 3, "{column:?}");
+    column.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    let [both, top, bottom] = column[..] else { unreachable!() };
+    assert!(both.0 < top.0 && top.1 < both.1 && both.1 < bottom.1, "{column:?}");
+}
+
+/// Two `thead` rows, one cell spanning both, lower as one `table.header`,
+/// which repeats on each page the table runs onto.
+#[test]
+fn every_head_row_repeats_with_the_header() {
+    let quill = quill();
+    let body: String = (0..60).map(|i| format!("<tr><td>row {i}</td><td>x</td></tr>\n")).collect();
+    let md = format!(
+        "<table>\n<thead>\n<tr><th rowspan=\"2\">first</th><th>head</th></tr>\n<tr><th>second</th></tr>\n</thead>\n{body}</table>"
+    );
+    let data = serde_json::json!({ "$body": content(&md) });
+    let session = TypstBackend::default().open(&quill, &data, common::test_date()).expect("compiles");
+    let result = session
+        .render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
+        .expect("render");
+    assert!(result.artifacts.len() > 1, "the table fits one page");
+    let heads = |page: &[u8]| String::from_utf8_lossy(page).matches("<g transform=\"matrix(1 0 0 -1 ").count();
+    let pages: Vec<usize> = result.artifacts.iter().map(|page| heads(&page.bytes)).collect();
+    let cells: usize = pages.iter().sum::<usize>() - 3 * pages.len();
+    assert_eq!(cells, 120, "each page draws the three head cells above its body rows: {pages:?}");
 }
