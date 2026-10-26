@@ -119,12 +119,12 @@ pub enum Dropped {
     /// An HTML table its block ends before its `</table>`, or another
     /// `<table>` interrupts, which closes there: `table`.
     Table,
-    /// An HTML table's row too short for its grid, which pads: `table[row]`.
+    /// An HTML table's row too short for its grid, which pads: `table:row`.
     TableRow,
-    /// Text in an HTML table's block outside every cell: `table[text]`.
+    /// Text in an HTML table's block outside every cell: `table:text`.
     TableText,
     /// A table's rows past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots,
-    /// or the whole of one whose first row alone is wider: `table[size]`.
+    /// or the whole of one whose first row alone is wider: `table:size`.
     TableSize,
     /// An attribute of an HTML table's tag the subset does not read, repeating
     /// one already read or with a value outside its spelling: `<tag>[<attr>]`.
@@ -153,9 +153,9 @@ impl std::fmt::Display for Dropped {
             Dropped::NoteBlock(block) => write!(f, "footnote[{block}]"),
             Dropped::Math => f.write_str("math"),
             Dropped::Table => f.write_str("table"),
-            Dropped::TableRow => f.write_str("table[row]"),
-            Dropped::TableText => f.write_str("table[text]"),
-            Dropped::TableSize => f.write_str("table[size]"),
+            Dropped::TableRow => f.write_str("table:row"),
+            Dropped::TableText => f.write_str("table:text"),
+            Dropped::TableSize => f.write_str("table:size"),
             Dropped::TableAttr { tag, attr } => write!(f, "{tag}[{attr}]"),
         }
     }
@@ -3227,18 +3227,23 @@ pub(crate) mod tests {
                 json!({"aligns": ["none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b"}], "rows": []}),
             ),
             (
+                "<table size=3 text=x row=1><tr><td>a</td></tr></table>",
+                &[("table[size]", 1), ("table[text]", 1), ("table[row]", 1)],
+                json!({"aligns": ["none"], "head": 0, "header": [{"text": "a"}], "rows": []}),
+            ),
+            (
                 "<table><caption>Roster</caption><colgroup><col></colgroup><tr><td>a</td>stray<td>b</td></tr></table>",
-                &[("caption", 1), ("table[text]", 2), ("colgroup", 1), ("col", 1)],
+                &[("caption", 1), ("table:text", 2), ("colgroup", 1), ("col", 1)],
                 json!({"aligns": ["none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b"}], "rows": []}),
             ),
             (
                 "<table><tr><td>a</td><td>b</td></tr><tr><td>1</td></tr><tr><td>2</td><td>3</td><td>4</td></tr></table>",
-                &[("table[row]", 2)],
+                &[("table:row", 2)],
                 json!({"aligns": ["none", "none", "none"], "head": 0, "header": [{"text": "a"}, {"text": "b"}, {"text": ""}], "rows": [[{"text": "1"}, {"text": ""}, {"text": ""}], [{"text": "2"}, {"text": "3"}, {"text": "4"}]]}),
             ),
             (
                 "<table><tr><td rowspan=2>a</td><td>b</td><td>c</td></tr><tr><td></td><td>x</td><td>y</td></tr></table>",
-                &[("table[row]", 1)],
+                &[("table:row", 1)],
                 json!({"aligns": ["none", "none", "none", "none"], "head": 0, "header": [{"text": "a", "rowspan": 2}, {"text": "b"}, {"text": "c"}, {"text": ""}], "rows": [[{"text": ""}, {"text": ""}, {"text": "x"}, {"text": "y"}]]}),
             ),
             (
@@ -3248,7 +3253,7 @@ pub(crate) mod tests {
             ),
             (
                 "<table><thead><tr><th rowspan=5>h</th><th>a</th></tr></thead><tr><td>1</td><td colspan=3>2</td></tr></table>",
-                &[("table[row]", 1)],
+                &[("table:row", 1)],
                 json!({"aligns": ["none", "none", "none", "none"], "header": [{"text": "h"}, {"text": "a"}, {"text": ""}, {"text": ""}], "rows": [[{"text": "1"}, {"text": "2", "colspan": 3}, {"text": ""}, {"text": ""}]]}),
             ),
         ];
@@ -3286,7 +3291,7 @@ pub(crate) mod tests {
     #[test]
     fn a_short_title_row_pads() {
         let imported = imp_fixed("<table><tbody><tr><th>Roster</th></tr><tr><td>a</td><td>b</td><td>c</td></tr></tbody></table>");
-        assert_eq!(dropped(&imported), [("table[row]", 1)]);
+        assert_eq!(dropped(&imported), [("table:row", 1)]);
         assert_eq!(table_rows(&imported.content), [["a", "b", "c"]]);
         assert_eq!(grid(&imported.content)["header"][0]["text"], "Roster");
     }
@@ -3314,13 +3319,13 @@ pub(crate) mod tests {
         let pipe = format!("|{}\n|{}\n{}", " a |".repeat(cols), " - |".repeat(cols), "| b |\n".repeat(rows + 5));
         for md in [html, pipe] {
             let imported = imp_fixed(&md);
-            assert_eq!(dropped(&imported).last(), Some(&("table[size]", 1)));
+            assert_eq!(dropped(&imported).last(), Some(&("table:size", 1)));
             assert_eq!(1 + table_rows(&imported.content).len(), rows);
         }
         for n in [101, 20_000] {
             let wide = format!("<table><tr>{}</tr></table>", "<td colspan=1000></td>".repeat(n));
             let imported = imp_fixed(&wide);
-            assert_eq!(dropped(&imported), [("table[size]", 1)]);
+            assert_eq!(dropped(&imported), [("table:size", 1)]);
             assert!(imported.content.islands.is_empty());
         }
     }
