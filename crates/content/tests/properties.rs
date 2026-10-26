@@ -15,11 +15,11 @@ use serde_json::{json, Value};
 /// The mint's fixed point: normalizing again changes nothing.
 ///
 /// Every repair [`Content::normalize`] performs is a strict rewrite — a kind
-/// demoted, a flag cleared, a mark edge trimmed, a zero-width mark dropped, a
-/// row padded, a line broken around a block island's slot — so one equality
-/// states the whole canonical form. Paired with `validate`, which reports what
-/// the mint cannot repair, it is the oracle over an accepted op: the two
-/// together cover the content's invariants.
+/// demoted, a flag cleared, a mark split at a line break, a zero-width mark
+/// dropped, a row padded, a line broken around a block island's slot — so one
+/// equality states the whole canonical form. Paired with `validate`, which
+/// reports what the mint cannot repair, it is the oracle over an accepted op:
+/// the two together cover the content's invariants.
 fn renormalized(rt: &Normalized) -> Content {
     let mut again = rt.clone().into_content();
     again.normalize();
