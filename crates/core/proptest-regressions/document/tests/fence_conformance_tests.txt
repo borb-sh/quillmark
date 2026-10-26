@@ -8,3 +8,4 @@ cc 9e733f71cca6ed9de703b7271649e0808b63c13cae7e9bc50fe7ad8821ff8214 # shrinks to
 cc 70be7fe880e1b80338def3b50502bf24c8428e0c99d5734e70c66d253bb43c59 # shrinks to body = ["    ```", "- ", "  ```"]
 cc eefe98a3611f5c9ad944e9cc99569cfb67e379bbacb20fcaa9bc4d2442aded10 # shrinks to body = ["  - code", "- ", "  ```"]
 cc 3bfe59cdcec7401f44a80f914ed70515d19684f71131183687b14ec50072cc99 # shrinks to body = ["- code", "  -", "-```", "  ```"]
+cc ab3326f0bcd52555e17485b76d639efdfad24325de52b14ce71c4e50aa96c20d # shrinks to body = ["- ", "", "  ```"]
