@@ -513,7 +513,7 @@ impl MarkKind {
     /// per character, so two marks of one tag never overlap in normalized
     /// content. A member is also [formatting](Self::is_formatting).
     pub fn is_keyed(&self) -> bool {
-        matches!(self, MarkKind::FontFamily { .. })
+        matches!(self, MarkKind::FontFamily { .. } | MarkKind::Link { .. })
     }
 
     /// The wire `type` name.
@@ -1001,7 +1001,7 @@ impl Content {
         // Skip the full-text char collection when nothing needs splitting.
         if self.text.contains('\n') && self.marks.iter().any(|m| m.kind.is_formatting()) {
             let chars: Vec<char> = self.text.chars().collect();
-            self.marks = split_marks_at_newlines(&chars, std::mem::take(&mut self.marks));
+            self.marks = split_marks_at_newlines(&chars, normalize_marks(std::mem::take(&mut self.marks)));
         }
         self.marks = normalize_marks(std::mem::take(&mut self.marks));
     }
@@ -1282,29 +1282,17 @@ pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
     }
 }
 
-/// The most marks [`split_marks_at_newlines`] adds. A split grows with marks
-/// times line breaks, so a body past the bound keeps its marks whole, trimmed
-/// at their edges alone, rather than turning one mark per line into a
-/// quadratic blow-up.
-const MAX_SPLIT_MARKS: usize = 1_000_000;
-
 /// Cut each formatting mark at every `\n` in `chars`, keeping the pieces
 /// between them: prose export closes a mark at a line's end and reopens it on
 /// the next, so in prose a mark never spans a line join. Zero-width pieces are
-/// left for [`normalize_marks`] to drop. Past [`MAX_SPLIT_MARKS`] the marks are
-/// trimmed instead, as a table cell's are.
-pub(crate) fn split_marks_at_newlines(chars: &[char], mut marks: Vec<Mark>) -> Vec<Mark> {
+/// left for [`normalize_marks`] to drop.
+pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
     let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i).collect();
     let within = |m: &Mark| {
         let lo = breaks.partition_point(|&b| b < m.start);
         let hi = breaks.partition_point(|&b| b < m.end);
         &breaks[lo..hi.max(lo)]
     };
-    let formatting = || marks.iter().filter(|m| m.kind.is_formatting());
-    if formatting().map(|m| within(m).len()).sum::<usize>() > MAX_SPLIT_MARKS {
-        trim_marks_off_newlines(chars, &mut marks);
-        return marks;
-    }
     let mut out = Vec::with_capacity(marks.len());
     for m in marks {
         if !m.kind.is_formatting() {
@@ -2070,21 +2058,43 @@ mod tests {
     }
 
     #[test]
-    fn normalize_keeps_marks_whole_past_the_split_bound() {
-        let lines = MAX_SPLIT_MARKS / 1000 + 1;
-        let text = "a\n".repeat(lines);
-        let links: Vec<Mark> = (0..1000)
-            .map(|i| Mark::new(0, text.chars().count(), MarkKind::Link { url: format!("u{i}") }))
-            .collect();
+    fn normalize_settles_keyed_marks_before_splitting_them() {
+        let family = |name: &str| MarkKind::FontFamily { name: name.into() };
         let mut rt = Content {
-            lines: vec![Line::new(LineKind::Para); lines + 1],
-            text,
-            marks: links,
+            text: "abcde\nfghij".into(),
+            lines: vec![Line::new(LineKind::Para); 2],
+            marks: vec![Mark::new(0, 11, family("Zeta")), Mark::new(3, 11, family("Alpha"))],
             islands: vec![],
         };
         rt.normalize();
-        assert_eq!(rt.marks.len(), 1000, "a mark split past the bound");
-        assert!(rt.marks.iter().all(|m| (m.start, m.end) == (0, 2 * lines - 1)));
+        assert_eq!(
+            rt.marks,
+            vec![
+                Mark::new(0, 3, family("Zeta")),
+                Mark::new(3, 5, family("Alpha")),
+                Mark::new(6, 11, family("Alpha")),
+            ]
+        );
+    }
+
+    #[test]
+    fn overlapping_links_split_to_one_link_per_line() {
+        let lines = 50;
+        let text = "a\n".repeat(lines);
+        let len = text.chars().count();
+        let mut rt = Content {
+            lines: vec![Line::new(LineKind::Para); lines + 1],
+            text,
+            marks: (0..20)
+                .map(|i| Mark::new(i, len, MarkKind::Link { url: format!("u{i}") }))
+                .collect(),
+            islands: vec![],
+        };
+        rt.normalize();
+        assert_eq!(rt.marks.len(), lines);
+        let once = rt.clone();
+        rt.normalize();
+        assert_eq!(rt, once);
     }
 
     #[test]
