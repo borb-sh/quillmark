@@ -159,8 +159,8 @@ families:
   - `qm-<name>[<attr>]` for one element attribute that drops;
   - `table` for an HTML table its block ends before its `</table>`, at a
     blank line or another `<table>`;
-  - `table[row]` for an HTML table's row too short for its grid,
-    `table[text]` for text outside every cell, and `table[size]` for a
+  - `table:row` for an HTML table's row too short for its grid,
+    `table:text` for text outside every cell, and `table:size` for a
     table's rows past `MAX_TABLE_CELLS`;
   - `<tag>[<attr>]` for one attribute of an HTML table's tag that drops,
     such as `td[nowrap]` or `table[widths]`;

@@ -2577,7 +2577,7 @@
     "signals": {
       "import": [
         {
-          "construct": "table[row]",
+          "construct": "table:row",
           "count": 2
         }
       ],
@@ -2626,7 +2626,7 @@
           "count": 1
         },
         {
-          "construct": "table[text]",
+          "construct": "table:text",
           "count": 1
         }
       ],
