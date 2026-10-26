@@ -742,8 +742,12 @@ Text outside every cell, a `<caption>`'s say, drops, reported as
 block and parses no markdown inside it, so import scans the subset itself and
 reads each cell's content as one line of inline markdown: `<td>**Total**</td>`
 is bold. A line break in a cell's source is a space, as HTML reads one, and a
-`<br>` is the cell's line break. A subset tag inside a code span, a comment,
-an angle-bracketed link destination or after a backslash is the cell's text.
+`<br>` is the cell's line break. A subset tag inside a comment, an
+angle-bracketed link destination or after a backslash is the cell's text. A
+code span never reaches past a subset tag, so a stray backtick is the cell's
+text rather than a span that merges cells, rows or the prose after the table,
+and a code mark over a subset tag exports the tag as escaped text between the
+spans either side.
 An equation keeps its source, reported as `math`, as in a pipe table's cell,
 and a footnote reference is its text. GitHub draws the grid and the spans but
 shows cell markdown literally.
@@ -758,11 +762,13 @@ the block's text arrives with container prefixes stripped. What follows a
 markdown of its own (§7 step 5), so prose written tight under a table, a
 second table or a wrapper's close tag reads as written.
 
-**A table holds at most `MAX_TABLE_CELLS` (100 000) slots**, its rows, the
-header among them, times its columns. A grid pads every row to its width, so
-a few bytes can ask for millions of slots; the rows past the bound drop,
-reported as `table:size`, and a table whose first row alone is wider drops
-whole. A pipe table stops at the same bound.
+**A document's tables hold at most `MAX_TABLE_CELLS` (100 000) slots
+together**, each table's rows, the header among them, times its columns. A
+grid pads every row to its width, so a few bytes can ask for millions of
+slots, and many small tables as many as one large one; the rows past the
+slots the tables before them leave drop, reported as `table:size`, and a
+table whose first row alone is wider drops whole. Pipe and HTML tables draw
+on the same bound.
 
 **Export** writes the `<table>` tag, its `thead` and `tbody`, and each row on
 a line of its own, inside the containers the table sits in. The attributes

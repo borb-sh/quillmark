@@ -123,8 +123,9 @@ pub enum Dropped {
     TableRow,
     /// Text in an HTML table's block outside every cell: `table:text`.
     TableText,
-    /// A table's rows past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots,
-    /// or the whole of one whose first row alone is wider: `table:size`.
+    /// A table's rows past the [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS)
+    /// slots the document's tables share, or the whole of one whose first row
+    /// alone is wider than the slots left: `table:size`.
     TableSize,
     /// An attribute of an HTML table's tag the subset does not read, repeating
     /// one already read or with a value outside its spelling: `<tag>[<attr>]`.
@@ -1830,8 +1831,11 @@ struct MarkdownFixer<'a, I> {
     /// line of carrier tags stays text too.
     underlines: usize,
     /// The open pipe table's column count, the slots its rows take so far, and
-    /// whether a row past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) dropped.
+    /// whether a row past `cells` dropped.
     grid: Option<(usize, usize, bool)>,
+    /// The slots the document's tables may still take, from
+    /// [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS).
+    cells: usize,
 }
 
 /// Whether a tag ending `end` holds a line of carrier tags as text.
@@ -1854,6 +1858,7 @@ where
             depth: 0,
             underlines: 0,
             grid: None,
+            cells: crate::MAX_TABLE_CELLS,
         }
     }
 
@@ -1974,7 +1979,7 @@ where
                 let k = lines.partition_point(|&(block, _)| block <= off).saturating_sub(1);
                 lines.get(k).map_or(at, |&(block, src)| src + (off - block))
             };
-            let (tables, drops) = crate::html_table::scan(&text, source);
+            let (tables, drops) = crate::html_table::scan(&text, source, &mut self.cells);
             self.held.extend(drops.into_iter().map(|(construct, at)| Fixed::Dropped(construct, at)));
             self.held.extend(tables.into_iter().map(Fixed::HtmlTable));
             self.held.push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock)));
@@ -2031,7 +2036,7 @@ where
                 self.drop_html_block(range.start);
                 return None;
             }
-            Event::Start(Tag::Table(aligns)) if aligns.len() > crate::MAX_TABLE_CELLS => {
+            Event::Start(Tag::Table(aligns)) if aligns.len() > self.cells => {
                 self.skip_through(TagEnd::Table);
                 Fixed::Dropped(Dropped::TableSize, range.start)
             }
@@ -2039,7 +2044,7 @@ where
                 self.grid = Some((aligns.len(), aligns.len(), false));
                 Fixed::Event(Event::Start(Tag::Table(aligns)))
             }
-            Event::Start(Tag::TableRow) if self.grid.is_some_and(|(cols, n, _)| n + cols > crate::MAX_TABLE_CELLS) => {
+            Event::Start(Tag::TableRow) if self.grid.is_some_and(|(cols, n, _)| n + cols > self.cells) => {
                 self.skip_through(TagEnd::TableRow);
                 let (_, _, cut) = self.grid.as_mut()?;
                 return (!std::mem::replace(cut, true)).then_some(Fixed::Dropped(Dropped::TableSize, range.start));
@@ -2051,7 +2056,9 @@ where
                 Fixed::Event(event)
             }
             Event::End(TagEnd::Table) => {
-                self.grid = None;
+                if let Some((_, n, _)) = self.grid.take() {
+                    self.cells -= n;
+                }
                 Fixed::Event(event)
             }
             Event::InlineHtml(html) => {
@@ -3296,13 +3303,14 @@ pub(crate) mod tests {
         assert_eq!(grid(&imported.content)["header"][0]["text"], "Roster");
     }
 
-    /// An unclosed comment or code span in a table's block reads in time
-    /// linear in its length.
+    /// An unclosed comment or code span in a table's block, and `<th>` rows
+    /// each reaching past the next, read in time linear in their length.
     #[test]
     fn unclosed_comments_and_code_spans_read_in_linear_time() {
         for md in [
             format!("<table>{}", "<!--".repeat(100_000)),
             format!("<table><tr><td>{}</td></tr></table>", (1..1_500).map(|n| "`".repeat(n) + "x").collect::<String>()),
+            format!("<table><tr><th>a{}", "<tr><th rowspan=2>a".repeat(30_000)),
         ] {
             assert_eq!(from_markdown(&md).unwrap().content.validate(), Ok(()));
         }
@@ -3330,6 +3338,54 @@ pub(crate) mod tests {
         }
     }
 
+    /// The tables of a document share the one bound, so tables each under
+    /// it, as HTML or as pipes, stop together at it, reported, however few
+    /// bytes their spans or short rows spend; a document of small tables reads
+    /// whole. A cell past the bound in grid order is left out as the scan reads
+    /// it, and a head written after it still heads the table.
+    #[test]
+    fn a_documents_tables_share_the_cell_bound() {
+        let slots = |imported: &Imported| -> usize {
+            let rows = |isl: &Island| 1 + isl.props["rows"].as_array().map_or(0, Vec::len);
+            imported.content.islands.iter().map(|isl| rows(isl) * isl.props["aligns"].as_array().map_or(0, Vec::len)).sum()
+        };
+        let sized = |imported: &Imported| imported.warnings.iter().any(|w| w.construct == Dropped::TableSize);
+        let html = format!("<table>{}</table>\n\n", "<tr><td colspan=1000>".repeat(100));
+        let pipe = format!("{}|\n{}|\n{}\n", "|a".repeat(1000), "|-".repeat(1000), "|x|\n".repeat(99));
+        for md in [html.repeat(5), pipe.repeat(3), format!("{html}{pipe}{html}")] {
+            let imported = from_markdown(&md).unwrap();
+            assert_eq!(slots(&imported), crate::MAX_TABLE_CELLS);
+            assert!(sized(&imported));
+        }
+        let small = imp_fixed(&"<table><td>x</table>\n\n|a|\n|-|\n|x|\n\n".repeat(1_000));
+        assert_eq!((small.content.islands.len(), slots(&small)), (2_000, 3_000));
+        assert!(small.warnings.is_empty());
+        let late_head = format!("<table><tbody><tr>{}</tbody><thead><tr><th>h</thead></table>", "<td>".repeat(crate::MAX_TABLE_CELLS + 1));
+        let imported = from_markdown(&late_head).unwrap();
+        assert_eq!(grid(&imported.content)["header"], serde_json::json!([{"text": "h"}]));
+        assert_eq!(table_rows(&imported.content), Vec::<Vec<String>>::new());
+        assert!(sized(&imported));
+    }
+
+    /// A code span in a cell never reaches past one of the subset's tags, so a
+    /// stray backtick is its text and splits no cell, row or table; a span
+    /// holding a tag a comment hides splits around it, the tag its text.
+    #[test]
+    fn a_stray_backtick_in_a_cell_is_its_text() {
+        let texts = |imported: &Imported| -> Vec<String> {
+            crate::serial::table_cells(&imported.content.islands[0].props).into_iter().map(|(text, _)| text).collect()
+        };
+        let imported = imp_fixed("<table><tr><td>`a</td><td>b`</td><td>c</td></tr></table>");
+        assert_eq!(texts(&imported), ["`a", "b`", "c"]);
+        let imported = imp_fixed("<table><tr><td>`a</td></tr></table> after `x`");
+        assert_eq!(texts(&imported), ["`a"]);
+        assert!(imported.content.marks.iter().any(|m| m.kind == MarkKind::Code));
+        assert!(imported.warnings.is_empty());
+        let imported = imp_fixed("<table><tr><td>`a <!-- <td> --> b`</td></tr></table>");
+        let cells: Vec<(String, Vec<Mark>)> = crate::serial::table_cells(&imported.content.islands[0].props);
+        assert_eq!(cells[0], ("a <!-- <td> --> b".into(), vec![Mark::new(0, 7, MarkKind::Code), Mark::new(11, 17, MarkKind::Code)]));
+    }
+
     /// A table is one HTML block: a blank line inside it ends the table there,
     /// in a quote as at the top level, and what follows reads as markdown, an
     /// HTML block of its own that drops. Another `<table>` ends one too, and
@@ -3354,13 +3410,13 @@ pub(crate) mod tests {
     }
 
     /// A cell's content is one line of inline markdown, a line break in the
-    /// source a space: marks, a code span or an escaped `<` shielding a tag, an
+    /// source a space: marks, a code span, an escaped `<` shielding a tag, an
     /// angle-bracketed link destination, `<br>` and `<u>`. An equation keeps
     /// its source, as in a pipe table's cell, and a footnote reference, read
     /// apart from the definitions, is its text.
     #[test]
     fn an_html_cell_holds_inline_markdown() {
-        let md = "<table><tr><td>**Total**\n  and *more*</td><td>`</td>` \\<td> [l](<td x>)</td>\
+        let md = "<table><tr><td>**Total**\n  and *more*</td><td>`a` \\<td> [l](<td x>)</td>\
                   <td>a<br><u>b</u> &amp; &#32;</td><td>$x$ y[^1]</td></tr></table>\n\n[^1]: n";
         let imported = imp_fixed(md);
         let props = &imported.content.islands[0].props;
@@ -3368,7 +3424,7 @@ pub(crate) mod tests {
         assert_eq!(cells[0], ("Total and more".into(), vec![Mark::new(0, 5, MarkKind::Strong), Mark::new(10, 14, MarkKind::Emph)]));
         assert_eq!(
             cells[1],
-            ("</td> <td> l".into(), vec![Mark::new(0, 5, MarkKind::Code), Mark::new(11, 12, MarkKind::Link { url: "td x".into() })])
+            ("a <td> l".into(), vec![Mark::new(0, 1, MarkKind::Code), Mark::new(7, 8, MarkKind::Link { url: "td x".into() })])
         );
         assert_eq!(cells[2], ("a\nb &  ".into(), vec![Mark::new(2, 3, MarkKind::Underline)]));
         assert_eq!(cells[3].0, "$x$ y[^1]");

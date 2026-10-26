@@ -25,9 +25,14 @@
   cell drops, warning `qm-cell`, so markdown written with either loses its
   table layout; rewrite such a table as HTML.
 - fix(content)!: **a table's grid is capped at `MAX_TABLE_CELLS` (100 000)
-  slots**: markdown import drops the rows past it, warning `table:size`, and
-  the stored lanes refuse such a table as `Invariant::TableTooLarge` before
-  padding it, where a few bytes could allocate millions of cells.
+  slots, and a markdown import's tables share the cap**: import drops the rows
+  past it, warning `table:size`, and the stored lanes refuse such a table as
+  `Invariant::TableTooLarge` before padding it, where a few bytes could
+  allocate millions of cells.
+- fix(content): **a code span in an HTML table's cell never reaches past a
+  subset tag**, so a stray backtick is the cell's text rather than merging
+  cells, rows or the prose after the table, and a code mark over a subset tag
+  exports the tag as escaped text.
 
 ### Fonts
 

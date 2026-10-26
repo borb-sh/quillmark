@@ -400,7 +400,8 @@ Three rules bound the payload:
   widest, so a few bytes of props can ask for millions of cells, on wasm32 an
   allocation that traps. The decoder refuses such a table before the mint
   pads it, as `Invariant::TableTooLarge`, which `Content::validate` restates;
-  markdown import drops the rows past the cap instead, warning `table:size`.
+  markdown import drops the rows past the cap instead, its tables sharing
+  one cap, warning `table:size`.
 
 - **Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
   `lang`, a `link`'s `url`, a `list_item`'s shape and an `element`'s name and
