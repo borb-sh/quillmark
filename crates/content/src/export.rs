@@ -20,8 +20,7 @@
 //!
 //! ## Codec limits
 //!
-//! These shapes markdown cannot represent do **not** round-trip. A mark spanning
-//! a hard break splits into two per-line marks. An empty line in a hard-break
+//! These shapes markdown cannot represent do **not** round-trip. An empty line in a hard-break
 //! block drops, and so does an empty paragraph beside another block, markdown
 //! spelling neither. An image `alt` loses its edge whitespace: the parser trims
 //! alt *after* decoding the character reference that carries an edge run
