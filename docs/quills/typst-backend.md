@@ -287,7 +287,7 @@ A quill carries its own fonts. The backend loads every `.ttf`, `.otf`, `.ttc` an
 
 An app can add a font library when it builds its engine: `Engine::with_fonts` in Rust, the `fonts` option of `new Engine(..)` in JavaScript, `Engine(fonts=..)` in Python, `--font` on the CLI. Each file is a `.ttf`, `.otf`, `.ttc` or `.otc`; any other format, WOFF and WOFF2 included, fails the engine with `engine::font_unsupported`. The machine's installed fonts are never read, so `#set text(font: "Arial")` names a family the compile cannot find unless the quill ships it.
 
-A library's fonts set only text a writer marks with a family. A plate naming a library family, a bold or italic the quill lacks, and a character no quill font covers never reach a library face, so text without a mark renders the same in every app. A family name starting with `qm-host:` is reserved.
+A library's fonts set only text a writer marks with a family. A plate naming a library family, a bold or italic the quill lacks, and a character no quill font covers never reach a library face, so text without a mark renders the same in every app.
 
 Equations draw in the embedded Noto Sans Math unless the quill ships a math font of its own (see [Footnotes, equations and definition lists](#footnotes-equations-and-definition-lists)).
 

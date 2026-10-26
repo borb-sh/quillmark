@@ -1,7 +1,8 @@
 //! A table's two spellings over generated grids: header rows, spans,
 //! alignments and layout keys over cells holding markup characters, written
 //! by the export and read back by the import as the grid normalization
-//! settles, in pipes exactly where nothing needs HTML. Separately, generated
+//! settles, but for a covered cell's alignment, which no spelling holds, in
+//! pipes exactly where nothing needs HTML. Separately, generated
 //! HTML around the subset's tags imports without a panic to a content that
 //! is the fixed point of a re-import.
 
@@ -93,6 +94,25 @@ fn soup() -> impl Strategy<Value = String> {
     prop::collection::vec(token, 0..40).prop_map(|t| format!("<table>{}", t.concat()))
 }
 
+/// `rt` with each covered cell's `align` and `valign` gone.
+fn without_covered_alignment(rt: &crate::model::Normalized) -> crate::model::Normalized {
+    let mut content = rt.clone().into_content();
+    for island in &mut content.islands {
+        let spans = crate::island::table_spans(&island.props);
+        for (r, row) in spans.iter().enumerate() {
+            for c in (0..row.len()).filter(|c| row[*c].is_none()) {
+                let at = if r == 0 { format!("/header/{c}") } else { format!("/rows/{}/{c}", r - 1) };
+                if let Some(cell) = island.props.pointer_mut(&at).and_then(Value::as_object_mut) {
+                    for (key, _) in crate::island::CELL_KEYS {
+                        cell.remove(key);
+                    }
+                }
+            }
+        }
+    }
+    content.into_normalized()
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
@@ -104,7 +124,7 @@ proptest! {
         prop_assert_eq!(md.starts_with("<table"), writes_html(&rt.islands[0].props), "{}", md);
         let back = from_markdown(&md).unwrap();
         prop_assert!(back.warnings.is_empty(), "{:?}\n{}", back.warnings, md);
-        prop_assert_eq!(&back.content, &rt, "{}", md);
+        prop_assert_eq!(&back.content, &without_covered_alignment(&rt), "{}", md);
     }
 
     /// The prose a table's block sets apart after its `</table>` reads as

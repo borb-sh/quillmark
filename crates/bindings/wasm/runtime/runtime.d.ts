@@ -419,8 +419,9 @@ export interface EngineOptions {
 	/**
 	 * The host's font library: each a `.ttf`, `.otf`, `.ttc` or `.otc` file,
 	 * whose faces set only text a `font_family` mark sets. The bytes are
-	 * copied at construction and cross into the render build once, when it
-	 * loads, and a file it refuses rejects that load and every verb awaiting it:
+	 * copied at construction, cross into the render build once, when it loads,
+	 * and are parsed there once. A file it refuses rejects every verb that
+	 * needs that build, the first and each later one, with the same error:
 	 * `engine::font_unsupported` for another format, `engine::font_unreadable`
 	 * for a file holding no readable face. A value that is not an array of
 	 * `Uint8Array` throws at construction.

@@ -891,6 +891,44 @@
     }
   },
   {
+    "name": "mark.across_break",
+    "markdown": "**one**\\\n**two**",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        },
+        {
+          "containers": [],
+          "continues": true,
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 3,
+          "start": 0,
+          "type": "strong"
+        },
+        {
+          "end": 7,
+          "start": 4,
+          "type": "strong"
+        }
+      ],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "#strong[one]#linebreak()#strong[two]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
     "name": "island.table.aligns",
     "markdown": "| a | b | c |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |",
     "content": {
@@ -2307,6 +2345,7 @@
                 "text": "a"
               }
             ],
+            "headless": true,
             "rows": []
           },
           "type": "table"
@@ -2360,6 +2399,7 @@
                 "text": "a"
               }
             ],
+            "headless": true,
             "rows": []
           },
           "type": "table"
@@ -2414,6 +2454,7 @@
                 "text": "b"
               }
             ],
+            "headless": true,
             "rows": []
           },
           "type": "table"
@@ -2465,6 +2506,7 @@
                 "text": "b"
               }
             ],
+            "headless": true,
             "rows": [
               [
                 {
@@ -2527,6 +2569,7 @@
                 "text": ""
               }
             ],
+            "headless": true,
             "rows": [
               [
                 {
@@ -2577,7 +2620,7 @@
     "signals": {
       "import": [
         {
-          "construct": "table[row]",
+          "construct": "table:row",
           "count": 2
         }
       ],
@@ -2602,6 +2645,7 @@
                 "text": "a"
               }
             ],
+            "headless": true,
             "rows": []
           },
           "type": "table"
@@ -2626,7 +2670,7 @@
           "count": 1
         },
         {
-          "construct": "table[text]",
+          "construct": "table:text",
           "count": 1
         }
       ],
@@ -3944,6 +3988,7 @@
                 "text": "b"
               }
             ],
+            "headless": true,
             "rows": [
               [
                 {

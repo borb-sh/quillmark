@@ -462,7 +462,9 @@ export type Assoc = "before" | "after";
 /**
  * A mark edit in final-text coordinates (post-delta, post-line-op). `add` /
  * `remove` are a `ContentMark` under an op, so a held mark spreads in whole;
- * `removeAnchor` drops one identity anchor by id. An `add` of an `anchor`
+ * `removeAnchor` drops one identity anchor by id. An `add` of a `link` or a
+ * `font_family` replaces the one under its range, and a mark added across a
+ * line break reads back as one mark per line. An `add` of an `anchor`
  * requires a non-empty `id` not already live in the field; a collision or the
  * empty id throws.
  */
@@ -613,6 +615,16 @@ export interface FontFace {
 }
 "#;
 
+/// `bytes` copied once, straight into the buffer the font library keeps:
+/// linear memory never shrinks, so a staging copy would stay its high-water
+/// mark.
+#[cfg(feature = "render")]
+fn arc_of(bytes: &Uint8Array) -> std::sync::Arc<[u8]> {
+    let mut out: std::sync::Arc<[u8]> = std::iter::repeat_n(0, bytes.length() as usize).collect();
+    bytes.copy_to(std::sync::Arc::get_mut(&mut out).expect("a fresh buffer is unshared"));
+    out
+}
+
 #[cfg(feature = "render")]
 #[wasm_bindgen]
 impl Engine {
@@ -624,13 +636,13 @@ impl Engine {
     pub fn new(
         #[wasm_bindgen(unchecked_param_type = "Uint8Array[] | undefined")] fonts: JsValue,
     ) -> Result<Engine, JsValue> {
-        let fonts: Vec<Vec<u8>> = if fonts.is_undefined() || fonts.is_null() {
+        let fonts: Vec<std::sync::Arc<[u8]>> = if fonts.is_undefined() || fonts.is_null() {
             Vec::new()
         } else if Array::is_array(&fonts) {
             Array::from(&fonts)
                 .iter()
                 .map(|font| match font.dyn_into::<Uint8Array>() {
-                    Ok(bytes) => Ok(bytes.to_vec()),
+                    Ok(bytes) => Ok(arc_of(&bytes)),
                     Err(_) => Err(WasmError::from("fonts: every entry is a Uint8Array").to_js_value()),
                 })
                 .collect::<Result<_, _>>()?

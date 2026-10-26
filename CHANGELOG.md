@@ -24,7 +24,7 @@
   cell's `colspan` and `rowspan`, each cell it covers an empty placeholder, and
   the header rows as the table's `head`, a count `headless: true` normalizes
   to `head: 0`. What an HTML table cannot hold warns
-  `parse::dropped_construct` as `table`, `table[row]`, `table[text]` or
+  `parse::dropped_construct` as `table`, `table:row`, `table:text` or
   `<tag>[<attr>]`. Markdown after a `</table>` in its HTML block reads as
   markdown of its own. An HTML table is as wide as its widest row, a `<th>`
   row opening its `tbody` is a header row, and `border`, `class`, `scope` and
@@ -34,10 +34,55 @@
   layout**: `qm-table` is an ordinary element name, and a `qm-cell` pair in a
   cell drops, warning `qm-cell`, so markdown written with either loses its
   table layout; rewrite such a table as HTML.
+- fix(content): **a table's `head: 0` keeps `headless: true` beside it**, so a
+  0.130 reader draws no header row on a table 0.131 saved, and a richtext
+  field holding a 0.130 `headless: true` table reads as content, exporting as
+  a table where it wrote its YAML tree. A cell a span covers keeps its `align`
+  and `valign`, drawn again once the span shrinks, and a cell holding a mark,
+  a comment anchor included, is no placeholder a span covers. A 0.130 row
+  holding `headless: true` or a cell span rewrites once when saved, under the
+  same tag unless a span still covers more than one slot, which saves under
+  `@0.131.0`.
 - fix(content)!: **a table's grid is capped at `MAX_TABLE_CELLS` (100 000)
-  slots**: markdown import drops the rows past it, warning `table[size]`, and
-  the stored lanes refuse such a table as `Invariant::TableTooLarge` before
-  padding it, where a few bytes could allocate millions of cells.
+  slots, and a markdown import's tables share the cap**: import drops the rows
+  past it, warning `table:size`, and the stored lanes refuse such a table as
+  `Invariant::TableTooLarge` before padding it, where a few bytes could
+  allocate millions of cells.
+- fix(content): **a code span in an HTML table's cell never reaches past a
+  subset tag**, so a stray backtick is the cell's text rather than merging
+  cells, rows or the prose after the table, and a code mark over a subset tag
+  exports the tag as escaped text.
+
+### Fonts
+
+- feat!: **a run of richtext sets a font family, spelled in markdown as an
+  inline `<qm-span family="…">` pair** and stored as a `font_family` mark, one
+  family per character, so export writes nested pairs back side by side. A
+  row holding a `font_family` mark saves as `quillmark/document@0.131.0`,
+  which a 0.130 build refuses; `currentStorageVersion()` /
+  `current_storage_version()` return that tag. `MarkKind` gains
+  `FontFamily { name }`, `StoredDocument` gains `V0_131_0`, and the WASM
+  `ContentMark` gains `font_family`. A `qm-span` tag line, which 0.130 read as
+  an element named `span`, drops and warns `qm-span`.
+- feat!: **an engine takes a host font library**: `Engine::with_fonts`, the
+  `fonts` option of `new Engine(..)`, `Engine(fonts=..)` and `--font` on
+  `quillmark render` and `quillmark workspace`. A file other than `.ttf`,
+  `.otf`, `.ttc` or `.otc` fails as `engine::font_unsupported`, one holding no
+  face Typst reads as `engine::font_unreadable`. A library face sets only text
+  a font mark sets, and a family the library lacks keeps the surrounding font
+  and warns `typst::unknown_font_family`. `TypstBackend` is a struct holding
+  the library, built with `TypstBackend::default()` or
+  `TypstBackend::new(Arc<FontLibrary>)`, `quillmark_typst::workspace::workspace`
+  takes a `&FontLibrary` third, and `Engine::font_faces`,
+  `engine.fontFaces(quill)` and `Engine.font_faces(quill)` list the faces.
+
+### Fixes
+
+- fix(acroform): a `richtext` array element holding no text binds as an empty
+  line, so a blank line between groups reaches the widget.
+- fix(core): a list item with nothing after its marker ends at the blank line
+  below it, so a card fence inside a code block below such an item stays
+  code.
 
 ## v0.130.0 - 2026-10-22
 

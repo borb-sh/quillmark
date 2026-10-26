@@ -30,11 +30,11 @@ pub mod usv;
 /// plate's own rules the rest.
 pub const MAX_NESTING_DEPTH: usize = 12;
 
-/// Maximum slots of a table's grid, rows (the header among them) times columns.
-/// A grid pads every row to its widest, so a few bytes of markdown or host JSON
-/// can ask for millions of cells: on wasm32 an allocation that traps rather
-/// than errors. No table a document holds nears it, and Typst could not lay one
-/// out that did.
+/// Maximum slots of a table's grid, rows (the header among them) times columns,
+/// and on a markdown import of all its tables' grids together. A grid pads
+/// every row to its widest, so a few bytes of markdown or host JSON can ask for
+/// millions of cells: on wasm32 an allocation that traps rather than errors. No
+/// document's tables near it, and Typst could not lay out one that did.
 pub const MAX_TABLE_CELLS: usize = 100_000;
 
 /// Maximum nesting depth of an opaque JSON payload (an island's `props`), in

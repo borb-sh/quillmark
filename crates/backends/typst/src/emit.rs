@@ -1585,10 +1585,10 @@ mod tests {
         }
     }
 
-    /// A code span clips two links down to one range, so they coincide in
-    /// `wraps` without coinciding in the document. They nest in their stored
-    /// order — `z` starts first — not in an order re-derived from the clip,
-    /// which would put `a` outside and hand the text to the wrong target.
+    /// A code span clips a link and a strike down to one range, so they
+    /// coincide in `wraps` without coinciding in the document. They nest in
+    /// their stored order, the link starting first, not in an order re-derived
+    /// from the clip.
     #[test]
     fn clipping_two_marks_together_nests_them_in_their_stored_order() {
         use quillmark_content::model::Line;
@@ -1596,13 +1596,13 @@ mod tests {
             .with_marks(vec![
                 Mark::new(0, 3, MarkKind::Code),
                 Mark::new(1, 10, MarkKind::Link { url: "z".into() }),
-                Mark::new(3, 10, MarkKind::Link { url: "a".into() }),
+                Mark::new(3, 10, MarkKind::Strike),
             ])
             .into_normalized();
         assert_eq!(rt.validate(), Ok(()));
         assert_eq!(
             emit_content(&rt).unwrap().markup,
-            "#raw(\"abc\")#link(\"z\")[#link(\"a\")[defghij]]\n\n"
+            "#raw(\"abc\")#link(\"z\")[#strike[defghij]]\n\n"
         );
     }
 

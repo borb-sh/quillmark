@@ -2463,9 +2463,8 @@ mod tests {
             .filter(|m| matches!(m.kind, MarkKind::Strong))
             .map(|m| (m.start, m.end))
             .collect();
-        // [1..4) spans "b\nc": normalize keeps an interior `\n`, trimming only
-        // leading/trailing boundaries.
-        assert_eq!(strong, vec![(1, 4)]);
+        // [1..4) spans "b\nc": normalize splits it at the `\n`.
+        assert_eq!(strong, vec![(1, 2), (3, 4)]);
         assert_eq!(rt.validate(), Ok(()));
     }
 

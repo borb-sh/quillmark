@@ -2,6 +2,8 @@
 //! a quill's own fonts and the embedded fallback, parsed once per engine and
 //! shared by its sessions.
 
+use std::sync::Arc;
+
 use quillmark_core::error::{Diagnostic, RenderError, Severity};
 use typst::foundations::Bytes;
 use typst::text::Font;
@@ -13,17 +15,29 @@ use crate::world::{faces, MAX_COLLECTION_FACES};
 #[derive(Debug, Default)]
 pub struct FontLibrary {
     faces: Vec<Font>,
+    /// Each face's file, the one buffer its `Font` reads.
+    files: Vec<Arc<[u8]>>,
+    /// Drawn at construction, so the family a library face is filed under is
+    /// no name a plate can spell ahead of time.
+    alias_key: u64,
 }
 
 impl FontLibrary {
     /// Every face in `files`, each a `.ttf`, `.otf`, `.ttc` or `.otc` file's
     /// bytes, or one diagnostic per file refused: `engine::font_unsupported`
     /// for another format, `engine::font_unreadable` for a file of the right
-    /// format holding no face Typst reads.
-    pub fn new(files: Vec<Vec<u8>>) -> Result<Self, RenderError> {
-        let mut faces_out = Vec::new();
+    /// format holding no face Typst reads. A collection keeps the faces Typst
+    /// reads and drops the rest. Each file is held once, shared by its faces
+    /// and by every [`FontFace`](quillmark_core::backend::FontFace) listing
+    /// them.
+    pub fn new<F: Into<Arc<[u8]>>>(files: impl IntoIterator<Item = F>) -> Result<Self, RenderError> {
+        let mut library = FontLibrary {
+            alias_key: alias_key(),
+            ..FontLibrary::default()
+        };
         let mut refused = Vec::new();
         for (i, file) in files.into_iter().enumerate() {
+            let file: Arc<[u8]> = file.into();
             if let Some(format) = foreign_format(&file) {
                 refused.push(
                     Diagnostic::new(
@@ -35,13 +49,14 @@ impl FontLibrary {
                 );
                 continue;
             }
-            match faces(Bytes::new(file)) {
+            match faces(Bytes::new(file.clone())) {
                 Ok(read) => {
-                    let read: Vec<Font> = read.collect();
-                    if read.is_empty() {
+                    let before = library.faces.len();
+                    library.faces.extend(read);
+                    if library.faces.len() == before {
                         refused.push(unreadable(i, "holds no face Typst reads".to_string()));
                     }
-                    faces_out.extend(read);
+                    library.files.resize(library.faces.len(), file);
                 }
                 Err(declared) => refused.push(unreadable(
                     i,
@@ -50,7 +65,7 @@ impl FontLibrary {
             }
         }
         if refused.is_empty() {
-            Ok(FontLibrary { faces: faces_out })
+            Ok(library)
         } else {
             Err(RenderError::new(refused))
         }
@@ -59,6 +74,27 @@ impl FontLibrary {
     pub(crate) fn faces(&self) -> &[Font] {
         &self.faces
     }
+
+    /// Each face beside its file.
+    pub(crate) fn faces_with_files(&self) -> impl Iterator<Item = (&Font, &Arc<[u8]>)> {
+        self.faces.iter().zip(&self.files)
+    }
+
+    /// The family the font book files a library face of `family` under. No
+    /// plate or fallback names it, so only a `font_family` mark, which lowers
+    /// to it, reaches a library face.
+    pub(crate) fn alias(&self, family: &str) -> String {
+        format!("qm-host-{:016x}:{}", self.alias_key, family.to_lowercase())
+    }
+}
+
+/// A key no plate can know: the OS's randomness, or failing that the
+/// process's per-instance hash seed.
+fn alias_key() -> u64 {
+    getrandom::u64().unwrap_or_else(|_| {
+        use std::hash::BuildHasher;
+        std::hash::RandomState::new().hash_one(0u8)
+    })
 }
 
 fn unreadable(i: usize, why: String) -> Diagnostic {
@@ -119,6 +155,18 @@ mod tests {
         assert_eq!(faces_of(&shipping, host()), [("Figtree".into(), 700)]);
         assert_eq!(faces_of(&quill_shipping(&[]), host()), [("Figtree".into(), 700)]);
         assert_eq!(faces_of(&shipping, FontLibrary::default()), []);
+    }
+
+    /// Every listing hands out the library's own buffer, never a copy.
+    #[test]
+    fn a_listed_face_shares_the_librarys_file() {
+        let backend = crate::TypstBackend::new(Arc::new(
+            FontLibrary::new(vec![taro_font("Figtree-Regular.ttf")]).expect("library"),
+        ));
+        let quill = quill_shipping(&[]);
+        let (first, second) = (backend.font_faces(&quill), backend.font_faces(&quill));
+        assert!(Arc::ptr_eq(&first[0].data, &second[0].data));
+        assert_eq!(&first[0].data[..], &taro_font("Figtree-Regular.ttf")[..]);
     }
 
     #[test]

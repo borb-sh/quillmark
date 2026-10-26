@@ -139,6 +139,14 @@ applied: the output is `serde_json`'s compact form otherwise. Bumping the
 `schema` version is the only event that may change the byte layout of a
 document written by the current writer.
 
+**One settle under a held tag.** 0.131 settles a table's props further than
+0.130 did (§ Content vocabularies), so a `@0.129.0` row 0.130 wrote holding a table's
+`headless: true`, a cell's `colspan` or `rowspan`, or a `head` it now settles
+saves once with other bytes, and a hash over it recomputes once. The tag holds
+unless the settled props spell a member `0.131.0` adds, a span past 1 or a
+`head` past 1, which moves the row to `@0.131.0` (§ Schema Versioning). The settle is a fixed point, so the guarantee holds for every row 0.131
+wrote.
+
 **Resting form.** Byte-equality is over `Document` values, so it is only
 as useful as the model's agreement on what a given document *is*. A
 content field has one resting form per codec: a `richtext` field rests as
@@ -196,7 +204,7 @@ name.
 
 `element` is a closed member over an open payload. Its `attrs` bag holds the
 element's name under `$name`, any carrier element name but the reserved
-`table` and `anchor`, beside its attributes, each a string under a name
+`anchor`, beside its attributes, each a string under a name
 in the carrier's attribute grammar ([markdown-spec.md](../references/markdown-spec.md) §6.4).
 No attribute name opens with `$`, so the two never collide, as a card's `$kind`
 never meets a field. A new element name is no storage event, since no reader is
@@ -226,6 +234,10 @@ mark of the tag there, and a `MarkOp::Remove` takes one value off, leaving the
 stretch in no family. Storing one value per character keeps every edit local:
 a text edit never changes the family of text it keeps, and reading a
 character's family is a lookup.
+
+`link` is keyed the same way, its url the value: a character holds at most one link, as markdown and HTML can write no link inside another. A `MarkOp::Add` of a link over a link replaces the url there. Normalization settles keyed marks before it cuts marks at line breaks, so a split never multiplies overlapping links.
+
+A formatting mark in a body never spans a `\n`: `Content::normalize` cuts it at each one, so a mark over a hard break is one mark per line, the form markdown writes and the Typst lowering draws. A link over a break is two links with one url. A table cell's or footnote's marks may span its `\n`, which markdown writes as a `<br>` inside the mark's delimiters.
 
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,
@@ -344,8 +356,10 @@ default:
 | `head` | how many rows, from the top of `header` then `rows`, are header rows: a whole number, at most the row count; `0` draws `header` as the first body row | `1` |
 
 `widths` are weights, not lengths, so each plate decides what full width is.
-A stored `headless: true` with no `head` beside it reads as `head: 0`, and
-normalization rewrites it so. The keys ride the opaque props carrier, which an
+`headless: true` sits beside every `head: 0`, which a 0.130 reader, knowing
+`headless` alone, needs to draw no header row; beside any other `head` it is
+absent. A stored `headless: true` beside no whole-number `head` reads as
+`head: 0`, and normalization writes `head: 0` beside it. The keys ride the opaque props carrier, which an
 older reader round-trips, so adding them is no storage-version event, and a
 later props key joins the same way.
 
@@ -365,14 +379,18 @@ storage-version event. `Content::normalize` settles each span so it covers
 only what it can (`island::table_spans`):
 
 - Cells claim slots in reading order, so the earlier span wins.
-- A span covers only empty cells no other span covers, inside the grid and
-  inside its own section: the `head` rows or the body.
-- A span is stored as it covers, absent at 1, and a covered cell's span and
-  alignment keys are absent, since it draws nothing.
+- A span covers only cells holding no text and no mark that no other span
+  covers, inside the grid and inside its own section: the `head` rows or the
+  body. A comment's anchor is a mark, so the cell it targets stays drawn.
+- A span is stored as it covers, absent at 1, and a covered cell's span keys
+  are absent. A covered cell keeps its `align` and `valign`, which it draws
+  again once no span covers it; markdown spells no covered cell, so
+  `from_markdown(to_markdown(c))` drops them.
 
 A table or cell key holding a value outside its set is read as absent and
 rides untouched, as an unnamed key does, so `from_markdown(to_markdown(c)) ==
-c` holds where every value is in its set. Markdown writes a table as a GFM pipe
+c` holds where every value is in its set and no covered cell holds an
+alignment. Markdown writes a table as a GFM pipe
 table or as HTML, whichever holds it
 ([markdown-spec.md](../references/markdown-spec.md) §6.8).
 
@@ -396,7 +414,8 @@ Three rules bound the payload:
   widest, so a few bytes of props can ask for millions of cells, on wasm32 an
   allocation that traps. The decoder refuses such a table before the mint
   pads it, as `Invariant::TableTooLarge`, which `Content::validate` restates;
-  markdown import drops the rows past the cap instead, warning `table[size]`.
+  markdown import drops the rows past the cap instead, its tables sharing
+  one cap, warning `table:size`.
 
 - **Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
   `lang`, a `link`'s `url`, a `list_item`'s shape and an `element`'s name and
