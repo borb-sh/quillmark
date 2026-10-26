@@ -372,10 +372,14 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
     let mut cols = 0;
     for (r, (row, end)) in rows.into_iter().enumerate() {
         let mut cells = Vec::with_capacity(row.cells.len());
-        let mut x = 0;
+        let (mut x, mut past) = (0, false);
         for cell in row.cells {
             while covers.get(x).is_some_and(|&n| n > 0) {
                 x += 1;
+            }
+            if x + cell.colspan > crate::MAX_TABLE_CELLS / (r + 1) {
+                past = true;
+                break;
             }
             let h = cell.rowspan.min(end - r);
             if covers.len() < x + cell.colspan {
@@ -394,7 +398,7 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
             x += cell.colspan;
         }
         let wide = covers.iter().rposition(|&n| n > 0).map_or(cols, |k| cols.max(k + 1));
-        if (r + 1).saturating_mul(wide) > crate::MAX_TABLE_CELLS {
+        if past || (r + 1).saturating_mul(wide) > crate::MAX_TABLE_CELLS {
             drops.push((Dropped::TableSize, row.at));
             break;
         }

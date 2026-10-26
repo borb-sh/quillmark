@@ -119,8 +119,7 @@ pub enum Dropped {
     /// An HTML table its block ends before its `</table>`, or another
     /// `<table>` interrupts, which closes there: `table`.
     Table,
-    /// An HTML table's row too short for its grid, which pads, or too long,
-    /// whose cells past the edge drop: `table[row]`.
+    /// An HTML table's row too short for its grid, which pads: `table[row]`.
     TableRow,
     /// Text in an HTML table's block outside every cell: `table[text]`.
     TableText,
@@ -128,8 +127,7 @@ pub enum Dropped {
     /// or the whole of one whose first row alone is wider: `table[size]`.
     TableSize,
     /// An attribute of an HTML table's tag the subset does not read, repeating
-    /// one already read or with a value outside its spelling, and a `colspan`
-    /// cut short of a slot another span covers: `<tag>[<attr>]`.
+    /// one already read or with a value outside its spelling: `<tag>[<attr>]`.
     TableAttr { tag: String, attr: String },
     /// A footnote definition no reference reads, one repeating a label
     /// already defined or nested in another, or a reference where no note
@@ -3307,7 +3305,7 @@ pub(crate) mod tests {
 
     /// A table stops at [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots, its
     /// rows past them dropping, reported, as an HTML or a pipe table; one whose
-    /// first row alone is wider drops whole.
+    /// first row alone is wider drops whole, read no further than the bound.
     #[test]
     fn a_table_stops_at_its_cell_bound() {
         let cols = 1000;
@@ -3319,10 +3317,12 @@ pub(crate) mod tests {
             assert_eq!(dropped(&imported).last(), Some(&("table[size]", 1)));
             assert_eq!(1 + table_rows(&imported.content).len(), rows);
         }
-        let wide = format!("<table><tr>{}</tr></table>", "<td colspan=1000></td>".repeat(101));
-        let imported = imp_fixed(&wide);
-        assert_eq!(dropped(&imported), [("table[size]", 1)]);
-        assert!(imported.content.islands.is_empty());
+        for n in [101, 20_000] {
+            let wide = format!("<table><tr>{}</tr></table>", "<td colspan=1000></td>".repeat(n));
+            let imported = imp_fixed(&wide);
+            assert_eq!(dropped(&imported), [("table[size]", 1)]);
+            assert!(imported.content.islands.is_empty());
+        }
     }
 
     /// A table is one HTML block: a blank line inside it ends the table there,

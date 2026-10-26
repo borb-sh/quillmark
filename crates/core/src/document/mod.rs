@@ -198,15 +198,6 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                  opening with a letter. {TIGHT}"
             ),
         ),
-        Dropped::Element(name) if name == "cell" => (
-            format!(
-                "markdown import dropped {} in this field",
-                some(&format!("`<{tag}>` pair"), &format!("`<{tag}>` pairs"))
-            ),
-            "A cell's alignment and span are attributes of an HTML table's cell, such as \
-             `<td align=\"right\" colspan=\"2\">42</td>`."
-                .to_string(),
-        ),
         Dropped::Element(_) => (
             format!(
                 "markdown import dropped {} in this field",
