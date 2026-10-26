@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.131.0 - 2026-10-26
+
+Upgrade path: [0.130 → 0.131](docs/migrations/0.130-to-0.131.md). A row
+holding a font mark, an element named `table`, a merged cell or a table `head`
+0.130 cannot draw saves under `quillmark/document@0.131.0`, which a 0.130
+build refuses, so deploy every reader before a writer saves one.
 
 ### Storage
 
@@ -43,6 +48,17 @@
   holding `headless: true` or a cell span rewrites once when saved, under the
   same tag unless a span still covers more than one slot, which saves under
   `@0.131.0`.
+- fix(content)!: **a body formatting mark spanning a line break loads as one
+  mark per line**, cut at each `\n`, the form markdown export writes, so a
+  mark over a hard break round-trips through markdown and a `MarkOp::Add`
+  across lines reads back split. A stored row holding such a
+  mark saves to new bytes on its first load. A table cell's or footnote's
+  marks still span its `<br>`.
+- fix(content)!: **`link` is keyed like `font_family`**: overlapping links
+  settle to one url per character, the later-starting one winning, and a
+  `MarkOp::Add` of a link over a link replaces its url there, so
+  `MarkKind::is_keyed` holds for `Link`. Keyed marks settle before the cut at
+  line breaks, so a later-starting family keeps its whole range across one.
 - fix(content)!: **a table's grid is capped at `MAX_TABLE_CELLS` (100 000)
   slots, and a markdown import's tables share the cap**: import drops the rows
   past it, warning `table:size`, and the stored lanes refuse such a table as
@@ -74,7 +90,11 @@
   the library, built with `TypstBackend::default()` or
   `TypstBackend::new(Arc<FontLibrary>)`, `quillmark_typst::workspace::workspace`
   takes a `&FontLibrary` third, and `Engine::font_faces`,
-  `engine.fontFaces(quill)` and `Engine.font_faces(quill)` list the faces.
+  `engine.fontFaces(quill)` and `Engine.font_faces(quill)` list the faces,
+  sharing the library's bytes rather than copying them. The WASM engine copies
+  its `fonts` when built and parses them once, so a refused font rejects every
+  verb that loads the render build with the same error. A plate naming a
+  library family never reaches its face.
 
 ### Fixes
 
