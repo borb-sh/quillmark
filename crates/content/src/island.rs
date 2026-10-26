@@ -128,7 +128,8 @@ pub fn table_rows(props: &Value) -> Vec<&[Value]> {
 ///
 /// Cells claim slots in reading order, so an earlier span wins. A span takes
 /// the columns to its right, then the rows below, while each slot it would
-/// cover holds a cell with no text that no other span covers, stopping at the
+/// cover holds a cell with no text and no mark, a comment anchor included, that
+/// no other span covers, stopping at the
 /// grid's edge and at the end of its own section: the [`TableLayout::head`]
 /// rows or the body. Its cell's own `colspan` and `rowspan` bound it.
 pub fn table_spans(props: &Value) -> Vec<Vec<Option<(usize, usize)>>> {
@@ -137,7 +138,11 @@ pub fn table_spans(props: &Value) -> Vec<Vec<Option<(usize, usize)>>> {
     let mut covered: Vec<Vec<bool>> = rows.iter().map(|r| vec![false; r.len()]).collect();
     let mut spans: Vec<Vec<Option<(usize, usize)>>> = rows.iter().map(|r| vec![None; r.len()]).collect();
     let free = |covered: &[Vec<bool>], r: usize, c: usize| {
-        let empty = rows[r].get(c).is_some_and(|cell| cell.get("text").and_then(Value::as_str).unwrap_or("").is_empty());
+        let empty = rows[r].get(c).is_some_and(|cell| {
+            let text = cell.get("text").and_then(Value::as_str).unwrap_or("");
+            let marks = cell.get("marks").and_then(Value::as_array).map_or(0, Vec::len);
+            text.is_empty() && marks == 0
+        });
         empty && !covered[r][c]
     };
     for r in 0..rows.len() {
@@ -322,7 +327,7 @@ mod tests {
             (json!(9), "head", json!(2)),
             (json!(-1), "head", json!(-1)),
             (json!("2"), "head", json!("2")),
-            (json!(true), "headless", absent.clone()),
+            (json!(true), "headless", json!(true)),
             (json!(false), "headless", absent.clone()),
             (json!("true"), "headless", json!("true")),
             (json!(1), "headless", json!(1)),
@@ -357,18 +362,32 @@ mod tests {
         }
     }
 
-    /// A stored `headless: true` settles to `head: 0`, where no `head` is
-    /// stored beside it.
+    /// `head: 0` carries `headless: true` beside it, the key a 0.130 reader
+    /// draws no header row by, and a stored `headless: true` settles to
+    /// `head: 0` where `head` holds no whole number.
     #[test]
-    fn headless_settles_to_no_header_row() {
+    fn headless_rides_beside_no_header_row() {
         use serde_json::json;
-        let mut props = json!({"header": ["a"], "rows": [["1"]], "headless": true});
-        IslandType::Table.normalize_props(&mut props);
-        assert_eq!(props.get("head"), Some(&json!(0)));
-        assert_eq!(props.get("headless"), None);
-        let mut props = json!({"header": ["a"], "rows": [["1"]], "headless": true, "head": 2});
-        IslandType::Table.normalize_props(&mut props);
-        assert_eq!((props.get("head"), props.get("headless")), (Some(&json!(2)), None));
+        let cases = [
+            (json!({"headless": true}), (json!(0), json!(true))),
+            (json!({"head": 0}), (json!(0), json!(true))),
+            (json!({"head": 0, "headless": "yes"}), (json!(0), json!(true))),
+            (json!({"headless": true, "head": "x"}), (json!(0), json!(true))),
+            (json!({"headless": true, "head": 2}), (json!(2), Value::Null)),
+            (json!({"headless": true, "head": 1}), (Value::Null, Value::Null)),
+            (json!({"headless": false, "head": 0}), (json!(0), json!(true))),
+            (json!({"headless": "yes"}), (Value::Null, json!("yes"))),
+        ];
+        for (keys, (head, headless)) in cases {
+            let mut props = json!({"header": ["a"], "rows": [["1"], ["2"]]});
+            props.as_object_mut().unwrap().extend(keys.as_object().unwrap().clone());
+            IslandType::Table.normalize_props(&mut props);
+            let got = (props.get("head").cloned().unwrap_or(Value::Null), props.get("headless").cloned().unwrap_or(Value::Null));
+            assert_eq!(got, (head.clone(), headless.clone()), "{keys}");
+            let once = props.clone();
+            IslandType::Table.normalize_props(&mut props);
+            assert_eq!(props, once, "{keys} is not a fixed point");
+        }
     }
 
     fn spanned(cells: &[&[(&str, usize, usize)]], head: usize) -> serde_json::Value {
@@ -400,8 +419,8 @@ mod tests {
     }
 
     /// Normalization writes each span as the cell can cover it, absent at 1,
-    /// and drops the span and alignment keys of a covered cell; a value outside
-    /// its set rides as written.
+    /// and drops the span keys of a covered cell, which keeps its alignment; a
+    /// value outside its set rides as written.
     #[test]
     fn normalize_props_settles_each_span() {
         use serde_json::json;
@@ -415,7 +434,7 @@ mod tests {
         });
         IslandType::Table.normalize_props(&mut props);
         assert_eq!(props["header"][0], json!({"text": "a", "marks": [], "colspan": 2}));
-        assert_eq!(props["header"][1], json!({"text": "", "marks": [], "x_host": 1}));
+        assert_eq!(props["header"][1], json!({"text": "", "marks": [], "align": "right", "x_host": 1}));
         assert_eq!(props["header"][2], json!({"text": "c", "marks": [], "rowspan": "2"}));
         assert_eq!(props["rows"][0][0], json!({"text": "d", "marks": [], "rowspan": 0}));
         let once = props.clone();
@@ -444,5 +463,37 @@ mod tests {
                 assert_eq!(cell_alignment(props.pointer(at).unwrap()), read, "{keys} at {at}");
             }
         }
+    }
+
+    /// A covered cell's alignment comes back with it once the span over it
+    /// shrinks.
+    #[test]
+    fn a_covered_cells_alignment_survives_the_span_shrinking() {
+        use serde_json::json;
+        let mut props = json!({
+            "header": [
+                {"text": "a", "marks": [], "colspan": 2},
+                {"text": "", "marks": [], "align": "right", "valign": "top"},
+            ],
+            "rows": [],
+        });
+        IslandType::Table.normalize_props(&mut props);
+        assert_eq!(table_spans(&props), vec![vec![Some((2, 1)), None]]);
+        props["header"][1]["text"] = json!("b");
+        IslandType::Table.normalize_props(&mut props);
+        assert_eq!(table_spans(&props), vec![vec![Some((1, 1)), Some((1, 1))]]);
+        assert_eq!(cell_alignment(&props["header"][1]), (Some("right"), Some("top")));
+    }
+
+    /// A cell holding a mark, a comment's zero-width anchor included, is no
+    /// placeholder a span can cover.
+    #[test]
+    fn a_span_stops_at_a_cell_holding_an_anchor() {
+        use serde_json::json;
+        let anchored = json!({"text": "", "marks": [{"start": 0, "end": 0, "type": "anchor", "id": "c1"}]});
+        let mut props = json!({"header": [{"text": "a", "marks": [], "colspan": 2}, anchored], "rows": []});
+        IslandType::Table.normalize_props(&mut props);
+        assert_eq!(table_spans(&props), vec![vec![Some((1, 1)), Some((1, 1))]]);
+        assert_eq!(props["header"][0].get("colspan"), None);
     }
 }

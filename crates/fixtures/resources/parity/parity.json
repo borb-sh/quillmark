@@ -2345,6 +2345,7 @@
                 "text": "a"
               }
             ],
+            "headless": true,
             "rows": []
           },
           "type": "table"
@@ -2398,6 +2399,7 @@
                 "text": "a"
               }
             ],
+            "headless": true,
             "rows": []
           },
           "type": "table"
@@ -2452,6 +2454,7 @@
                 "text": "b"
               }
             ],
+            "headless": true,
             "rows": []
           },
           "type": "table"
@@ -2503,6 +2506,7 @@
                 "text": "b"
               }
             ],
+            "headless": true,
             "rows": [
               [
                 {
@@ -2565,6 +2569,7 @@
                 "text": ""
               }
             ],
+            "headless": true,
             "rows": [
               [
                 {
@@ -2640,6 +2645,7 @@
                 "text": "a"
               }
             ],
+            "headless": true,
             "rows": []
           },
           "type": "table"
@@ -3982,6 +3988,7 @@
                 "text": "b"
               }
             ],
+            "headless": true,
             "rows": [
               [
                 {
