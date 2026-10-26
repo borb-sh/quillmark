@@ -2,6 +2,11 @@
 
 ## v0.131.0 - 2026-10-26
 
+Upgrade path: [0.130 → 0.131](docs/migrations/0.130-to-0.131.md). A row
+holding a font mark, an element named `table`, a merged cell or a table `head`
+0.130 cannot draw saves under `quillmark/document@0.131.0`, which a 0.130
+build refuses, so deploy every reader before a writer saves one.
+
 ### Storage
 
 - fix(core): **a row holding an element named `table`, a table cell spanning
@@ -43,6 +48,17 @@
   holding `headless: true` or a cell span rewrites once when saved, under the
   same tag unless a span still covers more than one slot, which saves under
   `@0.131.0`.
+- fix(content)!: **a body formatting mark spanning a line break loads as one
+  mark per line**, cut at each `\n`, the form markdown export writes, so a
+  mark over a hard break round-trips through markdown and a `MarkOp::Add`
+  across lines reads back split. A stored row holding such a
+  mark saves to new bytes on its first load. A table cell's or footnote's
+  marks still span its `<br>`.
+- fix(content)!: **`link` is keyed like `font_family`**: overlapping links
+  settle to one url per character, the later-starting one winning, and a
+  `MarkOp::Add` of a link over a link replaces its url there, so
+  `MarkKind::is_keyed` holds for `Link`. Keyed marks settle before the cut at
+  line breaks, so a later-starting family keeps its whole range across one.
 - fix(content)!: **a table's grid is capped at `MAX_TABLE_CELLS` (100 000)
   slots, and a markdown import's tables share the cap**: import drops the rows
   past it, warning `table:size`, and the stored lanes refuse such a table as
@@ -74,7 +90,11 @@
   the library, built with `TypstBackend::default()` or
   `TypstBackend::new(Arc<FontLibrary>)`, `quillmark_typst::workspace::workspace`
   takes a `&FontLibrary` third, and `Engine::font_faces`,
-  `engine.fontFaces(quill)` and `Engine.font_faces(quill)` list the faces.
+  `engine.fontFaces(quill)` and `Engine.font_faces(quill)` list the faces,
+  sharing the library's bytes rather than copying them. The WASM engine copies
+  its `fonts` when built and parses them once, so a refused font rejects every
+  verb that loads the render build with the same error. A plate naming a
+  library family never reaches its face.
 
 ### Fixes
 
@@ -83,46 +103,6 @@
 - fix(core): a list item with nothing after its marker ends at the blank line
   below it, so a card fence inside a code block below such an item stays
   code.
-
-### Commits since v0.130.0
-
-- docs: name every member that takes @0.131.0 in the persistence guide and binding READMEs
-- docs: name the line-break mark split and keyed link in the migration index and MarkOp
-- fix(content): an HTML table reports its short rows, stray text and cut rows as table:row, table:text and table:size
-- fix(content): a document's tables share the cell cap, and a stray backtick splits no cell
-- fix(fonts): hold each host font once, cache a refused library, and key library aliases per library
-- fix(content): keep headless beside head 0 and covered-cell alignment
-- fix(core): tag rows holding table vocabulary 0.130 lacks as @0.131.0
-- fix(content)!: a link is keyed, and normalization settles marks before splitting them
-- fix(core): an empty list item ends at the blank line below it
-- docs(content): a mark over a hard break is no longer a codec limit
-- fix(content)!: a body mark over a line break loads as one mark per line
-- fix(acroform): an empty array element joins as an empty line
-- fix(content): an HTML table's row stops at the cell bound before it allocates
-- fix(content): a mark across a hard break splits at the line join
-- build(deps-dev): Bump vitest in /crates/bindings/wasm in the npm group (#2269)
-- build(deps): Bump taiki-e/install-action (#2270)
-- refactor(content): one placement pass for an HTML table, and normalization settles overlapping spans
-- fix(content)!: an HTML table is as wide as its widest row, and a memo of tables keeps its prose
-- fix(content)!: prose after a table reads as markdown, and a table caps at 100 000 cells
-- docs: tables, merged cells and the 0.130 → 0.131 guide
-- feat(content)!: a table spells as GFM pipes or an HTML subset, with merged cells
-- fix(wasm): copy the font library when the engine is built
-- docs: describe the host library as a mark-only namespace, not a tier
-- docs: currentStorageVersion is the newest tag, not every row's
-- fix(core): tag a row 0.131.0 only for a font mark in a marks list
-- perf(content): settle overlapping font marks in one sweep
-- feat!: a library face sets only text a font mark sets
-- feat!: store font families flat, one per character
-- docs: name the span element a 0.130 qm-span tag line opened
-- feat!: spell a font run as a qm-span pair
-- feat!: a font run sets only a family the host library holds
-- fix!: keep the 0.129.0 tag for rows without a font mark, and drop block qm-font
-- refactor: drop inline font size and let family marks overlap
-- feat!: font registry and inline font marks for richtext
-- chore: add a Claude permission allowlist, drop the cargo fmt rule (#2277)
-- docs: retire the dense-prose and maintain-canon skills and trim CLAUDE.md (#2274)
-- build(deps): Bump the cargo group across 1 directory with 4 updates
 
 ## v0.130.0 - 2026-10-22
 
