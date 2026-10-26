@@ -13,13 +13,15 @@ use serde_json::Value;
 pub enum IslandType {
     /// `{header, rows, aligns}` with inline `{text, marks}` cells, a `\n` in a
     /// cell's text being a line break, and the optional [layout](TableLayout)
-    /// keys `widths`, `align` and `headless`. A cell's optional `align` and
-    /// `valign` are its [alignment](cell_alignment).
+    /// keys `widths`, `align` and `head`. A cell's optional `align` and
+    /// `valign` are its [alignment](cell_alignment), and its `colspan` and
+    /// `rowspan` its [span](cell_span), each cell another's span covers an
+    /// empty placeholder ([`table_spans`]).
     /// Mark-carrying, shape-normalized (one column count, `\n` the only
-    /// line-break char a cell keeps, each knob key absent at its default and
-    /// `widths` settled to the column count). A knob key holding a value
-    /// outside its set rides as a key Quillmark does not name does, and reads
-    /// as absent.
+    /// line-break char a cell keeps, each knob key absent at its default,
+    /// `widths` settled to the column count and each span to what it can
+    /// cover). A knob key holding a value outside its set rides as a key
+    /// Quillmark does not name does, and reads as absent.
     Table,
     /// `{url, alt}`. No cell model, no shape invariants.
     Image,
@@ -42,10 +44,14 @@ pub const TABLE_ALIGNS: [&str; 3] = ["left", "center", "right"];
 pub const CELL_VALIGNS: [&str; 3] = ["top", "middle", "bottom"];
 
 /// A table's layout keys.
-pub const TABLE_KEYS: [&str; 3] = ["widths", "align", "headless"];
+pub const TABLE_KEYS: [&str; 3] = ["widths", "align", "head"];
 
-/// A table cell's keys, each with its values.
+/// A table cell's alignment keys, each with its values.
 pub const CELL_KEYS: [(&str, &[&str]); 2] = [("align", &TABLE_ALIGNS), ("valign", &CELL_VALIGNS)];
+
+/// A table cell's span keys: the columns and the rows it covers, each a whole
+/// number from 1, absent at 1.
+pub const CELL_SPANS: [&str; 2] = ["colspan", "rowspan"];
 
 /// The largest column weight, JavaScript's `Number.MAX_SAFE_INTEGER`: the
 /// WASM binding hands no larger integer to JavaScript.
@@ -58,14 +64,21 @@ pub fn is_weight(n: u64) -> bool {
 
 /// A table's layout as its props hold it, each key at its default where
 /// absent or outside its set.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableLayout {
     /// A [weight](is_weight), or `None` for an auto-fit column, per column.
     pub widths: Option<Vec<Option<u64>>>,
     /// The table's placement, one of [`TABLE_ALIGNS`].
     pub align: Option<&'static str>,
-    /// `header` is the first body row, drawn as one.
-    pub headless: bool,
+    /// How many rows from the top of `header` then `rows` are header rows,
+    /// at most every row: `head` where it holds a whole number, else `1`.
+    pub head: usize,
+}
+
+impl Default for TableLayout {
+    fn default() -> Self {
+        TableLayout { widths: None, align: None, head: 1 }
+    }
 }
 
 impl TableLayout {
@@ -78,12 +91,77 @@ impl TableLayout {
                 })
                 .collect()
         });
+        let head = props.get("head").and_then(Value::as_u64).map_or(1, saturate);
         TableLayout {
             widths,
             align: one_of(props.get("align"), &TABLE_ALIGNS),
-            headless: props.get("headless") == Some(&Value::Bool(true)),
+            head: head.min(table_rows(props).len()),
         }
     }
+}
+
+fn saturate(n: u64) -> usize {
+    usize::try_from(n).unwrap_or(usize::MAX)
+}
+
+/// A table cell's `colspan` and `rowspan` as it holds them, each `1` where the
+/// cell holds no whole number from 1.
+pub fn cell_span(cell: &Value) -> (usize, usize) {
+    let read = |key: &str| cell.get(key).and_then(Value::as_u64).filter(|n| *n >= 1).map_or(1, saturate);
+    let [colspan, rowspan] = CELL_SPANS;
+    (read(colspan), read(rowspan))
+}
+
+/// A table's rows, `header` first, each a row's cells; a row that is no array
+/// holds none.
+pub fn table_rows(props: &Value) -> Vec<&[Value]> {
+    fn row(v: &Value) -> &[Value] {
+        v.as_array().map_or(&[], Vec::as_slice)
+    }
+    let header = props.get("header").map_or(&[][..], row);
+    let rows = props.get("rows").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    std::iter::once(header).chain(rows.iter().map(row)).collect()
+}
+
+/// Per row of [`table_rows`] and per cell, the columns and rows a drawn cell
+/// spans, or `None` for a cell another's span covers.
+///
+/// Cells claim slots in reading order, so an earlier span wins. A span takes
+/// the columns to its right, then the rows below, while each slot it would
+/// cover holds a cell with no text that no other span covers, stopping at the
+/// grid's edge and at the end of its own section: the [`TableLayout::head`]
+/// rows or the body. Its cell's own `colspan` and `rowspan` bound it.
+pub fn table_spans(props: &Value) -> Vec<Vec<Option<(usize, usize)>>> {
+    let rows = table_rows(props);
+    let head = TableLayout::of(props).head;
+    let mut covered: Vec<Vec<bool>> = rows.iter().map(|r| vec![false; r.len()]).collect();
+    let mut spans: Vec<Vec<Option<(usize, usize)>>> = rows.iter().map(|r| vec![None; r.len()]).collect();
+    let free = |covered: &[Vec<bool>], r: usize, c: usize| {
+        let empty = rows[r].get(c).is_some_and(|cell| cell.get("text").and_then(Value::as_str).unwrap_or("").is_empty());
+        empty && !covered[r][c]
+    };
+    for r in 0..rows.len() {
+        let end = if r < head { head } else { rows.len() };
+        for c in 0..rows[r].len() {
+            if covered[r][c] {
+                continue;
+            }
+            let (colspan, rowspan) = cell_span(&rows[r][c]);
+            let mut w = 1;
+            while w < colspan && free(&covered, r, c + w) {
+                w += 1;
+            }
+            let mut h = 1;
+            while h < rowspan && r + h < end && (c..c + w).all(|x| free(&covered, r + h, x)) {
+                h += 1;
+            }
+            for row in &mut covered[r..r + h] {
+                row[c..c + w].iter_mut().for_each(|slot| *slot = true);
+            }
+            spans[r][c] = Some((w, h));
+        }
+    }
+    spans
 }
 
 /// A table cell's `align` and `valign`, each `None` where the cell holds no
@@ -238,7 +316,13 @@ mod tests {
             (json!("right"), "align", json!("right")),
             (json!("middle"), "align", json!("middle")),
             (json!(["center"]), "align", json!(["center"])),
-            (json!(true), "headless", json!(true)),
+            (json!(0), "head", json!(0)),
+            (json!(1), "head", absent.clone()),
+            (json!(2), "head", json!(2)),
+            (json!(9), "head", json!(2)),
+            (json!(-1), "head", json!(-1)),
+            (json!("2"), "head", json!("2")),
+            (json!(true), "headless", absent.clone()),
             (json!(false), "headless", absent.clone()),
             (json!("true"), "headless", json!("true")),
             (json!(1), "headless", json!(1)),
@@ -259,11 +343,84 @@ mod tests {
     #[test]
     fn the_layout_read_takes_each_key_only_in_its_set() {
         use serde_json::json;
-        let read = TableLayout::of(&json!({"widths": [2, null], "align": "center", "headless": true}));
-        let layout = TableLayout { widths: Some(vec![Some(2), None]), align: Some("center"), headless: true };
+        let rows = json!([["1"], ["2"]]);
+        let read = TableLayout::of(&json!({"widths": [2, null], "align": "center", "head": 2, "rows": rows}));
+        let layout = TableLayout { widths: Some(vec![Some(2), None]), align: Some("center"), head: 2 };
         assert_eq!(read, layout);
-        let outside = json!({"widths": [2, 0], "align": "middle", "headless": "true"});
+        let outside = json!({"widths": [2, 0], "align": "middle", "head": "2", "rows": rows});
         assert_eq!(TableLayout::of(&outside), TableLayout::default());
+        let heads = [(json!({"head": 0}), 0), (json!({"head": 7}), 3)];
+        for (keys, head) in heads {
+            let mut props = json!({"header": ["h"], "rows": rows});
+            props.as_object_mut().unwrap().extend(keys.as_object().unwrap().clone());
+            assert_eq!(TableLayout::of(&props).head, head, "{keys}");
+        }
+    }
+
+    /// A stored `headless: true` settles to `head: 0`, where no `head` is
+    /// stored beside it.
+    #[test]
+    fn headless_settles_to_no_header_row() {
+        use serde_json::json;
+        let mut props = json!({"header": ["a"], "rows": [["1"]], "headless": true});
+        IslandType::Table.normalize_props(&mut props);
+        assert_eq!(props.get("head"), Some(&json!(0)));
+        assert_eq!(props.get("headless"), None);
+        let mut props = json!({"header": ["a"], "rows": [["1"]], "headless": true, "head": 2});
+        IslandType::Table.normalize_props(&mut props);
+        assert_eq!((props.get("head"), props.get("headless")), (Some(&json!(2)), None));
+    }
+
+    fn spanned(cells: &[&[(&str, usize, usize)]], head: usize) -> serde_json::Value {
+        let cell = |&(text, colspan, rowspan): &(&str, usize, usize)| {
+            serde_json::json!({"text": text, "marks": [], "colspan": colspan, "rowspan": rowspan})
+        };
+        let mut rows = cells.iter().map(|row| row.iter().map(cell).collect::<Vec<_>>());
+        let header = rows.next().unwrap();
+        serde_json::json!({"header": header, "rows": rows.collect::<Vec<_>>(), "head": head})
+    }
+
+    /// A span claims the empty cells to its right, then below, inside the grid
+    /// and its section; one another span already covers, or one holding text,
+    /// stops it, and the earlier cell in reading order claims first.
+    #[test]
+    fn a_span_covers_only_empty_cells_no_other_span_covers() {
+        let cases: &[(&[&[(&str, usize, usize)]], usize, Vec<Vec<Option<(usize, usize)>>>)] = &[
+            (&[&[("a", 2, 1), ("", 1, 1)], &[("b", 1, 1), ("c", 1, 1)]], 1, vec![vec![Some((2, 1)), None], vec![Some((1, 1)), Some((1, 1))]]),
+            (&[&[("a", 3, 1), ("x", 1, 1), ("", 1, 1)]], 1, vec![vec![Some((1, 1)), Some((1, 1)), Some((1, 1))]]),
+            (&[&[("a", 9, 9), ("", 1, 1)], &[("", 1, 1), ("", 1, 1)]], 1, vec![vec![Some((2, 1)), None], vec![Some((1, 1)), Some((1, 1))]]),
+            (&[&[("a", 9, 9), ("", 1, 1)], &[("", 1, 1), ("", 1, 1)]], 0, vec![vec![Some((2, 2)), None], vec![None, None]]),
+            (&[&[("a", 1, 2), ("b", 1, 1)], &[("", 2, 1), ("c", 1, 1)]], 0, vec![vec![Some((1, 2)), Some((1, 1))], vec![None, Some((1, 1))]]),
+            (&[&[("a", 1, 1), ("b", 1, 2)], &[("c", 2, 1), ("", 1, 1)]], 0, vec![vec![Some((1, 1)), Some((1, 2))], vec![Some((1, 1)), None]]),
+            (&[&[("a", 2, 2), ("", 1, 1)], &[("", 1, 1), ("d", 1, 1)]], 0, vec![vec![Some((2, 1)), None], vec![Some((1, 1)), Some((1, 1))]]),
+        ];
+        for (cells, head, spans) in cases {
+            assert_eq!(&table_spans(&spanned(cells, *head)), spans, "{cells:?} head {head}");
+        }
+    }
+
+    /// Normalization writes each span as the cell can cover it, absent at 1,
+    /// and drops the span and alignment keys of a covered cell; a value outside
+    /// its set rides as written.
+    #[test]
+    fn normalize_props_settles_each_span() {
+        use serde_json::json;
+        let mut props = json!({
+            "header": [
+                {"text": "a", "marks": [], "colspan": 5},
+                {"text": "", "marks": [], "colspan": 2, "align": "right", "x_host": 1},
+                {"text": "c", "marks": [], "colspan": 1, "rowspan": "2"},
+            ],
+            "rows": [[{"text": "d", "marks": [], "rowspan": 0}]],
+        });
+        IslandType::Table.normalize_props(&mut props);
+        assert_eq!(props["header"][0], json!({"text": "a", "marks": [], "colspan": 2}));
+        assert_eq!(props["header"][1], json!({"text": "", "marks": [], "x_host": 1}));
+        assert_eq!(props["header"][2], json!({"text": "c", "marks": [], "rowspan": "2"}));
+        assert_eq!(props["rows"][0][0], json!({"text": "d", "marks": [], "rowspan": 0}));
+        let once = props.clone();
+        IslandType::Table.normalize_props(&mut props);
+        assert_eq!(props, once);
     }
 
     /// Normalization leaves a cell's `align` and `valign` as stored, an

@@ -300,12 +300,17 @@ export interface TableCell {
     align?: "left" | "center" | "right";
     /** The cell's vertical alignment; absent is the quill's. */
     valign?: "top" | "middle" | "bottom";
+    /** The columns the cell spans, from 2; absent is one. Each cell it covers
+     * holds its slot as an empty placeholder. */
+    colspan?: number;
+    /** The rows the cell spans, from 2; absent is one. */
+    rowspan?: number;
 }
 
-/** `props` of a `type: "table"` island: a pipe table normalized to one column
- * count that `header`, every row of `rows`, `aligns` and `widths` all share.
- * A layout key at its default is absent; one holding a value outside its type
- * stays as written and reads as absent. */
+/** `props` of a `type: "table"` island: a rectangular grid normalized to one
+ * column count that `header`, every row of `rows`, `aligns` and `widths` all
+ * share. A layout key at its default is absent; one holding a value outside
+ * its type stays as written and reads as absent. */
 export interface TableProps {
     header: TableCell[];
     rows: TableCell[][];
@@ -317,8 +322,9 @@ export interface TableProps {
     widths?: (number | null)[];
     /** The table's placement; absent is the quill's. */
     align?: "left" | "center" | "right";
-    /** `true` draws `header` as the first body row; absent is a header row. */
-    headless?: true;
+    /** How many rows from the top of `header` then `rows` are header rows;
+     * `0` draws `header` as the first body row, and absent is one. */
+    head?: number;
 }
 
 /** `props` of a `type: "image"` island. Stores and round-trips; no backend

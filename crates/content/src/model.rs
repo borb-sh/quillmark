@@ -631,6 +631,15 @@ pub(crate) fn check_json_depth(v: &JsonValue, what: &'static str) -> Result<(), 
     Ok(())
 }
 
+/// A `table` island's props against [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS).
+pub(crate) fn check_table_cells(props: &JsonValue) -> Result<(), Invariant> {
+    let cells = crate::serial::table_slots(props);
+    if cells > crate::MAX_TABLE_CELLS {
+        return Err(Invariant::TableTooLarge { cells, max: crate::MAX_TABLE_CELLS });
+    }
+    Ok(())
+}
+
 /// Put `v` in canonical key order, rebuilding it only when a key is out of
 /// order, so an untouched tree pays the scan and skips the deep clone.
 ///
@@ -723,6 +732,10 @@ pub enum Invariant {
     /// depth is reported, since the check bails at the first over-deep
     /// container.
     JsonTooDeep { what: &'static str, max: usize },
+    /// A table's grid, its rows by its widest row, holds more slots than
+    /// [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS): the mint pads every row to
+    /// the widest, so the bound is checked before it.
+    TableTooLarge { cells: usize, max: usize },
 }
 
 /// Whether a line's text contradicts its `kind`, which [`Content::normalize`]
@@ -1147,6 +1160,9 @@ impl Content {
             // Depth before any pass that walks `props`; a cell's own `attrs` is
             // a subtree, so this bounds the cell marks read below as well.
             check_json_depth(&island.props, "island props")?;
+            if island.island_type == crate::island::IslandType::Table {
+                check_table_cells(&island.props)?;
+            }
             for (text, marks) in island.island_type.cell_marks(&island.props) {
                 let clen = text.chars().count();
                 for m in &marks {
@@ -1666,7 +1682,6 @@ mod tests {
         }
         let refused = [
             (element("Keep", "note"), Refused::Name("Keep".into())),
-            (element("table", "widths"), Refused::Reserved("table".into())),
             (element("anchor", "ref"), Refused::Reserved("anchor".into())),
             (element("keep", "style"), Refused::Attr("style".into())),
             (element("keep", "$name"), Refused::Attr("$name".into())),
@@ -1847,16 +1862,16 @@ mod tests {
     fn unrecognized_cell_key_survives_normalize() {
         let mut rt = table_rt(serde_json::json!({
             "aligns": ["none", "none"],
-            "header": [{"text": "h", "marks": [], "colspan": 2}, cell("h2")],
+            "header": [{"text": "h", "marks": [], "x_host": 2}, cell("h2")],
             "rows": [[cell("a")]],
         }));
         rt.normalize();
-        assert_eq!(rt.islands[0].props["header"][0]["colspan"], 2);
-        assert!(rt.islands[0].props["rows"][0][1].get("colspan").is_none());
+        assert_eq!(rt.islands[0].props["header"][0]["x_host"], 2);
+        assert!(rt.islands[0].props["rows"][0][1].get("x_host").is_none());
         assert!(rt
             .into_normalized()
             .to_canonical_json()
-            .contains(r#""colspan":2"#));
+            .contains(r#""x_host":2"#));
     }
 
     #[test]

@@ -199,9 +199,13 @@ Typst sets an equation in `New Computer Modern Math` and lays one out only in a 
 
 ### Tables
 
-A table in content lowers to a call of Typst's `table`, so `#set table(..)` and `#show table: ..` reach it. The call always passes `columns`, and passes `align` where the document aligns a column, so a set rule's `columns` never applies and its `align` applies only to a table aligning no column. A `qm-table` wrapper's `widths` lower to `fr` tracks, `auto` for an auto-fit column, and its `align` places the table with `align(..)` without moving the text in its cells. A `qm-cell` pair's `align` and `valign` lower to `table.cell(align: ..)`, `middle` as `horizon`, which Typst combines with the column's alignment, so `valign="bottom"` in a right-aligned column draws at the bottom right.
+A table in content lowers to a call of Typst's `table`, so `#set table(..)` and `#show table: ..` reach it. The call always passes `columns`, and passes `align` where the document aligns a column, so a set rule's `columns` never applies and its `align` applies only to a table aligning no column.
 
-A `qm-table` wrapper's `headless` lowers the first row as a body row, with no `table.header`. A show rule on `table.header` does not reach its cells, so a plate styling the header row reads whether the table has one:
+- A table's `widths` lower to `fr` tracks, `auto` for an auto-fit column, and its `align` places the table with `align(..)` without moving the text in its cells.
+- A cell's `align` and `valign` lower to `table.cell(align: ..)`, `middle` as `horizon`, which Typst combines with the column's alignment, so `valign="bottom"` in a right-aligned column draws at the bottom right.
+- A merged cell lowers to `table.cell(colspan: .., rowspan: ..)`, and the cells it covers are left out, so `table.cell.where(x: .., y: ..)` addresses a merged cell by its first slot.
+
+A table's header rows, every row in its `<thead>`, lower inside one `table.header`, which Typst repeats on each page the table runs onto. A table with no header row lowers its first row as a body row, with no `table.header`. A show rule on `table.header` does not reach its cells, so a plate styling the header row reads whether the table has one:
 
 ```typst
 #show table: it => if it.children.any(c => c.func() == table.header) {
