@@ -8,6 +8,7 @@
 ## Components
 
 - **[../references/markdown-spec.md](../references/markdown-spec.md)** - Quillmark Markdown specification (superset of CommonMark)
+- **[../references/quill-bundle.md](../references/quill-bundle.md)** - The `.quill` bundle: one quill's file tree as one ZIP archive
 - **[DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)** - Versioned JSON serialization of `Document` for database persistence
 - **[PARITY.md](PARITY.md)** - What each surface does with each content construct, the invariants they keep, and the corpus that pins them
 - **[QUILL.md](QUILL.md)** - Quill resource file structure and the declarative `Quill` data type

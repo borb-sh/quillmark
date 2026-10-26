@@ -2320,8 +2320,10 @@ dependencies = [
 name = "quillmark-core"
 version = "0.130.0"
 dependencies = [
+ "crc32fast",
  "glob",
  "indexmap",
+ "miniz_oxide",
  "proptest",
  "pulldown-cmark",
  "quillmark-content",
