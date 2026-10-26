@@ -22,6 +22,7 @@ quillmark-core = { workspace = true }
 # markdown: the content crosses the seam already imported.
 quillmark-content = { workspace = true }
 quillmark-pdf = { workspace = true }
+getrandom = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
