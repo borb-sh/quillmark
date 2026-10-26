@@ -21,7 +21,7 @@ impl Engine {
     /// An engine with a backend registered per enabled cargo feature and no
     /// host fonts.
     pub fn new() -> Self {
-        Self::with_fonts(Vec::new()).expect("an empty font library refuses nothing")
+        Self::with_fonts(Vec::<Vec<u8>>::new()).expect("an empty font library refuses nothing")
     }
 
     /// An engine whose sessions also set text in `fonts`, the host's font
@@ -31,7 +31,7 @@ impl Engine {
     /// diagnostic per file, when a file is another format
     /// (`engine::font_unsupported`) or holds no readable face
     /// (`engine::font_unreadable`). An acroform session reads no fonts.
-    pub fn with_fonts(fonts: Vec<Vec<u8>>) -> Result<Self, RenderError> {
+    pub fn with_fonts<F: Into<Arc<[u8]>>>(fonts: impl IntoIterator<Item = F>) -> Result<Self, RenderError> {
         // `mut` is unused when no backend features are enabled (e.g. a
         // Typst-less core build).
         #[allow(unused_mut)]
