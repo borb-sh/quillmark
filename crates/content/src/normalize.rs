@@ -152,6 +152,7 @@ fn plan(src: &str, events: &[(Event, Range<usize>)]) -> Vec<Edit> {
                 if let Some(starts) = block.take() {
                     let lines: Vec<SrcLine> = starts.iter().map(|&at| SrcLine::at(src, at)).collect();
                     edits.extend(comment_edit(src, &lines));
+                    edits.extend(table_tail_edit(src, &lines));
                     if notes == 0 {
                         edits.extend(carrier_block_edit(src, &lines));
                     }
@@ -293,6 +294,44 @@ fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
 
 /// The whitespace leading `line` when it is shy of an indented code line's
 /// four columns, else nothing.
+/// The edit setting what follows a table's `</table>` in its HTML block apart
+/// under a blank line, keeping its line's indent, so it reads as markdown of
+/// its own rather than dropping with the block; `None` when nothing follows,
+/// or when what follows opens a fence or a type 1–5 block it does not close on
+/// its line, as [`comment_edit`] declines.
+fn table_tail_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
+    let (first, last) = (lines.first()?, lines.last()?);
+    if !html_table::opens(first.content) {
+        return None;
+    }
+    let text = lines.iter().map(|l| l.content).collect::<Vec<_>>().join("\n");
+    let mut at = html_table::tail(&text)?;
+    let mut k = 0;
+    while at > lines[k].content.len() {
+        at -= lines[k].content.len() + 1;
+        k += 1;
+    }
+    let line = lines[k];
+    let (head, from) = match line.content[at..].trim() {
+        "" => (line.whole(), *lines.get(k + 1)?),
+        _ => (format!("{}{}", line.prefix, line.content[..at].trim_end()), line),
+    };
+    let rest = if from.start == line.start { line.content[at..].trim() } else { from.content.trim() };
+    let runs_on = match html::block_start(rest) {
+        Some(k) if k != BlockKind::Open => html::block_end(k, rest).is_none(),
+        _ => fence_opener(rest).is_some(),
+    };
+    if runs_on {
+        return None;
+    }
+    let lead = format!("{}{}", continuation_of(from.prefix), shallow_lead(from.content));
+    let mut out = vec![head, blank_of(from.prefix), format!("{lead}{rest}")];
+    if from.end() == last.end() && next_line_continues(src, last.end()) {
+        out.push(blank_of(last.prefix));
+    }
+    Some(Edit { range: line.start..from.end(), with: out.join("\n") })
+}
+
 fn shallow_lead(line: &str) -> &str {
     if html::indent_columns(line) > 3 {
         return "";
@@ -512,9 +551,41 @@ mod tests {
             "<qm-keep>\n<div>\nA",
             "<span>\n<qm-keep>\nA",
             "<div>\nA",
-            "<qm-keep>\n<qm-table>\n\nA",
+            "<qm-keep>\n<qm-box>\n\nA",
             "<table>\n<qm-keep>\n<tr><td>a</td></tr>\n</table>",
             "[^n]: <qm-keep>\n    A",
+        ] {
+            assert_eq!(normalized(md), md);
+        }
+    }
+
+    /// What follows a table's `</table>` in its HTML block is set apart under
+    /// a blank line, on the same line or the next, in a quote or list item as
+    /// at the top level; a second table after the first included. A fence it
+    /// would open stays in the block.
+    #[test]
+    fn what_follows_a_table_is_set_apart() {
+        let cases = [
+            ("<table><tr><td>a</td></tr></table>\nProse.", "<table><tr><td>a</td></tr></table>\n\nProse."),
+            ("<table><tr><td>a</td></tr></table> Prose.", "<table><tr><td>a</td></tr></table>\n\nProse."),
+            ("> <table><tr><td>a</td></tr></table>\n> Prose.", "> <table><tr><td>a</td></tr></table>\n>\n> Prose."),
+            ("- <table><tr><td>a</td></tr></table> Prose.", "- <table><tr><td>a</td></tr></table>\n\n  Prose."),
+            (
+                "<table><tr><td>a</td></tr></table>\n<table><tr><td>b</td></tr></table>",
+                "<table><tr><td>a</td></tr></table>\n\n<table><tr><td>b</td></tr></table>",
+            ),
+            (
+                "<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n</qm-keep>",
+                "<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n\n</qm-keep>",
+            ),
+        ];
+        for (md, repaired) in cases {
+            assert_eq!(normalized(md), repaired, "{md:?}");
+        }
+        for md in [
+            "<table><tr><td>a</td></tr></table>",
+            "<table><tr><td>`</table>` b</td></tr></table>",
+            "<table><tr><td>a</td></tr></table>\n```\nx",
         ] {
             assert_eq!(normalized(md), md);
         }

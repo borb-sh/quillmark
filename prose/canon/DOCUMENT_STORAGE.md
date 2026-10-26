@@ -360,7 +360,7 @@ c` holds where every value is in its set. Markdown writes a table as a GFM pipe
 table or as HTML, whichever holds it
 ([markdown-spec.md](../references/markdown-spec.md) §6.8).
 
-Two rules bound the payload:
+Three rules bound the payload:
 
 - **Payload depth is capped at `MAX_JSON_DEPTH` (128).** Island `props` is host
   JSON of arbitrary shape, but not arbitrary depth: key canonicalization, the
@@ -374,6 +374,13 @@ Two rules bound the payload:
   wire, before it is cloned into the model; `Content::validate` restates it as
   `Invariant::JsonTooDeep` for content that never went through a decoder. This
   is `Invariant::NestingTooDeep`'s container cap on the payload axis.
+
+- **A table's grid is capped at `MAX_TABLE_CELLS` (100 000) slots**, its rows,
+  the header among them, times its widest row. The mint pads every row to the
+  widest, so a few bytes of props can ask for millions of cells, on wasm32 an
+  allocation that traps. The decoder refuses such a table before the mint
+  pads it, as `Invariant::TableTooLarge`, which `Content::validate` restates;
+  markdown import drops the rows past the cap instead, warning `table[size]`.
 
 - **Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
   `lang`, a `link`'s `url`, a `list_item`'s shape and an `element`'s name and

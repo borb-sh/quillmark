@@ -76,7 +76,7 @@ fn listed(words: &[&str], last: &str) -> String {
 /// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
 /// the spelling that keeps it.
 fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
-    use quillmark_content::carrier::{RESERVED_ATTRS, TABLE};
+    use quillmark_content::carrier::RESERVED_ATTRS;
     use quillmark_content::island::{CELL_VALIGNS, TABLE_ALIGNS};
     const TIGHT: &str = "Markdown on the lines under a tag line drops with it, up to the next blank line.";
     const BESIDE: &str =
@@ -97,7 +97,6 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
         )
     };
     let tag = construct.to_string();
-    let wrapper = Dropped::Element(TABLE.into()).to_string();
     match construct {
         Dropped::Footnote => (
             format!(
@@ -144,6 +143,15 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              and a row short of the width pads with empty cells while cells past it drop."
                 .to_string(),
         ),
+        Dropped::TableSize => (
+            format!(
+                "markdown import cut {} in this field at {} cells",
+                some("table", "tables"),
+                quillmark_content::MAX_TABLE_CELLS
+            ),
+            "A table's rows times its columns stay within the bound; the rows past it drop. Split the table."
+                .to_string(),
+        ),
         Dropped::TableText => (
             format!(
                 "markdown import dropped {} outside every cell of an HTML table in this field",
@@ -182,15 +190,6 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                  and none of `{}` or a name opening `on`.",
                 RESERVED_ATTRS.join("`, `")
             ),
-        ),
-        Dropped::Element(name) if name == TABLE => (
-            format!(
-                "markdown import dropped {} in this field",
-                some(&format!("`<{wrapper}>` tag"), &format!("`<{wrapper}>` tags"))
-            ),
-            "A table's layout is spelled on an HTML `<table>`, such as `<table widths=\"2 1\" align=\"center\">` \
-             with its rows in `<tr>` tags."
-                .to_string(),
         ),
         Dropped::BadName(_) => (
             format!(

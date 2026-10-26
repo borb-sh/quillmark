@@ -126,7 +126,8 @@ On `<td>` and `<th>`:
 - The rows in `<thead>` are the header rows, as many as the table needs, and a header cell can span rows within them. A table with no `<thead>` takes its opening rows of `<th>` cells as its header, and with none of those has no header row: its first row draws as an ordinary row, without the quill's header styling.
 - A cell that a span covers is left out of its row, as HTML leaves it out. In the example, the second body row holds two cells, since `12 Nov` covers its first slot.
 - A cell holds inline markdown, on one line: `<td>**Total**</td>` is bold, and `<br>` is its line break. GitHub draws the grid and the spans, but shows the markdown in a cell as written.
-- A table is one HTML block, so a blank line inside it ends the table there; keep a table's lines together.
+- A table is one HTML block, so a blank line inside it ends the table there; keep a table's lines together. Text right after `</table>` reads as ordinary markdown.
+- A table holds at most 100 000 cells, rows times columns; the rows past that drop, warning `table[size]`.
 - `widths` or `aligns` with fewer entries than the table has columns leaves the rest `auto` or `none`, and one with more ignores the extra entries.
 - Quillmark reads what HTML leaves out: unquoted values, a missing `<tbody>`, and missing `</td>`, `</th>` and `</tr>` tags. `<tfoot>` rows read as body rows at the end.
 - A row too short for the table, which is as wide as its first row, fills with empty cells, and a row too long drops its extra cells. Any other tag, an attribute not on this page and text outside every cell, such as a `<caption>`'s, drop. Each warns `parse::dropped_construct`, naming what dropped (`td[class]`, `table[row]`).
@@ -150,7 +151,7 @@ J. Doe
 
 A tag inside a line of text, in a heading, emphasis, a link or a table cell, or left open drops, keeping what it wraps, with a `parse::dropped_construct` warning whose hint names the fix. A self-closing tag (`<qm-keep/>`) is an open tag, as HTML reads it, so it drops too. A tag line directly under a quote's or list item's text continues it, as CommonMark reads it, so its pair belongs in that quote or item.
 
-A `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` and `qm-table` are reserved, and a `qm-table` tag drops. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a table it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent, and the render warns `typst::unregistered_element`. The warning's hint names the elements the quill renders, so a misspelled `qm-kep` shows up there.
+A `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` is reserved. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a table it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent, and the render warns `typst::unregistered_element`. The warning's hint names the elements the quill renders, so a misspelled `qm-kep` shows up there.
 
 An element around nothing is its two tags on one line, which suits a signature line or a stamp the quill draws:
 

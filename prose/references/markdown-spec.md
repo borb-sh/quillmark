@@ -481,10 +481,8 @@ namespace (`quill:keep`). A tag name reads ASCII-case-insensitively, as HTML
 names do, and the canonical spelling is lowercase. `qm-`, `qm-a--b` and
 `qm-9` carry no element.
 
-**Reserved names.** `table` and `anchor` are reserved, so neither is ever an
-element. `anchor` is the anchor spelling's. A table spells its layout as HTML
-(§6.8), so a `qm-table` tag wraps nothing: its open tag drops, reported as
-`qm-table`, and what it held imports.
+**Reserved names.** `anchor` is reserved, the anchor spelling's, so it is
+never an element.
 
 **Attributes.** A name matches `[a-z][a-z0-9_]*` and is none of `style`,
 `class`, `id`, `href` and `src`, nor any name opening `on`, so the carrier
@@ -718,8 +716,16 @@ line, so a blank line inside a `<table>` ends the table there: the cut table
 closes its open rows, reported as `table`, and what follows reads as ordinary
 markdown, its own HTML block dropping as §6.2 reads one. A `<table>` inside an
 open one ends it the same way. This holds inside a quote or list item, where
-the block's text arrives with container prefixes stripped. One block holding
-several tables imports each.
+the block's text arrives with container prefixes stripped. What follows a
+`</table>` in its block, on its line or the next, the repair sets apart as
+markdown of its own (§7 step 5), so prose written tight under a table, a
+second table or a wrapper's close tag reads as written.
+
+**A table holds at most `MAX_TABLE_CELLS` (100 000) slots**, its rows, the
+header among them, times its columns. A grid pads every row to its width, so
+a few bytes can ask for millions of slots; the rows past the bound drop,
+reported as `table[size]`, and a table whose first row alone is wider drops
+whole. A pipe table stops at the same bound.
 
 **Export** writes the `<table>` tag, its `thead` and `tbody`, and each row on
 a line of its own, inside the containers the table sits in. The attributes
@@ -755,6 +761,12 @@ Before CommonMark parsing, each body region is normalized:
    never edited.
    - On a comment's last line, text after its `-->` moves to a line of its
      own, keeping the line's indent.
+   - In a type 6 block opening `<table>` (§6.8), what follows the first
+     `</table>` closing a table that anything but whitespace follows gets a
+     blank line above it, on a line of its own keeping the line's indent
+     where it shared the `</table>`'s line.
+   - Neither edit lands where what it sets apart opens a fence or a type 1–5
+     HTML block it does not close on its line.
    - A pipe-table row holding only tags gets a blank line above it, ending the
      table.
    - In a type 6 or 7 HTML block outside a footnote definition that does not

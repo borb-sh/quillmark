@@ -124,6 +124,9 @@ pub enum Dropped {
     TableRow,
     /// Text in an HTML table's block outside every cell: `table[text]`.
     TableText,
+    /// A table's rows past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots,
+    /// or the whole of one whose first row alone is wider: `table[size]`.
+    TableSize,
     /// An attribute of an HTML table's tag the subset does not read, repeating
     /// one already read or with a value outside its spelling, and a `colspan`
     /// cut short of a slot another span covers: `<tag>[<attr>]`.
@@ -154,6 +157,7 @@ impl std::fmt::Display for Dropped {
             Dropped::Table => f.write_str("table"),
             Dropped::TableRow => f.write_str("table[row]"),
             Dropped::TableText => f.write_str("table[text]"),
+            Dropped::TableSize => f.write_str("table[size]"),
             Dropped::TableAttr { tag, attr } => write!(f, "{tag}[{attr}]"),
         }
     }
@@ -1725,6 +1729,9 @@ struct MarkdownFixer<'a, I> {
     /// The `<u>` tags open in the current inline run, where a line of carrier
     /// tags stays text too.
     underlines: usize,
+    /// The open pipe table's column count, the slots its rows take so far, and
+    /// whether a row past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) dropped.
+    grid: Option<(usize, usize, bool)>,
 }
 
 /// Whether a tag ending `end` holds a line of carrier tags as text.
@@ -1746,6 +1753,16 @@ where
             line_start: false,
             depth: 0,
             underlines: 0,
+            grid: None,
+        }
+    }
+
+    /// Read past the next event `end` closes.
+    fn skip_through(&mut self, end: TagEnd) {
+        while let Some((event, _)) = self.read() {
+            if event == Event::End(end) {
+                return;
+            }
         }
     }
 
@@ -1891,6 +1908,29 @@ where
             Event::Start(Tag::HtmlBlock) => {
                 self.drop_html_block(range.start);
                 return None;
+            }
+            Event::Start(Tag::Table(aligns)) if aligns.len() > crate::MAX_TABLE_CELLS => {
+                self.skip_through(TagEnd::Table);
+                Fixed::Dropped(Dropped::TableSize, range.start)
+            }
+            Event::Start(Tag::Table(aligns)) => {
+                self.grid = Some((aligns.len(), aligns.len(), false));
+                Fixed::Event(Event::Start(Tag::Table(aligns)))
+            }
+            Event::Start(Tag::TableRow) if self.grid.is_some_and(|(cols, n, _)| n + cols > crate::MAX_TABLE_CELLS) => {
+                self.skip_through(TagEnd::TableRow);
+                let (_, _, cut) = self.grid.as_mut()?;
+                return (!std::mem::replace(cut, true)).then_some(Fixed::Dropped(Dropped::TableSize, range.start));
+            }
+            Event::Start(Tag::TableRow) => {
+                if let Some((cols, n, _)) = self.grid.as_mut() {
+                    *n += *cols;
+                }
+                Fixed::Event(event)
+            }
+            Event::End(TagEnd::Table) => {
+                self.grid = None;
+                Fixed::Event(event)
             }
             Event::InlineHtml(html) => {
                 let tag = html::tag_at(&html, 0)?;
@@ -3014,6 +3054,39 @@ pub(crate) mod tests {
         }
     }
 
+    /// Markdown after a table's `</table>` in its block reads as markdown, and
+    /// a wrapper's close tag there closes its wrapper.
+    #[test]
+    fn markdown_after_a_table_reads_as_its_own() {
+        let imported = imp_fixed("<table><tr><td>a</td></tr></table>\nSome **prose**.\n- item");
+        assert!(imported.warnings.is_empty(), "{:?}", imported.warnings);
+        assert_eq!(imported.content.text, "\u{FFFC}\nSome prose.\nitem");
+        let kept = imp_fixed("<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n</qm-keep>\n\nafter");
+        assert!(kept.warnings.is_empty(), "{:?}", kept.warnings);
+        assert!(matches!(kept.content.lines[0].containers.as_slice(), [Container::Element { .. }]));
+        assert!(kept.content.lines[1].containers.is_empty());
+    }
+
+    /// A table stops at [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots, its
+    /// rows past them dropping, reported, as an HTML or a pipe table; one whose
+    /// first row alone is wider drops whole.
+    #[test]
+    fn a_table_stops_at_its_cell_bound() {
+        let cols = 1000;
+        let rows = crate::MAX_TABLE_CELLS / cols;
+        let html = format!("<table><tr><td colspan={cols}>a</td></tr>{}</table>", "<tr>".repeat(rows + 5));
+        let pipe = format!("|{}\n|{}\n{}", " a |".repeat(cols), " - |".repeat(cols), "| b |\n".repeat(rows + 5));
+        for md in [html, pipe] {
+            let imported = imp_fixed(&md);
+            assert_eq!(dropped(&imported).last(), Some(&("table[size]", 1)));
+            assert_eq!(1 + table_rows(&imported.content).len(), rows);
+        }
+        let wide = format!("<table><tr>{}</tr></table>", "<td colspan=1000></td>".repeat(101));
+        let imported = imp_fixed(&wide);
+        assert_eq!(dropped(&imported), [("table[size]", 1)]);
+        assert!(imported.content.islands.is_empty());
+    }
+
     /// A table is one HTML block: a blank line inside it ends the table there,
     /// in a quote as at the top level, and what follows reads as markdown, an
     /// HTML block of its own that drops. Another `<table>` ends one too, and
@@ -3067,18 +3140,6 @@ pub(crate) mod tests {
         let note = crate::serial::parse_cell(&imported.content.islands[0].props);
         assert_eq!(note, ("x y\nz w".into(), vec![Mark::new(2, 3, MarkKind::Strong)]));
         assert_eq!(dropped(&imported), [("footnote[table]", 1)]);
-    }
-
-    /// `qm-table` is a reserved name and `qm-cell` an element name, so neither
-    /// spells a table's layout: each drops, reported, and the table imports
-    /// bare.
-    #[test]
-    fn the_qm_table_and_qm_cell_tags_drop() {
-        let imported = imp_fixed(
-            "<qm-table widths=\"1 2\">\n\n| a | b |\n|---|---|\n| <qm-cell align=\"right\">1</qm-cell> | 2 |\n\n</qm-table>",
-        );
-        assert_eq!(dropped(&imported), [("qm-table", 1), ("qm-cell", 1)]);
-        assert_eq!(imported.content, imp_fixed("| a | b |\n|---|---|\n| 1 | 2 |").content);
     }
 
     /// A type-7 tag cannot interrupt a pipe table, so the parser reads
@@ -3187,7 +3248,6 @@ pub(crate) mod tests {
     fn a_block_dropping_markdown_reports_under_its_first_tag() {
         let cases = [
             ("a\n\n</qm-keep>\n</span>\ntext", ("qm-keep", 1)),
-            ("a\n\n</qm-table>\n</span>\ntext", ("qm-table", 1)),
             ("a\n\n</qm-anchor>\ntext", ("qm-anchor", 1)),
             ("<qm-anchor ref=\"x\">\ntext", ("qm-anchor", 1)),
             ("<qm-keep>\n\nx\n\n</qm-keep>\n</span>\ntext", ("qm-keep", 1)),

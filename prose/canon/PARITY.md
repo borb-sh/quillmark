@@ -201,6 +201,7 @@ above, or markup the content does not store.
 | `html.table.overlap`: a `colspan` reaching a slot a `rowspan` covers | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `td[colspan]` |
 | `html.table.row`: rows too long and too short for the grid | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table[row]` |
 | `html.table.text`: a `caption` and its text outside every cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `caption`, `table[text]` |
+| `html.table.tail`: prose tight under an HTML table's `</table>` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `html.block6.text`: a type 6 block, `<center>`, tight around text, dropping it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `center` |
 | `html.block1`: a type 1 block, `<pre>` | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `pre` |
 | `html.comment` | silent: honored | n/a | n/a | n/a | n/a | none |
@@ -214,7 +215,6 @@ above, or markup the content does not store.
 | `carrier.element.attr`: an element attribute outside the grammar | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep[onclick]` |
 | `carrier.element.stray_close`: an element close tag with nothing open | silent: honored | n/a | n/a | n/a | n/a | none |
 | `carrier.element.stray_close.tight`: an element close tag with nothing open, tight above markdown it keeps | silent: honored | n/a | n/a | n/a | n/a | none |
-| `carrier.table.reserved`: the reserved `qm-table` around a pipe table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table` |
 | `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
 | `markdown.cell_image`: an image in a table cell | drops silently | n/a | n/a | n/a | n/a | none |

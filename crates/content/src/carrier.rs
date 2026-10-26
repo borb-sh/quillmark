@@ -10,15 +10,11 @@ use std::fmt::Write as _;
 /// What every carrier tag name opens with.
 pub const PREFIX: &str = "qm-";
 
-/// A reserved element name: a table spells its layout on an HTML `<table>`,
-/// so `qm-table` wraps nothing and drops.
-pub const TABLE: &str = "table";
-
 /// The anchor spelling's element name.
 pub const ANCHOR: &str = "anchor";
 
-/// Element names no stored element carries: [`TABLE`] and [`ANCHOR`].
-pub const RESERVED: [&str; 2] = [TABLE, ANCHOR];
+/// Element names no stored element carries: [`ANCHOR`].
+pub const RESERVED: [&str; 1] = [ANCHOR];
 
 /// Attribute names outside the grammar besides every `on*`: each is one a
 /// downstream HTML renderer acts on.
@@ -338,7 +334,6 @@ mod tests {
         assert_eq!(keep.wrap_block(""), "<qm-keep></qm-keep>");
 
         assert_eq!(Element::new("A", BTreeMap::new()), Err(Refused::Name("A".into())));
-        assert_eq!(Element::new(TABLE, BTreeMap::new()), Err(Refused::Reserved(TABLE.into())));
         assert_eq!(Element::new(ANCHOR, BTreeMap::new()), Err(Refused::Reserved(ANCHOR.into())));
         assert_eq!(
             Element::new("keep", attrs(&[("onclick", "x")])),

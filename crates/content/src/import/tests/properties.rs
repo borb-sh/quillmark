@@ -108,7 +108,6 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             Just(("p", "")),
             Just(("section", " class=x")),
             Just(("qm-keep", "")),
-            Just(("qm-table", " widths=\"1 2\"")),
             Just(("custom-box", "")),
         ],
         prop::collection::vec((inner, any::<bool>()), 1..3),

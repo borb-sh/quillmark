@@ -53,7 +53,7 @@ fn carrier() -> impl Strategy<Value = Carrier> {
             let e = Element::spelling(name, attrs).unwrap();
             Carrier { open: e.open_tag(), close: e.close_tag(), reported: None, inline }
         });
-    let outside = prop_oneof![Just("qm-a--b"), Just("qm-"), Just("qm-9"), Just("qm-table")];
+    let outside = prop_oneof![Just("qm-a--b"), Just("qm-"), Just("qm-9")];
     let outside = outside.prop_map(|n| Carrier {
         open: format!("<{n}>"),
         close: format!("</{n}>"),

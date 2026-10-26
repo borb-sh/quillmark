@@ -15,11 +15,17 @@
   the header rows as the table's `head`, a count `headless: true` normalizes
   to `head: 0`; the storage tag holds. What an HTML table cannot hold warns
   `parse::dropped_construct` as `table`, `table[row]`, `table[text]` or
-  `<tag>[<attr>]`. The Typst backend draws a span through
+  `<tag>[<attr>]`. Markdown after a `</table>` in its HTML block reads as
+  markdown of its own. The Typst backend draws a span through
   `table.cell(colspan:, rowspan:)` and every header row in `table.header`.
-- feat(content)!: **a `qm-table` wrapper and a `qm-cell` pair drop on import,
-  warning `qm-table` and `qm-cell`**, so markdown written with either loses its
+- feat(content)!: **`qm-table` and `qm-cell` no longer spell a table's
+  layout**: `qm-table` is an ordinary element name, and a `qm-cell` pair in a
+  cell drops, warning `qm-cell`, so markdown written with either loses its
   table layout; rewrite such a table as HTML.
+- fix(content)!: **a table's grid is capped at `MAX_TABLE_CELLS` (100 000)
+  slots**: markdown import drops the rows past it, warning `table[size]`, and
+  the stored lanes refuse such a table as `Invariant::TableTooLarge` before
+  padding it, where a few bytes could allocate millions of cells.
 
 ## v0.130.0 - 2026-10-22
 

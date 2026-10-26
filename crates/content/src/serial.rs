@@ -986,6 +986,13 @@ fn table_cols(props: &Value) -> usize {
     header.max(aligns).max(widest_row)
 }
 
+/// The slots a table's grid holds once padded: its rows, the header among
+/// them, by its [column count](table_cols).
+pub(crate) fn table_slots(props: &Value) -> usize {
+    let rows = props.get("rows").and_then(Value::as_array).map_or(0, Vec::len);
+    rows.saturating_add(1).saturating_mul(table_cols(props))
+}
+
 /// Pad a cell array (header or body row) up to `cols` with empty cells. Never
 /// shrinks: `cols` is the widest, so a shorter array only grows.
 fn pad_row(v: &mut Value, cols: usize) {
@@ -1116,6 +1123,9 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
             name: name.to_string(),
         })?;
     let props = bag_from_wire(o, "props", "island props")?;
+    if island_type == crate::island::IslandType::Table {
+        crate::model::check_table_cells(&props).map_err(ParseError::Invalid)?;
+    }
     island_type.reject_unknown_cell_mark(&props)?;
     Ok(Island {
         id: o
@@ -1304,6 +1314,32 @@ mod tests {
         };
         // `para` carries no payload: the bag is foreign, and drops unread.
         assert!(from_canonical_value(&line("para")).is_ok());
+    }
+
+    /// A table whose grid pads past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS)
+    /// slots is refused before the mint pads it, on the stored lane and the op
+    /// wire alike.
+    #[test]
+    fn a_table_past_its_cell_bound_is_refused() {
+        let cell = serde_json::json!({"text": "", "marks": []});
+        let props = |rows: usize| {
+            serde_json::json!({"header": vec![cell.clone(); 1000], "rows": vec![[cell.clone()]; rows], "aligns": []})
+        };
+        let content = |props| {
+            serde_json::json!({"text": "\u{FFFC}", "lines": [{"kind": "para", "containers": []}], "marks": [],
+              "islands": [{"id": "isl-0", "type": "table", "props": props}]})
+        };
+        let rows = crate::MAX_TABLE_CELLS / 1000;
+        assert!(from_canonical_value(&content(props(rows - 1))).is_ok());
+        assert!(matches!(
+            from_canonical_value(&content(props(rows))),
+            Err(ParseError::Invalid(Invariant::TableTooLarge { cells, .. })) if cells == (rows + 1) * 1000
+        ));
+        let op = serde_json::json!({"op": "insert", "at": 0, "id": "i1", "type": "table", "props": props(rows)});
+        assert!(matches!(
+            crate::ops::island_op_from_value(&op),
+            Err(ParseError::Invalid(Invariant::TableTooLarge { .. }))
+        ));
     }
 
     #[test]

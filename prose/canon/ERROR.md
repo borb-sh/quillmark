@@ -151,12 +151,13 @@ families:
     `caption`;
   - `qm-<name>` for an element tag that drops: left unclosed,
     self-closing, inside a line of text, or beside another tag in a block
-    tight against markdown, and `qm-table`, a reserved name;
+    tight against markdown;
   - `qm-<name>[<attr>]` for one element attribute that drops;
   - `table` for an HTML table its block ends before its `</table>`, at a
     blank line or another `<table>`;
   - `table[row]` for an HTML table's row too short or too long for its
-    grid, and `table[text]` for text outside every cell;
+    grid, `table[text]` for text outside every cell, and `table[size]`
+    for a table's rows past `MAX_TABLE_CELLS`;
   - `<tag>[<attr>]` for one attribute of an HTML table's tag that drops,
     such as `td[class]` or `table[widths]`, or a `colspan` cut short where
     another span covers a slot (`td[colspan]`);

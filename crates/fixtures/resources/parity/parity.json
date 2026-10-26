@@ -2487,6 +2487,56 @@
     }
   },
   {
+    "name": "html.table.tail",
+    "markdown": "<table><tr><th>Name</th></tr><tr><td>SSgt Doe</td></tr></table>\nThe roster ends here.",
+    "content": {
+      "islands": [
+        {
+          "id": "isl-0",
+          "props": {
+            "aligns": [
+              "none"
+            ],
+            "header": [
+              {
+                "marks": [],
+                "text": "Name"
+              }
+            ],
+            "rows": [
+              [
+                {
+                  "marks": [],
+                  "text": "SSgt Doe"
+                }
+              ]
+            ]
+          },
+          "type": "table"
+        }
+      ],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        },
+        {
+          "containers": [],
+          "kind": "para"
+        }
+      ],
+      "marks": [],
+      "text": "￼\nThe roster ends here."
+    },
+    "typst": [
+      "The roster ends here."
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
     "name": "html.block6.text",
     "markdown": "<center>\n**Signed**\nJ. Doe\n</center>",
     "content": {
@@ -3099,66 +3149,6 @@
     ],
     "signals": {
       "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.table.reserved",
-    "markdown": "<qm-table widths=\"1 2\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>",
-    "content": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
-    "typst": [
-      "columns: 2"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "qm-table",
-          "count": 1
-        }
-      ],
       "render": []
     }
   },

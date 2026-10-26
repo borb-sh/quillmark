@@ -118,11 +118,23 @@ struct RawTable {
 /// block ends before its `</table>`, or that another `<table>` interrupts,
 /// closes there.
 pub(crate) fn scan(text: &str, at: impl Fn(usize) -> usize) -> (Vec<Table>, Vec<(Dropped, usize)>) {
+    let s = run(text, at);
+    (s.tables, s.drops)
+}
+
+/// The offset just past the first `</table>` closing a table in an HTML
+/// block's `text` that anything but whitespace follows.
+pub(crate) fn tail(text: &str) -> Option<usize> {
+    run(text, |i| i).ends.into_iter().find(|&end| !text[end..].trim().is_empty())
+}
+
+fn run<F: Fn(usize) -> usize>(text: &str, at: F) -> Scan<'_, F> {
     let mut s = Scan {
         text,
         at,
         tables: Vec::new(),
         drops: Vec::new(),
+        ends: Vec::new(),
         table: None,
         group_open: false,
         row: None,
@@ -178,7 +190,7 @@ pub(crate) fn scan(text: &str, at: impl Fn(usize) -> usize) -> (Vec<Table>, Vec<
         i += 1;
     }
     s.close_table(text.len(), true);
-    (s.tables, s.drops)
+    s
 }
 
 struct Scan<'a, F> {
@@ -186,6 +198,8 @@ struct Scan<'a, F> {
     at: F,
     tables: Vec<Table>,
     drops: Vec<(Dropped, usize)>,
+    /// The offset past each `</table>` that closes a table.
+    ends: Vec<usize>,
     table: Option<RawTable>,
     /// Whether the table's last row group takes the next row: one a group tag
     /// opened, or the one a row standing in none opened.
@@ -211,7 +225,12 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
                 });
                 self.table = Some(RawTable { at, layout, aligns, groups: Vec::new() });
             }
-            ("table", true) => self.close_table(i, false),
+            ("table", true) => {
+                if self.table.is_some() {
+                    self.ends.push(tag.span.end);
+                }
+                self.close_table(i, false);
+            }
             (_, false) if self.table.is_none() => self.drops.push((Dropped::Tag(name.into()), at)),
             (_, true) if self.table.is_none() => {}
             ("thead" | "tbody" | "tfoot", closing) => {
@@ -317,8 +336,9 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
 /// grid is as wide as its first row holding a cell. A `colspan` stops at the
 /// grid's edge, and short of a slot another span covers, reported; a
 /// `rowspan` stops at the end of its row group. A row too short pads and one
-/// too long drops its cells past the edge, reported. `None` for a table
-/// holding no cell.
+/// too long drops its cells past the edge, reported. Rows past
+/// [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS) slots drop, reported. `None` for
+/// a table holding no cell, or whose first row alone is wider than that.
 fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
     let mut groups = raw.groups;
     if !groups.iter().any(|g| g.kind == Group::Head)
@@ -343,6 +363,14 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
     }
     let first = rows.iter().find(|(row, _)| !row.cells.is_empty())?;
     let cols = first.0.cells.iter().fold(0usize, |n, cell| n.saturating_add(cell.colspan));
+    let fit = crate::MAX_TABLE_CELLS / cols;
+    if fit < rows.len() {
+        drops.push((Dropped::TableSize, rows[fit.min(rows.len() - 1)].0.at));
+        if fit == 0 {
+            return None;
+        }
+        rows.truncate(fit);
+    }
     let mut covered = vec![vec![false; cols]; rows.len()];
     let mut grid: Vec<Vec<Slot>> = vec![vec![Slot::Empty; cols]; rows.len()];
     for (r, (row, end)) in rows.into_iter().enumerate() {
@@ -361,7 +389,7 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
             if w < want {
                 drops.push((Dropped::TableAttr { tag: cell.tag.into(), attr: "colspan".into() }, cell.at));
             }
-            let h = cell.rowspan.min(end - r);
+            let h = cell.rowspan.min(end.min(fit) - r);
             for slots in &mut covered[r..r + h] {
                 slots[x..x + w].fill(true);
             }
@@ -379,6 +407,7 @@ fn resolve(raw: RawTable, drops: &mut Vec<(Dropped, usize)>) -> Option<Table> {
         }
     }
     let mut layout = raw.layout;
+    let head = head.min(grid.len());
     if head != 1 {
         layout.insert("head".into(), head.into());
     }
