@@ -513,7 +513,7 @@ impl MarkKind {
     /// per character, so two marks of one tag never overlap in normalized
     /// content. A member is also [formatting](Self::is_formatting).
     pub fn is_keyed(&self) -> bool {
-        matches!(self, MarkKind::FontFamily { .. })
+        matches!(self, MarkKind::FontFamily { .. } | MarkKind::Link { .. })
     }
 
     /// The wire `type` name.
@@ -957,10 +957,11 @@ impl Content {
     }
 
     /// Normalize in place: canonicalize container `ordinal`/`instance`, break a
-    /// line around a block-only island's slot, drop zero-width formatting, union
-    /// same-kind formatting that is adjacent or overlapping, recursively
-    /// key-sort island props, then sort marks canonically. Idempotent: the
-    /// fixed point the canonical serialization commits to.
+    /// line around a block-only island's slot, split formatting at each `\n`,
+    /// drop zero-width formatting, union same-kind formatting that is adjacent
+    /// or overlapping, recursively key-sort island props, then sort marks
+    /// canonically. Idempotent: the fixed point the canonical serialization
+    /// commits to.
     pub fn normalize(&mut self) {
         canonicalize_containers(&mut self.lines);
         // A splice writes text, never kinds: joining a fence to an image line
@@ -997,13 +998,10 @@ impl Content {
             island.island_type.normalize_props(&mut island.props);
             canonicalize_keys(&mut island.props);
         }
-        // A formatting mark's edges never sit on a line boundary: markdown can't
-        // bold a `\n`, so two producers that disagree only about whether the
-        // boundary is "inside" the mark must canonicalize to the same bounds.
-        // Skip the full-text char collection when nothing needs trimming.
-        if self.marks.iter().any(|m| m.kind.is_formatting()) {
+        // Skip the full-text char collection when nothing needs splitting.
+        if self.text.contains('\n') && self.marks.iter().any(|m| m.kind.is_formatting()) {
             let chars: Vec<char> = self.text.chars().collect();
-            trim_marks_off_newlines(&chars, &mut self.marks);
+            self.marks = split_marks_at_newlines(&chars, normalize_marks(std::mem::take(&mut self.marks)));
         }
         self.marks = normalize_marks(std::mem::take(&mut self.marks));
     }
@@ -1271,9 +1269,8 @@ fn canonicalize_containers(lines: &mut [Line]) {
 }
 
 /// Trim each formatting mark's leading/trailing `\n` off `chars`; interior
-/// boundaries are kept, a mark legitimately spanning lines. Zero-width results
-/// are left for [`normalize_marks`] to drop. Prose text and a table cell's text
-/// share the rule.
+/// boundaries are kept, a cell's `<br>` writing inside the mark's delimiters.
+/// Zero-width results are left for [`normalize_marks`] to drop.
 pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
     for m in marks.iter_mut().filter(|m| m.kind.is_formatting()) {
         while m.start < m.end && chars.get(m.start) == Some(&'\n') {
@@ -1283,6 +1280,33 @@ pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
             m.end -= 1;
         }
     }
+}
+
+/// Cut each formatting mark at every `\n` in `chars`, keeping the pieces
+/// between them: prose export closes a mark at a line's end and reopens it on
+/// the next, so in prose a mark never spans a line join. Zero-width pieces are
+/// left for [`normalize_marks`] to drop.
+pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
+    let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i).collect();
+    let within = |m: &Mark| {
+        let lo = breaks.partition_point(|&b| b < m.start);
+        let hi = breaks.partition_point(|&b| b < m.end);
+        &breaks[lo..hi.max(lo)]
+    };
+    let mut out = Vec::with_capacity(marks.len());
+    for m in marks {
+        if !m.kind.is_formatting() {
+            out.push(m);
+            continue;
+        }
+        let mut start = m.start;
+        for &at in within(&m) {
+            out.push(Mark::new(start, at, m.kind.clone()));
+            start = at + 1;
+        }
+        out.push(Mark::new(start.min(m.end), m.end, m.kind));
+    }
+    out
 }
 
 /// Apply the merge rules and the canonical sort to a flat mark list:
@@ -2031,6 +2055,46 @@ mod tests {
             rt.validate(),
             Err(Invariant::AnchorIdCollision { id: String::new() })
         );
+    }
+
+    #[test]
+    fn normalize_settles_keyed_marks_before_splitting_them() {
+        let family = |name: &str| MarkKind::FontFamily { name: name.into() };
+        let mut rt = Content {
+            text: "abcde\nfghij".into(),
+            lines: vec![Line::new(LineKind::Para); 2],
+            marks: vec![Mark::new(0, 11, family("Zeta")), Mark::new(3, 11, family("Alpha"))],
+            islands: vec![],
+        };
+        rt.normalize();
+        assert_eq!(
+            rt.marks,
+            vec![
+                Mark::new(0, 3, family("Zeta")),
+                Mark::new(3, 5, family("Alpha")),
+                Mark::new(6, 11, family("Alpha")),
+            ]
+        );
+    }
+
+    #[test]
+    fn overlapping_links_split_to_one_link_per_line() {
+        let lines = 50;
+        let text = "a\n".repeat(lines);
+        let len = text.chars().count();
+        let mut rt = Content {
+            lines: vec![Line::new(LineKind::Para); lines + 1],
+            text,
+            marks: (0..20)
+                .map(|i| Mark::new(i, len, MarkKind::Link { url: format!("u{i}") }))
+                .collect(),
+            islands: vec![],
+        };
+        rt.normalize();
+        assert_eq!(rt.marks.len(), lines);
+        let once = rt.clone();
+        rt.normalize();
+        assert_eq!(rt, once);
     }
 
     #[test]

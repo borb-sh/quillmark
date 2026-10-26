@@ -891,6 +891,44 @@
     }
   },
   {
+    "name": "mark.across_break",
+    "markdown": "**one**\\\n**two**",
+    "content": {
+      "islands": [],
+      "lines": [
+        {
+          "containers": [],
+          "kind": "para"
+        },
+        {
+          "containers": [],
+          "continues": true,
+          "kind": "para"
+        }
+      ],
+      "marks": [
+        {
+          "end": 3,
+          "start": 0,
+          "type": "strong"
+        },
+        {
+          "end": 7,
+          "start": 4,
+          "type": "strong"
+        }
+      ],
+      "text": "one\ntwo"
+    },
+    "typst": [
+      "#strong[one]#linebreak()#strong[two]"
+    ],
+    "signals": {
+      "import": [],
+      "render": []
+    }
+  },
+  {
     "name": "island.table.aligns",
     "markdown": "| a | b | c |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |",
     "content": {
