@@ -1019,9 +1019,9 @@ impl Document {
     }
 
     /// The newest storage version this build writes via
-    /// [`toStored`](Document::to_stored): a document spelling a font mark
-    /// carries it, every other the tag before it, which a build predating font
-    /// marks reads. The tag advances only when the wire format changes, not on
+    /// [`toStored`](Document::to_stored): a document spelling a font mark, a
+    /// `table` element, a merged table cell or a table head 0.130 cannot draw
+    /// carries it, every other the tag before it, which a 0.130 build reads. The tag advances only when the wire format changes, not on
     /// every release.
     #[wasm_bindgen(js_name = currentStorageVersion)]
     pub fn current_storage_version() -> String {

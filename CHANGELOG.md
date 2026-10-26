@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Storage
+
+- fix(core): **a row holding an element named `table`, a table cell spanning
+  more than one column or row, or a table `head` a 0.130 build cannot draw
+  saves under `quillmark/document@0.131.0`**, as a row holding a `font_family`
+  mark does: a 0.130 build refused the element as corrupt and drew the rest
+  wrong under `@0.129.0`. The check reads each body and each field and `$seed`
+  value that decodes as content, and no longer reads `$ext`, so host data
+  shaped like a font mark keeps `@0.129.0`.
+
 ### Content
 
 - feat(content)!: **a table writes as a GFM pipe table when pipes hold all of
@@ -13,7 +23,7 @@
   and `valign` on a cell, whose content is inline markdown. A span stores as a
   cell's `colspan` and `rowspan`, each cell it covers an empty placeholder, and
   the header rows as the table's `head`, a count `headless: true` normalizes
-  to `head: 0`; the storage tag holds. What an HTML table cannot hold warns
+  to `head: 0`. What an HTML table cannot hold warns
   `parse::dropped_construct` as `table`, `table[row]`, `table[text]` or
   `<tag>[<attr>]`. Markdown after a `</table>` in its HTML block reads as
   markdown of its own. An HTML table is as wide as its widest row, a `<th>`

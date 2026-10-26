@@ -444,8 +444,9 @@ impl PyDocument {
     }
 
     /// The newest storage version this build writes: a document spelling a
-    /// font mark carries it, every other the tag before it, which a build
-    /// predating font marks reads.
+    /// font mark, a `table` element, a merged table cell or a table head 0.130
+    /// cannot draw carries it, every other the tag before it, which a 0.130
+    /// build reads.
     #[staticmethod]
     fn current_storage_version() -> &'static str {
         quillmark_core::document::STORAGE_V0_131_0
