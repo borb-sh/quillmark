@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.132.0 - 2026-10-27
+
+- feat(typst)!: every Typst PDF carries a title, the quill description by default
+- feat: a render's `title` option sets the PDF document title
+- fix(content): keep run edges and refusals around dropped containers
+- feat(content)!: drop qm-* elements and definition lists from the content
+- test(typst): borrow the code mark as a slice
+- fix(typst): a table cell breaks inside an email address or dotted name
+- docs: a path loader keys a .quill bundle on its extension
+- fix(core): a .quill directory entry at or under a file is refused
+- docs: list workspace --font in the CLI README, rewrap export codec limits
+- refactor: share duplicated test helpers and binding plumbing, fix stale docs
+- refactor: share the table-tag split, fold table-driven tests, fix stale comments
+- feat(bindings): read and write a .quill bundle from every surface
+- feat(core): a quill reads and writes as one .quill bundle
+
 ## v0.131.0 - 2026-10-26
 
 Upgrade path: [0.130 → 0.131](docs/migrations/0.130-to-0.131.md). A row
