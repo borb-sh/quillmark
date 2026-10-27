@@ -26,7 +26,6 @@ Quillmark enables a small, stable subset of GFM:
 | Task lists | `- [ ] open`, `- [x] done` | A checkbox before the item's text, ticked for `[x]`. |
 | Footnotes | `text[^1]` and a `[^1]: note` definition | The note at the foot of the page, numbered. See [Footnotes](#footnotes). |
 | Math | `$x^2$` inline, `$$\frac{a}{b}$$` on its own line | TeX math. See [Math](#math). |
-| Definition lists | `Term` and `: description` on the line under it | A term and what describes it. See [Definition lists](#definition-lists). |
 
 Autolinks beyond CommonMark's and other GFM features are **not** enabled.
 
@@ -74,21 +73,6 @@ The Typst backend draws:
 
 A command outside these draws as its own name and warns `typst::unsupported_tex`, naming it.
 
-## Definition lists
-
-A paragraph with a line opening `: ` under it is a term and its description:
-
-```markdown
-Plate
-: The Typst file a quill renders through.
-
-Card
-: A block of structured data.
-: Its body, the prose after it.
-```
-
-A term takes several descriptions, one `: ` line each. A description holding more than one block indents the rest two spaces under its `: `. A line of prose that should open with a colon writes it `\:`.
-
 ## Tables
 
 A table is a GFM pipe table or an HTML table, and Quillmark reads both. A pipe table holds one header row, its cells and each column's text alignment, set in the delimiter row (`:---:`). Anything else a table holds is spelled in HTML:
@@ -134,22 +118,11 @@ On `<td>` and `<th>`:
 
 Export writes a table as pipes when pipes hold all of it, and as HTML otherwise, whichever spelling the document used: a table that gains a merged cell writes as HTML, and one that loses its last merge, width or header row change writes as pipes again.
 
-## Elements: `qm-*` tags
+## `qm-*` tags
 
-Markdown has no syntax for a run of text's font, keeping a block on one page or a signature line. Quillmark spells them with `qm-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
+Markdown has no syntax for a run of text's font. Quillmark spells it with a `qm-span` tag pair: an HTML custom element, which a browser or GitHub draws as just what it wraps.
 
-Each `qm-*` tag stands on a line of its own, or beside other open and close `qm-*` tags with no text between. Quillmark reads such a line wherever it stands, tight against a paragraph or a table included, and export writes a blank line above and below it, which GitHub and other CommonMark viewers need to render the markdown it wraps:
-
-```markdown
-<qm-keep>
-
-**Signed**
-J. Doe
-
-</qm-keep>
-```
-
-A tag inside a line of text, in a heading, emphasis, a link or a table cell, or left open drops, keeping what it wraps, with a `parse::dropped_construct` warning whose hint names the fix. A self-closing tag (`<qm-keep/>`) is an open tag, as HTML reads it, so it drops too. A tag line directly under a quote's or list item's text continues it, as CommonMark reads it, so its pair belongs in that quote or item.
+A `qm-*` tag inside a line of text is read only as `qm-span`. A line holding only `qm-*` tags reads as a tag line wherever it stands, tight against a paragraph or a table included. No tag line wraps anything: its tags drop and the blocks around them stay. Any other `qm-<name>` tag, such as `<qm-keep>`, carries nothing: the open tag drops with a `parse::dropped_construct` warning naming it, the close tag drops silently, and what lies between imports as written. A tag line still ends the paragraph above it, as any tag line does.
 
 ### Font family
 
@@ -169,23 +142,11 @@ The <qm-span family="Carlito">phrase sits in **bold <qm-span family="Arimo">sans
 - A family is a run's, never a block's: `qm-span` tag lines around blocks drop with a `qm-span` warning, and the blocks stay.
 - An attribute other than `family` drops alone with a `parse::dropped_construct` warning, keeping the family. A tag setting no family or left open drops, keeping what it wraps.
 
-### Elements
-
-Any other `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` is reserved. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a table it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent, and the render warns `typst::unregistered_element`. The warning's hint names the elements the quill renders, so a misspelled `qm-kep` shows up there.
-
-An element around nothing is its two tags on one line, which suits a signature line or a stamp the quill draws:
-
-```markdown
-<qm-sig></qm-sig>
-```
-
-An element's attributes are strings the quill reads, such as `<qm-stamp tone="urgent">`. An attribute name is lowercase letters, digits and `_`, opening with a letter. `style`, `class`, `id`, `href`, `src` and names opening `on` are refused, so the tags never carry markup a browser would act on.
-
 ## Deviations from CommonMark
 
 ### Raw HTML is not rendered, except `<u>` and `<br>`
 
-CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, a `<table>` is a [table](#tables), a `qm-span` pair sets [a font run](#font-family), and a `qm-*` tag spells [an element](#elements-qm-tags).
+CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, a `<table>` is a [table](#tables), and a `qm-span` pair sets [a font run](#font-family).
 
 ```markdown
 <u>This is underlined</u>, even <u>across word boundaries</u>.
@@ -209,7 +170,7 @@ Consequences:
 - An HTML block drops as CommonMark reads it, unless it opens `<table>`. A line starting with a tag such as `<div>`, `<center>` or `<details>` opens a block that runs to the next blank line, so markdown on the lines under it drops with it; a blank line after the tag line keeps what follows. Embedded SVG draws nothing.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included, through the end of its closing tag's line.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
-- Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included. Comments and a `qm-*` element that closes are not reported, and neither are closing tags and `<qm-anchor>` tags, except where the block they open drops markdown. A tag in a `richtext` field's value in the card-yaml block drops the same way, reported at the field.
+- Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included. Comments are not reported, and neither are closing tags and `<qm-anchor>` tags, except where the block they open drops markdown. A tag in a `richtext` field's value in the card-yaml block drops the same way, reported at the field.
 
 ### A column-zero `~~~` always opens a card-yaml block
 

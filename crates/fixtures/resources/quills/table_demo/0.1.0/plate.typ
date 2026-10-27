@@ -7,6 +7,3 @@
 #underline(qm.ink(qm.data, "title"))
 
 #qm.data.at("$body")
-
-// The parity corpus's void `qm-sig` draws as a signature rule.
-#qm.elements.update(e => e + (sig: (attrs, body) => line(length: 2in)))

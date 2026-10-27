@@ -3,8 +3,8 @@
 //! CommonMark wants; tags inline in prose and in cells, some around nothing;
 //! comments with text after them. The import
 //! never panics, every word of prose outside a comment reaches the content,
-//! each dropped opening tag is counted once (a `qm-keep` tag line only when
-//! left unclosed), and the content is the fixed point of a re-import.
+//! each dropped opening tag is counted once, and the content is the fixed
+//! point of a re-import.
 
 use proptest::prelude::*;
 
@@ -136,9 +136,7 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             if closed {
                 md.push_str(&format!("\n\n</{name}>"));
             }
-            if !(name == "qm-keep" && closed) {
-                reported.push(name.to_string());
-            }
+            reported.push(name.to_string());
             // A closing tag straight after a table's rows is one more row to the
             // parser, so the table runs on past it.
             Piece { md, words, reported, table: after_table && !closed, closes: closed }

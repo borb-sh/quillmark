@@ -153,10 +153,10 @@ families:
     grammar such as `qm-a--b`, `qm-anchor` where its block drops
     markdown, or a tag in an HTML table outside the subset, such as
     `caption`;
-  - `qm-<name>` for an element tag that drops: left unclosed,
-    self-closing, inside a line of text, or beside another tag in a block
-    tight against markdown;
-  - `qm-<name>[<attr>]` for one element attribute that drops;
+  - `qm-<name>` for the open tag of a name outside `qm-span` and
+    `qm-anchor`, which carries nothing, and for a `qm-span` tag that drops:
+    left unclosed, self-closing, setting no family, or on a tag line;
+  - `qm-span[<attr>]` for one `qm-span` attribute that drops;
   - `table` for an HTML table its block ends before its `</table>`, at a
     blank line or another `<table>`;
   - `table:row` for an HTML table's row too short for its grid,
@@ -168,8 +168,7 @@ families:
     definition of one label, or a reference in a table cell, an image's alt
     text or a note;
   - `footnote[<block>]` for a block in a note, which keeps its text as lines
-    of the note: `heading`, `list`, `code`, `quote`, `table`, `rule` or
-    `definition list`;
+    of the note: `heading`, `list`, `code`, `quote`, `table` or `rule`;
   - `math` for an equation in a table cell, an image's alt text or a note,
     or one whose TeX is blank once its edge whitespace drops, which keeps its
     source as text.
@@ -239,13 +238,6 @@ families:
   compiles, schema defaults and coercion applied, and returns the same
   diagnostics, byte for byte, before any render. A document the render floor
   refuses compiles nothing, so it draws none.
-- **`typst::unregistered_element`: an element no renderer takes.** The Typst
-  compile warns once per (content field, element name) the helper's dispatcher
-  drew as what it wraps ([CONVERT.md](CONVERT.md#elements)), with the field's
-  `DocPath` in `path`. The run count rides the message, and the names the
-  plate renders ride the hint. It rides the session's compile warnings. The
-  registry is plate code, so `validate`, which compiles nothing, has no twin
-  for it.
 - **`typst::unsupported_tex`: a TeX command an equation cannot lower.** The
   Typst compile warns once per content field whose equations hold a command
   outside the vocabulary the lowering knows ([CONVERT.md](CONVERT.md#equations)),

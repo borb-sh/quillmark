@@ -107,8 +107,8 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// Frozen `0.131.0` representation of a [`Document`]: the V0_129_0 tree over
-/// the content vocabulary holding the `font_family` mark, the `table` element
-/// name, a table's `head` and a cell's `colspan` and `rowspan`.
+/// the content vocabulary holding the `font_family` mark, a table's `head` and
+/// a cell's `colspan` and `rowspan`.
 pub type DocumentV0_131_0 = DocumentV0_129_0;
 
 /// Frozen `0.129.0` representation of a [`Document`]: the V0_124_0 tree over
@@ -299,8 +299,7 @@ fn json_spells_0_131_0(value: &serde_json::Value) -> bool {
 }
 
 /// Whether a content value, in its wire shape, holds a member `0.131.0` adds:
-/// a `font_family` mark, in prose or a cell; an element named `table`; a
-/// table cell spanning more than one column or row; or a table `head` other
+/// a `font_family` mark, in prose or a cell; a table cell spanning more than one column or row; or a table `head` other
 /// than 1, unless it is 0 beside the `headless: true` a `0.130` build reads.
 fn content_spells_0_131_0(content: &serde_json::Value) -> bool {
     use serde_json::Value;
@@ -308,12 +307,6 @@ fn content_spells_0_131_0(content: &serde_json::Value) -> bool {
         v.get(key).and_then(Value::as_array).into_iter().flatten()
     }
     let has_font = |v: &Value| list(v, "marks").any(|m| m.get("type").and_then(Value::as_str) == Some("font_family"));
-    let table_element = list(content, "lines").any(|line| {
-        list(line, "containers").any(|c| {
-            c.get("container").and_then(Value::as_str) == Some("element")
-                && c.pointer("/attrs/$name").and_then(Value::as_str) == Some("table")
-        })
-    });
     let island = |island: &Value| {
         let props = island.get("props").unwrap_or(&Value::Null);
         match island.get("type").and_then(Value::as_str) {
@@ -335,7 +328,7 @@ fn content_spells_0_131_0(content: &serde_json::Value) -> bool {
             _ => false,
         }
     };
-    has_font(content) || table_element || list(content, "islands").any(island)
+    has_font(content) || list(content, "islands").any(island)
 }
 
 impl From<&Document> for DocumentV0_129_0 {
@@ -633,9 +626,7 @@ fn append_block(mut dst: Content, mut src: Content) -> Content {
         if let Some(top) = line.containers.first_mut() {
             match top {
                 Container::ListItem { instance, .. }
-                | Container::Quote { instance }
-                | Container::Description { instance }
-                | Container::Element { instance, .. } => {
+                | Container::Quote { instance } => {
                     *instance += lift;
                 }
             }
@@ -975,7 +966,8 @@ This body and the metadata above are an indorsement card.
         assert!(serde_json::from_value::<Document>(row.into()).is_err());
     }
 
-    /// The `0.124.0` hop decodes its raw body with the live decoder.
+    /// The `0.124.0` hop decodes its raw body with the live decoder, which
+    /// loads an element as the lines it held.
     #[test]
     fn a_0_124_0_row_reads_through_the_body_decode() {
         let mut row = row_0_124_0(
@@ -989,7 +981,7 @@ This body and the metadata above are an indorsement card.
             "text": "a",
         });
         let doc: Document = serde_json::from_value(row.into()).unwrap();
-        assert_eq!(doc.main().body().lines[0].containers[0].tag(), "element");
+        assert!(doc.main().body().lines[0].containers.is_empty());
         let rewritten = serde_json::to_string(&doc).unwrap();
         assert_eq!(peek_storage_version(&rewritten).as_deref(), Some(STORAGE_V0_129_0));
     }
@@ -1089,8 +1081,9 @@ title: Hi
             .contains("$kind: main # required for root"));
     }
 
-    /// A field's content is untagged, so no hop respells a stored `loss` or
-    /// `island` line kind there: the decoder reads both.
+    /// A field's content is untagged, so no hop respells a stored `loss`, an
+    /// `island` or `term` line kind, or an `element` container there: the
+    /// decoder reads each.
     #[test]
     fn a_retired_content_spelling_in_a_field_loads() {
         let blob = |value: &str| {
@@ -1118,9 +1111,15 @@ title: Hi
         let retired = canonical
             .replace(r#""id":"isl-0","#, r#""id":"isl-0","loss":"lossless","#)
             .replace(r#""id":"isl-1","#, r#""id":"isl-1","loss":"degraded","#)
-            .replacen(r#""kind":"para"}]"#, r#""kind":"island"}]"#, 1);
+            .replacen(r#""kind":"para"}]"#, r#""kind":"island"}]"#, 1)
+            .replacen(
+                r#"{"containers":[],"kind":"para"}"#,
+                r#"{"containers":[{"attrs":{"$name":"keep"},"container":"element"}],"kind":"term"}"#,
+                1,
+            );
         assert_eq!(retired.matches(r#""loss":"#).count(), 2, "{retired}");
         assert!(retired.contains(r#""kind":"island""#), "{retired}");
+        assert!(retired.contains(r#""kind":"term""#), "{retired}");
         let current = serde_json::from_str::<Document>(&blob(&canonical))
             .expect("the current spelling loads");
         let respelled = serde_json::from_str::<Document>(&blob(&retired))
@@ -1491,14 +1490,11 @@ title: Hi
         );
     }
 
-    /// A `0.130` build refuses an element named `table` as a corrupt row and
-    /// draws a merged cell unmerged, so a body holding either takes `0.131.0`;
-    /// another element or a plain table keeps `0.129.0`.
+    /// A `0.130` build draws a merged cell unmerged, so a body holding one
+    /// takes `0.131.0`; a plain table keeps `0.129.0`.
     #[test]
-    fn a_table_element_or_span_takes_the_newest_tag() {
+    fn a_span_takes_the_newest_tag() {
         for (markdown, tag) in [
-            ("<qm-table>\n\npara\n\n</qm-table>", STORAGE_V0_131_0),
-            ("<qm-box>\n\npara\n\n</qm-box>", STORAGE_V0_129_0),
             ("<table><tr><th colspan=\"2\">h</th></tr><tr><td>a</td><td>b</td></tr></table>", STORAGE_V0_131_0),
             (
                 "<table><tr><th>h</th><th>i</th></tr><tr><td rowspan=\"2\">a</td><td>b</td></tr><tr><td>c</td></tr></table>",

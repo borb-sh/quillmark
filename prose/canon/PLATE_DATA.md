@@ -140,7 +140,7 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
 | `roster(dict, key)` | a matrix's rows ([A `matrix` field](#a-matrix-field)) |
 | `str(value)` | a `text` value's verbatim `str` ([Text as a str](#text-as-a-str)) |
 | `form-field(..)`, `signature-field(..)` | a form widget, bound to a field by `field:` |
-| `tasks`, `elements` | the task-item and element renderer registries |
+| `tasks` | the task-item renderer registry |
 
 Internals keep a `_qm-` prefix.
 

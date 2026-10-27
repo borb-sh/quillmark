@@ -7,7 +7,6 @@
 //! only; SVG and PNG render an invisible placeholder.
 
 mod compile;
-mod elements;
 /// Content → Typst-markup lowering plus its per-segment source map.
 mod emit;
 mod error_mapping;
@@ -118,7 +117,6 @@ fn recompile(
         world,
         compile_warnings,
         &unclosed,
-        elements::unregistered(&document, config, data),
         tex::unsupported(config, data),
         families::unknown(config, data, world.families()),
         glyphs::missing(&document),
@@ -141,7 +139,6 @@ fn session_warnings(
     world: &world::QuillWorld,
     compile: Vec<Diagnostic>,
     unclosed: &[(usize, String)],
-    unregistered: Vec<Diagnostic>,
     unsupported_tex: Vec<Diagnostic>,
     unknown_families: Vec<Diagnostic>,
     missing_glyphs: Option<Diagnostic>,
@@ -160,7 +157,6 @@ fn session_warnings(
                 .to_string(),
         )
     }));
-    all.extend(unregistered);
     all.extend(unsupported_tex);
     all.extend(unknown_families);
     all.extend(missing_glyphs);

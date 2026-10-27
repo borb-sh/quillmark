@@ -1,5 +1,5 @@
 //! Content nested to the import bound renders. Typst refuses past a show-rule
-//! depth of 64, which each quote, list and element level spends from and the
+//! depth of 64, which each quote and list level spends from and the
 //! marks around the deepest run spend from again.
 
 use quillmark_content::{
@@ -20,20 +20,11 @@ const MARKED: &str = "**_~~<u>[`x`](https://example.com)</u>~~_**";
 /// link's text.
 const EXPORTABLE: &str = "**_~~<u>[x](https://example.com) `y`</u>~~_**";
 
-/// `inner` inside `n` nested `qm-keep` elements, the one element every quill
-/// renders.
-fn elements(n: usize, inner: &str) -> String {
-    format!("{}{inner}{}", "<qm-keep>\n\n".repeat(n), "\n\n</qm-keep>".repeat(n))
-}
-
 #[test]
 fn containers_alone_count_toward_the_bound() {
     let n = MAX_NESTING_DEPTH;
-    let nest = |level: &str, n: usize, inner: &str| match level {
-        "element" => elements(n, inner),
-        _ => format!("{}{inner}", level.repeat(n)),
-    };
-    for level in ["> ", "- ", "1. ", "element"] {
+    let nest = |level: &str, n: usize, inner: &str| format!("{}{inner}", level.repeat(n));
+    for level in ["> ", "- ", "1. "] {
         let deepest = from_markdown(&nest(level, n, MARKED))
             .expect("imports at the bound")
             .content
@@ -62,13 +53,12 @@ fn marked_content_nested_to_the_bound_renders_and_round_trips() {
     let alternating = |a: &str, b: &str| -> String {
         (0..n).map(|i| if i % 2 == 0 { a } else { b }).collect()
     };
-    let shapes: [&dyn Fn(&str) -> String; 6] = [
+    let shapes: [&dyn Fn(&str) -> String; 5] = [
         &|marks| format!("{}{marks}", "> ".repeat(n)),
         &|marks| format!("{}{marks}", "- ".repeat(n)),
         &|marks| format!("{}{marks}", "1. ".repeat(n)),
         &|marks| format!("{}{marks}", alternating("> ", "- ")),
         &|marks| format!("{}{marks}", alternating("1. ", "> ")),
-        &|marks| elements(n, marks),
     ];
     for shape in shapes {
         for marks in [MARKED, EXPORTABLE] {

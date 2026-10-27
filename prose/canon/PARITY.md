@@ -60,7 +60,7 @@ import meets. The columns:
 | spells | the surface has a form for the construct and reads it back as written |
 | carries opaquely | the surface keeps the construct without reading it: an opaque carrier, or a markdown write through `revise` keeping an anchor by diff-rebase |
 | honors | the lowering draws it as CONVERT.md maps it |
-| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render or `validate` under `backend::declined_construct`, or a render under `typst::unregistered_element` for an element |
+| declines with a signal | the surface drops it and reports so: an import under `parse::dropped_construct`, a render or `validate` under `backend::declined_construct` |
 | refuses | the surface rejects the write |
 | silent: honored | no signal, and none is owed: the outcome is the one the construct asks for |
 | n/a | the surface never meets the construct: past the markdown column, a spelling the import does not store |
@@ -77,7 +77,6 @@ import meets. The columns:
 | `line.code.html`: a fence holding `<!-- a --> b` | spells | spells | spells | honors | silent: honored | none |
 | `line.rule`: thematic break | spells | spells | spells | honors | silent: honored | none |
 | `line.continues`: hard break | spells | spells | spells | honors | silent: honored | none |
-| `line.term`: a definition list's term, across a hard break | spells | spells | spells | honors | silent: honored | none |
 
 ### Containers
 
@@ -91,23 +90,11 @@ import meets. The columns:
 | `container.list_item.task`: a task item, ticked and open | spells | spells | spells | honors | silent: honored | none |
 | `container.quote`: block quote | spells | spells | spells | honors | silent: honored | none |
 | `container.quote.instance`: two adjacent quotes | spells | spells | spells | honors | silent: honored | none |
-| `container.description`: a term's description | spells | spells | spells | honors | silent: honored | none |
-| `container.description.instance`: two descriptions of one term | spells | spells | spells | honors | silent: honored | none |
-| `container.element`: an element around blocks | spells | spells | spells | honors | silent: honored | none |
-| `container.element.attrs`: an element carrying an attribute | spells | spells | spells | honors | silent: honored | none |
-| `container.element.instance`: two adjacent runs of one element | spells | spells | spells | honors | silent: honored | none |
-| `container.element.in_item`: an element in a list item | spells | spells | spells | honors | silent: honored | none |
-| `container.element.around_list`: an element around a list | spells | spells | spells | honors | silent: honored | none |
-| `container.element.unregistered`: an element no renderer takes | spells | spells | spells | declines with a signal | drops silently | `typst::unregistered_element` |
 
 Two adjacent bullet lists lower to items a blank line parts, which Typst reads
 as one wide list: the `instance` boundary does not reach the page.
 
-An element lowers through the helper's dispatcher, which draws it with the
-renderer a plate registers under its name ([CONVERT.md](CONVERT.md#elements)).
-One no renderer takes draws what it wraps, and only a compile reads the
-registry, so `validate` cannot report it.
-A task item's body lowers the same way, through the renderer a plate sets on
+A task item's body lowers through the helper, through the renderer a plate sets on
 `tasks`, else as a box ticked when done.
 
 ### Marks
@@ -228,14 +215,7 @@ above, or markup the content does not store.
 | `html.comment` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `html.tag_line.paragraph`: a type 6 tag line under paragraph text, dropping what follows to the blank line | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
 | `html.tag_line.list`: a tag line between list items, ending the list | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
-| `carrier.element.tight`: element tag lines tight around markdown | spells | spells | spells | honors | silent: honored | none |
-| `carrier.element.void`: an element around nothing | spells | spells | spells | honors | silent: honored | none |
-| `carrier.element.unclosed`: an element still open where the body ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
-| `carrier.element.self_closing`: a self-closing element tag | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
-| `carrier.element.inline`: an element pair inside a line | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-hl` |
-| `carrier.element.attr`: an element attribute outside the grammar | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep[onclick]` |
-| `carrier.element.stray_close`: an element close tag with nothing open | silent: honored | n/a | n/a | n/a | n/a | none |
-| `carrier.element.stray_close.tight`: an element close tag with nothing open, tight above markdown it keeps | silent: honored | n/a | n/a | n/a | n/a | none |
+| `carrier.element.dropped`: a `qm-*` tag pair outside `qm-span` and `qm-anchor`, what it wraps kept | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep` |
 | `carrier.font.value`: a `qm-span` attribute other than `family`, the family kept | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-span[color]` |
 | `carrier.font.unclosed`: a `qm-span` still open where its text ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-span` |
 | `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
@@ -246,7 +226,7 @@ above, or markup the content does not store.
 | `markdown.footnote.in_cell`: a footnote reference in a table cell, and its note | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `footnote` |
 | `markdown.math.in_cell`: an equation in a table cell, kept as its source | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `math` |
 | `markdown.math.dollar`: a `$` that opens no equation | silent: honored | n/a | n/a | n/a | n/a | none |
-| `markdown.description.colon`: a paragraph line opening `\:`, which no term takes | silent: honored | n/a | n/a | n/a | n/a | none |
+| `markdown.description_list`: a definition list, read as the paragraph CommonMark reads | drops silently | n/a | n/a | n/a | n/a | none |
 
 `html.br` and `html.u` land as a hard break and an underline, so their cells
 past markdown read those constructs. What a markup row wraps imports as

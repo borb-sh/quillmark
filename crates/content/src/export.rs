@@ -31,9 +31,7 @@
 //! ending in an `alt`) comes back rewritten. A link over a footnote reference
 //! comes back as two links, one each side: link text reads no reference. An
 //! equation whose `tex` its dollars cannot read back as itself comes back as
-//! other markup. A term with no description below it comes back with an empty
-//! one, and a description with no term above it under an empty term: markdown
-//! writes neither half of a definition alone. Each arises only from adversarial delimiter/break placement, a
+//! other markup. Each arises only from adversarial delimiter/break placement, a
 //! hand-built island prop or mark, a stored value, or an editor's empty line.
 
 use crate::island::IslandType;
@@ -303,9 +301,6 @@ struct Frame<'a> {
     container: Option<&'a Container>,
     at: usize,
     head: Option<usize>,
-    /// What the block written last describes a [`Container::Description`]
-    /// after it as.
-    last: Before,
     range: std::ops::Range<usize>,
     depth: usize,
     buf: String,
@@ -317,7 +312,6 @@ impl<'a> Frame<'a> {
             container,
             at: range.start,
             head: None,
-            last: Before::Other,
             range,
             depth,
             buf: String::new(),
@@ -344,16 +338,7 @@ fn emit_block(ctx: &Ctx, range: std::ops::Range<usize>, depth: usize, out: &mut 
                 let item = crate::traverse::items(lines, i..frame.range.end, frame.depth)
                     .next()
                     .expect("a line with a container at `depth` opens an item");
-                let description = matches!(item.container, Container::Description { .. });
-                match std::mem::replace(&mut frame.last, if description { Before::Description } else { Before::Other }) {
-                    Before::Term if description => frame.buf.push('\n'),
-                    before => {
-                        block_separator(&mut frame.buf, frame.head.is_none());
-                        if description && before == Before::Other {
-                            frame.buf.push_str("[]()\n");
-                        }
-                    }
-                }
+                block_separator(&mut frame.buf, frame.head.is_none());
                 frame.head.get_or_insert(i);
                 frame.at = item.range.end;
                 let child = Frame::open(Some(item.container), item.range, frame.depth + 1);
@@ -369,17 +354,7 @@ fn emit_block(ctx: &Ctx, range: std::ops::Range<usize>, depth: usize, out: &mut 
                 }
                 block_separator(&mut frame.buf, frame.head.is_none());
                 frame.head.get_or_insert(i);
-                let term = lines[i].kind == LineKind::Term && block_island(ctx, i).is_none();
-                frame.last = if term { Before::Term } else { Before::Other };
-                let described = lines
-                    .get(seg.end)
-                    .filter(|_| seg.end < frame.range.end)
-                    .and_then(|l| l.containers.get(frame.depth))
-                    .is_some_and(|c| matches!(c, Container::Description { .. }));
                 emit_leaf_block(ctx, seg, &mut frame.buf);
-                if term && !described {
-                    frame.buf.push_str("\n:");
-                }
             }
             continue;
         }
@@ -399,14 +374,6 @@ fn emit_block(ctx: &Ctx, range: std::ops::Range<usize>, depth: usize, out: &mut 
             None => out.push_str(&done.buf),
         }
     }
-}
-
-/// The block a [`Frame`] wrote last, as a description below it reads it.
-#[derive(Clone, Copy, PartialEq)]
-enum Before {
-    Term,
-    Description,
-    Other,
 }
 
 fn block_separator(out: &mut String, first_block: bool) {
@@ -491,8 +458,6 @@ fn close_container(key: &Container, inner: &str, prose_head: bool, out: &mut Str
             // one quote on re-import.
             prefix_quote(inner, out);
         }
-        Container::Description { .. } => prefix_lines(inner, ": ", "  ", out),
-        Container::Element { element, .. } => out.push_str(&element.wrap_block(inner)),
     }
 }
 
@@ -594,15 +559,11 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
         }
         // An empty line between hard breaks writes nothing, which a trailing
         // `\` would spell as text.
-        LineKind::Para | LineKind::Term => {
+        LineKind::Para => {
             let parts: Vec<String> = range
                 .map(|i| render_inline(ctx, i, false, dollar))
                 .filter(|part| !part.is_empty())
                 .collect();
-            // An empty link is the one empty spelling of a term.
-            if parts.is_empty() && first.kind == LineKind::Term {
-                out.push_str("[]()");
-            }
             out.push_str(&parts.join("\\\n"));
         }
         // `***`, not `---`: all three break spellings import alike, but `---` is
@@ -1719,8 +1680,6 @@ fn escape_char_into(c: char, leading: bool, esc: Esc, out: &mut String) {
         // heading, so only a continuation line can start one. One escaped `=`
         // defeats the whole underline.
         '=' if leading => "\\=",
-        // A paragraph's line opening `: ` is a description of the one above.
-        ':' if leading => "\\:",
         other => {
             out.push(other);
             return;
@@ -1999,32 +1958,6 @@ mod tests {
             rt, rt2,
             "content not a fixed point.\n  in:  {md:?}\n  mid: {md2:?}"
         );
-    }
-
-    #[test]
-    fn a_definition_list_round_trips_and_its_halves_alone_take_an_empty_other() {
-        for md in [
-            "T\n: d",
-            "T\n: a\n\n  b\n\n: c",
-            "T\n: U\n  : d",
-            "- T\n  : d",
-            "> T\n> : d",
-            "T\n: d\n\nU\n: e",
-            "[]()\n: d",
-            "\\: d",
-            "P\\\n\\: d",
-        ] {
-            round_trips(md);
-            assert_eq!(to_markdown(&from_markdown(md).unwrap().content), md);
-        }
-        let description = vec![Container::Description { instance: 0 }];
-        let rt = Content::new("P\nd\nT".into(), vec![
-            Line::new(LineKind::Para),
-            Line::new(LineKind::Para).with_containers(description),
-            Line::new(LineKind::Term),
-        ])
-        .into_normalized();
-        assert_eq!(to_markdown(&rt), "P\n\n[]()\n: d\n\nT\n:");
     }
 
     /// A `!` before a link stays text, not the `!` of an image.

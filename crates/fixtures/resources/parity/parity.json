@@ -173,41 +173,6 @@
     }
   },
   {
-    "name": "line.term",
-    "markdown": "One\\\nTwo\n: Both.",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "term"
-        },
-        {
-          "containers": [],
-          "continues": true,
-          "kind": "term"
-        },
-        {
-          "containers": [
-            {
-              "container": "description"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "One\nTwo\nBoth."
-    },
-    "typst": [
-      "#terms.item[One"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
     "name": "container.list_item.bullet",
     "markdown": "- one\n- two",
     "content": {
@@ -537,75 +502,6 @@
     "typst": [
       "#quote(block: true)[\none",
       "#quote(block: true)[\ntwo"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "container.description",
-    "markdown": "Term\n: Description.",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "term"
-        },
-        {
-          "containers": [
-            {
-              "container": "description"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Term\nDescription."
-    },
-    "typst": [
-      "#terms.item[Term][\nDescription."
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "container.description.instance",
-    "markdown": "Term\n: One.\n\n: Two.",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "term"
-        },
-        {
-          "containers": [
-            {
-              "container": "description"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "container": "description",
-              "instance": 1
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Term\nOne.\nTwo."
-    },
-    "typst": [
-      "#terms.item[Term][\nOne.\n\nTwo."
     ],
     "signals": {
       "import": [],
@@ -2880,20 +2776,13 @@
     }
   },
   {
-    "name": "container.element",
+    "name": "carrier.element.dropped",
     "markdown": "<qm-keep>\n\n**Signed**\n\n</qm-keep>",
     "content": {
       "islands": [],
       "lines": [
         {
-          "containers": [
-            {
-              "attrs": {
-                "$name": "keep"
-              },
-              "container": "element"
-            }
-          ],
+          "containers": [],
           "kind": "para"
         }
       ],
@@ -2907,289 +2796,7 @@
       "text": "Signed"
     },
     "typst": [
-      "#_qm-element(\"keep\", (:))[\n#strong[Signed]"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "container.element.attrs",
-    "markdown": "<qm-keep note=\"x\">\n\nText\n\n</qm-keep>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "$name": "keep",
-                "note": "x"
-              },
-              "container": "element"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Text"
-    },
-    "typst": [
-      "#_qm-element(\"keep\", (\"note\": \"x\"))[\nText"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "container.element.instance",
-    "markdown": "<qm-keep>\n\none\n\n</qm-keep>\n\n<qm-keep>\n\ntwo\n\n</qm-keep>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "$name": "keep"
-              },
-              "container": "element"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "attrs": {
-                "$name": "keep"
-              },
-              "container": "element",
-              "instance": 1
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "one\ntwo"
-    },
-    "typst": [
-      "#_qm-element(\"keep\", (:))[\none",
-      "#_qm-element(\"keep\", (:))[\ntwo"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "container.element.in_item",
-    "markdown": "- <qm-keep>\n\n  one\n\n  </qm-keep>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": false,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item"
-            },
-            {
-              "attrs": {
-                "$name": "keep"
-              },
-              "container": "element"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "one"
-    },
-    "typst": [
-      "- #_qm-element(\"keep\", (:))[\n  one"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "container.element.around_list",
-    "markdown": "<qm-keep>\n\n- one\n- two\n\n</qm-keep>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "$name": "keep"
-              },
-              "container": "element"
-            },
-            {
-              "attrs": {
-                "ordered": false,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "attrs": {
-                "$name": "keep"
-              },
-              "container": "element"
-            },
-            {
-              "attrs": {
-                "ordered": false,
-                "ordinal": 1,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "one\ntwo"
-    },
-    "typst": [
-      "#_qm-element(\"keep\", (:))[\n- one\n- two"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "container.element.unregistered",
-    "markdown": "<qm-kep>\n\nText\n\n</qm-kep>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "$name": "kep"
-              },
-              "container": "element"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Text"
-    },
-    "typst": [
-      "#_qm-element(\"kep\", (:))[\nText"
-    ],
-    "signals": {
-      "import": [],
-      "render": [
-        "typst::unregistered_element"
-      ]
-    }
-  },
-  {
-    "name": "carrier.element.tight",
-    "markdown": "<qm-keep>\n**Signed**\n</qm-keep>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "$name": "keep"
-              },
-              "container": "element"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 6,
-          "start": 0,
-          "type": "strong"
-        }
-      ],
-      "text": "Signed"
-    },
-    "typst": [
-      "#_qm-element(\"keep\", (:))[\n#strong[Signed]"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.element.void",
-    "markdown": "<qm-sig></qm-sig>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "$name": "sig"
-              },
-              "container": "element"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": ""
-    },
-    "typst": [
-      "#_qm-element(\"sig\", (:))["
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.element.unclosed",
-    "markdown": "<qm-keep>\n\nText",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Text"
-    },
-    "typst": [
-      "Text"
+      "#strong[Signed]"
     ],
     "signals": {
       "import": [
@@ -3202,8 +2809,8 @@
     }
   },
   {
-    "name": "carrier.element.self_closing",
-    "markdown": "<qm-keep/>\n\nText",
+    "name": "markdown.description_list",
+    "markdown": "Term\n: Description.",
     "content": {
       "islands": [],
       "lines": [
@@ -3213,130 +2820,10 @@
         }
       ],
       "marks": [],
-      "text": "Text"
+      "text": "Term : Description."
     },
     "typst": [
-      "Text"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "qm-keep",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.element.inline",
-    "markdown": "A <qm-hl tone=\"cool\">pair</qm-hl> here.",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "A pair here."
-    },
-    "typst": [
-      "A pair here."
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "qm-hl",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.element.attr",
-    "markdown": "<qm-keep onclick=\"x\">\n\nText\n\n</qm-keep>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "$name": "keep"
-              },
-              "container": "element"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Text"
-    },
-    "typst": [
-      "#_qm-element(\"keep\", (:))[\nText"
-    ],
-    "signals": {
-      "import": [
-        {
-          "construct": "qm-keep[onclick]",
-          "count": 1
-        }
-      ],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.element.stray_close",
-    "markdown": "Text\n\n</qm-keep>",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Text"
-    },
-    "typst": [
-      "Text"
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "carrier.element.stray_close.tight",
-    "markdown": "Text\n\n</qm-keep>\n**Kept**",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        },
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 9,
-          "start": 5,
-          "type": "strong"
-        }
-      ],
-      "text": "Text\nKept"
-    },
-    "typst": [
-      "#strong[Kept]"
+      "Term : Description."
     ],
     "signals": {
       "import": [],
@@ -3623,32 +3110,6 @@
     },
     "typst": [
       "It costs \\$5, or \\$6 with tax."
-    ],
-    "signals": {
-      "import": [],
-      "render": []
-    }
-  },
-  {
-    "name": "markdown.description.colon",
-    "markdown": "Above\n\n\\: not a description",
-    "content": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        },
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Above\n: not a description"
-    },
-    "typst": [
-      ": not a description"
     ],
     "signals": {
       "import": [],
