@@ -42,7 +42,7 @@ crate-internal to `quillmark-core` and never a storage option.
 
 ## The Format
 
-The current schema (`quillmark/document@0.129.0`) carries each card's full
+The current schema (`quillmark/document@0.131.0`) carries each card's full
 ordered payload: typed `$` system metadata, user fields, and YAML
 comments interleaved in source order: as a single discriminated-union
 item list. This is what makes inline-comment preservation symmetric across
@@ -139,6 +139,14 @@ applied: the output is `serde_json`'s compact form otherwise. Bumping the
 `schema` version is the only event that may change the byte layout of a
 document written by the current writer.
 
+**One settle under a held tag.** 0.131 settles a table's props further than
+0.130 did (§ Content vocabularies), so a `@0.129.0` row 0.130 wrote holding a table's
+`headless: true`, a cell's `colspan` or `rowspan`, or a `head` it now settles
+saves once with other bytes, and a hash over it recomputes once. The tag holds
+unless the settled props spell a member `0.131.0` adds, a span past 1 or a
+`head` past 1, which moves the row to `@0.131.0` (§ Schema Versioning). The settle is a fixed point, so the guarantee holds for every row 0.131
+wrote.
+
 **Resting form.** Byte-equality is over `Document` values, so it is only
 as useful as the model's agreement on what a given document *is*. A
 content field has one resting form per codec: a `richtext` field rests as
@@ -179,7 +187,7 @@ four discriminators are covered by their own rule: each is a **closed set**.
 |---|---|---|
 | Line `kind` | `para`, `heading`, `code`, `rule`, `term` | `LineKind` |
 | Container | `list_item`, `quote`, `description`, `element` | `Container` |
-| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor` | `MarkKind` |
+| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor`, `font_family` | `MarkKind` |
 | Island `type` | `table`, `image`, `footnote`, `math` | `IslandType` |
 
 A name outside one of them is `ParseError::UnknownName { axis, name }` at every
@@ -196,7 +204,7 @@ name.
 
 `element` is a closed member over an open payload. Its `attrs` bag holds the
 element's name under `$name`, any carrier element name but the reserved
-`table` and `anchor`, beside its attributes, each a string under a name
+`anchor`, beside its attributes, each a string under a name
 in the carrier's attribute grammar ([markdown-spec.md](../references/markdown-spec.md) §6.4).
 No attribute name opens with `$`, so the two never collide, as a card's `$kind`
 never meets a field. A new element name is no storage event, since no reader is
@@ -210,6 +218,26 @@ items differing in it sit in one list run. A reader drops a bag key it does not
 name, so a build without `checked` would read a task list as a plain one and
 save it so; the key arrived under the tag that brought `element` (`0.124.0`),
 which that reader refuses.
+
+`font_family` carries a family's name under `attrs.name`, stored as written and
+naming no font file: a backend resolves it at render. The name is not empty,
+has no space at either edge, and holds no control character, bidi control or
+line separator (`model::is_font_family_name`). It arrived with `0.131.0`.
+
+`font_family` is keyed (`MarkKind::is_keyed`): its tag is a key and its attrs
+the value, so a character holds at most one family and two `font_family` marks
+never overlap. Normalization settles overlap in raw input once, before the
+same-kind union: each stretch between two edges goes to the mark over it that
+starts later, then to the shorter, then to the later in canonical order. A
+`MarkOp::Add` of a keyed kind sets its value over its range, replacing every
+mark of the tag there, and a `MarkOp::Remove` takes one value off, leaving the
+stretch in no family. Storing one value per character keeps every edit local:
+a text edit never changes the family of text it keeps, and reading a
+character's family is a lookup.
+
+`link` is keyed the same way, its url the value: a character holds at most one link, as markdown and HTML can write no link inside another. A `MarkOp::Add` of a link over a link replaces the url there. Normalization settles keyed marks before it cuts marks at line breaks, so a split never multiplies overlapping links.
+
+A formatting mark in a body never spans a `\n`: `Content::normalize` cuts it at each one, so a mark over a hard break is one mark per line, the form markdown writes and the Typst lowering draws. A link over a break is two links with one url. A table cell's or footnote's marks may span its `\n`, which markdown writes as a `<br>` inside the mark's delimiters.
 
 `island` is the one name a decoder reads that no encoder writes, and the
 exception that shows the rule's price. It names the line a block island sits on,
@@ -293,10 +321,10 @@ stating because it is not the discriminator boundary:
   discipline is for.
 
 A table cell sits on the first side because it never became a struct, and it
-earns the place: cells are where the `table` type is likeliest to grow
-(`colspan`, `rowspan`, a per-cell style handle). Canonicalization therefore
-rewrites a cell's `text` and `marks` in place rather than minting a fresh
-`{text, marks}` object.
+earns the place: a cell's alignment and span keys joined it as opaque keys an
+older reader round-trips, and a later per-cell key joins the same way.
+Canonicalization therefore rewrites a cell's `text` and `marks` in place
+rather than minting a fresh `{text, marks}` object.
 
 A `footnote` island's props are one table cell, `{text, marks}`: the note,
 with no `\n` at either edge, normalized as a cell is and keeping a key it does
@@ -325,26 +353,48 @@ default:
 |---|---|---|
 | `widths` | one entry per column, an integer weight from 1 to 2⁵³ − 1 or `null` for an auto-fit column; settled to the column count | every entry `null` |
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
-| `headless` | `true`: `header` is the first body row, drawn as one | a header row |
+| `head` | how many rows, from the top of `header` then `rows`, are header rows: a whole number, at most the row count; `0` draws `header` as the first body row | `1` |
 
 `widths` are weights, not lengths, so each plate decides what full width is.
-The keys ride the opaque props carrier, which an older reader round-trips, so
-adding them is no storage-version event, and a later props key joins the same
-way.
+`headless: true` sits beside every `head: 0`, which a 0.130 reader, knowing
+`headless` alone, needs to draw no header row; beside any other `head` it is
+absent. A stored `headless: true` beside no whole-number `head` reads as
+`head: 0`, and normalization writes `head: 0` beside it. The keys ride the opaque props carrier, which an
+older reader round-trips, so adding them is no storage-version event, and a
+later props key joins the same way.
 
-A cell names two keys of its own, each absent by default:
+A cell names four keys of its own, each absent by default:
 
 | Key | Value | Default |
 |---|---|---|
 | `align` | the cell's horizontal alignment: `left`, `center` or `right` | its column's `aligns` entry |
 | `valign` | the cell's vertical alignment: `top`, `middle` or `bottom` | the plate's |
+| `colspan` | the columns the cell covers, a whole number from 1 | `1` |
+| `rowspan` | the rows the cell covers, a whole number from 1 | `1` |
 
 A cell's value equal to its column's is an override that stays when the
-column changes. A table or cell key holding a value outside its set is read
-as absent and rides untouched, as an unnamed key does, so
-`from_markdown(to_markdown(c)) == c` holds where every value is in its set.
+column changes. The grid stays rectangular under a span: each cell a span
+covers holds its slot as an empty placeholder, so a merge needs no
+storage-version event. `Content::normalize` settles each span so it covers
+only what it can (`island::table_spans`):
 
-Two rules bound the payload:
+- Cells claim slots in reading order, so the earlier span wins.
+- A span covers only cells holding no text and no mark that no other span
+  covers, inside the grid and inside its own section: the `head` rows or the
+  body. A comment's anchor is a mark, so the cell it targets stays drawn.
+- A span is stored as it covers, absent at 1, and a covered cell's span keys
+  are absent. A covered cell keeps its `align` and `valign`, which it draws
+  again once no span covers it; markdown spells no covered cell, so
+  `from_markdown(to_markdown(c))` drops them.
+
+A table or cell key holding a value outside its set is read as absent and
+rides untouched, as an unnamed key does, so `from_markdown(to_markdown(c)) ==
+c` holds where every value is in its set and no covered cell holds an
+alignment. Markdown writes a table as a GFM pipe
+table or as HTML, whichever holds it
+([markdown-spec.md](../references/markdown-spec.md) §6.8).
+
+Three rules bound the payload:
 
 - **Payload depth is capped at `MAX_JSON_DEPTH` (128).** Island `props` is host
   JSON of arbitrary shape, but not arbitrary depth: key canonicalization, the
@@ -358,6 +408,14 @@ Two rules bound the payload:
   wire, before it is cloned into the model; `Content::validate` restates it as
   `Invariant::JsonTooDeep` for content that never went through a decoder. This
   is `Invariant::NestingTooDeep`'s container cap on the payload axis.
+
+- **A table's grid is capped at `MAX_TABLE_CELLS` (100 000) slots**, its rows,
+  the header among them, times its widest row. The mint pads every row to the
+  widest, so a few bytes of props can ask for millions of cells, on wasm32 an
+  allocation that traps. The decoder refuses such a table before the mint
+  pads it, as `Invariant::TableTooLarge`, which `Content::validate` restates;
+  markdown import drops the rows past the cap instead, its tables sharing
+  one cap, warning `table:size`.
 
 - **Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
   `lang`, a `link`'s `url`, a `list_item`'s shape and an `element`'s name and
@@ -590,27 +648,45 @@ this policy holds either way.
 
 The schema version is tied to the **crate version at which the `Document`
 wire format was last changed**: not the running crate version. The
-current format was fixed in `0.129.0`, so the version tag is
-`quillmark/document@0.129.0`; every later patch release writes that same
-value, because patches do not change the format.
+current format was fixed in `0.131.0`, so the version tag is
+`quillmark/document@0.131.0`; every later patch release writes that same
+value, because patches do not change the format. A save writes the oldest tag
+that holds the row: one holding none of the members a 0.130 build refuses or
+draws otherwise keeps `quillmark/document@0.129.0`, which a 0.129 or 0.130
+build reads. Those members are a `font_family` mark, an element named `table`,
+a table cell whose `colspan` or `rowspan` exceeds 1, and a table `head` other
+than 1, save a `head: 0` stored beside the `headless: true` a 0.130 build
+reads. The writer looks for them in each body and in each field and `$seed`
+value that decodes as content; an `$ext` value is opaque and never read
+(`dto::spells_0_131_0`).
 
 The format is the *bytes*, not only the envelope: `0.115.0` left the DTO tree
 untouched, dropped an island's `loss` key and retired the `island` line kind
 (§ Content vocabularies), which is a format change because the writer emits
 different bytes for the same document — every document holding an island.
 
-`0.124.0` and `0.129.0` share one tree: a field item is
+`0.124.0`, `0.129.0` and `0.131.0` share one tree: a field item is
 `{type: field, key, value}`, and a document, card, payload or payload item
 carrying a key its type does not name fails the load. `0.124.0` spells `body`
 over the content vocabulary that has `element` among the containers and
 `checked` in a list item's `attrs`. `0.129.0` adds `footnote` and `math` to the
 island vocabulary, `term` to the line kinds and `description` to the
-containers.
+containers. `0.131.0` adds `font_family` to the marks, the element name
+`table`, a table's `head` and a cell's `colspan` and `rowspan`, and its
+DTO is `0.129.0`'s (`DocumentV0_131_0` aliases `DocumentV0_129_0`), so the
+reader opens both tags into one tree with no hop.
 
 The V0_124_0 → V0_129_0 hop decodes its raw `body`, and can reject for the same
 reason a load can. Only the newest DTO converts to the live `Document`.
 
 ## Adding a Schema Version
+
+A bump that only adds vocabulary members, as `0.131.0` did, needs none of
+the steps below: its tag aliases the newest tree, the reader matches both
+tags into it, and the writer keeps the older tag for a row spelling none of the
+new members. A member counts as new when the older reader refuses it or draws
+it otherwise, a key it carried as unknown and now means something included,
+and the writer's check names every one.
 
 When the `Document` wire format changes again:
 
@@ -696,7 +772,7 @@ sourcing it from a row count rather than a version number.
 
 ## Gotchas
 
-- The schema version is a hand-set constant (`STORAGE_V0_129_0`), **not**
+- The schema version is a hand-set constant (`STORAGE_V0_131_0`), **not**
   `CARGO_PKG_VERSION`: bumping it is a deliberate act tied to a model change.
 - Unknown schema versions are rejected on read, never silently ignored.
 - DTO type names carry version suffixes with underscores

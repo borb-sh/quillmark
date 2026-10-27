@@ -121,6 +121,9 @@ A task item's body lowers the same way, through the renderer a plate sets on
 | `mark.code` | spells | spells | spells | honors | silent: honored | none |
 | `mark.link` | spells | spells | spells | honors | silent: honored | none |
 | `mark.anchor` | carries opaquely | spells | spells | honors | silent: honored | none |
+| `mark.font_family`: a run in a family the host library holds | spells | spells | spells | honors | silent: honored | none |
+| `mark.font_family.unknown`: a run in a family the host library lacks | spells | spells | spells | declines with a signal | drops silently | `typst::unknown_font_family` |
+| `mark.across_break`: a mark over a hard break, one mark per line | spells | spells | spells | honors | silent: honored | none |
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
@@ -128,6 +131,23 @@ The annotated read spells it at its start as a `qm-anchor` tag the import
 drops, so the markdown cell stays `carries opaquely`: a write keeps an anchor by
 diff-rebase alone. The row's corpus entry pins the spelling under
 `annotated`.
+
+A font run lowers to the helper's `_qm-font` around each stretch one family
+sets ([CONVERT.md](CONVERT.md#font-runs)). Whether it sets that family depends
+on where it stands:
+
+| Context | Family |
+|---|---|
+| a code span | none: `raw` keeps its own font |
+| an inline equation | none: math keeps its own font |
+| a table | none over the table; a cell takes runs of its own |
+| a footnote | over the reference; the note keeps its own family and takes runs of its own |
+
+A family the host library lacks sets nothing, so its text keeps the
+surrounding family, and a render warns once per family and field. A family only
+the quill or the fallback ships counts as lacking. Only a session holds fonts,
+so `validate` cannot report it. The corpus renders with a library holding
+Roboto.
 
 ### Islands
 
@@ -139,6 +159,9 @@ diff-rebase alone. The row's corpus entry pins the spelling under
 | `island.table.cell.align`: a cell's horizontal alignment | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.valign`: a cell's vertical alignment | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.align_valign`: both, over a cell holding marks | spells | spells | spells | honors | silent: honored | none |
+| `island.table.cell.colspan`: a cell spanning two columns | spells | spells | spells | honors | silent: honored | none |
+| `island.table.cell.rowspan`: a cell spanning two rows | spells | spells | spells | honors | silent: honored | none |
+| `island.table.cell.font`: a cell holding a font run, one in an aligned cell | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.unnamed`: a props key Quillmark does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.unnamed`: a cell key Quillmark does not name | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
 | `island.table.cell.value`: a cell `valign` outside its set | drops silently | carries opaquely | carries opaquely | drops silently | drops silently | none |
@@ -146,22 +169,26 @@ diff-rebase alone. The row's corpus entry pins the spelling under
 | `island.table.props.widths`: column weights, `null` an auto-fit column | spells | spells | spells | honors | silent: honored | none |
 | `island.table.props.widths.auto`: every column auto-fit, the default | spells | spells | spells | silent: honored | silent: honored | none |
 | `island.table.props.align`: the table's placement | spells | spells | spells | honors | silent: honored | none |
-| `island.table.props.headless`: a table drawn with no header row | spells | spells | spells | honors | silent: honored | none |
+| `island.table.props.head`: two header rows, one holding a span | spells | spells | spells | honors | silent: honored | none |
+| `island.table.props.head.zero`: a table drawn with no header row | spells | spells | spells | honors | silent: honored | none |
 | `island.image` | spells | spells | spells | declines with a signal | declines with a signal | `backend::declined_construct`, `image` |
 | `island.footnote`: a footnote reference and its note | spells | spells | spells | honors | silent: honored | none |
 | `island.math`: an inline equation's TeX | spells | spells | spells | honors | silent: honored | none |
 | `island.math.display`: a display equation's TeX | spells | spells | spells | honors | silent: honored | none |
 | `island.math.unsupported`: a TeX command the lowering does not know | spells | spells | spells | declines with a signal | drops silently | `typst::unsupported_tex` |
 
-A table re-imports from its pipe syntax, so `to_markdown` and `revise` both
-mint it without a key Quillmark does not name.
+A table re-imports from its spelling, so `to_markdown` and `revise` both mint
+it without a key Quillmark does not name.
 
-`widths`, `align` and `headless` are spelled on a `qm-table` wrapper
-([markdown-spec.md](../references/markdown-spec.md) §6.4). Each is absent at
-its default, so a default row stores no key.
+A table with one header row and no `widths`, placement, or cell alignment or
+span is a GFM pipe table. Any other is an HTML table
+([markdown-spec.md](../references/markdown-spec.md) §6.8): `widths`, `aligns`
+and `align` on its `<table>`, its `head` rows in its `thead`, and a cell's keys
+on its `<td>` or `<th>`. Each key is absent at its default, so a default row
+stores none.
 
-A cell's `align` and `valign` are spelled on a `qm-cell` pair around the cell's
-whole content (§6.4).
+A cell a span covers is an empty placeholder in storage. The HTML leaves it
+out, as HTML does, and the lowering skips it.
 
 A table or cell key holding a value outside its set rests as written and rides
 as a key Quillmark does not name does.
@@ -187,6 +214,15 @@ above, or markup the content does not store.
 | `html.u.attrs`: `<u>` carrying an attribute | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `u` |
 | `html.span`: other inline HTML | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `span` |
 | `html.block6.table`: a type 6 block, `<div>`, with blank lines around a table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `div` |
+| `html.table`: an HTML table pipes can write, a cell holding markdown | spells | spells | spells | honors | silent: honored | none |
+| `html.table.lenient`: an HTML table leaving out its end tags, `thead` and quotes | spells | spells | spells | honors | silent: honored | none |
+| `html.table.blank_line`: a blank line inside an HTML table, ending it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table`, `tr`, `td` |
+| `html.table.attr`: an attribute the HTML subset does not read, beside ones that only style the table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table[bgcolor]`, `td[nowrap]` |
+| `html.table.value`: a span value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `td[colspan]` |
+| `html.table.overlap`: a `colspan` reaching a slot a `rowspan` covers, stopping short of it | drops silently | n/a | n/a | n/a | n/a | none |
+| `html.table.row`: rows short of the grid's widest | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table:row` |
+| `html.table.text`: a `caption` and its text outside every cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `caption`, `table:text` |
+| `html.table.tail`: prose tight under an HTML table's `</table>` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `html.block6.text`: a type 6 block, `<center>`, tight around text, dropping it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `center` |
 | `html.block1`: a type 1 block, `<pre>` | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `pre` |
 | `html.comment` | silent: honored | n/a | n/a | n/a | n/a | none |
@@ -200,12 +236,8 @@ above, or markup the content does not store.
 | `carrier.element.attr`: an element attribute outside the grammar | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-keep[onclick]` |
 | `carrier.element.stray_close`: an element close tag with nothing open | silent: honored | n/a | n/a | n/a | n/a | none |
 | `carrier.element.stray_close.tight`: an element close tag with nothing open, tight above markdown it keeps | silent: honored | n/a | n/a | n/a | n/a | none |
-| `carrier.table`: the reserved `qm-table` around a table | spells | spells | spells | honors | silent: honored | none |
-| `carrier.table.holds_other`: a `qm-table` around anything but one table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table` |
-| `carrier.table.attr`: a `qm-table` attribute Quillmark does not name | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table[foo]` |
-| `carrier.table.value`: a `qm-table` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-table[widths]` |
-| `carrier.cell.partial`: a `qm-cell` pair around part of a cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell` |
-| `carrier.cell.value`: a `qm-cell` attribute value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-cell[valign]` |
+| `carrier.font.value`: a `qm-span` attribute other than `family`, the family kept | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-span[color]` |
+| `carrier.font.unclosed`: a `qm-span` still open where its text ends | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `qm-span` |
 | `carrier.anchor`: an echoed `qm-anchor` | silent: honored | n/a | n/a | n/a | n/a | none |
 | `markdown.link_title`: a link's title | drops silently | n/a | n/a | n/a | n/a | none |
 | `markdown.cell_image`: an image in a table cell | drops silently | n/a | n/a | n/a | n/a | none |
@@ -220,6 +252,11 @@ above, or markup the content does not store.
 past markdown read those constructs. What a markup row wraps imports as
 markdown and has its own row. A cell image's alt text lands as the cell's text
 and its url nowhere.
+
+`html.table` and `html.table.lenient` land as a table, so their cells past
+markdown read the table construct. The first re-exports as pipes and the
+second as canonical HTML: storage, not the source, picks the spelling. A
+declining `html.table.*` row stores its table without what dropped.
 
 ## The corpus
 

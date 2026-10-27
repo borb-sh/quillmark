@@ -18,6 +18,7 @@ use std::ops::Range;
 use crate::emit::{
     emit_content, emit_content_inline, escape_string, EmitError, Emission, SegmentMap,
 };
+use crate::families::Families;
 use crate::SchemaMeta;
 use quillmark_content::serial::from_canonical_value;
 use quillmark_core::quill::{
@@ -48,6 +49,7 @@ pub struct ContentMap {
 pub fn generate_lib_typ(
     data: &serde_json::Value,
     meta: &SchemaMeta,
+    families: &Families,
 ) -> Result<(String, Vec<ContentMap>), EmitError> {
     let mut cg = Codegen::new(meta);
     let empty = serde_json::Map::new();
@@ -58,12 +60,28 @@ pub fn generate_lib_typ(
         return Err(e);
     }
     let ink_literal = ink_literal(cg.ink);
+    let literal = |set: &std::collections::BTreeSet<String>| {
+        wrap_array(set.iter().map(|f| format!("\"{}\"", escape_string(f))).collect())
+    };
+    let held_literal = literal(&families.held);
+    let offered_literal = wrap_dict(
+        families
+            .offered
+            .iter()
+            .map(|(family, alias)| format!("\"{}\": \"{}\"", escape_string(family), escape_string(alias)))
+            .collect(),
+    );
 
     // Placeholders are located in the *raw template* (trusted static text), never
     // in already-substituted output, so document data spelling a placeholder
     // cannot hijack a splice point.
     let mut out = String::with_capacity(
-        LIB_TYP_TEMPLATE.len() + cg.blocks.len() + data_literal.len() + ink_literal.src.len(),
+        LIB_TYP_TEMPLATE.len()
+            + cg.blocks.len()
+            + data_literal.len()
+            + ink_literal.src.len()
+            + held_literal.len()
+            + offered_literal.len(),
     );
     let mut cursor = 0usize;
     let mut blocks_at = 0usize;
@@ -72,6 +90,8 @@ pub fn generate_lib_typ(
         ("{version}", HELPER_VERSION),
         ("{version}", HELPER_VERSION),
         ("{meta_literal}", meta.meta_literal()),
+        ("{held_literal}", held_literal.as_str()),
+        ("{offered_literal}", offered_literal.as_str()),
         ("{content_blocks}", cg.blocks.as_str()),
         ("{data_literal}", data_literal.as_str()),
         ("{ink_literal}", ink_literal.src.as_str()),
@@ -766,7 +786,7 @@ mod tests {
             "subject": content("A **bold** subject"),
             "intro": content("An intro."),
         });
-        let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, _) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
         assert!(
             lib.contains("[A #strong[bold] subject]"),
             "inline block should carry no parbreak: {lib}"
@@ -784,7 +804,7 @@ mod tests {
             "cc": { "type": "array", "items": inline_richtext_field() }
         }}));
         let data = serde_json::json!({ "cc": [content("First"), content("Second **bold**")] });
-        let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, _) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
         assert!(lib.contains("[First]"), "{lib}");
         assert!(lib.contains("[Second #strong[bold]]"), "{lib}");
     }
@@ -793,7 +813,7 @@ mod tests {
     fn content_field_becomes_a_referenced_block_with_a_bracket_window() {
         let meta = meta_from(serde_json::json!({ "properties": { "intro": richtext_field() } }));
         let data = serde_json::json!({ "intro": content("A **bold** intro.") });
-        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
 
         let block = "[\nA #strong[bold] intro.\n\n\n]";
         assert!(lib.contains(&format!("#let _qm_c0 = {block}")));
@@ -813,7 +833,7 @@ mod tests {
             .expect("import").content;
         let data =
             serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
-        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
 
         assert_eq!(windows.len(), 1);
         let cm = &windows[0];
@@ -848,7 +868,7 @@ mod tests {
         let data = serde_json::json!({
             "sections": [content("one"), content(""), content("three")]
         });
-        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
 
         let paths: Vec<&str> = windows.iter().map(|w| w.path.as_str()).collect();
         assert_eq!(paths, vec!["sections.0", "sections.2"]);
@@ -869,7 +889,7 @@ mod tests {
             "at": "2026-07-03T09:30",
             "signed": null
         });
-        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
         // The data cell is the constructor itself: `data.issued.year()` and
         // `data.issued < data.at` are ordinary Typst.
         assert!(
@@ -922,7 +942,7 @@ mod tests {
             "contact": { "reply_by": "2026-03-04", "note": content("a **nested** note") },
             "rows": [{ "on": "2026-05-06", "notes": content("row _one_") }],
         });
-        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
 
         assert!(
             lib.contains("\"stamps\": (datetime(year: 2026, month: 1, day: 2),)"),
@@ -964,13 +984,13 @@ mod tests {
             }},
         }}));
         let data = serde_json::json!({ "contact": { "reply_by": "not-a-date" } });
-        let err = generate_lib_typ(&data, &meta).expect_err("a bad date stops codegen");
+        let err = generate_lib_typ(&data, &meta, &Families::default()).expect_err("a bad date stops codegen");
         assert_eq!(err.code(), "backend::invalid_date");
         assert!(err.to_string().contains("contact.reply_by"), "{err}");
 
         // A blank stays `none`, so a plate's `!= none` guard is untouched.
         let blank = serde_json::json!({ "contact": { "reply_by": "" } });
-        let (lib, _) = generate_lib_typ(&blank, &meta).unwrap();
+        let (lib, _) = generate_lib_typ(&blank, &meta, &Families::default()).unwrap();
         assert!(lib.contains("\"reply_by\": none"), "{lib}");
     }
 
@@ -993,7 +1013,7 @@ mod tests {
                 { "$kind": "note", "$body": content("Second body") }
             ]
         });
-        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
         // Each instance gets its own windows, keyed by the card's full address.
         let paths: Vec<&str> = windows.iter().map(|w| w.path.as_str()).collect();
         assert!(paths.contains(&"$cards.note.0.$body"), "{paths:?}");
@@ -1038,7 +1058,7 @@ mod tests {
             "rows": [{ "org": "AFRL", "$path": "spoofed" }],
             "grid": { "a": { "x": "1" } },
         });
-        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
 
         assert!(
             lib.contains(r#"#let data = {("$path": "", "count": -3, "due": none, "grid": {("$path": "grid.", "a": {("$path": "grid.a.", "x": "1",)},)}, "rows": ({("$path": "rows.0.", "org": "AFRL",)},), "subject": "Widgets","#),
@@ -1076,7 +1096,7 @@ mod tests {
             assert!(windows.contains(&expected), "{expected:?} in {windows:?}");
         }
         // `data` carries `$path` with no field of its own to print.
-        let (lib, _) = generate_lib_typ(&serde_json::json!({ "grid": { "a": { "x": "1" } } }), &meta)
+        let (lib, _) = generate_lib_typ(&serde_json::json!({ "grid": { "a": { "x": "1" } } }), &meta, &Families::default())
             .unwrap();
         assert!(lib.contains("#let data = {(\"$path\": \"\", \"grid\": "), "{lib}");
     }
@@ -1089,7 +1109,7 @@ mod tests {
                 "refs": { "type": "array", "items": { "type": "string" } }
             }
         }));
-        let (lib, _) = generate_lib_typ(&serde_json::json!({}), &meta).unwrap();
+        let (lib, _) = generate_lib_typ(&serde_json::json!({}), &meta, &Families::default()).unwrap();
         assert!(lib.contains("#let _qm-meta = ("));
         // A scalar is a leaf, and a primitive-element array offers its index
         // step onto one: neither carries a `props` entry.
@@ -1130,7 +1150,7 @@ mod tests {
                 "aide": { "title": "Aide", "detail": content("") },
             }
         });
-        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
 
         let at = |key: &str| {
             lib.find(&format!("\"{key}\": {{"))
@@ -1149,7 +1169,7 @@ mod tests {
                 .expect("the address tables")
                 .to_string()
         };
-        let (bare, _) = generate_lib_typ(&serde_json::json!({}), &meta).unwrap();
+        let (bare, _) = generate_lib_typ(&serde_json::json!({}), &meta, &Families::default()).unwrap();
         assert_eq!(tables(&lib), tables(&bare));
         for piece in [
             "\"roster\": ((\"dco\", \"DCO\",), (\"cyber\", \"Cyber\",),)",
@@ -1187,7 +1207,7 @@ mod tests {
         let data = serde_json::json!({
             "note": "quoting the template: {content_blocks} and {data_literal}"
         });
-        let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
+        let (lib, _) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
         let payload = lib.find("quoting the template").expect("payload present");
         let data_binding = lib.find("#let data =").expect("data binding present");
         assert!(
@@ -1230,8 +1250,8 @@ mod tests {
             "body": content("The body.")
         });
 
-        let (lib_a, win_a) = generate_lib_typ(&a, &meta).unwrap();
-        let (lib_b, win_b) = generate_lib_typ(&b, &meta).unwrap();
+        let (lib_a, win_a) = generate_lib_typ(&a, &meta, &Families::default()).unwrap();
+        let (lib_b, win_b) = generate_lib_typ(&b, &meta, &Families::default()).unwrap();
         assert_eq!(lib_a, lib_b, "reordered input must emit identical source");
         let wa: Vec<_> = win_a.iter().map(|w| (&w.path, w.block.clone())).collect();
         let wb: Vec<_> = win_b.iter().map(|w| (&w.path, w.block.clone())).collect();

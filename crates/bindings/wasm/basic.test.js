@@ -111,11 +111,12 @@ describe('Document.toMarkdown', () => {
 
 // The DTO's content rules are core's (`core/src/document/dto.rs`).
 describe('Document JSON DTO: toStored / fromStored', () => {
-  it('toStored emits a plain JSON string carrying the current schema version', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const dto = doc.toStored()
+  it('toStored emits a plain JSON string carrying the newest schema version only for a font mark', () => {
+    const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
     expect(typeof dto).toBe('string')
-    expect(JSON.parse(dto).schema).toBe(Document.currentStorageVersion())
+    expect(JSON.parse(dto).schema).toBe('quillmark/document@0.129.0')
+    const fonted = Document.fromMarkdown(`${TEST_MARKDOWN} <qm-span family="Carlito">Set</qm-span>`).toStored()
+    expect(JSON.parse(fonted).schema).toBe(Document.currentStorageVersion())
   })
 
   it('round-trips a mutated document with cards back to an equal handle', () => {
@@ -136,7 +137,7 @@ describe('Document JSON DTO: toStored / fromStored', () => {
     const outside = dto.replace('"kind":"para"', '"kind":"callout"')
     expect(outside).not.toBe(dto)
     expect(() => Document.fromStored(outside)).toThrow()
-    expect(Document.storageVersionOf(outside)).toBe(Document.currentStorageVersion())
+    expect(Document.storageVersionOf(outside)).toBe(JSON.parse(dto).schema)
   })
 
   it('storageVersionOf reads the schema tag off any payload, or undefined', () => {
@@ -467,7 +468,7 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
   })
 
   it('a stored null crosses as null, both ways', () => {
-    const md = '<qm-table widths="1 2 auto">\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n\n</qm-table>'
+    const md = '<table widths="1 2 auto">\n<tr><th>a</th><th>b</th><th>c</th></tr>\n<tr><td>1</td><td>2</td><td>3</td></tr>\n</table>'
     const { content } = importMarkdown(md)
     expect(content.islands[0].props.widths).toEqual([1, 2, null])
     expect(content.islands[0].props.widths[2]).toBeNull()
@@ -481,7 +482,7 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
   // drops at the import rather than reaching a read that cannot carry it.
   it('a column weight crosses exactly up to the largest safe integer, and drops past it', () => {
     const table = (widths) =>
-      `<qm-table widths="${widths}">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</qm-table>`
+      `<table widths="${widths}">\n<tr><th>a</th><th>b</th></tr>\n<tr><td>1</td><td>2</td></tr>\n</table>`
     const { content, warnings } = importMarkdown(table(`${Number.MAX_SAFE_INTEGER} 1`))
     expect(warnings).toEqual([])
     expect(content.islands[0].props.widths).toEqual([Number.MAX_SAFE_INTEGER, 1])
@@ -493,7 +494,7 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
 
     const past = importMarkdown(table('9007199254740992 1'))
     expect(past.content.islands[0].props.widths).toBeUndefined()
-    expect(past.warnings.map((w) => w.args.construct)).toEqual(['qm-table[widths]'])
+    expect(past.warnings.map((w) => w.args.construct)).toEqual(['table[widths]'])
   })
 
   it('rebase returns the drops of the markdown it imports, with no path', () => {

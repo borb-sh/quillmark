@@ -18,7 +18,7 @@
 //! Storage, the render seam and the binding seam carry one canonical form.
 
 use crate::model::{
-    canonicalize_keys, Container, Island, Line, LineKind, Mark,
+    canonicalize_keys, is_font_family_name, Container, Island, Line, LineKind, Mark,
     MarkKind, Content, Normalized, Usv,
 };
 use serde_json::{Map, Value};
@@ -159,14 +159,20 @@ pub fn from_canonical_value(v: &Value) -> Result<Normalized, ParseError> {
 
 /// `v` with the retired spellings the decoder reads permanently written as the
 /// encoder writes them: an island's `loss` key dropped, a line's `island` kind
-/// spelled `para`. A caller comparing stored bytes against
-/// [`to_canonical_value`] compares this instead, so an untagged content value
-/// in a retired spelling reads as content.
+/// spelled `para`, and a table's props settled as the mint settles them, a
+/// `headless: true` or a span past what it covers among them. A caller
+/// comparing stored bytes against [`to_canonical_value`] compares this instead,
+/// so an untagged content value in a retired spelling reads as content.
 pub fn respell_retired(v: &Value) -> Value {
     let mut v = v.clone();
     if let Some(islands) = v.get_mut("islands").and_then(Value::as_array_mut) {
         for island in islands.iter_mut().filter_map(Value::as_object_mut) {
             island.shift_remove("loss");
+            if island.get("type").and_then(Value::as_str) == Some(crate::island::IslandType::Table.as_str())
+                && let Some(props) = island.get_mut("props")
+            {
+                respell_table(props);
+            }
         }
     }
     if let Some(lines) = v.get_mut("lines").and_then(Value::as_array_mut) {
@@ -177,6 +183,19 @@ pub fn respell_retired(v: &Value) -> Value {
         }
     }
     v
+}
+
+/// `props` settled as the mint settles a table's, where that changes what it
+/// holds; props the mint keeps as they are stay in their stored key order, so
+/// a comparison still sees keys out of order.
+fn respell_table(props: &mut Value) {
+    let stored = crate::model::sort_keys_owned(props.clone());
+    let mut settled = stored.clone();
+    normalize_table_props(&mut settled);
+    let settled = crate::model::sort_keys_owned(settled);
+    if settled != stored {
+        *props = settled;
+    }
 }
 
 /// Mint and check: the tail both wire lanes share, after the authored lane has
@@ -522,6 +541,13 @@ pub fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
                 .unwrap_or_default()
                 .to_string(),
         },
+        "font_family" => MarkKind::FontFamily {
+            name: payload(o, legacy, "name")
+                .and_then(Value::as_str)
+                .filter(|name| is_font_family_name(name))
+                .ok_or(ParseError::Shape("font_family name"))?
+                .to_string(),
+        },
         "anchor" => MarkKind::Anchor {
             id: payload(o, legacy, "id")
                 .and_then(Value::as_str)
@@ -854,6 +880,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 /// - **Arrays where arrays belong.** A present non-array `header`, `aligns`, or
 ///   row carries no cells, so it becomes an empty array.
 /// - **Layout keys absent at their default.** See [`normalize_table_layout`].
+/// - **Spans that cover only what they can.** See [`normalize_table_spans`].
 pub(crate) fn normalize_table_props(props: &mut Value) {
     let cols = table_cols(props);
     let widths = crate::island::TableLayout::of(props).widths;
@@ -889,12 +916,16 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
         }
     }
     normalize_table_layout(obj, widths, cols);
+    normalize_table_spans(props);
 }
 
 /// A table's layout keys, each absent at its default: `widths` holding only
 /// weights and `null`s settles to `cols`, padded with `null` or truncated, and
-/// all `null` is absent; `headless: false` is absent. A value outside its set
-/// stays as written.
+/// all `null` is absent; a whole-number `head` settles to at most the row
+/// count, absent at 1. `headless: true` sits beside `head: 0`, which a 0.130
+/// reader cannot read, and is absent beside any other `head`; a stored
+/// `headless: true` settles to `head: 0` where `head` holds no whole number. A
+/// value outside its set stays as written.
 fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Option<u64>>>, cols: usize) {
     if let Some(mut widths) = widths {
         widths.resize(cols, None);
@@ -903,8 +934,58 @@ fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Optio
             false => obj.remove("widths"),
         };
     }
-    if obj.get("headless") == Some(&Value::Bool(false)) {
-        obj.remove("headless");
+    let headless = obj.get("headless").and_then(Value::as_bool);
+    if headless == Some(true) && obj.get("head").and_then(Value::as_u64).is_none() {
+        obj.insert("head".into(), 0.into());
+    }
+    let rows = 1 + obj.get("rows").and_then(Value::as_array).map_or(0, Vec::len);
+    let head = obj.get("head").and_then(Value::as_u64).map(|head| usize::try_from(head).unwrap_or(usize::MAX).min(rows));
+    match head {
+        Some(1) => obj.remove("head"),
+        Some(head) => obj.insert("head".into(), head.into()),
+        None => None,
+    };
+    match head {
+        Some(0) => obj.insert("headless".into(), true.into()),
+        _ if headless.is_some() => obj.remove("headless"),
+        _ => None,
+    };
+}
+
+/// Each drawn cell's `colspan` and `rowspan` settled to what it covers
+/// ([`crate::island::table_spans`]), absent at 1, and each covered cell's span
+/// keys absent. A covered cell keeps its alignment, which it draws again once
+/// no span covers it. A value outside its set stays as written.
+fn normalize_table_spans(props: &mut Value) {
+    use crate::island::CELL_SPANS;
+    let spans = crate::island::table_spans(props);
+    let settle = |row: &mut Value, spans: &[Option<(usize, usize)>]| {
+        let cells = row.as_array_mut().into_iter().flatten().zip(spans);
+        for (cell, span) in cells {
+            let Some(cell) = cell.as_object_mut() else { continue };
+            let settled = span.map_or([None, None], |(w, h)| [Some(w), Some(h)]);
+            for (key, n) in CELL_SPANS.into_iter().zip(settled) {
+                if !cell.get(key).and_then(Value::as_u64).is_some_and(|n| n >= 1) {
+                    continue;
+                }
+                match n {
+                    Some(n) if n > 1 => cell.insert(key.into(), n.into()),
+                    _ => cell.remove(key),
+                };
+            }
+        }
+    };
+    let Some(obj) = props.as_object_mut() else {
+        return;
+    };
+    let mut spans = spans.iter();
+    if let (Some(header), Some(row)) = (obj.get_mut("header"), spans.next()) {
+        settle(header, row);
+    }
+    if let Some(rows) = obj.get_mut("rows").and_then(Value::as_array_mut) {
+        for (row, spans) in rows.iter_mut().zip(spans) {
+            settle(row, spans);
+        }
     }
 }
 
@@ -925,6 +1006,13 @@ fn table_cols(props: &Value) -> usize {
         })
         .unwrap_or(0);
     header.max(aligns).max(widest_row)
+}
+
+/// The slots a table's grid holds once padded: its rows, the header among
+/// them, by its [column count](table_cols).
+pub(crate) fn table_slots(props: &Value) -> usize {
+    let rows = props.get("rows").and_then(Value::as_array).map_or(0, Vec::len);
+    rows.saturating_add(1).saturating_mul(table_cols(props))
 }
 
 /// Pad a cell array (header or body row) up to `cols` with empty cells. Never
@@ -1057,6 +1145,9 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
             name: name.to_string(),
         })?;
     let props = bag_from_wire(o, "props", "island props")?;
+    if island_type == crate::island::IslandType::Table {
+        crate::model::check_table_cells(&props).map_err(ParseError::Invalid)?;
+    }
     island_type.reject_unknown_cell_mark(&props)?;
     Ok(Island {
         id: o
@@ -1247,6 +1338,32 @@ mod tests {
         assert!(from_canonical_value(&line("para")).is_ok());
     }
 
+    /// A table whose grid pads past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS)
+    /// slots is refused before the mint pads it, on the stored lane and the op
+    /// wire alike.
+    #[test]
+    fn a_table_past_its_cell_bound_is_refused() {
+        let cell = serde_json::json!({"text": "", "marks": []});
+        let props = |rows: usize| {
+            serde_json::json!({"header": vec![cell.clone(); 1000], "rows": vec![[cell.clone()]; rows], "aligns": []})
+        };
+        let content = |props| {
+            serde_json::json!({"text": "\u{FFFC}", "lines": [{"kind": "para", "containers": []}], "marks": [],
+              "islands": [{"id": "isl-0", "type": "table", "props": props}]})
+        };
+        let rows = crate::MAX_TABLE_CELLS / 1000;
+        assert!(from_canonical_value(&content(props(rows - 1))).is_ok());
+        assert!(matches!(
+            from_canonical_value(&content(props(rows))),
+            Err(ParseError::Invalid(Invariant::TableTooLarge { cells, .. })) if cells == (rows + 1) * 1000
+        ));
+        let op = serde_json::json!({"op": "insert", "at": 0, "id": "i1", "type": "table", "props": props(rows)});
+        assert!(matches!(
+            crate::ops::island_op_from_value(&op),
+            Err(ParseError::Invalid(Invariant::TableTooLarge { .. }))
+        ));
+    }
+
     #[test]
     fn deep_json_payload_is_rejected_on_the_op_wire() {
         let deep = nested_arrays(1_000);
@@ -1311,6 +1428,7 @@ mod tests {
             MarkKind::Strike,
             MarkKind::Code,
             MarkKind::Link { url: "u".into() },
+            MarkKind::FontFamily { name: "f".into() },
             MarkKind::Anchor { id: "a".into() },
         ];
         let marks: Vec<Mark> = kinds
@@ -1938,6 +2056,31 @@ mod tests {
         );
     }
 
+    /// A font mark round-trips as its bag, an overlapping one settles to one
+    /// family per character, and a bag naming no family the model admits is a
+    /// shape error on both lanes.
+    #[test]
+    fn a_font_mark_decodes_only_a_family_it_can_hold() {
+        let content = |marks: &str| format!(r#"{{"islands":[],"lines":[{{"containers":[],"kind":"para"}}],"marks":[{marks}],"text":"abc"}}"#);
+        let flat = content(r#"{"attrs":{"name":"Carlito"},"end":1,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"},{"attrs":{"name":"Carlito"},"end":3,"start":2,"type":"font_family"}"#);
+        let rt = Content::from_canonical_json(&flat).expect("decodes");
+        assert_eq!(rt.to_canonical_json(), flat);
+        let json = content(r#"{"attrs":{"name":"Carlito"},"end":3,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"}"#);
+        let rt = Content::from_canonical_json(&json).expect("decodes");
+        assert_eq!(rt.to_canonical_json(), flat);
+        for mark in [
+            r#"{"attrs":{"name":""},"end":2,"start":0,"type":"font_family"}"#,
+            r#"{"attrs":{"name":" Carlito"},"end":2,"start":0,"type":"font_family"}"#,
+            r#"{"end":2,"start":0,"type":"font_family"}"#,
+        ] {
+            let shape = "font_family name";
+            let json = content(mark);
+            assert_eq!(Content::from_canonical_json(&json), Err(ParseError::Shape(shape)), "{mark}");
+            let value: Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(from_authored_value(&value), Err(ParseError::Shape(shape)), "{mark}");
+        }
+    }
+
     /// The canonical tie-break is the `(type, attrs)` pair the wire carries,
     /// read back off the value, so canonical order is a function of the stored
     /// bytes rather than of variant declaration order.
@@ -1950,6 +2093,7 @@ mod tests {
             MarkKind::Strike,
             MarkKind::Code,
             MarkKind::Link { url: "u".into() },
+            MarkKind::FontFamily { name: "f".into() },
             MarkKind::Anchor { id: "a".into() },
         ];
         // Exhaustive on purpose: a new variant is a compile error here, where
@@ -1962,6 +2106,7 @@ mod tests {
                 | MarkKind::Strike
                 | MarkKind::Code
                 | MarkKind::Link { .. }
+                | MarkKind::FontFamily { .. }
                 | MarkKind::Anchor { .. } => {}
             }
         }

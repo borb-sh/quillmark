@@ -34,7 +34,7 @@
 // The python and wasm bindings sit lower, on core's wire and addressing seam,
 // and name `quillmark-core` directly.
 pub use quillmark_core::{
-    backend::Backend,
+    backend::{Backend, FontFace},
     document::{
         AnnotatedMarkdown, Card, Document, DocumentAnchor, DocumentRevised,
         EditError, ImportError, Parsed, Revised,
@@ -68,7 +68,7 @@ pub use orchestration::Engine;
 
 #[cfg(feature = "typst")]
 pub use quillmark_typst::{
-    plate_file as typst_plate_file, typst_version, workspace as typst_workspace,
+    plate_file as typst_plate_file, typst_version, workspace as typst_workspace, FontLibrary,
 };
 
 #[cfg(feature = "acroform")]

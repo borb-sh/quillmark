@@ -15,8 +15,10 @@ use std::borrow::Cow;
 /// A mark edit in final-text coordinates (post-delta, post-line-op).
 #[derive(Debug, Clone, PartialEq)]
 pub enum MarkOp {
-    /// Add a mark over `[start, end)`. An anchor `kind` must carry a non-empty
-    /// `id` not already live in the field ([`ApplyError::AnchorIdCollision`] /
+    /// Add a mark over `[start, end)`. A [keyed](MarkKind::is_keyed) `kind`
+    /// sets its value there: every mark of its tag is first subtracted from
+    /// the range. An anchor `kind` must carry a non-empty `id` not already live
+    /// in the field ([`ApplyError::AnchorIdCollision`] /
     /// [`ApplyError::EmptyAnchorId`]).
     Add {
         start: Usv,
@@ -431,12 +433,7 @@ impl Content {
         self.text = new_text;
         let old_islands = std::mem::take(&mut self.islands);
         (self.lines, self.islands) = sync_for_delta(&old_chars, old_lines, old_islands, delta);
-        if self.lines.len() != self.segment_count() {
-            return Err(ApplyError::LineCountMismatch {
-                lines: self.lines.len(),
-                segments: self.segment_count(),
-            });
-        }
+        self.check_line_sync()?;
         Ok(())
     }
 
@@ -491,6 +488,9 @@ impl Content {
                             return Err(ApplyError::AnchorIdCollision { id: id.clone() });
                         }
                     }
+                    if kind.is_keyed() {
+                        self.subtract(*start, *end, |m| m.tag() == kind.tag());
+                    }
                     self.marks.push(Mark {
                         start: *start,
                         end: *end,
@@ -505,35 +505,7 @@ impl Content {
                             len,
                         });
                     }
-                    let mut next = Vec::with_capacity(self.marks.len());
-                    for m in self.marks.drain(..) {
-                        if m.kind != *kind || !ranges_overlap(m.start, m.end, *start, *end) {
-                            next.push(m);
-                            continue;
-                        }
-                        // An identity handle has no range algebra to
-                        // subtract: drop the overlapping one whole.
-                        if !kind.is_formatting() {
-                            continue;
-                        }
-                        // An edge-aligned removal yields a zero-width fragment
-                        // here; `normalize` drops it.
-                        if m.start < *start {
-                            next.push(Mark {
-                                start: m.start,
-                                end: *start,
-                                kind: m.kind.clone(),
-                            });
-                        }
-                        if *end < m.end {
-                            next.push(Mark {
-                                start: *end,
-                                end: m.end,
-                                kind: m.kind.clone(),
-                            });
-                        }
-                    }
-                    self.marks = next;
+                    self.subtract(*start, *end, |m| m == kind);
                 }
                 MarkOp::RemoveAnchor { id } => {
                     self.marks
@@ -542,6 +514,31 @@ impl Content {
             }
         }
         Ok(())
+    }
+
+    /// Subtract `[start, end)` from each overlapping mark `matches` picks,
+    /// keeping the fragments outside it. An identity handle has no range
+    /// algebra to subtract, so an overlapping one drops whole.
+    fn subtract(&mut self, start: Usv, end: Usv, matches: impl Fn(&MarkKind) -> bool) {
+        let mut next = Vec::with_capacity(self.marks.len());
+        for m in self.marks.drain(..) {
+            if !matches(&m.kind) || !ranges_overlap(m.start, m.end, start, end) {
+                next.push(m);
+                continue;
+            }
+            if !m.kind.is_formatting() {
+                continue;
+            }
+            // An edge-aligned subtraction yields a zero-width fragment here;
+            // `normalize` drops it.
+            if m.start < start {
+                next.push(Mark { start: m.start, end: start, kind: m.kind.clone() });
+            }
+            if end < m.end {
+                next.push(Mark { start: end, end: m.end, kind: m.kind.clone() });
+            }
+        }
+        self.marks = next;
     }
 
     /// Apply island ops: replace an entry by id, or insert a slot and its entry
@@ -720,6 +717,14 @@ impl Content {
         Ok(scratch.marks)
     }
 
+    fn check_line_sync(&self) -> Result<(), ApplyError> {
+        let (lines, segments) = (self.lines.len(), self.segment_count());
+        if lines != segments {
+            return Err(ApplyError::LineCountMismatch { lines, segments });
+        }
+        Ok(())
+    }
+
     fn line_mut(&mut self, line: usize) -> Result<&mut Line, ApplyError> {
         let lines = self.lines.len();
         self.lines
@@ -733,10 +738,7 @@ impl Content {
         if at > len {
             return Err(ApplyError::SplitPositionOutOfRange { at, len });
         }
-        if at > 0 && char_indices[at - 1].1 == '\n' {
-            return Err(ApplyError::SplitAtNewline { at });
-        }
-        if at < len && char_indices[at].1 == '\n' {
+        if (at > 0 && char_indices[at - 1].1 == '\n') || (at < len && char_indices[at].1 == '\n') {
             return Err(ApplyError::SplitAtNewline { at });
         }
 
@@ -759,12 +761,7 @@ impl Content {
         new_line.continues = false;
         self.lines.insert(line_idx + 1, new_line);
 
-        if self.lines.len() != self.segment_count() {
-            return Err(ApplyError::LineCountMismatch {
-                lines: self.lines.len(),
-                segments: self.segment_count(),
-            });
-        }
+        self.check_line_sync()?;
         Ok(())
     }
 
@@ -785,12 +782,7 @@ impl Content {
 
         self.lines.remove(line + 1);
 
-        if self.lines.len() != self.segment_count() {
-            return Err(ApplyError::LineCountMismatch {
-                lines: self.lines.len(),
-                segments: self.segment_count(),
-            });
-        }
+        self.check_line_sync()?;
         Ok(())
     }
 }
@@ -1516,6 +1508,45 @@ mod tests {
             .marks
             .iter()
             .any(|m| matches!(m.kind, MarkKind::Anchor { .. })));
+    }
+
+    /// A family is set per character: an `Add` replaces the family under its
+    /// range, and a text edit never changes the family of text it keeps.
+    #[test]
+    fn a_font_family_is_set_per_character() {
+        let family = |name: &str| MarkKind::FontFamily { name: name.into() };
+        let content = |marks: Vec<Mark>| {
+            Content::new("abcdefghijklmnop".into(), vec![Line::new(LineKind::Para)])
+                .with_marks(marks)
+                .into_normalized()
+        };
+        let fonts = |rt: &crate::model::Normalized| -> Vec<(Usv, Usv, String)> {
+            rt.marks
+                .iter()
+                .filter_map(|m| match &m.kind {
+                    MarkKind::FontFamily { name } => Some((m.start, m.end, name.clone())),
+                    _ => None,
+                })
+                .collect()
+        };
+        let owned = |runs: &[(Usv, Usv, &str)]| -> Vec<(Usv, Usv, String)> {
+            runs.iter().map(|&(s, e, n)| (s, e, n.to_string())).collect()
+        };
+
+        let mut rt = content(vec![Mark::new(0, 10, family("Arimo")), Mark::new(3, 7, family("Carlito"))]);
+        rt.apply_mark_ops(&[MarkOp::Add { start: 4, end: 6, kind: family("Arimo") }]).unwrap();
+        assert_eq!(
+            fonts(&rt),
+            owned(&[(0, 3, "Arimo"), (3, 4, "Carlito"), (4, 6, "Arimo"), (6, 7, "Carlito"), (7, 10, "Arimo")])
+        );
+
+        let mut rt = content(vec![Mark::new(2, 10, family("Zilla")), Mark::new(2, 6, family("Arimo"))]);
+        rt.apply_text_delta(&Delta { ops: vec![Op::Retain(6), Op::Delete(4), Op::Retain(6)] }).unwrap();
+        assert_eq!(fonts(&rt), owned(&[(2, 6, "Arimo")]));
+
+        let mut rt = content(vec![Mark::new(0, 10, family("Arimo")), Mark::new(5, 16, family("Bitter"))]);
+        rt.apply_text_delta(&Delta { ops: vec![Op::Delete(5), Op::Retain(11)] }).unwrap();
+        assert_eq!(fonts(&rt), owned(&[(0, 11, "Bitter")]));
     }
 
     /// [`Normalized::seal`]: an op list that fails partway leaves its earlier
@@ -2422,9 +2453,8 @@ mod tests {
             .filter(|m| matches!(m.kind, MarkKind::Strong))
             .map(|m| (m.start, m.end))
             .collect();
-        // [1..4) spans "b\nc": normalize keeps an interior `\n`, trimming only
-        // leading/trailing boundaries.
-        assert_eq!(strong, vec![(1, 4)]);
+        // [1..4) spans "b\nc": normalize splits it at the `\n`.
+        assert_eq!(strong, vec![(1, 2), (3, 4)]);
         assert_eq!(rt.validate(), Ok(()));
     }
 

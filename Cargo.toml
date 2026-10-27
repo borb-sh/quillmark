@@ -23,7 +23,7 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.130.0"
+version = "0.131.0"
 edition = "2024"
 # No `rust-version`: nothing rebuilds the workspace on a floor to verify one,
 # and the resolver enforces an unverified floor on consumers.
@@ -72,12 +72,17 @@ typst-render = "0.15.1"
 typst-svg = "0.15.1"
 
 # Intra-project dependencies
-quillmark-core = { version = "0.130.0", path = "crates/core" }
-quillmark-content = { version = "0.130.0", path = "crates/content" }
-quillmark-pdf = { version = "0.130.0", path = "crates/quillmark-pdf" }
-quillmark-typst = { version = "0.130.0", path = "crates/backends/typst" }
-quillmark-acroform = { version = "0.130.0", path = "crates/backends/acroform" }
-quillmark = { version = "0.130.0", path = "crates/quillmark" }
+quillmark-core = { version = "0.131.0", path = "crates/core" }
+quillmark-content = { version = "0.131.0", path = "crates/content" }
+quillmark-pdf = { version = "0.131.0", path = "crates/quillmark-pdf" }
+quillmark-typst = { version = "0.131.0", path = "crates/backends/typst" }
+quillmark-acroform = { version = "0.131.0", path = "crates/backends/acroform" }
+quillmark = { version = "0.131.0", path = "crates/quillmark" }
+
+# The key that keeps a host library face's family unspellable by a plate. The
+# WASM binding enables `wasm_js`, the backend a library crate leaves to its
+# final binary.
+getrandom = "0.4"
 
 # WASM host seam. Target-gated in the Typst backend, unconditional in the
 # binding; one pin either way.
@@ -85,7 +90,7 @@ js-sys = "0.3"
 wasm-bindgen = "0.2"
 
 tempfile = "~3.27"
-proptest = "~1.11"
+proptest = "~1.12"
 quillmark-fixtures = { path = "crates/fixtures" }
 # PDF *reader*, test-only: reparses stamped output to assert on it. The
 # production writer is `pdf-writer`; the two are not interchangeable.

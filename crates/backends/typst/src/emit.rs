@@ -772,7 +772,12 @@ impl<'a> Emit<'a> {
     ) -> Vec<(Range<usize>, Range<usize>, EscapeCtx)> {
         let mut runs = Vec::new();
 
-        let (mut wraps, codes) = wraps_and_codes(self.overlapping_marks(lo, hi), lo, hi);
+        let marks = self.overlapping_marks(lo, hi);
+        let inert = |pos: usize| {
+            self.island_at(pos)
+                .is_none_or(|isl| matches!(isl.island_type, IslandType::Math | IslandType::Table))
+        };
+        let (mut wraps, codes) = wraps_and_codes(marks, lo, hi, &self.chars, &inert);
         // Atomic code spans can't carry partial styling.
         clip_wraps_to_codes(&mut wraps, &codes);
 
@@ -811,9 +816,12 @@ impl<'a> Emit<'a> {
         runs
     }
 
+    fn island_at(&self, pos: usize) -> Option<&'a quillmark_content::model::Island> {
+        self.rt.islands.get(self.slot_offsets.partition_point(|&p| p < pos))
+    }
+
     fn island_markup(&self, pos: usize) -> String {
-        let idx = self.slot_offsets.partition_point(|&p| p < pos);
-        let Some(isl) = self.rt.islands.get(idx) else {
+        let Some(isl) = self.island_at(pos) else {
             return String::new();
         };
         match isl.island_type {
@@ -948,9 +956,18 @@ fn next_boundary(
 
 /// The wrapping/atomic marks overlapping `[lo, hi)`, clamped to it: a mark
 /// entirely outside is dropped, one straddling is clipped to the window edges.
-fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usize, usize)>) {
+/// The font marks over it are [`font_runs`], `inert` saying which island slot
+/// they break around.
+fn wraps_and_codes(
+    marks: &[Mark],
+    lo: usize,
+    hi: usize,
+    chars: &[char],
+    inert: &dyn Fn(usize) -> bool,
+) -> (Vec<Wrap>, Vec<(usize, usize)>) {
     let mut wraps = Vec::new();
     let mut codes = Vec::new();
+    let mut fonts = Vec::new();
     for m in marks {
         if m.end <= lo || m.start >= hi {
             continue;
@@ -976,10 +993,60 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
             }),
             // `Anchor` is identity: a handle, with no Typst spelling.
             MarkKind::Anchor { .. } => {}
+            MarkKind::FontFamily { name } => fonts.push((s, e, m, name.as_str())),
         }
     }
     codes.sort_unstable();
+    wraps.extend(font_runs(&fonts, &codes, chars, inert));
     (wraps, codes)
+}
+
+/// One `_qm-font(family)` wrap per stretch one family sets, the font marks
+/// over the window each as `(start, end, mark, family)` with its range clamped
+/// to the window; normalized, no two overlap. A
+/// family is inert over a code span, whose `raw` sets its own font, and over
+/// an equation or a table, a slot `inert` holds, so a run breaks around each.
+/// A footnote's reference sits in the run and its note takes only its own
+/// marks, since Typst sets a note apart from the text around its reference. A
+/// run opens past its leading spaces, which a fresh content block would hold
+/// unbreakable.
+fn font_runs(
+    fonts: &[(usize, usize, &Mark, &str)],
+    codes: &[(usize, usize)],
+    chars: &[char],
+    inert: &dyn Fn(usize) -> bool,
+) -> Vec<Wrap> {
+    let Some(lo) = fonts.iter().map(|f| f.0).min() else {
+        return Vec::new();
+    };
+    let hi = fonts.iter().map(|f| f.1).max().unwrap_or(lo);
+    let mut cuts: Vec<usize> = fonts.iter().flat_map(|&(s, e, _, _)| [s, e]).collect();
+    cuts.extend(codes.iter().flat_map(|&(s, e)| [s, e]).filter(|p| (lo..=hi).contains(p)));
+    let inert = |p: usize| chars[p] == ISLAND_SLOT && inert(p);
+    cuts.extend((lo..hi).filter(|&p| inert(p)).flat_map(|p| [p, p + 1]));
+    cuts.sort_unstable();
+    cuts.dedup();
+    let mut runs: Vec<Wrap> = Vec::new();
+    for cut in cuts.windows(2) {
+        let (a, b) = (cut[0], cut[1]);
+        if inert(a) || codes.iter().any(|&(s, e)| s <= a && a < e) {
+            continue;
+        }
+        let Some(&(_, _, _, family)) = fonts.iter().find(|&&(s, e, _, _)| s <= a && a < e) else {
+            continue;
+        };
+        let open = format!("#_qm-font(\"{}\")[", escape_string(family));
+        match runs.last_mut() {
+            Some(run) if run.end == a && run.open == open => run.end = b,
+            _ => {
+                let start = (a..b).find(|&p| chars[p] != ' ').unwrap_or(b);
+                if start < b {
+                    runs.push(Wrap { start, end: b, open });
+                }
+            }
+        }
+    }
+    runs
 }
 
 /// Whether `url` names a scheme a viewer may run or read locally rather than
@@ -1111,7 +1178,7 @@ fn linebreak_at(out: &mut String, chars: &[char], pos: usize) -> Option<(usize, 
 /// [`table_markup`] wraps it in, which is a line anchor.
 fn cell_markup(text: &str, marks: &[Mark]) -> String {
     let chars: Vec<char> = text.chars().collect();
-    let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len());
+    let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len(), &chars, &|_| true);
     clip_wraps_to_codes(&mut wraps, &codes);
     let mut out = String::new();
     sweep_marks(0, chars.len(), &wraps, &mut out, Tail::Anchor, |out, pos, tail| {
@@ -1134,7 +1201,9 @@ fn cell_markup(text: &str, marks: &[Mark]) -> String {
 ///   alignment the plate's own `table.cell` show rule sets.
 /// - a cell's `align` and `valign`: `table.cell(align: right + bottom)[…]`,
 ///   which Typst folds with its column's alignment.
-/// - `headless`: the header row as the first body row, outside `table.header`.
+/// - a cell's `colspan` and `rowspan`: `table.cell(colspan: 2, rowspan: 3)[…]`,
+///   each cell its span covers left out, which Typst's own placement skips.
+/// - `head`: that many rows from the top in one `table.header`, none at `0`.
 fn table_markup(props: &serde_json::Value) -> String {
     use serde_json::Value;
     let header = props.get("header").and_then(|v| v.as_array());
@@ -1157,16 +1226,35 @@ fn table_markup(props: &serde_json::Value) -> String {
     }
 
     let layout = quillmark_content::island::TableLayout::of(props);
+    let spans = quillmark_content::island::table_spans(props);
+    let grid = quillmark_content::island::table_rows(props);
 
-    let cell = |v: &Value| {
+    let cell = |v: &Value, (colspan, rowspan): (usize, usize)| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
         let body = cell_markup(&text, &marks);
         let (align, valign) = quillmark_content::island::cell_alignment(v);
         let valign = valign.map(|v| if v == "middle" { "horizon" } else { v });
+        let mut args: Vec<String> = [("colspan", colspan), ("rowspan", rowspan)]
+            .into_iter()
+            .filter(|(_, n)| *n > 1)
+            .map(|(key, n)| format!("{key}: {n}"))
+            .collect();
         match (align, valign) {
-            (None, None) => format!("[{body}]"),
-            (Some(a), None) | (None, Some(a)) => format!("table.cell(align: {a})[{body}]"),
-            (Some(a), Some(v)) => format!("table.cell(align: {a} + {v})[{body}]"),
+            (None, None) => {}
+            (Some(a), None) | (None, Some(a)) => args.push(format!("align: {a}")),
+            (Some(a), Some(v)) => args.push(format!("align: {a} + {v}")),
+        }
+        match args.is_empty() {
+            true => format!("[{body}]"),
+            false => format!("table.cell({})[{body}]", args.join(", ")),
+        }
+    };
+    let row = |r: usize, out: &mut String| {
+        for (c, v) in grid[r].iter().enumerate() {
+            if let Some(span) = spans[r][c] {
+                out.push_str(&cell(v, span));
+                out.push_str(", ");
+            }
         }
     };
 
@@ -1196,26 +1284,15 @@ fn table_markup(props: &serde_json::Value) -> String {
             .collect();
         out.push_str(&format!("  align: ({}),\n", tracks.join(", ")));
     }
-    let headless = layout.headless;
-    out.push_str(if headless { "  " } else { "  table.header(" });
-    if let Some(h) = header {
-        for c in h {
-            out.push_str(&cell(c));
-            out.push_str(", ");
-        }
+    if layout.head > 0 {
+        out.push_str("  table.header(");
+        (0..layout.head).for_each(|r| row(r, &mut out));
+        out.push_str("),\n");
     }
-    out.push_str(if headless { "\n" } else { "),\n" });
-    if let Some(rs) = rows {
-        for row in rs {
-            if let Some(r) = row.as_array() {
-                out.push_str("  ");
-                for c in r {
-                    out.push_str(&cell(c));
-                    out.push_str(", ");
-                }
-                out.push('\n');
-            }
-        }
+    for r in layout.head..grid.len() {
+        out.push_str("  ");
+        row(r, &mut out);
+        out.push('\n');
     }
     out.push(')');
     match layout.align {
@@ -1508,10 +1585,10 @@ mod tests {
         }
     }
 
-    /// A code span clips two links down to one range, so they coincide in
-    /// `wraps` without coinciding in the document. They nest in their stored
-    /// order — `z` starts first — not in an order re-derived from the clip,
-    /// which would put `a` outside and hand the text to the wrong target.
+    /// A code span clips a link and a strike down to one range, so they
+    /// coincide in `wraps` without coinciding in the document. They nest in
+    /// their stored order, the link starting first, not in an order re-derived
+    /// from the clip.
     #[test]
     fn clipping_two_marks_together_nests_them_in_their_stored_order() {
         use quillmark_content::model::Line;
@@ -1519,13 +1596,13 @@ mod tests {
             .with_marks(vec![
                 Mark::new(0, 3, MarkKind::Code),
                 Mark::new(1, 10, MarkKind::Link { url: "z".into() }),
-                Mark::new(3, 10, MarkKind::Link { url: "a".into() }),
+                Mark::new(3, 10, MarkKind::Strike),
             ])
             .into_normalized();
         assert_eq!(rt.validate(), Ok(()));
         assert_eq!(
             emit_content(&rt).unwrap().markup,
-            "#raw(\"abc\")#link(\"z\")[#link(\"a\")[defghij]]\n\n"
+            "#raw(\"abc\")#link(\"z\")[#strike[defghij]]\n\n"
         );
     }
 

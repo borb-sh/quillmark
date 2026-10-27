@@ -88,7 +88,7 @@ fn data() -> serde_json::Value {
 }
 
 fn open(plate: &str) -> quillmark_core::session::LiveSession {
-    TypstBackend
+    TypstBackend::default()
         .open(&common::quill_with_plate(YAML, plate), &data(), common::test_date())
         .expect("open")
 }
@@ -246,7 +246,7 @@ card_kinds:
   qm.region(card.at("$path") + "origin.office")[#card.origin.office]
 }
 "#;
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(
             &common::quill_with_plate(CARD_YAML, plate),
             &serde_json::json!({
@@ -275,7 +275,7 @@ fn a_blank_date_still_projects_none() {
 "#;
     let mut blank = data();
     blank["classification"]["reply_by"] = serde_json::Value::String(String::new());
-    TypstBackend
+    TypstBackend::default()
         .open(&common::quill_with_plate(YAML, plate), &blank, common::test_date())
         .expect("a blank date compiles");
 }
@@ -290,7 +290,7 @@ fn spreading_a_typed_dictionary_hints_its_path_key() {
 #line(..qm.data.address)
 "#;
     let quill = common::quill_with_plate(YAML, plate);
-    let diags = match TypstBackend.open(&quill, &data(), common::test_date()) {
+    let diags = match TypstBackend::default().open(&quill, &data(), common::test_date()) {
         Ok(_) => panic!("the spread must fail"),
         Err(e) => e.into_diagnostics(),
     };
@@ -302,7 +302,7 @@ fn spreading_a_typed_dictionary_hints_its_path_key() {
     assert!(hint.contains("..rest"), "{hint}");
 
     let sunk = plate.replace("street: none)", "street: none, ..rest)");
-    TypstBackend
+    TypstBackend::default()
         .open(&common::quill_with_plate(YAML, &sunk), &data(), common::test_date())
         .expect("the hinted sink takes `$path`");
 }

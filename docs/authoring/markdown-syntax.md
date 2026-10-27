@@ -21,6 +21,7 @@ Quillmark enables a small, stable subset of GFM:
 |---|---|---|
 | Strikethrough | `~~text~~` | Standard GFM rules; word-bounded delimiter runs. |
 | Pipe tables | `\| col \| col \|` with alignment row | Supports `:---`, `:---:`, `---:` alignment. |
+| HTML tables | `<table>`, `<tr>`, `<th>`, `<td>` | Column widths, placement, cell alignment and merged cells. See [Tables](#tables). |
 | Underline | `<u>text</u>` | An allow-listed raw-HTML tag (see [the deviation below](#raw-html-is-not-rendered-except-u-and-br)). |
 | Task lists | `- [ ] open`, `- [x] done` | A checkbox before the item's text, ticked for `[x]`. |
 | Footnotes | `text[^1]` and a `[^1]: note` definition | The note at the foot of the page, numbered. See [Footnotes](#footnotes). |
@@ -88,9 +89,54 @@ Card
 
 A term takes several descriptions, one `: ` line each. A description holding more than one block indents the rest two spaces under its `: `. A line of prose that should open with a colon writes it `\:`.
 
-## Table layout and elements: `qm-*` tags
+## Tables
 
-Markdown has no syntax for column widths, table placement or keeping a block on one page. Quillmark spells them with `qm-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
+A table is a GFM pipe table or an HTML table, and Quillmark reads both. A pipe table holds one header row, its cells and each column's text alignment, set in the delimiter row (`:---:`). Anything else a table holds is spelled in HTML:
+
+```markdown
+<table widths="1 2 2" aligns="left left right" align="center">
+<thead>
+<tr><th colspan="3">FLIGHT X PERSONNEL</th></tr>
+<tr><th>Date</th><th colspan="2">POC</th></tr>
+</thead>
+<tbody>
+<tr><td rowspan="2" valign="middle">12 Nov</td><td>SSgt Doe</td><td>555-0101</td></tr>
+<tr><td>SrA Roe</td><td>555-0102</td></tr>
+</tbody>
+</table>
+```
+
+On `<table>`:
+
+| Attribute | Value | Without it |
+|---|---|---|
+| `widths` | One weight per column: a positive whole number, or `auto` to fit the column to its content. Weights are relative, so `2 1` makes the first column twice as wide as the second. | Every column fits its content. |
+| `aligns` | One text alignment per column: `none`, `left`, `center` or `right`, as a pipe table's delimiter row sets it. | Every column `none`. |
+| `align` | Where the table sits: `left`, `center` or `right`. | The quill's placement. |
+
+On `<td>` and `<th>`:
+
+| Attribute | Value | Without it |
+|---|---|---|
+| `colspan` | The columns the cell spans, a whole number. | One column. |
+| `rowspan` | The rows the cell spans, a whole number. | One row. |
+| `align` | `left`, `center` or `right`. | The column's alignment. |
+| `valign` | `top`, `middle` or `bottom`. | The quill's vertical alignment. |
+
+- The rows in `<thead>` are the header rows, as many as the table needs, and a header cell can span rows within them. A table with no `<thead>` takes its opening rows of `<th>` cells as its header, in a `<tbody>` or not, and with none of those has no header row: its first row draws as an ordinary row, without the quill's header styling.
+- A cell that a span covers is left out of its row, as HTML leaves it out. In the example, the second body row holds two cells, since `12 Nov` covers its first slot.
+- A cell holds inline markdown, on one line: `<td>**Total**</td>` is bold, and `<br>` is its line break. GitHub draws the grid and the spans, but shows the markdown in a cell as written.
+- A table is one HTML block, so a blank line inside it ends the table there; keep a table's lines together. Text right after `</table>` reads as ordinary markdown.
+- A table holds at most 100 000 cells, rows times columns; the rows past that drop, warning `table:size`.
+- `widths` or `aligns` with fewer entries than the table has columns leaves the rest `auto` or `none`, and one with more ignores the extra entries.
+- Quillmark reads what HTML leaves out: unquoted values, a missing `<tbody>`, and missing `</td>`, `</th>` and `</tr>` tags. `<tfoot>` rows read as body rows at the end.
+- A row too short for the table, which is as wide as its widest row, fills with empty cells. Any other tag, an attribute not on this page and text outside every cell, such as a `<caption>`'s, drop, and each warns `parse::dropped_construct`, naming what dropped (`td[nowrap]`, `table:row`). `border`, `class`, `scope` and `style` drop without a warning.
+
+Export writes a table as pipes when pipes hold all of it, and as HTML otherwise, whichever spelling the document used: a table that gains a merged cell writes as HTML, and one that loses its last merge, width or header row change writes as pipes again.
+
+## Elements: `qm-*` tags
+
+Markdown has no syntax for a run of text's font, keeping a block on one page or a signature line. Quillmark spells them with `qm-*` tags: HTML custom elements, which a browser or GitHub draws as just what they wrap.
 
 Each `qm-*` tag stands on a line of its own, or beside other open and close `qm-*` tags with no text between. Quillmark reads such a line wherever it stands, tight against a paragraph or a table included, and export writes a blank line above and below it, which GitHub and other CommonMark viewers need to render the markdown it wraps:
 
@@ -103,50 +149,29 @@ J. Doe
 </qm-keep>
 ```
 
-A tag inside a line of text, in a heading, emphasis or a link, or left open drops, keeping what it wraps, with a `parse::dropped_construct` warning whose hint names the fix. A self-closing tag (`<qm-keep/>`) is an open tag, as HTML reads it, so it drops too. A tag line directly under a quote's or list item's text continues it, as CommonMark reads it, so its pair belongs in that quote or item.
+A tag inside a line of text, in a heading, emphasis, a link or a table cell, or left open drops, keeping what it wraps, with a `parse::dropped_construct` warning whose hint names the fix. A self-closing tag (`<qm-keep/>`) is an open tag, as HTML reads it, so it drops too. A tag line directly under a quote's or list item's text continues it, as CommonMark reads it, so its pair belongs in that quote or item.
 
-### Table layout
+### Font family
 
-A `qm-table` around one pipe table sets its layout:
+A `qm-span` pair inside a line sets the font family of the text it wraps:
 
 ```markdown
-<qm-table widths="2 1 auto" align="center">
-
-| Item | Description | Qty |
-| --- | --- | --- |
-| A | First | 1 |
-
-</qm-table>
+The <qm-span family="Carlito">phrase sits in **bold <qm-span family="Arimo">sans</qm-span>**</qm-span> text.
 ```
 
 | Attribute | Value | Without it |
 |---|---|---|
-| `widths` | One weight per column: a positive whole number, or `auto` to fit the column to its content. Weights are relative, so `2 1` makes the first column twice as wide as the second. | Every column fits its content. |
-| `align` | Where the table sits: `left`, `center` or `right`. | The quill's placement. |
-| `headless` | No value: `<qm-table headless>`. The first row draws as an ordinary row, without the quill's header styling. | The first row is the header. |
+| `family` | A font family the app's font library supplies, such as `Carlito`. Case does not matter. | The surrounding family. |
 
-Text alignment within a column stays in the delimiter row (`:---:`). A `widths` with fewer entries than the table has columns leaves the rest `auto`, and one with more ignores the extra entries. A `qm-table` around anything but one table drops, keeping what it holds.
-
-### Cell alignment
-
-A `qm-cell` pair around a cell's whole content aligns that one cell, in the header row or the body:
-
-```markdown
-| Item | Notes | Qty |
-| --- | --- | ---: |
-| <qm-cell valign="bottom">Total</qm-cell> | one<br>two | <qm-cell align="center">**42**</qm-cell> |
-```
-
-| Attribute | Value | Without it |
-|---|---|---|
-| `align` | `left`, `center` or `right`. | The column's alignment from the delimiter row. |
-| `valign` | `top`, `middle` or `bottom`. | The quill's vertical alignment. |
-
-The open tag comes first in the cell and the close tag last. A pair with anything else in the cell beside it drops, keeping what it wraps, with a `parse::dropped_construct` warning.
+- It pairs as `<u>` does: inside a paragraph, heading, list item, table cell or footnote, across `**` or `~~` freely. Pairs nest: an inner pair's family sets its own text, and the outer family resumes past it. Saved and exported again, nested pairs come back side by side, one per run.
+- A family the app's library lacks keeps the surrounding font, and the render warns `typst::unknown_font_family` once per family and field. A quill's own fonts set its design and are not a choice here. An app lists the faces a writer can pick with `engine.fontFaces(quill)`.
+- Code spans and equations keep their own font, and a footnote's note keeps its own: a pair inside the note sets it.
+- A family is a run's, never a block's: `qm-span` tag lines around blocks drop with a `qm-span` warning, and the blocks stay.
+- An attribute other than `family` drops alone with a `parse::dropped_construct` warning, keeping the family. A tag setting no family or left open drops, keeping what it wraps.
 
 ### Elements
 
-Any other `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` is reserved. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a `qm-table` it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent, and the render warns `typst::unregistered_element`. The warning's hint names the elements the quill renders, so a misspelled `qm-kep` shows up there.
+Any other `qm-<name>` pair is an element around the blocks between its tags, and the quill decides how to draw it. A name is lowercase letters and digits in words joined by single hyphens, opening with a letter, such as `qm-sig` or `qm-stamp-2`; `qm-anchor` is reserved. `qm-keep` is built into every Typst quill and keeps what it wraps on one page; around a table it keeps the table from splitting. A quill with no renderer for an element draws what it wraps as if the tags were absent, and the render warns `typst::unregistered_element`. The warning's hint names the elements the quill renders, so a misspelled `qm-kep` shows up there.
 
 An element around nothing is its two tags on one line, which suits a signature line or a stamp the quill draws:
 
@@ -160,7 +185,7 @@ An element's attributes are strings the quill reads, such as `<qm-stamp tone="ur
 
 ### Raw HTML is not rendered, except `<u>` and `<br>`
 
-CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, and a `qm-*` tag spells [table layout or an element](#table-layout-and-elements-qm-tags).
+CommonMark passes raw HTML through to the output. Quillmark recognises raw HTML as CommonMark does (so it does not break paragraph structure) but **discards every tag**, except the ones it supports: `<u>…</u>` renders as underline, an inline `<br>` is a line break, a `<table>` is a [table](#tables), a `qm-span` pair sets [a font run](#font-family), and a `qm-*` tag spells [an element](#elements-qm-tags).
 
 ```markdown
 <u>This is underlined</u>, even <u>across word boundaries</u>.
@@ -181,7 +206,7 @@ Consequences:
 
 - `<br>`, `<br/>`, `<br />` (any case) are a line break, in a paragraph or a table cell: `| line one<br>line two |`. Outside a table, a CommonMark hard break does the same: two trailing spaces before a newline, or a trailing `\` before a newline. In a paragraph, a `<br>` at the paragraph's start or right after another line break produces nothing, and a newline beside a line break adds no space: `line one<br>` on one line and `line two` on the next are two lines, the second unindented. A `<br>` alone on a line opens an HTML block, below.
 - HTML entities decode as CommonMark specifies: `Fish &amp; chips, &#65;BC` reads `Fish & chips, ABC`.
-- An HTML block drops as CommonMark reads it. A line starting with a tag such as `<div>`, `<center>` or `<details>` opens a block that runs to the next blank line, so markdown on the lines under it drops with it; a blank line after the tag line keeps what follows. Embedded SVG draws nothing.
+- An HTML block drops as CommonMark reads it, unless it opens `<table>`. A line starting with a tag such as `<div>`, `<center>` or `<details>` opens a block that runs to the next blank line, so markdown on the lines under it drops with it; a blank line after the tag line keeps what follows. Embedded SVG draws nothing.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included, through the end of its closing tag's line.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
 - Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included. Comments and a `qm-*` element that closes are not reported, and neither are closing tags and `<qm-anchor>` tags, except where the block they open drops markdown. A tag in a `richtext` field's value in the card-yaml block drops the same way, reported at the field.

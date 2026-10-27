@@ -37,7 +37,7 @@ fn a_workspace_lays_out_packages_by_spec_and_carries_the_fallback_fonts() {
             ("packages/vendor-x/src/lib.typ", b"#let x = 1\n"),
         ],
     );
-    let ws = workspace(&q, &serde_json::json!({ "title": "Quarterly Findings" })).expect("workspace");
+    let ws = workspace(&q, &serde_json::json!({ "title": "Quarterly Findings" }), &Default::default()).expect("workspace");
     assert_eq!(ws.plate_file, "plate.typ");
 
     let file = |path: &str| {
@@ -62,7 +62,7 @@ fn a_quill_of_another_backend_has_no_workspace() {
         "quill:\n  name: f\n  version: 0.1.0\n  backend: acroform\n  description: f\n",
         &[],
     );
-    let Err(err) = workspace(&q, &serde_json::json!({})) else {
+    let Err(err) = workspace(&q, &serde_json::json!({}), &Default::default()) else {
         panic!("an acroform quill exported a Typst workspace");
     };
     assert_eq!(
@@ -100,7 +100,7 @@ fn a_manifest_cannot_escape_the_workspace_or_replace_the_helper() {
             ("packages/d/lib.typ", b"#let data = none\n"),
         ],
     );
-    let ws = workspace(&q, &serde_json::json!({})).expect("workspace");
+    let ws = workspace(&q, &serde_json::json!({}), &Default::default()).expect("workspace");
     let packages: Vec<_> = ws
         .files
         .iter()
@@ -129,12 +129,32 @@ fn a_workspace_carries_the_load_warnings_a_render_does() {
             ("packages/bare/lib.typ", b"#let x = 1\n"),
         ],
     );
-    let ws = workspace(&q, &serde_json::json!({})).expect("workspace");
+    let ws = workspace(&q, &serde_json::json!({}), &Default::default()).expect("workspace");
     let today = CalendarDate::new(2026, 3, 14).expect("a calendar day");
-    let session = quillmark_typst::TypstBackend
+    let session = quillmark_typst::TypstBackend::default()
         .open(&q, &serde_json::json!({}), today)
         .expect("the plate renders");
     assert_eq!(ws.warnings, session.warnings());
     let codes: Vec<_> = ws.warnings.iter().map(|d| d.code.as_deref()).collect();
     assert_eq!(codes, [Some("typst::package_manifest")]);
+}
+
+/// Every library file lands in the workspace beside the fallback, as the
+/// session loads them.
+#[test]
+fn a_workspace_carries_the_library_font_files() {
+    let q = quill(
+        "quill:\n  name: t\n  version: 0.1.0\n  backend: typst\n  description: t\n",
+        &[("plate.typ", b"hi\n")],
+    );
+    let roboto = include_bytes!("../src/fonts/Roboto.ttf").to_vec();
+    let library = quillmark_typst::FontLibrary::new(vec![roboto]).expect("library");
+    let ws = workspace(&q, &serde_json::json!({}), &library).expect("workspace");
+    let fonts: Vec<_> = ws
+        .files
+        .iter()
+        .map(|(p, _)| p.to_string_lossy().into_owned())
+        .filter(|p| p.starts_with("fonts/host-"))
+        .collect();
+    assert_eq!(fonts, ["fonts/host-0.ttf"]);
 }

@@ -4,6 +4,7 @@ mod edit_tests;
 mod emit_tests;
 mod ext_tests;
 mod fence_conformance_tests;
+mod legacy_table_tests;
 mod lossiness_tests;
 mod multibyte_tests;
 mod properties;
@@ -17,6 +18,12 @@ pub(super) fn parse(src: &str) -> super::Document {
     super::Document::parse(src)
         .expect("source should parse")
         .document
+}
+
+/// `Document::parse` with the warnings dropped, for a test reading the
+/// document or the refusal.
+pub(super) fn decompose(markdown: &str) -> Result<super::Document, crate::error::ParseError> {
+    super::Document::parse(markdown).map(|p| p.document)
 }
 
 /// Parse, emit, re-parse: the same document, or a panic naming `label` and the

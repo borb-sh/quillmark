@@ -79,24 +79,13 @@ pub fn convert_edit_errors(
     errors: Vec<(String, EditError)>,
     base: &quillmark_core::path::DocPath,
 ) -> PyErr {
-    convert_edit_errors_at(
-        errors
-            .into_iter()
-            .map(|(name, err)| (base.field(&name), err))
-            .collect(),
-    )
-}
-
-/// The [`convert_edit_errors`] arm for refusals that carry the whole `DocPath`
-/// they anchor at rather than a field name under one base.
-fn convert_edit_errors_at(errors: Vec<(quillmark_core::path::DocPath, EditError)>) -> PyErr {
     let diags: Vec<Diagnostic> = errors
         .into_iter()
-        .map(|(path, err)| {
+        .map(|(name, err)| {
             Diagnostic::new(Severity::Error, err.to_string())
                 .with_code(err.code().to_string())
                 .with_args(err.args())
-                .with_path(path.to_string())
+                .with_path(base.field(&name).to_string())
         })
         .collect();
     raise_summarized(diags)

@@ -50,6 +50,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 - `--ppi <PPI>`: Pixels per inch for `png` output (default: `144`); `pdf` and `svg` ignore it
 - `--output-data <DATA_FILE>`: Write the compiled, blank-filled JSON data to a file. This is the data before the backend lowers it: a `richtext` value appears as a content object (`{text, lines, marks, islands}`) and a date as its string, where a Typst plate receives content and a `datetime`.
 - `--today <YYYY-MM-DD>`: The render date: what a `today` date field and a plate's `datetime.today()` render as (default: the local date)
+- `--font <FONT_FILE>`: A font file for the engine's font library, repeatable: what an app supplies as its own fonts. Each is a `.ttf`, `.otf`, `.ttc` or `.otc`; any other fails the command with `engine::font_unsupported`. A render reads the quill's own fonts before the file's.
 - `--quiet`: Suppress warnings and the output-destination line; errors still print
 - `--stdout`: Write the artifact to stdout instead of a file (and ignore `-o`); refused when the render produces more than one page
 
@@ -253,6 +254,7 @@ quillmark workspace [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 
 - `-o <DIR>` / `--output <DIR>`: Workspace directory (default: `quillmark-workspace`). A directory inside the quill is refused: the quill would load it as its own files
 - `--today <YYYY-MM-DD>`: The render date (default: the local date). A `today` date field renders as it, and the printed command passes it as `--creation-timestamp`, noon UTC of that date, so the plate's `datetime.today()` returns it too.
+- `--font <FONT_FILE>`: A font file for the engine's font library, repeatable, as on `render`. Each is written to `fonts/host-<n>.<ext>`, so the printed command sets type in it too
 - `--quiet`: Suppress warnings and the command line; errors still print
 
 **Failures:** besides `typst::wrong_backend`, the command refuses each plate a render refuses, before writing anything: `typst::plate_missing` when the quill holds no `plate.typ` and declares no `typst.plate_file`, or `typst.plate_file` names no file in the quill, `typst::plate_path_invalid` when `typst.plate_file` is not a string, names no path, or names a file at a path Typst cannot load, `typst::invalid_utf8` when the plate is not UTF-8, and `typst::helper_import` when a plate source imports the helper any way but `as qm`.

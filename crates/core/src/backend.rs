@@ -30,6 +30,29 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
         json_data: &serde_json::Value,
         today: CalendarDate,
     ) -> Result<LiveSession, RenderError>;
+
+    /// The text faces a `font_family` mark may set in a session of
+    /// `source`: the host library's. None for a backend that reads no fonts.
+    fn font_faces(&self, source: &Quill) -> Vec<FontFace> {
+        let _ = source;
+        Vec::new()
+    }
+}
+
+/// One face a session sets text in, with what an editor needs to draw text
+/// in it: its family, its variant, and the file holding it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontFace {
+    /// The typographic family, as the face spells it.
+    pub family: String,
+    /// The CSS weight, 100 to 900.
+    pub weight: u16,
+    /// `normal`, `italic` or `oblique`.
+    pub style: &'static str,
+    /// The face's index in `data`, a collection when it is past 0.
+    pub index: u32,
+    /// The font file.
+    pub data: std::sync::Arc<[u8]>,
 }
 
 /// The refusal every backend owes a format outside its

@@ -4,15 +4,12 @@
 //! sets each term beside what describes it.
 
 use quillmark_core::{
-    backend::Backend,
     error::Diagnostic,
     quill::Quill,
-    types::{OutputFormat, RenderOptions},
 };
-use quillmark_typst::TypstBackend;
 
 mod common;
-use common::content;
+use common::glyphs;
 
 const PAGE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -24,23 +21,8 @@ fn quill() -> Quill {
     common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), PAGE)
 }
 
-/// The SVG of the one page, and the render's warnings.
 fn render(quill: &Quill, markdown: &str) -> (String, Vec<Diagnostic>) {
-    let data = serde_json::json!({ "$body": content(markdown) });
-    let session = TypstBackend
-        .open(quill, &data, common::test_date())
-        .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
-    let result = session
-        .render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
-        .expect("render");
-    let [page] = result.artifacts.as_slice() else {
-        panic!("one page for {markdown:?}");
-    };
-    (String::from_utf8(page.bytes.clone()).expect("svg is text"), result.warnings)
-}
-
-fn glyphs(svg: &str) -> usize {
-    svg.matches("<use ").count()
+    common::body_page(quill, markdown)
 }
 
 #[test]

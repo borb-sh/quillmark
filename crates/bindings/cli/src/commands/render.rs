@@ -1,4 +1,4 @@
-use crate::commands::{load_quill, read_document, render_date};
+use crate::commands::{load_quill, read_document, read_fonts, render_date};
 use crate::errors::{CliError, Result};
 use crate::output::{derive_output_path, page_output_path, write_file, write_stdout};
 use clap::Parser;
@@ -45,6 +45,11 @@ pub struct RenderArgs {
     /// The render date a `today` date renders as (default: the local date)
     #[arg(long, value_name = "YYYY-MM-DD")]
     today: Option<CalendarDate>,
+
+    /// A font file (.ttf, .otf, .ttc, .otc) for the host font library; repeat
+    /// for more
+    #[arg(long = "font", value_name = "FONT_FILE")]
+    fonts: Vec<PathBuf>,
 }
 
 pub fn execute(args: RenderArgs) -> Result<()> {
@@ -61,7 +66,8 @@ pub fn execute(args: RenderArgs) -> Result<()> {
 
     let mut options = RenderOptions::default().with_output_format(output_format);
     options.ppi = args.ppi;
-    let rendered = render(&quill, &parsed, today, &options, args.output_data.as_deref());
+    let engine = Engine::with_fonts(read_fonts(&args.fonts)?)?;
+    let rendered = render(&engine, &quill, &parsed, today, &options, args.output_data.as_deref());
     let mut result = match rendered {
         Ok(result) => result,
         Err(e) => {
@@ -143,6 +149,7 @@ fn split_warnings(err: CliError) -> (CliError, Vec<Diagnostic>) {
 
 /// The `--output-data` file, when asked for, then the render.
 fn render(
+    engine: &Engine,
     quill: &Quill,
     parsed: &Document,
     today: CalendarDate,
@@ -169,7 +176,7 @@ fn render(
         })?;
     }
 
-    Ok(Engine::new().render(quill, parsed, today, options)?)
+    Ok(engine.render(quill, parsed, today, options)?)
 }
 
 /// An `-o` extension that names a format is a second statement of it: it

@@ -11,7 +11,7 @@ use common::host_with_plate as source_with_plate;
 
 fn compile(plate: &str, json_data: &serde_json::Value) -> Result<Vec<u8>, RenderError> {
     let source = source_with_plate(plate);
-    let session = TypstBackend.open(&source, json_data, common::test_date())?;
+    let session = TypstBackend::default().open(&source, json_data, common::test_date())?;
     let result = session.render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))?;
     Ok(result.artifacts[0].bytes.clone())
 }
@@ -194,7 +194,7 @@ fn form_field_regions_key_on_bound_schema_field() {
         &common::yaml("main:\n  fields:\n    f_txt: { type: text }\n    f_sig: { type: text }\n"),
         plate,
     );
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(
             &source,
             &serde_json::json!({ "f_txt": common::content("FIRST M. LAST"), "f_sig": common::content("") }),

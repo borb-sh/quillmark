@@ -419,6 +419,13 @@ pub enum MarkKind {
     Link {
         url: String,
     },
+    /// The font family a run sets in, stored as written and matched against a
+    /// font book lowercased. [`is_font_family_name`] is the spelling every
+    /// decoder admits. A [keyed](MarkKind::is_keyed) mark: one family per
+    /// character.
+    FontFamily {
+        name: String,
+    },
     // Identity: a handle, not a property. Never merged, may be zero-width.
     /// A comment thread or stable anchor, carried by id and rebased across
     /// edits like any position. The id is caller-supplied, unique per `Content`,
@@ -429,6 +436,25 @@ pub enum MarkKind {
     Anchor {
         id: String,
     },
+}
+
+/// Whether `name` is a family a [`MarkKind::FontFamily`] may carry: not empty,
+/// no whitespace at either edge, and no character the content text refuses or
+/// that a font book could not hold in a name.
+pub fn is_font_family_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.trim() == name
+        && !name
+            .chars()
+            .any(|c| c.is_control() || is_bidi_char(c) || is_line_separator(c) || c == ISLAND_SLOT)
+}
+
+/// How a raw keyed mark ranks over a character it shares with another of its
+/// tag, the greater setting it: the later start, then the shorter mark, then
+/// the later in canonical order. Only [`normalize_marks`] reads it, settling
+/// raw overlap once; normalized content holds none.
+fn keyed_rank(m: &Mark) -> (Usv, std::cmp::Reverse<Usv>, (String, String)) {
+    (m.start, std::cmp::Reverse(m.end), m.kind.sort_key())
 }
 
 /// A structured object with no honest text encoding (a table, figure, or future
@@ -479,7 +505,15 @@ impl MarkKind {
                 | MarkKind::Strike
                 | MarkKind::Code
                 | MarkKind::Link { .. }
+                | MarkKind::FontFamily { .. }
         )
+    }
+
+    /// Keyed formatting: the tag is a key and the attrs its value, one value
+    /// per character, so two marks of one tag never overlap in normalized
+    /// content. A member is also [formatting](Self::is_formatting).
+    pub fn is_keyed(&self) -> bool {
+        matches!(self, MarkKind::FontFamily { .. } | MarkKind::Link { .. })
     }
 
     /// The wire `type` name.
@@ -491,6 +525,7 @@ impl MarkKind {
             MarkKind::Strike => "strike",
             MarkKind::Code => "code",
             MarkKind::Link { .. } => "link",
+            MarkKind::FontFamily { .. } => "font_family",
             MarkKind::Anchor { .. } => "anchor",
         }
     }
@@ -504,6 +539,7 @@ impl MarkKind {
             | MarkKind::Strike
             | MarkKind::Code => Cow::Owned(JsonValue::Null),
             MarkKind::Link { url } => Cow::Owned(bag([("url", url.as_str().into())])),
+            MarkKind::FontFamily { name } => Cow::Owned(bag([("name", name.as_str().into())])),
             MarkKind::Anchor { id } => Cow::Owned(bag([("id", id.as_str().into())])),
         }
     }
@@ -591,6 +627,15 @@ pub(crate) fn check_json_depth(v: &JsonValue, what: &'static str) -> Result<(), 
             what,
             max: crate::MAX_JSON_DEPTH,
         });
+    }
+    Ok(())
+}
+
+/// A `table` island's props against [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS).
+pub(crate) fn check_table_cells(props: &JsonValue) -> Result<(), Invariant> {
+    let cells = crate::serial::table_slots(props);
+    if cells > crate::MAX_TABLE_CELLS {
+        return Err(Invariant::TableTooLarge { cells, max: crate::MAX_TABLE_CELLS });
     }
     Ok(())
 }
@@ -687,6 +732,10 @@ pub enum Invariant {
     /// depth is reported, since the check bails at the first over-deep
     /// container.
     JsonTooDeep { what: &'static str, max: usize },
+    /// A table's grid, its rows by its widest row, holds more slots than
+    /// [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS): the mint pads every row to
+    /// the widest, so the bound is checked before it.
+    TableTooLarge { cells: usize, max: usize },
 }
 
 /// Whether a line's text contradicts its `kind`, which [`Content::normalize`]
@@ -848,6 +897,22 @@ impl Content {
                 .any(|l| l.containers.iter().any(|c| matches!(c, Container::Element { .. })))
     }
 
+    /// Every family a `font_family` mark names, over the text and then each
+    /// island's cells and notes, in mark order with repeats.
+    pub fn font_families(&self) -> Vec<String> {
+        let family = |m: &Mark| match &m.kind {
+            MarkKind::FontFamily { name } => Some(name.clone()),
+            _ => None,
+        };
+        let mut out: Vec<String> = self.marks.iter().filter_map(family).collect();
+        for island in &self.islands {
+            for (_, marks) in island.island_type.cell_marks(&island.props) {
+                out.extend(marks.iter().filter_map(family));
+            }
+        }
+        out
+    }
+
     /// Number of `\n`-separated segments: the required `lines.len()`.
     pub fn segment_count(&self) -> usize {
         self.text.chars().filter(|c| *c == '\n').count() + 1
@@ -892,10 +957,11 @@ impl Content {
     }
 
     /// Normalize in place: canonicalize container `ordinal`/`instance`, break a
-    /// line around a block-only island's slot, drop zero-width formatting, union
-    /// same-kind formatting that is adjacent or overlapping, recursively
-    /// key-sort island props, then sort marks canonically. Idempotent: the
-    /// fixed point the canonical serialization commits to.
+    /// line around a block-only island's slot, split formatting at each `\n`,
+    /// drop zero-width formatting, union same-kind formatting that is adjacent
+    /// or overlapping, recursively key-sort island props, then sort marks
+    /// canonically. Idempotent: the fixed point the canonical serialization
+    /// commits to.
     pub fn normalize(&mut self) {
         canonicalize_containers(&mut self.lines);
         // A splice writes text, never kinds: joining a fence to an image line
@@ -932,13 +998,10 @@ impl Content {
             island.island_type.normalize_props(&mut island.props);
             canonicalize_keys(&mut island.props);
         }
-        // A formatting mark's edges never sit on a line boundary: markdown can't
-        // bold a `\n`, so two producers that disagree only about whether the
-        // boundary is "inside" the mark must canonicalize to the same bounds.
-        // Skip the full-text char collection when nothing needs trimming.
-        if self.marks.iter().any(|m| m.kind.is_formatting()) {
+        // Skip the full-text char collection when nothing needs splitting.
+        if self.text.contains('\n') && self.marks.iter().any(|m| m.kind.is_formatting()) {
             let chars: Vec<char> = self.text.chars().collect();
-            trim_marks_off_newlines(&chars, &mut self.marks);
+            self.marks = split_marks_at_newlines(&chars, normalize_marks(std::mem::take(&mut self.marks)));
         }
         self.marks = normalize_marks(std::mem::take(&mut self.marks));
     }
@@ -1095,6 +1158,9 @@ impl Content {
             // Depth before any pass that walks `props`; a cell's own `attrs` is
             // a subtree, so this bounds the cell marks read below as well.
             check_json_depth(&island.props, "island props")?;
+            if island.island_type == crate::island::IslandType::Table {
+                check_table_cells(&island.props)?;
+            }
             for (text, marks) in island.island_type.cell_marks(&island.props) {
                 let clen = text.chars().count();
                 for m in &marks {
@@ -1203,9 +1269,8 @@ fn canonicalize_containers(lines: &mut [Line]) {
 }
 
 /// Trim each formatting mark's leading/trailing `\n` off `chars`; interior
-/// boundaries are kept, a mark legitimately spanning lines. Zero-width results
-/// are left for [`normalize_marks`] to drop. Prose text and a table cell's text
-/// share the rule.
+/// boundaries are kept, a cell's `<br>` writing inside the mark's delimiters.
+/// Zero-width results are left for [`normalize_marks`] to drop.
 pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
     for m in marks.iter_mut().filter(|m| m.kind.is_formatting()) {
         while m.start < m.end && chars.get(m.start) == Some(&'\n') {
@@ -1217,10 +1282,40 @@ pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
     }
 }
 
-/// Apply the three merge rules and the canonical sort to a flat mark list:
+/// Cut each formatting mark at every `\n` in `chars`, keeping the pieces
+/// between them: prose export closes a mark at a line's end and reopens it on
+/// the next, so in prose a mark never spans a line join. Zero-width pieces are
+/// left for [`normalize_marks`] to drop.
+pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
+    let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i).collect();
+    let within = |m: &Mark| {
+        let lo = breaks.partition_point(|&b| b < m.start);
+        let hi = breaks.partition_point(|&b| b < m.end);
+        &breaks[lo..hi.max(lo)]
+    };
+    let mut out = Vec::with_capacity(marks.len());
+    for m in marks {
+        if !m.kind.is_formatting() {
+            out.push(m);
+            continue;
+        }
+        let mut start = m.start;
+        for &at in within(&m) {
+            out.push(Mark::new(start, at, m.kind.clone()));
+            start = at + 1;
+        }
+        out.push(Mark::new(start.min(m.end), m.end, m.kind));
+    }
+    out
+}
+
+/// Apply the merge rules and the canonical sort to a flat mark list:
 /// same-kind formatting marks union when adjacent *or* overlapping, different
 /// kinds overlap freely (never split into runs), and an identity mark never
-/// merges. Zero-width formatting is dropped; zero-width anchors survive.
+/// merges. Keyed marks of one tag are first cut at every edge among them and
+/// each piece given to the one [`keyed_rank`] puts first, so the union that
+/// follows joins only pieces of one value and none of one tag overlap.
+/// Zero-width formatting is dropped; zero-width anchors survive.
 pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     use std::collections::BTreeMap;
 
@@ -1228,6 +1323,8 @@ pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     let mut kind_of: BTreeMap<(String, String), MarkKind> = BTreeMap::new();
     let mut passthrough: Vec<Mark> = Vec::new();
 
+    let (keyed, marks): (Vec<Mark>, Vec<Mark>) = marks.into_iter().partition(|m| m.kind.is_keyed());
+    let marks = marks.into_iter().chain(settle_keyed(keyed));
     for m in marks {
         if m.kind.is_formatting() {
             if m.start >= m.end {
@@ -1276,6 +1373,49 @@ pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     out
 }
 
+/// Raw keyed marks as disjoint pieces per tag: each stretch between two edges
+/// of a tag's marks goes to the mark [`keyed_rank`] puts first over it, read
+/// off one sweep over the edges.
+fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let mut by_tag: BTreeMap<&'static str, Vec<Mark>> = BTreeMap::new();
+    for m in keyed.into_iter().filter(|m| m.start < m.end) {
+        by_tag.entry(m.kind.tag()).or_default().push(m);
+    }
+    let mut out = Vec::new();
+    for mut marks in by_tag.into_values() {
+        marks.sort_by_key(|m| (m.start, m.end));
+        if marks.windows(2).all(|w| w[0].end <= w[1].start) {
+            out.extend(marks);
+            continue;
+        }
+        let ranks: Vec<_> = marks.iter().map(keyed_rank).collect();
+        let mut by_end: Vec<usize> = (0..marks.len()).collect();
+        by_end.sort_by_key(|&i| marks[i].end);
+        let mut edges: Vec<Usv> = marks.iter().flat_map(|m| [m.start, m.end]).collect();
+        edges.sort_unstable();
+        edges.dedup();
+        let mut over = BTreeSet::new();
+        let (mut opened, mut closed) = (0, 0);
+        for cut in edges.windows(2) {
+            let (a, b) = (cut[0], cut[1]);
+            while closed < by_end.len() && marks[by_end[closed]].end <= a {
+                over.remove(&(&ranks[by_end[closed]], by_end[closed]));
+                closed += 1;
+            }
+            while opened < marks.len() && marks[opened].start <= a {
+                over.insert((&ranks[opened], opened));
+                opened += 1;
+            }
+            if let Some(&(_, i)) = over.last() {
+                out.push(Mark { start: a, end: b, kind: marks[i].kind.clone() });
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1284,6 +1424,32 @@ mod tests {
         Mark { start, end, kind }
     }
 
+
+    /// Raw overlap among keyed marks settles before the same-key union, so
+    /// each character keeps the family the raw marks gave it and the result
+    /// holds one family per character.
+    #[test]
+    fn keyed_marks_settle_to_one_value_per_character() {
+        let family = |name: &str| MarkKind::FontFamily { name: name.into() };
+        for (raw, settled) in [
+            (
+                vec![f(0, 5, family("Arimo")), f(5, 10, family("Arimo")), f(3, 8, family("Bitter"))],
+                vec![f(0, 3, family("Arimo")), f(3, 5, family("Bitter")), f(5, 10, family("Arimo"))],
+            ),
+            (
+                vec![f(0, 6, family("Bitter")), f(0, 6, family("Arimo"))],
+                vec![f(0, 6, family("Bitter"))],
+            ),
+            (
+                vec![f(0, 4, family("Arimo")), f(2, 6, family("Bitter")), f(1, 5, MarkKind::Strong)],
+                vec![f(0, 2, family("Arimo")), f(1, 5, MarkKind::Strong), f(2, 6, family("Bitter"))],
+            ),
+        ] {
+            let once = normalize_marks(raw.clone());
+            assert_eq!(once, settled, "{raw:?}");
+            assert_eq!(normalize_marks(once.clone()), once, "{raw:?} is not a fixed point");
+        }
+    }
 
     #[test]
     fn is_blank_tracks_whitespace_and_islands() {
@@ -1540,7 +1706,6 @@ mod tests {
         }
         let refused = [
             (element("Keep", "note"), Refused::Name("Keep".into())),
-            (element("table", "widths"), Refused::Reserved("table".into())),
             (element("anchor", "ref"), Refused::Reserved("anchor".into())),
             (element("keep", "style"), Refused::Attr("style".into())),
             (element("keep", "$name"), Refused::Attr("$name".into())),
@@ -1721,16 +1886,16 @@ mod tests {
     fn unrecognized_cell_key_survives_normalize() {
         let mut rt = table_rt(serde_json::json!({
             "aligns": ["none", "none"],
-            "header": [{"text": "h", "marks": [], "colspan": 2}, cell("h2")],
+            "header": [{"text": "h", "marks": [], "x_host": 2}, cell("h2")],
             "rows": [[cell("a")]],
         }));
         rt.normalize();
-        assert_eq!(rt.islands[0].props["header"][0]["colspan"], 2);
-        assert!(rt.islands[0].props["rows"][0][1].get("colspan").is_none());
+        assert_eq!(rt.islands[0].props["header"][0]["x_host"], 2);
+        assert!(rt.islands[0].props["rows"][0][1].get("x_host").is_none());
         assert!(rt
             .into_normalized()
             .to_canonical_json()
-            .contains(r#""colspan":2"#));
+            .contains(r#""x_host":2"#));
     }
 
     #[test]
@@ -1890,6 +2055,46 @@ mod tests {
             rt.validate(),
             Err(Invariant::AnchorIdCollision { id: String::new() })
         );
+    }
+
+    #[test]
+    fn normalize_settles_keyed_marks_before_splitting_them() {
+        let family = |name: &str| MarkKind::FontFamily { name: name.into() };
+        let mut rt = Content {
+            text: "abcde\nfghij".into(),
+            lines: vec![Line::new(LineKind::Para); 2],
+            marks: vec![Mark::new(0, 11, family("Zeta")), Mark::new(3, 11, family("Alpha"))],
+            islands: vec![],
+        };
+        rt.normalize();
+        assert_eq!(
+            rt.marks,
+            vec![
+                Mark::new(0, 3, family("Zeta")),
+                Mark::new(3, 5, family("Alpha")),
+                Mark::new(6, 11, family("Alpha")),
+            ]
+        );
+    }
+
+    #[test]
+    fn overlapping_links_split_to_one_link_per_line() {
+        let lines = 50;
+        let text = "a\n".repeat(lines);
+        let len = text.chars().count();
+        let mut rt = Content {
+            lines: vec![Line::new(LineKind::Para); lines + 1],
+            text,
+            marks: (0..20)
+                .map(|i| Mark::new(i, len, MarkKind::Link { url: format!("u{i}") }))
+                .collect(),
+            islands: vec![],
+        };
+        rt.normalize();
+        assert_eq!(rt.marks.len(), lines);
+        let once = rt.clone();
+        rt.normalize();
+        assert_eq!(rt, once);
     }
 
     #[test]

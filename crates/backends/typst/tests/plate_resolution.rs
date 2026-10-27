@@ -18,7 +18,7 @@ const BARE: &str = "quill:\n  name: t\n  version: \"1.0.0\"\n  backend: typst\n 
 fn the_plate_is_plate_typ_by_name_unless_plate_file_names_another() {
     let by_name = tree_quill(&[("Quill.yaml", BARE), ("plate.typ", "hello\n")]);
     assert_eq!(quillmark_typst::plate_file(&by_name).expect("plate.typ loads"), "plate.typ");
-    TypstBackend
+    TypstBackend::default()
         .open(&by_name, &serde_json::json!({}), common::test_date())
         .expect("plate.typ renders");
 
@@ -28,7 +28,7 @@ fn the_plate_is_plate_typ_by_name_unless_plate_file_names_another() {
         ("tpl/main.typ", "hello\n"),
     ]);
     assert_eq!(quillmark_typst::plate_file(&declared).expect("the plate loads"), "tpl/main.typ");
-    TypstBackend
+    TypstBackend::default()
         .open(&declared, &serde_json::json!({}), common::test_date())
         .expect("the declared plate renders, and plate.typ is not compiled");
 }
@@ -84,7 +84,7 @@ fn a_plate_file_drops_its_dot_and_empty_steps() {
             (file, "#set text(font: \"nosuchfont\")\nhello\n"),
         ]);
         assert_eq!(quillmark_typst::plate_file(&q).expect("the plate loads"), file);
-        let session = TypstBackend
+        let session = TypstBackend::default()
             .open(&q, &serde_json::json!({}), common::test_date())
             .expect("the plate loads");
         let pdf = session
@@ -297,7 +297,7 @@ fn every_helper_import_but_the_module_form_fails_at_open() {
         assert_eq!((at.file.as_str(), at.line), (file, line), "{import}");
     }
 
-    let session = TypstBackend.open(
+    let session = TypstBackend::default().open(
         &tree_quill(&[
             ("Quill.yaml", YAML),
             ("plate.typ", "#import \"@local/quillmark-helper:0.2.0\" as helper\n#helper.data\n"),
@@ -309,7 +309,7 @@ fn every_helper_import_but_the_module_form_fails_at_open() {
 }
 
 fn open_err(files: &[(&str, &str)]) -> Vec<quillmark_core::error::Diagnostic> {
-    match TypstBackend.open(&tree_quill(files), &serde_json::json!({}), common::test_date()) {
+    match TypstBackend::default().open(&tree_quill(files), &serde_json::json!({}), common::test_date()) {
         Ok(_) => panic!("the compile must fail"),
         Err(e) => e.into_diagnostics(),
     }

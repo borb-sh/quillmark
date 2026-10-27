@@ -68,6 +68,11 @@ them.
   document raised too is the plate's, and does not count against the example.
   A render that fails adds `cli::example_render_failed`. `--verbose` names
   whether the quill has an example, so a misspelled one reads as none.
+- **`--font` is the host library.** `render` and `workspace` take it once per
+  file and build the engine's font library from them
+  ([ARCHITECTURE.md](ARCHITECTURE.md#fonts)), so a CLI render sees the fonts a
+  host's would. A refused file fails the command before any render, and
+  `workspace` exports each library file as `fonts/host-<n>.<ext>`.
 - **A quill path is a directory or a `.quill` bundle.** Every command loads
   it through `quillmark::quill_from_path`, which reads a file named `*.quill`
   as a bundle ([QUILL.md](QUILL.md#the-quill-bundle)). `workspace` alone

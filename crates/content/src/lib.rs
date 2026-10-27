@@ -12,6 +12,7 @@ pub mod carrier;
 pub mod delta;
 pub mod export;
 mod html;
+mod html_table;
 pub mod import;
 pub mod island;
 pub mod model;
@@ -25,9 +26,16 @@ pub mod usv;
 /// The import guard ([`import::from_markdown`]) and the typst backend's markup
 /// converter share this one limit, so a document that imports also renders.
 /// Typst stops at a show-rule depth of 64, a block quote spends four of it and
-/// the marks around a run at most six, so the bound leaves a plate's own rules
-/// the rest.
+/// the marks and font run around a run at most seven, so the bound leaves a
+/// plate's own rules the rest.
 pub const MAX_NESTING_DEPTH: usize = 12;
+
+/// Maximum slots of a table's grid, rows (the header among them) times columns,
+/// and on a markdown import of all its tables' grids together. A grid pads
+/// every row to its widest, so a few bytes of markdown or host JSON can ask for
+/// millions of cells: on wasm32 an allocation that traps rather than errors. No
+/// document's tables near it, and Typst could not lay out one that did.
+pub const MAX_TABLE_CELLS: usize = 100_000;
 
 /// Maximum nesting depth of an opaque JSON payload (an island's `props`), in
 /// container levels from the bag.

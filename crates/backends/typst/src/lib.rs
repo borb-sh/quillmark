@@ -11,7 +11,9 @@ mod elements;
 /// Content → Typst-markup lowering plus its per-segment source map.
 mod emit;
 mod error_mapping;
+mod families;
 mod glyphs;
+mod library;
 mod tex;
 
 mod helper;
@@ -20,9 +22,11 @@ mod world;
 pub mod workspace;
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
+pub use library::FontLibrary;
 use quillmark_core::{
-    backend::Backend,
+    backend::{Backend, FontFace},
     error::{Diagnostic, RenderError, RenderResult, Severity},
     quill::{
         build_transform_schema, CalendarDate, Quill, QuillConfig,
@@ -34,9 +38,18 @@ use quillmark_core::{
 };
 use typst::syntax::VirtualPath;
 
-/// Typst backend implementation for Quillmark.
-#[derive(Debug)]
-pub struct TypstBackend;
+/// Typst backend implementation for Quillmark, holding the host's font
+/// library every session it opens reads.
+#[derive(Debug, Default)]
+pub struct TypstBackend {
+    library: Arc<FontLibrary>,
+}
+
+impl TypstBackend {
+    pub fn new(library: Arc<FontLibrary>) -> Self {
+        Self { library }
+    }
+}
 
 const SUPPORTED_FORMATS: &[OutputFormat] =
     &[OutputFormat::Pdf, OutputFormat::Svg, OutputFormat::Png];
@@ -107,6 +120,7 @@ fn recompile(
         &unclosed,
         elements::unregistered(&document, config, data),
         tex::unsupported(config, data),
+        families::unknown(config, data, world.families()),
         glyphs::missing(&document),
     );
     Ok(Compiled {
@@ -129,6 +143,7 @@ fn session_warnings(
     unclosed: &[(usize, String)],
     unregistered: Vec<Diagnostic>,
     unsupported_tex: Vec<Diagnostic>,
+    unknown_families: Vec<Diagnostic>,
     missing_glyphs: Option<Diagnostic>,
 ) -> Vec<Diagnostic> {
     let mut all = world.load_warnings().to_vec();
@@ -147,6 +162,7 @@ fn session_warnings(
     }));
     all.extend(unregistered);
     all.extend(unsupported_tex);
+    all.extend(unknown_families);
     all.extend(missing_glyphs);
     all
 }
@@ -358,8 +374,8 @@ impl TypstSession {
     }
 }
 
-fn quill_world(source: &Quill, plate: &Plate) -> Result<world::QuillWorld, RenderError> {
-    world::QuillWorld::new(source, plate).map_err(|e| {
+fn quill_world(source: &Quill, plate: &Plate, library: &FontLibrary) -> Result<world::QuillWorld, RenderError> {
+    world::QuillWorld::new(source, plate, library).map_err(|e| {
         RenderError::coded(
             "typst::world_creation",
             format!("Failed to create Typst compilation environment: {e}"),
@@ -453,7 +469,7 @@ impl Backend for TypstBackend {
         // Built in two steps rather than through `new_with_data` so codegen's own
         // diagnostic code survives: boxing it into the world-creation error would
         // relabel a bad date `typst::world_creation`.
-        let mut world = quill_world(source, &plate)?;
+        let mut world = quill_world(source, &plate, &self.library)?;
         check_helper_imports(&world)?;
         world.set_today(today);
         // No session survives to serve the load warnings, and a package they
@@ -475,11 +491,33 @@ impl Backend for TypstBackend {
             json_data,
         ))
     }
+
+    /// The library's faces that set running text, as `world::sets_text` reads
+    /// them. A quill's own faces and the fallback set its plate, never a mark.
+    fn font_faces(&self, _source: &Quill) -> Vec<FontFace> {
+        self.library
+            .faces_with_files()
+            .filter(|(font, _)| world::sets_text(font.info(), font))
+            .map(|(font, file)| {
+                let info = font.info();
+                FontFace {
+                    family: info.family.clone(),
+                    weight: info.variant.weight.to_number(),
+                    style: css_style(info.variant.style),
+                    index: font.index(),
+                    data: file.clone(),
+                }
+            })
+            .collect()
+    }
 }
 
-impl Default for TypstBackend {
-    fn default() -> Self {
-        Self
+/// A face's CSS style keyword.
+fn css_style(style: typst::text::FontStyle) -> &'static str {
+    match style {
+        typst::text::FontStyle::Normal => "normal",
+        typst::text::FontStyle::Italic => "italic",
+        typst::text::FontStyle::Oblique => "oblique",
     }
 }
 

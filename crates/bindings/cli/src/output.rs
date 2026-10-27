@@ -10,9 +10,7 @@ pub fn write_stdout(bytes: &[u8]) -> Result<()> {
 
 pub fn write_file(path: &Path, bytes: &[u8], announce: bool) -> Result<()> {
     if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent)?;
-        }
+        fs::create_dir_all(parent)?;
     }
     fs::write(path, bytes)?;
     if announce {

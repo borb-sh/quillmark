@@ -5,7 +5,11 @@
 // Each integration test binary compiles this module and uses part of it.
 #![allow(dead_code)]
 
+use quillmark_core::backend::Backend;
+use quillmark_core::error::Diagnostic;
 use quillmark_core::quill::{CalendarDate, FileTreeNode, Quill};
+use quillmark_core::types::{OutputFormat, RenderOptions};
+use quillmark_typst::TypstBackend;
 use std::collections::HashMap;
 
 /// No fonts dir is needed (the backend's embedded Roboto faces render text)
@@ -71,4 +75,33 @@ pub fn content(markdown: &str) -> serde_json::Value {
 /// The render date the tests open sessions with.
 pub fn test_date() -> CalendarDate {
     CalendarDate::new(2026, 3, 14).expect("a calendar day")
+}
+
+/// Each page's SVG for a body of `markdown`, and the render's warnings.
+pub fn body_svgs(quill: &Quill, markdown: &str) -> (Vec<String>, Vec<Diagnostic>) {
+    let data = serde_json::json!({ "$body": content(markdown) });
+    let session = TypstBackend::default()
+        .open(quill, &data, test_date())
+        .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
+    let result = session
+        .render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
+        .expect("render");
+    let pages = result
+        .artifacts
+        .iter()
+        .map(|a| String::from_utf8(a.bytes.clone()).expect("svg is text"))
+        .collect();
+    (pages, result.warnings)
+}
+
+/// [`body_svgs`] for a body that renders to one page.
+pub fn body_page(quill: &Quill, markdown: &str) -> (String, Vec<Diagnostic>) {
+    let (mut pages, warnings) = body_svgs(quill, markdown);
+    assert_eq!(pages.len(), 1, "one page for {markdown:?}");
+    (pages.remove(0), warnings)
+}
+
+/// The glyphs an SVG draws.
+pub fn glyphs(svg: &str) -> usize {
+    svg.matches("<use ").count()
 }

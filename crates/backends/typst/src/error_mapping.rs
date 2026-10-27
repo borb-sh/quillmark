@@ -190,7 +190,7 @@ mod tests {
     fn fixture_world() -> QuillWorld {
         let source = Quill::from_tree(walk_fixture()).expect("load source");
         let plate = crate::read_plate(&source).expect("plate");
-        QuillWorld::new(&source, &plate).expect("create world")
+        QuillWorld::new(&source, &plate, &crate::FontLibrary::default()).expect("create world")
     }
 
     /// The fixture's `typst.plate_file: plate.typ` makes the backend read this.
@@ -279,7 +279,7 @@ mod tests {
             "#set page(width: 200pt, height: 200pt)\n#image(\"assets/marc.png\")\n",
         );
 
-        let diags = match TypstBackend.open(&source, &serde_json::json!({}), test_date()) {
+        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date()) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
                 .expect_err("a missing image should fail to compile")
@@ -305,7 +305,7 @@ mod tests {
         let source = source_with_plate(
             "#import \"@local/quillmark-helper:0.2.0\" as qm\n\n#qm.ink(qm.data, \"no_such_field\")\n",
         );
-        let diags = match TypstBackend.open(&source, &serde_json::json!({}), test_date()) {
+        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date()) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
                 .expect_err("an unknown ink address should fail to compile")
@@ -324,7 +324,7 @@ mod tests {
         let source = source_with_plate(EVAL_ERROR_PLATE);
 
         // Compilation happens during `open`, so the error may surface there.
-        let diags = match TypstBackend.open(&source, &serde_json::json!({}), test_date()) {
+        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date()) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
                 .expect_err("eval of `#general` should fail to compile")

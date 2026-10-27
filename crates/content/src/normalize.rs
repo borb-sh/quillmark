@@ -4,7 +4,8 @@
 
 use crate::carrier;
 use crate::html::{self, BlockKind};
-use pulldown_cmark::{Event, Options, Parser, Tag as PTag, TagEnd};
+use crate::html_table;
+use pulldown_cmark::{Event, OffsetIter, Options, Parser, Tag as PTag, TagEnd};
 use std::ops::Range;
 
 /// The Unicode bidi formatting controls, which sit adjacent to `**`/`_` and
@@ -74,35 +75,28 @@ fn admit_chars(s: &str) -> String {
 /// repair, handed to `f` with its parse.
 ///
 /// The repair rewrites the text so the parse reads the text after a comment's
-/// `-->` on its line, ends a table at a line of tags under its rows, and sets
-/// a line of carrier tags in an HTML block apart from the markdown beside it
-/// (markdown-spec §6.2, §7 step 5). Each round parses and edits only inside
+/// `-->` on its line, ends a pipe table at a line of tags under its rows, and
+/// sets a line of carrier tags in an HTML block apart from the markdown beside
+/// it (markdown-spec §6.2, §7 step 5). Each round parses and edits only inside
 /// the spans that parse located, so a fence is never touched; the rounds end
-/// at one that plans no edit, whose parse `f` takes.
+/// at one that plans no edit, and `f` takes a parse of the text they leave,
+/// read as it goes rather than held whole.
 pub(crate) fn parse_markdown<R>(
     markdown: &str,
     options: Options,
-    f: impl FnOnce(&str, Vec<(Event<'_>, Range<usize>)>) -> R,
+    f: impl FnOnce(&str, OffsetIter<'_>) -> R,
 ) -> R {
     let mut text = admit_chars(&normalize_line_endings(markdown));
-    fn parse(text: &str, options: Options) -> Vec<(Event<'_>, Range<usize>)> {
-        Parser::new_ext(text, options).into_offset_iter().collect()
-    }
-    let parsed = 'repair: {
-        if may_need_repair(&text) {
-            for _ in 0..REPAIR_ROUNDS {
-                let events = parse(&text, options);
-                let edits = plan(&text, &events);
-                if edits.is_empty() {
-                    break 'repair Some(events);
-                }
-                text = apply(&text, &edits);
+    if may_need_repair(&text) {
+        for _ in 0..REPAIR_ROUNDS {
+            let edits = plan(&text, Parser::new_ext(&text, options).into_offset_iter());
+            if edits.is_empty() {
+                break;
             }
+            text = apply(&text, &edits);
         }
-        None
-    };
-    let events = parsed.unwrap_or_else(|| parse(&text, options));
-    f(&text, events)
+    }
+    f(&text, Parser::new_ext(&text, options).into_offset_iter())
 }
 
 #[cfg(test)]
@@ -111,7 +105,7 @@ pub(crate) fn normalize_markdown(markdown: &str, options: Options) -> String {
 }
 
 /// Rounds the repair takes at most. A round leaves work for the next only where
-/// the text it splits off a comment opens another.
+/// the text it splits off a comment or a table opens another such block.
 const REPAIR_ROUNDS: usize = 8;
 
 /// Whether some line could open an HTML block or hold a table row of tags: its
@@ -131,7 +125,7 @@ struct Edit {
     with: String,
 }
 
-fn plan(src: &str, events: &[(Event, Range<usize>)]) -> Vec<Edit> {
+fn plan<'a>(src: &str, events: impl Iterator<Item = (Event<'a>, Range<usize>)>) -> Vec<Edit> {
     let mut edits: Vec<Edit> = Vec::new();
     let mut block: Option<Vec<usize>> = None;
     let mut row: Option<usize> = None;
@@ -151,6 +145,7 @@ fn plan(src: &str, events: &[(Event, Range<usize>)]) -> Vec<Edit> {
                 if let Some(starts) = block.take() {
                     let lines: Vec<SrcLine> = starts.iter().map(|&at| SrcLine::at(src, at)).collect();
                     edits.extend(comment_edit(src, &lines));
+                    edits.extend(table_tail_edit(src, &lines));
                     if notes == 0 {
                         edits.extend(carrier_block_edit(src, &lines));
                     }
@@ -290,6 +285,70 @@ fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     (with != src[start..end]).then_some(Edit { range: start..end, with })
 }
 
+/// The edit setting what follows each table's `</table>` in its HTML block
+/// apart under a blank line, keeping its line's indent, so it reads as
+/// markdown of its own rather than dropping with the block. The edit stops at
+/// a piece that opens a fence or a type 1–5 block it does not close on its
+/// line, as [`comment_edit`] declines one, leaving the rest in the block.
+fn table_tail_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
+    let (first, last) = (lines.first()?, lines.last()?);
+    if !html_table::opens(first.content) {
+        return None;
+    }
+    let text = lines.iter().map(|l| l.content).collect::<Vec<_>>().join("\n");
+    let mut ends = html_table::tails(&text).into_iter().peekable();
+    ends.peek()?;
+    let runs_on = |piece: &str| match html::block_start(piece) {
+        Some(k) if k != BlockKind::Open => html::block_end(k, piece).is_none(),
+        _ => fence_opener(piece).is_some(),
+    };
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 4);
+    let (mut off, mut apart, mut stopped) = (0, false, false);
+    for line in lines {
+        let content = line.content;
+        if stopped {
+            out.push(line.whole());
+            continue;
+        }
+        let mut cuts = Vec::new();
+        while let Some(end) = ends.next_if(|&end| end <= off + content.len()) {
+            cuts.push(end - off);
+        }
+        off += content.len() + 1;
+        let lead = format!("{}{}", continuation_of(line.prefix), shallow_lead(content));
+        let head = &content[..cuts.first().copied().unwrap_or(content.len())];
+        if apart && !runs_on(head.trim()) {
+            out.push(blank_of(line.prefix));
+            out.push(format!("{lead}{}", head.trim()));
+        } else {
+            stopped |= apart;
+            out.push(format!("{}{}", line.prefix, if cuts.is_empty() { head } else { head.trim_end() }));
+        }
+        apart = false;
+        for (k, &cut) in cuts.iter().enumerate() {
+            let piece = content[cut..cuts.get(k + 1).copied().unwrap_or(content.len())].trim();
+            if piece.is_empty() {
+                apart = true;
+            } else if stopped || runs_on(piece) {
+                stopped = true;
+                if let Some(prev) = out.last_mut() {
+                    prev.push_str(&content[cut..]);
+                }
+                break;
+            } else {
+                out.push(blank_of(line.prefix));
+                out.push(format!("{lead}{piece}"));
+            }
+        }
+    }
+    if !stopped && next_line_continues(src, last.end()) {
+        out.push(blank_of(last.prefix));
+    }
+    let range = first.start..last.end();
+    let with = out.join("\n");
+    (with != src[range.clone()]).then_some(Edit { range, with })
+}
+
 /// The whitespace leading `line` when it is shy of an indented code line's
 /// four columns, else nothing.
 fn shallow_lead(line: &str) -> &str {
@@ -302,16 +361,21 @@ fn shallow_lead(line: &str) -> &str {
 /// The edit setting each run of carrier tag lines in a type 6 or 7 HTML block
 /// apart from the markdown lines beside it, where no line of other tags
 /// borders the run, so the run reads as tag lines and the markdown as blocks
-/// of its own. A line the edit leaves opening a block keeps an indent only shy
-/// of an indented code line's, and a blank line closes the block's last
-/// markdown where the next line would continue it lazily.
+/// of its own. A line holding only an HTML table's tags reads as markdown
+/// here, and a block opening a table is the table's own. A line the edit
+/// leaves opening a block keeps an indent only shy of an indented code line's,
+/// and a blank line closes the block's last markdown where the next line would
+/// continue it lazily.
 fn carrier_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
-    if html::block_start(first.content) != Some(BlockKind::Open) {
+    if html::block_start(first.content) != Some(BlockKind::Open) || html_table::opens(first.content) {
         return None;
     }
     let carrier: Vec<bool> = lines.iter().map(|l| carrier::tag_line(l.content).is_some()).collect();
-    let markdown: Vec<bool> = lines.iter().map(|l| html::tag_line(l.content).is_none()).collect();
+    let markdown: Vec<bool> = lines
+        .iter()
+        .map(|l| html::tag_line(l.content).is_none_or(|tags| tags.iter().all(|t| html_table::is_tag(t.name))))
+        .collect();
     let lead = |line: &SrcLine| format!("{}{}{}", line.prefix, shallow_lead(line.content), line.content.trim_start());
     let mut out = Vec::with_capacity(lines.len() + 3);
     let mut changed = false;
@@ -491,6 +555,10 @@ mod tests {
                 "<qm-keep>\n    **Signed**\n    J. Doe\n</qm-keep>",
                 "<qm-keep>\n\n**Signed**\n    J. Doe\n\n</qm-keep>",
             ),
+            (
+                "<qm-keep>\n<table>\n<tr><td>a</td></tr>\n</table>\n</qm-keep>",
+                "<qm-keep>\n\n<table>\n<tr><td>a</td></tr>\n</table>\n\n</qm-keep>",
+            ),
         ];
         for (md, repaired) in cases {
             assert_eq!(normalized(md), repaired, "{md:?}");
@@ -502,8 +570,45 @@ mod tests {
             "<qm-keep>\n<div>\nA",
             "<span>\n<qm-keep>\nA",
             "<div>\nA",
-            "<qm-keep>\n<qm-table>\n\nA",
+            "<qm-keep>\n<qm-box>\n\nA",
+            "<table>\n<qm-keep>\n<tr><td>a</td></tr>\n</table>",
             "[^n]: <qm-keep>\n    A",
+        ] {
+            assert_eq!(normalized(md), md);
+        }
+    }
+
+    /// What follows a table's `</table>` in its HTML block is set apart under
+    /// a blank line, on the same line or the next, in a quote or list item as
+    /// at the top level, after every table of the block in one edit. A fence
+    /// it would open stays in the block.
+    #[test]
+    fn what_follows_a_table_is_set_apart() {
+        let cases = [
+            ("<table><tr><td>a</td></tr></table>\nProse.", "<table><tr><td>a</td></tr></table>\n\nProse."),
+            ("<table><tr><td>a</td></tr></table> Prose.", "<table><tr><td>a</td></tr></table>\n\nProse."),
+            ("> <table><tr><td>a</td></tr></table>\n> Prose.", "> <table><tr><td>a</td></tr></table>\n>\n> Prose."),
+            ("- <table><tr><td>a</td></tr></table> Prose.", "- <table><tr><td>a</td></tr></table>\n\n  Prose."),
+            ("<table><tr><td>`</table>` b</td></tr></table>", "<table><tr><td>`</table>\n\n` b</td></tr></table>"),
+            (
+                "<table><tr><td>a</td></tr></table>\n<table><tr><td>b</td></tr></table>",
+                "<table><tr><td>a</td></tr></table>\n\n<table><tr><td>b</td></tr></table>",
+            ),
+            (
+                "<table><tr><td>a</td></tr></table>\n### B\n<table><tr><td>b</td></tr></table>\nC",
+                "<table><tr><td>a</td></tr></table>\n\n### B\n<table><tr><td>b</td></tr></table>\n\nC",
+            ),
+            (
+                "<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n</qm-keep>",
+                "<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n\n</qm-keep>",
+            ),
+        ];
+        for (md, repaired) in cases {
+            assert_eq!(normalized(md), repaired, "{md:?}");
+        }
+        for md in [
+            "<table><tr><td>a</td></tr></table>",
+            "<table><tr><td>a</td></tr></table>\n```\nx",
         ] {
             assert_eq!(normalized(md), md);
         }

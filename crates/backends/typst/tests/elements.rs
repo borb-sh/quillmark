@@ -5,7 +5,6 @@
 use quillmark_core::{
     backend::Backend,
     quill::Quill,
-    types::{OutputFormat, RenderOptions},
 };
 use quillmark_typst::TypstBackend;
 
@@ -32,20 +31,8 @@ fn quill(plate: &str) -> Quill {
     )
 }
 
-/// Each page's SVG.
 fn pages(quill: &Quill, markdown: &str) -> Vec<String> {
-    let data = serde_json::json!({ "$body": content(markdown) });
-    let session = TypstBackend
-        .open(quill, &data, common::test_date())
-        .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
-    let result = session
-        .render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
-        .expect("render");
-    result
-        .artifacts
-        .iter()
-        .map(|a| String::from_utf8(a.bytes.clone()).expect("svg is text"))
-        .collect()
+    common::body_svgs(quill, markdown).0
 }
 
 const STAMPED: &str = "a\n\n<qm-stamp size=\"4\" day=\"2024-01-15\">\n\nb\n\n</qm-stamp>\n\nc";
@@ -84,7 +71,7 @@ const UNREGISTERED: &str = "typst::unregistered_element";
 /// The compile's warnings under `typst::unregistered_element`.
 fn unregistered(quill: &Quill, markdown: &str) -> Vec<quillmark_core::error::Diagnostic> {
     let data = serde_json::json!({ "$body": content(markdown) });
-    let session = TypstBackend
+    let session = TypstBackend::default()
         .open(quill, &data, common::test_date())
         .unwrap_or_else(|e| panic!("{markdown:?} compiles: {e}"));
     session

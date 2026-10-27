@@ -470,10 +470,22 @@ export class Engine {
 	 */
 	/** load → Promise<build module>, memoized so each build loads once. */
 	#modules = new Map();
-	/** load → that build's engine instance (the WASM backend registry). */
+	/**
+	 * load → `{ engine }`, that build's engine instance (the WASM backend
+	 * registry), or `{ refused }`, the error its construction threw. A refusal
+	 * is the font library's, which every retry would parse and refuse again.
+	 */
 	#engines = new Map();
 	/** backendId → descriptor `{ load, formats }`. */
 	#loaders;
+	/**
+	 * The host's font library, copied at construction and handed to each
+	 * build's engine as it loads; `null` once every build has had it.
+	 * @type {Uint8Array[] | null}
+	 */
+	#fonts;
+	/** How many distinct builds the loaders name. */
+	#builds;
 	/**
 	 * load → WeakMap<canonical Quill, build-memory clone>, caching the
 	 * expensive materialization. WeakMap so dropping the canonical quill makes
@@ -486,10 +498,15 @@ export class Engine {
 	 * `load` must resolve to a READY module: a registrant shipping its own
 	 * `--target web` build instantiates inside the thunk, and more than one
 	 * `Engine` may call it, so memoize (the built-ins do, at module scope).
-	 * @param {{ backends?: Record<string, { load: () => Promise<unknown>, formats: string[] }> }} [options]
+	 * @param {{ backends?: Record<string, { load: () => Promise<unknown>, formats: string[] }>, fonts?: Uint8Array[] }} [options]
 	 */
 	constructor(options) {
-		rejectUnknownKeys(options, ['backends'], 'Engine options');
+		rejectUnknownKeys(options, ['backends', 'fonts'], 'Engine options');
+		const fonts = options?.fonts ?? [];
+		if (!Array.isArray(fonts) || !fonts.every((font) => font instanceof Uint8Array)) {
+			throw new Error('Engine: `fonts` must be an array of Uint8Array.');
+		}
+		this.#fonts = fonts.map((font) => font.slice());
 		const merged = { ...DEFAULT_BACKENDS, ...(options?.backends ?? {}) };
 		/** @type {Record<string, { load: () => Promise<unknown>, formats: string[] }>} */
 		const loaders = {};
@@ -497,6 +514,7 @@ export class Engine {
 			loaders[id] = validateBackend(id, entry);
 		}
 		this.#loaders = loaders;
+		this.#builds = new Set(Object.values(loaders).map((descriptor) => descriptor.load)).size;
 	}
 
 	/**
@@ -554,12 +572,18 @@ export class Engine {
 		}
 		const mod = await modPromise;
 
-		let engine = this.#engines.get(load);
-		if (!engine) {
-			engine = new mod.Engine();
-			this.#engines.set(load, engine);
+		let built = this.#engines.get(load);
+		if (!built) {
+			try {
+				built = { engine: new mod.Engine(this.#fonts) };
+			} catch (refused) {
+				built = { refused };
+			}
+			this.#engines.set(load, built);
+			if (this.#engines.size === this.#builds) this.#fonts = null;
 		}
-		return { mod, engine };
+		if ('refused' in built) throw built.refused;
+		return { mod, engine: built.engine };
 	}
 
 	/**
@@ -655,6 +679,36 @@ export class Engine {
 			quill,
 			doc,
 			({ mod, engine, quill: q, doc: d }) => new LiveSession(engine.open(q, d, today), mod)
+		);
+	}
+
+	/**
+	 * Run `fn` against `quill`'s build-memory clone, `quill` snapshotted before
+	 * the first await as `#withClones` snapshots it.
+	 * @param {string} method the caller's name, for the rejection message
+	 * @param {Quill} quill
+	 * @param {(ctx: { engine: any, quill: any }) => any} fn
+	 */
+	async #withQuill(method, quill, fn) {
+		const backendId = this.#backendOf(quill, method);
+		const quillTree = this.#quillClones.get(this.#descriptorFor(backendId).load)?.has(quill)
+			? null
+			: quill.toTree();
+		const { mod, engine } = await this.#resolveBackend(backendId);
+		try {
+			return fn({ engine, quill: this.#cachedQuillClone(mod, backendId, quill, quillTree) });
+		} catch (err) {
+			throw backendTrap(err);
+		}
+	}
+
+	/**
+	 * @param {Quill} quill
+	 * @returns {Promise<import('./runtime.d.ts').FontFace[]>}
+	 */
+	async fontFaces(quill) {
+		return this.#withQuill('engine.fontFaces(quill)', quill, ({ engine, quill: q }) =>
+			typeof engine.fontFaces === 'function' ? engine.fontFaces(q) : []
 		);
 	}
 
