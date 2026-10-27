@@ -2153,14 +2153,14 @@ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH RE
 
 ## Apache License 2.0
 
-- quillmark-acroform 0.131.0 (https://github.com/borb-sh/quillmark)
-- quillmark-typst 0.131.0 (https://github.com/borb-sh/quillmark)
-- quillmark-cli 0.131.0 (https://github.com/borb-sh/quillmark)
-- quillmark-python 0.131.0
-- quillmark-content 0.131.0 (https://github.com/borb-sh/quillmark)
-- quillmark-core 0.131.0 (https://github.com/borb-sh/quillmark)
-- quillmark 0.131.0 (https://github.com/borb-sh/quillmark)
-- quillmark-pdf 0.131.0 (https://github.com/borb-sh/quillmark)
+- quillmark-acroform 0.132.0 (https://github.com/borb-sh/quillmark)
+- quillmark-typst 0.132.0 (https://github.com/borb-sh/quillmark)
+- quillmark-cli 0.132.0 (https://github.com/borb-sh/quillmark)
+- quillmark-python 0.132.0
+- quillmark-content 0.132.0 (https://github.com/borb-sh/quillmark)
+- quillmark-core 0.132.0 (https://github.com/borb-sh/quillmark)
+- quillmark 0.132.0 (https://github.com/borb-sh/quillmark)
+- quillmark-pdf 0.132.0 (https://github.com/borb-sh/quillmark)
 - ciborium-io 0.2.2 (https://github.com/enarx/ciborium)
 - ciborium-ll 0.2.2 (https://github.com/enarx/ciborium)
 - ciborium 0.2.2 (https://github.com/enarx/ciborium)
@@ -6248,8 +6248,8 @@ limitations under the License.
 
 ## Apache License 2.0
 
-- quillmark-wasm 0.131.0 (https://github.com/borb-sh/quillmark)
-- quillmark-fixtures 0.131.0
+- quillmark-wasm 0.132.0 (https://github.com/borb-sh/quillmark)
+- quillmark-fixtures 0.132.0
 - arraydeque 0.5.1 (https://github.com/andylokandy/arraydeque)
 - codex 0.3.0 (https://github.com/typst/codex)
 - color 0.3.3 (https://github.com/linebender/color)

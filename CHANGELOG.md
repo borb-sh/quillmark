@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.132.0 - 2026-10-27
+
+Upgrade path: [0.131 → 0.132](docs/migrations/0.131-to-0.132.md). A row
+holding a `qm-*` element or a definition list loads as what it held, and every
+Typst PDF now carries a title.
+
+### Quill bundles
+
+- feat(core): **a quill reads and writes as one `.quill` bundle**, its file
+  tree as one zip: `Quill.yaml` at the archive root, `/` paths with no `..`,
+  stored or deflated entries, and a budget of 2048 entries, 32 MiB a file and
+  64 MiB in all, counted off the central directory before anything inflates.
+  [`prose/references/quill-bundle.md`](prose/references/quill-bundle.md)
+  specifies the format. `Quill::from_bundle` and `Quill::to_bundle` sit beside
+  `from_tree`, and a refused bundle fails as `quill::bundle_invalid`,
+  `quill::bundle_unsupported`, `quill::bundle_path` or
+  `quill::bundle_too_large`. An archive listing one path as both a file and a
+  directory is refused.
+- feat(bindings): **every surface reads and writes a bundle**: WASM
+  `Quill.fromBundle(bytes)` and `quill.toBundle()` in both builds, Python
+  `Quill.from_bundle(bytes)` and `quill.to_bundle()`. `quill_from_path` reads a
+  file named `*.quill` as a bundle, so `Quill.from_path` and every CLI command
+  taking a quill path take one; `workspace` refuses a file. `quillmark pack
+  <QUILL_PATH> [-o FILE]` writes one, by default `<name>@<version>.quill`.
+
+### Content
+
+- feat(content)!: **a `qm-<name>` element and a definition list are no longer
+  content.** A `qm-*` tag other than `qm-span` and `qm-anchor` drops, its open
+  tag warning `parse::dropped_construct` under its name, and what it wrapped
+  imports as written. A definition list reads as the paragraph CommonMark
+  reads. A stored `element` or `description` container or `term` line loads as
+  what it held and saves without it, under the tag it would take anyway; the
+  authored lanes refuse either container. The Typst helper's `elements`
+  registry, `_qm-element` and `typst::unregistered_element` are gone, so a
+  plate calling `qm.elements.update(..)` fails to compile until the call goes.
+
+### Rendering
+
+- feat(typst)!: **every Typst PDF carries a title**, in `/Info /Title` and XMP
+  `dc:title`: the render's new `title` option, else the plate's
+  `set document(title: ..)`, else the quill's `description`, trimmed.
+  `RenderOptions` gains `title`, the WASM and Python render options carry it,
+  and `quillmark render` takes `--title`.
+- fix(typst): **a table cell breaks inside an email address or dotted name**,
+  such as `Michael.Marshall@us.af.mil`, where one wider than its column ran
+  into the next cell. The address still copies out of the PDF whole.
+
 ## v0.131.0 - 2026-10-26
 
 Upgrade path: [0.130 → 0.131](docs/migrations/0.130-to-0.131.md). A row
