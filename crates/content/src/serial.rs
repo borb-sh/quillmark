@@ -23,7 +23,6 @@ use crate::model::{
 };
 use serde_json::{Map, Value};
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 
 /// Why canonical-JSON parsing failed. Structural only: a well-formed producer
 /// (this crate's serializer, storage, a binding) never trips these.
@@ -160,10 +159,20 @@ pub fn from_canonical_value(v: &Value) -> Result<Normalized, ParseError> {
 /// `v` with the retired spellings the decoder reads permanently written as the
 /// encoder writes them: an island's `loss` key dropped, a line's `island` kind
 /// spelled `para`, and a table's props settled as the mint settles them, a
-/// `headless: true` or a span past what it covers among them. A caller
-/// comparing stored bytes against [`to_canonical_value`] compares this instead,
-/// so an untagged content value in a retired spelling reads as content.
+/// `headless: true` or a span past what it covers among them. A value holding a
+/// `term` line or a `description` or `element` container, whose drop can move
+/// every line after it, is the canonical spelling of what it decodes to. A
+/// caller comparing stored bytes against [`to_canonical_value`] compares this
+/// instead, so an untagged content value in a retired spelling reads as content.
 pub fn respell_retired(v: &Value) -> Value {
+    let retired = arr_or_empty(v, "lines").iter().any(|line| {
+        line.get("kind").and_then(Value::as_str) == Some("term")
+            || arr_or_empty(line, "containers")
+                .iter().any(|c| matches!(c.get("container").and_then(Value::as_str), Some("description" | "element")))
+    });
+    if retired && let Ok(decoded) = from_canonical_value(v) {
+        return to_canonical_value(&decoded);
+    }
     let mut v = v.clone();
     if let Some(islands) = v.get_mut("islands").and_then(Value::as_array_mut) {
         for island in islands.iter_mut().filter_map(Value::as_object_mut) {
@@ -362,7 +371,9 @@ pub fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
         // the name and the kind it decodes to spell one line.
         "island" | "para" => Ok(LineKind::Para),
         "rule" => Ok(LineKind::Rule),
-        "term" => Ok(LineKind::Term),
+        // A definition list's term reads as the paragraph it held, for the
+        // reason `island` reads above.
+        "term" => Ok(LineKind::Para),
         other => Err(ParseError::UnknownName {
             axis: "line kind",
             name: other.to_string(),
@@ -390,19 +401,39 @@ fn line_to_value(line: &Line) -> Value {
 fn line_from_value(v: &Value) -> Result<Line, ParseError> {
     let o = v.as_object().ok_or(ParseError::Shape("line"))?;
     let kind = line_kind_from_value(v)?;
-    let containers = o
+    let mut containers = Vec::new();
+    // A dropped container's run still parts the runs below it: its identity
+    // folds into the instance of the next container kept, so two adjacent
+    // lists each inside their own element stay two.
+    let mut dropped: Option<u64> = None;
+    for c in o
         .get("containers")
         .and_then(Value::as_array)
         .ok_or(ParseError::Shape("containers"))?
-        .iter()
-        .map(container_from_value)
-        .collect::<Result<_, _>>()?;
+    {
+        let instance = c.get("instance").and_then(Value::as_u64).unwrap_or(0);
+        match container_from_value(c)? {
+            None => dropped = Some(fold_run(dropped.unwrap_or(0), instance)),
+            Some(mut kept) => {
+                if let Some(run) = dropped.take() {
+                    kept.set_instance(fold_run(run, kept.instance()));
+                }
+                containers.push(kept);
+            }
+        }
+    }
     let continues = o.get("continues").and_then(Value::as_bool).unwrap_or(false);
     Ok(Line {
         kind,
         containers,
         continues,
     })
+}
+
+/// One instance from a dropped run's identity and the instance beneath it,
+/// distinct from the instance alone so the run's edge survives the drop.
+fn fold_run(run: u64, instance: u64) -> u64 {
+    run.wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29) ^ instance
 }
 
 /// Encode a [`Container`] into its canonical wire object. A zero `instance` is
@@ -420,8 +451,11 @@ pub fn container_to_value(c: &Container) -> Value {
     Value::Object(m)
 }
 
-/// Decode a [`Container`] from its canonical wire object.
-pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
+/// Decode a [`Container`] from its canonical wire object: `None` for a retired
+/// container, a definition list's `description` or a `qm-*` `element`, whose
+/// lines read as the blocks it wrapped, for the reason a `term` line reads as
+/// a paragraph.
+pub fn container_from_value(v: &Value) -> Result<Option<Container>, ParseError> {
     let o = v.as_object().ok_or(ParseError::Shape("container"))?;
     let tag = o
         .get("container")
@@ -430,7 +464,7 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
     let instance = o.get("instance").and_then(Value::as_u64).unwrap_or(0);
     let legacy = legacy_container_keys(tag);
     match tag {
-        "list_item" => Ok(Container::ListItem {
+        "list_item" => Ok(Some(Container::ListItem {
             ordered: payload(o, legacy, "ordered")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
@@ -442,46 +476,14 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
                 .unwrap_or(0),
             checked: payload(o, legacy, "checked").and_then(Value::as_bool),
             instance,
-        }),
-        "quote" => Ok(Container::Quote { instance }),
-        "description" => Ok(Container::Description { instance }),
-        "element" => {
-            let element = element_payload(o)?;
-            Ok(Container::Element { element, instance })
-        }
+        })),
+        "quote" => Ok(Some(Container::Quote { instance })),
+        "description" | "element" => Ok(None),
         other => Err(ParseError::UnknownName {
             axis: "container",
             name: other.to_string(),
         }),
     }
-}
-
-/// An element's `attrs` bag, read one way on both lanes since it has no legacy
-/// spelling: `$name` and string attributes the carrier
-/// [models](crate::carrier::Element::new).
-fn element_payload(o: &Map<String, Value>) -> Result<crate::carrier::Element, ParseError> {
-    use crate::carrier::Refused;
-    use crate::model::ELEMENT_NAME;
-    let bag = o
-        .get("attrs")
-        .and_then(Value::as_object)
-        .ok_or(ParseError::Shape("element attrs"))?;
-    let name = bag
-        .get(ELEMENT_NAME)
-        .and_then(Value::as_str)
-        .ok_or(ParseError::Shape("element name"))?;
-    let attrs = bag
-        .iter()
-        .filter(|(k, _)| *k != ELEMENT_NAME)
-        .map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
-        .collect::<Option<BTreeMap<_, _>>>()
-        .ok_or(ParseError::Shape("element attr"))?;
-    crate::carrier::Element::new(name, attrs).map_err(|r| {
-        ParseError::Shape(match r {
-            Refused::Attr(_) => "element attr",
-            Refused::Name(_) | Refused::Reserved(_) => "element name",
-        })
-    })
 }
 
 /// Encode a [`Mark`] (`start`, `end`, `type`, …) into its canonical wire object.
@@ -610,7 +612,10 @@ fn reject_unwritable_lang(v: &Value) -> Result<(), ParseError> {
 /// [`line_kind_from_authored_value`].
 pub(crate) fn container_from_authored_value(v: &Value) -> Result<Container, ParseError> {
     reject_container_legacy(v)?;
-    container_from_value(v)
+    container_from_value(v)?.ok_or_else(|| ParseError::UnknownName {
+        axis: "container",
+        name: v.get("container").and_then(Value::as_str).unwrap_or_default().to_string(),
+    })
 }
 
 /// [`mark_from_value`] for the authored lane. See [`line_kind_from_authored_value`].
@@ -732,6 +737,13 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
         reject_line_kind_legacy(line)?;
         for c in arr_or_empty(line, "containers") {
             reject_container_legacy(c)?;
+            if container_from_value(c)?.is_none() {
+                let name = c.get("container").and_then(Value::as_str).unwrap_or_default();
+                return Err(ParseError::UnknownName {
+                    axis: "container",
+                    name: name.to_string(),
+                });
+            }
         }
     }
     // Both rules here: the strict decode `from_canonical_value` runs next reads
@@ -1990,13 +2002,13 @@ mod tests {
         });
         assert_eq!(
             container_from_value(&item).unwrap(),
-            Container::ListItem {
+            Some(Container::ListItem {
                 ordered: true,
                 start: 3,
                 ordinal: 1,
                 checked: None,
                 instance: 0,
-            }
+            })
         );
         for (v, want) in [
             (
@@ -2046,14 +2058,77 @@ mod tests {
                 "container": "list_item", "attrs": {}, "ordered": true, "start": 3, "ordinal": 1
             }))
             .unwrap(),
-            Container::ListItem {
+            Some(Container::ListItem {
                 ordered: true,
                 start: 3,
                 ordinal: 1,
                 checked: None,
                 instance: 0,
-            }
+            })
         );
+    }
+
+    /// A stored definition list or `qm-*` element loads as the blocks it held:
+    /// a term line as a paragraph, a description or element container gone
+    /// from every path. The authored lane refuses either container.
+    #[test]
+    fn a_retired_construct_loads_as_what_it_held() {
+        let stored = serde_json::json!({
+            "text": "T\nd\nk",
+            "lines": [
+                {"kind": "term", "containers": []},
+                {"kind": "para", "containers": [{"container": "description"}]},
+                {"kind": "para", "containers": [
+                    {"container": "quote"},
+                    {"container": "element", "attrs": {"$name": "keep"}},
+                ]},
+            ],
+            "marks": [],
+            "islands": [],
+        });
+        let loaded = from_canonical_value(&stored).unwrap();
+        let shape: Vec<_> = loaded.lines.iter().map(|l| (l.kind.clone(), l.containers.clone())).collect();
+        assert_eq!(
+            shape,
+            [
+                (LineKind::Para, vec![]),
+                (LineKind::Para, vec![]),
+                (LineKind::Para, vec![Container::Quote { instance: 0 }]),
+            ]
+        );
+        let element = serde_json::json!({"container": "element", "attrs": {"$name": "keep"}});
+        assert!(matches!(
+            container_from_authored_value(&element),
+            Err(ParseError::UnknownName { axis: "container", .. })
+        ));
+        assert!(matches!(
+            from_authored_value(&stored),
+            Err(ParseError::UnknownName { axis: "container", .. })
+        ));
+    }
+
+    /// The runs a dropped container parted stay parted: a list beside an
+    /// element's list, or in an adjacent run of it, is a list of its own, and
+    /// the stored value respells as what it loads to.
+    #[test]
+    fn a_dropped_container_still_parts_the_runs_below_it() {
+        let item = |ordinal: u64, checked: bool| {
+            serde_json::json!({"container": "list_item", "attrs": {"checked": checked, "ordered": false, "ordinal": ordinal, "start": 1}})
+        };
+        let keep = |instance: u64| serde_json::json!({"container": "element", "attrs": {"$name": "keep"}, "instance": instance});
+        let stored = serde_json::json!({
+            "text": "a\nb\nc",
+            "lines": [
+                {"kind": "para", "containers": [item(0, true)]},
+                {"kind": "para", "containers": [keep(0), item(0, true)]},
+                {"kind": "para", "containers": [keep(1), item(0, false)]},
+            ],
+            "marks": [],
+            "islands": [],
+        });
+        let loaded = from_canonical_value(&stored).unwrap();
+        assert_eq!(crate::export::to_markdown(&loaded), "- [x] a\n\n+ [x] b\n\n- [ ] c");
+        assert_eq!(respell_retired(&stored), to_canonical_value(&loaded));
     }
 
     /// A font mark round-trips as its bag, an overlapping one settles to one

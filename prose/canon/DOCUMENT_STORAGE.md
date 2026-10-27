@@ -185,8 +185,8 @@ four discriminators are covered by their own rule: each is a **closed set**.
 
 | Axis | Members | Rust type |
 |---|---|---|
-| Line `kind` | `para`, `heading`, `code`, `rule`, `term` | `LineKind` |
-| Container | `list_item`, `quote`, `description`, `element` | `Container` |
+| Line `kind` | `para`, `heading`, `code`, `rule` | `LineKind` |
+| Container | `list_item`, `quote` | `Container` |
 | Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor`, `font_family` | `MarkKind` |
 | Island `type` | `table`, `image`, `footnote`, `math` | `IslandType` |
 
@@ -202,22 +202,20 @@ result. A malformed discriminator is a different failure and stays
 `ParseError::Shape`: the closed set answers for names, and a non-string is not a
 name.
 
-`element` is a closed member over an open payload. Its `attrs` bag holds the
-element's name under `$name`, any carrier element name but the reserved
-`anchor`, beside its attributes, each a string under a name
-in the carrier's attribute grammar ([markdown-spec.md](../references/markdown-spec.md) §6.4).
-No attribute name opens with `$`, so the two never collide, as a card's `$kind`
-never meets a field. A new element name is no storage event, since no reader is
-frozen at a set of names; the member's arrival was one (`0.124.0`). A bag
-outside the grammar is `ParseError::Shape` on both lanes. Container identity
-compares the whole bag, `$name` among it.
+Three names a stored row may hold sit outside the sets: the `term` line
+kind, and the `description` and `element` containers, which earlier tags
+spelled for a definition list and a `qm-*` element. Each reads as what it
+held, so the row opens and its text stays, and a save writes the row without
+them. A `term` line reads as a `para` on both lanes, as `island` does. Either
+container reads as absent from its line's path on the stored lane; the
+authored lane refuses it as an unknown name.
 
 A task item's `checked` is a `list_item` bag entry, `true` ticked and `false`
 open, absent on an item that is no task. It is the item's, like `ordinal`: two
 items differing in it sit in one list run. A reader drops a bag key it does not
 name, so a build without `checked` would read a task list as a plain one and
-save it so; the key arrived under the tag that brought `element` (`0.124.0`),
-which that reader refuses.
+save it so; the key arrived under the `0.124.0` tag, which that reader
+refuses.
 
 `font_family` carries a family's name under `attrs.name`, stored as written and
 naming no font file: a backend resolves it at render. The name is not empty,
@@ -287,7 +285,7 @@ boundary. A container field added later inherits that trade, since a reader is
 frozen at the vocabulary it shipped with. The Markdown
 projection spells the same boundary with the idiom CommonMark already reads: a
 change of bullet char (`-`/`+`) or of ordered delimiter (`.`/`)`) for lists, the
-blank line for quotes, and for an element the tag pair each run writes.
+blank line for quotes.
 
 The omission is every encoder's, storage and the binding seam alike
 (`serial::to_canonical_value` is the only one). A spelled zero decodes to the
@@ -329,13 +327,6 @@ rather than minting a fresh `{text, marks}` object.
 A `footnote` island's props are one table cell, `{text, marks}`: the note,
 with no `\n` at either edge, normalized as a cell is and keeping a key it does
 not name as a cell does. The island is inline, its slot the reference.
-
-A `term` line is a definition list's term, a paragraph; a `description`
-container holds what describes the term line above its run, and carries
-nothing in `attrs`. Two descriptions of one term are two adjacent runs, told
-apart by `instance` as two adjacent quotes are. A term with no description
-below it, and a description with no term above it, store as written; markdown
-writes the missing half empty.
 
 A `math` island's props hold the equation's TeX under `tex`, a string on one
 line with no edge whitespace, and `display: true` on an equation set on its own
@@ -418,8 +409,7 @@ Three rules bound the payload:
   one cap, warning `table:size`.
 
 - **Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
-  `lang`, a `link`'s `url`, a `list_item`'s shape and an `element`'s name and
-  attributes are all `attrs` entries:
+  `lang`, a `link`'s `url` and a `list_item`'s shape are all `attrs` entries:
   `{"kind":"heading","attrs":{"level":1}}`. The envelope keys stay siblings —
   `kind`/`type`/`container`, `containers`, `continues`, a mark's `start`/`end`,
   a container's `instance` — because they belong to the object rather than to
@@ -653,8 +643,7 @@ current format was fixed in `0.131.0`, so the version tag is
 value, because patches do not change the format. A save writes the oldest tag
 that holds the row: one holding none of the members a 0.130 build refuses or
 draws otherwise keeps `quillmark/document@0.129.0`, which a 0.129 or 0.130
-build reads. Those members are a `font_family` mark, an element named `table`,
-a table cell whose `colspan` or `rowspan` exceeds 1, and a table `head` other
+build reads. Those members are a `font_family` mark, a table cell whose `colspan` or `rowspan` exceeds 1, and a table `head` other
 than 1, save a `head: 0` stored beside the `headless: true` a 0.130 build
 reads. The writer looks for them in each body and in each field and `$seed`
 value that decodes as content; an `$ext` value is opaque and never read

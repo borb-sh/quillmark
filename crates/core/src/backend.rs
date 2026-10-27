@@ -190,7 +190,6 @@ fn plural(construct: BlockConstruct, count: usize) -> String {
         BlockConstruct::Table => ("a", "table"),
         BlockConstruct::Image => ("an", "image"),
         BlockConstruct::Footnote => ("a", "footnote"),
-        BlockConstruct::Definition => ("a", "definition"),
         BlockConstruct::Math => ("an", "equation"),
     };
     if count == 1 {

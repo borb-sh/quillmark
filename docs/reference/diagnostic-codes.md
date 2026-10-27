@@ -193,7 +193,6 @@ Opening a Typst quill and compiling its plate.
 - `typst::unclosed_region`
 - `typst::unknown_font_family`
 - `typst::unknown_variable`
-- `typst::unregistered_element`
 - `typst::unsupported_tex`
 - `typst::world_creation`
 - `typst::wrong_backend`

@@ -159,22 +159,6 @@ A [`matrix`](quill-yaml-reference.md#matrix-a-vocabulary-the-author-ticks) reach
 
 Each row is `(id, title, held, value, path)`, roster members in roster order and then any items an open matrix's document adds. `value` is the member's columns, `none` where unheld, and `path` its address: claiming it with `qm.region` makes an unticked box clickable in an editor preview. `title` is a `str` on every row. An added item's `title` is a cell of its own, so `qm.ink(row.value, "title")` prints it click-to-edit; a roster member's `title` is the roster's and no address, so guard with `row.held and "title" in row.value`. `dict` is the dictionary that declares the matrix: `qm.data`, a card, or a table row.
 
-### Elements
-
-A `qm-<name>` element renders through the helper's `elements` registry. A plate registers a renderer under the element's name, taking its attributes and its content:
-
-```typst
-#import "@local/quillmark-helper:0.2.0" as qm
-
-#qm.elements.update(e => e + (stamp: (attrs, body) => block(stroke: red, body)))
-
-#qm.data.at("$body", default: [])
-```
-
-The dispatcher reads the registry's final value, so the update may stand anywhere in the plate. An element around nothing, `<qm-sig></qm-sig>`, calls its renderer with a body that draws nothing, `[ ]`, which suits a signature line or a stamp. `attrs` is a dictionary of the element's attributes keyed by name, each value a string with its entities decoded: `note="a &amp; b"` arrives as `"a & b"`. With no renderer registered, the built-in `keep` holds its content on one page, and any other element draws its content alone and warns `typst::unregistered_element` at its field. To draw a name as plain content without the warning, register `(attrs, body) => body` under it.
-
-The warning rides a document-global `metadata` the dispatcher places ahead of such an element. Its label `<__qm_element__>` and `kind: "__qm_element__"` are reserved, and a plate that reads its own config through `query(metadata)` filters to its own elements, as under [form fields](#form-fields).
-
 ### Task lists
 
 A task item draws a box before its content, ticked when done. A plate replaces the box by setting the helper's `tasks` state to a renderer taking whether the task is done and the item's content. This one strikes through a done task and draws no box:
@@ -185,11 +169,11 @@ A task item draws a box before its content, ticked when done. A plate replaces t
 #qm.tasks.update(_ => (done, body) => if done { strike(body) } else { body })
 ```
 
-As with `elements`, the renderer is read from the state's final value, so the update may stand anywhere in the plate.
+The renderer is read from the state's final value, so the update may stand anywhere in the plate.
 
-### Footnotes, equations and definition lists
+### Footnotes and equations
 
-A footnote lowers to Typst's `footnote`, so `#set footnote(..)` and `#set footnote.entry(..)` style it. An equation lowers to Typst math, inline or on its own line, so `#set math.equation(..)` and `#show math.equation: ..` reach it. A definition list lowers to Typst's `terms.item`, one per term holding every description under it, so `#set terms(..)` and `#show terms.item: ..` reach it.
+A footnote lowers to Typst's `footnote`, so `#set footnote(..)` and `#set footnote.entry(..)` style it. An equation lowers to Typst math, inline or on its own line, so `#set math.equation(..)` and `#show math.equation: ..` reach it.
 
 Typst sets an equation in `New Computer Modern Math` and lays one out only in a font with a math table. A quill shipping no font of that family has the backend's embedded Noto Sans Math answer to the name, as well as to its own, so equations draw whatever text fonts the quill ships; a plate naming `New Computer Modern Math` gets that sans face. To set them in a math font of its own, a quill bundles it under `assets/fonts/` and names it:
 
@@ -289,7 +273,7 @@ An app can add a font library when it builds its engine: `Engine::with_fonts` in
 
 A library's fonts set only text a writer marks with a family. A plate naming a library family, a bold or italic the quill lacks, and a character no quill font covers never reach a library face, so text without a mark renders the same in every app.
 
-Equations draw in the embedded Noto Sans Math unless the quill ships a math font of its own (see [Footnotes, equations and definition lists](#footnotes-equations-and-definition-lists)).
+Equations draw in the embedded Noto Sans Math unless the quill ships a math font of its own (see [Footnotes and equations](#footnotes-and-equations)).
 
 To bundle fonts with the quill, drop them in `assets/fonts/`:
 

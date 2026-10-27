@@ -198,16 +198,22 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                  opening with a letter. {TIGHT}"
             ),
         ),
+        Dropped::Element(name) if name == quillmark_content::carrier::SPAN => (
+            format!(
+                "markdown import dropped {} in this field",
+                some(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
+            ),
+            format!(
+                "A `<{tag}>` pair sets a `family` inside one line of text and closes with `</{tag}>` there; \
+                 HTML reads `<{tag}/>` as an open tag. A family is a run's, never a block's. {BESIDE}"
+            ),
+        ),
         Dropped::Element(_) => (
             format!(
                 "markdown import dropped {} in this field",
-                some(&format!("`<{tag}>` element"), &format!("`<{tag}>` elements"))
+                some(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
             ),
-            format!(
-                "Write `<{tag}>` and `</{tag}>` each on a line of its own, in one list item or quote, or, \
-                 around nothing, `<{tag}></{tag}>` on one line; HTML reads `<{tag}/>` as an open tag. A tag \
-                 line directly under a quote's or list item's text continues it. {BESIDE}"
-            ),
+            format!("A `<{tag}>` tag carries nothing: what it wraps stays and the tags drop. Remove them."),
         ),
         Dropped::Tag(name) => match name.as_str() {
             "u" => (
@@ -228,7 +234,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                     "markdown import does not carry raw HTML: {} dropped",
                     some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
                 ),
-                "Raw HTML imports nothing but `<u>`, `<br>`, a `<table>` and the `qm-*` tags. Where a line \
+                "Raw HTML imports nothing but `<u>`, `<br>`, a `<table>` and `<qm-span>`. Where a line \
                  opens with any other tag, its block runs to the next blank line and drops whole, markdown \
                  included; a blank line under the tag line keeps what follows."
                     .to_string(),

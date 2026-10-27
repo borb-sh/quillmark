@@ -17,7 +17,7 @@ this page documents how the backend lowers the content it produces.
 
 ```
 emit_content(&Normalized) -> Result<Emission, EmitError>
-  ├─ block walk    lines → headings, paragraphs, code fences, lists, quotes, terms, elements, islands
+  ├─ block walk    lines → headings, paragraphs, code fences, lists, quotes, islands
   ├─ mark sweep    anchored marks → nested #strong[…] / #emph[…] / #link(…)[…] / #_qm-font(…)[…] / …
   └─ source map    per-segment (content ↔ gen) windows + one (content, gen) pair per run
 ```
@@ -32,7 +32,7 @@ A **segment** is a maximal run of lines joined by `Line::continues`: one
 paragraph, one heading, one whole code fence, one block island's line. It is what
 "paragraph-level" means against the content, and the unit a region keys on.
 
-Only a `para`, `term` or `code` block takes continuations
+Only a `para` or `code` block takes continuations
 (`LineKind::takes_continuations`), and a continuation stays inside one container
 path. A heading and a rule are one line, and so is a `para` whose sole content
 is a block island's slot — the kind cannot tell that one from prose, so
@@ -122,7 +122,6 @@ is a lowering bug, never a document's.
 | `LineKind::Para` | inline content; a hard break (a `continues` line join) emits `#linebreak()`, a soft break is a space (both settled at import). A slot alone on the line is the island's block, lowered by the island dispatch below |
 | `LineKind::Code{lang}` (code fence) | `#raw(block: true, lang: "…", "…")`; `lang:` emitted only when the language tag is non-empty |
 | `LineKind::Rule` (thematic break) | `#line(length: 100%)` |
-| `LineKind::Term` | `#terms.item[…][…]`, the term's inline content, then every `Container::Description` run adjacent below it lowered under the block-level discipline, one after another |
 | `MarkKind::Strong` | `#strong[…]` |
 | `MarkKind::Emph` | `#emph[…]` |
 | `MarkKind::Underline` | `#underline[…]` |
@@ -135,8 +134,6 @@ is a lowering bug, never a document's.
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
 | `Container::ListItem{checked}` (task) | the item's marker, then `#_qm-task(done)[…]` around its body (see [Tasks](#tasks)) |
 | `Container::Quote` | `#quote(block: true)[…]` |
-| `Container::Description` | the description of the term line above its run (see `LineKind::Term`); a run with none above lowers as `#terms.item[][…]` |
-| `Container::Element{element}` | `#_qm-element("name", (…))[…]` (see [Elements](#elements)) |
 | `image` island | nothing, plus one `backend::declined_construct` warning per field (see [Declined images](#declined-images)) |
 | `table` island | `#table(columns: N, align: (…), table.header(…), …)` |
 | `footnote` island | `#footnote[…]`, the note lowered as a table cell is |
@@ -158,7 +155,7 @@ The table's layout keys lower as:
 A table cell is canonical `{text, marks}`, lowered through the same mark sweep
 as prose: a formatted cell reaches `#strong[…]` / `#emph[…]` / `#raw(…)` /
 `#link(…)[…]`, not an escaped source slice. A `\n` in a cell's text is a line break and lowers to
-`#linebreak()`, as a prose hard break does.
+`#linebreak()`, as a prose hard break does. A word holding an `@`, or two dots each between alphanumerics and a letter, takes an empty `#box()` after each `@` and each such dot, a code span's text counting toward none of it: Typst breaks only at UAX #14 opportunities, which an email address or dotted name has none of, so one wider than its column would run into the next. The box is a break opportunity that adds no text, so the address copies out of the PDF whole. A footnote's note takes none.
 
 **Block quotes render** as `#quote(block: true)[…]`: the one lowering
 divergence from a flat inline pass; a quote's inner blocks lower under the
@@ -174,43 +171,13 @@ Raw HTML other than an inline `<u>`, `<br>` (a hard break), a `<table>`
 (markdown-spec §6.8), which imports as a `table` island, and the `qm-*`
 carrier (markdown-spec §6.4) never enters the content, so it is absent here.
 
-### Elements
-
-An element lowers through one dispatcher the helper defines,
-`_qm-element(name, attrs, body)`. It calls the renderer a plate registers under
-the name in the helper's `elements` state as `render(attrs, body)`, else the
-built-in `keep`, which holds its body on one page, else draws the body alone.
-It reads the state's final value, so a plate's update may stand after the
-content it renders:
-
-```typst
-#import "@local/quillmark-helper:0.2.0" as qm
-#qm.elements.update(e => e + (stamp: (attrs, body) => text(fill: red, body)))
-```
-
-`attrs` is a dictionary of strings keyed by attribute name, sorted, and `(:)`
-when empty: each attribute as the document stores it.
-
-Where it draws the body alone, the dispatcher places a `<__qm_element__>`
-metadata ahead of it carrying the name and the registry's keys. The compile
-reads them back as one `typst::unregistered_element` warning per content field
-and fallen name. It counts that name's runs in the field, and its hint names
-`keep` and every registered name. The dispatcher reads one final registry, so
-a name that falls through once falls through everywhere, and a field the plate
-places twice counts once. A plate that means a name to draw plain registers
-`(attrs, body) => body`.
-
-An element's call keeps its run's structure in its `[…]`, so a run inside
-a list item stays in the item. The dispatcher's bytes fall between runs, so the
-source map holds no run for them.
-
 ### Tasks
 
 A task item's body lowers into `_qm-task(done, body)`, which the helper
-defines beside `_qm-element`. It calls the renderer a plate sets on the
+defines. It calls the renderer a plate sets on the
 helper's `tasks` state as `render(done, body)`, else draws a box ahead of the
-body, ticked when `done`. It reads the state's final value, as `elements` is
-read:
+body, ticked when `done`. It reads the state's final value, so a plate's update
+may stand after the content it renders:
 
 ```typst
 #import "@local/quillmark-helper:0.2.0" as qm

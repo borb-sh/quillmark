@@ -235,8 +235,7 @@ export type ContentLineKind =
     | { kind: "para" }
     | { kind: "heading"; attrs: { level: number } }
     | { kind: "code"; attrs?: { lang?: string } }
-    | { kind: "rule" }
-    | { kind: "term" };
+    | { kind: "rule" };
 
 /** An ancestor block a line nests inside, outermost first. Closed like
  * `ContentLine.kind`.
@@ -265,14 +264,7 @@ export type ContentContainer =
           attrs: { ordered: boolean; start: number; ordinal: number; checked?: boolean };
           instance?: number;
       }
-    | { container: "quote"; instance?: number }
-    | { container: "description"; instance?: number }
-    | { container: "element"; attrs: ElementAttrs; instance?: number };
-
-/** A carrier element's name and attributes, one bag: `$name` is the part of
- * its `qm-<name>` tag after the prefix, and every other key an attribute as
- * written. */
-export type ElementAttrs = { $name: string; [attr: string]: string };
+    | { container: "quote"; instance?: number };
 
 /** A mark over char range `[start, end)` into `Content.text`. `type` is a
  * closed set, so `type === "link"` narrows `attrs` to `{ url: string }` with no

@@ -2,8 +2,8 @@
 //! around paragraphs, tables, lists and quotes, written canonically, at top
 //! level, in list items and in quotes; inline pairs and anchors in prose and
 //! in table cells; a tag in a code span. The import never panics, reports each
-//! element nothing models once with its count, and the content is the fixed
-//! point of a re-import. Separately, an element's open tag carries any
+//! element once with its count, and the content is the fixed point of a
+//! re-import. Separately, an element's open tag carries any
 //! attribute values through the import's normalization and a table cell.
 
 use std::collections::BTreeMap;
@@ -15,7 +15,6 @@ use crate::export::to_markdown;
 use crate::html;
 use crate::import::tests::generate::{contained, counted, table, tally, word, Piece};
 use crate::import::{from_markdown, options};
-use crate::normalize::normalize_markdown;
 use pulldown_cmark::{Event, Parser};
 
 /// Values draw from every scalar value, control characters, bidi controls and
@@ -28,14 +27,14 @@ fn attrs() -> impl Strategy<Value = BTreeMap<String, String>> {
 }
 
 /// An element's open and closing tags and the construct it reports: an
-/// element name in the grammar spelled canonically, which the import models,
-/// a reserved name, or a `qm-*` tag name outside the grammar.
+/// element name in the grammar spelled canonically, or a `qm-*` tag name
+/// outside the grammar.
 #[derive(Debug, Clone)]
 struct Carrier {
     open: String,
     close: String,
-    reported: Option<String>,
-    /// What it reports inside a line, where no element is modeled.
+    reported: String,
+    /// What it reports inside a line.
     inline: String,
 }
 
@@ -51,13 +50,13 @@ fn carrier() -> impl Strategy<Value = Carrier> {
         .prop_map(|(name, attrs)| {
             let inline = format!("qm-{name}");
             let e = Element::spelling(name, attrs).unwrap();
-            Carrier { open: e.open_tag(), close: e.close_tag(), reported: None, inline }
+            Carrier { open: e.open_tag(), close: e.close_tag(), reported: inline.clone(), inline }
         });
     let outside = prop_oneof![Just("qm-a--b"), Just("qm-"), Just("qm-9")];
     let outside = outside.prop_map(|n| Carrier {
         open: format!("<{n}>"),
         close: format!("</{n}>"),
-        reported: Some(n.to_string()),
+        reported: n.to_string(),
         inline: n.to_string(),
     });
     prop_oneof![3 => named, 1 => outside]
@@ -102,7 +101,7 @@ fn leaf() -> impl Strategy<Value = Piece> {
 fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> {
     (carrier(), prop::collection::vec(inner, 1..3)).prop_map(|(c, blocks)| {
         let body = Piece::join(blocks, "\n\n");
-        let mut reported: Vec<String> = c.reported.into_iter().collect();
+        let mut reported = vec![c.reported];
         reported.extend(body.reported);
         Piece {
             md: format!("{}\n\n{}\n\n{}", c.open, body.md, c.close),
@@ -153,10 +152,6 @@ proptest! {
         prop_assert_eq!(tag.span.end, open.len());
         prop_assert_eq!(element(tag.name), Some(name));
         prop_assert_eq!(&decode_attrs(&tag.attrs), &read);
-
-        let block = normalize_markdown(&e.wrap_block("word"), options());
-        let tag = html::tag_at(&block, 0).unwrap();
-        prop_assert_eq!(&decode_attrs(&tag.attrs), &read, "{:?}", block);
 
         let row = format!("| h |\n|---|\n| {}word{} |", e.open_tag(), e.close_tag());
         let html: Vec<String> = Parser::new_ext(&row, options())

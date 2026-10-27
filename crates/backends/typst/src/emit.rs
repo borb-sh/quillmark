@@ -9,7 +9,6 @@ use quillmark_core::error::MAX_NESTING_DEPTH;
 use quillmark_content::island::IslandType;
 use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
 use quillmark_content::normalize::is_line_separator;
-use std::collections::BTreeMap;
 use std::ops::Range;
 
 /// Does Typst's lexer read `c` as a newline where the emitter writes document
@@ -440,10 +439,6 @@ impl<'a> Emit<'a> {
                 continue;
             }
             let j = self.segment_end(range.clone(), depth, i);
-            if self.rt.lines[i].kind == LineKind::Term {
-                i = self.emit_term(Some(i..j), j, range.clone(), depth);
-                continue;
-            }
             self.emit_leaf_terminated(i..j);
             i = j;
         }
@@ -467,11 +462,6 @@ impl<'a> Emit<'a> {
             }
             Container::Quote { .. } => {
                 self.emit_quote(i..j, depth);
-                Some(j)
-            }
-            Container::Description { .. } => Some(self.emit_term(None, i, range, depth)),
-            Container::Element { element, .. } => {
-                self.emit_element(i..j, depth, element.name(), element.attrs());
                 Some(j)
             }
         }
@@ -592,10 +582,6 @@ impl<'a> Emit<'a> {
                 continue;
             }
             let j = self.segment_end(range.clone(), content_depth, i);
-            if self.rt.lines[i].kind == LineKind::Term {
-                i = self.emit_term(Some(i..j), j, range.clone(), content_depth);
-                continue;
-            }
             self.open_line();
             self.emit_segment(i..j);
             if !self.end_newline {
@@ -630,46 +616,6 @@ impl<'a> Emit<'a> {
         self.end_newline = true;
     }
 
-    /// `#terms.item[term][…]`: a term, empty for a description with none
-    /// above it, and the description runs adjacent at `from`, each one's
-    /// blocks after the last's. Returns where those runs end.
-    fn emit_term(&mut self, term: Option<Range<usize>>, from: usize, range: Range<usize>, depth: usize) -> usize {
-        let rt = self.rt;
-        self.open_line();
-        self.out.push_str("#terms.item[");
-        if let Some(term) = term {
-            self.emit_segment(term);
-        }
-        self.out.push_str("][\n");
-        self.end_newline = true;
-        let mut at = from;
-        while at < range.end && matches!(rt.lines[at].containers.get(depth), Some(Container::Description { .. })) {
-            let run = quillmark_content::traverse::runs(&rt.lines, at..range.end, depth)
-                .next()
-                .expect("a line with a container at `depth` opens a run");
-            self.emit_block_level(run.range.clone(), depth + 1);
-            at = run.range.end;
-        }
-        self.open_line();
-        self.out.push(']');
-        self.out.push_str("\n\n");
-        self.end_newline = true;
-        at
-    }
-
-    /// `#_qm-element("keep", (:))[…]` around an element's run.
-    fn emit_element(&mut self, range: Range<usize>, depth: usize, name: &str, attrs: &BTreeMap<String, String>) {
-        self.open_line();
-        self.out.push_str(&element_call(name, attrs));
-        self.out.push_str("[\n");
-        self.end_newline = true;
-        self.emit_block_level(range, depth + 1);
-        self.open_line();
-        self.out.push(']');
-        self.out.push_str("\n\n");
-        self.end_newline = true;
-    }
-
     /// Leaves `end_newline` false: the caller owns the terminator.
     fn emit_segment(&mut self, range: Range<usize>) {
         let kind = self.rt.lines[range.start].kind.clone();
@@ -695,7 +641,7 @@ impl<'a> Emit<'a> {
                 (g0, Vec::new())
             }
             LineKind::Code { .. } => unreachable!("code handled by early return"),
-            LineKind::Para | LineKind::Term => {
+            LineKind::Para => {
                 let g0 = self.out.len();
                 (g0, self.emit_inline(lo, hi))
             }
@@ -832,7 +778,7 @@ impl<'a> Emit<'a> {
             IslandType::Table => table_markup(&isl.props),
             IslandType::Footnote => {
                 let (text, marks) = quillmark_content::serial::parse_cell(&isl.props);
-                format!("#footnote[{}]", cell_markup(&text, &marks))
+                format!("#footnote[{}]", cell_markup(&text, &marks, false))
             }
             IslandType::Math => crate::tex::equation(
                 isl.props.get("tex").and_then(|v| v.as_str()).unwrap_or(""),
@@ -1070,18 +1016,6 @@ fn unsafe_link(url: &str) -> bool {
     matches!(scheme.to_ascii_lowercase().as_str(), "javascript" | "vbscript" | "file" | "data")
 }
 
-/// `#_qm-element(name, attrs)`, a call to the helper's dispatcher before its
-/// body. The attributes are a dictionary of strings, keys sorted, `(:)` when
-/// empty.
-fn element_call(name: &str, attrs: &BTreeMap<String, String>) -> String {
-    let entries: Vec<String> = attrs
-        .iter()
-        .map(|(attr, value)| format!("\"{}\": \"{}\"", escape_string(attr), escape_string(value)))
-        .collect();
-    let dict = if entries.is_empty() { "(:)".to_string() } else { format!("({})", entries.join(", ")) };
-    format!("#_qm-element(\"{}\", {dict})", escape_string(name))
-}
-
 /// One run of a mark sweep: the atomic `#raw(..)` code span starting at `pos`,
 /// or the plain text up to the next boundary. Returns the position after it, the
 /// [`Tail`] it leaves, and its `(content, generated, context)` pair, `generated`
@@ -1173,19 +1107,62 @@ fn linebreak_at(out: &mut String, chars: &[char], pos: usize) -> Option<(usize, 
     Some((pos + 1, Tail::Break))
 }
 
+/// Where a table cell's text may break inside a word: after each `@`, and
+/// after each `.` between two alphanumerics, of a word holding an `@`, or two
+/// such dots and a letter. Typst breaks only at UAX #14 opportunities, which an
+/// email address or a dotted name has none of, so one wider than its column
+/// runs into the next. A code span's text counts toward none of it. Each is the
+/// offset of the char a break lands before.
+fn word_breaks(chars: &[char], codes: &[(usize, usize)]) -> Vec<usize> {
+    let prose = |p: usize| !codes.iter().any(|&(cs, ce)| cs <= p && p < ce);
+    let mut breaks = Vec::new();
+    let mut start = 0;
+    while start < chars.len() {
+        if chars[start].is_whitespace() {
+            start += 1;
+            continue;
+        }
+        let end = (start..chars.len()).find(|&p| chars[p].is_whitespace()).unwrap_or(chars.len());
+        let dotted = |p: usize| {
+            chars[p] == '.'
+                && p > start
+                && p + 1 < end
+                && prose(p)
+                && chars[p - 1].is_alphanumeric()
+                && chars[p + 1].is_alphanumeric()
+        };
+        let at = |p: usize| chars[p] == '@' && p + 1 < end && prose(p);
+        let dots = (start..end).filter(|&p| dotted(p)).count();
+        let lettered = (start..end).any(|p| prose(p) && chars[p].is_alphabetic());
+        if (dots >= 2 && lettered) || (start..end).any(at) {
+            breaks.extend((start..end).filter(|&p| at(p) || dotted(p)).map(|p| p + 1));
+        }
+        start = end;
+    }
+    breaks
+}
+
 /// A cell is flat inline (no islands; a `\n` is a line break), so its markup
 /// carries no source-map runs. It opens at the head of the `[…]`
-/// [`table_markup`] wraps it in, which is a line anchor.
-fn cell_markup(text: &str, marks: &[Mark]) -> String {
+/// [`table_markup`] wraps it in, which is a line anchor. With `breakable`, each
+/// [`word_breaks`] offset takes an empty `#box()`, a break opportunity that
+/// adds no text to the output.
+fn cell_markup(text: &str, marks: &[Mark], breakable: bool) -> String {
     let chars: Vec<char> = text.chars().collect();
     let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len(), &chars, &|_| true);
     clip_wraps_to_codes(&mut wraps, &codes);
+    let breaks = if breakable { word_breaks(&chars, &codes) } else { Vec::new() };
     let mut out = String::new();
-    sweep_marks(0, chars.len(), &wraps, &mut out, Tail::Anchor, |out, pos, tail| {
+    sweep_marks(0, chars.len(), &wraps, &mut out, Tail::Anchor, |out, pos, mut tail| {
         if let Some(step) = linebreak_at(out, &chars, pos) {
             return step;
         }
-        let (re, left, _) = emit_run(out, pos, chars.len(), &chars, &wraps, &codes, tail);
+        if breaks.binary_search(&pos).is_ok() {
+            out.push_str("#box()");
+            tail = Tail::Expr;
+        }
+        let hi = breaks.iter().copied().find(|&b| b > pos).unwrap_or(chars.len());
+        let (re, left, _) = emit_run(out, pos, hi, &chars, &wraps, &codes, tail);
         (re, left)
     });
     out
@@ -1231,7 +1208,7 @@ fn table_markup(props: &serde_json::Value) -> String {
 
     let cell = |v: &Value, (colspan, rowspan): (usize, usize)| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
-        let body = cell_markup(&text, &marks);
+        let body = cell_markup(&text, &marks, true);
         let (align, valign) = quillmark_content::island::cell_alignment(v);
         let valign = valign.map(|v| if v == "middle" { "horizon" } else { v });
         let mut args: Vec<String> = [("colspan", colspan), ("rowspan", rowspan)]
@@ -1548,21 +1525,6 @@ mod tests {
             "quote must render, got {out:?}"
         );
         assert!(out.contains("quoted text"), "quote body present: {out:?}");
-    }
-
-    #[test]
-    fn a_term_carries_its_descriptions_and_a_stray_description_an_empty_term() {
-        let out = emit("A: x\n: one\n: two\n\nB\n:").markup;
-        assert_eq!(
-            out,
-            "#terms.item[A: x][\none\n\ntwo\n\n]\n\n#terms.item[B][\n]\n\n",
-            "{out:?}"
-        );
-        let description = vec![Container::Description { instance: 0 }];
-        let rt = Content::new("d".to_string(), vec![quillmark_content::model::Line::new(LineKind::Para).with_containers(description)])
-            .into_normalized();
-        let out = emit_content(&rt).expect("emit").markup;
-        assert_eq!(out, "#terms.item[][\nd\n\n]\n\n");
     }
 
     #[test]
@@ -2164,6 +2126,34 @@ mod tests {
         });
         let out = table_markup(&props);
         assert!(out.contains("align: (right, auto, auto),"), "got {out:?}");
+    }
+
+    /// An address or dotted name breaks after its `@` and inner dots, through
+    /// a box no `.` or `(` behind it extends, and nothing else in a cell does.
+    #[test]
+    fn a_cell_breaks_inside_an_address_and_nowhere_else() {
+        let breaks = |text: &str, codes: &[(usize, usize)]| {
+            let chars: Vec<char> = text.chars().collect();
+            word_breaks(&chars, codes).into_iter().map(|b| chars[..b].iter().collect()).collect::<Vec<String>>()
+        };
+        assert_eq!(
+            breaks("Michael.Marshall@us.af.mil", &[]),
+            ["Michael.", "Michael.Marshall@", "Michael.Marshall@us.", "Michael.Marshall@us.af."]
+        );
+        assert_eq!(breaks("x@(y)", &[]), ["x@"]);
+        assert_eq!(breaks("host.af.mil, 3.5, e.g. v1.2", &[]), ["host.", "host.af."]);
+        for none in ["27.10.2026", "10.0.0.1", "1.234.567", "a@", "@"] {
+            assert!(breaks(none, &[]).is_empty(), "{none:?}");
+        }
+        assert!(breaks("a.b.c", &[(0, 5)]).is_empty(), "inside a code span");
+        assert!(breaks("a.b.c", &[(0, 3)]).is_empty(), "one dot past a code span");
+        for text in ["Michael.Marshall@us.af.mil", "x@(y)", "a@b.c", "1.2.3"] {
+            let markup = cell_markup(text, &[], true);
+            assert_eq!(markup.matches("#box()").count(), breaks(text, &[]).len(), "{text:?}");
+            let (read, _) = resolve(&markup.replace("#box()", ""));
+            assert_eq!(read, text);
+        }
+        assert!(!cell_markup("a@b.c", &[], false).contains("#box()"));
     }
 
     #[test]
