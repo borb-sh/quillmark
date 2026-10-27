@@ -2221,8 +2221,8 @@ mod tests {
             let (read, _) = resolve(&cell_markup(text, &[], true).replace("#box()", ""));
             assert_eq!(read, text);
         }
-        let code = Mark::new(0, 5, MarkKind::Code);
-        assert_eq!(cell_markup("a@b.c", &[code.clone()], true), cell_markup("a@b.c", &[code], false));
+        let code = [Mark::new(0, 5, MarkKind::Code)];
+        assert_eq!(cell_markup("a@b.c", &code, true), cell_markup("a@b.c", &code, false));
         assert_eq!(cell_markup("a@b.c", &[], false), r"a\@b.c");
     }
 
