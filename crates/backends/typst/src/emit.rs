@@ -832,7 +832,7 @@ impl<'a> Emit<'a> {
             IslandType::Table => table_markup(&isl.props),
             IslandType::Footnote => {
                 let (text, marks) = quillmark_content::serial::parse_cell(&isl.props);
-                format!("#footnote[{}]", cell_markup(&text, &marks))
+                format!("#footnote[{}]", cell_markup(&text, &marks, false))
             }
             IslandType::Math => crate::tex::equation(
                 isl.props.get("tex").and_then(|v| v.as_str()).unwrap_or(""),
@@ -1173,19 +1173,59 @@ fn linebreak_at(out: &mut String, chars: &[char], pos: usize) -> Option<(usize, 
     Some((pos + 1, Tail::Break))
 }
 
+/// Where a table cell's text may break inside a word: after each `@`, and
+/// after each `.` between two alphanumerics, of a word holding an `@` or two
+/// such dots. Typst breaks only at UAX #14 opportunities, which an email
+/// address or a dotted name has none of, so one wider than its column runs
+/// into the next. Each is the offset of the char a break lands before.
+fn word_breaks(chars: &[char], codes: &[(usize, usize)]) -> Vec<usize> {
+    let mut breaks = Vec::new();
+    let mut start = 0;
+    while start < chars.len() {
+        if chars[start].is_whitespace() {
+            start += 1;
+            continue;
+        }
+        let end = (start..chars.len()).find(|&p| chars[p].is_whitespace()).unwrap_or(chars.len());
+        let dotted = |p: usize| {
+            chars[p] == '.' && p > start && p + 1 < end && chars[p - 1].is_alphanumeric() && chars[p + 1].is_alphanumeric()
+        };
+        let at = |p: usize| chars[p] == '@' && p + 1 < end;
+        let dots = (start..end).filter(|&p| dotted(p)).count();
+        if dots >= 2 || (start..end).any(at) {
+            breaks.extend(
+                (start..end)
+                    .filter(|&p| at(p) || dotted(p))
+                    .map(|p| p + 1)
+                    .filter(|&b| !codes.iter().any(|&(cs, ce)| cs < b && b < ce)),
+            );
+        }
+        start = end;
+    }
+    breaks
+}
+
 /// A cell is flat inline (no islands; a `\n` is a line break), so its markup
 /// carries no source-map runs. It opens at the head of the `[…]`
-/// [`table_markup`] wraps it in, which is a line anchor.
-fn cell_markup(text: &str, marks: &[Mark]) -> String {
+/// [`table_markup`] wraps it in, which is a line anchor. With `breakable`, each
+/// [`word_breaks`] offset takes an empty `#box()`, a break opportunity that
+/// adds no text to the output.
+fn cell_markup(text: &str, marks: &[Mark], breakable: bool) -> String {
     let chars: Vec<char> = text.chars().collect();
     let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len(), &chars, &|_| true);
     clip_wraps_to_codes(&mut wraps, &codes);
+    let breaks = if breakable { word_breaks(&chars, &codes) } else { Vec::new() };
     let mut out = String::new();
-    sweep_marks(0, chars.len(), &wraps, &mut out, Tail::Anchor, |out, pos, tail| {
+    sweep_marks(0, chars.len(), &wraps, &mut out, Tail::Anchor, |out, pos, mut tail| {
         if let Some(step) = linebreak_at(out, &chars, pos) {
             return step;
         }
-        let (re, left, _) = emit_run(out, pos, chars.len(), &chars, &wraps, &codes, tail);
+        if breaks.binary_search(&pos).is_ok() {
+            out.push_str("#box()");
+            tail = Tail::Expr;
+        }
+        let hi = breaks.iter().copied().find(|&b| b > pos).unwrap_or(chars.len());
+        let (re, left, _) = emit_run(out, pos, hi, &chars, &wraps, &codes, tail);
         (re, left)
     });
     out
@@ -1231,7 +1271,7 @@ fn table_markup(props: &serde_json::Value) -> String {
 
     let cell = |v: &Value, (colspan, rowspan): (usize, usize)| {
         let (text, marks) = quillmark_content::serial::parse_cell(v);
-        let body = cell_markup(&text, &marks);
+        let body = cell_markup(&text, &marks, true);
         let (align, valign) = quillmark_content::island::cell_alignment(v);
         let valign = valign.map(|v| if v == "middle" { "horizon" } else { v });
         let mut args: Vec<String> = [("colspan", colspan), ("rowspan", rowspan)]
@@ -2164,6 +2204,26 @@ mod tests {
         });
         let out = table_markup(&props);
         assert!(out.contains("align: (right, auto, auto),"), "got {out:?}");
+    }
+
+    /// An address or dotted name breaks after its `@` and inner dots, through
+    /// a box no `.` or `(` behind it extends, and nothing else in a cell does.
+    #[test]
+    fn a_cell_breaks_inside_an_address_and_nowhere_else() {
+        let cases = [
+            ("Michael.Marshall@us.af.mil", r"Michael.#box()Marshall\@#box()us.#box()af.#box()mil"),
+            ("x@(y)", r"x\@#box()\(y)"),
+            ("host.af.mil, 3.5, e.g. v1.2", "host.#box()af.#box()mil, 3.5, e.g. v1.2"),
+            ("a@b.c", r"a\@#box()b.#box()c"),
+        ];
+        for (text, want) in cases {
+            assert_eq!(cell_markup(text, &[], true), want, "{text:?}");
+            let (read, _) = resolve(&cell_markup(text, &[], true).replace("#box()", ""));
+            assert_eq!(read, text);
+        }
+        let code = Mark::new(0, 5, MarkKind::Code);
+        assert_eq!(cell_markup("a@b.c", &[code.clone()], true), cell_markup("a@b.c", &[code], false));
+        assert_eq!(cell_markup("a@b.c", &[], false), r"a\@b.c");
     }
 
     #[test]
