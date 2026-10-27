@@ -182,6 +182,11 @@ fn refuses_an_archive_outside_the_format_by_code() {
             archive(&[raw("Quill.yaml", MANIFEST), raw("a", b"x"), raw("a/b", b"y")], b""),
             "quill::bundle_path",
         ),
+        (
+            "file and directory entry",
+            archive(&[raw("a/b/", b""), raw("Quill.yaml", MANIFEST), raw("a", b"x")], b""),
+            "quill::bundle_path",
+        ),
         ("bzip2", with(Raw { method: 12, ..raw("a.typ", b"x") }), "quill::bundle_unsupported"),
         ("encrypted", with(Raw { flags: 1, ..raw("a.typ", b"x") }), "quill::bundle_unsupported"),
         (

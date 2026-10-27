@@ -160,9 +160,10 @@ struct Entry<'a> {
     offset: usize,
 }
 
-/// Every file entry the central directory lists, each held to the format and
-/// the budget before any byte is inflated.
-fn central_directory(bytes: &[u8]) -> Result<Vec<Entry<'_>>, Diagnostic> {
+/// Every entry the central directory lists, each held to the format and the
+/// budget before any byte is inflated: the file entries, and the paths of the
+/// directory entries.
+fn central_directory(bytes: &[u8]) -> Result<(Vec<Entry<'_>>, Vec<&str>), Diagnostic> {
     let end = find_end(bytes).ok_or_else(|| invalid("no zip end-of-central-directory record"))?;
     let field16 = |at: usize| u16_at(bytes, end + at).ok_or_else(|| invalid("truncated end record"));
     let field32 = |at: usize| u32_at(bytes, end + at).ok_or_else(|| invalid("truncated end record"));
@@ -190,6 +191,7 @@ fn central_directory(bytes: &[u8]) -> Result<Vec<Entry<'_>>, Diagnostic> {
     let directory = &bytes[..directory_end];
 
     let mut entries = Vec::new();
+    let mut directories = Vec::new();
     let mut at = directory_at;
     for _ in 0..total {
         let field16 = |o: usize| u16_at(directory, at + o).ok_or_else(|| invalid("truncated central directory"));
@@ -241,6 +243,7 @@ fn central_directory(bytes: &[u8]) -> Result<Vec<Entry<'_>>, Diagnostic> {
             if size != 0 {
                 return Err(invalid(format!("directory entry {name:?} holds bytes")));
             }
+            directories.push(path);
             continue;
         }
         if method == STORED && compressed != size {
@@ -256,7 +259,7 @@ fn central_directory(bytes: &[u8]) -> Result<Vec<Entry<'_>>, Diagnostic> {
             offset: offset as usize,
         });
     }
-    Ok(entries)
+    Ok((entries, directories))
 }
 
 /// One entry's bytes, inflated to exactly the size it declares and checked
@@ -299,7 +302,8 @@ pub(crate) fn read_bundle(bytes: &[u8]) -> Result<FileTreeNode, Diagnostic> {
     let mut root = FileTreeNode::Directory {
         files: Default::default(),
     };
-    for entry in central_directory(bytes)? {
+    let (files, directories) = central_directory(bytes)?;
+    for entry in files {
         if root.get_node(entry.path).is_some() {
             return Err(bad_path(entry.path, "is listed twice, or as a file and a directory"));
         }
@@ -308,6 +312,12 @@ pub(crate) fn read_bundle(bytes: &[u8]) -> Result<FileTreeNode, Diagnostic> {
         };
         root.insert(entry.path, node)
             .map_err(|_| bad_path(entry.path, "sits under a path the bundle lists as a file"))?;
+    }
+    for path in directories {
+        let mut ancestry = path.match_indices('/').map(|(at, _)| at).chain([path.len()]);
+        if ancestry.any(|end| root.get_file(&path[..end]).is_some()) {
+            return Err(bad_path(path, "is listed as a directory, at or under a path the bundle lists as a file"));
+        }
     }
     Ok(root)
 }
