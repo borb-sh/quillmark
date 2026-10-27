@@ -11,7 +11,7 @@ The bundle holds the tree and nothing else. It carries no manifest, no index, an
 
 - The file extension is `.quill`. A name may carry more before it (`memo@1.2.0.quill`, `memo@1.2.0.3f9c….quill`); only the extension belongs to the format.
 - The media type is `application/vnd.quillmark.quill+zip`. It is not registered with IANA.
-- A reader identifies a bundle by its bytes, not by its name or its media type. A host may serve one as `application/zip` or `application/octet-stream`.
+- A reader handed bytes identifies a bundle by them, not by a name or a media type, so a host may serve one as `application/zip` or `application/octet-stream`. A loader handed a path takes a file named `*.quill` as a bundle.
 
 ## 2. Container
 
