@@ -781,7 +781,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
       expect(message(caughtFrom(() => session.render({ format: 'svg', dpi: 300 })))).toContain(
         'unknown key `dpi`'
       )
-      const every = { format: 'svg', ppi: 72, pages: [0], regions: true }
+      const every = { format: 'svg', ppi: 72, pages: [0], regions: true, title: 'Title' }
       expect(session.render(every).outputFormat).toBe('svg')
     } finally {
       session.free()

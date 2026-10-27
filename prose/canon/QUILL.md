@@ -94,7 +94,7 @@ Field names must be `snake_case` (match `[a-z][a-z0-9_]*`). Capitalized or `$`-p
 A field may not be named `body`: it is the body terminal of every card's `DocPath` (`main.body`, `cards.<kind>[i].body`), so the name is refused with `quill::reserved_field_name`. Standalone `object` fields require a `properties` map. Every `array` field requires an `items:` element schema: use `items: { type: text }` (or `integer`, `richtext`, …) for a list of scalars, and `items: { type: object, properties: … }` for a list of objects.
 
 Identity resolution:
-- `name`, `description`, `backend`, `version`, `author`, `license`, `homepage` are direct struct fields on `QuillConfig`. `description` (required, non-empty in the `quill:` section) describes the quill itself; it is independent of `QuillConfig.main.description`, which is the optional schema description authored under `main:` like any other card kind.
+- `name`, `description`, `backend`, `version`, `author`, `license`, `homepage` are direct struct fields on `QuillConfig`. `description` (required, non-empty in the `quill:` section) describes the quill itself and is a Typst PDF's title when neither the render's `title` nor the plate's `set document(title: ..)` names one; it is independent of `QuillConfig.main.description`, which is the optional schema description authored under `main:` like any other card kind.
 - `license` and `homepage` are optional package metadata, `None` when absent,
   and omitting them is never a diagnostic. Neither reaches the plate or the
   blueprint; both surface on `quill.metadata` and `quillmark info`.

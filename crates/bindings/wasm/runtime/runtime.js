@@ -640,7 +640,7 @@ export class Engine {
 	/**
 	 * @param {Quill} quill
 	 * @param {Document} doc
-	 * @param {object} [options] render options (`{ format, ppi, pages, regions }`)
+	 * @param {object} [options] render options (`{ format, ppi, pages, regions, title }`)
 	 * @param {string} [today] the render date, `YYYY-MM-DD`
 	 * @returns {Promise<import('./runtime.js').RenderResult>}
 	 */

@@ -164,7 +164,7 @@ pub struct RenderOptions {
     /// The PDF document title: what a viewer shows in its title bar and a
     /// screen reader announces on open. Overrides the plate's own
     /// `set document(title: ..)`, which overrides the quill's `description`.
-    /// A blank title counts as absent. Ignored by every format but PDF, and by
+    /// Each is trimmed, and a blank one counts as absent. Ignored by every format but PDF, and by
     /// the acroform backend, whose base PDF carries its own metadata.
     pub title: Option<String>,
 }

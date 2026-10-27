@@ -19,10 +19,11 @@ fn render_titled(plate: &str, title: Option<&str>) -> Vec<u8> {
     let session = TypstBackend::default()
         .open(&source, &serde_json::json!({}), common::test_date())
         .expect("open session");
+    let opts = RenderOptions::default().with_output_format(OutputFormat::Pdf);
     let result = session
-        .render(&RenderOptions {
-            title: title.map(str::to_string),
-            ..RenderOptions::default().with_output_format(OutputFormat::Pdf)
+        .render(&match title {
+            Some(title) => opts.with_title(title),
+            None => opts,
         })
         .expect("render ok");
     result.artifacts[0].bytes.clone()
@@ -82,4 +83,17 @@ fn render_title_overrides_the_plate() {
 fn blank_render_title_counts_as_absent() {
     let pdf = render_titled(TITLED_PLATE, Some("  "));
     assert_eq!(info_string(&pdf, b"Title"), b"Plate Title");
+}
+
+#[test]
+fn blank_plate_title_falls_back_to_the_description() {
+    let plate = "#set document(title: \" \")\n= Hello\n";
+    let description = source_with_plate(plate).config().description.clone();
+    assert_eq!(info_string(&render_pdf(plate), b"Title"), description.as_bytes());
+}
+
+#[test]
+fn render_title_is_trimmed() {
+    let pdf = render_titled(PLATE, Some(" Render Title "));
+    assert_eq!(info_string(&pdf, b"Title"), b"Render Title");
 }

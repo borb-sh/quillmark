@@ -111,16 +111,16 @@ fn collect_paint_urls(paint: &Paint, urls: &mut Vec<String>) {
 }
 
 /// `document` with its title resolved: `title`, else the plate's own, else
-/// `fallback`, a blank one at each rung counting as absent.
+/// `fallback`, each trimmed and a blank one counting as absent. A plate's
+/// `set document(title: none)` reads as no title, so the fallback fills it.
 fn titled(document: &PagedDocument, title: Option<&str>, fallback: &str) -> PagedDocument {
     let mut document = document.clone();
     let info = document.info_mut();
-    let present = |t: &str| !t.trim().is_empty();
-    if let Some(title) = title.filter(|t| present(t)) {
-        info.title = Some(title.into());
-    } else if !info.title.as_deref().is_some_and(present) {
-        info.title = present(fallback).then(|| fallback.into());
-    }
+    let present = |t: &str| Some(t.trim()).filter(|t| !t.is_empty()).map(Into::into);
+    info.title = title
+        .and_then(present)
+        .or_else(|| info.title.as_deref().and_then(present))
+        .or_else(|| present(fallback));
     document
 }
 

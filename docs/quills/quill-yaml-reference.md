@@ -40,7 +40,7 @@ Every Quill.yaml must have a `quill` section with the quill's metadata.
 |------------------|--------|----------|-------------|
 | `name`           | string | yes      | Unique identifier for the quill |
 | `backend`        | string | yes      | Rendering backend (e.g. `typst`) |
-| `description`    | string | yes      | Human-readable description of the quill package, for a gallery or a quill picker (non-empty). The blueprint never prints it: the root card's label is `main`'s own `title` and `description`. One line: a line break fails the load with `quill::description_multiline`. |
+| `description`    | string | yes      | Human-readable description of the quill package, for a gallery or a quill picker (non-empty), and the title of a Typst PDF whose render and plate name none. The blueprint never prints it: the root card's label is `main`'s own `title` and `description`. One line: a line break fails the load with `quill::description_multiline`. |
 | `version`        | string | yes      | `MAJOR.MINOR.PATCH`, bumped by what the change costs a stored document ([Quill Versioning](versioning.md)) |
 | `author`         | string | no       | Creator of the quill (defaults to `"Unknown"`) |
 | `license`        | string | no       | The quill's license, as an SPDX license expression |
