@@ -107,12 +107,10 @@ pub enum Dropped {
     /// A tag named with the carrier's prefix and no element name after it: its
     /// lowercase name (`qm-a--b`).
     BadName(String),
-    /// A wrapper left unclosed, self-closing, inside a line of text or beside
-    /// another tag in a block tight against markdown, and a reserved name's
-    /// open tag: `qm-<name>`.
+    /// The open tag of a `qm-*` name the carrier does not read, and a
+    /// `qm-span` tag that drops: `qm-<name>`.
     Element(String),
-    /// A wrapper attribute outside the grammar or repeating a name already
-    /// read: `qm-<name>[<attr>]`.
+    /// A `qm-span` attribute it does not read: `qm-span[<attr>]`.
     ElementAttr { element: String, attr: String },
     /// An HTML table its block ends before its `</table>`, or another
     /// `<table>` interrupts, which closes there: `table`.
@@ -474,8 +472,8 @@ struct Builder {
     image_alt: String,
     // table collection
     table: Option<TableAcc>,
-    /// Each `qm-*` name's open tags reported, which a close tag dropping with
-    /// markdown answers rather than reporting again.
+    /// Each `qm-*` name's open tags no close tag has met yet, which a close tag
+    /// dropping with markdown answers rather than reporting again.
     opened: HashMap<String, usize>,
     /// What this walk drops: a raw tag, an unclosed `<u>`, a wrapper left
     /// unclosed or outside a tag line, an attribute it cannot carry.
@@ -507,6 +505,8 @@ struct NoteAcc {
     nested: usize,
     /// What the note drops, reported once a reference reads it.
     dropped: Drops,
+    /// The note's own [`Builder::opened`].
+    opened: HashMap<String, usize>,
 }
 
 impl NoteAcc {
@@ -1008,14 +1008,17 @@ impl Builder {
     /// drops silently, and what lies between them imports as written.
     fn carrier_tag(&mut self, tag: CarrierTag) {
         let CarrierTag { name, attrs, at, .. } = tag;
+        let (opened, dropped) = match self.note.as_mut() {
+            Some(note) => (&mut note.opened, &mut note.dropped),
+            None => (&mut self.opened, &mut self.dropped),
+        };
+        let open = opened.entry(name.clone()).or_default();
         if attrs.is_none() {
+            *open = open.saturating_sub(1);
             return;
         }
-        *self.opened.entry(name.clone()).or_default() += 1;
-        match self.note.as_mut() {
-            Some(note) => note.dropped.add(Dropped::Element(name), at),
-            None => self.dropped.add(Dropped::Element(name), at),
-        }
+        *open += 1;
+        dropped.add(Dropped::Element(name), at);
     }
 
     /// Pair one `<u>` tag in the run or table cell it stands in. In an image's
@@ -1077,14 +1080,15 @@ impl Builder {
     /// Report a close tag that dropped with the markdown under it, unless an
     /// open tag of its name already reported the element.
     fn swallowed(&mut self, name: String, at: usize) {
-        if let Some(open) = self.opened.get_mut(&name).filter(|n| **n > 0) {
+        let (opened, dropped) = match self.note.as_mut() {
+            Some(note) => (&mut note.opened, &mut note.dropped),
+            None => (&mut self.opened, &mut self.dropped),
+        };
+        if let Some(open) = opened.get_mut(&name).filter(|n| **n > 0) {
             *open -= 1;
             return;
         }
-        match self.note.as_mut() {
-            Some(note) => note.dropped.add(Dropped::Element(name), at),
-            None => self.dropped.add(Dropped::Element(name), at),
-        }
+        dropped.add(Dropped::Element(name), at);
     }
 
     /// A tight list item's inline content arrives with no `Paragraph` start to
@@ -1618,7 +1622,8 @@ enum SpanTag {
     Close,
 }
 
-/// An open or close tag of a wrapper the import pairs: not self-closing.
+/// An open or close `qm-*` tag the carrier does not read, which drops: not
+/// self-closing.
 struct CarrierTag {
     /// The [wrapper](carrier::wrapper) name.
     name: String,
@@ -3414,6 +3419,21 @@ pub(crate) mod tests {
         assert_eq!(imported.content.text, "para\nafter");
         assert!(imported.content.lines.iter().all(|l| l.containers.is_empty()));
         assert_eq!(dropped(&imported), [("div", 1), ("qm-keep", 1)]);
+    }
+
+    /// A close tag meeting its open tag answers it, so a later close tag that
+    /// drops markdown with it reports, in the body as in a note, whichever
+    /// comes first.
+    #[test]
+    fn a_closed_tag_leaves_a_later_dropping_close_to_report() {
+        let pair = "<qm-keep>\n\nA\n\n</qm-keep>";
+        let stray = "</qm-keep>\n</div>\nC";
+        let imported = imp_fixed(&format!("{pair}\n\n{stray}"));
+        assert_eq!(dropped(&imported), [("qm-keep", 2)]);
+        let note = "x[^1]\n\n[^1]: n\n\n    </qm-keep>\n    </div>\n    lost";
+        for markdown in [format!("{pair}\n\n{note}"), format!("{note}\n\n{pair}")] {
+            assert_eq!(dropped(&imp_fixed(&markdown)), [("qm-keep", 2)], "{markdown:?}");
+        }
     }
 
     /// CRLF line endings import as LF ones do, through every block the

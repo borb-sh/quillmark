@@ -1108,11 +1108,13 @@ fn linebreak_at(out: &mut String, chars: &[char], pos: usize) -> Option<(usize, 
 }
 
 /// Where a table cell's text may break inside a word: after each `@`, and
-/// after each `.` between two alphanumerics, of a word holding an `@` or two
-/// such dots. Typst breaks only at UAX #14 opportunities, which an email
-/// address or a dotted name has none of, so one wider than its column runs
-/// into the next. Each is the offset of the char a break lands before.
+/// after each `.` between two alphanumerics, of a word holding an `@`, or two
+/// such dots and a letter. Typst breaks only at UAX #14 opportunities, which an
+/// email address or a dotted name has none of, so one wider than its column
+/// runs into the next. A code span's text counts toward none of it. Each is the
+/// offset of the char a break lands before.
 fn word_breaks(chars: &[char], codes: &[(usize, usize)]) -> Vec<usize> {
+    let prose = |p: usize| !codes.iter().any(|&(cs, ce)| cs <= p && p < ce);
     let mut breaks = Vec::new();
     let mut start = 0;
     while start < chars.len() {
@@ -1122,17 +1124,18 @@ fn word_breaks(chars: &[char], codes: &[(usize, usize)]) -> Vec<usize> {
         }
         let end = (start..chars.len()).find(|&p| chars[p].is_whitespace()).unwrap_or(chars.len());
         let dotted = |p: usize| {
-            chars[p] == '.' && p > start && p + 1 < end && chars[p - 1].is_alphanumeric() && chars[p + 1].is_alphanumeric()
+            chars[p] == '.'
+                && p > start
+                && p + 1 < end
+                && prose(p)
+                && chars[p - 1].is_alphanumeric()
+                && chars[p + 1].is_alphanumeric()
         };
-        let at = |p: usize| chars[p] == '@' && p + 1 < end;
+        let at = |p: usize| chars[p] == '@' && p + 1 < end && prose(p);
         let dots = (start..end).filter(|&p| dotted(p)).count();
-        if dots >= 2 || (start..end).any(at) {
-            breaks.extend(
-                (start..end)
-                    .filter(|&p| at(p) || dotted(p))
-                    .map(|p| p + 1)
-                    .filter(|&b| !codes.iter().any(|&(cs, ce)| cs < b && b < ce)),
-            );
+        let lettered = (start..end).any(|p| prose(p) && chars[p].is_alphabetic());
+        if (dots >= 2 && lettered) || (start..end).any(at) {
+            breaks.extend((start..end).filter(|&p| at(p) || dotted(p)).map(|p| p + 1));
         }
         start = end;
     }
@@ -2129,20 +2132,28 @@ mod tests {
     /// a box no `.` or `(` behind it extends, and nothing else in a cell does.
     #[test]
     fn a_cell_breaks_inside_an_address_and_nowhere_else() {
-        let cases = [
-            ("Michael.Marshall@us.af.mil", r"Michael.#box()Marshall\@#box()us.#box()af.#box()mil"),
-            ("x@(y)", r"x\@#box()\(y)"),
-            ("host.af.mil, 3.5, e.g. v1.2", "host.#box()af.#box()mil, 3.5, e.g. v1.2"),
-            ("a@b.c", r"a\@#box()b.#box()c"),
-        ];
-        for (text, want) in cases {
-            assert_eq!(cell_markup(text, &[], true), want, "{text:?}");
-            let (read, _) = resolve(&cell_markup(text, &[], true).replace("#box()", ""));
+        let breaks = |text: &str, codes: &[(usize, usize)]| {
+            let chars: Vec<char> = text.chars().collect();
+            word_breaks(&chars, codes).into_iter().map(|b| chars[..b].iter().collect()).collect::<Vec<String>>()
+        };
+        assert_eq!(
+            breaks("Michael.Marshall@us.af.mil", &[]),
+            ["Michael.", "Michael.Marshall@", "Michael.Marshall@us.", "Michael.Marshall@us.af."]
+        );
+        assert_eq!(breaks("x@(y)", &[]), ["x@"]);
+        assert_eq!(breaks("host.af.mil, 3.5, e.g. v1.2", &[]), ["host.", "host.af."]);
+        for none in ["27.10.2026", "10.0.0.1", "1.234.567", "a@", "@"] {
+            assert!(breaks(none, &[]).is_empty(), "{none:?}");
+        }
+        assert!(breaks("a.b.c", &[(0, 5)]).is_empty(), "inside a code span");
+        assert!(breaks("a.b.c", &[(0, 3)]).is_empty(), "one dot past a code span");
+        for text in ["Michael.Marshall@us.af.mil", "x@(y)", "a@b.c", "1.2.3"] {
+            let markup = cell_markup(text, &[], true);
+            assert_eq!(markup.matches("#box()").count(), breaks(text, &[]).len(), "{text:?}");
+            let (read, _) = resolve(&markup.replace("#box()", ""));
             assert_eq!(read, text);
         }
-        let code = [Mark::new(0, 5, MarkKind::Code)];
-        assert_eq!(cell_markup("a@b.c", &code, true), cell_markup("a@b.c", &code, false));
-        assert_eq!(cell_markup("a@b.c", &[], false), r"a\@b.c");
+        assert!(!cell_markup("a@b.c", &[], false).contains("#box()"));
     }
 
     #[test]

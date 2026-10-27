@@ -122,7 +122,7 @@ Export writes a table as pipes when pipes hold all of it, and as HTML otherwise,
 
 Markdown has no syntax for a run of text's font. Quillmark spells it with a `qm-span` tag pair: an HTML custom element, which a browser or GitHub draws as just what it wraps.
 
-A `qm-*` tag inside a line of text is read only as `qm-span`. A line holding only `qm-*` tags reads as a tag line wherever it stands, tight against a paragraph or a table included. No tag line wraps anything: its tags drop and the blocks around them stay. Any other `qm-<name>` tag, such as `<qm-keep>`, carries nothing: the open tag drops with a `parse::dropped_construct` warning naming it, the close tag drops silently, and what lies between imports as if the tags were absent.
+A `qm-*` tag inside a line of text is read only as `qm-span`. A line holding only `qm-*` tags reads as a tag line wherever it stands, tight against a paragraph or a table included. No tag line wraps anything: its tags drop and the blocks around them stay. Any other `qm-<name>` tag, such as `<qm-keep>`, carries nothing: the open tag drops with a `parse::dropped_construct` warning naming it, the close tag drops silently, and what lies between imports as written. A tag line still ends the paragraph above it, as any tag line does.
 
 ### Font family
 

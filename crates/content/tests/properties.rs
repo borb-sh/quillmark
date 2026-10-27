@@ -167,9 +167,9 @@ fn block() -> impl Strategy<Value = String> {
         )),
         prop::collection::vec(clean_word(), 1..4)
             .prop_map(|ls| format!("```\n{}\n```", ls.join("\n"))),
-        // Carrier elements: at the top level, around a list, in an item, two
-        // adjacent runs, which only the tags between them keep apart, and one
-        // around nothing.
+        // `qm-*` tags the carrier does not read, which drop around what they
+        // wrap: at the top level, around a list, in an item, two adjacent
+        // pairs, and a pair around nothing.
         prose().prop_map(|p| format!("<qm-keep note=\"x\">\n\n{p}\n\n</qm-keep>")),
         (prose(), prose()).prop_map(|(a, b)| format!("<qm-keep>\n\n- {a}\n- {b}\n\n</qm-keep>")),
         (prose(), prose()).prop_map(|(a, b)| format!("- {a}\n- <qm-keep>\n\n  {b}\n\n  </qm-keep>")),
@@ -177,9 +177,10 @@ fn block() -> impl Strategy<Value = String> {
             "<qm-keep>\n\n{a}\n\n</qm-keep>\n\n<qm-keep>\n\n{b}\n\n</qm-keep>"
         )),
         Just("<qm-sig></qm-sig>".to_string()),
-        // Definition lists: tight and loose, two descriptions of one term,
-        // two terms, a term across a hard break, an empty description, and a
-        // list, a nested definition and a list item each holding one.
+        // Definition list spellings, which read as the paragraphs and lists
+        // CommonMark reads: tight and loose, two descriptions of one term, two
+        // terms, a term across a hard break, an empty description, and a list,
+        // a nested definition and a list item each holding one.
         (prose(), prose()).prop_map(|(t, d)| format!("{t}\n: {d}")),
         (prose(), prose(), prose()).prop_map(|(t, a, b)| format!("{t}\n: {a}\n\n  {b}\n: {a}")),
         (prose(), prose(), prose()).prop_map(|(t, d, u)| format!("{t}\n: {d}\n\n{u}\n: {d}")),

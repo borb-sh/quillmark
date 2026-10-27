@@ -157,13 +157,22 @@ pub fn from_canonical_value(v: &Value) -> Result<Normalized, ParseError> {
 }
 
 /// `v` with the retired spellings the decoder reads permanently written as the
-/// encoder writes them: an island's `loss` key dropped, a line's `island` or
-/// `term` kind spelled `para`, its `description` and `element` containers
-/// dropped, and a table's props settled as the mint settles them, a
-/// `headless: true` or a span past what it covers among them. A caller
-/// comparing stored bytes against [`to_canonical_value`] compares this instead,
-/// so an untagged content value in a retired spelling reads as content.
+/// encoder writes them: an island's `loss` key dropped, a line's `island` kind
+/// spelled `para`, and a table's props settled as the mint settles them, a
+/// `headless: true` or a span past what it covers among them. A value holding a
+/// `term` line or a `description` or `element` container, whose drop can move
+/// every line after it, is the canonical spelling of what it decodes to. A
+/// caller comparing stored bytes against [`to_canonical_value`] compares this
+/// instead, so an untagged content value in a retired spelling reads as content.
 pub fn respell_retired(v: &Value) -> Value {
+    let retired = arr_or_empty(v, "lines").iter().any(|line| {
+        line.get("kind").and_then(Value::as_str) == Some("term")
+            || arr_or_empty(line, "containers")
+                .iter().any(|c| matches!(c.get("container").and_then(Value::as_str), Some("description" | "element")))
+    });
+    if retired && let Ok(decoded) = from_canonical_value(v) {
+        return to_canonical_value(&decoded);
+    }
     let mut v = v.clone();
     if let Some(islands) = v.get_mut("islands").and_then(Value::as_array_mut) {
         for island in islands.iter_mut().filter_map(Value::as_object_mut) {
@@ -177,11 +186,8 @@ pub fn respell_retired(v: &Value) -> Value {
     }
     if let Some(lines) = v.get_mut("lines").and_then(Value::as_array_mut) {
         for line in lines.iter_mut().filter_map(Value::as_object_mut) {
-            if let Some(kind) = line.get_mut("kind").filter(|k| matches!(k.as_str(), Some("island" | "term"))) {
+            if let Some(kind) = line.get_mut("kind").filter(|k| k.as_str() == Some("island")) {
                 *kind = Value::String("para".into());
-            }
-            if let Some(containers) = line.get_mut("containers").and_then(Value::as_array_mut) {
-                containers.retain(|c| !matches!(c.get("container").and_then(Value::as_str), Some("description" | "element")));
             }
         }
     }
@@ -395,20 +401,39 @@ fn line_to_value(line: &Line) -> Value {
 fn line_from_value(v: &Value) -> Result<Line, ParseError> {
     let o = v.as_object().ok_or(ParseError::Shape("line"))?;
     let kind = line_kind_from_value(v)?;
-    let containers = o
+    let mut containers = Vec::new();
+    // A dropped container's run still parts the runs below it: its identity
+    // folds into the instance of the next container kept, so two adjacent
+    // lists each inside their own element stay two.
+    let mut dropped: Option<u64> = None;
+    for c in o
         .get("containers")
         .and_then(Value::as_array)
         .ok_or(ParseError::Shape("containers"))?
-        .iter()
-        .map(container_from_value)
-        .filter_map(Result::transpose)
-        .collect::<Result<_, _>>()?;
+    {
+        let instance = c.get("instance").and_then(Value::as_u64).unwrap_or(0);
+        match container_from_value(c)? {
+            None => dropped = Some(fold_run(dropped.unwrap_or(0), instance)),
+            Some(mut kept) => {
+                if let Some(run) = dropped.take() {
+                    kept.set_instance(fold_run(run, kept.instance()));
+                }
+                containers.push(kept);
+            }
+        }
+    }
     let continues = o.get("continues").and_then(Value::as_bool).unwrap_or(false);
     Ok(Line {
         kind,
         containers,
         continues,
     })
+}
+
+/// One instance from a dropped run's identity and the instance beneath it,
+/// distinct from the instance alone so the run's edge survives the drop.
+fn fold_run(run: u64, instance: u64) -> u64 {
+    run.wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29) ^ instance
 }
 
 /// Encode a [`Container`] into its canonical wire object. A zero `instance` is
@@ -712,6 +737,13 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
         reject_line_kind_legacy(line)?;
         for c in arr_or_empty(line, "containers") {
             reject_container_legacy(c)?;
+            if container_from_value(c)?.is_none() {
+                let name = c.get("container").and_then(Value::as_str).unwrap_or_default();
+                return Err(ParseError::UnknownName {
+                    axis: "container",
+                    name: name.to_string(),
+                });
+            }
         }
     }
     // Both rules here: the strict decode `from_canonical_value` runs next reads
@@ -2069,6 +2101,34 @@ mod tests {
             container_from_authored_value(&element),
             Err(ParseError::UnknownName { axis: "container", .. })
         ));
+        assert!(matches!(
+            from_authored_value(&stored),
+            Err(ParseError::UnknownName { axis: "container", .. })
+        ));
+    }
+
+    /// The runs a dropped container parted stay parted: a list beside an
+    /// element's list, or in an adjacent run of it, is a list of its own, and
+    /// the stored value respells as what it loads to.
+    #[test]
+    fn a_dropped_container_still_parts_the_runs_below_it() {
+        let item = |ordinal: u64, checked: bool| {
+            serde_json::json!({"container": "list_item", "attrs": {"checked": checked, "ordered": false, "ordinal": ordinal, "start": 1}})
+        };
+        let keep = |instance: u64| serde_json::json!({"container": "element", "attrs": {"$name": "keep"}, "instance": instance});
+        let stored = serde_json::json!({
+            "text": "a\nb\nc",
+            "lines": [
+                {"kind": "para", "containers": [item(0, true)]},
+                {"kind": "para", "containers": [keep(0), item(0, true)]},
+                {"kind": "para", "containers": [keep(1), item(0, false)]},
+            ],
+            "marks": [],
+            "islands": [],
+        });
+        let loaded = from_canonical_value(&stored).unwrap();
+        assert_eq!(crate::export::to_markdown(&loaded), "- [x] a\n\n+ [x] b\n\n- [ ] c");
+        assert_eq!(respell_retired(&stored), to_canonical_value(&loaded));
     }
 
     /// A font mark round-trips as its bag, an overlapping one settles to one

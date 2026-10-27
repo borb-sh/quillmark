@@ -575,7 +575,7 @@ What the island cannot hold drops, reported under `parse::dropped_construct`:
 |---|---|
 | A definition nothing references, or a second definition of one label | `footnote` |
 | A reference in a table cell, an image's alt text or a note | `footnote` |
-| A heading, list, code block, block quote, table, rule or definition list in a note, which keeps its text as lines of the note | `footnote[<block>]`: `heading`, `list`, `code`, `quote`, `table`, `rule` |
+| A heading, list, code block, block quote, table or rule in a note, which keeps its text as lines of the note | `footnote[<block>]`: `heading`, `list`, `code`, `quote`, `table`, `rule` |
 
 Export numbers the references `[^1]`, `[^2]`, … in reading order and writes
 each note as a definition after the body, a line break as `<br>`. Link text

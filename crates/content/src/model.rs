@@ -252,7 +252,7 @@ impl Container {
         }
     }
 
-    fn set_instance(&mut self, n: u64) {
+    pub(crate) fn set_instance(&mut self, n: u64) {
         match self {
             Container::ListItem { instance, .. }
             | Container::Quote { instance } => *instance = n,

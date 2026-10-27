@@ -155,7 +155,7 @@ The table's layout keys lower as:
 A table cell is canonical `{text, marks}`, lowered through the same mark sweep
 as prose: a formatted cell reaches `#strong[…]` / `#emph[…]` / `#raw(…)` /
 `#link(…)[…]`, not an escaped source slice. A `\n` in a cell's text is a line break and lowers to
-`#linebreak()`, as a prose hard break does. A word holding an `@`, or two dots each between alphanumerics, takes an empty `#box()` after each `@` and each such dot: Typst breaks only at UAX #14 opportunities, which an email address or dotted name has none of, so one wider than its column would run into the next. The box is a break opportunity that adds no text, so the address copies out of the PDF whole. A footnote's note takes none.
+`#linebreak()`, as a prose hard break does. A word holding an `@`, or two dots each between alphanumerics and a letter, takes an empty `#box()` after each `@` and each such dot, a code span's text counting toward none of it: Typst breaks only at UAX #14 opportunities, which an email address or dotted name has none of, so one wider than its column would run into the next. The box is a break opportunity that adds no text, so the address copies out of the PDF whole. A footnote's note takes none.
 
 **Block quotes render** as `#quote(block: true)[…]`: the one lowering
 divergence from a flat inline pass; a quote's inner blocks lower under the
