@@ -1569,7 +1569,7 @@ card_kinds:
     fn acroform_declines_every_construct_but_the_paragraph() {
         let md = "# H\n\nprose\n\n- a\n  - b\n- c\n\n1. d\n\n> q\n>\n> > r\n\n\
                   ```\nx\ny\n```\n\n---\n\n| t |\n|---|\n| u |\n\n![i](i.png)\n\n\
-                  n[^1] $x$ $$y$$\n\n[^1]: note\n\nT\n: d\n: e\n";
+                  n[^1] $x$ $$y$$\n\n[^1]: note\n";
         let content = crate::document::import_body(md).expect("imports");
         let counts = |id: &str| -> Vec<(crate::quill::BlockConstruct, usize)> {
             let tally = crate::quill::BlockConstruct::tally(&content);
@@ -1588,20 +1588,9 @@ card_kinds:
                 (Image, 1),
                 (Footnote, 1),
                 (Math, 2),
-                (Definition, 1),
             ]
         );
         assert_eq!(counts("typst"), vec![(Image, 1)]);
-    }
-
-    #[test]
-    fn element_runs_count_each_run_of_the_name_at_any_depth() {
-        let md = "<qm-a>\n\nx\n\n</qm-a>\n\n<qm-a>\n\ny\n\n</qm-a>\n\n- <qm-a>\n\n  z\n\n  </qm-a>\n\n\
-                  <qm-b>\n\n<qm-a>\n\nw\n\n</qm-a>\n\n</qm-b>\n";
-        let content = crate::document::import_body(md).expect("imports");
-        assert_eq!(crate::quill::element_runs(&content, "a"), 4);
-        assert_eq!(crate::quill::element_runs(&content, "b"), 1);
-        assert_eq!(crate::quill::element_runs(&content, "c"), 0);
     }
 
     #[test]

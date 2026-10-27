@@ -158,8 +158,7 @@ impl std::fmt::Display for Refused {
 impl std::error::Error for Refused {}
 
 /// One carrier element, its name and attributes in the grammar, and its
-/// canonical spelling. What a
-/// [`Container::Element`](crate::model::Container::Element) holds.
+/// canonical spelling: a `qm-span` pair's or a `qm-anchor`'s.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Element {
     name: String,
@@ -231,16 +230,6 @@ impl Element {
     /// The inline pair around `content`, its tags against it on its line.
     pub fn wrap_inline(&self, content: &str) -> String {
         format!("{}{content}{}", self.open_tag(), self.close_tag())
-    }
-
-    /// The block wrapper around `children`: each tag alone on its line, a blank
-    /// line between it and the children, or the pair on one line around no
-    /// children. A container's prefix on each line is the caller's.
-    pub fn wrap_block(&self, children: &str) -> String {
-        if children.is_empty() {
-            return self.wrap_inline("");
-        }
-        format!("{}\n\n{children}\n\n{}", self.open_tag(), self.close_tag())
     }
 }
 
@@ -334,9 +323,6 @@ mod tests {
             "<qm-box align=\"a&amp;b&lt;c&gt;&quot;d'e\" note=\"x&#xA;y&#x202E;&#x7C;\" widths=\"1 2\">"
         );
         assert_eq!(e.close_tag(), "</qm-box>");
-        let keep = Element::new("keep", BTreeMap::new()).unwrap();
-        assert_eq!(keep.wrap_block("a\n\nb"), "<qm-keep>\n\na\n\nb\n\n</qm-keep>");
-        assert_eq!(keep.wrap_block(""), "<qm-keep></qm-keep>");
 
         assert_eq!(Element::new("A", BTreeMap::new()), Err(Refused::Name("A".into())));
         assert_eq!(Element::new(ANCHOR, BTreeMap::new()), Err(Refused::Reserved(ANCHOR.into())));

@@ -115,9 +115,6 @@ pub enum LineKind {
     },
     /// A thematic break (`---`/`***`/`___`). The line carries no text.
     Rule,
-    /// A definition list's term: one paragraph, which the
-    /// [`Container::Description`] runs beside it below describe.
-    Term,
 }
 
 impl LineKind {
@@ -131,7 +128,7 @@ impl LineKind {
     /// island's slot also renders one line, which
     /// [`Content::block_island_at`] answers off the island the kind cannot see.
     pub fn takes_continuations(&self) -> bool {
-        matches!(self, LineKind::Para | LineKind::Term | LineKind::Code { .. })
+        matches!(self, LineKind::Para | LineKind::Code { .. })
     }
 
     /// The wire `kind` name.
@@ -141,14 +138,13 @@ impl LineKind {
             LineKind::Heading { .. } => "heading",
             LineKind::Code { .. } => "code",
             LineKind::Rule => "rule",
-            LineKind::Term => "term",
         }
     }
 
     /// The payload bag, one spelling for every member of the vocabulary.
     pub fn attrs(&self) -> Cow<'_, JsonValue> {
         match self {
-            LineKind::Para | LineKind::Rule | LineKind::Term => Cow::Owned(JsonValue::Null),
+            LineKind::Para | LineKind::Rule => Cow::Owned(JsonValue::Null),
             LineKind::Heading { level } => Cow::Owned(bag([("level", (*level).into())])),
             LineKind::Code { lang } => Cow::Owned(match lang {
                 Some(l) => bag([("lang", l.as_str().into())]),
@@ -157,10 +153,6 @@ impl LineKind {
         }
     }
 }
-
-/// The key an element's payload bag holds its name under. Every attribute name
-/// opens with a letter, which sorts after `$`, so the name leads the bag.
-pub const ELEMENT_NAME: &str = "$name";
 
 /// A payload bag from its entries, which must be listed in ascending key order:
 /// [`Content::normalize`] canonicalizes an opaque bag, and a minted one is
@@ -207,16 +199,6 @@ pub enum Container {
     /// A block quote. Adjacent lines sharing one `Quote` are one
     /// multi-paragraph quote; two adjacent quotes differ in `instance`.
     Quote { instance: u64 },
-    /// A definition list's description of the [`LineKind::Term`] line above
-    /// its run. Two adjacent descriptions of one term differ in `instance`.
-    Description { instance: u64 },
-    /// A `qm-*` carrier element around blocks (markdown-spec §6.4). The
-    /// member is closed and its names open: any element name the carrier
-    /// does not reserve is one, so a new name is no storage event.
-    Element {
-        element: crate::carrier::Element,
-        instance: u64,
-    },
 }
 
 impl Container {
@@ -239,9 +221,7 @@ impl Container {
     pub fn instance(&self) -> u64 {
         match self {
             Container::ListItem { instance, .. }
-            | Container::Quote { instance }
-            | Container::Description { instance }
-            | Container::Element { instance, .. } => *instance,
+            | Container::Quote { instance } => *instance,
         }
     }
 
@@ -250,8 +230,6 @@ impl Container {
         match self {
             Container::ListItem { .. } => "list_item",
             Container::Quote { .. } => "quote",
-            Container::Description { .. } => "description",
-            Container::Element { .. } => "element",
         }
     }
 
@@ -270,26 +248,20 @@ impl Container {
                 ("ordinal", (*ordinal).into()),
                 ("start", (*start).into()),
             ]))),
-            Container::Quote { .. } | Container::Description { .. } => Cow::Owned(JsonValue::Null),
-            Container::Element { element, .. } => Cow::Owned(bag(
-                std::iter::once((ELEMENT_NAME, element.name().into()))
-                    .chain(element.attrs().iter().map(|(k, v)| (k.as_str(), v.as_str().into()))),
-            )),
+            Container::Quote { .. } => Cow::Owned(JsonValue::Null),
         }
     }
 
     fn set_instance(&mut self, n: u64) {
         match self {
             Container::ListItem { instance, .. }
-            | Container::Quote { instance }
-            | Container::Description { instance }
-            | Container::Element { instance, .. } => *instance = n,
+            | Container::Quote { instance } => *instance = n,
         }
     }
 
     /// Whether these two are the same container shape, `ordinal`, `checked` and
     /// `instance` aside — `start` counts, so a list starting at 1 and one starting at 3
-    /// are two shapes, and an element's whole name and attributes do.
+    /// are two shapes.
     ///
     /// The **identity** rule, read and written alike: two adjacent lines sit in
     /// one container instance iff this holds *and* their
@@ -307,9 +279,7 @@ impl Container {
                     ordered: c, start: d, ..
                 },
             ) => a == c && b == d,
-            (Container::Quote { .. }, Container::Quote { .. })
-            | (Container::Description { .. }, Container::Description { .. }) => true,
-            (Container::Element { element: a, .. }, Container::Element { element: b, .. }) => a == b,
+            (Container::Quote { .. }, Container::Quote { .. }) => true,
             _ => false,
         }
     }
@@ -885,16 +855,10 @@ impl Content {
                 .all(|l| l.kind == LineKind::Para && l.containers.is_empty())
     }
 
-    /// Whether the text is empty or whitespace-only and no line sits in an
-    /// element, which a plate draws around nothing (a signature line). An
-    /// [`ISLAND_SLOT`] is not whitespace, so an island-bearing content is never
-    /// blank.
+    /// Whether the text is empty or whitespace-only. An [`ISLAND_SLOT`] is not
+    /// whitespace, so an island-bearing content is never blank.
     pub fn is_blank(&self) -> bool {
         self.text.trim().is_empty()
-            && !self
-                .lines
-                .iter()
-                .any(|l| l.containers.iter().any(|c| matches!(c, Container::Element { .. })))
     }
 
     /// Every family a `font_family` mark names, over the text and then each
@@ -1689,30 +1653,6 @@ mod tests {
                 islands: 0
             })
         );
-    }
-
-    /// The carrier refuses at construction each element storage could not
-    /// read back, so every element a container holds loads back as itself.
-    #[test]
-    fn a_constructed_element_reads_back() {
-        use crate::carrier::{Element, Refused};
-        let element = |name: &str, attr: &str| Element::new(name, [(attr.to_string(), "v".to_string())].into());
-        for attr in ["note", "name"] {
-            let mut line = Line::new(LineKind::Para);
-            line.containers = vec![Container::Element { element: element("keep", attr).unwrap(), instance: 0 }];
-            let stored = Content::new("x".into(), vec![line]).into_normalized();
-            let loaded = crate::serial::from_canonical_value(&crate::serial::to_canonical_value(&stored));
-            assert_eq!(loaded.as_ref(), Ok(&stored), "{attr}");
-        }
-        let refused = [
-            (element("Keep", "note"), Refused::Name("Keep".into())),
-            (element("anchor", "ref"), Refused::Reserved("anchor".into())),
-            (element("keep", "style"), Refused::Attr("style".into())),
-            (element("keep", "$name"), Refused::Attr("$name".into())),
-        ];
-        for (element, refused) in refused {
-            assert_eq!(element, Err(refused));
-        }
     }
 
     #[test]

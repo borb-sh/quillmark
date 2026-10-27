@@ -47,8 +47,7 @@ pub struct UiFieldSchema {
 /// [`backend::declined_construct`](crate::backend::declined_construct) names
 /// one in: the block kinds the content
 /// model distinguishes, minus the paragraph, which is the floor and cannot be
-/// declined, and the element, which a backend with no renderer for it draws
-/// as what it wraps.
+/// declined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockConstruct {
@@ -61,7 +60,6 @@ pub enum BlockConstruct {
     Image,
     Footnote,
     Math,
-    Definition,
 }
 
 impl BlockConstruct {
@@ -75,42 +73,27 @@ impl BlockConstruct {
         Self::Image,
         Self::Footnote,
         Self::Math,
-        Self::Definition,
     ];
 
     /// How many of each construct `content` holds, indexed by discriminant: a
     /// heading, rule or code block per block, a list or quote per container
-    /// run at any depth, a table, image, footnote or equation per island, and
-    /// a definition per term block or description run with no term above it.
-    pub fn tally(content: &quillmark_content::model::Content) -> [usize; 10] {
+    /// run at any depth, and a table, image, footnote or equation per island.
+    pub fn tally(content: &quillmark_content::model::Content) -> [usize; 9] {
         use quillmark_content::island::IslandType;
         use quillmark_content::model::{Container, LineKind};
-        let mut counts = [0; 10];
+        let mut counts = [0; 9];
         for line in content.lines.iter().filter(|l| !l.continues) {
             match line.kind {
                 LineKind::Heading { .. } => counts[Self::Heading as usize] += 1,
                 LineKind::Rule => counts[Self::Rule as usize] += 1,
                 LineKind::Code { .. } => counts[Self::Code as usize] += 1,
-                LineKind::Term => counts[Self::Definition as usize] += 1,
                 _ => {}
             }
         }
         let lines = &content.lines;
-        visit_runs(lines, 0..lines.len(), 0, &mut |c, at, depth| match c {
+        visit_runs(lines, 0..lines.len(), 0, &mut |c, _, _| match c {
             Container::ListItem { .. } => counts[Self::List as usize] += 1,
             Container::Quote { .. } => counts[Self::Quote as usize] += 1,
-            Container::Description { .. } => {
-                let described = at.checked_sub(1).is_some_and(|above| {
-                    let above = &lines[above];
-                    above.containers.get(..depth) == lines[at].containers.get(..depth)
-                        && (above.containers.len() == depth && above.kind == LineKind::Term
-                            || matches!(above.containers.get(depth), Some(Container::Description { .. })))
-                });
-                if !described {
-                    counts[Self::Definition as usize] += 1;
-                }
-            }
-            _ => {}
         });
         for island in &content.islands {
             match island.island_type {
@@ -135,23 +118,8 @@ impl BlockConstruct {
             Self::Image => "image",
             Self::Footnote => "footnote",
             Self::Math => "math",
-            Self::Definition => "definition",
         }
     }
-}
-
-/// How many runs of element `name` `content` holds, at any depth: what
-/// `typst::unregistered_element` counts, as [`BlockConstruct::tally`] counts
-/// a list.
-pub fn element_runs(content: &quillmark_content::model::Content, name: &str) -> usize {
-    use quillmark_content::model::Container;
-    let mut count = 0;
-    visit_runs(&content.lines, 0..content.lines.len(), 0, &mut |c, _, _| {
-        if matches!(c, Container::Element { element, .. } if element.name() == name) {
-            count += 1;
-        }
-    });
-    count
 }
 
 fn visit_runs(

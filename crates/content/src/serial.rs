@@ -23,7 +23,6 @@ use crate::model::{
 };
 use serde_json::{Map, Value};
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 
 /// Why canonical-JSON parsing failed. Structural only: a well-formed producer
 /// (this crate's serializer, storage, a binding) never trips these.
@@ -158,8 +157,9 @@ pub fn from_canonical_value(v: &Value) -> Result<Normalized, ParseError> {
 }
 
 /// `v` with the retired spellings the decoder reads permanently written as the
-/// encoder writes them: an island's `loss` key dropped, a line's `island` kind
-/// spelled `para`, and a table's props settled as the mint settles them, a
+/// encoder writes them: an island's `loss` key dropped, a line's `island` or
+/// `term` kind spelled `para`, its `description` and `element` containers
+/// dropped, and a table's props settled as the mint settles them, a
 /// `headless: true` or a span past what it covers among them. A caller
 /// comparing stored bytes against [`to_canonical_value`] compares this instead,
 /// so an untagged content value in a retired spelling reads as content.
@@ -177,8 +177,11 @@ pub fn respell_retired(v: &Value) -> Value {
     }
     if let Some(lines) = v.get_mut("lines").and_then(Value::as_array_mut) {
         for line in lines.iter_mut().filter_map(Value::as_object_mut) {
-            if let Some(kind) = line.get_mut("kind").filter(|k| k.as_str() == Some("island")) {
+            if let Some(kind) = line.get_mut("kind").filter(|k| matches!(k.as_str(), Some("island" | "term"))) {
                 *kind = Value::String("para".into());
+            }
+            if let Some(containers) = line.get_mut("containers").and_then(Value::as_array_mut) {
+                containers.retain(|c| !matches!(c.get("container").and_then(Value::as_str), Some("description" | "element")));
             }
         }
     }
@@ -362,7 +365,9 @@ pub fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
         // the name and the kind it decodes to spell one line.
         "island" | "para" => Ok(LineKind::Para),
         "rule" => Ok(LineKind::Rule),
-        "term" => Ok(LineKind::Term),
+        // A definition list's term reads as the paragraph it held, for the
+        // reason `island` reads above.
+        "term" => Ok(LineKind::Para),
         other => Err(ParseError::UnknownName {
             axis: "line kind",
             name: other.to_string(),
@@ -396,6 +401,7 @@ fn line_from_value(v: &Value) -> Result<Line, ParseError> {
         .ok_or(ParseError::Shape("containers"))?
         .iter()
         .map(container_from_value)
+        .filter_map(Result::transpose)
         .collect::<Result<_, _>>()?;
     let continues = o.get("continues").and_then(Value::as_bool).unwrap_or(false);
     Ok(Line {
@@ -420,8 +426,11 @@ pub fn container_to_value(c: &Container) -> Value {
     Value::Object(m)
 }
 
-/// Decode a [`Container`] from its canonical wire object.
-pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
+/// Decode a [`Container`] from its canonical wire object: `None` for a retired
+/// container, a definition list's `description` or a `qm-*` `element`, whose
+/// lines read as the blocks it wrapped, for the reason a `term` line reads as
+/// a paragraph.
+pub fn container_from_value(v: &Value) -> Result<Option<Container>, ParseError> {
     let o = v.as_object().ok_or(ParseError::Shape("container"))?;
     let tag = o
         .get("container")
@@ -430,7 +439,7 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
     let instance = o.get("instance").and_then(Value::as_u64).unwrap_or(0);
     let legacy = legacy_container_keys(tag);
     match tag {
-        "list_item" => Ok(Container::ListItem {
+        "list_item" => Ok(Some(Container::ListItem {
             ordered: payload(o, legacy, "ordered")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
@@ -442,46 +451,14 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
                 .unwrap_or(0),
             checked: payload(o, legacy, "checked").and_then(Value::as_bool),
             instance,
-        }),
-        "quote" => Ok(Container::Quote { instance }),
-        "description" => Ok(Container::Description { instance }),
-        "element" => {
-            let element = element_payload(o)?;
-            Ok(Container::Element { element, instance })
-        }
+        })),
+        "quote" => Ok(Some(Container::Quote { instance })),
+        "description" | "element" => Ok(None),
         other => Err(ParseError::UnknownName {
             axis: "container",
             name: other.to_string(),
         }),
     }
-}
-
-/// An element's `attrs` bag, read one way on both lanes since it has no legacy
-/// spelling: `$name` and string attributes the carrier
-/// [models](crate::carrier::Element::new).
-fn element_payload(o: &Map<String, Value>) -> Result<crate::carrier::Element, ParseError> {
-    use crate::carrier::Refused;
-    use crate::model::ELEMENT_NAME;
-    let bag = o
-        .get("attrs")
-        .and_then(Value::as_object)
-        .ok_or(ParseError::Shape("element attrs"))?;
-    let name = bag
-        .get(ELEMENT_NAME)
-        .and_then(Value::as_str)
-        .ok_or(ParseError::Shape("element name"))?;
-    let attrs = bag
-        .iter()
-        .filter(|(k, _)| *k != ELEMENT_NAME)
-        .map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
-        .collect::<Option<BTreeMap<_, _>>>()
-        .ok_or(ParseError::Shape("element attr"))?;
-    crate::carrier::Element::new(name, attrs).map_err(|r| {
-        ParseError::Shape(match r {
-            Refused::Attr(_) => "element attr",
-            Refused::Name(_) | Refused::Reserved(_) => "element name",
-        })
-    })
 }
 
 /// Encode a [`Mark`] (`start`, `end`, `type`, …) into its canonical wire object.
@@ -610,7 +587,10 @@ fn reject_unwritable_lang(v: &Value) -> Result<(), ParseError> {
 /// [`line_kind_from_authored_value`].
 pub(crate) fn container_from_authored_value(v: &Value) -> Result<Container, ParseError> {
     reject_container_legacy(v)?;
-    container_from_value(v)
+    container_from_value(v)?.ok_or_else(|| ParseError::UnknownName {
+        axis: "container",
+        name: v.get("container").and_then(Value::as_str).unwrap_or_default().to_string(),
+    })
 }
 
 /// [`mark_from_value`] for the authored lane. See [`line_kind_from_authored_value`].
@@ -1990,13 +1970,13 @@ mod tests {
         });
         assert_eq!(
             container_from_value(&item).unwrap(),
-            Container::ListItem {
+            Some(Container::ListItem {
                 ordered: true,
                 start: 3,
                 ordinal: 1,
                 checked: None,
                 instance: 0,
-            }
+            })
         );
         for (v, want) in [
             (
@@ -2046,14 +2026,49 @@ mod tests {
                 "container": "list_item", "attrs": {}, "ordered": true, "start": 3, "ordinal": 1
             }))
             .unwrap(),
-            Container::ListItem {
+            Some(Container::ListItem {
                 ordered: true,
                 start: 3,
                 ordinal: 1,
                 checked: None,
                 instance: 0,
-            }
+            })
         );
+    }
+
+    /// A stored definition list or `qm-*` element loads as the blocks it held:
+    /// a term line as a paragraph, a description or element container gone
+    /// from every path. The authored lane refuses either container.
+    #[test]
+    fn a_retired_construct_loads_as_what_it_held() {
+        let stored = serde_json::json!({
+            "text": "T\nd\nk",
+            "lines": [
+                {"kind": "term", "containers": []},
+                {"kind": "para", "containers": [{"container": "description"}]},
+                {"kind": "para", "containers": [
+                    {"container": "quote"},
+                    {"container": "element", "attrs": {"$name": "keep"}},
+                ]},
+            ],
+            "marks": [],
+            "islands": [],
+        });
+        let loaded = from_canonical_value(&stored).unwrap();
+        let shape: Vec<_> = loaded.lines.iter().map(|l| (l.kind.clone(), l.containers.clone())).collect();
+        assert_eq!(
+            shape,
+            [
+                (LineKind::Para, vec![]),
+                (LineKind::Para, vec![]),
+                (LineKind::Para, vec![Container::Quote { instance: 0 }]),
+            ]
+        );
+        let element = serde_json::json!({"container": "element", "attrs": {"$name": "keep"}});
+        assert!(matches!(
+            container_from_authored_value(&element),
+            Err(ParseError::UnknownName { axis: "container", .. })
+        ));
     }
 
     /// A font mark round-trips as its bag, an overlapping one settles to one

@@ -774,7 +774,7 @@ proptest! {
         md in document(),
         pos_seed in 0usize..4096,
         line_seed in 0usize..64,
-        which in 0u8..7,
+        which in 0u8..6,
     ) {
         let mut rt = from_markdown(&md).unwrap().content;
         let len = rt.len_usv();
@@ -787,7 +787,6 @@ proptest! {
             2 => kind(LineKind::Heading { level: 2 }),
             3 => kind(LineKind::Rule),
             4 => kind(LineKind::Code { lang: None }),
-            5 => kind(LineKind::Term),
             _ => LineOp::SetContinues { line, continues: true },
         };
         if rt.apply_line_ops(&[op]).is_ok() {
