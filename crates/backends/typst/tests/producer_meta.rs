@@ -1,5 +1,5 @@
 //! Compiles plates to PDF, reparses with lopdf, and asserts the `/Info`
-//! `/Producer` stamp.
+//! `/Producer` stamp and `/Title`.
 
 use lopdf::Object;
 use quillmark_core::{backend::Backend, types::{OutputFormat, RenderOptions}};
@@ -11,12 +11,19 @@ use common::host_with_plate as source_with_plate;
 const PLATE: &str = "#set page(width: 400pt, height: 300pt)\n= Hello\n";
 
 fn render_pdf(plate: &str) -> Vec<u8> {
+    render_titled(plate, None)
+}
+
+fn render_titled(plate: &str, title: Option<&str>) -> Vec<u8> {
     let source = source_with_plate(plate);
     let session = TypstBackend::default()
         .open(&source, &serde_json::json!({}), common::test_date())
         .expect("open session");
     let result = session
-        .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
+        .render(&RenderOptions {
+            title: title.map(str::to_string),
+            ..RenderOptions::default().with_output_format(OutputFormat::Pdf)
+        })
         .expect("render ok");
     result.artifacts[0].bytes.clone()
 }
@@ -50,4 +57,29 @@ fn producer_is_quillmark_and_creator_stays_typst() {
         "expected Typst /Creator, got {:?}",
         String::from_utf8_lossy(&creator)
     );
+}
+
+const TITLED_PLATE: &str = "#set document(title: \"Plate Title\")\n= Hello\n";
+
+#[test]
+fn title_falls_back_to_the_quill_description() {
+    let description = source_with_plate(PLATE).config().description.clone();
+    assert_eq!(info_string(&render_pdf(PLATE), b"Title"), description.as_bytes());
+}
+
+#[test]
+fn plate_title_overrides_the_description() {
+    assert_eq!(info_string(&render_pdf(TITLED_PLATE), b"Title"), b"Plate Title");
+}
+
+#[test]
+fn render_title_overrides_the_plate() {
+    let pdf = render_titled(TITLED_PLATE, Some("Render Title"));
+    assert_eq!(info_string(&pdf, b"Title"), b"Render Title");
+}
+
+#[test]
+fn blank_render_title_counts_as_absent() {
+    let pdf = render_titled(TITLED_PLATE, Some("  "));
+    assert_eq!(info_string(&pdf, b"Title"), b"Plate Title");
 }

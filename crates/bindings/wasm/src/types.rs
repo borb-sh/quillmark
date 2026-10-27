@@ -293,12 +293,16 @@ pub struct RenderOptions {
     /// document-space even when `pages` selects a subset.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub regions: Option<bool>,
+    /// The PDF document title, over the plate's own and then the quill's
+    /// `description`. A blank title counts as absent; ignored for PNG and SVG.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[cfg(feature = "render")]
 impl RenderOptions {
     /// The keys an options object may carry; any other key throws.
-    pub(crate) const KEYS: [&'static str; 4] = ["format", "ppi", "pages", "regions"];
+    pub(crate) const KEYS: [&'static str; 5] = ["format", "ppi", "pages", "regions", "title"];
 }
 
 #[cfg(feature = "render")]
@@ -309,6 +313,7 @@ impl Default for RenderOptions {
             ppi: None,
             pages: None,
             regions: None,
+            title: None,
         }
     }
 }
@@ -321,6 +326,7 @@ impl From<RenderOptions> for quillmark_core::types::RenderOptions {
         core.ppi = opts.ppi;
         core.pages = opts.pages;
         core.regions = opts.regions.unwrap_or(false);
+        core.title = opts.title;
         core
     }
 }
@@ -357,6 +363,7 @@ mod tests {
             ppi: Some(144.0),
             pages: Some(vec![0]),
             regions: Some(true),
+            title: Some("Title".into()),
         };
         let json = serde_json::to_value(&every).unwrap();
         let mut fields: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();

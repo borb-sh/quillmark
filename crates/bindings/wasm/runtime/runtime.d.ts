@@ -267,6 +267,12 @@ export interface RenderOptions {
 	 * consumers without a live session. Defaults to `false`.
 	 */
 	regions?: boolean;
+	/**
+	 * The PDF document title, over the plate's own `set document(title: ..)`
+	 * and then the quill's `description`. A blank title counts as absent;
+	 * ignored by PNG and SVG.
+	 */
+	title?: string;
 }
 
 /**

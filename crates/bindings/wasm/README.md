@@ -383,7 +383,7 @@ the local date): what a `today` date field and a plate's `datetime.today()`
 render as. A session keeps the date it opened with, so a preview left open past
 midnight renders yesterday's until it is reopened.
 
-`opts` takes `format`, `ppi`, `pages` and `regions`, on `engine.render` and
+`opts` takes `format`, `ppi`, `pages`, `regions` and `title`, on `engine.render` and
 `session.render` alike. Any other key throws rather than reading as absent,
 `today` included, so `engine.render(quill, doc, { today })` rejects instead of
 rendering the local date. The date goes last:
