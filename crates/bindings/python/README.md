@@ -47,7 +47,7 @@ parse, storage, structure, `$ext` / `$seed`, and `remove_field`. Names follow
 ```python
 engine = Engine()
 engine.registered_backends()              # ['typst', 'acroform'] (order not guaranteed)
-engine.render(quill, doc, OutputFormat.PDF)      # ppi=, pages=, regions= optional
+engine.render(quill, doc, OutputFormat.PDF)      # ppi=, pages=, regions=, title= optional
                                           # today=datetime.date, default the local date
 engine.supported_formats(quill)           # [OutputFormat.PDF, ...] (raises if backend unregistered)
 ```

@@ -110,13 +110,30 @@ fn collect_paint_urls(paint: &Paint, urls: &mut Vec<String>) {
     }
 }
 
-/// `field_specs` are stamped as AcroForm widgets by the PDF path only.
+/// `document` with its title resolved: `title`, else the plate's own, else
+/// `fallback`, each trimmed and a blank one counting as absent. A plate's
+/// `set document(title: none)` reads as no title, so the fallback fills it.
+fn titled(document: &PagedDocument, title: Option<&str>, fallback: &str) -> PagedDocument {
+    let mut document = document.clone();
+    let info = document.info_mut();
+    let present = |t: &str| Some(t.trim()).filter(|t| !t.is_empty()).map(Into::into);
+    info.title = title
+        .and_then(present)
+        .or_else(|| info.title.as_deref().and_then(present))
+        .or_else(|| present(fallback));
+    document
+}
+
+/// `field_specs` are stamped as AcroForm widgets, and the title written, by the
+/// PDF path only.
 pub(crate) fn render_document_pages(
     document: &PagedDocument,
     pages: Option<&[usize]>,
     format: OutputFormat,
     ppi: f32,
     field_specs: &[FieldSpec],
+    title: Option<&str>,
+    fallback_title: &str,
 ) -> Result<RenderResult, RenderError> {
     if format == OutputFormat::Pdf && pages.is_some() {
         return Err(page_selection_not_supported(format));
@@ -160,6 +177,7 @@ pub(crate) fn render_document_pages(
             Ok(RenderResult::new(artifacts, OutputFormat::Png))
         }
         OutputFormat::Pdf => {
+            let document = &titled(document, title, fallback_title);
             let pdf = typst_pdf::pdf(document, &PdfOptions::default()).map_err(|e| {
                 RenderError::coded(
                     "typst::pdf_generation",

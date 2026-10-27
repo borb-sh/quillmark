@@ -61,6 +61,9 @@ struct TypstSession {
     /// Built once at `open`: the schema never changes for a session's lifetime,
     /// and codegen plus date validation read only these tables.
     schema_meta: SchemaMeta,
+    /// `quill.description`, the PDF title when neither the render nor the
+    /// plate names one.
+    fallback_title: String,
     /// Swapped whole, and only once [`recompile`] has succeeded, so on `Err`
     /// every read keeps serving the last-good compile.
     live: Compiled,
@@ -258,6 +261,8 @@ impl SessionHandle for TypstSession {
             format,
             opts.ppi_or_default(),
             &self.live.field_specs,
+            opts.title.as_deref(),
+            &self.fallback_title,
         )
     }
 
@@ -478,6 +483,7 @@ impl Backend for TypstBackend {
         let session = TypstSession {
             world,
             schema_meta,
+            fallback_title: config.description.clone(),
             live,
         };
         Ok(LiveSession::new(

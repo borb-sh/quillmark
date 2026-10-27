@@ -30,6 +30,11 @@ pub struct RenderArgs {
     #[arg(long, value_name = "PPI")]
     ppi: Option<f32>,
 
+    /// The pdf document title (default: the plate's own, else the quill's
+    /// description); png and svg ignore it
+    #[arg(long, value_name = "TITLE")]
+    title: Option<String>,
+
     /// Write output to stdout instead of file
     #[arg(long)]
     stdout: bool,
@@ -66,6 +71,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
 
     let mut options = RenderOptions::default().with_output_format(output_format);
     options.ppi = args.ppi;
+    options.title = args.title;
     let engine = Engine::with_fonts(read_fonts(&args.fonts)?)?;
     let rendered = render(&engine, &quill, &parsed, today, &options, args.output_data.as_deref());
     let mut result = match rendered {

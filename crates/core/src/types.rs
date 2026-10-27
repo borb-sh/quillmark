@@ -161,6 +161,12 @@ pub struct RenderOptions {
     /// The sidecar always describes the **whole document**: page indices are
     /// document-space and unaffected by a `pages` subset selection.
     pub regions: bool,
+    /// The PDF document title: what a viewer shows in its title bar and a
+    /// screen reader announces on open. Overrides the plate's own
+    /// `set document(title: ..)`, which overrides the quill's `description`.
+    /// Each is trimmed, and a blank one counts as absent. Ignored by every format but PDF, and by
+    /// the acroform backend, whose base PDF carries its own metadata.
+    pub title: Option<String>,
 }
 
 impl RenderOptions {
@@ -190,6 +196,11 @@ impl RenderOptions {
 
     pub fn with_regions(mut self, regions: bool) -> Self {
         self.regions = regions;
+        self
+    }
+
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
         self
     }
 }

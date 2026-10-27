@@ -18,6 +18,14 @@ A plate compiled by an older Typst than it needs fails at the first feature that
 
 A release that moves Typst to a new minor version is a breaking change, and its [migration guide](../migrations/index.md) names the new version.
 
+## Document Title
+
+A PDF's title is what a viewer shows in its title bar and a screen reader announces on open. It is the render's `title` option when one is given, else the plate's own `set document(title: ..)`, else the quill's `description`. Each is trimmed, and a blank one counts as absent, so `set document(title: none)` takes the description too. A plate that titles each document from its data sets it from a field:
+
+```typst
+#set document(title: qm.str(qm.data.subject))
+```
+
 ## Data Access
 
 Plates are plain Typst code. Document metadata reaches the plate as a Typst dictionary literal exposed by the virtual `@local/quillmark-helper` package, which a plate imports as a module under a name of its choosing:

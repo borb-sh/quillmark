@@ -71,6 +71,10 @@ impl PyEngine {
     /// `pages` selects 0-based page indices counting from the first page; a
     /// negative one selects no page and raises like an index past the last.
     ///
+    /// `title` is the PDF document title, over the plate's own and then the
+    /// quill's `description`; a blank one counts as absent, and PNG and SVG
+    /// ignore it.
+    ///
     /// `today` is the render date, a `datetime.date` (default
     /// `datetime.date.today()`): a `today` date field renders as it, and so does
     /// a plate's `datetime.today()`.
@@ -80,7 +84,7 @@ impl PyEngine {
     /// the load's stay on `doc.warnings`.
     ///
     /// The GIL is released while the backend compiles.
-    #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, regions=false, today=None))]
+    #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, regions=false, today=None, title=None))]
     #[allow(clippy::too_many_arguments)]
     fn render(
         &self,
@@ -92,6 +96,7 @@ impl PyEngine {
         pages: Option<Vec<isize>>,
         regions: bool,
         today: Option<Bound<'_, PyDate>>,
+        title: Option<String>,
     ) -> PyResult<PyRenderResult> {
         let today = render_date(py, today.map(Bound::into_any))?;
         let mut opts = quillmark_core::types::RenderOptions::default();
@@ -99,6 +104,7 @@ impl PyEngine {
         opts.ppi = ppi;
         opts.pages = pages.map(page_indices).transpose()?;
         opts.regions = regions;
+        opts.title = title;
         // A clone, so the `Document` stays editable from other threads while
         // the GIL is released.
         let document = doc.inner.clone();
