@@ -55,7 +55,8 @@ quillmark render my_quill document.md --stdout | lpr
 
 ## Commands
 
-Every command takes a `<QUILL_PATH>` pointing at a quill directory.
+Every command takes a `<QUILL_PATH>` pointing at a quill directory, or at a
+`.quill` bundle of one; `workspace` takes the directory alone.
 
 ### `quillmark render [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]`
 
@@ -123,6 +124,14 @@ than the embedded one, so a plate compiling there can still fail to render; the
 - `--today <YYYY-MM-DD>` — the render date: what a `today` date and, through the printed command's `--creation-timestamp`, a plate's `datetime.today()` render as (default: the local date)
 - `--font <FONT_FILE>` — a font file for the engine's font library, repeatable, as on `render`; written into the workspace's `fonts/`
 - `--quiet` — suppress warnings and the command line
+
+### `quillmark pack [-o FILE] <QUILL_PATH>`
+
+Writes the quill as one `.quill` bundle, its file tree as a ZIP archive with
+`Quill.yaml` at the root: the file `Quill.fromBundle` in `@quillmark/wasm` and
+`Quill.from_bundle` in Python read. The default output is
+`<name>@<version>.quill` in the working directory; one inside the quill is
+refused.
 
 ## Exit codes
 

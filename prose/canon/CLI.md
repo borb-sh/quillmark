@@ -9,7 +9,8 @@
 `render` turns a quill + markdown into PDF/SVG/PNG, `check` reads documents
 against a quill's schema, `validate` reads a quill's configuration and compiles
 its plate, `schema`/`blueprint`/`info` introspect a quill without rendering
-it, and `workspace` exports what Typst's own tooling needs to compile a plate.
+it, `workspace` exports what Typst's own tooling needs to compile a plate,
+and `pack` writes a quill as one `.quill` bundle.
 Commands, options, and examples are the
 [CLI reference](../../docs/cli/reference.md); this page is the contract behind
 them.
@@ -72,6 +73,16 @@ them.
   ([ARCHITECTURE.md](ARCHITECTURE.md#fonts)), so a CLI render sees the fonts a
   host's would. A refused file fails the command before any render, and
   `workspace` exports each library file as `fonts/host-<n>.<ext>`.
+- **A quill path is a directory or a `.quill` bundle.** Every command loads
+  it through `quillmark::quill_from_path`, which reads a file named `*.quill`
+  as a bundle ([QUILL.md](QUILL.md#the-quill-bundle)). `workspace` alone
+  refuses a file: Typst reads the quill's directory as its root, and a bundle
+  has none.
+- **`pack` writes the bundle another surface reads.** It loads the quill as
+  every command does, so a quill whose `Quill.yaml` fails is not packed, and
+  writes `Quill::to_bundle` to `-o`, by default `<name>@<version>.quill` in
+  the working directory. An `-o` inside the quill directory is refused, since
+  the next load would carry the bundle as one of the quill's files.
 - **The render date is the local date.** `render`, `validate` and `workspace` supply it
   to core, which never reads a clock; `--today YYYY-MM-DD` on `render` or
   `workspace` pins it for a reproducible render. The local offset unreadable,

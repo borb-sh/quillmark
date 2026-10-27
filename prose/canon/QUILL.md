@@ -72,6 +72,12 @@ inputs from the file bundle when it opens a session (the Typst backend reads
 acroform backend reads `form.pdf` / `Form.yaml`), so a missing or malformed
 template surfaces as a render-time error, not a load error.
 
+## The `.quill` bundle
+
+A quill that travels as bytes is a `.quill` bundle: its file tree as one ZIP archive, `Quill.yaml` at the archive root. The format, its budget and its refusals are specified in [quill-bundle.md](../references/quill-bundle.md). A bundle is the tree and nothing else, so a quill that shares nothing with another quill is one file wherever it goes, and two runtimes holding the same bundle hold the same quill.
+
+The codec lives in `quillmark-core`, beside `from_tree`, so the WASM core build, the Python wheel and the CLI read and write it through one implementation. Its deflate and CRC-32 crates were already in the render build through Typst; the core artifact is what pays for them.
+
 ## `Quill.yaml` Rules
 
 One required top-level section, `quill` (bundle metadata); optional `main`
@@ -170,8 +176,12 @@ Errors flow through `RenderError` (a non-empty `Vec<Diagnostic>`) and surface to
 Construction:
 - `Quill::from_tree(tree)` (`quillmark-core`): pure in-memory constructor;
   returns `Result<Quill, Vec<Diagnostic>>`. Exposed to JS as `Quill.fromTree`.
+- `Quill::from_bundle(bytes)` (`quillmark-core`): the same, over a `.quill`
+  bundle; `quill.to_bundle()` writes one. Exposed to JS as `Quill.fromBundle` /
+  `quill.toBundle()`, to Python as `Quill.from_bundle` / `quill.to_bundle()`.
 - `quillmark::quill_from_path(path)`: load from a filesystem directory (fs walk
-  lives in `quillmark`, not core); returns `Result<Quill, RenderError>`.
+  lives in `quillmark`, not core), or from a file named `*.quill` as a bundle;
+  returns `Result<Quill, RenderError>`.
 
 The two differ in error shape: the pure constructor hands back the raw
 `Vec<Diagnostic>` and bindings map it at the call site, while the loader wraps

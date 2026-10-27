@@ -1,6 +1,7 @@
 //! The `Quill` type: portable, validated quill data.
 
 mod blueprint;
+mod bundle;
 pub(crate) mod compose;
 mod config;
 pub(crate) mod conform;
@@ -18,6 +19,9 @@ mod tree;
 mod types;
 pub(crate) mod validation;
 
+pub use bundle::{
+    BUNDLE_EXTENSION, BUNDLE_MEDIA_TYPE, MAX_BUNDLE_BYTES, MAX_BUNDLE_ENTRIES, MAX_BUNDLE_FILE_BYTES,
+};
 pub use config::{CoercionError, QuillConfig};
 pub(crate) use config::{
     Leniency, RICHTEXT_SINGLE_LINE_TARGET, TEXT_SINGLE_LINE_TARGET,
@@ -47,8 +51,8 @@ pub use types::{
 ///
 /// A `Quill` holds no backend and needs no engine to construct or use: every
 /// method here is a pure read of its parsed config. Rendering is the engine's
-/// job. Construct with [`Quill::from_tree`] (pure) or
-/// `quillmark::quill_from_path` (filesystem stays out of core).
+/// job. Construct with [`Quill::from_tree`] or [`Quill::from_bundle`] (pure),
+/// or `quillmark::quill_from_path` (filesystem stays out of core).
 #[derive(Clone)]
 pub struct Quill {
     pub(crate) config: QuillConfig,

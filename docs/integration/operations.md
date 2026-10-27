@@ -38,7 +38,7 @@ Python's `Engine.render` releases the GIL while it compiles, so renders on separ
 
 A document is data. Its text reaches a plate escaped, never as Typst code, and it names no file outside the quill. Quillmark does not bound what it costs to render; the host does, as above.
 
-A quill is code. A plate is a Typst program, and an acroform quill's `form.pdf` is parsed in full; `quill_from_path` skips symlinks, refuses any file over 50 MiB, and caps neither file count nor total size. Load a quill from someone you do not trust inside the same bounded worker as its renders.
+A quill is code. A plate is a Typst program, and an acroform quill's `form.pdf` is parsed in full; `quill_from_path` skips symlinks in a directory, refuses any file over 50 MiB, and caps neither file count nor total size. A `.quill` bundle carries its own budget, 2048 entries, 32 MiB a file and 64 MiB in all, spent off the sizes it declares before anything inflates. Load a quill from someone you do not trust inside the same bounded worker as its renders.
 
 SVG output keeps links as live `href`s. A Markdown link in a body or rich-text field whose scheme is `javascript:`, `vbscript:`, `data:` or `file:` renders as its text alone. A plate that links a field value itself (`#link(..)`) passes it through as written, so that plate vets the value. An SVG placed inline in a page is the page's markup: show SVG from untrusted documents through `<img>`, or sanitize it first.
 

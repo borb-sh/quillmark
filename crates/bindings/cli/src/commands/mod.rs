@@ -1,6 +1,7 @@
 pub mod blueprint;
 pub mod check;
 pub mod info;
+pub mod pack;
 pub mod render;
 pub mod schema;
 pub mod validate;
@@ -8,6 +9,7 @@ pub mod workspace;
 
 use crate::errors::{CliError, Result};
 use quillmark::{CalendarDate, Diagnostic, Document, Quill};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn load_quill(path: &Path) -> Result<Quill> {
@@ -51,4 +53,32 @@ pub fn read_document(quill: &Quill, markdown: Option<&Path>) -> Result<(Document
     }
     let output = quill.parse(&std::fs::read_to_string(path)?)?;
     Ok((output.document, output.warnings))
+}
+
+/// Whether `path` is `root` or under it. The part of `path` that does not exist
+/// yet resolves lexically against its nearest existing ancestor.
+pub fn lies_within(path: &Path, root: &Path) -> Result<bool> {
+    let root = fs::canonicalize(root)?;
+    let mut existing = std::env::current_dir()?.join(path);
+    let mut rest = Vec::new();
+    let mut resolved = loop {
+        if let Ok(canonical) = fs::canonicalize(&existing) {
+            break canonical;
+        }
+        let Some(last) = existing.components().next_back() else {
+            break PathBuf::new();
+        };
+        rest.push(last.as_os_str().to_owned());
+        if !existing.pop() {
+            break PathBuf::new();
+        }
+    };
+    for name in rest.into_iter().rev() {
+        if name == ".." {
+            resolved.pop();
+        } else {
+            resolved.push(name);
+        }
+    }
+    Ok(resolved.starts_with(root))
 }

@@ -46,11 +46,15 @@ A document checked against its quill's schema.
 
 ## `quill::`
 
-Loading a quill: `Quill.yaml`, its files, its seeds.
+Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that carries them.
 
 - `quill::array_missing_items`
 - `quill::array_properties_not_supported`
 - `quill::bodiless_card_kind`
+- `quill::bundle_invalid`
+- `quill::bundle_path`
+- `quill::bundle_too_large`
+- `quill::bundle_unsupported`
 - `quill::default_format_violation`
 - `quill::default_held_stored`
 - `quill::default_not_in_enum`

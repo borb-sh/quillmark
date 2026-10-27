@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 pub struct SchemaArgs {
-    /// Path to quill directory
+    /// Path to quill directory or .quill bundle
     #[arg(value_name = "QUILL_PATH")]
     quill: PathBuf,
 }

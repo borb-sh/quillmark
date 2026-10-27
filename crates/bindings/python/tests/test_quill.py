@@ -20,6 +20,20 @@ def test_quill_properties(engine, taro_quill_dir):
     assert OutputFormat.PDF in engine.supported_formats(quill)
 
 
+def test_a_quill_round_trips_through_its_bundle_and_path(taro_quill_dir, tmp_path):
+    quill = Quill.from_path(str(taro_quill_dir))
+    bundle = quill.to_bundle()
+    assert Quill.from_bundle(bundle).to_bundle() == bundle
+
+    path = tmp_path / "taro.quill"
+    path.write_bytes(bundle)
+    assert Quill.from_path(str(path)).metadata == quill.metadata
+
+    with pytest.raises(QuillmarkError) as caught:
+        Quill.from_bundle(b"not a zip")
+    assert caught.value.diagnostics[0].code == "quill::bundle_invalid"
+
+
 def test_metadata_carries_a_declared_license_and_homepage(tmp_path):
     (tmp_path / "Quill.yaml").write_text(
         "quill:\n"

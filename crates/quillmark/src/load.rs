@@ -5,19 +5,32 @@ use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::path::{Path, PathBuf};
 
-use quillmark_core::{error::RenderError, quill::{FileTreeNode, Quill, QuillIgnore}};
+use quillmark_core::{
+    error::RenderError,
+    quill::{FileTreeNode, Quill, QuillIgnore, BUNDLE_EXTENSION},
+};
 
 /// Load a quill from a filesystem directory, skipping what [`QuillIgnore`]
-/// excludes.
+/// excludes, or from a `.quill` bundle file, read whole as
+/// [`Quill::from_bundle`] reads it.
 ///
 /// A pure config load: the declared backend is resolved later, at render time.
 /// For an in-memory tree, call [`Quill::from_tree`]. Advisory diagnostics ride
 /// the quill, readable from [`Quill::warnings`].
 pub fn quill_from_path<P: AsRef<Path>>(path: P) -> Result<Quill, RenderError> {
-    let tree = load_tree_from_path(path.as_ref()).map_err(|e| {
-        RenderError::coded("quill::load_failed", format!("Failed to load quill: {e}"))
-    })?;
+    let path = path.as_ref();
+    let load_failed =
+        |e: &dyn std::fmt::Display| RenderError::coded("quill::load_failed", format!("Failed to load quill: {e}"));
+    if is_bundle_file(path) {
+        let bytes = std::fs::read(path).map_err(|e| load_failed(&e))?;
+        return Quill::from_bundle(&bytes).map_err(RenderError::new);
+    }
+    let tree = load_tree_from_path(path).map_err(|e| load_failed(&e))?;
     Quill::from_tree(tree).map_err(RenderError::new)
+}
+
+fn is_bundle_file(path: &Path) -> bool {
+    path.is_file() && path.extension().is_some_and(|e| e == BUNDLE_EXTENSION)
 }
 
 /// Walk a filesystem path into an in-memory [`FileTreeNode`], for a caller that
@@ -37,7 +50,7 @@ fn load_tree_from_path(path: &Path) -> Result<FileTreeNode, Box<dyn StdError + S
         if path.is_file() {
             return Err(format!(
                 "Quill path is a file, not a directory: {}. A quill is the directory \
-                 holding Quill.yaml.",
+                 holding Quill.yaml, or a .quill bundle of it.",
                 path.display()
             )
             .into());
@@ -146,5 +159,20 @@ mod tests {
         assert!(tree.get_file(".gitignore").is_none());
         assert!(tree.get_file("target/debug/build.log").is_none());
         assert_eq!(tree.get_file("nested/plate.typ"), Some(&b"keep"[..]));
+    }
+
+    #[test]
+    fn a_quill_file_loads_the_quill_its_directory_does() {
+        let from_dir = quill_from_path(quillmark_fixtures::quills_path("usaf_memo")).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("usaf_memo.quill");
+        std::fs::write(&file, from_dir.to_bundle().unwrap()).unwrap();
+
+        assert_eq!(quill_from_path(&file).unwrap().to_tree(), from_dir.to_tree());
+
+        let zip = dir.path().join("usaf_memo.zip");
+        std::fs::rename(&file, &zip).unwrap();
+        let refused = quill_from_path(&zip).unwrap_err();
+        assert_eq!(refused.diagnostics()[0].code.as_deref(), Some("quill::load_failed"));
     }
 }
