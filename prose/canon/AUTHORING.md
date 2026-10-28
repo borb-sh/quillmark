@@ -33,6 +33,11 @@ for human authors.
 - `$quill`, `$ext` and `$seed` never appear. The quill is the request's, and
   the import stamps it.
 
+**Main is the container, cards its children.** The root is the main card, not
+a member of `cards`: exactly one, never moved or deleted, holding the
+document-level fields a plate reads as one record. The shape carries that
+without `prefixItems`, which strict structured-output modes lack.
+
 **Null ≡ absent.** A field left out, or `null`, takes its `default:`, else its
 blank, as everywhere else ([SCHEMAS.md](SCHEMAS.md#default)). `""` and `[]` are
 answers. The form is sparse: an export never materializes a default.
