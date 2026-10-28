@@ -1646,15 +1646,16 @@ impl Document {
         serialize_or_throw(&RevisedJs::from(revised), "revise")
     }
 
-    /// **Revise** the richtext value at `addr` to exactly `rt`'s text, marks and
-    /// islands, keeping the anchors it does not carry: the content twin of
+    /// **Revise** the richtext value at `addr` to `rt`, keeping each stored prose
+    /// anchor whose id `rt` does not hold: the content twin of
     /// [`revise`](Document::revise), for a value built elsewhere such as a
-    /// merge's projection. Diffs `rt` against the current value, carries each
-    /// anchor whose id `rt` does not hold through the diff, and returns the
+    /// merge's projection. Diffs `rt` against the current value, carries those
+    /// anchors through the diff, and returns the
     /// `Revised` receipt, whose `delta` an editor bridge maps its own positions
     /// through and whose `warnings` is empty. `rt`'s own anchors and island ids
     /// land as they are. An absent `addr.field` targets the body, an absent
-    /// `addr.card` the main card; an absent field diffs from empty.
+    /// `addr.card` the main card; an absent field diffs from empty. Richtext
+    /// only: a `text` field takes `overwrite`.
     ///
     /// Throws on an out-of-range card, a malformed field name, a present
     /// non-content field value, or an `rt` that is not a canonical content

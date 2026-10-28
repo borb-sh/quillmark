@@ -434,17 +434,26 @@ pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
     (new_rt.into_normalized(), delta)
 }
 
-/// Diff `next` against `base` and carry each `base` anchor whose id `next`
-/// does not hold onto it, rebased through the diff: [`rebase_onto`] for a
-/// content built elsewhere, such as a merge's projection. Everything `next`
-/// carries stays as it is, its own anchors and island ids included, so an
-/// anchor `next` omits survives and only a splice or an overwrite removes it.
+/// Diff `next` against `base` and carry each prose anchor of `base` whose id
+/// `next` holds nowhere, in prose or a cell, onto it, rebased through the diff:
+/// [`rebase_onto`] for a content built elsewhere, such as a merge's projection.
+/// Everything `next` carries stays as it is, its own anchors, island ids and
+/// island props (cell anchors among them) included. An omitted anchor drops
+/// only where the diff deletes its text, so a splice or an overwrite is the
+/// door that removes one whose text stays.
 pub fn carry_anchors(base: &Content, next: Normalized) -> (Normalized, Delta) {
     let mut next = next.into_content();
     let delta = diff(&base.text, &next.text);
+    let cells: Vec<Mark> = next
+        .islands
+        .iter()
+        .flat_map(|i| i.island_type.cell_marks(&i.props))
+        .flat_map(|(_, marks)| marks)
+        .collect();
     let held: HashSet<String> = next
         .marks
         .iter()
+        .chain(&cells)
         .filter_map(|m| match &m.kind {
             MarkKind::Anchor { id } => Some(id.clone()),
             _ => None,
@@ -472,8 +481,7 @@ fn carry_marks(base: &Content, new_rt: &mut Content, delta: &Delta, carry: impl 
     let new_chars: Vec<char> = new_rt.text.chars().collect();
     let inserted = delta.inserted_spans();
     for m in &base.marks {
-        // Formatting marks are re-derived by the fresh import; every other
-        // kind lives in the content but not in markdown.
+        // `new_rt` already holds its own formatting marks.
         if m.kind.is_formatting() || !carry(m) {
             continue;
         }
@@ -793,6 +801,22 @@ mod tests {
         let anchors = out.marks.iter().filter(|m| !m.kind.is_formatting()).count();
         assert_eq!(anchors, 2, "an id next holds is not carried a second time");
         assert_eq!(out.islands[0].id, "peer-0");
+    }
+
+    #[test]
+    fn carry_anchors_reads_an_id_a_cell_of_next_holds_as_held() {
+        let mut base = from_markdown("see[^1] here\n\n[^1]: note").unwrap().content.into_content();
+        base.marks.push(Mark {
+            start: 0,
+            end: 3,
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        let base = base.into_normalized();
+        let mut next = from_markdown("see[^1] there\n\n[^1]: note").unwrap().content.into_content();
+        next.islands[0].props["marks"] =
+            serde_json::json!([{"start": 0, "end": 4, "type": "anchor", "id": "c1"}]);
+        let (out, _) = carry_anchors(&base, next.into_normalized());
+        assert!(out.marks.iter().all(|m| m.kind.is_formatting()));
     }
 
     #[test]

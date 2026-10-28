@@ -1245,7 +1245,7 @@ impl Card {
 
     /// Revise the body to a pre-built content: [`revise_body`](Self::revise_body)
     /// with no markdown import. Diffs `content` against the current body,
-    /// carries each anchor `content` does not hold by id through the diff
+    /// carries each prose anchor `content` does not hold by id through the diff
     /// ([`carry_anchors`]), and returns the [`Revised`] receipt, which holds no
     /// warning. What `content` carries lands as it is, its own anchors and island
     /// ids included.
@@ -1261,7 +1261,13 @@ impl Card {
     /// Revise a richtext field to a pre-built content: the field-level twin of
     /// [`revise_body_content`](Self::revise_body_content), schema-blind as
     /// [`revise_field`](Self::revise_field) is. An absent field diffs from
-    /// empty. Returns [`EditError::InvalidFieldName`] for a malformed name,
+    /// empty.
+    ///
+    /// **Richtext only**: a `text` field's literal string decodes as markdown
+    /// here, so the receipt's delta is measured against a base the field does
+    /// not hold, and the value lands as a content object off its resting form.
+    /// A `text` field holds no anchor to carry; [`overwrite_field`](Self::overwrite_field)
+    /// is its door. Returns [`EditError::InvalidFieldName`] for a malformed name,
     /// [`EditError::FieldDecode`] when the field is present but is not a
     /// richtext content, and [`EditError::InvalidPayload`] when an absent `name`
     /// would take the card past the §8 field count.

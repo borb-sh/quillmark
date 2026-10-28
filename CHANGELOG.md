@@ -28,6 +28,16 @@ declares, so move each value onto its field before upgrading.
   `cli::example_file_ignored` while a root `example.md` remains. The
   fixture quills declare the values their `example.md` held. (#2329)
 
+### Content
+
+- feat(content,core,wasm): **`reviseContent` revises a body or field to a
+  content and keeps its prose anchors.** WASM `doc.reviseContent(addr, rt)`,
+  over core's `Card::revise_body_content` / `revise_field_content` and the
+  content crate's `delta::carry_anchors`, diffs a content built elsewhere
+  against the stored value, carries each prose anchor whose id `rt` does not
+  hold, and returns the `Revised` receipt with its text `delta`. `rt`'s own
+  anchors and island ids land as they are.
+
 ## v0.132.0 - 2026-10-27
 
 Upgrade path: [0.131 → 0.132](docs/migrations/0.131-to-0.132.md). A row
@@ -64,13 +74,6 @@ Typst PDF now carries a title.
   authored lanes refuse either container. The Typst helper's `elements`
   registry, `_qm-element` and `typst::unregistered_element` are gone, so a
   plate calling `qm.elements.update(..)` fails to compile until the call goes.
-- feat(content,core,wasm): **`reviseContent` revises a field to a content
-  and keeps its anchors.** WASM `doc.reviseContent(addr, rt)`, over core's
-  `Card::revise_body_content` / `revise_field_content` and the content crate's
-  `delta::carry_anchors`, diffs a content built elsewhere against the stored
-  value, carries each anchor whose id `rt` does not hold, and returns the
-  `Revised` receipt with its text `delta`. `rt`'s own anchors and island ids
-  land as they are.
 
 ### Rendering
 

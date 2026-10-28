@@ -382,6 +382,16 @@ describe('Document editor surface: setQuillRef / overwrite / revise / reviseCont
     expect(warnings).toEqual([])
   })
 
+  it('reviseContent({field}, rt) carries a field anchor and refuses a non-content value', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    doc.revise({ field: 'note' }, 'hello world')
+    doc.applyChange({ field: 'note' }, { markOps: [{ op: 'add', start: 0, end: 5, type: 'anchor', attrs: { id: 'c1' } }] })
+    doc.reviseContent({ field: 'note' }, importMarkdown('oh hello world').content)
+    expect(doc.getStored({ field: 'note' }).marks).toEqual([{ start: 3, end: 8, type: 'anchor', attrs: { id: 'c1' } }])
+    doc.storeField('count', 3)
+    expectEditCode(() => doc.reviseContent({ field: 'count' }, importMarkdown('x').content), 'edit::field_decode')
+  })
+
   it('overwrite rejects a non-content value (markdown must go through importMarkdown)', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     expect(() => doc.overwrite({}, 'plain markdown')).toThrow()
