@@ -152,3 +152,27 @@ fn every_head_row_repeats_with_the_header() {
     let cells: usize = pages.iter().sum::<usize>() - 3 * pages.len();
     assert_eq!(cells, 120, "each page draws the three head cells above its body rows: {pages:?}");
 }
+
+/// A table sharing its line with prose, the shape a merge of concurrent edits
+/// leaves, compiles and draws what the line broken around it draws: Typst sets
+/// a table as a block wherever the markup places it.
+#[test]
+fn a_table_sharing_its_line_draws_as_the_broken_line_does() {
+    let quill = quill();
+    let draw = |text: &str, lines: usize| {
+        let mut value = content(&format!("before\n\n{PLAIN}\n\nafter"));
+        value["text"] = text.into();
+        value["lines"] = serde_json::Value::Array(vec![serde_json::json!({"containers": [], "kind": "para"}); lines]);
+        let session = TypstBackend::default()
+            .open(&quill, &serde_json::json!({ "$body": value }), common::test_date())
+            .unwrap_or_else(|e| panic!("{text:?} compiles: {e}"));
+        let result = session
+            .render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
+            .expect("render");
+        origins(&String::from_utf8(result.artifacts[0].bytes.clone()).expect("svg is text"))
+    };
+    let broken = draw("before\n\u{FFFC}\nafter", 3);
+    let shared = draw("before\u{FFFC}after", 1);
+    assert_eq!(shared.len(), broken.len(), "{shared:?}");
+    assert_eq!(shared.iter().map(|o| o.0).collect::<Vec<_>>(), broken.iter().map(|o| o.0).collect::<Vec<_>>());
+}

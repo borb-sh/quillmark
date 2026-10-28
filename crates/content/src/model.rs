@@ -30,8 +30,9 @@ pub const ISLAND_SLOT: char = '\u{FFFC}';
 ///
 /// The mint ([`Content::into_normalized`]) establishes the canonical form:
 /// marks sorted and unioned, container paths renumbered, a line's kind agreeing
-/// with its text, a block island's slot alone on its line, table props on one
-/// column count. [`Content::validate`] reports what the mint cannot repair: the
+/// with its text, table props on one column count. The mint never moves text:
+/// a block island's slot may share its line, and each emitter gives it the line
+/// its markup needs. [`Content::validate`] reports what the mint cannot repair: the
 /// text holds no `\r`, no bidi controls, and no line separator (every character
 /// Typst reads as a newline but `\n`); the count of [`ISLAND_SLOT`] equals
 /// `islands.len()`; `lines.len()` equals the number of `\n`-separated segments.
@@ -733,8 +734,8 @@ pub(crate) fn is_whole_line(chars: &[char], start: Usv, end: Usv) -> bool {
 }
 
 /// Every block-only island's slot that shares its line with other content, in
-/// text order: the single reading behind the authored lane's refusal and the
-/// break [`Content::normalize`] performs, so the two cannot drift.
+/// text order: the placement the island lanes refuse and the markdown
+/// projection breaks.
 pub(crate) fn inline_block_islands<'a>(
     chars: &'a [char],
     islands: &'a [Island],
@@ -920,12 +921,12 @@ impl Content {
             .collect()
     }
 
-    /// Normalize in place: canonicalize container `ordinal`/`instance`, break a
-    /// line around a block-only island's slot, split formatting at each `\n`,
-    /// drop zero-width formatting, union same-kind formatting that is adjacent
-    /// or overlapping, recursively key-sort island props, then sort marks
-    /// canonically. Idempotent: the fixed point the canonical serialization
-    /// commits to.
+    /// Normalize in place: canonicalize container `ordinal`/`instance`, split
+    /// formatting at each `\n`, drop zero-width formatting, union same-kind
+    /// formatting that is adjacent or overlapping, recursively key-sort island
+    /// props, then sort marks canonically. Idempotent: the fixed point the
+    /// canonical serialization commits to. It rewrites structure and never the
+    /// text, so a host holding the text elsewhere stores the content as it is.
     pub fn normalize(&mut self) {
         canonicalize_containers(&mut self.lines);
         // A splice writes text, never kinds: joining a fence to an image line
@@ -937,13 +938,12 @@ impl Content {
                 line.kind = LineKind::Para;
             }
         }
-        self.split_block_islands();
         // A `continues` flag under a block that cannot take one clears: nothing
         // precedes the first line, and below it a differing container path or a
         // one-line block above, where export would drop the continuation's text.
         // `Join` across two paths, `SetKind` retagging the line above and
-        // `SetContinues` itself all reach the shape. Read after the demotion and
-        // the break above, which settle what the line above is.
+        // `SetContinues` itself all reach the shape. Read after the demotion,
+        // which settles what the line above is.
         let block_island = self.block_island_lines();
         for i in 0..self.lines.len() {
             if self.lines[i].continues
@@ -974,13 +974,10 @@ impl Content {
     /// side that has other content, so the prose around it becomes its own block
     /// and the slot is alone. Markdown writes a table as a block, and left
     /// inline it emits pipes into the middle of a paragraph, which re-imports as
-    /// prose with the island gone.
-    ///
-    /// The lanes that *author* an island refuse the placement up front
-    /// ([`ApplyError::BlockIslandNotAlone`](crate::ops::ApplyError::BlockIslandNotAlone)),
-    /// so what reaches here is a stored blob carrying the shape and an accepted
-    /// `Join` that ran a slot back into its prose.
-    fn split_block_islands(&mut self) {
+    /// prose with the island gone, so the markdown projection runs this on a
+    /// copy. The stored content keeps the shape: a merge of concurrent edits
+    /// reaches it, and the mint never moves text.
+    pub(crate) fn split_block_islands(&mut self) {
         use crate::delta::{Delta, Op};
 
         if !self.islands.iter().any(|i| i.island_type.block_only())

@@ -31,8 +31,13 @@
 //! ending in an `alt`) comes back rewritten. A link over a footnote reference
 //! comes back as two links, one each side: link text reads no reference. An
 //! equation whose `tex` its dollars cannot read back as itself comes back as
-//! other markup. Each arises only from adversarial delimiter/break placement, a
-//! hand-built island prop or mark, a stored value, or an editor's empty line.
+//! other markup. A table's slot sharing its line comes back on a line of its
+//! own, the prose either side a block of its own: markdown writes a table only
+//! as a block. Each arises only from adversarial delimiter/break placement, a
+//! hand-built island prop or mark, a stored value, a merge of concurrent edits,
+//! or an editor's empty line.
+
+use std::borrow::Cow;
 
 use crate::island::IslandType;
 use crate::model::{
@@ -41,6 +46,7 @@ use crate::model::{
 
 /// Render a content to markdown.
 pub fn to_markdown(rt: &Normalized) -> String {
+    let rt = &*block_islands_alone(rt);
     let segments = line_segments(rt);
     let labels = note_labels(rt);
     project(&Ctx {
@@ -82,6 +88,7 @@ pub struct AnchorRead {
 /// Where a line's tags change what it imports to, they move to its end, and
 /// where that changes it too, the line holds none.
 pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
+    let rt = &*block_islands_alone(rt);
     let segments = line_segments(rt);
     let labels = note_labels(rt);
     let plain = Ctx {
@@ -128,6 +135,7 @@ pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
 /// The anchors [`to_markdown_annotated`] lists for `rt` whose id `keep`
 /// holds, in its order, read without projecting `rt`.
 pub fn anchors_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead> {
+    let rt = &*block_islands_alone(rt);
     let mut found: Vec<(Usv, &str)> = rt
         .marks
         .iter()
@@ -149,6 +157,22 @@ pub fn anchors_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<Anchor
         tags: &[],
     };
     found.into_iter().map(|(start, id)| anchor_read(&ctx, start, id).1).collect()
+}
+
+/// `rt` as the projection writes it: each block-only island's slot that shares
+/// its line broken onto a line of its own
+/// ([`Content::split_block_islands`]), marks and anchors moved with the text.
+fn block_islands_alone(rt: &Normalized) -> Cow<'_, Normalized> {
+    if !rt.islands.iter().any(|i| i.island_type.block_only()) {
+        return Cow::Borrowed(rt);
+    }
+    let chars: Vec<char> = rt.text.chars().collect();
+    if crate::model::inline_block_islands(&chars, &rt.islands).next().is_none() {
+        return Cow::Borrowed(rt);
+    }
+    let mut broken = rt.clone().into_content();
+    broken.split_block_islands();
+    Cow::Owned(broken.into_normalized())
 }
 
 /// The anchor `id` starting at `start`, and the index of the line it sits on.
@@ -2491,11 +2515,11 @@ mod tests {
     }
 
     /// A table is block markup, so a slot a paragraph's prose holds gets the
-    /// line its markup needs: the mint breaks the paragraph around it, and the
-    /// write reads that break rather than making one of its own. The prose on
-    /// each side keeps its marks in the coordinates the break leaves.
+    /// line its markup needs from the write, the mint having left the text as
+    /// it was. The prose on each side keeps its marks in the coordinates the
+    /// break leaves, and what re-imports is the broken content.
     #[test]
-    fn a_block_island_inside_a_paragraph_takes_a_line_of_its_own() {
+    fn a_block_island_inside_a_paragraph_is_written_on_a_line_of_its_own() {
         let rt = Content {
             text: format!("a{ISLAND_SLOT}bold"),
             lines: vec![Line::new(LineKind::Para)],
@@ -2504,18 +2528,26 @@ mod tests {
         }
         .into_normalized();
         assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
-        assert_eq!(rt.text, format!("a\n{ISLAND_SLOT}\nbold"), "the mint left it inline");
-        assert_eq!(rt.lines[1].kind, LineKind::Para);
-        assert_eq!(rt.marks, vec![Mark::new(4, 8, MarkKind::Strong)]);
+        assert_eq!(rt.text, format!("a{ISLAND_SLOT}bold"), "the mint moved text");
 
         let md = to_markdown(&rt);
-        assert_eq!(from_markdown(&md).unwrap().content, rt, "{md:?}");
+        let back = from_markdown(&md).unwrap().content;
+        assert_eq!(back.text, format!("a\n{ISLAND_SLOT}\nbold"), "{md:?}");
+        assert_eq!(back.marks, vec![Mark::new(4, 8, MarkKind::Strong)]);
+        assert_eq!(to_markdown(&back), md, "the broken content is a fixed point");
+
+        let mut anchored = rt.clone().into_content();
+        anchored.marks.push(anchor(2, 6, "c1"));
+        let read = to_markdown_annotated(&anchored.into_normalized());
+        assert_eq!(read.markdown.replace(&tag("c1"), ""), md);
+        assert!(read.markdown.contains(&format!("{}**bold**", tag("c1"))), "{:?}", read.markdown);
+        assert_eq!(read.anchors[0].line, "bold");
     }
 
-    /// The break leaves an island line where a paragraph line was, and a block
-    /// island renders one line, so a hard-break continuation after it would be
-    /// text the write never reaches. `normalize` clears the flag the break
-    /// strands.
+    /// A block island renders one line, so a hard-break continuation after the
+    /// line the write breaks out would be text it never reaches. The stored
+    /// flag stays, since the slot shares its line there, and the write clears it
+    /// on the copy it breaks.
     #[test]
     fn a_hard_break_after_a_broken_line_keeps_its_text() {
         let mut second = Line::new(LineKind::Para);
@@ -2528,8 +2560,7 @@ mod tests {
         }
         .into_normalized();
         assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
-        assert_eq!(rt.text, format!("a\n{ISLAND_SLOT}\nmore"));
-        assert!(!rt.lines[2].continues, "continuation into a block island");
+        assert!(rt.lines[1].continues);
 
         let md = to_markdown(&rt);
         let back = from_markdown(&md).unwrap().content;

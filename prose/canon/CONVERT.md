@@ -119,7 +119,7 @@ is a lowering bug, never a document's.
 | Content construct | Typst |
 |---|---|
 | `LineKind::Heading{level}` | `=` … `======` (`level` × `=`) |
-| `LineKind::Para` | inline content; a hard break (a `continues` line join) emits `#linebreak()`, a soft break is a space (both settled at import). A slot alone on the line is the island's block, lowered by the island dispatch below |
+| `LineKind::Para` | inline content; a hard break (a `continues` line join) emits `#linebreak()`, a soft break is a space (both settled at import). A slot alone on the line is the island's block, lowered by the island dispatch below; a table's slot sharing its line lowers in place, and Typst sets the table as a block between the prose either side |
 | `LineKind::Code{lang}` (code fence) | `#raw(block: true, lang: "…", "…")`; `lang:` emitted only when the language tag is non-empty |
 | `LineKind::Rule` (thematic break) | `#line(length: 100%)` |
 | `MarkKind::Strong` | `#strong[…]` |

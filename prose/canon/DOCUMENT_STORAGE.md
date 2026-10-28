@@ -490,16 +490,20 @@ It governs a **block-only island's placement** too. Markdown writes a `table` as
 a block (`IslandType::block_only`, which an inline `image` is not), so a
 slot sharing its line with prose has no inline spelling: written there it lands
 as pipes inside the paragraph, which re-imports as prose with the island gone.
-The authored lanes refuse the placement — `ApplyError::BlockIslandNotAlone` from
-`IslandOp::Insert` and from a `Set` that retypes an inline island, a shape error
-from `serial::from_authored_value` — so a host learns at the write. The line
-itself is a `para` either way: the block is the slot's markup, and the type is
-the only thing that says so. Storage takes
-what it holds and the **mint** settles it: `Content::normalize` breaks the line
-around the slot, so the prose on each side becomes its own block and the island
-keeps the line its markup needs. The break lands once, on the way in, so the
-markdown write reads a shape that is already right rather than repairing one on
-the way past.
+The island lanes refuse to *place* one there — `ApplyError::BlockIslandNotAlone`
+from `IslandOp::Insert` and from a `Set` that retypes an inline island — so an
+editor inserting a table learns at the write. The line itself is a `para` either
+way: the block is the slot's markup, and the type is the only thing that says
+so. The shape is still canonical: a `LineOp::Join` reaches it, and so does a
+merge of concurrent edits, one inserting a table on an empty line while another
+types on that line. `Content::normalize` never moves text, so storage and
+`serial::from_authored_value` take the content as given, and a host holding the
+text elsewhere, such as a CRDT whose text every client's content must equal,
+stores its projection as it is. The **markdown write** gives the slot its line:
+`to_markdown` breaks the line around it on a copy, so the prose on each side
+writes as its own block, and the markdown re-imports as that broken content.
+The Typst lowering places the table where the slot sits, and Typst sets it as a
+block there.
 
 The opaque props are hash input like everything else in the canonical form, so
 they are recursively key-sorted along with the rest (see Byte-stability). Also a

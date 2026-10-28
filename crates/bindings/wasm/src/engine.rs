@@ -512,7 +512,9 @@ export type LineOp =
  *
  * A `table` has no inline placement: markdown writes it as a block, so an
  * `insert` whose `at` is not an empty line throws, as does a `set` retyping an
- * inline island into one.
+ * inline island into one. A table already sharing its line, as a `join` or an
+ * `overwrite` of merged edits leaves one, stays there and takes its `set`;
+ * markdown writes it on a line of its own.
  */
 export type IslandOp =
     | ({ op: "set" } & ContentIsland)
