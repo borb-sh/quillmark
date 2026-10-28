@@ -28,7 +28,6 @@ pub(crate) use config::{
 };
 pub use compose::PLATE_PATH_KEY;
 pub use conform::BoundParseError;
-pub use example::EXAMPLE_FILE;
 pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedMain};
 pub(crate) use resolved::resolve_document;
 pub use fill::blank;

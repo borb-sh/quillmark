@@ -76,7 +76,6 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::example_on_namespace`
 - `quill::example_over_length`
 - `quill::example_over_max`
-- `quill::example_reference`
 - `quill::example_type_mismatch`
 - `quill::field_after_object`
 - `quill::field_parse_error`

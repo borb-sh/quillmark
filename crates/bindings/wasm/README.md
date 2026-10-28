@@ -240,8 +240,9 @@ values from the `Document` payload: there is no separate form-view projection.
 `quill.validate(doc)` scores it without invoking the backend.
 
 `quill.exampleDocument()` returns the quill's example, a filled-in page whose
-values are made up, pinned to the quill's `name@MAJOR.MINOR`; `undefined`
-when the quill has no `example.md` at its root.
+values are made up: the seeded document with each `example` the schema
+declares committed, a field's as its value and a body's as the body;
+`undefined` when the quill declares none.
 
 `quill.seedDocument()` returns a starter document: one card per kind, each
 carrying the kind's `seed` from `Quill.yaml` and no other field;

@@ -2,7 +2,6 @@ use crate::errors::{CliError, Result};
 use clap::Parser;
 use quillmark::{
     CardSchema, Diagnostic, Document, Engine, FieldSchema, Quill, RenderOptions, Severity,
-    EXAMPLE_FILE,
 };
 use indexmap::IndexMap;
 use std::path::PathBuf;
@@ -98,8 +97,8 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
     let mut example = read_example(&quill);
     if args.verbose {
         match example {
-            Some(_) => println!("  Example: {EXAMPLE_FILE}"),
-            None => println!("  Example: none (no {EXAMPLE_FILE} at the quill root)"),
+            Some(_) => println!("  Example: derived from the quill's examples"),
+            None => println!("  Example: none (no slot or body declares an example)"),
         }
     }
     if render {
@@ -129,7 +128,7 @@ fn validate_file_references(quill: &Quill, result: &mut ValidationResult) {
     }
 }
 
-/// The quill's example document, parsed and validated.
+/// The quill's example document, validated.
 struct Example {
     /// Absent when it already carries an error, which a render would repeat.
     document: Option<Document>,
@@ -137,20 +136,12 @@ struct Example {
 }
 
 fn read_example(quill: &Quill) -> Option<Example> {
-    Some(match quill.example_document()? {
-        Ok(parsed) => {
-            let mut diagnostics = parsed.warnings;
-            diagnostics.extend(quill.validate(&parsed.document));
-            let fails = diagnostics.iter().any(|d| d.severity == Severity::Error);
-            Example {
-                document: (!fails).then_some(parsed.document),
-                diagnostics,
-            }
-        }
-        Err(diagnostics) => Example {
-            document: None,
-            diagnostics,
-        },
+    let document = quill.example_document()?;
+    let diagnostics = quill.validate(&document);
+    let fails = diagnostics.iter().any(|d| d.severity == Severity::Error);
+    Some(Example {
+        document: (!fails).then_some(document),
+        diagnostics,
     })
 }
 
@@ -163,7 +154,7 @@ fn report_example(example: Example, result: &mut ValidationResult) {
     result.add(
         Severity::Error,
         format!(
-            "the example document '{EXAMPLE_FILE}' carries {} diagnostic(s)",
+            "the example document carries {} diagnostic(s)",
             example.diagnostics.len()
         ),
         "cli::example_not_clean",
@@ -185,7 +176,7 @@ struct RenderFailure {
 /// The quill authoring contract, which no config read reaches: each of the
 /// three canonical documents — the empty document, the blueprint, the seeded document —
 /// compiles through the quill's own plate (`BLUEPRINT.md` §Guarantees). The
-/// example, when the quill has one, compiles after them. The backend's
+/// example, when the quill declares one, compiles after them. The backend's
 /// first declared format is the one rendered: a plate that compiles carries
 /// every format its backend serves.
 fn validate_renders(
