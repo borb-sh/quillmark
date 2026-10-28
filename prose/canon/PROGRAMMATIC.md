@@ -40,13 +40,14 @@ hand, which is the form the quill authoring contract names
 ([BLUEPRINT.md](BLUEPRINT.md) § "Guarantees").
 
 `Quill::seed_document()` is the starter: the main card plus one card per
-declared kind, each body empty, every field absent
+declared kind, each carrying its kind's `seed:` and every other field absent
 ([SCHEMAS.md](SCHEMAS.md) § "Document seeding"). Hand it to a human or an editor
 as something to edit; start from the blank canvas when the data is
 authoritative and sample cards would pollute it.
 
-`Quill::example_document()` is neither: a filled-in page whose values are made
-up, for judging the quill ([QUILL.md](QUILL.md) § "The example document").
+`Quill::example_document()` is neither: the seed with the quill's declared
+examples committed, a filled-in page whose values are made up, for judging the
+quill ([QUILL.md](QUILL.md) § "The example document").
 Show it; do not hand it out as a starting point.
 
 ## The flow

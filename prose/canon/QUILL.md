@@ -126,28 +126,22 @@ Identity resolution:
 
 ## The example document
 
-The quill's example is the file `example.md` at its root, found by name as
-`Quill.yaml` is; `Quill.yaml` declares nothing about it. It is a filled-in page
-for judging the quill. Its values are made up and nobody keeps them; starter
-content someone keeps is a template. Only the root file, name matched exactly,
-is the example; an `example.md` in a subdirectory is an ordinary file.
+The quill's example is derived from its `Quill.yaml`: the `example:` its slots
+declare and the `body.example` its kinds declare, committed over the seeded
+document by `Quill::example_document`
+([SCHEMAS.md](SCHEMAS.md) § "The example document"). It is a filled-in page for
+judging the quill. Its values are made up and nobody keeps them; starter content
+someone keeps is a template. A root `example.md` is an ordinary file.
 
-- **A document like any other.** It holds cards, bodies, nested rows and matrix
-  cells. A partial one is valid, and a field it leaves out renders its default.
-- **Part of its quill version.** It sits in the version's directory, and its
-  `$quill` names the quill bare: `name`, no selector, so a copied version
-  directory carries no stale pin.
-- **Pinned when handed out.** `Quill::example_document` parses it, refuses a
-  `$quill` that is not the bare name (`quill::example_reference`), pins
-  `$quill` to `name@MAJOR.MINOR` as the seeded document does, and conforms it as
-  `Quill::parse` does. A diagnostic located in the document names
-  `example.md` as its file. `None` means the quill has no `example.md`.
-- **Judged by `quillmark validate`, not at load.** The load never reads the
-  example, present or absent, so it never refuses one. `validate` fails the quill
-  on any diagnostic the example carries, a warning included ([CLI.md](CLI.md)).
+- **Checked at load, judged by `quillmark validate`.** Each example is checked
+  where it is declared, as a `default:` is, so a quill whose examples do not
+  fit its schema fails to load. `validate` fails the quill on any diagnostic
+  the composed document carries, a warning included ([CLI.md](CLI.md)).
+- **Pinned as the seed is.** Its `$quill` is `name@MAJOR.MINOR`, the seeded
+  document's. `None` means the quill declares no example the document would
+  commit.
 
-A consumer takes the example from the `Quill` it holds, never by resolving the
-example's `$quill`.
+A consumer takes the example from the `Quill` it holds.
 
 ## Strict Parsing
 

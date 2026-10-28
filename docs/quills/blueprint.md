@@ -1,10 +1,10 @@
 # Blueprint & Seeding
 
-A quill's schema yields two ready-made documents: a **blueprint** (an annotated form to fill) and a **seed** (a starter document to edit). Both come from `Quill.yaml` alone: no one hand-writes them.
+A quill's schema yields three ready-made documents: a **blueprint** (an annotated form to fill), a **seed** (a starter document to edit) and an **example** (the quill filled in with made-up values). All come from `Quill.yaml` alone: no one hand-writes them.
 
 ## Blueprint: the authoring surface
 
-`blueprint()` emits an annotated Markdown document, the same shape an author writes: each cell holds its `default:` or is left empty, with descriptions and type hints as comments. It is the authoring surface for LLM and MCP consumers: answer the empty cells, write the bodies, and the structure and `$` metadata come for free. The emitted document is itself valid: it parses, round-trips, and renders.
+`blueprint()` emits an annotated Markdown document, the same shape an author writes: each cell holds its `default:` or is left empty, with descriptions, type hints and examples as comments. It is the authoring surface for LLM and MCP consumers: answer the empty cells, write the bodies, and the structure and `$` metadata come for free. The emitted document is itself valid: it parses, round-trips, and renders.
 
 ```
 ~~~
@@ -17,15 +17,17 @@ department: # text<plain>
 ~~~
 ```
 
-Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (the field's `title` and description as `# <title> — <description>`) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A matrix shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up.
+Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (the field's `title` and description as `# <title> — <description>`), an `array`'s `# up to <N>` cap, and a field's [`example`](quill-yaml-reference.md#example) as `# e.g. <value>`; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A matrix shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up.
 
-A matrix with columns, or an open one, adds an `# e.g.` line spelling one present member, `{flight_cc: {detail: …}}`, which names every column; an open matrix adds an item after it, `new_item: {title: text<plain>, …}`, the spelling of one a document adds. Each column shows its `default:`, else its container shape, else its `<type>[<format>]`. The members it shows are only an illustration, and this is the only `# e.g.` line a blueprint emits.
+A matrix with columns, or an open one, adds an `# e.g.` line spelling one present member, `{flight_cc: {detail: …}}`, which names every column; an open matrix adds an item after it, `new_item: {title: text<plain>, …}`, the spelling of one a document adds. Each column shows its `example:`, else its `default:`, else its container shape, else its `<type>[<format>]`. The members it shows are only an illustration, and a matrix declaring its own `example:` shows that instead.
 
 A card's own title and description ride its `$kind` line's inline slot, `$kind: note # <title> — <description>`, so neither reads as the first field's.
 
 Two things in the own-line slot are not annotations. An `enum` declaring `variants:` shows the cells of the world its discriminant names live, and every other world's cells commented out under a `# when <MEMBER>:` header — the same cells, with a `# ` in front, at the column they would sit at. Choose that member and delete the `# `. A typed table without rows of its own is the live `[]`, or an empty cell where it is optional (`array<object>?`), since `[]` answers it, led by the whole field commented out, holding a row. Delete the live line and uncomment the block to add a row.
 
-The reader's one rule: an empty cell (`title: # text<plain>`) awaits a value; a concrete value is the field's `default:`, shippable as-is. A blank `default:` (`""`, `[]`, `{}`) prints as an empty cell, since it renders as one. An empty cell renders at the field's blank, and nothing warns about it. Every body is empty too, and a kind taking no body closes its payload with `# no body`.
+The reader's one rule: an empty cell (`title: # text<plain>`) awaits a value; a concrete value is the field's `default:`, shippable as-is. A blank `default:` (`""`, `[]`, `{}`) prints as an empty cell, since it renders as one. An empty cell renders at the field's blank, and nothing warns about it. A `# e.g.` line is a sample, never the answer: copy the shape, not the value.
+
+A body is empty unless its kind declares a [`body.example`](quill-yaml-reference.md#bodydescription-and-bodyexample): then the example is the body, a sample to replace, opened by one comment line, `<!-- <body description> Replace this sample body, e.g.: -->`. Prose is rewritten whole, so a sample in place shows its shape; a field value is copied, so its sample stays in a comment. A kind taking no body closes its payload with `# no body`.
 
 ## Seeding: the starter document
 
@@ -35,15 +37,18 @@ Seeding materializes a real `Document` rather than an annotated string: the main
 |---|---|---|
 | `blueprint` | "give me the form to fill" | annotated Markdown string |
 | seeding | "give me a starter document" | committed `Document` |
+| example | "show me the quill in use" | committed `Document`, `None` where the quill declares no example |
+
+The example document is the seed with every [`example`](quill-yaml-reference.md#example) committed and each kind's `body.example` as its body. Show it; nobody keeps its values.
 
 ## Accessors
 
-| | Blueprint | Seed | Empty |
-|---|---|---|---|
-| Python | `quill.blueprint` | `quill.seed_document()` | `quill.empty_document()` |
-| JavaScript | `quill.blueprint` | `quill.seedDocument()` | `quill.emptyDocument()` |
-| Rust | `QuillConfig::blueprint()` | `Quill::seed_document()` | `Quill::empty_document()` |
-| CLI | `quillmark blueprint <quill>` | `quillmark render <quill>` (no input file) | `quillmark validate <quill>` renders all three |
+| | Blueprint | Seed | Empty | Example |
+|---|---|---|---|---|
+| Python | `quill.blueprint` | `quill.seed_document()` | `quill.empty_document()` | `quill.example_document()` |
+| JavaScript | `quill.blueprint` | `quill.seedDocument()` | `quill.emptyDocument()` | `quill.exampleDocument()` |
+| Rust | `QuillConfig::blueprint()` | `Quill::seed_document()` | `Quill::empty_document()` | `Quill::example_document()` |
+| CLI | `quillmark blueprint <quill>` | `quillmark render <quill>` (no input file) | `quillmark validate <quill>` renders all three | `quillmark validate <quill>` renders it after them |
 
 ## The empty-document contract
 

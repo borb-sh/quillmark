@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.132 → 0.133](docs/migrations/0.132-to-0.133.md). A root
+`example.md` is an ordinary file: a quill's example is what its `Quill.yaml`
+declares, so move each value onto its field before upgrading.
+
+### Examples
+
+- feat(core)!: **`example:` and a body's `description` and `example` join the
+  quill schema.** A slot at any depth declares at most one `example:`, a value
+  of its type checked at load as `default:` is, under
+  `quill::example_{type_mismatch,not_in_enum,format_violation,held_stored,on_namespace,over_max,over_length}`
+  and `quill::richtext_example_import`. It answers no cell. A body's
+  `description` is one line and its `example` markdown that imports without a
+  drop; either beside `enabled: false` is `quill::invalid_body`, and either
+  holding `-->` is `quill::body_comment_close`. `schema()` carries them,
+  `FieldSchema` and `BodyCardSchema` gain the fields, and WASM types them as
+  `QuillFieldSchema.example` and `QuillCardBody.{description,example}`. (#2329)
+- feat(core)!: **the blueprint shows the examples.** A slot declaring one leads
+  its cell with `# e.g. <value>` in one-line flow form, after its label and
+  cap, at every depth: a dormant row's column, a dormant world's cell, and a
+  matrix's line in place of its derived member hint. A body declaring a
+  `description` or `example` opens with one HTML comment line, the description
+  then `Replace this sample body, e.g.:`, and carries the example as its body,
+  a sample to replace, so a parsed blueprint's body is no longer always empty.
+  (#2329)
+- feat(core,cli,wasm,python)!: **the example document is derived.**
+  `Quill::example_document()` returns `Option<Document>`: the seeded document
+  with every declared `example:` committed and each kind's `body.example` as
+  its body, `None` where the quill declares none. A root `example.md` is an
+  ordinary file: `EXAMPLE_FILE` and `quill::example_reference` are deleted,
+  WASM `exampleDocument()` and Python `example_document()` no longer throw, and
+  `quillmark validate` validates and renders the derived document. The
+  fixture quills declare the values their `example.md` held. (#2329)
+
 ## v0.132.0 - 2026-10-27
 
 Upgrade path: [0.131 → 0.132](docs/migrations/0.131-to-0.132.md). A row

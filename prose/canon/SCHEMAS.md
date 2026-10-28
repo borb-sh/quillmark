@@ -247,8 +247,9 @@ itself, read through the boolean coercion.
 - A mapping storing `held` is malformed (`validation::held_stored`), whichever
   value it holds: `held: false` under a present member contradicts the presence
   that holds it, and reading either way is a guess. A `held: null` is absent,
-  as at every type. A quill's own `seed:` or `default:` storing one fails to
-  load (`quill::seed_held_stored`, `quill::default_held_stored`).
+  as at every type. A quill's own `seed:`, `default:` or `example:` storing
+  one fails to load (`quill::seed_held_stored`, `quill::default_held_stored`,
+  `quill::example_held_stored`).
 - Unticking removes the member, and its answers with it.
 - The typed write rests an empty mapping as `true`.
 - A key the matrix admits as neither a member nor an added item is refused as
@@ -292,9 +293,9 @@ alone, as an index step is, so an unheld member's address resolves
 
 **Blueprint.** The blueprint shows the vocabulary through its roster
 ([BLUEPRINT.md](BLUEPRINT.md#inline-annotation)), the cell as its `default:` or
-`{}`, and, in the `# e.g.` line, the columns through one illustrative held
-member and the added spelling through a placeholder item; a filled specimen is
-the quill's maximal fixture.
+`{}`, and, in the `# e.g.` line, the matrix's `example:`, else the columns
+through one illustrative held member and the added spelling through a
+placeholder item; a filled specimen is the quill's maximal fixture.
 
 **Implementation.** The loader derives two object schemas from the columns: a
 roster member's (`FieldSchema::member`) and an open matrix's added item's, a
@@ -339,7 +340,7 @@ whitespace, as none. No normalization runs.
 | Surface | Over the cap |
 |---|---|
 | `validate`, render | warns `validation::over_length` at the cell's own path, args `{max, actual}`, at every depth; an array's elements are capped by their `items:` |
-| load | a `default:` past a cap at any depth is `quill::default_over_length` (`quill::default_over_max` for elements); a seed is `quill::seed_over_length` |
+| load | a `default:` past a cap at any depth is `quill::default_over_length` (`quill::default_over_max` for elements), an `example:` `quill::example_over_length` (`quill::example_over_max`); a seed is `quill::seed_over_length` |
 | typed write | accepts the value |
 | plate | receives the value verbatim; whether it fits is the plate's judgement |
 | `acroform` | writes the cap as the widget's `/MaxLen`, except where the drawn value is past it in UTF-16 units, the viewer's count, where a viewer would cut stored text |
@@ -604,6 +605,10 @@ what follows for literals and for absence.
 | | `default:` | **never** by Quillmark: lives in the schema, interpolated only into the ephemeral render projection | yes: the fidelity value |
 | floor | the field's `blank` (`blank`) | never ([Non-persist invariant](#blank-filled-render)) | last resort |
 
+An `example:` is on no rung: it answers no cell, so no render, `resolve()` or
+blank-fill reads it, and it reaches a document only through the
+[example document](#the-example-document), which nobody keeps.
+
 Quillmark never writes a `default` into a document: it lives in `Quill.yaml`,
 the render path interpolates it into the plate-JSON projection only, and seeding
 deliberately omits it (persisting it would be redundant and would freeze it
@@ -625,6 +630,7 @@ field maps rather than a sort key):
 | `blueprint` document | non-blank `default:` › empty | empty cell (blank at render) | annotated string, [BLUEPRINT.md](BLUEPRINT.md) |
 | seeding | kind `seed:` › absent | (deferred to render floor) | committed `Document`: [Document seeding](#document-seeding) |
 | add-card (into a document) | the `$seed` overlay's block, else the kind's `seed:` block › absent | (deferred to render floor) | a new composable `Card`: [Document seeding](#document-seeding) |
+| example document | `example:` › kind `seed:` › absent | (deferred to render floor) | a committed `Document` nobody keeps: [The example document](#the-example-document) |
 | editor (consumer-side) | authored › `default:` › blank, resolved per field and **tagged with its source rung** | blank | Quillmark's [`resolve()`](#the-resolved-value-view-resolve) resolved-value view: value and source rung per field |
 | values (`reader.get()`) | authored only, as stored: an absent field stays absent, a scalar shorthand stays a shorthand | **none**: an absent field reads absent | the [values form](#the-values-form): the field's value with content leaves as their codec's text |
 
@@ -645,9 +651,9 @@ declared and how absence travels:
 
 Two rules follow, and between them the plate is total at every depth:
 
-- **A literal is declared where its cell is.** A `default:` on a typed
-  dictionary is a load error (`quill::default_on_namespace`) naming the
-  properties that hold it, as a container-shaped literal on a variant-bearing
+- **A literal is declared where its cell is.** A `default:` or `example:` on a
+  typed dictionary is a load error (`quill::default_on_namespace`,
+  `quill::example_on_namespace`) naming the properties that hold it, as a container-shaped literal on a variant-bearing
   enum already is (`quill::default_type_mismatch`). The container spelling is a
   *second* declaration of a fact the cells already carry, free to disagree with
   a property's own `default:`. Schema literals are
@@ -1068,7 +1074,8 @@ value equal to the `default:`, freezing it against a later quill; the quill
 owns both keys and has no such reason. `main` declares no `seed:`
 (`quill::invalid_card_schema`).
 
-`seed_card` is the only reader. Render, the blueprint, `validate`'s card checks,
+`seed_card` and the [example document](#the-example-document) are its only
+readers. Render, the blueprint, `validate`'s card checks,
 `conform` and `resolve()` ignore a kind's `seed:`; `schema()` emits it. Retyping
 a card with `set_card_kind` applies no seed. A committed seed is authored
 content: it prints, `resolve()` reports it `authored`, and a later change to the
@@ -1076,14 +1083,42 @@ kind's `seed:` does not reach cards already made. See [CARDS.md](CARDS.md)
 "Per-kind Seed Overlays" for the `$seed` mechanics. The document seeding above
 is the `overlay = None` case.
 
+### The example document
+
+`Quill::example_document` is the quill filled in with made-up values, to show
+it in use: the seeded document with every declared `example:` committed as its
+cell's value and each kind's `body.example` as its body. It commits through
+`seed_card`'s write, so it is at rest from birth as a seeded document is. Nobody
+keeps it: starter content someone keeps is a template.
+
+- **An example outranks a seed.** A kind's `seed:` is a prompt and an
+  `example:` a sample, so where both name a cell the example commits; a seeded
+  cell no example names keeps its seed, and the body takes `body.example` over
+  the seed's `$body`.
+- **A slot declaring none composes one from below.** A typed dictionary commits
+  its properties' examples, an array one element from its `items`, a typed
+  table one row from its columns, and a matrix its roster's first member held
+  with its columns' examples. A slot's own example wins over what its children
+  compose, so a table's rows replace its columns'.
+- **A world opens on the discriminant's example.** A variant-bearing enum's
+  example selects its world, and that world's cells commit theirs; with no
+  example, the world is the `default:`'s, and the blank opens none.
+- **`None` where nothing commits.** A quill declaring no example, or only ones
+  no world opens, has no example document. A root `example.md` is an ordinary
+  file.
+
+`quillmark validate` validates and renders it after the three canonical
+documents, failing the quill on any diagnostic it draws, a warning included:
+every value in it is the quill author's own ([CLI.md](CLI.md)).
+
 ## Schema emission
 
 `QuillConfig::schema()` returns the structural schema as `serde_json::Value`. It includes:
 
-- Field types, constraints, and `enum`/`default` annotations
+- Field types, constraints, and `enum`/`default`/`example` annotations
 - `title` on fields and cards: a literal label, which the blueprint prints wherever it prints the description, and which no `ui` key carries, since `ui` never reaches the blueprint
 - `ui` hints on fields (`group`, `compact`, `blank_title`, `layout`) and on cards (`groups`), as settled at load ([Grouping](#grouping)). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
-- `body` blocks on cards (`enabled`)
+- `body` blocks on cards (`enabled`, `description`, `example`)
 - `seed` on a card kind that declares one, in the `$seed.<kind>` shape
 
 The schema describes only the user-fillable fields. The quill reference
@@ -1099,7 +1134,7 @@ Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name).
 `main` and each entry in `card_kinds` share the same `CardSchema` shape:
 `fields` (map keyed by field name), optional `title`, optional `description`,
 optional `ui`, optional `body`. Each `FieldSchema` includes `type`, optional
-`title`/`description`/`default`/`enum`/`values`/`members`/`open`/`variants`/`multiline`/`properties`/`items`/`max`/`ui`.
+`title`/`description`/`default`/`example`/`enum`/`values`/`members`/`open`/`variants`/`multiline`/`properties`/`items`/`max`/`ui`.
 The type-gated keys:
 
 - `multiline`: valid only on the text types (`text`, `richtext`), emitted on a
@@ -1158,10 +1193,10 @@ blueprint prints it as none ([BLUEPRINT.md](BLUEPRINT.md#cell-values)); `0` and
 
 A slot's `title` and `description` are text, not values: `title` labels it and
 `description` guides it, a format hint included (`description: Name as signed,
-as in FIRST M. LAST, Capt, USAF.`). No field key holds a sample value. A card
-kind's [`seed:`](#kind-seeds-and-document-overlays) is not the slot's: it is
-content written into each new card, and a placeholder there prints until
-someone replaces it.
+as in FIRST M. LAST, Capt, USAF.`). A sample value is the slot's
+[`example`](#example). A card kind's [`seed:`](#kind-seeds-and-document-overlays)
+is not the slot's: it is content written into each new card, and a placeholder
+there prints until someone replaces it.
 
 `default:` means only the value an unanswered cell renders; a `?` on the type
 moves that floor to `none` ([Optional cells](#optional-cells)). The schema asks
@@ -1170,6 +1205,31 @@ names an unanswered one. Null ≡ absent holds on every surface. There is no
 `required:` key; an unknown key is a load error (`quill::field_parse_error`).
 
 See [BLUEPRINT.md](BLUEPRINT.md) for how `default` renders into cells.
+
+### `example`
+
+A slot declares at most one `example`: a made-up value of its type, showing
+what an answer looks like. It is checked at load exactly as `default` is, under
+its own codes: type coercion (`quill::example_type_mismatch`), enum membership
+(`quill::example_not_in_enum`), format (`quill::example_format_violation`), a
+stored tick (`quill::example_held_stored`), `max:`
+(`quill::example_over_max`, `quill::example_over_length`) and content import
+(`quill::richtext_example_import`). A typed dictionary refuses one
+(`quill::example_on_namespace`), and a variant-bearing enum's is its
+discriminant alone. It may sit beside a `default`, and on an optional cell.
+
+An `example` never answers a cell: the ladder stays authored › `default:` ›
+blank, and no document commits it but the
+[example document](#the-example-document). The blueprint shows it on the slot's
+`# e.g.` line ([BLUEPRINT.md](BLUEPRINT.md#leading-lines-order)).
+
+A card's `body` block takes two keys beside `enabled`, both text the blueprint
+shows: `description`, one line saying what the body holds, and `example`,
+markdown that imports without a drop (`quill::richtext_example_import`). The
+example is the blueprint's sample body and the example document's body. Either
+beside `enabled: false` is `quill::invalid_body`, and either holding `-->`,
+which would close the comment the blueprint opens the body with, is
+`quill::body_comment_close` ([BLUEPRINT.md](BLUEPRINT.md#bodies)).
 
 Identity fields (`name`, `version`, `backend`, `author`, `description`, and `license` / `homepage` when declared) live on the parent metadata object (Wasm: `Quill.metadata` getter; Python: `Quill.metadata`). Both bindings also expose `backend_id`/`backendId` directly; Python additionally exposes `quill_ref`, a derived `name@version` string.
 
