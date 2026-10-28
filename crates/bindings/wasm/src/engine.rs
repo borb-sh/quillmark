@@ -2062,6 +2062,19 @@ pub fn export_markdown(
     Ok(quillmark_content::export::to_markdown(&content))
 }
 
+/// The canonical form of `rt`: the content `overwrite` stores from it, read
+/// without a document. Normalizing rewrites structure, never the text, so the
+/// answer's `text` is `rt.text`. Throws where `overwrite` would, with its
+/// message.
+#[wasm_bindgen(js_name = normalize, unchecked_return_type = "Content")]
+pub fn normalize(#[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue) -> Result<JsValue, JsValue> {
+    let content = js_to_authored_content(rt, "normalize")?;
+    serialize_or_throw(
+        &quillmark_content::serial::to_canonical_value(&content),
+        "normalize",
+    )
+}
+
 /// Rebase `markdown` onto a `base` content: the document-free twin of `revise`,
 /// returning the new `content`, the text `delta` (offsets are USV indices into
 /// `Content.text`, surviving anchors rebased), and the import's
