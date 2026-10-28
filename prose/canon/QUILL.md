@@ -8,7 +8,7 @@
 A `Quill` is a loaded quill, the document format as data: its file tree plus
 its parsed `Quill.yaml` config, tagged with its declared backend id but holding
 no backend and needing no engine. It carries the pure config-read operations (`validate`,
-`schema`, `blueprint`, `seed_*`, `example_document`, `compile_data`,
+`schema`, `seed_*`, `example_document`, `to_authoring`/`from_authoring`, `compile_data`,
 `dry_run`); rendering is the engine's job.
 
 ## The `Quill` type
@@ -16,7 +16,7 @@ no backend and needing no engine. It carries the pure config-read operations (`v
 One type models a loaded quill: **`Quill`** (in `quillmark-core`), declarative
 data. It is the authored input (file bundle, parsed config) tagged
 with its *declared* backend id, and it carries the pure config-read
-operations (`validate`, `schema`, `blueprint`, `seed_*`, `example_document`,
+operations (`validate`, `schema`, `seed_*`, `example_document`, `to_authoring`/`from_authoring`,
 `compile_data`, `dry_run`). It holds **no backend** and needs **no engine** to
 construct or use; rendering is the engine's job (see
 [ARCHITECTURE.md](ARCHITECTURE.md)). A `Quill` is `Send + Sync` and portable
@@ -27,7 +27,7 @@ Bindings expose `Quill` directly.
 
 A **quiver** is a collection of quills. The bundled fixtures under
 `crates/fixtures/resources/quills/` are one quiver; the
-[quill authoring contract](BLUEPRINT.md#guarantees) is verified across the
+[plate contract](#the-plate-contract) is verified across the
 whole quiver by the sweeps in `crates/quillmark/tests/quiver_test.rs`, and over
 one quill anywhere by `quillmark validate` ([CLI.md](CLI.md)).
 
@@ -97,7 +97,7 @@ Identity resolution:
 - `name`, `description`, `backend`, `version`, `author`, `license`, `homepage` are direct struct fields on `QuillConfig`. `description` (required, non-empty in the `quill:` section) describes the quill itself and is a Typst PDF's title when neither the render's `title` nor the plate's `set document(title: ..)` names one; it is independent of `QuillConfig.main.description`, which is the optional schema description authored under `main:` like any other card kind.
 - `license` and `homepage` are optional package metadata, `None` when absent,
   and omitting them is never a diagnostic. Neither reaches the plate or the
-  blueprint; both surface on `quill.metadata` and `quillmark info`.
+  authoring schema; both surface on `quill.metadata` and `quillmark info`.
 - `license` is one line holding an SPDX license expression, stored trimmed:
   each id on the SPDX license list the `spdx` crate ships, spelled in the
   list's case, and `AND`, `OR`, `WITH` uppercase. Any other value is
@@ -143,6 +143,36 @@ someone keeps is a template. A root `example.md` is an ordinary file.
 
 A consumer takes the example from the `Quill` it holds.
 
+## The plate contract
+
+A quill's plate MUST render the **empty document** (`$quill` and `$kind: main`,
+no fields) to a successful output. Under blank-filled render every absent field
+is filled with its blank ([SCHEMAS.md](SCHEMAS.md#blank-filled-render)), so the
+empty document is by construction the type-minimal valid input. A plate that
+renders it degrades gracefully on every type-valid input shape.
+
+The contract requires:
+
+- A plate treats blanks (`""`, `0`, `false`, `[]`, an empty body) as valid
+  *present* input: read via `qm.data.field`, `card.at("field", default: …)`, or
+  guarded with `if "field" in qm.data`.
+- **A plate branching on an `enum` covers `values ∪ blank` exhaustively.** The
+  blank is valid present input for every enum, so an `else` fallback silently
+  renders a member nobody chose. Match the blank and decide what it means.
+  `qm.data.at(key, default: X)` is **not** such a guard: every declared key is
+  present, so its `default:` is dead code and the blank flows through.
+- **A plate reads a variant field only inside the branch that selects its
+  world.** A variant-bearing enum arrives as `{value: …}` carrying exactly the
+  live world's fields ([SCHEMAS.md](SCHEMAS.md#enum-variants)).
+- No plate asserts that a defaultless field is *non-empty*. The schema
+  guarantees presence, not non-emptiness.
+- "Renders" means "compiles without error", not "produces meaningful output".
+
+The fixture sweeps in `quiver_test.rs` render each bundled quill's empty and
+seeded documents. A quill outside that directory reaches the contract through
+`quillmark validate`, which renders both and reports each failure as a
+`cli::canonical_document_failed` error naming the document ([CLI.md](CLI.md)).
+
 ## Strict Parsing
 
 `Quill.yaml` is parsed strictly: every problem the parser can detect is collected and reported in one pass as a `Vec<Diagnostic>`, rather than failing on the first error or silently dropping unsupported shapes. The exception is `quill::requires_unmet`, which is reported alone. Specifically:
@@ -157,7 +187,7 @@ A consumer takes the example from the `Quill` it holds.
 - Malformed `quill.ui` / `main.ui` / `card_kinds.<name>.ui` blocks error with `quill::invalid_ui` rather than being silently discarded; one spelling `title` is hinted to the card's own `title:`.
 - A `ui.layout: table` column that is not a leaf errors with `quill::table_column_not_leaf`, naming the column: declaring the key contracts the shape the control needs, leaving an editor only the capability decline ([SCHEMAS.md](SCHEMAS.md#schema-emission)).
 - Malformed `main.body` / `card_kinds.<name>.body` blocks, `enabled` being the one key, error with `quill::invalid_body`.
-- A card declaring more than `MAX_FIELD_COUNT` (1000) fields errors with `quill::too_many_fields`: seeding and the blueprint build one card-yaml block per card schema, so the block's cap is the schema's to meet. Counted per card over declared fields alone — nested `properties`, array `items`, and `variants:` cells ride inside the field declaring them.
+- A card declaring more than `MAX_FIELD_COUNT` (1000) fields errors with `quill::too_many_fields`: seeding builds one card-yaml block per card schema, so the block's cap is the schema's to meet. Counted per card over declared fields alone — nested `properties`, array `items`, and `variants:` cells ride inside the field declaring them.
 
 Errors flow through `RenderError` (a non-empty `Vec<Diagnostic>`) and surface to bindings as a structured array (`err.diagnostics` in WASM, `.diagnostics` attribute in Python).
 

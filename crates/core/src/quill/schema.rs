@@ -2,7 +2,9 @@
 //! [`QuillValue`]. Backend-agnostic: backends consume it to drive per-field
 //! transforms such as markdown to backend markup.
 
-use super::{FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
+use indexmap::IndexMap;
+
+use super::{CardSchema, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
 use crate::value::QuillValue;
 
 /// The `contentMediaType` marking a richtext field in the transform schema. The
@@ -13,9 +15,7 @@ pub const CONTENT_MEDIA_TYPE: &str = "application/quillmark-content+json";
 
 /// Transform-schema keyword marking a `text` or `richtext` field that admits
 /// more than one line (`multiline: true` in Quill.yaml); absent, the field is
-/// one line (`text`) or one paragraph (`richtext`). The blueprint spells the
-/// same fact `richtext(multiline)<markdown>`; this key is the JSON Schema–shaped
-/// wire for editor and backend consumers.
+/// one line (`text`) or one paragraph (`richtext`).
 pub const QUILLMARK_MULTILINE_KEY: &str = "quillmark:multiline";
 
 /// Transform-schema keywords carrying a field's `max:` in the unit its type
@@ -77,261 +77,396 @@ fn discriminant_schema(field: &FieldSchema) -> serde_json::Value {
     serde_json::Value::Object(schema)
 }
 
-/// Build a JSON-Schema-shaped descriptor of a [`QuillConfig`]'s main + card fields.
+/// The form a schema's content leaves take: the one switch between the two
+/// documents [`build_transform_schema`] describes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaCodec {
+    /// Canonical Content-JSON objects marked [`CONTENT_MEDIA_TYPE`]: the plate
+    /// seam backends lower, with `$body` among a card's properties and each
+    /// kind under `$defs` as `<kind>_card`.
+    Content,
+    /// Each leaf as its codec's text, `richtext` Markdown marked
+    /// [`MARKDOWN_MEDIA_TYPE`] and `text` its literal string: the authoring
+    /// document (`prose/canon/AUTHORING.md`). Every cell admits
+    /// `null` (null ≡ absent), a variant-bearing enum is a `oneOf` over its
+    /// worlds, and a slot carries its `title`, `description`, `default` and
+    /// `example` as JSON Schema annotations.
+    Text,
+}
+
+/// The `contentMediaType` marking a `richtext` leaf or a body in the authoring
+/// schema: the model writes Markdown there.
+pub const MARKDOWN_MEDIA_TYPE: &str = "text/markdown";
+
+/// The authoring document's card discriminator. The wire spells it `$kind`;
+/// here it sits beside `fields`, so no field name collides with it.
+pub const AUTHORING_KIND_KEY: &str = "kind";
+
+/// Build a JSON-Schema-shaped descriptor of a [`QuillConfig`]'s main and card
+/// fields, its content leaves in the form `codec` names.
 ///
-/// The descriptor marks richtext fields with `contentMediaType:
-/// application/quillmark-content+json` (see [`CONTENT_MEDIA_TYPE`]) and
-/// date/date-time fields with the corresponding JSON Schema `format`. A
-/// `max:` crosses as [`QUILLMARK_MAX_ITEMS_KEY`] or [`QUILLMARK_MAX_LENGTH_KEY`].
+/// Under [`SchemaCodec::Content`] the descriptor marks richtext fields with
+/// `contentMediaType: application/quillmark-content+json` (see
+/// [`CONTENT_MEDIA_TYPE`]) and date/date-time fields with the corresponding
+/// JSON Schema `format`. A `max:` crosses as [`QUILLMARK_MAX_ITEMS_KEY`] or
+/// [`QUILLMARK_MAX_LENGTH_KEY`]. `$body` is injected into a kind's
+/// `properties` only when that kind's `body.enabled` is not `false`. A
+/// body-disabled kind's `$body` is absent, not present-and-empty, so
+/// `form-field(field:)` rejects `$body` addresses on that kind at compile
+/// time, as authored body content on the same kind drops under
+/// `Quill::validate`'s `validation::body_disabled` warning.
 ///
-/// `$body` is injected into a kind's `properties` only when that kind's
-/// `body.enabled` is not `false`. A body-disabled kind's `$body` is absent,
-/// not present-and-empty, so `form-field(field:)` rejects `$body` addresses on
-/// that kind at compile time, as authored body content on the same kind drops
-/// under `Quill::validate`'s `validation::body_disabled` warning.
-pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
-    /// An optional cell's wire admits `null` beside its type, as the JSON-Schema
-    /// `type: [<type>, "null"]` union, and an enum's list gains `null` beside
-    /// its blank.
-    fn field_to_schema(field: &FieldSchema) -> serde_json::Value {
-        let mut schema = declared_schema(field);
-        if field.optional {
-            if let Some(ty) = schema.get("type").cloned() {
-                schema["type"] = serde_json::json!([ty, "null"]);
-            }
-            if let Some(serde_json::Value::Array(members)) = schema.get_mut("enum") {
-                members.insert(0, serde_json::Value::Null);
-            }
-        }
-        schema
-    }
+/// Under [`SchemaCodec::Text`] it describes the authoring document instead:
+/// `{fields, body, cards: [{kind, fields, body}]}`, each card kind a `$defs`
+/// entry the `cards` items select by `kind`.
+pub fn build_transform_schema(config: &QuillConfig, codec: SchemaCodec) -> QuillValue {
+    QuillValue::from_json(match codec {
+        SchemaCodec::Content => content_envelope(config),
+        SchemaCodec::Text => authoring_envelope(config),
+    })
+}
 
-    fn declared_schema(field: &FieldSchema) -> serde_json::Value {
-        let mut schema = serde_json::Map::new();
-        // A variant-bearing enum crosses as the container it rests as, every
-        // world's fields flattened beside the discriminant: at schema time there
-        // is no live world, so the union is the only projection available
-        // (`SCHEMAS.md` § "Schema emission").
-        if let Some(variants) = &field.variants {
-            let mut properties = serde_json::Map::new();
-            properties.insert(
-                VARIANT_DISCRIMINANT_KEY.to_string(),
-                discriminant_schema(field),
-            );
-            for fields in variants.values() {
-                for (name, variant_field) in fields {
-                    // Every repetition is the same declaration
-                    // (`quill::variant_field_collision`).
-                    if properties.contains_key(name) {
-                        continue;
-                    }
-                    properties.insert(name.clone(), field_to_schema(variant_field));
-                }
-            }
-            schema.insert(
-                "type".to_string(),
-                serde_json::Value::String("object".to_string()),
-            );
-            schema.insert("properties".to_string(), properties.into());
-            return serde_json::Value::Object(schema);
-        }
-        match field.r#type {
-            FieldType::Enum { .. } => return discriminant_schema(field),
-            FieldType::RichText { multiline } => {
-                // The content crosses the seam as a JSON object (canonical
-                // Content-JSON), not a string; `type: object` + the richtext
-                // media type is how a backend classifies it to lower the content.
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("object".to_string()),
-                );
-                schema.insert(
-                    "contentMediaType".to_string(),
-                    serde_json::Value::String(CONTENT_MEDIA_TYPE.to_string()),
-                );
-                if multiline {
-                    schema.insert(
-                        QUILLMARK_MULTILINE_KEY.to_string(),
-                        serde_json::Value::Bool(true),
-                    );
-                }
-                if let Some(max) = field.max {
-                    schema.insert(QUILLMARK_MAX_LENGTH_KEY.to_string(), max.into());
-                }
-            }
-            FieldType::Text { multiline } => {
-                // Text rides the *same* content and media type as richtext, so
-                // a backend classifies and lowers it identically: no backend edit.
-                // The distinction (literal codec, no formatting) is carried by the
-                // `quillmark:plain` annotation, which only editors consult.
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("object".to_string()),
-                );
-                schema.insert(
-                    "contentMediaType".to_string(),
-                    serde_json::Value::String(CONTENT_MEDIA_TYPE.to_string()),
-                );
-                schema.insert(QUILLMARK_PLAIN_KEY.to_string(), serde_json::Value::Bool(true));
-                if multiline {
-                    schema.insert(
-                        QUILLMARK_MULTILINE_KEY.to_string(),
-                        serde_json::Value::Bool(true),
-                    );
-                }
-                if let Some(max) = field.max {
-                    schema.insert(QUILLMARK_MAX_LENGTH_KEY.to_string(), max.into());
-                }
-            }
-            FieldType::Number => {
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("number".to_string()),
-                );
-            }
-            FieldType::Integer => {
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("integer".to_string()),
-                );
-            }
-            FieldType::Boolean => {
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("boolean".to_string()),
-                );
-            }
-            FieldType::Array => {
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("array".to_string()),
-                );
-                // The element schema is emitted recursively, so a scalar
-                // element yields `items: { type: text }` (and a richtext element
-                // carries its `contentMediaType`), while an object element yields
-                // `items: {type: object, properties: …}`.
-                if let Some(items) = &field.items {
-                    schema.insert("items".to_string(), field_to_schema(items));
-                }
-                if let Some(max) = field.max {
-                    schema.insert(QUILLMARK_MAX_ITEMS_KEY.to_string(), max.into());
-                }
-            }
-            FieldType::Object => {
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("object".to_string()),
-                );
-                if let Some(properties) = &field.properties {
-                    let mut props = serde_json::Map::new();
-                    for (name, prop) in properties {
-                        props.insert(name.clone(), field_to_schema(prop));
-                    }
-                    schema.insert("properties".to_string(), serde_json::Value::Object(props));
-                }
-            }
-            // Each roster id's node is the member schema, so
-            // `qualifications.flight_cc.detail` resolves as a typed dictionary's
-            // leaf does; an open matrix's added items are `additionalProperties`,
-            // where `title` is a cell. None is required: a value holds only the
-            // members it ticks.
-            FieldType::Matrix { ref roster, .. } => {
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("object".to_string()),
-                );
-                schema.insert(
-                    QUILLMARK_ROSTER_KEY.to_string(),
-                    serde_json::Value::Array(
-                        roster
-                            .iter()
-                            .map(|(id, title)| serde_json::json!([id, title]))
-                            .collect(),
-                    ),
-                );
-                if let Some(member) = &field.member {
-                    let node = field_to_schema(member);
-                    let props: serde_json::Map<String, serde_json::Value> =
-                        roster.keys().map(|id| (id.clone(), node.clone())).collect();
-                    schema.insert("properties".to_string(), serde_json::Value::Object(props));
-                }
-                if let Some(item) = &field.added_item {
-                    schema.insert("additionalProperties".to_string(), field_to_schema(item));
-                }
-            }
-            // Distinct markers for the two date types drive the Typst backend's
-            // per-type lowering (3-component vs 6-component `datetime(..)`). This
-            // is the internal transform schema; the marker precedent is
-            // `quillmark:multiline`.
-            FieldType::Date => {
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("string".to_string()),
-                );
-                schema.insert(
-                    "format".to_string(),
-                    serde_json::Value::String("date".to_string()),
-                );
-            }
-            FieldType::DateTime => {
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("string".to_string()),
-                );
-                schema.insert(
-                    "format".to_string(),
-                    serde_json::Value::String("date-time".to_string()),
-                );
-            }
-        }
-        serde_json::Value::Object(schema)
-    }
-
-    let mut properties = serde_json::Map::new();
-    for (name, field) in &config.main.fields {
-        properties.insert(name.clone(), field_to_schema(field));
-    }
-    if config.main.body_enabled() {
-        properties.insert(
-            "$body".to_string(),
-            serde_json::json!({
-                "type": "object",
-                "contentMediaType": CONTENT_MEDIA_TYPE,
-                QUILLMARK_MULTILINE_KEY: true,
-            }),
-        );
-    }
-
-    let mut defs = serde_json::Map::new();
-    for card in &config.card_kinds {
-        let mut card_properties = serde_json::Map::new();
-        for (name, field) in &card.fields {
-            card_properties.insert(name.clone(), field_to_schema(field));
-        }
+fn content_envelope(config: &QuillConfig) -> serde_json::Value {
+    let body = || {
+        serde_json::json!({
+            "type": "object",
+            "contentMediaType": CONTENT_MEDIA_TYPE,
+            QUILLMARK_MULTILINE_KEY: true,
+        })
+    };
+    let properties = |card: &CardSchema| {
+        let mut properties: serde_json::Map<String, serde_json::Value> = card
+            .fields
+            .iter()
+            .map(|(name, field)| (name.clone(), field_to_schema(field, SchemaCodec::Content)))
+            .collect();
         if card.body_enabled() {
-            card_properties.insert(
-                "$body".to_string(),
-                serde_json::json!({
-                    "type": "object",
-                    "contentMediaType": CONTENT_MEDIA_TYPE,
-                    QUILLMARK_MULTILINE_KEY: true,
-                }),
-            );
+            properties.insert("$body".to_string(), body());
         }
-        defs.insert(
-            format!("{}_card", card.name),
-            serde_json::json!({
-                "type": "object",
-                "properties": card_properties,
-            }),
+        properties
+    };
+    let defs: serde_json::Map<String, serde_json::Value> = config
+        .card_kinds
+        .iter()
+        .map(|card| {
+            (
+                format!("{}_card", card.name),
+                serde_json::json!({ "type": "object", "properties": properties(card) }),
+            )
+        })
+        .collect();
+    serde_json::json!({
+        "type": "object",
+        "properties": properties(&config.main),
+        "$defs": defs,
+    })
+}
+
+fn authoring_envelope(config: &QuillConfig) -> serde_json::Value {
+    let mut root = serde_json::Map::new();
+    root.insert(
+        "$schema".to_string(),
+        "https://json-schema.org/draft/2020-12/schema".into(),
+    );
+    label(&mut root, config.main.title.as_deref(), config.main.description.as_deref());
+    root.insert("type".to_string(), "object".into());
+    let mut properties = authoring_card_properties(&config.main);
+    if !config.card_kinds.is_empty() {
+        let kinds: Vec<serde_json::Value> = config
+            .card_kinds
+            .iter()
+            .map(|card| serde_json::json!({ "$ref": format!("#/$defs/{}", card.name) }))
+            .collect();
+        properties.insert(
+            "cards".to_string(),
+            serde_json::json!({ "type": ["array", "null"], "items": { "oneOf": kinds } }),
         );
     }
+    root.insert("properties".to_string(), properties.into());
+    root.insert("additionalProperties".to_string(), false.into());
+    if !config.card_kinds.is_empty() {
+        let defs: serde_json::Map<String, serde_json::Value> = config
+            .card_kinds
+            .iter()
+            .map(|card| (card.name.clone(), authoring_kind(card)))
+            .collect();
+        root.insert("$defs".to_string(), defs.into());
+    }
+    serde_json::Value::Object(root)
+}
 
-    QuillValue::from_json(serde_json::json!({
-        "type": "object",
-        "properties": properties,
-        "$defs": defs,
-    }))
+/// One card kind's envelope: `kind` fixed to its name, then the `fields` and
+/// `body` a main card carries too.
+fn authoring_kind(card: &CardSchema) -> serde_json::Value {
+    let mut schema = serde_json::Map::new();
+    label(&mut schema, card.title.as_deref(), card.description.as_deref());
+    schema.insert("type".to_string(), "object".into());
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        AUTHORING_KIND_KEY.to_string(),
+        serde_json::json!({ "const": card.name }),
+    );
+    properties.extend(authoring_card_properties(card));
+    schema.insert("properties".to_string(), properties.into());
+    schema.insert("required".to_string(), serde_json::json!([AUTHORING_KIND_KEY]));
+    schema.insert("additionalProperties".to_string(), false.into());
+    serde_json::Value::Object(schema)
+}
+
+/// A card's `fields` and, where the kind enables one, its `body`.
+fn authoring_card_properties(card: &CardSchema) -> serde_json::Map<String, serde_json::Value> {
+    let fields: serde_json::Map<String, serde_json::Value> = card
+        .fields
+        .iter()
+        .map(|(name, field)| (name.clone(), field_to_schema(field, SchemaCodec::Text)))
+        .collect();
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "fields".to_string(),
+        serde_json::json!({ "type": ["object", "null"], "properties": fields }),
+    );
+    if card.body_enabled() {
+        let mut body = serde_json::Map::new();
+        let declared = card.body.as_ref();
+        label(&mut body, None, declared.and_then(|b| b.description.as_deref()));
+        body.insert("type".to_string(), serde_json::json!(["string", "null"]));
+        body.insert("contentMediaType".to_string(), MARKDOWN_MEDIA_TYPE.into());
+        body.insert(QUILLMARK_MULTILINE_KEY.to_string(), true.into());
+        if let Some(example) = declared.and_then(|b| b.example.as_deref()) {
+            body.insert("examples".to_string(), serde_json::json!([example]));
+        }
+        properties.insert("body".to_string(), body.into());
+    }
+    properties
+}
+
+fn label(schema: &mut serde_json::Map<String, serde_json::Value>, title: Option<&str>, description: Option<&str>) {
+    if let Some(title) = title {
+        schema.insert("title".to_string(), title.into());
+    }
+    if let Some(description) = description {
+        schema.insert("description".to_string(), description.into());
+    }
+}
+
+/// An optional cell's wire admits `null` beside its type, as the JSON-Schema
+/// `type: [<type>, "null"]` union, and an enum's list gains `null` beside its
+/// blank. The authoring document admits it on every cell.
+fn field_to_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value {
+    let mut schema = declared_schema(field, codec);
+    if field.optional || codec == SchemaCodec::Text {
+        admit_null(&mut schema);
+    }
+    if codec == SchemaCodec::Content {
+        return schema;
+    }
+    let mut annotated = serde_json::Map::new();
+    label(&mut annotated, field.title.as_deref(), field.description.as_deref());
+    if let serde_json::Value::Object(schema) = schema {
+        annotated.extend(schema);
+    }
+    let literal = |value: &QuillValue| {
+        let value = value.as_json();
+        if value.is_null() {
+            None
+        } else if field.is_variant_bearing() {
+            Some(serde_json::json!({ VARIANT_DISCRIMINANT_KEY: value }))
+        } else {
+            Some(value.clone())
+        }
+    };
+    if let Some(default) = field.default.as_ref().and_then(literal) {
+        annotated.insert("default".to_string(), default);
+    }
+    if let Some(example) = field.example.as_ref().and_then(literal) {
+        annotated.insert("examples".to_string(), serde_json::json!([example]));
+    }
+    serde_json::Value::Object(annotated)
+}
+
+fn admit_null(schema: &mut serde_json::Value) {
+    if let Some(serde_json::Value::Array(branches)) = schema.get_mut("oneOf") {
+        branches.push(serde_json::json!({ "type": "null" }));
+        return;
+    }
+    if let Some(ty) = schema.get("type").cloned() {
+        schema["type"] = serde_json::json!([ty, "null"]);
+    }
+    if let Some(serde_json::Value::Array(members)) = schema.get_mut("enum") {
+        members.insert(0, serde_json::Value::Null);
+    }
+}
+
+/// A variant-bearing enum as the authoring document spells it: one branch per
+/// world, its `value` a `const`, one branch for the members that open no world
+/// and the blank, and the bare discriminant, the shorthand coercion accepts.
+fn variant_union(field: &FieldSchema, variants: &IndexMap<String, super::VariantFields>) -> serde_json::Value {
+    let world = |value: serde_json::Value, cells: serde_json::Map<String, serde_json::Value>| {
+        let mut properties = serde_json::Map::new();
+        properties.insert(VARIANT_DISCRIMINANT_KEY.to_string(), value);
+        properties.extend(cells);
+        serde_json::json!({
+            "type": "object",
+            "properties": properties,
+            "required": [VARIANT_DISCRIMINANT_KEY],
+        })
+    };
+    let mut branches: Vec<serde_json::Value> = variants
+        .iter()
+        .map(|(member, fields)| {
+            let cells = fields
+                .iter()
+                .map(|(name, cell)| (name.clone(), field_to_schema(cell, SchemaCodec::Text)))
+                .collect();
+            world(serde_json::json!({ "const": member }), cells)
+        })
+        .collect();
+    let worldless: Vec<&str> = std::iter::once("")
+        .chain(field.domain().iter().map(String::as_str))
+        .filter(|member| !variants.contains_key(*member))
+        .collect();
+    branches.push(world(
+        serde_json::json!({ "type": "string", "enum": worldless }),
+        serde_json::Map::new(),
+    ));
+    branches.push(discriminant_schema(field));
+    serde_json::json!({ "oneOf": branches })
+}
+
+fn declared_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value {
+    let mut schema = serde_json::Map::new();
+    if let Some(variants) = &field.variants {
+        if codec == SchemaCodec::Text {
+            return variant_union(field, variants);
+        }
+        // A variant-bearing enum crosses the plate seam as the container it
+        // rests as, every world's fields flattened beside the discriminant: at
+        // schema time there is no live world, so the union is the only
+        // projection available (`SCHEMAS.md` § "Schema emission").
+        let mut properties = serde_json::Map::new();
+        properties.insert(
+            VARIANT_DISCRIMINANT_KEY.to_string(),
+            discriminant_schema(field),
+        );
+        for fields in variants.values() {
+            for (name, variant_field) in fields {
+                // Every repetition is the same declaration
+                // (`quill::variant_field_collision`).
+                if properties.contains_key(name) {
+                    continue;
+                }
+                properties.insert(name.clone(), field_to_schema(variant_field, codec));
+            }
+        }
+        schema.insert(
+            "type".to_string(),
+            serde_json::Value::String("object".to_string()),
+        );
+        schema.insert("properties".to_string(), properties.into());
+        return serde_json::Value::Object(schema);
+    }
+    match field.r#type {
+        FieldType::Enum { .. } => return discriminant_schema(field),
+        FieldType::RichText { multiline } | FieldType::Text { multiline } => {
+            let plain = matches!(field.r#type, FieldType::Text { .. });
+            match codec {
+                // The content crosses the seam as a JSON object (canonical
+                // Content-JSON), not a string; `type: object` + the content
+                // media type is how a backend classifies it to lower the
+                // content. Text rides the same type, so a backend lowers it
+                // identically; `quillmark:plain` tells editors to mount a
+                // formatting-free surface.
+                SchemaCodec::Content => {
+                    schema.insert("type".to_string(), "object".into());
+                    schema.insert("contentMediaType".to_string(), CONTENT_MEDIA_TYPE.into());
+                    if plain {
+                        schema.insert(QUILLMARK_PLAIN_KEY.to_string(), true.into());
+                    }
+                }
+                SchemaCodec::Text => {
+                    schema.insert("type".to_string(), "string".into());
+                    if !plain {
+                        schema.insert("contentMediaType".to_string(), MARKDOWN_MEDIA_TYPE.into());
+                    }
+                }
+            }
+            if multiline {
+                schema.insert(QUILLMARK_MULTILINE_KEY.to_string(), true.into());
+            }
+            if let Some(max) = field.max {
+                schema.insert(QUILLMARK_MAX_LENGTH_KEY.to_string(), max.into());
+            }
+        }
+        FieldType::Number => {
+            schema.insert("type".to_string(), "number".into());
+        }
+        FieldType::Integer => {
+            schema.insert("type".to_string(), "integer".into());
+        }
+        FieldType::Boolean => {
+            schema.insert("type".to_string(), "boolean".into());
+        }
+        FieldType::Array => {
+            schema.insert("type".to_string(), "array".into());
+            // The element schema is emitted recursively, so a scalar
+            // element yields `items: { type: text }` (and a richtext element
+            // carries its `contentMediaType`), while an object element yields
+            // `items: {type: object, properties: …}`.
+            if let Some(items) = &field.items {
+                schema.insert("items".to_string(), field_to_schema(items, codec));
+            }
+            if let Some(max) = field.max {
+                schema.insert(QUILLMARK_MAX_ITEMS_KEY.to_string(), max.into());
+            }
+        }
+        FieldType::Object => {
+            schema.insert("type".to_string(), "object".into());
+            if let Some(properties) = &field.properties {
+                let props: serde_json::Map<String, serde_json::Value> = properties
+                    .iter()
+                    .map(|(name, prop)| (name.clone(), field_to_schema(prop, codec)))
+                    .collect();
+                schema.insert("properties".to_string(), serde_json::Value::Object(props));
+            }
+        }
+        // Each roster id's node is the member schema, so
+        // `qualifications.flight_cc.detail` resolves as a typed dictionary's
+        // leaf does; an open matrix's added items are `additionalProperties`,
+        // where `title` is a cell. None is required: a value holds only the
+        // members it ticks.
+        FieldType::Matrix { ref roster, .. } => {
+            schema.insert("type".to_string(), "object".into());
+            schema.insert(
+                QUILLMARK_ROSTER_KEY.to_string(),
+                serde_json::Value::Array(
+                    roster
+                        .iter()
+                        .map(|(id, title)| serde_json::json!([id, title]))
+                        .collect(),
+                ),
+            );
+            if let Some(member) = &field.member {
+                let node = field_to_schema(member, codec);
+                let props: serde_json::Map<String, serde_json::Value> =
+                    roster.keys().map(|id| (id.clone(), node.clone())).collect();
+                schema.insert("properties".to_string(), serde_json::Value::Object(props));
+            }
+            if let Some(item) = &field.added_item {
+                schema.insert("additionalProperties".to_string(), field_to_schema(item, codec));
+            }
+        }
+        // Distinct markers for the two date types drive the Typst backend's
+        // per-type lowering (3-component vs 6-component `datetime(..)`).
+        FieldType::Date => {
+            schema.insert("type".to_string(), "string".into());
+            schema.insert("format".to_string(), "date".into());
+        }
+        FieldType::DateTime => {
+            schema.insert("type".to_string(), "string".into());
+            schema.insert("format".to_string(), "date-time".into());
+        }
+    }
+    serde_json::Value::Object(schema)
 }
 
 #[cfg(test)]
@@ -340,7 +475,7 @@ mod tests {
 
     fn build_from_yaml(yaml: &str) -> QuillValue {
         let config = QuillConfig::from_yaml(yaml).expect("yaml parses");
-        build_transform_schema(&config)
+        build_transform_schema(&config, SchemaCodec::Content)
     }
 
     #[test]

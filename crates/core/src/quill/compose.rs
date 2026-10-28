@@ -276,10 +276,9 @@ impl Quill {
     /// The **empty document**: a main card carrying `$quill` and `$kind: main`,
     /// no field committed, no composable card, no body. The type-minimal valid
     /// input, and the document the quill authoring contract binds a plate to
-    /// render (`prose/canon/BLUEPRINT.md` §Guarantees).
+    /// render (`prose/canon/QUILL.md` § "The plate contract").
     ///
-    /// The leanest of the three canonical documents, beside the annotated
-    /// [`blueprint`](crate::quill::QuillConfig::blueprint) and the
+    /// The leaner of the two canonical documents, beside the
     /// [`seed_document`](Self::seed_document).
     pub fn empty_document(&self) -> Document {
         seed::empty_document(self)
@@ -1822,39 +1821,6 @@ main:
         assert_eq!(
             absent["contact"], authored["contact"],
             "writing `contact: {{}}` must not change what renders; got {authored}"
-        );
-    }
-
-    /// A value the blueprint shows is the value that renders when the author
-    /// leaves that line alone: the "shippable as-is" affordance, at any depth.
-    #[test]
-    fn the_blueprint_and_the_plate_agree_cell_by_cell() {
-        const YAML: &str = r#"
-quill: { name: bp, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    contact:
-      type: object
-      properties:
-        email: { type: text, default: "hi@example.com" }
-        when: { type: date, default: "2026-01-01" }
-        addr:
-          type: object
-          properties:
-            city: { type: text, default: Pgh }
-"#;
-        let blueprint = QuillConfig::from_yaml(YAML).expect("valid quill").blueprint();
-        let plate = plate_of(YAML, "~~~card-yaml\n$quill: bp@1.0.0\n$kind: main\n~~~\n");
-        for shown in ["hi@example.com", "2026-01-01", "Pgh"] {
-            assert!(
-                blueprint.contains(shown),
-                "the blueprint shows {shown}: {blueprint}"
-            );
-        }
-        assert_eq!(
-            plate["contact"],
-            json!({ "email": text("hi@example.com"), "when": "2026-01-01", "addr": { "city": text("Pgh") } }),
-            "and the plate renders exactly those cells; got {plate}"
         );
     }
 

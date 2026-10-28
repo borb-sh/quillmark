@@ -39,9 +39,13 @@ fn ok(args: &[&str]) -> String {
 #[test]
 fn read_commands_print_the_quill() {
     let quill = taro();
-    for (cmd, needle) in [("info", "taro"), ("schema", "ice_cream"), ("blueprint", "$quill:")] {
-        let stdout = ok(&[cmd, quill.to_str().unwrap()]);
-        assert!(stdout.contains(needle), "{cmd} omits {needle:?}: {stdout}");
+    for (args, needle) in [
+        (&["info"][..], "taro"),
+        (&["schema"], "ice_cream"),
+        (&["schema", "--authoring"], "\"ice_cream\""),
+    ] {
+        let stdout = ok(&[args, &[quill.to_str().unwrap()]].concat());
+        assert!(stdout.contains(needle), "{args:?} omits {needle:?}: {stdout}");
     }
     ok(&["validate", quill.to_str().unwrap()]);
 }

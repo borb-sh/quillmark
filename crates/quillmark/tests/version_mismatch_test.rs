@@ -67,10 +67,11 @@ fn a_created_document_pins_its_quills_series() {
         quillmark::quill_from_path(make_quill(&temp_dir, version)).expect("from_path failed")
     };
     let created = quill_at("1.2.0");
-    let blueprint = Document::parse(&created.config().blueprint())
-        .expect("parse failed")
+    let authored = created
+        .from_authoring(&serde_json::json!({}))
+        .expect("imports")
         .document;
-    for doc in [created.seed_document(), blueprint] {
+    for doc in [created.seed_document(), authored] {
         let patched = quill_at("1.2.1").dry_run(&doc);
         assert!(patched.is_ok(), "{patched:?}");
         let next_minor = quill_at("1.3.0").dry_run(&doc);

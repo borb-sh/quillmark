@@ -1,3 +1,4 @@
+mod authoring_tests;
 mod example_tests;
 mod matrix_tests;
 mod optional_tests;
@@ -443,8 +444,7 @@ fn test_parse_card_with_fields_in_yaml() {
     assert!(config.card_kind("myscope").unwrap().fields.is_empty());
 }
 
-/// A card schema is bounded by what one card-yaml block carries, so the
-/// blueprint it drives spells every field and re-parses.
+/// A card schema is bounded by what one card-yaml block carries.
 #[test]
 fn a_card_declaring_more_fields_than_a_block_carries_is_refused_at_load() {
     let max = crate::error::MAX_FIELD_COUNT;
@@ -468,12 +468,7 @@ fn a_card_declaring_more_fields_than_a_block_carries_is_refused_at_load() {
         "the diagnostic names the card the author wrote: {}",
         diag.message
     );
-
-    let blueprint = QuillConfig::from_yaml(&yaml(max)).expect("loads").blueprint();
-    let reparsed = Document::parse(&blueprint)
-        .expect("a blueprint at the cap re-parses")
-        .document;
-    assert_eq!(reparsed.cards()[0].payload().len(), max);
+    QuillConfig::from_yaml(&yaml(max)).expect("a card at the cap loads");
 }
 
 #[test]
@@ -2013,106 +2008,6 @@ fn an_over_filled_array_warns_at_its_own_path() {
         quill.compile_data(&doc, test_date()).is_ok(),
         "an over-filled document still renders"
     );
-}
-
-/// The blueprint is a document the quill must accept: a cap it declares cannot
-/// be a cap its own placeholder row breaks.
-#[test]
-fn a_capped_table_blueprints_within_its_own_cap() {
-    for max in [0, 1, 3] {
-        let quill = quill_from_yaml(&with_header(&format!(
-            r#"main:
-  fields:
-    rows:
-      type: array
-      max: {max}
-      items:
-        type: object
-        properties:
-          unit: {{ type: text, default: "" }}
-"#
-        )));
-        let doc = Document::parse(&quill.config().blueprint())
-            .expect("the blueprint parses")
-            .document;
-        let over: Vec<Diagnostic> = quill
-            .validate(&doc)
-            .into_iter()
-            .filter(|d| d.code.as_deref() == Some("validation::cardinality"))
-            .collect();
-        assert!(
-            over.is_empty(),
-            "max: {max} blueprints over its own cap: {over:?}"
-        );
-    }
-}
-
-/// The blueprint is the surface the MCP author reads, so a cap it does not show
-/// is a cap learned from prose. The line holds the own-line position
-/// `# composable (0..N)` takes — under the description — at both depths a cap
-/// loads at.
-#[test]
-fn a_cap_rides_its_own_leading_line_under_the_description() {
-    let bp = config_with_sections(
-        r#"main:
-  fields:
-    rows:
-      type: array
-      max: 2
-      description: The units that fit the page.
-      default: [a]
-      items: { type: text }
-    box:
-      type: object
-      properties:
-        tags:
-          type: array
-          max: 1
-          description: Tags for the box.
-          default: [t]
-          items: { type: text }
-"#,
-    )
-    .expect("a cap loads at either depth")
-    .blueprint();
-
-    assert!(
-        bp.contains("# The units that fit the page.\n# up to 2\nrows:"),
-        "{bp}"
-    );
-    assert!(
-        bp.contains("  # Tags for the box.\n  # up to 1\n  tags:"),
-        "{bp}"
-    );
-
-    let text = config_with_sections(
-        r#"main:
-  fields:
-    ssn: { type: text, max: 9 }
-    statements:
-      type: array
-      max: 4
-      items: { type: text, max: 350 }
-    notes:
-      type: array
-      items: { type: text, max: 80 }
-"#,
-    )
-    .expect("text caps load")
-    .blueprint();
-    assert!(text.contains("# up to 9 characters\nssn:"), "{text}");
-    assert!(
-        text.contains("# up to 4, each up to 350 characters\nstatements:"),
-        "{text}"
-    );
-    assert!(text.contains("# each up to 80 characters\nnotes:"), "{text}");
-
-    let uncapped = config_with_sections(
-        "main:\n  fields:\n    rows:\n      type: array\n      items: { type: text }\n",
-    )
-    .expect("an uncapped array loads")
-    .blueprint();
-    assert!(!uncapped.contains("up to"), "{uncapped}");
 }
 
 #[test]

@@ -34,7 +34,7 @@ The Records Portal replaces the shared drive for official records on 1 April 202
 
 - **One implementation, four surfaces**: a Rust crate, a Python package, an npm package (WebAssembly, with a live canvas preview), and a CLI.
 - **Two backends**: Typst typesets new pages; `acroform` fills the fields of an existing PDF form.
-- **Written by people or by LLMs**: the schema emits a blueprint, an annotated Markdown form an LLM fills in, and validation reports diagnostics with machine-readable codes.
+- **Written by people or by LLMs**: the schema emits a JSON Schema for the document an LLM writes as JSON, and validation reports diagnostics with machine-readable codes at document paths.
 
 [Try it in the browser](https://borb-sh.github.io/quillmark-js/playground): edit a document and watch the page re-render.
 

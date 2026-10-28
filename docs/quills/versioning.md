@@ -32,7 +32,7 @@ rule is the same below and above `1.0.0`, so `0.x` promises no less than `1.x`.
 
 Reordering a field's `values:` is PATCH: a field's blank is `""` rather than
 `values[0]`, so no document's rendered output changes. It still moves picker
-order, the blueprint's `enum` annotation, and acroform dropdown order.
+order, the schemas' `enum` lists, and acroform dropdown order.
 
 Turning a field's `multiline` from `true` to `false` is MAJOR unless every
 stored value is first reduced to one line: a `richtext` holding a second block
@@ -89,7 +89,7 @@ against the selector.
 3. Where a field has to change, prefer a rename or a lossless type change
    (MINOR) to a removal (MAJOR).
 4. Pin documents with `@MAJOR.MINOR`, as the quill's seeded, empty and example
-   documents and its blueprint do: every patch in that series reads them
+   documents, and a document built from the authoring form, do: every patch in that series reads them
    unchanged.
 
 ## Related Pages

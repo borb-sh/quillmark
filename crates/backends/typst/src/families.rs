@@ -101,7 +101,7 @@ mod tests {
 
     fn runs_of(quill: &Quill, md: &str, library: FontLibrary) -> (Vec<(String, String)>, Vec<quillmark_core::error::Diagnostic>) {
         let data = data(md);
-        let meta = SchemaMeta::from_schema_json(quillmark_core::quill::build_transform_schema(quill.config()).as_json());
+        let meta = SchemaMeta::from_schema_json(quillmark_core::quill::build_transform_schema(quill.config(), quillmark_core::quill::SchemaCodec::Content).as_json());
         let mut world = world::QuillWorld::new(quill, &read_plate(quill).expect("plate"), &Arc::new(library))
             .expect("world");
         world.inject_helper_package(&data, &meta).expect("inject");

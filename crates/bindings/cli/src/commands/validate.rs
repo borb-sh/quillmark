@@ -182,8 +182,8 @@ struct RenderFailure {
 }
 
 /// The quill authoring contract, which no config read reaches: each of the
-/// three canonical documents — the empty document, the blueprint, the seeded document —
-/// compiles through the quill's own plate (`BLUEPRINT.md` §Guarantees). The
+/// canonical documents — the empty document and the seeded document — compiles
+/// through the quill's own plate (`QUILL.md` § "The plate contract"). The
 /// example, when the quill declares one, compiles after them. The backend's
 /// first declared format is the one rendered: a plate that compiles carries
 /// every format its backend serves.
@@ -220,14 +220,9 @@ fn validate_renders(
         println!("  Rendering the canonical documents to {}", format);
     }
 
-    let blueprint = quill.config().blueprint();
     let documents = [
-        ("empty", Ok(quill.empty_document())),
-        (
-            "blueprint",
-            Document::parse(&blueprint).map(|parsed| parsed.document),
-        ),
-        ("seeded", Ok(quill.seed_document())),
+        ("empty", quill.empty_document()),
+        ("seeded", quill.seed_document()),
     ];
 
     let options = RenderOptions::default().with_output_format(format);
@@ -249,18 +244,6 @@ fn validate_renders(
     };
 
     for (label, document) in documents {
-        let document = match document {
-            Ok(document) => document,
-            Err(e) => {
-                result.add(
-                    Severity::Error,
-                    format!("the {label} document does not parse: {}", e),
-                    "cli::canonical_document_failed",
-                );
-                continue;
-            }
-        };
-
         match render(&document) {
             Ok(warnings) => {
                 if verbose {

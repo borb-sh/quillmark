@@ -86,7 +86,7 @@ card_kinds:
         description: Name, grade, and duty title.
 ```
 
-`title` is the kind's display label (section headers, chips, picker entries), decoupled from the snake_case map key (`indorsement`), which is the on-the-wire `$kind` discriminator, so authors can rename the label without breaking stored documents. It is a literal naming the kind: a `{field}` token is a load error (`quill::title_template`). A consumer labels an instance from its own values, so field order decides which value leads. It sits at the top level rather than under `ui` because `ui` keys never reach the blueprint, and the blueprint prints it on the `$kind` line ([BLUEPRINT.md](BLUEPRINT.md) § "Inline annotation").
+`title` is the kind's display label (section headers, chips, picker entries), decoupled from the snake_case map key (`indorsement`), which is the on-the-wire `$kind` discriminator, so authors can rename the label without breaking stored documents. It is a literal naming the kind: a `{field}` token is a load error (`quill::title_template`). A consumer labels an instance from its own values, so field order decides which value leads. It sits at the top level rather than under `ui` because it is the kind's name for every reader, not an editor hint: the authoring schema carries it as the kind's JSON Schema `title` ([AUTHORING.md](AUTHORING.md#the-schema)), where no `ui` key reaches.
 
 ## Public Schema YAML Output
 

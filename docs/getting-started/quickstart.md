@@ -68,8 +68,7 @@ This paragraph is the document body. *Markdown* works here.
     archives ([Installation](../cli/reference.md#installation)).
     `render` writes `document.pdf`. `quillmark check my_quill document.md`
     reports what the document gets wrong without rendering, and
-    `quillmark blueprint my_quill` prints the fill-in-the-blanks document the
-    quill expects.
+    `quillmark schema my_quill` prints the fields the quill expects.
 
 === "Python"
 

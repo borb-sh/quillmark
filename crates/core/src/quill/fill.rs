@@ -1,5 +1,5 @@
 //! The per-field blank: the field's spelling of "explicitly nothing", and the
-//! render floor, shared by blueprint emission and the blank-filled render.
+//! render floor of the blank-filled render.
 
 use serde_json::json;
 

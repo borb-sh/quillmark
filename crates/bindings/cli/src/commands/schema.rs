@@ -8,12 +8,22 @@ pub struct SchemaArgs {
     /// Path to quill directory or .quill bundle
     #[arg(value_name = "QUILL_PATH")]
     quill: PathBuf,
+
+    /// Print the JSON Schema of the authoring document, the JSON a model writes
+    #[arg(long)]
+    authoring: bool,
 }
 
 pub fn execute(args: SchemaArgs) -> Result<()> {
     let quill = load_quill(&args.quill)?;
 
     let config = quill.config();
+    if args.authoring {
+        let schema = serde_json::to_string_pretty(&config.authoring_schema())
+            .map_err(|e| CliError::InvalidArgument(format!("Failed to serialize schema: {}", e)))?;
+        println!("{}", schema);
+        return Ok(());
+    }
     let schema_yaml = config
         .schema_yaml()
         .map_err(|e| CliError::InvalidArgument(format!("Failed to serialize schema: {}", e)))?;

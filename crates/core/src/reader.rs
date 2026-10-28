@@ -246,7 +246,7 @@ fn read_content(
 /// declaration it does not fit. A null rides as null at every type, so the form
 /// keeps present-null apart from authored-empty; blank-filling is the render
 /// view's.
-fn project_value(
+pub(crate) fn project_value(
     name: &str,
     value: &serde_json::Value,
     schema: &FieldSchema,

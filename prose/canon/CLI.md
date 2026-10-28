@@ -8,7 +8,7 @@
 `quillmark-cli` is a `clap` surface over the `quillmark` crate, holding no logic of its own:
 `render` turns a quill + markdown into PDF/SVG/PNG, `check` reads documents
 against a quill's schema, `validate` reads a quill's configuration and compiles
-its plate, `schema`/`blueprint`/`info` introspect a quill without rendering
+its plate, `schema`/`info` introspect a quill without rendering
 it, `workspace` exports what Typst's own tooling needs to compile a plate,
 and `pack` writes a quill as one `.quill` bundle.
 Commands, options, and examples are the
@@ -19,7 +19,7 @@ them.
 
 - **`render`, `validate` and `check --regions` need the engine.** Each
   constructs an `Engine` to resolve the quill's backend; `check` / `schema` /
-  `blueprint` / `info` load the quill with `quillmark::quill_from_path` and read
+  `info` load the quill with `quillmark::quill_from_path` and read
   the pure config-read operations a `Quill` already carries
   ([QUILL.md](QUILL.md)). `validate --no-render` compiles nothing: it reads
   the config and finds the backend's own files as `open` does, a Typst plate
@@ -49,13 +49,13 @@ them.
   warning itself, `backend::declined_construct` among them, ahead of the
   error. A failed compile carries the backend's load warnings after its errors
   ([ERROR.md](ERROR.md#warning-flow)), and the CLI prints them third.
-- **`validate` compiles the plate.** It renders the three canonical documents —
-  the empty document, the blueprint, the seeded document — through the quill's
+- **`validate` compiles the plate.** It renders the two canonical documents —
+  the empty document and the seeded document — through the quill's
   backend at the backend's first declared format, and reports each failure as a
-  `cli::canonical_document_failed` error naming which of the three it is,
+  `cli::canonical_document_failed` error naming which of the two it is,
   followed by the backend's own diagnostics. This is where the quill authoring
   contract reaches a quill outside the fixtures quiver
-  ([BLUEPRINT.md](BLUEPRINT.md) § "Guarantees"); a schema-only pass is
+  ([QUILL.md](QUILL.md#the-plate-contract)); a schema-only pass is
   `--no-render`. A backend that does not resolve is `cli::backend_unresolved`,
   and a configuration the read already refused is not compiled: each document
   would fail for the reason already named.

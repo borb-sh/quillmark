@@ -88,7 +88,7 @@ fn main_with(quill: &Quill, overlay: Option<&SeedOverlay>) -> Card {
     payload.set_quill(main_reference(quill.config()));
     // The root block carries `$kind: main` alongside `$quill` (see the
     // markdown spec); set it so a seeded main card round-trips through
-    // `to_markdown()` exactly as the parser and blueprint emit it.
+    // `to_markdown()` exactly as the parser emits it.
     payload.set_kind("main");
     Card::from_parts(payload, body)
 }

@@ -336,7 +336,7 @@ fn a_key_outside_an_open_roster_needs_an_id_and_a_title() {
 /// A matrix is a cell: unanswered, it renders its `default:`, else its blank,
 /// the empty set, else under `?` `none`. An authored `{}` is an answer and
 /// outranks the default. A default is a literal like any other: its content
-/// columns import at load, and the blueprint ships it as the cell.
+/// columns import at load.
 #[test]
 fn a_matrix_is_a_cell_with_a_default_and_a_question_mark() {
     assert_eq!(plate(&doc("title: T\n")), json!({}));
@@ -352,14 +352,6 @@ fn a_matrix_is_a_cell_with_a_default_and_a_question_mark() {
     assert_eq!(wire["flight_cc"]["detail"]["text"], json!("*Flt* CC"));
     assert_eq!(wire["cyber_200"]["detail"]["text"], json!(""));
     assert_eq!(plate_of(&defaulted, &doc("qualifications: {}\n")), json!({}));
-
-    let blueprint = QuillConfig::from_yaml(&defaulted).expect("loads").blueprint();
-    let shipped = Document::parse(&blueprint).expect("the blueprint parses").document;
-    assert_eq!(
-        shipped.main().payload().get("qualifications").unwrap().as_json(),
-        &json!({ "flight_cc": { "detail": "*Flt* CC" }, "cyber_200": true }),
-        "{blueprint}"
-    );
 
     let optional = quill_yaml().replace("      type: matrix\n", "      type: matrix?\n");
     assert_eq!(plate_of(&optional, &doc("title: T\n")), serde_json::Value::Null);
@@ -424,7 +416,7 @@ fn a_matrix_seeds_empty() {
 /// is the node every key past the roster lowers against, its `title` a cell.
 #[test]
 fn a_members_cells_are_addressable() {
-    let schema = build_transform_schema(&config());
+    let schema = build_transform_schema(&config(), crate::quill::SchemaCodec::Content);
     let matrix = &schema.as_json()["properties"]["qualifications"];
     let member = &matrix["properties"]["flight_cc"];
 
@@ -449,50 +441,12 @@ fn a_members_cells_are_addressable() {
     assert!(matrix.get("additionalProperties").is_none(), "a closed matrix admits nothing");
 
     let open = QuillConfig::from_yaml(&open_yaml()).expect("open probe loads");
-    let schema = build_transform_schema(&open);
+    let schema = build_transform_schema(&open, crate::quill::SchemaCodec::Content);
     let item = &schema.as_json()["properties"]["qualifications"]["additionalProperties"];
     assert_eq!(item["properties"]["title"]["quillmark:plain"], json!(true), "{item}");
     assert!(item["properties"]["title"].get("quillmark:multiline").is_none(), "{item}");
     assert!(item["properties"]["detail"]["contentMediaType"].is_string(), "{item}");
     assert_eq!(open.schema()["main"]["fields"]["qualifications"]["open"], json!(true));
-}
-
-/// The roster rides the format slot as an enum's domain does, and the body
-/// carries the sparse spelling: no third annotation form, and nothing for a
-/// model to delete. A closed checklist's bare tick is its whole spelling, so it
-/// takes no hint line; an open one shows the added spelling beside it.
-#[test]
-fn the_blueprint_shows_the_vocabulary_in_the_annotation_and_ticks_nothing() {
-    let checklist = quill_yaml().replace(
-        "      properties:\n        detail: { type: text, default: \"\" }\n",
-        "",
-    );
-    let bp = QuillConfig::from_yaml(&checklist).expect("loads").blueprint();
-    assert!(
-        bp.contains(concat!(
-            "$kind: main\n",
-            "qualifications: {} # matrix<sq_cc_candidate | flight_cc | dodin_ops | cyber_200>\n",
-        )),
-        "{bp}"
-    );
-
-    let open = checklist.replace("      type: matrix\n", "      type: matrix\n      open: true\n");
-    let bp = QuillConfig::from_yaml(&open).expect("loads").blueprint();
-    assert!(
-        bp.contains(concat!(
-            "# e.g. {sq_cc_candidate: true, new_item: {title: text<plain>}}\n",
-            "qualifications: {} # matrix<sq_cc_candidate | flight_cc | dodin_ops | cyber_200>\n",
-        )),
-        "{bp}"
-    );
-
-    // The placeholder never names a member, which the pasted hint would tick.
-    let taken = open.replace("        dodin_ops: DODIN Ops\n", "        new_item: New Item\n");
-    let bp = QuillConfig::from_yaml(&taken).expect("loads").blueprint();
-    assert!(
-        bp.contains("# e.g. {sq_cc_candidate: true, new_item_2: {title: text<plain>}}\n"),
-        "{bp}"
-    );
 }
 
 /// A column's cap reaches every member the page prints, roster or added, and
@@ -520,106 +474,6 @@ fn an_overfull_column_warns_under_every_held_member() {
             ("validation::cardinality".to_string(), "main.qualifications.wing_ig.units".to_string()),
         ]
     );
-}
-
-/// A matrix declaring columns names them in its `# e.g.` line, spelled as a
-/// present member, and a column with nothing to show carrying its type; an open
-/// one adds an item keyed by a placeholder id. Pasted into the cell, the hint is
-/// a value the schema accepts once each typed column is answered.
-#[test]
-fn the_blueprint_hint_spells_a_held_member_with_every_column() {
-    let columns = "detail: { type: text, default: \"333 TRS/DO, 2024\" }\n        \
-                   unit: { type: text, default: HQ }\n        \
-                   earned: { type: date }\n        \
-                   logged: { type: datetime }";
-    let cells = "detail: \"333 TRS/DO, 2024\", unit: HQ, earned: date<YYYY-MM-DD | today>, logged: \"datetime<YYYY-MM-DDThh:mm[:ss]>\"";
-    let annotation = "qualifications: {} # matrix<sq_cc_candidate | flight_cc | dodin_ops | cyber_200>\n";
-    for (yaml, hint) in [
-        (quill_yaml().to_string(), format!("{{sq_cc_candidate: {{{cells}}}}}")),
-        (
-            open_yaml(),
-            format!("{{sq_cc_candidate: {{{cells}}}, new_item: {{title: text<plain>, {cells}}}}}"),
-        ),
-    ] {
-        let yaml = yaml.replace("detail: { type: text, default: \"\" }", columns);
-        let bp = QuillConfig::from_yaml(&yaml).expect("loads").blueprint();
-        assert!(bp.contains(&format!("# e.g. {hint}\n{annotation}")), "{bp}");
-
-        let quill = quill_from_yaml(&yaml);
-        let paste = |hint: &str| {
-            let markdown = format!(
-                "~~~\n$quill: matrix_probe@0.1.0\n$kind: main\nqualifications: {hint}\n~~~\n"
-            );
-            Document::parse(&markdown).expect("the hint parses").document
-        };
-        assert!(!quill.validate(&paste(&hint)).is_empty());
-
-        let answered = paste(
-            &hint
-                .replace("date<YYYY-MM-DD | today>", "2024-05-01")
-                .replace("\"datetime<YYYY-MM-DDThh:mm[:ss]>\"", "2024-05-01T09:30"),
-        );
-        assert!(quill.validate(&answered).is_empty(), "{:?}", quill.validate(&answered));
-        let wire = quill.compile_data(&answered, test_date()).expect("compiles")["qualifications"]
-            ["sq_cc_candidate"]
-            .clone();
-        assert_eq!(wire["detail"]["text"], json!("333 TRS/DO, 2024"));
-    }
-}
-
-/// A matrix below a typed dictionary or a table row carries the same hint at
-/// its own slot, and the blueprint still round-trips.
-#[test]
-fn a_nested_matrix_carries_its_hint_at_its_own_slot() {
-    let yaml = r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    record:
-      type: object
-      properties:
-        quals:
-          type: matrix
-          members: { flight_cc: Flight CC }
-          properties:
-            detail: { type: text, default: Ops }
-    rows:
-      type: array
-      items:
-        type: object
-        properties:
-          quals:
-            type: matrix
-            open: true
-            members: { flight_cc: Flight CC }
-            properties:
-              detail: { type: text, default: Cyber }
-"#;
-    let bp = QuillConfig::from_yaml(yaml).expect("loads").blueprint();
-    assert!(
-        bp.contains(concat!(
-            "record: # object\n",
-            "  # e.g. {flight_cc: {detail: Ops}}\n",
-            "  quals: {} # matrix<flight_cc>\n",
-        )),
-        "{bp}"
-    );
-    assert!(
-        bp.contains(concat!(
-            "# rows:\n",
-            "#   -\n",
-            "#     # e.g. {flight_cc: {detail: Cyber}, new_item: {title: text<plain>, detail: Cyber}}\n",
-            "#     quals: {} # matrix<flight_cc>\n",
-            "rows: [] # array<object>\n",
-        )),
-        "{bp}"
-    );
-
-    let doc1 = Document::parse(&bp).expect("blueprint parses").document;
-    let doc2 = Document::parse(&doc1.to_markdown())
-        .expect("re-emit parses")
-        .document;
-    assert_eq!(doc1, doc2);
 }
 
 /// A bare tick is the render floor's boolean coercion, not raw truthiness:

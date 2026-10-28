@@ -1141,9 +1141,10 @@ count: "not-a-number"
   })
 })
 
-// The blueprint text and the authored/default/blank ladder are core's
-// (`core/src/quill/blueprint.rs`, `core/src/quill/resolved.rs`). Here: the
-// schema DTO's shape and an unanswered cell reaching render.
+// The authoring document and the authored/default/blank ladder are core's
+// (`core/src/quill/authoring.rs`, `core/src/quill/resolved.rs`). Here: the
+// schema DTO's shape, the authoring form crossing, and an unanswered cell
+// reaching render.
 describe('value schema model', () => {
   // The plate reads `qm.data.title` (no default) and substitutes the optional
   // `qm.data.subtitle` if present, so one quill carries both cell states.
@@ -1190,15 +1191,37 @@ main:
     return { engine, quill }
   }
 
-  it('schema fields carry their default, and blueprint crosses as a string', () => {
+  it('schema fields carry their default, and so does the authoring schema', () => {
     const { quill } = buildQuill()
     const fields = quill.schema.main.fields
 
     expect(fields.title.default).toBeUndefined()
     expect(fields.subtitle.default).toBe('Untitled subtitle')
 
-    expect(typeof quill.blueprint).toBe('string')
-    expect(quill.blueprint.length).toBeGreaterThan(0)
+    const authoring = quill.authoringSchema.properties.fields.properties
+    expect(authoring.title).toEqual({
+      description: 'Document title (no default)',
+      type: ['string', 'null'],
+    })
+    expect(authoring.subtitle.default).toBe('Untitled subtitle')
+  })
+
+  it('a document crosses the authoring form and back', () => {
+    const { quill } = buildQuill()
+    const doc = quill.fromAuthoring({ fields: { title: 'Hello', subtitle: null }, body: 'Some *prose*.' })
+    expect(doc.quillRef).toBe('schema_test@1.0')
+    expect(quill.toAuthoring(doc)).toEqual({ fields: { title: 'Hello' }, body: 'Some *prose*.' })
+
+    let caught
+    try {
+      quill.fromAuthoring({ fields: [], cards: [{}] })
+    } catch (e) {
+      caught = e
+    }
+    expect(caught?.diagnostics?.map((d) => [d.code, d.path])).toEqual([
+      ['authoring::invalid_shape', 'fields'],
+      ['authoring::invalid_shape', 'cards[0].kind'],
+    ])
   })
 
   it('render blank-fills an unanswered cell', () => {
