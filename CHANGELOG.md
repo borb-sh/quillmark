@@ -64,6 +64,13 @@ Typst PDF now carries a title.
   authored lanes refuse either container. The Typst helper's `elements`
   registry, `_qm-element` and `typst::unregistered_element` are gone, so a
   plate calling `qm.elements.update(..)` fails to compile until the call goes.
+- feat(content,core,wasm): **`reviseContent` revises a field to a content
+  and keeps its anchors.** WASM `doc.reviseContent(addr, rt)`, over core's
+  `Card::revise_body_content` / `revise_field_content` and the content crate's
+  `delta::carry_anchors`, diffs a content built elsewhere against the stored
+  value, carries each anchor whose id `rt` does not hold, and returns the
+  `Revised` receipt with its text `delta`. `rt`'s own anchors and island ids
+  land as they are.
 
 ### Rendering
 

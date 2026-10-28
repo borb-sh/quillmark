@@ -30,7 +30,7 @@
 //! residual.
 
 use crate::import::{ImportWarning, Imported};
-use crate::model::{Island, Mark, Content, Normalized};
+use crate::model::{Island, Mark, MarkKind, Content, Normalized};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use similar::{capture_diff_slices, Algorithm, ChangeTag, DiffOp, TextDiff};
@@ -429,9 +429,31 @@ pub fn diff_import(
 pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
     let mut new_rt = new.into_content();
     let delta = diff(&base.text, &new_rt.text);
-    carry_marks(base, &mut new_rt, &delta);
+    carry_marks(base, &mut new_rt, &delta, |_| true);
     carry_island_ids(&base.islands, &mut new_rt.islands);
     (new_rt.into_normalized(), delta)
+}
+
+/// Diff `next` against `base` and carry each `base` anchor whose id `next`
+/// does not hold onto it, rebased through the diff: [`rebase_onto`] for a
+/// content built elsewhere, such as a merge's projection. Everything `next`
+/// carries stays as it is, its own anchors and island ids included, so an
+/// anchor `next` omits survives and only a splice or an overwrite removes it.
+pub fn carry_anchors(base: &Content, next: Normalized) -> (Normalized, Delta) {
+    let mut next = next.into_content();
+    let delta = diff(&base.text, &next.text);
+    let held: HashSet<String> = next
+        .marks
+        .iter()
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some(id.clone()),
+            _ => None,
+        })
+        .collect();
+    carry_marks(base, &mut next, &delta, |m| {
+        !matches!(&m.kind, MarkKind::Anchor { id } if held.contains(id))
+    });
+    (next.into_normalized(), delta)
 }
 
 /// [`rebase_onto`] without the delta, diffing only when `base` holds a mark
@@ -445,14 +467,14 @@ pub fn rebase_marks(base: &Content, new: Normalized) -> Normalized {
     rebase_onto(base, new).0
 }
 
-fn carry_marks(base: &Content, new_rt: &mut Content, delta: &Delta) {
+fn carry_marks(base: &Content, new_rt: &mut Content, delta: &Delta, carry: impl Fn(&Mark) -> bool) {
     let base_chars: Vec<char> = base.text.chars().collect();
     let new_chars: Vec<char> = new_rt.text.chars().collect();
     let inserted = delta.inserted_spans();
     for m in &base.marks {
         // Formatting marks are re-derived by the fresh import; every other
         // kind lives in the content but not in markdown.
-        if m.kind.is_formatting() {
+        if m.kind.is_formatting() || !carry(m) {
             continue;
         }
         if let Some((ns, ne)) = rebase_mark(delta, &base_chars, &new_chars, &inserted, m) {
@@ -732,6 +754,45 @@ mod tests {
                 .to_string(),
             "first para here"
         );
+    }
+
+    #[test]
+    fn carry_anchors_keeps_what_next_holds_and_carries_the_rest() {
+        let anchor = |start, end, id: &str| Mark {
+            start,
+            end,
+            kind: MarkKind::Anchor { id: id.into() },
+        };
+        let held = |rt: &Content, id: &str| {
+            let m = rt
+                .marks
+                .iter()
+                .find(|m| matches!(&m.kind, MarkKind::Anchor { id: i } if i == id))
+                .unwrap();
+            rt.text[byte(&rt.text, m.start)..byte(&rt.text, m.end)].to_string()
+        };
+        let mut base = from_markdown("one two three\n\n| a |\n|---|\n| b |")
+            .unwrap()
+            .content
+            .into_content();
+        base.marks.push(anchor(0, 3, "c1"));
+        base.marks.push(anchor(8, 13, "c2"));
+        let base = base.into_normalized();
+
+        let mut next = from_markdown("zero one two three\n\n| a |\n|---|\n| b |")
+            .unwrap()
+            .content
+            .into_content();
+        next.marks.push(anchor(9, 12, "c2"));
+        next.islands[0].id = "peer-0".into();
+        let (out, delta) = carry_anchors(&base, next.into_normalized());
+
+        assert_eq!(delta.try_apply(&base.text).unwrap(), out.text);
+        assert_eq!(held(&out, "c1"), "one");
+        assert_eq!(held(&out, "c2"), "two");
+        let anchors = out.marks.iter().filter(|m| !m.kind.is_formatting()).count();
+        assert_eq!(anchors, 2, "an id next holds is not carried a second time");
+        assert_eq!(out.islands[0].id, "peer-0");
     }
 
     #[test]

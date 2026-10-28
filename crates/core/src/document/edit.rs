@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_content::delta::{diff_import, Delta};
+use quillmark_content::delta::{carry_anchors, diff_import, Delta};
 use quillmark_content::import::ImportError;
 use quillmark_content::model::Normalized;
 use quillmark_content::ops::{ApplyError, ChangeBundle};
@@ -721,6 +721,20 @@ impl<'a> CardMut<'a> {
         self.0.revise_field(name, body)
     }
 
+    /// [`Card::revise_body_content`].
+    pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Revised {
+        self.0.revise_body_content(content)
+    }
+
+    /// [`Card::revise_field_content`].
+    pub fn revise_field_content(
+        &mut self,
+        name: &str,
+        content: impl Into<Normalized>,
+    ) -> Result<Revised, EditError> {
+        self.0.revise_field_content(name, content)
+    }
+
     /// [`Card::apply_body_change`].
     pub fn apply_body_change(&mut self, bundle: &ChangeBundle) -> Result<(), EditError> {
         self.0.apply_body_change(bundle)
@@ -1186,15 +1200,20 @@ impl Card {
         name: &str,
         body: impl Into<String>,
     ) -> Result<(Normalized, Revised), EditError> {
+        let base = self.richtext_base(name)?;
+        revise_import(&base, body).map_err(EditError::Import)
+    }
+
+    /// The field's current content as a diff base: an absent field is empty.
+    fn richtext_base(&self, name: &str) -> Result<Normalized, EditError> {
         if !is_valid_field_name(name) {
             return Err(EditError::InvalidFieldName(name.to_string()));
         }
-        let base = match self.field_content(name, Codec::Richtext) {
-            Some(Ok(rt)) => rt,
-            Some(Err(e)) => return Err(field_decode(name, &[], Codec::Richtext, e)),
-            None => Normalized::empty(),
-        };
-        revise_import(&base, body).map_err(EditError::Import)
+        match self.field_content(name, Codec::Richtext) {
+            Some(Ok(rt)) => Ok(rt),
+            Some(Err(e)) => Err(field_decode(name, &[], Codec::Richtext, e)),
+            None => Ok(Normalized::empty()),
+        }
     }
 
     /// Revise a richtext field from an authored markdown string: the field-level
@@ -1222,6 +1241,42 @@ impl Card {
         let (content, revised) = self.diff_field(name, body)?;
         self.store_field_content(name, &content)?;
         Ok(revised)
+    }
+
+    /// Revise the body to a pre-built content: [`revise_body`](Self::revise_body)
+    /// with no markdown import. Diffs `content` against the current body,
+    /// carries each anchor `content` does not hold by id through the diff
+    /// ([`carry_anchors`]), and returns the [`Revised`] receipt, which holds no
+    /// warning. What `content` carries lands as it is, its own anchors and island
+    /// ids included.
+    pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Revised {
+        let (content, delta) = carry_anchors(self.body(), content.into());
+        self.overwrite_body(content);
+        Revised {
+            delta,
+            warnings: Vec::new(),
+        }
+    }
+
+    /// Revise a richtext field to a pre-built content: the field-level twin of
+    /// [`revise_body_content`](Self::revise_body_content), schema-blind as
+    /// [`revise_field`](Self::revise_field) is. An absent field diffs from
+    /// empty. Returns [`EditError::InvalidFieldName`] for a malformed name,
+    /// [`EditError::FieldDecode`] when the field is present but is not a
+    /// richtext content, and [`EditError::InvalidPayload`] when an absent `name`
+    /// would take the card past the §8 field count.
+    pub fn revise_field_content(
+        &mut self,
+        name: &str,
+        content: impl Into<Normalized>,
+    ) -> Result<Revised, EditError> {
+        let base = self.richtext_base(name)?;
+        let (content, delta) = carry_anchors(&base, content.into());
+        self.store_field_content(name, &content)?;
+        Ok(Revised {
+            delta,
+            warnings: Vec::new(),
+        })
     }
 
     /// Revise a content field from authored text **with schema enforcement**:
