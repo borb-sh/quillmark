@@ -51,6 +51,11 @@ export interface QuillCardUi {
 export interface QuillCardBody {
     /** When false, consumers must not accept or store body content for this card kind. Defaults to true. */
     enabled?: boolean;
+    /** What the body holds, for the writer. Never beside `enabled: false`. */
+    description?: string;
+    /** A made-up body in markdown, which `exampleDocument()` commits. Never
+     *  beside `enabled: false`. */
+    example?: string;
 }
 
 export type QuillFieldType = "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "text" | "richtext" | "enum" | "matrix";
@@ -58,7 +63,8 @@ export type QuillFieldType = "number" | "integer" | "boolean" | "array" | "objec
 /** Schema entry for a single field declared in a quill's `Quill.yaml`.
  *
  * `default` is the value an unanswered cell renders. An absent field without a
- * `default` blank-fills.
+ * `default` blank-fills. `example` is a made-up value of the same type, which
+ * answers no cell: `exampleDocument()` commits it.
  */
 export interface QuillFieldSchema {
     /** A trailing `?` marks the cell optional: unanswered, it renders `none`
@@ -70,6 +76,7 @@ export interface QuillFieldSchema {
     title?: string;
     description?: string;
     default?: unknown;
+    example?: unknown;
     /** The closed set of allowed values. Required on `type: "enum"`, and valid
      *  nowhere else. */
     values?: string[];
@@ -918,24 +925,17 @@ impl Quill {
         }
     }
 
-    /// The quill's example document, `undefined` when the quill has no
-    /// `example.md` at its root: a filled-in page whose values are made up to show the
-    /// quill in use, never kept. It comes back pinned to this quill's
-    /// `name@MAJOR.MINOR` and conformed as `parse` conforms, its parse and
-    /// `conform::*` warnings on `doc.warnings`. Throws when the file does not
-    /// parse or its `$quill` is not this quill's bare name.
+    /// The quill's example document, `undefined` when no slot or body declares
+    /// an example: the seeded document with every declared `example` committed
+    /// as its cell's value and each kind's `body.example` as its body. A
+    /// filled-in page whose values are made up to show the quill in use, never
+    /// kept.
     #[wasm_bindgen(js_name = exampleDocument)]
-    pub fn example_document(&self) -> Result<Option<Document>, JsValue> {
-        self.inner
-            .example_document()
-            .map(|example| {
-                let parsed = example.map_err(|e| WasmError::from(e).to_js_value())?;
-                Ok(Document {
-                    inner: parsed.document,
-                    parse_warnings: parsed.warnings,
-                })
-            })
-            .transpose()
+    pub fn example_document(&self) -> Option<Document> {
+        self.inner.example_document().map(|inner| Document {
+            inner,
+            parse_warnings: Vec::new(),
+        })
     }
 
     /// Seed a starter `Document` from the schema: the main card plus one instance

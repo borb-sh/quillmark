@@ -11,8 +11,8 @@
 //! blueprint commits every non-blank `default:` and leaves every other cell empty.
 //! The seeded document carries one card per declared kind, each body empty.
 //!
-//! A quill's example, where it has one, is the one document with values
-//! in it, and renders without a diagnostic.
+//! A quill's example document, where it declares examples, is the one document
+//! with values in every cell that has one, and renders without a diagnostic.
 
 #![cfg(feature = "typst")]
 
@@ -138,13 +138,11 @@ fn every_quill_example_renders_clean() {
         let Some(example) = quill.example_document() else {
             continue;
         };
-        let parsed = example.unwrap_or_else(|e| panic!("{name}'s example fails to read: {e:?}"));
-        let mut diagnostics = parsed.warnings;
-        diagnostics.extend(quill.validate(&parsed.document));
+        let mut diagnostics = quill.validate(&example);
         let rendered = ENGINE
             .render(
                 quill,
-                &parsed.document,
+                &example,
                 common::test_date(),
                 &RenderOptions::default().with_output_format(OutputFormat::Pdf),
             )

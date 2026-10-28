@@ -69,7 +69,7 @@ diags   = quill.validate(doc)             # list of diagnostic dicts ([] = valid
                                           # parse::dropped_construct, backend::declined_construct
 empty   = quill.empty_document()          # the empty Document: $quill + $kind: main, nothing committed
 seed    = quill.seed_document()           # starter Document: one card per kind, each its kind's seed
-example = quill.example_document()        # the quill's made-up filled-in page (example.md), pinned; None without one
+example = quill.example_document()        # the seed with every declared example committed; None without one
 main    = quill.seed_main()               # just the $kind: main card (dict, like doc.main)
 card    = quill.seed_card("note")         # one starter composable card (dict), None if kind undeclared
 

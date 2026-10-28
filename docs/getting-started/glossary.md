@@ -32,7 +32,7 @@ The value a field takes when a document leaves it out, declared as `default:` in
 
 ## example
 
-A sample document a quill ships as `example.md`, filled in with made-up values. Studio opens it, and `quillkit test` renders it.
+A quill filled in with made-up values: the seeded document with each `example` its fields and bodies declare in `Quill.yaml` committed.
 
 ## field
 

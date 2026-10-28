@@ -55,6 +55,7 @@ main:
       values: [b, a]
       ui: { compact: true }
       default: b
+      example: a
       description: d
       title: T
     alpha:
@@ -84,7 +85,7 @@ card_kinds:
         assert_eq!(keys(&schema["card_kinds"]), ["zulu", "alpha"]);
         assert_eq!(
             keys(&fields["zeta"]),
-            ["type", "title", "description", "default", "ui", "values"]
+            ["type", "title", "description", "default", "example", "ui", "values"]
         );
         assert_eq!(keys(&fields["mike"]), ["type", "ui", "multiline"]);
     }

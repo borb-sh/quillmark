@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.132 → 0.133](docs/migrations/0.132-to-0.133.md). A root
+`example.md` is an ordinary file: a quill's example is what its `Quill.yaml`
+declares, so move each value onto its field before upgrading.
+
+### Examples
+
+- feat(core)!: **`example:` and a body's `description` and `example` join the
+  quill schema.** A slot at any depth declares at most one `example:`, a value
+  of its type checked at load as `default:` is, under
+  `quill::example_{type_mismatch,not_in_enum,format_violation,held_stored,on_namespace,over_max,over_length}`
+  and `quill::richtext_example_import`. It answers no cell, and the blueprint
+  does not show it. A body's `description` is text for the writer and its
+  `example` markdown that imports without a drop; either beside
+  `enabled: false` is `quill::invalid_body`. `schema()` carries them,
+  `FieldSchema` and `BodyCardSchema` gain the fields, and WASM types them as
+  `QuillFieldSchema.example` and `QuillCardBody.{description,example}`. (#2329)
+- feat(core,cli,wasm,python)!: **the example document is derived.**
+  `Quill::example_document()` returns `Option<Document>`: the seeded document
+  with every declared `example:` committed and each kind's `body.example` as
+  its body, `None` where the quill declares none. A root `example.md` is an
+  ordinary file: `EXAMPLE_FILE` and `quill::example_reference` are deleted,
+  WASM `exampleDocument()` and Python `example_document()` no longer throw, and
+  `quillmark validate` validates and renders the derived document, warning
+  `cli::example_file_ignored` while a root `example.md` remains. The
+  fixture quills declare the values their `example.md` held. (#2329)
+
 ## v0.132.0 - 2026-10-27
 
 Upgrade path: [0.131 → 0.132](docs/migrations/0.131-to-0.132.md). A row

@@ -92,9 +92,13 @@ fn listed() -> BTreeSet<String> {
 }
 
 /// A code `format!` mints from another listed code: `conform::<class>` from
-/// `edit::<class>`, and `quill::seed_<class>` from `validation::<class>` or
-/// `validation::seed_<class>`.
+/// `edit::<class>`, `quill::seed_<class>` from `validation::<class>` or
+/// `validation::seed_<class>`, and `quill::example_<class>` from
+/// `quill::default_<class>`.
 fn formatted_from_listed(code: &str, listed: &BTreeSet<String>) -> bool {
+    if let Some(class) = code.strip_prefix("quill::example_") {
+        return listed.contains(&format!("quill::default_{class}"));
+    }
     if let Some(class) = code.strip_prefix("conform::") {
         return listed.contains(&format!("edit::{class}"));
     }

@@ -59,15 +59,17 @@ them.
   `--no-render`. A backend that does not resolve is `cli::backend_unresolved`,
   and a configuration the read already refused is not compiled: each document
   would fail for the reason already named.
-- **`validate` holds the example to no diagnostic.** A quill with an
-  `example.md` at its root has it read through `Quill::example_document`,
+- **`validate` holds the example to no diagnostic.** A quill declaring
+  examples has its example document derived through `Quill::example_document`,
   checked by `Quill::validate`, and, unless `--no-render`, rendered after the
   canonical documents. Any diagnostic on it fails the quill, a warning
-  included: one `cli::example_not_clean` error names the file and the count,
-  and each diagnostic follows at `Error` severity. A render warning a canonical
+  included: one `cli::example_not_clean` error names the count, and each
+  diagnostic follows at `Error` severity. A render warning a canonical
   document raised too is the plate's, and does not count against the example.
-  A render that fails adds `cli::example_render_failed`. `--verbose` names
-  whether the quill has an example, so a misspelled one reads as none.
+  A root `example.md`, which the quill does not read, draws a
+  `cli::example_file_ignored` warning pointing at `example:`. A render that
+  fails adds `cli::example_render_failed`. `--verbose` names
+  whether the quill declares an example.
 - **`--font` is the host library.** `render` and `workspace` take it once per
   file and build the engine's font library from them
   ([ARCHITECTURE.md](ARCHITECTURE.md#fonts)), so a CLI render sees the fonts a

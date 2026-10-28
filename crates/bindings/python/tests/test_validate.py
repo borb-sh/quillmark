@@ -200,25 +200,19 @@ def test_the_wrong_quill_raises_before_any_mutation(tmp_path):
     assert doc.to_stored() == before
 
 
-def test_example_document_is_pinned_none_without_one_and_raises_coded(tmp_path):
-    from quillmark import QuillmarkError
+def test_example_document_commits_the_declared_examples_none_without_one(tmp_path):
+    plain = make_quill(tmp_path)
+    (tmp_path / "quill" / "example.md").write_text("~~~\n$quill: py_validate_smoke\n~~~\n")
+    assert plain.example_document() is None
+    assert Quill.from_path(tmp_path / "quill").example_document() is None
 
-    assert make_quill(tmp_path).example_document() is None
-
-    def with_example(markdown, name):
-        quill_dir = tmp_path / name
-        quill_dir.mkdir()
-        (quill_dir / "Quill.yaml").write_text(QUILL_YAML_CONTENT)
-        (quill_dir / "example.md").write_text(markdown)
-        return Quill.from_path(quill_dir)
-
-    doc = with_example(
-        "~~~\n$quill: py_validate_smoke\ntitle: A made-up title\n~~~\n", "clean"
-    ).example_document()
+    yaml = QUILL_YAML_CONTENT.replace(
+        "    title:\n      type: text\n",
+        "    title:\n      type: text\n      example: A made-up title\n",
+    )
+    quill_dir = tmp_path / "declared"
+    quill_dir.mkdir()
+    (quill_dir / "Quill.yaml").write_text(yaml)
+    doc = Quill.from_path(quill_dir).example_document()
     assert doc.quill_ref == "py_validate_smoke@1.0"
     assert field(doc.main, "title") == "A made-up title"
-    assert doc.warnings == []
-
-    with pytest.raises(QuillmarkError) as excinfo:
-        with_example("~~~\n$quill: py_validate_smoke@1.0\n~~~\n", "pinned").example_document()
-    assert excinfo.value.diagnostics[0].code == "quill::example_reference"

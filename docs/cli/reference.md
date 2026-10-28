@@ -173,12 +173,7 @@ quill holding no plate fails as `typst::plate_missing`. An acroform quill's
 render reads it, under `--no-render` too, so a quill holding `form.json`, no
 spec, or a spec that does not parse fails as it would at `open`.
 
-A quill with an `example.md` at its root has that example document read,
-validated, and rendered too. Any diagnostic on it fails the quill, a warning
-included (`cli::example_not_clean`): the example's values are the author's own,
-so a warning there is a mistake to fix. `--no-render` still reads and validates
-it. `--verbose` names the example it found, or says there is none, so a
-misspelled `examples.md` shows.
+A quill declaring examples has its [example document](../quills/quill-yaml-reference.md#example-document) derived, validated, and rendered too. Any diagnostic on it fails the quill, a warning included (`cli::example_not_clean`): the example's values are the author's own, so a warning there is a mistake to fix. `--no-render` still derives and validates it. `--verbose` says whether the quill declares an example.
 
 ```bash
 quillmark validate [OPTIONS] <QUILL_PATH>
