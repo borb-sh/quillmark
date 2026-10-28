@@ -159,9 +159,6 @@ fn a_body_example_and_description_are_checked_at_load() {
     for (body, code) in [
         ("    enabled: false\n    example: Prose.\n", "quill::invalid_body"),
         ("    enabled: false\n    description: Prose.\n", "quill::invalid_body"),
-        ("    example: \"a --> b\"\n", "quill::body_comment_close"),
-        ("    description: \"a --> b\"\n", "quill::body_comment_close"),
-        ("    description: \"one\\ntwo\"\n", "quill::description_multiline"),
         ("    example: \"<div>x</div>\"\n", "quill::richtext_example_import"),
     ] {
         let errors = config_with_sections(&format!("main:\n  body:\n{body}"))

@@ -124,7 +124,7 @@ main:
 | `title`       | string            | no       | The field's label, a literal (see [`title`](#title)) |
 | `description` | string            | no       | Help text, one line: a line break, `\|` block scalars included, fails the load with `quill::description_multiline`, since the blueprint prints it in a single `# …` comment |
 | `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the blueprint renders that concrete value with a type-only annotation, shippable as-is (see [`default`](#default)). Declared on a **cell**: a leaf, an `array` or a `matrix`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
-| `example`     | matches `type`    | no       | A made-up value, checked at load as `default` is: it answers nothing, the blueprint shows it on a `# e.g.` line, and the [example document](#example-document) commits it (see [`example`](#example)). On an `object` it is a load error (`quill::example_on_namespace`). |
+| `example`     | matches `type`    | no       | A made-up value, checked at load as `default` is: it answers nothing, `schema()` exposes it, and the [example document](#example-document) commits it (see [`example`](#example)). On an `object` it is a load error (`quill::example_on_namespace`). |
 | `values`      | array of strings  | for `enum` | The closed set of allowed string values: the **choices**. Required on every `enum` field. Declaring `""` is a load error — every enum also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one), which Quillmark supplies. |
 | `ui`          | object            | no       | UI rendering hints (see [UI Properties](#ui-properties)) |
 | `items`       | object            | for `array` | Element schema for an `array` field (a nested field schema). Required on every array. |
@@ -209,18 +209,11 @@ signer:
     - Chief, Knowledge Operations
 ```
 
-The blueprint prints it on its own line above the cell, after the description and any cap, in one-line form:
-
-```
-# Line 1: Name as signed, as in FIRST M. LAST, Capt, USAF. Line 2: Duty title.
-# e.g. ["JANE Q. DOE, Capt, USAF", "Chief, Knowledge Operations"]
-signer: # array<text<plain>>
-```
-
 - It is checked at load as `default` is, under `quill::example_*` codes: its type, an enum's `values`, a date's format, `max`, and a richtext's import (`quill::richtext_example_import`).
 - It may sit beside a `default`, and on an optional field.
 - It goes on any field at any depth: a dictionary's property, a table's column, a matrix's column, a variant's field. An `object` takes none, its properties holding their own; a `variants:` enum's is the member alone.
-- A table's own `example` is its rows; a matrix's is the members it holds, and it replaces the matrix's derived `# e.g.` line.
+- A table's own `example` is its rows; a matrix's is the members it holds.
+- `schema()` carries it after `default`, and the blueprint does not show it.
 
 ### Field Types
 
@@ -1005,8 +998,8 @@ names the instance.
 | Property  | Type   | Description |
 |-----------|--------|-------------|
 | `enabled`     | bool   | Whether the body editor is enabled (default: true). When false, consumers must not accept or store body content for this card kind. |
-| `description` | string | What the body holds, one line. The blueprint shows it in the comment opening the body. |
-| `example`     | markdown | A made-up body. The blueprint carries it as the body, a sample to replace, and the [example document](#example-document) commits it. It must import without dropping anything (`quill::richtext_example_import`). |
+| `description` | string | What the body holds, for the writer. |
+| `example`     | markdown | A made-up body, which the [example document](#example-document) commits. It must import without dropping anything (`quill::richtext_example_import`). |
 
 #### `body.enabled`
 
@@ -1038,17 +1031,7 @@ main:
       - The file plan lists every series the office keeps.
 ```
 
-The blueprint opens that body with one comment line, then the example as the body itself:
-
-```
-<!-- Plain paragraphs, numbered for you; a `-` item under one becomes a lettered subparagraph. Replace this sample body, e.g.: -->
-
-Each group reviews every office of record it owns by the suspense in the subject line.
-
-- The file plan lists every series the office keeps.
-```
-
-With no description the comment reads `Replace this sample body, e.g.:` alone, and with no example it is the description alone over an empty body. Neither key may hold `-->` (`quill::body_comment_close`), and the description is one line (`quill::description_multiline`). A body's example is a sample to replace; starter text a new card keeps goes in its kind's [`seed`](#card-level-seed), and for the document in a template's own body.
+`schema()` carries both, the [example document](#example-document) commits the example as the body, and the blueprint shows neither. An example is made up; starter text a new card keeps goes in its kind's [`seed`](#card-level-seed), and for the document in a template's own body.
 
 ### Card-level `seed`
 

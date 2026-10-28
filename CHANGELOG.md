@@ -12,20 +12,12 @@ declares, so move each value onto its field before upgrading.
   quill schema.** A slot at any depth declares at most one `example:`, a value
   of its type checked at load as `default:` is, under
   `quill::example_{type_mismatch,not_in_enum,format_violation,held_stored,on_namespace,over_max,over_length}`
-  and `quill::richtext_example_import`. It answers no cell. A body's
-  `description` is one line and its `example` markdown that imports without a
-  drop; either beside `enabled: false` is `quill::invalid_body`, and either
-  holding `-->` is `quill::body_comment_close`. `schema()` carries them,
+  and `quill::richtext_example_import`. It answers no cell, and the blueprint
+  does not show it. A body's `description` is text for the writer and its
+  `example` markdown that imports without a drop; either beside
+  `enabled: false` is `quill::invalid_body`. `schema()` carries them,
   `FieldSchema` and `BodyCardSchema` gain the fields, and WASM types them as
   `QuillFieldSchema.example` and `QuillCardBody.{description,example}`. (#2329)
-- feat(core)!: **the blueprint shows the examples.** A slot declaring one leads
-  its cell with `# e.g. <value>` in one-line flow form, after its label and
-  cap, at every depth: a dormant row's column, a dormant world's cell, and a
-  matrix's line in place of its derived member hint. A body declaring a
-  `description` or `example` opens with one HTML comment line, the description
-  then `Replace this sample body, e.g.:`, and carries the example as its body,
-  a sample to replace, so a parsed blueprint's body is no longer always empty.
-  (#2329)
 - feat(core,cli,wasm,python)!: **the example document is derived.**
   `Quill::example_document()` returns `Option<Document>`: the seeded document
   with every declared `example:` committed and each kind's `body.example` as

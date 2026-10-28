@@ -51,7 +51,6 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::array_missing_items`
 - `quill::array_properties_not_supported`
 - `quill::bodiless_card_kind`
-- `quill::body_comment_close`
 - `quill::bundle_invalid`
 - `quill::bundle_path`
 - `quill::bundle_too_large`

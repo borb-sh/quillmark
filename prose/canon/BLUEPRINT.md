@@ -6,7 +6,7 @@
 
 `blueprint()` produces an annotated Markdown document: the same shape an
 author would write, each cell holding its non-blank `default:` or left empty, with
-labels, constraint hints and examples as comments. It is the **authoring surface** for
+labels and constraint hints as comments. It is the **authoring surface** for
 LLM and MCP consumers; [SCHEMAS.md](SCHEMAS.md) covers the validation/form
 surface.
 
@@ -20,14 +20,9 @@ empty cells and write the bodies; the structure and `$` metadata come for free.
 $quill: <name>@<MAJOR.MINOR> # keep verbatim
 $kind: main # <title> — <description>
 # <field title> — <field description>
-# e.g. <example>
 field: # <type>
 settled: value # <type>[<format>]
 ~~~
-
-<!-- <body description> Replace this sample body, e.g.: -->
-
-<body example>
 
 ~~~
 $kind: <card_kind> # <card title> — <card description>
@@ -43,24 +38,18 @@ info string is ignored; see
 the `$quill` system-metadata line; each composable card carries a
 `$kind: <card_kind>` metadata line.
 
-A body is empty unless its kind declares a `body.example`; see "Bodies".
+Every body is empty; see "Bodies".
 
 ## One emitter, by construction
 
 `blueprint()` does not format YAML itself. It builds a `Document`: the same
-typed model a parsed `.md` produces, with prose annotations as comments and
-each sample body as the card's body, and emits it through the **canonical
-`Document::to_markdown`**. There is no second formatter.
-
-One line is not the emitter's: the HTML comment that opens a body declaring a
-`description` or an `example` (see "Bodies"). The model has no slot for a body
-comment, and the parse drops HTML comments, so `blueprint()` splices that line
-in after each such card's closing fence, the one step after `to_markdown`. Two
-consequences follow:
+typed model a parsed `.md` produces, with prose annotations as comments, and
+emits it through the **canonical
+`Document::to_markdown`**. There is no second formatter. Two consequences
+follow:
 
 - The blueprint round-trips through `Document::parse` and back **by
-  construction**, less each body's comment: the parsed blueprint is the
-  document `blueprint()` built, and it re-emits and re-parses to itself.
+  construction**: the emitter that produced it is the same one round-trip uses.
 - The blueprint inherits `to_markdown`'s representation choices: a **one-space**
   ` # ` inline-comment gap, **block-style** sequences at every level (no inline
   flow), and multi-line strings as **`|` literal blocks** where one reads back
@@ -72,10 +61,9 @@ consequences follow:
 
 | Slot | Form | Carries |
 |---|---|---|
-| **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <value>` | label (single-line prose), an `array`'s element cap, and the slot's example or a matrix's member hint |
+| **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <members>` | label (single-line prose), an `array`'s element cap, and a matrix's member hint |
 | **Inline `# …`** at end of the value line | `# <type>[<format>][?]` | structural metadata: the field's type, an optional format refinement, and the optional-cell marker |
 | **Body line** closing a card's payload | `# no body` | that the kind takes no body (see "Bodies") |
-| **Body comment** opening a card's body | `<!-- <description> Replace this sample body, e.g.: -->` | what the body holds, and that the body below it is a sample (see "Bodies") |
 
 The two slots divide by *grammar*, not by subject: the inline slot is the fixed
 `<type>[<format>]` expression and takes nothing else, so a constraint that is not
@@ -112,32 +100,20 @@ Per field, in order:
    elements have no slot of their own, so a cap its text `items:` declare rides
    the array's line: `# up to 4, each up to 350 characters`, or `# each up to
    350 characters` on an uncapped array.
-3. `# e.g. <value>`: emitted where a slot declares `example:`, whether or not
-   it also declares a `default:`. The value is in one-line flow form
-   (`# e.g. [123 MSG/CC, 123 FSS/CC]`, `# e.g. {cc: {detail: x}}`), a scalar
-   quoted where flow syntax would split it, since the line is a comment and
-   holds one line. It is a sample and never the cell: an `example:` answers
-   nothing, and the cell keeps its `default:` or stays empty. An array of
-   scalars whose `items` declare the example, and that declares none itself,
-   shows it as a one-element list: an element has no line of its own. A
-   column's example leads its cell in a typed table's dormant row; a table's
-   own example rides the table's line.
-
-   A `matrix` declaring no `example:` takes a derived member hint here where it
-   declares columns or `open`, since its empty `{}` cell shows neither the
-   columns nor the spelling of an added item. It holds one member, present and so held:
+3. `# e.g. <members>`: emitted for a `matrix` declaring columns or `open`,
+   whose empty `{}` cell shows neither the columns nor the spelling of an
+   added item. It holds one member, present and so held:
    `# e.g. {flight_cc: {detail: text<plain>, earned: date<YYYY-MM-DD | today>}}`, and on
    an open matrix an added item after it, keyed by the placeholder id
    `new_item`: `# e.g. {flight_cc: {detail: text<plain>}, new_item: {title: text<plain>, detail: text<plain>}}`.
    The member is the roster's first and is illustrative only; the line exists
    to name the columns and the `title` an added item needs. Each column, and
-   the added item's `title`, shows its `example:`, else its `default:`, else its
-   container shape, else its inline annotation's `<type>[<format>]`: a type, not a value, quoted
+   the added item's `title`, shows its `default:`, else its container shape,
+   else its inline annotation's `<type>[<format>]`: a type, not a value, quoted
    where flow syntax would split it. A closed checklist (no columns) has no
    line, the bare tick being its whole spelling; an open one's member is that
-   tick, `flight_cc: true`. A matrix's own `example:` replaces the hint. The
-   line is a comment, so it takes the one-line flow form the emitter never
-   writes for a value.
+   tick, `flight_cc: true`. The line is a comment, so it takes the one-line
+   flow form the emitter never writes for a value.
 
 That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 `# type:`: those collapse into the inline.
@@ -288,9 +264,7 @@ One builder and one emitter serve both, so a dormant world is rendered exactly
 as a live one and then handed over as own-line comments. `to_markdown` writes
 the `# `, so a commented line is byte-for-byte the live line, and a comment
 *inside* the world arrives double-prefixed (`# # …`) by the same rule. A cell's
-position, type, description and `# e.g.` line all cross. A discriminant's
-`example:` leads the container as any slot's does; the live world stays the
-`default:`'s.
+position, type and description all cross.
 
 `Document::parse` reads the block back as the comments it is, so a dormant cell
 reaches neither the validator nor the render floor. Uncommenting one without
@@ -353,8 +327,7 @@ a **cell**, so it keeps its own literal. The outer key carries
   properties each carry their own description, inline annotation, and cell —
   its `default:`, else empty. That is the config-file spelling of an
   alternative: a reader adds a row by deleting the live line and uncommenting
-  the block, and leaving both live is a duplicate key. A property's `example:`
-  leads its cell in that row, double-prefixed as the row's other comments. The row is dormant
+  the block, and leaving both live is a duplicate key. The row is dormant
   because a live one would ship an empty element into the render. A `max: 0`
   table holds no row, so it has none.
 
@@ -434,40 +407,10 @@ draws, which a text blueprint has no second shape for.
 
 ## Bodies
 
-A body is empty unless its kind declares a `body.example`: the example is the
-body, a sample to replace, as the card is a sample to delete (`# sample card;
-delete if not needed`). A body takes a live sample where a field's example
-stays in a `# e.g.` comment because the two are written differently: prose is
-rewritten wholesale, so a sample in place shows its level and shape and is
-overwritten, while a field value is copied, so a sample in the cell would ship
-as the answer.
-
-A body declaring a `description` or an `example` opens with one HTML comment
-line, then a blank line, then the sample:
-
-```
-~~~
-…fields…
-~~~
-
-<!-- Plain paragraphs, numbered for you; a `-` item under one becomes a lettered subparagraph. Replace this sample body, e.g.: -->
-
-The Base Records Portal replaces the shared drive …
-```
-
-The comment holds the description, whitespace-collapsed as every label is,
-then `Replace this sample body, e.g.:` where a sample follows. With no
-description it is the phrase alone; with no example it is the description
-alone, and the body below it is empty. A `body.description` is one line, and
-neither key may hold `-->`, which would close the comment
-(`quill::body_comment_close`). The parse drops the comment and keeps the
-sample, so the parsed body is the imported `body.example`, the body the
-[example document](#the-blueprint-and-the-seeded-document) commits.
-
-A kind under `body.enabled: false` closes its payload with `# no body`,
-directly above the body, whose emptiness would otherwise read as awaiting
-prose, and has no comment: it declares no `description` or `example`
-(`quill::invalid_body`). A kind taking a body has no body line.
+Every body is empty: a body is a cell. A kind under
+`body.enabled: false` closes its payload with `# no body`, directly above the
+body, whose emptiness would otherwise read as awaiting prose; a kind taking a
+body has no body line.
 
 A composable card's emitted block — its `$kind` line, the `composable
 (0..N)` / sample-card comments, its fields, and its body — is one sample
@@ -499,8 +442,7 @@ date: # date<YYYY-MM-DD | today>
 
 `blueprint()` guarantees the emitted document is **parseable** *and*
 **renders**: every field key is present, every value is YAML-valid, the
-parsed document round-trips through `to_markdown` and `Document::parse`, each
-body's comment the one line lost, and every
+document round-trips through `Document::parse` and back, and every
 cell is type-valid. A defaulted cell coerces and validates against its default;
 a defaultless cell is empty, and because **null ≡ absent** (a present-null cell
 blank-fills at render, just like an omitted field) it renders cleanly and draws
@@ -547,8 +489,7 @@ degrades gracefully on every type-valid input shape. The contract requires:
 The contract is enforced by fixture tests that render each bundled quill's
 empty document (`quiver_test.rs::every_quill_renders_an_empty_document`) and, for
 the `blueprint()` guarantee above, parse, round-trip, and render each quill's
-generated blueprint with its sample bodies, which equal the example document's
-(`quiver_test.rs::every_quill_blueprint_round_trips_and_renders`).
+generated blueprint (`quiver_test.rs::every_quill_blueprint_round_trips_and_renders`).
 
 A quill outside that directory is bound by the same contract and reaches it
 through `quillmark validate`, which renders all three canonical documents — the
@@ -559,31 +500,28 @@ as a `cli::canonical_document_failed` error naming which of the three it is
 ## The blueprint and the seeded document
 
 The blueprint is the **one** annotated reference document. Its structured
-counterparts are **seeding**, which materializes a real `Document` rather than a
-second annotated string, and the **example document**, the seed with the
-quill's examples committed.
+counterpart is **seeding**, which materializes a real `Document` rather than a
+second annotated string.
 
 | Projection | Intent | Field values | Output | Annotated? |
 |---|---|---|---|---|
 | `blueprint` | *"give me the form to fill"* | non-blank `default:` › empty | annotated string | yes |
 | seeding | *"give me a starter document"* | kind `seed:` › absent | committed `Document` | no |
-| example document | *"show me the quill in use"* | `example:` › kind `seed:` › absent | committed `Document` | no |
 
 The **blueprint** column is this doc's contract (above). The **seeding**
 column is owned by [SCHEMAS.md](SCHEMAS.md) § "Document seeding": each card
 carries its kind's `seed:` and no other field, so a seeded document renders
 every other field at the render floor's `default: → blank`
-([SCHEMAS.md](SCHEMAS.md) § "Blank-filled render"). The example document is
-[SCHEMAS.md](SCHEMAS.md) § "The example document"'s.
+([SCHEMAS.md](SCHEMAS.md) § "Blank-filled render").
 
 ## Bindings surface
 
 | Binding | Accessor |
 |---|---|
-| Rust | `QuillConfig::blueprint() -> String`; the seeded document is `Quill::seed_document() -> Document`; the empty document is `Quill::empty_document() -> Document`; the example document is `Quill::example_document() -> Option<Document>` |
-| Wasm | `Quill.blueprint` getter; `Quill.seedDocument()`; `Quill.emptyDocument()`; `Quill.exampleDocument()` |
-| Python | `Quill.blueprint` property; `Quill.seed_document()`; `Quill.empty_document()`; `Quill.example_document()` |
-| CLI | `quillmark blueprint <QUILL_PATH>`; `render` with no input file renders the **seeded** document; `validate` renders all three, then the example document |
+| Rust | `QuillConfig::blueprint() -> String`; the seeded document is `Quill::seed_document() -> Document`; the empty document is `Quill::empty_document() -> Document` |
+| Wasm | `Quill.blueprint` getter; `Quill.seedDocument()`; `Quill.emptyDocument()` |
+| Python | `Quill.blueprint` property; `Quill.seed_document()`; `Quill.empty_document()` |
+| CLI | `quillmark blueprint <QUILL_PATH>`; `render` with no input file renders the **seeded** document; `validate` renders all three |
 
 The Rust example `cargo run -p quillmark-core --example print_blueprint
 -- <quill_name> [<version>]` prints the blueprint for any bundled

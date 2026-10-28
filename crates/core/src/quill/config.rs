@@ -1451,64 +1451,40 @@ impl QuillConfig {
         }
     }
 
-    /// Refuse a body's `description` or `example` the blueprint cannot carry:
-    /// beside `enabled: false` (`quill::invalid_body`), or holding `-->`
-    /// (`quill::body_comment_close`), which would close the one-line HTML
-    /// comment the blueprint opens the body with. The description sits on that
-    /// line, so it is one line as a field's is (`quill::description_multiline`).
+    /// Refuse a body's `description` or `example` beside `enabled: false`,
+    /// which takes no body (`quill::invalid_body`).
     fn validate_card_body(label: &str, card: &CardSchema, errors: &mut Vec<Diagnostic>) {
         let Some(body) = card.body.as_ref() else {
             return;
         };
-        let declared: Vec<(&str, &str)> = [
-            body.description.as_deref().map(|text| ("description", text)),
-            body.example.as_deref().map(|text| ("example", text)),
+        if card.body_enabled() {
+            return;
+        }
+        let keys: Vec<&str> = [
+            body.description.as_ref().map(|_| "description"),
+            body.example.as_ref().map(|_| "example"),
         ]
         .into_iter()
         .flatten()
         .collect();
-        if !card.body_enabled() {
-            if declared.is_empty() {
-                return;
-            }
-            let keys: Vec<&str> = declared.iter().map(|(key, _)| *key).collect();
-            errors.push(
-                Diagnostic::new(
-                    Severity::Error,
-                    format!(
-                        "Invalid '{label}.body' block: `{}` describes a body, and \
-                         `enabled: false` takes none.",
-                        keys.join("` and `")
-                    ),
-                )
-                .with_code("quill::invalid_body".to_string())
-                .with_hint(format!(
-                    "Remove `{}`, or drop `enabled: false`.",
-                    keys.join("` and `")
-                )),
-            );
+        if keys.is_empty() {
             return;
         }
-        Self::validate_description_singleline(
-            body.description.as_deref(),
-            &format!("{label}.body"),
-            errors,
+        errors.push(
+            Diagnostic::new(
+                Severity::Error,
+                format!(
+                    "Invalid '{label}.body' block: `{}` describes a body, and \
+                     `enabled: false` takes none.",
+                    keys.join("` and `")
+                ),
+            )
+            .with_code("quill::invalid_body".to_string())
+            .with_hint(format!(
+                "Remove `{}`, or drop `enabled: false`.",
+                keys.join("` and `")
+            )),
         );
-        for (key, text) in declared {
-            if text.contains("-->") {
-                errors.push(
-                    Diagnostic::new(
-                        Severity::Error,
-                        format!(
-                            "'{label}.body.{key}' holds `-->`, which would close the HTML \
-                             comment the blueprint opens the body with."
-                        ),
-                    )
-                    .with_code("quill::body_comment_close".to_string())
-                    .with_hint("Reword the text without `-->`.".to_string()),
-                );
-            }
-        }
     }
 
     /// Validate a card's group registry and every card-level field's `ui.group`

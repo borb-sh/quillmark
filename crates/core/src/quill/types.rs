@@ -154,12 +154,10 @@ pub struct BodyCardSchema {
     /// When false, consumers must not accept or store body content for instances of this card kind.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
-    /// What the body holds, for the writer: one line, which the blueprint's
-    /// HTML comment opening the body carries.
+    /// What the body holds, for the writer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// A made-up body in markdown, which imports without a drop: the
-    /// blueprint's sample body, and the body
+    /// A made-up body in markdown, which imports without a drop: the body
     /// [`Quill::example_document`](crate::quill::Quill::example_document)
     /// commits.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -599,8 +597,7 @@ pub struct FieldSchema {
     /// The value most authors want; interpolated when the field is omitted.
     pub default: Option<QuillValue>,
     /// A made-up value of the slot's type, checked at load as
-    /// [`default`](Self::default) is. It never answers a cell: the blueprint
-    /// shows it on a `# e.g.` line and
+    /// [`default`](Self::default) is. It never answers a cell:
     /// [`Quill::example_document`](crate::quill::Quill::example_document)
     /// commits it.
     pub example: Option<QuillValue>,

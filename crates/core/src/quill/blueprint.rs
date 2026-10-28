@@ -2,11 +2,8 @@
 //! document dense enough to replace the schema for LLM consumers.
 //!
 //! `blueprint()` builds a [`Document`] and emits it through
-//! [`Document::to_markdown`], so its payloads round-trip through
-//! `Document::parse` by construction: there is no second formatter. The one
-//! splice after it opens a body with the HTML comment carrying the body's
-//! `description` and the phrase introducing its sample, a comment the parse
-//! drops.
+//! [`Document::to_markdown`], so the blueprint round-trips through
+//! `Document::parse` by construction: there is no second formatter.
 
 use indexmap::IndexMap;
 
@@ -29,8 +26,7 @@ impl QuillConfig {
     /// over any valid `QuillConfig`.
     ///
     /// The result is guaranteed schema-valid and parseable (every key
-    /// present, every value type-correct), and it parses back to itself less
-    /// each body's comment. It is *not* guaranteed to render:
+    /// present, every value type-correct). It is *not* guaranteed to render:
     /// that is the quill authoring contract on `plate.typ`; see
     /// `prose/canon/BLUEPRINT.md` §Guarantees.
     ///
@@ -38,40 +34,9 @@ impl QuillConfig {
     pub fn blueprint(&self) -> String {
         let main = build_main_card(&self.main, super::seed::main_reference(self));
         let cards = self.card_kinds.iter().map(build_card).collect();
-        let comments: Vec<Option<String>> = std::iter::once(&self.main)
-            .chain(&self.card_kinds)
-            .map(body_comment)
-            .collect();
 
-        splice_body_comments(&Document::from_main_and_cards(main, cards).to_markdown(), &comments)
+        Document::from_main_and_cards(main, cards).to_markdown()
     }
-}
-
-/// Open each card's body with its comment, `comments` holding one entry per
-/// card in document order: after the card's closing fence, a blank line and
-/// the comment, then the blank line the body or the next fence already takes.
-/// Every column-zero `~~~` line of the emitted string is a fence, neither a
-/// payload nor an exported body ever starting a line with one, so a card's
-/// closing fence is its second.
-fn splice_body_comments(markdown: &str, comments: &[Option<String>]) -> String {
-    let mut out = String::with_capacity(markdown.len());
-    let mut fences = 0;
-    for line in markdown.split_inclusive('\n') {
-        out.push_str(line);
-        if !line.starts_with("~~~") {
-            continue;
-        }
-        fences += 1;
-        if fences % 2 == 1 {
-            continue;
-        }
-        if let Some(Some(comment)) = comments.get(fences / 2 - 1) {
-            out.push('\n');
-            out.push_str(comment);
-            out.push('\n');
-        }
-    }
-    out
 }
 
 /// Whitespace-collapse a description into a single line; `None` when it
@@ -90,48 +55,12 @@ fn label_line(title: Option<&str>, description: Option<&str>) -> Option<String> 
     }
 }
 
-/// The line closing the payload of a kind taking no body: `# no body`.
+/// The line closing the payload of a kind taking no body: `# no body`. A body
+/// is left empty as a field's cell is.
 fn push_body_line(items: &mut CardItems, card: &CardSchema) {
     if !card.body_enabled() {
         items.push(PayloadItem::comment("no body"));
     }
-}
-
-/// The phrase that introduces a sample body in its comment.
-const SAMPLE_BODY: &str = "Replace this sample body, e.g.:";
-
-/// A body's `example`, where it declares a non-blank one and is enabled.
-fn body_example(card: &CardSchema) -> Option<&str> {
-    card.body
-        .as_ref()?
-        .example
-        .as_deref()
-        .filter(|text| card.body_enabled() && !text.trim().is_empty())
-}
-
-/// A card's body: the imported [`body_example`], a sample to replace, else
-/// empty, as a field's cell is. The load imported it once already.
-fn body_sample(card: &CardSchema) -> Normalized {
-    body_example(card)
-        .and_then(|text| crate::document::import_body(text).ok())
-        .unwrap_or_else(Normalized::empty)
-}
-
-/// The one-line HTML comment opening a body: its description,
-/// whitespace-collapsed, then [`SAMPLE_BODY`] where a sample follows. `None`
-/// where the body is disabled or declares neither.
-fn body_comment(card: &CardSchema) -> Option<String> {
-    if !card.body_enabled() {
-        return None;
-    }
-    let description = collapse_opt(card.body.as_ref()?.description.as_deref());
-    let text = match (description, body_example(card).is_some()) {
-        (Some(description), true) => format!("{description} {SAMPLE_BODY}"),
-        (None, true) => SAMPLE_BODY.to_string(),
-        (Some(description), false) => description,
-        (None, false) => return None,
-    };
-    Some(format!("<!-- {text} -->"))
 }
 
 /// A card's payload under construction: entries in source order beside the
@@ -181,7 +110,7 @@ fn build_main_card(card: &CardSchema, reference: QuillReference) -> Card {
     }
     append_fields(&mut items, card);
     push_body_line(&mut items, card);
-    Card::from_parts(items.into_payload(), body_sample(card))
+    Card::from_parts(items.into_payload(), Normalized::empty())
 }
 
 /// Build a composable card: `$kind: <kind>` carrying the optional
@@ -199,7 +128,7 @@ fn build_card(card: &CardSchema) -> Card {
     items.push(PayloadItem::comment("sample card; delete if not needed"));
     append_fields(&mut items, card);
     push_body_line(&mut items, card);
-    Card::from_parts(items.into_payload(), body_sample(card))
+    Card::from_parts(items.into_payload(), Normalized::empty())
 }
 
 /// Append every field of a card as payload items, in declaration order: the
@@ -307,11 +236,11 @@ fn matrix_eg(field: &FieldSchema) -> Option<String> {
     Some(format!("{{{}}}", members.join(", ")))
 }
 
-/// One column's value in a matrix hint: `example:` › `default:` › its
-/// container shape › its inline annotation's `<type>[<format>]`, quoted where
-/// flow syntax would split it.
+/// One column's value in a matrix hint: `default:` › its container shape ›
+/// its inline annotation's `<type>[<format>]`, quoted where flow syntax would
+/// split it.
 fn column_hint(col: &FieldSchema) -> String {
-    if let Some(value) = col.example.as_ref().map(QuillValue::as_json).or(shown_default(col)) {
+    if let Some(value) = shown_default(col) {
         return saphyr_emit_flow(value);
     }
     if matches!(col.r#type, FieldType::Matrix { .. }) {
@@ -359,7 +288,7 @@ fn typed_table_props(field: &FieldSchema) -> Option<&IndexMap<String, Box<FieldS
 }
 
 /// Push the leading prose comments for a *top-level* field: the
-/// [`label_line`], the cap, then the [`eg_text`] line.
+/// [`label_line`], the cap, then a matrix's `# e.g.` hint.
 fn push_leading(items: &mut CardItems, field: &FieldSchema) {
     if let Some(label) = label_line(field.title.as_deref(), field.description.as_deref()) {
         items.push(PayloadItem::comment(label));
@@ -367,28 +296,9 @@ fn push_leading(items: &mut CardItems, field: &FieldSchema) {
     if let Some(cap) = cap_hint(field) {
         items.push(PayloadItem::comment(cap));
     }
-    if let Some(eg) = eg_text(field) {
+    if let Some(eg) = matrix_eg(field) {
         items.push(PayloadItem::comment(format!("e.g. {eg}")));
     }
-}
-
-/// The text after `# e.g. ` for a field, in one-line flow form: its
-/// `example:`, else, on an array of scalars, its element's example as a
-/// one-element list, the element having no line of its own, else a matrix's
-/// member hint.
-fn eg_text(field: &FieldSchema) -> Option<String> {
-    if let Some(example) = &field.example {
-        return Some(saphyr_emit_flow(example.as_json()));
-    }
-    let element = field
-        .items
-        .as_deref()
-        .filter(|_| matches!(field.r#type, FieldType::Array))
-        .and_then(|items| items.example.as_ref());
-    if let Some(element) = element {
-        return Some(saphyr_emit_flow(&JsonValue::Array(vec![element.as_json().clone()])));
-    }
-    matrix_eg(field)
 }
 
 /// The `# up to <N>` leading line for a capped array, `# up to <N> characters`
@@ -432,7 +342,7 @@ fn append_scalar(items: &mut CardItems, field: &FieldSchema) {
 
 /// Build the per-property body of a defaultless typed container into `map`:
 /// each property at its own cell in declaration order, plus the nested comments
-/// ([`label_line`] + cap + [`eg_text`] + [`dormant_table`] + inline type annotation,
+/// ([`label_line`] + a matrix's `# e.g.` + [`dormant_table`] + inline type annotation,
 /// addressed by `container_path`/slot). `prefix` is the container path of the
 /// mapping relative to the value it is rendered in (`[]` for a typed dict,
 /// `[Key(<field>), Index(0)]` for a typed table's dormant row).
@@ -464,7 +374,7 @@ fn build_property_mapping(
                 inline: false,
             });
         }
-        if let Some(eg) = eg_text(prop) {
+        if let Some(eg) = matrix_eg(prop) {
             nested.push(NestedComment {
                 container_path: prefix.to_vec(),
                 position: slot,
@@ -1286,116 +1196,6 @@ card_kinds:
       label: { type: text }
       pages: { type: integer, default: 1 }
 "#;
-
-    /// An `example:` leads its slot's cell as `# e.g.` in flow form, after the
-    /// label and the cap, at every depth: a dictionary's property, a dormant
-    /// row's column, a dormant world's cell double-prefixed. A table's own
-    /// example rides the table's line, a matrix's replaces the derived member
-    /// hint, and a scalar element's is a one-element list on its array's. The
-    /// cell keeps its `default:` or stays empty.
-    #[test]
-    fn an_example_leads_its_cell_at_every_slot() {
-        let t = cfg(r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    status: { type: text, description: Where it stands, max: 10, default: draft, example: final }
-    tags: { type: array, items: { type: text, example: "a, b" } }
-    address:
-      type: object
-      properties:
-        city: { type: text, example: Springfield }
-    rows:
-      type: array
-      items:
-        type: object
-        properties:
-          org: { type: text, example: ACME }
-    staff:
-      type: array
-      example: [{ name: J. Doe }]
-      items:
-        type: object
-        properties:
-          name: { type: text }
-    quals:
-      type: matrix
-      members: { cc: CC }
-      example: { cc: { detail: x } }
-      properties:
-        detail: { type: text }
-    marking:
-      type: enum
-      values: [PUBLIC, CUI]
-      example: CUI
-      variants:
-        CUI:
-          poc: { type: text, example: J. Doe }
-"#)
-        .blueprint();
-        for expected in [
-            "# Where it stands\n# up to 10 characters\n# e.g. final\nstatus: draft # text<plain>\n",
-            "# e.g. [\"a, b\"]\ntags: # array<text<plain>>\n",
-            "address: # object\n  # e.g. Springfield\n  city: # text<plain>\n",
-            "# rows:\n#   -\n#     # e.g. ACME\n#     org: # text<plain>\nrows: [] # array<object>\n",
-            "# e.g. [{name: J. Doe}]\n",
-            "# e.g. {cc: {detail: x}}\nquals: {} # matrix<cc>\n",
-            "# e.g. CUI\nmarking: # enum<PUBLIC | CUI>\n",
-            "  # when CUI:\n  # # e.g. J. Doe\n  # poc: # text<plain>\n",
-        ] {
-            assert!(t.contains(expected), "lacks {expected:?}:\n{t}");
-        }
-        let doc1 = Document::parse(&t).expect("blueprint must parse").document;
-        let doc2 = Document::parse(&doc1.to_markdown()).expect("re-emit must parse").document;
-        assert_eq!(doc1, doc2);
-    }
-
-    /// A body declaring a description or an example opens with one comment
-    /// line, and an example is the body itself, a sample to replace. The parse
-    /// drops the comment and keeps the sample.
-    #[test]
-    fn a_body_opens_with_its_comment_over_its_sample() {
-        let t = cfg(r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  body:
-    description: "Plain   paragraphs."
-    example: "First *paragraph*.\n\n- an item\n"
-  fields:
-    to: { type: text }
-card_kinds:
-  note:
-    body: { example: Concur. }
-    fields:
-      author: { type: text }
-  aside:
-    body: { description: One line. }
-    fields:
-      by: { type: text }
-  skills:
-    body: { enabled: false }
-    fields:
-      items: { type: array, items: { type: text } }
-"#)
-        .blueprint();
-        for expected in [
-            "~~~\n\n<!-- Plain paragraphs. Replace this sample body, e.g.: -->\n\nFirst *paragraph*.\n\n- an item\n\n~~~\n",
-            "~~~\n\n<!-- Replace this sample body, e.g.: -->\n\nConcur.\n\n~~~\n",
-            "~~~\n\n<!-- One line. -->\n\n~~~\n",
-        ] {
-            assert!(t.contains(expected), "lacks {expected:?}:\n{t}");
-        }
-        assert!(t.ends_with("# no body\n~~~\n"), "{t}");
-
-        let doc1 = Document::parse(&t).expect("blueprint must parse").document;
-        let doc2 = Document::parse(&doc1.to_markdown()).expect("re-emit must parse").document;
-        assert_eq!(doc1, doc2);
-        let bodies: Vec<String> = std::iter::once(doc1.main())
-            .chain(doc1.cards())
-            .map(|card| quillmark_content::export::to_markdown(card.body()))
-            .collect();
-        assert_eq!(bodies, ["First *paragraph*.\n\n- an item", "Concur.", "", ""]);
-    }
 
     #[test]
     fn blueprint_round_trips_idempotently() {

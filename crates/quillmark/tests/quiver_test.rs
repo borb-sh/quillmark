@@ -8,9 +8,8 @@
 //! The three documents reach a template with different cells filled, and none
 //! subsumes another. An empty document is the type-minimal valid input, so a
 //! template that renders it degrades gracefully on any valid input. The
-//! blueprint commits every non-blank `default:`, leaves every other cell empty,
-//! and carries each `body.example` as its sample body. The seeded document
-//! carries one card per declared kind, each body its seed's.
+//! blueprint commits every non-blank `default:` and leaves every other cell empty.
+//! The seeded document carries one card per declared kind, each body empty.
 //!
 //! A quill's example document, where it declares examples, is the one document
 //! with values in every cell that has one, and renders without a diagnostic.
@@ -76,19 +75,6 @@ fn every_quill_blueprint_round_trips_and_renders() {
             .unwrap_or_else(|e| panic!("quill '{name}' blueprint re-emit failed to parse: {e:?}"))
             .document;
         assert_eq!(doc1, doc2, "quill '{name}': blueprint must round-trip");
-        if let Some(example) = quill.example_document() {
-            let bodies = |doc: &Document| -> Vec<_> {
-                std::iter::once(doc.main())
-                    .chain(doc.cards())
-                    .map(|card| card.body().clone())
-                    .collect()
-            };
-            assert_eq!(
-                bodies(&doc1),
-                bodies(&example),
-                "quill '{name}': the blueprint's sample bodies are the example's"
-            );
-        }
 
         ENGINE
             .render(

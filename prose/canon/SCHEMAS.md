@@ -293,9 +293,9 @@ alone, as an index step is, so an unheld member's address resolves
 
 **Blueprint.** The blueprint shows the vocabulary through its roster
 ([BLUEPRINT.md](BLUEPRINT.md#inline-annotation)), the cell as its `default:` or
-`{}`, and, in the `# e.g.` line, the matrix's `example:`, else the columns
-through one illustrative held member and the added spelling through a
-placeholder item; a filled specimen is the quill's maximal fixture.
+`{}`, and, in the `# e.g.` line, the columns through one illustrative held
+member and the added spelling through a placeholder item; a filled specimen is
+the quill's maximal fixture.
 
 **Implementation.** The loader derives two object schemas from the columns: a
 roster member's (`FieldSchema::member`) and an open matrix's added item's, a
@@ -1220,16 +1220,14 @@ discriminant alone. It may sit beside a `default`, and on an optional cell.
 
 An `example` never answers a cell: the ladder stays authored › `default:` ›
 blank, and no document commits it but the
-[example document](#the-example-document). The blueprint shows it on the slot's
-`# e.g.` line ([BLUEPRINT.md](BLUEPRINT.md#leading-lines-order)).
+[example document](#the-example-document). `schema()` emits it after
+`default`; the blueprint does not show it.
 
-A card's `body` block takes two keys beside `enabled`, both text the blueprint
-shows: `description`, one line saying what the body holds, and `example`,
-markdown that imports without a drop (`quill::richtext_example_import`). The
-example is the blueprint's sample body and the example document's body. Either
-beside `enabled: false` is `quill::invalid_body`, and either holding `-->`,
-which would close the comment the blueprint opens the body with, is
-`quill::body_comment_close` ([BLUEPRINT.md](BLUEPRINT.md#bodies)).
+A card's `body` block takes two keys beside `enabled`: `description`, text
+saying what the body holds, and `example`, markdown that imports without a drop
+(`quill::richtext_example_import`), which is the example document's body.
+Either beside `enabled: false` is `quill::invalid_body`. `schema()` emits both;
+the blueprint shows neither, and its bodies stay empty.
 
 Identity fields (`name`, `version`, `backend`, `author`, `description`, and `license` / `homepage` when declared) live on the parent metadata object (Wasm: `Quill.metadata` getter; Python: `Quill.metadata`). Both bindings also expose `backend_id`/`backendId` directly; Python additionally exposes `quill_ref`, a derived `name@version` string.
 

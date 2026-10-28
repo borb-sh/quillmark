@@ -51,10 +51,10 @@ export interface QuillCardUi {
 export interface QuillCardBody {
     /** When false, consumers must not accept or store body content for this card kind. Defaults to true. */
     enabled?: boolean;
-    /** What the body holds, for the writer: one line. Never beside `enabled: false`. */
+    /** What the body holds, for the writer. Never beside `enabled: false`. */
     description?: string;
-    /** A made-up body in markdown: the blueprint's sample body, and the body
-     *  `exampleDocument()` commits. Never beside `enabled: false`. */
+    /** A made-up body in markdown, which `exampleDocument()` commits. Never
+     *  beside `enabled: false`. */
     example?: string;
 }
 
@@ -64,8 +64,7 @@ export type QuillFieldType = "number" | "integer" | "boolean" | "array" | "objec
  *
  * `default` is the value an unanswered cell renders. An absent field without a
  * `default` blank-fills. `example` is a made-up value of the same type, which
- * answers no cell: the blueprint shows it on a `# e.g.` line and
- * `exampleDocument()` commits it.
+ * answers no cell: `exampleDocument()` commits it.
  */
 export interface QuillFieldSchema {
     /** A trailing `?` marks the cell optional: unanswered, it renders `none`

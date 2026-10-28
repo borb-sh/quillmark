@@ -32,7 +32,7 @@ The value a field takes when a document leaves it out, declared as `default:` in
 
 ## example
 
-A quill filled in with made-up values: the seeded document with each `example` its fields and bodies declare in `Quill.yaml` committed. A quill field's `example` is also the blueprint's `# e.g.` line.
+A quill filled in with made-up values: the seeded document with each `example` its fields and bodies declare in `Quill.yaml` committed.
 
 ## field
 
