@@ -10,6 +10,18 @@ use super::Quill;
 pub const EXAMPLE_FILE: &str = "example.md";
 
 impl Quill {
+    /// The annotated blueprint ([`QuillConfig::blueprint`](super::QuillConfig::blueprint)), each body closed
+    /// by the shape of the example document's body for that kind under a
+    /// `# body e.g.` comment. Without an example, or one that fails to parse,
+    /// it is the config's blueprint.
+    pub fn blueprint(&self) -> String {
+        let example = self
+            .example_document()
+            .and_then(|example| example.ok())
+            .map(|parsed| parsed.document);
+        self.config.blueprint_with_example(example.as_ref())
+    }
+
     /// The quill's example document, `None` when the quill has no
     /// [`EXAMPLE_FILE`] at its root: a filled-in page whose values are made up
     /// to show what the quill looks like in use. Nobody keeps it; starter
