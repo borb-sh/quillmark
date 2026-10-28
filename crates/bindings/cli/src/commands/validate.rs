@@ -221,7 +221,7 @@ fn validate_renders(
         println!("  Rendering the canonical documents to {}", format);
     }
 
-    let blueprint = quill.blueprint();
+    let blueprint = quill.config().blueprint();
     let documents = [
         ("empty", Ok(quill.empty_document())),
         (

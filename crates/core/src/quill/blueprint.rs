@@ -32,30 +32,8 @@ impl QuillConfig {
     ///
     /// [`Document`]: crate::document::Document
     pub fn blueprint(&self) -> String {
-        self.blueprint_with_example(None)
-    }
-
-    /// The blueprint, each body closed by a `# body e.g.` block showing the
-    /// shape of the example document's body for that kind: its blocks with the
-    /// prose replaced by placeholders, a run of same-shaped blocks shown once.
-    /// A kind the example leaves bodiless, or no example, closes as
-    /// [`blueprint`](Self::blueprint) does.
-    pub(crate) fn blueprint_with_example(&self, example: Option<&Document>) -> String {
-        let main_body = example.map(|doc| doc.main().body());
-        let main = build_main_card(&self.main, super::seed::main_reference(self), main_body);
-        let cards = self
-            .card_kinds
-            .iter()
-            .map(|card| {
-                let body = example.and_then(|doc| {
-                    doc.cards()
-                        .iter()
-                        .find(|c| c.kind() == Some(card.name.as_str()) && !c.body().is_blank())
-                        .map(|c| c.body())
-                });
-                build_card(card, body)
-            })
-            .collect();
+        let main = build_main_card(&self.main, super::seed::main_reference(self));
+        let cards = self.card_kinds.iter().map(build_card).collect();
 
         Document::from_main_and_cards(main, cards).to_markdown()
     }
@@ -77,137 +55,12 @@ fn label_line(title: Option<&str>, description: Option<&str>) -> Option<String> 
     }
 }
 
-/// The lines closing the payload: `# no body` for a kind taking none, else
-/// the [`body_shape`] of the example's body under `# body e.g.` where the
-/// example has one. A body is left empty as a field's cell is.
-fn push_body_line(items: &mut CardItems, card: &CardSchema, example_body: Option<&Normalized>) {
+/// The line closing the payload of a kind taking no body: `# no body`. A body
+/// is left empty as a field's cell is.
+fn push_body_line(items: &mut CardItems, card: &CardSchema) {
     if !card.body_enabled() {
         items.push(PayloadItem::comment("no body"));
-        return;
     }
-    let Some(body) = example_body.filter(|b| !b.is_blank()) else {
-        return;
-    };
-    items.push(PayloadItem::comment("body e.g."));
-    for line in body_shape(body) {
-        items.push(PayloadItem::comment(line));
-    }
-}
-
-/// The shape of a body as Markdown lines: each block's markers kept, its text
-/// a placeholder naming the block, and each shape shown once, where it first
-/// occurs, so five paragraphs around a lettered list read as one paragraph and
-/// one item. The shape is what the example shows that the schema cannot: which
-/// level the prose sits at.
-fn body_shape(body: &Normalized) -> Vec<String> {
-    use quillmark_content::model::{Container, Line, LineKind};
-
-    fn container_shape(c: &Container) -> (u8, bool, u64) {
-        match c {
-            Container::ListItem { ordered, start, .. } => (0, *ordered, *start),
-            Container::Quote { .. } => (1, false, 0),
-        }
-    }
-    fn block_shape(line: &Line) -> (String, Vec<(u8, bool, u64)>) {
-        let kind = match &line.kind {
-            LineKind::Para => "p".to_string(),
-            LineKind::Heading { level } => format!("h{level}"),
-            LineKind::Code { .. } => "code".to_string(),
-            LineKind::Rule => "rule".to_string(),
-        };
-        (kind, line.containers.iter().map(container_shape).collect())
-    }
-    fn in_list(line: &Line) -> bool {
-        matches!(line.containers.last(), Some(Container::ListItem { .. }))
-    }
-    fn prefix(line: &Line, prev: Option<&Line>) -> String {
-        let mut out = String::new();
-        for (depth, c) in line.containers.iter().enumerate() {
-            match c {
-                Container::Quote { .. } => out.push_str("> "),
-                Container::ListItem {
-                    ordered,
-                    start,
-                    checked,
-                    ..
-                } => {
-                    let marker = if *ordered {
-                        format!("{start}. ")
-                    } else {
-                        "- ".to_string()
-                    };
-                    let marker = match checked {
-                        Some(true) => format!("{marker}[x] "),
-                        Some(false) => format!("{marker}[ ] "),
-                        None => marker,
-                    };
-                    let same_item = prev
-                        .and_then(|p| p.containers.get(depth))
-                        .is_some_and(|pc| pc == c)
-                        && prev.is_some_and(|p| p.containers[..depth] == line.containers[..depth]);
-                    if same_item {
-                        out.push_str(&" ".repeat(marker.len()));
-                    } else {
-                        out.push_str(&marker);
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    let lines = &body.lines;
-    let mut out: Vec<String> = Vec::new();
-    let mut shown: Vec<(String, Vec<(u8, bool, u64)>)> = Vec::new();
-    let mut skipping = false;
-    let mut prev: Option<&Line> = None;
-    let mut last_emitted: Option<&Line> = None;
-    for line in lines {
-        if line.continues {
-            if !skipping {
-                match line.kind {
-                    LineKind::Para => {
-                        if let Some(last) = out.last_mut() {
-                            last.push('\\');
-                        }
-                        out.push(format!("{}<line>", prefix(line, prev)));
-                    }
-                    _ => {}
-                }
-            }
-            prev = Some(line);
-            continue;
-        }
-        let shape = block_shape(line);
-        if shown.contains(&shape) {
-            skipping = true;
-            prev = Some(line);
-            continue;
-        }
-        skipping = false;
-        if let Some(last) = last_emitted {
-            if !(in_list(last) && in_list(line)) {
-                out.push(String::new());
-            }
-        }
-        let pre = prefix(line, prev);
-        match &line.kind {
-            LineKind::Para => out.push(format!("{pre}<paragraph>")),
-            LineKind::Heading { level } => {
-                out.push(format!("{pre}{} <heading>", "#".repeat(*level as usize)))
-            }
-            LineKind::Code { lang } => {
-                out.push(format!("{pre}```{}", lang.as_deref().unwrap_or("")));
-                out.push(format!("{pre}<code>"));
-                out.push(format!("{pre}```"));
-            }
-            LineKind::Rule => out.push(format!("{pre}---")),
-        }
-        shown.push(shape);
-        last_emitted = Some(line);
-        prev = Some(line);
-    }
-    out
 }
 
 /// A card's payload under construction: entries in source order beside the
@@ -245,11 +98,7 @@ impl CardItems {
 /// Build the root card: `$quill` (with the `# keep verbatim` inline reminder),
 /// `$kind: main` carrying the optional [`label_line`] inline, the fields, then
 /// the [`push_body_line`]. Inline, the label cannot read as the first field's.
-fn build_main_card(
-    card: &CardSchema,
-    reference: QuillReference,
-    example_body: Option<&Normalized>,
-) -> Card {
+fn build_main_card(card: &CardSchema, reference: QuillReference) -> Card {
     let mut items = CardItems::default();
     items.push(PayloadItem::Quill { reference });
     items.push(PayloadItem::comment_inline("keep verbatim"));
@@ -260,14 +109,14 @@ fn build_main_card(
         items.push(PayloadItem::comment_inline(label));
     }
     append_fields(&mut items, card);
-    push_body_line(&mut items, card, example_body);
+    push_body_line(&mut items, card);
     Card::from_parts(items.into_payload(), Normalized::empty())
 }
 
 /// Build a composable card: `$kind: <kind>` carrying the optional
 /// [`label_line`] inline, the `composable (0..N)` role comment, a comment
 /// naming it a deletable sample, the fields, then the [`push_body_line`].
-fn build_card(card: &CardSchema, example_body: Option<&Normalized>) -> Card {
+fn build_card(card: &CardSchema) -> Card {
     let mut items = CardItems::default();
     items.push(PayloadItem::Kind {
         value: card.name.clone(),
@@ -278,7 +127,7 @@ fn build_card(card: &CardSchema, example_body: Option<&Normalized>) -> Card {
     items.push(PayloadItem::comment("composable (0..N)"));
     items.push(PayloadItem::comment("sample card; delete if not needed"));
     append_fields(&mut items, card);
-    push_body_line(&mut items, card, example_body);
+    push_body_line(&mut items, card);
     Card::from_parts(items.into_payload(), Normalized::empty())
 }
 

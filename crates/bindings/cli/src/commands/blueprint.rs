@@ -13,7 +13,7 @@ pub struct BlueprintArgs {
 pub fn execute(args: BlueprintArgs) -> Result<()> {
     let quill = load_quill(&args.quill)?;
 
-    let blueprint = quill.blueprint();
+    let blueprint = quill.config().blueprint();
 
     println!("{}", blueprint);
 
