@@ -405,9 +405,10 @@ export interface Delta {
 }
 
 /**
- * The receipt of a markdown revise (`revise`, `writer.reviseBody`,
+ * The receipt of a revise (`revise`, `reviseContent`, `writer.reviseBody`,
  * `writer.reviseField`): the text `delta`, and one `parse::dropped_construct`
- * warning per construct the import dropped, anchored at the revised address.
+ * warning per construct a markdown import dropped, anchored at the revised
+ * address. `reviseContent` imports nothing, so its `warnings` is empty.
  */
 export interface Revised {
     delta: Delta;
@@ -1587,8 +1588,9 @@ impl Document {
 
     /// **Overwrite** the content value at `addr` with exactly `rt`: value
     /// semantics, so the identity anchors of any previous value are gone. By
-    /// anchor fate `overwrite` destroys, [`revise`](Document::revise) rebases,
-    /// and [`applyChange`](Document::apply_change) preserves. An absent
+    /// anchor fate `overwrite` destroys, [`revise`](Document::revise) and
+    /// [`reviseContent`](Document::revise_content) rebase, and
+    /// [`applyChange`](Document::apply_change) preserves. An absent
     /// `addr.field` targets the body, an absent `addr.card` the main card.
     ///
     /// Throws on an out-of-range card, a malformed field name, or an `rt` that is
@@ -1642,6 +1644,38 @@ impl Document {
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
         serialize_or_throw(&RevisedJs::from(revised), "revise")
+    }
+
+    /// **Revise** the richtext value at `addr` to `rt`, keeping each stored prose
+    /// anchor whose id `rt` does not hold: the content twin of
+    /// [`revise`](Document::revise), for a value built elsewhere such as a
+    /// merge's projection. Diffs `rt` against the current value, carries those
+    /// anchors through the diff, and returns the
+    /// `Revised` receipt, whose `delta` an editor bridge maps its own positions
+    /// through and whose `warnings` is empty. `rt`'s own anchors and island ids
+    /// land as they are. An absent `addr.field` targets the body, an absent
+    /// `addr.card` the main card; an absent field diffs from empty. Richtext
+    /// only: a `text` field takes `overwrite`.
+    ///
+    /// Throws on an out-of-range card, a malformed field name, a present
+    /// non-content field value, or an `rt` that is not a canonical content
+    /// object.
+    #[wasm_bindgen(js_name = reviseContent, unchecked_return_type = "Revised")]
+    pub fn revise_content(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let addr = Addr::from_js_or_string(&addr)?;
+        let content = js_to_authored_content(rt, "reviseContent")?;
+        let base = self.addr_base(&addr);
+        let mut card = self.addr_card_mut(&addr)?;
+        let revised = match &addr.field {
+            None => Ok(card.revise_body_content(content)),
+            Some(field) => card.revise_field_content(field, content),
+        }
+        .map_err(|e| edit_error_to_js(&e, &base))?;
+        serialize_or_throw(&RevisedJs::from(revised), "reviseContent")
     }
 
     /// The ABI under `writer.reviseDocument`: a whole-document revise, then
