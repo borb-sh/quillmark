@@ -51,6 +51,7 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::array_missing_items`
 - `quill::array_properties_not_supported`
 - `quill::bodiless_card_kind`
+- `quill::body_comment_close`
 - `quill::bundle_invalid`
 - `quill::bundle_path`
 - `quill::bundle_too_large`
@@ -69,7 +70,14 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::duplicate_group`
 - `quill::empty_description`
 - `quill::enum_blank_member`
+- `quill::example_format_violation`
+- `quill::example_held_stored`
+- `quill::example_not_in_enum`
+- `quill::example_on_namespace`
+- `quill::example_over_length`
+- `quill::example_over_max`
 - `quill::example_reference`
+- `quill::example_type_mismatch`
 - `quill::field_after_object`
 - `quill::field_parse_error`
 - `quill::format_literal_reserved_char`
@@ -108,6 +116,7 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::requires_unmet`
 - `quill::reserved_field_name`
 - `quill::richtext_default_import`
+- `quill::richtext_example_import`
 - `quill::seed_cardinality`
 - `quill::seed_enum_violation`
 - `quill::seed_format_violation`

@@ -145,7 +145,7 @@ impl std::fmt::Display for BlockConstruct {
 
 /// The keys [`BodyCardSchema`] deserializes, for the hint on a rejected
 /// `body:` section.
-pub(crate) const BODY_CARD_SCHEMA_KEYS: &[&str] = &["enabled"];
+pub(crate) const BODY_CARD_SCHEMA_KEYS: &[&str] = &["enabled", "description", "example"];
 
 /// Body namespace configuration for a card kind
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -154,6 +154,16 @@ pub struct BodyCardSchema {
     /// When false, consumers must not accept or store body content for instances of this card kind.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// What the body holds, for the writer: one line, which the blueprint's
+    /// HTML comment opening the body carries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// A made-up body in markdown, which imports without a drop: the
+    /// blueprint's sample body, and the body
+    /// [`Quill::example_document`](crate::quill::Quill::example_document)
+    /// commits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub example: Option<String>,
 }
 
 /// The keys [`UiCardSchema`] deserializes, for the hint on a rejected `ui:`
@@ -588,6 +598,12 @@ pub struct FieldSchema {
     pub description: Option<String>,
     /// The value most authors want; interpolated when the field is omitted.
     pub default: Option<QuillValue>,
+    /// A made-up value of the slot's type, checked at load as
+    /// [`default`](Self::default) is. It never answers a cell: the blueprint
+    /// shows it on a `# e.g.` line and
+    /// [`Quill::example_document`](crate::quill::Quill::example_document)
+    /// commits it.
+    pub example: Option<QuillValue>,
     pub ui: Option<UiFieldSchema>,
     /// Per-member field sets on an `enum` field, keyed by member (a subset of
     /// the domain the [`FieldType::Enum`] payload carries; the blank owns no
@@ -639,6 +655,7 @@ struct FieldSchemaDef {
     pub title: Option<String>,
     pub description: Option<String>,
     pub default: Option<QuillValue>,
+    pub example: Option<QuillValue>,
     pub ui: Option<UiFieldSchema>,
     /// The domain of a `type: enum` field, and the only spelling of one.
     /// Lands in the [`FieldType::Enum`] payload.
@@ -673,6 +690,7 @@ impl FieldSchema {
             title: None,
             description,
             default: None,
+            example: None,
             ui: None,
             variants: None,
             properties: None,
@@ -762,6 +780,7 @@ impl FieldSchema {
             title: def.title,
             description: def.description,
             default: def.default,
+            example: def.example,
             ui: def.ui,
             variants: match def.variants {
                 Some(variants) => {
@@ -1160,6 +1179,7 @@ impl Serialize for FieldSchema {
             + self.title.is_some() as usize
             + self.description.is_some() as usize
             + self.default.is_some() as usize
+            + self.example.is_some() as usize
             + self.ui.is_some() as usize
             + values.is_some() as usize
             + roster.is_some() as usize
@@ -1185,6 +1205,9 @@ impl Serialize for FieldSchema {
         }
         if let Some(v) = &self.default {
             map.serialize_entry("default", v)?;
+        }
+        if let Some(v) = &self.example {
+            map.serialize_entry("example", v)?;
         }
         if let Some(v) = &self.ui {
             map.serialize_entry("ui", v)?;

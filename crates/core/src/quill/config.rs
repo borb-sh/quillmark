@@ -56,6 +56,47 @@ impl FieldPosition {
     }
 }
 
+/// The two literals a slot declares, checked at load by one walk and coded
+/// under their own key (`quill::default_*`, `quill::example_*`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    Default,
+    Example,
+}
+
+impl Slot {
+    fn literal(self, schema: &FieldSchema) -> Option<&QuillValue> {
+        match self {
+            Self::Default => schema.default.as_ref(),
+            Self::Example => schema.example.as_ref(),
+        }
+    }
+
+    /// The code for `default_code`'s class under this slot.
+    fn code(self, default_code: &str) -> String {
+        match self {
+            Self::Default => default_code.to_string(),
+            Self::Example => default_code.replacen("default_", "example_", 1),
+        }
+    }
+
+    fn article(self) -> &'static str {
+        match self {
+            Self::Default => "a",
+            Self::Example => "an",
+        }
+    }
+}
+
+impl std::fmt::Display for Slot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Default => "default",
+            Self::Example => "example",
+        })
+    }
+}
+
 /// Canonical string text for a bare scalar unambiguously representable as a
 /// string: a boolean (`true`/`false`) or number (`47`, `1.0`). `None` for
 /// `null` (≡ absent), strings (already strings), and collections.
@@ -1383,11 +1424,13 @@ impl QuillConfig {
         Self::validate_title_literal(schema.title.as_deref(), owner_label, errors);
         Self::validate_enum_literals(schema, owner_label, errors);
         Self::validate_optional(schema, owner_label, errors);
-        if let Some(v) = &schema.default {
-            Self::reject_namespace_default(schema, owner_label, errors);
-            Self::validate_default(v, schema, owner_label, errors);
+        for slot in [Slot::Default, Slot::Example] {
+            if let Some(v) = slot.literal(schema) {
+                Self::reject_namespace_literal(slot, schema, owner_label, errors);
+                Self::validate_literal(slot, v, schema, owner_label, errors);
+            }
+            Self::reject_over_max_literal(slot, schema, owner_label, errors);
         }
-        Self::reject_over_max_default(schema, owner_label, errors);
         if let Some(props) = &schema.properties {
             for (name, prop) in props {
                 let nested = format!("{}.{}", owner_label, name);
@@ -1405,6 +1448,66 @@ impl QuillConfig {
         if let Some(items) = &schema.items {
             let nested = format!("{}[]", owner_label);
             Self::validate_field_blueprint_constraints(items, &nested, errors);
+        }
+    }
+
+    /// Refuse a body's `description` or `example` the blueprint cannot carry:
+    /// beside `enabled: false` (`quill::invalid_body`), or holding `-->`
+    /// (`quill::body_comment_close`), which would close the one-line HTML
+    /// comment the blueprint opens the body with. The description sits on that
+    /// line, so it is one line as a field's is (`quill::description_multiline`).
+    fn validate_card_body(label: &str, card: &CardSchema, errors: &mut Vec<Diagnostic>) {
+        let Some(body) = card.body.as_ref() else {
+            return;
+        };
+        let declared: Vec<(&str, &str)> = [
+            body.description.as_deref().map(|text| ("description", text)),
+            body.example.as_deref().map(|text| ("example", text)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if !card.body_enabled() {
+            if declared.is_empty() {
+                return;
+            }
+            let keys: Vec<&str> = declared.iter().map(|(key, _)| *key).collect();
+            errors.push(
+                Diagnostic::new(
+                    Severity::Error,
+                    format!(
+                        "Invalid '{label}.body' block: `{}` describes a body, and \
+                         `enabled: false` takes none.",
+                        keys.join("` and `")
+                    ),
+                )
+                .with_code("quill::invalid_body".to_string())
+                .with_hint(format!(
+                    "Remove `{}`, or drop `enabled: false`.",
+                    keys.join("` and `")
+                )),
+            );
+            return;
+        }
+        Self::validate_description_singleline(
+            body.description.as_deref(),
+            &format!("{label}.body"),
+            errors,
+        );
+        for (key, text) in declared {
+            if text.contains("-->") {
+                errors.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        format!(
+                            "'{label}.body.{key}' holds `-->`, which would close the HTML \
+                             comment the blueprint opens the body with."
+                        ),
+                    )
+                    .with_code("quill::body_comment_close".to_string())
+                    .with_hint("Reword the text without `-->`.".to_string()),
+                );
+            }
         }
     }
 
@@ -1570,12 +1673,14 @@ impl QuillConfig {
         }
     }
 
-    /// Refuse a `default:` declared on a **namespace** rather than a cell
-    /// (`SCHEMAS.md` §"Cells and namespaces"): a typed dictionary. The variant
-    /// container refuses the same shape under `quill::default_type_mismatch`;
-    /// an `array` and a `matrix` keep their literal, the schema fixing neither
-    /// an array's arity nor which members a matrix holds.
-    fn reject_namespace_default(
+    /// Refuse a `default:` or `example:` declared on a **namespace** rather
+    /// than a cell (`SCHEMAS.md` §"Cells and namespaces"): a typed dictionary.
+    /// The variant container refuses the same shape under
+    /// `quill::{default,example}_type_mismatch`; an `array` and a `matrix` keep
+    /// their literal, the schema fixing neither an array's arity nor which
+    /// members a matrix holds.
+    fn reject_namespace_literal(
+        slot: Slot,
         schema: &FieldSchema,
         owner_label: &str,
         errors: &mut Vec<Diagnostic>,
@@ -1588,40 +1693,43 @@ impl QuillConfig {
             Diagnostic::new(
                 Severity::Error,
                 format!(
-                    "{owner_label} declares type 'object' but carries a default. A typed \
-                     dictionary is a namespace, not a cell: each property holds its own default."
+                    "{owner_label} declares type 'object' but carries {an} {slot}. A typed \
+                     dictionary is a namespace, not a cell: each property holds its own {slot}.",
+                    an = slot.article(),
                 ),
             )
-            .with_code("quill::default_on_namespace".to_string())
+            .with_code(slot.code("quill::default_on_namespace"))
             .with_hint(format!(
                 "Move each value onto the property that holds it ({}), and remove the \
-                 container's default.",
+                 container's {slot}.",
                 names.join(", ")
             )),
         );
     }
 
-    /// Refuse a `default:` literal past a cap it holds, at any depth: the
-    /// cardinality walk over the literal, as a document's value, with an
-    /// element count past `max:` as `quill::default_over_max` and a character
-    /// count as `quill::default_over_length`. A quill rendering an unanswered
-    /// cell past the cap it declares would warn on a document nobody authored.
-    fn reject_over_max_default(
+    /// Refuse a `default:` or `example:` literal past a cap it holds, at any
+    /// depth: the cardinality walk over the literal, as a document's value,
+    /// with an element count past `max:` as `quill::{slot}_over_max` and a
+    /// character count as `quill::{slot}_over_length`. A quill rendering an
+    /// unanswered cell, or its example document, past the cap it declares would
+    /// warn on a document nobody authored.
+    fn reject_over_max_literal(
+        slot: Slot,
         schema: &FieldSchema,
         owner_label: &str,
         errors: &mut Vec<Diagnostic>,
     ) {
-        let Some(default) = schema.default.as_ref() else {
+        let Some(literal) = slot.literal(schema) else {
             return;
         };
         let owner = crate::path::DocPath::new().field(owner_label);
         let mut over = Vec::new();
-        super::compose::collect_cardinality_diags(schema, default.as_json(), &owner, &mut over);
+        super::compose::collect_cardinality_diags(schema, literal.as_json(), &owner, &mut over);
         let owner = owner.to_string();
         for diag in over {
             let (code, unit) = match diag.code.as_deref() {
-                Some("validation::cardinality") => ("quill::default_over_max", "elements"),
-                _ => ("quill::default_over_length", "characters"),
+                Some("validation::cardinality") => (slot.code("quill::default_over_max"), "elements"),
+                _ => (slot.code("quill::default_over_length"), "characters"),
             };
             let (max, actual) = (&diag.args["max"], &diag.args["actual"]);
             let at = diag.path.as_deref().unwrap_or_default();
@@ -1633,24 +1741,26 @@ impl QuillConfig {
                 Diagnostic::new(
                     Severity::Error,
                     format!(
-                        "{owner_label} carries a default of {actual} {unit}{at} past its \
-                         `max: {max}`."
+                        "{owner_label} carries {an} {slot} of {actual} {unit}{at} past its \
+                         `max: {max}`.",
+                        an = slot.article(),
                     ),
                 )
-                .with_code(code.to_string())
-                .with_hint(format!("Shorten the default to {max} {unit}, or raise `max:`.")),
+                .with_code(code)
+                .with_hint(format!("Shorten the {slot} to {max} {unit}, or raise `max:`.")),
             );
         }
     }
 
-    /// Validate a `default:` literal against the declared schema, pushing
-    /// `quill::default_*` [`Diagnostic`]s for any violations.
+    /// Validate a `default:` or `example:` literal against the declared
+    /// schema, pushing `quill::{slot}_*` [`Diagnostic`]s for any violations.
     ///
     /// Delegates type/enum/format/recursion checking to
     /// [`super::validation::validate_schema_literal`] (the shared conformance
     /// primitive) then converts each [`ValidationError`](crate::quill::validation::ValidationError) into a Quill.yaml
     /// load-time diagnostic with an author-friendly hint.
-    fn validate_default(
+    fn validate_literal(
+        slot: Slot,
         value: &QuillValue,
         schema: &FieldSchema,
         owner_label: &str,
@@ -1694,8 +1804,8 @@ impl QuillConfig {
                             .map(String::as_str)
                             .unwrap_or("<member>");
                         format!(
-                            "Write the default as the discriminant alone (default: {member}); \
-                             a variant's own field carries its default on that field."
+                            "Write the {slot} as the discriminant alone ({slot}: {member}); \
+                             a variant's own field carries its {slot} on that field."
                         )
                     } else if actual == "number" || actual == "integer" {
                         let schema_type = if actual == "integer" {
@@ -1704,12 +1814,12 @@ impl QuillConfig {
                             "number"
                         };
                         format!(
-                            "Quote the default as \"{raw}\" if the value is intentionally a \
+                            "Quote the {slot} as \"{raw}\" if the value is intentionally a \
                              string, or change the field type to '{schema_type}'.",
                             raw = source_token.trim_matches('"'),
                         )
                     } else if actual == "string" && declared == "boolean" {
-                        "Write the default as a bare `true` or `false`.".to_string()
+                        format!("Write the {slot} as a bare `true` or `false`.")
                     } else if actual == "string"
                         && (!matches!(declared.as_str(), "number" | "integer")
                             || source_token
@@ -1718,20 +1828,20 @@ impl QuillConfig {
                                 .is_ok_and(f64::is_finite))
                     {
                         format!(
-                            "Remove the quotes around the default value to keep it a {declared}."
+                            "Remove the quotes around the {slot} value to keep it a {declared}."
                         )
                     } else {
                         format!(
-                            "Make the default value a {declared}, or change the field type to match."
+                            "Make the {slot} value a {declared}, or change the field type to match."
                         )
                     };
                     Diagnostic::new(
                         Severity::Error,
                         format!(
-                            "{owner_label} declares type '{declared}' but default is {display_actual} ({preview})."
+                            "{owner_label} declares type '{declared}' but {slot} is {display_actual} ({preview})."
                         ),
                     )
-                    .with_code("quill::default_type_mismatch".to_string())
+                    .with_code(slot.code("quill::default_type_mismatch"))
                     .with_hint(hint)
                 }
                 ValidationError::EnumViolation {
@@ -1748,26 +1858,25 @@ impl QuillConfig {
                     Diagnostic::new(
                         Severity::Error,
                         format!(
-                            "{path} default \"{val}\" is not one of the declared enum values [{values_str}]."
+                            "{path} {slot} \"{val}\" is not one of the declared enum values [{values_str}]."
                         ),
                     )
-                    .with_code("quill::default_not_in_enum".to_string())
-                    .with_hint(format!("Set the default to one of: {values_str}."))
+                    .with_code(slot.code("quill::default_not_in_enum"))
+                    .with_hint(format!("Set the {slot} to one of: {values_str}."))
                 }
                 ValidationError::FormatViolation { path, format } => Diagnostic::new(
                     Severity::Error,
-                    format!("{path} default has an invalid {format} format."),
+                    format!("{path} {slot} has an invalid {format} format."),
                 )
-                .with_code("quill::default_format_violation".to_string())
+                .with_code(slot.code("quill::default_format_violation"))
                 .with_hint(super::validation::format_hint(&format)),
                 ValidationError::HeldStored { path } => Diagnostic::new(
                     Severity::Error,
-                    format!("{path} default stores the tick, which is a matrix member's presence."),
+                    format!("{path} {slot} stores the tick, which is a matrix member's presence."),
                 )
-                .with_code("quill::default_held_stored".to_string())
+                .with_code(slot.code("quill::default_held_stored"))
                 .with_hint(
-                    "Remove the key; leave the member out of the default to untick it."
-                        .to_string(),
+                    format!("Remove the key; leave the member out of the {slot} to untick it."),
                 ),
                 // NotSingleLine and NotPlain can arise on a literal, and
                 // `literal_content` reports them at load.
@@ -2710,6 +2819,10 @@ impl QuillConfig {
             Self::validate_title_literal(card.title.as_deref(), label, &mut errors);
         }
 
+        for (label, card) in &labeled {
+            Self::validate_card_body(label, card, &mut errors);
+        }
+
         // An acroform quill binds a widget to each address its schema declares,
         // and an added item's address is the document's.
         if backend == "acroform" {
@@ -2965,9 +3078,10 @@ fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {
 }
 
 /// Populate a field's `default_content` companion cache from its markdown
-/// literal, and every nested declaration's from its own. No-op where the type
-/// tree bears no content leaf, since nothing below it does either; a failed import or a
-/// one-line violation is appended to `errors` as a load diagnostic. The walk covers every declaration position, for the reason
+/// literal, and every nested declaration's from its own, checking each
+/// `example:` by the same import. No-op where the type tree bears no content
+/// leaf, since nothing below it does either; a failed import or a one-line
+/// violation is appended to `errors` as a load diagnostic. The walk covers every declaration position, for the reason
 /// `SCHEMAS.md` §"Document seeding" gives.
 ///
 /// `card` labels the owning card and `path` the field's declaration path
@@ -2989,6 +3103,15 @@ fn populate_field_content(
             Ok(content) => field.default_content = content,
             Err(d) => errors.push(d),
         }
+    }
+    let example = field.example.as_ref();
+    if let Some(Err(mut d)) =
+        example.map(|example| literal_content(example, field, &format!("{owner} `example`")))
+    {
+        if d.code.as_deref() == Some("quill::richtext_default_import") {
+            d.code = Some("quill::richtext_example_import".to_string());
+        }
+        errors.push(d);
     }
     if let Some(props) = field.properties.as_mut() {
         for (name, prop) in props.iter_mut() {
@@ -3015,11 +3138,30 @@ fn populate_field_content(
 }
 
 /// Populate every content companion on a card: each field's `default` and each
-/// nested declaration's.
+/// nested declaration's. The card's `body.example` is imported as a check,
+/// any construct the import drops included, and cached nowhere.
 fn populate_card_content(card: &mut CardSchema, label: &str, errors: &mut Vec<Diagnostic>) {
     for (name, field) in card.fields.iter_mut() {
         populate_field_content(field, label, name, errors);
     }
+    let Some(example) = card.body.as_ref().and_then(|b| b.example.as_deref()) else {
+        return;
+    };
+    let reason = match quillmark_content::import::from_markdown(example) {
+        Err(e) => e.to_string(),
+        Ok(imported) => match imported.warnings.first() {
+            None => return,
+            Some(dropped) => format!("the import drops `{}`", dropped.construct),
+        },
+    };
+    errors.push(
+        Diagnostic::new(
+            Severity::Error,
+            format!("Failed to import {label} `body.example`: {reason}"),
+        )
+        .with_code("quill::richtext_example_import".to_string())
+        .with_hint("Write the example as markdown a body holds as written.".to_string()),
+    );
 }
 
 /// Compute the canonical-content form of a richtext-bearing `default`,
