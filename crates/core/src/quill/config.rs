@@ -1457,6 +1457,11 @@ impl QuillConfig {
         let Some(body) = card.body.as_ref() else {
             return;
         };
+        Self::validate_description_singleline(
+            body.description.as_deref(),
+            &format!("{label}.body"),
+            errors,
+        );
         if card.body_enabled() {
             return;
         }

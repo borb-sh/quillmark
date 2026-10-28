@@ -265,6 +265,7 @@ The `quillmark` command line.
 
 - `cli::backend_unresolved`
 - `cli::canonical_document_failed`
+- `cli::example_file_ignored`
 - `cli::example_not_clean`
 - `cli::example_render_failed`
 - `cli::missing_description`

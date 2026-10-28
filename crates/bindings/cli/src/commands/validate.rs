@@ -95,6 +95,14 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
     let render = !args.no_render && !result.has_errors();
 
     let mut example = read_example(&quill);
+    if quill.files().get_file("example.md").is_some() {
+        result.add(
+            Severity::Warning,
+            "the root `example.md` is an ordinary file the quill does not read; the example \
+             is declared as `example:` on fields and `body.example` on kinds in Quill.yaml",
+            "cli::example_file_ignored",
+        );
+    }
     if args.verbose {
         match example {
             Some(_) => println!("  Example: derived from the quill's examples"),

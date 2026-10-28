@@ -24,7 +24,8 @@ declares, so move each value onto its field before upgrading.
   its body, `None` where the quill declares none. A root `example.md` is an
   ordinary file: `EXAMPLE_FILE` and `quill::example_reference` are deleted,
   WASM `exampleDocument()` and Python `example_document()` no longer throw, and
-  `quillmark validate` validates and renders the derived document. The
+  `quillmark validate` validates and renders the derived document, warning
+  `cli::example_file_ignored` while a root `example.md` remains. The
   fixture quills declare the values their `example.md` held. (#2329)
 
 ## v0.132.0 - 2026-10-27

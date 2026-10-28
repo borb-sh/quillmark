@@ -66,14 +66,15 @@ fn example_overlay(card: &CardSchema) -> Option<SeedOverlay> {
 /// The value a slot commits in the example document: its `example:`, else
 /// the value the slots below it compose, else `None`.
 fn example_value(field: &FieldSchema) -> Option<JsonValue> {
+    let example = declared_example(field);
     if field.is_variant_bearing() {
-        let member = match field.example.as_ref() {
-            Some(example) => example.as_str().unwrap_or_default().to_string(),
+        let member = match example {
+            Some(example) => super::config::lenient_string(example).unwrap_or_default(),
             None => field.selected_member(None),
         };
         let mut world = JsonMap::new();
-        if let Some(example) = &field.example {
-            world.insert(VARIANT_DISCRIMINANT_KEY.to_string(), example.as_json().clone());
+        if let Some(example) = example {
+            world.insert(VARIANT_DISCRIMINANT_KEY.to_string(), example.clone());
         }
         for (name, cell) in field.variant_fields(&member).into_iter().flatten() {
             if let Some(value) = example_value(cell) {
@@ -82,8 +83,8 @@ fn example_value(field: &FieldSchema) -> Option<JsonValue> {
         }
         return (!world.is_empty()).then_some(JsonValue::Object(world));
     }
-    if let Some(example) = &field.example {
-        return Some(example.as_json().clone());
+    if let Some(example) = example {
+        return Some(example.clone());
     }
     match &field.r#type {
         FieldType::Object => composed(field.properties.as_ref()?).map(JsonValue::Object),
@@ -100,6 +101,11 @@ fn example_value(field: &FieldSchema) -> Option<JsonValue> {
         }
         _ => None,
     }
+}
+
+/// A slot's `example:` as a value. Null ≡ absent, so `example: ~` declares none.
+fn declared_example(field: &FieldSchema) -> Option<&JsonValue> {
+    field.example.as_ref().map(|e| e.as_json()).filter(|e| !e.is_null())
 }
 
 /// The mapping of each property's [`example_value`], `None` where none has one.

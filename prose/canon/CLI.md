@@ -66,7 +66,9 @@ them.
   included: one `cli::example_not_clean` error names the count, and each
   diagnostic follows at `Error` severity. A render warning a canonical
   document raised too is the plate's, and does not count against the example.
-  A render that fails adds `cli::example_render_failed`. `--verbose` names
+  A root `example.md`, which the quill does not read, draws a
+  `cli::example_file_ignored` warning pointing at `example:`. A render that
+  fails adds `cli::example_render_failed`. `--verbose` names
   whether the quill declares an example.
 - **`--font` is the host library.** `render` and `workspace` take it once per
   file and build the engine's font library from them
