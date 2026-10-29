@@ -18,7 +18,7 @@ declares, so move each value onto its field before upgrading.
   `build_transform_schema` under the new `SchemaCodec::Text`: every cell admits
   `null`, every declared object refuses an undeclared key, a variant-bearing enum is a `oneOf` per world, and each slot carries
   its `title`, `description`, `default` and `examples`.
-  `Quill::to_authoring` exports a document and `Quill::from_authoring` imports
+  `Quill::to_authoring` exports a document, a field stored as `null` absent, and `Quill::from_authoring` imports
   and conforms one, refusing a malformed shape with `authoring::invalid_shape`.
   WASM `authoringSchema` / `toAuthoring` / `fromAuthoring`, Python
   `authoring_schema` / `to_authoring` / `from_authoring`, and

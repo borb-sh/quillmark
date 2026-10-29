@@ -843,7 +843,7 @@ impl Quill {
 
     /// `doc` as an authoring document: every field in the values form (each
     /// content leaf its codec's text), every body as Markdown, each card
-    /// `{kind, fields, body}`. Sparse: an absent field stays absent. A
+    /// `{kind, fields, body}`. Sparse: an absent or `null` field stays absent. A
     /// content leaf that decodes under neither encoding exports as stored.
     #[wasm_bindgen(js_name = toAuthoring, unchecked_return_type = "AuthoringDocument")]
     pub fn to_authoring(&self, doc: &Document) -> Result<JsValue, JsValue> {

@@ -219,6 +219,17 @@ fn null_is_absent_and_the_quill_reference_is_the_quills() {
 }
 
 #[test]
+fn a_field_stored_as_null_exports_absent_so_the_round_trip_holds() {
+    let quill = quill();
+    let document = quill.parse("~~~\n$quill: q\nsubject: ~\nfrom: Ops\n~~~\n").expect("parses").document;
+    assert!(document.main().payload().get("subject").is_some());
+    let authored = quill.to_authoring(&document);
+    assert_eq!(authored["fields"], json!({ "from": "Ops" }));
+    let imported = quill.from_authoring(&authored).expect("imports").document;
+    assert_eq!(quill.to_authoring(&imported), authored);
+}
+
+#[test]
 fn a_value_the_schema_refuses_lands_and_validates_at_its_document_path() {
     let quill = quill();
     let imported = quill

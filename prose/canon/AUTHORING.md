@@ -40,7 +40,8 @@ without `prefixItems`, which strict structured-output modes lack.
 
 **Null ≡ absent.** A field left out, or `null`, takes its `default:`, else its
 blank, as everywhere else ([SCHEMAS.md](SCHEMAS.md#default)). `""` and `[]` are
-answers. The form is sparse: an export never materializes a default.
+answers. The form is sparse: an export never materializes a default, and a
+field stored as `null` exports absent.
 
 **A snapshot, never a patch.** The document is a whole-state shape. It carries
 no edit grammar and no card identity: a live-collaboration layer (Yjs, say)
@@ -130,8 +131,8 @@ result rests as a parsed document does.
 yields the same document. What the values form does not carry, the authoring
 document does not either ([SCHEMAS.md](SCHEMAS.md#the-values-form)): an import
 is a cold write, a document rebuilt from its own export loses its `$ext` and
-`$seed`, and Markdown export canonicalizes mark nesting, escaping and
-trailing whitespace. A collaboration layer that holds a body as Markdown text
+`$seed` and holds a field stored as `null` as absent, and Markdown export
+canonicalizes mark nesting, escaping and trailing whitespace. A collaboration layer that holds a body as Markdown text
 therefore diffs against the canonical export, not the model's string.
 
 ## The canonical documents
