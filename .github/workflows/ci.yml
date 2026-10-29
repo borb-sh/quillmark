@@ -71,7 +71,7 @@ jobs:
           toolchain: stable
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # Clippy is not gated: `cargo doc -Dwarnings` is the standing lint gate,
       # and a clippy gate costs more CI time than a clippy-clean tree is worth.
@@ -90,7 +90,7 @@ jobs:
         run: cargo doc --no-deps --locked --workspace
 
       - name: Install cargo-about
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: cargo-about@0.9.2
 
@@ -112,7 +112,7 @@ jobs:
           toolchain: stable
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # `cargo test` builds each cdylib's rlib for the harness and stops there,
       # so nothing links `quillmark_wasm`, `_quillmark`, or the `quillmark` bin
@@ -145,7 +145,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Verify core build excludes Typst
         # `cargo tree -i` exits 0 only when quillmark-typst IS in the no-features
@@ -182,7 +182,7 @@ jobs:
             wasm-ci-${{ runner.os }}-
 
       - name: Install wasm-bindgen-cli
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: wasm-bindgen-cli@0.2.129
 
@@ -190,7 +190,7 @@ jobs:
         run: ./scripts/build-wasm.sh --ci
 
       - name: Install cargo-cyclonedx
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: cargo-cyclonedx@0.5.9
 
@@ -228,10 +228,10 @@ jobs:
           toolchain: stable
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: true
 
