@@ -345,7 +345,7 @@ describe('Document editor surface: storeFields', () => {
   })
 })
 
-describe('Document editor surface: setQuillRef / overwrite / revise', () => {
+describe('Document editor surface: setQuillRef / overwrite / revise / reviseContent', () => {
   it('setQuillRef changes the quillRef and refuses an invalid one', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.setQuillRef('new_quill')
@@ -369,6 +369,27 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
     doc.overwrite({}, importMarkdown('Content **body** here.').content)
     expect(doc.main.body.text).toBe('Content body here.')
     expect(exportMarkdown(doc.main.body)).toBe('Content **body** here.')
+  })
+
+  it('reviseContent({}, rt) lands a content and carries the anchors it omits', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    doc.overwrite({}, importMarkdown('hello world').content)
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 6, end: 11, type: 'anchor', attrs: { id: 'c1' } }] })
+    const { delta, warnings } = doc.reviseContent({}, importMarkdown('hello brave **world**').content)
+    expect(exportMarkdown(doc.main.body)).toBe('hello brave **world**')
+    expect(doc.main.body.marks.find((m) => m.type === 'anchor')).toMatchObject({ start: 12, end: 17 })
+    expect(mapPos(delta, 11, 'after')).toBe(17)
+    expect(warnings).toEqual([])
+  })
+
+  it('reviseContent({field}, rt) carries a field anchor and refuses a non-content value', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    doc.revise({ field: 'note' }, 'hello world')
+    doc.applyChange({ field: 'note' }, { markOps: [{ op: 'add', start: 0, end: 5, type: 'anchor', attrs: { id: 'c1' } }] })
+    doc.reviseContent({ field: 'note' }, importMarkdown('oh hello world').content)
+    expect(doc.getStored({ field: 'note' }).marks).toEqual([{ start: 3, end: 8, type: 'anchor', attrs: { id: 'c1' } }])
+    doc.storeField('count', 3)
+    expectEditCode(() => doc.reviseContent({ field: 'count' }, importMarkdown('x').content), 'edit::field_decode')
   })
 
   it('overwrite rejects a non-content value (markdown must go through importMarkdown)', () => {
