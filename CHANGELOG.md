@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.133.0 - 2026-10-29
 
 Upgrade path: [0.132 → 0.133](docs/migrations/0.132-to-0.133.md). The
 blueprint is retired: a model writes the JSON authoring document, so a prompt
@@ -60,6 +60,26 @@ declares, so move each value onto its field before upgrading.
   against the stored value, carries each prose anchor whose id `rt` does not
   hold, and returns the `Revised` receipt with its text `delta`. `rt`'s own
   anchors and island ids land as they are.
+
+### Commits since v0.132.0
+
+- fix(content,typst): close a heading around a table on its line, and clear a hard break after a line a table ends
+- fix(core): a field stored as null exports absent from the authoring form
+- feat(core): the authoring schema refuses an undeclared key
+- fix(core,wasm,python): export every document in a form its schema accepts
+- fix(content,core,wasm): reviseContent reads cell anchors as held and scopes its docs to prose anchors
+- docs(canon): state why the authoring root is the main card
+- feat(content,core,wasm): reviseContent revises a field to a content and keeps its anchors
+- feat(core,cli,wasm,python)!: LLMs author documents as JSON; retire the blueprint
+- fix(core,cli): null examples declare none; validate warns on a stale example.md
+- refactor(core,docs): the blueprint shows no examples
+- feat(wasm): add normalize(content), the form overwrite stores
+- feat(content)!: keep a table's slot on a line it shares, and break it at the markdown write
+- docs: canon, user docs and the 0.132 → 0.133 guide for derived examples
+- feat(core,cli,wasm,python)!: the example document is derived from the quill's examples
+- feat(core)!: `example:` and a body's `description` and `example` join the quill schema
+- refactor(core,cli): drop the blueprint's derived body shape
+- feat(core,cli): close each blueprint body with the example's shape
 
 ## v0.132.0 - 2026-10-27
 
