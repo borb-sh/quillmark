@@ -2153,14 +2153,14 @@ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH RE
 
 ## Apache License 2.0
 
-- quillmark-acroform 0.132.0 (https://github.com/borb-sh/quillmark)
-- quillmark-typst 0.132.0 (https://github.com/borb-sh/quillmark)
-- quillmark-cli 0.132.0 (https://github.com/borb-sh/quillmark)
-- quillmark-python 0.132.0
-- quillmark-content 0.132.0 (https://github.com/borb-sh/quillmark)
-- quillmark-core 0.132.0 (https://github.com/borb-sh/quillmark)
-- quillmark 0.132.0 (https://github.com/borb-sh/quillmark)
-- quillmark-pdf 0.132.0 (https://github.com/borb-sh/quillmark)
+- quillmark-acroform 0.133.0 (https://github.com/borb-sh/quillmark)
+- quillmark-typst 0.133.0 (https://github.com/borb-sh/quillmark)
+- quillmark-cli 0.133.0 (https://github.com/borb-sh/quillmark)
+- quillmark-python 0.133.0
+- quillmark-content 0.133.0 (https://github.com/borb-sh/quillmark)
+- quillmark-core 0.133.0 (https://github.com/borb-sh/quillmark)
+- quillmark 0.133.0 (https://github.com/borb-sh/quillmark)
+- quillmark-pdf 0.133.0 (https://github.com/borb-sh/quillmark)
 - ciborium-io 0.2.2 (https://github.com/enarx/ciborium)
 - ciborium-ll 0.2.2 (https://github.com/enarx/ciborium)
 - ciborium 0.2.2 (https://github.com/enarx/ciborium)
@@ -4523,7 +4523,7 @@ limitations under the License.
 - js-sys 0.3.106 (https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys)
 - lock_api 0.4.14 (https://github.com/Amanieu/parking_lot)
 - log 0.4.29 (https://github.com/rust-lang/log)
-- num-bigint 0.4.6 (https://github.com/rust-num/num-bigint)
+- num-bigint 0.4.8 (https://github.com/rust-num/num-bigint)
 - num-integer 0.1.46 (https://github.com/rust-num/num-integer)
 - num-traits 0.2.19 (https://github.com/rust-num/num-traits)
 - once_cell 1.21.4 (https://github.com/matklad/once_cell)
@@ -4537,7 +4537,7 @@ limitations under the License.
 - proc-macro-hack 0.5.20+deprecated (https://github.com/dtolnay/proc-macro-hack)
 - rayon-core 1.13.0 (https://github.com/rayon-rs/rayon)
 - rayon 1.12.0 (https://github.com/rayon-rs/rayon)
-- regex-automata 0.4.14 (https://github.com/rust-lang/regex)
+- regex-automata 0.4.18 (https://github.com/rust-lang/regex)
 - regex-syntax 0.8.10 (https://github.com/rust-lang/regex)
 - regex 1.12.3 (https://github.com/rust-lang/regex)
 - roxmltree 0.20.0 (https://github.com/RazrFalcon/roxmltree)
@@ -6248,8 +6248,8 @@ limitations under the License.
 
 ## Apache License 2.0
 
-- quillmark-wasm 0.132.0 (https://github.com/borb-sh/quillmark)
-- quillmark-fixtures 0.132.0
+- quillmark-wasm 0.133.0 (https://github.com/borb-sh/quillmark)
+- quillmark-fixtures 0.133.0
 - arraydeque 0.5.1 (https://github.com/andylokandy/arraydeque)
 - codex 0.3.0 (https://github.com/typst/codex)
 - color 0.3.3 (https://github.com/linebender/color)
@@ -7624,7 +7624,7 @@ SOFTWARE.
 ## MIT License
 
 - unsafe-libyaml 0.2.11 (https://github.com/dtolnay/unsafe-libyaml)
-- zmij 1.0.21 (https://github.com/dtolnay/zmij)
+- zmij 1.0.23 (https://github.com/dtolnay/zmij)
 
 ~~~~text
 Permission is hereby granted, free of charge, to any

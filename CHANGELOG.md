@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.133.0 - 2026-10-29
 
 Upgrade path: [0.132 → 0.133](docs/migrations/0.132-to-0.133.md). The
 blueprint is retired: a model writes the JSON authoring document, so a prompt
@@ -19,7 +19,10 @@ declares, so move each value onto its field before upgrading.
   `null`, every declared object refuses an undeclared key, a variant-bearing enum is a `oneOf` per world, and each slot carries
   its `title`, `description`, `default` and `examples`.
   `Quill::to_authoring` exports a document, a field stored as `null` absent, and `Quill::from_authoring` imports
-  and conforms one, refusing a malformed shape with `authoring::invalid_shape`.
+  and conforms one, refusing a malformed shape with `authoring::invalid_shape`,
+  its RFC 6901 pointer in `args.pointer`. Export never fails: an undecodable
+  or string-held content leaf passes as stored, so every export validates
+  against the schema and imports back unchanged.
   WASM `authoringSchema` / `toAuthoring` / `fromAuthoring`, Python
   `authoring_schema` / `to_authoring` / `from_authoring`, and
   `quillmark schema --authoring` expose them. `QuillConfig::blueprint()`,
@@ -60,6 +63,16 @@ declares, so move each value onto its field before upgrading.
   against the stored value, carries each prose anchor whose id `rt` does not
   hold, and returns the `Revised` receipt with its text `delta`. `rt`'s own
   anchors and island ids land as they are.
+- feat(content)!: **normalizing content moves no text.** A table's slot
+  sharing its line with prose is canonical: `Content::normalize` leaves the
+  line as given, where it inserted a `\n` on each side, and `to_markdown`
+  breaks it instead. `overwrite`, `reviseContent` and
+  `serial::from_authored_value` take the shape where they threw `block island
+  in a line's prose`, an `IslandOp::Set` on such a table lands, and a stored
+  row holding it loads as stored under the same tag. Typst sets the table as a
+  block where its slot sits, closing a heading around it, and a hard break
+  after a line the slot ends clears. WASM gains `normalize(content)`, the form
+  `overwrite` stores. (#2330)
 
 ## v0.132.0 - 2026-10-27
 
