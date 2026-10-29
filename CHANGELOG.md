@@ -19,7 +19,10 @@ declares, so move each value onto its field before upgrading.
   `null`, every declared object refuses an undeclared key, a variant-bearing enum is a `oneOf` per world, and each slot carries
   its `title`, `description`, `default` and `examples`.
   `Quill::to_authoring` exports a document, a field stored as `null` absent, and `Quill::from_authoring` imports
-  and conforms one, refusing a malformed shape with `authoring::invalid_shape`.
+  and conforms one, refusing a malformed shape with `authoring::invalid_shape`,
+  its RFC 6901 pointer in `args.pointer`. Export never fails: an undecodable
+  or string-held content leaf passes as stored, so every export validates
+  against the schema and imports back unchanged.
   WASM `authoringSchema` / `toAuthoring` / `fromAuthoring`, Python
   `authoring_schema` / `to_authoring` / `from_authoring`, and
   `quillmark schema --authoring` expose them. `QuillConfig::blueprint()`,
@@ -60,26 +63,16 @@ declares, so move each value onto its field before upgrading.
   against the stored value, carries each prose anchor whose id `rt` does not
   hold, and returns the `Revised` receipt with its text `delta`. `rt`'s own
   anchors and island ids land as they are.
-
-### Commits since v0.132.0
-
-- fix(content,typst): close a heading around a table on its line, and clear a hard break after a line a table ends
-- fix(core): a field stored as null exports absent from the authoring form
-- feat(core): the authoring schema refuses an undeclared key
-- fix(core,wasm,python): export every document in a form its schema accepts
-- fix(content,core,wasm): reviseContent reads cell anchors as held and scopes its docs to prose anchors
-- docs(canon): state why the authoring root is the main card
-- feat(content,core,wasm): reviseContent revises a field to a content and keeps its anchors
-- feat(core,cli,wasm,python)!: LLMs author documents as JSON; retire the blueprint
-- fix(core,cli): null examples declare none; validate warns on a stale example.md
-- refactor(core,docs): the blueprint shows no examples
-- feat(wasm): add normalize(content), the form overwrite stores
-- feat(content)!: keep a table's slot on a line it shares, and break it at the markdown write
-- docs: canon, user docs and the 0.132 → 0.133 guide for derived examples
-- feat(core,cli,wasm,python)!: the example document is derived from the quill's examples
-- feat(core)!: `example:` and a body's `description` and `example` join the quill schema
-- refactor(core,cli): drop the blueprint's derived body shape
-- feat(core,cli): close each blueprint body with the example's shape
+- feat(content)!: **normalizing content moves no text.** A table's slot
+  sharing its line with prose is canonical: `Content::normalize` leaves the
+  line as given, where it inserted a `\n` on each side, and `to_markdown`
+  breaks it instead. `overwrite`, `reviseContent` and
+  `serial::from_authored_value` take the shape where they threw `block island
+  in a line's prose`, an `IslandOp::Set` on such a table lands, and a stored
+  row holding it loads as stored under the same tag. Typst sets the table as a
+  block where its slot sits, closing a heading around it, and a hard break
+  after a line the slot ends clears. WASM gains `normalize(content)`, the form
+  `overwrite` stores. (#2330)
 
 ## v0.132.0 - 2026-10-27
 
