@@ -2,6 +2,10 @@
 
 The words Quillmark uses, each in one place. [Concepts](concepts.md) shows how the pieces fit together.
 
+## authoring document
+
+A document written as JSON, the form an LLM reads and writes: the main card's `fields` and `body`, then its `cards`, each `{kind, fields, body}`, with rich text as Markdown strings. The quill emits its JSON Schema. See [LLM Authoring](../integration/llm-authoring.md).
+
 ## backend
 
 What turns a quill and a document into pages. `typst` draws pages from a [plate](#plate); `acroform` fills the fields of an existing PDF form. See [Typst Backend](../quills/typst-backend.md) and [PDF Form Backend](../quills/acroform-backend.md).
@@ -9,10 +13,6 @@ What turns a quill and a document into pages. `typst` draws pages from a [plate]
 ## blank
 
 The value a field holds when nobody answered it: `""` for text and enums, `0` for a number, `false` for a boolean, an empty list for a list, and `none` for a date. Every field accepts its blank, and a plate has to render a document whose fields are all blank. See [Blank values](../quills/typst-backend.md#blank-values).
-
-## blueprint
-
-A fill-in-the-blanks version of a document, generated from a quill's `Quill.yaml`. Each field is listed with its description and type as comments, ready for a person or an LLM to fill in. `quillmark blueprint <quill>` prints it. See [Blueprint & Seeding](../quills/blueprint.md).
 
 ## body
 
@@ -64,7 +64,7 @@ An area of the rendered page that maps a click back to a field. Ink makes one. W
 
 ## seed
 
-The starter document generated from a quill: the main card plus one card of each kind, each field at its default or blank. It is what a new document opens as. See [Blueprint & Seeding](../quills/blueprint.md).
+The starter document generated from a quill: the main card plus one card of each kind, each field at its default or blank. It is what a new document opens as. See [Seeding & the Empty Document](../quills/seeding.md).
 
 ## studio
 

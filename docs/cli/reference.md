@@ -119,15 +119,19 @@ quillmark check --regions ./my-quill example.md
 
 ### schema
 
-Output the quill's field schema as YAML, including main-card and card-kind field definitions with UI hints.
+Output the quill's field schema as YAML, including main-card and card-kind field definitions with UI hints. With `--authoring`, output instead the JSON Schema of the quill's [authoring document](../integration/llm-authoring.md), the JSON an LLM writes.
 
 ```bash
-quillmark schema <QUILL_PATH>
+quillmark schema [OPTIONS] <QUILL_PATH>
 ```
 
 **Arguments:**
 
 - `<QUILL_PATH>`: Path to quill directory, or to a `.quill` bundle
+
+**Options:**
+
+- `--authoring`: Print the authoring document's JSON Schema instead of the YAML field schema
 
 **Examples:**
 
@@ -137,36 +141,16 @@ quillmark schema ./my-quill
 
 # Save schema to file
 quillmark schema ./my-quill > schema.yaml
-```
 
-### blueprint
-
-Print a quill's Markdown blueprint: an annotated document showing the quill's fields, their descriptions, and their constraints, itself a valid document an author can fill in.
-
-```bash
-quillmark blueprint <QUILL_PATH>
-```
-
-**Arguments:**
-
-- `<QUILL_PATH>`: Path to quill directory, or to a `.quill` bundle
-
-**Examples:**
-
-```bash
-# Print blueprint to stdout
-quillmark blueprint ./my-quill
-
-# Save blueprint to file
-quillmark blueprint ./my-quill > blueprint.md
+# The JSON Schema an LLM writes against
+quillmark schema --authoring ./my-quill > authoring.schema.json
 ```
 
 ### validate
 
 Validate quill configuration and structure, and compile the plate against the
-three canonical documents: the empty document, the blueprint, and the seeded
-document. A plate that renders the seeded document and not the empty one fails
-here, which is the quill authoring contract every plate is bound by. A Typst
+two canonical documents: the empty document and the seeded document. A plate that renders the seeded document and not the empty one fails
+here, which is the contract every plate is bound by. A Typst
 quill's plate is found as a render finds it, under `--no-render` too, so a
 quill holding no plate fails as `typst::plate_missing`. An acroform quill's
 `Form.yaml` is read and bound against the schema and `form.pdf`'s pages as a
@@ -185,7 +169,7 @@ quillmark validate [OPTIONS] <QUILL_PATH>
 
 **Options:**
 
-- `-v` / `--verbose`: Show each check as it runs, and print warnings as well as errors. Among them, `cli::missing_description` flags every field and card kind without a `description:`, the help text editors and the blueprint show.
+- `-v` / `--verbose`: Show each check as it runs, and print warnings as well as errors. Among them, `cli::missing_description` flags every field and card kind without a `description:`, the help text editors and the authoring schema show.
 - `--no-render`: Skip the render check: only read the configuration
 
 **Examples:**

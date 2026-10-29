@@ -1321,31 +1321,6 @@ impl QuillConfig {
         }
     }
 
-    /// Reject multi-line descriptions. Single-line is required so the leading
-    /// `# <description>` blueprint slot stays one line and the field-comment
-    /// stack remains parseable for LLM consumers.
-    fn validate_description_singleline(
-        desc: Option<&str>,
-        owner_label: &str,
-        errors: &mut Vec<Diagnostic>,
-    ) {
-        if let Some(d) = desc {
-            if d.contains('\n') {
-                errors.push(
-                    Diagnostic::new(
-                        Severity::Error,
-                        format!(
-                            "{} description must be a single line; multi-line \
-                             descriptions are not allowed.",
-                            owner_label
-                        ),
-                    )
-                    .with_code("quill::description_multiline".to_string()),
-                );
-            }
-        }
-    }
-
     /// Reject a `{field}` token in a `title`: a label is a literal, and nothing
     /// interpolates it.
     fn validate_title_literal(title: Option<&str>, owner_label: &str, errors: &mut Vec<Diagnostic>) {
@@ -1366,10 +1341,8 @@ impl QuillConfig {
         );
     }
 
-    /// Reject `>`, `;`, `|` in enum literals (reserved by the blueprint inline
-    /// annotation grammar — `<format>` close, role separator, enum value
-    /// separator — with no escape syntax), and reject `""`, which is the
-    /// Quillmark-supplied blank rather than a choice.
+    /// Reject `""` in an enum's literals: it is the Quillmark-supplied blank
+    /// rather than a choice.
     fn validate_enum_literals(
         field: &FieldSchema,
         owner_label: &str,
@@ -1396,31 +1369,16 @@ impl QuillConfig {
                     ),
                 );
             }
-            if v.contains('>') || v.contains(';') || v.contains('|') {
-                errors.push(
-                    Diagnostic::new(
-                        Severity::Error,
-                        format!(
-                            "{} enum value '{}' contains a reserved character \
-                             ('>', ';', or '|') that conflicts with the \
-                             blueprint inline annotation grammar.",
-                            owner_label, v
-                        ),
-                    )
-                    .with_code("quill::format_literal_reserved_char".to_string()),
-                );
-            }
         }
     }
 
-    /// Recursively validate field-level blueprint constraints across the field,
+    /// Recursively validate field-level constraints across the field,
     /// any nested object properties, and an array's element schema (`items`).
-    fn validate_field_blueprint_constraints(
+    fn validate_field_constraints(
         schema: &FieldSchema,
         owner_label: &str,
         errors: &mut Vec<Diagnostic>,
     ) {
-        Self::validate_description_singleline(schema.description.as_deref(), owner_label, errors);
         Self::validate_title_literal(schema.title.as_deref(), owner_label, errors);
         Self::validate_enum_literals(schema, owner_label, errors);
         Self::validate_optional(schema, owner_label, errors);
@@ -1434,20 +1392,20 @@ impl QuillConfig {
         if let Some(props) = &schema.properties {
             for (name, prop) in props {
                 let nested = format!("{}.{}", owner_label, name);
-                Self::validate_field_blueprint_constraints(prop, &nested, errors);
+                Self::validate_field_constraints(prop, &nested, errors);
             }
         }
         if let Some(variants) = &schema.variants {
             for (member, fields) in variants {
                 for (name, field) in fields {
                     let nested = format!("{owner_label}.variants.{member}.{name}");
-                    Self::validate_field_blueprint_constraints(field, &nested, errors);
+                    Self::validate_field_constraints(field, &nested, errors);
                 }
             }
         }
         if let Some(items) = &schema.items {
             let nested = format!("{}[]", owner_label);
-            Self::validate_field_blueprint_constraints(items, &nested, errors);
+            Self::validate_field_constraints(items, &nested, errors);
         }
     }
 
@@ -1457,11 +1415,6 @@ impl QuillConfig {
         let Some(body) = card.body.as_ref() else {
             return;
         };
-        Self::validate_description_singleline(
-            body.description.as_deref(),
-            &format!("{label}.body"),
-            errors,
-        );
         if card.body_enabled() {
             return;
         }
@@ -1577,8 +1530,8 @@ impl QuillConfig {
     }
 
     /// Refuse a card declaring more fields than one card-yaml block carries
-    /// ([`MAX_FIELD_COUNT`](crate::error::MAX_FIELD_COUNT)). Seeding and the
-    /// blueprint build one block per card schema, so the cap is the schema's to
+    /// ([`MAX_FIELD_COUNT`](crate::error::MAX_FIELD_COUNT)). Seeding builds
+    /// one block per card schema, so the cap is the schema's to
     /// meet: past it a quill emits markdown the parser refuses.
     ///
     /// The count is per card and over `fields` alone, which is what a block
@@ -2146,7 +2099,7 @@ impl QuillConfig {
                     }
 
                     let owner = format!("{} '{}'", context, field_name);
-                    Self::validate_field_blueprint_constraints(&schema, &owner, errors);
+                    Self::validate_field_constraints(&schema, &owner, errors);
 
                     fields.insert(field_name.clone(), schema);
                 }
@@ -2451,7 +2404,6 @@ impl QuillConfig {
 
         let description = match quill_section.get("description").and_then(|v| v.as_str()) {
             Some(d) if !d.trim().is_empty() => {
-                Self::validate_description_singleline(Some(d), "quill", &mut errors);
                 d.to_string()
             }
             Some(_) => {
@@ -2638,8 +2590,6 @@ impl QuillConfig {
         }
 
         let main_description = main_def.description;
-        Self::validate_description_singleline(main_description.as_deref(), "main", &mut errors);
-
         let mut main = CardSchema {
             name: "main".to_string(),
             title: main_def.title,
@@ -2726,11 +2676,6 @@ impl QuillConfig {
                             &mut errors,
                         );
 
-                        Self::validate_description_singleline(
-                            card_def.description.as_deref(),
-                            &format!("card_kind '{}'", card_name),
-                            &mut errors,
-                        );
                         let card = CardSchema {
                             name: card_name.clone(),
                             title: card_def.title,
@@ -3067,7 +3012,7 @@ fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {
 ///
 /// `card` labels the owning card and `path` the field's declaration path
 /// (`dict.note`, `rows[].note`, `c.variants.CUI.note`), the spelling
-/// `validate_field_blueprint_constraints` uses, so the two load passes anchor a
+/// `validate_field_constraints` uses, so the two load passes anchor a
 /// diagnostic the same way.
 fn populate_field_content(
     field: &mut FieldSchema,

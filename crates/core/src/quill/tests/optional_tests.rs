@@ -67,7 +67,7 @@ fn an_unanswered_optional_cell_renders_none_at_every_depth() {
 }
 
 /// The declaration view spells the `?` as the quill did and reloads to the same
-/// schema; the wire admits `null`; the blueprint names the cell optional.
+/// schema; the wire admits `null`.
 #[test]
 fn every_projection_carries_the_question_mark() {
     let config = QuillConfig::from_yaml(QUILL_YAML).expect("loads");
@@ -85,41 +85,12 @@ fn every_projection_carries_the_question_mark() {
     .expect("the declaration view reloads");
     assert_eq!(reloaded.main.fields["quorum"], config.main.fields["quorum"]);
 
-    let wire = build_transform_schema(&config);
+    let wire = build_transform_schema(&config, crate::quill::SchemaCodec::Content);
     let props = &wire.as_json()["properties"];
     assert_eq!(props["quorum"]["type"], json!(["integer", "null"]));
     assert_eq!(props["attendees"]["type"], json!(["array", "null"]));
     assert_eq!(props["result"]["enum"], json!([null, "", "carried", "failed"]));
     assert_eq!(props["tally"]["properties"]["votes_against"]["type"], json!("integer"));
-
-    let blueprint = config.blueprint();
-    assert!(blueprint.contains("quorum: # integer?"), "{blueprint}");
-    assert!(blueprint.contains("# enum<carried | failed>?"), "{blueprint}");
-}
-
-/// `[]` answers an optional table, so its unedited blueprint cell is empty and
-/// renders as the empty document does; a required one keeps `[]`.
-#[test]
-fn an_optional_typed_table_prints_an_empty_cell() {
-    let config = QuillConfig::from_yaml(
-        r#"
-quill: { name: tables, version: "0.1.0", backend: typst, description: t }
-main:
-  fields:
-    maybe: { type: array?, items: { type: object, properties: { a: { type: text } } } }
-    rows: { type: array, items: { type: object, properties: { a: { type: text } } } }
-"#,
-    )
-    .expect("loads");
-    let blueprint = config.blueprint();
-    assert!(blueprint.contains("\nmaybe: # array<object>?\n"), "{blueprint}");
-    assert!(blueprint.contains("#   - a: # text<plain>\nmaybe:"), "{blueprint}");
-    assert!(blueprint.contains("\nrows: [] # array<object>\n"), "{blueprint}");
-
-    let unedited = Document::parse(&blueprint).expect("parses").document;
-    let plate = config.compile_data(&unedited, test_date()).expect("compiles");
-    assert_eq!(plate["maybe"], json!(null), "{plate}");
-    assert_eq!(plate["rows"], json!([]), "{plate}");
 }
 
 #[test]

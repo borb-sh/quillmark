@@ -1,6 +1,6 @@
 /**
  * The Typst-less `@quillmark/wasm/core` bundle: a `Quill` loads, validates,
- * seeds, and exposes schema/blueprint/metadata with no engine and no render
+ * seeds, and exposes schema/authoring/metadata with no engine and no render
  * surface. The render suites cover the superset.
  */
 import { describe, it, expect } from 'vitest'
@@ -59,14 +59,17 @@ describe('@quillmark/wasm/core surface', () => {
     expect(caught?.diagnostics?.[0]?.code).toBe('quill::bundle_invalid')
   })
 
-  it('schema, blueprint, seed, and validate work without a backend', () => {
+  it('schema, authoring, seed, and validate work without a backend', () => {
     const quill = Quill.fromTree(makeCoreQuill())
 
     expect(quill.schema.main).toBeDefined()
     expect(quill.schema.main.fields.title).toBeDefined()
 
-    expect(typeof quill.blueprint).toBe('string')
-    expect(quill.blueprint.length).toBeGreaterThan(0)
+    expect(quill.authoringSchema.properties.fields.properties.title).toBeDefined()
+    expect(quill.toAuthoring(quill.fromAuthoring({ fields: { title: 'T' } }))).toEqual({
+      fields: { title: 'T' },
+      body: '',
+    })
 
     const doc = quill.seedDocument()
     expect(doc).toBeInstanceOf(Document)

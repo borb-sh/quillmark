@@ -43,7 +43,7 @@ fn empty_document_equals_the_hand_written_two_line_document() {
     assert_eq!(
         quill.empty_document(),
         parsed,
-        "the constructor must spell the document the authoring contract names"
+        "the constructor must spell the document the plate contract names"
     );
 }
 

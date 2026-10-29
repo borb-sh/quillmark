@@ -31,11 +31,8 @@ enum Commands {
     /// Check documents against a quill's schema, printing every diagnostic
     Check(commands::check::CheckArgs),
 
-    /// Output the YAML schema for a quill
+    /// Output a quill's YAML schema, or the JSON Schema of its authoring document
     Schema(commands::schema::SchemaArgs),
-
-    /// Output the annotated Markdown blueprint for a quill
-    Blueprint(commands::blueprint::BlueprintArgs),
 
     /// Check a quill: read its Quill.yaml and render its canonical documents
     Validate(commands::validate::ValidateArgs),
@@ -57,7 +54,6 @@ fn main() {
         Commands::Render(args) => commands::render::execute(args),
         Commands::Check(args) => commands::check::execute(args),
         Commands::Schema(args) => commands::schema::execute(args),
-        Commands::Blueprint(args) => commands::blueprint::execute(args),
         Commands::Validate(args) => commands::validate::execute(args),
         Commands::Info(args) => commands::info::execute(args),
         Commands::Workspace(args) => commands::workspace::execute(args),

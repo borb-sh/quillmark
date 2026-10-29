@@ -34,8 +34,8 @@ release plates compile against.
 ## Quick start
 
 ```bash
-# Write a document to fill in: the quill's annotated blueprint
-quillmark blueprint my_quill > document.md
+# The JSON Schema an LLM writes a document against
+quillmark schema --authoring my_quill > authoring.schema.json
 
 # Render a document; output defaults to document.pdf
 quillmark render my_quill document.md
@@ -87,21 +87,17 @@ renders each document that drew no error and lists the filled fields no click
 on the page reaches, and those only an enclosing field's region reaches; the
 list never moves the exit code.
 
-### `quillmark schema <QUILL_PATH>`
+### `quillmark schema <QUILL_PATH> [--authoring]`
 
-Prints the quill's field schema as YAML.
-
-### `quillmark blueprint <QUILL_PATH>`
-
-Prints an annotated Markdown blueprint: a starting document with every declared
-field, each holding its `default:` or left empty (`title: # string`) where a
-value is expected.
+Prints the quill's field schema as YAML. `--authoring` prints the JSON Schema
+of the quill's authoring document instead: the JSON an LLM writes, rich text as
+Markdown strings.
 
 ### `quillmark validate <QUILL_PATH> [-v] [--no-render]`
 
 Loads the quill — `Quill.yaml` parse errors, `default:` literals against
-their declared types — checks referenced files, and renders the three
-canonical documents (the empty document, the blueprint, the seeded document)
+their declared types — checks referenced files, and renders the two
+canonical documents (the empty document and the seeded document)
 through the plate. `-v` prints each warning, such as a missing field description, where
 a plain run only counts them; `--no-render` skips the render. Exits 1 where the configuration is invalid or a
 canonical document does not render.

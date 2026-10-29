@@ -771,7 +771,7 @@ impl SchemaMeta {
 
     /// The meta a session over `config` lowers by: its transform schema.
     pub(crate) fn from_config(config: &QuillConfig) -> Self {
-        Self::from_schema_json(build_transform_schema(config).as_json())
+        Self::from_schema_json(build_transform_schema(config, quillmark_core::quill::SchemaCodec::Content).as_json())
     }
 
     /// The address tables the helper's `_qm-node` walks.
@@ -864,7 +864,7 @@ mod tests {
             serde_json::json!({ "prose": content("A **markdown** body with real ink to lay out.") });
         let hashes_of = |quill: &Quill| {
             let plate_content = read_plate(quill).expect("plate");
-            let transform_schema = build_transform_schema(quill.config());
+            let transform_schema = build_transform_schema(quill.config(), quillmark_core::quill::SchemaCodec::Content);
             let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
             let data = &json;
             let (world, _windows) =
@@ -913,7 +913,7 @@ mod tests {
                 serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(rt) });
             let q = quill();
             let plate_content = read_plate(&q).expect("plate");
-            let transform_schema = build_transform_schema(q.config());
+            let transform_schema = build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
             let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
             let data = &json;
             let (world, _w) =
@@ -996,7 +996,7 @@ mod tests {
             let q = quill(inline);
             let json = serde_json::json!({ "subject": content("A subject line") });
             let plate_content = read_plate(&q).expect("plate");
-            let transform_schema = build_transform_schema(q.config());
+            let transform_schema = build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
             let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
             let data = &json;
             let (world, _w) =

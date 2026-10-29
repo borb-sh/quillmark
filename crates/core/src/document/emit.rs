@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashMap};
 use quillmark_content::export::to_markdown_annotated;
 use quillmark_content::model::Normalized;
 use serde_json::Value as JsonValue;
-use serde_saphyr::{FlowMap, FlowSeq, SerializerOptions};
+use serde_saphyr::SerializerOptions;
 
 use super::payload::{Payload, PayloadItem};
 use super::prescan::NestedComment;
@@ -241,14 +241,6 @@ impl<'a> Comments<'a> {
         slots: BTreeMap::new(),
         containers: BTreeMap::new(),
     };
-
-    fn new(nested: &'a [NestedComment]) -> Self {
-        let mut comments = Self::EMPTY;
-        for c in nested {
-            comments.add(&c.container_path, c);
-        }
-        comments
-    }
 
     /// A payload's comments split by owning entry, each table at paths rebased
     /// onto that entry's own value.
@@ -546,29 +538,6 @@ fn emit_field_at(
     }
 }
 
-/// Render a mapping's children — cells and the comments among them — as
-/// standalone lines at column 0, outside any document. The blueprint renders a
-/// dormant variant world, and a `default: []` table's field holding its row,
-/// through this to comment it out.
-pub(crate) fn emit_mapping_lines(
-    map: &serde_json::Map<String, JsonValue>,
-    nested: &[NestedComment],
-) -> String {
-    let mut out = String::new();
-    emit_mapping_children(
-        &mut out,
-        map,
-        0,
-        EmitCtx {
-            path: &[],
-            comments: &Comments::new(nested),
-            project_content: true,
-            annotate: None,
-        },
-    );
-    out
-}
-
 fn emit_mapping_children(
     out: &mut String,
     map: &serde_json::Map<String, JsonValue>,
@@ -849,42 +818,6 @@ fn double_quote_string(s: &str) -> String {
     out
 }
 
-/// Render a `JsonValue` as a one-line YAML flow form (`[a, b]` / `{k: v}` /
-/// flow-quoted scalar). Used for `# e.g.` hint lines in blueprint output.
-pub(crate) fn saphyr_emit_flow(value: &JsonValue) -> String {
-    let mut buf = String::new();
-    let opts = saphyr_opts();
-    match value {
-        JsonValue::Array(items) => {
-            let wrapped = FlowSeq(items.clone());
-            serde_saphyr::to_fmt_writer_with_options(&mut buf, &wrapped, opts)
-                .expect("saphyr flow seq emission");
-        }
-        JsonValue::Object(map) => {
-            let wrapped = FlowMap(map.clone());
-            serde_saphyr::to_fmt_writer_with_options(&mut buf, &wrapped, opts)
-                .expect("saphyr flow map emission");
-        }
-        scalar => {
-            // Wrap in FlowSeq so saphyr applies flow-context quoting, then strip `[`/`]`.
-            let wrapped = FlowSeq(vec![scalar.clone()]);
-            serde_saphyr::to_fmt_writer_with_options(&mut buf, &wrapped, opts)
-                .expect("saphyr flow scalar emission");
-            while buf.ends_with('\n') {
-                buf.pop();
-            }
-            return buf
-                .strip_prefix('[')
-                .and_then(|s| s.strip_suffix(']'))
-                .unwrap_or(&buf)
-                .to_string();
-        }
-    }
-    while buf.ends_with('\n') {
-        buf.pop();
-    }
-    buf
-}
 
 fn push_indent(out: &mut String, spaces: usize) {
     for _ in 0..spaces {

@@ -501,123 +501,9 @@ fn only_the_live_worlds_fields_are_type_checked() {
         .any(|(code, _)| code == "validation::type_mismatch"));
 }
 
-/// A blueprint is a document, so only one world can be live: the rest are the
-/// same cells, commented out.
-#[test]
-fn the_blueprint_comments_out_every_world_it_does_not_show() {
-    let bp = config().blueprint();
-    assert!(bp.contains("classification: # enum<UNCLASSIFIED | CUI | SECRET>"));
-    assert!(
-        bp.contains(concat!(
-            "  value: \"\"\n",
-            "  # when CUI:\n",
-            "  # controlled_by: # text<plain>\n",
-            "  # category: # text<plain>\n",
-            "  # when SECRET:\n",
-            "  # declassify_on: # text<plain>\n",
-        )),
-        "{bp}"
-    );
-
-    // The blank world is selected and owns no field set, so nothing is live: a
-    // commented cell reaches the payload as a comment or not at all.
-    let parsed = Document::parse(&bp).expect("blueprint round-trips").document;
-    let classification = parsed
-        .main()
-        .payload()
-        .get("classification")
-        .expect("the container survives")
-        .as_json()
-        .clone();
-    assert_eq!(classification, json!({ "value": "" }), "{bp}");
-
-    assert_eq!(parsed.to_markdown(), bp);
-}
-
-#[test]
-fn the_blueprint_emits_the_default_worlds_cells_and_round_trips() {
-    let yaml = quill_yaml().replace("      default: \"\"\n      variants:", "      default: CUI\n      variants:");
-    let config = QuillConfig::from_yaml(&yaml).unwrap();
-    let bp = config.blueprint();
-    assert!(bp.contains("value: CUI"));
-    assert!(bp.contains("controlled_by:"));
-    // The blueprint round-trips through the parser by construction, and the
-    // container survives it as the container: the shape an author edits is the
-    // shape the parser reads back.
-    let reparsed = Document::parse(&bp).expect("blueprint round-trips").document;
-    let value = reparsed
-        .main()
-        .payload()
-        .get("classification")
-        .expect("classification survives the round trip")
-        .as_json()
-        .clone();
-    assert_eq!(value["value"], json!("CUI"));
-    assert!(value.get("controlled_by").is_some());
-}
-
-/// A cell holds a container like any field, so the blueprint expands one per
-/// property. A flattened cell would hand the author a scalar slot where the
-/// schema wants a mapping, and drop every property's own description and
-/// `default:`.
-#[test]
-fn the_blueprint_expands_a_container_cell_per_property() {
-    const YAML: &str = r#"
-quill:
-  name: variant_container
-  version: "0.1.0"
-  backend: typst
-  description: variant container probe
-
-typst:
-  plate_file: plate.typ
-
-main:
-  fields:
-    classification:
-      type: enum
-      values: [UNCLASSIFIED, CUI]
-      default: CUI
-      variants:
-        CUI:
-          controlled_by:
-            type: object
-            description: Controlling office.
-            properties:
-              office: { type: text, description: Office symbol. }
-              phone: { type: text }
-          citations:
-            type: array
-            items:
-              type: object
-              properties:
-                src: { type: text }
-"#;
-    let bp = QuillConfig::from_yaml(YAML).expect("loads").blueprint();
-    assert!(
-        bp.contains(concat!(
-            "  # Controlling office.\n",
-            "  controlled_by: # object\n",
-            "    # Office symbol.\n",
-            "    office: # text<plain>\n",
-            "    phone: # text<plain>\n",
-            "  # citations:\n",
-            "  #   - src: # text<plain>\n",
-            "  citations: [] # array<object>\n",
-        )),
-        "{bp}"
-    );
-
-    let document = Document::parse(&bp).expect("the blueprint parses").document;
-    let reparsed = Document::parse(&document.to_markdown())
-        .expect("re-emit parses")
-        .document;
-    assert_eq!(document, reparsed, "the expansion round-trips");
-}
-
 #[test]
 fn the_transform_schema_flattens_every_world_into_one_container() {
-    let schema = build_transform_schema(&config());
+    let schema = build_transform_schema(&config(), crate::quill::SchemaCodec::Content);
     let json = schema.as_json();
     let cls = &json["properties"]["classification"];
     assert_eq!(cls["type"], json!("object"));
@@ -785,43 +671,13 @@ fn a_nested_worlds_strand_names_the_path_through_the_dictionary() {
     );
 }
 
-/// The worlds seat themselves in whichever container holds the discriminant, so
-/// a dormant block lands at the dictionary's indent and what a reader uncomments
-/// is the line the live world would show.
-#[test]
-fn the_blueprint_seats_a_nested_worlds_cells_in_the_dictionary() {
-    let bp = QuillConfig::from_yaml(NESTED_YAML).expect("loads").blueprint();
-    assert!(
-        bp.contains(concat!(
-            "  classification: # enum<UNCLASSIFIED | CUI>\n",
-            "    value: \"\"\n",
-            "    # when CUI:\n",
-            "    # controlled_by: # text<plain>\n",
-            "    # category: # text<plain>\n",
-        )),
-        "{bp}"
-    );
-
-    let parsed = Document::parse(&bp).expect("blueprint round-trips").document;
-    assert_eq!(
-        parsed.main().payload().get("header").unwrap().as_json()["classification"],
-        json!({ "value": "" }),
-        "{bp}"
-    );
-    assert_eq!(parsed.to_markdown(), bp);
-
-    let yaml = NESTED_YAML.replace("          default: \"\"\n", "          default: CUI\n");
-    let live = QuillConfig::from_yaml(&yaml).expect("loads").blueprint();
-    assert!(live.contains("    controlled_by: # text<plain>\n"), "{live}");
-}
-
 /// A cell stays unconditionally addressable while only conditionally live: the
 /// union crosses as the dictionary's own property, so `header.classification.poc`
 /// resolves against the schema whichever world a document later selects.
 #[test]
 fn a_nested_cell_is_addressable_through_the_dictionary() {
     let config = QuillConfig::from_yaml(NESTED_YAML).expect("loads");
-    let schema = build_transform_schema(&config);
+    let schema = build_transform_schema(&config, crate::quill::SchemaCodec::Content);
     let cls = &schema.as_json()["properties"]["header"]["properties"]["classification"];
     assert_eq!(cls["type"], json!("object"));
     assert_eq!(cls["properties"]["value"]["enum"], json!(["", "UNCLASSIFIED", "CUI"]));

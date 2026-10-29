@@ -244,6 +244,14 @@ values are made up: the seeded document with each `example` the schema
 declares committed, a field's as its value and a body's as the body;
 `undefined` when the quill declares none.
 
+An LLM writes a document as JSON: `quill.authoringSchema` is its JSON Schema,
+`quill.fromAuthoring(reply)` builds and conforms the `Document` (the JSON twin of
+`quill.parse`), and `quill.toAuthoring(doc)` exports any document back, every
+rich-text field and body a Markdown string. A shape error throws
+`authoring::invalid_shape` at its JSON path; a value of the wrong type lands
+with a `conform::*` warning and `quill.validate(doc)` reports it at its
+document path.
+
 `quill.seedDocument()` returns a starter document: one card per kind, each
 carrying the kind's `seed` from `Quill.yaml` and no other field;
 `quill.seedMain()` and `quill.seedCard(kind)` seed one card. All
@@ -453,10 +461,9 @@ if (cssPxPerPt > 0) {                        // 0 while the canvas has no layout
 
 A field declares no `required` key: nothing is required.
 
-**`default:`** — what an unanswered field renders. With one, `quill.blueprint`
-renders that value under a type-only `# <type>` annotation and the render path
-uses it when the document omits the field. Without one, the blueprint leaves the
-cell empty and an absent field blank-fills.
+**`default:`** — what an unanswered field renders. With one, the render path
+uses it when the document omits the field, and `quill.authoringSchema` carries
+it as the field's `default`. Without one, an absent field blank-fills.
 
 An unanswered field draws no diagnostic. Partial documents are accepted, and
 `engine.render(quill, doc)` throws only for malformed input.

@@ -142,6 +142,26 @@ export interface QuillSchema {
 }
 
 /**
+ * One card of an `AuthoringDocument`: its kind, its fields in the values form,
+ * and its body as Markdown. `null` anywhere a value goes is absent.
+ */
+export interface AuthoringCard {
+    kind: string;
+    fields?: Record<string, unknown> | null;
+    body?: string | null;
+}
+
+/**
+ * The JSON a model reads and writes, described by `Quill.authoringSchema`:
+ * the main card's fields and body, and the composable cards in order.
+ */
+export interface AuthoringDocument {
+    fields?: Record<string, unknown> | null;
+    body?: string | null;
+    cards?: AuthoringCard[] | null;
+}
+
+/**
  * Identity snapshot mirroring the `quill:` section of `Quill.yaml`. The schema
  * lives on `Quill.schema`; output formats are a resolved-backend capability read
  * from `Engine.supportedFormats`, not part of this config snapshot.
@@ -812,9 +832,45 @@ impl Quill {
         serialize_or_throw(&diags(self.inner.warnings().iter().cloned()), "warnings")
     }
 
-    #[wasm_bindgen(getter, js_name = blueprint)]
-    pub fn blueprint(&self) -> String {
-        self.inner.config().blueprint()
+    /// JSON Schema (draft 2020-12) of the quill's authoring document: the
+    /// shape `fromAuthoring` takes and `toAuthoring` returns, every content
+    /// leaf a Markdown or literal string, each card kind under `$defs`
+    /// selected by `kind`.
+    #[wasm_bindgen(getter, js_name = authoringSchema, unchecked_return_type = "Record<string, unknown>")]
+    pub fn authoring_schema(&self) -> Result<JsValue, JsValue> {
+        serialize_or_throw(&self.inner.config().authoring_schema(), "authoringSchema")
+    }
+
+    /// `doc` as an authoring document: every field in the values form (each
+    /// content leaf its codec's text), every body as Markdown, each card
+    /// `{kind, fields, body}`. Sparse: an absent field stays absent. A
+    /// content leaf that decodes under neither encoding exports as stored.
+    #[wasm_bindgen(js_name = toAuthoring, unchecked_return_type = "AuthoringDocument")]
+    pub fn to_authoring(&self, doc: &Document) -> Result<JsValue, JsValue> {
+        serialize_or_throw(&self.inner.to_authoring(&doc.inner), "toAuthoring")
+    }
+
+    /// A document from an authoring document, conformed against this quill:
+    /// the JSON twin of `parse`. A `null` is absent; the document carries this
+    /// quill's `$quill`. A value the schema refuses lands with a `conform::*`
+    /// warning on `doc.warnings`, and `validate` reports the rest at document
+    /// paths. Throws, with every error found, on a value that is not the
+    /// authoring document's shape (`authoring::invalid_shape`) or a name or
+    /// kind no card can store (`edit::*`).
+    #[wasm_bindgen(js_name = fromAuthoring)]
+    pub fn from_authoring(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "AuthoringDocument")] value: JsValue,
+    ) -> Result<Document, JsValue> {
+        let value = js_value_to_json(value, "fromAuthoring")?;
+        let parsed = self
+            .inner
+            .from_authoring(&value)
+            .map_err(|diags| WasmError::from(diags).to_js_value())?;
+        Ok(Document {
+            inner: parsed.document,
+            parse_warnings: parsed.warnings,
+        })
     }
 
     /// Document schema for the quill: the user-fillable fields plus their `ui`
@@ -916,7 +972,7 @@ impl Quill {
     /// The empty document: a main card carrying this quill's `$quill` and
     /// `$kind: main`, no field committed, no composable card, no body. The
     /// type-minimal valid input, and the document a plate is bound to render
-    /// (the quill authoring contract). `new Document(ref)` is the same document
+    /// (the plate contract). `new Document(ref)` is the same document
     /// reached by spelling the reference.
     #[wasm_bindgen(js_name = emptyDocument)]
     pub fn empty_document(&self) -> Document {

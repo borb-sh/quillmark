@@ -1,6 +1,6 @@
 //! The `Quill` type: portable, validated quill data.
 
-mod blueprint;
+mod authoring;
 mod bundle;
 pub(crate) mod compose;
 mod config;
@@ -19,6 +19,7 @@ mod tree;
 mod types;
 pub(crate) mod validation;
 
+pub use authoring::AUTHORING_INVALID_SHAPE;
 pub use bundle::{
     BUNDLE_EXTENSION, BUNDLE_MEDIA_TYPE, MAX_BUNDLE_BYTES, MAX_BUNDLE_ENTRIES, MAX_BUNDLE_FILE_BYTES,
 };
@@ -34,7 +35,8 @@ pub use fill::blank;
 pub use formats::{parse_date, parse_datetime, CalendarDate, ParseDateError, TODAY};
 pub use ignore::QuillIgnore;
 pub use schema::{
-    build_transform_schema, CONTENT_MEDIA_TYPE, QUILLMARK_MAX_ITEMS_KEY, QUILLMARK_MAX_LENGTH_KEY,
+    build_transform_schema, SchemaCodec, AUTHORING_KIND_KEY, CONTENT_MEDIA_TYPE,
+    MARKDOWN_MEDIA_TYPE, QUILLMARK_MAX_ITEMS_KEY, QUILLMARK_MAX_LENGTH_KEY,
     QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY,
 };
 pub use tree::FileTreeNode;

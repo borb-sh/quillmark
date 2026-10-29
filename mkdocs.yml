@@ -43,7 +43,7 @@ nav:
       - Creating Quills: quills/creating-quills.md
       - quillkit & studio: quills/quillkit.md
       - Quill.yaml Reference: quills/quill-yaml-reference.md
-      - Blueprint & Seeding: quills/blueprint.md
+      - Seeding & the Empty Document: quills/seeding.md
       - Typst Backend: quills/typst-backend.md
       - Editor Regions: quills/editor-regions.md
       - PDF Form Backend (acroform): quills/acroform-backend.md
@@ -51,6 +51,7 @@ nav:
   - Integrating:
       - Overview: integration/index.md
       - Programmatic Construction: integration/programmatic.md
+      - LLM Authoring: integration/llm-authoring.md
       - Error Handling: integration/error-handling.md
       - Persistence: integration/persistence.md
       - Operations: integration/operations.md

@@ -4,7 +4,7 @@ Quillmark is the whole framework: the Markdown format and its card-yaml blocks, 
 
 ## Terms
 
-The engine's own terms are below. The words a quill author meets (card, seed, blueprint, blank, ink, region, quiver and the rest) are in the [Glossary](glossary.md).
+The engine's own terms are below. The words a quill author meets (card, seed, authoring document, blank, ink, region, quiver and the rest) are in the [Glossary](glossary.md).
 
 | Term | Means |
 |---|---|
