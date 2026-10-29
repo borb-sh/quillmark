@@ -89,6 +89,12 @@ fn every_quill_round_trips_its_documents_through_the_authoring_form() {
                 imported.document, doc,
                 "{name}: the authoring form must round-trip\n---\n{authored}"
             );
+            let mut invented = authored.clone();
+            invented["fields"]["zz_invented"] = serde_json::json!("x");
+            assert!(
+                !schema.is_valid(&invented),
+                "{name}: its schema admits a field the quill does not declare"
+            );
         }
     }
 }

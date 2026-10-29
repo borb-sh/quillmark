@@ -88,7 +88,8 @@ pub enum SchemaCodec {
     /// Each leaf as its codec's text, `richtext` Markdown marked
     /// [`MARKDOWN_MEDIA_TYPE`] and `text` its literal string: the authoring
     /// document (`prose/canon/AUTHORING.md`). Every cell admits
-    /// `null` (null ≡ absent), a variant-bearing enum is a `oneOf` over its
+    /// `null` (null ≡ absent), every declared object refuses an undeclared
+    /// key, a variant-bearing enum is a `oneOf` over its
     /// worlds, and a slot carries its `title`, `description`, `default` and
     /// `example` as JSON Schema annotations.
     Text,
@@ -223,7 +224,11 @@ fn authoring_card_properties(card: &CardSchema) -> serde_json::Map<String, serde
     let mut properties = serde_json::Map::new();
     properties.insert(
         "fields".to_string(),
-        serde_json::json!({ "type": ["object", "null"], "properties": fields }),
+        serde_json::json!({
+            "type": ["object", "null"],
+            "properties": fields,
+            "additionalProperties": false,
+        }),
     );
     if card.body_enabled() {
         let mut body = serde_json::Map::new();
@@ -320,6 +325,7 @@ fn variant_union(field: &FieldSchema, variants: &IndexMap<String, super::Variant
             "type": "object",
             "properties": properties,
             "required": [VARIANT_DISCRIMINANT_KEY],
+            "additionalProperties": false,
         })
     };
     let mut branches: Vec<serde_json::Value> = variants
@@ -342,6 +348,15 @@ fn variant_union(field: &FieldSchema, variants: &IndexMap<String, super::Variant
     ));
     branches.push(discriminant_schema(field));
     serde_json::json!({ "oneOf": branches })
+}
+
+/// Under [`SchemaCodec::Text`], refuse a key the quill does not declare: the
+/// schema binds a model to the declared shape, though an import still stores
+/// an undeclared key and `validate` warns on it.
+fn close(schema: &mut serde_json::Map<String, serde_json::Value>, codec: SchemaCodec) {
+    if codec == SchemaCodec::Text {
+        schema.insert("additionalProperties".to_string(), false.into());
+    }
 }
 
 fn declared_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value {
@@ -439,6 +454,7 @@ fn declared_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value
                     .collect();
                 schema.insert("properties".to_string(), serde_json::Value::Object(props));
             }
+            close(&mut schema, codec);
         }
         // Each roster id's node is the member schema, so
         // `qualifications.flight_cc.detail` resolves as a typed dictionary's
@@ -467,8 +483,11 @@ fn declared_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value
                     roster.keys().map(|id| (id.clone(), node.clone())).collect();
                 schema.insert("properties".to_string(), serde_json::Value::Object(props));
             }
-            if let Some(item) = &field.added_item {
-                schema.insert("additionalProperties".to_string(), field_to_schema(item, codec));
+            match &field.added_item {
+                Some(item) => {
+                    schema.insert("additionalProperties".to_string(), field_to_schema(item, codec));
+                }
+                None => close(&mut schema, codec),
             }
         }
         // Distinct markers for the two date types drive the Typst backend's
