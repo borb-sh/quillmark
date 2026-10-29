@@ -171,17 +171,17 @@ fn authoring_envelope(config: &QuillConfig) -> serde_json::Value {
     label(&mut root, config.main.title.as_deref(), config.main.description.as_deref());
     root.insert("type".to_string(), "object".into());
     let mut properties = authoring_card_properties(&config.main);
-    if !config.card_kinds.is_empty() {
-        let kinds: Vec<serde_json::Value> = config
-            .card_kinds
-            .iter()
-            .map(|card| serde_json::json!({ "$ref": format!("#/$defs/{}", card.name) }))
-            .collect();
-        properties.insert(
-            "cards".to_string(),
-            serde_json::json!({ "type": ["array", "null"], "items": { "oneOf": kinds } }),
-        );
-    }
+    let kinds: Vec<serde_json::Value> = config
+        .card_kinds
+        .iter()
+        .map(|card| serde_json::json!({ "$ref": format!("#/$defs/{}", card.name) }))
+        .collect();
+    let cards = if kinds.is_empty() {
+        serde_json::json!({ "type": ["array", "null"], "maxItems": 0 })
+    } else {
+        serde_json::json!({ "type": ["array", "null"], "items": { "oneOf": kinds } })
+    };
+    properties.insert("cards".to_string(), cards);
     root.insert("properties".to_string(), properties.into());
     root.insert("additionalProperties".to_string(), false.into());
     if !config.card_kinds.is_empty() {
@@ -236,6 +236,11 @@ fn authoring_card_properties(card: &CardSchema) -> serde_json::Map<String, serde
             body.insert("examples".to_string(), serde_json::json!([example]));
         }
         properties.insert("body".to_string(), body.into());
+    } else {
+        properties.insert(
+            "body".to_string(),
+            serde_json::json!({ "type": ["string", "null"], "maxLength": 0 }),
+        );
     }
     properties
 }
@@ -289,11 +294,17 @@ fn admit_null(schema: &mut serde_json::Value) {
         branches.push(serde_json::json!({ "type": "null" }));
         return;
     }
-    if let Some(ty) = schema.get("type").cloned() {
-        schema["type"] = serde_json::json!([ty, "null"]);
-    }
+    admit_type(schema, "null");
     if let Some(serde_json::Value::Array(members)) = schema.get_mut("enum") {
         members.insert(0, serde_json::Value::Null);
+    }
+}
+
+fn admit_type(schema: &mut serde_json::Value, extra: &str) {
+    match schema.get_mut("type") {
+        Some(serde_json::Value::Array(types)) => types.push(extra.into()),
+        Some(ty) => *ty = serde_json::json!([ty.clone(), extra]),
+        None => {}
     }
 }
 
@@ -446,7 +457,12 @@ fn declared_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value
                 ),
             );
             if let Some(member) = &field.member {
-                let node = field_to_schema(member, codec);
+                let mut node = field_to_schema(member, codec);
+                // The values form holds a ticked member with no columns as
+                // `true`, and an unticked one as `false`.
+                if codec == SchemaCodec::Text {
+                    admit_type(&mut node, "boolean");
+                }
                 let props: serde_json::Map<String, serde_json::Value> =
                     roster.keys().map(|id| (id.clone(), node.clone())).collect();
                 schema.insert("properties".to_string(), serde_json::Value::Object(props));

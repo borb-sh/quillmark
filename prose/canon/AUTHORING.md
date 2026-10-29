@@ -63,10 +63,14 @@ per-field projection and differ only where the codec does:
 | annotations | none | `title`, `description`, `default`, `examples` from `example:` |
 | envelope | `properties` with `$body`, `$defs.<kind>_card` | `{fields, body, cards}`, each kind a `$defs.<kind>` with `kind` a `const` |
 
-A body is `{type: string, contentMediaType: text/markdown}` carrying the
-kind's `body.description` and `body.example`, and is absent on a kind whose
-`body.enabled` is `false`. A variant-bearing enum's `default:` and `example:`
-name a member, so they annotate as `{value: <member>}`.
+A body is `{type: [string, null], contentMediaType: text/markdown}` carrying
+the kind's `body.description` and `body.example`. On a kind whose
+`body.enabled` is `false` it admits only `""` and `null`, and a quill with no
+card kinds admits `cards` only empty or `null`, so every value the import
+reads as no card or no body validates. A variant-bearing enum's `default:` and
+`example:` name a member, so they annotate as `{value: <member>}`. A matrix
+member admits `true` and `false` beside its member object, as the values form
+holds a ticked member with no columns as `true`.
 
 `quillmark:multiline`, `quillmark:maxLength`, `quillmark:maxItems` and
 `quillmark:roster` cross under both codecs. A cap warns rather than refuses
@@ -83,8 +87,12 @@ schema does not declare, and every field of a card whose kind it does not
 declare, rides verbatim. `body` is present where the kind enables one or the
 card carries one; `cards` where the document has any.
 
-A leaf that decodes under neither encoding fails the export with
-`edit::field_decode` at its document path, as `reader.get()` does.
+Export never fails. A content leaf stored as a string, which conform keeps
+when it refuses the value (two paragraphs in a one-line field), passes as
+written, and a leaf that decodes under neither encoding passes verbatim, so
+the export of an invalid document carries the same invalid value and
+`Quill::validate` reports it there. The export of a valid document validates
+against the authoring schema.
 
 ## Import
 
@@ -94,9 +102,11 @@ under this quill's `$quill` (`name@MAJOR.MINOR`), then conforms it, so the
 result rests as a parsed document does.
 
 - **Shape is refused.** A value that is not the envelope (a non-object, an
-  unknown key, a card with no `kind`, a non-string body) fails with
-  `authoring::invalid_shape` at the authoring path (`cards[1].kind`). A name
-  or kind no card can store fails with its `edit::*` code at its document path.
+  unknown key, a card with no `kind`, a non-string body, an empty field name)
+  fails with `authoring::invalid_shape`. The value never reached the document
+  model, so the diagnostic carries no `path`: its RFC 6901 pointer into the
+  authoring document rides in `args.pointer` (`/cards/1/kind`). A name or
+  kind no card can store fails with its `edit::*` code at its document path.
   Every such error is collected before the import fails.
 - **Values are not.** A field value lands as written and conform canonicalizes
   it. A value the schema refuses stays with a `conform::*` warning, and
@@ -109,7 +119,8 @@ result rests as a parsed document does.
 **Round trip.** Export after import is a fixed point: importing an export
 yields the same document. What the values form does not carry, the authoring
 document does not either ([SCHEMAS.md](SCHEMAS.md#the-values-form)): an import
-is a cold write, and Markdown export canonicalizes mark nesting, escaping and
+is a cold write, a document rebuilt from its own export loses its `$ext` and
+`$seed`, and Markdown export canonicalizes mark nesting, escaping and
 trailing whitespace. A collaboration layer that holds a body as Markdown text
 therefore diffs against the canonical export, not the model's string.
 

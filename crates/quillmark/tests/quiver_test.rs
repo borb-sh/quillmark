@@ -1,4 +1,4 @@
-//! The quill authoring contract: every quill in the fixtures quiver loads, and
+//! The plate contract: every quill in the fixtures quiver loads, and
 //! each of its canonical documents renders through the quill's own
 //! template. A Typst plate is compiled code no unit test reaches, so a plate
 //! edit is caught by these sweeps or not at all. The quill list is read from
@@ -61,18 +61,27 @@ fn every_quill_renders_an_empty_document() {
     }
 }
 
-/// Each canonical document crosses the authoring form and back unchanged, so
-/// what a model reads of a document is the document it edits.
+/// Each canonical document exports to an authoring document its quill's own
+/// schema accepts, and crosses back unchanged, so what a model reads of a
+/// document is the document it edits.
 #[test]
 fn every_quill_round_trips_its_documents_through_the_authoring_form() {
     for (name, quill) in QUIVER.iter() {
+        let schema = jsonschema::draft202012::new(&quill.config().authoring_schema())
+            .unwrap_or_else(|e| panic!("{name}'s authoring schema does not compile: {e}"));
         let documents = [quill.empty_document(), quill.seed_document()]
             .into_iter()
             .chain(quill.example_document());
         for doc in documents {
-            let authored = quill
-                .to_authoring(&doc)
-                .unwrap_or_else(|e| panic!("{name} failed to export: {e:?}"));
+            let authored = quill.to_authoring(&doc);
+            let refusals: Vec<String> = schema
+                .iter_errors(&authored)
+                .map(|e| format!("{}: {e}", e.instance_path()))
+                .collect();
+            assert!(
+                refusals.is_empty(),
+                "{name}: its schema refuses its own export {authored}\n{refusals:#?}"
+            );
             let imported = quill
                 .from_authoring(&authored)
                 .unwrap_or_else(|e| panic!("{name} failed to import {authored}: {e:?}"));

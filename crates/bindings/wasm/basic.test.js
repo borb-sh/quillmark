@@ -1218,9 +1218,9 @@ main:
     } catch (e) {
       caught = e
     }
-    expect(caught?.diagnostics?.map((d) => [d.code, d.path])).toEqual([
-      ['authoring::invalid_shape', 'fields'],
-      ['authoring::invalid_shape', 'cards[0].kind'],
+    expect(caught?.diagnostics?.map((d) => [d.code, d.path, d.args?.pointer])).toEqual([
+      ['authoring::invalid_shape', undefined, '/fields'],
+      ['authoring::invalid_shape', undefined, '/cards/0/kind'],
     ])
   })
 

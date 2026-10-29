@@ -9,7 +9,7 @@ use super::{CardSchema, Quill, QuillConfig};
 use crate::document::{import_body_at, Card, Document, EditError, Parsed};
 use crate::error::{Diagnostic, Severity};
 use crate::path::DocPath;
-use crate::reader::project_value;
+use crate::reader::{project_value, Leaves};
 
 /// The code every structural refusal of [`Quill::from_authoring`] carries: a
 /// value whose shape is not the authoring document's.
@@ -33,32 +33,26 @@ impl Quill {
     /// enables one or the card carries one; `cards` where the document has any.
     /// `$quill`, `$ext` and `$seed` never appear.
     ///
-    /// Fails with `edit::field_decode`, anchored at the leaf, when a content
-    /// leaf holds a value that decodes under neither encoding.
-    pub fn to_authoring(&self, doc: &Document) -> Result<JsonValue, Diagnostic> {
-        let main = Some(&self.config.main);
-        let mut root =
-            authoring_card(doc.main(), main).map_err(|e| edit_error(&e, &DocPath::main()))?;
+    /// A content leaf stored as a string passes as written, and one that
+    /// decodes under neither encoding passes verbatim, so every document
+    /// exports and importing the export stores the same values.
+    pub fn to_authoring(&self, doc: &Document) -> JsonValue {
+        let mut root = authoring_card(doc.main(), Some(&self.config.main));
         if !doc.cards().is_empty() {
             let cards = doc
                 .cards()
                 .iter()
-                .enumerate()
-                .map(|(index, card)| {
+                .map(|card| {
                     let kind = card.kind().unwrap_or_default();
                     let mut envelope = JsonMap::new();
                     envelope.insert(AUTHORING_KIND_KEY.to_string(), kind.into());
-                    let base = DocPath::card(Some(kind), index);
-                    envelope.extend(
-                        authoring_card(card, self.config.card_kind(kind))
-                            .map_err(|e| edit_error(&e, &base))?,
-                    );
-                    Ok(JsonValue::Object(envelope))
+                    envelope.extend(authoring_card(card, self.config.card_kind(kind)));
+                    JsonValue::Object(envelope)
                 })
-                .collect::<Result<Vec<_>, Diagnostic>>()?;
+                .collect();
             root.insert("cards".to_string(), JsonValue::Array(cards));
         }
-        Ok(JsonValue::Object(root))
+        JsonValue::Object(root)
     }
 
     /// A document from an authoring document, conformed against this quill:
@@ -85,7 +79,7 @@ impl Quill {
         };
         for key in root.keys() {
             if !matches!(key.as_str(), "fields" | "body" | "cards") {
-                errors.push(shape_error(key, "is not an authoring document key; expected `fields`, `body` or `cards`"));
+                errors.push(shape_error(&pointer("", key), "is not an authoring document key; expected `fields`, `body` or `cards`"));
             }
         }
         let main = document.main_card_mut();
@@ -95,25 +89,25 @@ impl Quill {
             None | Some(JsonValue::Null) => &[][..],
             Some(JsonValue::Array(cards)) => cards.as_slice(),
             Some(_) => {
-                errors.push(shape_error("cards", "must be an array of cards"));
+                errors.push(shape_error("/cards", "must be an array of cards"));
                 &[][..]
             }
         };
         for (index, value) in cards.iter().enumerate() {
-            let at = format!("cards[{index}]");
+            let at = format!("/cards/{index}");
             let Some(envelope) = expect_object(value, &at, &mut errors) else {
                 continue;
             };
             for key in envelope.keys() {
                 if !matches!(key.as_str(), AUTHORING_KIND_KEY | "fields" | "body") {
                     errors.push(shape_error(
-                        &format!("{at}.{key}"),
+                        &pointer(&at, key),
                         "is not a card key; expected `kind`, `fields` or `body`",
                     ));
                 }
             }
             let Some(kind) = envelope.get(AUTHORING_KIND_KEY).and_then(JsonValue::as_str) else {
-                errors.push(shape_error(&format!("{at}.{AUTHORING_KIND_KEY}"), "must name the card's kind"));
+                errors.push(shape_error(&pointer(&at, AUTHORING_KIND_KEY), "must name the card's kind"));
                 continue;
             };
             let mut card = match Card::new(kind) {
@@ -124,7 +118,7 @@ impl Quill {
                 }
             };
             let base = DocPath::card(Some(kind), index);
-            fill_card(&mut card, envelope, &base, &format!("{at}."), &mut errors, &mut warnings);
+            fill_card(&mut card, envelope, &base, &at, &mut errors, &mut warnings);
             if let Err(e) = document.push_card(card) {
                 errors.push(edit_error(&e, &base));
             }
@@ -140,11 +134,12 @@ impl Quill {
 }
 
 /// One card's `fields` and `body` in the authoring form.
-fn authoring_card(card: &Card, schema: Option<&CardSchema>) -> Result<JsonMap<String, JsonValue>, EditError> {
+fn authoring_card(card: &Card, schema: Option<&CardSchema>) -> JsonMap<String, JsonValue> {
     let mut fields = JsonMap::new();
     for (name, value) in card.payload().iter() {
         let value = match schema.and_then(|s| s.fields.get(name)) {
-            Some(field) => project_value(name, value.as_json(), field, &mut Vec::new())?,
+            Some(field) => project_value(name, value.as_json(), field, Leaves::Preserve, &mut Vec::new())
+                .unwrap_or_else(|_| value.as_json().clone()),
             None => value.as_json().clone(),
         };
         fields.insert(name.clone(), value);
@@ -155,7 +150,7 @@ fn authoring_card(card: &Card, schema: Option<&CardSchema>) -> Result<JsonMap<St
     if schema.is_some_and(CardSchema::body_enabled) || !body.is_empty() {
         envelope.insert("body".to_string(), body.into());
     }
-    Ok(envelope)
+    envelope
 }
 
 /// Store an envelope's `fields` and `body` on `card`. `at` prefixes the
@@ -168,10 +163,14 @@ fn fill_card(
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
 ) {
-    let fields_at = format!("{at}fields");
+    let fields_at = pointer(at, "fields");
     let fields = envelope.get("fields").filter(|v| !v.is_null());
     if let Some(fields) = fields.and_then(|f| expect_object(f, &fields_at, errors)) {
         for (name, value) in fields.iter().filter(|(_, v)| !v.is_null()) {
+            if name.is_empty() {
+                errors.push(shape_error(&pointer(&fields_at, name), "is an empty field name"));
+                continue;
+            }
             if let Err(e) = card.store_field(name, value.clone()) {
                 errors.push(edit_error(&e, base));
             }
@@ -189,7 +188,7 @@ fn fill_card(
                 ),
             }
         }
-        Some(_) => errors.push(shape_error(&format!("{at}body"), "must be a Markdown string")),
+        Some(_) => errors.push(shape_error(&pointer(at, "body"), "must be a Markdown string")),
     }
 }
 
@@ -205,16 +204,23 @@ fn expect_object<'v>(
     object
 }
 
-/// A shape refusal. Its path is the authoring document's own (`cards[1].kind`),
-/// since the value it names never reached the document model.
+/// A shape refusal. The value it names never reached the document model, so
+/// it carries no document-model path: its JSON Pointer into the authoring
+/// document rides in `args.pointer`.
 fn shape_error(at: &str, message: &str) -> Diagnostic {
-    if at.is_empty() {
-        return Diagnostic::new(Severity::Error, format!("The authoring document {message}"))
-            .with_code(AUTHORING_INVALID_SHAPE.to_string());
-    }
-    Diagnostic::new(Severity::Error, format!("`{at}` {message}"))
+    let message = if at.is_empty() {
+        format!("The authoring document {message}")
+    } else {
+        format!("`{at}` {message}")
+    };
+    Diagnostic::new(Severity::Error, message)
         .with_code(AUTHORING_INVALID_SHAPE.to_string())
-        .with_path(at.to_string())
+        .with_args([("pointer".to_string(), JsonValue::from(at))].into())
+}
+
+/// `parent` extended by `key`, escaped as RFC 6901 requires.
+fn pointer(parent: &str, key: &str) -> String {
+    format!("{parent}/{}", key.replace('~', "~0").replace('/', "~1"))
 }
 
 fn edit_error(e: &EditError, base: &DocPath) -> Diagnostic {

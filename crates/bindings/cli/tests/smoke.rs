@@ -119,7 +119,7 @@ main:
     assert_eq!(summaries, 1, "expected one summary line: {stderr}");
 }
 
-/// The quill authoring contract, which only a render reaches: this plate indexes
+/// The plate contract, which only a render reaches: this plate indexes
 /// a card the seeded document carries and the empty document does not, so
 /// `render` and `validate --no-render` both pass it and the default check does
 /// not.

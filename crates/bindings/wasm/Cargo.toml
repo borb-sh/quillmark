@@ -50,7 +50,7 @@ default = ["render"]
 # seam, so the binding depends on the backend crates only transitively.
 render = ["quillmark/typst", "quillmark/acroform", "dep:web-sys", "dep:getrandom"]
 # Core build = no features: Document + Quill (parse / load / validate / schema
-# / seed / blueprint). No `Engine`, no Typst; `scripts/build-wasm.sh` enforces its
+# / seed / authoring). No `Engine`, no Typst; `scripts/build-wasm.sh` enforces its
 # gzip ceiling.
 
 [package.metadata.cargo-machete]

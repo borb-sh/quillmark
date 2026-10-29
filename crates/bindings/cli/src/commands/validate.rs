@@ -181,7 +181,7 @@ struct RenderFailure {
     diagnostics: Vec<Diagnostic>,
 }
 
-/// The quill authoring contract, which no config read reaches: each of the
+/// The plate contract, which no config read reaches: each of the
 /// canonical documents — the empty document and the seeded document — compiles
 /// through the quill's own plate (`QUILL.md` § "The plate contract"). The
 /// example, when the quill declares one, compiles after them. The backend's

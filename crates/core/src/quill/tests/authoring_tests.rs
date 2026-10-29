@@ -75,7 +75,10 @@ fn the_schema_is_the_document_envelope_with_a_kind_per_card() {
         indorsement["properties"]["fields"]["properties"]["kind"]["type"],
         json!(["string", "null"])
     );
-    assert!(schema["$defs"]["stamp"]["properties"].get("body").is_none());
+    assert_eq!(
+        schema["$defs"]["stamp"]["properties"]["body"],
+        json!({ "type": ["string", "null"], "maxLength": 0 })
+    );
 }
 
 #[test]
@@ -144,7 +147,7 @@ fn a_document_exports_in_the_values_form_and_imports_back_equal() {
     let parsed = quill.parse(MARKDOWN).expect("parses");
     let mut document = parsed.document;
     document.main_mut().remove_ext();
-    let authored = quill.to_authoring(&document).expect("exports");
+    let authored = quill.to_authoring(&document);
     assert_eq!(
         authored,
         json!({
@@ -185,7 +188,7 @@ fn null_is_absent_and_the_quill_reference_is_the_quills() {
     assert_eq!(imported.main().payload().get("from").unwrap().as_json(), &json!("Ops"));
     assert_eq!(imported.cards()[0].kind(), Some("stamp"));
     assert_eq!(
-        quill.to_authoring(&imported).unwrap(),
+        quill.to_authoring(&imported),
         json!({ "fields": { "from": "Ops" }, "body": "", "cards": [{ "kind": "stamp", "fields": {} }] })
     );
 }
@@ -215,35 +218,58 @@ fn a_value_the_schema_refuses_lands_and_validates_at_its_document_path() {
 #[test]
 fn a_shape_the_document_does_not_take_is_refused_with_every_error() {
     let quill = quill();
-    let codes_at = |value: serde_json::Value| -> Vec<(String, Option<String>)> {
+    let refusals = |value: serde_json::Value| -> Vec<(String, Option<String>)> {
         quill
             .from_authoring(&value)
             .map(|_| ())
             .expect_err("refused")
             .into_iter()
-            .map(|d| (d.code.unwrap_or_default(), d.path))
+            .map(|d| match d.args.get("pointer") {
+                Some(pointer) => {
+                    assert_eq!(d.path, None, "a shape error names no document-model path");
+                    (d.code.unwrap_or_default(), pointer.as_str().map(str::to_string))
+                }
+                None => (d.code.unwrap_or_default(), d.path),
+            })
             .collect()
     };
-    assert_eq!(codes_at(json!([])), [(AUTHORING_INVALID_SHAPE.to_string(), None)]);
     let shape = |at: &str| (AUTHORING_INVALID_SHAPE.to_string(), Some(at.to_string()));
+    assert_eq!(refusals(json!([])), [shape("")]);
     assert_eq!(
-        codes_at(json!({
+        refusals(json!({
             "$quill": "q@1.0",
+            "": 1,
             "fields": [],
             "body": 3,
-            "cards": [{ "fields": {} }, { "kind": "indorsement", "id": 1 }, { "kind": "BAD KIND" }],
+            "cards": [{ "fields": {} }, { "kind": "indorsement", "a/b": 1 }, { "kind": "BAD KIND" }],
         })),
         [
-            shape("$quill"),
-            shape("fields"),
-            shape("body"),
-            shape("cards[0].kind"),
-            shape("cards[1].id"),
+            shape("/$quill"),
+            shape("/"),
+            shape("/fields"),
+            shape("/body"),
+            shape("/cards/0/kind"),
+            shape("/cards/1/a~1b"),
             ("edit::invalid_kind_name".to_string(), Some("cards[2]".to_string())),
         ]
     );
+    assert_eq!(refusals(json!({ "fields": { "": 1 } })), [shape("/fields/")]);
     assert_eq!(
-        codes_at(json!({ "fields": { "$ext": {} } })),
+        refusals(json!({ "fields": { "$ext": {} } })),
         [("edit::invalid_field_name".to_string(), Some("main.$ext".to_string()))]
     );
+}
+
+#[test]
+fn a_leaf_that_does_not_decode_exports_as_stored() {
+    let quill = quill();
+    let value = json!({ "fields": { "subject": 5, "refs": ["- a\n- b"] } });
+    let imported = quill.from_authoring(&value).expect("imports").document;
+    assert_eq!(quill.to_authoring(&imported)["fields"], value["fields"]);
+
+    let one_line = json!({ "fields": { "subject": "- a\n- b" } });
+    let imported = quill.from_authoring(&one_line).expect("imports").document;
+    let exported = quill.to_authoring(&imported);
+    assert_eq!(exported["fields"], one_line["fields"]);
+    assert_eq!(quill.from_authoring(&exported).expect("imports").document, imported);
 }

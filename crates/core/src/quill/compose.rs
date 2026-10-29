@@ -275,7 +275,7 @@ impl Quill {
 
     /// The **empty document**: a main card carrying `$quill` and `$kind: main`,
     /// no field committed, no composable card, no body. The type-minimal valid
-    /// input, and the document the quill authoring contract binds a plate to
+    /// input, and the document the plate contract binds a plate to
     /// render (`prose/canon/QUILL.md` § "The plate contract").
     ///
     /// The leaner of the two canonical documents, beside the

@@ -37,9 +37,9 @@ def test_a_document_crosses_the_authoring_form(taro_quill_dir):
 
     with pytest.raises(QuillmarkError) as caught:
         quill.from_authoring({"fields": [], "cards": [{}]})
-    assert [(d.code, d.path) for d in caught.value.diagnostics] == [
-        ("authoring::invalid_shape", "fields"),
-        ("authoring::invalid_shape", "cards[0].kind"),
+    assert [(d.code, d.path, d.args.get("pointer")) for d in caught.value.diagnostics] == [
+        ("authoring::invalid_shape", None, "/fields"),
+        ("authoring::invalid_shape", None, "/cards/0/kind"),
     ]
 
 

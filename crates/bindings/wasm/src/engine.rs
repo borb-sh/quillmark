@@ -842,16 +842,11 @@ impl Quill {
 
     /// `doc` as an authoring document: every field in the values form (each
     /// content leaf its codec's text), every body as Markdown, each card
-    /// `{kind, fields, body}`. Sparse: an absent field stays absent. Throws
-    /// `edit::field_decode` at a content leaf that decodes under neither
-    /// encoding.
+    /// `{kind, fields, body}`. Sparse: an absent field stays absent. A
+    /// content leaf that decodes under neither encoding exports as stored.
     #[wasm_bindgen(js_name = toAuthoring, unchecked_return_type = "AuthoringDocument")]
     pub fn to_authoring(&self, doc: &Document) -> Result<JsValue, JsValue> {
-        let authored = self
-            .inner
-            .to_authoring(&doc.inner)
-            .map_err(|d| WasmError::from(vec![d]).to_js_value())?;
-        serialize_or_throw(&authored, "toAuthoring")
+        serialize_or_throw(&self.inner.to_authoring(&doc.inner), "toAuthoring")
     }
 
     /// A document from an authoring document, conformed against this quill:
@@ -976,7 +971,7 @@ impl Quill {
     /// The empty document: a main card carrying this quill's `$quill` and
     /// `$kind: main`, no field committed, no composable card, no body. The
     /// type-minimal valid input, and the document a plate is bound to render
-    /// (the quill authoring contract). `new Document(ref)` is the same document
+    /// (the plate contract). `new Document(ref)` is the same document
     /// reached by spelling the reference.
     #[wasm_bindgen(js_name = emptyDocument)]
     pub fn empty_document(&self) -> Document {

@@ -174,7 +174,7 @@ A `Quill::conform` warning: a value the typed write refuses, left as authored.
 
 ## `authoring::`
 
-Importing an [authoring document](../integration/llm-authoring.md): a value that is not its shape.
+Importing an [authoring document](../integration/llm-authoring.md): a value that is not its shape. It carries no `path`; `args.pointer` is the JSON Pointer to the offending value (`/cards/1/kind`).
 
 - `authoring::invalid_shape`
 

@@ -54,7 +54,7 @@ const diagnostics = quill.validate(doc)
 const current = quill.toAuthoring(doc)
 ```
 
-`fromAuthoring` refuses a value that is not the authoring document's shape, with every error at once: `authoring::invalid_shape` at its JSON path (`cards[1].kind`), or an `edit::*` code for a field name or kind no card can hold. A value of the wrong type does not fail the import. It lands with a `conform::*` warning on `doc.warnings`, and `validate` reports it at its document path (`cards.indorsement[0].date`), so a repair turn can send back only the failed fields.
+`fromAuthoring` refuses a value that is not the authoring document's shape, with every error at once: `authoring::invalid_shape` with its JSON Pointer in `args.pointer` (`/cards/1/kind`), or an `edit::*` code for a field name or kind no card can hold. A value of the wrong type does not fail the import. It lands with a `conform::*` warning on `doc.warnings`, and `validate` reports it at its document path (`cards.indorsement[0].date`), so a repair turn can send back only the failed fields.
 
 `toAuthoring` exports any document, so an edit turn shows the model the current state. Exporting what you imported gives back the same document. Markdown export is canonical: mark nesting, escaping and trailing whitespace may differ from the string the model sent.
 

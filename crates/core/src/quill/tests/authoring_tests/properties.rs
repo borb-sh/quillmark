@@ -11,7 +11,7 @@ fn arb_json(max_depth: u32) -> impl Strategy<Value = serde_json::Value> {
         Just(serde_json::Value::Null),
         any::<bool>().prop_map(serde_json::Value::Bool),
         any::<i32>().prop_map(serde_json::Value::from),
-        "\\PC{0,12}".prop_map(serde_json::Value::String),
+        "(\\PC|\n){0,12}".prop_map(serde_json::Value::String),
     ];
     leaf.prop_recursive(max_depth, 24, 3, |inner| {
         prop_oneof![
@@ -57,11 +57,9 @@ proptest! {
         let Ok(first) = quill.from_authoring(&value) else {
             return Ok(());
         };
-        let Ok(exported) = quill.to_authoring(&first.document) else {
-            return Ok(());
-        };
+        let exported = quill.to_authoring(&first.document);
         let second = quill.from_authoring(&exported).expect("an export imports");
         prop_assert_eq!(&second.document, &first.document);
-        prop_assert_eq!(quill.to_authoring(&second.document).unwrap(), exported);
+        prop_assert_eq!(quill.to_authoring(&second.document), exported);
     }
 }
