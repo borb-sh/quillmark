@@ -40,7 +40,8 @@ without `prefixItems`, which strict structured-output modes lack.
 
 **Null ≡ absent.** A field left out, or `null`, takes its `default:`, else its
 blank, as everywhere else ([SCHEMAS.md](SCHEMAS.md#default)). `""` and `[]` are
-answers. The form is sparse: an export never materializes a default.
+answers. The form is sparse: an export never materializes a default, and a
+field stored as `null` exports absent.
 
 **A snapshot, never a patch.** The document is a whole-state shape. It carries
 no edit grammar and no card identity: a live-collaboration layer (Yjs, say)
@@ -60,6 +61,7 @@ per-field projection and differ only where the codec does:
 | `text` leaf | the content object plus `quillmark:plain` | `{type: string}` |
 | `null` | admitted on an optional cell | admitted on every cell |
 | variant-bearing enum | one object, every world's cells flattened | `oneOf`: one branch per world, its `value` a `const`, one branch for the worldless members and the blank, the bare discriminant, `null` |
+| undeclared keys | admitted | refused: `additionalProperties: false` on every object |
 | annotations | none | `title`, `description`, `default`, `examples` from `example:` |
 | envelope | `properties` with `$body`, `$defs.<kind>_card` | `{fields, body, cards}`, each kind a `$defs.<kind>` with `kind` a `const` |
 
@@ -71,6 +73,14 @@ reads as no card or no body validates. A variant-bearing enum's `default:` and
 `example:` name a member, so they annotate as `{value: <member>}`. A matrix
 member admits `true` and `false` beside its member object, as the values form
 holds a ticked member with no columns as `true`.
+
+**Closed to the writer, open at rest.** The envelope, each card, `fields`,
+every typed dictionary, every variant world and every closed matrix refuse a
+key the quill does not declare, so a model that misspells or invents a field
+fails the schema rather than landing a key nothing reads. An open matrix's
+added items stay its `additionalProperties`. The import does not apply the
+schema: a stored document's undeclared field still imports, and
+`Quill::validate` warns on it (`validation::unknown_field`).
 
 `quillmark:multiline`, `quillmark:maxLength`, `quillmark:maxItems` and
 `quillmark:roster` cross under both codecs. A cap warns rather than refuses
@@ -91,8 +101,9 @@ Export never fails. A content leaf stored as a string, which conform keeps
 when it refuses the value (two paragraphs in a one-line field), passes as
 written, and a leaf that decodes under neither encoding passes verbatim, so
 the export of an invalid document carries the same invalid value and
-`Quill::validate` reports it there. The export of a valid document validates
-against the authoring schema.
+`Quill::validate` reports it there. The export of a document `Quill::validate`
+reports nothing on validates against the authoring schema; an undeclared
+field rides out verbatim, and the schema refuses it there.
 
 ## Import
 
@@ -120,8 +131,8 @@ result rests as a parsed document does.
 yields the same document. What the values form does not carry, the authoring
 document does not either ([SCHEMAS.md](SCHEMAS.md#the-values-form)): an import
 is a cold write, a document rebuilt from its own export loses its `$ext` and
-`$seed`, and Markdown export canonicalizes mark nesting, escaping and
-trailing whitespace. A collaboration layer that holds a body as Markdown text
+`$seed` and holds a field stored as `null` as absent, and Markdown export
+canonicalizes mark nesting, escaping and trailing whitespace. A collaboration layer that holds a body as Markdown text
 therefore diffs against the canonical export, not the model's string.
 
 ## The canonical documents

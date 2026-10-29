@@ -117,6 +117,31 @@ fn a_variant_bearing_enum_is_one_branch_per_world() {
     assert_eq!(branches[3], json!({ "type": "null" }));
 }
 
+#[test]
+fn every_declared_object_refuses_an_undeclared_key_the_import_still_stores() {
+    let quill = quill();
+    let schema = quill.config().authoring_schema();
+    let fields = &schema["properties"]["fields"];
+    assert_eq!(fields["additionalProperties"], json!(false));
+    assert_eq!(fields["properties"]["contact"]["additionalProperties"], json!(false));
+    let branches = fields["properties"]["marking"]["oneOf"].as_array().unwrap();
+    assert_eq!(branches[0]["additionalProperties"], json!(false));
+    assert_eq!(branches[1]["additionalProperties"], json!(false));
+    let indorsement = &schema["$defs"]["indorsement"];
+    assert_eq!(indorsement["additionalProperties"], json!(false));
+    assert_eq!(indorsement["properties"]["fields"]["additionalProperties"], json!(false));
+
+    let imported = quill
+        .from_authoring(&json!({ "fields": { "stranger": "kept", "contact": { "zip": "1" } } }))
+        .expect("an undeclared key imports");
+    let codes: Vec<_> = quill
+        .validate(&imported.document)
+        .into_iter()
+        .filter_map(|d| d.code)
+        .collect();
+    assert_eq!(codes, ["validation::unknown_field", "validation::unknown_field"]);
+}
+
 const MARKDOWN: &str = r#"~~~
 $quill: q@1.0
 $kind: main
@@ -191,6 +216,17 @@ fn null_is_absent_and_the_quill_reference_is_the_quills() {
         quill.to_authoring(&imported),
         json!({ "fields": { "from": "Ops" }, "body": "", "cards": [{ "kind": "stamp", "fields": {} }] })
     );
+}
+
+#[test]
+fn a_field_stored_as_null_exports_absent_so_the_round_trip_holds() {
+    let quill = quill();
+    let document = quill.parse("~~~\n$quill: q\nsubject: ~\nfrom: Ops\n~~~\n").expect("parses").document;
+    assert!(document.main().payload().get("subject").is_some());
+    let authored = quill.to_authoring(&document);
+    assert_eq!(authored["fields"], json!({ "from": "Ops" }));
+    let imported = quill.from_authoring(&authored).expect("imports").document;
+    assert_eq!(quill.to_authoring(&imported), authored);
 }
 
 #[test]

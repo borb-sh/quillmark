@@ -27,7 +27,8 @@ impl Quill {
     /// `doc` as an authoring document: `{fields, body, cards: [{kind, fields,
     /// body}]}`, every field in the values form
     /// ([`TypedReader::get`](crate::reader::TypedReader::get)) and every body
-    /// as Markdown. Sparse, as the values form is: an absent field stays absent.
+    /// as Markdown. Sparse, as the values form is: an absent field stays absent, and a
+    /// field stored as `null` exports absent.
     /// A field the schema does not declare, or any field of a card whose kind
     /// it does not declare, rides verbatim. `body` is present where the kind
     /// enables one or the card carries one; `cards` where the document has any.
@@ -136,7 +137,7 @@ impl Quill {
 /// One card's `fields` and `body` in the authoring form.
 fn authoring_card(card: &Card, schema: Option<&CardSchema>) -> JsonMap<String, JsonValue> {
     let mut fields = JsonMap::new();
-    for (name, value) in card.payload().iter() {
+    for (name, value) in card.payload().iter().filter(|(_, v)| !v.as_json().is_null()) {
         let value = match schema.and_then(|s| s.fields.get(name)) {
             Some(field) => project_value(name, value.as_json(), field, Leaves::Preserve, &mut Vec::new())
                 .unwrap_or_else(|_| value.as_json().clone()),

@@ -265,7 +265,7 @@ impl PyQuill {
 
     /// `doc` as an authoring document: every field in the values form (each
     /// content leaf its codec's text), every body as Markdown, each card
-    /// `{kind, fields, body}`. Sparse: an absent field stays absent. A content
+    /// `{kind, fields, body}`. Sparse: an absent or `null` field stays absent. A content
     /// leaf that decodes under neither encoding exports as stored.
     fn to_authoring<'py>(
         &self,
