@@ -16,7 +16,7 @@ declares, so move each value onto its field before upgrading.
   field and body a Markdown string and `null` absent.
   `QuillConfig::authoring_schema()` is its JSON Schema, built by
   `build_transform_schema` under the new `SchemaCodec::Text`: every cell admits
-  `null`, a variant-bearing enum is a `oneOf` per world, and each slot carries
+  `null`, every declared object refuses an undeclared key, a variant-bearing enum is a `oneOf` per world, and each slot carries
   its `title`, `description`, `default` and `examples`.
   `Quill::to_authoring` exports a document and `Quill::from_authoring` imports
   and conforms one, refusing a malformed shape with `authoring::invalid_shape`.

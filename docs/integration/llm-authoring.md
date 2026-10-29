@@ -35,6 +35,7 @@ const schema = quill.authoringSchema    // JavaScript
 - Every field carries its `title`, `description`, `default`, and its `example:` as `examples`; every body its `description` and `examples`.
 - A `richtext` leaf is `{type: string, contentMediaType: text/markdown}` and a `text` leaf `{type: string}`.
 - Every cell admits `null`.
+- Every object refuses a key the quill does not declare (`additionalProperties: false`), so an invented or misspelled field fails the schema. `fromAuthoring` still imports one, and `validate` warns on it.
 - Card kinds sit under `$defs`, and `cards` items select one by `kind`.
 - An enum with `variants:` is a `oneOf` with one branch per world.
 
