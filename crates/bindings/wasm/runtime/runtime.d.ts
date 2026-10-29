@@ -18,6 +18,7 @@ import type {
 	Document as CoreDocument,
 	importMarkdown,
 	exportMarkdown,
+	normalize,
 	rebase,
 	mapPos,
 	mapMarks,
@@ -40,6 +41,7 @@ export interface CoreSurface {
 	Document: typeof CoreDocument;
 	importMarkdown: typeof importMarkdown;
 	exportMarkdown: typeof exportMarkdown;
+	normalize: typeof normalize;
 	rebase: typeof rebase;
 	mapPos: typeof mapPos;
 	mapMarks: typeof mapMarks;

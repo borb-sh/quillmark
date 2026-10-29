@@ -21,7 +21,8 @@ markdown, stored JSON, op wire, Typst lowering, validate and signal cells.
    quill, declaration or session.
 3. **Fixed point.** `from_markdown(to_markdown(c)) == c`, except for anchors,
    which a markdown write keeps by diff-rebase (`revise`, `rebase`), never by
-   the projection.
+   the projection, and a table's slot sharing its line, which the write breaks
+   onto a line of its own; the broken content is a fixed point.
 4. **No silent lane.** For every construct, quill and backend, the outcome is
    honored, inert with a signal, or refused at the write. The signal reaches
    every door that meets the construct: a markdown drop the parse, import or

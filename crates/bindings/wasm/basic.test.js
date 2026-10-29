@@ -11,6 +11,7 @@ import {
   Document,
   importMarkdown,
   exportMarkdown,
+  normalize,
   rebase,
   mapPos,
   mapMarks,
@@ -713,6 +714,33 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
 
     // A bundle `applyChange` would refuse throws here rather than answering.
     expect(() => mapMarks(before, { islandOps: [{ op: 'insert', at: 99, id: 'i2', type: 'image', props: {} }] })).toThrow()
+  })
+
+  it('normalize answers what overwrite stores, a table sharing its line kept where it is', () => {
+    const doc = blankDoc()
+    const table = importMarkdown('| H |\n| --- |\n| a |').content
+    const shared = {
+      ...table,
+      text: 'a\uFFFCbold',
+      lines: [{ kind: 'para', containers: [] }],
+      marks: [{ start: 2, end: 6, type: 'strong' }, { start: 3, end: 6, type: 'strong' }],
+    }
+    doc.overwrite({}, shared)
+    expect(normalize(shared)).toEqual(doc.main.body)
+    expect(doc.main.body.text).toBe(shared.text)
+    expect(exportMarkdown(doc.main.body)).toBe('a\n\n| H |\n| --- |\n| a |\n\n**bold**')
+
+    const refused = { ...shared, lines: [{ kind: 'bogus', containers: [] }] }
+    const message = (f) => {
+      try {
+        f()
+      } catch (e) {
+        return String(e.message ?? e).replace(/^\w+: /, '')
+      }
+      return null
+    }
+    expect(message(() => normalize(refused))).not.toBeNull()
+    expect(message(() => normalize(refused))).toBe(message(() => doc.overwrite({}, refused)))
   })
 
   it('applyChange setContinues lowers a hard break op-wise', () => {

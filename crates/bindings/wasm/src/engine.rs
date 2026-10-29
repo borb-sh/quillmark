@@ -540,7 +540,9 @@ export type LineOp =
  *
  * A `table` has no inline placement: markdown writes it as a block, so an
  * `insert` whose `at` is not an empty line throws, as does a `set` retyping an
- * inline island into one.
+ * inline island into one. A table already sharing its line, as a `join` or an
+ * `overwrite` of merged edits leaves one, stays there and takes its `set`;
+ * markdown writes it on a line of its own.
  */
 export type IslandOp =
     | ({ op: "set" } & ContentIsland)
@@ -2148,6 +2150,19 @@ pub fn export_markdown(
 ) -> Result<String, JsValue> {
     let content = js_to_content(rt, "exportMarkdown")?;
     Ok(quillmark_content::export::to_markdown(&content))
+}
+
+/// The canonical form of `rt`: the content `overwrite` stores from it, read
+/// without a document. Normalizing rewrites structure, never the text, so the
+/// answer's `text` is `rt.text`. Throws where `overwrite` would, with the same
+/// error under this verb's name.
+#[wasm_bindgen(js_name = normalize, unchecked_return_type = "Content")]
+pub fn normalize(#[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue) -> Result<JsValue, JsValue> {
+    let content = js_to_authored_content(rt, "normalize")?;
+    serialize_or_throw(
+        &quillmark_content::serial::to_canonical_value(&content),
+        "normalize",
+    )
 }
 
 /// Rebase `markdown` onto a `base` content: the document-free twin of `revise`,

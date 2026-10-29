@@ -30,8 +30,9 @@ pub const ISLAND_SLOT: char = '\u{FFFC}';
 ///
 /// The mint ([`Content::into_normalized`]) establishes the canonical form:
 /// marks sorted and unioned, container paths renumbered, a line's kind agreeing
-/// with its text, a block island's slot alone on its line, table props on one
-/// column count. [`Content::validate`] reports what the mint cannot repair: the
+/// with its text, table props on one column count. The mint never moves text:
+/// a block island's slot may share its line, and each emitter sets its markup
+/// as a block there. [`Content::validate`] reports what the mint cannot repair: the
 /// text holds no `\r`, no bidi controls, and no line separator (every character
 /// Typst reads as a newline but `\n`); the count of [`ISLAND_SLOT`] equals
 /// `islands.len()`; `lines.len()` equals the number of `\n`-separated segments.
@@ -733,8 +734,8 @@ pub(crate) fn is_whole_line(chars: &[char], start: Usv, end: Usv) -> bool {
 }
 
 /// Every block-only island's slot that shares its line with other content, in
-/// text order: the single reading behind the authored lane's refusal and the
-/// break [`Content::normalize`] performs, so the two cannot drift.
+/// text order: the placement the island lanes refuse and the markdown
+/// projection breaks.
 pub(crate) fn inline_block_islands<'a>(
     chars: &'a [char],
     islands: &'a [Island],
@@ -901,10 +902,11 @@ impl Content {
         None
     }
 
-    /// Per line, whether it holds a block island's slot — the one-line block a
-    /// [`LineKind`] cannot name. Empty where no island is block-only, which is
-    /// every document holding no table.
-    fn block_island_lines(&self) -> Vec<bool> {
+    /// Per line, whether it ends in a block-only island's slot, after which
+    /// both emitters set a block: a block island's line, the one-line block a
+    /// [`LineKind`] cannot name, or prose a table closes. Empty where no island
+    /// is block-only, which is every document holding no table.
+    fn lines_ending_in_a_block_island(&self) -> Vec<bool> {
         if !self.islands.iter().any(|i| i.island_type.block_only()) {
             return Vec::new();
         }
@@ -913,19 +915,21 @@ impl Content {
             .split('\n')
             .take(self.lines.len())
             .map(|seg| {
-                let is = is_block_island_line(seg, self.islands.get(slot));
-                slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
-                is
+                let slots = seg.chars().filter(|&c| c == ISLAND_SLOT).count();
+                let ends = seg.ends_with(ISLAND_SLOT)
+                    && self.islands.get(slot + slots - 1).is_some_and(|i| i.island_type.block_only());
+                slot += slots;
+                ends
             })
             .collect()
     }
 
-    /// Normalize in place: canonicalize container `ordinal`/`instance`, break a
-    /// line around a block-only island's slot, split formatting at each `\n`,
-    /// drop zero-width formatting, union same-kind formatting that is adjacent
-    /// or overlapping, recursively key-sort island props, then sort marks
-    /// canonically. Idempotent: the fixed point the canonical serialization
-    /// commits to.
+    /// Normalize in place: canonicalize container `ordinal`/`instance`, split
+    /// formatting at each `\n`, drop zero-width formatting, union same-kind
+    /// formatting that is adjacent or overlapping, recursively key-sort island
+    /// props, then sort marks canonically. Idempotent: the fixed point the
+    /// canonical serialization commits to. It rewrites structure and never the
+    /// text, so a host holding the text elsewhere stores the content as it is.
     pub fn normalize(&mut self) {
         canonicalize_containers(&mut self.lines);
         // A splice writes text, never kinds: joining a fence to an image line
@@ -937,14 +941,14 @@ impl Content {
                 line.kind = LineKind::Para;
             }
         }
-        self.split_block_islands();
         // A `continues` flag under a block that cannot take one clears: nothing
-        // precedes the first line, and below it a differing container path or a
-        // one-line block above, where export would drop the continuation's text.
+        // precedes the first line, and below it a differing container path, a
+        // one-line block above, or a line a table's slot ends, after which both
+        // emitters set the table as a block.
         // `Join` across two paths, `SetKind` retagging the line above and
-        // `SetContinues` itself all reach the shape. Read after the demotion and
-        // the break above, which settle what the line above is.
-        let block_island = self.block_island_lines();
+        // `SetContinues` itself all reach the shape. Read after the demotion,
+        // which settles what the line above is.
+        let block_island = self.lines_ending_in_a_block_island();
         for i in 0..self.lines.len() {
             if self.lines[i].continues
                 && (i == 0
@@ -974,13 +978,10 @@ impl Content {
     /// side that has other content, so the prose around it becomes its own block
     /// and the slot is alone. Markdown writes a table as a block, and left
     /// inline it emits pipes into the middle of a paragraph, which re-imports as
-    /// prose with the island gone.
-    ///
-    /// The lanes that *author* an island refuse the placement up front
-    /// ([`ApplyError::BlockIslandNotAlone`](crate::ops::ApplyError::BlockIslandNotAlone)),
-    /// so what reaches here is a stored blob carrying the shape and an accepted
-    /// `Join` that ran a slot back into its prose.
-    fn split_block_islands(&mut self) {
+    /// prose with the island gone, so the markdown projection runs this on a
+    /// copy. The stored content keeps the shape: a merge of concurrent edits
+    /// reaches it, and the mint never moves text.
+    pub(crate) fn split_block_islands(&mut self) {
         use crate::delta::{Delta, Op};
 
         if !self.islands.iter().any(|i| i.island_type.block_only())

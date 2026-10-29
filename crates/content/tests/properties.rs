@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 ///
 /// Every repair [`Content::normalize`] performs is a strict rewrite — a kind
 /// demoted, a flag cleared, a mark split at a line break, a zero-width mark
-/// dropped, a row padded, a line broken around a block island's slot — so one
+/// dropped, a row padded — so one
 /// equality states the whole canonical form. Paired with `validate`, which
 /// reports what the mint cannot repair, it is the oracle over an accepted op:
 /// the two together cover the content's invariants.

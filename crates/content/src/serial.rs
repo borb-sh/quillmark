@@ -706,26 +706,11 @@ fn reject_unwritable_url(url: Option<&str>, err: &'static str) -> Result<(), Par
 /// [`from_canonical_value`] for a content the **host authored just now**: the
 /// `overwrite` input, not a blob read back from storage. Same decode, plus the
 /// legacy-spelling rule on every axis the decode reads — line kinds,
-/// containers, prose marks, table-cell marks — the writability rule on the urls
-/// the projection spells, and the placement rule on a block-only island.
+/// containers, prose marks, table-cell marks — and the writability rule on the
+/// urls the projection spells.
 pub fn from_authored_value(v: &Value) -> Result<Normalized, ParseError> {
     authored_lane_scan(v)?;
-    let rt = Content::from_value(v)?;
-    reject_inline_block_island(&rt)?;
-    seal(rt)
-}
-
-/// A block-only island's slot sharing its line with other content: markdown
-/// writes a table as a block, so `Content::normalize` breaks the line around
-/// one, splitting a paragraph the host did not ask to split. Read off the
-/// decoded content, ahead of the mint that performs the break. The op wire
-/// refuses the same placement ([`crate::ops::ApplyError::BlockIslandNotAlone`]).
-fn reject_inline_block_island(rt: &Content) -> Result<(), ParseError> {
-    let chars: Vec<char> = rt.text.chars().collect();
-    match crate::model::inline_block_islands(&chars, &rt.islands).next() {
-        Some(_) => Err(ParseError::Shape("block island in a line's prose")),
-        None => Ok(()),
-    }
+    seal(Content::from_value(v)?)
 }
 
 /// The authored-lane scan [`from_authored_value`] runs. Structural rather than a
@@ -1884,39 +1869,22 @@ mod tests {
         }
     }
 
-    /// The same split on a block-only island's placement. A table's markdown is
-    /// a block, so the storage lane takes the shape a blob holds and the mint
-    /// gives the slot the line its markup needs, while a host authoring that
-    /// placement is told, rather than having its paragraph split for it. An
-    /// inline island keeps its position on both lanes.
+    /// A block-only island's slot sharing its line rests as given on both
+    /// lanes: the mint moves no text, so a merge of concurrent edits stores as
+    /// it is, and the markdown projection gives the slot its line.
     #[test]
-    fn an_inline_block_island_splits_on_storage_and_is_refused_when_authored() {
-        let slot = crate::model::ISLAND_SLOT;
-        let content = |island_type: &str, props: &str| {
-            format!(
-                concat!(
-                    r#"{{"islands":[{{"id":"isl-0","props":{},"#,
-                    r#""type":"{}"}}],"lines":[{{"containers":[],"kind":"para"}}],"#,
-                    r#""marks":[],"text":"a￼b"}}"#
-                ),
-                props, island_type
-            )
-        };
-        let table = content(
-            "table",
-            r#"{"aligns":["none"],"header":[{"marks":[],"text":"h"}],"rows":[[{"marks":[],"text":"c"}]]}"#,
+    fn a_block_island_sharing_its_line_rests_as_given_on_both_lanes() {
+        let json = concat!(
+            r#"{"islands":[{"id":"isl-0","props":{"aligns":["none"],"#,
+            r#""header":[{"marks":[],"text":"h"}],"rows":[[{"marks":[],"text":"c"}]]},"#,
+            r#""type":"table"}],"lines":[{"containers":[],"kind":"para"}],"#,
+            r#""marks":[{"end":6,"start":2,"type":"strong"}],"text":"a￼bold"}"#
         );
-        let rt = Content::from_canonical_json(&table).expect("storage lane accepts");
-        assert_eq!(rt.text, format!("a\n{slot}\nb"), "not split at the load");
-        assert_eq!(rt.lines[1].kind, LineKind::Para);
-        let v: Value = serde_json::from_str(&table).unwrap();
-        assert!(matches!(from_authored_value(&v), Err(ParseError::Shape(_))));
-
-        let image = content("image", r#"{"alt":"a","url":"u"}"#);
-        let rt = Content::from_canonical_json(&image).expect("storage lane accepts");
-        assert_eq!(rt.text, format!("a{slot}b"), "inline island moved");
-        let v: Value = serde_json::from_str(&image).unwrap();
-        assert!(from_authored_value(&v).is_ok(), "inline island refused");
+        let stored = Content::from_canonical_json(json).expect("storage lane accepts");
+        assert_eq!(stored.validate(), Ok(()));
+        assert_eq!(stored.to_canonical_json(), json);
+        let authored = from_authored_value(&serde_json::from_str(json).unwrap()).expect("authored lane accepts");
+        assert_eq!(authored, stored);
     }
 
     /// `island` names the line a block island sits on, which is a `Para`, and
@@ -1950,30 +1918,6 @@ mod tests {
             "| h |\n| --- |\n| c |",
             "the table still projects as a block"
         );
-    }
-
-    /// The blob loads, comes back split, and is then a fixed point of the
-    /// markdown projection. The mark spans the slot, so the rebase the split
-    /// owes it is what keeps `bold` addressed.
-    #[test]
-    fn a_stored_inline_block_island_survives_the_markdown_round_trip() {
-        let slot = crate::model::ISLAND_SLOT;
-        let json = concat!(
-            r#"{"islands":[{"id":"isl-0","props":{"aligns":["none"],"#,
-            r#""header":[{"marks":[],"text":"h"}],"rows":[[{"marks":[],"text":"c"}]]},"#,
-            r#""type":"table"}],"lines":[{"containers":[],"kind":"para"}],"#,
-            r#""marks":[{"end":6,"start":2,"type":"strong"}],"text":"a￼bold"}"#
-        );
-        let rt = Content::from_canonical_json(json).expect("storage lane accepts");
-        assert_eq!(rt.validate(), Ok(()), "loaded content invalid");
-        assert_eq!(rt.text, format!("a\n{slot}\nbold"));
-        assert_eq!(rt.lines.len(), 3);
-        assert_eq!(rt.lines[1].kind, LineKind::Para);
-        assert_eq!(rt.marks, vec![Mark::new(4, 8, MarkKind::Strong)]);
-
-        let md = crate::export::to_markdown(&rt);
-        let back = crate::import::from_markdown(&md).expect("re-imports").content;
-        assert_eq!(back, rt, "{md:?}");
     }
 
     /// The `@0.93.0` spelling — every built-in's payload in named siblings —

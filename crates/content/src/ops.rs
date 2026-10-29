@@ -561,8 +561,9 @@ impl Content {
                             id: island.id.clone(),
                         })?;
                     // The type comes from the op, so a `Set` can turn an inline
-                    // island into a block-only one over a slot that stays put.
-                    if island.island_type.block_only() {
+                    // island into a block-only one over a slot that stays put. A
+                    // block-only island already sharing its line keeps it.
+                    if island.island_type.block_only() && !self.islands[idx].island_type.block_only() {
                         let chars: Vec<char> = self.text.chars().collect();
                         let at = nth_slot(&chars, idx);
                         if !is_whole_line(&chars, at, at + 1) {
@@ -2165,15 +2166,25 @@ mod tests {
     }
 
     /// `Join` names two lines rather than an island, so it is the accepted op
-    /// that can run a block island's slot back into prose. The mint takes the
-    /// line apart again, so the placement holds however the content was reached.
+    /// that can run a block island's slot back into prose. The mint keeps the
+    /// text it is given, the table's own edits still land there, and markdown
+    /// writes the line apart.
     #[test]
-    fn a_join_onto_a_block_island_line_is_undone_by_the_mint() {
+    fn a_table_joined_into_prose_stays_and_stays_editable() {
         let mut rt = from_markdown("ab\n\n| H |\n| --- |\n| a |").unwrap().content;
-        let before = rt.clone();
         rt.apply_line_ops(&[LineOp::Join { line: 0 }]).unwrap();
         assert_eq!(rt.validate(), Ok(()));
-        assert_eq!(rt, before, "the slot stayed in the paragraph");
+        assert_eq!(rt.text, format!("ab{ISLAND_SLOT}"), "the slot stays in the paragraph");
+
+        let id = rt.islands[0].id.clone();
+        rt.apply_field_change(&island_bundle(vec![IslandOp::Set {
+            island: Island::new(id, IslandType::Table).with_props(table_props("H", "b")),
+        }]))
+        .expect("a table sharing its line takes its own edit");
+        assert_eq!(
+            crate::export::to_markdown(&rt),
+            "ab\n\n| H |\n| --- |\n| b |"
+        );
     }
 
     /// An inserted island's id is caller-supplied on an anchor id's terms:
