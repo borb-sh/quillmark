@@ -1,22 +1,21 @@
-//! The quill authoring contract: every quill in the fixtures quiver loads, and
-//! each of its three canonical documents renders through the quill's own
+//! The plate contract: every quill in the fixtures quiver loads, and
+//! each of its canonical documents renders through the quill's own
 //! template. A Typst plate is compiled code no unit test reaches, so a plate
 //! edit is caught by these sweeps or not at all. The quill list is read from
 //! the fixtures directory rather than spelled out, so a new fixture is covered
 //! by existing.
 //!
-//! The three documents reach a template with different cells filled, and none
-//! subsumes another. An empty document is the type-minimal valid input, so a
-//! template that renders it degrades gracefully on any valid input. The
-//! blueprint commits every non-blank `default:` and leaves every other cell empty.
-//! The seeded document carries one card per declared kind, each body empty.
+//! The documents reach a template with different cells filled, and neither
+//! subsumes the other. An empty document is the type-minimal valid input, so a
+//! template that renders it degrades gracefully on any valid input. The seeded
+//! document carries one card per declared kind, each body empty.
 //!
-//! A quill's example, where it has one, is the one document with values
-//! in it, and renders without a diagnostic.
+//! A quill's example document, where it declares examples, is the one document
+//! with values in every cell that has one, and renders without a diagnostic.
 
 #![cfg(feature = "typst")]
 
-use quillmark::{Document, Engine, OutputFormat, Quill, RenderOptions};
+use quillmark::{Engine, OutputFormat, Quill, RenderOptions};
 use quillmark_fixtures::{quill_names, quills_path};
 use std::sync::LazyLock;
 
@@ -62,30 +61,35 @@ fn every_quill_renders_an_empty_document() {
     }
 }
 
+/// Each canonical document exports to an authoring document its quill's own
+/// schema accepts, and crosses back unchanged, so what a model reads of a
+/// document is the document it edits.
 #[test]
-fn every_quill_blueprint_round_trips_and_renders() {
+fn every_quill_round_trips_its_documents_through_the_authoring_form() {
     for (name, quill) in QUIVER.iter() {
-        let bp = quill.config().blueprint();
-        let doc1 = Document::parse(&bp)
-            .unwrap_or_else(|e| {
-                panic!("quill '{name}' blueprint failed to parse: {e:?}\n---\n{bp}")
-            })
-            .document;
-        let doc2 = Document::parse(&doc1.to_markdown())
-            .unwrap_or_else(|e| panic!("quill '{name}' blueprint re-emit failed to parse: {e:?}"))
-            .document;
-        assert_eq!(doc1, doc2, "quill '{name}': blueprint must round-trip");
-
-        ENGINE
-            .render(
-                quill,
-                &doc1,
-                common::test_date(),
-                &RenderOptions::default().with_output_format(OutputFormat::Pdf),
-            )
-            .unwrap_or_else(|e| {
-                panic!("quill '{name}' blueprint failed to render: {e:?}\n---\n{bp}")
-            });
+        let schema = jsonschema::draft202012::new(&quill.config().authoring_schema())
+            .unwrap_or_else(|e| panic!("{name}'s authoring schema does not compile: {e}"));
+        let documents = [quill.empty_document(), quill.seed_document()]
+            .into_iter()
+            .chain(quill.example_document());
+        for doc in documents {
+            let authored = quill.to_authoring(&doc);
+            let refusals: Vec<String> = schema
+                .iter_errors(&authored)
+                .map(|e| format!("{}: {e}", e.instance_path()))
+                .collect();
+            assert!(
+                refusals.is_empty(),
+                "{name}: its schema refuses its own export {authored}\n{refusals:#?}"
+            );
+            let imported = quill
+                .from_authoring(&authored)
+                .unwrap_or_else(|e| panic!("{name} failed to import {authored}: {e:?}"));
+            assert_eq!(
+                imported.document, doc,
+                "{name}: the authoring form must round-trip\n---\n{authored}"
+            );
+        }
     }
 }
 
@@ -118,10 +122,7 @@ fn every_quill_renders_its_seed_document() {
 #[test]
 fn every_quill_declares_every_key_its_canonical_documents_write() {
     for (name, quill) in QUIVER.iter() {
-        let blueprint = Document::parse(&quill.config().blueprint())
-            .expect("the blueprint parses")
-            .document;
-        for doc in [quill.seed_document(), blueprint] {
+        for doc in [quill.seed_document()].into_iter().chain(quill.example_document()) {
             let unknown: Vec<_> = quill
                 .validate(&doc)
                 .into_iter()
@@ -138,13 +139,11 @@ fn every_quill_example_renders_clean() {
         let Some(example) = quill.example_document() else {
             continue;
         };
-        let parsed = example.unwrap_or_else(|e| panic!("{name}'s example fails to read: {e:?}"));
-        let mut diagnostics = parsed.warnings;
-        diagnostics.extend(quill.validate(&parsed.document));
+        let mut diagnostics = quill.validate(&example);
         let rendered = ENGINE
             .render(
                 quill,
-                &parsed.document,
+                &example,
                 common::test_date(),
                 &RenderOptions::default().with_output_format(OutputFormat::Pdf),
             )

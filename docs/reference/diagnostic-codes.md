@@ -65,14 +65,18 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::deprecated_flat`
 - `quill::deprecated_groups`
 - `quill::deprecated_license`
-- `quill::description_multiline`
 - `quill::duplicate_group`
 - `quill::empty_description`
 - `quill::enum_blank_member`
-- `quill::example_reference`
+- `quill::example_format_violation`
+- `quill::example_held_stored`
+- `quill::example_not_in_enum`
+- `quill::example_on_namespace`
+- `quill::example_over_length`
+- `quill::example_over_max`
+- `quill::example_type_mismatch`
 - `quill::field_after_object`
 - `quill::field_parse_error`
-- `quill::format_literal_reserved_char`
 - `quill::implicit_group`
 - `quill::invalid_backend_section`
 - `quill::invalid_body`
@@ -108,6 +112,7 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 - `quill::requires_unmet`
 - `quill::reserved_field_name`
 - `quill::richtext_default_import`
+- `quill::richtext_example_import`
 - `quill::seed_cardinality`
 - `quill::seed_enum_violation`
 - `quill::seed_format_violation`
@@ -166,6 +171,12 @@ A `Quill::conform` warning: a value the typed write refuses, left as authored.
 - `conform::field_not_single_line`
 - `conform::invalid_field_name`
 - `conform::value_too_deep`
+
+## `authoring::`
+
+Importing an [authoring document](../integration/llm-authoring.md): a value that is not its shape. It carries no `path`; `args.pointer` is the JSON Pointer to the offending value (`/cards/1/kind`).
+
+- `authoring::invalid_shape`
 
 ## `typst::`
 
@@ -258,6 +269,7 @@ The `quillmark` command line.
 
 - `cli::backend_unresolved`
 - `cli::canonical_document_failed`
+- `cli::example_file_ignored`
 - `cli::example_not_clean`
 - `cli::example_render_failed`
 - `cli::missing_description`

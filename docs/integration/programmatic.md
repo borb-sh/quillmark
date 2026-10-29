@@ -2,13 +2,13 @@
 
 Build a `Document` in memory (no Markdown text) through validated, schema-bound mutators. Every write enforces the same field-name, depth, and kind rules the Markdown parser does, so a constructed document cannot be invalid. This is the surface for programs: a database row becomes a rendered PDF without assembling YAML or Markdown by hand.
 
-Markdown authoring, the [blueprint](../quills/blueprint.md) (for LLMs), and these mutators all produce the same `Document`; render, validation, and storage do not distinguish how it was built, and `to_markdown()` round-trips any of them.
+Markdown authoring, the [authoring document](llm-authoring.md) (for LLMs), and these mutators all produce the same `Document`; render, validation, and storage do not distinguish how it was built, and `to_markdown()` round-trips any of them.
 
 ## Blank canvas vs seeded starter
 
 - **`Document(quill_ref)`** is the blank canvas: a main card carrying only `$quill`, an empty body, no cards. Absent fields resolve at render time (schema `default:`, else the field's blank), so nothing you did not set reaches the output. Start here when the data is authoritative.
-- **`quill.seed_document()`** is the starter: one card per declared kind, each carrying its kind's `seed` and every other field absent. Hand it to a human or an editor to fill in; see [Blueprint & Seeding](../quills/blueprint.md).
-- **`quill.example_document()`** is the quill filled in with made-up values, for showing what the quill looks like; `None` when it has no [`example.md`](../quills/quill-yaml-reference.md#example-document). Its values are not the user's, so it is no starting point.
+- **`quill.seed_document()`** is the starter: one card per declared kind, each carrying its kind's `seed` and every other field absent. Hand it to a human or an editor to fill in; see [Seeding & the Empty Document](../quills/seeding.md).
+- **`quill.example_document()`** is the quill filled in with made-up values, for showing what the quill looks like: the seed with each [`example`](../quills/quill-yaml-reference.md#example-document) its schema declares committed; `None` when it declares none. Its values are not the user's, so it is no starting point.
 
 ## The typed writer
 

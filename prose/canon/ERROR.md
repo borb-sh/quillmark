@@ -390,7 +390,10 @@ Implementation: `crates/core/src/quill/validation.rs` (the `ValidationError`
 one canonical grammar, one serializer, one parser: `DocPath`
 (`crates/core/src/path.rs`). Every emit site constructs a `DocPath`; no site
 assembles a path with `format!`, so Quillmark never ships two shapes for one
-anchor.
+anchor. A refusal whose value never reached the document model has no such
+anchor and carries no `path`: `authoring::invalid_shape` names its place in
+the authoring document as an RFC 6901 pointer in `args.pointer`
+([AUTHORING.md](AUTHORING.md#import)).
 
 | Anchor | Path |
 |---|---|

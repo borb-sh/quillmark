@@ -19,6 +19,11 @@ main:
       type: matrix
       open: true
       description: Tick each qualification held; annotate a tick with the date earned, and add one the roster lacks.
+      example:
+        flight_cc: { detail: UMS Flt/CC }
+        cyber_200: true
+        wing_ig: { title: Wing IG, detail: 81 TRW }
+        aide_de_camp: { title: Aide-de-Camp }
       members:
         sq_cc_candidate: Sq/CC Candidate
         flight_cc: Flight CC
@@ -35,6 +40,8 @@ main:
       type: array
       max: 3
       description: Endorsing officials, in routing order.
+      example:
+        - Col A. Smith
       items:
         type: text
 
@@ -42,6 +49,8 @@ main:
       type: array
       max: 2
       description: Assignments, newest first.
+      example:
+        - { unit: 333 TRS, duration: 2 }
       ui:
         layout: table
       items:

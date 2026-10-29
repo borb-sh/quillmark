@@ -15,7 +15,7 @@ main:         # Optional, main entry-point card: field schemas and optional titl
   fields:
     ...
   ui:         # optional UI hints
-  body:       # optional body-region config (enabled)
+  body:       # optional body-region config (enabled, description, example)
 
 card_kinds:   # Optional: additional composable card kinds
   ...
@@ -40,7 +40,7 @@ Every Quill.yaml must have a `quill` section with the quill's metadata.
 |------------------|--------|----------|-------------|
 | `name`           | string | yes      | Unique identifier for the quill |
 | `backend`        | string | yes      | Rendering backend (e.g. `typst`) |
-| `description`    | string | yes      | Human-readable description of the quill package, for a gallery or a quill picker (non-empty), and the title of a Typst PDF whose render and plate name none. The blueprint never prints it: the root card's label is `main`'s own `title` and `description`. One line: a line break fails the load with `quill::description_multiline`. |
+| `description`    | string | yes      | Human-readable description of the quill package, for a gallery or a quill picker (non-empty), and the title of a Typst PDF whose render and plate name none. The authoring schema never carries it: the document's label is `main`'s own `title` and `description`. |
 | `version`        | string | yes      | `MAJOR.MINOR.PATCH`, bumped by what the change costs a stored document ([Quill Versioning](versioning.md)) |
 | `author`         | string | no       | Creator of the quill (defaults to `"Unknown"`) |
 | `license`        | string | no       | The quill's license, as an SPDX license expression |
@@ -69,7 +69,7 @@ hint names the fix where one is plain, such as `GPL-2.0-or-later` for
 port past 65535, and an invisible formatting character such as a zero-width
 space each fail the load with `quill::invalid_homepage`, as anything else does.
 
-Neither key reaches the plate or the blueprint; both surface on
+Neither key reaches the plate or the authoring schema; both surface on
 `Quill.metadata` and `quillmark info`. They arrive in the same release as
 `requires`, so an older Quillmark reports them as `quill::unknown_key` whether or
 not the quill sets `requires`.
@@ -89,44 +89,18 @@ quill:
 
 ### Example document
 
-A file named `example.md` at the quill root, beside `Quill.yaml`, is the quill's
-example: a document that shows the quill filled in, with values that agree with
-each other, nested rows and matrix cells with something in them, and bodies with
-text. Its values are made up and nobody keeps them. Starter content people keep
-is a template, not an example. `Quill.yaml` declares nothing about it.
+A quill's example document shows it filled in. It is derived from `Quill.yaml`: each field's [`example`](#example) and each body's [`body.example`](#card-level-body), committed over the seeded document (`Quill.example_document()`). Its values are made up and nobody keeps them. Starter content people keep is a template, not an example.
 
-```
-status_report/0.2.0/
-├── Quill.yaml
-├── plate.typ
-└── example.md
-```
-
-```markdown
-~~~
-$quill: status_report
-project: Harbor Migration
-state: at_risk
-~~~
-
-The cutover rehearsal slipped a week while the data owners review the mapping.
-```
-
-- It is written like any document for the quill. A field it leaves out renders
-  its default.
-- Its `$quill` is the quill's bare name, with no `@` version. The quill pins it
-  to its own `name@MAJOR.MINOR` when it hands it out
-  (`Quill.example_document()`).
-- Only `example.md` at the root counts, spelled exactly. Loading the quill never
-  reads it, and a quill without one has no example. `quillmark validate`
-  renders it beside the empty document, the blueprint and the seeded document,
-  and any diagnostic on it fails the quill, a warning included.
+- A field without an `example` is left out and renders its default. A typed table without one gets one row of its columns' examples, a matrix its first member with its columns' examples, and a `variants:` enum the world its `example` names.
+- An `example` outranks a card kind's `seed` where both name a field.
+- A quill declaring no example has no example document. A file named `example.md` is an ordinary file.
+- `quillmark validate` renders it after the empty document and the seeded document, and any diagnostic on it fails the quill, a warning included.
 
 ---
 
 ## `main` Section
 
-The main document card holds **root-block field schemas** under `main.fields`. Optional `main.description` describes the root card, printed on the blueprint's `$kind: main` line (`quill.description` describes the package and is never printed there), and optional `main.title` labels the card as a [card kind's `title`](#title_1) does. Optional `main.ui` sets container-level UI for that card. `quill.ui` is a fallback for `main.ui`, not a merge: any `main.ui` (even an empty `ui: {}`) wins wholesale, and `quill.ui` applies only when `main.ui` is absent.
+The main document card holds **root-block field schemas** under `main.fields`. Optional `main.description` describes the root card, the authoring schema's own `description` (`quill.description` describes the package and never appears there), and optional `main.title` labels the card as a [card kind's `title`](#title_1) does. Optional `main.ui` sets container-level UI for that card. `quill.ui` is a fallback for `main.ui`, not a merge: any `main.ui` (even an empty `ui: {}`) wins wholesale, and `quill.ui` applies only when `main.ui` is absent.
 
 Field order under `main.fields` **is** display order in UIs: the declaration order of the keys is carried structurally through parsing and schema emission, so consumers walk the fields in key order. There is no `ui.order` knob: to reorder fields, reorder them in `Quill.yaml`. Related fields group under a top-level `object` (see [Grouping](#grouping)).
 
@@ -148,8 +122,9 @@ main:
 |---------------|-------------------|----------|-------------|
 | `type`        | string            | yes      | Data type (see [Field Types](#field-types)); a trailing `?` makes the field [optional](#optional-fields-t) |
 | `title`       | string            | no       | The field's label, a literal (see [`title`](#title)) |
-| `description` | string            | no       | Help text, one line: a line break, `\|` block scalars included, fails the load with `quill::description_multiline`, since the blueprint prints it in a single `# …` comment |
-| `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the blueprint renders that concrete value with a type-only annotation, shippable as-is (see [`default`](#default)). Declared on a **cell**: a leaf, an `array` or a `matrix`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
+| `description` | string            | no       | Help text for the writer, carried by the authoring schema as the field's `description` |
+| `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the authoring schema carries it as the field's `default` (see [`default`](#default)). Declared on a **cell**: a leaf, an `array` or a `matrix`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
+| `example`     | matches `type`    | no       | A made-up value, checked at load as `default` is: it answers nothing, `schema()` exposes it, and the [example document](#example-document) commits it (see [`example`](#example)). On an `object` it is a load error (`quill::example_on_namespace`). |
 | `values`      | array of strings  | for `enum` | The closed set of allowed string values: the **choices**. Required on every `enum` field. Declaring `""` is a load error — every enum also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one), which Quillmark supplies. |
 | `ui`          | object            | no       | UI rendering hints (see [UI Properties](#ui-properties)) |
 | `items`       | object            | for `array` | Element schema for an `array` field (a nested field schema). Required on every array. |
@@ -172,10 +147,9 @@ main:
         type: text
 ```
 
-The blueprint prints it ahead of the description on the field's leading line,
-`# <title> — <description>`, or `# <title>` alone, so an agent reading the
-blueprint knows the field by the name a person says. A title restating the key
-is printed as well, where it reads as the waste it is.
+The authoring schema carries it as the field's `title`, beside its
+`description`, so an agent reading the schema knows the field by the name a
+person says.
 
 It is a literal. A `{field}` token in it is a load error
 (`quill::title_template`): nothing interpolates it. An array's `items` takes
@@ -198,15 +172,15 @@ classification:
   values: [UNCLASSIFIED, CUI]
 ```
 
-The blueprint renders them as:
+The authoring schema carries them as:
 
-```
-closing: Sincerely # text<plain>
-classification: # enum<UNCLASSIFIED | CUI>
+```json
+"closing": { "type": ["string", "null"], "default": "Sincerely" },
+"classification": { "type": ["string", "null"], "enum": [null, "", "UNCLASSIFIED", "CUI"] }
 ```
 
 A blank `default:` (`""`, `[]`, `{}`) is legal and renders as no default does:
-the field renders its blank either way, and the blueprint prints an empty cell.
+the field renders its blank either way.
 The schema still carries it and `resolve()` still reports the field's source as
 `default`, so an editor reading either may treat the two differently. `0` and
 `false` are values, and print.
@@ -215,17 +189,30 @@ An unanswered field renders its `default:`, else its
 [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one), else
 `none` where the type is [optional](#optional-fields-t).
 
-A field declares no sample value: samples live in the quill's
-[example document](#example-document). A format hint is `description` text:
-
-```yaml
-signer:
-  type: text
-  description: Name as signed, as in FIRST M. LAST, Capt, USAF.
-```
+A sample value is the field's [`example`](#example), not its default. A format hint is `description` text.
 
 Nothing is required. There is no `required:` key: an unanswered field renders,
 and `Quill::validate` reports nothing about it.
+
+### `example`
+
+A made-up value showing what an answer looks like. It never answers a cell: an unanswered field still renders its `default:`, else its blank.
+
+```yaml
+signer:
+  type: array
+  items: { type: text }
+  description: "Line 1: Name as signed, as in FIRST M. LAST, Capt, USAF. Line 2: Duty title."
+  example:
+    - JANE Q. DOE, Capt, USAF
+    - Chief, Knowledge Operations
+```
+
+- It is checked at load as `default` is, under `quill::example_*` codes: its type, an enum's `values`, a date's format, `max`, and a richtext's import (`quill::richtext_example_import`).
+- It may sit beside a `default`, and on an optional field.
+- It goes on any field at any depth: a dictionary's property, a table's column, a matrix's column, a variant's field. An `object` takes none, its properties holding their own; a `variants:` enum's is the member alone.
+- A table's own `example` is its rows; a matrix's is the members it holds.
+- `schema()` carries it after `default`, and the authoring schema as the field's `examples`.
 
 ### Field Types
 
@@ -578,8 +565,8 @@ a **warning**, `validation::cardinality`, at the field's path with `max` and
 decides what happens to the surplus. Each declaration carries its own cap, so a
 capped array nested inside a row is checked against its own.
 
-The blueprint shows the cap as an own-line `# up to 37` under the field's
-description, which is where an MCP author reads it before writing.
+The authoring schema carries the cap as `quillmark:maxItems`, an annotation
+rather than JSON Schema's asserting `maxItems`, since the cap never refuses.
 
 A `text` or `richtext` field takes `max:` too, counting characters: a record
 limit, or a box printed for a fixed number of them.
@@ -603,9 +590,8 @@ characters. A longer value draws a **warning**,
 `validation::over_length`, at its own path with `max` and `actual`, and renders
 as written; a `default:` holding a value longer than its cap, at any depth, or a kind's `seed:` fails to load
 (`quill::default_over_length`, `quill::seed_over_length`).
-The blueprint shows `# up to 1350 characters`, and an array of capped text
-`# up to 4, each up to 350 characters`. On an `acroform` quill the cap is the
-widget's `/MaxLen`.
+The authoring schema carries it as `quillmark:maxLength`. On an `acroform`
+quill the cap is the widget's `/MaxLen`.
 
 There is no `min:`. `min: 1` would be `required:` under another name, and no
 field is required ([`default`](#default)); it would
@@ -677,9 +663,8 @@ what a ticked member's unanswered column renders; without one it renders the
 column's blank. The matrix is a cell, so a `default:` on it is the set a
 document that leaves it out holds, and `type: matrix?` renders an unanswered one
 `none`; without either it renders `{}`, nothing ticked. A fresh document ticks
-nothing, and the blueprint shows the vocabulary in the field's annotation,
-`# matrix<sq_cc_candidate | flight_cc | dodin_ops>`, and its columns in a
-leading `# e.g.` line that ticks the first member. And each member is an
+nothing, and the authoring schema shows the vocabulary as the matrix's
+properties, one per member, and its roster as `quillmark:roster`. And each member is an
 address — `qualifications.flight_cc` is its tick, a region on Typst and a
 checkbox on acroform checked by its presence, and
 `qualifications.flight_cc.detail` its column.
@@ -717,7 +702,7 @@ qualifications:
   its click-to-edit region, where `row.title` prints it plainly.
 - Quillmark does not compare titles: an added item titled as a roster member
   prints beside it.
-- The ids in the blueprint's `# matrix<…>` annotation are all a model sees of
+- The ids in the authoring schema's matrix properties are all a model sees of
   the roster, so on an open matrix name them as their titles read
   (`joint_qualified_officer`, not `jqo`), or a model adds a duplicate it could
   have ticked.
@@ -732,7 +717,7 @@ Full model: [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/ca
 
 ### Grouping
 
-Related fields group under a top-level `object`. Its `title` and `description` label the group, which an editor frames and the blueprint prints with its description above it:
+Related fields group under a top-level `object`. Its `title` and `description` label the group, which an editor frames and the authoring schema carries:
 
 ```yaml
 main:
@@ -804,7 +789,7 @@ The registry's own checks still apply to the legacy spelling: a reference the re
 
 The `ui` property on fields controls how form builders and wizards render the field. These are UI hints, not validation constraints.
 
-`ui` keys never reach the blueprint, so a fact a writer needs belongs in
+`ui` keys never reach the authoring schema, so a fact a writer needs belongs in
 `description` or `title`. A field's label is its [`title`](#title);
 `ui` holds none, and `ui: { title: … }` is a load error whose hint names it.
 Nor does `ui` carry a field's line shape: that is the field's own `multiline:`,
@@ -900,7 +885,7 @@ typed table at all, the key is `quill::invalid_ui`.
 not hold the columns, a cell renderer that will not take a block `richtext` — and
 fall back to the record list. What it will not meet is a shape it cannot draw at
 all; the contract settled that at load. Nothing else reads the key: the plate,
-document validation and the blueprint are all deliberately inert on it, and `schema()`
+document validation and the authoring schema are all deliberately inert on it, and `schema()`
 echoes it verbatim for the editor to find.
 
 `flat` is deprecated and warns `quill::deprecated_flat`, naming the field: an
@@ -968,7 +953,7 @@ scalar, which is fine for a few lines and wrong for a memo's worth.
 | Property      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
 | `title`       | string | no       | The kind's label, a literal (see [`title`](#title_1)) |
-| `description` | string | no       | Help text describing the card's purpose, one line (`quill::description_multiline`) |
+| `description` | string | no       | Help text describing the card's purpose |
 | `fields`      | object | no       | Field schemas (same structure as top-level fields) |
 | `ui`          | object | no       | Container-level UI hints (see [Card-level `ui`](#card-level-ui)) |
 | `body`        | object | no       | Body-region config (see [Card-level `body`](#card-level-body)) |
@@ -991,8 +976,8 @@ card_kinds:
         type: text
 ```
 
-The blueprint prints it on the kind's `$kind` line, ahead of the description:
-`$kind: indorsement # Routing indorsement — Chain of routing endorsements.`
+The authoring schema carries it as the kind's `title` under `$defs`, beside its
+`description`.
 
 It is a literal, naming the kind and never one instance: a `{field}` token is a
 load error (`quill::title_template`). A consumer labels an instance from its own
@@ -1010,10 +995,12 @@ names the instance.
 | Property  | Type   | Description |
 |-----------|--------|-------------|
 | `enabled`     | bool   | Whether the body editor is enabled (default: true). When false, consumers must not accept or store body content for this card kind. |
+| `description` | string | What the body holds, for the writer. |
+| `example`     | markdown | A made-up body, which the [example document](#example-document) commits. It must import without dropping anything (`quill::richtext_example_import`). |
 
 #### `body.enabled`
 
-When `false`, the card kind has no body/content area, and an editor should offer none. The blueprint closes the card's payload with `# no body`. A document that provides body content for such a card anyway still renders without it: the plate receives no `$body`, and `quill.validate(doc)` warns with `validation::body_disabled`.
+When `false`, the card kind has no body/content area, and an editor should offer none. The authoring schema gives the kind no `body`. A document that provides body content for such a card anyway still renders without it: the plate receives no `$body`, and `quill.validate(doc)` warns with `validation::body_disabled`.
 
 ```yaml
 card_kinds:
@@ -1027,7 +1014,21 @@ card_kinds:
 
 Loading this draws `quill::bodiless_card_kind`, which asks whether the kind is a card at all: a repeated record with no prose is a row (see [When not to declare one](#when-not-to-declare-one)). The example above stands because a page break exists for its position in the stream, which no row can occupy. `main` is never warned.
 
-`enabled` is the only key under `body`; any other is a load error (`quill::invalid_body`). A body declares no value and no guide text: starter text for a new card goes in its kind's [`seed`](#card-level-seed), and for the document in a template's own body.
+`description` and `example` describe a body, so either beside `enabled: false` is a load error (`quill::invalid_body`), as is any other key under `body`.
+
+#### `body.description` and `body.example`
+
+```yaml
+main:
+  body:
+    description: Plain paragraphs, numbered for you; a `-` item under one becomes a lettered subparagraph.
+    example: |
+      Each group reviews every office of record it owns by the suspense in the subject line.
+
+      - The file plan lists every series the office keeps.
+```
+
+`schema()` carries both, the [example document](#example-document) commits the example as the body, and the authoring schema carries both on the body. An example is made up; starter text a new card keeps goes in its kind's [`seed`](#card-level-seed), and for the document in a template's own body.
 
 ### Card-level `seed`
 
@@ -1061,13 +1062,12 @@ Card kinds defined here are authored as `~~~` blocks (with a `$kind: <kind>` lin
 
 ## `typst` Section
 
-The Typst backend compiles `plate.typ` at the quill root, found by name as `example.md` is. The optional `typst` section moves the plate elsewhere.
+The Typst backend compiles `plate.typ` at the quill root, found by name as `Quill.yaml` is. The optional `typst` section moves the plate elsewhere.
 
 ```
 my_quill/1.0.0/
 ├── Quill.yaml
-├── plate.typ      # the plate, with no `typst` section
-└── example.md
+└── plate.typ      # the plate, with no `typst` section
 ```
 
 | Key          | Type   | Required | Description |

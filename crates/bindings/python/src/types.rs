@@ -256,9 +256,42 @@ impl PyQuill {
         json_to_py(py, &value)
     }
 
+    /// JSON Schema (draft 2020-12) of the quill's authoring document: the
+    /// shape `from_authoring` takes and `to_authoring` returns.
     #[getter]
-    fn blueprint(&self) -> String {
-        self.inner.config().blueprint()
+    fn authoring_schema<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        json_to_py(py, &self.inner.config().authoring_schema())
+    }
+
+    /// `doc` as an authoring document: every field in the values form (each
+    /// content leaf its codec's text), every body as Markdown, each card
+    /// `{kind, fields, body}`. Sparse: an absent field stays absent. A content
+    /// leaf that decodes under neither encoding exports as stored.
+    fn to_authoring<'py>(
+        &self,
+        py: Python<'py>,
+        doc: PyRef<'_, PyDocument>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        json_to_py(py, &self.inner.to_authoring(&doc.inner))
+    }
+
+    /// A document from an authoring document, conformed against this quill:
+    /// the JSON twin of `parse`. `None` is absent; the document carries this
+    /// quill's `$quill`. A value the schema refuses lands with a `conform::*`
+    /// warning on `doc.warnings`, and `validate` reports the rest at document
+    /// paths. Raises `QuillmarkError`, with every error found, on a value that
+    /// is not the authoring document's shape (`authoring::invalid_shape`) or a
+    /// name or kind no card can store (`edit::*`).
+    fn from_authoring(&self, value: &Bound<'_, PyAny>) -> PyResult<PyDocument> {
+        let value = py_to_json(value)?;
+        let parsed = self
+            .inner
+            .from_authoring(&value)
+            .map_err(raise_summarized)?;
+        Ok(PyDocument {
+            inner: parsed.document,
+            parse_warnings: parsed.warnings,
+        })
     }
 
     /// Validate `doc` against this quill's schema, returning a list of diagnostic
@@ -329,7 +362,7 @@ impl PyQuill {
     /// The empty document: a main card carrying this quill's `$quill` and
     /// `$kind: main`, no field committed, no composable card, no body. The
     /// type-minimal valid input, and the document a plate is bound to render
-    /// (the quill authoring contract). `Document(ref)` is the same document
+    /// (the plate contract). `Document(ref)` is the same document
     /// reached by spelling the reference.
     fn empty_document(&self) -> PyDocument {
         PyDocument {
@@ -338,23 +371,16 @@ impl PyQuill {
         }
     }
 
-    /// The quill's example document, `None` when the quill has no
-    /// `example.md` at its root: a filled-in page whose values are made up to show the
-    /// quill in use, never kept. It comes back pinned to this quill's
-    /// `name@MAJOR.MINOR` and conformed as `parse` conforms, its parse and
-    /// `conform::*` warnings on `doc.warnings`. Raises `QuillmarkError` when
-    /// the file does not parse or its `$quill` is not this quill's bare name.
-    fn example_document(&self) -> PyResult<Option<PyDocument>> {
-        self.inner
-            .example_document()
-            .map(|example| {
-                let parsed = example.map_err(raise_summarized)?;
-                Ok(PyDocument {
-                    inner: parsed.document,
-                    parse_warnings: parsed.warnings,
-                })
-            })
-            .transpose()
+    /// The quill's example document, `None` when no slot or body declares an
+    /// example: the seeded document with every declared `example` committed as
+    /// its cell's value and each kind's `body.example` as its body. A
+    /// filled-in page whose values are made up to show the quill in use, never
+    /// kept.
+    fn example_document(&self) -> Option<PyDocument> {
+        self.inner.example_document().map(|inner| PyDocument {
+            inner,
+            parse_warnings: Vec::new(),
+        })
     }
 
     /// Seed a starter `Document` from the schema: the main card plus one instance

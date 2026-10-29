@@ -14,14 +14,14 @@ view, and a placed card is reached as a `CardMut` (every `Card` verb forwarded,
 no whole-card assignment) rather than a `&mut Card`. This is the
 authoring surface for
 programs (database row → rendered PDF); Markdown serves human authoring and
-the blueprint serves LLM/MCP consumers.
+the authoring document serves LLM/MCP consumers.
 
 ## Three authoring surfaces, one model
 
 | Surface | Consumer | Entry |
 |---|---|---|
 | card-yaml Markdown | humans | `Quill::parse` (the bound door; `Document::parse` is the quill-free transport one) |
-| annotated blueprint | LLMs / MCP | `blueprint()` → fill → `Quill::parse` |
+| authoring document (JSON) | LLMs / MCP | `authoring_schema()` → write → `Quill::from_authoring` |
 | structured mutators | programs | `Document::new` → `store_fields` / `push_card` |
 
 All three produce the same `Document`; render, validation, storage, and
@@ -36,17 +36,18 @@ fields, an empty body, and no composable cards. Absent fields resolve at
 render time (schema `default`, else the field's blank; see
 [SCHEMAS.md](SCHEMAS.md)), so nothing the program did not set reaches the
 output. `Quill::empty_document()` is that same document from a quill already in
-hand, which is the form the quill authoring contract names
-([BLUEPRINT.md](BLUEPRINT.md) § "Guarantees").
+hand, which is the form the plate contract names
+([QUILL.md](QUILL.md#the-plate-contract)).
 
 `Quill::seed_document()` is the starter: the main card plus one card per
-declared kind, each body empty, every field absent
+declared kind, each carrying its kind's `seed:` and every other field absent
 ([SCHEMAS.md](SCHEMAS.md) § "Document seeding"). Hand it to a human or an editor
 as something to edit; start from the blank canvas when the data is
 authoritative and sample cards would pollute it.
 
-`Quill::example_document()` is neither: a filled-in page whose values are made
-up, for judging the quill ([QUILL.md](QUILL.md) § "The example document").
+`Quill::example_document()` is neither: the seed with the quill's declared
+examples committed, a filled-in page whose values are made up, for judging the
+quill ([QUILL.md](QUILL.md) § "The example document").
 Show it; do not hand it out as a starting point.
 
 ## The flow
@@ -76,11 +77,11 @@ field at once ([SCHEMAS.md](SCHEMAS.md) § "The values form").
 Structural invariants (field-name grammar, value depth, card kind) are
 enforced per mutator call. The §8 field count is the exception in shape, not in
 timing: only the card knows how full it is, so every field write funnels through
-one insert that refuses the field past the cap. Seeding and the blueprint build
+one insert that refuses the field past the cap. Seeding builds
 a card wholesale rather than a field at a time, so the cap binds their input
 instead: a `Quill.yaml` declaring a card past it fails load with
-`quill::too_many_fields`, which leaves `Quill::seed_document` and
-`QuillConfig::blueprint` total over every loaded quill.
+`quill::too_many_fields`, which leaves `Quill::seed_document` total over every
+loaded quill.
 `store_fields` validates its
 whole batch before
 applying any of it: on violation nothing is applied and the single error
@@ -147,7 +148,7 @@ Patching one card at a time is for a document that is no longer a pure projectio
 ## Links
 
 - [SCHEMAS.md](SCHEMAS.md): schema model and the blank-filled render projection
-- [BLUEPRINT.md](BLUEPRINT.md): the LLM/MCP authoring surface
+- [AUTHORING.md](AUTHORING.md): the LLM/MCP authoring surface
 - [CARDS.md](CARDS.md): `$seed` overlays for editor-spawned cards
 - [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md): persisting built documents
 - [BINDINGS.md](BINDINGS.md): the language surfaces that mirror this API

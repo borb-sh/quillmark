@@ -346,7 +346,7 @@ describe('Document editor surface: storeFields', () => {
   })
 })
 
-describe('Document editor surface: setQuillRef / overwrite / revise', () => {
+describe('Document editor surface: setQuillRef / overwrite / revise / reviseContent', () => {
   it('setQuillRef changes the quillRef and refuses an invalid one', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.setQuillRef('new_quill')
@@ -370,6 +370,27 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
     doc.overwrite({}, importMarkdown('Content **body** here.').content)
     expect(doc.main.body.text).toBe('Content body here.')
     expect(exportMarkdown(doc.main.body)).toBe('Content **body** here.')
+  })
+
+  it('reviseContent({}, rt) lands a content and carries the anchors it omits', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    doc.overwrite({}, importMarkdown('hello world').content)
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 6, end: 11, type: 'anchor', attrs: { id: 'c1' } }] })
+    const { delta, warnings } = doc.reviseContent({}, importMarkdown('hello brave **world**').content)
+    expect(exportMarkdown(doc.main.body)).toBe('hello brave **world**')
+    expect(doc.main.body.marks.find((m) => m.type === 'anchor')).toMatchObject({ start: 12, end: 17 })
+    expect(mapPos(delta, 11, 'after')).toBe(17)
+    expect(warnings).toEqual([])
+  })
+
+  it('reviseContent({field}, rt) carries a field anchor and refuses a non-content value', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    doc.revise({ field: 'note' }, 'hello world')
+    doc.applyChange({ field: 'note' }, { markOps: [{ op: 'add', start: 0, end: 5, type: 'anchor', attrs: { id: 'c1' } }] })
+    doc.reviseContent({ field: 'note' }, importMarkdown('oh hello world').content)
+    expect(doc.getStored({ field: 'note' }).marks).toEqual([{ start: 3, end: 8, type: 'anchor', attrs: { id: 'c1' } }])
+    doc.storeField('count', 3)
+    expectEditCode(() => doc.reviseContent({ field: 'count' }, importMarkdown('x').content), 'edit::field_decode')
   })
 
   it('overwrite rejects a non-content value (markdown must go through importMarkdown)', () => {
@@ -1169,9 +1190,10 @@ count: "not-a-number"
   })
 })
 
-// The blueprint text and the authored/default/blank ladder are core's
-// (`core/src/quill/blueprint.rs`, `core/src/quill/resolved.rs`). Here: the
-// schema DTO's shape and an unanswered cell reaching render.
+// The authoring document and the authored/default/blank ladder are core's
+// (`core/src/quill/authoring.rs`, `core/src/quill/resolved.rs`). Here: the
+// schema DTO's shape, the authoring form crossing, and an unanswered cell
+// reaching render.
 describe('value schema model', () => {
   // The plate reads `qm.data.title` (no default) and substitutes the optional
   // `qm.data.subtitle` if present, so one quill carries both cell states.
@@ -1218,15 +1240,37 @@ main:
     return { engine, quill }
   }
 
-  it('schema fields carry their default, and blueprint crosses as a string', () => {
+  it('schema fields carry their default, and so does the authoring schema', () => {
     const { quill } = buildQuill()
     const fields = quill.schema.main.fields
 
     expect(fields.title.default).toBeUndefined()
     expect(fields.subtitle.default).toBe('Untitled subtitle')
 
-    expect(typeof quill.blueprint).toBe('string')
-    expect(quill.blueprint.length).toBeGreaterThan(0)
+    const authoring = quill.authoringSchema.properties.fields.properties
+    expect(authoring.title).toEqual({
+      description: 'Document title (no default)',
+      type: ['string', 'null'],
+    })
+    expect(authoring.subtitle.default).toBe('Untitled subtitle')
+  })
+
+  it('a document crosses the authoring form and back', () => {
+    const { quill } = buildQuill()
+    const doc = quill.fromAuthoring({ fields: { title: 'Hello', subtitle: null }, body: 'Some *prose*.' })
+    expect(doc.quillRef).toBe('schema_test@1.0')
+    expect(quill.toAuthoring(doc)).toEqual({ fields: { title: 'Hello' }, body: 'Some *prose*.' })
+
+    let caught
+    try {
+      quill.fromAuthoring({ fields: [], cards: [{}] })
+    } catch (e) {
+      caught = e
+    }
+    expect(caught?.diagnostics?.map((d) => [d.code, d.path, d.args?.pointer])).toEqual([
+      ['authoring::invalid_shape', undefined, '/fields'],
+      ['authoring::invalid_shape', undefined, '/cards/0/kind'],
+    ])
   })
 
   it('render blank-fills an unanswered cell', () => {

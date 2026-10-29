@@ -1049,7 +1049,7 @@ main:
 "#;
         let q = quill(YAML, PLATE);
         let plate = crate::read_plate(&q).expect("plate");
-        let schema = quillmark_core::quill::build_transform_schema(q.config());
+        let schema = quillmark_core::quill::build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
         let rt = quillmark_content::import::from_markdown("A probe paragraph, PROBETOKEN.")
             .expect("import").content;
@@ -1121,7 +1121,7 @@ main:
                 .into_normalized();
             let q = quill(YAML, PLATE);
             let plate = crate::read_plate(&q).expect("plate");
-            let schema = quillmark_core::quill::build_transform_schema(q.config());
+            let schema = quillmark_core::quill::build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
             let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
             let data =
                 serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) });
@@ -1200,7 +1200,7 @@ main:
 "#;
         let q = quill(YAML, PLATE);
         let plate = crate::read_plate(&q).expect("plate");
-        let schema = quillmark_core::quill::build_transform_schema(q.config());
+        let schema = quillmark_core::quill::build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
         let rt =
             quillmark_content::import::from_markdown("- Item ONE\n- Item TWO").expect("import").content;
@@ -1283,7 +1283,7 @@ main:
     fn probe(plate: &str, data: serde_json::Value) -> Probe {
         let q = quill(REGION_YAML, plate);
         let plate_src = crate::read_plate(&q).expect("plate");
-        let schema = quillmark_core::quill::build_transform_schema(q.config());
+        let schema = quillmark_core::quill::build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
         let mut world = QuillWorld::new(&q, &plate_src, &crate::FontLibrary::default()).expect("world");
         let windows = world

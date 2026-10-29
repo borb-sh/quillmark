@@ -1,5 +1,66 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.132 → 0.133](docs/migrations/0.132-to-0.133.md). The
+blueprint is retired: a model writes the JSON authoring document, so a prompt
+built from `quill.blueprint` moves to `quill.authoringSchema`. A root
+`example.md` is an ordinary file: a quill's example is what its `Quill.yaml`
+declares, so move each value onto its field before upgrading.
+
+### LLM authoring
+
+- feat(core,cli,wasm,python)!: **LLMs author documents as JSON; the blueprint
+  is retired.** The authoring document is the values form lifted to the whole
+  document, `{fields, body, cards: [{kind, fields, body}]}`, every rich-text
+  field and body a Markdown string and `null` absent.
+  `QuillConfig::authoring_schema()` is its JSON Schema, built by
+  `build_transform_schema` under the new `SchemaCodec::Text`: every cell admits
+  `null`, a variant-bearing enum is a `oneOf` per world, and each slot carries
+  its `title`, `description`, `default` and `examples`.
+  `Quill::to_authoring` exports a document and `Quill::from_authoring` imports
+  and conforms one, refusing a malformed shape with `authoring::invalid_shape`.
+  WASM `authoringSchema` / `toAuthoring` / `fromAuthoring`, Python
+  `authoring_schema` / `to_authoring` / `from_authoring`, and
+  `quillmark schema --authoring` expose them. `QuillConfig::blueprint()`,
+  `quill.blueprint`, `quillmark blueprint` and `print_blueprint` are deleted;
+  `quillmark validate` renders the empty and seeded documents.
+  `build_transform_schema` takes a `SchemaCodec`. The blueprint's load rules go
+  with it: a multi-line `description:` and an enum member holding `>`, `;` or
+  `|` load, and `quill::description_multiline` and
+  `quill::format_literal_reserved_char` are deleted. (#2331)
+
+### Examples
+
+- feat(core)!: **`example:` and a body's `description` and `example` join the
+  quill schema.** A slot at any depth declares at most one `example:`, a value
+  of its type checked at load as `default:` is, under
+  `quill::example_{type_mismatch,not_in_enum,format_violation,held_stored,on_namespace,over_max,over_length}`
+  and `quill::richtext_example_import`. It answers no cell. A body's `description` is text for the writer and its
+  `example` markdown that imports without a drop; either beside
+  `enabled: false` is `quill::invalid_body`. `schema()` carries them,
+  `FieldSchema` and `BodyCardSchema` gain the fields, and WASM types them as
+  `QuillFieldSchema.example` and `QuillCardBody.{description,example}`. (#2329)
+- feat(core,cli,wasm,python)!: **the example document is derived.**
+  `Quill::example_document()` returns `Option<Document>`: the seeded document
+  with every declared `example:` committed and each kind's `body.example` as
+  its body, `None` where the quill declares none. A root `example.md` is an
+  ordinary file: `EXAMPLE_FILE` and `quill::example_reference` are deleted,
+  WASM `exampleDocument()` and Python `example_document()` no longer throw, and
+  `quillmark validate` validates and renders the derived document, warning
+  `cli::example_file_ignored` while a root `example.md` remains. The
+  fixture quills declare the values their `example.md` held. (#2329)
+
+### Content
+
+- feat(content,core,wasm): **`reviseContent` revises a body or field to a
+  content and keeps its prose anchors.** WASM `doc.reviseContent(addr, rt)`,
+  over core's `Card::revise_body_content` / `revise_field_content` and the
+  content crate's `delta::carry_anchors`, diffs a content built elsewhere
+  against the stored value, carries each prose anchor whose id `rt` does not
+  hold, and returns the `Revised` receipt with its text `delta`. `rt`'s own
+  anchors and island ids land as they are.
+
 ## v0.132.0 - 2026-10-27
 
 Upgrade path: [0.131 → 0.132](docs/migrations/0.131-to-0.132.md). A row

@@ -115,7 +115,9 @@ export type {
 	QuillFieldUi,
 	QuillCardUi,
 	QuillGroupUi,
-	QuillMetadata
+	QuillMetadata,
+	AuthoringDocument,
+	AuthoringCard
 } from '../core/wasm.js';
 
 // Content edit vocabulary: the op-grained content model `Document`'s methods

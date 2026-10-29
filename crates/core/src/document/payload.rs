@@ -114,6 +114,7 @@ impl PayloadItem {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn comment(text: impl Into<String>) -> Self {
         PayloadItem::Comment {
             text: text.into(),
@@ -121,6 +122,7 @@ impl PayloadItem {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn comment_inline(text: impl Into<String>) -> Self {
         PayloadItem::Comment {
             text: text.into(),

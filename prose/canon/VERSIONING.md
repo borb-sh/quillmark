@@ -34,12 +34,13 @@ previous version:
 This is not standard semver. The compatibility boundary is `MAJOR.MINOR`, the
 same below and above `1.0.0`: every patch in one `MAJOR.MINOR` series reads the
 documents an earlier patch stored unchanged, and a MINOR bump needs each one
-rewritten, mechanically. The quill's seeded, empty and example documents and
-its blueprint pin `name@MAJOR.MINOR` (`seed::main_reference`).
+rewritten, mechanically. The quill's seeded, empty and example documents, and
+a document `from_authoring` builds, pin `name@MAJOR.MINOR`
+(`seed::main_reference`).
 
 **A `values:` reorder is render-safe.** A field's blank is `""`, not `values[0]`,
 so reordering changes no document's rendered output. It still changes picker
-order, the blueprint's `enum` annotation text, and acroform dropdown order, so it
+order, the schemas' `enum` lists, and acroform dropdown order, so it
 is a presentation change rather than a no-op. Renaming or removing a member is
 not: a stored document carrying it stops validating.
 

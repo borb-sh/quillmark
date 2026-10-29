@@ -79,11 +79,16 @@ pub(crate) fn main_reference(config: &QuillConfig) -> QuillReference {
 pub(crate) fn seed_main(quill: &Quill) -> Card {
     // The main card is never seeded: `$seed` keys range over composable
     // `card_kinds`, `main` is not one of them, and it declares no `seed:`.
-    let (mut payload, body) = seed_parts(&quill.config().main, None);
+    main_with(quill, None)
+}
+
+/// The main card committing `overlay`, as a kind's card commits its seed.
+fn main_with(quill: &Quill, overlay: Option<&SeedOverlay>) -> Card {
+    let (mut payload, body) = seed_parts(&quill.config().main, overlay);
     payload.set_quill(main_reference(quill.config()));
     // The root block carries `$kind: main` alongside `$quill` (see the
     // markdown spec); set it so a seeded main card round-trips through
-    // `to_markdown()` exactly as the parser and blueprint emit it.
+    // `to_markdown()` exactly as the parser emits it.
     payload.set_kind("main");
     Card::from_parts(payload, body)
 }
@@ -114,12 +119,21 @@ pub(crate) fn empty_document(quill: &Quill) -> Document {
 
 pub(crate) fn seed_document(quill: &Quill) -> Document {
     // A fresh document carries no `$seed`, so every kind seeds from its own.
-    let main = seed_main(quill);
+    document_with(quill, |_| None)
+}
+
+/// The main card and one card per kind, each committing `overlay(schema)` in
+/// place of its kind's `seed:`, else that seed, as [`seed_document`]'s do.
+pub(crate) fn document_with(
+    quill: &Quill,
+    overlay: impl Fn(&CardSchema) -> Option<SeedOverlay>,
+) -> Document {
+    let main = main_with(quill, overlay(&quill.config().main).as_ref());
     let cards = quill
         .config()
         .card_kinds
         .iter()
-        .map(|schema| seed_composable(schema, None))
+        .map(|schema| seed_composable(schema, overlay(schema).as_ref()))
         .collect();
     Document::from_main_and_cards(main, cards)
 }

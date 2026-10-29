@@ -39,9 +39,13 @@ fn ok(args: &[&str]) -> String {
 #[test]
 fn read_commands_print_the_quill() {
     let quill = taro();
-    for (cmd, needle) in [("info", "taro"), ("schema", "ice_cream"), ("blueprint", "$quill:")] {
-        let stdout = ok(&[cmd, quill.to_str().unwrap()]);
-        assert!(stdout.contains(needle), "{cmd} omits {needle:?}: {stdout}");
+    for (args, needle) in [
+        (&["info"][..], "taro"),
+        (&["schema"], "ice_cream"),
+        (&["schema", "--authoring"], "\"ice_cream\""),
+    ] {
+        let stdout = ok(&[args, &[quill.to_str().unwrap()]].concat());
+        assert!(stdout.contains(needle), "{args:?} omits {needle:?}: {stdout}");
     }
     ok(&["validate", quill.to_str().unwrap()]);
 }
@@ -115,7 +119,7 @@ main:
     assert_eq!(summaries, 1, "expected one summary line: {stderr}");
 }
 
-/// The quill authoring contract, which only a render reaches: this plate indexes
+/// The plate contract, which only a render reaches: this plate indexes
 /// a card the seeded document carries and the empty document does not, so
 /// `render` and `validate --no-render` both pass it and the default check does
 /// not.
@@ -170,16 +174,21 @@ card_kinds:
 }
 
 /// A warning on the example fails the quill, which it fails on no canonical
-/// document, and a config-only validate reads the example too: a validation
-/// warning, a markdown drop and a declined construct alike.
+/// document, and a config-only validate checks the example too. A root
+/// `example.md` is an ordinary file: the example is what the quill declares.
 #[test]
 fn validate_fails_a_quill_whose_example_warns() {
-    let dir = quill_with_config(
-        "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n\
-         typst:\n  plate_file: plate.typ\nmain:\n  fields:\n    \
-         title:\n      description: title of document\n      type: text\n",
-    );
+    let config = |body: &str| {
+        format!(
+            "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n\
+             typst:\n  plate_file: plate.typ\nmain:\n{body}  fields:\n    \
+             title:\n      description: title of document\n      type: text\n"
+        )
+    };
+    let dir = quill_with_config(&config(""));
     std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
+    std::fs::write(dir.path().join("example.md"), "~~~\n$quill: w\ntitel: x\n~~~\n")
+        .expect("write example.md");
     let path = dir.path().to_str().unwrap();
     let verbose = |expected: &str| {
         let out = run(&["validate", path, "--no-render", "-v"]);
@@ -190,23 +199,17 @@ fn validate_fails_a_quill_whose_example_warns() {
     verbose("Example: none");
 
     std::fs::write(
-        dir.path().join("example.md"),
-        "~~~\n$quill: w\ntitel: A made-up title\n~~~\n\n<span>x</span> ![a](a.png)\n",
+        dir.path().join("Quill.yaml"),
+        config("  body:\n    example: \"![a](a.png)\"\n"),
     )
-    .expect("write example.md");
+    .expect("write Quill.yaml");
 
-    verbose("Example: example.md");
+    verbose("Example: derived");
     for args in [&["validate", path][..], &["validate", path, "--no-render"]] {
         let out = run(args);
         assert_eq!(out.status.code(), Some(1), "{args:?} exited {:?}", out.status.code());
         let stderr = String::from_utf8_lossy(&out.stderr);
-        for code in [
-            "cli::example_not_clean",
-            "validation::unknown_field",
-            "parse::dropped_construct",
-        ] {
-            assert!(stderr.contains(code), "{args:?} lacks {code}: {stderr}");
-        }
+        assert!(stderr.contains("cli::example_not_clean"), "{args:?}: {stderr}");
         let declines = stderr.matches("backend::declined_construct").count();
         assert_eq!(declines, 1, "{args:?} reports the image {declines} times: {stderr}");
     }
@@ -500,7 +503,14 @@ fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
 #[test]
 fn check_regions_reports_reach_and_fails_only_on_a_failed_render() {
     let memo = quillmark_fixtures::quills_path("usaf_memo");
-    let example = memo.join("example.md");
+    let example_dir = tempfile::tempdir().expect("tempdir");
+    let example = example_dir.path().join("example.md");
+    let markdown = quillmark::quill_from_path(&memo)
+        .expect("the fixture loads")
+        .example_document()
+        .expect("the fixture declares examples")
+        .to_markdown();
+    std::fs::write(&example, markdown).expect("write the example");
     let stdout = ok(&["check", "--regions", memo.to_str().unwrap(), example.to_str().unwrap()]);
     assert!(
         stdout.contains("unreachable  main.memo_style")

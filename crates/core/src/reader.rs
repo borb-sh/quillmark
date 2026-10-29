@@ -199,7 +199,7 @@ fn read_field(
     let Some(value) = card.payload().get(name) else {
         return Ok(None);
     };
-    let projected = project_value(name, value.as_json(), schema, &mut Vec::new())?;
+    let projected = project_value(name, value.as_json(), schema, Leaves::Decode, &mut Vec::new())?;
     Ok(Some(QuillValue::from_json(projected)))
 }
 
@@ -235,6 +235,18 @@ fn read_content(
         .map_err(|e| field_decode(name, at, codec, e))
 }
 
+/// How [`project_value`] treats a content leaf.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Leaves {
+    /// Decode and re-project every leaf; one that decodes under neither
+    /// encoding fails the projection.
+    Decode,
+    /// The authoring export: a stored string is already its text form and
+    /// passes as written, as does a leaf that decodes under neither encoding,
+    /// so importing the projection stores the same value.
+    Preserve,
+}
+
 /// Project `value` through `schema`'s type tree into the values form: every
 /// content leaf to its codec's text, every other node verbatim, descending
 /// `items` / `properties` / `variants`. `at` is the path from the field to
@@ -246,18 +258,23 @@ fn read_content(
 /// declaration it does not fit. A null rides as null at every type, so the form
 /// keeps present-null apart from authored-empty; blank-filling is the render
 /// view's.
-fn project_value(
+pub(crate) fn project_value(
     name: &str,
     value: &serde_json::Value,
     schema: &FieldSchema,
+    leaves: Leaves,
     at: &mut Vec<PathSegment>,
 ) -> Result<serde_json::Value, EditError> {
     if value.is_null() {
         return Ok(serde_json::Value::Null);
     }
     if let Some(codec) = schema.r#type.codec() {
+        if leaves == Leaves::Preserve && value.is_string() {
+            return Ok(value.clone());
+        }
         return match codec.decode_field(value) {
             Ok(content) => Ok(serde_json::Value::String(codec.project(&content))),
+            Err(_) if leaves == Leaves::Preserve => Ok(value.clone()),
             Err(e) => Err(field_decode(name, at, codec, e)),
         };
     }
@@ -269,7 +286,7 @@ fn project_value(
             let mut out = Vec::with_capacity(items.len());
             for (index, item) in items.iter().enumerate() {
                 at.push(PathSegment::Index(index));
-                let projected = project_value(name, item, item_schema, at);
+                let projected = project_value(name, item, item_schema, leaves, at);
                 at.pop();
                 out.push(projected?);
             }
@@ -277,12 +294,12 @@ fn project_value(
         }
         (FieldType::Object, serde_json::Value::Object(map)) => {
             let props = schema.namespace_props();
-            project_map(name, map, at, |key| {
+            project_map(name, map, leaves, at, |key| {
                 props.and_then(|p| p.get(key)).map(|s| &**s)
             })
         }
         (FieldType::Matrix { .. }, serde_json::Value::Object(map)) => {
-            project_map(name, map, at, |key| {
+            project_map(name, map, leaves, at, |key| {
                 map.get(key).and_then(|stored| schema.matrix_member(key, stored))
             })
         }
@@ -293,7 +310,7 @@ fn project_value(
         (FieldType::Enum { .. }, serde_json::Value::Object(map))
             if schema.is_variant_bearing() =>
         {
-            project_map(name, map, at, |key| schema.variant_field(key))
+            project_map(name, map, leaves, at, |key| schema.variant_field(key))
         }
         _ => Ok(value.clone()),
     }
@@ -305,6 +322,7 @@ fn project_value(
 fn project_map<'a>(
     name: &str,
     map: &serde_json::Map<String, serde_json::Value>,
+    leaves: Leaves,
     at: &mut Vec<PathSegment>,
     cell: impl Fn(&str) -> Option<&'a FieldSchema>,
 ) -> Result<serde_json::Value, EditError> {
@@ -314,7 +332,7 @@ fn project_map<'a>(
             None => child.clone(),
             Some(child_schema) => {
                 at.push(PathSegment::Key(key.clone()));
-                let projected = project_value(name, child, child_schema, at);
+                let projected = project_value(name, child, child_schema, leaves, at);
                 at.pop();
                 projected?
             }

@@ -1,6 +1,6 @@
 /**
  * The Typst-less `@quillmark/wasm/core` bundle: a `Quill` loads, validates,
- * seeds, and exposes schema/blueprint/metadata with no engine and no render
+ * seeds, and exposes schema/authoring/metadata with no engine and no render
  * surface. The render suites cover the superset.
  */
 import { describe, it, expect } from 'vitest'
@@ -11,6 +11,7 @@ import { initBuildSync, makeCard } from './test-helpers.js'
 initBuildSync(core, 'core')
 
 const enc = new TextEncoder()
+const dec = new TextDecoder()
 
 // Card field accessor (mirrors the payloadItems shape used across the suite).
 const field = (card, key) =>
@@ -58,14 +59,17 @@ describe('@quillmark/wasm/core surface', () => {
     expect(caught?.diagnostics?.[0]?.code).toBe('quill::bundle_invalid')
   })
 
-  it('schema, blueprint, seed, and validate work without a backend', () => {
+  it('schema, authoring, seed, and validate work without a backend', () => {
     const quill = Quill.fromTree(makeCoreQuill())
 
     expect(quill.schema.main).toBeDefined()
     expect(quill.schema.main.fields.title).toBeDefined()
 
-    expect(typeof quill.blueprint).toBe('string')
-    expect(quill.blueprint.length).toBeGreaterThan(0)
+    expect(quill.authoringSchema.properties.fields.properties.title).toBeDefined()
+    expect(quill.toAuthoring(quill.fromAuthoring({ fields: { title: 'T' } }))).toEqual({
+      fields: { title: 'T' },
+      body: '',
+    })
 
     const doc = quill.seedDocument()
     expect(doc).toBeInstanceOf(Document)
@@ -86,26 +90,24 @@ describe('@quillmark/wasm/core surface', () => {
     expect(empty.cards.length).toBe(0)
   })
 
-  it('exampleDocument hands out the pinned example, undefined without one, and throws coded', () => {
-    expect(Quill.fromTree(makeCoreQuill()).exampleDocument()).toBeUndefined()
+  it('exampleDocument commits the declared examples, undefined without one', () => {
+    const plain = makeCoreQuill()
+    plain.set('example.md', enc.encode('~~~\n$quill: core_test\ntitle: From the file\n~~~\n'))
+    expect(Quill.fromTree(plain).exampleDocument()).toBeUndefined()
 
-    const withExample = (markdown) => {
-      const tree = makeCoreQuill()
-      tree.set('example.md', enc.encode(markdown))
-      return Quill.fromTree(tree)
-    }
+    const tree = makeCoreQuill()
+    const yaml = dec.decode(tree.get('Quill.yaml'))
+      .replace('      description: Document title\n', '      description: Document title\n      example: A made-up title\n')
+      .concat('  body:\n    example: Made-up prose.\n')
+    tree.set('Quill.yaml', enc.encode(yaml))
+    const quill = Quill.fromTree(tree)
 
-    const doc = withExample('~~~\n$quill: core_test\ntitle: A made-up title\n~~~\n').exampleDocument()
+    const doc = quill.exampleDocument()
     expect(doc.quillRef).toBe('core_test@1.0')
     expect(field(doc.main, 'title')).toBe('A made-up title')
-    expect(doc.warnings).toEqual([])
-
-    try {
-      withExample('~~~\n$quill: core_test@1.0\n~~~\n').exampleDocument()
-      expect.unreachable('a pinned example throws')
-    } catch (err) {
-      expect(err.diagnostics[0].code).toBe('quill::example_reference')
-    }
+    expect(doc.toMarkdown()).toContain('Made-up prose.')
+    expect(quill.schema.main.fields.title.example).toBe('A made-up title')
+    expect(quill.schema.main.body.example).toBe('Made-up prose.')
   })
 
   it('seedCard commits a $seed overlay, and no field without one', () => {

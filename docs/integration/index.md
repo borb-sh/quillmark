@@ -18,7 +18,7 @@ Both bindings share the core model, diagnostics, and storage format; they differ
 - **[Error Handling](error-handling.md)**: the diagnostic model every binding raises.
 - **[Persistence](persistence.md)**: store a `Document` as versioned JSON.
 - **[Operations](operations.md)**: what render does not bound, concurrency, and what a long-lived process accumulates.
-- **[Blueprint & Seeding](../quills/blueprint.md)**: the LLM/MCP authoring surface and the starter document.
+- **[LLM Authoring](llm-authoring.md)**: the JSON document a model writes, its schema, and the import and export.
 
 !!! note "Advanced: live preview"
     Canvas / `LiveSession` editor integration (incremental `update`, `paint`, and the click/caret geometry bridge) is WASM-only and single-consumer. Its design contract lives in [PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md); [Live Preview](live-preview.md) has the minimal paint loop.

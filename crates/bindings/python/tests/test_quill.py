@@ -14,10 +14,33 @@ def test_quill_properties(engine, taro_quill_dir):
     # The key order BINDINGS.md pins across both surfaces.
     assert list(metadata) == ["name", "version", "backend", "author", "description"]
     assert quill.backend_id == "typst"
-    assert isinstance(quill.blueprint, str) and quill.blueprint != ""
 
     assert "fields" in quill.schema["main"]
     assert OutputFormat.PDF in engine.supported_formats(quill)
+
+
+def test_a_document_crosses_the_authoring_form(taro_quill_dir):
+    quill = Quill.from_path(str(taro_quill_dir))
+    schema = quill.authoring_schema
+    assert schema["properties"]["fields"]["properties"]["ice_cream"]["default"] == "taro"
+    assert schema["$defs"]["quotes"]["properties"]["kind"] == {"const": "quotes"}
+
+    authored = {
+        "fields": {"title": "Hello", "author": None},
+        "body": "Some *prose*.",
+        "cards": [{"kind": "quotes", "fields": {"author": "Nibs"}, "body": "Taro."}],
+    }
+    doc = quill.from_authoring(authored)
+    assert doc.quill_ref == "taro@0.1"
+    del authored["fields"]["author"]
+    assert quill.to_authoring(doc) == authored
+
+    with pytest.raises(QuillmarkError) as caught:
+        quill.from_authoring({"fields": [], "cards": [{}]})
+    assert [(d.code, d.path, d.args.get("pointer")) for d in caught.value.diagnostics] == [
+        ("authoring::invalid_shape", None, "/fields"),
+        ("authoring::invalid_shape", None, "/cards/0/kind"),
+    ]
 
 
 def test_a_quill_round_trips_through_its_bundle_and_path(taro_quill_dir, tmp_path):

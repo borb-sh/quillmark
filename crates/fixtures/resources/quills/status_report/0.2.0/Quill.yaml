@@ -9,13 +9,17 @@ typst:
 
 main:
   description: One period's report on one project.
+  body:
+    example: The cutover rehearsal slipped a week while the data owners review the field mapping. Production cutover holds its date if they sign off by the rehearsal.
   fields:
     project:
       type: text
+      example: Harbor Migration
       description: Project this report covers.
     issued:
       type: date
       default: ""
+      example: 2026-01-15
       description: YYYY-MM-DD. Leave blank to omit the issue line.
     state:
       type: enum
@@ -24,21 +28,27 @@ main:
         - at_risk
         - blocked
       default: ""
+      example: at_risk
       description: Where the project stands. Leave blank for no banner.
     lead:
       type: text
       default: ""
+      example: Jane Doe
       description: Who to ask about this report.
 
 card_kinds:
   milestone:
     title: Milestones
     description: One milestone and what is left on it.
+    body:
+      example: Sign-off pending from the data owners.
     fields:
       title:
         type: text
+        example: Cutover rehearsal
         description: What the milestone delivers.
       due:
         type: date
         default: ""
+        example: 2026-02-02
         description: YYYY-MM-DD. Leave blank while the date is unset.

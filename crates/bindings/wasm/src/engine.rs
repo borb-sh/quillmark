@@ -51,6 +51,11 @@ export interface QuillCardUi {
 export interface QuillCardBody {
     /** When false, consumers must not accept or store body content for this card kind. Defaults to true. */
     enabled?: boolean;
+    /** What the body holds, for the writer. Never beside `enabled: false`. */
+    description?: string;
+    /** A made-up body in markdown, which `exampleDocument()` commits. Never
+     *  beside `enabled: false`. */
+    example?: string;
 }
 
 export type QuillFieldType = "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "text" | "richtext" | "enum" | "matrix";
@@ -58,7 +63,8 @@ export type QuillFieldType = "number" | "integer" | "boolean" | "array" | "objec
 /** Schema entry for a single field declared in a quill's `Quill.yaml`.
  *
  * `default` is the value an unanswered cell renders. An absent field without a
- * `default` blank-fills.
+ * `default` blank-fills. `example` is a made-up value of the same type, which
+ * answers no cell: `exampleDocument()` commits it.
  */
 export interface QuillFieldSchema {
     /** A trailing `?` marks the cell optional: unanswered, it renders `none`
@@ -70,6 +76,7 @@ export interface QuillFieldSchema {
     title?: string;
     description?: string;
     default?: unknown;
+    example?: unknown;
     /** The closed set of allowed values. Required on `type: "enum"`, and valid
      *  nowhere else. */
     values?: string[];
@@ -132,6 +139,26 @@ export interface QuillSchema {
     main: QuillCardSchema;
     /** Present only when the quill declares at least one named card kind. */
     card_kinds?: Record<string, QuillCardSchema>;
+}
+
+/**
+ * One card of an `AuthoringDocument`: its kind, its fields in the values form,
+ * and its body as Markdown. `null` anywhere a value goes is absent.
+ */
+export interface AuthoringCard {
+    kind: string;
+    fields?: Record<string, unknown> | null;
+    body?: string | null;
+}
+
+/**
+ * The JSON a model reads and writes, described by `Quill.authoringSchema`:
+ * the main card's fields and body, and the composable cards in order.
+ */
+export interface AuthoringDocument {
+    fields?: Record<string, unknown> | null;
+    body?: string | null;
+    cards?: AuthoringCard[] | null;
 }
 
 /**
@@ -398,9 +425,10 @@ export interface Delta {
 }
 
 /**
- * The receipt of a markdown revise (`revise`, `writer.reviseBody`,
+ * The receipt of a revise (`revise`, `reviseContent`, `writer.reviseBody`,
  * `writer.reviseField`): the text `delta`, and one `parse::dropped_construct`
- * warning per construct the import dropped, anchored at the revised address.
+ * warning per construct a markdown import dropped, anchored at the revised
+ * address. `reviseContent` imports nothing, so its `warnings` is empty.
  */
 export interface Revised {
     delta: Delta;
@@ -806,9 +834,45 @@ impl Quill {
         serialize_or_throw(&diags(self.inner.warnings().iter().cloned()), "warnings")
     }
 
-    #[wasm_bindgen(getter, js_name = blueprint)]
-    pub fn blueprint(&self) -> String {
-        self.inner.config().blueprint()
+    /// JSON Schema (draft 2020-12) of the quill's authoring document: the
+    /// shape `fromAuthoring` takes and `toAuthoring` returns, every content
+    /// leaf a Markdown or literal string, each card kind under `$defs`
+    /// selected by `kind`.
+    #[wasm_bindgen(getter, js_name = authoringSchema, unchecked_return_type = "Record<string, unknown>")]
+    pub fn authoring_schema(&self) -> Result<JsValue, JsValue> {
+        serialize_or_throw(&self.inner.config().authoring_schema(), "authoringSchema")
+    }
+
+    /// `doc` as an authoring document: every field in the values form (each
+    /// content leaf its codec's text), every body as Markdown, each card
+    /// `{kind, fields, body}`. Sparse: an absent field stays absent. A
+    /// content leaf that decodes under neither encoding exports as stored.
+    #[wasm_bindgen(js_name = toAuthoring, unchecked_return_type = "AuthoringDocument")]
+    pub fn to_authoring(&self, doc: &Document) -> Result<JsValue, JsValue> {
+        serialize_or_throw(&self.inner.to_authoring(&doc.inner), "toAuthoring")
+    }
+
+    /// A document from an authoring document, conformed against this quill:
+    /// the JSON twin of `parse`. A `null` is absent; the document carries this
+    /// quill's `$quill`. A value the schema refuses lands with a `conform::*`
+    /// warning on `doc.warnings`, and `validate` reports the rest at document
+    /// paths. Throws, with every error found, on a value that is not the
+    /// authoring document's shape (`authoring::invalid_shape`) or a name or
+    /// kind no card can store (`edit::*`).
+    #[wasm_bindgen(js_name = fromAuthoring)]
+    pub fn from_authoring(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "AuthoringDocument")] value: JsValue,
+    ) -> Result<Document, JsValue> {
+        let value = js_value_to_json(value, "fromAuthoring")?;
+        let parsed = self
+            .inner
+            .from_authoring(&value)
+            .map_err(|diags| WasmError::from(diags).to_js_value())?;
+        Ok(Document {
+            inner: parsed.document,
+            parse_warnings: parsed.warnings,
+        })
     }
 
     /// Document schema for the quill: the user-fillable fields plus their `ui`
@@ -910,7 +974,7 @@ impl Quill {
     /// The empty document: a main card carrying this quill's `$quill` and
     /// `$kind: main`, no field committed, no composable card, no body. The
     /// type-minimal valid input, and the document a plate is bound to render
-    /// (the quill authoring contract). `new Document(ref)` is the same document
+    /// (the plate contract). `new Document(ref)` is the same document
     /// reached by spelling the reference.
     #[wasm_bindgen(js_name = emptyDocument)]
     pub fn empty_document(&self) -> Document {
@@ -920,24 +984,17 @@ impl Quill {
         }
     }
 
-    /// The quill's example document, `undefined` when the quill has no
-    /// `example.md` at its root: a filled-in page whose values are made up to show the
-    /// quill in use, never kept. It comes back pinned to this quill's
-    /// `name@MAJOR.MINOR` and conformed as `parse` conforms, its parse and
-    /// `conform::*` warnings on `doc.warnings`. Throws when the file does not
-    /// parse or its `$quill` is not this quill's bare name.
+    /// The quill's example document, `undefined` when no slot or body declares
+    /// an example: the seeded document with every declared `example` committed
+    /// as its cell's value and each kind's `body.example` as its body. A
+    /// filled-in page whose values are made up to show the quill in use, never
+    /// kept.
     #[wasm_bindgen(js_name = exampleDocument)]
-    pub fn example_document(&self) -> Result<Option<Document>, JsValue> {
-        self.inner
-            .example_document()
-            .map(|example| {
-                let parsed = example.map_err(|e| WasmError::from(e).to_js_value())?;
-                Ok(Document {
-                    inner: parsed.document,
-                    parse_warnings: parsed.warnings,
-                })
-            })
-            .transpose()
+    pub fn example_document(&self) -> Option<Document> {
+        self.inner.example_document().map(|inner| Document {
+            inner,
+            parse_warnings: Vec::new(),
+        })
     }
 
     /// Seed a starter `Document` from the schema: the main card plus one instance
@@ -1589,8 +1646,9 @@ impl Document {
 
     /// **Overwrite** the content value at `addr` with exactly `rt`: value
     /// semantics, so the identity anchors of any previous value are gone. By
-    /// anchor fate `overwrite` destroys, [`revise`](Document::revise) rebases,
-    /// and [`applyChange`](Document::apply_change) preserves. An absent
+    /// anchor fate `overwrite` destroys, [`revise`](Document::revise) and
+    /// [`reviseContent`](Document::revise_content) rebase, and
+    /// [`applyChange`](Document::apply_change) preserves. An absent
     /// `addr.field` targets the body, an absent `addr.card` the main card.
     ///
     /// Throws on an out-of-range card, a malformed field name, or an `rt` that is
@@ -1644,6 +1702,38 @@ impl Document {
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
         serialize_or_throw(&RevisedJs::from(revised), "revise")
+    }
+
+    /// **Revise** the richtext value at `addr` to `rt`, keeping each stored prose
+    /// anchor whose id `rt` does not hold: the content twin of
+    /// [`revise`](Document::revise), for a value built elsewhere such as a
+    /// merge's projection. Diffs `rt` against the current value, carries those
+    /// anchors through the diff, and returns the
+    /// `Revised` receipt, whose `delta` an editor bridge maps its own positions
+    /// through and whose `warnings` is empty. `rt`'s own anchors and island ids
+    /// land as they are. An absent `addr.field` targets the body, an absent
+    /// `addr.card` the main card; an absent field diffs from empty. Richtext
+    /// only: a `text` field takes `overwrite`.
+    ///
+    /// Throws on an out-of-range card, a malformed field name, a present
+    /// non-content field value, or an `rt` that is not a canonical content
+    /// object.
+    #[wasm_bindgen(js_name = reviseContent, unchecked_return_type = "Revised")]
+    pub fn revise_content(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let addr = Addr::from_js_or_string(&addr)?;
+        let content = js_to_authored_content(rt, "reviseContent")?;
+        let base = self.addr_base(&addr);
+        let mut card = self.addr_card_mut(&addr)?;
+        let revised = match &addr.field {
+            None => Ok(card.revise_body_content(content)),
+            Some(field) => card.revise_field_content(field, content),
+        }
+        .map_err(|e| edit_error_to_js(&e, &base))?;
+        serialize_or_throw(&RevisedJs::from(revised), "reviseContent")
     }
 
     /// The ABI under `writer.reviseDocument`: a whole-document revise, then

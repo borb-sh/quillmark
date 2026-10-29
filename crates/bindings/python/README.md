@@ -58,8 +58,8 @@ engine.supported_formats(quill)           # [OutputFormat.PDF, ...] (raises if b
 quill = Quill.from_path("path/to/quill")  # pure config load: no backend resolved here
 
 quill.backend_id            # "typst" (declared backend)
-quill.blueprint             # auto-generated annotated Markdown blueprint
 quill.schema                # structured dict of the quill's document schema
+quill.authoring_schema      # JSON Schema of the authoring document an LLM writes
 quill.metadata              # `name`, `version`, `backend`, `author`, `description`, then `license`, `homepage` when declared
 quill.quill_ref             # "name@version"
 
@@ -68,8 +68,10 @@ diags   = quill.conform(doc)              # the same walk in place on a transpor
 diags   = quill.validate(doc)             # list of diagnostic dicts ([] = valid): validation::*,
                                           # parse::dropped_construct, backend::declined_construct
 empty   = quill.empty_document()          # the empty Document: $quill + $kind: main, nothing committed
+doc     = quill.from_authoring(reply)     # an LLM's JSON document, conformed like parse
+reply   = quill.to_authoring(doc)         # the document as JSON: rich text as Markdown strings
 seed    = quill.seed_document()           # starter Document: one card per kind, each its kind's seed
-example = quill.example_document()        # the quill's made-up filled-in page (example.md), pinned; None without one
+example = quill.example_document()        # the seed with every declared example committed; None without one
 main    = quill.seed_main()               # just the $kind: main card (dict, like doc.main)
 card    = quill.seed_card("note")         # one starter composable card (dict), None if kind undeclared
 
@@ -182,10 +184,9 @@ interpreted value is the reader's (`quill.reader(doc).get(...)`).
 
 A field declares no `required:` key on `FieldSchema`: nothing is required.
 
-**`default:`** — what an unanswered field renders. With one, the blueprint
-renders that value under a type-only `# <type>` annotation and the render path
-uses it when the document omits the field. Without one, the blueprint leaves the
-cell empty and an absent field blank-fills.
+**`default:`** — what an unanswered field renders. With one, the render path
+uses it when the document omits the field, and the authoring schema carries it
+as the field's `default`. Without one, an absent field blank-fills.
 
 An unanswered field draws no diagnostic. Partial documents are accepted, and
 `engine.render(quill, doc)` raises only for malformed input.
