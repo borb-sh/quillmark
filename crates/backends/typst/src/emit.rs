@@ -630,10 +630,8 @@ impl<'a> Emit<'a> {
         // `g0` opens the recorded window after any prefix.
         let (g0, runs) = match kind {
             LineKind::Heading { level } => {
-                self.out.push_str(&"=".repeat(level as usize));
-                self.out.push(' ');
                 let g0 = self.out.len();
-                (g0, self.emit_inline(lo, hi))
+                (g0, self.emit_heading(level, lo, hi))
             }
             LineKind::Rule => {
                 let g0 = self.out.len();
@@ -653,6 +651,48 @@ impl<'a> Emit<'a> {
             runs,
         });
         self.end_newline = false;
+    }
+
+    /// A heading's text around each table slot on its line, the table between:
+    /// a table inside `= …` would set as part of the heading, where the line
+    /// broken around it is a heading, the table, and a heading.
+    fn emit_heading(
+        &mut self,
+        level: u8,
+        lo: usize,
+        hi: usize,
+    ) -> Vec<(Range<usize>, Range<usize>, EscapeCtx)> {
+        let tables: Vec<usize> = (lo..hi)
+            .filter(|&p| {
+                self.chars[p] == ISLAND_SLOT
+                    && self.island_at(p).is_some_and(|isl| isl.island_type.block_only())
+            })
+            .collect();
+        let mut runs = Vec::new();
+        let mut start = lo;
+        let mut first = true;
+        for end in tables.iter().copied().chain([hi]) {
+            if start < end || (tables.is_empty() && first) {
+                if !first {
+                    self.out.push('\n');
+                    self.out.push_str(&self.indent);
+                }
+                self.out.push_str(&"=".repeat(level as usize));
+                self.out.push(' ');
+                runs.extend(self.emit_inline(start, end));
+                first = false;
+            }
+            if end < hi {
+                if !first {
+                    self.out.push('\n');
+                    self.out.push_str(&self.indent);
+                }
+                self.out.push_str(&self.island_markup(end));
+                first = false;
+            }
+            start = end + 1;
+        }
+        runs
     }
 
     /// `#raw(block: true[, lang: "…"], "…")`: every line's text rides in the one

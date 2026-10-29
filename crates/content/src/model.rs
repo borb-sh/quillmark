@@ -31,8 +31,8 @@ pub const ISLAND_SLOT: char = '\u{FFFC}';
 /// The mint ([`Content::into_normalized`]) establishes the canonical form:
 /// marks sorted and unioned, container paths renumbered, a line's kind agreeing
 /// with its text, table props on one column count. The mint never moves text:
-/// a block island's slot may share its line, and each emitter gives it the line
-/// its markup needs. [`Content::validate`] reports what the mint cannot repair: the
+/// a block island's slot may share its line, and each emitter sets its markup
+/// as a block there. [`Content::validate`] reports what the mint cannot repair: the
 /// text holds no `\r`, no bidi controls, and no line separator (every character
 /// Typst reads as a newline but `\n`); the count of [`ISLAND_SLOT`] equals
 /// `islands.len()`; `lines.len()` equals the number of `\n`-separated segments.
@@ -902,10 +902,11 @@ impl Content {
         None
     }
 
-    /// Per line, whether it holds a block island's slot — the one-line block a
-    /// [`LineKind`] cannot name. Empty where no island is block-only, which is
-    /// every document holding no table.
-    fn block_island_lines(&self) -> Vec<bool> {
+    /// Per line, whether it ends in a block-only island's slot, after which
+    /// both emitters set a block: a block island's line, the one-line block a
+    /// [`LineKind`] cannot name, or prose a table closes. Empty where no island
+    /// is block-only, which is every document holding no table.
+    fn lines_ending_in_a_block_island(&self) -> Vec<bool> {
         if !self.islands.iter().any(|i| i.island_type.block_only()) {
             return Vec::new();
         }
@@ -914,9 +915,11 @@ impl Content {
             .split('\n')
             .take(self.lines.len())
             .map(|seg| {
-                let is = is_block_island_line(seg, self.islands.get(slot));
-                slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
-                is
+                let slots = seg.chars().filter(|&c| c == ISLAND_SLOT).count();
+                let ends = seg.ends_with(ISLAND_SLOT)
+                    && self.islands.get(slot + slots - 1).is_some_and(|i| i.island_type.block_only());
+                slot += slots;
+                ends
             })
             .collect()
     }
@@ -939,12 +942,13 @@ impl Content {
             }
         }
         // A `continues` flag under a block that cannot take one clears: nothing
-        // precedes the first line, and below it a differing container path or a
-        // one-line block above, where export would drop the continuation's text.
+        // precedes the first line, and below it a differing container path, a
+        // one-line block above, or a line a table's slot ends, after which both
+        // emitters set the table as a block.
         // `Join` across two paths, `SetKind` retagging the line above and
         // `SetContinues` itself all reach the shape. Read after the demotion,
         // which settles what the line above is.
-        let block_island = self.block_island_lines();
+        let block_island = self.lines_ending_in_a_block_island();
         for i in 0..self.lines.len() {
             if self.lines[i].continues
                 && (i == 0

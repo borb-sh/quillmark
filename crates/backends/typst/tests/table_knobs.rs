@@ -154,15 +154,15 @@ fn every_head_row_repeats_with_the_header() {
 }
 
 /// A table sharing its line with prose, the shape a merge of concurrent edits
-/// leaves, compiles and draws what the line broken around it draws: Typst sets
-/// a table as a block wherever the markup places it.
+/// leaves, compiles and draws what the line broken around it draws: in a
+/// paragraph, in a heading, and above a hard break the mint clears.
 #[test]
 fn a_table_sharing_its_line_draws_as_the_broken_line_does() {
     let quill = quill();
-    let draw = |text: &str, lines: usize| {
+    let draw = |text: &str, lines: serde_json::Value| {
         let mut value = content(&format!("before\n\n{PLAIN}\n\nafter"));
         value["text"] = text.into();
-        value["lines"] = serde_json::Value::Array(vec![serde_json::json!({"containers": [], "kind": "para"}); lines]);
+        value["lines"] = lines;
         let session = TypstBackend::default()
             .open(&quill, &serde_json::json!({ "$body": value }), common::test_date())
             .unwrap_or_else(|e| panic!("{text:?} compiles: {e}"));
@@ -171,8 +171,17 @@ fn a_table_sharing_its_line_draws_as_the_broken_line_does() {
             .expect("render");
         origins(&String::from_utf8(result.artifacts[0].bytes.clone()).expect("svg is text"))
     };
-    let broken = draw("before\n\u{FFFC}\nafter", 3);
-    let shared = draw("before\u{FFFC}after", 1);
-    assert_eq!(shared.len(), broken.len(), "{shared:?}");
-    assert_eq!(shared.iter().map(|o| o.0).collect::<Vec<_>>(), broken.iter().map(|o| o.0).collect::<Vec<_>>());
+    let para = serde_json::json!({"containers": [], "kind": "para"});
+    let heading = serde_json::json!({"containers": [], "kind": "heading", "attrs": {"level": 1}});
+    let hard_break = serde_json::json!({"containers": [], "kind": "para", "continues": true});
+    let cases = [
+        ("before\u{FFFC}after", vec![para.clone()], vec![para.clone(), para.clone(), para.clone()]),
+        ("before\u{FFFC}after", vec![heading.clone()], vec![heading.clone(), para.clone(), heading.clone()]),
+        ("before\u{FFFC}\nafter", vec![para.clone(), hard_break], vec![para.clone(), para.clone(), para.clone()]),
+    ];
+    for (text, shared, broken) in cases {
+        let line_broken = draw("before\n\u{FFFC}\nafter", serde_json::Value::Array(broken));
+        let line_shared = draw(text, serde_json::Value::Array(shared.clone()));
+        assert_eq!(line_shared, line_broken, "{text:?} as {shared:?}");
+    }
 }

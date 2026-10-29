@@ -2544,10 +2544,9 @@ mod tests {
         assert_eq!(read.anchors[0].line, "bold");
     }
 
-    /// A block island renders one line, so a hard-break continuation after the
-    /// line the write breaks out would be text it never reaches. The stored
-    /// flag stays, since the slot shares its line there, and the write clears it
-    /// on the copy it breaks.
+    /// A table ending a line sets as a block, so a hard-break continuation after
+    /// it would join nothing: the mint clears the flag, and the line below writes
+    /// as a paragraph of its own.
     #[test]
     fn a_hard_break_after_a_broken_line_keeps_its_text() {
         let mut second = Line::new(LineKind::Para);
@@ -2560,7 +2559,7 @@ mod tests {
         }
         .into_normalized();
         assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
-        assert!(rt.lines[1].continues);
+        assert!(!rt.lines[1].continues);
 
         let md = to_markdown(&rt);
         let back = from_markdown(&md).unwrap().content;

@@ -2154,8 +2154,8 @@ pub fn export_markdown(
 
 /// The canonical form of `rt`: the content `overwrite` stores from it, read
 /// without a document. Normalizing rewrites structure, never the text, so the
-/// answer's `text` is `rt.text`. Throws where `overwrite` would, with its
-/// message.
+/// answer's `text` is `rt.text`. Throws where `overwrite` would, with the same
+/// error under this verb's name.
 #[wasm_bindgen(js_name = normalize, unchecked_return_type = "Content")]
 pub fn normalize(#[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue) -> Result<JsValue, JsValue> {
     let content = js_to_authored_content(rt, "normalize")?;
