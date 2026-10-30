@@ -283,10 +283,11 @@ card_kinds:
     )
     doc.applyChange({}, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }] })
     doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 6, end: 10, type: 'anchor', attrs: { id: 'n' } }] })
+    const cardId = doc.cards[0].id
     const receipt = quill
       .writer(doc)
       .reviseDocument('~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n')
-    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', id: 'n', line: 'First note.' }])
+    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', cardId, id: 'n', line: 'First note.' }])
     expect(receipt.from).toEqual([])
     expect(receipt.warnings).toEqual([])
     expect(doc.main.body.marks).toEqual([{ start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }])

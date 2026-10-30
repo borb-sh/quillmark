@@ -382,8 +382,10 @@ fn a_document_overlay_replaces_the_kind_seed_whole() {
     }
     assert_eq!(card.body_markdown(), "");
 
-    let doc = quill.seed_document();
-    assert_eq!(doc.cards()[0], bare, "the seeded document carries each kind's seed");
+    let mut seeded = quill.seed_document().cards()[0].clone();
+    assert!(seeded.id().is_some(), "a seeded card is minted an id");
+    seeded.payload_mut().remove_id();
+    assert_eq!(seeded, bare, "the seeded document carries each kind's seed");
 
     assert_eq!(
         quill.config().schema()["card_kinds"]["note"]["seed"],

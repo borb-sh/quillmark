@@ -330,3 +330,86 @@ fn a_revised_fields_nested_comments_stay() {
     let out = doc.to_markdown();
     assert!(out.contains("# lead comment") && out.contains("# inner"), "{out}");
 }
+
+/// A card spelling a stored card's `$id` revises it wherever it moved and
+/// however its text changed, keeping its `$ext` and its anchors.
+#[test]
+fn a_card_spelling_its_id_revises_its_stored_card() {
+    let mut doc = stored();
+    let first = doc.cards()[0].id().unwrap().to_string();
+    let second = doc.cards()[1].id().unwrap().to_string();
+    let md = format!(
+        "~~~\n$quill: q\n~~~\n\n\
+~~~\n$kind: note\n$id: {second}\n~~~\n\nPears, rewritten from the ground up.\n\n\
+~~~\n$kind: note\n$id: {first}\n~~~\n\nNothing like apples now.\n"
+    );
+    let receipt = doc.revise(&md).unwrap();
+    assert_eq!(receipt.from, [Some(1), Some(0)]);
+    assert_eq!(doc.cards()[0].id(), Some(second.as_str()));
+    assert_eq!(doc.cards()[0].ext().unwrap()["app"]["key"], "n2");
+    assert_eq!(anchor_ids(doc.cards()[0].body()), ["p1"]);
+    assert_eq!(doc.cards()[1].ext().unwrap()["app"]["key"], "n1");
+}
+
+/// A pasted copy spells the id of the card it copies: the one more like the
+/// stored card keeps it, and the other is an inserted card with a new id.
+#[test]
+fn a_pasted_copy_of_a_card_is_inserted_with_a_new_id() {
+    let mut doc = stored();
+    let id = doc.cards()[0].id().unwrap().to_string();
+    let card = doc.to_markdown();
+    let copy = format!("~~~\n$kind: note\n$id: {id}\n~~~\n\nA copy, then changed.\n\n");
+    let md = card.replacen("~~~\n$kind: note", &format!("{copy}~~~\n$kind: note"), 1);
+    let receipt = doc.revise(&md).unwrap();
+    assert_eq!(&receipt.from[..2], [None, Some(0)]);
+    assert_eq!(doc.cards()[1].id(), Some(id.as_str()));
+    let minted = doc.cards()[0].id().unwrap();
+    assert_ne!(minted, id);
+    let warned: Vec<_> = receipt
+        .warnings
+        .iter()
+        .filter(|w| w.code.as_deref() == Some(crate::document::card_id::CARD_ID_REMINTED))
+        .map(|w| w.path.clone())
+        .collect();
+    assert_eq!(warned, [Some("cards.note[0]".to_string())]);
+}
+
+/// An inserted card keeps a valid `$id` no stored card holds, and a minted
+/// one never repeats a stored card's, though both mints start alike.
+#[test]
+fn an_inserted_card_keeps_a_fresh_id_and_a_mint_skips_the_stored_ids() {
+    let mut doc = stored();
+    let stored_ids: Vec<String> = doc.cards().iter().map(|c| c.id().unwrap().to_string()).collect();
+    let md = format!(
+        "{}\n~~~\n$kind: aside\n$id: my-aside\n~~~\n\nNamed.\n\n~~~\n$kind: aside\n~~~\n\nUnnamed.\n",
+        doc.to_markdown()
+    );
+    let receipt = doc.revise(&md).unwrap();
+    assert_eq!(receipt.from, [Some(0), Some(1), Some(2), None, None]);
+    assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
+    assert_eq!(doc.cards()[3].id(), Some("my-aside"));
+    let minted = doc.cards()[4].id().unwrap();
+    assert!(!stored_ids.iter().any(|id| id == minted), "{minted}");
+}
+
+/// An item inserted ahead of an anchored one leaves the anchor on its own
+/// item, and the receipt names no drop.
+#[test]
+fn an_item_inserted_ahead_keeps_each_anchor_on_its_own_item() {
+    let mut doc = stored_with_items();
+    let markdown = doc
+        .to_markdown()
+        .replace("  - a plain item\n", "  - a new first item\n  - a plain item\n");
+    assert_ne!(markdown, doc.to_markdown());
+    let receipt = doc.revise(&markdown).unwrap();
+    assert!(receipt.dropped_anchors.is_empty(), "{receipt:?}");
+    let items = doc.cards()[0].payload().get("items").unwrap().as_json().clone();
+    assert_eq!(items[0], "a new first item");
+    let item = quillmark_content::serial::from_canonical_value(&items[2]).unwrap();
+    assert_eq!(item.text, "an item to flag");
+    assert_eq!(anchor_ids(&item), ["i1"]);
+
+    let markdown = doc.to_markdown().replace("  - a plain item\n", "");
+    let receipt = doc.revise(&markdown).unwrap();
+    assert!(receipt.dropped_anchors.is_empty(), "{receipt:?}");
+}

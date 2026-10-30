@@ -494,12 +494,22 @@ fn revise_document_revises_then_conforms() {
             "\n~~~card-yaml\n$kind: entry\n",
             "\n~~~card-yaml\n$kind: entry\nprose: a fresh card\n~~~\n\n~~~card-yaml\n$kind: entry\n",
         );
+    let stored_id = doc.cards()[0].id().unwrap().to_string();
     let receipt = quill.writer(&mut doc).revise_document(&md).expect("revise");
     let (expected, warnings) = parse_bound(&quill, &md);
 
     assert!(receipt.dropped_anchors.is_empty());
     assert_eq!(receipt.warnings, warnings);
-    assert_eq!(doc.to_markdown(), expected.to_markdown());
+    assert_eq!(doc.cards()[1].id(), Some(stored_id.as_str()), "the revised card keeps its id");
+    assert_ne!(doc.cards()[0].id(), Some(stored_id.as_str()));
+    let without_ids = |doc: &Document| {
+        let mut doc = doc.clone();
+        for card in doc.cards_vec_mut() {
+            card.payload_mut().remove_id();
+        }
+        doc.to_markdown()
+    };
+    assert_eq!(without_ids(&doc), without_ids(&expected));
     let anchored = doc.cards()[1]
         .field_content("prose", crate::document::Codec::Richtext)
         .unwrap()

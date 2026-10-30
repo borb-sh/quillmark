@@ -57,11 +57,11 @@ impl MetaKey {
         }
     }
 
-    /// Canonical sort rank among typed `$` entries (after `$kind`).
+    /// Canonical sort rank among typed `$` entries (after `$kind` and `$id`).
     fn rank(self) -> u8 {
         match self {
-            MetaKey::Ext => 2,
-            MetaKey::Seed => 3,
+            MetaKey::Ext => 3,
+            MetaKey::Seed => 4,
         }
     }
 }
@@ -77,6 +77,9 @@ pub enum PayloadItem {
     Quill { reference: QuillReference },
     /// `$kind` system metadata: the card's kind name.
     Kind { value: String },
+    /// `$id` system metadata: a composable card's id, as spelled. A placed
+    /// card's is a [card id](super::card_id::is_card_id) no other card holds.
+    Id { value: String },
     /// `$ext` / `$seed` system metadata: an opaque mapping discriminated by
     /// [`MetaKey`], never emitted into the plate JSON.
     Meta {
@@ -130,12 +133,14 @@ impl PayloadItem {
         }
     }
 
-    /// Canonical sort rank for typed `$` entries: `$quill` < `$kind` < `$ext` <
-    /// `$seed`. `None` for user fields and comments, which keep source order.
+    /// Canonical sort rank for typed `$` entries: `$quill` < `$kind` < `$id` <
+    /// `$ext` < `$seed`. `None` for user fields and comments, which keep source
+    /// order.
     fn meta_rank(&self) -> Option<u8> {
         match self {
             PayloadItem::Quill { .. } => Some(0),
             PayloadItem::Kind { .. } => Some(1),
+            PayloadItem::Id { .. } => Some(2),
             PayloadItem::Meta { key, .. } => Some(key.rank()),
             _ => None,
         }
@@ -275,6 +280,14 @@ impl Payload {
         })
     }
 
+    /// The `$id`, if declared: a composable card's id.
+    pub fn id(&self) -> Option<&str> {
+        self.items.iter().find_map(|i| match i {
+            PayloadItem::Id { value } => Some(value.as_str()),
+            _ => None,
+        })
+    }
+
     pub(crate) fn meta(&self, want: MetaKey) -> Option<&JsonMap<String, JsonValue>> {
         self.items.iter().find_map(|i| match i {
             PayloadItem::Meta { key, value, .. } if *key == want => Some(value),
@@ -304,6 +317,16 @@ impl Payload {
     /// [`set_quill`](Self::set_quill).
     pub(crate) fn set_kind(&mut self, kind: impl Into<String>) {
         self.upsert_meta(PayloadItem::Kind { value: kind.into() });
+    }
+
+    /// Set or replace the `$id` entry, after `$kind`.
+    pub(crate) fn set_id(&mut self, id: impl Into<String>) {
+        self.upsert_meta(PayloadItem::Id { value: id.into() });
+    }
+
+    /// Remove the `$id` entry.
+    pub(crate) fn remove_id(&mut self) {
+        self.take_item(|i| matches!(i, PayloadItem::Id { .. }));
     }
 
     /// Set or replace an out-of-band meta entry at its canonical position.

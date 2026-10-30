@@ -156,6 +156,11 @@ families:
   (`parse::unsupported_yaml_tag`) anchors at the tagged node's `path`, a
   card's under its stored `$kind` as `pathFor` mints it. One on a `$` key or
   inside `$ext` or `$seed`, which have no document address, carries none.
+  A card whose `$id` the parse replaced, one outside the card-id grammar or
+  one an earlier card holds, adds `parse::card_id_reminted` with the `id` it
+  spelled, anchored at the card (`cards.<kind>[<i>]`) after every card's
+  other warnings. A whole-document revise adds one at the revised card for
+  an inserted card whose `$id` is not a card id or a stored card held.
   A body's markdown import adds `parse::dropped_construct`, one per construct
   it dropped, with its `count`, anchored at the body (`main.body`,
   `cards.<kind>[<i>].body`) after its card's tag warnings. The `construct` is:
@@ -211,7 +216,7 @@ families:
   `construct` is a mark's wire type (`strong`, `link`, …) with its `start`
   and `end` in the content's text, an island's type (`table`, `image`, …), or
   `text` where the text or its blocks read back otherwise. WASM
-  `exportMarkdown` returns them beside the markdown with no `path`. A `*`,
+  `exportMarkdownChecked` returns them beside the markdown with no `path`. A `*`,
   `_` or `~~` mark is written over its text without the whitespace at its
   edges, and names its full range here.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
@@ -534,6 +539,8 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::field_decode` | `field`, `codec` | structured, coarser |
 | `edit::reserved_kind` | — | code-determined |
 | `edit::root_only_entry` | `key` | structured |
+| `edit::invalid_card_id` | `id` | structured |
+| `edit::duplicate_card_id` | `id` | structured |
 | `edit::import` | — | fallback |
 | `edit::content_apply` | — | fallback |
 | `edit::invalid_payload` | — | fallback |
@@ -554,6 +561,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::empty_input` | — | code-determined |
 | `parse::unsupported_yaml_tag` | — | code-determined |
 | `parse::dropped_construct` | `construct`, `count` | structured |
+| `parse::card_id_reminted` | `id` | structured |
 | `export::lost_construct` | `construct`, `start`?, `end`? | structured |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |

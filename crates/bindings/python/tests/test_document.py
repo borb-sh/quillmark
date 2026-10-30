@@ -113,6 +113,26 @@ def test_wire_refusal_carries_the_mutator_code():
         doc.insert_card({"kind": "note", "quill": "@nope"})
 
 
+def test_a_composable_card_carries_its_id():
+    """Every composable card reads an `id`, minted where none was spelled,
+    kept through markdown; a placed card keeps a fresh one and refuses a
+    held or malformed one."""
+    doc = Document.from_markdown(
+        "~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nA note.\n"
+    )
+    card_id = doc.cards[0]["id"]
+    assert "id" not in doc.main
+    assert f"$id: {card_id}\n" in doc.to_markdown()
+    assert Document.from_markdown(doc.to_markdown()).cards[0]["id"] == card_id
+
+    doc.insert_card({**make_card("note", {}), "id": "chosen"})
+    assert doc.cards[1]["id"] == "chosen"
+    with raises_edit_code("edit::duplicate_card_id"):
+        doc.insert_card({**make_card("note", {}), "id": card_id})
+    with raises_edit_code("edit::invalid_card_id"):
+        doc.insert_card({**make_card("note", {}), "id": "-x"})
+
+
 def test_unknown_card_key_is_a_loud_error():
     """An unknown card key fails at deserialize time as a ValueError rather than
     yielding a card missing it."""

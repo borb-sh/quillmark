@@ -42,10 +42,11 @@ crate-internal to `quillmark-core` and never a storage option.
 
 ## The Format
 
-The current schema (`quillmark/document@0.131.0`) carries each card's full
+The current schema (`quillmark/document@0.134.0`) carries each card's full
 ordered payload: typed `$` system metadata, user fields, and YAML
 comments interleaved in source order: as a single discriminated-union
-item list. This is what makes inline-comment preservation symmetric across
+item list. A composable card's `$id` is an `{type: id, value}` item after its
+`$kind` (§ Card-id identity). This is what makes inline-comment preservation symmetric across
 the `$`/non-`$` boundary. A field item is `{type: field, key, value}`;
 `body` is the canonical `Content` embedded structurally (a nested
 object, not a markdown string); see Byte-stability.
@@ -511,24 +512,24 @@ schema event: a change to the content object's own structure — a new top-level
 key beside `text`/`lines`/`marks`/`islands` — or a changed meaning for an
 existing discriminator.
 
-## The two id handles
+## The id handles
 
-Islands and anchors each carry an id, and both are the same handle: **opaque,
-unique within a scope, hash input, stable for the session, rebased through edits
+Islands, anchors and composable cards each carry an id, and all three are the same handle: **opaque,
+unique within a scope, hash input, stable for the session, carried through edits
 and never rewritten.** They differ on one axis: **who mints one, and why only
 they can.** Uniqueness scope, collision response, and markdown round-trip all
 follow from that.
 
-|                     | Island `id`                                        | Anchor `id`                                        |
-| ------------------- | -------------------------------------------------- | -------------------------------------------------- |
-| Minted by           | Quillmark at import or fold, the caller on insert  | the caller                                         |
-| Because             | content determines it: the nth island minted      | the referent is external; no content determines it |
-| Unique across       | the `Content`'s islands                            | the `Content`'s prose marks                        |
-| Required            | yes: `insert` rejects the empty id                 | yes: the empty id is rejected                     |
-| On collision        | `insert` rejects; `validate` scans                 | `add` rejects                                      |
-| Markdown round-trip | re-minted identically                              | carried by revise; spelled read-only by the annotated export |
+|                     | Island `id`                                        | Anchor `id`                                        | Card `$id`                                          |
+| ------------------- | -------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------- |
+| Minted by           | Quillmark at import or fold, the caller on insert  | the caller                                         | the author or caller, else Quillmark where the card is placed |
+| Because             | content determines it: the nth island minted      | the referent is external; no content determines it | the card is the referent, and markdown can spell its id |
+| Unique across       | the `Content`'s islands                            | the `Content`'s prose marks                        | the document's composable cards                    |
+| Required            | yes: `insert` rejects the empty id                 | yes: the empty id is rejected                     | yes: every placed composable card holds one; the main card none |
+| On collision        | `insert` rejects; `validate` scans                 | `add` rejects                                      | a parse re-mints and warns; a placing edit rejects; a load refuses |
+| Markdown round-trip | re-minted identically                              | carried by revise; spelled read-only by the annotated export | spelled as `$id`, read back as written |
 
-A card is addressed by index and carries no id handle. A consumer needing a durable per-card key carries one in `$ext` under its own namespace ([CARDS.md](CARDS.md) § Out-of-band Metadata), which Quillmark round-trips and never interprets.
+The main card is addressed as `main` and carries no `$id`.
 
 Each section below states one handle's policy whole.
 
@@ -566,7 +567,7 @@ The two compose because minting reads the *live* ids: deleting the highest islan
 ## Anchor-id identity
 
 An anchor (`MarkKind::Anchor { id }`) sits at the caller-minted end of the mint
-axis (§ The two id handles) because it has **no markdown codec**: it
+axis (§ The id handles) because it has **no markdown codec**: it
 names an external referent (a comment thread, an editor bookmark) that no
 content determines. The never-ambient rule therefore cannot apply, and need not:
 that rule exists to keep *import* a pure function of markdown, and import mints
@@ -642,16 +643,48 @@ A comment thread hangs on an anchor by its id: [COMMENTS.md](COMMENTS.md)
 states that contract, the selector each anchor reads as, and the exact rule
 that places a dropped anchor again.
 
+## Card-id identity
+
+A composable card's `$id` names the card across writes, so a whole-document
+revise and a comment selector find it wherever it moved. The policy: **a card
+id is a written key, unique per document, minted deterministically where none
+is written, and never rewritten while its card lives.**
+
+- **Grammar.** 1 to 64 of `[A-Za-z0-9_-]`, opening with a letter or digit
+  (`card_id::is_card_id`). `$id` on the main card is a parse error.
+- **Mint.** A card without a valid id takes `c` and five base32 letters of
+  SHA-256 over `quillmark/card-id\n{n}`, the first `n` whose token no card
+  holds (`card_id::Mint`). The sequence is a function of the document alone,
+  so equal markdown parses to equal ids and the never-ambient rule of
+  § Island-id determinism holds.
+- **Every door settles.** A parse, a load and a placing edit each leave every
+  composable card holding a distinct valid id. A parse keeps the first card
+  spelling an id, re-mints a later duplicate or an id outside the grammar, and
+  warns `parse::card_id_reminted` at the card. `insert_card` mints for a card
+  spelling none and refuses a bad or held one (`edit::invalid_card_id`,
+  `edit::duplicate_card_id`). A load refuses a bad or duplicated stored id,
+  and mints for a row written before `0.134.0`.
+- **Revise.** `Document::revise` pairs an incoming card spelling a stored
+  card's `$id` with it, when both are of one `$kind`. Of several spelling one
+  id, the one whose text most resembles the stored card's keeps it. The rest
+  align by text ([BINDINGS.md](BINDINGS.md) § The write surface). A card revising a stored one
+  holds its id whatever it spells. An inserted card keeps a valid id no stored
+  card held and mints past every stored id otherwise, so a removed card's id
+  is never handed to a new one.
+- **Never rendered.** `$id` never reaches the plate JSON, as `$ext` does not.
+
 ## Schema Versioning
 
 The schema version is tied to the **crate version at which the `Document`
 wire format was last changed**: not the running crate version. The
-current format was fixed in `0.131.0`, so the version tag is
-`quillmark/document@0.131.0`; every later patch release writes that same
+current format was fixed in `0.134.0`, so the version tag is
+`quillmark/document@0.134.0`; every later patch release writes that same
 value, because patches do not change the format. A save writes the oldest tag
-that holds the row: one holding none of the members a 0.130 build refuses or
-draws otherwise keeps `quillmark/document@0.129.0`, which a 0.129 or 0.130
-build reads. Those members are a `font_family` mark, a table cell whose `colspan` or `rowspan` exceeds 1, and a table `head` other
+that holds the row. A row holding a composable card, which carries its `$id`,
+takes `0.134.0`. A row of the main card alone takes `0.131.0` when it holds a
+member a 0.130 build refuses or draws otherwise, and keeps
+`quillmark/document@0.129.0`, which a 0.129 or 0.130 build reads, when it
+holds none. Those members are a `font_family` mark, a table cell whose `colspan` or `rowspan` exceeds 1, and a table `head` other
 than 1, save a `head: 0` stored beside the `headless: true` a 0.130 build
 reads. The writer looks for them in each body and in each field and `$seed`
 value that decodes as content; an `$ext` value is opaque and never read
@@ -662,7 +695,7 @@ untouched, dropped an island's `loss` key and retired the `island` line kind
 (§ Content vocabularies), which is a format change because the writer emits
 different bytes for the same document — every document holding an island.
 
-`0.124.0`, `0.129.0` and `0.131.0` share one tree: a field item is
+`0.124.0`, `0.129.0`, `0.131.0` and `0.134.0` share one tree: a field item is
 `{type: field, key, value}`, and a document, card, payload or payload item
 carrying a key its type does not name fails the load. `0.124.0` spells `body`
 over the content vocabulary that has `element` among the containers and
@@ -671,14 +704,15 @@ island vocabulary, `term` to the line kinds and `description` to the
 containers. `0.131.0` adds `font_family` to the marks, the element name
 `table`, a table's `head` and a cell's `colspan` and `rowspan`, and its
 DTO is `0.129.0`'s (`DocumentV0_131_0` aliases `DocumentV0_129_0`), so the
-reader opens both tags into one tree with no hop.
+reader opens both tags into one tree with no hop. `0.134.0` adds the `id`
+payload item and aliases the same tree (`DocumentV0_134_0`).
 
 The V0_124_0 → V0_129_0 hop decodes its raw `body`, and can reject for the same
 reason a load can. Only the newest DTO converts to the live `Document`.
 
 ## Adding a Schema Version
 
-A bump that only adds vocabulary members, as `0.131.0` did, needs none of
+A bump that only adds vocabulary members, as `0.131.0` and `0.134.0` did, needs none of
 the steps below: its tag aliases the newest tree, the reader matches both
 tags into it, and the writer keeps the older tag for a row spelling none of the
 new members. A member counts as new when the older reader refuses it or draws

@@ -141,18 +141,19 @@ have no `---` form, and half a rule is harder to learn than none.
 ### 3.3 System Metadata (`$`)
 
 A block's YAML payload may contain **`$`-prefixed reserved keys** that carry
-system metadata. The set is **closed**: only `$quill`, `$kind`, `$ext`,
-and `$seed` are accepted. Any other `$`-prefixed key is a parse error. These
+system metadata. The set is **closed**: only `$quill`, `$kind`, `$id`,
+`$ext`, and `$seed` are accepted. Any other `$`-prefixed key is a parse error. These
 keys are ordinary YAML: they are read by the same YAML parser that handles
 the rest of the payload, but they are **extracted** from the user field
 set after parsing; they are not part of the data model's field map (§3.4).
 
 In the typed model, the `$` entries live as typed variants of the
-unified payload-item list (`PayloadItem::Quill`, `PayloadItem::Kind`, and
-`PayloadItem::Meta` keyed by `MetaKey::Ext` / `MetaKey::Seed`), interleaved in
-source order with user fields and YAML comments. They are surfaced through typed
-accessors: `card.quill()`, `card.kind()`, `card.ext()`,
-`card.seed()`: which return `Option<…>`. On a successfully parsed document the root
+unified payload-item list (`PayloadItem::Quill`, `PayloadItem::Kind`,
+`PayloadItem::Id`, and `PayloadItem::Meta` keyed by `MetaKey::Ext` /
+`MetaKey::Seed`), interleaved in source order with user fields and YAML
+comments. They are surfaced through typed accessors: `card.quill()`,
+`card.kind()`, `card.id()`, `card.ext()`, `card.seed()`: which return
+`Option<…>`. On a successfully parsed document the root
 card always returns `Some(_)` for both `quill()` and `kind()` (with
 `kind() == "main"`); composable cards return `None` for `quill()`, and
 `kind()` returns the declared kind (any value other than `"main"`). The root's
@@ -174,6 +175,15 @@ author wrote the line.
   must declare `$kind`: one that names none is a parse error (§10). Whether a
   kind names anything a quill declares is the schema's question, not the
   parser's.
+- **`$id: <card-id>`**: names a composable card across writes. A card id is 1
+  to 64 of `[A-Za-z0-9_-]`, opening with a letter or digit, and unique in the
+  document. The root block may not declare it: the root is `main`. A value
+  that is not a string is read as its JSON text, so `$id: 7` is the id `7`. A card that omits `$id` is
+  minted one: `c` and five base32 letters, the first of a fixed sequence that
+  no card holds, so equal markdown parses to equal ids. A card spelling an id
+  outside the grammar, or one an earlier card holds, is minted one in its place,
+  with a `parse::card_id_reminted` warning at the card. Like `$ext` it never
+  appears in the plate JSON.
 - **`$ext: <mapping>`**: an opaque, optional **mapping** reserved for
   out-of-band extension data (UI editor state, agent annotations, …).
   Required to be a YAML mapping (object); scalars and sequences are
@@ -198,12 +208,12 @@ author wrote the line.
 - `$` metadata entries may appear at any position within the payload, and
   may be interleaved with data fields. The emitter preserves source order
   (see §9); newly constructed metadata that does not have a source-order
-  is emitted in the canonical key order `$quill`, `$kind`, `$ext`, `$seed`.
+  is emitted in the canonical key order `$quill`, `$kind`, `$id`, `$ext`,
+  `$seed`.
 - A duplicate `$key` within a single block is a parse error (a YAML mapping
   cannot carry two entries under the same key).
-- An unknown `$key` (anything outside `{quill, kind, ext, seed}`) is a parse
-  error. A consumer needing a per-card key of its own carries it in `$ext` under
-  its own namespace, uninterpreted and unguaranteed.
+- An unknown `$key` (anything outside `{quill, kind, id, ext, seed}`) is a
+  parse error.
 - An invalid `$quill` reference is a parse error.
 - A `$`-prefixed key whose value type is wrong for the key (e.g. a sequence
   under `$quill`, a scalar under `$ext`) is a parse error.
@@ -834,7 +844,7 @@ metadata, user data fields, and YAML comments interleaved in source
 order), and a `~~~` closer. The root block must declare `$quill`;
 canonical emission also writes `$kind: main` on the root, synthesising
 it when the input omitted the line (see §3.3). A composable card emits
-`$kind: <kind>` when it declares one. A document round-trips to this canonical
+`$kind: <kind>` when it declares one, then its `$id`. A document round-trips to this canonical
 shape: fence markers and YAML quoting are normalised, and an opener's info
 string re-emits as bare `~~~`.
 YAML comments (own-line and inline, including those adjacent to `$` lines)
@@ -852,9 +862,9 @@ line opening on whitespace, whitespace ending a line, more than one trailing
 newline, or a `\r`, control character, U+2028, U+2029 or U+FEFF.
 
 Programmatically constructed metadata that does not have a source-order
-emits in the canonical key order `$quill`, `$kind`, `$ext`, `$seed`: the
-typed mutators (`set_quill` / `set_kind` / `set_ext` / `set_seed`)
-insert at these positions.
+emits in the canonical key order `$quill`, `$kind`, `$id`, `$ext`, `$seed`:
+the typed mutators (`set_quill` / `set_kind` / `set_id` / `set_ext` /
+`set_seed`) insert at these positions.
 
 ### 9.1 Canonical Idempotence
 
@@ -901,13 +911,14 @@ Parse errors include:
   value is rejected).
 - A composable (non-root) block declaring `$quill`, or declaring
   `$kind: main` (which is reserved for the document root).
+- The root block declaring `$id`.
 - A composable block whose mapping payload names no `$kind`
   (`MissingKind`), located at the opener's line. Its hint names the
   `$kind:` line and the backtick fence (§6.2), since tilde-fenced code whose
   text reads as a mapping is the other usual source.
 - A duplicate `$key` within a single block (caught by the YAML parser as a
   duplicate mapping key).
-- An unknown `$key` outside the closed set `{quill, kind, ext, seed}`.
+- An unknown `$key` outside the closed set `{quill, kind, id, ext, seed}`.
 - An invalid `$quill` reference.
 - A `$` metadata key whose value type is incompatible with the key.
 - A data-field name failing `/^[A-Za-z_][A-Za-z0-9_]*$/`.

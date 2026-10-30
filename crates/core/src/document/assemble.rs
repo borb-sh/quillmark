@@ -315,7 +315,8 @@ pub(super) fn build_block(
 
 /// Decompose markdown into a typed [`Document`] and its non-fatal warnings: the
 /// fence scan's, then each card's YAML-tag and body-import warnings in card
-/// order.
+/// order. Each card holds the `$id` it spells, or none: the caller settles
+/// them.
 pub(super) fn decompose_with_warnings(
     markdown: &str,
 ) -> Result<(Document, Vec<Diagnostic>), crate::error::ParseError> {
@@ -363,6 +364,14 @@ pub(super) fn decompose_with_warnings(
              (e.g. `$quill: usaf_memo@0.2.0`)."
         };
         return Err(ParseError::MissingQuill(msg.to_string()));
+    }
+
+    if root_block.meta_items.iter().any(|m| matches!(m, PayloadItem::Id { .. })) {
+        return Err(ParseError::InvalidStructure(
+            "The document's root card-yaml block must not declare `$id`: the root \
+             is addressed as `main`, and only a composable card carries an id."
+                .to_string(),
+        ));
     }
 
     // The root's `$kind` is `main` by position (markdown-spec.md §3.3): an
@@ -480,9 +489,7 @@ pub(super) fn decompose_with_warnings(
         cards.push(Card::from_parts(card_payload, card_body));
     }
 
-    let doc = Document::from_main_and_cards(main, cards);
-
-    Ok((doc, warnings))
+    Ok((Document { main, cards }, warnings))
 }
 
 /// Validate a user field entering the payload from the parse path, mapping a

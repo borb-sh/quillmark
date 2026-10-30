@@ -203,12 +203,14 @@ export type PayloadItem =
  * `CardInput`, so a card read from one document pushes straight into another.
  *
  * `$` system entries are hoisted to named fields: `kind` (the `$kind`),
- * `quill` (`$quill` `name@version`, main card only), `ext` (`$ext`), and
- * `seed` (the `$seed` per-kind overlay map, main card only).
- * `payloadItems` carries user fields and comments in order.
+ * `id` (the `$id`, composable cards only), `quill` (`$quill`
+ * `name@version`, main card only), `ext` (`$ext`), and `seed` (the `$seed`
+ * per-kind overlay map, main card only). `payloadItems` carries user fields
+ * and comments in order.
  */
 export interface Card {
     kind: string;
+    id?: string;
     quill?: string;
     ext?: Record<string, unknown>;
     seed?: Record<string, unknown>;
@@ -223,10 +225,13 @@ export interface Card {
 /**
  * A card written *into* a document, accepted by `Document.insertCard`. Like
  * `Card`, but `body` also takes a markdown `string`, and every field but `kind`
- * is optional (defaulting to no payload items and an empty body).
+ * is optional (defaulting to no payload items and an empty body). A card
+ * without an `id` is minted one where it is placed; one whose `id` is not a
+ * card id, or is held by another card of the document, is refused.
  */
 export interface CardInput {
     kind: string;
+    id?: string;
     quill?: string;
     ext?: Record<string, unknown>;
     seed?: Record<string, unknown>;
@@ -490,6 +495,8 @@ export interface AnnotatedMarkdown {
 export interface DocumentAnchor {
     id: string;
     path: string;
+    /** The `$id` of the card `path` names; absent on the main card. */
+    cardId?: string;
     line: string;
 }
 
@@ -499,11 +506,15 @@ export interface DocumentAnchor {
  * `path` is the body or content value's `DocPath` string. `quote` is the
  * anchored text as stored, an inline island its `U+FFFC` slot and a line break
  * its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
- * of stored text on each side, cut at the value's edges.
+ * of stored text on each side, cut at the value's edges. `cardId` is the `$id`
+ * of the card `path` names, absent on the main card: `reattach` finds the card
+ * by it wherever the card now sits, and orphans the selector where no card of
+ * the path's kind holds it.
  */
 export interface AnchorContext {
     id: string;
     path: string;
+    cardId?: string;
     quote: string;
     prefix: string;
     suffix: string;
@@ -1162,14 +1173,13 @@ impl Document {
     }
 
     /// The newest storage version this build writes via
-    /// [`toStored`](Document::to_stored): a document spelling a font mark, a
-    /// `table` element, a merged table cell or a table head 0.130 cannot draw
-    /// carries it, every other the tag before it, which a 0.130 build reads.
-    /// The tag advances only when the wire format changes, not on every
-    /// release.
+    /// [`toStored`](Document::to_stored): a document holding a composable
+    /// card, each carrying its `$id`, carries it. A document of the main card
+    /// alone carries the oldest tag that holds its content. The tag advances
+    /// only when the wire format changes, not on every release.
     #[wasm_bindgen(js_name = currentStorageVersion)]
     pub fn current_storage_version() -> String {
-        quillmark_core::document::STORAGE_V0_131_0.to_string()
+        quillmark_core::document::STORAGE_V0_134_0.to_string()
     }
 
     /// The Quillmark Markdown rules, re-exposed from core. Constant across
@@ -1296,7 +1306,8 @@ impl Document {
             .into_iter()
             .map(|s| {
                 let path = parse_path(&s.path)?;
-                Ok(quillmark_core::document::AnchorSelector::new(s.id, path, s.quote, s.prefix, s.suffix))
+                Ok(quillmark_core::document::AnchorSelector::new(s.id, path, s.quote, s.prefix, s.suffix)
+                    .with_card_id(s.card_id))
             })
             .collect::<Result<Vec<_>, JsValue>>()?;
         let mut by_path = std::collections::HashMap::new();
@@ -2560,6 +2571,8 @@ struct AnchorLineJs {
 struct AnchorContextJs {
     id: String,
     path: String,
+    #[serde(rename = "cardId", default, skip_serializing_if = "Option::is_none")]
+    card_id: Option<String>,
     quote: String,
     prefix: String,
     suffix: String,
@@ -2570,6 +2583,7 @@ impl From<quillmark_core::document::AnchorSelector> for AnchorContextJs {
         AnchorContextJs {
             id: s.id,
             path: s.path.to_string(),
+            card_id: s.card_id,
             quote: s.quote,
             prefix: s.prefix,
             suffix: s.suffix,
@@ -2601,12 +2615,14 @@ struct AnnotatedMarkdownJs {
 struct DocumentAnchorJs {
     id: String,
     path: String,
+    #[serde(rename = "cardId", skip_serializing_if = "Option::is_none")]
+    card_id: Option<String>,
     line: String,
 }
 
 impl From<quillmark_core::document::DocumentAnchor> for DocumentAnchorJs {
     fn from(a: quillmark_core::document::DocumentAnchor) -> Self {
-        DocumentAnchorJs { id: a.id, path: a.path.to_string(), line: a.line }
+        DocumentAnchorJs { id: a.id, path: a.path.to_string(), card_id: a.card_id, line: a.line }
     }
 }
 
@@ -3178,7 +3194,7 @@ fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue
     // A flat `{ kind, fields }` object fails here rather than yielding an empty
     // card. A payload item is an internally tagged enum, read through
     // `deserialize_any` over every key, so its own deny holds without a walk.
-    const KEYS: &[&str] = &["kind", "quill", "ext", "seed", "payloadItems", "body"];
+    const KEYS: &[&str] = &["kind", "id", "quill", "ext", "seed", "payloadItems", "body"];
     reject_unknown_keys(value, KEYS, "card", |k| {
         format!(
             "card has unknown field `{k}`; expected a CardInput \

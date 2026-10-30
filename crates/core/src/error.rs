@@ -783,6 +783,8 @@ mod args_canon {
                 key: "$quill".into(),
             },
             EditError::IndexOutOfRange { index: 3, len: 1 },
+            EditError::InvalidCardId("-x".into()),
+            EditError::DuplicateCardId("intro".into()),
             EditError::TooManyCards { max: 1 },
             EditError::ValueTooDeep { max: 8 },
             EditError::Import(quillmark_content::import::ImportError::NestingTooDeep {
@@ -970,6 +972,16 @@ card_kinds:
             .find(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
             .expect("no `parse::dropped_construct` sample from the drop probe");
         add(crate::document::DROPPED_CONSTRUCT, sample.args.clone());
+        let reminted = crate::document::Document::parse(
+            "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~\n$kind: note\n$id: -x\n~~~\n",
+        )
+        .expect("remint probe parses");
+        let sample = reminted
+            .warnings
+            .iter()
+            .find(|d| d.code.as_deref() == Some(crate::document::card_id::CARD_ID_REMINTED))
+            .expect("no `parse::card_id_reminted` sample from the remint probe");
+        add(crate::document::card_id::CARD_ID_REMINTED, sample.args.clone());
         let mut wide = quillmark_content::import::from_markdown("a **b** c").unwrap().content.into_content();
         wide.marks[0].end += 1;
         let lost = quillmark_content::export::to_markdown_checked(&wide.into_normalized());

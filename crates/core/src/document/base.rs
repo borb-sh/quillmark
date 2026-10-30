@@ -369,7 +369,9 @@ pub(crate) fn conformed(config: &QuillConfig, doc: &Document) -> Result<Document
 /// side is parsed, conformed and emitted, so a richtext field keeps no tag an
 /// annotated read spelled into it and the three sides are spelled alike. A
 /// merge that does not parse as a document, or names another quill, is a
-/// [`BaseError::Conflict`], since the writer's own markdown parsed.
+/// [`BaseError::Conflict`], since the writer's own markdown parsed. No side
+/// mints a card id: each card holds the `$id` it spells, for the revise to
+/// settle against the stored ones.
 pub(crate) fn parse_against(
     config: &QuillConfig,
     doc: &Document,
@@ -380,14 +382,14 @@ pub(crate) fn parse_against(
     let read = match base {
         Base::Hash(read) => {
             check(hash()?, read)?;
-            return Ok(Document::parse(markdown)?);
+            return Ok(Document::parse_unsettled(markdown)?);
         }
         Base::Read(read) => read,
     };
-    let parsed = Document::parse(markdown)?;
+    let parsed = Document::parse_unsettled(markdown)?;
     config.check_quill_reference(&parsed.document)?;
     let spell = |md: &str| -> Result<String, BoundParseError> {
-        Ok(conformed(config, &Document::parse(md)?.document)?.to_markdown())
+        Ok(conformed(config, &Document::parse_unsettled(md)?.document)?.to_markdown())
     };
     let now = conformed(config, doc)?.to_markdown();
     let read = spell(read)?;
@@ -400,7 +402,7 @@ pub(crate) fn parse_against(
         field: None,
     };
     let merged = merge_lines(&read, &now, &new).ok_or_else(conflict)?;
-    let merged = Document::parse(&merged).map_err(|_| conflict())?.document;
+    let merged = Document::parse_unsettled(&merged).map_err(|_| conflict())?.document;
     config.check_quill_reference(&merged).map_err(|_| conflict())?;
     let pairs = align_cards(&merged.cards, &parsed.document.cards);
     let warnings = parsed
@@ -423,15 +425,9 @@ pub(crate) fn parse_against(
 /// `path` with its card index moved through `pairs`, the writer's cards to the
 /// merge's; `None` where it names no paired card.
 fn recard(path: &DocPath, pairs: &[Option<(usize, super::align::Pairing)>]) -> Option<DocPath> {
-    let (head, rest) = path.segs().split_first()?;
-    let DocSeg::Card { kind, index } = head else {
+    let Some(DocSeg::Card { index, .. }) = path.segs().first() else {
         return None;
     };
     let (to, _) = (*pairs.get(*index)?)?;
-    Some(rest.iter().fold(DocPath::card(kind.as_deref(), to), |p, seg| match seg {
-        DocSeg::Field { name } => p.field(name),
-        DocSeg::Index { index } => p.index(*index),
-        DocSeg::Body => p.body(),
-        DocSeg::Main | DocSeg::Card { .. } => p,
-    }))
+    path.with_card_index(to)
 }

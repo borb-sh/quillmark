@@ -7,6 +7,29 @@ Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Python's
 where they returned a list of `Diagnostic`, so a loop over the result runs
 over its keys: read `receipt["warnings"]`.
 
+### Card identity
+
+- feat(core)!: **every composable card carries a `$id`.** It emits after
+  `$kind`, is minted where none is written (`c` and five base32 letters of a
+  fixed SHA-256 sequence, so equal markdown parses to equal ids), and a parse
+  re-mints a malformed or repeated one with `parse::card_id_reminted`.
+  `insert_card` refuses a bad or held id (`edit::invalid_card_id`,
+  `edit::duplicate_card_id`). Storage moves to `quillmark/document@0.134.0`
+  for a row holding a composable card; a row of the main card alone keeps
+  its older tag, and an older row mints its ids on load. `$id` never reaches
+  the plate JSON.
+- feat(core)!: **a whole-document revise pairs cards by `$id` first.** An
+  incoming card spelling a stored card's id revises it, the most similar of
+  several spelling one keeps it, and the rest align by text as before. A
+  revised card keeps its stored id; an inserted one keeps a fresh id or mints
+  past every stored one. A list field's items align by text, so an item
+  inserted ahead of an anchored one leaves the anchor on its own item.
+- feat(core)!: **a comment selector names its card.** `AnchorSelector` and
+  `DocumentAnchor` gain `card_id`, and `reattach` resolves a selector's card by
+  it wherever the card moved. WASM spells it `cardId` on `AnchorContext`,
+  `DocumentAnchor` and the `Card` / `CardInput` `id`; Python `card_id` and the
+  card dict's `id`.
+
 ### Guarded revise
 
 - feat(core)!: **a revise states what its writer read.** `Base::Hash` is the

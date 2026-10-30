@@ -490,13 +490,12 @@ impl PyDocument {
         quillmark_core::document::peek_storage_version(json)
     }
 
-    /// The newest storage version this build writes: a document spelling a
-    /// font mark, a `table` element, a merged table cell or a table head 0.130
-    /// cannot draw carries it, every other the tag before it, which a 0.130
-    /// build reads.
+    /// The newest storage version this build writes: a document holding a
+    /// composable card, each carrying its `$id`, carries it. A document of the
+    /// main card alone carries the oldest tag that holds its content.
     #[staticmethod]
     fn current_storage_version() -> &'static str {
-        quillmark_core::document::STORAGE_V0_131_0
+        quillmark_core::document::STORAGE_V0_134_0
     }
 
     /// The Quillmark Markdown rules.
@@ -775,9 +774,10 @@ impl PyDocument {
     }
 
     /// Every prose anchor of every body and content value with its context, as
-    /// dicts `{id, path, quote, prefix, suffix}`: the selector a host stores
-    /// beside a comment thread and hands back to `reattach`. `path` is the
-    /// value's `DocPath` string; `quote` the anchored text as stored, an inline
+    /// dicts `{id, path, card_id, quote, prefix, suffix}`: the selector a host
+    /// stores beside a comment thread and hands back to `reattach`. `path` is
+    /// the value's `DocPath` string; `card_id` the `$id` of the card it names,
+    /// `None` on the main card; `quote` the anchored text as stored, an inline
     /// island its `U+FFFC` slot, empty for a point; `prefix` and `suffix` up to
     /// 32 characters either side.
     /// Each card's fields come before its body. A table cell's anchors are
@@ -804,8 +804,10 @@ impl PyDocument {
     /// selector given either placed with its context as read after the write or
     /// orphaned as given.
     ///
-    /// A path naming no body or content value orphans its selector, and nothing
-    /// remaps a card index. An id live anywhere in the document, a table cell's
+    /// A selector with a `card_id` finds its card by that id wherever it now
+    /// sits, and is orphaned where no card of its path's kind holds it; one
+    /// without is path-strict. A path naming no body or content value orphans
+    /// its selector. An id live anywhere in the document, a table cell's
     /// included, is answered as reattached and not written. Each id is answered
     /// once, by its first selector. `deltas` maps a path to the `delta` of the
     /// revise that dropped its anchors, and a match there must overlap text
@@ -834,13 +836,19 @@ impl PyDocument {
                         invalid(format!("an anchor context needs a string `{name}`"))
                     })
                 };
+                let card_id = match s.get("card_id") {
+                    None | Some(serde_json::Value::Null) => None,
+                    Some(serde_json::Value::String(id)) => Some(id.clone()),
+                    Some(_) => return Err(invalid("an anchor context's `card_id` is a string".into())),
+                };
                 Ok(quillmark_core::document::AnchorSelector::new(
                     key("id")?,
                     parse_path(&key("path")?)?,
                     key("quote")?,
                     key("prefix")?,
                     key("suffix")?,
-                ))
+                )
+                .with_card_id(card_id))
             })
             .collect::<PyResult<Vec<_>>>()?;
         let mut by_path = std::collections::HashMap::new();
@@ -867,6 +875,7 @@ fn selector_json(s: quillmark_core::document::AnchorSelector) -> serde_json::Val
     serde_json::json!({
         "id": s.id,
         "path": s.path.to_string(),
+        "card_id": s.card_id,
         "quote": s.quote,
         "prefix": s.prefix,
         "suffix": s.suffix,
@@ -1184,14 +1193,15 @@ impl PyWriter {
         .and_then(|revised| revised_to_py(py, revised))
     }
 
-    /// Replace the bound document with `markdown`, then conform it: composable
-    /// cards align to the stored ones by `$kind` and text, and each aligned
+    /// Replace the bound document with `markdown`, then conform it: a
+    /// composable card spelling a stored card's `$id` revises it, the rest
+    /// align to the stored ones by `$kind` and text, and each aligned
     /// body and richtext field revises as `revise_body` / `revise_field` do.
     /// Everything else lands as written; an omitted `$ext` keeps the stored one
-    /// on the main card, on a card that aligned by text, and on one that aligned
+    /// on the main card, on a card that aligned by id or text, and on one that aligned
     /// by position only when the `$kind` sequence is unchanged. Returns the
     /// receipt as a dict: `dropped_anchors`, each anchor the write dropped as
-    /// `{id, path, line}` at its address in the stored document; `warnings`,
+    /// `{id, path, card_id, line}` at its address in the stored document; `warnings`,
     /// `Diagnostic` objects, the `conform::*` ones last; and
     /// `from`, for each composable card of the revised document the index of
     /// the stored card it revises, or `None` for an inserted card. Clears the
@@ -1223,7 +1233,14 @@ impl PyWriter {
         let dropped: Vec<_> = revised
             .dropped_anchors
             .into_iter()
-            .map(|a| serde_json::json!({ "id": a.id, "path": a.path.to_string(), "line": a.line }))
+            .map(|a| {
+                serde_json::json!({
+                    "id": a.id,
+                    "path": a.path.to_string(),
+                    "card_id": a.card_id,
+                    "line": a.line,
+                })
+            })
             .collect();
         let receipt = PyDict::new(py);
         receipt.set_item("dropped_anchors", json_to_py(py, &serde_json::Value::Array(dropped))?)?;

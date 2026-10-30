@@ -834,6 +834,9 @@ fn rebuild_payload_with_meta(source: &Card, fields: IndexMap<String, QuillValue>
     if let Some(k) = source.kind() {
         payload.set_kind(k.to_string());
     }
+    if let Some(id) = source.id() {
+        payload.set_id(id);
+    }
     payload
 }
 

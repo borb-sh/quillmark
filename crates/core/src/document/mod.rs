@@ -480,6 +480,7 @@ pub(crate) mod align;
 pub mod anchors;
 pub mod assemble;
 pub mod base;
+pub mod card_id;
 pub mod dto;
 pub mod edit;
 pub mod emit;
@@ -493,7 +494,7 @@ pub(crate) mod yaml_hints;
 
 pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_124_0, STORAGE_V0_129_0,
-    STORAGE_V0_131_0,
+    STORAGE_V0_131_0, STORAGE_V0_134_0,
 };
 pub use anchors::AnchorSelector;
 pub use base::{content_hash, revise_import_against, value_hash, Base, BaseError, HASH_TAG};
@@ -521,7 +522,8 @@ pub const MARKDOWN_RULES: &str = "Quillmark Markdown rules:
 \u{2022} Block opener and closer are EXACTLY `~~~` (three tildes). The opener's info string is ignored \u{2014} `~~~card-yaml` is accepted and re-emits as a bare `~~~`.
 \u{2022} A blank line must precede every `~~~` block opener (unless it is line 1), and the opener must be at column zero (no leading spaces). An indented `~~~` is an ordinary code block, not a card.
 \u{2022} The first block is the root and MUST contain `$quill: <name>` or `$quill: <name>@<selector>`. Its `$kind` is `main` by position \u{2014} an explicit `$kind: main` is accepted but not required. Every later block is a composable card and MUST declare `$kind: <card_kind>`.
-\u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$ext`, `$seed`. User fields use lowercase snake_case.
+\u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$id`, `$ext`, `$seed`. User fields use lowercase snake_case.
+\u{2022} A composable card's `$id` line names it across edits: keep it when you edit or move the card, leave it out of a new card (one is minted), and never copy it onto a second card.
 \u{2022} Prose body is the text after a block's closing `~~~`, up to the next opener or EOF. To include a literal fenced code block in prose, use a backtick fence (```); any column-zero `~~~` block is parsed as card metadata.
 \u{2022} A blank or null value (`field:`, `field: null`, `field: ~`) is the same as omitting the field: it falls back to the field's default, else its blank. `field: \"\"` is kept as written, an explicit empty value.
 \u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.
@@ -564,6 +566,13 @@ impl Card {
 
     pub fn kind(&self) -> Option<&str> {
         self.payload.kind()
+    }
+
+    /// A composable card's `$id`: a [card id](card_id::is_card_id) no other
+    /// card of its document holds, minted where none was given. `None` on the
+    /// main card, and on a card not yet placed that spells none.
+    pub fn id(&self) -> Option<&str> {
+        self.payload.id()
     }
 
     /// Opaque `$ext` map for out-of-band extension data (UI editor state,
@@ -750,6 +759,17 @@ impl Document {
             cards.iter().all(|c| c.seed().is_none()),
             "composable cards must not carry `$seed`"
         );
+        Self::with_card_ids(main, cards, &std::collections::HashSet::new())
+    }
+
+    /// [`from_main_and_cards`](Self::from_main_and_cards), each card that
+    /// carries no card id of its own minting past `reserved` too.
+    pub(crate) fn with_card_ids(
+        main: Card,
+        mut cards: Vec<Card>,
+        reserved: &std::collections::HashSet<String>,
+    ) -> Self {
+        card_id::settle(&mut cards, reserved);
         Self { main, cards }
     }
 
@@ -760,6 +780,15 @@ impl Document {
     /// [`ParseError`] variants.
     #[doc(alias = "from_markdown")]
     pub fn parse(markdown: &str) -> Result<Parsed, ParseError> {
+        let mut parsed = Self::parse_unsettled(markdown)?;
+        let reserved = std::collections::HashSet::new();
+        card_id::settle_reporting(&mut parsed.document.cards, &reserved, &mut parsed.warnings);
+        Ok(parsed)
+    }
+
+    /// [`parse`](Self::parse) with each card holding the `$id` it spells, or
+    /// none, for a revise to settle against the ids it started from.
+    pub(crate) fn parse_unsettled(markdown: &str) -> Result<Parsed, ParseError> {
         assemble::decompose_with_warnings(markdown)
             .map(|(document, warnings)| Parsed { document, warnings })
     }

@@ -224,6 +224,7 @@ def test_a_dropped_anchor_is_named_and_reattached_where_its_text_is_found_once()
     context = {
         "id": "m1",
         "path": "main.body",
+        "card_id": None,
         "quote": "met on Monday",
         "prefix": "The committee ",
         "suffix": " to plan.",

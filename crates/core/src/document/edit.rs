@@ -101,6 +101,15 @@ pub enum EditError {
     #[error("index {index} is out of range (len = {len})")]
     IndexOutOfRange { index: usize, len: usize },
 
+    /// A card placed with a `$id` outside the card-id grammar
+    /// ([`is_card_id`](super::card_id::is_card_id)).
+    #[error("invalid card id '{0}': must be 1 to 64 of [A-Za-z0-9_-], opening with a letter or digit")]
+    InvalidCardId(String),
+
+    /// A card placed with a `$id` another card of the document holds.
+    #[error("card id '{0}' is already held by another card")]
+    DuplicateCardId(String),
+
     /// A card placed in a document already holding
     /// [`MAX_CARD_COUNT`](crate::error::MAX_CARD_COUNT) composable cards, past
     /// which its markdown fails `parse::too_many_cards`.
@@ -220,6 +229,8 @@ impl EditError {
             EditError::ReservedKind => "edit::reserved_kind",
             EditError::RootOnlyEntry { .. } => "edit::root_only_entry",
             EditError::IndexOutOfRange { .. } => "edit::index_out_of_range",
+            EditError::InvalidCardId(_) => "edit::invalid_card_id",
+            EditError::DuplicateCardId(_) => "edit::duplicate_card_id",
             EditError::TooManyCards { .. } => "edit::too_many_cards",
             EditError::ValueTooDeep { .. } => "edit::value_too_deep",
             EditError::Import(_) => "edit::import",
@@ -251,6 +262,7 @@ impl EditError {
                 "index" => index,
                 "len" => len,
             },
+            EditError::InvalidCardId(id) | EditError::DuplicateCardId(id) => diag_args! { "id" => id },
             EditError::TooManyCards { max } => diag_args! { "max" => max },
             EditError::ValueTooDeep { max } => diag_args! { "max" => max },
             EditError::Import(_) => diag_args! {},
@@ -479,6 +491,7 @@ pub fn validate_payload(payload: &Payload) -> Result<(), PayloadViolation> {
     let mut fields: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut seen_quill = false;
     let mut seen_kind = false;
+    let mut seen_id = false;
     let mut metas: std::collections::HashSet<MetaKey> = std::collections::HashSet::new();
     for item in payload.items() {
         let dup = |key| Err(PayloadViolation::DuplicateMeta { key });
@@ -496,6 +509,11 @@ pub fn validate_payload(payload: &Payload) -> Result<(), PayloadViolation> {
             PayloadItem::Kind { .. } => {
                 if std::mem::replace(&mut seen_kind, true) {
                     return dup("$kind");
+                }
+            }
+            PayloadItem::Id { .. } => {
+                if std::mem::replace(&mut seen_id, true) {
+                    return dup("$id");
                 }
             }
             PayloadItem::Meta { key, .. } => {
@@ -878,25 +896,37 @@ impl Document {
     /// composable kind ([`EditError::InvalidKindName`] /
     /// [`EditError::ReservedKind`] otherwise), and the document must hold
     /// fewer than [`MAX_CARD_COUNT`](crate::error::MAX_CARD_COUNT) cards
-    /// ([`EditError::TooManyCards`]).
+    /// ([`EditError::TooManyCards`]). A card spelling no `$id` mints one; one
+    /// spelling an id keeps it, refused where it is no card id
+    /// ([`EditError::InvalidCardId`]) or another card holds it
+    /// ([`EditError::DuplicateCardId`]).
     pub fn push_card(&mut self, card: Card) -> Result<(), EditError> {
-        Self::check_composable_placement(&card)?;
-        self.check_card_room()?;
-        self.cards_vec_mut().push(card);
-        Ok(())
+        self.insert_card(self.cards().len(), card)
     }
 
     /// Insert a composable card at `index` (`index > len` →
     /// [`EditError::IndexOutOfRange`]; invalid `$kind` →
     /// [`EditError::InvalidKindName`] / [`EditError::ReservedKind`]; a full
-    /// document → [`EditError::TooManyCards`]).
-    pub fn insert_card(&mut self, index: usize, card: Card) -> Result<(), EditError> {
+    /// document → [`EditError::TooManyCards`]), its `$id` as
+    /// [`push_card`](Self::push_card) takes it.
+    pub fn insert_card(&mut self, index: usize, mut card: Card) -> Result<(), EditError> {
         let len = self.cards().len();
         if index > len {
             return Err(EditError::IndexOutOfRange { index, len });
         }
         Self::check_composable_placement(&card)?;
         self.check_card_room()?;
+        let held: std::collections::HashSet<String> =
+            self.cards().iter().filter_map(Card::id).map(str::to_string).collect();
+        match card.id() {
+            Some(id) if !super::card_id::is_card_id(id) => return Err(EditError::InvalidCardId(id.to_string())),
+            Some(id) if held.contains(id) => return Err(EditError::DuplicateCardId(id.to_string())),
+            Some(_) => {}
+            None => {
+                let id = super::card_id::Mint::new(held).mint();
+                card.payload_mut().set_id(id);
+            }
+        }
         self.cards_vec_mut().insert(index, card);
         Ok(())
     }

@@ -25,12 +25,15 @@ def test_projection(taro_md):
 
 def test_json_dto_round_trip(taro_md):
     """to_stored emits a DTO that from_stored round-trips, tagged with the
-    newest version only when it holds a font mark."""
+    newest version when it holds a composable card, and otherwise with the
+    oldest that holds its content."""
     doc = Document.from_markdown(taro_md)
     dto = doc.to_stored()
-    assert Document.storage_version_of(dto) == "quillmark/document@0.129.0"
-    fonted = Document.from_markdown(taro_md + '\n<qm-span family="Carlito">Set</qm-span>\n')
-    assert Document.storage_version_of(fonted.to_stored()) == Document.current_storage_version()
+    assert Document.storage_version_of(dto) == Document.current_storage_version()
+    main_only = Document.from_markdown("~~~\n$quill: taro@0.1.0\n~~~\n\nSet\n")
+    assert Document.storage_version_of(main_only.to_stored()) == "quillmark/document@0.129.0"
+    fonted = Document.from_markdown('~~~\n$quill: taro@0.1.0\n~~~\n\n<qm-span family="Carlito">Set</qm-span>\n')
+    assert Document.storage_version_of(fonted.to_stored()) == "quillmark/document@0.131.0"
 
     restored = Document.from_stored(dto)
     assert restored.quill_ref == doc.quill_ref
