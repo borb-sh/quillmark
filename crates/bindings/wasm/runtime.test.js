@@ -180,6 +180,18 @@ card_kinds:
     expect(quill.reader(ed.document).get('subject')).toBe('Q3 **results**')
   })
 
+  it('reviseBody / reviseField name the anchors they drop', () => {
+    const doc = Document.fromMarkdown(
+      '~~~card-yaml\n$quill: editor_test\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
+    )
+    const ed = buildQuill().writer(doc)
+    ed.card(0).reviseField('prose', 'Keep this.\n\nFlag this line.')
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'b' } }] })
+    doc.applyChange({ card: 0, field: 'prose' }, { markOps: [{ op: 'add', start: 11, end: 15, type: 'anchor', attrs: { id: 'p' } }] })
+    expect(ed.reviseBody('Other.').droppedAnchors).toEqual([{ id: 'b', line: 'Body.' }])
+    expect(ed.card(0).reviseField('prose', 'Keep this.').droppedAnchors).toEqual([{ id: 'p', line: 'Flag this line.' }])
+  })
+
   it('addCard commits fields and body; removeCard returns the card', () => {
     const ed = buildQuill().writer(blankDoc())
     expect(ed.addCard('note', { prose: 'Field **body**.' }, 'Card body text.')).toEqual([])

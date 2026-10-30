@@ -149,6 +149,8 @@ export type {
 	DocumentRevised,
 	AnnotatedMarkdown,
 	DocumentAnchor,
+	AnchorContext,
+	Reattached,
 	Imported,
 	Assoc,
 	IslandOp,
@@ -707,9 +709,10 @@ export declare class DocumentWriter {
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * Revise the main body from markdown; anchors rebase. Returns the
-	 * `Revised` receipt, its warnings at `main.body`: a body carries no field
-	 * schema to type against, so this is the content lane's `revise` reached
-	 * through the writer.
+	 * `Revised` receipt, its warnings at `main.body` and `droppedAnchors`
+	 * naming each anchor the diff dropped: a body carries no field schema to
+	 * type against, so this is the content lane's `revise` reached through the
+	 * writer.
 	 */
 	reviseBody(markdown: string): Revised;
 	/**

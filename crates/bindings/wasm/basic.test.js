@@ -433,6 +433,63 @@ describe('Document editor surface: setQuillRef / overwrite / revise / reviseCont
   })
 })
 
+describe('Document comment anchors: anchorContexts / reattach / droppedAnchors', () => {
+  const MD = '~~~\n$quill: q\n~~~\n\nThe committee met on Monday to plan.\n\n~~~\n$kind: note\n~~~\n\nA note.\n'
+  const anchoredDoc = () => {
+    const doc = Document.fromMarkdown(MD)
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 14, end: 27, type: 'anchor', attrs: { id: 'm1' } }] })
+    return doc
+  }
+
+  it('anchorContexts reads each anchor as a selector at its path', () => {
+    const doc = anchoredDoc()
+    const context = { id: 'm1', path: 'main.body', quote: 'met on Monday', prefix: 'The committee ', suffix: ' to plan.' }
+    expect(doc.anchorContexts()).toEqual([context])
+    expect(doc.anchorContext('m1')).toEqual(context)
+    expect(doc.anchorContext('nope')).toBeUndefined()
+  })
+
+  it('revise and reviseContent name the anchors they drop', () => {
+    const doc = anchoredDoc()
+    expect(doc.revise({}, 'The committee met on Monday to plan, again.').droppedAnchors).toEqual([])
+    expect(doc.revise({}, 'Nothing like it.\n\nAt all.').droppedAnchors).toEqual([
+      { id: 'm1', line: 'The committee met on Monday to plan, again.' },
+    ])
+    const other = anchoredDoc()
+    expect(other.reviseContent({}, importMarkdown('Nothing like it.\n\nAt all.').content).droppedAnchors).toEqual([
+      { id: 'm1', line: 'The committee met on Monday to plan.' },
+    ])
+  })
+
+  it('reattach places a dropped anchor where its quote and context are found once', () => {
+    const doc = anchoredDoc()
+    const before = doc.anchorContexts()
+    const { delta } = doc.revise({}, 'Minutes.\n\nThe committee met on Monday to plan.')
+    expect(doc.anchorContexts().map((c) => c.id)).toEqual(['m1'])
+
+    const reopened = Document.fromMarkdown(doc.toMarkdown())
+    const { reattached, orphaned } = reopened.reattach(before)
+    expect(orphaned).toEqual([])
+    expect(reattached).toEqual([{ ...before[0], prefix: 'Minutes.\nThe committee ' }])
+    expect(reopened.equals(doc)).toBe(true)
+
+    const strict = Document.fromMarkdown(doc.toMarkdown())
+    expect(strict.reattach(before, { 'main.body': delta }).orphaned).toEqual(before)
+    expect(strict.reattach([{ ...before[0], path: 'cards.note[0].body' }]).orphaned).toHaveLength(1)
+    expect(strict.reattach([{ ...before[0], quote: 'met' }]).orphaned).toHaveLength(1)
+  })
+
+  it('reattach answers a live id without writing and refuses a malformed selector', () => {
+    const doc = anchoredDoc()
+    const held = doc.clone()
+    const elsewhere = { id: 'm1', path: 'cards.note[0].body', quote: 'note', prefix: 'A ', suffix: '.' }
+    expect(doc.reattach([elsewhere])).toEqual({ reattached: doc.anchorContexts(), orphaned: [] })
+    expect(doc.equals(held)).toBe(true)
+    expect(() => doc.reattach([{ ...elsewhere, path: 'main.[' }])).toThrow(/reattach/)
+    expect(() => doc.reattach([{ id: 'x' }])).toThrow(/reattach/)
+  })
+})
+
 describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () => {
   it('importMarkdown ∘ exportMarkdown round-trips a body', () => {
     const { content: rt, warnings } = importMarkdown('A **bold** line.')
