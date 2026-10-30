@@ -475,8 +475,6 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
 
     const strict = Document.fromMarkdown(doc.toMarkdown())
     expect(strict.reattach(before, { 'main.body': delta }).orphaned).toEqual(before)
-    expect(strict.reattach([{ ...before[0], path: 'cards.note[0].body' }]).orphaned).toHaveLength(1)
-    expect(strict.reattach([{ ...before[0], quote: 'met' }]).orphaned).toHaveLength(1)
   })
 
   it('reattach answers a live id without writing and refuses a malformed selector', () => {

@@ -780,10 +780,11 @@ impl PyDocument {
     ///
     /// A path naming no body or content value orphans its selector, and nothing
     /// remaps a card index. An id live anywhere in the document, a table cell's
-    /// included, is answered as reattached and not written. `deltas` maps a path
-    /// to the `delta` of the revise that dropped its anchors, and a match there
-    /// must overlap text that revise inserted. Raises `ValueError` on a selector
-    /// or delta that is not one, or a path that does not parse.
+    /// included, is answered as reattached and not written. Each id is answered
+    /// once, by its first selector. `deltas` maps a path to the `delta` of the
+    /// revise that dropped its anchors, and a match there must overlap text
+    /// that revise inserted. Raises `ValueError` on a selector or delta that is
+    /// not one, or a path that does not parse.
     #[pyo3(signature = (selectors, deltas=None))]
     fn reattach<'py>(
         &mut self,
