@@ -13,6 +13,7 @@ import {
   exportMarkdown,
   normalize,
   rebase,
+  hashContent,
   mapPos,
   mapMarks,
   isInline,
@@ -572,6 +573,12 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
     const past = importMarkdown(table('9007199254740992 1'))
     expect(past.content.islands[0].props.widths).toBeUndefined()
     expect(past.warnings.map((w) => w.args.construct)).toEqual(['table[widths]'])
+  })
+
+  it('rebase checks a baseHash against hashContent of its base', () => {
+    const base = importMarkdown('hello world').content
+    expect(rebase(base, 'hello brave world', { baseHash: hashContent(base) }).content.text).toBe('hello brave world')
+    expectEditCode(() => rebase(base, 'hi', { baseHash: hashContent(importMarkdown('other').content) }), 'edit::stale_base')
   })
 
   it('rebase returns the drops of the markdown it imports, with no path', () => {

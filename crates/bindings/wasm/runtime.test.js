@@ -192,6 +192,24 @@ card_kinds:
     expect(ed.card(0).reviseField('prose', 'Keep this.').droppedAnchors).toEqual([{ id: 'p', line: 'Flag this line.' }])
   })
 
+  it('a stale baseHash refuses a revise, and a baseMarkdown lands beside the change since', () => {
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
+    const ed = buildQuill().writer(doc)
+    const read = doc.toAnnotatedMarkdown().markdown
+    const hash = doc.hashAt({})
+    ed.reviseBody('Alpha, edited.\n\nBeta.\n\nGamma.')
+    expectEditCode(() => ed.reviseBody('Other.', { baseHash: hash }), 'edit::stale_base')
+    expect(() => ed.reviseBody('Other.', { baseHash: hash })).toThrow(
+      expect.objectContaining({ diagnostics: [expect.objectContaining({ args: { current: doc.hashAt({}) } })] }),
+    )
+    ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseMarkdown: read })
+    expect(doc.bodyMarkdown()).toBe('Alpha, edited.\n\nBeta.\n\nGamma, rewritten.')
+    expectEditCode(
+      () => ed.reviseBody('Alpha, mine.\n\nBeta.\n\nGamma.', { baseMarkdown: 'Alpha.\n\nBeta.\n\nGamma.' }),
+      'edit::rebase_conflict',
+    )
+  })
+
   it('addCard commits fields and body; removeCard returns the card', () => {
     const ed = buildQuill().writer(blankDoc())
     expect(ed.addCard('note', { prose: 'Field **body**.' }, 'Card body text.')).toEqual([])
