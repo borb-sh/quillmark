@@ -473,7 +473,7 @@ mod tests {
         let ctx = AnchorContext::new("c1", "words to anchor", "some ", " here");
         let twin = AnchorContext::new("c1", "nothing here at all", "", "");
         let out = raw.reattach(std::slice::from_ref(&twin), None, &none());
-        assert_eq!(out.orphaned, [twin.clone()]);
+        assert_eq!(out.orphaned, std::slice::from_ref(&twin));
         let out = raw.reattach(&[ctx.clone(), twin], None, &none());
         assert_eq!((out.reattached, out.orphaned), (vec![ctx], vec![]));
         assert_eq!(span(&raw, "c1"), Some((5, 20)));
