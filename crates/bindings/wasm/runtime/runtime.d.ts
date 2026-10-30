@@ -729,7 +729,8 @@ export declare class DocumentWriter {
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
 	 * card's body and stored content fields revise, their anchors rebasing as
 	 * {@link reviseBody}'s do, and every declared content field lands at rest.
-	 * Returns the `DocumentRevised` receipt, its `warnings` ending with the
+	 * Returns the `DocumentRevised` receipt, its `from` naming the stored card
+	 * each composable card revises and its `warnings` ending with the
 	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`
 	 * declares a `$quill` this quill does not answer to, or does not parse,
 	 * leaving the document unchanged.
