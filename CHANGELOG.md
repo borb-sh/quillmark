@@ -26,9 +26,10 @@ over its keys: read `receipt["warnings"]`.
   `Document::reattach(selectors, deltas)` places dropped anchors at their
   paths, path-strict, an id live anywhere in the document, a cell's included,
   answered without a write. `Revised` gains `dropped_anchors`, each
-  `AnchorRead { id, line }`, at every rung that revises one body or field. The
-  facade re-exports `AnchorSelector`, `Reattached`, `AnchorRead` and
-  `DocPath`. (#2349)
+  `AnchorRead { id, line }`, at every rung that revises one body or field, and
+  `revise_import` takes the `&Normalized` it names them from. The facade
+  re-exports `AnchorSelector`, `Reattached`, `AnchorRead` and `DocPath`.
+  (#2349)
 - feat(wasm): **`anchorContexts`, `anchorContext`, `reattach` and
   `droppedAnchors`.** The selector crosses flat, its `path` a `DocPath`
   string; `reattach(selectors, deltas?)` takes a `Record<path, Delta>` and
