@@ -17,3 +17,4 @@ cc 4ad60b5a038ffad5e71d6e6d7130158889929223283b33104a4dfeb7012030d3 # shrinks to
 cc e8e7f7b4f04d8b3a756ab61531f0168e49bd8a3fc3d48c1fb1400691706e42a7 # shrinks to md = "1. [a0a0](<ex.com/aa>) **0** a>_你0 `a0aa0`\n2. <u>aa00a</u>\n\n```\n0a00\n```\n\na\\\naa0a 0aa0 a\\\n00aa\n\n**00aaa** ![a](<ex.com/a&>) ![a](<ex.com/aa>)", ins = "", pos_seed = 1598, del_seed = 241, is_delete = true
 cc 7dfc4f569c2e8c9d9f4f8bdb3237d44d9b5815543b9a038b1774d77e55f2d0fa # shrinks to chars = ['a', 'a', 'a', 'a', ' ', '\n', ' ', 'a'], specs = [(18, 43, 0)]
 cc 7fb4532e35adfaa9bd669f71cac41f358a076029f302b81b2f8a3ce0d961c0da # shrinks to chars = ['a', ' ', '\n', 'a', 'a', 'a', 'a', 'a', 'a'], specs = [(31, 44, 0), (52, 5, 1)]
+cc 06f447ba0a901bcd1f8203e886541e33f54bf747a909f2a3fc5a078b2b78b733 # shrinks to chars = ['a', '\n', '\n', ' ', 'a', 'a', 'a'], specs = [(6, 4, 2), (30, 41, 0)]

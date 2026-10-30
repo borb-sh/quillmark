@@ -1202,6 +1202,9 @@ fn render_marked_core(
         }
     }
     fmt.retain(|m| m.0 < m.1);
+    // The net's re-add priority is document order, so it reads the spans as
+    // written, not as stored: two marks the trims land on one span rank by kind.
+    fmt.sort_by(|a, b| (a.0, a.1, a.2.sort_key()).cmp(&(b.0, b.1, b.2.sort_key())));
     clip_asterisk_overlap(&mut fmt);
 
     // The slice's edge whitespace runs, found on the content chars: the heading,
