@@ -48,6 +48,10 @@ indexmap = { version = "2", features = ["serde"] }
 # Char-level diff (Myers/LCS) for richtext edit deltas.
 similar = "3.1"
 
+# The content hash a guarded revise checks; already in the render graph
+# through Typst.
+sha2 = "0.11"
+
 # Ships the SPDX license list `quill.license` is checked against, and a patch
 # release can bring a newer list: an id it adds loads on builds carrying it and
 # is refused on older ones, and an id it deprecates loads with a warning.

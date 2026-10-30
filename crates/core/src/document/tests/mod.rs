@@ -1,5 +1,6 @@
 mod anchor_tests;
 mod assemble_tests;
+mod base_tests;
 mod card_fence_tests;
 mod edit_tests;
 mod emit_tests;

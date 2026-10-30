@@ -418,6 +418,7 @@ pub(crate) fn fold_line_breaks(
 pub(crate) mod align;
 pub mod anchors;
 pub mod assemble;
+pub mod base;
 pub mod dto;
 pub mod edit;
 pub mod emit;
@@ -434,6 +435,7 @@ pub use dto::{
     STORAGE_V0_131_0,
 };
 pub use anchors::AnchorSelector;
+pub use base::{content_hash, revise_import_against, Base, BaseError};
 pub use edit::{revise_import, CardMut, EditError, Revised};
 /// Carried by [`Revised::dropped_anchors`], so nameable from here.
 pub use quillmark_content::export::AnchorRead;
