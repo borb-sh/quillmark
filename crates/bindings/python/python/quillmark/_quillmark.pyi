@@ -150,6 +150,47 @@ class Document:
     def insert_card(self, card: Any, at: int | None = None) -> None: ...
     def remove_card(self, index: int) -> dict[str, Any] | None: ...
     def move_card(self, from_idx: int, to_idx: int) -> None: ...
+    def anchor_contexts(self) -> list[AnchorContext]: ...
+    def anchor_context(self, id: str) -> AnchorContext | None: ...
+    def reattach(
+        self,
+        selectors: Sequence[AnchorContext],
+        deltas: dict[str, dict[str, Any]] | None = None,
+    ) -> Reattached: ...
+
+class AnchorContext(TypedDict):
+    id: str
+    path: str
+    quote: str
+    prefix: str
+    suffix: str
+
+class Reattached(TypedDict):
+    reattached: list[AnchorContext]
+    orphaned: list[AnchorContext]
+
+class DroppedAnchor(TypedDict):
+    id: str
+    line: str
+
+class DocumentDroppedAnchor(TypedDict):
+    id: str
+    path: str
+    line: str
+
+class Revised(TypedDict):
+    delta: dict[str, Any]
+    warnings: list[dict[str, Any]]
+    dropped_anchors: list[DroppedAnchor]
+
+DocumentRevised = TypedDict(
+    "DocumentRevised",
+    {
+        "dropped_anchors": list[DocumentDroppedAnchor],
+        "warnings": list[dict[str, Any]],
+        "from": list[int | None],
+    },
+)
 
 @final
 class Quill:
@@ -193,11 +234,11 @@ class Writer:
     def set_all(self, fields: dict[str, Any], card: int | None = None) -> list[Diagnostic]: ...
     def revise_body(
         self, markdown: str, card: int | None = None
-    ) -> list[Diagnostic]: ...
+    ) -> Revised: ...
     def revise_field(
         self, name: str, text: str, card: int | None = None
-    ) -> list[Diagnostic]: ...
-    def revise_document(self, markdown: str) -> list[Diagnostic]: ...
+    ) -> Revised: ...
+    def revise_document(self, markdown: str) -> DocumentRevised: ...
     def add_card(
         self,
         kind: str,

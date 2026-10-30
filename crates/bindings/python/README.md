@@ -92,11 +92,13 @@ w.set_all({"title": "T", "author": "A"})  # atomic batch; one diagnostic per bad
 w.revise_body("A **taro** essay.")        # body write (edit semantics; a body has no field schema)
 w.revise_field("bio", "make it **bold**") # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
-                                          # set, set_all, revise_body, revise_field and add_card return the
-                                          # parse::dropped_construct warnings their markdown raised: [Diagnostic, ...]
+                                          # set, set_all and add_card return the parse::dropped_construct
+                                          # warnings their markdown raised: [Diagnostic, ...]
+                                          # revise_body and revise_field return their receipt:
+                                          # {"delta", "warnings": [dict, ...], "dropped_anchors": [{"id", "line"}]}
 w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors rebase,
-                                          # then conform; returns the parse's, each revised field's and the
-                                          # conform::* warnings, and clears doc.warnings
+                                          # then conform; returns {"dropped_anchors": [{"id", "path", "line"}],
+                                          # "warnings": [dict, ...], "from": [int | None]}, clears doc.warnings
 w.remove_card(0)
 w.set("author", "Issa", card=0)           # every verb takes card=: None is main, an int the composable card
 ```
@@ -174,6 +176,12 @@ doc.store_ext({**doc.main["ext"], "agent": {"n": 1}})   # one namespace: merge, 
 doc.remove_ext()                                 # every namespace at once
 doc.store_seed_overlay("note", {"tag": "T"})     # per-kind $seed overlay; new cards spawn with it
 doc.remove_seed_overlay("note")
+
+# Comment anchors (the thread lives in the host's store, keyed by the anchor id):
+doc.anchor_contexts()                            # [{"id", "path", "quote", "prefix", "suffix"}, ...]
+doc.anchor_context("c1")                         # one selector, or None
+doc.reattach(selectors, deltas=None)             # re-add dropped anchors where the quote is found once:
+                                                 # {"reattached": [...], "orphaned": [...]}
 ```
 
 Setting a field's value is the writer's job (`quill.writer(doc).set(...)`): a

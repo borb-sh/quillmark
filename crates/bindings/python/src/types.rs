@@ -748,6 +748,119 @@ impl PyDocument {
             .map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))
     }
 
+    /// Every prose anchor of every body and content value with its context, as
+    /// dicts `{id, path, quote, prefix, suffix}`: the selector a host stores
+    /// beside a comment thread and hands back to `reattach`. `path` is the
+    /// value's `DocPath` string; `quote` the anchored text, island slots removed,
+    /// empty for a point; `prefix` and `suffix` up to 32 characters either side.
+    /// Each card's fields come before its body. A table cell's anchors are
+    /// outside the read.
+    fn anchor_contexts<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let selectors = self.inner.anchor_contexts().into_iter().map(selector_json).collect();
+        json_to_py(py, &serde_json::Value::Array(selectors))
+    }
+
+    /// The context of the prose anchor `id`, as `anchor_contexts` reads it, or
+    /// `None` where no body or content value holds one.
+    fn anchor_context<'py>(&self, py: Python<'py>, id: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.inner
+            .anchor_context(id)
+            .map(|selector| json_to_py(py, &selector_json(selector)))
+            .transpose()
+    }
+
+    /// Re-add anchors a write dropped, each at the `path` its selector names,
+    /// where its `quote` is found exactly once with its context agreeing: four
+    /// characters of quote or more, eight of context on each side or the whole
+    /// context where the value's edge cut it, an empty quote a point where the
+    /// two meet. Never a nearest match. Returns `{reattached, orphaned}`, each
+    /// selector given either placed with its context as read after the write or
+    /// orphaned as given.
+    ///
+    /// A path naming no body or content value orphans its selector, and nothing
+    /// remaps a card index. An id live anywhere in the document, a table cell's
+    /// included, is answered as reattached and not written. `deltas` maps a path
+    /// to the `delta` of the revise that dropped its anchors, and a match there
+    /// must overlap text that revise inserted. Raises `ValueError` on a selector
+    /// or delta that is not one, or a path that does not parse.
+    #[pyo3(signature = (selectors, deltas=None))]
+    fn reattach<'py>(
+        &mut self,
+        py: Python<'py>,
+        selectors: &Bound<'_, PyAny>,
+        deltas: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let invalid = |e: String| PyValueError::new_err(format!("reattach: {e}"));
+        let parse_path = |path: &str| {
+            path.parse::<quillmark_core::path::DocPath>()
+                .map_err(|e| invalid(format!("invalid path {path:?}: {e}")))
+        };
+        let serde_json::Value::Array(selectors) = py_to_json(selectors)? else {
+            return Err(invalid("selectors must be a list of anchor contexts".into()));
+        };
+        let selectors = selectors
+            .iter()
+            .map(|s| {
+                let key = |name: &str| {
+                    s.get(name).and_then(|v| v.as_str()).map(str::to_string).ok_or_else(|| {
+                        invalid(format!("an anchor context needs a string `{name}`"))
+                    })
+                };
+                Ok(quillmark_core::document::AnchorSelector::new(
+                    key("id")?,
+                    parse_path(&key("path")?)?,
+                    key("quote")?,
+                    key("prefix")?,
+                    key("suffix")?,
+                ))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let mut by_path = std::collections::HashMap::new();
+        if let Some(deltas) = deltas.filter(|d| !d.is_none()) {
+            let deltas: std::collections::HashMap<String, quillmark_core::session::Delta> =
+                serde_json::from_value(py_to_json(deltas)?)
+                    .map_err(|e| invalid(format!("deltas must map a path to a delta: {e}")))?;
+            for (path, delta) in deltas {
+                by_path.insert(parse_path(&path)?, delta);
+            }
+        }
+        let out = self.inner.reattach(&selectors, &by_path);
+        let receipt = serde_json::json!({
+            "reattached": out.reattached.into_iter().map(selector_json).collect::<Vec<_>>(),
+            "orphaned": out.orphaned.into_iter().map(selector_json).collect::<Vec<_>>(),
+        });
+        json_to_py(py, &receipt)
+    }
+}
+
+/// An `AnchorSelector` as it crosses: a flat dict, its `path` a `DocPath`
+/// string.
+fn selector_json(s: quillmark_core::document::AnchorSelector) -> serde_json::Value {
+    serde_json::json!({
+        "id": s.id,
+        "path": s.path.to_string(),
+        "quote": s.quote,
+        "prefix": s.prefix,
+        "suffix": s.suffix,
+    })
+}
+
+/// A `Revised` receipt as it crosses: `delta` on the op wire, `warnings` the
+/// dicts `Quill.validate` returns, and `dropped_anchors` as `{id, line}`.
+fn revised_to_py<'py>(
+    py: Python<'py>,
+    revised: quillmark_core::document::Revised,
+) -> PyResult<Bound<'py, PyAny>> {
+    let receipt = serde_json::json!({
+        "delta": revised.delta,
+        "warnings": revised.warnings,
+        "dropped_anchors": revised
+            .dropped_anchors
+            .into_iter()
+            .map(|a| serde_json::json!({ "id": a.id, "line": a.line }))
+            .collect::<Vec<_>>(),
+    });
+    json_to_py(py, &receipt)
 }
 
 impl PyDocument {
@@ -903,16 +1016,18 @@ impl PyWriter {
         .map_err(|errs| convert_edit_errors(errs, &target.base))
     }
 
-    /// Revise a body from markdown; anchors rebase. Returns the import's
-    /// `parse::dropped_construct` warnings, anchored at the body; the text
-    /// `Delta` is discarded, as on `revise_field`.
+    /// Revise a body from markdown; anchors rebase. Returns the receipt as a
+    /// dict: `delta`, the text change as `{ops}`; `warnings`, the import's
+    /// `parse::dropped_construct` as the dicts `Quill.validate` returns,
+    /// anchored at the body; and `dropped_anchors`, each anchor the diff
+    /// dropped as `{id, line}`.
     #[pyo3(signature = (markdown, card=None))]
-    fn revise_body(
+    fn revise_body<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         markdown: &str,
         card: Option<isize>,
-    ) -> PyResult<Vec<PyDiagnostic>> {
+    ) -> PyResult<Bound<'py, PyAny>> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -924,8 +1039,8 @@ impl PyWriter {
                 .map_err(|e| convert_edit_error(e, &target.base))?
                 .revise_body(markdown),
         }
-        .map(|revised| py_diagnostics(revised.warnings))
         .map_err(|e| convert_edit_error(e, &target.base))
+        .and_then(|revised| revised_to_py(py, revised))
     }
 
     /// Revise the content field `name` from authored text: typed *and*
@@ -934,16 +1049,16 @@ impl PyWriter {
     /// Surviving anchors rebase, then the diffed result is schema-conformed, so a
     /// one-paragraph `richtext` field rejects a multi-block result with
     /// `edit::field_not_single_line`. Raises `edit::unknown_field` for an undeclared
-    /// name. Returns the import's `parse::dropped_construct` warnings, anchored
-    /// at the field; the text `Delta` is discarded.
+    /// name. Returns the receipt as `revise_body` does, its warnings anchored
+    /// at the field.
     #[pyo3(signature = (name, text, card=None))]
-    fn revise_field(
+    fn revise_field<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         name: &str,
         text: &str,
         card: Option<isize>,
-    ) -> PyResult<Vec<PyDiagnostic>> {
+    ) -> PyResult<Bound<'py, PyAny>> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -955,8 +1070,8 @@ impl PyWriter {
                 .map_err(|e| convert_edit_error(e, &target.base))?
                 .revise_field(name, text),
         }
-        .map(|revised| py_diagnostics(revised.warnings))
         .map_err(|e| convert_edit_error(e, &target.base))
+        .and_then(|revised| revised_to_py(py, revised))
     }
 
     /// Replace the bound document with `markdown`, then conform it: composable
@@ -964,12 +1079,16 @@ impl PyWriter {
     /// body and richtext field revises as `revise_body` / `revise_field` do.
     /// Everything else lands as written; an omitted `$ext` keeps the stored one
     /// on the main card, on a card that aligned by text, and on one that aligned
-    /// by position only when the `$kind` sequence is unchanged. Returns the warnings, the `conform::*` ones last,
-    /// and clears the document's load `warnings`; the receipt's dropped anchors
-    /// are discarded. Raises `QuillmarkError` on a parse
-    /// failure or a `$quill` this quill does not answer to, leaving the
-    /// document unchanged.
-    fn revise_document(&self, py: Python<'_>, markdown: &str) -> PyResult<Vec<PyDiagnostic>> {
+    /// by position only when the `$kind` sequence is unchanged. Returns the
+    /// receipt as a dict: `dropped_anchors`, each anchor the write dropped as
+    /// `{id, path, line}` at its address in the stored document; `warnings`,
+    /// the dicts `Quill.validate` returns, the `conform::*` ones last; and
+    /// `from`, for each composable card of the revised document the index of
+    /// the stored card it revises, or `None` for an inserted card. Clears the
+    /// document's load `warnings`. Raises `QuillmarkError` on a parse failure
+    /// or a `$quill` this quill does not answer to, leaving the document
+    /// unchanged.
+    fn revise_document<'py>(&self, py: Python<'py>, markdown: &str) -> PyResult<Bound<'py, PyAny>> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let revised = quill
@@ -978,7 +1097,16 @@ impl PyWriter {
             .revise_document(markdown)
             .map_err(|e| raise_summarized(e.to_diagnostics()))?;
         doc.parse_warnings.clear();
-        Ok(py_diagnostics(revised.warnings))
+        let receipt = serde_json::json!({
+            "dropped_anchors": revised
+                .dropped_anchors
+                .into_iter()
+                .map(|a| serde_json::json!({ "id": a.id, "path": a.path.to_string(), "line": a.line }))
+                .collect::<Vec<_>>(),
+            "warnings": revised.warnings,
+            "from": revised.from,
+        });
+        json_to_py(py, &receipt)
     }
 
     /// Build a composable card of `kind`, typed-commit `fields` onto it, set its

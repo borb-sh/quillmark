@@ -99,14 +99,16 @@ def test_card_selector_targets_the_composable_card_on_both_lanes():
 
 def test_writer_revise_field():
     """revise_field diff-imports markdown into a richtext field under the same
-    guards as `set`, returning what the import dropped at the field."""
+    guards as `set`, returning its receipt: the text delta, what the import
+    dropped at the field, and the anchors the diff dropped."""
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
-    assert w.revise_field("bio", "make it **bold**") == []
+    receipt = w.revise_field("bio", "make it **bold**")
+    assert receipt == {"delta": {"ops": [{"insert": "make it bold"}]}, "warnings": [], "dropped_anchors": []}
     assert quill.reader(doc).get("bio") == "make it **bold**"
-    (dropped,) = w.revise_field("bio", "make it <kbd>**bold**</kbd>")
-    assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
+    (dropped,) = w.revise_field("bio", "make it <kbd>**bold**</kbd>")["warnings"]
+    assert (dropped["code"], dropped["path"]) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"
     with raises_edit_code("edit::field_not_single_line"):
         w.revise_field("headline", "line one\n\nline two")
@@ -134,11 +136,14 @@ def test_writer_revise_document():
     doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\n<span>Body.</span>\n")
     assert [d.code for d in doc.warnings] == ["parse::dropped_construct"]
     w = quill.writer(doc)
-    assert w.revise_field("bio", "make it **bold**") == []
-    (dropped,) = w.revise_document(
+    w.revise_field("bio", "make it **bold**")
+    receipt = w.revise_document(
         "~~~\n$quill: sample_form@0.1.0\nbio: make it <kbd>**bold**</kbd>\n~~~\n\nBody.\n"
     )
-    assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
+    assert sorted(receipt) == ["dropped_anchors", "from", "warnings"]
+    assert (receipt["dropped_anchors"], receipt["from"]) == ([], [])
+    (dropped,) = receipt["warnings"]
+    assert (dropped["code"], dropped["path"]) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"
     assert doc.warnings == []
     before = doc.to_markdown()
@@ -163,10 +168,45 @@ def test_an_anchor_survives_the_field_and_document_revises():
         return [i for i in items if i.get("key") == "bio"][0]["value"]["marks"]
 
     w = quill.writer(doc)
-    assert w.revise_field("bio", "now make it bold here") == []
+    assert w.revise_field("bio", "now make it bold here")["dropped_anchors"] == []
     assert bio_marks() == [{"attrs": {"id": "a1"}, "end": 16, "start": 12, "type": "anchor"}]
-    assert w.revise_document("~~~\n$quill: sample_form@0.1.0\nbio: so now make it bold here\n~~~\n") == []
+    receipt = w.revise_document("~~~\n$quill: sample_form@0.1.0\nbio: so now make it bold here\n~~~\n")
+    assert receipt["dropped_anchors"] == []
     assert bio_marks() == [{"attrs": {"id": "a1"}, "end": 19, "start": 15, "type": "anchor"}]
+
+
+def test_a_dropped_anchor_is_named_and_reattached_where_its_text_is_found_once():
+    """Each revise receipt names the anchors it dropped; anchor_contexts reads
+    the selector a host keeps, and reattach places it again under the exact
+    rule, or reports it orphaned."""
+    quill = richtext_quill()
+    doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\nThe committee met on Monday to plan.\n")
+    stored = json.loads(doc.to_stored())
+    stored["main"]["body"]["marks"] = [{"start": 14, "end": 27, "type": "anchor", "attrs": {"id": "m1"}}]
+    doc = Document.from_stored(json.dumps(stored))
+    context = {
+        "id": "m1",
+        "path": "main.body",
+        "quote": "met on Monday",
+        "prefix": "The committee ",
+        "suffix": " to plan.",
+    }
+    assert doc.anchor_contexts() == [context]
+    assert doc.anchor_context("m1") == context
+    assert doc.anchor_context("nope") is None
+
+    w = quill.writer(doc)
+    receipt = w.revise_body("Nothing like it.\n\nAt all.")
+    assert receipt["dropped_anchors"] == [{"id": "m1", "line": "The committee met on Monday to plan."}]
+    assert doc.reattach([context], {"main.body": receipt["delta"]}) == {"reattached": [], "orphaned": [context]}
+
+    receipt = w.revise_document("~~~\n$quill: sample_form@0.1.0\n~~~\n\nMinutes.\n\nThe committee met on Monday to plan.\n")
+    assert receipt["dropped_anchors"] == []
+    out = doc.reattach([context])
+    assert out == {"reattached": [{**context, "prefix": "Minutes.\nThe committee "}], "orphaned": []}
+    assert doc.reattach([context]) == {"reattached": out["reattached"], "orphaned": []}
+    with pytest.raises(ValueError):
+        doc.reattach([{**context, "path": "main.["}])
 
 
 def test_markdown_writes_return_their_drops_at_the_body_written():
@@ -179,7 +219,10 @@ def test_markdown_writes_return_their_drops_at_the_body_written():
     def drops(warnings):
         return [(d.code, d.path, d.args["construct"]) for d in warnings]
 
-    assert drops(w.revise_body("a <kbd>b</kbd>")) == [
+    def dict_drops(receipt):
+        return [(d["code"], d["path"], d["args"]["construct"]) for d in receipt["warnings"]]
+
+    assert dict_drops(w.revise_body("a <kbd>b</kbd>")) == [
         ("parse::dropped_construct", "main.body", "kbd")
     ]
     assert drops(w.add_card("quotes", {"author": "A"}, "x <span>y</span>")) == [
@@ -188,7 +231,7 @@ def test_markdown_writes_return_their_drops_at_the_body_written():
     assert drops(w.add_card("quotes", {"author": "B"}, "<em>z</em>", at=0)) == [
         ("parse::dropped_construct", "cards.quotes[0].body", "em")
     ]
-    assert drops(w.revise_body("c <kbd>d</kbd>", card=1)) == [
+    assert dict_drops(w.revise_body("c <kbd>d</kbd>", card=1)) == [
         ("parse::dropped_construct", "cards.quotes[1].body", "kbd")
     ]
     assert quill.reader(doc).body_markdown(card=1) == "c d"
