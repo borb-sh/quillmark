@@ -1,8 +1,9 @@
 use quillmark_content::export::to_markdown_annotated;
 use quillmark_content::import::from_markdown;
 
-use crate::document::{Base, BaseError, Card, Document, EditError};
+use crate::document::{content_hash, value_hash, Base, BaseError, Card, Document, EditError};
 use crate::quill::{BoundParseError, QuillConfig};
+use serde_json::json;
 use crate::writer::TypedWriter;
 
 use super::parse;
@@ -22,6 +23,12 @@ main:
     note:
       type: text
       multiline: true
+card_kinds:
+  item:
+    fields:
+      summary:
+        type: richtext
+        multiline: true
 ";
 
 fn config() -> QuillConfig {
@@ -36,8 +43,8 @@ fn card_with_body(markdown: &str) -> Card {
 
 fn current_of(err: EditError) -> (&'static str, String) {
     match err {
-        EditError::Base(BaseError::Stale { current }) => ("stale", current),
-        EditError::Base(BaseError::Conflict { current }) => ("conflict", current),
+        EditError::Base(BaseError::Stale { current, .. }) => ("stale", current),
+        EditError::Base(BaseError::Conflict { current, .. }) => ("conflict", current),
         other => panic!("not a base refusal: {other:?}"),
     }
 }
@@ -111,11 +118,104 @@ fn a_text_field_merges_its_literal_text() {
     let note = doc.main().payload().get("note").unwrap().as_json().clone();
     assert_eq!(note, "a *b*, edited\n\nc\n\nd, too");
 
-    let read = doc.main().field_hash("note").unwrap();
     let mut w = TypedWriter::new(&config, &mut doc);
+    let read = w.field_hash("note").unwrap();
     let _ = w.revise_field("note", "x").unwrap();
     let err = w.revise_field_against("note", Base::Hash(&read), "y").unwrap_err();
-    assert_eq!(current_of(err), ("stale", doc.main().field_hash("note").unwrap()));
+    assert_eq!(err.doc_path(&crate::path::DocPath::main()).map(|p| p.to_string()), Some("main.note".into()));
+    let w = TypedWriter::new(&config, &mut doc);
+    assert_eq!(current_of(err), ("stale", w.field_hash("note").unwrap()));
+}
+
+#[test]
+fn a_richtext_field_hashes_its_content_however_it_rests() {
+    let config = config();
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\nsubject: Hello *world*\n~~~\n");
+    let as_string = doc.main().field_hash("subject").unwrap();
+    assert_eq!(as_string, content_hash(&from_markdown("Hello *world*").unwrap().content));
+    let mut w = TypedWriter::new(&config, &mut doc);
+    assert_eq!(w.field_hash("subject").unwrap(), as_string);
+    let _ = w.revise_body("Body.").unwrap();
+    assert!(config.conform(&mut doc).unwrap().is_empty());
+    assert_eq!(doc.main().field_hash("subject").unwrap(), as_string);
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let _ = w.revise_field_against("subject", Base::Hash(&as_string), "Hello _world_, hi").unwrap();
+    assert_eq!(w.field_hash("missing").unwrap_err().code(), "edit::unknown_field");
+}
+
+#[test]
+fn a_hash_ignores_key_order_and_a_typed_document_hash_ignores_conforming() {
+    assert_eq!(
+        value_hash(&json!({"b": [{"y": 1, "x": 2}], "a": null})),
+        value_hash(&json!({"a": null, "b": [{"x": 2, "y": 1}]}))
+    );
+    assert_ne!(value_hash(&json!({"a": 1})), value_hash(&json!({"a": 2})));
+    let config = config();
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\nsubject: Hello *world*\n~~~\n\nBody.\n");
+    let before = TypedWriter::new(&config, &mut doc).hash().unwrap();
+    let stored_before = doc.hash();
+    config.conform(&mut doc).unwrap();
+    assert_eq!(TypedWriter::new(&config, &mut doc).hash().unwrap(), before);
+    assert_ne!(doc.hash(), stored_before);
+}
+
+#[test]
+fn an_annotated_document_read_with_a_field_anchor_is_a_fresh_read() {
+    let config = config();
+    let mut doc = parse(
+        "~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nBody.\n\n~~~\n$kind: item\nsummary: |\n  First para.\n\n  Second para here.\n~~~\n",
+    );
+    config.conform(&mut doc).unwrap();
+    let summary = doc
+        .card(0)
+        .unwrap()
+        .field_content("summary", crate::document::Codec::Richtext)
+        .unwrap()
+        .unwrap();
+    let mut card = doc.card_mut(0).unwrap();
+    card.overwrite_field("summary", anchored(&summary, "Second", "s1")).unwrap();
+    let read = doc.to_markdown_annotated().markdown;
+    assert!(read.contains("<qm-anchor"), "{read}");
+
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let revised = w
+        .revise_document_against(Base::Read(&read), &read.replace("Second para here", "Second paragraph here"))
+        .unwrap();
+    assert!(revised.dropped_anchors.is_empty());
+    let summary = doc.card(0).unwrap().field_content("summary", crate::document::Codec::Richtext).unwrap().unwrap();
+    assert!(summary.text.contains("Second paragraph here"));
+    assert_eq!(anchor_ids(&summary), ["s1"]);
+}
+
+#[test]
+fn a_merge_that_does_not_parse_is_a_conflict_and_warnings_follow_their_card() {
+    let config = config();
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nBody.\n\n~~~\n$kind: item\n~~~\n\nOne.\n");
+    let read = doc.to_markdown();
+
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let _ = w.revise_document(&read.replace("subject: Hello\n", "subject: Hello\nnote: theirs\n")).unwrap();
+    let err = w
+        .revise_document_against(Base::Read(&read), &read.replace("$quill: memo@1.0.0\n", "$quill: memo@1.0.0\nnote: mine\n"))
+        .unwrap_err();
+    assert!(matches!(err, BoundParseError::Base(BaseError::Conflict { .. })), "{err:?}");
+
+    let mut doc = parse(
+        "~~~\n$quill: memo@1.0.0\n~~~\n\nBody.\n\n~~~\n$kind: item\n~~~\n\nOne.\n\n~~~\n$kind: item\n~~~\n\nTwo.\n",
+    );
+    let read = doc.to_markdown();
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let _ = w
+        .revise_document(&read.replace("Body.\n", "Body.\n\n~~~\n$kind: item\n~~~\n\nZero.\n"))
+        .unwrap();
+    let revised = w
+        .revise_document_against(Base::Read(&read), &read.replace("Two.", "Two <span>x</span>."))
+        .unwrap();
+    assert_eq!(
+        revised.warnings.iter().map(|w| w.path.as_deref()).collect::<Vec<_>>(),
+        [Some("cards.item[2].body")]
+    );
+    assert_eq!(doc.card(2).unwrap().body().text, "Two x.");
 }
 
 #[test]

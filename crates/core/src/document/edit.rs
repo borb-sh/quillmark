@@ -312,6 +312,7 @@ impl EditError {
             | EditError::FieldNotSingleLine { field: f, .. }
             | EditError::FieldCoercionFailed { field: f, .. } => Some(base.field(f)),
             EditError::IndexOutOfRange { index, .. } => Some(DocPath::card(None, *index)),
+            EditError::Base(e) if e.field().is_some() => e.field().map(|f| base.field(f)),
             _ => (!base.segs().is_empty()).then(|| base.clone()),
         }
     }
@@ -837,6 +838,11 @@ impl<'a> CardMut<'a> {
         schema: &FieldSchema,
     ) -> Result<Revised, EditError> {
         self.0.revise_field_checked(name, body, schema)
+    }
+
+    #[doc(hidden)]
+    pub fn field_hash_checked(&self, name: &str, schema: &FieldSchema) -> Result<String, EditError> {
+        self.0.field_hash_checked(name, schema)
     }
 
     #[doc(hidden)]

@@ -142,16 +142,39 @@ impl<'a> TypedWriter<'a> {
     }
 
     /// [`revise_document`](Self::revise_document) under `base`: the hash is
-    /// [`Document::hash`], and a read is the whole document's markdown. A stale
-    /// or conflicting write fails as [`BoundParseError::Base`] before any
-    /// mutation.
+    /// [`hash`](Self::hash), and a read is the whole document's markdown,
+    /// annotated or not. Each side is parsed, conformed and emitted before the
+    /// merge. A stale or conflicting write fails as [`BoundParseError::Base`]
+    /// before any mutation.
     pub fn revise_document_against(
         &mut self,
         base: Base<'_>,
         markdown: &str,
     ) -> Result<DocumentRevised, BoundParseError> {
-        let parsed = self.doc.parse_against(base, markdown)?;
+        let parsed = crate::document::base::parse_against(self.config, self.doc, base, markdown)?;
         self.revise_parsed(parsed)
+    }
+
+    /// The hash of the document as this quill conforms it: the [`Base::Hash`]
+    /// [`revise_document_against`](Self::revise_document_against) checks. A
+    /// document loaded without its quill hashes as its conformed self, so a
+    /// conform between the read and the write does not stale the base. Fails
+    /// as [`BoundParseError::Mismatch`] on a `$quill` this quill does not
+    /// answer to.
+    pub fn hash(&self) -> Result<String, BoundParseError> {
+        Ok(crate::document::base::conformed(self.config, self.doc)?.hash())
+    }
+
+    /// The hash of a main-card field through its schema: the [`Base::Hash`]
+    /// [`revise_field_against`](Self::revise_field_against) checks. A
+    /// `richtext` field hashes its content however it rests, a `text` field
+    /// its literal text, any other type its stored value. An undeclared name
+    /// fails with [`EditError::UnknownField`].
+    pub fn field_hash(&self, name: &str) -> Result<String, EditError> {
+        match self.config.main.fields.get(name) {
+            Some(schema) => self.doc.main().field_hash_checked(name, schema),
+            None => Err(EditError::unknown_field(name)),
+        }
     }
 
     fn revise_parsed(&mut self, parsed: Parsed) -> Result<DocumentRevised, BoundParseError> {
@@ -311,6 +334,15 @@ impl<'a> CardWriter<'a> {
         let schema = self.fields_schema();
         let base = self.base();
         revise_impl(self.card_mut(), schema, name, None, text, &base)
+    }
+
+    /// The card twin of [`TypedWriter::field_hash`].
+    pub fn field_hash(&self, name: &str) -> Result<String, EditError> {
+        let schema = self.fields_schema().and_then(|m| m.get(name));
+        match schema {
+            Some(schema) => self.card().field_hash_checked(name, schema),
+            None => Err(EditError::unknown_field(name)),
+        }
     }
 
     /// The card twin of [`TypedWriter::revise_field_against`].

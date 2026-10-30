@@ -435,7 +435,7 @@ pub use dto::{
     STORAGE_V0_131_0,
 };
 pub use anchors::AnchorSelector;
-pub use base::{content_hash, revise_import_against, Base, BaseError};
+pub use base::{content_hash, revise_import_against, value_hash, Base, BaseError, HASH_TAG};
 pub use edit::{revise_import, CardMut, EditError, Revised};
 /// Carried by [`Revised::dropped_anchors`], so nameable from here.
 pub use quillmark_content::export::AnchorRead;
