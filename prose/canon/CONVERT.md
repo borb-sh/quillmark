@@ -233,11 +233,14 @@ calls:
   fallback's, lowercased, into the helper as `_qm-families`, math faces left
   out, and the host library's as `_qm-offered`, each to the alias its faces
   are filed under ([ARCHITECTURE.md](ARCHITECTURE.md) § Fonts). `_qm-font`
-  sets a family only where `_qm-offered` holds it, its alias ahead of the font
-  list in force filtered to `_qm-families`, so a character the family lacks
-  falls through to the surrounding font and Typst's own "unknown font family"
+  sets a family only where `_qm-offered` holds it, its alias ahead of
+  `_qm-families`, so a character the family lacks falls through to the first of
+  those, in name order, that holds it, and Typst's own "unknown font family"
   warning never fires. A workspace maps each family to itself, since Typst
   there loads the library's files under their own families.
+- `_qm-font` is a `text` call, not `context`: a run is a styled element whose
+  `child` is its body, so a walk that flattens a value, `qm.str` among them,
+  reads the run's text.
 - A family the library lacks keeps the surrounding font, and the compile
   carries one [`typst::unknown_font_family`](ERROR.md#warning-flow) warning per
   family and content field, `path` the field's `DocPath`.

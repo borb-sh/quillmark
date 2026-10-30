@@ -240,6 +240,17 @@ mod tests {
         assert_eq!(family(&runs, "x"), "Figtree");
     }
 
+    /// A plate flattening a value to a string reads the text a run sets.
+    #[test]
+    fn a_walk_over_a_value_reaches_a_run() {
+        let (runs, _) = runs(
+            "#qm.str(qm.data.prose)\n",
+            "plain <qm-span family=\"Figtree\">set</qm-span>",
+            FontLibrary::new(vec![figtree()]).expect("library"),
+        );
+        assert!(runs.iter().any(|r| r.0 == "plain set"), "{runs:?}");
+    }
+
     #[test]
     fn a_footnote_reference_takes_its_run_and_its_note_only_its_own_marks() {
         let library = FontLibrary::new(vec![figtree()]).expect("library");
