@@ -23,7 +23,7 @@ Placement decides where a mutation verb lives, in one sentence:
 `quill.writer(doc)` (mirroring core's `quill.writer(&mut doc)`) is the one schema-bound door: bare `set` / `set_all` / `reviseBody` / `reviseField` / `reviseDocument` / `addCard` / `removeCard` / `card(i)`, names and markdown in, diagnostics out. It resolves each field's type from the bound quill, so a name the schema does not declare is a typo (`UnknownField`), not a fallback.
 
 `Document` holds everything quill-free: the opaque `store*` primitive (verbatim, coercion deferred to render)
-and the addressed content lane: `overwrite` / `revise` / `reviseContent` / `applyChange`, plus the `importMarkdown` / `exportMarkdown` / `normalize` / `rebase` / `hashContent` / `mapPos` / `mapMarks` codec: which navigate by `Addr` and return receipts but never consult a schema.
+and the addressed content lane: `overwrite` / `revise` / `reviseContent` / `applyChange`, plus the `importMarkdown` / `exportMarkdown` / `exportMarkdownChecked` / `normalize` / `rebase` / `hashContent` / `mapPos` / `mapMarks` codec: which navigate by `Addr` and return receipts but never consult a schema.
 **Transport** reads (`getStored` / `getExt`) return the stored value verbatim, need no schema, and sit on `Document` too.
 
 The `isInline` / `isPlain` predicates sit beside the codec: `Content::is_inline` / `is_plain`, the one-line and `text` constraints, over any `Content`. A constraint the schema declares reports through `validation::not_single_line` / `not_plain`; one an editor imposes on its own, such as a one-paragraph surface over an `array<richtext>` element, has no diagnostic, so the editor asks the predicate before the leaf commits.

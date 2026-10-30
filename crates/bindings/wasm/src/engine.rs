@@ -527,6 +527,16 @@ export interface Imported {
     warnings: Diagnostic[];
 }
 
+/**
+ * What `exportMarkdownChecked` returns: `exportMarkdown`'s markdown, and an
+ * `export::lost_construct` warning per part of the content it reads back as
+ * something else, with no `path`.
+ */
+export interface Exported {
+    markdown: string;
+    warnings: Diagnostic[];
+}
+
 /** Which side of a same-position insertion `mapPos` lands a point on. */
 export type Assoc = "before" | "after";
 
@@ -2428,6 +2438,30 @@ impl ReadBase {
     }
 }
 
+/// `exportMarkdown` with a receipt: the markdown, and an
+/// `export::lost_construct` warning, with no `path`, per part of `rt` it reads
+/// back as something else. Reads the markdown back to check it, so it costs an
+/// `importMarkdown` beyond `exportMarkdown`. Throws if `rt` is not canonical
+/// content.
+#[wasm_bindgen(js_name = exportMarkdownChecked, unchecked_return_type = "Exported")]
+pub fn export_markdown_checked(
+    #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
+) -> Result<JsValue, JsValue> {
+    let content = js_to_content(rt, "exportMarkdownChecked")?;
+    let exported = quillmark_content::export::to_markdown_checked(&content);
+    let out = ExportedJs {
+        markdown: exported.markdown,
+        warnings: diags(
+            exported
+                .losses
+                .into_iter()
+                .map(quillmark_core::document::lost_construct)
+                .collect::<Vec<_>>(),
+        ),
+    };
+    serialize_or_throw(&out, "exportMarkdownChecked")
+}
+
 /// The canonical form of `rt`: the content `overwrite` stores from it, read
 /// without a document. Normalizing rewrites structure, never the text, so the
 /// answer's `text` is `rt.text`. Throws where `overwrite` would, with the same
@@ -2471,6 +2505,12 @@ pub fn rebase(
         warnings: diags(revised.warnings),
     };
     serialize_or_throw(&out, "rebase")
+}
+
+#[derive(serde::Serialize)]
+struct ExportedJs {
+    markdown: String,
+    warnings: Vec<Diagnostic>,
 }
 
 #[derive(serde::Serialize)]

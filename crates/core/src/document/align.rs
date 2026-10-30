@@ -21,10 +21,6 @@ const MAX_DIFF_WORK: usize = 50_000_000;
 /// its common leading and trailing words rather than a word diff.
 const MAX_DIFFED_WORDS: usize = 2_000;
 
-/// Above this many unpaired cards on one side times the other, the cards that
-/// are not twins pair by position alone.
-const MAX_TABLE_CELLS: usize = 4_000_000;
-
 /// The similarity, in thousandths, a pair needs to align by text. Below it two
 /// cards pair only by position, between the cards that aligned by text.
 const MIN_PAIR_PERMILLE: u64 = (MIN_WORD_SIMILARITY * 1000.0) as u64;
@@ -64,11 +60,6 @@ pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(u
     let incoming_words = words(incoming, &rest_incoming);
     let (n, m) = (rest_stored.len(), rest_incoming.len());
     let same_kind = |a: usize, b: usize| stored[rest_stored[a]].kind == incoming[rest_incoming[b]].kind;
-
-    if n.saturating_mul(m) > MAX_TABLE_CELLS {
-        pair_by_position((0, 0), (n, m), &same_kind, &rest_stored, &rest_incoming, &mut out);
-        return out;
-    }
 
     let mut work = 0usize;
     for a in 0..n {

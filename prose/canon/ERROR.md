@@ -204,6 +204,16 @@ families:
   conform reports a string's drops beside its `conform::*` warnings, and
   `validate` a string's the field still holds. A card inserted with a string
   body drops without it.
+- **`export::lost_construct` off a markdown export.** The receipt of an
+  export: `quillmark_content::export::to_markdown_checked` reads its markdown
+  back and names each part of the content it does not carry, and
+  `quillmark_core::document::lost_construct` mints one warning per part. The
+  `construct` is a mark's wire type (`strong`, `link`, …) with its `start`
+  and `end` in the content's text, an island's type (`table`, `image`, …), or
+  `text` where the text or its blocks read back otherwise. WASM
+  `exportMarkdown` returns them beside the markdown with no `path`. A `*`,
+  `_` or `~~` mark is written over its text without the whitespace at its
+  edges, and names its full range here.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
@@ -544,6 +554,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::empty_input` | — | code-determined |
 | `parse::unsupported_yaml_tag` | — | code-determined |
 | `parse::dropped_construct` | `construct`, `count` | structured |
+| `export::lost_construct` | `construct`, `start`?, `end`? | structured |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |
 | `parse::body_import` | — | fallback |

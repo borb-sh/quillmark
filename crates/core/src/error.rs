@@ -970,6 +970,13 @@ card_kinds:
             .find(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
             .expect("no `parse::dropped_construct` sample from the drop probe");
         add(crate::document::DROPPED_CONSTRUCT, sample.args.clone());
+        let mut wide = quillmark_content::import::from_markdown("a **b** c").unwrap().content.into_content();
+        wide.marks[0].end += 1;
+        let lost = quillmark_content::export::to_markdown_checked(&wide.into_normalized());
+        add(
+            crate::document::LOST_CONSTRUCT,
+            crate::document::lost_construct(lost.losses.into_iter().next().expect("a loss")).args,
+        );
         add(
             "backend::declined_construct",
             crate::backend::declined_construct(

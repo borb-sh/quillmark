@@ -32,6 +32,27 @@ over its keys: read `receipt["warnings"]`.
   verbs**, read through the writer's `hash()` / `hash_at(field=None,
   card=None)` and the quill-free `doc.hash_at` / `doc.hash()`.
 
+### Markdown export
+
+- feat(content): **an export can name what it does not spell.**
+  `export::to_markdown_checked` returns `Exported { markdown, losses }`, the
+  markdown read back and compared with the content: each `ExportLoss` is a
+  mark written over other text or dropped, an island that reads back
+  otherwise, or `Text` where the text or its blocks do. Core mints one
+  `export::lost_construct` warning per loss (`lost_construct`), its
+  `construct` the mark's wire type, the island's type or `text`, a mark's
+  `start` and `end` beside it.
+- feat(wasm): **`exportMarkdownChecked(rt)`** returns `{ markdown, warnings }`,
+  `exportMarkdown`'s markdown and its `export::lost_construct` warnings.
+- fix(content): **a `*`, `_` or `~~` mark over edge whitespace keeps its
+  text.** `bar ` in bold wrote no bold at all, its delimiter never closing
+  against a space; it now writes `**bar** `, the mark over `bar`.
+- perf(content): **`to_markdown` reads each line's marks alone**, so export is
+  linear in the marks where it scanned every mark per line.
+- feat(content)!: **a markdown import reports the bidi controls it drops**,
+  under `parse::dropped_construct` with `construct: "bidi"`. `Dropped` gains
+  `Bidi`.
+
 ### Comments
 
 - feat(content): **anchor contexts and exact re-attachment.** The `anchor`
@@ -42,7 +63,7 @@ over its keys: read `receipt["warnings"]`.
   over exactly its quote and a point at the one place its context meets. The
   rule never guesses: a quote of `MIN_ANCHOR_QUOTE` (four) scalar values or
   more, or island slots alone, its context agreeing on `ANCHOR_AGREE_USV`
-  (eight) each side or whole where the field's edge cut it, a match overlapping inserted text where a
+  (eight) each side or as far as it reaches where the field's edge cut it, a match overlapping inserted text where a
   delta is given, and exactly one such place. `Delta::inserted_spans` is
   public. (#2349)
 - feat(core): **`Document::reattach` and `Revised.dropped_anchors`.**

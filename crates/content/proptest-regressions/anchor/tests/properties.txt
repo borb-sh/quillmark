@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e1ec567e3b1c76c1a3196692ef6abe3dea47e8d9a2c9294b4118a6452c4dddb1 # shrinks to (field, ctx) = ("abaabaabaaba", AnchorContext { id: "c", quote: "", prefix: "a", suffix: "baabaabaaba" }), spans = [(54, 11)]

@@ -22,6 +22,12 @@ Reading a document: card-yaml, limits, body import.
 - `parse::unsupported_yaml_tag`
 - `parse::yaml_error_with_location`
 
+## `export::`
+
+Writing a content to markdown.
+
+- `export::lost_construct`
+
 ## `validation::`
 
 A document checked against its quill's schema.

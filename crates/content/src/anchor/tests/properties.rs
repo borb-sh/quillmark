@@ -71,14 +71,8 @@ fn counted(text: &[char], ctx: &AnchorContext, inserted: Option<&[(usize, usize)
         return Vec::new();
     }
     let (before, after) = (prefix.len().min(ANCHOR_AGREE_USV), suffix.len().min(ANCHOR_AGREE_USV));
-    let agrees_before = |i: usize| match prefix.len() < ANCHOR_AGREE_USV {
-        true => text[..i] == prefix[..],
-        false => i >= before && text[i - before..i] == prefix[prefix.len() - before..],
-    };
-    let agrees_after = |j: usize| match suffix.len() < ANCHOR_AGREE_USV {
-        true => text[j..] == suffix[..],
-        false => text.len() - j >= after && text[j..j + after] == suffix[..after],
-    };
+    let agrees_before = |i: usize| i >= before && text[i - before..i] == prefix[prefix.len() - before..];
+    let agrees_after = |j: usize| text.len() - j >= after && text[j..j + after] == suffix[..after];
     let overlaps = |(a, b): (usize, usize)| inserted.is_none_or(|spans| spans.iter().any(|&(s, e)| a < e && b > s));
     (0..=text.len())
         .map(|i| (i, i + quote.len()))

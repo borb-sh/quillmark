@@ -35,7 +35,10 @@
 //! own, the prose either side a block of its own: markdown writes a table only
 //! as a block. Each arises only from adversarial delimiter/break placement, a
 //! hand-built island prop or mark, a stored value, a merge of concurrent edits,
-//! or an editor's empty line.
+//! or an editor's empty line. A `*`, `_` or `~~` mark over edge whitespace
+//! writes over its text without it, since such a delimiter never sits against
+//! whitespace. [`to_markdown_checked`] names each loss where a content meets
+//! one.
 
 use std::borrow::Cow;
 
@@ -48,13 +51,111 @@ use crate::model::{
 pub fn to_markdown(rt: &Normalized) -> String {
     let rt = &*block_islands_alone(rt);
     let segments = line_segments(rt);
+    let line_marks = line_marks(rt, &segments);
     let labels = note_labels(rt);
     project(&Ctx {
         rt,
         segments: &segments,
+        line_marks: &line_marks,
         labels: &labels,
         tags: &[],
     })
+}
+
+/// A [`to_markdown_checked`] export: the markdown, and what of the content it
+/// does not carry.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Exported {
+    /// [`to_markdown`]'s markdown.
+    pub markdown: String,
+    /// Each part of the content the markdown reads back as something else:
+    /// [`ExportLoss::Text`] first, then marks and islands in content order.
+    /// Empty exactly where the markdown imports back to the content, anchors
+    /// aside.
+    pub losses: Vec<ExportLoss>,
+}
+
+/// One part of a content its markdown does not carry as itself.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExportLoss {
+    /// A mark the markdown writes over other text, `now`, or not at all.
+    /// Positions are the content's.
+    Mark {
+        kind: MarkKind,
+        start: Usv,
+        end: Usv,
+        now: Option<(Usv, Usv)>,
+    },
+    /// The island at this index reads back with other props, or not at all.
+    Island { index: usize, island_type: IslandType },
+    /// The text or its blocks read back otherwise: a codec limit the module
+    /// docs list.
+    Text,
+}
+
+/// [`to_markdown`] with a receipt: the markdown read back through
+/// [`crate::import::from_markdown`] and compared with `rt`, so every
+/// construct the projection does not spell is named. Anchors are not
+/// compared, the projection carrying none. Costs an import and a diff beyond
+/// [`to_markdown`].
+pub fn to_markdown_checked(rt: &Normalized) -> Exported {
+    let markdown = to_markdown(rt);
+    let back = match crate::import::from_markdown(&markdown) {
+        Ok(imported) => imported.content,
+        Err(_) => {
+            return Exported {
+                markdown,
+                losses: vec![ExportLoss::Text],
+            }
+        }
+    };
+    let mut losses = Vec::new();
+    let same_text = back.text == rt.text;
+    if !same_text || back.lines != rt.lines {
+        losses.push(ExportLoss::Text);
+    }
+    let to_stored = (!same_text).then(|| crate::delta::diff(&back.text, &rt.text));
+    let held: Vec<(Usv, Usv, &MarkKind)> = back
+        .marks
+        .iter()
+        .filter(|m| !matches!(m.kind, MarkKind::Anchor { .. }))
+        .map(|m| match &to_stored {
+            Some(d) => (
+                d.map_pos(m.start, crate::delta::Assoc::After),
+                d.map_pos(m.end, crate::delta::Assoc::Before),
+                &m.kind,
+            ),
+            None => (m.start, m.end, &m.kind),
+        })
+        .collect();
+    for m in rt.marks.iter().filter(|m| !matches!(m.kind, MarkKind::Anchor { .. })) {
+        if held.iter().any(|&(s, e, k)| (s, e) == (m.start, m.end) && *k == m.kind) {
+            continue;
+        }
+        let now = held
+            .iter()
+            .find(|&&(s, e, k)| *k == m.kind && s < m.end && e > m.start)
+            .map(|&(s, e, _)| (s, e));
+        losses.push(ExportLoss::Mark {
+            kind: m.kind.clone(),
+            start: m.start,
+            end: m.end,
+            now,
+        });
+    }
+    for (index, isl) in rt.islands.iter().enumerate() {
+        let kept = back
+            .islands
+            .get(index)
+            .is_some_and(|b| b.island_type == isl.island_type && b.props == isl.props);
+        if !kept {
+            losses.push(ExportLoss::Island {
+                index,
+                island_type: isl.island_type,
+            });
+        }
+    }
+    Exported { markdown, losses }
 }
 
 /// A [`to_markdown_annotated`] read.
@@ -90,10 +191,12 @@ pub struct AnchorRead {
 pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
     let rt = &*block_islands_alone(rt);
     let segments = line_segments(rt);
+    let line_marks = line_marks(rt, &segments);
     let labels = note_labels(rt);
     let plain = Ctx {
         rt,
         segments: &segments,
+        line_marks: &line_marks,
         labels: &labels,
         tags: &[],
     };
@@ -126,6 +229,7 @@ pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
     let markdown = project(&Ctx {
         rt,
         segments: &segments,
+        line_marks: &line_marks,
         labels: &labels,
         tags: &tags,
     });
@@ -153,6 +257,7 @@ pub fn anchors_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<Anchor
     let ctx = Ctx {
         rt,
         segments: &segments,
+        line_marks: &[],
         labels: &labels,
         tags: &[],
     };
@@ -246,6 +351,8 @@ struct Ctx<'a> {
     segments: &'a [Segment],
     /// One entry per island: [`note_labels`].
     labels: &'a [usize],
+    /// Per line, the indices of the marks overlapping it: [`line_marks`].
+    line_marks: &'a [Vec<usize>],
     /// Per line, the anchor tags it holds at line-local positions, in
     /// `(position, id)` order; empty for the plain projection.
     tags: &'a [Vec<(Usv, &'a str)>],
@@ -267,6 +374,26 @@ pub struct Segment {
     pub byte_end: usize,
     /// Count of [`ISLAND_SLOT`] chars before `start`.
     pub slots_before: usize,
+}
+
+/// Per line of `segments`, the indices of `rt`'s marks overlapping it, in
+/// mark order. A mark is visited once per line it spans, so the projection
+/// reads each line's marks without a pass over the whole content.
+fn line_marks(rt: &Content, segments: &[Segment]) -> Vec<Vec<usize>> {
+    let mut out = vec![Vec::new(); segments.len()];
+    for (k, m) in rt.marks.iter().enumerate() {
+        if matches!(m.kind, MarkKind::Anchor { .. }) {
+            continue;
+        }
+        let first = segments.partition_point(|s| s.end <= m.start);
+        for (i, seg) in segments.iter().enumerate().skip(first) {
+            if seg.start >= m.end {
+                break;
+            }
+            out[i].push(k);
+        }
+    }
+    out
 }
 
 /// Per-line char/byte ranges and slot prefixes over a content, in line order.
@@ -814,7 +941,8 @@ fn render_inline(ctx: &Ctx, i: usize, heading: bool, dollar: bool) -> String {
     let text = seg_str(ctx, i);
     let chars: Vec<char> = text.chars().collect();
 
-    let (code_ranges, fmt, links) = bucket_marks(&ctx.rt.marks, line_start, chars.len(), false);
+    let marks = ctx.line_marks[i].iter().map(|&k| &ctx.rt.marks[k]);
+    let (code_ranges, fmt, links) = bucket_marks(marks, line_start, chars.len(), false);
     let mut slot = seg.slots_before;
     let note_labels: Vec<Option<usize>> = chars
         .iter()
@@ -950,15 +1078,15 @@ fn anchor_tag(id: &str) -> String {
 /// offsets. Anchors are dropped: the projection has no syntax for them.
 /// `drop_empty` also drops a range the clip left empty, which a cell wants and
 /// a prose line does not.
-fn bucket_marks(
-    marks: &[Mark],
+fn bucket_marks<'m>(
+    marks: impl IntoIterator<Item = &'m Mark>,
     line_start: usize,
     n: usize,
     drop_empty: bool,
 ) -> (
     Vec<(usize, usize)>,
-    Vec<(usize, usize, &MarkKind)>,
-    Vec<(usize, usize, &str)>,
+    Vec<(usize, usize, &'m MarkKind)>,
+    Vec<(usize, usize, &'m str)>,
 ) {
     let mut code_ranges: Vec<(usize, usize)> = Vec::new();
     let mut fmt: Vec<(usize, usize, &MarkKind)> = Vec::new();
@@ -1063,7 +1191,20 @@ fn render_marked_core(
             m.1 -= 1;
         }
     }
+    // A `*`, `_` or `~~` run beside whitespace never closes or opens a span,
+    // so such a mark writes over its text without the whitespace at its edges.
+    for m in fmt.iter_mut().filter(|m| matches!(m.2, MarkKind::Strong | MarkKind::Emph | MarkKind::Strike)) {
+        while m.0 < m.1 && chars[m.0].is_whitespace() {
+            m.0 += 1;
+        }
+        while m.1 > m.0 && chars[m.1 - 1].is_whitespace() {
+            m.1 -= 1;
+        }
+    }
     fmt.retain(|m| m.0 < m.1);
+    // The net's re-add priority is document order, so it reads the spans as
+    // written, not as stored: two marks the trims land on one span rank by kind.
+    fmt.sort_by(|a, b| (a.0, a.1, a.2.sort_key()).cmp(&(b.0, b.1, b.2.sort_key())));
     clip_asterisk_overlap(&mut fmt);
 
     // The slice's edge whitespace runs, found on the content chars: the heading,
@@ -2055,6 +2196,36 @@ mod tests {
         .into_normalized();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
         rt
+    }
+
+    /// A `*`, `_` or `~~` mark reaching over whitespace writes over its text
+    /// alone, which the receipt names; an underline's tags hold the whitespace.
+    #[test]
+    fn a_delimited_mark_drops_its_edge_whitespace_and_says_so() {
+        for (start, end, kind) in [(4, 8, MarkKind::Strong), (3, 7, MarkKind::Emph), (4, 8, MarkKind::Strike)] {
+            let rt = marked("foo bar baz", vec![Mark::new(start, end, kind.clone())]);
+            let out = to_markdown_checked(&rt);
+            let back = from_markdown(&out.markdown).unwrap().content;
+            assert_eq!(back.marks, vec![Mark::new(4, 7, kind.clone())], "{:?}", out.markdown);
+            assert_eq!(
+                out.losses,
+                vec![ExportLoss::Mark { kind, start, end, now: Some((4, 7)) }]
+            );
+        }
+        let underlined = marked("foo bar baz", vec![Mark::new(4, 8, MarkKind::Underline)]);
+        assert_eq!(to_markdown_checked(&underlined).losses, vec![]);
+    }
+
+    #[test]
+    fn the_receipt_is_empty_on_an_import_and_names_what_does_not_read_back() {
+        let imported = from_markdown("# Title\n\nSome **bold** and [a link](https://x.y).\n\n| a |\n| --- |\n| b |")
+            .unwrap()
+            .content;
+        assert_eq!(to_markdown_checked(&imported).losses, vec![]);
+
+        let broken = hard_break_block("a\n\nb");
+        let losses = to_markdown_checked(&broken).losses;
+        assert_eq!(losses, vec![ExportLoss::Text]);
     }
 
     /// One deterministic fixed-point smoke per construct `properties.rs` fuzzes,

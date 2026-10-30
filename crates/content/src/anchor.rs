@@ -15,7 +15,8 @@ use crate::ops::MarkOp;
 pub const ANCHOR_CONTEXT_USV: usize = 32;
 
 /// Context that must agree on each side for a match. A context the field's
-/// edge cut shorter must agree whole, edge included.
+/// edge cut shorter agrees as far as it reaches, so text written past that
+/// edge since the read does not orphan the anchor.
 pub const ANCHOR_AGREE_USV: usize = 8;
 
 /// A quote shorter than this is too weak to place: the floor `revise` applies
@@ -85,20 +86,28 @@ impl<T> Default for Reattached<T> {
 /// is outside the read, and so is one inverted or past the text, which
 /// [`validate`](Content::validate) refuses.
 pub fn anchor_contexts(rt: &Normalized) -> Vec<AnchorContext> {
-    if !rt.marks.iter().any(|m| matches!(m.kind, MarkKind::Anchor { .. })) {
-        return Vec::new();
-    }
-    let chars: Vec<char> = rt.text.chars().collect();
+    contexts_where(rt, |_| true)
+}
+
+/// The [`anchor_contexts`] entry for `id`, reading no other anchor's context.
+pub fn anchor_context(rt: &Normalized, id: &str) -> Option<AnchorContext> {
+    contexts_where(rt, |held| held == id).into_iter().next()
+}
+
+fn contexts_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<AnchorContext> {
     let mut found: Vec<(Usv, &str, Usv)> = rt
         .marks
         .iter()
         .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } if m.start <= m.end && m.end <= chars.len() => {
-                Some((m.start, id.as_str(), m.end))
-            }
+            MarkKind::Anchor { id } if keep(id) => Some((m.start, id.as_str(), m.end)),
             _ => None,
         })
         .collect();
+    if found.is_empty() {
+        return Vec::new();
+    }
+    let chars: Vec<char> = rt.text.chars().collect();
+    found.retain(|&(start, _, end)| start <= end && end <= chars.len());
     found.sort_unstable();
     found
         .into_iter()
@@ -119,8 +128,8 @@ pub fn anchor_contexts(rt: &Normalized) -> Vec<AnchorContext> {
 /// - Of every occurrence of the quote in the stored text, one counts where the
 ///   text before it ends with the last [`ANCHOR_AGREE_USV`] of `prefix` and the
 ///   text after it starts with the first [`ANCHOR_AGREE_USV`] of `suffix`. A
-///   shorter `prefix` or `suffix` was cut at the field's edge, so it must be
-///   the whole text on that side.
+///   shorter `prefix` or `suffix` was cut at the field's edge and agrees
+///   whole, wherever the field's edge now sits.
 /// - An empty quote is a point: a position where the prefix and the suffix
 ///   both agree.
 /// - With `inserted` given, the stored spans a write inserted, a quote counts
@@ -252,18 +261,11 @@ fn locate_in(text: &[char], ctx: &AnchorContext, inserted: Option<&[(Usv, Usv)]>
 }
 
 fn agrees_before(before: &[char], prefix: &[char]) -> bool {
-    match prefix.len().checked_sub(ANCHOR_AGREE_USV) {
-        Some(cut) => before.ends_with(&prefix[cut..]),
-        None => before == prefix,
-    }
+    before.ends_with(&prefix[prefix.len().saturating_sub(ANCHOR_AGREE_USV)..])
 }
 
 fn agrees_after(after: &[char], suffix: &[char]) -> bool {
-    if suffix.len() >= ANCHOR_AGREE_USV {
-        after.starts_with(&suffix[..ANCHOR_AGREE_USV])
-    } else {
-        after == suffix
-    }
+    after.starts_with(&suffix[..suffix.len().min(ANCHOR_AGREE_USV)])
 }
 
 #[cfg(test)]
@@ -304,6 +306,17 @@ mod tests {
 
     fn none() -> HashSet<&'static str> {
         HashSet::new()
+    }
+
+    /// A context the field's edge cut short agrees as far as it reaches, so a
+    /// sentence written ahead of the anchor since the read leaves it placeable.
+    #[test]
+    fn a_context_cut_at_the_edge_agrees_past_new_text_there() {
+        let read = with_anchor(content("Hello world, and more."), 6, 11, "w");
+        let ctx = anchor_context(&read, "w").unwrap();
+        assert_eq!(ctx.prefix, "Hello ");
+        let now = content("A lead sentence. Hello world, and more.");
+        assert_eq!(locate(&now, &ctx, None), Some((23, 28)));
     }
 
     #[test]

@@ -11,6 +11,7 @@ import {
   Document,
   importMarkdown,
   exportMarkdown,
+  exportMarkdownChecked,
   normalize,
   rebase,
   hashContent,
@@ -1347,5 +1348,18 @@ title:
 `
     const result = engine.render(quill, Document.fromMarkdown(md), { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
+  })
+})
+
+describe('exportMarkdownChecked', () => {
+  it('names a mark the markdown writes over other text', () => {
+    const rt = importMarkdown('foo **bar** baz').content
+    expect(exportMarkdownChecked(rt)).toEqual({ markdown: 'foo **bar** baz', warnings: [] })
+    rt.marks[0].end += 1
+    const { markdown, warnings } = exportMarkdownChecked(rt)
+    expect(markdown).toBe(exportMarkdown(rt))
+    expect(warnings.map((w) => [w.code, w.args])).toEqual([
+      ['export::lost_construct', { construct: 'strong', start: 4, end: 8 }],
+    ])
   })
 })
