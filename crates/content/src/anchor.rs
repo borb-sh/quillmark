@@ -82,25 +82,24 @@ impl<T> Default for Reattached<T> {
 /// Every prose anchor of `rt` with its context, in `(start, id)` order: the
 /// order [`anchors_where`](crate::export::anchors_where) lists them. Read off
 /// the stored text, so it is pure and moves nothing. An anchor in a table cell
-/// is outside the read.
+/// is outside the read, and so is one inverted or past the text, which
+/// [`validate`](Content::validate) refuses.
 pub fn anchor_contexts(rt: &Normalized) -> Vec<AnchorContext> {
-    contexts(rt)
-}
-
-fn contexts(rt: &Content) -> Vec<AnchorContext> {
+    if !rt.marks.iter().any(|m| matches!(m.kind, MarkKind::Anchor { .. })) {
+        return Vec::new();
+    }
+    let chars: Vec<char> = rt.text.chars().collect();
     let mut found: Vec<(Usv, &str, Usv)> = rt
         .marks
         .iter()
         .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } => Some((m.start, id.as_str(), m.end)),
+            MarkKind::Anchor { id } if m.start <= m.end && m.end <= chars.len() => {
+                Some((m.start, id.as_str(), m.end))
+            }
             _ => None,
         })
         .collect();
-    if found.is_empty() {
-        return Vec::new();
-    }
     found.sort_unstable();
-    let chars: Vec<char> = rt.text.chars().collect();
     found
         .into_iter()
         .map(|(start, id, end)| AnchorContext {
@@ -140,11 +139,29 @@ pub fn locate(
 }
 
 impl Content {
+    /// [`Normalized::reattach`] on this content, normalized first.
+    pub fn reattach(
+        &mut self,
+        ctxs: &[AnchorContext],
+        inserted: Option<&[(Usv, Usv)]>,
+        live: &HashSet<&str>,
+    ) -> Reattached<AnchorContext> {
+        let mut rt = std::mem::replace(self, Content::empty()).into_normalized();
+        let out = rt.reattach(ctxs, inserted, live);
+        *self = rt.into_content();
+        out
+    }
+}
+
+impl Normalized {
     /// Re-add each context's anchor where [`locate`] finds it, through the
     /// [`MarkOp::Add`] arm, and answer which landed. An id in `live`, or
     /// already a prose anchor here, is not written and is answered as
     /// reattached at its live range. Never mints an id, never moves a live
     /// anchor, and places each anchor whole or not at all.
+    ///
+    /// Each id is answered once: of contexts sharing an id, the first is
+    /// answered and the rest are left out of the receipt.
     ///
     /// A reattached entry carries its context as read after the write; an
     /// orphaned one, and one live outside this content, carries the context as
@@ -155,7 +172,9 @@ impl Content {
         inserted: Option<&[(Usv, Usv)]>,
         live: &HashSet<&str>,
     ) -> Reattached<AnchorContext> {
-        let mut held: HashSet<String> = self
+        let mut answered = HashSet::new();
+        let ctxs: Vec<&AnchorContext> = ctxs.iter().filter(|c| answered.insert(c.id.as_str())).collect();
+        let held: HashSet<String> = self
             .marks
             .iter()
             .filter_map(|m| match &m.kind {
@@ -165,7 +184,7 @@ impl Content {
             .collect();
         let text: Vec<char> = self.text.chars().collect();
         let mut placed = Vec::with_capacity(ctxs.len());
-        for ctx in ctxs {
+        for ctx in &ctxs {
             if live.contains(ctx.id.as_str()) || held.contains(&ctx.id) {
                 placed.push(true);
                 continue;
@@ -178,15 +197,12 @@ impl Content {
                 };
                 self.apply_mark_ops(&[add]).is_ok()
             });
-            if landed {
-                held.insert(ctx.id.clone());
-            }
             placed.push(landed);
         }
         let mut fresh: HashMap<String, AnchorContext> =
-            contexts(self).into_iter().map(|c| (c.id.clone(), c)).collect();
+            anchor_contexts(self).into_iter().map(|c| (c.id.clone(), c)).collect();
         let mut out = Reattached::default();
-        for (ctx, landed) in ctxs.iter().zip(placed) {
+        for (ctx, landed) in ctxs.into_iter().zip(placed) {
             if landed {
                 out.reattached.push(fresh.remove(&ctx.id).unwrap_or_else(|| ctx.clone()));
             } else {
@@ -194,18 +210,6 @@ impl Content {
             }
         }
         out
-    }
-}
-
-impl Normalized {
-    /// [`Content::reattach`], which leaves the content canonical.
-    pub fn reattach(
-        &mut self,
-        ctxs: &[AnchorContext],
-        inserted: Option<&[(Usv, Usv)]>,
-        live: &HashSet<&str>,
-    ) -> Reattached<AnchorContext> {
-        self.as_content_mut().reattach(ctxs, inserted, live)
     }
 }
 
@@ -460,6 +464,19 @@ mod tests {
         assert!(out.orphaned.is_empty(), "{out:?}");
         assert_eq!(span(&next, "c1"), Some(moved));
         assert_eq!(out.reattached[0].quote, "approved the budget");
+    }
+
+    #[test]
+    fn raw_content_is_normalized_first_and_each_id_answered_once() {
+        let mut raw = content("some words to anchor here").into_content();
+        raw.marks.push(Mark::new(9, 3, MarkKind::Anchor { id: "bad".into() }));
+        let ctx = AnchorContext::new("c1", "words to anchor", "some ", " here");
+        let twin = AnchorContext::new("c1", "nothing here at all", "", "");
+        let out = raw.reattach(std::slice::from_ref(&twin), None, &none());
+        assert_eq!(out.orphaned, [twin.clone()]);
+        let out = raw.reattach(&[ctx.clone(), twin], None, &none());
+        assert_eq!((out.reattached, out.orphaned), (vec![ctx], vec![]));
+        assert_eq!(span(&raw, "c1"), Some((5, 20)));
     }
 
     #[test]
