@@ -36,6 +36,7 @@ impl From<quillmark::BoundParseError> for CliError {
         match err {
             E::Parse(e) => CliError::Parse(e),
             E::Mismatch(e) => CliError::Render(e),
+            E::Base(e) => CliError::InvalidArgument(e.to_string()),
         }
     }
 }

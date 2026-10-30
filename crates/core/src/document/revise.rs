@@ -116,7 +116,7 @@ impl Document {
 
 /// For each of `incoming`'s composable cards, the card of `stored` it revises
 /// and how they paired, or `None` for an inserted card.
-fn align_cards(stored: &[Card], incoming: &[Card]) -> Vec<Option<(usize, Pairing)>> {
+pub(crate) fn align_cards(stored: &[Card], incoming: &[Card]) -> Vec<Option<(usize, Pairing)>> {
     let stored_texts: Vec<String> = stored.iter().map(card_text).collect();
     let incoming_texts: Vec<String> = incoming.iter().map(card_text).collect();
     align(&slots(stored, &stored_texts), &slots(incoming, &incoming_texts))

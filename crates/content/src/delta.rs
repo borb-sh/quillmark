@@ -631,6 +631,63 @@ fn find_in_spans(hay: &[char], needle: &[char], spans: &[(usize, usize)]) -> Opt
     })
 }
 
+/// Three-way merge of `current` and `new`, two edits of `base`, by line: each
+/// side's changed runs of base lines apply together. `None` when a run of one
+/// side overlaps or touches a run of the other and the two do not make the same
+/// change, so edits to adjacent lines conflict, and two inserts at one place
+/// conflict.
+pub fn merge_lines(base: &str, current: &str, new: &str) -> Option<String> {
+    let base: Vec<&str> = base.split_inclusive('\n').collect();
+    let current: Vec<&str> = current.split_inclusive('\n').collect();
+    let new: Vec<&str> = new.split_inclusive('\n').collect();
+    let ours = line_hunks(&base, &current);
+    let theirs = line_hunks(&base, &new);
+    let (mut ours, mut theirs) = (ours.iter().peekable(), theirs.iter().peekable());
+    let mut out = String::new();
+    let mut at = 0;
+    loop {
+        let hunk = match (ours.peek(), theirs.peek()) {
+            (None, None) => break,
+            (Some(a), Some(b)) if a.0.start <= b.0.end && b.0.start <= a.0.end => {
+                if a != b {
+                    return None;
+                }
+                theirs.next();
+                ours.next().unwrap()
+            }
+            (Some(a), Some(b)) if b.0.start < a.0.start => theirs.next().unwrap(),
+            (Some(_), _) => ours.next().unwrap(),
+            (None, Some(_)) => theirs.next().unwrap(),
+        };
+        out.extend(base[at..hunk.0.start].iter().copied());
+        out.extend(hunk.1.iter().copied());
+        at = hunk.0.end;
+    }
+    out.extend(base[at..].iter().copied());
+    Some(out)
+}
+
+/// The runs of `base` lines `side` changes, each with the lines it puts in their
+/// place, adjacent runs coalesced so one change reads as one run however the
+/// diff spelled it.
+fn line_hunks<'a>(base: &[&'a str], side: &[&'a str]) -> Vec<(std::ops::Range<usize>, Vec<&'a str>)> {
+    let mut hunks: Vec<(std::ops::Range<usize>, Vec<&'a str>)> = Vec::new();
+    for op in capture_diff_slices(Algorithm::Myers, base, side) {
+        if let DiffOp::Equal { .. } = op {
+            continue;
+        }
+        let (old, new) = (op.old_range(), op.new_range());
+        match hunks.last_mut() {
+            Some((range, lines)) if range.end == old.start => {
+                range.end = old.end;
+                lines.extend(&side[new]);
+            }
+            _ => hunks.push((old, side[new].to_vec())),
+        }
+    }
+    hunks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1141,5 +1198,20 @@ mod tests {
                 format!("isl-{}", u128::from(u64::MAX) + 2),
             ]
         );
+    }
+
+    #[test]
+    fn merge_lines_lands_both_sides_and_refuses_touching_runs() {
+        let base = "one\n\ntwo\n\nthree\n";
+        let person = "one, edited\n\ntwo\n\nthree\n";
+        let writer = "one\n\ntwo\n\nthree, rewritten\n\nfour\n";
+        assert_eq!(
+            merge_lines(base, person, writer).as_deref(),
+            Some("one, edited\n\ntwo\n\nthree, rewritten\n\nfour\n")
+        );
+        assert_eq!(merge_lines(base, person, person).as_deref(), Some(person));
+        assert_eq!(merge_lines(base, person, "one, other\n\ntwo\n\nthree\n"), None);
+        assert_eq!(merge_lines(base, person, "one\nzero\n\ntwo\n\nthree\n"), None);
+        assert_eq!(merge_lines(base, base, writer).as_deref(), Some(writer));
     }
 }

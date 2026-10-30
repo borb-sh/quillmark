@@ -816,6 +816,8 @@ mod args_canon {
             EditError::InvalidPayload(crate::document::edit::PayloadViolation::DuplicateField {
                 key: "title".into(),
             }),
+            EditError::Base(crate::document::BaseError::Stale { current: "h".into(), field: None }),
+            EditError::Base(crate::document::BaseError::Conflict { current: "h".into(), field: None }),
         ] {
             add(e.code(), e.args());
         }

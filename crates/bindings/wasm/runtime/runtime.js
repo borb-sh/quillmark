@@ -19,7 +19,7 @@ import initCore, { Quill, Document } from '../core/wasm.js';
 // itself), a `node:fs` read under Node, whose `fetch` rejects `file:` URLs.
 // Resolution-time, so `node:fs` never enters a browser graph.
 import { toModuleSource } from '#quillmark-env';
-import { importMarkdown, exportMarkdown, normalize, rebase, mapPos, mapMarks } from '../core/wasm.js';
+import { importMarkdown, exportMarkdown, normalize, rebase, hashContent, mapPos, mapMarks } from '../core/wasm.js';
 import { isInline, isPlain } from '../core/wasm.js';
 import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 
@@ -49,6 +49,7 @@ const CORE_SURFACE = Object.freeze({
 	exportMarkdown,
 	normalize,
 	rebase,
+	hashContent,
 	mapPos,
 	mapMarks,
 	isInline,
@@ -865,6 +866,19 @@ export class DocumentWriter {
 		return this.#doc;
 	}
 	/**
+	 * @returns {string}
+	 */
+	hash() {
+		return this.#doc._hash(this.#quill);
+	}
+	/**
+	 * @param {import('../core/wasm.js').Addr | string} addr
+	 * @returns {string}
+	 */
+	hashAt(addr) {
+		return this.#doc._hashAt(this.#quill, addr);
+	}
+	/**
 	 * @param {string} name
 	 * @param {unknown} value
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
@@ -881,25 +895,28 @@ export class DocumentWriter {
 	}
 	/**
 	 * @param {string} markdown
+	 * @param {import('../core/wasm.js').BaseOptions} [opts]
 	 * @returns {import('../core/wasm.js').Revised}
 	 */
-	reviseBody(markdown) {
-		return this.#doc.revise({}, markdown);
+	reviseBody(markdown, opts) {
+		return this.#doc.revise({}, markdown, opts);
 	}
 	/**
 	 * @param {string} name
 	 * @param {string} text
+	 * @param {import('../core/wasm.js').BaseOptions} [opts]
 	 * @returns {import('../core/wasm.js').Revised}
 	 */
-	reviseField(name, text) {
-		return this.#doc._reviseField(this.#quill, name, text);
+	reviseField(name, text, opts) {
+		return this.#doc._reviseField(this.#quill, name, text, opts);
 	}
 	/**
 	 * @param {string} markdown
+	 * @param {import('../core/wasm.js').BaseOptions} [opts]
 	 * @returns {import('../core/wasm.js').DocumentRevised}
 	 */
-	reviseDocument(markdown) {
-		return this.#doc._reviseDocument(this.#quill, markdown);
+	reviseDocument(markdown, opts) {
+		return this.#doc._reviseDocument(this.#quill, markdown, opts);
 	}
 	/**
 	 * @param {string} kind
@@ -953,6 +970,13 @@ export class CardWriter {
 		return this.#doc.card(this.#index).kind;
 	}
 	/**
+	 * @param {string} [field]
+	 * @returns {string}
+	 */
+	hashAt(field) {
+		return this.#doc._hashAt(this.#quill, { card: this.#index, field });
+	}
+	/**
 	 * @param {string} name
 	 * @param {unknown} value
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
@@ -969,18 +993,20 @@ export class CardWriter {
 	}
 	/**
 	 * @param {string} markdown
+	 * @param {import('../core/wasm.js').BaseOptions} [opts]
 	 * @returns {import('../core/wasm.js').Revised}
 	 */
-	reviseBody(markdown) {
-		return this.#doc.revise({ card: this.#index }, markdown);
+	reviseBody(markdown, opts) {
+		return this.#doc.revise({ card: this.#index }, markdown, opts);
 	}
 	/**
 	 * @param {string} name
 	 * @param {string} text
+	 * @param {import('../core/wasm.js').BaseOptions} [opts]
 	 * @returns {import('../core/wasm.js').Revised}
 	 */
-	reviseField(name, text) {
-		return this.#doc._reviseField(this.#quill, { card: this.#index, field: name }, text);
+	reviseField(name, text, opts) {
+		return this.#doc._reviseField(this.#quill, { card: this.#index, field: name }, text, opts);
 	}
 }
 

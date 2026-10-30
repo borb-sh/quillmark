@@ -20,6 +20,7 @@ use quillmark_content::ops::{ApplyError, ChangeBundle};
 use crate::document::meta::{validate_composable_kind, CardKindError};
 use crate::error::diag_args;
 use crate::document::payload::MetaKey;
+use crate::document::base::{Base, BaseError};
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
 use crate::error::Diagnostic;
 use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
@@ -194,6 +195,10 @@ pub enum EditError {
     /// caller holding a `(name, value)` pair cannot check for itself.
     #[error("{0}")]
     InvalidPayload(PayloadViolation),
+
+    /// A revise's [`Base`] refused the write.
+    #[error(transparent)]
+    Base(BaseError),
 }
 
 impl EditError {
@@ -224,6 +229,7 @@ impl EditError {
             EditError::FieldCoercionFailed { .. } => "edit::field_coercion_failed",
             EditError::ContentApply(_) => "edit::content_apply",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
+            EditError::Base(e) => e.code(),
         }
     }
 
@@ -281,6 +287,7 @@ impl EditError {
             // One code, four sentences: the variant that spoke is not on the
             // wire, so a consumer's template falls back to `message`.
             EditError::InvalidPayload(_) => diag_args! {},
+            EditError::Base(e) => e.args(),
         }
     }
 
@@ -305,6 +312,7 @@ impl EditError {
             | EditError::FieldNotSingleLine { field: f, .. }
             | EditError::FieldCoercionFailed { field: f, .. } => Some(base.field(f)),
             EditError::IndexOutOfRange { index, .. } => Some(DocPath::card(None, *index)),
+            EditError::Base(e) if e.field().is_some() => e.field().map(|f| base.field(f)),
             _ => (!base.segs().is_empty()).then(|| base.clone()),
         }
     }
@@ -765,6 +773,25 @@ impl<'a> CardMut<'a> {
         self.0.revise_field(name, body)
     }
 
+    /// [`Card::revise_body_against`].
+    pub fn revise_body_against(
+        &mut self,
+        base: Base<'_>,
+        body: impl Into<String>,
+    ) -> Result<Revised, EditError> {
+        self.0.revise_body_against(base, body)
+    }
+
+    /// [`Card::revise_field_against`].
+    pub fn revise_field_against(
+        &mut self,
+        name: &str,
+        base: Base<'_>,
+        body: impl Into<String>,
+    ) -> Result<Revised, EditError> {
+        self.0.revise_field_against(name, base, body)
+    }
+
     /// [`Card::revise_body_content`].
     pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Revised {
         self.0.revise_body_content(content)
@@ -811,6 +838,22 @@ impl<'a> CardMut<'a> {
         schema: &FieldSchema,
     ) -> Result<Revised, EditError> {
         self.0.revise_field_checked(name, body, schema)
+    }
+
+    #[doc(hidden)]
+    pub fn field_hash_checked(&self, name: &str, schema: &FieldSchema) -> Result<String, EditError> {
+        self.0.field_hash_checked(name, schema)
+    }
+
+    #[doc(hidden)]
+    pub fn revise_field_checked_against(
+        &mut self,
+        name: &str,
+        base: Base<'_>,
+        body: impl Into<String>,
+        schema: &FieldSchema,
+    ) -> Result<Revised, EditError> {
+        self.0.revise_field_checked_against(name, base, body, schema)
     }
 }
 
@@ -1251,7 +1294,7 @@ impl Card {
     }
 
     /// The field's current content as a diff base: an absent field is empty.
-    fn richtext_base(&self, name: &str) -> Result<Normalized, EditError> {
+    pub(crate) fn richtext_base(&self, name: &str) -> Result<Normalized, EditError> {
         if !is_valid_field_name(name) {
             return Err(EditError::InvalidFieldName(name.to_string()));
         }

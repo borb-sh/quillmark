@@ -7,6 +7,31 @@ Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Python's
 where they returned a list of `Diagnostic`, so a loop over the result runs
 over its keys: read `receipt["warnings"]`.
 
+### Guarded revise
+
+- feat(core)!: **a revise states what its writer read.** `Base::Hash` is the
+  hash of the value read (`Card::body_hash`, `Card::field_hash`,
+  `Document::hash`, `content_hash`, and the typed writer's `hash` /
+  `field_hash` through the schema: SHA-256 over `quillmark/hash@1` and the
+  key-sorted canonical JSON), and a value that now hashes otherwise refuses
+  the write with `edit::stale_base`. `Base::Read` is the markdown read, annotated or not:
+  when the value has changed since, the writer's edit and the change merge by
+  line (`quillmark_content::delta::merge_lines`), so a person's edit made
+  between an LLM's read and its write lands beside the LLM's, and runs of
+  lines both changed refuse with `edit::rebase_conflict`. Both carry `current`,
+  the hash now. The verbs are `revise_body_against`, `revise_field_against`,
+  the writers' `revise_document_against`, and the codec's
+  `revise_import_against`. `EditError` gains `Base(BaseError)` and
+  `BoundParseError` gains `Base`.
+- feat(wasm): **`BaseOptions` on every revise.** `doc.revise`, `rebase` and the
+  writer's `reviseBody` / `reviseField` / `reviseDocument` take an optional
+  `{ baseHash?, baseMarkdown? }`, read through the writer's `hash()` /
+  `hashAt(addr)`, the quill-free `doc.hashAt(addr)` / `doc.hash()`, and
+  `hashContent(rt)`.
+- feat(python): **`base_hash` and `base_markdown` on the writer's revise
+  verbs**, read through the writer's `hash()` / `hash_at(field=None,
+  card=None)` and the quill-free `doc.hash_at` / `doc.hash()`.
+
 ### Comments
 
 - feat(content): **anchor contexts and exact re-attachment.** The `anchor`

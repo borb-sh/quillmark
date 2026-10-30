@@ -20,6 +20,7 @@ import type {
 	exportMarkdown,
 	normalize,
 	rebase,
+	hashContent,
 	mapPos,
 	mapMarks,
 	isInline,
@@ -43,6 +44,7 @@ export interface CoreSurface {
 	exportMarkdown: typeof exportMarkdown;
 	normalize: typeof normalize;
 	rebase: typeof rebase;
+	hashContent: typeof hashContent;
 	mapPos: typeof mapPos;
 	mapMarks: typeof mapMarks;
 	isInline: typeof isInline;
@@ -146,6 +148,7 @@ export type {
 	CardAddr,
 	Delta,
 	Revised,
+	BaseOptions,
 	DocumentRevised,
 	AnnotatedMarkdown,
 	DocumentAnchor,
@@ -675,7 +678,7 @@ declare module '../core/wasm.js' {
 	}
 }
 
-import type { Addr, Content, DocumentRevised, PathStep, Resolved, Revised } from '../core/wasm.js';
+import type { Addr, BaseOptions, Content, DocumentRevised, PathStep, Resolved, Revised } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -693,6 +696,22 @@ export declare class DocumentWriter {
 	constructor(quill: Quill, doc: Document);
 	/** The bound document: the instance passed in, mutated in place. */
 	readonly document: Document;
+	/**
+	 * The hash of the document as this quill conforms it: the `baseHash`
+	 * {@link reviseDocument} checks. A document loaded without its quill
+	 * hashes as its conformed self, so a conform between the read and the
+	 * write does not stale the base. Throws when the document declares a
+	 * `$quill` this quill does not answer to.
+	 */
+	hash(): string;
+	/**
+	 * The hash of the body or field at `addr` through its schema: the
+	 * `baseHash` {@link reviseBody} and {@link reviseField} check. A
+	 * `richtext` field hashes its content however it rests, a `text` field its
+	 * literal text, any other type its stored value, an absent field as
+	 * `null`. Throws `UnknownField` for an undeclared name.
+	 */
+	hashAt(addr: Addr | string): string;
 	/**
 	 * Typed-commit one main-card field (strict coerce, mismatch throws now).
 	 * Throws `UnknownField` for a name the schema does not declare. Returns a
@@ -712,9 +731,11 @@ export declare class DocumentWriter {
 	 * `Revised` receipt, its warnings at `main.body` and `droppedAnchors`
 	 * naming each anchor the diff dropped: a body carries no field schema to
 	 * type against, so this is the content lane's `revise` reached through the
-	 * writer.
+	 * writer. `opts` names what the writer read, as on `doc.revise`: a stale
+	 * `baseHash` (from {@link hashAt}) throws `edit::stale_base`, and a
+	 * `baseMarkdown` merges.
 	 */
-	reviseBody(markdown: string): Revised;
+	reviseBody(markdown: string, opts?: BaseOptions): Revised;
 	/**
 	 * Revise the content main-card field `name` from authored text: typed *and*
 	 * anchor-preserving. Surviving anchors rebase, then the diffed result is
@@ -725,8 +746,11 @@ export declare class DocumentWriter {
 	 * The codec comes from the declared type: `richtext` diffs markdown, while
 	 * `text` diffs the literal text and never imports markdown, so a
 	 * byte-identical revise of a value carrying escapes is a byte no-op.
+	 *
+	 * `opts` names what the writer read, as on {@link reviseBody}; a `text`
+	 * field's `baseMarkdown` is the literal text it read.
 	 */
-	reviseField(name: string, text: string): Revised;
+	reviseField(name: string, text: string, opts?: BaseOptions): Revised;
 	/**
 	 * Replace the bound document with `markdown`, then conform it. Composable
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
@@ -737,8 +761,13 @@ export declare class DocumentWriter {
 	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`
 	 * declares a `$quill` this quill does not answer to, or does not parse,
 	 * leaving the document unchanged.
+	 *
+	 * `opts` names what the writer read: `baseHash` is {@link hash}, and
+	 * `baseMarkdown` the whole document's markdown (`toMarkdown` or
+	 * `toAnnotatedMarkdown`), merged by line onto what changed since. A stale
+	 * or conflicting write throws before any mutation.
 	 */
-	reviseDocument(markdown: string): DocumentRevised;
+	reviseDocument(markdown: string, opts?: BaseOptions): DocumentRevised;
 	/**
 	 * Build a composable card of `kind`, typed-commit `fields` onto it, set its
 	 * body from optional markdown, and place it. `at` omitted appends, a number
@@ -775,18 +804,20 @@ export declare class CardWriter {
 	 * index.
 	 */
 	readonly kind: string;
+	/** The card twin of {@link DocumentWriter.hashAt}; no `field` reads the body. */
+	hashAt(field?: string): string;
 	set(name: string, value: unknown): Diagnostic[];
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**
 	 * Revise this card's body from markdown (edit semantics), returning the
 	 * `Revised` receipt, its warnings at the card's body.
 	 */
-	reviseBody(markdown: string): Revised;
+	reviseBody(markdown: string, opts?: BaseOptions): Revised;
 	/**
 	 * The card twin of {@link DocumentWriter.reviseField}. Throws `UnknownField`
 	 * for an undeclared name and `IndexOutOfRange` for a bad bound index.
 	 */
-	reviseField(name: string, text: string): Revised;
+	reviseField(name: string, text: string, opts?: BaseOptions): Revised;
 }
 
 /**

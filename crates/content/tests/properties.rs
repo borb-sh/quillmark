@@ -1095,3 +1095,24 @@ fn fixture_bodies_import_and_are_valid() {
         assert_eq!(rt, rt2, "{name} content not a fixed point");
     }
 }
+
+// A merge takes three texts it did not write, so it states its algebra over
+// generated line sets: one side unchanged is the other side's text, one side
+// equal to the other is that text, and the two sides commute.
+fn lines() -> impl Strategy<Value = String> {
+    prop::collection::vec(prop::sample::select(vec!["a\n", "b\n", "c\n", "\n", "d"]), 0..7)
+        .prop_map(|v| v.concat())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(2000))]
+
+    #[test]
+    fn merge_lines_algebra(base in lines(), ours in lines(), theirs in lines()) {
+        use quillmark_content::delta::merge_lines;
+        prop_assert_eq!(merge_lines(&base, &base, &theirs), Some(theirs.clone()));
+        prop_assert_eq!(merge_lines(&base, &ours, &base), Some(ours.clone()));
+        prop_assert_eq!(merge_lines(&base, &ours, &ours), Some(ours.clone()));
+        prop_assert_eq!(merge_lines(&base, &ours, &theirs), merge_lines(&base, &theirs, &ours));
+    }
+}

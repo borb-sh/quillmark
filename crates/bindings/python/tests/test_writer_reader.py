@@ -152,6 +152,43 @@ def test_writer_revise_document():
     assert doc.to_markdown() == before
 
 
+def test_a_base_refuses_a_stale_revise_and_merges_a_read():
+    """base_hash refuses a write onto a value changed since the read, naming
+    the hash now; base_markdown lands the writer's edit beside the change."""
+    quill = richtext_quill()
+    doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\nAlpha.\n\nBeta.\n")
+    w = quill.writer(doc)
+    read, hash = doc.to_markdown(), w.hash()
+    body_hash = w.hash_at()
+    assert body_hash == doc.hash_at()
+    w.revise_body("Alpha, edited.\n\nBeta.")
+    with raises_edit_code("edit::stale_base") as exc_info:
+        w.revise_body("Other.", base_hash=body_hash)
+    assert exc_info.value.diagnostics[0].args == {"current": doc.hash_at()}
+    with raises_edit_code("edit::stale_base"):
+        w.revise_document(read, base_hash=hash)
+    w.revise_document(read.replace("Beta.", "Beta, rewritten."), base_markdown=read)
+    assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, rewritten.\n")
+    with pytest.raises(ValueError):
+        w.revise_body("x", base_hash=hash, base_markdown=read)
+
+
+def test_a_field_hash_reads_through_the_schema():
+    """A richtext field hashes its content whether it rests as a markdown
+    string or as conformed content, so a conform between the read and the
+    write does not stale the base; an undeclared name raises."""
+    quill = richtext_quill()
+    doc = Document.from_markdown("~~~\n$quill: sample_form@0.1.0\nbio: Hello *world*\n~~~\n")
+    w = quill.writer(doc)
+    hash, whole = w.hash_at("bio"), w.hash()
+    assert hash == doc.hash_at("bio")
+    quill.conform(doc)
+    assert (w.hash_at("bio"), w.hash()) == (hash, whole)
+    w.revise_field("bio", "Hello _world_, hi", base_hash=hash)
+    with raises_edit_code("edit::unknown_field"):
+        w.hash_at("nope")
+
+
 def test_an_anchor_survives_the_field_and_document_revises():
     """revise_field and revise_document rebase an anchor the stored field
     holds; Python reaches anchors only through storage."""
