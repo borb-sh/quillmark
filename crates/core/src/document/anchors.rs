@@ -3,8 +3,9 @@
 //! dropped. The contract is `prose/canon/COMMENTS.md`.
 
 use std::collections::{HashMap, HashSet};
+use std::ops::ControlFlow;
 
-use quillmark_content::anchor::{anchor_contexts, AnchorContext, Reattached};
+use quillmark_content::anchor::{anchor_context, anchor_contexts, AnchorContext, Reattached};
 use quillmark_content::delta::Delta;
 use quillmark_content::model::{Content, Mark, MarkKind, Normalized};
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
@@ -67,6 +68,7 @@ impl Document {
         let mut out = Vec::new();
         self.each_content(&mut |path, content| {
             out.extend(anchor_contexts(content).into_iter().map(|ctx| AnchorSelector::at(ctx, path)));
+            ControlFlow::Continue(())
         });
         out
     }
@@ -76,7 +78,15 @@ impl Document {
     /// the first value holding `id`, in [`anchor_contexts`](Self::anchor_contexts)
     /// order, answers.
     pub fn anchor_context(&self, id: &str) -> Option<AnchorSelector> {
-        self.anchor_contexts().into_iter().find(|s| s.id == id)
+        let mut found = None;
+        self.each_content(&mut |path, content| match anchor_context(content, id) {
+            Some(ctx) => {
+                found = Some(AnchorSelector::at(ctx, path));
+                ControlFlow::Break(())
+            }
+            None => ControlFlow::Continue(()),
+        });
+        found
     }
 
     /// Re-add dropped anchors, each at the path its selector names, where the
@@ -112,6 +122,7 @@ impl Document {
                 known.entry(ctx.id.clone()).or_insert_with(|| AnchorSelector::at(ctx, path));
             }
             cells.extend(cell_anchors(content));
+            ControlFlow::Continue(())
         });
 
         let mut answer: Vec<Option<AnchorSelector>> = Vec::with_capacity(selectors.len());
@@ -200,39 +211,44 @@ impl Document {
 
     /// `visit` each body and content value with its path, in the order
     /// [`anchor_contexts`](Self::anchor_contexts) lists them.
-    fn each_content(&self, visit: &mut dyn FnMut(&DocPath, &Normalized)) {
+    fn each_content(&self, visit: &mut Visit<'_>) {
         let roots = std::iter::once((DocPath::main(), &self.main))
             .chain(self.cards.iter().enumerate().map(|(i, card)| (DocPath::card(card.kind(), i), card)));
         for (at, card) in roots {
-            each_in_card(card, &at, visit);
+            if each_in_card(card, &at, visit).is_break() {
+                return;
+            }
         }
     }
 }
 
-fn each_in_card(card: &Card, at: &DocPath, visit: &mut dyn FnMut(&DocPath, &Normalized)) {
+type Visit<'a> = dyn FnMut(&DocPath, &Normalized) -> ControlFlow<()> + 'a;
+
+fn each_in_card(card: &Card, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow<()> {
     for (name, value) in card.payload().iter() {
-        each_in_value(value.as_json(), &at.field(name), visit);
+        each_in_value(value.as_json(), &at.field(name), visit)?;
     }
-    visit(&at.body(), card.body());
+    visit(&at.body(), card.body())
 }
 
-fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut dyn FnMut(&DocPath, &Normalized)) {
+fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow<()> {
     if let Some(content) = content_of(value) {
         return visit(at, &content);
     }
     match value {
         JsonValue::Object(map) => {
             for (key, value) in map {
-                each_in_value(value, &at.field(key), visit);
+                each_in_value(value, &at.field(key), visit)?;
             }
         }
         JsonValue::Array(items) => {
             for (i, value) in items.iter().enumerate() {
-                each_in_value(value, &at.index(i), visit);
+                each_in_value(value, &at.index(i), visit)?;
             }
         }
         _ => {}
     }
+    ControlFlow::Continue(())
 }
 
 fn content_of(value: &JsonValue) -> Option<Normalized> {

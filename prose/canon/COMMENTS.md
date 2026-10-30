@@ -36,7 +36,7 @@ The read is pure and cheap enough to run before every markdown write.
 
 1. The quote is four scalar values or more, or island slots alone. Any other shorter quote orphans.
 2. Every occurrence of the quote in the stored text counts where its context agrees: the text before ends with the last eight scalar values of `prefix`, and the text after starts with the first eight of `suffix`.
-3. A `prefix` or `suffix` shorter than eight was cut at the value's edge, so it agrees only as the whole text on that side, edge included.
+3. A `prefix` or `suffix` shorter than eight was cut at the value's edge, and agrees whole, wherever the edge now sits: a sentence written ahead of an anchor near the value's start leaves it placeable.
 4. A point (an empty quote) counts at each position where the prefix and the suffix both agree.
 5. Where the caller passes the write's delta for the path, a match must overlap text that write inserted, the discipline `revise` keeps. Without one, the context rule alone decides.
 6. Exactly one counting place: attach there. None or several: orphan. No nearest match, no partial quote, no edit distance.
@@ -44,6 +44,7 @@ The read is pure and cheap enough to run before every markdown write.
 8. Each id is answered once: of selectors sharing an id, the first is answered and the rest are left out of the receipt.
 
 A range lands exactly over the quote's characters. A point lands at the one position where the prefix meets the suffix, as an empty range.
+A write that inserts text at a point leaves the point before it: a point binds to the text on its left, as a caret does.
 
 Matching is path-strict. A path naming no body or content value orphans its selector, and core remaps no card index. `DocumentRevised.from` is the alignment a caller remaps a dropped selector's card index through before calling `reattach`.
 
