@@ -416,6 +416,7 @@ pub(crate) fn fold_line_breaks(
 }
 
 pub(crate) mod align;
+pub mod anchors;
 pub mod assemble;
 pub mod dto;
 pub mod edit;
@@ -432,7 +433,12 @@ pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_124_0, STORAGE_V0_129_0,
     STORAGE_V0_131_0,
 };
+pub use anchors::AnchorSelector;
 pub use edit::{revise_import, CardMut, EditError, Revised};
+/// Carried by [`Revised::dropped_anchors`], so nameable from here.
+pub use quillmark_content::export::AnchorRead;
+/// Returned by [`Document::reattach`], so nameable from here.
+pub use quillmark_content::anchor::Reattached;
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::import::ImportError;

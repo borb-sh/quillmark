@@ -36,8 +36,8 @@
 pub use quillmark_core::{
     backend::{Backend, FontFace},
     document::{
-        AnnotatedMarkdown, Card, Document, DocumentAnchor, DocumentRevised,
-        EditError, ImportError, Parsed, Revised,
+        AnchorRead, AnchorSelector, AnnotatedMarkdown, Card, Document, DocumentAnchor,
+        DocumentRevised, EditError, ImportError, Parsed, Reattached, Revised,
     },
     error::{
         Diagnostic, Location, ParseError, RenderError, RenderResult, Severity, DOCUMENT_FILE,
@@ -46,6 +46,7 @@ pub use quillmark_core::{
         BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType, FileTreeNode,
         ParseDateError, Quill, QuillConfig, QuillIgnore, ValidationError, BUNDLE_EXTENSION,
     },
+    path::DocPath,
     reader::{CardReader, TypedReader},
     region::{
         coverage, plate_addr_to_doc_path, ContentHit, FieldCoverage, HitGranularity,

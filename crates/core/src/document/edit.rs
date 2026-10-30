@@ -9,11 +9,12 @@
 //! `$ext`/`$seed` are opaque mappings that carry no field-name invariant, but
 //! do carry the depth bound.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use quillmark_content::delta::{carry_anchors, diff_import, Delta};
+use quillmark_content::export::{anchors_where, AnchorRead};
 use quillmark_content::import::ImportError;
-use quillmark_content::model::Normalized;
+use quillmark_content::model::{Mark, MarkKind, Normalized};
 use quillmark_content::ops::{ApplyError, ChangeBundle};
 
 use crate::document::meta::{validate_composable_kind, CardKindError};
@@ -593,18 +594,22 @@ pub(crate) fn resolve_field_write(
     Ok((stored, drops))
 }
 
-/// The receipt of a markdown revise: the text [`Delta`] an editor bridge maps
-/// its positions through, and one `parse::dropped_construct` warning per
-/// construct the import dropped
-/// ([`dropped_construct`](crate::document::dropped_construct)). A [`Card`]
-/// verb does not know the card's address, so its warnings carry no `path`; a
-/// caller that does anchors them with [`with_path`](Self::with_path).
+/// The receipt of a revise: the text [`Delta`] an editor bridge maps its
+/// positions through, one `parse::dropped_construct` warning per construct the
+/// import dropped ([`dropped_construct`](crate::document::dropped_construct)),
+/// and the anchors the write dropped. A [`Card`] verb does not know the card's
+/// address, so its warnings carry no `path`; a caller that does anchors them
+/// with [`with_path`](Self::with_path).
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-#[must_use = "carries the import's warnings; read `.warnings` or bind it"]
+#[must_use = "carries the import's warnings and the dropped anchors; read them or bind it"]
 pub struct Revised {
     pub delta: Delta,
     pub warnings: Vec<Diagnostic>,
+    /// Every prose anchor of the stored value whose id the revised value holds
+    /// nowhere, in the order [`anchors_where`] lists them, each with the text
+    /// of the line it stood on.
+    pub dropped_anchors: Vec<AnchorRead>,
 }
 
 impl Revised {
@@ -616,14 +621,56 @@ impl Revised {
     }
 }
 
-/// [`diff_import`] `body` against `base`, minting the import's warnings.
+/// [`diff_import`] `body` against `base`, minting the import's warnings and
+/// naming the anchors it dropped.
 pub fn revise_import(
     base: &quillmark_content::model::Content,
     body: impl Into<String>,
 ) -> Result<(Normalized, Revised), ImportError> {
     let (content, delta, warnings) = diff_import(base, &body.into())?;
     let warnings = crate::document::dropped_constructs(warnings, None);
-    Ok((content, Revised { delta, warnings }))
+    let dropped_anchors = dropped_anchors(base, &content);
+    Ok((content, Revised { delta, warnings, dropped_anchors }))
+}
+
+/// [`revise_body_content`](Card::revise_body_content)'s carry, with its receipt.
+fn carry_receipt(base: &Normalized, content: Normalized) -> (Normalized, Revised) {
+    let (content, delta) = carry_anchors(base, content);
+    let dropped_anchors = dropped_anchors(base, &content);
+    let revised = Revised {
+        delta,
+        warnings: Vec::new(),
+        dropped_anchors,
+    };
+    (content, revised)
+}
+
+/// Every prose anchor of `stored` whose id `next` holds nowhere, in prose or a
+/// cell, as [`anchors_where`] reads it off `stored`.
+pub(crate) fn dropped_anchors(
+    stored: &quillmark_content::model::Content,
+    next: &quillmark_content::model::Content,
+) -> Vec<AnchorRead> {
+    let anchored = |m: &Mark| matches!(m.kind, MarkKind::Anchor { .. });
+    if !stored.marks.iter().any(anchored) {
+        return Vec::new();
+    }
+    let cells: Vec<Mark> = next
+        .islands
+        .iter()
+        .flat_map(|i| i.island_type.cell_marks(&i.props))
+        .flat_map(|(_, marks)| marks)
+        .collect();
+    let held: HashSet<&str> = next
+        .marks
+        .iter()
+        .chain(&cells)
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    anchors_where(&Normalized::from(stored.clone()), |id| !held.contains(id))
 }
 
 /// The mutable door onto a card already placed in a [`Document`]: every
@@ -1183,8 +1230,9 @@ impl Card {
     /// the markdown, diffs it against the current body so surviving identity
     /// anchors rebase (formatting marks are re-derived), and returns the
     /// [`Revised`] receipt: the text [`Delta`] an editor bridge maps its own
-    /// positions through ([`Delta::map_pos`]) and the import's
-    /// `parse::dropped_construct` warnings, unanchored. An over-nested input
+    /// positions through ([`Delta::map_pos`]), the import's
+    /// `parse::dropped_construct` warnings, unanchored, and the anchors the diff
+    /// dropped, which [`Document::reattach`] can place again. An over-nested input
     /// returns [`EditError::Import`] rather than degrading to the empty content.
     pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Revised, EditError> {
         let (content, revised) = revise_import(self.body(), body).map_err(EditError::Import)?;
@@ -1247,15 +1295,12 @@ impl Card {
     /// with no markdown import. Diffs `content` against the current body,
     /// carries each prose anchor `content` does not hold by id through the diff
     /// ([`carry_anchors`]), and returns the [`Revised`] receipt, which holds no
-    /// warning. What `content` carries lands as it is, its own anchors and island
+    /// warning and names each anchor the diff deleted. What `content` carries lands as it is, its own anchors and island
     /// ids included.
     pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Revised {
-        let (content, delta) = carry_anchors(self.body(), content.into());
+        let (content, revised) = carry_receipt(self.body(), content.into());
         self.overwrite_body(content);
-        Revised {
-            delta,
-            warnings: Vec::new(),
-        }
+        revised
     }
 
     /// Revise a richtext field to a pre-built content: the field-level twin of
@@ -1277,12 +1322,9 @@ impl Card {
         content: impl Into<Normalized>,
     ) -> Result<Revised, EditError> {
         let base = self.richtext_base(name)?;
-        let (content, delta) = carry_anchors(&base, content.into());
+        let (content, revised) = carry_receipt(&base, content.into());
         self.store_field_content(name, &content)?;
-        Ok(Revised {
-            delta,
-            warnings: Vec::new(),
-        })
+        Ok(revised)
     }
 
     /// Revise a content field from authored text **with schema enforcement**:
@@ -1310,6 +1352,7 @@ impl Card {
                 .map(|delta| Revised {
                     delta,
                     warnings: Vec::new(),
+                    dropped_anchors: Vec::new(),
                 });
         }
         let (content, revised) = self.diff_field(name, body)?;
