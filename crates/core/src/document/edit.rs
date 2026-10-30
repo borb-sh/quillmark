@@ -624,7 +624,7 @@ impl Revised {
 /// [`diff_import`] `body` against `base`, minting the import's warnings and
 /// naming the anchors it dropped.
 pub fn revise_import(
-    base: &quillmark_content::model::Content,
+    base: &Normalized,
     body: impl Into<String>,
 ) -> Result<(Normalized, Revised), ImportError> {
     let (content, delta, warnings) = diff_import(base, &body.into())?;
@@ -647,10 +647,7 @@ fn carry_receipt(base: &Normalized, content: Normalized) -> (Normalized, Revised
 
 /// Every prose anchor of `stored` whose id `next` holds nowhere, in prose or a
 /// cell, as [`anchors_where`] reads it off `stored`.
-pub(crate) fn dropped_anchors(
-    stored: &quillmark_content::model::Content,
-    next: &quillmark_content::model::Content,
-) -> Vec<AnchorRead> {
+pub(crate) fn dropped_anchors(stored: &Normalized, next: &Normalized) -> Vec<AnchorRead> {
     let anchored = |m: &Mark| matches!(m.kind, MarkKind::Anchor { .. });
     if !stored.marks.iter().any(anchored) {
         return Vec::new();
@@ -670,7 +667,7 @@ pub(crate) fn dropped_anchors(
             _ => None,
         })
         .collect();
-    anchors_where(&Normalized::from(stored.clone()), |id| !held.contains(id))
+    anchors_where(stored, |id| !held.contains(id))
 }
 
 /// The mutable door onto a card already placed in a [`Document`]: every
@@ -1231,9 +1228,10 @@ impl Card {
     /// anchors rebase (formatting marks are re-derived), and returns the
     /// [`Revised`] receipt: the text [`Delta`] an editor bridge maps its own
     /// positions through ([`Delta::map_pos`]), the import's
-    /// `parse::dropped_construct` warnings, unanchored, and the anchors the diff
-    /// dropped, which [`Document::reattach`] can place again. An over-nested input
-    /// returns [`EditError::Import`] rather than degrading to the empty content.
+    /// `parse::dropped_construct` warnings, unanchored, and the anchors the
+    /// diff dropped, which [`Document::reattach`] can place again. An
+    /// over-nested input returns [`EditError::Import`] rather than degrading to
+    /// the empty content.
     pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Revised, EditError> {
         let (content, revised) = revise_import(self.body(), body).map_err(EditError::Import)?;
         self.overwrite_body(content);
@@ -1295,8 +1293,8 @@ impl Card {
     /// with no markdown import. Diffs `content` against the current body,
     /// carries each prose anchor `content` does not hold by id through the diff
     /// ([`carry_anchors`]), and returns the [`Revised`] receipt, which holds no
-    /// warning and names each anchor the diff deleted. What `content` carries lands as it is, its own anchors and island
-    /// ids included.
+    /// warning and names each anchor the diff deleted. What `content` carries
+    /// lands as it is, its own anchors and island ids included.
     pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Revised {
         let (content, revised) = carry_receipt(self.body(), content.into());
         self.overwrite_body(content);
