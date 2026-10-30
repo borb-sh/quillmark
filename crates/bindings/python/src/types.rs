@@ -847,21 +847,22 @@ fn selector_json(s: quillmark_core::document::AnchorSelector) -> serde_json::Val
 }
 
 /// A `Revised` receipt as it crosses: `delta` on the op wire, `warnings` the
-/// dicts `Quill.validate` returns, and `dropped_anchors` as `{id, line}`.
+/// `Diagnostic` objects `set` returns, and `dropped_anchors` as `{id, line}`.
 fn revised_to_py<'py>(
     py: Python<'py>,
     revised: quillmark_core::document::Revised,
-) -> PyResult<Bound<'py, PyAny>> {
-    let receipt = serde_json::json!({
-        "delta": revised.delta,
-        "warnings": revised.warnings,
-        "dropped_anchors": revised
-            .dropped_anchors
-            .into_iter()
-            .map(|a| serde_json::json!({ "id": a.id, "line": a.line }))
-            .collect::<Vec<_>>(),
-    });
-    json_to_py(py, &receipt)
+) -> PyResult<Bound<'py, PyDict>> {
+    let dropped: Vec<_> = revised
+        .dropped_anchors
+        .into_iter()
+        .map(|a| serde_json::json!({ "id": a.id, "line": a.line }))
+        .collect();
+    let delta = serde_json::to_value(&revised.delta).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let receipt = PyDict::new(py);
+    receipt.set_item("delta", json_to_py(py, &delta)?)?;
+    receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
+    receipt.set_item("dropped_anchors", json_to_py(py, &serde_json::Value::Array(dropped))?)?;
+    Ok(receipt)
 }
 
 impl PyDocument {
@@ -1019,16 +1020,16 @@ impl PyWriter {
 
     /// Revise a body from markdown; anchors rebase. Returns the receipt as a
     /// dict: `delta`, the text change as `{ops}`; `warnings`, the import's
-    /// `parse::dropped_construct` as the dicts `Quill.validate` returns,
-    /// anchored at the body; and `dropped_anchors`, each anchor the diff
-    /// dropped as `{id, line}`.
+    /// `parse::dropped_construct` as `Diagnostic` objects, anchored at the
+    /// body; and `dropped_anchors`, each anchor the diff dropped as
+    /// `{id, line}`.
     #[pyo3(signature = (markdown, card=None))]
     fn revise_body<'py>(
         &self,
         py: Python<'py>,
         markdown: &str,
         card: Option<isize>,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    ) -> PyResult<Bound<'py, PyDict>> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -1059,7 +1060,7 @@ impl PyWriter {
         name: &str,
         text: &str,
         card: Option<isize>,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    ) -> PyResult<Bound<'py, PyDict>> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -1083,13 +1084,13 @@ impl PyWriter {
     /// by position only when the `$kind` sequence is unchanged. Returns the
     /// receipt as a dict: `dropped_anchors`, each anchor the write dropped as
     /// `{id, path, line}` at its address in the stored document; `warnings`,
-    /// the dicts `Quill.validate` returns, the `conform::*` ones last; and
+    /// `Diagnostic` objects, the `conform::*` ones last; and
     /// `from`, for each composable card of the revised document the index of
     /// the stored card it revises, or `None` for an inserted card. Clears the
     /// document's load `warnings`. Raises `QuillmarkError` on a parse failure
     /// or a `$quill` this quill does not answer to, leaving the document
     /// unchanged.
-    fn revise_document<'py>(&self, py: Python<'py>, markdown: &str) -> PyResult<Bound<'py, PyAny>> {
+    fn revise_document<'py>(&self, py: Python<'py>, markdown: &str) -> PyResult<Bound<'py, PyDict>> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let revised = quill
@@ -1098,16 +1099,16 @@ impl PyWriter {
             .revise_document(markdown)
             .map_err(|e| raise_summarized(e.to_diagnostics()))?;
         doc.parse_warnings.clear();
-        let receipt = serde_json::json!({
-            "dropped_anchors": revised
-                .dropped_anchors
-                .into_iter()
-                .map(|a| serde_json::json!({ "id": a.id, "path": a.path.to_string(), "line": a.line }))
-                .collect::<Vec<_>>(),
-            "warnings": revised.warnings,
-            "from": revised.from,
-        });
-        json_to_py(py, &receipt)
+        let dropped: Vec<_> = revised
+            .dropped_anchors
+            .into_iter()
+            .map(|a| serde_json::json!({ "id": a.id, "path": a.path.to_string(), "line": a.line }))
+            .collect();
+        let receipt = PyDict::new(py);
+        receipt.set_item("dropped_anchors", json_to_py(py, &serde_json::Value::Array(dropped))?)?;
+        receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
+        receipt.set_item("from", revised.from)?;
+        Ok(receipt)
     }
 
     /// Build a composable card of `kind`, typed-commit `fields` onto it, set its

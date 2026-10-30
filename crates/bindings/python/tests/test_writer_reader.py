@@ -108,7 +108,7 @@ def test_writer_revise_field():
     assert receipt == {"delta": {"ops": [{"insert": "make it bold"}]}, "warnings": [], "dropped_anchors": []}
     assert quill.reader(doc).get("bio") == "make it **bold**"
     (dropped,) = w.revise_field("bio", "make it <kbd>**bold**</kbd>")["warnings"]
-    assert (dropped["code"], dropped["path"]) == ("parse::dropped_construct", "main.bio")
+    assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"
     with raises_edit_code("edit::field_not_single_line"):
         w.revise_field("headline", "line one\n\nline two")
@@ -143,7 +143,7 @@ def test_writer_revise_document():
     assert sorted(receipt) == ["dropped_anchors", "from", "warnings"]
     assert (receipt["dropped_anchors"], receipt["from"]) == ([], [])
     (dropped,) = receipt["warnings"]
-    assert (dropped["code"], dropped["path"]) == ("parse::dropped_construct", "main.bio")
+    assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"
     assert doc.warnings == []
     before = doc.to_markdown()
@@ -219,10 +219,7 @@ def test_markdown_writes_return_their_drops_at_the_body_written():
     def drops(warnings):
         return [(d.code, d.path, d.args["construct"]) for d in warnings]
 
-    def dict_drops(receipt):
-        return [(d["code"], d["path"], d["args"]["construct"]) for d in receipt["warnings"]]
-
-    assert dict_drops(w.revise_body("a <kbd>b</kbd>")) == [
+    assert drops(w.revise_body("a <kbd>b</kbd>")["warnings"]) == [
         ("parse::dropped_construct", "main.body", "kbd")
     ]
     assert drops(w.add_card("quotes", {"author": "A"}, "x <span>y</span>")) == [
@@ -231,7 +228,7 @@ def test_markdown_writes_return_their_drops_at_the_body_written():
     assert drops(w.add_card("quotes", {"author": "B"}, "<em>z</em>", at=0)) == [
         ("parse::dropped_construct", "cards.quotes[0].body", "em")
     ]
-    assert dict_drops(w.revise_body("c <kbd>d</kbd>", card=1)) == [
+    assert drops(w.revise_body("c <kbd>d</kbd>", card=1)["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[1].body", "kbd")
     ]
     assert quill.reader(doc).body_markdown(card=1) == "c d"

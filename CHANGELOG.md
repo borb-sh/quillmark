@@ -3,9 +3,9 @@
 ## Unreleased
 
 Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Python's
-`revise_body`, `revise_field` and `revise_document` return the receipt as a
-dict, where they returned a list of `Diagnostic`, so a loop over the result
-runs over its keys: read `receipt["warnings"]`.
+`revise_body`, `revise_field` and `revise_document` return a dict receipt,
+where they returned a list of `Diagnostic`, so a loop over the result runs
+over its keys: read `receipt["warnings"]`.
 
 ### Comments
 
@@ -38,8 +38,8 @@ runs over its keys: read `receipt["warnings"]`.
 - feat(python)!: **the revise verbs return the whole receipt.**
   `writer.revise_body` / `revise_field` return `{ delta, warnings,
   dropped_anchors }` and `revise_document` `{ dropped_anchors, warnings, from }`,
-  each warning the dict `validate` returns, where each returned a list of
-  `Diagnostic`. `doc.anchor_contexts()`, `doc.anchor_context(id)` and
+  its warnings the same `Diagnostic` objects, where each returned a list of
+  them. `doc.anchor_contexts()`, `doc.anchor_context(id)` and
   `doc.reattach(selectors, deltas=None)` expose the handle. (#2349)
 - docs(canon): **`COMMENTS.md` states the comment-anchor contract**: the
   thread outside the document, the id it shares with its anchor, the matching

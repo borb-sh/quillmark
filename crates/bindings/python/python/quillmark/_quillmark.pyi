@@ -180,14 +180,14 @@ class DocumentDroppedAnchor(TypedDict):
 
 class Revised(TypedDict):
     delta: dict[str, Any]
-    warnings: list[dict[str, Any]]
+    warnings: list[Diagnostic]
     dropped_anchors: list[DroppedAnchor]
 
 DocumentRevised = TypedDict(
     "DocumentRevised",
     {
         "dropped_anchors": list[DocumentDroppedAnchor],
-        "warnings": list[dict[str, Any]],
+        "warnings": list[Diagnostic],
         "from": list[int | None],
     },
 )
