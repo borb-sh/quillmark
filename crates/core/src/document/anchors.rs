@@ -72,7 +72,9 @@ impl Document {
     }
 
     /// The selector of the prose anchor `id`, or `None` where no body or
-    /// content value holds one.
+    /// content value holds one. Ids are unique per value, not per document:
+    /// the first value holding `id`, in [`anchor_contexts`](Self::anchor_contexts)
+    /// order, answers.
     pub fn anchor_context(&self, id: &str) -> Option<AnchorSelector> {
         self.anchor_contexts().into_iter().find(|s| s.id == id)
     }
@@ -81,14 +83,17 @@ impl Document {
     /// quote is found under the exact rule of
     /// [`locate`](quillmark_content::anchor::locate). Answers each selector in
     /// the order given, reattached with its selector as read after the write,
-    /// or orphaned as given.
+    /// or orphaned as given. Each value a selector names is read and written
+    /// once, however many selectors name it.
     ///
+    /// - Each id is answered once: of selectors sharing an id, the first is
+    ///   answered and the rest are left out of the receipt.
     /// - Path-strict: a path naming no body or content value orphans its
     ///   selector, and nothing here remaps a card index. A card path's kind
     ///   must be the card's.
     /// - An id live anywhere in the document, a table cell's anchor included,
-    ///   is not written: it is answered as reattached, with the selector it
-    ///   now reads at, or as given for a cell's.
+    ///   is not written: it is answered as reattached, with the selector the
+    ///   first value holding it reads, or as given for an id only a cell holds.
     /// - `deltas` holds a write's [`Delta`] per path where the caller has one,
     ///   and a match at that path must then overlap text the write inserted.
     pub fn reattach(
@@ -96,33 +101,54 @@ impl Document {
         selectors: &[AnchorSelector],
         deltas: &HashMap<DocPath, Delta>,
     ) -> Reattached<AnchorSelector> {
+        let mut answered = HashSet::new();
+        let selectors: Vec<&AnchorSelector> =
+            selectors.iter().filter(|s| answered.insert(s.id.as_str())).collect();
+
         let mut known: HashMap<String, AnchorSelector> = HashMap::new();
-        for selector in self.anchor_contexts() {
-            known.entry(selector.id.clone()).or_insert(selector);
+        let mut cells: HashSet<String> = HashSet::new();
+        self.each_content(&mut |path, content| {
+            for ctx in anchor_contexts(content) {
+                known.entry(ctx.id.clone()).or_insert_with(|| AnchorSelector::at(ctx, path));
+            }
+            cells.extend(cell_anchors(content));
+        });
+
+        let mut answer: Vec<Option<AnchorSelector>> = Vec::with_capacity(selectors.len());
+        let mut pending: Vec<(&DocPath, Vec<usize>)> = Vec::new();
+        for (i, selector) in selectors.iter().enumerate() {
+            if let Some(live) = known.get(&selector.id) {
+                answer.push(Some(live.clone()));
+            } else if cells.contains(&selector.id) {
+                answer.push(Some((*selector).clone()));
+            } else {
+                answer.push(None);
+                match pending.iter_mut().find(|(path, _)| **path == selector.path) {
+                    Some((_, at)) => at.push(i),
+                    None => pending.push((&selector.path, vec![i])),
+                }
+            }
         }
-        let mut live = self.cell_anchor_ids();
-        live.extend(known.keys().cloned());
+
+        for (path, at) in pending {
+            let ctxs: Vec<AnchorContext> = at.iter().map(|&i| selectors[i].context()).collect();
+            let inserted = deltas.get(path).map(Delta::inserted_spans);
+            let Some(placed) = self.edit_content_at(path, |content| {
+                content.reattach(&ctxs, inserted.as_deref(), &HashSet::new()).reattached
+            }) else {
+                continue;
+            };
+            let mut placed: HashMap<String, AnchorContext> =
+                placed.into_iter().map(|ctx| (ctx.id.clone(), ctx)).collect();
+            for i in at {
+                answer[i] = placed.remove(&selectors[i].id).map(|ctx| AnchorSelector::at(ctx, path));
+            }
+        }
 
         let mut out = Reattached::default();
-        for selector in selectors {
-            if live.contains(&selector.id) {
-                out.reattached.push(known.get(&selector.id).unwrap_or(selector).clone());
-                continue;
-            }
-            let inserted = deltas.get(&selector.path).map(Delta::inserted_spans);
-            let ctx = selector.context();
-            let placed = self
-                .edit_content_at(&selector.path, |content| {
-                    content.reattach(std::slice::from_ref(&ctx), inserted.as_deref(), &HashSet::new())
-                })
-                .and_then(|mut r| r.reattached.pop());
-            match placed {
-                Some(ctx) => {
-                    let fresh = AnchorSelector::at(ctx, &selector.path);
-                    live.insert(fresh.id.clone());
-                    known.insert(fresh.id.clone(), fresh.clone());
-                    out.reattached.push(fresh);
-                }
+        for (selector, answer) in selectors.into_iter().zip(answer) {
+            match answer {
+                Some(fresh) => out.reattached.push(fresh),
                 None => out.orphaned.push(selector.clone()),
             }
         }
@@ -180,14 +206,6 @@ impl Document {
         for (at, card) in roots {
             each_in_card(card, &at, visit);
         }
-    }
-
-    /// The ids of every anchor a table cell holds, in any body or content
-    /// value.
-    fn cell_anchor_ids(&self) -> HashSet<String> {
-        let mut ids = HashSet::new();
-        self.each_content(&mut |_, content| ids.extend(cell_anchors(content)));
-        ids
     }
 }
 

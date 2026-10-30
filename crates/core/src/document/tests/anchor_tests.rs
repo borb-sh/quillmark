@@ -89,8 +89,9 @@ fn contexts_then_reattach_is_the_identity_and_restores_what_a_store_lost() {
 
     let mut bare = without_anchors(&doc);
     assert!(bare.anchor_contexts().is_empty());
-    let out = bare.reattach(&selectors, &HashMap::new());
-    assert!(out.orphaned.is_empty(), "{out:?}");
+    let again = AnchorSelector { path: DocPath::main_body(), ..selectors[2].clone() };
+    let out = bare.reattach(&[selectors.clone(), vec![again]].concat(), &HashMap::new());
+    assert!(out.orphaned.is_empty(), "an id repeated is answered once: {out:?}");
     assert_eq!(out.reattached, selectors);
     assert_eq!(bare, doc);
 }
@@ -111,7 +112,7 @@ fn a_path_naming_no_body_or_content_value_orphans_its_selector() {
     let doc = document();
     let n1 = doc.anchor_context("n1").unwrap();
     let mut bare = without_anchors(&doc);
-    let elsewhere = |path: &str| AnchorSelector { path: path.parse().unwrap(), ..n1.clone() };
+    let elsewhere = |path: &str| AnchorSelector { id: path.into(), path: path.parse().unwrap(), ..n1.clone() };
     let selectors = [
         elsewhere("cards.memo[0].body"),
         elsewhere("cards.note[3].body"),
@@ -142,24 +143,22 @@ fn an_id_live_anywhere_is_answered_and_not_written() {
 }
 
 #[test]
-fn a_dropped_anchor_with_a_surviving_twin_stays_orphaned() {
-    let mut doc = parse("~~~\n$quill: q\n~~~\n\ntarget one to drop\n\nkeep the target two\n");
-    let body = anchored(doc.main().body(), "target", "c1");
+fn a_delta_binds_only_the_path_it_is_keyed_by() {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nThe committee met on Monday to plan.\n");
+    let body = anchored(&anchored(doc.main().body(), "met on Monday", "m1"), "to plan", "m2");
     doc.main_mut().overwrite_body(body);
     let before = doc.anchor_contexts();
+    let mut bare = without_anchors(&doc);
+    let revised = bare.main_mut().revise_body("Minutes.\n\nThe committee met on Monday to plan.").unwrap();
 
-    let mut whole = doc.clone();
-    let receipt = whole.revise("~~~\n$quill: q\n~~~\n\nkeep the target two\n").unwrap();
-    assert_eq!(receipt.dropped_anchors.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["c1"]);
-    let out = whole.reattach(&before, &HashMap::new());
-    assert_eq!(out.orphaned, before);
+    let mut strict = bare.clone();
+    let here = HashMap::from([(DocPath::main_body(), revised.delta.clone())]);
+    assert_eq!(strict.reattach(&before, &here).orphaned, before, "both quotes sit in kept text");
 
-    let revised = doc.main_mut().revise_body("keep the target two").unwrap();
-    assert_eq!(revised.dropped_anchors[0].id, "c1");
-    let deltas = HashMap::from([(DocPath::main_body(), revised.delta)]);
-    let out = doc.reattach(&before, &deltas);
-    assert_eq!(out.orphaned, before);
-    assert!(anchor_ids(doc.main().body()).is_empty());
+    let elsewhere = HashMap::from([("cards.note[0].body".parse().unwrap(), revised.delta)]);
+    let out = bare.reattach(&before, &elsewhere);
+    assert_eq!(ids(&out.reattached), ["m1", "m2"]);
+    assert_eq!(anchor_ids(bare.main().body()), ["m1", "m2"]);
 }
 
 #[test]
