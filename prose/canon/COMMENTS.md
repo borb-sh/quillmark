@@ -21,9 +21,10 @@ Core makes the anchor a reliable handle: it reads what each anchor is attached t
 
 ## Reading a selector
 
-`anchor_contexts` answers, for each prose anchor of a body or content value, its selector: `id`, `path`, `quote`, `prefix` and `suffix`.
+`anchor_contexts` answers, for each prose anchor of a body or content value, its selector: `id`, `path`, `card_id`, `quote`, `prefix` and `suffix`.
 
 - `path` is the `DocPath` of the body or content value holding it.
+- `card_id` is the `$id` of the composable card `path` names, and none on the main card ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#card-id-identity)).
 - `quote` is the anchored text as stored: an inline island is its `U+FFFC` slot and a line break its `\n`. A point's quote is empty.
 - `prefix` and `suffix` are up to 32 Unicode scalar values of stored text on each side, cut at the value's edges.
 
@@ -46,7 +47,9 @@ The read is pure and cheap enough to run before every markdown write.
 A range lands exactly over the quote's characters. A point lands at the one position where the prefix meets the suffix, as an empty range.
 A write that inserts text at a point leaves the point before it: a point binds to the text on its left, as a caret does.
 
-Matching is path-strict. A path naming no body or content value orphans its selector, and core remaps no card index. `DocumentRevised.from` is the alignment a caller remaps a dropped selector's card index through before calling `reattach`.
+A selector naming a `card_id` finds its card by that id, wherever the card now sits: the path's card index moves to that card's.
+An id no card holds, or a card of another kind than the path names, orphans the selector, since the card it was on is gone.
+A selector naming none is path-strict, as is the rest of every path: a path naming no body or content value orphans its selector.
 
 ## Drift
 

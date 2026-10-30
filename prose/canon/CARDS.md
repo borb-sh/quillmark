@@ -124,6 +124,7 @@ card's body.
 ````markdown
 ~~~
 $kind: indorsement
+$id: c3kq9f
 from: ORG1/SYMBOL
 for: ORG2/SYMBOL
 signature_block:
@@ -135,6 +136,18 @@ Indorsement body content.
 ````
 
 See [`markdown-spec.md`](../references/markdown-spec.md) §3 for the full syntax specification.
+
+## Card identity (`$id`)
+
+Every composable card carries a `$id`, a key that names it across writes and
+emits on the line after `$kind`. An author may write one; a card that spells
+none is minted one where it is placed. A whole-document revise pairs a card by
+the id it spells before any text match, and a comment selector finds its card
+by it wherever the card moved. The main card is `main` and carries none.
+[DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#card-id-identity) states the grammar,
+the mint and each door's settle. `$id` never reaches the plate JSON, so it is
+not the per-card key a template reads; it replaces the durable key a consumer
+used to carry in `$ext`.
 
 ## Backend Consumption
 

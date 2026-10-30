@@ -137,7 +137,7 @@ impl<'a> TypedWriter<'a> {
     /// [`BoundParseError::Mismatch`] before any mutation, and a parse failure
     /// as [`BoundParseError::Parse`].
     pub fn revise_document(&mut self, markdown: &str) -> Result<DocumentRevised, BoundParseError> {
-        let parsed = Document::parse(markdown)?;
+        let parsed = Document::parse_unsettled(markdown)?;
         self.revise_parsed(parsed)
     }
 

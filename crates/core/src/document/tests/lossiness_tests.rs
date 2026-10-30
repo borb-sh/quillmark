@@ -734,7 +734,8 @@ fn a_card_payload_comment_round_trips_below_its_kind() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n\n~~~card-yaml\n$kind: foo\n# the foo card\nx: 1\n~~~\n";
     let doc = Document::parse(src).unwrap().document;
     let emitted = doc.to_markdown();
-    assert!(emitted.contains("~~~\n$kind: foo\n# the foo card\n"), "{emitted}");
+    let id = doc.cards()[0].id().unwrap();
+    assert!(emitted.contains(&format!("~~~\n$kind: foo\n$id: {id}\n# the foo card\n")), "{emitted}");
     assert_eq!(Document::parse(&emitted).unwrap().document, doc);
 }
 

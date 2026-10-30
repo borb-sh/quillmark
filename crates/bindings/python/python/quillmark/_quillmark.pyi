@@ -163,6 +163,7 @@ class Document:
 class AnchorContext(TypedDict):
     id: str
     path: str
+    card_id: str | None
     quote: str
     prefix: str
     suffix: str
@@ -178,6 +179,7 @@ class DroppedAnchor(TypedDict):
 class DocumentDroppedAnchor(TypedDict):
     id: str
     path: str
+    card_id: str | None
     line: str
 
 class Revised(TypedDict):

@@ -8,6 +8,7 @@ Reading a document: card-yaml, limits, body import.
 
 - `parse::body_import`
 - `parse::card_fence_missing_blank`
+- `parse::card_id_reminted`
 - `parse::dropped_construct`
 - `parse::empty_input`
 - `parse::input_too_large`
@@ -153,12 +154,14 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 A mutator or typed write the document refuses.
 
 - `edit::content_apply`
+- `edit::duplicate_card_id`
 - `edit::field_coercion_failed`
 - `edit::field_decode`
 - `edit::field_not_content`
 - `edit::field_not_single_line`
 - `edit::import`
 - `edit::index_out_of_range`
+- `edit::invalid_card_id`
 - `edit::invalid_field_name`
 - `edit::invalid_kind_name`
 - `edit::invalid_payload`

@@ -140,6 +140,17 @@ impl DocPath {
         &self.segs
     }
 
+    /// This path with its card moved to `index`; `None` where it roots at no
+    /// composable card.
+    pub(crate) fn with_card_index(&self, index: usize) -> Option<Self> {
+        let mut segs = self.segs.clone();
+        match segs.first_mut()? {
+            DocSeg::Card { index: at, .. } => *at = index,
+            _ => return None,
+        }
+        Some(Self { segs })
+    }
+
     fn pushing(&self, seg: DocSeg) -> Self {
         let mut segs = self.segs.clone();
         segs.push(seg);

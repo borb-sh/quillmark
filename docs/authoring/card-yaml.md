@@ -86,6 +86,13 @@ on the block's typed metadata.
   nothing checks its fields, and a plate shows only the kinds it knows.
   `quill.validate(doc)` warns on it (`validation::unknown_card`) and lists the
   declared kinds.
+- **`$id: <card-id>`** names a composable card across edits, so a rewrite or a
+  comment finds it wherever it moved. Leave it out of a new card and one is
+  minted (`c3kq9f`); keep the line a card already has when you edit it. You may
+  write your own: 1 to 64 letters, digits, `_` or `-`, opening with a letter or
+  digit, unique in the document. One outside that, or one an earlier card
+  holds, is replaced with a minted id and a `parse::card_id_reminted` warning.
+  The root block takes none, and `$id` never reaches the plate JSON.
 - **`$ext: <mapping>`** is an opaque YAML mapping reserved for out-of-band
   extension data: UI editor state, agent annotations, anything bespoke to a
   consumer that should not reach the rendered output. Round-trips through
@@ -102,10 +109,9 @@ on the block's typed metadata.
   "Per-kind Seed Overlays"). A composable card carrying `$seed` is rejected.
 
 `$` metadata entries may appear anywhere in the block's payload (the
-canonical emission puts them first, in the order `$quill`, `$kind`,
+canonical emission puts them first, in the order `$quill`, `$kind`, `$id`,
 `$ext`, `$seed`). Any other `$`-prefixed key is a parse error: the set
-is closed. To carry a per-card key of your own, put it in `$ext` under a
-namespace you own.
+is closed.
 
 ### Version Selectors
 

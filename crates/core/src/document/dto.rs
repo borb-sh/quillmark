@@ -27,17 +27,22 @@ use super::{Card, Document};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
 
-/// The newest storage version tag: a serialized document holding a member a
-/// `0.130` build refuses or draws otherwise carries it, every other
-/// [`STORAGE_V0_129_0`].
+/// The newest storage version tag: a serialized document holding a
+/// composable card, each of which carries its `$id` as an `id` item, carries
+/// it. A document of the main card alone carries the oldest tag that holds it.
 ///
 /// The wire key is spelled `schema` though it names a storage version, not a
 /// field schema: it is the serde tag [`StoredDocument`] dispatches on, and
 /// retagging it would break the versioning it exists to serve.
+pub const STORAGE_V0_134_0: &str = "quillmark/document@0.134.0";
+
+/// The tag before [`STORAGE_V0_134_0`], read, and written for a document of
+/// the main card alone holding a member a `0.130` build refuses or draws
+/// otherwise.
 pub const STORAGE_V0_131_0: &str = "quillmark/document@0.131.0";
 
 /// The tag before [`STORAGE_V0_131_0`], read, and written for a document
-/// holding none of the members it adds.
+/// holding none of the members either later tag adds.
 pub const STORAGE_V0_129_0: &str = "quillmark/document@0.129.0";
 
 /// The tag before [`STORAGE_V0_129_0`], still read.
@@ -66,6 +71,8 @@ pub fn peek_storage_version(json: &str) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "schema")]
 pub enum StoredDocument {
+    #[serde(rename = "quillmark/document@0.134.0")]
+    V0_134_0(DocumentV0_134_0),
     #[serde(rename = "quillmark/document@0.131.0")]
     V0_131_0(DocumentV0_131_0),
     #[serde(rename = "quillmark/document@0.129.0")]
@@ -105,6 +112,10 @@ impl std::fmt::Display for StorageError {
 }
 
 impl std::error::Error for StorageError {}
+
+/// Frozen `0.134.0` representation of a [`Document`]: the V0_129_0 tree, each
+/// composable card's payload holding an `id` item.
+pub type DocumentV0_134_0 = DocumentV0_129_0;
 
 /// Frozen `0.131.0` representation of a [`Document`]: the V0_129_0 tree over
 /// the content vocabulary holding the `font_family` mark, a table's `head` and
@@ -178,6 +189,9 @@ pub enum PayloadItemV0_124_0 {
     Quill { value: String },
     /// `$kind` system metadata.
     Kind { value: String },
+    /// `$id` system metadata: a composable card's id. Written under
+    /// [`STORAGE_V0_134_0`].
+    Id { value: String },
     /// `$ext` system metadata: an opaque mapping carrying out-of-band
     /// extension data. Never emitted into the plate JSON.
     Ext {
@@ -261,7 +275,9 @@ pub enum CommentPathSegmentV0_124_0 {
 impl From<Document> for StoredDocument {
     fn from(doc: Document) -> Self {
         let tree = DocumentV0_131_0::from(&doc);
-        if spells_0_131_0(&tree) {
+        if !tree.cards.is_empty() {
+            StoredDocument::V0_134_0(tree)
+        } else if spells_0_131_0(&tree) {
             StoredDocument::V0_131_0(tree)
         } else {
             StoredDocument::V0_129_0(tree)
@@ -375,6 +391,9 @@ impl From<&PayloadItem> for PayloadItemV0_124_0 {
             PayloadItem::Kind { value } => PayloadItemV0_124_0::Kind {
                 value: value.clone(),
             },
+            PayloadItem::Id { value } => PayloadItemV0_124_0::Id {
+                value: value.clone(),
+            },
             // The DTO keeps `$ext` / `$seed` as explicit variants, so the live
             // model's unified `Meta` splits back out by key. Neither carries
             // `nested_comments`: those live in the payload-level sidecar.
@@ -431,7 +450,9 @@ impl TryFrom<StoredDocument> for Document {
 
     fn try_from(stored: StoredDocument) -> Result<Self, Self::Error> {
         match stored {
-            StoredDocument::V0_131_0(payload) | StoredDocument::V0_129_0(payload) => Document::try_from(payload),
+            StoredDocument::V0_134_0(payload)
+            | StoredDocument::V0_131_0(payload)
+            | StoredDocument::V0_129_0(payload) => Document::try_from(payload),
             StoredDocument::V0_124_0(payload) => {
                 Document::try_from(DocumentV0_129_0::try_from(payload)?)
             }
@@ -447,6 +468,11 @@ impl TryFrom<DocumentV0_129_0> for Document {
         if main.quill().is_none() {
             return Err(StorageError::Malformed(
                 "main card must carry a $quill entry".into(),
+            ));
+        }
+        if main.id().is_some() {
+            return Err(StorageError::Malformed(
+                "main card must not carry a $id entry: it is addressed as `main`".into(),
             ));
         }
         // The root's `$kind` is `main` by position: any other value emits a root
@@ -468,7 +494,16 @@ impl TryFrom<DocumentV0_129_0> for Document {
             .map(Card::try_from)
             .collect::<Result<Vec<_>, _>>()?;
         let mut kindless = false;
+        let mut ids = std::collections::HashSet::new();
         for card in &cards {
+            if let Some(id) = card.id() {
+                if !super::card_id::is_card_id(id) {
+                    return Err(StorageError::Malformed(format!("invalid card id {id:?}")));
+                }
+                if !ids.insert(id) {
+                    return Err(StorageError::Malformed(format!("card id {id:?} is held by two cards")));
+                }
+            }
             if card.quill().is_some() {
                 return Err(StorageError::Malformed(
                     "composable cards must not carry a $quill entry".into(),
@@ -723,6 +758,7 @@ impl TryFrom<PayloadItemV0_124_0> for PayloadItem {
                 PayloadItem::Quill { reference }
             }
             PayloadItemV0_124_0::Kind { value } => PayloadItem::Kind { value },
+            PayloadItemV0_124_0::Id { value } => PayloadItem::Id { value },
             PayloadItemV0_124_0::Ext { value } => PayloadItem::Meta {
                 key: MetaKey::Ext,
                 value: depth_check_meta_map(value, "$ext")?,
@@ -818,6 +854,14 @@ This body and the metadata above are an indorsement card.
         )
         .unwrap()
         .document
+    }
+
+    /// [`sample`] without its composable card, so its tag follows the content
+    /// vocabulary alone.
+    fn sample_main() -> Document {
+        let mut doc = sample();
+        doc.cards.clear();
+        doc
     }
 
     /// `overwrite_body` takes a caller's content on the canonical-form token
@@ -1052,7 +1096,7 @@ This body and the metadata above are an indorsement card.
     fn peek_storage_version_reads_field_without_full_parse() {
         let doc = sample();
         let json = serde_json::to_string(&doc).unwrap();
-        assert_eq!(peek_storage_version(&json).as_deref(), Some(STORAGE_V0_129_0));
+        assert_eq!(peek_storage_version(&json).as_deref(), Some(STORAGE_V0_134_0));
 
         let future = r#"{"schema":"quillmark/document@0.99.0","main":{}}"#;
         assert_eq!(
@@ -1421,9 +1465,9 @@ title: Hi
         let second = serde_json::to_string(&restored).unwrap();
         assert_eq!(
             first, second,
-            "V0_129_0 serialize→deserialize is a byte-fixed point"
+            "V0_134_0 serialize→deserialize is a byte-fixed point"
         );
-        assert_eq!(peek_storage_version(&first).as_deref(), Some(STORAGE_V0_129_0));
+        assert_eq!(peek_storage_version(&first).as_deref(), Some(STORAGE_V0_134_0));
     }
 
     fn tag_of(doc: &Document) -> Option<String> {
@@ -1438,7 +1482,7 @@ title: Hi
     }
 
     fn with_item(item: serde_json::Value) -> Document {
-        let mut row: serde_json::Value = serde_json::to_value(sample()).unwrap();
+        let mut row: serde_json::Value = serde_json::to_value(sample_main()).unwrap();
         row["main"]["payload"]["items"].as_array_mut().unwrap().push(item);
         serde_json::from_value(row).unwrap()
     }
@@ -1473,7 +1517,7 @@ title: Hi
         let field = |value| with_item(serde_json::json!({"type": "field", "key": "summary", "value": value}));
         let in_field = field(content("a", serde_json::json!([font_mark()]), serde_json::json!([])));
         assert_eq!(tag_of(&in_field).as_deref(), Some(STORAGE_V0_131_0));
-        assert_eq!(tag_of(&sample()).as_deref(), Some(STORAGE_V0_129_0));
+        assert_eq!(tag_of(&sample_main()).as_deref(), Some(STORAGE_V0_129_0));
 
         let cell = serde_json::json!({"marks": [font_mark()], "text": "c"});
         let table = serde_json::json!([{"id": "t", "type": "table", "props": {"header": [cell], "rows": [], "aligns": ["none"]}}]);
@@ -1560,11 +1604,66 @@ title: Hi
         );
     }
 
+    /// A document holding a composable card saves under `0.134.0`, each card's
+    /// `$id` an `id` item; an older row's cards mint theirs on load, the same
+    /// ids on every load; a bad, duplicated, or main-card id refuses.
+    #[test]
+    fn a_card_id_saves_under_the_newest_tag() {
+        let doc = sample();
+        let row: serde_json::Value = serde_json::to_value(&doc).unwrap();
+        assert_eq!(row["schema"], STORAGE_V0_134_0);
+        let id = doc.cards()[0].id().unwrap().to_string();
+        assert!(row["cards"][0]["payload"]["items"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!({"type": "id", "value": id})));
+
+        let mut older = row.clone();
+        older["schema"] = STORAGE_V0_129_0.into();
+        older["cards"][0]["payload"]["items"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|item| item["type"] != "id");
+        let first: Document = serde_json::from_value(older.clone()).unwrap();
+        let second: Document = serde_json::from_value(older).unwrap();
+        assert_eq!(first.cards()[0].id(), second.cards()[0].id());
+        assert!(first.cards()[0].id().is_some());
+
+        let refuse = |edit: &dyn Fn(&mut serde_json::Value)| {
+            let mut bad = row.clone();
+            edit(&mut bad);
+            serde_json::from_value::<Document>(bad).unwrap_err().to_string()
+        };
+        let set_id = |value: &str| {
+            let value = value.to_string();
+            move |row: &mut serde_json::Value| {
+                for item in row["cards"][0]["payload"]["items"].as_array_mut().unwrap() {
+                    if item["type"] == "id" {
+                        item["value"] = value.clone().into();
+                    }
+                }
+            }
+        };
+        assert!(refuse(&set_id("-x")).contains("invalid card id"));
+        assert!(refuse(&|row| {
+            let card = row["cards"][0].clone();
+            row["cards"].as_array_mut().unwrap().push(card);
+        })
+        .contains("held by two cards"));
+        assert!(refuse(&|row| {
+            row["main"]["payload"]["items"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({"type": "id", "value": "m"}));
+        })
+        .contains("must not carry a $id"));
+    }
+
     /// The tag follows the content saved, not the tag read: a `0.131.0` row
     /// whose font mark is gone saves under `0.129.0`.
     #[test]
     fn a_row_without_new_vocabulary_saves_under_the_older_tag() {
-        let mut row: serde_json::Value = serde_json::to_value(sample()).unwrap();
+        let mut row: serde_json::Value = serde_json::to_value(sample_main()).unwrap();
         row["schema"] = STORAGE_V0_131_0.into();
         let doc: Document = serde_json::from_value(row).unwrap();
         assert_eq!(tag_of(&doc).as_deref(), Some(STORAGE_V0_129_0));

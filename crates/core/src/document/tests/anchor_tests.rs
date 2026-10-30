@@ -112,7 +112,12 @@ fn a_path_naming_no_body_or_content_value_orphans_its_selector() {
     let doc = document();
     let n1 = doc.anchor_context("n1").unwrap();
     let mut bare = without_anchors(&doc);
-    let elsewhere = |path: &str| AnchorSelector { id: path.into(), path: path.parse().unwrap(), ..n1.clone() };
+    let elsewhere = |path: &str| AnchorSelector {
+        id: path.into(),
+        path: path.parse().unwrap(),
+        card_id: None,
+        ..n1.clone()
+    };
     let selectors = [
         elsewhere("cards.memo[0].body"),
         elsewhere("cards.note[3].body"),
@@ -216,4 +221,36 @@ fn every_field_revise_names_the_anchor_it_drops() {
     assert!(kept.dropped_anchors.is_empty(), "{kept:?}");
     let read = card.field_content("f", Codec::Richtext).unwrap().unwrap();
     assert!(read.marks.iter().any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")));
+}
+
+/// A selector naming its card's `$id` finds the card wherever it moved, and
+/// orphans where no card of its kind holds the id.
+#[test]
+fn a_selector_resolves_its_card_by_id() {
+    let doc = document();
+    let n1 = doc.anchor_context("n1").unwrap();
+    let id = doc.cards()[0].id().unwrap().to_string();
+    assert_eq!(n1.card_id.as_deref(), Some(id.as_str()));
+    assert_eq!(
+        doc.to_markdown_annotated().anchors.iter().map(|a| a.card_id.as_deref()).collect::<Vec<_>>(),
+        [None, Some(id.as_str()), Some(id.as_str())]
+    );
+
+    let moved = without_anchors(&doc).to_markdown().replacen(
+        "~~~\n$kind: note",
+        "~~~\n$kind: note\n~~~\n\nAn earlier note.\n\n~~~\n$kind: note",
+        1,
+    );
+    let mut reopened = parse(&moved);
+    assert_eq!(reopened.cards()[1].id(), Some(id.as_str()));
+    let out = reopened.reattach(&[n1.clone()], &HashMap::new());
+    assert_eq!(out.reattached[0].path.to_string(), "cards.note[1].body");
+    assert_eq!(anchor_ids(reopened.cards()[1].body()), ["n1"]);
+
+    let gone = AnchorSelector { card_id: Some("nobody".into()), ..n1.clone() };
+    let other_kind = AnchorSelector { path: "cards.memo[0].body".parse().unwrap(), ..n1 };
+    for selector in [gone, other_kind] {
+        let out = without_anchors(&doc).reattach(&[selector.clone()], &HashMap::new());
+        assert_eq!(out.orphaned, [selector]);
+    }
 }

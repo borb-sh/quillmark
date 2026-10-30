@@ -114,12 +114,14 @@ describe('Document.toMarkdown', () => {
 
 // The DTO's content rules are core's (`core/src/document/dto.rs`).
 describe('Document JSON DTO: toStored / fromStored', () => {
-  it('toStored emits a plain JSON string carrying the newest schema version only for a font mark', () => {
+  it('toStored emits a plain JSON string carrying the newest schema version only for a composable card', () => {
     const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
     expect(typeof dto).toBe('string')
     expect(JSON.parse(dto).schema).toBe('quillmark/document@0.129.0')
     const fonted = Document.fromMarkdown(`${TEST_MARKDOWN} <qm-span family="Carlito">Set</qm-span>`).toStored()
-    expect(JSON.parse(fonted).schema).toBe(Document.currentStorageVersion())
+    expect(JSON.parse(fonted).schema).toBe('quillmark/document@0.131.0')
+    const carded = Document.fromMarkdown(`${TEST_MARKDOWN}\n\n~~~\n$kind: note\n~~~\n`).toStored()
+    expect(JSON.parse(carded).schema).toBe(Document.currentStorageVersion())
   })
 
   it('round-trips a mutated document with cards back to an equal handle', () => {
@@ -487,6 +489,42 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
     expect(doc.equals(held)).toBe(true)
     expect(() => doc.reattach([{ ...elsewhere, path: 'main.[' }])).toThrow(/reattach/)
     expect(() => doc.reattach([{ id: 'x' }])).toThrow(/reattach/)
+  })
+})
+
+describe('Card ids', () => {
+  const MD = '~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nA note about the orchard rows.\n'
+
+  it('a composable card carries its $id through markdown and placement', () => {
+    const doc = Document.fromMarkdown(MD)
+    const id = doc.cards[0].id
+    expect(id).toMatch(/^c[a-z2-9]{5}$/)
+    expect(doc.main.id).toBeUndefined()
+    expect(doc.toMarkdown()).toContain(`$kind: note\n$id: ${id}\n`)
+    expect(Document.fromMarkdown(doc.toMarkdown()).cards[0].id).toBe(id)
+
+    doc.insertCard(makeCard('note', {}, 'Placed.'))
+    expect(doc.cards[1].id).toMatch(/^c[a-z2-9]{5}$/)
+    expect(doc.cards[1].id).not.toBe(id)
+    doc.insertCard({ ...makeCard('note'), id: 'chosen' })
+    expect(doc.cards[2].id).toBe('chosen')
+    expectEditCode(() => doc.insertCard({ ...makeCard('note'), id }), 'edit::duplicate_card_id')
+    expectEditCode(() => doc.insertCard({ ...makeCard('note'), id: '-x' }), 'edit::invalid_card_id')
+  })
+
+  it('a selector names its card, and reattach follows the card wherever it moved', () => {
+    const doc = Document.fromMarkdown(MD)
+    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 17, end: 29, type: 'anchor', attrs: { id: 'n1' } }] })
+    const [selector] = doc.anchorContexts()
+    expect(selector).toMatchObject({ path: 'cards.note[0].body', cardId: doc.cards[0].id, quote: 'orchard rows' })
+    expect(doc.toAnnotatedMarkdown().anchors[0].cardId).toBe(doc.cards[0].id)
+
+    const reopened = Document.fromMarkdown(doc.toMarkdown())
+    reopened.insertCard(makeCard('note', {}, 'An earlier note.'), 0)
+    const { reattached, orphaned } = reopened.reattach([selector])
+    expect(orphaned).toEqual([])
+    expect(reattached[0].path).toBe('cards.note[1].body')
+    expect(reopened.reattach([{ ...selector, id: 'n2', cardId: 'nobody' }]).orphaned.length).toBe(1)
   })
 })
 
@@ -1011,7 +1049,7 @@ Card body.
     expect(read.markdown).toContain('A <qm-anchor ref="n"></qm-anchor>note.')
     expect(read.anchors).toEqual([
       { id: 'b', path: 'main.body', line: 'Main body.' },
-      { id: 'n', path: 'cards.note[0].body', line: 'A note.' },
+      { id: 'n', path: 'cards.note[0].body', cardId: doc.cards[0].id, line: 'A note.' },
     ])
 
     expect(Document.fromMarkdown(read.markdown).equals(Document.fromMarkdown(doc.toMarkdown()))).toBe(true)

@@ -40,6 +40,9 @@ pub struct DocumentAnchor {
     pub id: String,
     /// The body or content field holding the anchor.
     pub path: DocPath,
+    /// The `$id` of the composable card `path` names; `None` on the main
+    /// card.
+    pub card_id: Option<String>,
     /// The text of the content line the anchor's start sits on, island slots
     /// removed.
     pub line: String,
@@ -86,10 +89,11 @@ impl Document {
     pub fn to_markdown_annotated(&self) -> AnnotatedMarkdown {
         let anchors = Anchors::default();
         let markdown = self.emit(Some(&anchors));
-        AnnotatedMarkdown {
-            markdown,
-            anchors: anchors.into_inner(),
+        let mut anchors = anchors.into_inner();
+        for anchor in &mut anchors {
+            anchor.card_id = self.card_id_at(&anchor.path).map(str::to_string);
         }
+        AnnotatedMarkdown { markdown, anchors }
     }
 
     fn emit(&self, anchors: Option<&Anchors>) -> String {
@@ -134,6 +138,7 @@ fn annotated(content: &Normalized, path: &DocPath, anchors: &Anchors) -> String 
         .extend(read.anchors.into_iter().map(|a| DocumentAnchor {
             id: a.id,
             path: path.clone(),
+            card_id: None,
             line: a.line,
         }));
     read.markdown
@@ -347,6 +352,9 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
             }
             PayloadItem::Kind { value } => {
                 emit_meta_line(out, "kind", value, trailer);
+            }
+            PayloadItem::Id { value } => {
+                emit_meta_line(out, "id", value, trailer);
             }
             PayloadItem::Meta { key, value } => {
                 emit_meta_block(out, key.as_str(), value, trailer, comments_of(key.as_str()));

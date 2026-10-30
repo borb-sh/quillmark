@@ -54,6 +54,10 @@ pub struct CardWire {
     /// declares no `$kind`. Kept non-optional to match the binding read shape.
     #[serde(default)]
     pub kind: String,
+    /// A composable card's `$id`. Omitted on the main card, and on input for
+    /// a card that mints one where it is placed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     /// The block's `$quill` reference string (`name@version`), present on the
     /// main card only. Omitted when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -91,6 +95,7 @@ impl CardWire {
     pub fn new(kind: String, body: JsonValue) -> Self {
         Self {
             kind,
+            id: None,
             quill: None,
             ext: None,
             seed: None,
@@ -142,6 +147,7 @@ impl From<&Card> for CardWire {
     fn from(card: &Card) -> Self {
         let mut wire = CardWire {
             kind: String::new(),
+            id: None,
             quill: None,
             ext: None,
             seed: None,
@@ -152,6 +158,7 @@ impl From<&Card> for CardWire {
             match item {
                 PayloadItem::Quill { reference } => wire.quill = Some(reference.to_string()),
                 PayloadItem::Kind { value } => wire.kind = value.clone(),
+                PayloadItem::Id { value } => wire.id = Some(value.clone()),
                 PayloadItem::Meta {
                     key: MetaKey::Ext,
                     value,
@@ -205,7 +212,7 @@ impl TryFrom<CardWire> for Card {
             .collect::<Result<Vec<_>, WireError>>()?;
 
         // Applying each `$` entry through its setter keeps the canonical
-        // `$quill < $kind < $ext < $seed` ordering regardless of input order.
+        // `$quill < $kind < $id < $ext < $seed` ordering regardless of input order.
         let mut payload = Payload::from_items(items);
         if let Some(value) = wire.quill {
             let reference = QuillReference::from_str(&value)
@@ -217,6 +224,9 @@ impl TryFrom<CardWire> for Card {
         // (`check_composable_placement`).
         if !wire.kind.is_empty() {
             payload.set_kind(wire.kind);
+        }
+        if let Some(id) = wire.id {
+            payload.set_id(id);
         }
         let too_deep = |max| WireError::Edit(EditError::ValueTooDeep { max });
         if let Some(ext) = wire.ext {
@@ -317,6 +327,7 @@ mod tests {
     #[test]
     fn card_wire_json_shape() {
         let card = Card::try_from(CardWire {
+            id: None,
             kind: "note".to_string(),
             quill: None,
             ext: None,
@@ -340,6 +351,7 @@ mod tests {
     #[test]
     fn card_wire_rejects_bad_quill() {
         let err = Card::try_from(CardWire {
+            id: None,
             kind: String::new(),
             quill: Some("@nope".to_string()),
             ext: None,
@@ -437,6 +449,7 @@ mod tests {
     #[test]
     fn card_wire_accepts_any_kind() {
         let card = Card::try_from(CardWire {
+            id: None,
             kind: "BadKind".to_string(),
             quill: None,
             ext: None,

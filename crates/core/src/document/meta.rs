@@ -18,6 +18,7 @@ pub(super) fn meta_key(item: &PayloadItem) -> Option<&'static str> {
     match item {
         PayloadItem::Quill { .. } => Some("$quill"),
         PayloadItem::Kind { .. } => Some("$kind"),
+        PayloadItem::Id { .. } => Some("$id"),
         PayloadItem::Meta { key, .. } => Some(key.as_str()),
         PayloadItem::Field { .. } | PayloadItem::Comment { .. } => None,
     }
@@ -27,10 +28,12 @@ pub(super) fn meta_key(item: &PayloadItem) -> Option<&'static str> {
 /// [`PayloadItem`]s in source order, removing them from `payload` so the caller
 /// builds the user-field portion from what remains.
 ///
-/// The accepted keys are the closed set `{$quill, $kind, $ext, $seed}`; any
-/// other `$` key is a parse error. `$quill` and `$kind` require string scalars,
-/// `$ext` and `$seed` a mapping. Duplicates cannot arise here: the YAML parser
-/// rejects them first.
+/// The accepted keys are the closed set `{$quill, $kind, $id, $ext, $seed}`;
+/// any other `$` key is a parse error. `$quill` and `$kind` require string
+/// scalars, `$ext` and `$seed` a mapping. `$id` takes any value, a string as
+/// written and anything else as its JSON text, since a settle re-mints an id
+/// outside the grammar rather than refusing the card. Duplicates cannot arise
+/// here: the YAML parser rejects them first.
 pub(super) fn extract_meta_items(payload: &mut JsonValue) -> Result<Vec<PayloadItem>, ParseError> {
     let map = match payload {
         JsonValue::Object(m) => m,
@@ -75,6 +78,12 @@ pub(super) fn extract_meta_items(payload: &mut JsonValue) -> Result<Vec<PayloadI
                 }
                 PayloadItem::Kind { value: s }
             }
+            "$id" => PayloadItem::Id {
+                value: match value {
+                    JsonValue::String(s) => s,
+                    other => other.to_string(),
+                },
+            },
             "$ext" | "$seed" => {
                 let meta_key = MetaKey::from_key_str(&key).expect("matched $ext/$seed above");
                 match value {
@@ -94,7 +103,7 @@ pub(super) fn extract_meta_items(payload: &mut JsonValue) -> Result<Vec<PayloadI
             other => {
                 return Err(ParseError::InvalidStructure(format!(
                     "Unknown `{}` system-metadata key: the card-yaml block \
-                     accepts only `$quill`, `$kind`, `$ext`, and `$seed`",
+                     accepts only `$quill`, `$kind`, `$id`, `$ext`, and `$seed`",
                     other
                 )));
             }
