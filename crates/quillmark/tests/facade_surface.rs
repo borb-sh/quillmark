@@ -5,9 +5,10 @@
 use std::collections::HashMap;
 
 use quillmark::{
-    AnnotatedMarkdown, CalendarDate, CardReader, Delta, Document, DocumentAnchor, DocumentRevised,
-    EditError, FileTreeNode, ImportError, Normalized, ParseDateError,
-    Parsed, Quill, QuillReference, QuillValue, Revised, TypedReader, TypedWriter,
+    AnchorRead, AnchorSelector, AnnotatedMarkdown, CalendarDate, CardReader, Delta, DocPath,
+    Document, DocumentAnchor, DocumentRevised, EditError, FileTreeNode, ImportError, Normalized,
+    ParseDateError, Parsed, Quill, QuillReference, QuillValue, Reattached, Revised, TypedReader,
+    TypedWriter,
 };
 
 const QUILL: &str = r#"
@@ -81,8 +82,9 @@ fn content_lane_spells_through_the_facade() {
     let _: Option<Normalized> = reader.get_content("subject").expect("subject is declared");
 
     let revised: Result<Revised, EditError> = doc.main_mut().revise_body("# Body");
-    let Revised { delta, .. } = revised.expect("a heading imports");
+    let Revised { delta, dropped_anchors, .. } = revised.expect("a heading imports");
     let _: Delta = delta;
+    let _: Vec<AnchorRead> = dropped_anchors;
     let _: fn(ImportError) -> EditError = EditError::Import;
 
     let read: AnnotatedMarkdown = doc.to_markdown_annotated();
@@ -95,6 +97,12 @@ fn content_lane_spells_through_the_facade() {
         .expect("the document's own markdown revises");
     let _: &[DocumentAnchor] = &revised.dropped_anchors;
     let _: &[Option<usize>] = &revised.from;
+
+    let selectors: Vec<AnchorSelector> = doc.anchor_contexts();
+    let _: Option<AnchorSelector> = doc.anchor_context("c1");
+    let deltas: HashMap<DocPath, Delta> = HashMap::new();
+    let Reattached { reattached, orphaned, .. } = doc.reattach(&selectors, &deltas);
+    let _: (Vec<AnchorSelector>, Vec<AnchorSelector>) = (reattached, orphaned);
 }
 
 #[test]

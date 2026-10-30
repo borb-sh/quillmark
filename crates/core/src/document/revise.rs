@@ -1,16 +1,14 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use std::collections::HashSet;
-
 use quillmark_content::delta::rebase_marks;
-use quillmark_content::export::anchors_where;
 use quillmark_content::import::from_markdown;
 use quillmark_content::model::{MarkKind, Normalized};
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 
 use super::align::{align, Pairing, Slot};
+use super::edit::dropped_anchors;
 use super::emit::{canonical_content, emit_payload_fields, DocumentAnchor};
 use super::{dropped_constructs, Card, Document, Parsed};
 use crate::error::{Diagnostic, ParseError};
@@ -266,15 +264,9 @@ fn drop_content(
     at: &DocPath,
     out: &mut Vec<DocumentAnchor>,
 ) {
-    let kept: HashSet<&str> = revised
-        .into_iter()
-        .flat_map(|content| &content.marks)
-        .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } => Some(id.as_str()),
-            _ => None,
-        })
-        .collect();
-    out.extend(anchors_where(stored, |id| !kept.contains(id)).into_iter().map(|a| DocumentAnchor {
+    let removed = Normalized::empty();
+    let dropped = dropped_anchors(stored, revised.unwrap_or(&removed));
+    out.extend(dropped.into_iter().map(|a| DocumentAnchor {
         id: a.id,
         path: at.clone(),
         line: a.line,

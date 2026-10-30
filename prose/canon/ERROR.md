@@ -186,8 +186,9 @@ families:
   `revise_document`) carries the parse's warnings, then each revised content
   field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
   at the placed card's body, WASM `importMarkdown` and `rebase` beside the
-  content with no `path`, and Python's `revise_body` / `revise_field` /
-  `revise_document` / `add_card` as a list. A typed `set` / `set_all` returns
+  content with no `path`. Python's `add_card` returns them as a list, and its
+  `revise_body` / `revise_field` / `revise_document` under the dict receipt's
+  `warnings`, as `Diagnostic` objects. A typed `set` / `set_all` returns
   a `richtext` string's drops at the string's path (WASM `set` / `setAll`,
   Python `set` / `set_all`), and `add_card` its fields' ahead of its body's. A
   conform reports a string's drops beside its `conform::*` warnings, and

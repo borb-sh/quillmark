@@ -426,13 +426,17 @@ export interface Delta {
 
 /**
  * The receipt of a revise (`revise`, `reviseContent`, `writer.reviseBody`,
- * `writer.reviseField`): the text `delta`, and one `parse::dropped_construct`
+ * `writer.reviseField`): the text `delta`, one `parse::dropped_construct`
  * warning per construct a markdown import dropped, anchored at the revised
- * address. `reviseContent` imports nothing, so its `warnings` is empty.
+ * address, and `droppedAnchors`, every prose anchor of the stored value whose
+ * id the revised value holds nowhere, each with the text of the line it stood
+ * on. `reviseContent` imports nothing, so its `warnings` is empty. The revised
+ * address is the dropped anchors' path, so they carry none.
  */
 export interface Revised {
     delta: Delta;
     warnings: Diagnostic[];
+    droppedAnchors: { id: string; line: string }[];
 }
 
 /**
@@ -469,6 +473,31 @@ export interface DocumentAnchor {
     id: string;
     path: string;
     line: string;
+}
+
+/**
+ * A prose anchor's context at its address (`anchorContexts`, `anchorContext`,
+ * `reattach`): the text-quote selector a host stores beside a comment thread.
+ * `path` is the body or content value's `DocPath` string. `quote` is the
+ * anchored text as stored, an inline island its `U+FFFC` slot and a line break
+ * its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
+ * of stored text on each side, cut at the value's edges.
+ */
+export interface AnchorContext {
+    id: string;
+    path: string;
+    quote: string;
+    prefix: string;
+    suffix: string;
+}
+
+/**
+ * The receipt of `reattach`: each selector given, in order, either reattached
+ * with its context as read after the write, or orphaned as given.
+ */
+export interface Reattached {
+    reattached: AnchorContext[];
+    orphaned: AnchorContext[];
 }
 
 /**
@@ -1152,6 +1181,81 @@ impl Document {
             anchors: read.anchors.into_iter().map(Into::into).collect(),
         };
         serialize_or_throw(&js, "toAnnotatedMarkdown")
+    }
+
+    /// Every prose anchor of every body and content value with its context, in
+    /// the order `toAnnotatedMarkdown` lists anchors: the selector a host
+    /// stores beside a comment thread and hands back to `reattach`. A table
+    /// cell's anchors are outside it.
+    #[wasm_bindgen(js_name = anchorContexts, unchecked_return_type = "AnchorContext[]")]
+    pub fn anchor_contexts(&self) -> Result<JsValue, JsValue> {
+        let js: Vec<AnchorContextJs> =
+            self.inner.anchor_contexts().into_iter().map(Into::into).collect();
+        serialize_or_throw(&js, "anchorContexts")
+    }
+
+    /// The context of the prose anchor `id`, or `undefined` where no body or
+    /// content value holds one.
+    #[wasm_bindgen(js_name = anchorContext, unchecked_return_type = "AnchorContext | undefined")]
+    pub fn anchor_context(&self, id: &str) -> Result<JsValue, JsValue> {
+        match self.inner.anchor_context(id) {
+            Some(selector) => serialize_or_throw(&AnchorContextJs::from(selector), "anchorContext"),
+            None => Ok(JsValue::UNDEFINED),
+        }
+    }
+
+    /// Re-add anchors a write dropped, each at the `path` its selector names,
+    /// where its `quote` is found exactly once with its context agreeing: four
+    /// scalar values of quote or more, or a table's slot alone, eight of
+    /// context on each side or the whole context where the value's edge cut
+    /// it, and an empty quote a point where the two meet. Never a nearest match. Returns the `Reattached`
+    /// receipt.
+    ///
+    /// A path naming no body or content value orphans its selector, and
+    /// nothing remaps a card index. An id live anywhere in the document, a
+    /// table cell's included, is answered as reattached and not written. Each
+    /// id is answered once, by its first selector. `deltas` maps a path to the
+    /// `delta` of the revise that dropped its anchors, and a match there must
+    /// overlap text that revise inserted.
+    ///
+    /// Throws on a selector or delta that is not one, or a `path` that does
+    /// not parse.
+    #[wasm_bindgen(js_name = reattach, unchecked_return_type = "Reattached")]
+    pub fn reattach(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "AnchorContext[]")] selectors: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, Delta>")] deltas: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let invalid = |e: String| WasmError::from(format!("reattach: {e}")).to_js_value();
+        let parse_path = |path: &str| {
+            path.parse::<quillmark_core::path::DocPath>()
+                .map_err(|e| invalid(format!("invalid path {path:?}: {e}")))
+        };
+        let selectors: Vec<AnchorContextJs> =
+            serde_json::from_value(js_value_to_json(selectors, "reattach")?)
+                .map_err(|e| invalid(format!("selectors must be AnchorContext[]: {e}")))?;
+        let selectors = selectors
+            .into_iter()
+            .map(|s| {
+                let path = parse_path(&s.path)?;
+                Ok(quillmark_core::document::AnchorSelector::new(s.id, path, s.quote, s.prefix, s.suffix))
+            })
+            .collect::<Result<Vec<_>, JsValue>>()?;
+        let mut by_path = std::collections::HashMap::new();
+        if !deltas.is_undefined() && !deltas.is_null() {
+            let deltas: std::collections::HashMap<String, quillmark_core::session::Delta> =
+                serde_json::from_value(js_value_to_json(deltas, "reattach")?)
+                    .map_err(|e| invalid(format!("deltas must be a Record<string, Delta>: {e}")))?;
+            for (path, delta) in deltas {
+                by_path.insert(parse_path(&path)?, delta);
+            }
+        }
+        let out = self.inner.reattach(&selectors, &by_path);
+        let js = ReattachedJs {
+            reattached: out.reattached.into_iter().map(Into::into).collect(),
+            orphaned: out.orphaned.into_iter().map(Into::into).collect(),
+        };
+        serialize_or_throw(&js, "reattach")
     }
 
     /// Serialize this document to a versioned storage DTO string. Prefer it over
@@ -2209,9 +2313,11 @@ struct RebasedJs {
 /// The `Revised` receipt as it crosses: `delta` on the op wire `applyChange`
 /// carries.
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct RevisedJs {
     delta: quillmark_core::session::Delta,
     warnings: Vec<Diagnostic>,
+    dropped_anchors: Vec<AnchorLineJs>,
 }
 
 impl From<quillmark_core::document::Revised> for RevisedJs {
@@ -2219,8 +2325,46 @@ impl From<quillmark_core::document::Revised> for RevisedJs {
         RevisedJs {
             delta: revised.delta,
             warnings: diags(revised.warnings),
+            dropped_anchors: revised
+                .dropped_anchors
+                .into_iter()
+                .map(|a| AnchorLineJs { id: a.id, line: a.line })
+                .collect(),
         }
     }
+}
+
+#[derive(serde::Serialize)]
+struct AnchorLineJs {
+    id: String,
+    line: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AnchorContextJs {
+    id: String,
+    path: String,
+    quote: String,
+    prefix: String,
+    suffix: String,
+}
+
+impl From<quillmark_core::document::AnchorSelector> for AnchorContextJs {
+    fn from(s: quillmark_core::document::AnchorSelector) -> Self {
+        AnchorContextJs {
+            id: s.id,
+            path: s.path.to_string(),
+            quote: s.quote,
+            prefix: s.prefix,
+            suffix: s.suffix,
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct ReattachedJs {
+    reattached: Vec<AnchorContextJs>,
+    orphaned: Vec<AnchorContextJs>,
 }
 
 #[derive(serde::Serialize)]

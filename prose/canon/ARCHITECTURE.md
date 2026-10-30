@@ -52,7 +52,8 @@ model (one USV text with line attributes, anchored marks, embedded islands), its
 canonical byte-deterministic serialization (the one frozen wire form storage,
 the render seam, and the binding seam all carry), the markdown⇄content
 import/export codecs with a table's HTML spelling (`html_table`), the `qm-*`
-carrier grammar (`carrier`), and edit deltas.
+carrier grammar (`carrier`), edit deltas, and the comment-anchor contexts and
+exact re-attachment (`anchor`, [COMMENTS.md](COMMENTS.md)).
 The workspace's only markdown parser (`pulldown-cmark`) lives here, in
 `quillmark-content::import`, run once at ingest. **Invariant:** the Markdown
 parser appears exactly once in the workspace; no render path parses markdown:
