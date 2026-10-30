@@ -11,9 +11,10 @@ over its keys: read `receipt["warnings"]`.
 
 - feat(core)!: **a revise states what its writer read.** `Base::Hash` is the
   hash of the value read (`Card::body_hash`, `Card::field_hash`,
-  `Document::hash`, `content_hash`: SHA-256 over the newest storage tag and
-  the canonical JSON), and a value that now hashes otherwise refuses the write
-  with `edit::stale_base`. `Base::Read` is the markdown read, annotated or not:
+  `Document::hash`, `content_hash`, and the typed writer's `hash` /
+  `field_hash` through the schema: SHA-256 over `quillmark/hash@1` and the
+  key-sorted canonical JSON), and a value that now hashes otherwise refuses
+  the write with `edit::stale_base`. `Base::Read` is the markdown read, annotated or not:
   when the value has changed since, the writer's edit and the change merge by
   line (`quillmark_content::delta::merge_lines`), so a person's edit made
   between an LLM's read and its write lands beside the LLM's, and runs of
@@ -24,10 +25,12 @@ over its keys: read `receipt["warnings"]`.
   `BoundParseError` gains `Base`.
 - feat(wasm): **`BaseOptions` on every revise.** `doc.revise`, `rebase` and the
   writer's `reviseBody` / `reviseField` / `reviseDocument` take an optional
-  `{ baseHash?, baseMarkdown? }`, read through `doc.hashAt(addr)`, `doc.hash()`
-  and `hashContent(rt)`.
+  `{ baseHash?, baseMarkdown? }`, read through the writer's `hash()` /
+  `hashAt(addr)`, the quill-free `doc.hashAt(addr)` / `doc.hash()`, and
+  `hashContent(rt)`.
 - feat(python): **`base_hash` and `base_markdown` on the writer's revise
-  verbs**, read through `doc.hash_at(field=None, card=None)` and `doc.hash()`.
+  verbs**, read through the writer's `hash()` / `hash_at(field=None,
+  card=None)` and the quill-free `doc.hash_at` / `doc.hash()`.
 
 ### Comments
 

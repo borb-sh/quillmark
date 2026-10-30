@@ -104,8 +104,10 @@ A revise guarded by what its writer read (a `Base`) refuses under two more:
 `edit::stale_base` when the value no longer hashes to the writer's
 `baseHash`, and `edit::rebase_conflict` when the writer's edit of its
 `baseMarkdown` and the change made since touch the same lines. Both carry
-`current`, the hash of the value now, so a writer re-reads and retries
-without a second call. The whole-document lane raises them through
+`current`, the hash of the value now: a writer reads the value again, checks
+that read against `current`, and writes from it. Retrying the same markdown
+under `current` lands the revert the base refused. A refusal on a field
+anchors at the field. The whole-document lane raises them through
 `BoundParseError::Base`, as it raises a parse failure, before any mutation.
 
 Building a card from a `CardWire` (`insertCard`) is the same
