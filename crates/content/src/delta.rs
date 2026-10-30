@@ -191,8 +191,9 @@ impl Delta {
 
     /// New-text char ranges covered by `Insert` ops: the only regions an anchor
     /// may be re-homed into (moved text must have been *inserted*, not merely
-    /// present in surviving text elsewhere).
-    fn inserted_spans(&self) -> Vec<(usize, usize)> {
+    /// present in surviving text elsewhere), and the hint
+    /// [`locate`](crate::anchor::locate) takes for the same discipline.
+    pub fn inserted_spans(&self) -> Vec<(usize, usize)> {
         let mut spans = Vec::new();
         let mut new = 0usize;
         for op in &self.ops {
@@ -214,7 +215,7 @@ impl Delta {
 
 /// A relocation match shorter than this many chars is too weak to trust: the
 /// verbatim-move detector's length floor.
-const MIN_MOVE: usize = 4;
+pub(crate) const MIN_MOVE: usize = 4;
 
 /// Above this many USV chars, a char diff skips `similar`'s
 /// char-level Myers diff and falls back to [`coarse_replace`].
