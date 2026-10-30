@@ -152,6 +152,26 @@ def test_writer_revise_document():
     assert doc.to_markdown() == before
 
 
+def test_a_base_refuses_a_stale_revise_and_merges_a_read():
+    """base_hash refuses a write onto a value changed since the read, naming
+    the hash now; base_markdown lands the writer's edit beside the change."""
+    quill = richtext_quill()
+    doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\nAlpha.\n\nBeta.\n")
+    w = quill.writer(doc)
+    read, hash = doc.to_markdown(), doc.hash()
+    body_hash = doc.hash_at()
+    w.revise_body("Alpha, edited.\n\nBeta.")
+    with raises_edit_code("edit::stale_base") as exc_info:
+        w.revise_body("Other.", base_hash=body_hash)
+    assert exc_info.value.diagnostics[0].args == {"current": doc.hash_at()}
+    with raises_edit_code("edit::stale_base"):
+        w.revise_document(read, base_hash=hash)
+    w.revise_document(read.replace("Beta.", "Beta, rewritten."), base_markdown=read)
+    assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, rewritten.\n")
+    with pytest.raises(ValueError):
+        w.revise_body("x", base_hash=hash, base_markdown=read)
+
+
 def test_an_anchor_survives_the_field_and_document_revises():
     """revise_field and revise_document rebase an anchor the stored field
     holds; Python reaches anchors only through storage."""
