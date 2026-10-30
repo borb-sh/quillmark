@@ -16,6 +16,7 @@ Core makes the anchor a reliable handle: it reads what each anchor is attached t
 - **The host mints ids unique per document.** The content model guarantees anchor-id uniqueness per `Content` only, so the contract requires the host's mint to be unique across the document, as a UUID is. `anchor_context(id)` and the live-id check take the first value holding an id.
 - **A write carrying anchors goes through a rung that keeps them.** `applyChange` carries them through a splice, and `revise` / `reviseContent` / `reviseDocument` through a diff.
   `overwrite` destroys them and is never the write for a document holding threads ([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive)).
+- **A write states what its writer read.** A revise diffs against the value stored now, so a person's edit made between a writer's read and its write reads as text the writer deleted, and the anchors on it drop. A host whose writer reads, thinks and then writes (an LLM) passes the read: `baseHash` refuses the write once the value has changed (`edit::stale_base`), and `baseMarkdown`, the annotated markdown the writer read, merges its edit onto the change by line, so both land and the anchors on the person's text stay ([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive)).
 - **A write never deletes a thread.** Every revise receipt names the anchors it dropped. A dropped anchor is either placed again by `reattach` or reported orphaned, and the thread stays in the host's store either way.
 
 ## Reading a selector

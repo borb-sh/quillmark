@@ -100,6 +100,14 @@ peer of the render-path namespaces. Identity is the code, never message text:
 routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 `edit::unknown_field`, read off `diagnostics[0].code`.
 
+A revise guarded by what its writer read (a `Base`) refuses under two more:
+`edit::stale_base` when the value no longer hashes to the writer's
+`baseHash`, and `edit::rebase_conflict` when the writer's edit of its
+`baseMarkdown` and the change made since touch the same lines. Both carry
+`current`, the hash of the value now, so a writer re-reads and retries
+without a second call. The whole-document lane raises them through
+`BoundParseError::Base`, as it raises a parse failure, before any mutation.
+
 Building a card from a `CardWire` (`insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
 `WireError` carries the `EditError` its addressed twin raises, and
@@ -517,6 +525,8 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::import` | — | fallback |
 | `edit::content_apply` | — | fallback |
 | `edit::invalid_payload` | — | fallback |
+| `edit::stale_base` | `current` | structured |
+| `edit::rebase_conflict` | `current` | structured |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
 | `conform::field_not_single_line` | `field`, `codec` | structured |
