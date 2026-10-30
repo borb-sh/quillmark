@@ -1,6 +1,6 @@
 # Comment Anchors
 
-> **Implementation**: `crates/content/src/`, `crates/core/src/document/`
+> **Implementation**: `crates/content/src/` (the `anchor` module), `crates/core/src/document/` (the `anchors` module)
 > **Related**: [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md), [BINDINGS.md](BINDINGS.md)
 
 ## TL;DR
@@ -13,6 +13,7 @@ Core makes the anchor a reliable handle: it reads what each anchor is attached t
 
 - **The thread lives outside the document.** No body, author or status enters `Content`. The host keeps the thread, keyed by the anchor's id.
 - **The thread's id is the anchor's id.** The client mints it, as it mints every anchor id ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)). Quillmark mints none.
+- **The host mints ids unique per document.** The content model guarantees anchor-id uniqueness per `Content` only, so the contract requires the host's mint to be unique across the document, as a UUID is. `anchor_context(id)` and the live-id check take the first value holding an id.
 - **A write carrying anchors goes through a rung that keeps them.** `applyChange` carries them through a splice, and `revise` / `reviseContent` / `reviseDocument` through a diff.
   `overwrite` destroys them and is never the write for a document holding threads ([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive)).
 - **A write never deletes a thread.** Every revise receipt names the anchors it dropped. A dropped anchor is either placed again by `reattach` or reported orphaned, and the thread stays in the host's store either way.
@@ -38,7 +39,8 @@ The read is pure and cheap enough to run before every markdown write.
 4. A point (an empty quote) counts at each position where the prefix and the suffix both agree.
 5. Where the caller passes the write's delta for the path, a match must overlap text that write inserted, the discipline `revise` keeps. Without one, the context rule alone decides.
 6. Exactly one counting place: attach there. None or several: orphan. No nearest match, no partial quote, no edit distance.
-7. An id already live anywhere in the document, a table cell's anchor included, is not re-added: it is answered as reattached where it lives.
+7. An id already live anywhere in the document, a table cell's anchor included, is not re-added. It is answered as reattached with the selector the first value holding it reads, or with the selector as given where only a table cell holds it.
+8. Each id is answered once: of selectors sharing an id, the first is answered and the rest are left out of the receipt.
 
 A range lands exactly over the quote's characters. A point lands at the one position where the prefix meets the suffix, as an empty range.
 
