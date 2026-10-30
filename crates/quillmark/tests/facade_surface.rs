@@ -94,6 +94,7 @@ fn content_lane_spells_through_the_facade() {
         .revise_document(&markdown)
         .expect("the document's own markdown revises");
     let _: &[DocumentAnchor] = &revised.dropped_anchors;
+    let _: &[Option<usize>] = &revised.from;
 }
 
 #[test]

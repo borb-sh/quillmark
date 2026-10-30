@@ -441,11 +441,15 @@ export interface Revised {
  * cell's anchors drop unnamed. `warnings` are the parse's, then each revised
  * content field's `parse::dropped_construct`, then the writer's `conform::*`.
  * A field that lands rather than revises, on an inserted card or over no stored
- * content, reports no drop.
+ * content, reports no drop. `from` names, for each composable card of the
+ * revised document, the index of the stored card it revises, or `null` for an
+ * inserted card; a stored card no entry names was removed, and only cards of
+ * one `$kind` pair.
  */
 export interface DocumentRevised {
     droppedAnchors: DocumentAnchor[];
     warnings: Diagnostic[];
+    from: (number | null)[];
 }
 
 /**
@@ -2224,6 +2228,7 @@ impl From<quillmark_core::document::Revised> for RevisedJs {
 struct DocumentRevisedJs {
     dropped_anchors: Vec<DocumentAnchorJs>,
     warnings: Vec<Diagnostic>,
+    from: Vec<Option<usize>>,
 }
 
 #[derive(serde::Serialize)]
@@ -2250,6 +2255,7 @@ impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
         DocumentRevisedJs {
             dropped_anchors: revised.dropped_anchors.into_iter().map(Into::into).collect(),
             warnings: diags(revised.warnings),
+            from: revised.from,
         }
     }
 }

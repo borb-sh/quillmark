@@ -317,8 +317,9 @@ proptest! {
 
     /// A whole-document revise over cards each anchored at its leading word:
     /// with other cards inserted, deleted, edited and every card reordered, an
-    /// unchanged card keeps its anchor and aligns to its stored self, an anchor
-    /// rests only on the card its stored card aligned to, and the receipt names
+    /// unchanged card keeps its anchor and aligns to its stored self, a stored
+    /// card aligns to at most one card and only of its kind, an anchor rests
+    /// only on the card its stored card aligned to, and the receipt names
     /// exactly the anchors the revised document no longer holds. The
     /// annotated read revises the stored document to itself.
     #[test]
@@ -364,8 +365,18 @@ proptest! {
         for (_, kind, body) in &incoming {
             md.push_str(&card_block(kind, body));
         }
-        let alignment = super::revise_tests::alignment(&doc, &md);
         let receipt = doc.revise(&md).expect("the incoming document parses");
+        let alignment = &receipt.from;
+        prop_assert_eq!(alignment.len(), doc.cards().len());
+        let mut named: Vec<usize> = alignment.iter().flatten().copied().collect();
+        named.sort_unstable();
+        named.dedup();
+        prop_assert_eq!(named.len(), alignment.iter().flatten().count(), "a stored card revises at most once");
+        for (p, i) in alignment.iter().enumerate() {
+            if let Some(i) = i {
+                prop_assert_eq!(doc.cards()[p].kind(), Some(stored[*i].0 .0));
+            }
+        }
 
         let held: Vec<Vec<String>> = doc
             .cards()

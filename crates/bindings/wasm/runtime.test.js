@@ -219,9 +219,10 @@ card_kinds:
     expect(doc.warnings.map((w) => [w.code, w.path])).toEqual([['parse::dropped_construct', 'main.body']])
     const ed = quill.writer(doc)
     const receipt = ed.reviseDocument(
-      '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nprose: kept\n~~~\n',
+      '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nprose: fresh\n~~~\n\n~~~card-yaml\n$kind: note\nprose: kept\n~~~\n',
     )
-    expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'from', 'warnings'])
+    expect(receipt.from).toEqual([null, 0])
     expect(receipt.droppedAnchors).toEqual([])
     expect(receipt.warnings).toEqual([])
     expect(doc.warnings).toEqual([])
@@ -241,6 +242,7 @@ card_kinds:
       .writer(doc)
       .reviseDocument('~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n')
     expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', id: 'n', line: 'First note.' }])
+    expect(receipt.from).toEqual([])
     expect(receipt.warnings).toEqual([])
     expect(doc.main.body.marks).toEqual([{ start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }])
     expect(doc.cards).toEqual([])
