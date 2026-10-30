@@ -137,6 +137,8 @@ pub enum Dropped {
     /// An equation where no island can sit, or whose TeX its delimiters would
     /// not write back, which stays as its markup's text: `math`.
     Math,
+    /// A bidi formatting control, which the content does not admit: `bidi`.
+    Bidi,
 }
 
 impl std::fmt::Display for Dropped {
@@ -149,6 +151,7 @@ impl std::fmt::Display for Dropped {
             Dropped::Footnote => f.write_str("footnote"),
             Dropped::NoteBlock(block) => write!(f, "footnote[{block}]"),
             Dropped::Math => f.write_str("math"),
+            Dropped::Bidi => f.write_str("bidi"),
             Dropped::Table => f.write_str("table"),
             Dropped::TableRow => f.write_str("table:row"),
             Dropped::TableText => f.write_str("table:text"),
@@ -183,13 +186,22 @@ pub(crate) fn options() -> Options {
 /// `<pre>`, `<script>`, `<style>` or `<textarea>` block's included, a block
 /// holding no other opening tag under its first where it drops markdown with
 /// it, each footnote no reference reads and each equation that stays as its
-/// markup's text. A comment, the content of a type 1–5 HTML block, and any other
+/// markup's text, and each bidi control the text drops. A comment, the content
+/// of a type 1–5 HTML block, and any other
 /// closing tag or `qm-anchor` tag drop silently. What a footnote nothing
 /// reads holds reports nothing of its own.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let mut b = Builder::default();
     parse_markdown(markdown, options(), |text, events| b.run(MarkdownFixer::new(text, events.into_iter())))?;
-    let (content, dropped) = b.finish();
+    let (content, mut dropped) = b.finish();
+    let mut at = 0;
+    for c in markdown.chars() {
+        if crate::normalize::is_bidi_char(c) {
+            dropped.add(Dropped::Bidi, at);
+        } else if c != '\r' {
+            at += c.len_utf8();
+        }
+    }
     Ok(Imported {
         content: content.into_normalized(),
         warnings: dropped.into_warnings(),
@@ -3434,6 +3446,13 @@ pub(crate) mod tests {
         for markdown in [format!("{pair}\n\n{note}"), format!("{note}\n\n{pair}")] {
             assert_eq!(dropped(&imp_fixed(&markdown)), [("qm-keep", 2)], "{markdown:?}");
         }
+    }
+
+    #[test]
+    fn a_bidi_control_drops_with_a_report() {
+        let imported = imp_fixed("Price \u{200F}123\u{200E} shekel \u{2067}abc\u{2069}");
+        assert_eq!(imported.content.text, "Price 123 shekel abc");
+        assert_eq!(dropped(&imported), [("bidi", 4)]);
     }
 
     /// CRLF line endings import as LF ones do, through every block the

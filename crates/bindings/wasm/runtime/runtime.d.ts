@@ -18,6 +18,7 @@ import type {
 	Document as CoreDocument,
 	importMarkdown,
 	exportMarkdown,
+	exportMarkdownChecked,
 	normalize,
 	rebase,
 	hashContent,
@@ -42,6 +43,7 @@ export interface CoreSurface {
 	Document: typeof CoreDocument;
 	importMarkdown: typeof importMarkdown;
 	exportMarkdown: typeof exportMarkdown;
+	exportMarkdownChecked: typeof exportMarkdownChecked;
 	normalize: typeof normalize;
 	rebase: typeof rebase;
 	hashContent: typeof hashContent;

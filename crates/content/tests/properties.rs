@@ -954,7 +954,28 @@ proptest! {
         let cs: Vec<char> = stored.chars().collect();
         if !kept.iter().any(|m| m.kind == MarkKind::Code) {
             let commas: String = cs.iter().map(|&c| if c == '\n' { ',' } else { c }).collect();
-            let wire: Vec<Value> = kept.iter().map(quillmark_content::serial::mark_to_value).collect();
+            // The twin carries each mark as the cell's export writes it: off a
+            // break, then off the whitespace that exposes under a delimiter.
+            let delimited = |k: &MarkKind| matches!(k, MarkKind::Strong | MarkKind::Emph | MarkKind::Strike);
+            let wire: Vec<Value> = kept
+                .iter()
+                .filter_map(|m| {
+                    let mut m = m.clone();
+                    let mut trim = |trims: &dyn Fn(char) -> bool| {
+                        while m.start < m.end && trims(cs[m.start]) {
+                            m.start += 1;
+                        }
+                        while m.end > m.start && trims(cs[m.end - 1]) {
+                            m.end -= 1;
+                        }
+                    };
+                    trim(&|c| c == '\n');
+                    if delimited(&m.kind) {
+                        trim(&|c: char| c.is_whitespace());
+                    }
+                    (m.start < m.end).then(|| quillmark_content::serial::mark_to_value(&m))
+                })
+                .collect();
             let twin = table_content(
                 vec!["none"],
                 vec![json!({"text": "h", "marks": []})],

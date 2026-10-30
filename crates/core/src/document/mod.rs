@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use quillmark_content::export::ExportLoss;
 use quillmark_content::import::{from_markdown as import_markdown, Imported};
 use quillmark_content::model::Normalized;
 
@@ -63,6 +64,57 @@ pub fn dropped_constructs(
         .collect()
 }
 
+/// The diagnostic code a markdown export's loss rides.
+pub const LOST_CONSTRUCT: &str = "export::lost_construct";
+
+/// The warning a markdown export owes what it does not spell: one
+/// [`ExportLoss`] of a content, read by
+/// [`to_markdown_checked`](quillmark_content::export::to_markdown_checked).
+/// `construct` is the mark's wire type, the island's, or `text`; a mark's
+/// `start` and `end` are its range in the content's text.
+pub fn lost_construct(loss: ExportLoss) -> Diagnostic {
+    let mut args = std::collections::BTreeMap::new();
+    let (message, hint) = match loss {
+        ExportLoss::Mark { kind, start, end, now } => {
+            args.insert("construct".to_string(), kind.tag().into());
+            args.insert("start".to_string(), start.into());
+            args.insert("end".to_string(), end.into());
+            let message = match now {
+                Some(_) => format!("markdown export writes a `{}` mark over other text than it holds", kind.tag()),
+                None => format!("markdown export drops a `{}` mark", kind.tag()),
+            };
+            (
+                message,
+                "A `*`, `_` or `~~` delimiter never sits against whitespace, so such a mark is written over \
+                 its text without the whitespace at its edges; a mark markdown cannot nest is dropped."
+                    .to_string(),
+            )
+        }
+        ExportLoss::Island { island_type, .. } => {
+            args.insert("construct".to_string(), island_type.as_str().into());
+            (
+                format!("markdown export writes a `{}` that reads back otherwise", island_type.as_str()),
+                "The island holds a prop its markdown spelling cannot carry, such as edge whitespace in an \
+                 image's alt text."
+                    .to_string(),
+            )
+        }
+        ExportLoss::Text => {
+            args.insert("construct".to_string(), "text".into());
+            (
+                "markdown export writes text or blocks that read back otherwise".to_string(),
+                "Markdown spells no empty line beside other content, and writes a table only as a block of \
+                 its own."
+                    .to_string(),
+            )
+        }
+    };
+    Diagnostic::new(Severity::Warning, message)
+        .with_code(LOST_CONSTRUCT.to_string())
+        .with_hint(hint)
+        .with_args(args)
+}
+
 /// `words` each in backticks, joined by commas and `last` before the final one.
 fn listed(words: &[&str], last: &str) -> String {
     let ticked: Vec<String> = words.iter().map(|w| format!("`{w}`")).collect();
@@ -114,6 +166,15 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
             ),
             "A footnote's note is inline text: each paragraph, list item or other block in it becomes a line \
              of that text."
+                .to_string(),
+        ),
+        Dropped::Bidi => (
+            format!(
+                "markdown import dropped {} from this field",
+                some("bidi control", "bidi controls")
+            ),
+            "Content text admits no bidi formatting control (U+061C, U+200E, U+200F, U+202A–U+202E, \
+             U+2066–U+2069); the renderer orders mixed-direction text by the Unicode bidi algorithm."
                 .to_string(),
         ),
         Dropped::Math => (
