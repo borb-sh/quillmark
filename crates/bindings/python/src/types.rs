@@ -772,9 +772,9 @@ impl PyDocument {
 
     /// Re-add anchors a write dropped, each at the `path` its selector names,
     /// where its `quote` is found exactly once with its context agreeing: four
-    /// characters of quote or more, eight of context on each side or the whole
-    /// context where the value's edge cut it, an empty quote a point where the
-    /// two meet. Never a nearest match. Returns `{reattached, orphaned}`, each
+    /// characters of quote or more, or a table's slot alone, eight of context
+    /// on each side or the whole context where the value's edge cut it, an
+    /// empty quote a point where the two meet. Never a nearest match. Returns `{reattached, orphaned}`, each
     /// selector given either placed with its context as read after the write or
     /// orphaned as given.
     ///

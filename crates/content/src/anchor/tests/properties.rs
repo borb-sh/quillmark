@@ -67,7 +67,7 @@ fn counted(text: &[char], ctx: &AnchorContext, inserted: Option<&[(usize, usize)
     let quote: Vec<char> = ctx.quote.chars().collect();
     let prefix: Vec<char> = ctx.prefix.chars().collect();
     let suffix: Vec<char> = ctx.suffix.chars().collect();
-    if !quote.is_empty() && quote.len() < MIN_ANCHOR_QUOTE {
+    if !quote.is_empty() && quote.len() < MIN_ANCHOR_QUOTE && !quote.iter().all(|&c| c == ISLAND_SLOT) {
         return Vec::new();
     }
     let (before, after) = (prefix.len().min(ANCHOR_AGREE_USV), suffix.len().min(ANCHOR_AGREE_USV));

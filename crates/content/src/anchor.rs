@@ -1,15 +1,14 @@
 //! What a prose anchor is attached to, and the one exact rule that places a
 //! dropped anchor again. The contract is `prose/canon/COMMENTS.md`.
 //!
-//! Both read the stored text as it is: an inline island is its
-//! [`ISLAND_SLOT`](crate::model::ISLAND_SLOT) character and a line break its
-//! `\n`. A quote spanning an island holds its slot, and is found again only
-//! where a slot sits.
+//! Both read the stored text as it is: an inline island is its [`ISLAND_SLOT`]
+//! character and a line break its `\n`. A quote spanning an island holds its
+//! slot, and is found again only where a slot sits.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::delta::MIN_MOVE;
-use crate::model::{Content, MarkKind, Normalized, Usv};
+use crate::model::{Content, MarkKind, Normalized, Usv, ISLAND_SLOT};
 use crate::ops::MarkOp;
 
 /// Context read on each side of an anchor, in Unicode scalar values.
@@ -20,7 +19,8 @@ pub const ANCHOR_CONTEXT_USV: usize = 32;
 pub const ANCHOR_AGREE_USV: usize = 8;
 
 /// A quote shorter than this is too weak to place: the floor `revise` applies
-/// to a moved anchor.
+/// to a moved anchor. A quote made of island slots alone is under it and is
+/// placed on its context, like a point.
 pub const MIN_ANCHOR_QUOTE: usize = MIN_MOVE;
 
 /// What a prose anchor is attached to: a text-quote selector read off its
@@ -113,7 +113,9 @@ pub fn anchor_contexts(rt: &Normalized) -> Vec<AnchorContext> {
 
 /// The one range `ctx` names in `rt`, or `None`. Never a nearest match:
 ///
-/// - A quote shorter than [`MIN_ANCHOR_QUOTE`] names none.
+/// - A quote shorter than [`MIN_ANCHOR_QUOTE`] names none, unless it is island
+///   slots alone: an anchor over a table's slot is placed on its context, the
+///   way a point is.
 /// - Of every occurrence of the quote in the stored text, one counts where the
 ///   text before it ends with the last [`ANCHOR_AGREE_USV`] of `prefix` and the
 ///   text after it starts with the first [`ANCHOR_AGREE_USV`] of `suffix`. A
@@ -232,7 +234,8 @@ fn locate_in(text: &[char], ctx: &AnchorContext, inserted: Option<&[(Usv, Usv)]>
             }
         }
     } else {
-        if quote.len() < MIN_ANCHOR_QUOTE || quote.len() > n {
+        let slots_alone = quote.iter().all(|&c| c == ISLAND_SLOT);
+        if (quote.len() < MIN_ANCHOR_QUOTE && !slots_alone) || quote.len() > n {
             return None;
         }
         for i in 0..=n - quote.len() {
@@ -270,7 +273,7 @@ mod tests {
     use super::*;
     use crate::delta::{diff_import, rebase_onto};
     use crate::import::from_markdown;
-    use crate::model::{Mark, ISLAND_SLOT};
+    use crate::model::Mark;
 
     fn content(markdown: &str) -> Normalized {
         from_markdown(markdown).unwrap().content
@@ -353,21 +356,29 @@ mod tests {
     }
 
     #[test]
-    fn an_anchor_over_a_slot_alone_quotes_the_slot_and_is_under_the_floor() {
+    fn an_anchor_over_a_slot_alone_quotes_the_slot_and_is_placed_on_its_context() {
         let base = content("Intro line here.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nOutro line here.");
         let slot = base.text.chars().position(|c| c == ISLAND_SLOT).unwrap();
         let base = with_anchor(base, slot, slot + 1, "table");
         let ctxs = anchor_contexts(&base);
         assert_eq!(ctxs[0].quote, "\u{FFFC}");
 
-        let mut held = base.clone();
-        let out = held.reattach(&ctxs, None, &none());
-        assert_eq!((held, out.reattached), (base.clone(), ctxs.clone()));
-
         let mut bare = without_anchors(&base);
         let out = bare.reattach(&ctxs, None, &none());
-        assert_eq!(out.orphaned, ctxs);
-        assert_eq!(bare, without_anchors(&base));
+        assert_eq!((bare, out.reattached), (base, ctxs));
+    }
+
+    #[test]
+    fn a_slot_alone_is_not_placed_where_its_context_disagrees_or_twice() {
+        let two = content("Intro line here.\n\n| a |\n|---|\n| 1 |\n\nMiddle.\n\n| a |\n|---|\n| 2 |\n\nOutro line here.");
+        let slots: Vec<Usv> = two.text.char_indices().filter(|&(_, c)| c == ISLAND_SLOT).map(|(i, _)| i).collect();
+        let first = with_anchor(two.clone(), slots[0], slots[0] + 1, "t");
+        let ctx = anchor_contexts(&first).remove(0);
+        assert_eq!(locate(&two, &ctx, None), Some((slots[0], slots[0] + 1)));
+        let moved = AnchorContext::new("t", "\u{FFFC}", &ctx.prefix, "\n\nElsewhere.");
+        assert_eq!(locate(&two, &moved, None), None);
+        let same_context = content("Intro line here.\n\n| a |\n|---|\n| 1 |\n\nMiddle.\n\nIntro line here.\n\n| a |\n|---|\n| 2 |\n\nMiddle.\n\nOutro line here.");
+        assert_eq!(locate(&same_context, &ctx, None), None);
     }
 
     #[test]

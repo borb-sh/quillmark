@@ -16,8 +16,8 @@ over its keys: read `receipt["warnings"]`.
   re-adds a dropped anchor through the `Add` arm (`Content::reattach`), a range
   over exactly its quote and a point at the one place its context meets. The
   rule never guesses: a quote of `MIN_ANCHOR_QUOTE` (four) scalar values or
-  more, its context agreeing on `ANCHOR_AGREE_USV` (eight) each side or whole
-  where the field's edge cut it, a match overlapping inserted text where a
+  more, or island slots alone, its context agreeing on `ANCHOR_AGREE_USV`
+  (eight) each side or whole where the field's edge cut it, a match overlapping inserted text where a
   delta is given, and exactly one such place. `Delta::inserted_spans` is
   public. (#2349)
 - feat(core): **`Document::reattach` and `Revised.dropped_anchors`.**

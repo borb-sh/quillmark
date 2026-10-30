@@ -1206,9 +1206,9 @@ impl Document {
 
     /// Re-add anchors a write dropped, each at the `path` its selector names,
     /// where its `quote` is found exactly once with its context agreeing: four
-    /// scalar values of quote or more, eight of context on each side or the
-    /// whole context where the value's edge cut it, and an empty quote a point
-    /// where the two meet. Never a nearest match. Returns the `Reattached`
+    /// scalar values of quote or more, or a table's slot alone, eight of
+    /// context on each side or the whole context where the value's edge cut
+    /// it, and an empty quote a point where the two meet. Never a nearest match. Returns the `Reattached`
     /// receipt.
     ///
     /// A path naming no body or content value orphans its selector, and

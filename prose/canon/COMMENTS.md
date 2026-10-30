@@ -33,7 +33,7 @@ The read is pure and cheap enough to run before every markdown write.
 
 `reattach` runs on anchors `revise` already refused to move. `revise` floors a move at four characters and refuses a match in surviving text, so this rule is at least as strict, or it would undo that refusal. Per value, never guessing:
 
-1. The quote is four scalar values or more. A shorter quote orphans.
+1. The quote is four scalar values or more, or island slots alone. Any other shorter quote orphans.
 2. Every occurrence of the quote in the stored text counts where its context agrees: the text before ends with the last eight scalar values of `prefix`, and the text after starts with the first eight of `suffix`.
 3. A `prefix` or `suffix` shorter than eight was cut at the value's edge, so it agrees only as the whole text on that side, edge included.
 4. A point (an empty quote) counts at each position where the prefix and the suffix both agree.
@@ -55,7 +55,7 @@ A caller compares each surviving anchor's selector after the write to the one it
 
 An anchor in a table cell sits outside the op surface and the id-uniqueness check ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)), so cells are outside the comment contract: `anchor_contexts` does not read one, and no receipt names one a write drops.
 A comment on a table anchors the table's slot: a one-character range over its `U+FFFC`, a prose mark that the receipts list and the rebase rule moves with the table.
-Its quote is the slot alone, under the four-character floor, so once a write drops it `reattach` orphans it.
+Its quote is the slot alone, so `reattach` places it on its context like a point, and only where one slot sits between the agreeing sides.
 Bringing cell anchors into the op surface and the uniqueness check is the step that makes a cell comment honest.
 
 ## Hosting
