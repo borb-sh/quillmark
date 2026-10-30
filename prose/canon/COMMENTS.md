@@ -22,25 +22,25 @@ Core makes the anchor a reliable handle: it reads what each anchor is attached t
 `anchor_contexts` answers, for each prose anchor of a body or content value, its selector: `id`, `path`, `quote`, `prefix` and `suffix`.
 
 - `path` is the `DocPath` of the body or content value holding it.
-- `quote` is the anchored text with island slots removed and line breaks kept. A point's quote is empty.
-- `prefix` and `suffix` are up to 32 Unicode scalar values on each side, cut at the value's edges.
+- `quote` is the anchored text as stored: an inline island is its `U+FFFC` slot and a line break its `\n`. A point's quote is empty.
+- `prefix` and `suffix` are up to 32 Unicode scalar values of stored text on each side, cut at the value's edges.
 
-The read works on the stored text through its slot-stripped projection, so a quote spanning an inline island (a footnote reference) is captured and found again over the same island.
-It is pure and cheap enough to run before every markdown write.
+A quote spanning an inline island (a footnote reference) includes its slot character, and is found again only where a slot sits.
+The read is pure and cheap enough to run before every markdown write.
 
 ## The matching rule
 
 `reattach` runs on anchors `revise` already refused to move. `revise` floors a move at four characters and refuses a match in surviving text, so this rule is at least as strict, or it would undo that refusal. Per value, never guessing:
 
 1. The quote is four scalar values or more. A shorter quote orphans.
-2. Every occurrence of the quote in the slot-stripped text counts where its context agrees: the text before ends with the last eight scalar values of `prefix`, and the text after starts with the first eight of `suffix`.
+2. Every occurrence of the quote in the stored text counts where its context agrees: the text before ends with the last eight scalar values of `prefix`, and the text after starts with the first eight of `suffix`.
 3. A `prefix` or `suffix` shorter than eight was cut at the value's edge, so it agrees only as the whole text on that side, edge included.
 4. A point (an empty quote) counts at each position where the prefix and the suffix both agree.
 5. Where the caller passes the write's delta for the path, a match must overlap text that write inserted, the discipline `revise` keeps. Without one, the context rule alone decides.
 6. Exactly one counting place: attach there. None or several: orphan. No nearest match, no partial quote, no edit distance.
 7. An id already live anywhere in the document, a table cell's anchor included, is not re-added: it is answered as reattached where it lives.
 
-A range lands from the quote's first character to its last. A point lands over whatever island slots sit where the prefix meets the suffix, so an anchor over a table's slot alone comes back over that slot.
+A range lands exactly over the quote's characters. A point lands at the one position where the prefix meets the suffix, as an empty range.
 
 Matching is path-strict. A path naming no body or content value orphans its selector, and core remaps no card index. `DocumentRevised.from` is the alignment a caller remaps a dropped selector's card index through before calling `reattach`.
 
@@ -53,6 +53,7 @@ A caller compares each surviving anchor's selector after the write to the one it
 
 An anchor in a table cell sits outside the op surface and the id-uniqueness check ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)), so cells are outside the comment contract: `anchor_contexts` does not read one, and no receipt names one a write drops.
 A comment on a table anchors the table's slot: a one-character range over its `U+FFFC`, a prose mark that the receipts list and the rebase rule moves with the table.
+Its quote is the slot alone, under the four-character floor, so once a write drops it `reattach` orphans it.
 Bringing cell anchors into the op surface and the uniqueness check is the step that makes a cell comment honest.
 
 ## Hosting

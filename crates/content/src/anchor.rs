@@ -1,15 +1,15 @@
 //! What a prose anchor is attached to, and the one exact rule that places a
 //! dropped anchor again. The contract is `prose/canon/COMMENTS.md`.
 //!
-//! Both read the stored text through its slot-stripped projection: the text
-//! with every [`ISLAND_SLOT`] removed, each character remembering its stored
-//! position. A quote spanning an inline island reads as the text either side
-//! of it, and is found again over the same island.
+//! Both read the stored text as it is: an inline island is its
+//! [`ISLAND_SLOT`](crate::model::ISLAND_SLOT) character and a line break its
+//! `\n`. A quote spanning an island holds its slot, and is found again only
+//! where a slot sits.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::delta::MIN_MOVE;
-use crate::model::{Content, MarkKind, Normalized, Usv, ISLAND_SLOT};
+use crate::model::{Content, MarkKind, Normalized, Usv};
 use crate::ops::MarkOp;
 
 /// Context read on each side of an anchor, in Unicode scalar values.
@@ -32,14 +32,14 @@ pub const MIN_ANCHOR_QUOTE: usize = MIN_MOVE;
 #[non_exhaustive]
 pub struct AnchorContext {
     pub id: String,
-    /// The anchored text, island slots removed and line breaks kept; empty for
-    /// a point.
+    /// The anchored text as stored, island slots and line breaks included;
+    /// empty for a point.
     pub quote: String,
-    /// Up to [`ANCHOR_CONTEXT_USV`] scalar values before the anchor, cut at
-    /// the field's start.
+    /// Up to [`ANCHOR_CONTEXT_USV`] scalar values of stored text before the
+    /// anchor, cut at the field's start.
     pub prefix: String,
-    /// Up to [`ANCHOR_CONTEXT_USV`] scalar values after the anchor, cut at the
-    /// field's end.
+    /// Up to [`ANCHOR_CONTEXT_USV`] scalar values of stored text after the
+    /// anchor, cut at the field's end.
     pub suffix: String,
 }
 
@@ -87,14 +87,39 @@ pub fn anchor_contexts(rt: &Normalized) -> Vec<AnchorContext> {
     contexts(rt)
 }
 
+fn contexts(rt: &Content) -> Vec<AnchorContext> {
+    let mut found: Vec<(Usv, &str, Usv)> = rt
+        .marks
+        .iter()
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some((m.start, id.as_str(), m.end)),
+            _ => None,
+        })
+        .collect();
+    if found.is_empty() {
+        return Vec::new();
+    }
+    found.sort_unstable();
+    let chars: Vec<char> = rt.text.chars().collect();
+    found
+        .into_iter()
+        .map(|(start, id, end)| AnchorContext {
+            id: id.to_string(),
+            quote: chars[start..end].iter().collect(),
+            prefix: chars[start.saturating_sub(ANCHOR_CONTEXT_USV)..start].iter().collect(),
+            suffix: chars[end..(end + ANCHOR_CONTEXT_USV).min(chars.len())].iter().collect(),
+        })
+        .collect()
+}
+
 /// The one range `ctx` names in `rt`, or `None`. Never a nearest match:
 ///
 /// - A quote shorter than [`MIN_ANCHOR_QUOTE`] names none.
-/// - Of every occurrence of the quote in the slot-stripped text, one counts
-///   where the text before it ends with the last [`ANCHOR_AGREE_USV`] of
-///   `prefix` and the text after it starts with the first
-///   [`ANCHOR_AGREE_USV`] of `suffix`. A shorter `prefix` or `suffix` was cut
-///   at the field's edge, so it must be the whole text on that side.
+/// - Of every occurrence of the quote in the stored text, one counts where the
+///   text before it ends with the last [`ANCHOR_AGREE_USV`] of `prefix` and the
+///   text after it starts with the first [`ANCHOR_AGREE_USV`] of `suffix`. A
+///   shorter `prefix` or `suffix` was cut at the field's edge, so it must be
+///   the whole text on that side.
 /// - An empty quote is a point: a position where the prefix and the suffix
 ///   both agree.
 /// - With `inserted` given, the stored spans a write inserted, a quote counts
@@ -102,16 +127,16 @@ pub fn anchor_contexts(rt: &Normalized) -> Vec<AnchorContext> {
 ///   on does: the discipline `revise` keeps when it moves an anchor.
 /// - Exactly one counting place names its range; none or several name none.
 ///
-/// The range runs from the quote's first character to its last, over any
-/// island slots inside it. A point's range covers the island slots where the
-/// prefix meets the suffix, so an anchor over a table's slot alone comes back
-/// over that slot, and is empty where none sit.
+/// A range is exactly the quote's characters, and a point is the empty range
+/// where its prefix meets its suffix. An island slot is a character like any
+/// other, so a quote holding one matches only where a slot sits.
 pub fn locate(
     rt: &Normalized,
     ctx: &AnchorContext,
     inserted: Option<&[(Usv, Usv)]>,
 ) -> Option<(Usv, Usv)> {
-    Stripped::of(rt).locate(ctx, inserted)
+    let text: Vec<char> = rt.text.chars().collect();
+    locate_in(&text, ctx, inserted)
 }
 
 impl Content {
@@ -130,7 +155,6 @@ impl Content {
         inserted: Option<&[(Usv, Usv)]>,
         live: &HashSet<&str>,
     ) -> Reattached<AnchorContext> {
-        let stripped = Stripped::of(self);
         let mut held: HashSet<String> = self
             .marks
             .iter()
@@ -139,13 +163,14 @@ impl Content {
                 _ => None,
             })
             .collect();
+        let text: Vec<char> = self.text.chars().collect();
         let mut placed = Vec::with_capacity(ctxs.len());
         for ctx in ctxs {
             if live.contains(ctx.id.as_str()) || held.contains(&ctx.id) {
                 placed.push(true);
                 continue;
             }
-            let landed = stripped.locate(ctx, inserted).is_some_and(|(start, end)| {
+            let landed = locate_in(&text, ctx, inserted).is_some_and(|(start, end)| {
                 let add = MarkOp::Add {
                     start,
                     end,
@@ -184,112 +209,39 @@ impl Normalized {
     }
 }
 
-fn contexts(rt: &Content) -> Vec<AnchorContext> {
-    let mut found: Vec<(Usv, &str, Usv)> = rt
-        .marks
-        .iter()
-        .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } => Some((m.start, id.as_str(), m.end)),
-            _ => None,
-        })
-        .collect();
-    if found.is_empty() {
-        return Vec::new();
-    }
-    found.sort_unstable();
-    let s = Stripped::of(rt);
-    found
-        .into_iter()
-        .map(|(start, id, end)| {
-            let (i, j) = (s.index(start), s.index(end));
-            AnchorContext {
-                id: id.to_string(),
-                quote: s.chars[i..j].iter().collect(),
-                prefix: s.chars[i.saturating_sub(ANCHOR_CONTEXT_USV)..i].iter().collect(),
-                suffix: s.chars[j..(j + ANCHOR_CONTEXT_USV).min(s.chars.len())].iter().collect(),
-            }
-        })
-        .collect()
-}
-
-/// The stored text with its island slots removed, and the stored position of
-/// each character left.
-struct Stripped {
-    chars: Vec<char>,
-    at: Vec<Usv>,
-    len: Usv,
-}
-
-impl Stripped {
-    fn of(rt: &Content) -> Self {
-        let mut chars = Vec::new();
-        let mut at = Vec::new();
-        let mut len = 0;
-        for (pos, c) in rt.text.chars().enumerate() {
-            if c != ISLAND_SLOT {
-                chars.push(c);
-                at.push(pos);
-            }
-            len = pos + 1;
-        }
-        Stripped { chars, at, len }
-    }
-
-    /// The stripped position of stored position `pos`: the characters before
-    /// it.
-    fn index(&self, pos: Usv) -> usize {
-        self.at.partition_point(|&a| a < pos)
-    }
-
-    /// The stored range of stripped `[i, j)`: tight around its characters, or,
-    /// empty, the island slots between `i - 1` and `i`.
-    fn range(&self, i: usize, j: usize) -> (Usv, Usv) {
-        if i < j {
-            return (self.at[i], self.at[j - 1] + 1);
-        }
-        let start = if i == 0 { 0 } else { self.at[i - 1] + 1 };
-        let end = self.at.get(i).copied().unwrap_or(self.len);
-        (start, end)
-    }
-
-    fn locate(&self, ctx: &AnchorContext, inserted: Option<&[(Usv, Usv)]>) -> Option<(Usv, Usv)> {
-        let quote: Vec<char> = ctx.quote.chars().collect();
-        let prefix: Vec<char> = ctx.prefix.chars().collect();
-        let suffix: Vec<char> = ctx.suffix.chars().collect();
-        let n = self.chars.len();
-        let touches = |(a, b): (Usv, Usv)| {
-            inserted.is_none_or(|spans| spans.iter().any(|&(s, e)| a < e && b > s))
-        };
-        let agrees = |i: usize, j: usize| {
-            agrees_before(&self.chars[..i], &prefix) && agrees_after(&self.chars[j..], &suffix)
-        };
-        let mut hits = Vec::new();
-        if quote.is_empty() {
-            let (before, after) = (prefix.len().min(ANCHOR_AGREE_USV), suffix.len().min(ANCHOR_AGREE_USV));
-            for p in before..=n.saturating_sub(after) {
-                if agrees(p, p) && touches(self.range(p - before, p + after)) {
-                    hits.push(self.range(p, p));
-                    if hits.len() > 1 {
-                        return None;
-                    }
-                }
-            }
-        } else {
-            if quote.len() < MIN_ANCHOR_QUOTE || quote.len() > n {
-                return None;
-            }
-            for i in 0..=n - quote.len() {
-                let j = i + quote.len();
-                if self.chars[i..j] == quote[..] && agrees(i, j) && touches(self.range(i, j)) {
-                    hits.push(self.range(i, j));
-                    if hits.len() > 1 {
-                        return None;
-                    }
+fn locate_in(text: &[char], ctx: &AnchorContext, inserted: Option<&[(Usv, Usv)]>) -> Option<(Usv, Usv)> {
+    let quote: Vec<char> = ctx.quote.chars().collect();
+    let prefix: Vec<char> = ctx.prefix.chars().collect();
+    let suffix: Vec<char> = ctx.suffix.chars().collect();
+    let n = text.len();
+    let touches = |(a, b): (Usv, Usv)| inserted.is_none_or(|spans| spans.iter().any(|&(s, e)| a < e && b > s));
+    let agrees = |i: usize, j: usize| agrees_before(&text[..i], &prefix) && agrees_after(&text[j..], &suffix);
+    let mut hits = Vec::new();
+    if quote.is_empty() {
+        let (before, after) = (prefix.len().min(ANCHOR_AGREE_USV), suffix.len().min(ANCHOR_AGREE_USV));
+        for p in before..=n.saturating_sub(after) {
+            if agrees(p, p) && touches((p - before, p + after)) {
+                hits.push((p, p));
+                if hits.len() > 1 {
+                    return None;
                 }
             }
         }
-        hits.pop()
+    } else {
+        if quote.len() < MIN_ANCHOR_QUOTE || quote.len() > n {
+            return None;
+        }
+        for i in 0..=n - quote.len() {
+            let j = i + quote.len();
+            if text[i..j] == quote[..] && agrees(i, j) && touches((i, j)) {
+                hits.push((i, j));
+                if hits.len() > 1 {
+                    return None;
+                }
+            }
+        }
     }
+    hits.pop()
 }
 
 fn agrees_before(before: &[char], prefix: &[char]) -> bool {
@@ -314,7 +266,7 @@ mod tests {
     use super::*;
     use crate::delta::{diff_import, rebase_onto};
     use crate::import::from_markdown;
-    use crate::model::Mark;
+    use crate::model::{Mark, ISLAND_SLOT};
 
     fn content(markdown: &str) -> Normalized {
         from_markdown(markdown).unwrap().content
@@ -369,31 +321,60 @@ mod tests {
     }
 
     #[test]
-    fn a_quote_across_an_inline_island_is_read_and_found() {
+    fn a_quote_across_an_inline_island_holds_its_slot() {
         let base = content("Pay the fee[^1] by Friday, or else.\n\n[^1]: Net of tax.");
         let fee = base.text.find("fee").unwrap();
         let end = base.text.chars().position(|c| c == ',').unwrap();
         let base = with_anchor(base, fee, end, "c1");
         let ctx = &anchor_contexts(&base)[0];
-        assert_eq!(ctx.quote, "fee by Friday");
+        assert_eq!(ctx.quote, "fee\u{FFFC} by Friday");
         assert_eq!(locate(&base, ctx, None), Some((fee, end)));
+        let unslotted = AnchorContext::new("c1", "fee by Friday", &*ctx.prefix, &*ctx.suffix);
+        assert_eq!(locate(&base, &unslotted, None), None);
     }
 
     #[test]
-    fn an_anchor_over_a_table_slot_alone_comes_back_over_it() {
+    fn an_anchor_beside_an_inline_island_comes_back_where_it_was() {
+        let base = content("Pay the fee[^1] today please.\n\n[^1]: Net of tax.");
+        let slot = base.text.chars().position(|c| c == ISLAND_SLOT).unwrap();
+        let the = base.text.find("the").unwrap();
+        for (start, end) in [(slot, slot), (slot + 1, slot + 1), (the, slot + 1)] {
+            let anchored = with_anchor(base.clone(), start, end, "c1");
+            let ctxs = anchor_contexts(&anchored);
+            let mut bare = without_anchors(&anchored);
+            let out = bare.reattach(&ctxs, None, &none());
+            assert_eq!(span(&bare, "c1"), Some((start, end)), "{ctxs:?}");
+            assert_eq!(out.reattached, ctxs);
+        }
+    }
+
+    #[test]
+    fn an_anchor_over_a_slot_alone_quotes_the_slot_and_is_under_the_floor() {
         let base = content("Intro line here.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nOutro line here.");
         let slot = base.text.chars().position(|c| c == ISLAND_SLOT).unwrap();
         let base = with_anchor(base, slot, slot + 1, "table");
-        let ctx = &anchor_contexts(&base)[0];
-        assert_eq!(ctx.quote, "");
-        assert_eq!(locate(&base, ctx, None), Some((slot, slot + 1)));
+        let ctxs = anchor_contexts(&base);
+        assert_eq!(ctxs[0].quote, "\u{FFFC}");
+
+        let mut held = base.clone();
+        let out = held.reattach(&ctxs, None, &none());
+        assert_eq!((held, out.reattached), (base.clone(), ctxs.clone()));
+
+        let mut bare = without_anchors(&base);
+        let out = bare.reattach(&ctxs, None, &none());
+        assert_eq!(out.orphaned, ctxs);
+        assert_eq!(bare, without_anchors(&base));
     }
 
     #[test]
-    fn a_short_or_repeated_quote_places_nothing() {
-        let rt = content("one two one two one two");
-        assert_eq!(locate(&rt, &AnchorContext::new("c", "two", "", ""), None), None);
+    fn the_quote_floor_alone_refuses_a_three_character_quote() {
+        let whole = |text: &str| locate(&content(text), &AnchorContext::new("c", text, "", ""), None);
+        assert_eq!(whole("abc"), None);
+        assert_eq!(whole("abcd"), Some((0, 4)));
+    }
 
+    #[test]
+    fn a_repeated_quote_places_nothing_and_a_disagreeing_twin_does_not_count() {
         let rt = content("and then gamma rises fast, and then gamma rises fast.");
         let ctx = AnchorContext::new("c", "gamma", "and then ", " rises fast");
         assert_eq!(locate(&rt, &ctx, None), None, "two occurrences with equal context");
@@ -402,6 +383,21 @@ mod tests {
         let ctx = AnchorContext::new("c", "gamma", "but then ", " rises fast");
         let at = rt.text.rfind("gamma").unwrap();
         assert_eq!(locate(&rt, &ctx, None), Some((at, at + 5)));
+    }
+
+    #[test]
+    fn a_delta_counts_only_a_match_overlapping_what_it_inserted() {
+        let rt = content("Lorem ipsum dolor sit amet, consectetur adipiscing elit.");
+        let at = rt.text.find("dolor sit").unwrap();
+        let quote = AnchorContext::new("c", "dolor sit", "Lorem ipsum ", " amet, consectetur adipiscing elit.");
+        assert_eq!(locate(&rt, &quote, None), Some((at, at + 9)));
+        assert_eq!(locate(&rt, &quote, Some(&[(at + 8, at + 12)])), Some((at, at + 9)));
+        assert_eq!(locate(&rt, &quote, Some(&[(at + 9, at + 12)])), None);
+
+        let point = AnchorContext::new("p", "", "Lorem ipsum ", "dolor sit amet, consectetur");
+        assert_eq!(locate(&rt, &point, None), Some((at, at)));
+        assert_eq!(locate(&rt, &point, Some(&[(at + 7, at + 12)])), Some((at, at)));
+        assert_eq!(locate(&rt, &point, Some(&[(at + 8, at + 12)])), None);
     }
 
     #[test]

@@ -479,9 +479,9 @@ export interface DocumentAnchor {
  * A prose anchor's context at its address (`anchorContexts`, `anchorContext`,
  * `reattach`): the text-quote selector a host stores beside a comment thread.
  * `path` is the body or content value's `DocPath` string. `quote` is the
- * anchored text, island slots removed and line breaks kept, empty for a point;
- * `prefix` and `suffix` are up to 32 scalar values on each side, cut at the
- * value's edges.
+ * anchored text as stored, an inline island its `U+FFFC` slot and a line break
+ * its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
+ * of stored text on each side, cut at the value's edges.
  */
 export interface AnchorContext {
     id: string;

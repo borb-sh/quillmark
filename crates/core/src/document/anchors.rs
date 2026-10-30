@@ -21,8 +21,8 @@ pub struct AnchorSelector {
     pub id: String,
     /// The body or content value holding the anchor.
     pub path: DocPath,
-    /// The anchored text, island slots removed and line breaks kept; empty for
-    /// a point.
+    /// The anchored text as stored, island slots and line breaks included;
+    /// empty for a point.
     pub quote: String,
     /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::anchor::ANCHOR_CONTEXT_USV)
     /// scalar values before the anchor, cut at the value's start.

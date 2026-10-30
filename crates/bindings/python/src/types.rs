@@ -751,8 +751,9 @@ impl PyDocument {
     /// Every prose anchor of every body and content value with its context, as
     /// dicts `{id, path, quote, prefix, suffix}`: the selector a host stores
     /// beside a comment thread and hands back to `reattach`. `path` is the
-    /// value's `DocPath` string; `quote` the anchored text, island slots removed,
-    /// empty for a point; `prefix` and `suffix` up to 32 characters either side.
+    /// value's `DocPath` string; `quote` the anchored text as stored, an inline
+    /// island its `U+FFFC` slot, empty for a point; `prefix` and `suffix` up to
+    /// 32 characters either side.
     /// Each card's fields come before its body. A table cell's anchors are
     /// outside the read.
     fn anchor_contexts<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
