@@ -697,6 +697,22 @@ export declare class DocumentWriter {
 	/** The bound document: the instance passed in, mutated in place. */
 	readonly document: Document;
 	/**
+	 * The hash of the document as this quill conforms it: the `baseHash`
+	 * {@link reviseDocument} checks. A document loaded without its quill
+	 * hashes as its conformed self, so a conform between the read and the
+	 * write does not stale the base. Throws when the document declares a
+	 * `$quill` this quill does not answer to.
+	 */
+	hash(): string;
+	/**
+	 * The hash of the body or field at `addr` through its schema: the
+	 * `baseHash` {@link reviseBody} and {@link reviseField} check. A
+	 * `richtext` field hashes its content however it rests, a `text` field its
+	 * literal text, any other type its stored value, an absent field as
+	 * `null`. Throws `UnknownField` for an undeclared name.
+	 */
+	hashAt(addr: Addr | string): string;
+	/**
 	 * Typed-commit one main-card field (strict coerce, mismatch throws now).
 	 * Throws `UnknownField` for a name the schema does not declare. Returns a
 	 * `parse::dropped_construct` warning per construct a `richtext` markdown
@@ -716,7 +732,8 @@ export declare class DocumentWriter {
 	 * naming each anchor the diff dropped: a body carries no field schema to
 	 * type against, so this is the content lane's `revise` reached through the
 	 * writer. `opts` names what the writer read, as on `doc.revise`: a stale
-	 * `baseHash` throws `edit::stale_base`, and a `baseMarkdown` merges.
+	 * `baseHash` (from {@link hashAt}) throws `edit::stale_base`, and a
+	 * `baseMarkdown` merges.
 	 */
 	reviseBody(markdown: string, opts?: BaseOptions): Revised;
 	/**
@@ -745,7 +762,7 @@ export declare class DocumentWriter {
 	 * declares a `$quill` this quill does not answer to, or does not parse,
 	 * leaving the document unchanged.
 	 *
-	 * `opts` names what the writer read: `baseHash` is `doc.hash()`, and
+	 * `opts` names what the writer read: `baseHash` is {@link hash}, and
 	 * `baseMarkdown` the whole document's markdown (`toMarkdown` or
 	 * `toAnnotatedMarkdown`), merged by line onto what changed since. A stale
 	 * or conflicting write throws before any mutation.
@@ -787,6 +804,8 @@ export declare class CardWriter {
 	 * index.
 	 */
 	readonly kind: string;
+	/** The card twin of {@link DocumentWriter.hashAt}; no `field` reads the body. */
+	hashAt(field?: string): string;
 	set(name: string, value: unknown): Diagnostic[];
 	setAll(fields: Record<string, unknown>): Diagnostic[];
 	/**

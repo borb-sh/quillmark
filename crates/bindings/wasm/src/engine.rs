@@ -442,9 +442,11 @@ export interface Revised {
 /**
  * What a revise's writer read, the optional last argument of `revise`,
  * `rebase` and the writer's `reviseBody` / `reviseField` / `reviseDocument`.
- * Name one or neither. `baseHash` is the `hashAt` / `hash` / `hashContent` the
- * writer read: a write onto a value that hashes otherwise throws
- * `edit::stale_base`. `baseMarkdown` is the markdown the writer read, annotated
+ * Name one or neither; a key present with no string throws. `baseHash` is the
+ * hash the writer read, paired with the lane it writes on: `writer.hashAt` /
+ * `writer.hash` for the writer's verbs, `doc.hashAt` for `revise`, and
+ * `hashContent` for `rebase`. A write onto a value that hashes otherwise
+ * throws `edit::stale_base`. `baseMarkdown` is the markdown the writer read, annotated
  * or not (a `text` field's literal text): when the value has changed since,
  * the writer's edit and the change since merge by line, so both land, and
  * runs of lines both changed throw `edit::rebase_conflict`. Each refusal's
@@ -1184,18 +1186,21 @@ impl Document {
         self.inner.to_markdown()
     }
 
-    /// The hash of the document's stored form: the `baseHash` a
-    /// `writer.reviseDocument` checks. Equal documents hash alike.
+    /// The hash of the document's stored form, the quill-free twin of
+    /// `writer.hash()`. Equal documents hash alike, whatever order a store
+    /// kept their keys in.
     #[wasm_bindgen(js_name = hash)]
     pub fn hash(&self) -> String {
         self.inner.hash()
     }
 
-    /// The hash of the value stored at `addr`, `null` for an absent field: the
-    /// `baseHash` a `revise`, `writer.reviseBody` or `writer.reviseField` at
-    /// `addr` checks. An absent `addr.field` reads the body, an absent
-    /// `addr.card` the main card. Throws on an out-of-range card or a malformed
-    /// field name.
+    /// The hash of the body or richtext field at `addr`, the `baseHash` a
+    /// `revise` at `addr` checks: `hashContent` of its content, an absent field
+    /// the empty content. An absent `addr.field` reads the body, an absent
+    /// `addr.card` the main card. Richtext only, on `revise`'s terms; the
+    /// typed `writer.hashAt` reads a field of any type through its schema.
+    /// Throws on an out-of-range card, a malformed field name, or a present
+    /// non-content field value.
     #[wasm_bindgen(js_name = hashAt)]
     pub fn hash_at(
         &self,
@@ -1926,6 +1931,45 @@ impl Document {
     /// warnings anchored at the field. The codec is the declared type's:
     /// `richtext` diffs markdown, `text` literal text, which drops nothing.
     ///
+    /// The ABI under `writer.hash`: the hash of the document as `quill`
+    /// conforms it, the `baseHash` `writer.reviseDocument` checks. Throws when
+    /// the document declares a `$quill` this quill does not answer to.
+    #[wasm_bindgen(js_name = _hash, skip_typescript)]
+    pub fn hash_abi(&mut self, quill: &Quill) -> Result<String, JsValue> {
+        quill
+            .inner
+            .writer(&mut self.inner)
+            .hash()
+            .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())
+    }
+
+    /// The ABI under `writer.hashAt`: the body's hash, or a field's through its
+    /// schema (a `richtext` field its content however it rests, a `text` field
+    /// its literal text, any other type its stored value), the `baseHash` the
+    /// writer's `reviseBody` / `reviseField` check. An undeclared name throws
+    /// `edit::unknown_field`, an out-of-range card throws.
+    #[wasm_bindgen(js_name = _hashAt, skip_typescript)]
+    pub fn hash_at_abi(
+        &mut self,
+        quill: &Quill,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+    ) -> Result<String, JsValue> {
+        let addr = Addr::from_js_or_string(&addr)?;
+        let base = self.addr_base(&addr);
+        let Some(field) = addr.field.clone() else {
+            return Ok(self.addr_card_ref(&addr)?.body_hash());
+        };
+        let mut writer = quill.inner.writer(&mut self.inner);
+        match addr.card {
+            None => writer.field_hash(&field),
+            Some(index) => writer
+                .card(index)
+                .map_err(|e| edit_error_to_js(&e, &base))?
+                .field_hash(&field),
+        }
+        .map_err(|e| edit_error_to_js(&e, &base))
+    }
+
     /// `addr` must name a field; a body address throws, since a body carries no
     /// field schema (use [`revise`](Self::revise)). An undeclared name throws
     /// `edit::unknown_field`, an out-of-range card throws.
@@ -2327,8 +2371,8 @@ pub fn export_markdown(
 }
 
 /// The hash of `rt`'s canonical form: what `doc.hashAt` answers for a body or
-/// richtext field holding it, and the `baseHash` `rebase` checks. Throws where
-/// `overwrite` would.
+/// richtext field whose content it is, however the field rests, and the
+/// `baseHash` `rebase` checks. Throws where `overwrite` would.
 #[wasm_bindgen(js_name = hashContent)]
 pub fn hash_content(
     #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
@@ -2356,6 +2400,15 @@ impl ReadBase {
             return Ok(ReadBase::None);
         }
         let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
+        // A key that is present but holds no string is a caller bug (a lookup
+        // that found nothing, a missing `await`), and `JSON.stringify` would
+        // drop it into an unguarded write.
+        for key in ["baseHash", "baseMarkdown"] {
+            let present = js_sys::Reflect::has(&opts, &key.into()).unwrap_or(false);
+            if present && !js_sys::Reflect::get(&opts, &key.into()).map_or(false, |v| v.is_string()) {
+                return Err(invalid(format!("{key} must be a string when given")));
+            }
+        }
         let opts: Opts = serde_json::from_value(js_value_to_json(opts, verb)?)
             .map_err(|e| invalid(format!("options must be BaseOptions: {e}")))?;
         match (opts.base_hash, opts.base_markdown) {

@@ -866,6 +866,19 @@ export class DocumentWriter {
 		return this.#doc;
 	}
 	/**
+	 * @returns {string}
+	 */
+	hash() {
+		return this.#doc._hash(this.#quill);
+	}
+	/**
+	 * @param {import('../core/wasm.js').Addr | string} addr
+	 * @returns {string}
+	 */
+	hashAt(addr) {
+		return this.#doc._hashAt(this.#quill, addr);
+	}
+	/**
 	 * @param {string} name
 	 * @param {unknown} value
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
@@ -955,6 +968,13 @@ export class CardWriter {
 	 */
 	get kind() {
 		return this.#doc.card(this.#index).kind;
+	}
+	/**
+	 * @param {string} [field]
+	 * @returns {string}
+	 */
+	hashAt(field) {
+		return this.#doc._hashAt(this.#quill, { card: this.#index, field });
 	}
 	/**
 	 * @param {string} name

@@ -519,16 +519,19 @@ impl PyDocument {
         self.inner.to_markdown()
     }
 
-    /// The hash of the document's stored form: the `base_hash` a
-    /// `writer.revise_document` checks. Equal documents hash alike.
+    /// The hash of the document's stored form, the quill-free twin of
+    /// `writer.hash()`. Equal documents hash alike, whatever order a store kept
+    /// their keys in.
     fn hash(&self) -> String {
         self.inner.hash()
     }
 
-    /// The hash of the value stored at `field` (`None` for the body) on `card`
-    /// (`None` for the main card), an absent field hashing as `null`: the
-    /// `base_hash` a `writer.revise_body` / `revise_field` there checks. Raises
-    /// `QuillmarkError` on a bad card index or a malformed field name.
+    /// The hash of the body (`field=None`) or richtext field on `card` (`None`
+    /// for the main card): the field's content however it rests, an absent
+    /// field the empty content. Richtext only; `writer.hash_at` reads a field
+    /// of any type through its schema, and is the `base_hash` the writer's
+    /// verbs check. Raises `QuillmarkError` on a bad card index, a malformed
+    /// field name, or a present non-content field value.
     #[pyo3(signature = (field=None, card=None))]
     fn hash_at(&self, field: Option<&str>, card: Option<isize>) -> PyResult<String> {
         let target = Target::resolve(&self.inner, card)?;
@@ -1003,6 +1006,48 @@ impl PyWriter {
         self.doc.clone_ref(py)
     }
 
+    /// The hash of the document as this quill conforms it: the `base_hash`
+    /// `revise_document` checks. A document loaded without its quill hashes as
+    /// its conformed self, so a conform between the read and the write does
+    /// not stale the base. Raises on a `$quill` this quill does not answer to.
+    fn hash(&self, py: Python<'_>) -> PyResult<String> {
+        let quill = self.quill.borrow(py);
+        let mut doc = self.doc.borrow_mut(py);
+        quill
+            .inner
+            .writer(&mut doc.inner)
+            .hash()
+            .map_err(|e| raise_summarized(e.to_diagnostics()))
+    }
+
+    /// The hash of the body (`field=None`) or of `field` through its schema on
+    /// `card` (`None` for the main card): the `base_hash` `revise_body` /
+    /// `revise_field` check. A `richtext` field hashes its content however it
+    /// rests, a `text` field its literal text, any other type its stored
+    /// value, an absent field as `None`. Raises `edit::unknown_field` for an
+    /// undeclared name.
+    #[pyo3(signature = (field=None, card=None))]
+    fn hash_at(&self, py: Python<'_>, field: Option<&str>, card: Option<isize>) -> PyResult<String> {
+        let quill = self.quill.borrow(py);
+        let mut doc = self.doc.borrow_mut(py);
+        let target = Self::target(&doc, card)?;
+        let Some(field) = field else {
+            return Ok(match target.index {
+                None => doc.inner.main().body_hash(),
+                Some(i) => doc.inner.cards()[i].body_hash(),
+            });
+        };
+        let mut writer = quill.inner.writer(&mut doc.inner);
+        match target.index {
+            None => writer.field_hash(field),
+            Some(i) => writer
+                .card(i)
+                .map_err(|e| convert_edit_error(e, &target.base))?
+                .field_hash(field),
+        }
+        .map_err(|e| convert_edit_error(e, &target.base))
+    }
+
     /// Typed-commit one field (strict coerce, mismatch raises now), resolving
     /// its type from the addressed card's schema. Raises `edit::unknown_field`
     /// for a name that schema does not declare. Returns a
@@ -1066,7 +1111,7 @@ impl PyWriter {
     /// `{id, line}`.
     ///
     /// `base_hash` or `base_markdown` names what the writer read: a
-    /// `base_hash` (`doc.hash_at`) the body no longer hashes to raises
+    /// `base_hash` (`hash_at`) the body no longer hashes to raises
     /// `edit::stale_base`, and a `base_markdown` the body has moved on from
     /// merges the writer's edit onto the change by line, raising
     /// `edit::rebase_conflict` where both changed one. Either refusal's
@@ -1154,9 +1199,9 @@ impl PyWriter {
     /// or a `$quill` this quill does not answer to, leaving the document
     /// unchanged.
     ///
-    /// `base_hash` (`doc.hash()`) or `base_markdown` (the whole document's
-    /// markdown) guard the write as on `revise_body`, raising before any
-    /// mutation.
+    /// `base_hash` (`hash()`) or `base_markdown` (the whole document's
+    /// markdown, annotated or not) guard the write as on `revise_body`,
+    /// raising before any mutation.
     #[pyo3(signature = (markdown, *, base_hash=None, base_markdown=None))]
     fn revise_document<'py>(
         &self,

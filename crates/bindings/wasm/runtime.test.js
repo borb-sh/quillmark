@@ -208,6 +208,21 @@ card_kinds:
       () => ed.reviseBody('Alpha, mine.\n\nBeta.\n\nGamma.', { baseMarkdown: 'Alpha.\n\nBeta.\n\nGamma.' }),
       'edit::rebase_conflict',
     )
+    expect(() => ed.reviseBody('x', { baseHash: undefined })).toThrow(/baseHash must be a string/)
+  })
+
+  it('writer.hashAt reads a field through its schema, so a string at rest and its conformed content agree', () => {
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: editor_test\nsubject: Hello *world*\n~~~\n\nBody.')
+    const ed = buildQuill().writer(doc)
+    const hash = ed.hashAt('subject')
+    expect(hash).toBe(doc.hashAt('subject'))
+    expect(ed.hashAt({})).toBe(doc.hashAt({}))
+    const whole = ed.hash()
+    ed.reviseBody('Other body.')
+    expect(ed.hashAt('subject')).toBe(hash)
+    expect(ed.hash()).not.toBe(whole)
+    ed.reviseField('subject', 'Hello _world_, hi', { baseHash: hash })
+    expectEditCode(() => ed.hashAt('nope'), 'edit::unknown_field')
   })
 
   it('addCard commits fields and body; removeCard returns the card', () => {
