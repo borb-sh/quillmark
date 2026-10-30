@@ -638,6 +638,10 @@ review-time metadata, not a gap; a future render projection (proof annotations,
 PDF destinations) would render the referent or a position, never the id, so
 this policy holds either way.
 
+A comment thread hangs on an anchor by its id: [COMMENTS.md](COMMENTS.md)
+states that contract, the selector each anchor reads as, and the exact rule
+that places a dropped anchor again.
+
 ## Schema Versioning
 
 The schema version is tied to the **crate version at which the `Document`

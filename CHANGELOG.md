@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Python's
+`revise_body`, `revise_field` and `revise_document` return the receipt as a
+dict, where they returned a list of `Diagnostic`, so a loop over the result
+runs over its keys: read `receipt["warnings"]`.
+
+### Comments
+
+- feat(content): **anchor contexts and exact re-attachment.** The `anchor`
+  module reads each prose anchor's quote, prefix and suffix off the stored
+  text through its slot-stripped projection (`anchor_contexts`), finds the one
+  range a context names (`locate`), and re-adds a dropped anchor through the
+  `Add` arm (`Content::reattach`). The rule never guesses: a quote of
+  `MIN_ANCHOR_QUOTE` (four) scalar values or more, its context agreeing on
+  `ANCHOR_AGREE_USV` (eight) each side or whole where the field's edge cut it,
+  a match overlapping inserted text where a delta is given, and exactly one
+  such place. `Delta::inserted_spans` is public. (#2349)
+- feat(core): **`Document::reattach` and `Revised.dropped_anchors`.**
+  `Document::anchor_contexts` / `anchor_context(id)` read each anchor's
+  `AnchorSelector { id, path, quote, prefix, suffix }`, and
+  `Document::reattach(selectors, deltas)` places dropped anchors at their
+  paths, path-strict, an id live anywhere in the document, a cell's included,
+  answered without a write. `Revised` gains `dropped_anchors`, each
+  `AnchorRead { id, line }`, at every rung that revises one body or field. The
+  facade re-exports `AnchorSelector`, `Reattached`, `AnchorRead` and
+  `DocPath`. (#2349)
+- feat(wasm): **`anchorContexts`, `anchorContext`, `reattach` and
+  `droppedAnchors`.** The selector crosses flat, its `path` a `DocPath`
+  string; `reattach(selectors, deltas?)` takes a `Record<path, Delta>` and
+  returns `{ reattached, orphaned }`. The `Revised` receipt of `revise`,
+  `reviseContent`, `writer.reviseBody` and `writer.reviseField` gains
+  `droppedAnchors: { id, line }[]`. (#2349)
+- feat(python)!: **the revise verbs return the whole receipt.**
+  `writer.revise_body` / `revise_field` return `{ delta, warnings,
+  dropped_anchors }` and `revise_document` `{ dropped_anchors, warnings, from }`,
+  each warning the dict `validate` returns, where each returned a list of
+  `Diagnostic`. `doc.anchor_contexts()`, `doc.anchor_context(id)` and
+  `doc.reattach(selectors, deltas=None)` expose the handle. (#2349)
+- docs(canon): **`COMMENTS.md` states the comment-anchor contract**: the
+  thread outside the document, the id it shares with its anchor, the matching
+  rule, drift, table cells out of scope, and the hosting rule. (#2349)
+
 ## v0.133.0 - 2026-10-29
 
 Upgrade path: [0.132 → 0.133](docs/migrations/0.132-to-0.133.md). The
