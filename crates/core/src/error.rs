@@ -1054,9 +1054,7 @@ main:
         .expect_err("a default that contradicts its type fails config validation");
 
         assert!(
-            diags
-                .iter()
-                .any(|d| d.code.as_deref() == Some("quill::default_type_mismatch")),
+            crate::quill::has_code(&diags, "quill::default_type_mismatch"),
             "expected quill::default_type_mismatch, got {:?}",
             diags.iter().map(|d| &d.code).collect::<Vec<_>>()
         );

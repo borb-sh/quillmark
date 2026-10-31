@@ -76,11 +76,6 @@ fn codes_of(quill: &Quill, document: &Document) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The canonical content a `text` cell carries for `s`.
-fn text(s: &str) -> serde_json::Value {
-    quillmark_content::serial::to_canonical_value(&quillmark_content::import::from_plaintext(s))
-}
-
 #[test]
 fn the_ignore_set_anchors_directories_and_not_names() {
     let ignore = QuillIgnore;
@@ -272,7 +267,7 @@ fn a_quill_version_is_major_minor_patch() {
     for version in ["\"1.2\"", "1.10", "\"1.2.x\"", "\"1.2.3.4\"", "\"\"", "!!float 1.10", "1.1e1"] {
         let errors = load(version).expect_err(version);
         assert!(
-            errors.iter().any(|d| d.code.as_deref() == Some("quill::invalid_version")),
+            has_code(&errors, "quill::invalid_version"),
             "{version}: {errors:?}"
         );
     }
@@ -296,7 +291,7 @@ fn a_defective_quill_header_names_what_it_is_missing() {
         ),
     ] {
         let errs = QuillConfig::from_yaml_with_warnings(yaml).expect_err(code);
-        assert!(errs.iter().any(|d| d.code.as_deref() == Some(code)), "{code}: {errs:?}");
+        assert!(has_code(&errs, code), "{code}: {errs:?}");
     }
 }
 
@@ -327,7 +322,7 @@ fn test_quill_config_rejects_non_snake_case_identifiers() {
         ),
     ] {
         let errs = QuillConfig::from_yaml_with_warnings(&yaml).expect_err(code);
-        assert!(errs.iter().any(|d| d.code.as_deref() == Some(code)), "{code}: {errs:?}");
+        assert!(has_code(&errs, code), "{code}: {errs:?}");
     }
     assert!(QuillConfig::from_yaml(&with_header(
         "card_kinds:\n  _private_card:\n    fields:\n      title: { type: text }\n"
@@ -551,7 +546,7 @@ fn a_malformed_container_declaration_is_refused_by_code() {
         ),
     ] {
         let err = quill_with_field(field).expect_err(code);
-        assert!(err.iter().any(|d| d.code.as_deref() == Some(code)), "{code}: {err:?}");
+        assert!(has_code(&err, code), "{code}: {err:?}");
     }
 }
 
@@ -602,7 +597,7 @@ fn a_bad_group_declaration_is_refused_by_code() {
         ),
     ] {
         let err = config_with_sections(&format!("main:\n{main}")).expect_err(code);
-        assert!(err.iter().any(|d| d.code.as_deref() == Some(code)), "{code}: {err:?}");
+        assert!(has_code(&err, code), "{code}: {err:?}");
     }
 }
 
@@ -1059,8 +1054,7 @@ fn main_refuses_every_shape_a_card_kind_refuses() {
             .err()
             .unwrap_or_else(|| panic!("{label} loaded instead of erroring"));
         assert!(
-            err.iter()
-                .any(|d| d.code.as_deref() == Some("quill::invalid_card_schema")),
+            has_code(&err, "quill::invalid_card_schema"),
             "{label}: {:?}",
             err.iter().map(|d| d.code.as_deref()).collect::<Vec<_>>()
         );
@@ -1074,7 +1068,7 @@ fn a_malformed_ui_or_body_block_reports_its_own_code_on_main_and_card_kinds() {
         let ui_err = config_with_sections(&format!("{prefix}{indent}ui:\n{indent}  bogus_key: nope"))
             .expect_err("a malformed ui block");
         assert!(
-            ui_err.iter().any(|d| d.code.as_deref() == Some("quill::invalid_ui")),
+            has_code(&ui_err, "quill::invalid_ui"),
             "{prefix}: {ui_err:?}"
         );
 
@@ -1114,7 +1108,7 @@ fn a_literal_outside_its_declaration_is_refused_by_code() {
         ),
     ] {
         let err = quill_with_field(field).expect_err(code);
-        assert!(err.iter().any(|d| d.code.as_deref() == Some(code)), "{field}: {err:?}");
+        assert!(has_code(&err, code), "{field}: {err:?}");
     }
 
     let err = quill_with_field("    f:\n      type: text\n      default: 20.04\n").unwrap_err();
@@ -1143,8 +1137,7 @@ fn enum_rejects_a_blank_value_but_accepts_a_blank_default() {
     )
     .unwrap_err();
     assert!(
-        err.iter()
-            .any(|d| d.code.as_deref() == Some("quill::enum_blank_member")),
+        has_code(&err, "quill::enum_blank_member"),
         "`\"\"` in values: should be a load error, got: {err:?}"
     );
 
@@ -1225,7 +1218,7 @@ fn a_declaration_outside_the_field_grammar_is_a_field_parse_error() {
     ] {
         let err = quill_with_field(field).expect_err(field);
         assert!(
-            err.iter().any(|d| d.code.as_deref() == Some("quill::field_parse_error")),
+            has_code(&err, "quill::field_parse_error"),
             "{field}: {err:?}"
         );
     }
@@ -1257,8 +1250,7 @@ fn single_line_richtext_default_over_one_para_is_a_load_error() {
     )
     .unwrap_err();
     assert!(
-        err.iter()
-            .any(|d| d.code.as_deref() == Some("validation::not_single_line")),
+        has_code(&err, "validation::not_single_line"),
         "a two-paragraph single-line default should fail load with validation::not_single_line, got: {err:?}"
     );
 }
@@ -1270,7 +1262,7 @@ fn single_line_richtext_default_over_one_para_is_a_load_error() {
 fn a_bare_scalar_richtext_default_is_a_load_error() {
     let err = quill_with_field("    tag:\n      type: richtext\n      multiline: true\n      default: 47\n").unwrap_err();
     assert!(
-        err.iter().any(|d| d.code.as_deref() == Some("quill::richtext_default_import")),
+        has_code(&err, "quill::richtext_default_import"),
         "{err:?}"
     );
 }
@@ -1446,7 +1438,7 @@ fn a_single_line_text_literal_ending_in_a_newline_loads() {
     let err = quill_with_field("    pti:\n      type: text\n      default: |\n        one\n        two\n")
         .unwrap_err();
     assert!(
-        err.iter().any(|d| d.code.as_deref() == Some("validation::not_single_line")),
+        has_code(&err, "validation::not_single_line"),
         "{err:?}"
     );
 }
@@ -1677,8 +1669,7 @@ fn ui_layout_table_loads_on_a_typed_table_and_is_refused_elsewhere() {
     ] {
         let err = quill_with_field(field).expect_err(label);
         assert!(
-            err.iter()
-                .any(|d| d.code.as_deref() == Some("quill::invalid_ui")),
+            has_code(&err, "quill::invalid_ui"),
             "{label}: expected quill::invalid_ui, got {err:?}"
         );
     }
@@ -1801,8 +1792,7 @@ fn max_loads_on_an_array_or_text_and_is_refused_elsewhere() {
     ] {
         let err = quill_with_field(field).expect_err("max off an array");
         assert!(
-            err.iter()
-                .any(|d| d.code.as_deref() == Some("quill::field_parse_error")),
+            has_code(&err, "quill::field_parse_error"),
             "{err:?}"
         );
     }
@@ -1812,9 +1802,7 @@ fn max_loads_on_an_array_or_text_and_is_refused_elsewhere() {
     )
     .expect_err("a cap is a count");
     assert!(
-        negative
-            .iter()
-            .any(|d| d.code.as_deref() == Some("quill::field_parse_error")),
+        has_code(&negative, "quill::field_parse_error"),
         "{negative:?}"
     );
 }
@@ -1829,7 +1817,7 @@ fn a_literal_longer_than_max_is_a_load_error() {
     )
     .expect_err("a literal over the cap");
     assert!(
-        err.iter().any(|d| d.code.as_deref() == Some("quill::default_over_max")),
+        has_code(&err, "quill::default_over_max"),
         "{err:?}"
     );
 
@@ -1856,7 +1844,7 @@ fn a_text_literal_longer_than_max_is_a_load_error() {
     ] {
         let err = quill_with_field(field).expect_err("a literal over the cap");
         assert!(
-            err.iter().any(|d| d.code.as_deref() == Some("quill::default_over_length")),
+            has_code(&err, "quill::default_over_length"),
             "{field}: {err:?}"
         );
     }
@@ -1953,9 +1941,7 @@ fn a_stored_line_break_in_one_line_text_renders_folded_and_stays_stored() {
     );
 
     let conformed = quill.conform(&mut doc).expect("conforms");
-    assert!(conformed
-        .iter()
-        .any(|d| d.code.as_deref() == Some("conform::field_not_single_line")));
+    assert!(has_code(&conformed, "conform::field_not_single_line"));
     assert_eq!(
         doc.main().payload().get("address").and_then(|v| v.as_str()),
         Some("123 ABW/CC\n100 Main St")

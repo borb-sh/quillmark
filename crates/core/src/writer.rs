@@ -465,10 +465,8 @@ where
 mod tests {
     use super::*;
     use crate::document::Codec;
-    use crate::document::{Card, Document};
-    use crate::quill::{CardSchema, FieldType};
-    use crate::version::QuillReference;
-    use std::str::FromStr;
+    use crate::document::Card;
+    use crate::quill::{blank_doc, CardSchema, FieldType};
 
     const QUILL_YAML: &str = "\
 quill:
@@ -496,10 +494,6 @@ card_kinds:
 
     fn config() -> QuillConfig {
         QuillConfig::from_yaml(QUILL_YAML).expect("valid quill")
-    }
-
-    fn blank_doc() -> Document {
-        Document::new(QuillReference::from_str("memo@1.0.0").unwrap())
     }
 
     #[test]

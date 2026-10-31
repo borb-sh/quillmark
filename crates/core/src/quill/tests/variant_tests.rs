@@ -7,12 +7,11 @@
 
 use crate::document::Document;
 use crate::quill::{
-    blank, build_transform_schema, quill_from_yaml, test_date, FieldSchema, Quill, QuillConfig,
+    blank, build_transform_schema, quill_from_yaml, test_date, Quill, QuillConfig,
 };
-use crate::value::QuillValue;
 use serde_json::json;
 
-use super::{codes_of, text};
+use super::{codes_of, field, text};
 
 /// A quill whose `classification` enum brings a `CUI` field set into play:
 /// `controlled_by` with no `default:`, `category` defaulted.
@@ -68,11 +67,6 @@ fn plate(document: &Document) -> serde_json::Value {
 
 fn codes(document: &Document) -> Vec<(String, String)> {
     codes_of(&quill(), document)
-}
-
-fn field(yaml: &str) -> FieldSchema {
-    let value = QuillValue::from_yaml_str(yaml).unwrap();
-    FieldSchema::from_quill_value("classification".to_string(), &value).unwrap()
 }
 
 fn load(fields: &str) -> Result<QuillConfig, String> {
