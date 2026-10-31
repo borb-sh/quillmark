@@ -10,7 +10,7 @@ use crate::lines::island::IslandType;
 use crate::lines::model::{self as line, canonicalize_keys};
 use crate::model::{Anchor, Block, BlockKind, Content, HARD_BREAK, Invariant, Island, Mark, MarkKind, NOTE_SLOT};
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The props keys a table names.
 pub const TABLE_KEYS: [&str; 7] = ["columns", "rows", "head", "aligns", "widths", "align", "cell_attrs"];
@@ -91,6 +91,31 @@ impl Table {
                 .collect(),
         );
     }
+}
+
+/// Renames a table's column, row and slot ids through the maps, an id a map
+/// does not name kept, and every key that names one with it.
+pub(crate) fn rename(
+    island: &mut Island,
+    columns: &HashMap<String, String>,
+    rows: &HashMap<String, String>,
+    slots: &HashMap<String, String>,
+) {
+    let Some(mut table) = Table::read(&island.props) else { return };
+    let to = |m: &HashMap<String, String>, id: &String| m.get(id).cloned().unwrap_or_else(|| id.clone());
+    table.columns = table.columns.iter().map(|c| to(columns, c)).collect();
+    for row in &mut table.rows {
+        row.id = to(rows, &row.id);
+        row.cells = row.cells.iter().map(|s| to(slots, s)).collect();
+    }
+    let Some(props) = island.props.as_object_mut() else { return };
+    table.write_into(props);
+    for (key, map) in [("aligns", columns), ("widths", columns), ("cell_attrs", slots)] {
+        if let Some(Value::Object(keyed)) = props.get_mut(key) {
+            *keyed = std::mem::take(keyed).into_iter().map(|(k, v)| (to(map, &k), v)).collect();
+        }
+    }
+    island.slots = std::mem::take(&mut island.slots).into_iter().map(|(k, v)| (to(slots, &k), v)).collect();
 }
 
 pub(crate) fn check(island: &Island) -> Result<(), Invariant> {

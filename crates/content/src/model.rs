@@ -600,7 +600,6 @@ impl Content {
             }
         }
         let mut slot = 0usize;
-        let mut start = 0usize;
         let chars: Vec<char> = self.text.chars().collect();
         for (b, (s, e)) in self.blocks.iter().zip(self.block_ranges()) {
             let seg = &chars[s..e];
@@ -623,9 +622,7 @@ impl Content {
                     slot += 1;
                 }
             }
-            start = e + 1;
         }
-        let _ = start;
         for island in &self.islands {
             for slot in island.slots.values() {
                 slot.check_relations()?;

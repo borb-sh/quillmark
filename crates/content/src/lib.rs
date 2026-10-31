@@ -8,6 +8,8 @@
 //! line form in [`lines`], which the renderers also read; [`migrate`] moves
 //! values between the two.
 
+pub mod change;
+pub mod diff;
 pub mod ids;
 pub mod lines;
 pub mod markdown;
