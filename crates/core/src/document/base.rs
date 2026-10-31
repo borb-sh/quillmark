@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use quillmark_content::delta::{merge_lines, rebase_marks_pinned};
-use quillmark_content::export::{to_markdown_annotated, to_markdown_tokened, Annotated};
+use quillmark_content::export::{to_markdown, to_markdown_annotated, to_markdown_tokened, Annotated};
 use quillmark_content::import::{from_markdown_against, ImportWarning};
 use quillmark_content::model::Normalized;
 use quillmark_content::serial::to_canonical_value;
@@ -170,7 +170,9 @@ fn check(current: String, read: &str) -> Result<(), BaseError> {
 /// revise of `stored` and exported with its islands that have no markdown as
 /// their tokens and no anchor tag, so the three sides of a merge are spelled
 /// alike, a token survives the merge, and a read of the stored value,
-/// annotated or not, matches it.
+/// annotated or not, matches it: a read equal to the stored value's plain or
+/// annotated markdown writes the writer's own, though its markup lost an
+/// island its spelling cannot match.
 fn richtext_write(
     stored: &Normalized,
     current: impl FnOnce() -> String,
@@ -181,6 +183,9 @@ fn richtext_write(
         Base::Hash(read) => return check(current(), read).map(|()| Write::Own).map_err(EditError::Base),
         Base::Read(read) => read,
     };
+    if read == to_markdown(stored) || read == to_markdown_annotated(stored).markdown {
+        return Ok(Write::Own);
+    }
     let spelled = |md: &str| {
         from_markdown_against(md, stored)
             .map(|against| {
@@ -390,7 +395,8 @@ pub(crate) fn conformed(config: &QuillConfig, doc: &Document) -> Result<Document
 /// have no markdown as their tokens and no anchor tag, so a token survives
 /// the merge and the three sides are spelled alike. A merge that does not
 /// parse as a document, or names another quill, is a [`BaseError::Conflict`],
-/// since the writer's own markdown parsed.
+/// since the writer's own markdown parsed. A read equal to the document's
+/// plain or annotated markdown, as stored or conformed, takes the writer's own.
 pub(crate) fn parse_against(
     config: &QuillConfig,
     doc: &Document,
@@ -407,6 +413,10 @@ pub(crate) fn parse_against(
     };
     let revising = Document::parse_revising(markdown)?;
     config.check_quill_reference(&revising.parsed.document)?;
+    let reads_now = |doc: &Document| read == doc.to_markdown() || read == doc.to_markdown_annotated().markdown;
+    if reads_now(doc) || reads_now(&conformed(config, doc)?) {
+        return Ok(revising);
+    }
     let spell = |side: Revising| -> Result<String, BoundParseError> {
         let mut revised = doc.clone();
         let _ = revised.revise_parsed(side);

@@ -245,6 +245,30 @@ fn a_document_revise_merges_a_read_and_refuses_a_stale_hash() {
 /// A merge compares the three sides with their islands that have no markdown
 /// as tokens, so a token the writer kept survives a change made since its
 /// read, in a body and in a document.
+/// A plain read of a value whose markup loses an island is still a read of
+/// it now: the writer's own markdown lands, rather than a merge that could
+/// only conflict on the island's line.
+#[test]
+fn a_plain_read_of_an_unchanged_value_writes_the_writers_own() {
+    let mut card = Card::new("note").unwrap();
+    let mut body = from_markdown("Lead.\n\n| h |\n| --- |\n| cell |").unwrap().content.into_content();
+    body.islands[0].props["note"] = "kept".into();
+    card.overwrite_body(body.into_normalized());
+    let read = card.body_markdown();
+    let edited = read.replace("cell", "cell, edited");
+    let revised = card.revise_body_against(Base::Read(&read), &edited).unwrap();
+    assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
+    assert_eq!(card.body_markdown(), edited);
+
+    let config = config();
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nLead.\n");
+    doc.main_mut().overwrite_body(card.body().clone());
+    let read = doc.to_markdown();
+    let mut w = TypedWriter::new(&config, &mut doc);
+    w.revise_document_against(Base::Read(&read), &read.replace("edited", "edited twice")).unwrap();
+    assert!(doc.main().body_markdown().contains("edited twice"));
+}
+
 #[test]
 fn a_token_survives_a_merge() {
     let mut card = Card::new("note").unwrap();
