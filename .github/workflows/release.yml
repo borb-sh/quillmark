@@ -673,8 +673,10 @@ jobs:
           name: wheels-sdist
           path: crates/bindings/python/dist/*.tar.gz
 
+  # PyPI uploads only while the repository variable PUBLISH_PYPI is `true`.
   publish-python:
     needs: [prepare, build-python-linux, build-python-windows, build-python-macos, build-python-sdist]
+    if: vars.PUBLISH_PYPI == 'true'
     runs-on: ubuntu-latest
     environment: Publish
     permissions:
