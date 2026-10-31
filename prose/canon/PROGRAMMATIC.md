@@ -139,11 +139,9 @@ fate, governing user-field writes), and the core-vs-bindings parity table.
 
 ## Addressing cards for re-render
 
-Card mutators address by index, and Quillmark offers no durable card handle: a `remove_card` / `add_card` moves every index after it. A consumer that patches and re-renders (a source row changed, re-render the document) carries its own key in the card's `$ext` under a namespace it owns and resolves the index at patch time — the [Programmatic Use](../../docs/integration/programmatic.md) page carries that recipe.
+Quillmark offers no durable card handle: a `remove_card` / `add_card` moves every index after it, so a consumer keeps its own key in the card's `$ext`. The recipe is [Programmatic Use](../../docs/integration/programmatic.md); this section owns the `$ext` contract.
 
-`$ext` round-trips through Markdown and the storage DTO and never reaches a backend ([CARDS.md](CARDS.md) § Out-of-band Metadata). It has its own verbs (`store_ext` / `remove_ext`, `card.ext()`) and no field write touches it, so a key stamped here survives every write through the typed lane. **Quillmark guarantees nothing about what a consumer puts there**: no uniqueness, no collision check, no repair on a hand-edited file. A key duplicated across two cards resolves to whichever the scan hits first. Namespacing (`$ext.myapp`) is what keeps two tools on one card from colliding, and it is a convention, not an enforced rule.
-
-Patching one card at a time is for a document that is no longer a pure projection of its source data: where data → document is a pure function, rebuild instead. Reach for this only when a rebuild would destroy accumulated hand edits.
+`$ext` round-trips through Markdown and the storage DTO and never reaches a backend ([CARDS.md](CARDS.md) § Out-of-band Metadata). It has its own verbs (`store_ext` / `remove_ext`, `card.ext()`) and no field write touches it, so a key stamped here survives every write through the typed lane. **Quillmark guarantees nothing about what a consumer puts there**: no uniqueness, no collision check, no repair on a hand-edited file. Namespacing (`$ext.myapp`) is what keeps two tools on one card from colliding, and it is a convention, not an enforced rule.
 
 ## Links
 
