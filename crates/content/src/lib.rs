@@ -16,6 +16,7 @@ pub mod markdown;
 pub mod migrate;
 pub mod model;
 pub mod table;
+pub mod units;
 pub mod usv;
 pub mod wire;
 

@@ -240,6 +240,23 @@ const CHAR_DIFF_LIMIT: usize = 5_000;
 /// leaves the rest of it retained. Above `CHAR_DIFF_LIMIT` chars, a char
 /// diff skips Myers entirely and uses `coarse_replace` instead.
 pub fn diff(base: &str, new: &str) -> Delta {
+    diff_at(base, new, Grain::Char)
+}
+
+/// [`diff`] with a rewritten line, or a text of one line, diffed by word
+/// rather than by char: a word either side keeps whole or changes whole, so a
+/// range over a rewritten word does not ride its scattered letters.
+pub fn diff_words(base: &str, new: &str) -> Delta {
+    diff_at(base, new, Grain::Word)
+}
+
+#[derive(Clone, Copy)]
+enum Grain {
+    Char,
+    Word,
+}
+
+fn diff_at(base: &str, new: &str, grain: Grain) -> Delta {
     let mut ops = Vec::new();
     if base.contains('\n') || new.contains('\n') {
         let old_lines: Vec<&str> = base.split_inclusive('\n').collect();
@@ -252,11 +269,11 @@ pub fn diff(base: &str, new: &str) -> Delta {
                 DiffOp::Equal { .. } => {
                     push_retain(&mut ops, old_lines[old].iter().map(|l| l.chars().count()).sum())
                 }
-                _ => refine_replace(&mut ops, &old_lines[old], &new_lines[new], &old_set, &new_set),
+                _ => refine_replace(&mut ops, &old_lines[old], &new_lines[new], &old_set, &new_set, grain),
             }
         }
     } else {
-        push_char_diff(&mut ops, base, new);
+        push_grain_diff(&mut ops, base, new, grain);
     }
     Delta { ops }
 }
@@ -272,6 +289,7 @@ fn refine_replace(
     new: &[&str],
     old_set: &HashSet<&str>,
     new_set: &HashSet<&str>,
+    grain: Grain,
 ) {
     let rewrite = |o: &str, n: &str| {
         o.chars().count() <= CHAR_DIFF_LIMIT
@@ -291,7 +309,7 @@ fn refine_replace(
         tail += 1;
     }
     for k in 0..head {
-        push_char_diff(ops, old[k], new[k]);
+        push_grain_diff(ops, old[k], new[k], grain);
     }
     for line in &old[head..old.len() - tail] {
         push_delete(ops, line.chars().count());
@@ -300,7 +318,7 @@ fn refine_replace(
         push_insert(ops, line);
     }
     for k in 0..tail {
-        push_char_diff(ops, old[old.len() - tail + k], new[new.len() - tail + k]);
+        push_grain_diff(ops, old[old.len() - tail + k], new[new.len() - tail + k], grain);
     }
 }
 
@@ -333,11 +351,15 @@ pub fn word_similarity(a: &[&str], b: &[&str]) -> f32 {
     (2 * common) as f32 / (a.len() + b.len()) as f32
 }
 
-fn push_char_diff(ops: &mut Vec<Op>, base: &str, new: &str) {
+fn push_grain_diff(ops: &mut Vec<Op>, base: &str, new: &str, grain: Grain) {
     if base.chars().count() > CHAR_DIFF_LIMIT || new.chars().count() > CHAR_DIFF_LIMIT {
         return coarse_replace(ops, base, new);
     }
-    for change in TextDiff::from_chars(base, new).iter_all_changes() {
+    let diff = match grain {
+        Grain::Char => TextDiff::from_chars(base, new),
+        Grain::Word => TextDiff::from_words(base, new),
+    };
+    for change in diff.iter_all_changes() {
         match change.tag() {
             ChangeTag::Equal => push_retain(ops, change.value().chars().count()),
             ChangeTag::Delete => push_delete(ops, change.value().chars().count()),
@@ -371,6 +393,69 @@ fn coarse_replace(ops: &mut Vec<Op>, base: &str, new: &str) {
     let inserted: String = new_chars[prefix..new_chars.len() - suffix].iter().collect();
     push_insert(ops, &inserted);
     push_retain(ops, suffix);
+}
+
+/// `ops` from a base to `new`, each text ending in a newline the caller
+/// appended, as the ops between the texts without it: the appended newlines
+/// drop, and a char either kept against one is inserted or deleted.
+pub(crate) fn without_sentinel(ops: Vec<Op>, new: &str) -> Vec<Op> {
+    enum Ev {
+        Keep,
+        Del,
+        Ins(char),
+    }
+    let new: Vec<char> = new.chars().collect();
+    let old_len: usize = ops
+        .iter()
+        .map(|op| match op {
+            Op::Retain(n) | Op::Delete(n) => *n,
+            Op::Insert(_) => 0,
+        })
+        .sum();
+    let (mut i, mut j) = (0usize, 0usize);
+    let mut evs = Vec::new();
+    for op in ops {
+        match op {
+            Op::Retain(n) => {
+                for _ in 0..n {
+                    let ev = match (i + 1 == old_len, j + 1 == new.len()) {
+                        (true, true) => None,
+                        (true, false) => Some(Ev::Ins(new[j])),
+                        (false, true) => Some(Ev::Del),
+                        (false, false) => Some(Ev::Keep),
+                    };
+                    evs.extend(ev);
+                    i += 1;
+                    j += 1;
+                }
+            }
+            Op::Delete(n) => {
+                for _ in 0..n {
+                    if i + 1 != old_len {
+                        evs.push(Ev::Del);
+                    }
+                    i += 1;
+                }
+            }
+            Op::Insert(text) => {
+                for ch in text.chars() {
+                    if j + 1 != new.len() {
+                        evs.push(Ev::Ins(ch));
+                    }
+                    j += 1;
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for ev in evs {
+        match ev {
+            Ev::Keep => push_retain(&mut out, 1),
+            Ev::Del => push_delete(&mut out, 1),
+            Ev::Ins(ch) => push_insert(&mut out, ch.encode_utf8(&mut [0; 4])),
+        }
+    }
+    out
 }
 
 fn push_retain(ops: &mut Vec<Op>, n: usize) {

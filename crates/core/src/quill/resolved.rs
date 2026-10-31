@@ -221,8 +221,8 @@ fn card_states(
 /// rung, so its source is only ever [`Authored`](FieldSource::Authored)
 /// (non-blank) or [`Blank`](FieldSource::Blank) (blank).
 fn body_state(card: &Card) -> ResolvedField {
-    let value = QuillValue::from_json(quillmark_content::lines::serial::to_canonical_value(card.body()));
-    let source = if card.body().is_blank() {
+    let value = QuillValue::from_json(card.body().to_value());
+    let source = if card.body_lines().is_blank() {
         FieldSource::Blank
     } else {
         FieldSource::Authored

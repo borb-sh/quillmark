@@ -371,10 +371,11 @@ impl Content {
         self.anchors.iter().find(|a| a.id == id)
     }
 
-    /// One paragraph in no container, with no island: the shape a one-line
-    /// field holds.
+    /// One paragraph in no container, with no break and no island: the shape
+    /// a one-line field holds.
     pub fn is_inline(&self) -> bool {
         self.islands.is_empty()
+            && !self.text.contains(HARD_BREAK)
             && self.blocks.len() == 1
             && self.blocks[0].kind == BlockKind::Para
             && self.blocks[0].path.is_empty()

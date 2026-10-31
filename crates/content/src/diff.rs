@@ -8,7 +8,7 @@ use crate::change::{
     AnchorStep, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, fixups, run,
 };
 use crate::ids::{Minter, prefix};
-use crate::lines::delta::{Op, diff as text_diff, diff_import};
+use crate::lines::delta::{Op, diff_import, diff_words as text_diff, without_sentinel};
 use crate::lines::import::{ImportError, ImportWarning};
 use crate::migrate::{from_lines, to_lines};
 use crate::model::{Content, ISLAND_SLOT, Island, Mark};
@@ -101,8 +101,9 @@ fn diff_level(before: &Content, after: &Content, carry: bool, top: bool) -> Vec<
     steps
 }
 
-/// The block and island ids one splice inserts and another deletes: a
-/// record that moves, which no splice carries, so it moves under a fresh id.
+/// The block and island ids one splice inserts and a later one deletes: a
+/// record that moves ahead, which would be held twice between the two, so it
+/// moves under a fresh id.
 fn moved_ids(steps: &[Step]) -> HashSet<String> {
     let mut inserted: HashMap<String, usize> = HashMap::new();
     let mut deleted: HashMap<String, usize> = HashMap::new();
@@ -117,7 +118,7 @@ fn moved_ids(steps: &[Step]) -> HashSet<String> {
             }
         }
     }
-    inserted.into_iter().filter(|(id, n)| deleted.get(id).is_some_and(|m| m != n)).map(|(id, _)| id).collect()
+    inserted.into_iter().filter(|(id, n)| deleted.get(id).is_some_and(|m| m > n)).map(|(id, _)| id).collect()
 }
 
 /// One splice over the whole text, for a pair the step-wise diff cannot
@@ -241,7 +242,7 @@ fn splices(before: &Content, want: &Content) -> Vec<Step> {
         *i0 = i;
         *j0 = j;
     };
-    for op in text_diff(&before.text, &want.text).ops {
+    for op in text_ops(&before.text, &want.text) {
         match op {
             Op::Retain(n) => {
                 for _ in 0..n {
@@ -293,11 +294,22 @@ fn splice_of(want: &Content, del: &[char], ins: &[char], from: usize, records: &
     }
 }
 
+/// The word-aligned text diff, a last block compared whole with its newline as
+/// every other block is, so text appended after it keeps it.
+fn text_ops(a: &str, b: &str) -> Vec<Op> {
+    if !a.contains('\n') && !b.contains('\n') {
+        return text_diff(a, b).ops;
+    }
+    let b = format!("{b}\n");
+    without_sentinel(text_diff(&format!("{a}\n"), &b).ops, &b)
+}
+
 /// `after` under the ids of what it kept from `before`: each block whose
 /// `\n` the text diff keeps, the last block, each island whose slot it keeps
-/// with its type, a kept table's columns, rows and cells by position, and
-/// each container a kept block's path names at the same depth with the same
-/// kind. Every other id is kept where `before` does not hold it, and minted
+/// with its type or that an island it drops further back held under the same
+/// id and type, a kept table's columns, rows and cells by position, and each
+/// container a kept block's path names at the same depth with the same kind.
+/// Every other id is kept where `before` does not hold it, and minted
 /// otherwise.
 pub fn align(before: &Content, after: Content) -> Content {
     let mut after = after;
@@ -307,14 +319,21 @@ pub fn align(before: &Content, after: Content) -> Content {
     let mut islands: Vec<(usize, usize)> = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     let (mut nl_a, mut nl_b, mut sl_a, mut sl_b) = (0usize, 0usize, 0usize, 0usize);
+    let (mut dropped_at, mut added_at): (HashMap<usize, usize>, HashMap<usize, usize>) = (HashMap::new(), HashMap::new());
+    let mut event = 0usize;
     let mut step = |ia: Option<usize>, jb: Option<usize>, blocks: &mut Vec<(usize, usize)>, islands: &mut Vec<(usize, usize)>| {
         let ca = ia.map(|k| a[k]);
         let cb = jb.map(|k| b[k]);
+        event += 1;
         if ca == Some('\n') && cb == Some('\n') {
             blocks.push((nl_a, nl_b));
         }
         if ca == Some(ISLAND_SLOT) && cb == Some(ISLAND_SLOT) {
             islands.push((sl_a, sl_b));
+        } else if ca == Some(ISLAND_SLOT) {
+            dropped_at.insert(sl_a, event);
+        } else if cb == Some(ISLAND_SLOT) {
+            added_at.insert(sl_b, event);
         }
         if ca == Some('\n') {
             nl_a += 1;
@@ -329,7 +348,7 @@ pub fn align(before: &Content, after: Content) -> Content {
             sl_b += 1;
         }
     };
-    for op in text_diff(&before.text, &after.text).ops {
+    for op in text_ops(&before.text, &after.text) {
         match op {
             Op::Retain(n) => {
                 for _ in 0..n {
@@ -429,11 +448,23 @@ pub fn align(before: &Content, after: Content) -> Content {
         .filter(|&(x, y)| before.islands[x].island_type == after.islands[y].island_type)
         .map(|(x, y)| (y, x))
         .collect();
+    let mut unclaimed: HashMap<&str, (usize, &Island)> = before
+        .islands
+        .iter()
+        .enumerate()
+        .filter_map(|(x, i)| Some((i.id.as_str(), (*dropped_at.get(&x)?, i))))
+        .collect();
     for (y, island) in after.islands.iter_mut().enumerate() {
         match matched.get(&y) {
             Some(&x) => align_island(&before.islands[x], island),
             None => {
-                if island_ids.holds(&island.id) {
+                let moved = unclaimed.get(island.id.as_str()).copied().filter(|(at, held)| {
+                    held.island_type == island.island_type && added_at.get(&y).is_some_and(|added| at < added)
+                });
+                if let Some((_, held)) = moved {
+                    unclaimed.remove(held.id.as_str());
+                    align_island(held, island);
+                } else if island_ids.holds(&island.id) {
                     island.id = island_ids.mint(prefix::ISLAND);
                 } else {
                     island_ids.hold(&island.id);
@@ -514,4 +545,9 @@ pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ImportError>
 /// that `content` does not name carried where the diff keeps its text.
 pub fn replace(before: &Content, content: &Content) -> Change {
     diff_carrying(before, content)
+}
+
+/// A line-form value written over `before`, under the ids of what it kept.
+pub fn lift(before: &Content, after: &crate::lines::model::Content) -> Content {
+    align(before, from_lines(after))
 }

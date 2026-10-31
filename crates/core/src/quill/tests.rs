@@ -1507,7 +1507,7 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
     // verbatim: the asterisks are text, not emphasis.
     let literal = &plate["literal"][0];
     assert_eq!(literal["text"].as_str(), Some("A *literal* line"));
-    assert_eq!(literal["marks"], serde_json::json!([]));
+    assert!(literal.get("marks").is_none(), "{literal}");
 }
 
 /// The sibling position: a `default:` reached *through* an absent container. A
@@ -1645,7 +1645,7 @@ fn single_line_coercion_takes_one_block_and_folds_or_refuses_more() {
     let folded = |value: &str| {
         let coerced =
             coerce("    f:\n      type: text\n", serde_json::json!(value)).expect("folds");
-        let content = quillmark_content::lines::serial::from_canonical_value(&coerced).expect("content");
+        let content = crate::document::lines_of(&coerced).expect("content");
         assert!(content.is_inline(), "{value:?}");
         quillmark_content::lines::export::to_plaintext(&content)
     };
@@ -1680,7 +1680,7 @@ fn text_field_caches_literal_content() {
         .default_content
         .as_ref()
         .expect("default_content cached");
-    let rt = quillmark_content::lines::serial::from_canonical_value(content.as_json()).unwrap();
+    let rt = crate::document::lines_of(content.as_json()).unwrap();
     assert!(rt.is_plain(), "cached text content is plain");
     assert_eq!(
         quillmark_content::lines::export::to_plaintext(&rt),
@@ -1695,7 +1695,7 @@ fn text_field_caches_literal_content() {
 fn text_coercion_imports_verbatim_and_refuses_marks() {
     const FIELD: &str = "    f:\n      type: text\n      multiline: true\n";
     let value = coerce(FIELD, serde_json::json!("*not bold* text")).expect("text coerces");
-    let rt = quillmark_content::lines::serial::from_canonical_value(&value).unwrap();
+    let rt = crate::document::lines_of(&value).unwrap();
     assert!(rt.marks.is_empty(), "no marks: delimiters stayed literal");
     assert_eq!(
         quillmark_content::lines::export::to_plaintext(&rt),

@@ -153,7 +153,7 @@ fn element_text(e: &Value) -> Option<String> {
 /// value, an empty line as an array element, the session's
 /// `backend::declined_construct` warning naming the table.
 fn richtext_plaintext(v: &Value) -> Option<String> {
-    let rt = quillmark_content::lines::serial::from_canonical_value(v).ok()?;
+    let rt = quillmark_content::model::Content::lines_from_value(v).ok()?;
     Some(quillmark_content::lines::export::to_plaintext(&rt))
 }
 

@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 
+mod content;
 mod enums;
 mod errors;
 mod types;
@@ -25,6 +26,11 @@ fn _quillmark(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<PyOutputFormat>()?;
     m.add_class::<PySeverity>()?;
+
+    m.add_function(wrap_pyfunction!(content::invert, m)?)?;
+    m.add_function(wrap_pyfunction!(content::compose, m)?)?;
+    m.add_function(wrap_pyfunction!(content::map_pos, m)?)?;
+    m.add_function(wrap_pyfunction!(content::diff, m)?)?;
 
     m.add("QuillmarkError", m.py().get_type::<QuillmarkError>())?;
 

@@ -81,6 +81,12 @@ impl Content {
         Ok(c)
     }
 
+    /// [`from_value`](Self::from_value), lowered to the line form the
+    /// renderers read.
+    pub fn lines_from_value(v: &Value) -> Result<crate::lines::model::Normalized, ParseError> {
+        Content::from_value(v).map(|c| crate::migrate::to_lines(&c))
+    }
+
     pub fn from_json(s: &str) -> Result<Content, ParseError> {
         let v: Value = serde_json::from_str(s).map_err(|e| ParseError::Json(e.to_string()))?;
         Content::from_value(&v)

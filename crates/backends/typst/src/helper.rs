@@ -20,7 +20,6 @@ use crate::emit::{
     Emission, EmitError, SegmentMap, emit_content, emit_content_inline, escape_string,
 };
 use crate::families::Families;
-use quillmark_content::lines::serial::from_canonical_value;
 use quillmark_core::quill::{
     CONTENT_MEDIA_TYPE, PLATE_PATH_KEY as PATH_KEY, QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY,
 };
@@ -244,7 +243,7 @@ impl<'m> Codegen<'m> {
         } else {
             emit_content
         };
-        match from_canonical_value(value) {
+        match quillmark_content::model::Content::lines_from_value(value) {
             Ok(rt) if !rt.is_blank() => match emit(&rt) {
                 Ok(ec) => {
                     let id = self.content_block(path, ec, inline && rt.is_inline());

@@ -199,6 +199,11 @@ pub enum EditError {
     #[error("content apply failed: {0:?}")]
     ContentApply(ApplyError),
 
+    /// A content [`Change`](quillmark_content::change::Change) the value
+    /// refused; the value is as it was.
+    #[error("content change refused: {0}")]
+    Change(quillmark_content::change::ApplyError),
+
     /// The card's item list violates an invariant of the list as a whole. A
     /// door taking a whole payload at once ([`Card::try_from`] a
     /// [`CardWire`](crate::document::CardWire)) reaches every variant; a field
@@ -240,7 +245,7 @@ impl EditError {
             EditError::FieldNotContent { .. } => "edit::field_not_content",
             EditError::FieldNotSingleLine { .. } => "edit::field_not_single_line",
             EditError::FieldCoercionFailed { .. } => "edit::field_coercion_failed",
-            EditError::ContentApply(_) => "edit::content_apply",
+            EditError::ContentApply(_) | EditError::Change(_) => "edit::content_apply",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::Base(e) => e.code(),
         }
@@ -299,7 +304,7 @@ impl EditError {
                 "field" => field,
                 "target" => target,
             },
-            EditError::ContentApply(_) => diag_args! {},
+            EditError::ContentApply(_) | EditError::Change(_) => diag_args! {},
             // One code, four sentences: the variant that spoke is not on the
             // wire, so a consumer's template falls back to `message`.
             EditError::InvalidPayload(_) => diag_args! {},
@@ -805,6 +810,31 @@ impl<'a> CardMut<'a> {
         self.0.overwrite_body(content)
     }
 
+    /// [`Card::apply`].
+    pub fn apply(
+        &mut self,
+        target: super::Target<'_>,
+        change: &quillmark_content::change::Change,
+        base: Option<&str>,
+    ) -> Result<super::Receipt, EditError> {
+        self.0.apply(target, change, base)
+    }
+
+    /// [`Card::revise`].
+    pub fn revise(&mut self, target: super::Target<'_>, markdown: &str, base: Option<&str>) -> Result<super::Receipt, EditError> {
+        self.0.revise(target, markdown, base)
+    }
+
+    /// [`Card::replace`].
+    pub fn replace(
+        &mut self,
+        target: super::Target<'_>,
+        content: &quillmark_content::model::Content,
+        base: Option<&str>,
+    ) -> Result<super::Receipt, EditError> {
+        self.0.replace(target, content, base)
+    }
+
     /// [`Card::overwrite_field`].
     pub fn overwrite_field(
         &mut self,
@@ -1260,7 +1290,7 @@ impl Card {
     /// the content lane: **overwrite destroys, [`revise_body`](Self::revise_body)
     /// rebases, [`apply_body_change`](Self::apply_body_change) preserves.**
     pub fn overwrite_body(&mut self, content: impl Into<Normalized>) {
-        self.body = content.into();
+        self.set_body_lines(content.into());
     }
 
     /// Overwrite a content field's value with a pre-built [`Content`](quillmark_content::lines::model::Content): the
@@ -1287,7 +1317,7 @@ impl Card {
     /// existing field first. The §8 field count is the payload's, so an absent
     /// `name` on a full card is [`EditError::InvalidPayload`].
     fn store_field_content(&mut self, name: &str, content: &Normalized) -> Result<(), EditError> {
-        let canonical = quillmark_content::lines::serial::to_canonical_value(content);
+        let canonical = super::stored_over(self.payload.get(name).map(QuillValue::as_json), content);
         self.payload_mut()
             .insert(name.to_string(), QuillValue::from_json(canonical))
             .map(|_| ())
@@ -1355,7 +1385,7 @@ impl Card {
     /// over-nested input returns [`EditError::Import`] rather than degrading to
     /// the empty content.
     pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Revised, EditError> {
-        let (content, revised) = revise_import(self.body(), body).map_err(EditError::Import)?;
+        let (content, revised) = revise_import(self.body_lines(), body).map_err(EditError::Import)?;
         self.overwrite_body(content);
         Ok(revised)
     }
@@ -1370,6 +1400,16 @@ impl Card {
     ) -> Result<(Normalized, Revised), EditError> {
         let base = self.richtext_base(name)?;
         revise_import(&base, body).map_err(EditError::Import)
+    }
+
+    /// The field's current content value, read as [`richtext_base`](Self::richtext_base)
+    /// reads it: a markdown string imports, an absent field is empty.
+    pub(crate) fn richtext_value(&self, name: &str) -> Result<quillmark_content::model::Content, EditError> {
+        check_field_name(name)?;
+        match self.payload.get(name) {
+            None => Ok(quillmark_content::model::Content::empty()),
+            Some(v) => Codec::Richtext.decode_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
+        }
     }
 
     /// The field's current content as a diff base: an absent field is empty.
@@ -1420,7 +1460,7 @@ impl Card {
     /// warning and names each anchor the diff deleted. What `content` carries
     /// lands as it is, its own anchors and island ids included.
     pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Revised {
-        let (content, revised) = carry_receipt(self.body(), content.into());
+        let (content, revised) = carry_receipt(self.body_lines(), content.into());
         self.overwrite_body(content);
         revised
     }
@@ -1480,7 +1520,7 @@ impl Card {
         let (content, revised) = self.diff_field(name, body)?;
         // Re-canonicalizing a content object keeps its identity marks, so the
         // schema check fires on the value the anchors survived onto.
-        let canonical = quillmark_content::lines::serial::to_canonical_value(&content);
+        let canonical = super::stored_over(self.payload.get(name).map(QuillValue::as_json), &content);
         let (stored, _) = resolve_field_write(
             name,
             &QuillValue::from_json(canonical),
@@ -1538,9 +1578,10 @@ impl Card {
     /// [`EditError::ContentApply`] when an op is out of bounds; the apply is
     /// all-or-nothing, so the body is unchanged on error.
     pub fn apply_body_change(&mut self, bundle: &ChangeBundle) -> Result<(), EditError> {
-        self.body_mut()
-            .apply_field_change(bundle)
-            .map_err(EditError::ContentApply)
+        let mut lines = self.body_lines().clone();
+        lines.apply_field_change(bundle).map_err(EditError::ContentApply)?;
+        self.set_body_lines(lines);
+        Ok(())
     }
 
     /// Splice a content field-change bundle into a field's stored content: the

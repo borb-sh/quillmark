@@ -1,19 +1,29 @@
 //! Between the content model and the line form. [`from_lines`] is the v1
 //! migration and the last step of a markdown import: a line run joined by
 //! hard breaks becomes one block, container runs become containers by id, and
-//! anchor marks become anchors, every id minted deterministically. [`to_lines`]
-//! is the lowering the markdown codecs and the renderers read, computing the
-//! ordinals and run parity the line form spells.
+//! anchor marks become anchors, every id minted deterministically; an anchor
+//! id held twice keeps its first holder, and a block-only island sharing its
+//! line takes a block of its own. [`to_lines`] is the lowering the
+//! markdown codecs and the renderers read, computing the ordinals and run
+//! parity the line form spells.
 
 use crate::ids::{Minter, prefix};
 use crate::lines::model::{self as line, Container as LineContainer, Line, LineKind};
 use crate::model::{
     Anchor, Block, BlockKind, Container, ContainerKind, Content, HARD_BREAK, Island, Mark, MarkKind,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A line-form value as content, ids minted in reading order.
 pub fn from_lines(rt: &line::Content) -> Content {
+    let mut split;
+    let rt = if line::inline_block_islands(&rt.text.chars().collect::<Vec<_>>(), &rt.islands).next().is_some() {
+        split = rt.clone();
+        split.split_block_islands();
+        &split
+    } else {
+        rt
+    };
     let mut text = String::with_capacity(rt.text.len());
     let mut lines = rt.lines.iter();
     let mut segs = rt.text.split('\n');
@@ -113,8 +123,20 @@ pub fn from_lines(rt: &line::Content) -> Content {
         })
         .collect();
     let mut out = Content { text, blocks, containers, marks, anchors, islands };
+    keep_first_holder(&mut out, &mut HashSet::new());
     out.normalize();
     out
+}
+
+/// The line form lets two anchors hold one id; the model keeps the first, in
+/// the order its validation reads them.
+fn keep_first_holder(content: &mut Content, seen: &mut HashSet<String>) {
+    content.anchors.retain(|a| seen.insert(a.id.clone()));
+    for island in &mut content.islands {
+        for slot in island.slots.values_mut() {
+            keep_first_holder(slot, seen);
+        }
+    }
 }
 
 enum Open {

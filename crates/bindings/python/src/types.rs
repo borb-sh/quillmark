@@ -471,9 +471,8 @@ impl PyDocument {
         })
     }
 
-    /// Reconstruct a `Document` from its versioned storage DTO string. Its
-    /// `warnings` hold one `parse::anchor_id_collision` per anchor id a value
-    /// holds more than once, a table cell or footnote taking part.
+    /// Reconstruct a `Document` from its versioned storage DTO string, with no
+    /// `warnings`.
     /// Raises `QuillmarkError` on malformed JSON, unknown `schema`, missing fields,
     /// or unparseable quill reference.
     #[staticmethod]
@@ -488,10 +487,9 @@ impl PyDocument {
                 msg,
             )
         })?;
-        let parse_warnings = inner.anchor_collisions();
         Ok(PyDocument {
             inner,
-            parse_warnings,
+            parse_warnings: Vec::new(),
         })
     }
 
@@ -508,7 +506,7 @@ impl PyDocument {
     /// main card alone carries the oldest tag that holds its content.
     #[staticmethod]
     fn current_storage_version() -> &'static str {
-        quillmark_core::document::STORAGE_V0_134_0
+        quillmark_core::document::STORAGE_V0_135_0
     }
 
     /// The Quillmark Markdown rules.
@@ -902,6 +900,141 @@ impl PyDocument {
             "orphaned": out.orphaned.into_iter().map(selector_json).collect::<Vec<_>>(),
         });
         json_to_py(py, &receipt)
+    }
+
+    /// The `Content` at `field` (`None` the body) on `card` (`None` the main
+    /// card), an absent field the empty content. Raises `QuillmarkError` on a
+    /// bad card index, a malformed field name, or a present field value that is
+    /// not content.
+    #[pyo3(signature = (field=None, card=None))]
+    fn read<'py>(&self, py: Python<'py>, field: Option<&str>, card: Option<isize>) -> PyResult<Bound<'py, PyAny>> {
+        let target = Target::resolve(&self.inner, card)?;
+        let content = self
+            .card_at(target.index)
+            .read(crate::content::target(field))
+            .map_err(|e| convert_edit_error(e, &target.base))?;
+        crate::content::content_to_py(py, &content)
+    }
+
+    /// The markdown at `field` on `card` with a `qm-*` tag for each anchor and
+    /// island id its lines can hold: what `revise` reads back. Raises as
+    /// `read`.
+    #[pyo3(signature = (field=None, card=None))]
+    fn annotated(&self, field: Option<&str>, card: Option<isize>) -> PyResult<String> {
+        let target = Target::resolve(&self.inner, card)?;
+        let card = self.card_at(target.index);
+        match field {
+            None => Ok(card.body_annotated().markdown),
+            Some(field) => card
+                .field_annotated(field)
+                .map(|a| a.markdown)
+                .map_err(|e| convert_edit_error(e, &target.base)),
+        }
+    }
+
+    /// **Apply** `change` to the value at `field` on `card`, all its steps or
+    /// none, and return the receipt: `applied` (the change in its normalized
+    /// form, which `invert` undoes), `hash` (the next write's `base`),
+    /// `dropped_anchors`, `moved_anchors` and `warnings`. `base` is the hash
+    /// the writer read (`hash_at`); pass it, since a stale one is refused with
+    /// `edit::stale_base`. A refused change raises `edit::content_apply` and
+    /// writes nothing.
+    #[pyo3(signature = (change, field=None, card=None, base=None))]
+    fn apply<'py>(
+        &mut self,
+        py: Python<'py>,
+        change: &Bound<'_, PyAny>,
+        field: Option<&str>,
+        card: Option<isize>,
+        base: Option<&str>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let target = Target::resolve(&self.inner, card)?;
+        let change = crate::content::change_from_py(change, "apply")?;
+        let edit = crate::content::Edit::Apply(change);
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+    }
+
+    /// Apply each write in order, all of them or none: `writes` is a list of
+    /// dicts `{change, field?, card?, base?}`. The first refused write raises,
+    /// the document as it was.
+    fn apply_all<'py>(&mut self, py: Python<'py>, writes: &Bound<'_, PyAny>) -> PyResult<Vec<Bound<'py, PyDict>>> {
+        let mut next = self.inner.clone();
+        let mut receipts = Vec::new();
+        for w in writes.try_iter()? {
+            let w = w?;
+            let w = w.cast::<PyDict>().map_err(|_| PyValueError::new_err("apply_all: a write is a dict"))?;
+            for key in w.keys() {
+                let key: String = key.extract()?;
+                if !["change", "field", "card", "base"].contains(&key.as_str()) {
+                    return Err(PyValueError::new_err(format!(
+                        "apply_all: a write has unknown key `{key}`; a write is {{change, field, card, base}}"
+                    )));
+                }
+            }
+            let get = |k: &str| w.get_item(k).ok().flatten().filter(|v| !v.is_none());
+            let field: Option<String> = get("field").map(|v| v.extract()).transpose()?;
+            let card: Option<isize> = get("card").map(|v| v.extract()).transpose()?;
+            let base: Option<String> = get("base").map(|v| v.extract()).transpose()?;
+            let change = get("change").ok_or_else(|| PyValueError::new_err("apply_all: a write names a change"))?;
+            let change = crate::content::change_from_py(&change, "apply_all")?;
+            let target = Target::resolve(&next, card)?;
+            receipts.push(crate::content::write(
+                py,
+                &mut next,
+                target.index,
+                &target.base,
+                field.as_deref(),
+                crate::content::Edit::Apply(change),
+                base.as_deref(),
+            )?);
+        }
+        self.inner = next;
+        Ok(receipts)
+    }
+
+    /// Rewrite the value at `field` on `card` as `markdown`: the anchors and
+    /// islands whose `qm-*` tags it keeps (`annotated` spells them) stay put,
+    /// and the rest keeps what a word-aligned diff keeps. Returns the receipt,
+    /// its `warnings` the import's. Raises as `apply`.
+    #[pyo3(signature = (markdown, field=None, card=None, base=None))]
+    fn revise<'py>(
+        &mut self,
+        py: Python<'py>,
+        markdown: &str,
+        field: Option<&str>,
+        card: Option<isize>,
+        base: Option<&str>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let target = Target::resolve(&self.inner, card)?;
+        let edit = crate::content::Edit::Revise(markdown);
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+    }
+
+    /// Write `content` over the value at `field` on `card`, carrying each
+    /// anchor it does not name where a diff keeps its text and reporting the
+    /// rest in `dropped_anchors`. Raises as `apply`.
+    #[pyo3(signature = (content, field=None, card=None, base=None))]
+    fn replace<'py>(
+        &mut self,
+        py: Python<'py>,
+        content: &Bound<'_, PyAny>,
+        field: Option<&str>,
+        card: Option<isize>,
+        base: Option<&str>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let target = Target::resolve(&self.inner, card)?;
+        let content = crate::content::content_from_py(content, "replace")?;
+        let edit = crate::content::Edit::Replace(content);
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+    }
+}
+
+impl PyDocument {
+    fn card_at(&self, index: Option<usize>) -> &quillmark_core::document::Card {
+        match index {
+            None => self.inner.main(),
+            Some(i) => &self.inner.cards()[i],
+        }
     }
 }
 
@@ -1760,15 +1893,9 @@ fn path_from_py(path: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Vec<quillmark::P
 
 fn content_to_py<'py>(
     py: Python<'py>,
-    content: Option<quillmark_content::lines::model::Normalized>,
+    content: Option<quillmark_content::model::Content>,
 ) -> PyResult<Option<Bound<'py, PyAny>>> {
-    match content {
-        None => Ok(None),
-        Some(content) => Ok(Some(json_to_py(
-            py,
-            &quillmark_content::lines::serial::to_canonical_value(&content),
-        )?)),
-    }
+    content.map(|c| crate::content::content_to_py(py, &c)).transpose()
 }
 
 fn read_value_to_py<'py>(
@@ -1815,7 +1942,7 @@ fn card_to_pydict<'py>(
     Ok(d)
 }
 
-fn json_to_py<'py>(py: Python<'py>, value: &serde_json::Value) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn json_to_py<'py>(py: Python<'py>, value: &serde_json::Value) -> PyResult<Bound<'py, PyAny>> {
     match value {
         serde_json::Value::Null => py.None().into_bound_py_any(py),
         serde_json::Value::Bool(b) => b.into_bound_py_any(py),
@@ -1884,7 +2011,7 @@ fn pydict_to_field_batch(
     Ok(batch)
 }
 
-fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
+pub(crate) fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
     py_to_json_at(value, 0)
 }
 

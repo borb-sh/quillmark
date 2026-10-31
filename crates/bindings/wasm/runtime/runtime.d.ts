@@ -20,7 +20,9 @@ import type {
 	exportMarkdown,
 	normalize,
 	mapPos,
-	mapMarks,
+	invert,
+	compose,
+	diff,
 	isInline,
 	isPlain,
 	parseDocPath,
@@ -42,7 +44,9 @@ export interface CoreSurface {
 	exportMarkdown: typeof exportMarkdown;
 	normalize: typeof normalize;
 	mapPos: typeof mapPos;
-	mapMarks: typeof mapMarks;
+	invert: typeof invert;
+	compose: typeof compose;
+	diff: typeof diff;
 	isInline: typeof isInline;
 	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;
@@ -118,26 +122,28 @@ export type {
 	AuthoringCard
 } from '../core/wasm.js';
 
-// Content edit vocabulary: the op-grained content model `Document`'s methods
-// speak (`applyChange(addr, bundle)`, `overwrite(addr, rt)`, `reviseContent(addr, rt) => Revised`).
-// `ContentLineKind` is the shared half of `ContentLine` and `setKind`, and
-// `ContentMarkKind` of `ContentMark` and a mark op's `add` / `remove`: lifting a
-// read value's kind whole — destructure off the envelope, spread the rest into
-// the op — is the version-proof spelling of the op, and naming the type is what
-// makes that spelling type-check without a cast.
+// The content model `Document`'s write primitive and readers speak
+// (`apply(addr, change)`, `revise(addr, md)`, `replace(addr, content)`,
+// `read(addr)`), offsets in UTF-16 code units. `ContentBlockKind` and
+// `ContentMarkKind` are the shared halves of a read value and a step:
+// destructure the kind off the envelope and spread it into the step.
 export type {
 	Content,
-	ContentLine,
-	ContentLineKind,
+	ContentBlock,
+	ContentBlockKind,
 	ContentContainer,
 	ContentMark,
 	ContentMarkKind,
+	ContentAnchor,
 	ContentIsland,
 	TableProps,
-	ImageProps,
-	FootnoteProps,
-	MathProps,
-	TableCell,
+	Pos,
+	Assoc,
+	Change,
+	Step,
+	Receipt,
+	WriteOptions,
+	Write,
 	CardInput,
 	PathStep,
 	Addr,
@@ -151,11 +157,6 @@ export type {
 	AnchorContext,
 	Reattached,
 	Imported,
-	Assoc,
-	IslandOp,
-	LineOp,
-	MarkOp,
-	ChangeBundle,
 	DocPathSeg
 } from '../core/wasm.js';
 

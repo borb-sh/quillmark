@@ -10,6 +10,7 @@ use crate::model::{
     Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Usv,
 };
 use crate::table::{self, Table};
+use crate::units::{Scalars, Units, split_at};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -686,14 +687,21 @@ pub(crate) fn fixups(now: &Content, want: &Content) -> Vec<Step> {
 /// deleted stays apart, since a point anchor there stays left of the first
 /// and would sit right of the merged one.
 pub fn compose(a: &Change, b: &Change) -> Change {
+    compose_in(a, b, Scalars)
+}
+
+/// [`compose`] over changes whose offsets count `u`.
+pub fn compose_in(a: &Change, b: &Change, u: impl Units) -> Change {
     let mut steps: Vec<Step> = Vec::with_capacity(a.steps.len() + b.steps.len());
     for step in a.steps.iter().chain(&b.steps) {
         let merged = match (steps.last(), step) {
-            (Some(Step::Splice(x)), Step::Splice(y)) => merge_splices(x, y).map(Step::Splice),
+            (Some(Step::Splice(x)), Step::Splice(y)) => merge_splices(x, y, u).map(Step::Splice),
             (
                 Some(Step::Nested { island: i, slot: s, change: x }),
                 Step::Nested { island: j, slot: t, change: y },
-            ) if i == j && s == t => Some(Step::Nested { island: i.clone(), slot: s.clone(), change: compose(x, y) }),
+            ) if i == j && s == t => {
+                Some(Step::Nested { island: i.clone(), slot: s.clone(), change: compose_in(x, y, u) })
+            }
             _ => None,
         };
         match merged {
@@ -707,23 +715,21 @@ pub fn compose(a: &Change, b: &Change) -> Change {
     Change { steps }
 }
 
-fn merge_splices(x: &Splice, y: &Splice) -> Option<Splice> {
-    let xi: Vec<char> = x.insert.chars().collect();
-    let yd: Vec<char> = y.delete.chars().collect();
-    let (xm, yn) = (xi.len(), yd.len());
+fn merge_splices(x: &Splice, y: &Splice, u: impl Units) -> Option<Splice> {
+    let (xm, yn) = (u.len(&x.insert), u.len(&y.delete));
     let point_moves = !x.delete.is_empty() && !y.insert.is_empty() && y.at == x.at + xm;
     if y.at >= x.at && y.at + yn <= x.at + xm && !point_moves {
         let r = y.at - x.at;
-        if xi[r..r + yn] != yd[..] {
+        let (head, rest) = split_at(u, &x.insert, r)?;
+        let (gone, tail) = split_at(u, rest, yn)?;
+        if gone != y.delete {
             return None;
         }
-        let mut insert: String = xi[..r].iter().collect();
-        insert.push_str(&y.insert);
-        insert.extend(&xi[r + yn..]);
-        let ym = y.insert.chars().count();
-        let count = |chars: &[char], ch: char| chars.iter().filter(|&&c| c == ch).count();
-        let (nl_before, nl_gone) = (count(&xi[..r], '\n'), count(&yd, '\n'));
-        let (sl_before, sl_gone) = (count(&xi[..r], ISLAND_SLOT), count(&yd, ISLAND_SLOT));
+        let insert = format!("{head}{}{tail}", y.insert);
+        let ym = u.len(&y.insert);
+        let count = |s: &str, ch: char| s.chars().filter(|&c| c == ch).count();
+        let (nl_before, nl_gone) = (count(head, '\n'), count(gone, '\n'));
+        let (sl_before, sl_gone) = (count(head, ISLAND_SLOT), count(gone, ISLAND_SLOT));
         let mut blocks = x.blocks[..nl_before].to_vec();
         blocks.extend(y.blocks.iter().cloned());
         blocks.extend(x.blocks[nl_before + nl_gone..].iter().cloned());
@@ -754,7 +760,7 @@ fn merge_splices(x: &Splice, y: &Splice) -> Option<Splice> {
     };
     let removed = match (&first.removed, &second.removed) {
         (Some(f), Some(s)) => {
-            let shift = first.delete.chars().count();
+            let shift = u.len(&first.delete);
             let mut r = f.clone();
             r.blocks.extend(s.blocks.iter().cloned());
             r.islands.extend(s.islands.iter().cloned());
@@ -770,19 +776,24 @@ fn merge_splices(x: &Splice, y: &Splice) -> Option<Splice> {
 /// position at the edge of an insertion keeps to the `assoc` side; one inside
 /// a deleted island reads its island from the splice's `removed`.
 pub fn map_pos(change: &Change, pos: &Pos, assoc: Assoc) -> Option<Pos> {
+    map_pos_in(change, pos, assoc, Scalars)
+}
+
+/// [`map_pos`] over a change and a position whose offsets count `u`.
+pub fn map_pos_in(change: &Change, pos: &Pos, assoc: Assoc, u: impl Units) -> Option<Pos> {
     let mut pos = pos.clone();
     for step in &change.steps {
-        pos = map_step(step, pos, assoc)?;
+        pos = map_step(step, pos, assoc, u)?;
     }
     Some(pos)
 }
 
-fn map_step(step: &Step, pos: Pos, assoc: Assoc) -> Option<Pos> {
+fn map_step(step: &Step, pos: Pos, assoc: Assoc, u: impl Units) -> Option<Pos> {
     match (step, pos) {
-        (Step::Splice(s), Pos::At(p)) => {
-            map_offset(p, s.at, s.delete.chars().count(), s.insert.chars().count(), assoc).map(Pos::At)
+        (Step::Splice(s), Pos::At(p)) => map_offset(p, s.at, u.len(&s.delete), u.len(&s.insert), assoc).map(Pos::At),
+        (Step::Island(IslandStep::Insert { at, .. }), Pos::At(p)) => {
+            map_offset(p, *at, 0, u.char_len(ISLAND_SLOT), assoc).map(Pos::At)
         }
-        (Step::Island(IslandStep::Insert { at, .. }), Pos::At(p)) => map_offset(p, *at, 0, 1, assoc).map(Pos::At),
         (Step::Splice(s), pos @ Pos::In { .. }) => {
             let Pos::In { island, .. } = &pos else { unreachable!() };
             let gone = s.removed.as_ref().is_some_and(|r| r.islands.iter().any(|i| &i.id == island));
@@ -796,7 +807,7 @@ fn map_step(step: &Step, pos: Pos, assoc: Assoc) -> Option<Pos> {
             keeps.then_some(Pos::In { island, slot, at })
         }
         (Step::Nested { island: i, slot: s, change }, Pos::In { island, slot, at }) if *i == island && *s == slot => {
-            let at = map_pos(change, &at, assoc)?;
+            let at = map_pos_in(change, &at, assoc, u)?;
             Some(Pos::In { island, slot, at: Box::new(at) })
         }
         (_, pos) => Some(pos),
@@ -845,7 +856,16 @@ mod wire {
             if crate::model::json_too_deep(v) {
                 return Err(ParseError::Invalid(Invariant::JsonTooDeep { what: "change", max: crate::MAX_JSON_DEPTH }));
             }
-            change_from(v)
+            change_from(v, Scalars)
+        }
+
+        /// [`from_value`](Self::from_value) with offsets in `u`, as a binding's
+        /// host writes them; [`crate::units::change_to_scalars`] reads it.
+        pub fn from_value_in(v: &Value, u: impl Units) -> Result<Change, ParseError> {
+            if crate::model::json_too_deep(v) {
+                return Err(ParseError::Invalid(Invariant::JsonTooDeep { what: "change", max: crate::MAX_JSON_DEPTH }));
+            }
+            change_from(v, u)
         }
 
         pub fn from_json(s: &str) -> Result<Change, ParseError> {
@@ -854,9 +874,9 @@ mod wire {
         }
     }
 
-    fn change_from(v: &Value) -> Result<Change, ParseError> {
+    fn change_from(v: &Value, u: impl Units) -> Result<Change, ParseError> {
         match v.get("steps") {
-            Some(Value::Array(a)) => Ok(Change { steps: a.iter().map(step_from).collect::<Result<_, _>>()? }),
+            Some(Value::Array(a)) => Ok(Change { steps: a.iter().map(|s| step_from(s, u)).collect::<Result<_, _>>()? }),
             _ => Err(shape("a change's `steps` is not an array")),
         }
     }
@@ -968,7 +988,7 @@ mod wire {
         }
     }
 
-    fn step_from(v: &Value) -> Result<Step, ParseError> {
+    fn step_from(v: &Value, u: impl Units) -> Result<Step, ParseError> {
         let Some(m) = v.as_object().filter(|m| m.len() == 1) else {
             return Err(shape("a step is an object of one key"));
         };
@@ -988,7 +1008,7 @@ mod wire {
                     Some(_) => return Err(shape("`removed` is not an object")),
                 };
                 let insert = str_key(body, "insert")?;
-                let len = insert.chars().count();
+                let len = u.len(&insert);
                 let marks = array(body, "marks")?
                     .iter()
                     .map(|mv| {
@@ -1074,7 +1094,7 @@ mod wire {
             "nested" => Step::Nested {
                 island: str_key(body, "island")?,
                 slot: str_key(body, "slot")?,
-                change: change_from(body.get("change").ok_or_else(|| shape("a nested step names `change`"))?)?,
+                change: change_from(body.get("change").ok_or_else(|| shape("a nested step names `change`"))?, u)?,
             },
             other => return Err(ParseError::UnknownName { axis: "step", name: other.to_string() }),
         })

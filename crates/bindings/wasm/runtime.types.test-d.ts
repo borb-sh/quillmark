@@ -119,17 +119,21 @@ void fieldCoverageKeys;
 // no runtime code, no assignability claim, pure existence.
 import type {
 	Content,
-	ContentLine,
-	ContentLineKind,
+	ContentBlock,
+	ContentBlockKind,
 	ContentContainer,
 	ContentMark,
 	ContentMarkKind,
+	ContentAnchor,
 	ContentIsland,
 	TableProps,
-	ImageProps,
-	FootnoteProps,
-	MathProps,
-	TableCell,
+	Pos,
+	Assoc,
+	Change,
+	Step,
+	Receipt,
+	WriteOptions,
+	Write,
 	CardInput,
 	PathStep,
 	Addr,
@@ -142,28 +146,28 @@ import type {
 	DocumentAnchor,
 	AnchorContext,
 	Reattached,
-	Imported,
-	Assoc,
-	LineOp,
-	MarkOp,
-	ChangeBundle
+	Imported
 } from '../../../pkg/runtime/runtime.d.ts';
 
 // Referencing each name in an exported tuple keeps the import "used" without a
 // runtime statement; an exported alias is never an unused-local error.
 export type ContentExportsPresent = [
 	Content,
-	ContentLine,
-	ContentLineKind,
+	ContentBlock,
+	ContentBlockKind,
 	ContentContainer,
 	ContentMark,
 	ContentMarkKind,
+	ContentAnchor,
 	ContentIsland,
 	TableProps,
-	ImageProps,
-	FootnoteProps,
-	MathProps,
-	TableCell,
+	Pos,
+	Assoc,
+	Change,
+	Step,
+	Receipt,
+	WriteOptions,
+	Write,
 	CardInput,
 	PathStep,
 	Addr,
@@ -176,11 +180,7 @@ export type ContentExportsPresent = [
 	DocumentAnchor,
 	AnchorContext,
 	Reattached,
-	Imported,
-	Assoc,
-	LineOp,
-	MarkOp,
-	ChangeBundle
+	Imported
 ];
 
 // ── MAIN_CARD_ADDR is a CardAddr ────────────────────────────────────
@@ -195,18 +195,18 @@ void mainCardAddrIsCardAddr;
 // The narrowing assertions below take these three.
 declare const guardIsland: ContentIsland;
 declare const guardMark: ContentMark;
-declare const guardLine: ContentLine;
+declare const guardBlock: ContentBlock;
 
 // ── The vocabularies are closed ─────────────────────────────────────
 // A name outside a union is a type error, which is the compile-time half of the
 // decoder's refusal. Each `@ts-expect-error` fails `npm run typecheck` if its
 // union ever regains a residual `string` arm.
 
-// @ts-expect-error 'callout' is not a line kind
-const closedLine: ContentLineKind = { kind: 'callout' };
-void closedLine;
+// @ts-expect-error 'callout' is not a block kind
+const closedBlock: ContentBlockKind = { kind: 'callout' };
+void closedBlock;
 // @ts-expect-error 'indent' is not a container
-const closedContainer: ContentContainer = { container: 'indent', instance: 0 };
+const closedContainer: ContentContainer = { id: 'c', kind: 'indent' };
 void closedContainer;
 // @ts-expect-error 'highlight' is not a mark type
 const closedMark: ContentMark = { start: 0, end: 1, type: 'highlight' };
@@ -214,10 +214,13 @@ void closedMark;
 // @ts-expect-error 'widget' is not an island type
 const closedIsland: ContentIsland = { id: 'i', type: 'widget', props: {} };
 void closedIsland;
+// @ts-expect-error 'retype' is not a step
+const closedStep: Step = { retype: { id: 'b0' } };
+void closedStep;
 
 // A bare discriminant check narrows the payload, with no guard.
-if (guardLine.kind === 'heading') {
-	const level: number = guardLine.attrs.level;
+if (guardBlock.kind === 'heading') {
+	const level: number = guardBlock.attrs.level;
 	void level;
 }
 if (guardMark.type === 'link') {
@@ -229,26 +232,10 @@ if (guardIsland.type === 'table') {
 	void props;
 }
 
-// ── ContentLineKind is nameable ─────────────────────────────────────
-// `ContentLineKind` is exactly `setKind`'s payload, so building the op is a
-// whole-lift: drop a line's envelope, spread the rest. That spelling survives
-// every arm added upstream. It only type-checks if the type is nameable from
-// the package entry point, which is the point of the re-export.
-function kindPart(line: ContentLine): ContentLineKind {
-	const { containers, continues, ...kind } = line;
-	void containers;
-	void continues;
-	return kind;
-}
-declare const liftLine: ContentLine;
-const liftedOp: LineOp = { op: 'setKind', line: 0, ...kindPart(liftLine) };
-void liftedOp;
-
 // ── ContentMarkKind is nameable ─────────────────────────────────────
-// The same lift on the mark axis: `ContentMarkKind` is exactly an `add` /
-// `remove`'s payload, so an arm added upstream reaches the op through the name.
-// That is what makes the lift the guard — a `MarkOp` re-spelling the payload by
-// hand stops accepting it here.
+// `ContentMarkKind` is exactly a mark step's payload, so building the step is a
+// whole-lift: drop a read mark's range, spread the rest. That spelling survives
+// every arm added upstream.
 function markPart(mark: ContentMark): ContentMarkKind {
 	const { start, end, ...kind } = mark;
 	void start;
@@ -256,20 +243,20 @@ function markPart(mark: ContentMark): ContentMarkKind {
 	return kind;
 }
 declare const liftMark: ContentMark;
-const liftedMark: MarkOp = { op: 'add', start: 0, end: 1, ...markPart(liftMark) };
+const liftedMark: Step = { mark: { start: 0, end: 1, add: true, ...markPart(liftMark) } };
 void liftedMark;
-// The op's envelope is the mark's own, so a held mark spreads in whole.
-const liftedWhole: MarkOp = { op: 'remove', ...liftMark };
-void liftedWhole;
 
-// The payload rides `attrs` on the op as on the mark; the authored lane refuses
-// a named sibling, so the type must too.
+// ── A receipt's change is a change ──────────────────────────────────
+declare const receipt: Receipt;
+const undo: Change = receipt.applied;
+void undo;
+const caret: Pos = { island: 't0', slot: 's3', at: 2 };
+void caret;
+// The payload rides `attrs` on the step as on the mark; the decoder refuses a
+// named sibling, so the type must too.
 // @ts-expect-error a link's url rides `attrs`
-const siblingUrl: MarkOp = { op: 'add', start: 0, end: 1, type: 'link', url: 'https://x' };
+const siblingUrl: Step = { mark: { start: 0, end: 1, add: true, type: 'link', url: 'https://x' } };
 void siblingUrl;
-// @ts-expect-error an anchor's id rides `attrs`
-const siblingId: MarkOp = { op: 'add', start: 0, end: 0, type: 'anchor', id: 'a1' };
-void siblingId;
 
 // ── The gate is the only door ───────────────────────────────────────
 // The guarantee `init` exists to hold: a value needing the WASM instance is
@@ -314,35 +301,13 @@ void fromMarkdown;
 declare const annotated: RuntimeQuill;
 void annotated;
 
-// The container write lane. `instance` is optional, because a read omits a zero
-// and a read is a write input; the value it decodes to is the same either way,
-// so both spellings type-check on the op lane and on the whole-`Content` lane a
-// document-shaped editor converter writes through.
-const bareOp: Extract<LineOp, { op: 'setContainers' }> = {
-	op: 'setContainers',
-	line: 0,
-	containers: [{ container: 'quote' }]
-};
-void bareOp;
-
-const bareBody: CardInput = {
+// A card body written as `Content`: blocks name their containers by id.
+const quotedBody: CardInput = {
 	kind: 'note',
 	body: {
 		text: 'a',
-		lines: [{ kind: 'para', containers: [{ container: 'quote' }] }],
-		marks: [],
-		islands: []
+		blocks: [{ id: 'b0', kind: 'para', path: ['q0'] }],
+		containers: [{ id: 'q0', kind: 'quote' }]
 	}
 };
-void bareBody;
-
-const stampedBody: CardInput = {
-	kind: 'note',
-	body: {
-		text: 'a',
-		lines: [{ kind: 'para', containers: [{ container: 'quote', instance: 0 }] }],
-		marks: [],
-		islands: []
-	}
-};
-void stampedBody;
+void quotedBody;

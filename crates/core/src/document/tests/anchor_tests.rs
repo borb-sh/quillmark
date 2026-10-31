@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use quillmark_content::lines::model::{MarkKind, Normalized};
-use quillmark_content::lines::serial::to_canonical_value;
 use serde_json::{Value as JsonValue, json};
 
 use crate::document::{AnchorSelector, Card, Codec, Document};
@@ -19,15 +18,15 @@ const SOURCE: &str = "~~~\n$quill: q\n~~~\n\nThe committee met on Monday to plan
 /// item of the note's `items` list.
 fn document() -> Document {
     let mut doc = parse(SOURCE);
-    let body = anchored(doc.main().body(), "met on Monday", "m1");
+    let body = anchored(doc.main().body_lines(), "met on Monday", "m1");
     doc.main_mut().overwrite_body(body);
     let mut note = doc.card_mut(0).unwrap();
-    let body = anchored(note.body(), "orchard rows", "n1");
+    let body = anchored(note.body_lines(), "orchard rows", "n1");
     note.overwrite_body(body);
     let item = crate::document::import_body("an item worth a flag").unwrap();
     let items = json!([
-        to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
-        to_canonical_value(&anchored(&item, "worth a flag", "i1")),
+        crate::document::stored_over(None, &crate::document::import_body("a plain item").unwrap()),
+        crate::document::stored_over(None, &anchored(&item, "worth a flag", "i1")),
     ]);
     note.store_field("items", QuillValue::from_json(items))
         .unwrap();
@@ -39,6 +38,7 @@ fn without_anchors(doc: &Document) -> Document {
     fn strip(value: &mut JsonValue) {
         match value {
             JsonValue::Object(map) => {
+                map.remove("anchors");
                 if let Some(JsonValue::Array(marks)) = map.get_mut("marks") {
                     marks.retain(|m| m["type"] != "anchor");
                 }
@@ -124,7 +124,7 @@ fn a_cold_reopen_recovers_the_body_anchors_from_their_selectors() {
         ["i1"],
         "the reopened list holds markdown, not content"
     );
-    assert_eq!(anchor_ids(reopened.main().body()), ["m1"]);
+    assert_eq!(anchor_ids(reopened.main().body_lines()), ["m1"]);
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn an_id_live_anywhere_is_answered_and_not_written() {
 fn a_delta_binds_only_the_path_it_is_keyed_by() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nThe committee met on Monday to plan.\n");
     let body = anchored(
-        &anchored(doc.main().body(), "met on Monday", "m1"),
+        &anchored(doc.main().body_lines(), "met on Monday", "m1"),
         "to plan",
         "m2",
     );
@@ -208,7 +208,7 @@ fn a_delta_binds_only_the_path_it_is_keyed_by() {
     let elsewhere = HashMap::from([("cards.note[0].body".parse().unwrap(), revised.delta)]);
     let out = bare.reattach(&before, &elsewhere);
     assert_eq!(ids(&out.reattached), ["m1", "m2"]);
-    assert_eq!(anchor_ids(bare.main().body()), ["m1", "m2"]);
+    assert_eq!(anchor_ids(bare.main().body_lines()), ["m1", "m2"]);
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn a_quote_found_again_in_inserted_text_is_placed_with_the_delta() {
     let mut doc = parse(
         "~~~\n$quill: q\n~~~\n\nIntro.\n\nOver the fiscal year we approved the budget for roads.\n",
     );
-    let body = anchored(doc.main().body(), "approved the budget", "c1");
+    let body = anchored(doc.main().body_lines(), "approved the budget", "c1");
     doc.main_mut().overwrite_body(body);
     let before = doc.anchor_contexts();
     let rewritten = "Intro.\n\nEverything else changed: one two three four five six seven eight \
@@ -322,7 +322,7 @@ fn a_selector_resolves_its_card_by_id() {
     assert_eq!(reopened.cards()[1].id(), Some(id.as_str()));
     let out = reopened.reattach(&[n1.clone()], &HashMap::new());
     assert_eq!(out.reattached[0].path.to_string(), "cards.note[1].body");
-    assert_eq!(anchor_ids(reopened.cards()[1].body()), ["n1"]);
+    assert_eq!(anchor_ids(reopened.cards()[1].body_lines()), ["n1"]);
 
     let gone = AnchorSelector {
         card_id: Some("nobody".into()),
@@ -379,18 +379,15 @@ fn a_revise_names_a_cell_anchor_it_drops() {
     assert_eq!(dropped, [("t1", "one cell")]);
 }
 
+/// The content model holds an anchor id once, so a line-form collision a
+/// cell takes part in keeps the text's holder.
 #[test]
-fn a_collision_a_cell_takes_part_in_loads_reported() {
+fn a_collision_a_cell_takes_part_in_keeps_the_first_holder() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
     doc.main_mut()
         .overwrite_body(anchored(&table_body("t1"), "Lead", "t1"));
     let stored = serde_json::to_string(&doc).unwrap();
-    let loaded: Document = serde_json::from_str(&stored).expect("a collision loads");
-    let warnings = loaded.anchor_collisions();
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(
-        warnings[0].code.as_deref(),
-        Some(crate::document::ANCHOR_ID_COLLISION)
-    );
-    assert_eq!(warnings[0].path.as_deref(), Some("main.body"));
+    let loaded: Document = serde_json::from_str(&stored).expect("the save loads");
+    assert_eq!(ids(&loaded.anchor_contexts()), ["t1"]);
+    assert_eq!(loaded.anchor_context("t1").unwrap().quote, "Lead");
 }
