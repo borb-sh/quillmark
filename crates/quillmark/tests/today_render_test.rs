@@ -5,8 +5,8 @@
 #![cfg(feature = "typst")]
 
 use quillmark::{CalendarDate, Document, Engine, OutputFormat, RenderOptions};
-use std::fs;
-use tempfile::TempDir;
+
+mod common;
 
 const QUILL_YAML: &str = r#"quill:
   name: today_quill
@@ -23,18 +23,9 @@ main:
     signed: { type: date }
 "#;
 
-fn quill(plate: &str) -> (TempDir, quillmark::Quill) {
-    let temp_dir = TempDir::new().unwrap();
-    let quill_path = temp_dir.path().join("today_quill");
-    fs::create_dir_all(&quill_path).unwrap();
-    fs::write(quill_path.join("Quill.yaml"), QUILL_YAML).unwrap();
-    fs::write(
-        quill_path.join("plate.typ"),
-        format!("#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}\nok\n"),
-    )
-    .unwrap();
-    let quill = quillmark::quill_from_path(&quill_path).expect("load quill");
-    (temp_dir, quill)
+fn quill(plate: &str) -> quillmark::Quill {
+    let plate = format!("#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}\nok\n");
+    common::quill_from_files(&[("Quill.yaml", QUILL_YAML), ("plate.typ", &plate)])
 }
 
 fn doc(fields: &str) -> Document {
@@ -48,7 +39,7 @@ fn svg() -> RenderOptions {
 
 #[test]
 fn the_field_and_the_plate_read_the_supplied_date() {
-    let (_dir, quill) = quill(
+    let quill = quill(
         r#"
 #assert.eq(qm.data.issued, datetime.today())
 #assert.eq(qm.data.issued, datetime(year: 2026, month: 3, day: 14))

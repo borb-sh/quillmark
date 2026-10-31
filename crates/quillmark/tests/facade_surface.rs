@@ -6,10 +6,12 @@ use std::collections::HashMap;
 
 use quillmark::{
     AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, CalendarDate, CardReader, Delta, DocPath,
-    Document, DocumentAnchor, DocumentRevised, EditError, FileTreeNode, ImportError, Normalized,
+    Document, DocumentAnchor, DocumentRevised, EditError, ImportError, Normalized,
     Outline, OutlineCard, ParseDateError, Parsed, Quill, QuillReference, QuillValue, Reattached, Revised, TypedReader,
     TypedWriter,
 };
+
+mod common;
 
 const QUILL: &str = r#"
 quill:
@@ -33,14 +35,7 @@ card_kinds:
 "#;
 
 fn quill() -> Quill {
-    let mut files = HashMap::new();
-    files.insert(
-        "Quill.yaml".to_string(),
-        FileTreeNode::File {
-            contents: QUILL.as_bytes().to_vec(),
-        },
-    );
-    Quill::from_tree(FileTreeNode::Directory { files }).expect("from_tree")
+    common::quill_from_files(&[("Quill.yaml", QUILL)])
 }
 
 #[test]

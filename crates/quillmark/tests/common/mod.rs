@@ -4,8 +4,9 @@
 // Each integration test binary compiles this module and uses part of it.
 #![allow(dead_code)]
 
-use quillmark::{CalendarDate, Document, Engine, Quill};
+use quillmark::{CalendarDate, Document, Engine, FileTreeNode, Quill};
 use quillmark_fixtures::quills_path;
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 static ENGINE: LazyLock<Engine> = LazyLock::new(Engine::new);
@@ -34,4 +35,20 @@ pub fn seeded_memo() -> (&'static Engine, &'static Quill, Document) {
 /// The render date the tests compile with.
 pub fn test_date() -> CalendarDate {
     CalendarDate::new(2026, 3, 14).expect("a calendar day")
+}
+
+/// A quill loaded in memory from `(path, contents)` pairs.
+pub fn quill_from_files(files: &[(&str, &str)]) -> Quill {
+    let files = files
+        .iter()
+        .map(|(name, contents)| {
+            (
+                name.to_string(),
+                FileTreeNode::File {
+                    contents: contents.as_bytes().to_vec(),
+                },
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    Quill::from_tree(FileTreeNode::Directory { files }).expect("load quill")
 }

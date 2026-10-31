@@ -1,19 +1,11 @@
 //! [`quillmark::Quill::validate`], the editor-facing validation surface.
 
-use std::collections::HashMap;
+use quillmark::{Document, Quill, Severity};
 
-use quillmark::{Document, FileTreeNode, Quill, Severity};
+mod common;
 
 fn quill_from_yaml(yaml: &str) -> Quill {
-    let mut files = HashMap::new();
-    files.insert(
-        "Quill.yaml".to_string(),
-        FileTreeNode::File {
-            contents: yaml.as_bytes().to_vec(),
-        },
-    );
-    let root = FileTreeNode::Directory { files };
-    Quill::from_tree(root).expect("quill_from_yaml: from_tree failed")
+    common::quill_from_files(&[("Quill.yaml", yaml)])
 }
 
 const SIMPLE: &str = r#"

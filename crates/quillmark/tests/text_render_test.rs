@@ -9,17 +9,15 @@
 #![cfg(feature = "typst")]
 
 use quillmark::{Document, Engine, HitGranularity, LiveSession};
-use std::fs;
-use tempfile::TempDir;
 
 mod common;
 
-fn text_quill(temp_dir: &TempDir) -> std::path::PathBuf {
-    let quill_path = temp_dir.path().join("plain_quill");
-    fs::create_dir_all(&quill_path).unwrap();
-    fs::write(
-        quill_path.join("Quill.yaml"),
-        r#"quill:
+fn text_quill() -> quillmark::Quill {
+    // The backend pre-lowers content into the `data` dict; the plate just reads it.
+    common::quill_from_files(&[
+        (
+            "Quill.yaml",
+            r#"quill:
   name: "plain_quill"
   version: "1.0.0"
   backend: "typst"
@@ -43,18 +41,15 @@ main:
         multiline: true
       description: text elements
 "#,
-    )
-    .unwrap();
-    // The backend pre-lowers content into the `data` dict; the plate just reads it.
-    fs::write(
-        quill_path.join("plate.typ"),
-        "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
+        ),
+        (
+            "plate.typ",
+            "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
          #set page(width: 612pt, height: 792pt, margin: 72pt)\n\
          #set text(size: 11pt)\n\
          = Doc\n#qm.data.subject\n#for t in qm.data.tags { block(t) }\n",
-    )
-    .unwrap();
-    quill_path
+        ),
+    ])
 }
 
 /// `text` rests as its literal string, so these author unparsed and ride
@@ -62,8 +57,8 @@ main:
 const SUBJECT: &str = "a *literal* subject with _no_ markup";
 const STAR_TAG: &str = "literal *star* tag";
 
-fn session(temp_dir: &TempDir) -> LiveSession {
-    let quill = quillmark::quill_from_path(text_quill(temp_dir)).expect("load quill");
+fn session() -> LiveSession {
+    let quill = text_quill();
     let md = format!(
         "~~~card-yaml\n$quill: plain_quill\n$kind: main\n\
          subject: \"{SUBJECT}\"\ntags:\n  - \"{STAR_TAG}\"\n  - \"second plain tag\"\n~~~\n"
@@ -74,8 +69,7 @@ fn session(temp_dir: &TempDir) -> LiveSession {
 
 #[test]
 fn text_elements_and_scalars_surface_regions() {
-    let temp_dir = TempDir::new().unwrap();
-    let session = session(&temp_dir);
+    let session = session();
     let regions = session.regions();
 
     for (field, len) in [
@@ -101,8 +95,7 @@ fn text_elements_and_scalars_surface_regions() {
 
 #[test]
 fn a_text_delimiter_is_one_cluster_under_click_and_caret() {
-    let temp_dir = TempDir::new().unwrap();
-    let session = session(&temp_dir);
+    let session = session();
     let region = session
         .regions()
         .into_iter()
@@ -151,12 +144,7 @@ fn qm_str_projects_a_text_value_to_its_verbatim_string() {
     const ONE: &str = r#"a *b* _c_ "d" it's -- e ... f  g #h $i \j @k <l> // m ~n -1"#;
     const MANY: &str = "first line\n  second, indented\n\nthird";
     let lit = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n"));
-    let temp_dir = TempDir::new().unwrap();
-    let quill_path = temp_dir.path().join("str_quill");
-    fs::create_dir_all(&quill_path).unwrap();
-    fs::write(
-        quill_path.join("Quill.yaml"),
-        r#"quill:
+    let yaml = r#"quill:
   name: "str_quill"
   version: "1.0.0"
   backend: "typst"
@@ -173,12 +161,8 @@ main:
     many: { type: text, multiline: true }
     blank: { type: text }
     absent: { type: text? }
-"#,
-    )
-    .unwrap();
-    fs::write(
-        quill_path.join("plate.typ"),
-        format!(
+"#;
+    let plate = format!(
             "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
              #assert.eq(qm.str(qm.data.one), {})\n\
              #assert.eq(qm.str(qm.data.many), {})\n\
@@ -188,10 +172,8 @@ main:
              ok\n",
             lit(ONE),
             lit(MANY),
-        ),
-    )
-    .unwrap();
-    let quill = quillmark::quill_from_path(&quill_path).expect("load quill");
+        );
+    let quill = common::quill_from_files(&[("Quill.yaml", yaml), ("plate.typ", &plate)]);
     let block = |s: &str| s.lines().map(|l| format!("  {l}\n")).collect::<String>();
     let md = format!(
         "~~~card-yaml\n$quill: str_quill\n$kind: main\none: |-\n{}many: |-\n{}blank: \"\"\n~~~\n",
@@ -209,12 +191,7 @@ main:
 /// start it stays.
 #[test]
 fn qm_str_drops_every_trailing_space() {
-    let temp_dir = TempDir::new().unwrap();
-    let quill_path = temp_dir.path().join("trail_quill");
-    fs::create_dir_all(&quill_path).unwrap();
-    fs::write(
-        quill_path.join("Quill.yaml"),
-        r#"quill:
+    let yaml = r#"quill:
   name: "trail_quill"
   version: "1.0.0"
   backend: "typst"
@@ -227,19 +204,13 @@ main:
     two: { type: text, multiline: true }
     three: { type: text, multiline: true }
     lines: { type: text, multiline: true }
-"#,
-    )
-    .unwrap();
-    fs::write(
-        quill_path.join("plate.typ"),
-        "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
+"#;
+    let plate = "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
          #assert.eq(qm.str(qm.data.two), \"  trail\")\n\
          #assert.eq(qm.str(qm.data.three), \"trail\")\n\
          #assert.eq(qm.str(qm.data.lines), \"one\\ntwo\")\n\
-         ok\n",
-    )
-    .unwrap();
-    let quill = quillmark::quill_from_path(&quill_path).expect("load quill");
+         ok\n";
+    let quill = common::quill_from_files(&[("Quill.yaml", yaml), ("plate.typ", plate)]);
     let md = "~~~card-yaml\n$quill: trail_quill\n$kind: main\n\
               two: \"  trail  \"\nthree: \"trail \\t \"\nlines: \"one\\ntwo  \\n  \\n\"\n~~~\n";
     let doc = Document::parse(md).expect("parse").document;

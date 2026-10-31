@@ -5,8 +5,6 @@
 #![cfg(feature = "typst")]
 
 use quillmark::{Document, Engine, OutputFormat, RenderOptions};
-use std::fs;
-use tempfile::TempDir;
 
 mod common;
 
@@ -33,18 +31,8 @@ main:
 "#;
 
 fn render(plate: &str, fields: &str) -> Result<(), String> {
-    let temp_dir = TempDir::new().unwrap();
-    let quill_path = temp_dir.path().join("optional_quill");
-    fs::create_dir_all(&quill_path).unwrap();
-    fs::write(quill_path.join("Quill.yaml"), QUILL_YAML).unwrap();
-    fs::write(
-        quill_path.join("plate.typ"),
-        format!(
-            "#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}\nok\n"
-        ),
-    )
-    .unwrap();
-    let quill = quillmark::quill_from_path(&quill_path).expect("load quill");
+    let plate = format!("#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}\nok\n");
+    let quill = common::quill_from_files(&[("Quill.yaml", QUILL_YAML), ("plate.typ", &plate)]);
     let md = format!("~~~card-yaml\n$quill: optional_quill\n$kind: main\n{fields}~~~\n");
     let parsed = Document::parse(&md).expect("parse").document;
     Engine::new()
