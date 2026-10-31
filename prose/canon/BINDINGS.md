@@ -157,7 +157,7 @@ Every binding verb is *identical* to its core twin or names its one forced diffe
 
 The single **idiom** row on the front door is the honest cost: the typed writer is the one shape pyo3 carries worst, so its "identical" is qualified, not claimed.
 
-## Python: `bindings/quillmark-python`
+## Python: `crates/bindings/python`
 
 PyO3 bindings published as `quillmark` on PyPI. A `snake_case` surface over the shared model; one-shot `engine.render` (no canvas).
 
@@ -172,7 +172,7 @@ Every Python verb is identical to its core/WASM twin or names its one difference
 
 **The surface is typed.** pyo3 docstrings are runtime-only, so the wheel ships a `py.typed` marker beside a hand-written `_quillmark.pyi`: without them every class resolves to `Any`. The stub is signatures only, the prose staying in `src/`, and nothing gates the two together: unlike WASM's `runtime.d.ts`, which CI typechecks against the generated backend declarations, a Python verb can be added or resignatured without the stub following. `python -m mypy.stubtest --ignore-disjoint-bases quillmark` is the check to run by hand when it changes.
 
-## WebAssembly: `bindings/quillmark-wasm`
+## WebAssembly: `crates/bindings/wasm`
 
 wasm-bindgen bindings published as `@quillmark/wasm`. Builds with `--target web` and `--weak-refs` so wasm-bindgen handles are reclaimed by `FinalizationRegistry`; `.free()` remains as the eager teardown hook. Requires Node 22+ / current evergreen browsers.
 
@@ -209,7 +209,7 @@ A payload item, the `storeFields` fields object, and a `$ext` or `$seed` value a
 
 Beyond the byte-output verbs (`engine.render`, `LiveSession.render`), the render build exposes a **live preview** path on `LiveSession` for both backends (`update`, `pageCount`, `pageSize`, `paint`, …), canvas paint being required of the session seam rather than declared. See [PREVIEW.md](PREVIEW.md).
 
-## CLI: `bindings/quillmark-cli`
+## CLI: `crates/bindings/cli`
 
 Standalone `quillmark` binary. See [CLI.md](CLI.md).
 

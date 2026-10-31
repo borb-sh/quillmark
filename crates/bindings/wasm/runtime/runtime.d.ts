@@ -157,6 +157,7 @@ export type {
 	AnchorContext,
 	Reattached,
 	Imported,
+	Exported,
 	Assoc,
 	IslandOp,
 	LineOp,
@@ -423,7 +424,7 @@ export interface BackendDescriptor {
 	formats: OutputFormat[];
 }
 
-/** Options for `new Engine(...)`, as a plain object. A key other than `backends` throws. */
+/** Options for `new Engine(...)`, as a plain object. A key other than `backends` or `fonts` throws. */
 export interface EngineOptions {
 	/**
 	 * Extra or overriding backend descriptors, merged over the built-ins. Keys are

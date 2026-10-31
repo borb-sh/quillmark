@@ -1,4 +1,4 @@
-//! A table's HTML spelling (markdown-spec §6.4): the subset of HTML a table
+//! A table's HTML spelling (markdown-spec §6.8): the subset of HTML a table
 //! is written in where a GFM pipe table cannot carry it, read off an HTML block
 //! into the grid a table island holds, and written back from one.
 
