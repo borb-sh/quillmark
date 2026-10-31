@@ -524,7 +524,7 @@ pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_124_0, STORAGE_V0_129_0,
     STORAGE_V0_131_0, STORAGE_V0_134_0,
 };
-pub use anchors::AnchorSelector;
+pub use anchors::{AnchorSelector, ANCHOR_ID_COLLISION};
 pub use base::{content_hash, revise_import_against, value_hash, Base, BaseError, HASH_TAG};
 pub use edit::{revise_import, CardMut, EditError, Revised};
 /// Carried by [`Revised::dropped_anchors`], so nameable from here.

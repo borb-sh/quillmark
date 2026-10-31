@@ -230,6 +230,16 @@ impl IslandType {
         }
     }
 
+    /// The cell objects [`cell_marks`](Self::cell_marks) reads, in its order,
+    /// mutable.
+    pub(crate) fn cell_values_mut(self, props: &mut Value) -> Vec<&mut Value> {
+        match self {
+            Self::Table => crate::serial::table_cell_values_mut(props),
+            Self::Footnote => vec![props],
+            Self::Image | Self::Math => Vec::new(),
+        }
+    }
+
     /// Refuse a cell mark whose `type` is outside the mark vocabulary. The
     /// decoder's arm of [`cell_marks`](Self::cell_marks): those read leniently,
     /// so this is the one place the row can be refused rather than silently

@@ -685,8 +685,9 @@ pub enum Invariant {
     IslandIdCollision { id: String },
     /// Two prose anchors share an `id`, or one carries the empty id.
     /// `RemoveAnchor { id }` retains-out *every* match, so a shared id makes
-    /// removing one destroy both. Scope is prose marks: cell anchors are outside
-    /// the op surface.
+    /// removing one destroy both. Scope is prose marks: a collision a cell
+    /// takes part in loads, [`Content::anchor_collisions`] reports it, and the
+    /// ops refuse to make one.
     AnchorIdCollision { id: String },
     /// A line's container path is nested deeper than
     /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH). The Typst emitter

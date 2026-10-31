@@ -590,12 +590,14 @@ read-only in markdown.**
   silently retargets a live thread) nor coexist (already incoherent: an anchor
   is *the* handle `RemoveAnchor { id }` retains-out, so a shared id makes
   removing one destroy both). The empty id is rejected as a degenerate handle.
-  Enforced at op time in the `Add` arm and as a `Content::validate` invariant
-  (`Invariant::AnchorIdCollision`, the uniqueness scan the island check shares).
-  Scope is prose `marks`: an anchor inside an island cell is unreachable by
-  `RemoveAnchor` (it scans prose marks only), so it sits outside the op surface
-  and outside this uniqueness check: explicit partial enforcement, not silent
-  half-enforcement.
+  Enforced at op time over every text surface: the `Add` arm refuses an id
+  the prose or any island's cell holds, an island op refuses a cell anchor
+  whose id the value holds elsewhere, and `RemoveAnchor` removes the id from
+  the prose and every cell. `Content::validate` enforces it over the prose
+  alone (`Invariant::AnchorIdCollision`, the uniqueness scan the island check
+  shares), so a stored value whose collision a cell takes part in loads, and
+  the load reports it: `Content::anchor_collisions`, and
+  `parse::anchor_id_collision` per value on a stored document's load.
 - **Opaque and invariant.** The runtime never rewrites an id. Positions rebase
   through splices (`map_pos`); the id passes untouched. A mark whose text is
   deleted, or moved-and-rewritten in one round, drops *whole*: never
@@ -625,17 +627,18 @@ drops both, the token reported.
   tag inside a code span or a link moves to its start, marked `at="span"`. A
   line whose tags in place would change what it imports to holds them at its
   end, each marked `at="line"`, or none where that changes it too.
-- The read lists every prose anchor with the text of its line, spelled or not,
-  so a consumer locates the anchor whose tag a writer lost. An anchor in a table
-  cell is outside the read, as it is outside the op surface.
+- The read lists every anchor with the text of its line, spelled or not,
+  so a consumer locates the anchor whose tag a writer lost. An anchor in a
+  table cell or a footnote's note is listed unspelled, with its cell's text,
+  after the anchors ahead of its island.
 
 Anchors are edit-lane infrastructure: they survive only through a revise
 (`revise` / `rebase`). A whole-document markdown write keeps them through
 `Document::revise`, which aligns cards by `$id`, `$kind` and text and revises
 each aligned body and content field; a prose anchor on a card it cannot align,
 or one the diff drops, drops, and the receipt names it. An anchor in a table
-cell drops on every markdown write whose cell is spelled, and no receipt names
-it. On a revise, a tag the writer kept pins its anchor's start where the tag
+cell or a note stays where its island continues and the cell at its place
+keeps its text, and drops, named in the receipt, where that text changed. On a revise, a tag the writer kept pins its anchor's start where the tag
 stands; a tag without `at` that the writer moved moves the anchor; a tag the
 writer dropped leaves the anchor to the diff; and a tag naming an anchor the
 stored value does not hold drops, reported. A token keeps its island's type
