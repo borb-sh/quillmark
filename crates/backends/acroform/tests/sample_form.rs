@@ -32,8 +32,7 @@ fn open_session(markdown: &str) -> quillmark::LiveSession {
 /// The rendered PDF and its AcroForm dict.
 fn acroform(result: &quillmark::RenderResult) -> (PdfDoc, lopdf::Dictionary) {
     let doc = PdfDoc::load_mem(&result.artifacts[0].bytes).expect("lopdf reparse: structurally valid");
-    let af_ref = doc.catalog().unwrap().get(b"AcroForm").unwrap().as_reference().unwrap();
-    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap().clone();
+    let af = common::acroform(&doc).clone();
     (doc, af)
 }
 

@@ -207,6 +207,17 @@ mod tests {
         Quill::from_tree(tree).expect("load source")
     }
 
+    /// The diagnostics of a plate that fails at open or at render.
+    fn failure_diagnostics(source: &Quill, expectation: &str) -> Vec<quillmark_core::error::Diagnostic> {
+        match TypstBackend::default().open(source, &serde_json::json!({}), test_date()) {
+            Ok(session) => session
+                .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
+                .expect_err(expectation)
+                .into_diagnostics(),
+            Err(err) => err.into_diagnostics(),
+        }
+    }
+
     /// Messages Typst 0.15.1 emits, taken from a compile of each case.
     const REAL_MESSAGES: &[(&str, &str)] = &[
         (
@@ -279,13 +290,7 @@ mod tests {
             "#set page(width: 200pt, height: 200pt)\n#image(\"assets/marc.png\")\n",
         );
 
-        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date()) {
-            Ok(session) => session
-                .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
-                .expect_err("a missing image should fail to compile")
-                .into_diagnostics(),
-            Err(err) => err.into_diagnostics(),
-        };
+        let diags = failure_diagnostics(&source, "a missing image should fail to compile");
 
         let diag = diags
             .iter()
@@ -305,13 +310,7 @@ mod tests {
         let source = source_with_plate(
             "#import \"@local/quillmark-helper:0.2.0\" as qm\n\n#qm.ink(qm.data, \"no_such_field\")\n",
         );
-        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date()) {
-            Ok(session) => session
-                .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
-                .expect_err("an unknown ink address should fail to compile")
-                .into_diagnostics(),
-            Err(err) => err.into_diagnostics(),
-        };
+        let diags = failure_diagnostics(&source, "an unknown ink address should fail to compile");
         let location = diags[0].location.as_ref().expect("a located diagnostic");
         assert_eq!((location.file.as_str(), location.line), ("plate.typ", 3));
     }
@@ -324,13 +323,7 @@ mod tests {
         let source = source_with_plate(EVAL_ERROR_PLATE);
 
         // Compilation happens during `open`, so the error may surface there.
-        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date()) {
-            Ok(session) => session
-                .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
-                .expect_err("eval of `#general` should fail to compile")
-                .into_diagnostics(),
-            Err(err) => err.into_diagnostics(),
-        };
+        let diags = failure_diagnostics(&source, "eval of `#general` should fail to compile");
         assert!(
             !diags.is_empty(),
             "compilation error must carry diagnostics"

@@ -315,24 +315,11 @@ fn open_err(files: &[(&str, &str)]) -> Vec<quillmark_core::error::Diagnostic> {
     }
 }
 
-/// `files` are inserted under their `/`-joined tree paths.
+/// `files` are inserted under their `/`-joined tree paths, `Quill.yaml` among them.
 fn tree_quill(files: &[(&str, &str)]) -> quillmark_core::quill::Quill {
-    use quillmark_core::quill::{FileTreeNode, Quill};
-    use std::collections::HashMap;
-
-    let mut root = FileTreeNode::Directory {
-        files: HashMap::new(),
-    };
-    for (path, contents) in files {
-        root.insert(
-            path,
-            FileTreeNode::File {
-                contents: contents.as_bytes().to_vec(),
-            },
-        )
-        .expect("insert");
-    }
-    Quill::from_tree(root).expect("load quill")
+    let (yaml, rest): (Vec<_>, Vec<_>) = files.iter().partition(|(path, _)| *path == "Quill.yaml");
+    let rest: Vec<(&str, &[u8])> = rest.iter().map(|(p, c)| (*p, c.as_bytes())).collect();
+    common::quill(yaml[0].1, &rest)
 }
 
 /// An import of a package the load skipped fails as the missing file it is,
