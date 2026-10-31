@@ -436,20 +436,11 @@ card_kinds:
     expectEditCode(() => v.get('nope'), 'edit::unknown_field') // typo, not absent
   })
 
-  it('reader.outline names each card, field state, heading and anchor; annotatedAt reads one address', () => {
+  it('annotatedAt reads one address', () => {
     const quill = buildQuill()
     const doc = seededDoc(quill)
-    doc.storeField({ field: 'qty' }, 'lots')
     doc.revise({}, '# Plan\n\nMain **body**.')
     doc.applyChange({}, { markOps: [{ op: 'add', start: 10, end: 14, type: 'anchor', attrs: { id: 'c1' } }] })
-    const outline = quill.reader(doc).outline()
-    const [main, note] = outline.cards
-    expect(main).toMatchObject({ path: 'main', kind: 'main', headings: [{ line: 0, level: 1, text: 'Plan' }] })
-    expect(main.id).toBeUndefined()
-    const states = Object.fromEntries(main.fields.map((f) => [f.name, f.state]))
-    expect(states).toMatchObject({ subject: 'ok', qty: 'invalid', note: 'empty' })
-    expect(main.anchors).toEqual([{ id: 'c1', path: 'main.body' }])
-    expect(note).toMatchObject({ path: 'cards.note[0]', kind: 'note', id: doc.cards[0].id })
 
     const read = doc.annotatedAt({})
     expect(read.markdown).toBe('# Plan\n\nMain <qm-anchor ref="c1"></qm-anchor>**body**.')

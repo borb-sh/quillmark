@@ -494,26 +494,6 @@ export interface AnnotatedMarkdown {
     anchors: DocumentAnchor[];
 }
 
-/**
- * The outline `reader.outline()` returns: each card with its path, `$kind`
- * (`main` on the main card) and `$id`, each declared field with its `state`,
- * the body's headings by line, and each anchor by id and path. A field is
- * `empty` when absent, null, blank or an empty list or map, `invalid` when
- * `quill.validate` reports an error at or under it, and `ok` otherwise.
- */
-export interface Outline {
-    cards: OutlineCard[];
-}
-
-export interface OutlineCard {
-    path: string;
-    kind: string;
-    id?: string;
-    fields: { name: string; path: string; state: 'ok' | 'empty' | 'invalid' }[];
-    headings: { line: number; level: number; text: string }[];
-    anchors: { id: string; path: string }[];
-}
-
 export interface DocumentAnchor {
     id: string;
     path: string;
@@ -1600,13 +1580,6 @@ impl Document {
         }
     }
 
-    /// The ABI under `reader.outline()`: the document's outline under `quill`.
-    #[wasm_bindgen(js_name = _readerOutline, skip_typescript, unchecked_return_type = "Outline")]
-    pub fn reader_outline(&self, quill: &Quill) -> Result<JsValue, JsValue> {
-        let outline = quill.inner.reader(&self.inner).outline();
-        serialize_or_throw(&OutlineJs::from(outline), "reader.outline")
-    }
-
     /// Interpreted **`Content`** read of a value nested inside the composite
     /// field at `addr`: the stable ABI under the runtime `reader.getContentAt`,
     /// and [`reader.getContent`](Self::reader_get_content) with the path spelled
@@ -2690,83 +2663,6 @@ struct DocumentAnchorJs {
     #[serde(rename = "cardId", skip_serializing_if = "Option::is_none")]
     card_id: Option<String>,
     line: String,
-}
-
-#[derive(serde::Serialize)]
-struct OutlineJs {
-    cards: Vec<OutlineCardJs>,
-}
-
-#[derive(serde::Serialize)]
-struct OutlineCardJs {
-    path: String,
-    kind: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-    fields: Vec<OutlineFieldJs>,
-    headings: Vec<OutlineHeadingJs>,
-    anchors: Vec<OutlineAnchorJs>,
-}
-
-#[derive(serde::Serialize)]
-struct OutlineFieldJs {
-    name: String,
-    path: String,
-    state: &'static str,
-}
-
-#[derive(serde::Serialize)]
-struct OutlineHeadingJs {
-    line: usize,
-    level: u8,
-    text: String,
-}
-
-#[derive(serde::Serialize)]
-struct OutlineAnchorJs {
-    id: String,
-    path: String,
-}
-
-impl From<quillmark_core::outline::Outline> for OutlineJs {
-    fn from(outline: quillmark_core::outline::Outline) -> Self {
-        let cards = outline
-            .cards
-            .into_iter()
-            .map(|card| OutlineCardJs {
-                path: card.path.to_string(),
-                kind: card.kind,
-                id: card.id,
-                fields: card
-                    .fields
-                    .into_iter()
-                    .map(|f| OutlineFieldJs {
-                        name: f.name,
-                        path: f.path.to_string(),
-                        state: f.state.as_str(),
-                    })
-                    .collect(),
-                headings: card
-                    .headings
-                    .into_iter()
-                    .map(|h| OutlineHeadingJs {
-                        line: h.line,
-                        level: h.level,
-                        text: h.text,
-                    })
-                    .collect(),
-                anchors: card
-                    .anchors
-                    .into_iter()
-                    .map(|a| OutlineAnchorJs {
-                        id: a.id,
-                        path: a.path.to_string(),
-                    })
-                    .collect(),
-            })
-            .collect();
-        OutlineJs { cards }
-    }
 }
 
 impl From<quillmark_core::document::DocumentAnchor> for DocumentAnchorJs {

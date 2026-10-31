@@ -61,18 +61,14 @@ const current = quill.toAuthoring(doc)
 
 ## Editing one card or field
 
-A model revising a long document reads its outline, then one address at a time, rather than the whole document each turn (JavaScript only):
+A model revising a long document reads and writes one address at a time, rather than the whole document each turn (JavaScript only):
 
 ```javascript
-const outline = quill.reader(doc).outline()
-// { cards: [{ path: 'main', kind: 'main', fields: [{ name: 'subject', path: 'main.subject', state: 'empty' }, ...],
-//             headings: [{ line: 0, level: 1, text: 'Plan' }], anchors: [{ id: 'c1', path: 'main.body' }] }, ...] }
-
 const read = doc.annotatedAt({ card: 0 })            // the body of cards[0], with its anchor tags
 const reply = await model(read.markdown)              // the model edits that markdown alone
 quill.writer(doc).card(0).reviseBody(reply, { baseMarkdown: read.markdown })
 ```
 
-A field's `state` is `empty` when it is absent, null or blank, `invalid` when `quill.validate` reports an error under it, and `ok` otherwise, so the outline names what is still pending. The scoped read is the read a revise at that address takes back: kept anchor tags pin their comments, and `baseMarkdown` merges the edit onto any change made since the read.
+The scoped read is the read a revise at that address takes back: kept anchor tags pin their comments, and `baseMarkdown` merges the edit onto any change made since the read.
 
 Full model: [AUTHORING.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/AUTHORING.md).

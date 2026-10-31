@@ -174,9 +174,7 @@ export type {
 	ResolvedField,
 	ResolvedMain,
 	ResolvedCard,
-	Resolved,
-	Outline,
-	OutlineCard
+	Resolved
 } from '../core/wasm.js';
 
 /**
@@ -683,7 +681,7 @@ declare module '../core/wasm.js' {
 	}
 }
 
-import type { Addr, BaseOptions, Content, DocumentRevised, Outline, PathStep, Resolved, Revised } from '../core/wasm.js';
+import type { Addr, BaseOptions, Content, DocumentRevised, PathStep, Resolved, Revised } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -888,14 +886,6 @@ export declare class DocumentReader {
 	getContentAt(addr: Addr | string, path: PathStep[]): Content | undefined;
 	/** The main body's markdown: the quill-free body read. Equals `get({})`. */
 	bodyMarkdown(): string;
-	/**
-	 * The document's outline: each card with its path, `$kind` and `$id`, each
-	 * declared field's `state` (`ok`, `empty` or `invalid`), the body's headings
-	 * by line, and each anchor by id and path. The read that picks the address a
-	 * writer reads (`doc.annotatedAt`) and writes next, and names what is still
-	 * pending, without the document's text.
-	 */
-	outline(): Outline;
 	/**
 	 * The resolved-value view: for every declared field, the value the render
 	 * projection would use and the rung it came from (`authored` / `default` /

@@ -41,7 +41,6 @@ pub use quillmark_core::{
         DocumentAnchor, DocumentRevised, EditError, ImportError, Parsed, Reattached, Revised,
     },
     error::{DOCUMENT_FILE, Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
-    outline::{FieldState, Outline, OutlineAnchor, OutlineCard, OutlineField, OutlineHeading},
     path::DocPath,
     quill::{
         BUNDLE_EXTENSION, BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType,
