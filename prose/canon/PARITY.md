@@ -51,7 +51,7 @@ import meets. The columns:
 |---|---|
 | Markdown | `from_markdown` and `to_markdown` ([markdown-spec.md](../references/markdown-spec.md) §6) |
 | Stored JSON | the canonical content, `serial::to_canonical_value` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") |
-| Op wire | the authored lane: `overwrite` (`serial::from_authored_value`) and a `ChangeBundle`'s ops |
+| Op wire | the line form's authored lane: `serial::from_authored_value` and a `ChangeBundle`'s ops |
 | Typst lowering | `emit_content`, as [CONVERT.md](CONVERT.md) § "Element mapping" maps it |
 | Validate | `Quill::validate`'s verdict on the stored construct |
 | Signal | the code a cell reports under, with its `construct` arg |

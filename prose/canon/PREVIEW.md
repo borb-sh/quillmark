@@ -88,8 +88,8 @@ viewer ever needs to shed the retained world, a `freeze()` that drops it and
 keeps the pageable document is a *mode* to add, not a second type.
 
 `update` is the only edit verb: a whole-document recompile, and it is named apart
-from the content lane's `applyChange`, which splices ops into a document rather
-than recompiling one. Anchoring a caret
+from the content lane's `apply`, which applies a change to one value rather
+than recompiling a document. Anchoring a caret
 or selection across edits is the **editor's** job: its own transaction mapping
 (a ProseMirror / CodeMirror `StepMap`) carries positions through local edits, so
 the session holds no change log, no revision stamp, and no per-field delta

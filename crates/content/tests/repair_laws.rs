@@ -1,6 +1,6 @@
-//! Law 7 over generated merge states: repair is total, it repairs the same
-//! state to the same value, and a valid value repairs to itself. Each rule of
-//! the merge-repair table has its own case.
+//! The repair law over generated merge states: repair is total, it repairs
+//! the same state to the same value, and a valid value repairs to itself. Each
+//! rule of the merge-repair table has its own case.
 
 use proptest::prelude::*;
 use quillmark_content::lines::island::IslandType;

@@ -42,18 +42,19 @@ crate-internal to `quillmark-core` and never a storage option.
 
 ## The Format
 
-The current schema (`quillmark/document@0.134.0`) carries each card's full
+The current schema (`quillmark/document@0.135.0`) carries each card's full
 ordered payload: typed `$` system metadata, user fields, and YAML
 comments interleaved in source order: as a single discriminated-union
 item list. A composable card's `$id` is an `{type: id, value}` item after its
 `$kind` (§ Card-id identity). This is what makes inline-comment preservation symmetric across
 the `$`/non-`$` boundary. A field item is `{type: field, key, value}`;
-`body` is the canonical `Content` embedded structurally (a nested
-object, not a markdown string); see Byte-stability.
+`body` is the content-model value ([CONTENT.md](CONTENT.md)) embedded
+structurally (a nested object, not a markdown string), and a `richtext` field
+rests as one inside its item's `value`; see Byte-stability.
 
 ```json
 {
-  "schema": "quillmark/document@0.129.0",
+  "schema": "quillmark/document@0.135.0",
   "main": {
     "payload": {
       "items": [
@@ -63,7 +64,7 @@ object, not a markdown string); see Byte-stability.
         { "type": "field", "key": "title", "value": "Hi" }
       ]
     },
-    "body": { "islands": [], "lines": [ { "containers": [], "kind": "para" } ], "marks": [], "text": "Hi" }
+    "body": { "blocks": [ { "id": "b0", "kind": "para" } ], "text": "Hi" }
   },
   "cards": [ ... ]
 }
@@ -73,7 +74,7 @@ object, not a markdown string); see Byte-stability.
 each variant carries a frozen DTO tree. Quill references are stored as
 strings (parsed back via `QuillReference::from_str`). The discriminator on
 payload items is `type` (not `kind`) to keep it unambiguous next to the
-`$kind` metadata semantic. The full variant set is `quill | kind | ext |
+`$kind` metadata semantic. The full variant set is `quill | kind | id | ext |
 seed | field | comment`; the `ext` and `seed` variants carry the
 `$ext` / `$seed` maps verbatim and are stripped from the plate JSON
 before backends see it.
@@ -83,24 +84,29 @@ document came through the bound door) live on the `Parsed` record, not on
 their `Document` handle as session state and exclude them from `equals` and
 the DTO alike.
 
-### Legacy schema (V0_124_0)
+### Legacy schemas (V0_124_0 to V0_134_0)
 
-Documents written under `"schema": "quillmark/document@0.124.0"` carry the
-current tree, over the content vocabulary without the `footnote` and `math`
-islands, the `term` line kind or the `description` container (§ Content
-vocabularies), and the hop decodes the `body`. It is the oldest tag read: a row
-under any earlier tag (`0.81.0` through `0.116.0`) fails as an unknown schema
-version (§ Schema Versioning).
+The tags `0.124.0`, `0.129.0`, `0.131.0` and `0.134.0` hold the line form,
+the v1 content encoding ([CONTENT.md](CONTENT.md) § "The line form"). A row
+under one loads through the `0.135.0` hop: its body, and each field value
+that decodes as line-form content at any depth, migrates through
+`migrate::from_lines`, minting ids deterministically, so the same row
+always migrates to the same bytes. A `$seed` or `$ext` value stays as stored,
+and the decoders read a line-form value wherever they meet one.
+
+`0.124.0` carries the content vocabulary without the `footnote` and `math`
+islands, the `term` line kind or the `description` container. It is the oldest
+tag read: a row under any earlier tag (`0.81.0` through `0.116.0`) fails as an
+unknown schema version (§ Schema Versioning).
 
 A composable card naming no `$kind`, which an earlier parse accepted as a card and stored,
 folds on load, under any tag, into the body above it: its fields and comments
 as an untagged backtick code block, whose text is admitted as a body import
 admits it, then its own body. Its `$ext` drops, since `$ext` reaches no render
 and the body does. What the fold lands is new content: an island id the body
-above already holds is minted anew, the next `isl-{n}` past the highest in
-either body (§ Island-id determinism), and an anchor whose id it already holds
-drops whole, since Quillmark mints no anchor id (§ Anchor-id identity). Every
-later card moves up one index.
+above already holds is minted anew (§ Island-id determinism), and an anchor
+whose id it already holds drops whole, since Quillmark mints no anchor id
+(§ Anchor-id identity). Every later card moves up one index.
 
 ## Byte-stability
 
@@ -117,21 +123,19 @@ insertion-ordered `serde_json`: `serde_json::Value` inside payload field
 values keeps YAML insertion order via the workspace's
 `serde_json/preserve_order` feature, and no whole-envelope key sort is
 applied. Every `body` subtree, by contrast, is the recursively key-sorted
-**canonical content form** (`CanonicalContent` in `dto.rs`): byte-identical
-to `rt.to_canonical_json()` and independent of `preserve_order`, even in a
-consumer crate graph that lacks the feature. Sortedness is semantic
-*inside* the content (mark/island/attribute order carries no meaning, so the
-serializer commits to one bit pattern); insertion order is semantic
-*outside* it (payload item order is source order, and matters).
+**canonical content form** (`StoredContent` in `dto.rs`): byte-identical
+to `Content::to_value` and independent of `preserve_order`, even in a
+consumer crate graph that lacks the feature. A `richtext` field's value is
+written through the same form. Sortedness is semantic *inside* the content
+(mark, island and attribute order carry no meaning, so the serializer commits
+to one bit pattern); insertion order is semantic *outside* it (payload item
+order is source order, and matters).
 
-**Both directions validate.** `CanonicalContent` checks the body's
-invariants on the way out as well as in, failing the write with a serializer
-error. The token a body rests on (`Normalized`) states that
-`Content::normalize` has run, which is weaker than validity: `validate`
-refuses only what `normalize` cannot repair — a forbidden character, two
-counts that disagree, a range or depth past a bound, a colliding id — and
-`Card::overwrite_body` takes a caller's content on that token alone. A store
-that checked only on load would accept bytes it could not read back.
+**Both directions validate.** `StoredContent` checks the body's invariants
+(`Content::validate`) on the way out as well as in, failing the write with a
+serializer error. A store that checked only on load would accept bytes it could
+not read back; every write a `Card` takes already holds a valid value, so the
+outbound check is the backstop.
 
 The guarantee follows from: struct field order is fixed in the frozen
 DTO tree; `Vec` fields preserve order by definition; the two disciplines
@@ -139,8 +143,6 @@ above each hold at their respective level. No whitespace normalization is
 applied: the output is `serde_json`'s compact form otherwise. Bumping the
 `schema` version is the only event that may change the byte layout of a
 document written by the current writer.
-
-**One settle under a held tag.** Normalization settles a table's props further than an earlier build did (§ Content vocabularies), so a `@0.129.0` row holding a table's `headless: true`, a cell's `colspan` or `rowspan`, or a `head` it now settles saves once with other bytes, and a hash over it recomputes once. The tag holds unless the settled props spell a member `0.131.0` adds, a span past 1 or a `head` past 1, which moves the row to `@0.131.0` (§ Schema Versioning). The settle is a fixed point, so the guarantee holds for every row saved after it.
 
 **Resting form.** Byte-equality is over `Document` values, so it is only
 as useful as the model's agreement on what a given document *is*. A
@@ -165,191 +167,118 @@ and one bound load away from converging.
 A comment's text rests without the whitespace ending it, as a parse reads its
 line, so a stored row holding such text loads without it and rewrites once.
 
-**Migrated rows.** A row still carrying `@0.124.0` migrates forward on read,
-decoding its raw `body` with the live content decoder, and rests under the
-current tag once rewritten. Rewriting it once read (read-repair) is the same
-lane `Quill::conform` uses: a row read through the bound door converges to
-canonical rest and is eligible for rewrite under its current tag. Neither is a
-schema-version event; a population converges once and then holds.
+**Migrated rows.** A row under an earlier tag migrates forward on read
+(§ Legacy schemas) and rests under the current tag once rewritten. Rewriting it
+once read (read-repair) is the same lane `Quill::conform` uses: a row read
+through the bound door converges to canonical rest and is eligible for rewrite
+under the current tag. A population converges once and then holds.
 
 ## Content vocabularies
 
 The envelope's version-and-reject discipline covers the document's **shape**:
 the schema tag, the DTO tree, the keys a `body` object carries. The content's
-four discriminators are covered by their own rule: each is a **closed set**.
+four discriminators are covered by their own rule: each is a **closed set**
+([CONTENT.md](CONTENT.md) § "The value" lists them).
 
-| Axis | Members | Rust type |
-|---|---|---|
-| Line `kind` | `para`, `heading`, `code`, `rule` | `LineKind` |
-| Container | `list_item`, `quote` | `Container` |
-| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor`, `font_family` | `MarkKind` |
-| Island `type` | `table`, `image`, `footnote`, `math` | `IslandType` |
+| Axis | Rust type |
+|---|---|
+| Block `kind` | `model::BlockKind` |
+| Container `kind` | `model::ContainerKind` |
+| Mark `type` | `model::MarkKind` |
+| Island `type` | `IslandType` |
 
 A name outside one of them is `ParseError::UnknownName { axis, name }` at every
-decoder, both lanes, so **a row holding one does not open**. Refusing is the
-only reading that keeps the reader honest: projecting an unrecognized `kind` as
-`para` would re-encode the row as `{"kind":"para"}`, moving canonical bytes on a
-read with no edit (§ Byte-stability), and dropping the value loses content on a
-mere open. Carrying the name opaquely and refusing only to *project* it holds
-the bytes, and costs totality instead: a projection over a container tree is
-total over a `Normalized` body, and a region no projection reads has no defined
-result. A malformed discriminator is a different failure and stays
-`ParseError::Shape`: the closed set answers for names, and a non-string is not a
-name.
+decoder, so **a row holding one does not open**. Refusing is the only reading
+that keeps the reader honest: projecting an unrecognized `kind` as `para` would
+re-encode the row as `{"kind":"para"}`, moving canonical bytes on a read with no
+edit (§ Byte-stability), and dropping the value loses content on a mere open. A
+malformed discriminator is a different failure and stays `ParseError::Shape`:
+the closed set answers for names, and a non-string is not a name.
 
-Three names a stored row may hold sit outside the sets: the `term` line
+Three names a line-form row may hold sit outside the sets: the `term` line
 kind, and the `description` and `element` containers, which earlier tags
 spelled for a definition list and a `qm-*` element. Each reads as what it
-held, so the row opens and its text stays, and a save writes the row without
-them. A `term` line reads as a `para` on both lanes, as `island` does. Either
-container reads as absent from its line's path on the stored lane; the
-authored lane refuses it as an unknown name.
-
-A task item's `checked` is a `list_item` bag entry, `true` ticked and `false`
-open, absent on an item that is no task. It is the item's, like `ordinal`: two
-items differing in it sit in one list run. A reader drops a bag key it does not
-name, so a build without `checked` would read a task list as a plain one and
-save it so; the key arrived under the `0.124.0` tag, which that reader
-refuses.
-
-`font_family` carries a family's name under `attrs.name`, stored as written and
-naming no font file: a backend resolves it at render. The name is not empty,
-has no space at either edge, and holds no control character, bidi control or
-line separator (`model::is_font_family_name`). It arrived with `0.131.0`.
-
-`font_family` is keyed (`MarkKind::is_keyed`): its tag is a key and its attrs
-the value, so a character holds at most one family and two `font_family` marks
-never overlap. Normalization settles overlap in raw input once, before the
-same-kind union: each stretch between two edges goes to the mark over it that
-starts later, then to the shorter, then to the later in canonical order. A
-`MarkOp::Add` of a keyed kind sets its value over its range, replacing every
-mark of the tag there, and a `MarkOp::Remove` takes one value off, leaving the
-stretch in no family. Storing one value per character keeps every edit local:
-a text edit never changes the family of text it keeps, and reading a
-character's family is a lookup.
-
-`link` is keyed the same way, its url the value: a character holds at most one link, as markdown and HTML can write no link inside another. A `MarkOp::Add` of a link over a link replaces the url there. Normalization settles keyed marks before it cuts marks at line breaks, so a split never multiplies overlapping links.
-
-A formatting mark in a body never spans a `\n`: `Content::normalize` cuts it at each one, so a mark over a hard break is one mark per line, the form markdown writes and the Typst lowering draws. A link over a break is two links with one url. A table cell's or footnote's marks may span its `\n`, which markdown writes as a `<br>` inside the mark's delimiters.
-
-`island` is the one name a decoder reads that no encoder writes, and the
-exception that shows the rule's price. It names the line a block island sits on,
-a fact the island's own type settles, so the decoder reads it as `para` — the
-re-encode the paragraph above calls dishonest, made honest by the `@0.115.0`
-tag that says the writer moved. The tag
-covers the rows it stamps and nothing else: the same spelling rests untagged
-inside every `richtext` field, which is why the read is permanent rather than a
-migration hop (§ "Adding a Schema Version").
+held, so the row opens and its text stays, and the migration writes the row
+without them. A `term` line reads as a `para`, as the retired `island` line
+kind does.
 
 The consequence, and the point: **adding a member to any of these vocabularies
 is a storage-version event.** An older reader refuses a row carrying a newer
 build's construct, and the schema tag is what lets it say "build too old"
-rather than "corrupt" (§ Schema Versioning). The tree freeze such a bump needs
-is mechanical — the DTO shape is unchanged, so the new version's tree is the
-old one and the `TryFrom` hop is the identity (§ Adding a Schema Version).
+rather than "corrupt" (§ Schema Versioning).
+
+**Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
+`lang`, a `link`'s `url`, a list's `ordered` and `start` and an item's
+`checked` are all `attrs` entries: `{"kind":"heading","attrs":{"level":1}}`.
+The envelope keys stay siblings (`id`, `kind`/`type`, `path`, a mark's
+`start`/`end`) because they belong to the object rather than to the member it
+names. An empty bag is omitted, so `normalize` collapses `{}` and an absent bag
+to one spelling. A foreign bag key on a built-in drops unread: the decode reads
+the entries the member names and re-mints from its fields. One spelling per name
+is also what makes the canonical mark order a function of the bytes:
+`MarkKind::sort_key` is the `(type, attrs)` pair the wire carries.
+
+`font_family` carries a family's name under `attrs.name`, stored as written and
+naming no font file: a backend resolves it at render. The name is not empty,
+has no space at either edge, and holds no control character, bidi control or
+line separator (`is_font_family_name`).
+
+`font_family` and `link` are keyed (`MarkKind::is_keyed`): the tag is a key and
+the attrs its value, so a character holds at most one family and one link.
+Normalization settles overlap in raw input once, before the same-kind union:
+each stretch between two edges goes to the mark over it that starts later, then
+to the shorter, then to the later in canonical order. A `mark` step adding a
+keyed kind sets its value over its range, replacing every mark of the tag there.
+Storing one value per character keeps every edit local: a text edit never
+changes the family or url of text it keeps.
+
+A formatting mark never spans a `\n` or a hard break: `Content::normalize` cuts
+it at each one, so a mark over a break is one mark per line, the form markdown
+writes and the Typst lowering draws.
 
 **A `Content` stores its value, not how the value came about.** What a markdown
-import drops on the way in — a table cell's inline image, whose alt text lands
-as the cell's text and whose url lands nowhere — is a fact about that import,
-not about the island it mints: two tables whose `props` are equal are equal,
-however each was written, and the projection has no syntax to carry the
-difference back. So the canonical form is `{id, type, props}` and holds no
-fidelity class beside them: such a record is not re-derivable from the row that
-would carry it, and does not survive a `to_markdown` → `from_markdown` hop.
-Surfacing a drop belongs to whoever runs the import, where it happens. The
-import reports the raw tags it drops beside the content ([markdown-spec.md](../references/markdown-spec.md) §6.2 names the
+import drops on the way in, a table cell's inline image whose alt text lands as
+the cell's text and whose url lands nowhere, is a fact about that import, not
+about the island it mints: two tables whose `props` and slots are equal are
+equal, however each was written. Surfacing a drop belongs to whoever runs the
+import, where it happens. The import reports the raw tags it drops beside the
+content ([markdown-spec.md](../references/markdown-spec.md) §6.2 names the
 silent ones), and core surfaces those of a body's parse and of a revise as
-`parse::dropped_construct` ([ERROR.md](ERROR.md) § "Warning flow"); a cell
-image's url drops unreported.
+`parse::dropped_construct` ([ERROR.md](ERROR.md) § "Warning flow").
 
-**Container identity is path plus contiguity, and `instance` is what completes
-it.** Two adjacent lines sit in the same container iff their whole container
-path is equal, so without a discriminator two adjacent runs of one shape read as
-one: `[Quote], [Quote]` would be a single two-paragraph quote, and two one-item
-lists a single item with an unnumbered continuation paragraph. `instance` is the
-field that breaks that tie, on every container arm, which is why the round trip
-is a *total* promise rather than one holding up to an adjacency quotient. `Content::normalize` canonicalizes it to `0`, flipping to
-`1` only where the adjacent preceding sibling run would otherwise weld, so a
-document needing no discriminator carries none and its stored bytes are the
-bytes it had before the field existed (§ Byte-stability). That is why the key
-was additive within `@0.93.0` rather than a schema-version event: no blob
-written before it moves. The cost is in the other direction, and only for a
-document that spends the key — a build predating the field ignores it and reads
-the two runs welded, so a row written here and re-saved there loses the
-boundary. A container field added later inherits that trade, since a reader is
-frozen at the vocabulary it shipped with. The Markdown
-projection spells the same boundary with the idiom CommonMark already reads: a
-change of bullet char (`-`/`+`) or of ordered delimiter (`.`/`)`) for lists, the
-blank line for quotes.
+Unknown *keys* survive in designated carriers only:
 
-The omission is every encoder's, storage and the binding seam alike
-(`serial::to_canonical_value` is the only one). A spelled zero decodes to the
-same value, so a producer holding an older read writes it straight back; it is
-just not what an encoder emits, which is what keeps the byte-stability above
-unconditional. A binding's read type therefore spells `instance` optional
-([BINDINGS.md](BINDINGS.md)).
+- **Opaque carriers keep what they hold.** An island's `props` round-trip
+  untouched, and so does a table cell's own entry under `cell_attrs`.
+- **Envelopes drop what they do not name, by design.** A block, container,
+  mark, anchor or island object is decoded into a struct and re-minted from
+  its fields, so an unrecognized sibling key does not survive. Growing those
+  shapes is a schema event.
 
-**A new container owes its projections a separator.** `instance` makes the
-boundary storable; it does not make it *writable*. A container whose Markdown
-spelling cannot separate two adjacent instances has a boundary in storage that
-the projection drops, so `from_markdown(to_markdown(rt)) == rt` fails on
-re-import — the model reads one container where it stored two. Spell the
-separator when the container is specced, not after: a container defined on
-CommonMark §5.1's terms (a per-line marker, blank-line terminated, as
-`Container::Quote` is) gets one for free, because the blank line already ends
-it. One defined on §5.2/§5.3's terms (a list, which a blank line leaves open)
-does not, and needs the marker alternation `Container::ListItem` uses. The same
-obligation falls on the Typst lowering: two adjacent instances must not lower
-into one another's markup.
+A `footnote` island holds its note in the slot `note`, and an `image` its `url`
+and `alt` in `props`. A `math` island's props hold the equation's TeX under
+`tex`, a string on one line with no edge whitespace, and `display: true` on an
+equation set on its own line, absent at `false`. The authored lanes refuse a
+`tex` markdown cannot write between its dollars (an unescaped `$`, braces that
+do not balance, an empty inline one) as `ParseError::Shape`; the stored lane
+takes it, and markdown writes such an equation as other markup.
 
-Unknown *keys* survive in designated carriers only, and the boundary is worth
-stating because it is not the discriminator boundary:
-
-- **Opaque carriers keep what they hold.** Island `props`, a table island's
-  top-level props, and a table **cell's** own keys all round-trip untouched.
-- **Envelopes drop what they do not name, by design.** An island, line, mark, or
-  container object is decoded into a struct and re-minted from its fields, so an
-  unrecognized sibling key beside `id`/`kind`/`start` does not survive. Growing
-  those shapes is a schema event; that is what the envelope's version-and-reject
-  discipline is for.
-
-A table cell sits on the first side because it never became a struct, and it
-earns the place: a cell's alignment and span keys joined it as opaque keys an
-older reader round-trips, and a later per-cell key joins the same way.
-Canonicalization therefore rewrites a cell's `text` and `marks` in place
-rather than minting a fresh `{text, marks}` object.
-
-A `footnote` island's props are one table cell, `{text, marks}`: the note,
-with no `\n` at either edge, normalized as a cell is and keeping a key it does
-not name as a cell does. The island is inline, its slot the reference.
-
-A `math` island's props hold the equation's TeX under `tex`, a string on one
-line with no edge whitespace, and `display: true` on an equation set on its own
-line, absent at `false`. The island is inline, its slot the equation. The
-authored lanes refuse a `tex` markdown cannot write between its dollars (an
-unescaped `$`, braces that do not balance, an empty inline one) as
-`ParseError::Shape`; the stored lane takes it, and markdown writes such an
-equation as other markup.
-
-A table island's props name `header`, `rows`, `aligns` (one per column:
-`none`, `left`, `center` or `right`) and three layout keys, each absent at its
-default:
+A table island's props name its grid and its layout (`table` module):
 
 | Key | Value | Default |
 |---|---|---|
-| `widths` | one entry per column, an integer weight from 1 to 2⁵³ − 1 or `null` for an auto-fit column; settled to the column count | every entry `null` |
+| `columns` | the column ids, in order | (required) |
+| `rows` | `{id, cells}` per row, `cells` mapping each column id to the slot holding the cell; `rows[0]` is the header row | (required) |
+| `head` | how many rows from the top are header rows, at most the row count; `0` draws the first row as a body row | `1` |
+| `aligns` | a column id's alignment: `left`, `center` or `right` | none |
+| `widths` | a column id's integer weight, from 1 to 2⁵³ − 1; an absent column auto-fits | every column auto-fits |
 | `align` | the table's placement: `left`, `center` or `right` | the plate's placement |
-| `head` | how many rows, from the top of `header` then `rows`, are header rows: a whole number, at most the row count; `0` draws `header` as the first body row | `1` |
+| `cell_attrs` | a slot id's own keys | none |
 
 `widths` are weights, not lengths, so each plate decides what full width is.
-`headless: true` sits beside every `head: 0`, which a `@0.129.0` reader, knowing
-`headless` alone, needs to draw no header row; beside any other `head` it is
-absent. A stored `headless: true` beside no whole-number `head` reads as
-`head: 0`, and normalization writes `head: 0` beside it. The keys ride the opaque props carrier, which an
-older reader round-trips, so adding them is no storage-version event, and a
-later props key joins the same way.
-
-A cell names four keys of its own, each absent by default:
+Keying them by column id means a column inserted or moved leaves every other
+column's layout where it was. A cell names four keys of its own under
+`cell_attrs`, each absent by default:
 
 | Key | Value | Default |
 |---|---|---|
@@ -360,25 +289,24 @@ A cell names four keys of its own, each absent by default:
 
 A cell's value equal to its column's is an override that stays when the
 column changes. The grid stays rectangular under a span: each cell a span
-covers holds its slot as an empty placeholder, so a merge needs no
+covers keeps its slot as an empty placeholder, so a merge needs no
 storage-version event. `Content::normalize` settles each span so it covers
 only what it can (`island::table_spans`):
 
 - Cells claim slots in reading order, so the earlier span wins.
-- A span covers only cells holding no text and no mark that no other span
-  covers, inside the grid and inside its own section: the `head` rows or the
-  body. A comment's anchor is a mark, so the cell it targets stays drawn.
+- A span covers only cells holding no text, no mark and no anchor that no
+  other span covers, inside the grid and inside its own section: the `head`
+  rows or the body. The cell a comment targets stays drawn.
 - A span is stored as it covers, absent at 1, and a covered cell's span keys
   are absent. A covered cell keeps its `align` and `valign`, which it draws
   again once no span covers it; markdown spells no covered cell, so
   `from_markdown(to_markdown(c))` drops them.
 
 A table or cell key holding a value outside its set is read as absent and
-rides untouched, as an unnamed key does, so `from_markdown(to_markdown(c)) ==
-c` holds where every value is in its set and no covered cell holds an
-alignment. Markdown writes a table as a GFM pipe
+rides untouched, as an unnamed key does. Markdown writes a table as a GFM pipe
 table or as HTML, whichever holds it
-([markdown-spec.md](../references/markdown-spec.md) §6.8).
+([markdown-spec.md](../references/markdown-spec.md) §6.8); a cell of several
+paragraphs writes as HTML.
 
 Three rules bound the payload:
 
@@ -388,140 +316,37 @@ Three rules bound the payload:
   per level, so an unbounded bag overflows the stack: on wasm32, a trap that
   takes the module down rather than an error the host can catch. The cap is the
   one `serde_json::from_str` already enforces, so it refuses nothing a stored
-  blob can carry. It is stated on its own because the `Value` lane — the
-  host-authored one, which `overwrite` reaches — is not parsed from a string, so
-  nothing else bounds it. A bag is refused where the decoder reads it off the
-  wire, before it is cloned into the model; `Content::validate` restates it as
-  `Invariant::JsonTooDeep` for content that never went through a decoder. This
-  is `Invariant::NestingTooDeep`'s container cap on the payload axis.
-
-- **A table's grid is capped at `MAX_TABLE_CELLS` (100 000) slots**, its rows,
-  the header among them, times its widest row. The mint pads every row to the
-  widest, so a few bytes of props can ask for millions of cells, on wasm32 an
-  allocation that traps. The decoder refuses such a table before the mint
-  pads it, as `Invariant::TableTooLarge`, which `Content::validate` restates;
-  markdown import drops the rows past the cap instead, its tables sharing
-  one cap, warning `table:size`.
-
-- **Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
-  `lang`, a `link`'s `url` and a `list_item`'s shape are all `attrs` entries:
-  `{"kind":"heading","attrs":{"level":1}}`. The envelope keys stay siblings —
-  `kind`/`type`/`container`, `containers`, `continues`, a mark's `start`/`end`,
-  a container's `instance` — because they belong to the object rather than to
-  the member it names. An empty bag is omitted, on the rule `continues: false`
-  already follows: presence is a pure function of the value, so `normalize`
-  collapses `{}` and an absent bag to one spelling.
-
-  A foreign bag key on a built-in is permitted and drops unread: the decode
-  reads the entries the member names and re-mints from its fields.
-
-  One spelling per name is also what makes the canonical mark order a function
-  of the bytes. `MarkKind::sort_key` is the `(type, attrs)` pair the wire
-  carries, read back off the value rather than spelled per arm, so adding a
-  member reorders nothing already stored (§ Byte-stability).
-
-The lanes still split, on what is now the only ambiguous shape — a built-in's
-payload spelled as a **named sibling**, which is how every release through
-`@0.93.0` wrote it:
-
-  - **The storage lane reads it, and must.** `serial::payload` falls back to the
-    sibling when the bag is absent — an *empty* bag being an absent one here as
-    everywhere. Most stored content cannot be migrated: a `richtext` field rests
-    as a content object inside an opaque payload value, under no schema tag, so
-    the decoder's tolerance is the only thing that opens it. It is also not
-    retirable on tag evidence, no tag naming those rows. Read-repair converges
-    the population; cold rows keep it alive.
-  - **The authored lane rejects it.** A legacy payload sibling is a shape error
-    (`serial::line_kind_from_authored_value` and its container and mark twins
-    for the op wire, `serial::from_authored_value` for a whole content). A host
-    writing it now holds a stale copy of the encoding, and where a bag sits
-    beside it the sibling it meant is not the one the decoder reads. Reads that
-    hand back stored content (`exportMarkdown`, `rebase`) are storage-lane, not
-    this one.
-
-  Both read one frozen table (`serial::legacy_*_keys`): the fallback reads
-  exactly the keys the rejection refuses, so a key a later promotion adds is in
-  neither and the two spellings stay split by release rather than by which names
-  a build knows.
-
-  The authored lane is `overwrite` and the op wire. Two doors that take a whole
-  content sit outside it. **`CardInput.body`** decodes storage-lane
-  (`wire::body_from_wire`, through `Codec::decode_field`): every `Card` a read
-  hands back is a valid `CardInput`, so the card wire must accept whatever a
-  read emits, a stored-only tolerance included. A **typed field
-  write** does too: `document::canonical_richtext_value` shares that entry point
-  with a quill's schema literals, which are read out of a `Quill.yaml` that may
-  predate the release. Both re-canonicalize what they decode, so the value rests
-  in the current spelling either way.
-
-The same split governs a **malformed table-cell mark**. Storage skips it:
-`serial::parse_cell` is lenient, and normalization makes the skip permanent. The
-authored lane refuses it, because a host's malformed mark vanishing with no
-signal is the silent corruption the split exists to catch.
-
-The split stops at *shape*. A cell mark whose `type` is outside the vocabulary
-is refused on **both** lanes, at the decoder
-(`IslandType::reject_unknown_cell_mark`), because the lenient read is exactly
-what would make it silent: `canon_cell` re-mints each cell from what
-`parse_cell` returned, so a skipped name leaves the stored bytes on a read with
-no edit — the byte movement § Content vocabularies refuses the row to prevent.
-The mark axis is closed everywhere a mark is spelled, cells included.
-
-It governs a **value the markdown projection cannot write** as well: a code
-fence's `lang` outside the identifier shape it is emitted in unquoted, and a
-link or image `url` carrying a line ending, which CommonMark admits in no
-destination form. The authored lane refuses both, so a host learns at the write
-that its markdown would come back without the fence header or the mark. Storage
-takes what it holds and the projection settles it — `import::sanitize_lang`
-reduces the `lang`, `export::emit_url` percent-encodes the line ending, and the
-encoded url is what a re-import reads back.
-
-The url rule is on the lanes that **store** one, not on `MarkOp::Remove`, which
-matches on kind equality against a mark the field already holds: a url in the
-model has no second spelling, so refusing it there would make a stored link
-unremovable.
-
-It governs a **block-only island's placement** too. Markdown writes a `table` as
-a block (`IslandType::block_only`, which an inline `image` is not), so a
-slot sharing its line with prose has no inline spelling: written there it lands
-as pipes inside the paragraph, which re-imports as prose with the island gone.
-The island lanes refuse to *place* one there — `ApplyError::BlockIslandNotAlone`
-from `IslandOp::Insert` and from a `Set` that retypes an inline island — so an
-editor inserting a table learns at the write. The line itself is a `para` either
-way: the block is the slot's markup, and the type is the only thing that says
-so. The shape is still canonical: a `LineOp::Join` reaches it, and so does a
-merge of concurrent edits, one inserting a table on an empty line while another
-types on that line. `Content::normalize` never moves text, so storage and
-`serial::from_authored_value` take the content as given, and a host holding the
-text elsewhere, such as a CRDT whose text every client's content must equal,
-stores its projection as it is. The **markdown write** gives the slot its line:
-`to_markdown` breaks the line around it on a copy, so the prose on each side
-writes as its own block, and the markdown re-imports as that broken content.
-The Typst lowering places the table where the slot sits, and Typst sets it as a
-block there.
+  blob can carry. A bag is refused where the decoder reads it, before it is
+  cloned into the model, and `Content::validate` restates it as
+  `Invariant::JsonTooDeep`.
+- **A table's grid is capped at `MAX_TABLE_CELLS` (100 000) slots**, its rows
+  times its columns. The decoder refuses such a table as
+  `Invariant::TableTooLarge`; markdown import drops the rows past the cap
+  instead, its tables sharing one cap, warning `table:size`.
+- **Nesting is capped at `MAX_NESTING_DEPTH` (12)** items and quotes on one
+  path, the depth the markdown codecs and the Typst lowering share.
 
 The opaque props are hash input like everything else in the canonical form, so
 they are recursively key-sorted along with the rest (see Byte-stability). Also a
-schema event: a change to the content object's own structure — a new top-level
-key beside `text`/`lines`/`marks`/`islands` — or a changed meaning for an
-existing discriminator.
+schema event: a change to the content object's own structure, a new top-level
+key beside `text`/`blocks`/`containers`/`marks`/`anchors`/`islands`, or a
+changed meaning for an existing discriminator.
 
 ## The id handles
 
-Islands, anchors and composable cards each carry an id, and all three are the same handle: **opaque,
-unique within a scope, hash input, stable for the session, carried through edits
-and never rewritten.** They differ on one axis: **who mints one, and why only
-they can.** Uniqueness scope, collision response, and markdown round-trip all
-follow from that.
+Structural parts, anchors and composable cards each carry an id, and all are
+the same handle: **opaque, unique within a scope, hash input, stable for the
+session, carried through edits and never rewritten.** They differ on one axis:
+**who mints one, and why only they can.** Uniqueness scope, collision response,
+and markdown round-trip all follow from that.
 
-|                     | Island `id`                                        | Anchor `id`                                        | Card `$id`                                          |
+|                     | Block, container, island, slot, row, column `id`  | Anchor `id`                                        | Card `$id`                                          |
 | ------------------- | -------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------- |
-| Minted by           | Quillmark at import or fold, the caller on insert  | the caller                                         | the author or caller, else Quillmark where the card is placed |
-| Because             | content determines it: the nth island minted      | the referent is external; no content determines it | the card is the referent, and markdown can spell its id |
-| Unique across       | the `Content`'s islands                            | the `Content`'s prose marks                        | the document's composable cards                    |
-| Required            | yes: `insert` rejects the empty id                 | yes: the empty id is rejected                     | yes: every placed composable card holds one; the main card none |
-| On collision        | `insert` rejects; `validate` scans                 | `add` rejects                                      | a parse re-mints and warns; a placing edit rejects; a load refuses |
-| Markdown round-trip | re-minted identically; kept as stored through a revise of the annotated read's token | carried by revise; spelled by the annotated read, which a revise reads back | spelled as `$id`, read back as written |
+| Minted by           | Quillmark at import, migration and revise; the caller in a step | the caller                            | the author or caller, else Quillmark where the card is placed |
+| Because             | content determines it: the nth part minted         | the referent is external; no content determines it | the card is the referent, and markdown can spell its id |
+| Unique across       | its kind within the `Content`; slots, rows and columns within their island | the `Content`, its slots included | the document's composable cards |
+| On collision        | the step refuses; `validate` refuses              | the step refuses; `validate` refuses               | a parse re-mints and warns; a placing edit rejects; a load refuses |
+| Markdown round-trip | re-minted identically by a cold import; kept by a revise | spelled by the annotated read, which a revise reads back | spelled as `$id`, read back as written |
 
 The main card is addressed as `main` and carries no `$id`.
 
@@ -529,126 +354,86 @@ Each section below states one handle's policy whole.
 
 ## Island-id determinism
 
-An island's `id` is part of the canonical form (`{id, type, props}`),
-so it is hash input like every other field, and byte-stability's promise:
-equal content → equal bytes, *whatever the producer*: requires that equal
-islands carry equal ids. The rule: **an id is a deterministic function of
-content, never drawn from an ambient source** (RNG, wall-clock, UUID,
-allocation identity, session or process state). An ambient id would make
-re-importing the same markdown yield different bytes for the same document,
-silently breaking divergence detection and cache keys.
+A structural id is part of the canonical form, so it is hash input like every
+other field, and byte-stability's promise: equal content → equal bytes,
+*whatever the producer*: requires that equal content carry equal ids. The rule:
+**an id Quillmark mints is a deterministic function of content, never drawn
+from an ambient source** (RNG, wall-clock, UUID, allocation identity, session
+or process state). An ambient id would make re-importing the same markdown
+yield different bytes for the same document, silently breaking divergence
+detection and cache keys.
 
-The normative scheme is the importer's positional `isl-{n}`: the nth island
-minted takes `isl-{n-1}` (`mint_island`), so cold import is a pure function
-of its markdown; export drops ids and re-import re-mints the same sequence.
-Ids then travel with their island across edits: deleting a slot drops that
-island and survivors keep their ids, so an id is *stable within a session*,
-not re-derived from position. The invariant that holds for every `Content`,
-checked by `Content::validate`, is therefore **uniqueness**
-(`Invariant::IslandIdCollision`), not `id == isl-{index}`: after an edit
-`isl-1` may legitimately sit at index 0.
+The scheme is positional: `{prefix}{n}` past the highest number the value
+already holds under the prefix (`ids::Minter`), so a cold import is a pure
+function of its markdown and an island takes `isl-{n}`. Ids then travel with
+their part across edits: deleting a slot drops that island and survivors keep
+their ids, so an id is *stable within a session*, not re-derived from position.
+The invariant that holds for every `Content`, checked by `Content::validate`,
+is therefore **uniqueness**, not `id == isl-{index}`.
 
-The id stays in the hash input, so "canonical bytes == hash input" holds exact: no id-stripping, no separate hash form.
+A step names the ids of what it lands, and the apply refuses one already live
+in its scope. A producer minting in a step is bound by the same rule where it
+wants equal edits to reach equal bytes; a live client mints its own at random,
+so a live document's hash is stable from the moment it is stored rather than
+equal to a cold import's. Merge repair derives each id it mints from the ids
+involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 
-The importer is not the only minter: `IslandOp::Insert` carries the id of the island it lands, and the apply refuses the empty id and one already live in the field (`ApplyError::EmptyIslandId`, `ApplyError::IslandIdCollision`), since `IslandOp::Set` addresses by it. That producer is bound by the same never-ambient rule: continue the positional sequence past the field's highest `isl-{n}`, never a UUID, a clock reading, or a session counter. Import purity is unaffected either way, since export drops island ids and no edit-minted id reaches markdown; the rule holds at edit time so two producers making the same edit reach the same bytes.
+A markdown revise keeps the ids: `diff::align` gives the value read from the
+markdown the ids of what it kept, an island equal to a stored one keeping that
+island's id and a `qm-island` tag naming one keeping it outright, and every
+other part mints past the highest id the value held before it, so none takes a
+dropped part's id.
 
-A markdown revise (`diff_import`, `rebase`, every `revise` verb) keeps the ids too, though its import mints positionally: an island equal to a stored one in the longest run of equal islands the two sequences share keeps that island's id, as does each island of a stretch between two of those where both sides hold as many islands of the same types in order (a table edited in place). Every other island the revise lands mints past the highest `isl-{n}` the field held before it, so none takes a dropped island's id. `reviseContent` is the exception: it imports nothing and lands the content's island ids as they are, so its producer is bound by the minting rule above.
-
-The continuation rule mints a *new* island. Re-landing a dropped one is not a mint: the delete freed the id and it travels back with its island, so restoring a deletion restores the bytes. A pasted copy of a live island is new and mints fresh. Swapping the two cases is `IslandIdCollision` on the paste, or a silently renamed island on the restore.
-
-The two compose because minting reads the *live* ids: deleting the highest island frees its number for the next mint, and restoring that delete would then collide. Linear undo never reaches that state, since a mint made after a delete is undone before it. A producer with non-linear history (selective undo, a merge) owns the case, and the apply refuses it rather than aliasing two islands.
+Re-landing a dropped part is not a mint: the delete freed the id and it travels
+back with its part in the inverse, so restoring a deletion restores the bytes.
 
 ## Anchor-id identity
 
-An anchor (`MarkKind::Anchor { id }`) sits at the caller-minted end of the mint
-axis (§ The id handles) because it has **no markdown codec**: it
-names an external referent (a comment thread, an editor bookmark) that no
-content determines. The never-ambient rule therefore cannot apply, and need not:
-that rule exists to keep *import* a pure function of markdown, and import mints
-no anchor, so equal markdown still imports to equal bytes.
+An anchor sits at the caller-minted end of the mint axis (§ The id handles)
+because it has **no markdown codec**: it names an external referent (a comment
+thread, an editor bookmark) that no content determines. The never-ambient rule
+therefore cannot apply, and need not: that rule exists to keep *import* a pure
+function of markdown, and import mints no anchor, so equal markdown still
+imports to equal bytes.
 
 The policy: **an anchor id is caller-supplied, unique per `Content`, opaque and
-invariant while the mark lives; the mark is best-effort under edits and
+invariant while the anchor lives; the anchor is best-effort under rewrites and
 read-only in markdown.**
 
 - **Caller-supplied.** Quillmark mints no anchor id and cannot: only the
-  consumer knows the referent. Each consumer (editor, MCP writer) supplies its
-  own; the runtime persists it verbatim. Quillmark-side minting is a non-goal by
-  design: a counter is history-dependent (the same final content reached two
-  ways carries different ids: the ambient source the twin rule forbids) and
-  forfeits referent-convergence (two `add`s for one thread would mint two
-  handles). A client wanting generated ids mints them client-side and supplies
-  them; the auto-fallback middle ground (Quillmark mints when the caller omits) is
-  a non-goal too.
-- **Unique per `Content`.** `add` *rejects* a collision: not replace (which
-  silently retargets a live thread) nor coexist (already incoherent: an anchor
-  is *the* handle `RemoveAnchor { id }` retains-out, so a shared id makes
-  removing one destroy both). The empty id is rejected as a degenerate handle.
-  Enforced at op time over every text surface: the `Add` arm refuses an id
-  the prose or any island's cell holds, an island op refuses a cell anchor
-  whose id the value holds elsewhere, and `RemoveAnchor` removes the id from
-  the prose and every cell. `Content::validate` enforces it over the prose
-  alone (`Invariant::AnchorIdCollision`, the uniqueness scan the island check
-  shares), so a stored value whose collision a cell takes part in loads, and
-  the load reports it: `Content::anchor_collisions`, and
-  `parse::anchor_id_collision` per value on a stored document's load.
-- **Opaque and invariant.** The runtime never rewrites an id. Positions rebase
-  through splices (`map_pos`); the id passes untouched. A mark whose text is
-  deleted, or moved-and-rewritten in one round, drops *whole*: never
-  partially, never re-id'd (the documented diff-rebase residual). A revise
-  diffs by line, then by character within a line it rewrites. Replaced lines
-  pair from either end of their run, old with new, while a pair is a rewrite:
-  each line at most 5,000 characters, the two sharing half their words or
-  more, and neither occurring whole on the other side. A mark keeps its place
-  through such a rewrite wherever its text is untouched. A line replaced by different text is a deletion, and a mark
-  in it moves only where its text, four characters or more, recurs in text the
-  revise inserted, its first occurrence there taking it; a point mark recurs
-  by the text beside it.
+  consumer knows the referent. A client wanting generated ids mints them
+  client-side and supplies them.
+- **Unique per `Content`.** An `anchor` step placing an id the value or any
+  slot holds elsewhere is refused, and `Content::validate` refuses a value
+  holding one twice, so a stored value holds each id once. The empty id is
+  refused as a degenerate handle.
+- **Opaque and invariant.** The runtime never rewrites an id. Positions move
+  through steps exactly; the id passes untouched. An anchor whose text is
+  deleted entirely drops *whole*, named in the receipt's `droppedAnchors`, and a
+  surviving anchor whose text a write rewrote is named in `movedAnchors`. A
+  rewrite diffs by line, then by word within a line it pairs, so an anchor keeps
+  its place wherever its text is untouched.
 
 No markdown round-trip guarantee: `to_markdown` emits nothing for an anchor and
 import mints none, so a cold export→import loses every anchor.
 
-The annotated read (`export::to_markdown_annotated`,
-`Document::to_markdown_annotated`) spells each prose anchor as
+The annotated read (`Card::body_annotated` and `field_annotated`, WASM
+`doc.annotated(addr)`, Python `doc.annotated(field)`) spells each prose anchor as
 `<qm-anchor ref="ID"></qm-anchor>` at its start, and each island whose markup
 does not read back as `<qm-island ref="ID"></qm-island>`
 ([markdown-spec.md](../references/markdown-spec.md) §6.4). It is two-way: a
-revise reads both against the value stored at its address, and a cold import
-drops both, the token reported.
+revise reads both against the value at its address, and a cold import drops
+both, the token reported. A range anchor reads as its start and keeps its range
+through `revise`; a tag the writer kept pins its anchor's start where the tag
+stands, a tag the writer dropped leaves the anchor to the diff, and a tag naming
+an anchor the stored value does not hold drops, reported. An anchor in a table
+cell or a footnote's note lives in its slot, so it moves with the cell wherever
+its row moves.
 
-- A range anchor reads as its start, and keeps its range through `revise`.
-- A code-block line, a block island's line and an empty line hold no tag. A
-  tag inside a code span or a link moves to its start, marked `at="span"`. A
-  line whose tags in place would change what it imports to holds them at its
-  end, each marked `at="line"`, or none where that changes it too.
-- The scoped read (`Card::body_annotated`, `field_annotated`; WASM
-  `doc.annotatedAt(addr)`) is the same read of one body or richtext field:
-  what a revise at that address reads back, so a writer that edits one card
-  reads and writes it alone, its `baseMarkdown` that read.
-- The read lists every anchor with the text of its line, spelled or not,
-  so a consumer locates the anchor whose tag a writer lost. An anchor in a
-  table cell or a footnote's note is listed unspelled, with its cell's text,
-  after the anchors ahead of its island.
-
-Anchors are edit-lane infrastructure: they survive only through a revise
-(`revise` / `rebase`). A whole-document markdown write keeps them through
-`Document::revise`, which aligns cards by `$id`, `$kind` and text and revises
-each aligned body and content field; a prose anchor on a card it cannot align,
-or one the diff drops, drops, and the receipt names it. An anchor in a table
-cell or a note stays where its island continues and the cell at its place
-keeps its text, and drops, named in the receipt, where that text changed. On a revise, a tag the writer kept pins its anchor's start where the tag
-stands; a tag without `at` that the writer moved moves the anchor; a tag the
-writer dropped leaves the anchor to the diff; and a tag naming an anchor the
-stored value does not hold drops, reported. A token keeps its island's type
-and props as stored, so a table's spans, keys Quillmark does not name and an
-equation's TeX survive a rewrite of the text around them; the island's id
-carries as any revise carries it. A merge under a base read
-([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive))
-compares the sides as annotated reads, so a token survives it and a tag the
-writer moved pins wherever the merge keeps the writer's line. Non-rendering is a property of
-review-time metadata, not a gap; a future render projection (proof annotations,
-PDF destinations) would render the referent or a position, never the id, so
-this policy holds either way.
+The writer's whole-document revise keeps anchors through `Document::revise`,
+which aligns cards by `$id`, `$kind` and text and revises each aligned body and
+content field; an anchor on a card it cannot align, or one the diff drops,
+drops, and the receipt names it.
 
 A comment thread hangs on an anchor by its id: [COMMENTS.md](COMMENTS.md)
 states that contract, the selector each anchor reads as, and the exact rule
@@ -692,53 +477,36 @@ is written, and never rewritten while its card lives.**
 ## Schema Versioning
 
 The schema version is tied to the **crate version at which the `Document`
-wire format was last changed**: not the running crate version. The
-current format was fixed in `0.134.0`, so the version tag is
-`quillmark/document@0.134.0`; every later patch release writes that same
-value, because patches do not change the format. A save writes the oldest tag
-that holds the row. A row holding a composable card, which carries its `$id`,
-takes `0.134.0`. A row of the main card alone takes `0.131.0` when it holds a
-member `0.129.0` lacks, and keeps `quillmark/document@0.129.0` when it holds
-none. Those members are a `font_family` mark, a table cell whose `colspan` or `rowspan` exceeds 1, and a table `head` other
-than 1 unless it is `0` stored beside `headless: true`. The writer looks for them in each body and in each field and `$seed`
-value that decodes as content; an `$ext` value is opaque and never read
-(`dto::spells_0_131_0`).
+wire format was last changed**: not the running crate version. The current
+format was fixed in `0.135.0`, so every save writes
+`quillmark/document@0.135.0`; every later patch release writes that same
+value, because patches do not change the format.
 
 The format is the *bytes*, not only the envelope: `0.115.0` left the DTO tree
-untouched, dropped an island's `loss` key and retired the `island` line kind
-(§ Content vocabularies), which is a format change because the writer emits
-different bytes for the same document — every document holding an island.
+untouched, dropped an island's `loss` key and retired the `island` line kind,
+which is a format change because the writer emits different bytes for the same
+document.
 
-`0.124.0`, `0.129.0`, `0.131.0` and `0.134.0` share one tree: a field item is
-`{type: field, key, value}`, and a document, card, payload or payload item
-carrying a key its type does not name fails the load. `0.124.0` spells `body`
-over the content vocabulary that has `element` among the containers and
-`checked` in a list item's `attrs`. `0.129.0` adds `footnote` and `math` to the
-island vocabulary, `term` to the line kinds and `description` to the
-containers. `0.131.0` adds `font_family` to the marks, the element name
-`table`, a table's `head` and a cell's `colspan` and `rowspan`, and its
-DTO is `0.129.0`'s (`DocumentV0_131_0` aliases `DocumentV0_129_0`), so the
-reader opens both tags into one tree with no hop. `0.134.0` adds the `id`
-payload item and aliases the same tree (`DocumentV0_134_0`).
+`0.124.0`, `0.129.0`, `0.131.0` and `0.134.0` share one tree over the line
+form: a field item is `{type: field, key, value}`, and a document, card,
+payload or payload item carrying a key its type does not name fails the load.
+`0.129.0` adds `footnote` and `math` to the island vocabulary, `term` to the
+line kinds and `description` to the containers. `0.131.0` adds `font_family`
+to the marks and a table's `head` and spans. `0.134.0` adds the `id` payload
+item. `0.135.0` keeps the payload tree and stores each body as the content
+model (`DocumentV0_135_0`, `StoredContent`).
 
 The V0_124_0 → V0_129_0 hop decodes its raw `body`, and can reject for the same
 reason a load can. Only the newest DTO converts to the live `Document`.
 
 ## Adding a Schema Version
 
-A bump that only adds vocabulary members, as `0.131.0` and `0.134.0` did, needs none of
-the steps below: its tag aliases the newest tree, the reader matches both
-tags into it, and the writer keeps the older tag for a row spelling none of the
-new members. A member counts as new when the older reader refuses it or draws
-it otherwise, a key it carried as unknown and now means something included,
-and the writer's check names every one.
-
 When the `Document` wire format changes again:
 
-1. **Freeze** the current `DocumentV0_129_0` type tree: leave its struct
+1. **Freeze** the current `DocumentV0_135_0` type tree: leave its struct
    /enum definitions and serde derives untouched so existing rows still parse.
-   Replace any field whose type tracks the live crate — `CanonicalContent` is
-   the one — with raw `serde_json::Value`, or the frozen tree will *write* the
+   Replace any field whose type tracks the live crate (`StoredContent` is
+   the one) with raw `serde_json::Value`, or the frozen tree will *write* the
    new format under the old tag.
 2. **Remove** the conversions binding the old DTO to the *live* `Document`
    (`From<&Document>` and `TryFrom<… for Document>`): a frozen tree cannot
@@ -747,39 +515,28 @@ When the `Document` wire format changes again:
    plus its `From<&Document>` and `TryFrom<… for Document>` conversions.
 4. **Add** the `StoredDocument::V0_NN_0` variant, tagged
    `#[serde(rename = "quillmark/document@0.NN.0")]`.
-5. **Write the migration**: `From<DocumentV0_129_0> for DocumentV0_NN_0` if
-   the mapping cannot fail (a purely structural rename/restructure, or a
-   retag), or `TryFrom<DocumentV0_129_0> for DocumentV0_NN_0` if it can
-   reject, as the V0_124_0 hop does for a body that will not decode. This is the only real labor: it
-   encodes how old fields map to the new model (renames, restructures,
-   defaults for new fields, and: for a `TryFrom` hop: which malformed inputs
-   get rejected).
+5. **Write the migration**: `From<DocumentV0_135_0> for DocumentV0_NN_0` if
+   the mapping cannot fail, or `TryFrom` if it can reject, as the V0_124_0 hop
+   does for a body that will not decode. This is the only real labor: it
+   encodes how old fields map to the new model.
 6. **Extend** the reader. Each older blob migrates to the newest DTO through
-   the chain of hops. Every arm below the newest is fallible today, so every
-   one threads `?`:
-   ```rust
-   match stored {
-       StoredDocument::V0_NN_0(p) => Document::try_from(p),
-       StoredDocument::V0_129_0(p) => Document::try_from(DocumentV0_NN_0::try_from(p)?),
-       StoredDocument::V0_124_0(p) => Document::try_from(DocumentV0_NN_0::try_from(
-           DocumentV0_129_0::try_from(p)?,
-       )?),
-   }
-   ```
+   the chain of hops, every fallible arm threading `?`.
 
-**A migration reaches the `body` and nothing else.** Every other stored content
-— a `richtext` or `text` field, a `$seed` overlay — sits inside an opaque
-payload value carrying no schema tag, and a walk cannot tell one from host data
-that merely looks like it (`$ext` is arbitrary by contract). So a change to the
-*content* encoding is not migratable, and has to be readable instead: the
-decoder reads the old spelling wherever it meets it, and the schema bump records
-that the writer moved. Design a content change so a decoder can absorb it, or it
-cannot ship. The reader that absorbs it is permanent: the untagged half is
-reachable by no hop, so no later retirement frees it (`island` is the standing
-case, § Content vocabularies).
+A bump that only adds vocabulary members needs only the tag: it aliases the
+newest tree, and the reader matches both tags into it.
+
+**A migration reaches the body for certain, and a field value only by its
+shape.** Every other stored content sits inside an opaque payload value carrying
+no schema tag. The `0.135.0` hop migrates a field value that decodes as
+line-form content, but `$seed` and `$ext` are arbitrary by contract and a walk
+cannot tell content there from host data that merely looks like it. So a change
+to the *content* encoding has to stay readable too: the decoder reads the old
+spelling wherever it meets it, and the schema bump records that the writer
+moved. The reader that absorbs it is permanent, since the untagged half is
+reachable by no hop.
 
 A new frozen DTO can also reject at parse time through a custom
-`Deserialize` rather than through a `TryFrom` migration: `CanonicalContent`
+`Deserialize` rather than through a `TryFrom` migration: `StoredContent`
 (the current `body` field's type) normalizes and validates the embedded content,
 failing with a serde error before any `TryFrom` in the chain above runs.
 Design a new DTO's `Deserialize` to fail the same way if it embeds
@@ -794,7 +551,7 @@ refuses, such as the lone major `memo@1` ([VERSIONING.md](VERSIONING.md)), or
 more cards than `MAX_CARD_COUNT`, the ceiling markdown parse and card
 placement both hold. Load measures no emitted size, since emission can
 outgrow the source a document parsed from.
-Migrations chain (`V0_124_0 → V0_129_0 → V0_NN_0 → …`); only the newest DTO
+Migrations chain (`V0_124_0 → V0_129_0 → V0_135_0 → …`); only the newest DTO
 converts to the live `Document`, so each migration step stays small as versions
 accumulate. The cost is one frozen type tree per schema version plus one
 migration function per version bump.
@@ -817,7 +574,7 @@ sourcing it from a row count rather than a version number.
 
 ## Gotchas
 
-- The schema version is a hand-set constant (`STORAGE_V0_131_0`), **not**
+- The schema version is a hand-set constant (`STORAGE_V0_135_0`), **not**
   `CARGO_PKG_VERSION`: bumping it is a deliberate act tied to a model change.
 - Unknown schema versions are rejected on read, never silently ignored.
 - DTO type names carry version suffixes with underscores

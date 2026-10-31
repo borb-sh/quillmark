@@ -486,7 +486,7 @@ Coercion rules per type:
 | `boolean` | from the strings `true` / `false` in any letter case, or from a number by whether it is non-zero. Any other string is refused, `yes` and `off` included |
 | `number` / `integer` | from string, or from boolean (`true→1`, `false→0`). An `integer` is an `i64`; a literal past that range is refused, and only `number` carries it |
 | `text` | commits the canonical content form, importing an authored string through the literal codec; the length-1-array-unwrap and bare-scalar-stringify leniencies feed the import |
-| `richtext` | commits the canonical content form (the model): an authored markdown string imports via `quillmark-content::import`, an editor-supplied content object revalidates and re-canonicalizes. The length-1-array-unwrap and bare-scalar-stringify leniencies feed the import |
+| `richtext` | commits the canonical content form (the model): an authored markdown string imports via `quillmark-content::markdown`, an editor-supplied content object revalidates and re-canonicalizes. The length-1-array-unwrap and bare-scalar-stringify leniencies feed the import |
 | `date` / `datetime` | per-type strict-grammar validation, stored verbatim: a `date` rejects any time component, a `datetime` rejects offsets/space/fractional/bare-date. Neither truncates |
 | `object` | property recursion |
 - **One-line enforcement.** A `text` or `richtext` field without
