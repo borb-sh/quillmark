@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use quillmark_content::delta::{word_similarity, MIN_WORD_SIMILARITY};
+use quillmark_content::delta::{MIN_WORD_SIMILARITY, word_similarity};
 
 /// One composable card as alignment reads it: its `$kind`, the `$id` it
 /// spells, and a text to measure similarity over.
@@ -82,7 +82,9 @@ pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(u
     let spelled: Vec<&str> = incoming.iter().filter_map(|slot| slot.id).collect();
     let reads_ids = spelled.iter().any(|id| by_id.contains_key(id));
     let removed = |i: usize| reads_ids && stored[i].id.is_some_and(|id| !spelled.contains(&id));
-    let rest_stored: Vec<usize> = (0..stored.len()).filter(|&i| !best.contains_key(&i) && !removed(i)).collect();
+    let rest_stored: Vec<usize> = (0..stored.len())
+        .filter(|&i| !best.contains_key(&i) && !removed(i))
+        .collect();
     let rest_incoming: Vec<usize> = (0..incoming.len()).filter(|&j| out[j].is_none()).collect();
     let stored_rest: Vec<Slot<'_>> = rest_stored.iter().map(|&k| stored[k]).collect();
     let incoming_rest: Vec<Slot<'_>> = rest_incoming.iter().map(|&k| incoming[k]).collect();
@@ -114,13 +116,15 @@ fn align_by_text(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(usiz
     let stored_words = words(stored, &rest_stored);
     let incoming_words = words(incoming, &rest_incoming);
     let (n, m) = (rest_stored.len(), rest_incoming.len());
-    let same_kind = |a: usize, b: usize| stored[rest_stored[a]].kind == incoming[rest_incoming[b]].kind;
+    let same_kind =
+        |a: usize, b: usize| stored[rest_stored[a]].kind == incoming[rest_incoming[b]].kind;
 
     let mut work = 0usize;
     for a in 0..n {
         for b in 0..m {
             if same_kind(a, b) {
-                let size = (stored_words[a].len() + incoming_words[b].len()).min(2 * MAX_DIFFED_WORDS);
+                let size =
+                    (stored_words[a].len() + incoming_words[b].len()).min(2 * MAX_DIFFED_WORDS);
                 work = work.saturating_add(size * size);
             }
         }
@@ -157,7 +161,14 @@ fn align_by_text(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(usiz
     while a < n && b < m {
         match gains[a][b] {
             Some(g) if g + table[a + 1][b + 1] == table[a][b] => {
-                pair_by_position(gap, (a, b), &same_kind, &rest_stored, &rest_incoming, &mut out);
+                pair_by_position(
+                    gap,
+                    (a, b),
+                    &same_kind,
+                    &rest_stored,
+                    &rest_incoming,
+                    &mut out,
+                );
                 out[rest_incoming[b]] = Some((rest_stored[a], Pairing::Text));
                 a += 1;
                 b += 1;
@@ -167,12 +178,21 @@ fn align_by_text(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(usiz
             _ => b += 1,
         }
     }
-    pair_by_position(gap, (n, m), &same_kind, &rest_stored, &rest_incoming, &mut out);
+    pair_by_position(
+        gap,
+        (n, m),
+        &same_kind,
+        &rest_stored,
+        &rest_incoming,
+        &mut out,
+    );
     out
 }
 
 fn words<'a>(slots: &[Slot<'a>], rest: &[usize]) -> Vec<Vec<&'a str>> {
-    rest.iter().map(|&k| slots[k].text.split_whitespace().collect()).collect()
+    rest.iter()
+        .map(|&k| slots[k].text.split_whitespace().collect())
+        .collect()
 }
 
 /// Pairs the cards of `[from, to)` on each side in order, each incoming card
@@ -247,7 +267,14 @@ mod tests {
     use super::*;
 
     fn slots<'a>(cards: &[(&'a str, &'a str)]) -> Vec<Slot<'a>> {
-        cards.iter().map(|&(kind, text)| Slot { kind, id: None, text }).collect()
+        cards
+            .iter()
+            .map(|&(kind, text)| Slot {
+                kind,
+                id: None,
+                text,
+            })
+            .collect()
     }
 
     fn run(stored: &[(&str, &str)], incoming: &[(&str, &str)]) -> Vec<Option<usize>> {
@@ -265,8 +292,16 @@ mod tests {
 
     #[test]
     fn a_reorder_of_unchanged_cards_keeps_every_pairing() {
-        let stored = [("note", "alpha text"), ("note", "beta text"), ("memo", "gamma")];
-        let incoming = [("memo", "gamma"), ("note", "beta text"), ("note", "alpha text")];
+        let stored = [
+            ("note", "alpha text"),
+            ("note", "beta text"),
+            ("memo", "gamma"),
+        ];
+        let incoming = [
+            ("memo", "gamma"),
+            ("note", "beta text"),
+            ("note", "alpha text"),
+        ];
         assert_eq!(run(&stored, &incoming), vec![Some(2), Some(1), Some(0)]);
     }
 
@@ -297,11 +332,20 @@ mod tests {
     #[test]
     fn a_deleted_and_an_inserted_card_do_not_outweigh_an_edited_one() {
         let stored = [
-            ("note", "owner: Ann\nstatus: done\n\nWrite the intro section."),
-            ("note", "owner: Bob\nstatus: open\n\nReview the budget table."),
+            (
+                "note",
+                "owner: Ann\nstatus: done\n\nWrite the intro section.",
+            ),
+            (
+                "note",
+                "owner: Bob\nstatus: open\n\nReview the budget table.",
+            ),
         ];
         let incoming = [
-            ("note", "owner: Bob\nstatus: done\n\nReview the budget table and sign off."),
+            (
+                "note",
+                "owner: Bob\nstatus: done\n\nReview the budget table and sign off.",
+            ),
             ("note", "owner: Cy\nstatus: open\n\nDraft the appendix."),
         ];
         let aligned = align(&slots(&stored), &slots(&incoming));
@@ -317,7 +361,14 @@ mod tests {
     }
 
     fn with_ids<'a>(cards: &[(&'a str, &'a str, &'a str)]) -> Vec<Slot<'a>> {
-        cards.iter().map(|&(kind, id, text)| Slot { kind, id: Some(id), text }).collect()
+        cards
+            .iter()
+            .map(|&(kind, id, text)| Slot {
+                kind,
+                id: Some(id),
+                text,
+            })
+            .collect()
     }
 
     #[test]
@@ -333,27 +384,55 @@ mod tests {
     #[test]
     fn of_two_cards_spelling_one_id_the_more_similar_keeps_it() {
         let stored = with_ids(&[("note", "a", "the original text")]);
-        let incoming = with_ids(&[("note", "a", "a pasted copy"), ("note", "a", "the original text")]);
-        assert_eq!(align(&stored, &incoming), vec![None, Some((0, Pairing::Id))]);
+        let incoming = with_ids(&[
+            ("note", "a", "a pasted copy"),
+            ("note", "a", "the original text"),
+        ]);
+        assert_eq!(
+            align(&stored, &incoming),
+            vec![None, Some((0, Pairing::Id))]
+        );
     }
 
     /// A writer that keeps the ids it read and leaves one card out removed
     /// it, so a new card in its place does not take its id.
     #[test]
     fn a_stored_id_no_card_spells_is_removed_where_the_writer_spells_ids() {
-        let stored = with_ids(&[("note", "a", "first"), ("note", "d", "dropped"), ("note", "b", "last")]);
-        let incoming = slots(&[("note", "first"), ("note", "something new"), ("note", "last")]);
+        let stored = with_ids(&[
+            ("note", "a", "first"),
+            ("note", "d", "dropped"),
+            ("note", "b", "last"),
+        ]);
+        let incoming = slots(&[
+            ("note", "first"),
+            ("note", "something new"),
+            ("note", "last"),
+        ]);
         let incoming = [
-            Slot { id: Some("a"), ..incoming[0] },
+            Slot {
+                id: Some("a"),
+                ..incoming[0]
+            },
             incoming[1],
-            Slot { id: Some("b"), ..incoming[2] },
+            Slot {
+                id: Some("b"),
+                ..incoming[2]
+            },
         ];
         assert_eq!(
             align(&stored, &incoming),
             vec![Some((0, Pairing::Id)), None, Some((2, Pairing::Id))]
         );
-        let unspelled = slots(&[("note", "first"), ("note", "something new"), ("note", "last")]);
-        assert_eq!(align(&stored, &unspelled)[1], Some((1, Pairing::Position)), "a writer spelling no id pairs by text");
+        let unspelled = slots(&[
+            ("note", "first"),
+            ("note", "something new"),
+            ("note", "last"),
+        ]);
+        assert_eq!(
+            align(&stored, &unspelled)[1],
+            Some((1, Pairing::Position)),
+            "a writer spelling no id pairs by text"
+        );
     }
 
     #[test]
@@ -361,13 +440,22 @@ mod tests {
         let stored = with_ids(&[("note", "a", "same words")]);
         let mut incoming = with_ids(&[("memo", "a", "same words"), ("note", "z", "same words")]);
         incoming[1].id = None;
-        assert_eq!(align(&stored, &incoming), vec![None, Some((0, Pairing::Text))]);
+        assert_eq!(
+            align(&stored, &incoming),
+            vec![None, Some((0, Pairing::Text))]
+        );
     }
 
     #[test]
     fn affix_similarity_measures_shared_ends() {
-        assert_eq!(affix_similarity(&["a", "b", "c", "d"], &["a", "b", "c", "d"]), 1.0);
-        assert_eq!(affix_similarity(&["a", "b", "X", "d"], &["a", "b", "Y", "d"]), 0.75);
+        assert_eq!(
+            affix_similarity(&["a", "b", "c", "d"], &["a", "b", "c", "d"]),
+            1.0
+        );
+        assert_eq!(
+            affix_similarity(&["a", "b", "X", "d"], &["a", "b", "Y", "d"]),
+            0.75
+        );
         assert_eq!(affix_similarity(&[], &["x", "y"]), 0.0);
     }
 }

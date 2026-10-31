@@ -8,17 +8,17 @@
 use std::collections::BTreeMap;
 
 use quillmark_content::delta::{merge_lines, rebase_marks_pinned};
-use quillmark_content::export::{to_markdown, to_markdown_annotated, Annotated};
-use quillmark_content::import::{from_markdown_against, ImportWarning};
+use quillmark_content::export::{Annotated, to_markdown, to_markdown_annotated};
+use quillmark_content::import::{ImportWarning, from_markdown_against};
 use quillmark_content::model::Normalized;
 use quillmark_content::serial::to_canonical_value;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
-use super::edit::{is_valid_field_name, revise_import, EditError, Revised};
+use super::edit::{EditError, Revised, is_valid_field_name, revise_import};
 use super::revise::align_cards;
-use super::{dropped_constructs, Card, Codec, Document, Parsed, Revising};
-use crate::error::{diag_args, Diagnostic};
+use super::{Card, Codec, Document, Parsed, Revising, dropped_constructs};
+use crate::error::{Diagnostic, diag_args};
 use crate::path::{DocPath, DocSeg};
 use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
 
@@ -106,7 +106,10 @@ pub const HASH_TAG: &str = "quillmark/hash@1";
 pub fn value_hash(value: &JsonValue) -> String {
     let mut bytes = format!("{HASH_TAG}\n").into_bytes();
     serde_json::to_writer(&mut bytes, &sorted(value)).expect("a JSON value serializes");
-    Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn sorted(value: &JsonValue) -> JsonValue {
@@ -162,7 +165,10 @@ fn check(current: String, read: &str) -> Result<(), BaseError> {
     if current == read {
         Ok(())
     } else {
-        Err(BaseError::Stale { current, field: None })
+        Err(BaseError::Stale {
+            current,
+            field: None,
+        })
     }
 }
 
@@ -180,7 +186,11 @@ fn richtext_write(
     body: &str,
 ) -> Result<Write, EditError> {
     let read = match base {
-        Base::Hash(read) => return check(current(), read).map(|()| Write::Own).map_err(EditError::Base),
+        Base::Hash(read) => {
+            return check(current(), read)
+                .map(|()| Write::Own)
+                .map_err(EditError::Base);
+        }
         Base::Read(read) => read,
     };
     if read == to_markdown(stored) || read == to_markdown_annotated(stored).markdown {
@@ -261,7 +271,11 @@ impl Card {
     /// any other type its stored value, an absent one as `null`. The
     /// [`Base::Hash`] a typed field revise checks.
     #[doc(hidden)]
-    pub fn field_hash_checked(&self, name: &str, schema: &FieldSchema) -> Result<String, EditError> {
+    pub fn field_hash_checked(
+        &self,
+        name: &str,
+        schema: &FieldSchema,
+    ) -> Result<String, EditError> {
         match schema.r#type {
             FieldType::RichText { .. } => self.field_hash(name),
             FieldType::Text { .. } => Ok(value_hash(&match self.text_now(name)? {
@@ -273,7 +287,9 @@ impl Card {
                     return Err(EditError::InvalidFieldName(name.to_string()));
                 }
                 Ok(value_hash(
-                    self.payload().get(name).map_or(&JsonValue::Null, |v| v.as_json()),
+                    self.payload()
+                        .get(name)
+                        .map_or(&JsonValue::Null, |v| v.as_json()),
                 ))
             }
         }
@@ -333,7 +349,10 @@ impl Card {
         schema: &FieldSchema,
     ) -> Result<Revised, EditError> {
         let body = body.into();
-        if !matches!(schema.r#type, FieldType::Text { .. } | FieldType::RichText { .. }) {
+        if !matches!(
+            schema.r#type,
+            FieldType::Text { .. } | FieldType::RichText { .. }
+        ) {
             return self.revise_field_checked(name, body, schema);
         }
         if matches!(schema.r#type, FieldType::RichText { .. }) {
@@ -342,9 +361,9 @@ impl Card {
                 .map_err(|e| at_field(e, name))?;
             return match write {
                 Write::Own => self.revise_field_checked(name, body, schema),
-                Write::Merged(md, warnings) => {
-                    Ok(self.revise_field_checked(name, md, schema)?.reporting(warnings))
-                }
+                Write::Merged(md, warnings) => Ok(self
+                    .revise_field_checked(name, md, schema)?
+                    .reporting(warnings)),
             };
         }
         let current = || self.field_hash_checked(name, schema);
@@ -364,7 +383,7 @@ impl Card {
                             return Err(EditError::Base(BaseError::Conflict {
                                 current: current()?,
                                 field: Some(name.to_string()),
-                            }))
+                            }));
                         }
                     }
                 }
@@ -417,14 +436,17 @@ pub(crate) fn parse_against(
     };
     let revising = Document::parse_revising(markdown)?;
     config.check_quill_reference(&revising.parsed.document)?;
-    let reads_now = |doc: &Document| read == doc.to_markdown() || read == doc.to_markdown_annotated().markdown;
+    let reads_now =
+        |doc: &Document| read == doc.to_markdown() || read == doc.to_markdown_annotated().markdown;
     if reads_now(doc) || reads_now(&conformed(config, doc)?) {
         return Ok(revising);
     }
     let spell = |side: Revising| -> Result<String, BoundParseError> {
         let mut revised = doc.clone();
         let _ = revised.revise_parsed(side);
-        Ok(conformed(config, &revised)?.to_markdown_annotated().markdown)
+        Ok(conformed(config, &revised)?
+            .to_markdown_annotated()
+            .markdown)
     };
     let now = conformed(config, doc)?.to_markdown_annotated().markdown;
     let read = spell(Document::parse_revising(read)?)?;
@@ -444,19 +466,26 @@ pub(crate) fn parse_against(
     };
     let merged = merge_lines(&read, &now, &new).ok_or_else(conflict)?;
     let merged = Document::parse_revising(&merged).map_err(|_| conflict())?;
-    config.check_quill_reference(&merged.parsed.document).map_err(|_| conflict())?;
-    let pairs = align_cards(&merged.parsed.document.cards, &revising.parsed.document.cards);
+    config
+        .check_quill_reference(&merged.parsed.document)
+        .map_err(|_| conflict())?;
+    let pairs = align_cards(
+        &merged.parsed.document.cards,
+        &revising.parsed.document.cards,
+    );
     let warnings = revising
         .parsed
         .warnings
         .into_iter()
-        .map(|w| match w.path.as_deref().and_then(|p| p.parse::<DocPath>().ok()) {
-            Some(path) => match recard(&path, &pairs) {
-                Some(moved) => w.with_path(moved.to_string()),
+        .map(
+            |w| match w.path.as_deref().and_then(|p| p.parse::<DocPath>().ok()) {
+                Some(path) => match recard(&path, &pairs) {
+                    Some(moved) => w.with_path(moved.to_string()),
+                    None => w,
+                },
                 None => w,
             },
-            None => w,
-        })
+        )
         .collect();
     Ok(Revising {
         parsed: Parsed {

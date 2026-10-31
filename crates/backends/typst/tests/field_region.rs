@@ -12,7 +12,9 @@ fn compile(
     plate: &str,
 ) -> Result<quillmark_core::session::LiveSession, quillmark_core::error::RenderError> {
     let source = common::quill_with_plate(
-        &common::yaml("main:\n  fields:\n    classification: { type: text }\n    subject: { type: text }\n"),
+        &common::yaml(
+            "main:\n  fields:\n    classification: { type: text }\n    subject: { type: text }\n",
+        ),
         plate,
     );
     TypstBackend::default().open(
@@ -138,7 +140,10 @@ fn a_claim_takes_detached_glyphs_its_body_prints() {
         .find(|r| r.field == "subject")
         .expect("a detached-span body surfaces its claim");
     let (cx, cy) = center(&region);
-    assert_eq!(session.field_at(region.page, cx, cy, 0.0).as_deref(), Some("subject"));
+    assert_eq!(
+        session.field_at(region.page, cx, cy, 0.0).as_deref(),
+        Some("subject")
+    );
 
     let session = open(
         r#"
@@ -196,7 +201,11 @@ fn a_claim_around_a_content_field_moves_none_of_its_regions() {
             .expect("open")
     };
     let of = |session: &LiveSession| -> Vec<_> {
-        session.regions().into_iter().filter(|r| r.field == "prose").collect()
+        session
+            .regions()
+            .into_iter()
+            .filter(|r| r.field == "prose")
+            .collect()
     };
     let decorated = quillmark_content::serial::to_canonical_value(
         &Content::new(
@@ -213,12 +222,17 @@ fn a_claim_around_a_content_field_moves_none_of_its_regions() {
     for body in [&listed, &decorated] {
         let bare = of(&open_body("#qm.data.prose", body));
         assert!(!bare.is_empty(), "sanity: the field is drawn");
-        assert_eq!(of(&open_body("#qm.region(\"subject\")[#qm.data.prose]", body)), bare);
+        assert_eq!(
+            of(&open_body("#qm.region(\"subject\")[#qm.data.prose]", body)),
+            bare
+        );
     }
 
     let claimed = open_body("#qm.region(\"subject\")[#qm.data.prose]", &decorated);
     for pos in [9, 20] {
-        let glyph = claimed.locate("prose", pos).expect("the decorated word is drawn");
+        let glyph = claimed
+            .locate("prose", pos)
+            .expect("the decorated word is drawn");
         let (cx, cy) = center(&glyph);
         assert_eq!(
             claimed.field_at(glyph.page, cx, cy, 0.0).as_deref(),
@@ -245,7 +259,10 @@ fn a_marginal_answers_only_to_a_claim_opened_inside_it() {
     let regions = session.regions();
     let claimed = |field: &str| -> Vec<_> { regions.iter().filter(|r| r.field == field).collect() };
     let subject = claimed("subject");
-    assert!(subject.len() > 1, "the claim surfaces on each page: {subject:?}");
+    assert!(
+        subject.len() > 1,
+        "the claim surfaces on each page: {subject:?}"
+    );
     for r in &subject {
         assert!(
             r.rect[1] >= 39.5 && r.rect[3] <= 160.5,
@@ -253,9 +270,16 @@ fn a_marginal_answers_only_to_a_claim_opened_inside_it() {
         );
     }
     let banners = claimed("classification");
-    assert_eq!(banners.len(), session.page_count(), "one header claim per page: {banners:?}");
+    assert_eq!(
+        banners.len(),
+        session.page_count(),
+        "one header claim per page: {banners:?}"
+    );
     for r in &banners {
-        assert!(r.rect[1] >= 160.0, "the header claim stays in the header: {r:?}");
+        assert!(
+            r.rect[1] >= 160.0,
+            "the header claim stays in the header: {r:?}"
+        );
         let (cx, cy) = center(r);
         assert_eq!(
             session.field_at(r.page, cx, cy, 0.0).as_deref(),
@@ -289,8 +313,14 @@ Lead#footnote[#qm.region("subject")[INSIDE] #lorem(30)]
 "#,
     );
     let regions = session.regions();
-    let column: Vec<_> = regions.iter().filter(|r| r.field == "classification").collect();
-    assert!(column.len() > 2, "the claim surfaces on each page: {column:?}");
+    let column: Vec<_> = regions
+        .iter()
+        .filter(|r| r.field == "classification")
+        .collect();
+    assert!(
+        column.len() > 2,
+        "the claim surfaces on each page: {column:?}"
+    );
     for r in &column {
         assert!(r.rect[2] <= 120.5, "the claim stays in its column: {r:?}");
     }

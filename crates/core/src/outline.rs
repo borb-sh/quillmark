@@ -2,7 +2,7 @@
 //! addressed, without its text. A writer reads it to choose the one card or
 //! field it reads and writes next, at that address's scoped annotated read.
 
-use quillmark_content::model::{LineKind, Normalized, ISLAND_SLOT};
+use quillmark_content::model::{ISLAND_SLOT, LineKind, Normalized};
 use quillmark_content::serial::from_canonical_value;
 use serde_json::Value as JsonValue;
 
@@ -105,12 +105,17 @@ pub(crate) fn outline(config: &QuillConfig, doc: &Document) -> Outline {
         .map(|(path, card, schema)| OutlineCard {
             kind: card.kind().unwrap_or("main").to_string(),
             id: card.id().map(str::to_string),
-            fields: schema.map(|schema| fields(schema, card, &path, &errors)).unwrap_or_default(),
+            fields: schema
+                .map(|schema| fields(schema, card, &path, &errors))
+                .unwrap_or_default(),
             headings: headings(card.body()),
             anchors: anchors
                 .iter()
                 .filter(|a| a.path.segs().first() == path.segs().first())
-                .map(|a| OutlineAnchor { id: a.id.clone(), path: a.path.clone() })
+                .map(|a| OutlineAnchor {
+                    id: a.id.clone(),
+                    path: a.path.clone(),
+                })
                 .collect(),
             path,
         })
@@ -129,10 +134,16 @@ fn fields(schema: &CardSchema, card: &Card, at: &DocPath, errors: &[String]) -> 
             let state = match value {
                 None => FieldState::Empty,
                 Some(value) if is_empty(value, richtext) => FieldState::Empty,
-                Some(_) if errors.iter().any(|e| is_at_or_under(e, &path.to_string())) => FieldState::Invalid,
+                Some(_) if errors.iter().any(|e| is_at_or_under(e, &path.to_string())) => {
+                    FieldState::Invalid
+                }
                 Some(_) => FieldState::Ok,
             };
-            OutlineField { name: field.name.clone(), path, state }
+            OutlineField {
+                name: field.name.clone(),
+                path,
+                state,
+            }
         })
         .collect()
 }
@@ -142,7 +153,9 @@ fn is_empty(value: &JsonValue, richtext: bool) -> bool {
         JsonValue::Null => true,
         JsonValue::String(s) => s.trim().is_empty(),
         JsonValue::Array(items) => items.is_empty(),
-        JsonValue::Object(map) if richtext => from_canonical_value(value).map_or(map.is_empty(), |c| c.is_blank()),
+        JsonValue::Object(map) if richtext => {
+            from_canonical_value(value).map_or(map.is_empty(), |c| c.is_blank())
+        }
         JsonValue::Object(map) => map.is_empty(),
         _ => false,
     }
@@ -203,10 +216,16 @@ card_kinds:
     const DOC: &str = "~~~\n$quill: memo\nsubject: Quarterly plan\ncount: lots\n~~~\n\n# Goals\n\nShip the roads budget.\n\n## Risks\n\nWeather.\n\n~~~\n$kind: item\n$id: it1\nsummary: \"  \"\n~~~\n\nItem body.\n";
 
     fn anchored(content: &Normalized, word: &str, id: &str) -> Normalized {
-        let start = content.text[..content.text.find(word).unwrap()].chars().count();
+        let start = content.text[..content.text.find(word).unwrap()]
+            .chars()
+            .count();
         let mut content = content.clone().into_content();
         let kind = quillmark_content::model::MarkKind::Anchor { id: id.into() };
-        content.marks.push(quillmark_content::model::Mark::new(start, start + word.chars().count(), kind));
+        content.marks.push(quillmark_content::model::Mark::new(
+            start,
+            start + word.chars().count(),
+            kind,
+        ));
         content.into_normalized()
     }
 
@@ -222,17 +241,53 @@ card_kinds:
         let body = anchored(doc.main().body(), "roads budget", "c1");
         doc.main_mut().overwrite_body(body);
         let outline = outline(&config, &doc);
-        let [main, item] = &outline.cards[..] else { panic!("{outline:?}") };
+        let [main, item] = &outline.cards[..] else {
+            panic!("{outline:?}")
+        };
 
-        assert_eq!((main.path.to_string(), main.kind.as_str(), main.id.as_deref()), ("main".into(), "main", None));
-        let states: Vec<(&str, &str)> = main.fields.iter().map(|f| (f.name.as_str(), f.state.as_str())).collect();
-        assert_eq!(states, [("subject", "ok"), ("count", "invalid"), ("note", "empty")]);
-        let headings: Vec<(usize, u8, &str)> = main.headings.iter().map(|h| (h.line, h.level, h.text.as_str())).collect();
+        assert_eq!(
+            (
+                main.path.to_string(),
+                main.kind.as_str(),
+                main.id.as_deref()
+            ),
+            ("main".into(), "main", None)
+        );
+        let states: Vec<(&str, &str)> = main
+            .fields
+            .iter()
+            .map(|f| (f.name.as_str(), f.state.as_str()))
+            .collect();
+        assert_eq!(
+            states,
+            [("subject", "ok"), ("count", "invalid"), ("note", "empty")]
+        );
+        let headings: Vec<(usize, u8, &str)> = main
+            .headings
+            .iter()
+            .map(|h| (h.line, h.level, h.text.as_str()))
+            .collect();
         assert_eq!(headings, [(0, 1, "Goals"), (2, 2, "Risks")]);
-        assert_eq!(main.anchors, [OutlineAnchor { id: "c1".into(), path: DocPath::main_body() }]);
+        assert_eq!(
+            main.anchors,
+            [OutlineAnchor {
+                id: "c1".into(),
+                path: DocPath::main_body()
+            }]
+        );
 
-        assert_eq!((item.path.to_string(), item.kind.as_str(), item.id.as_deref()), ("cards.item[0]".into(), "item", Some("it1")));
-        assert_eq!(item.fields.iter().map(|f| f.state).collect::<Vec<_>>(), [FieldState::Empty]);
+        assert_eq!(
+            (
+                item.path.to_string(),
+                item.kind.as_str(),
+                item.id.as_deref()
+            ),
+            ("cards.item[0]".into(), "item", Some("it1"))
+        );
+        assert_eq!(
+            item.fields.iter().map(|f| f.state).collect::<Vec<_>>(),
+            [FieldState::Empty]
+        );
         assert!(item.headings.is_empty() && item.anchors.is_empty());
     }
 
@@ -244,8 +299,19 @@ card_kinds:
         let body = anchored(doc.main().body(), "roads budget", "c1");
         doc.main_mut().overwrite_body(body);
         let read = doc.main().body_annotated();
-        assert!(read.markdown.contains("<qm-anchor ref=\"c1\"></qm-anchor>roads budget"), "{}", read.markdown);
-        assert_eq!(read.anchors.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["c1"]);
+        assert!(
+            read.markdown
+                .contains("<qm-anchor ref=\"c1\"></qm-anchor>roads budget"),
+            "{}",
+            read.markdown
+        );
+        assert_eq!(
+            read.anchors
+                .iter()
+                .map(|a| a.id.as_str())
+                .collect::<Vec<_>>(),
+            ["c1"]
+        );
 
         let stored = doc.main().body().clone();
         let revised = doc.main_mut().revise_body(&read.markdown).unwrap();
@@ -253,11 +319,17 @@ card_kinds:
         assert_eq!(doc.main().body(), &stored);
 
         let edited = read.markdown.replace("Weather.", "Weather and cost.");
-        let revised = doc.main_mut().revise_body_against(Base::Read(&read.markdown), &edited).unwrap();
+        let revised = doc
+            .main_mut()
+            .revise_body_against(Base::Read(&read.markdown), &edited)
+            .unwrap();
         assert!(revised.dropped_anchors.is_empty());
         assert!(doc.main().body_markdown().contains("Weather and cost."));
 
-        assert_eq!(doc.main().field_annotated("subject").unwrap().markdown, "Quarterly plan");
+        assert_eq!(
+            doc.main().field_annotated("subject").unwrap().markdown,
+            "Quarterly plan"
+        );
         assert_eq!(doc.main().field_annotated("absent").unwrap().markdown, "");
     }
 }

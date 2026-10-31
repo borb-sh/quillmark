@@ -211,7 +211,6 @@ impl FileTreeNode {
             }
         }
     }
-
 }
 
 #[cfg(test)]

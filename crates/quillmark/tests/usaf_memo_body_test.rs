@@ -16,7 +16,9 @@ fn body_rects(body: &str) -> Vec<([usize; 2], [f32; 4])> {
     let markdown = format!("~~~card-yaml\n$quill: usaf_memo\n$kind: main\n~~~\n\n{body}\n");
     let (engine, quill) = common::memo();
     let parsed = Document::parse(&markdown).expect("parses").document;
-    let session = engine.open(quill, &parsed, common::test_date()).expect("opens");
+    let session = engine
+        .open(quill, &parsed, common::test_date())
+        .expect("opens");
     let mut regions: Vec<_> = session
         .regions()
         .iter()
@@ -29,7 +31,10 @@ fn body_rects(body: &str) -> Vec<([usize; 2], [f32; 4])> {
 
 /// `$body` regions as (content span, top edge) pairs in content order.
 fn body_regions(body: &str) -> Vec<([usize; 2], f32)> {
-    body_rects(body).into_iter().map(|(s, r)| (s, r[1])).collect()
+    body_rects(body)
+        .into_iter()
+        .map(|(s, r)| (s, r[1]))
+        .collect()
 }
 
 fn spans(body: &str) -> Vec<[usize; 2]> {
@@ -48,7 +53,10 @@ fn a_trailing_heading_reaches_the_page() {
 /// The buffer holds one heading, so the second must flush it, not overwrite it.
 #[test]
 fn consecutive_headings_both_reach_the_page() {
-    assert_eq!(spans("# First\n\n# Second\n\ntext"), [[0, 5], [6, 12], [13, 17]]);
+    assert_eq!(
+        spans("# First\n\n# Second\n\ntext"),
+        [[0, 5], [6, 12], [13, 17]]
+    );
 }
 
 /// Whether every `$body` region sits on one line — a run-in *is* the heading
@@ -58,7 +66,9 @@ fn consecutive_headings_both_reach_the_page() {
 /// paragraph gap (tens).
 fn on_one_line(body: &str) -> bool {
     let tops: Vec<f32> = body_regions(body).into_iter().map(|(_, y)| y).collect();
-    let (lo, hi) = tops.iter().fold((f32::MAX, f32::MIN), |(l, h), y| (l.min(*y), h.max(*y)));
+    let (lo, hi) = tops
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(l, h), y| (l.min(*y), h.max(*y)));
     hi - lo < 2.0
 }
 
@@ -99,7 +109,11 @@ fn a_list_nested_past_the_numbering_formats_renders() {
 #[test]
 fn a_level_past_the_numbering_formats_restarts_under_a_new_parent() {
     let body = "one\n\n- two\n  - three\n    - four\n      - five\n        - six\n          - seven\n        - six\n          - seven";
-    let text: Vec<&str> = body.lines().map(|l| l.trim_start().trim_start_matches("- ")).filter(|l| !l.is_empty()).collect();
+    let text: Vec<&str> = body
+        .lines()
+        .map(|l| l.trim_start().trim_start_matches("- "))
+        .filter(|l| !l.is_empty())
+        .collect();
     let text = text.join("\n");
     let lefts: Vec<f32> = body_rects(body)
         .into_iter()

@@ -101,7 +101,6 @@ mod tests {
             Err(ParseOutputFormatError::new("docx"))
         );
     }
-
 }
 
 /// An artifact produced by rendering.

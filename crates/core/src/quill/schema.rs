@@ -169,7 +169,11 @@ fn authoring_envelope(config: &QuillConfig) -> serde_json::Value {
         "$schema".to_string(),
         "https://json-schema.org/draft/2020-12/schema".into(),
     );
-    label(&mut root, config.main.title.as_deref(), config.main.description.as_deref());
+    label(
+        &mut root,
+        config.main.title.as_deref(),
+        config.main.description.as_deref(),
+    );
     root.insert("type".to_string(), "object".into());
     let mut properties = authoring_card_properties(&config.main);
     let kinds: Vec<serde_json::Value> = config
@@ -200,7 +204,11 @@ fn authoring_envelope(config: &QuillConfig) -> serde_json::Value {
 /// `body` a main card carries too.
 fn authoring_kind(card: &CardSchema) -> serde_json::Value {
     let mut schema = serde_json::Map::new();
-    label(&mut schema, card.title.as_deref(), card.description.as_deref());
+    label(
+        &mut schema,
+        card.title.as_deref(),
+        card.description.as_deref(),
+    );
     schema.insert("type".to_string(), "object".into());
     let mut properties = serde_json::Map::new();
     properties.insert(
@@ -209,7 +217,10 @@ fn authoring_kind(card: &CardSchema) -> serde_json::Value {
     );
     properties.extend(authoring_card_properties(card));
     schema.insert("properties".to_string(), properties.into());
-    schema.insert("required".to_string(), serde_json::json!([AUTHORING_KIND_KEY]));
+    schema.insert(
+        "required".to_string(),
+        serde_json::json!([AUTHORING_KIND_KEY]),
+    );
     schema.insert("additionalProperties".to_string(), false.into());
     serde_json::Value::Object(schema)
 }
@@ -233,7 +244,11 @@ fn authoring_card_properties(card: &CardSchema) -> serde_json::Map<String, serde
     if card.body_enabled() {
         let mut body = serde_json::Map::new();
         let declared = card.body.as_ref();
-        label(&mut body, None, declared.and_then(|b| b.description.as_deref()));
+        label(
+            &mut body,
+            None,
+            declared.and_then(|b| b.description.as_deref()),
+        );
         body.insert("type".to_string(), serde_json::json!(["string", "null"]));
         body.insert("contentMediaType".to_string(), MARKDOWN_MEDIA_TYPE.into());
         body.insert(QUILLMARK_MULTILINE_KEY.to_string(), true.into());
@@ -250,7 +265,11 @@ fn authoring_card_properties(card: &CardSchema) -> serde_json::Map<String, serde
     properties
 }
 
-fn label(schema: &mut serde_json::Map<String, serde_json::Value>, title: Option<&str>, description: Option<&str>) {
+fn label(
+    schema: &mut serde_json::Map<String, serde_json::Value>,
+    title: Option<&str>,
+    description: Option<&str>,
+) {
     if let Some(title) = title {
         schema.insert("title".to_string(), title.into());
     }
@@ -271,7 +290,11 @@ fn field_to_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value
         return schema;
     }
     let mut annotated = serde_json::Map::new();
-    label(&mut annotated, field.title.as_deref(), field.description.as_deref());
+    label(
+        &mut annotated,
+        field.title.as_deref(),
+        field.description.as_deref(),
+    );
     if let serde_json::Value::Object(schema) = schema {
         annotated.extend(schema);
     }
@@ -316,7 +339,10 @@ fn admit_type(schema: &mut serde_json::Value, extra: &str) {
 /// A variant-bearing enum as the authoring document spells it: one branch per
 /// world, its `value` a `const`, one branch for the members that open no world
 /// and the blank, and the bare discriminant, the shorthand coercion accepts.
-fn variant_union(field: &FieldSchema, variants: &IndexMap<String, super::VariantFields>) -> serde_json::Value {
+fn variant_union(
+    field: &FieldSchema,
+    variants: &IndexMap<String, super::VariantFields>,
+) -> serde_json::Value {
     let world = |value: serde_json::Value, cells: serde_json::Map<String, serde_json::Value>| {
         let mut properties = serde_json::Map::new();
         properties.insert(VARIANT_DISCRIMINANT_KEY.to_string(), value);
@@ -485,7 +511,10 @@ fn declared_schema(field: &FieldSchema, codec: SchemaCodec) -> serde_json::Value
             }
             match &field.added_item {
                 Some(item) => {
-                    schema.insert("additionalProperties".to_string(), field_to_schema(item, codec));
+                    schema.insert(
+                        "additionalProperties".to_string(),
+                        field_to_schema(item, codec),
+                    );
                 }
                 None => close(&mut schema, codec),
             }
@@ -607,13 +636,30 @@ main:
         assert_eq!(fields["ssn"]["quillmark:maxLength"], 9);
         assert_eq!(fields["statements"]["quillmark:maxItems"], 4);
         assert_eq!(fields["statements"]["items"]["quillmark:maxLength"], 350);
-        for (field, keyword) in [("citation", "quillmark:maxItems"), ("statements", "quillmark:maxLength")] {
-            assert!(fields[field].get(keyword).is_none(), "{field} carries no {keyword}");
+        for (field, keyword) in [
+            ("citation", "quillmark:maxItems"),
+            ("statements", "quillmark:maxLength"),
+        ] {
+            assert!(
+                fields[field].get(keyword).is_none(),
+                "{field} carries no {keyword}"
+            );
         }
-        assert!(fields["notes"].get("quillmark:maxItems").is_none(), "an uncapped array");
-        assert!(fields["notes"]["items"].get("quillmark:maxLength").is_none(), "uncapped text");
+        assert!(
+            fields["notes"].get("quillmark:maxItems").is_none(),
+            "an uncapped array"
+        );
+        assert!(
+            fields["notes"]["items"]
+                .get("quillmark:maxLength")
+                .is_none(),
+            "uncapped text"
+        );
         for keyword in ["maxItems", "maxLength"] {
-            assert!(fields["statements"].get(keyword).is_none(), "a cap never asserts");
+            assert!(
+                fields["statements"].get(keyword).is_none(),
+                "a cap never asserts"
+            );
         }
     }
 
@@ -692,7 +738,8 @@ main:
     label:
       type: text
 "#;
-        let content = serde_json::json!({ "type": "object", "contentMediaType": CONTENT_MEDIA_TYPE });
+        let content =
+            serde_json::json!({ "type": "object", "contentMediaType": CONTENT_MEDIA_TYPE });
         let multiline = serde_json::json!({
             "type": "object",
             "contentMediaType": CONTENT_MEDIA_TYPE,

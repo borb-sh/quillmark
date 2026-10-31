@@ -217,7 +217,8 @@ impl LiveSession {
     fn commit(&mut self, json_data: &serde_json::Value) {
         self.regions.take();
         self.warnings = self.inner.warnings().to_vec();
-        self.warnings.extend(self.config.declined_in_plate(json_data));
+        self.warnings
+            .extend(self.config.declined_in_plate(json_data));
         self.data = json_data.clone();
     }
 
@@ -361,8 +362,8 @@ impl LiveSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quill::{blank_doc as doc, test_date};
     use crate::error::Severity;
+    use crate::quill::{blank_doc as doc, test_date};
 
     const QUILL_YAML: &str = "\
 quill:
@@ -407,12 +408,19 @@ main:
     }
     impl SessionHandle for WarningHandle {
         fn render(&self, _: &RenderOptions) -> Result<RenderResult, RenderError> {
-            Ok(RenderResult::new(Vec::new(), crate::types::OutputFormat::Pdf))
+            Ok(RenderResult::new(
+                Vec::new(),
+                crate::types::OutputFormat::Pdf,
+            ))
         }
         fn page_count(&self) -> usize {
             1
         }
-        fn update(&mut self, _: &QuillConfig, _: &serde_json::Value) -> Result<ChangeSet, RenderError> {
+        fn update(
+            &mut self,
+            _: &QuillConfig,
+            _: &serde_json::Value,
+        ) -> Result<ChangeSet, RenderError> {
             self.applies += 1;
             self.current = vec![Diagnostic::new(
                 Severity::Warning,
@@ -516,7 +524,12 @@ main:
 
     #[test]
     fn field_at_tie_takes_the_later_region() {
-        let session = LiveSession::new(Box::new(TiedRegionHandle), config(), test_date(), &serde_json::Value::Null);
+        let session = LiveSession::new(
+            Box::new(TiedRegionHandle),
+            config(),
+            test_date(),
+            &serde_json::Value::Null,
+        );
         assert_eq!(session.field_at(0, 5.0, 5.0, 0.0).as_deref(), Some("over"));
         // Outside both rects by the same gap: the tolerant path ties too.
         assert_eq!(session.field_at(0, 14.0, 5.0, 8.0).as_deref(), Some("over"));
@@ -524,7 +537,12 @@ main:
 
     #[test]
     fn field_boxes_derives_off_regions() {
-        let session = LiveSession::new(Box::new(RegionHandle), config(), test_date(), &serde_json::Value::Null);
+        let session = LiveSession::new(
+            Box::new(RegionHandle),
+            config(),
+            test_date(),
+            &serde_json::Value::Null,
+        );
         let boxes = session.field_boxes("subject");
         assert_eq!(boxes.len(), 1, "one span-bearing region → one box");
         assert_eq!(boxes[0].field, "subject");

@@ -80,7 +80,9 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
         .expect("the indorsement card")
         .revise_body("The indorsement **body**, rebuilt by render-body.")
         .expect("set the card body");
-    session.update(&edited).expect("update with an edited card body");
+    session
+        .update(&edited)
+        .expect("update with an edited card body");
     let fields: HashSet<String> = session.regions().into_iter().map(|r| r.field).collect();
     assert!(
         fields.contains("$cards.indorsement.0.$body"),
@@ -92,7 +94,9 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
             quill,
             &parsed,
             common::test_date(),
-            &RenderOptions::default().with_output_format(OutputFormat::Pdf).with_regions(true),
+            &RenderOptions::default()
+                .with_output_format(OutputFormat::Pdf)
+                .with_regions(true),
         )
         .expect("usaf_memo should render to PDF");
     assert_eq!(
@@ -122,7 +126,9 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
 #[test]
 fn usaf_memo_date_region_rides_the_vendored_display() {
     let (engine, quill, parsed) = common::seeded_memo();
-    let mut session = engine.open(quill, &parsed, common::test_date()).expect("open a session");
+    let mut session = engine
+        .open(quill, &parsed, common::test_date())
+        .expect("open a session");
 
     // The seeded document leaves the date blank, which regions through its
     // fill-in widget rather than the vendored display, so commit a real date
@@ -131,7 +137,9 @@ fn usaf_memo_date_region_rides_the_vendored_display() {
     quillmark::TypedWriter::new(quill.config(), &mut edited)
         .set("date", "2026-01-02")
         .expect("set a real date");
-    session.update(&edited).expect("update with a real memo date");
+    session
+        .update(&edited)
+        .expect("update with a real memo date");
 
     let regions = session.regions();
     let date = regions
@@ -159,7 +167,9 @@ fn usaf_memo_date_region_rides_the_vendored_display() {
 fn a_blank_date_regions_through_its_fill_in_widget() {
     // The seeded document leaves the memo date and the indorsement date blank.
     let (engine, quill, parsed) = common::seeded_memo();
-    let session = engine.open(quill, &parsed, common::test_date()).expect("open a session");
+    let session = engine
+        .open(quill, &parsed, common::test_date())
+        .expect("open a session");
 
     let regions = session.regions();
     for field in ["date", "$cards.indorsement.0.date"] {

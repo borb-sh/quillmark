@@ -222,9 +222,9 @@ impl Payload {
     /// removes an entry runs it: the new value need not carry the positions the
     /// old one's comments sat at.
     fn prune_nested(&mut self, key: &str) {
-        self.nested_comments.retain(|nc| {
-            !matches!(nc.container_path.first(), Some(PathSegment::Key(k)) if k == key)
-        });
+        self.nested_comments.retain(
+            |nc| !matches!(nc.container_path.first(), Some(PathSegment::Key(k)) if k == key),
+        );
     }
 
     /// Ordered iterator over raw items (`$` entries, fields, comments).
@@ -517,7 +517,9 @@ impl Payload {
     /// stays as an own-line comment; other comments and `$` entries are
     /// untouched.
     pub(crate) fn remove(&mut self, key: &str) -> Option<QuillValue> {
-        match self.take_item(|item| matches!(item, PayloadItem::Field { key: k, .. } if k == key))? {
+        match self
+            .take_item(|item| matches!(item, PayloadItem::Field { key: k, .. } if k == key))?
+        {
             PayloadItem::Field { value, .. } => Some(value),
             _ => unreachable!(),
         }
@@ -601,8 +603,20 @@ mod tests {
         let items = fm.items();
         assert!(matches!(items[0], PayloadItem::Quill { .. }));
         assert!(matches!(items[1], PayloadItem::Kind { .. }));
-        assert!(matches!(items[2], PayloadItem::Meta { key: MetaKey::Ext, .. }));
-        assert!(matches!(items[3], PayloadItem::Meta { key: MetaKey::Seed, .. }));
+        assert!(matches!(
+            items[2],
+            PayloadItem::Meta {
+                key: MetaKey::Ext,
+                ..
+            }
+        ));
+        assert!(matches!(
+            items[3],
+            PayloadItem::Meta {
+                key: MetaKey::Seed,
+                ..
+            }
+        ));
         assert!(matches!(items[4], PayloadItem::Field { .. }));
     }
 
@@ -682,7 +696,11 @@ mod tests {
                 PayloadItem::field("a", qv("1")),
                 PayloadItem::field("b", qv("2")),
             ],
-            vec![nested("a", "in a"), nested("b", "in b"), nested("$ext", "in ext")],
+            vec![
+                nested("a", "in a"),
+                nested("b", "in b"),
+                nested("$ext", "in ext"),
+            ],
         )
     }
 

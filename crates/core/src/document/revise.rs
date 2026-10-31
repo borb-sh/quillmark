@@ -3,17 +3,17 @@
 
 use quillmark_content::delta::{rebase_marks, rebase_marks_pinned};
 use quillmark_content::export::to_markdown;
-use quillmark_content::import::{from_markdown_against, Against};
+use quillmark_content::import::{Against, from_markdown_against};
 use quillmark_content::model::Normalized;
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
-use super::align::{align, Pairing, Slot};
+use super::align::{Pairing, Slot, align};
 use super::card_id::{is_card_id, reminted_warning, settle_reporting};
 use super::edit::dropped_anchors;
-use super::emit::{canonical_content, emit_payload_fields, DocumentAnchor};
-use super::{dropped_constructs, Card, Document, Parsed, Revising};
+use super::emit::{DocumentAnchor, canonical_content, emit_payload_fields};
+use super::{Card, Document, Parsed, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError};
 use crate::path::DocPath;
 use crate::value::QuillValue;
@@ -78,17 +78,22 @@ impl Document {
     /// each spells or none, as [`Document::parse_revising`] leaves them.
     pub(crate) fn revise_parsed(&mut self, revising: Revising) -> DocumentRevised {
         let Revising {
-            parsed: Parsed {
-                document: incoming,
-                mut warnings,
-            },
+            parsed:
+                Parsed {
+                    document: incoming,
+                    mut warnings,
+                },
             bodies,
         } = revising;
         let Document { main, cards } = incoming;
         let mut bodies = bodies.into_iter();
 
         let pairs = align_cards(&self.cards, &cards);
-        let same_kinds = self.cards.iter().map(Card::kind).eq(cards.iter().map(Card::kind));
+        let same_kinds = self
+            .cards
+            .iter()
+            .map(Card::kind)
+            .eq(cards.iter().map(Card::kind));
 
         let mut dropped_anchors = Vec::new();
         let mut moves = Moves::new();
@@ -102,10 +107,20 @@ impl Document {
             &mut warnings,
             &mut moves,
         );
-        drop_report(&self.main, Some(&main), &DocPath::main(), &moves, &mut dropped_anchors);
+        drop_report(
+            &self.main,
+            Some(&main),
+            &DocPath::main(),
+            &moves,
+            &mut dropped_anchors,
+        );
 
-        let stored_ids: HashSet<String> =
-            self.cards.iter().filter_map(Card::id).map(str::to_string).collect();
+        let stored_ids: HashSet<String> = self
+            .cards
+            .iter()
+            .filter_map(Card::id)
+            .map(str::to_string)
+            .collect();
         let mut revised_cards = Vec::with_capacity(cards.len());
         let mut kept = vec![None; self.cards.len()];
         for (j, mut card) in cards.into_iter().enumerate() {
@@ -122,7 +137,15 @@ impl Document {
                     let carry_ext = matches!(pairing, Pairing::Id | Pairing::Text) || same_kinds;
                     let from = DocPath::card(stored.kind(), i);
                     let places = (&at, &from);
-                    revise_card(stored, card, body.as_deref(), places, carry_ext, &mut warnings, &mut moves)
+                    revise_card(
+                        stored,
+                        card,
+                        body.as_deref(),
+                        places,
+                        carry_ext,
+                        &mut warnings,
+                        &mut moves,
+                    )
                 }
                 None => {
                     if let Some(body) = body {
@@ -166,7 +189,10 @@ impl Document {
 pub(crate) fn align_cards(stored: &[Card], incoming: &[Card]) -> Vec<Option<(usize, Pairing)>> {
     let stored_texts: Vec<String> = stored.iter().map(card_text).collect();
     let incoming_texts: Vec<String> = incoming.iter().map(card_text).collect();
-    align(&slots(stored, &stored_texts), &slots(incoming, &incoming_texts))
+    align(
+        &slots(stored, &stored_texts),
+        &slots(incoming, &incoming_texts),
+    )
 }
 
 fn slots<'a>(cards: &'a [Card], texts: &'a [String]) -> Vec<Slot<'a>> {
@@ -209,15 +235,22 @@ fn revise_card(
     moves: &mut Moves,
 ) -> Card {
     let body = std::mem::replace(incoming.body_mut(), Normalized::empty());
-    *incoming.body_mut() = match source.and_then(|md| revise_body(stored.body(), md, &at.body(), warnings)) {
-        Some(revised) => revised,
-        None => rebase_marks(stored.body(), body),
-    };
+    *incoming.body_mut() =
+        match source.and_then(|md| revise_body(stored.body(), md, &at.body(), warnings)) {
+            Some(revised) => revised,
+            None => rebase_marks(stored.body(), body),
+        };
 
     for (name, value) in incoming.payload_mut().fields_mut() {
         if let Some(stored) = stored.payload().get(name) {
             let places = (&at.field(name), &from.field(name));
-            revise_value(stored.as_json(), value.as_json_mut(), places, warnings, moves);
+            revise_value(
+                stored.as_json(),
+                value.as_json_mut(),
+                places,
+                warnings,
+                moves,
+            );
         }
     }
 
@@ -233,9 +266,21 @@ fn revise_card(
 /// `stored`: its tags pinned and its tokens resolved against `stored`, its
 /// anchors rebased, and a `parse::dropped_construct` at `at` for each tag the
 /// parse did not report.
-fn revise_body(stored: &Normalized, source: &str, at: &DocPath, warnings: &mut Vec<Diagnostic>) -> Option<Normalized> {
-    let Against { content, warnings: reported, pins } = from_markdown_against(source, stored).ok()?;
-    let tags = reported.into_iter().filter(|w| w.construct.is_held_tag()).collect();
+fn revise_body(
+    stored: &Normalized,
+    source: &str,
+    at: &DocPath,
+    warnings: &mut Vec<Diagnostic>,
+) -> Option<Normalized> {
+    let Against {
+        content,
+        warnings: reported,
+        pins,
+    } = from_markdown_against(source, stored).ok()?;
+    let tags = reported
+        .into_iter()
+        .filter(|w| w.construct.is_held_tag())
+        .collect();
     warnings.extend(dropped_constructs(tags, Some(at)));
     Some(rebase_marks_pinned(stored, content, &pins))
 }
@@ -254,7 +299,12 @@ fn revise_value(
         let JsonValue::String(text) = incoming else {
             return;
         };
-        let Ok(Against { content, warnings: reported, pins }) = from_markdown_against(text, &base) else {
+        let Ok(Against {
+            content,
+            warnings: reported,
+            pins,
+        }) = from_markdown_against(text, &base)
+        else {
             return;
         };
         warnings.extend(dropped_constructs(reported, Some(at)));
@@ -265,7 +315,13 @@ fn revise_value(
         (JsonValue::Object(stored), JsonValue::Object(incoming)) => {
             for (key, value) in incoming.iter_mut() {
                 if let Some(stored) = stored.get(key) {
-                    revise_value(stored, value, (&at.field(key), &from.field(key)), warnings, moves);
+                    revise_value(
+                        stored,
+                        value,
+                        (&at.field(key), &from.field(key)),
+                        warnings,
+                        moves,
+                    );
                 }
             }
         }
@@ -275,7 +331,13 @@ fn revise_value(
             for (j, value) in incoming.iter_mut().enumerate() {
                 if let Some(i) = pairs[j] {
                     landed[i] = Some(j);
-                    revise_value(&stored[i], value, (&at.index(j), &from.index(i)), warnings, moves);
+                    revise_value(
+                        &stored[i],
+                        value,
+                        (&at.index(j), &from.index(i)),
+                        warnings,
+                        moves,
+                    );
                 }
             }
             moves.insert(from.clone(), landed);
@@ -291,7 +353,14 @@ fn align_items(stored: &[JsonValue], incoming: &[JsonValue]) -> Vec<Option<usize
     let stored_texts: Vec<String> = stored.iter().map(item_text).collect();
     let incoming_texts: Vec<String> = incoming.iter().map(item_text).collect();
     fn slots(texts: &[String]) -> Vec<Slot<'_>> {
-        texts.iter().map(|text| Slot { kind: "", id: None, text }).collect()
+        texts
+            .iter()
+            .map(|text| Slot {
+                kind: "",
+                id: None,
+                text,
+            })
+            .collect()
     }
     align(&slots(&stored_texts), &slots(&incoming_texts))
         .into_iter()
@@ -343,7 +412,9 @@ fn drop_report(
     out: &mut Vec<DocumentAnchor>,
 ) {
     for (name, value) in stored.payload().iter() {
-        let revised = revised.and_then(|card| card.payload().get(name)).map(QuillValue::as_json);
+        let revised = revised
+            .and_then(|card| card.payload().get(name))
+            .map(QuillValue::as_json);
         drop_value(value.as_json(), revised, &at.field(name), moves, out);
     }
     drop_content(stored.body(), revised.map(Card::body), &at.body(), out);
@@ -361,8 +432,12 @@ fn drop_value(
     moves: &Moves,
     out: &mut Vec<DocumentAnchor>,
 ) {
-    let content_of =
-        |value: &JsonValue| value.is_object().then(|| from_canonical_value(value).ok()).flatten();
+    let content_of = |value: &JsonValue| {
+        value
+            .is_object()
+            .then(|| from_canonical_value(value).ok())
+            .flatten()
+    };
     if let Some(content) = content_of(stored) {
         if !content.anchor_sites().is_empty() {
             let revised = revised.and_then(content_of);
@@ -373,7 +448,13 @@ fn drop_value(
     match stored {
         JsonValue::Object(map) => {
             for (key, value) in map {
-                drop_value(value, revised.and_then(|r| r.get(key)), &at.field(key), moves, out);
+                drop_value(
+                    value,
+                    revised.and_then(|r| r.get(key)),
+                    &at.field(key),
+                    moves,
+                    out,
+                );
             }
         }
         JsonValue::Array(items) => {

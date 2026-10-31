@@ -2,7 +2,7 @@ use crate::commands::{lies_within, load_quill, read_document, read_fonts, render
 use crate::errors::{CliError, Result};
 use crate::output::write_file;
 use clap::Parser;
-use quillmark::typst_workspace::{workspace, FONTS_DIR, HELPER_DIR, PACKAGES_DIR};
+use quillmark::typst_workspace::{FONTS_DIR, HELPER_DIR, PACKAGES_DIR, workspace};
 use quillmark::{CalendarDate, FontLibrary, Severity};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -124,7 +124,6 @@ fn clear_previous_export(out: &Path) -> Result<()> {
     }
     Ok(())
 }
-
 
 /// `path` as one POSIX shell word: bare when every character is safe, else
 /// single-quoted.

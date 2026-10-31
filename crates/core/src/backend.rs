@@ -58,7 +58,11 @@ pub struct FontFace {
 /// The refusal every backend owes a format outside its
 /// [`Backend::supported_formats`], under `backend::format_not_supported`.
 /// `backend` names the backend in the message; `supported` becomes the hint.
-pub fn unsupported_format(format: OutputFormat, backend: &str, supported: &[OutputFormat]) -> RenderError {
+pub fn unsupported_format(
+    format: OutputFormat,
+    backend: &str,
+    supported: &[OutputFormat],
+) -> RenderError {
     RenderError::coded_hint(
         "backend::format_not_supported",
         format!("{format:?} not supported by the {backend} backend"),
@@ -278,7 +282,9 @@ fn check_ceiling(
     let (at, hint) = match density {
         Density::Ppi => (
             format!("{value} ppi"),
-            format!("Pass a ppi of {fit} or less, or render PDF or SVG, which have no pixel ceiling."),
+            format!(
+                "Pass a ppi of {fit} or less, or render PDF or SVG, which have no pixel ceiling."
+            ),
         ),
         Density::Scale => (
             format!("canvas scale {value}"),
@@ -302,7 +308,9 @@ fn check_ceiling(
 pub fn check_raster(scale: f32, width_pt: f32, height_pt: f32) -> Result<(), RenderError> {
     if !scale.is_finite() || scale <= 0.0 {
         return Err(invalid_raster_scale(
-            format!("canvas scale {scale} is not a finite positive number of device pixels per point"),
+            format!(
+                "canvas scale {scale} is not a finite positive number of device pixels per point"
+            ),
             "Pass a scale above 0.",
         ));
     }
@@ -348,7 +356,9 @@ pub fn canvas_scale(scale: f64, width_pt: f32, height_pt: f32) -> Result<f32, Re
     };
     if !scale.is_finite() || scale <= 0.0 {
         return Err(refuse(
-            format!("canvas scale {scale} is not a finite positive number of device pixels per point"),
+            format!(
+                "canvas scale {scale} is not a finite positive number of device pixels per point"
+            ),
             "above 0",
         ));
     }
@@ -478,12 +488,18 @@ mod tests {
             .expect_err("1224x18000 px is past the ceiling");
         assert!(hinted(&at_default).contains(&131.0));
         check_raster_ppi(131.0, w, h).expect("the hinted ppi fits");
-        assert!(check_raster_ppi(132.0, w, h).is_err(), "the hinted ppi is the largest");
+        assert!(
+            check_raster_ppi(132.0, w, h).is_err(),
+            "the hinted ppi is the largest"
+        );
 
         let at_double = check_raster(2.0, w, h).expect_err("1224x18000 px is past the ceiling");
         assert!(hinted(&at_double).contains(&1.82));
         check_raster(1.82, w, h).expect("the hinted scale fits");
-        assert!(check_raster(1.83, w, h).is_err(), "the hinted scale is the largest at 3 digits");
+        assert!(
+            check_raster(1.83, w, h).is_err(),
+            "the hinted scale is the largest at 3 digits"
+        );
     }
 
     #[test]
@@ -491,17 +507,24 @@ mod tests {
         let (w, h) = LETTER_PT;
         assert_eq!(canvas_scale(2.0, w, h).expect("2x is in range"), 2.0);
         for scale in [1e39, f64::MAX] {
-            let fitted = canvas_scale(scale, w, h).expect("a finite scale past the ceiling is reduced");
+            let fitted =
+                canvas_scale(scale, w, h).expect("a finite scale past the ceiling is reduced");
             check_raster(fitted, w, h).expect("to one the check admits");
             assert_eq!(raster_size(fitted, w, h).1, MAX_RASTER_SIDE);
         }
         let least = f64::from(f32::MIN_POSITIVE);
-        assert_eq!(canvas_scale(least, w, h).expect("the least f32 scale"), f32::MIN_POSITIVE);
+        assert_eq!(
+            canvas_scale(least, w, h).expect("the least f32 scale"),
+            f32::MIN_POSITIVE
+        );
         for scale in [f64::NAN, f64::INFINITY, 0.0, -1.0, least / 2.0, 1e-46] {
             let err = canvas_scale(scale, w, h)
                 .err()
                 .unwrap_or_else(|| panic!("{scale:e} is not a scale an f32 holds"));
-            assert!(hinted(&err).contains(&20.6), "the hint names the fitting scale");
+            assert!(
+                hinted(&err).contains(&20.6),
+                "the hint names the fitting scale"
+            );
             assert_eq!(code(err), "backend::invalid_raster_scale");
         }
     }

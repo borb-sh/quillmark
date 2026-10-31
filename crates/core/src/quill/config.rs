@@ -602,9 +602,9 @@ impl QuillConfig {
                 };
                 let commit = |rt: &quillmark_content::model::Normalized| -> QuillValue {
                     match mode {
-                        Leniency::Render => QuillValue::from_json(
-                            quillmark_content::serial::to_canonical_value(rt),
-                        ),
+                        Leniency::Render => {
+                            QuillValue::from_json(quillmark_content::serial::to_canonical_value(rt))
+                        }
                         Leniency::Write => QuillValue::from_json(serde_json::Value::String(
                             quillmark_content::export::to_plaintext(rt),
                         )),
@@ -706,15 +706,19 @@ impl QuillConfig {
                     // layer, as the String branch leaves it.
                     return Ok(value.clone());
                 };
-                let imported = quillmark_content::import::from_markdown(&markdown).map_err(|e| {
-                    CoercionError::uncoercible(
-                        path,
-                        &markdown,
-                        "richtext",
-                        format!("markdown import failed: {e}"),
-                    )
-                })?;
-                drops.extend(crate::document::dropped_constructs(imported.warnings, Some(path)));
+                let imported =
+                    quillmark_content::import::from_markdown(&markdown).map_err(|e| {
+                        CoercionError::uncoercible(
+                            path,
+                            &markdown,
+                            "richtext",
+                            format!("markdown import failed: {e}"),
+                        )
+                    })?;
+                drops.extend(crate::document::dropped_constructs(
+                    imported.warnings,
+                    Some(path),
+                ));
                 let rt = imported.content;
                 inline_check(&rt)?;
                 Ok(QuillValue::from_json(
@@ -1328,14 +1332,20 @@ impl QuillConfig {
 
     /// Reject a `{field}` token in a `title`: a label is a literal, and nothing
     /// interpolates it.
-    fn validate_title_literal(title: Option<&str>, owner_label: &str, errors: &mut Vec<Diagnostic>) {
+    fn validate_title_literal(
+        title: Option<&str>,
+        owner_label: &str,
+        errors: &mut Vec<Diagnostic>,
+    ) {
         let Some(token) = title.and_then(template_token) else {
             return;
         };
         errors.push(
             Diagnostic::new(
                 Severity::Error,
-                format!("{owner_label}: `title` is a literal label; `{token}` is not interpolated."),
+                format!(
+                    "{owner_label}: `title` is a literal label; `{token}` is not interpolated."
+                ),
             )
             .with_code("quill::title_template".to_string())
             .with_hint(
@@ -1497,8 +1507,11 @@ impl QuillConfig {
                         );
                     }
                 }
-                let unresolved: BTreeSet<&str> =
-                    referenced.iter().copied().filter(|g| !ids.contains(g)).collect();
+                let unresolved: BTreeSet<&str> = referenced
+                    .iter()
+                    .copied()
+                    .filter(|g| !ids.contains(g))
+                    .collect();
                 for group in unresolved {
                     errors.push(
                         Diagnostic::new(
@@ -1667,7 +1680,9 @@ impl QuillConfig {
         let owner = owner.to_string();
         for diag in over {
             let (code, unit) = match diag.code.as_deref() {
-                Some("validation::cardinality") => (slot.code("quill::default_over_max"), "elements"),
+                Some("validation::cardinality") => {
+                    (slot.code("quill::default_over_max"), "elements")
+                }
                 _ => (slot.code("quill::default_over_length"), "characters"),
             };
             let (max, actual) = (&diag.args["max"], &diag.args["actual"]);
@@ -1686,7 +1701,9 @@ impl QuillConfig {
                     ),
                 )
                 .with_code(code)
-                .with_hint(format!("Shorten the {slot} to {max} {unit}, or raise `max:`.")),
+                .with_hint(format!(
+                    "Shorten the {slot} to {max} {unit}, or raise `max:`."
+                )),
             );
         }
     }
@@ -1705,7 +1722,7 @@ impl QuillConfig {
         owner_label: &str,
         errors: &mut Vec<Diagnostic>,
     ) {
-        use super::validation::{validate_schema_literal, ValidationError};
+        use super::validation::{ValidationError, validate_schema_literal};
 
         // A Quill.yaml schema-literal anchor (`$seed.<kind>`, a field label) is
         // config-space, not a document path; it rides the one serializer with
@@ -1814,12 +1831,14 @@ impl QuillConfig {
                     format!("{path} {slot} stores the tick, which is a matrix member's presence."),
                 )
                 .with_code(slot.code("quill::default_held_stored"))
-                .with_hint(
-                    format!("Remove the key; leave the member out of the {slot} to untick it."),
-                ),
+                .with_hint(format!(
+                    "Remove the key; leave the member out of the {slot} to untick it."
+                )),
                 // NotSingleLine and NotPlain can arise on a literal, and
                 // `literal_content` reports them at load.
-                ValidationError::NotSingleLine { .. } | ValidationError::NotPlain { .. } => continue,
+                ValidationError::NotSingleLine { .. } | ValidationError::NotPlain { .. } => {
+                    continue;
+                }
             };
             errors.push(diag);
         }
@@ -1895,7 +1914,10 @@ impl QuillConfig {
             Some(&ui),
             label,
             "quill::invalid_ui",
-            &format!("Valid keys under 'ui' are: {}.", UI_CARD_SCHEMA_KEYS.join(", ")),
+            &format!(
+                "Valid keys under 'ui' are: {}.",
+                UI_CARD_SCHEMA_KEYS.join(", ")
+            ),
             errors,
         )
     }
@@ -1990,9 +2012,8 @@ impl QuillConfig {
                     .with_hint("Remove it: a kind without `seed:` seeds nothing.".to_string()),
             );
         }
-        let dates = [(2000, 1, 1), (2000, 1, 2)].map(|(y, m, d)| {
-            super::CalendarDate::new(y, m, d).expect("a calendar day")
-        });
+        let dates = [(2000, 1, 1), (2000, 1, 2)]
+            .map(|(y, m, d)| super::CalendarDate::new(y, m, d).expect("a calendar day"));
         for (name, value) in obj.into_iter().flatten() {
             let redundant = if name == "$body" {
                 match value {
@@ -2012,14 +2033,14 @@ impl QuillConfig {
                         Leniency::Render,
                         &mut Vec::new(),
                     )
-                        .is_ok_and(|seeded| {
-                            dates.iter().all(|&today| {
-                                let resolve = |v: Option<&QuillValue>| {
-                                    super::compose::resolve_value_sourced(v, field, today).0
-                                };
-                                same_value(resolve(Some(&seeded)).as_json(), resolve(None).as_json())
-                            })
+                    .is_ok_and(|seeded| {
+                        dates.iter().all(|&today| {
+                            let resolve = |v: Option<&QuillValue>| {
+                                super::compose::resolve_value_sourced(v, field, today).0
+                            };
+                            same_value(resolve(Some(&seeded)).as_json(), resolve(None).as_json())
                         })
+                    })
                 })
             };
             if redundant {
@@ -2216,7 +2237,7 @@ impl QuillConfig {
     }
 
     fn snake_case_suggestion(name: &str) -> Option<String> {
-        use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
+        use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
         let mut mapped = String::new();
         let mut prev: Option<char> = None;
         for c in name.nfkd().filter(|&c| !is_combining_mark(c)) {
@@ -2224,7 +2245,11 @@ impl QuillConfig {
                 mapped.push('_');
             }
             for lower in c.to_lowercase() {
-                let kept = if lower.is_ascii_lowercase() || lower.is_ascii_digit() { lower } else { '_' };
+                let kept = if lower.is_ascii_lowercase() || lower.is_ascii_digit() {
+                    lower
+                } else {
+                    '_'
+                };
                 if !(kept == '_' && mapped.ends_with('_')) {
                     mapped.push(kept);
                 }
@@ -2247,7 +2272,10 @@ impl QuillConfig {
                 format!("Invalid 'requires' value {shown} in 'quill' section"),
             )
             .with_code("quill::invalid_requires".to_string())
-            .with_hint("Write the oldest Quillmark this quill loads on as '>=1.3' or '>=1.3.0'.".to_string())
+            .with_hint(
+                "Write the oldest Quillmark this quill loads on as '>=1.3' or '>=1.3.0'."
+                    .to_string(),
+            )
         };
         let raw = requires
             .as_str()
@@ -2256,7 +2284,10 @@ impl QuillConfig {
             .strip_prefix(">=")
             .and_then(|v| crate::version::Version::from_str(v).ok())
             .ok_or_else(|| invalid(format!("'{raw}'")))?;
-        let release = env!("CARGO_PKG_VERSION").split(['-', '+']).next().unwrap_or_default();
+        let release = env!("CARGO_PKG_VERSION")
+            .split(['-', '+'])
+            .next()
+            .unwrap_or_default();
         let running =
             crate::version::Version::from_str(release).expect("the crate version is semver");
         if floor > running {
@@ -2292,8 +2323,10 @@ impl QuillConfig {
                 // Through `YamlError` so this shares the one saphyr adapter:
                 // the parser's Rust API names stripped, the hint derived, and
                 // the position carried as a `Location`.
-                return Err(vec![crate::error::YamlError::from_de(e, yaml_content)
-                    .to_diagnostic("quill::yaml_parse_error", "Quill.yaml")]);
+                return Err(vec![
+                    crate::error::YamlError::from_de(e, yaml_content)
+                        .to_diagnostic("quill::yaml_parse_error", "Quill.yaml"),
+                ]);
             }
         };
 
@@ -2301,15 +2334,17 @@ impl QuillConfig {
         let quill_section = match quill_yaml_val.get("quill") {
             Some(v) => v,
             None => {
-                return Err(vec![Diagnostic::new(
-                    Severity::Error,
-                    "Missing required 'quill' section in Quill.yaml".to_string(),
-                )
-                .with_code("quill::missing_section".to_string())
-                .with_hint(
-                    "Add a 'quill:' section with name, backend, version, and description."
-                        .to_string(),
-                )]);
+                return Err(vec![
+                    Diagnostic::new(
+                        Severity::Error,
+                        "Missing required 'quill' section in Quill.yaml".to_string(),
+                    )
+                    .with_code("quill::missing_section".to_string())
+                    .with_hint(
+                        "Add a 'quill:' section with name, backend, version, and description."
+                            .to_string(),
+                    ),
+                ]);
             }
         };
 
@@ -2408,9 +2443,7 @@ impl QuillConfig {
         };
 
         let description = match quill_section.get("description").and_then(|v| v.as_str()) {
-            Some(d) if !d.trim().is_empty() => {
-                d.to_string()
-            }
+            Some(d) if !d.trim().is_empty() => d.to_string(),
             Some(_) => {
                 errors.push(
                     Diagnostic::new(
@@ -2498,7 +2531,8 @@ impl QuillConfig {
             BODY_CARD_SCHEMA_KEYS.join(", ")
         );
 
-        let ui_section = Self::parse_card_ui(quill_section.get("ui"), "quill.ui", "main", &mut errors);
+        let ui_section =
+            Self::parse_card_ui(quill_section.get("ui"), "quill.ui", "main", &mut errors);
 
         let mut backend_config = HashMap::new();
         if !backend.is_empty() {
@@ -2512,7 +2546,8 @@ impl QuillConfig {
                                 errors.push(crate::backend::unknown_config_key(&backend, key));
                             }
                             _ => {
-                                backend_config.insert(key.clone(), QuillValue::from_json(value.clone()));
+                                backend_config
+                                    .insert(key.clone(), QuillValue::from_json(value.clone()));
                             }
                         }
                     }
@@ -2918,11 +2953,13 @@ fn flat_paths(field: &FieldSchema, owner: &str, out: &mut Vec<String>) {
     if field.ui.as_ref().and_then(|ui| ui.layout) == Some(FieldLayout::Flat) {
         out.push(owner.to_string());
     }
-    let cells = field
-        .properties
-        .iter()
-        .flatten()
-        .chain(field.variants.iter().flat_map(|variants| variants.values()).flatten());
+    let cells = field.properties.iter().flatten().chain(
+        field
+            .variants
+            .iter()
+            .flat_map(|variants| variants.values())
+            .flatten(),
+    );
     for (name, child) in cells {
         flat_paths(child, &format!("{owner}.{name}"), out);
     }
@@ -2937,14 +2974,21 @@ fn open_matrix_path(field: &FieldSchema, owner: &str) -> Option<String> {
     if field.r#type.is_open_matrix() {
         return Some(owner.to_string());
     }
-    let cells = field
-        .properties
-        .iter()
-        .flatten()
-        .chain(field.variants.iter().flat_map(|variants| variants.values()).flatten());
+    let cells = field.properties.iter().flatten().chain(
+        field
+            .variants
+            .iter()
+            .flat_map(|variants| variants.values())
+            .flatten(),
+    );
     cells
         .map(|(name, child)| (format!("{owner}.{name}"), child))
-        .chain(field.items.iter().map(|items| (format!("{owner}[]"), items)))
+        .chain(
+            field
+                .items
+                .iter()
+                .map(|items| (format!("{owner}[]"), items)),
+        )
         .find_map(|(path, child)| open_matrix_path(child, &path))
 }
 
@@ -3002,7 +3046,8 @@ fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {
         }
         (Value::Object(x), Value::Object(y)) => {
             x.len() == y.len()
-                && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same_value(v, w)))
+                && x.iter()
+                    .all(|(k, v)| y.get(k).is_some_and(|w| same_value(v, w)))
         }
         _ => a == b,
     }
@@ -3140,14 +3185,14 @@ fn literal_content(
                         "text",
                         label,
                         &format!("not a valid text content: {}", e.into_message()),
-                    ))
+                    ));
                 }
                 None => {
                     return Err(literal_error(
                         "text",
                         label,
                         "expected a text string (text literals are authored as literal text)",
-                    ))
+                    ));
                 }
             };
             if !rt.is_plain() {
@@ -3157,7 +3202,11 @@ fn literal_content(
                     "text carries no marks, islands, or block formatting",
                 ));
             }
-            let rt = if *multiline { rt } else { crate::document::trim_line_end(rt) };
+            let rt = if *multiline {
+                rt
+            } else {
+                crate::document::trim_line_end(rt)
+            };
             if !*multiline && !rt.is_inline() {
                 return Err(single_line_error(label, "text"));
             }

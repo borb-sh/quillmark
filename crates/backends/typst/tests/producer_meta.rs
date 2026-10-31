@@ -2,7 +2,10 @@
 //! `/Producer` stamp and `/Title`.
 
 use lopdf::Object;
-use quillmark_core::{backend::Backend, types::{OutputFormat, RenderOptions}};
+use quillmark_core::{
+    backend::Backend,
+    types::{OutputFormat, RenderOptions},
+};
 use quillmark_typst::TypstBackend;
 
 mod common;
@@ -65,12 +68,18 @@ const TITLED_PLATE: &str = "#set document(title: \"Plate Title\")\n= Hello\n";
 #[test]
 fn title_falls_back_to_the_quill_description() {
     let description = source_with_plate(PLATE).config().description.clone();
-    assert_eq!(info_string(&render_pdf(PLATE), b"Title"), description.as_bytes());
+    assert_eq!(
+        info_string(&render_pdf(PLATE), b"Title"),
+        description.as_bytes()
+    );
 }
 
 #[test]
 fn plate_title_overrides_the_description() {
-    assert_eq!(info_string(&render_pdf(TITLED_PLATE), b"Title"), b"Plate Title");
+    assert_eq!(
+        info_string(&render_pdf(TITLED_PLATE), b"Title"),
+        b"Plate Title"
+    );
 }
 
 #[test]
@@ -89,7 +98,10 @@ fn blank_render_title_counts_as_absent() {
 fn blank_plate_title_falls_back_to_the_description() {
     let plate = "#set document(title: \" \")\n= Hello\n";
     let description = source_with_plate(plate).config().description.clone();
-    assert_eq!(info_string(&render_pdf(plate), b"Title"), description.as_bytes());
+    assert_eq!(
+        info_string(&render_pdf(plate), b"Title"),
+        description.as_bytes()
+    );
 }
 
 #[test]

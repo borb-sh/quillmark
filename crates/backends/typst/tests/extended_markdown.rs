@@ -2,10 +2,7 @@
 //! face whatever fonts the quill ships, a command outside the TeX vocabulary
 //! drawing as its name under `typst::unsupported_tex`.
 
-use quillmark_core::{
-    error::Diagnostic,
-    quill::Quill,
-};
+use quillmark_core::{error::Diagnostic, quill::Quill};
 
 mod common;
 use common::glyphs;
@@ -74,7 +71,11 @@ fn an_unknown_command_draws_its_name_and_warns() {
     let (svg, warnings) = render(&quill(), r"$\foo{x} + \bar{y} + \baz$ and $\foo$");
     let codes: Vec<_> = warnings.iter().map(|w| w.code.as_deref()).collect();
     assert_eq!(codes, [Some("typst::unsupported_tex")], "{warnings:?}");
-    assert!(warnings[0].message.contains(r"`\baz`, `\foo`"), "{}", warnings[0].message);
+    assert!(
+        warnings[0].message.contains(r"`\baz`, `\foo`"),
+        "{}",
+        warnings[0].message
+    );
     assert_eq!(warnings[0].path.as_deref(), Some("main.body"));
     assert!(glyphs(&svg) > "foo+baz".len());
 }

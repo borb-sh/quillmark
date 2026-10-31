@@ -8,13 +8,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use quillmark::{Diagnostic, Document, Engine, Normalized, OutputFormat, Quill, RenderOptions};
 use quillmark_content::{
     export::{to_markdown, to_markdown_annotated},
-    import::{from_markdown, ImportWarning},
-    model::{MarkKind, ISLAND_SLOT},
+    import::{ImportWarning, from_markdown},
+    model::{ISLAND_SLOT, MarkKind},
     ops::change_bundle_from_value,
     serial,
 };
 use quillmark_fixtures::{quills_path, resource_path};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 mod common;
 
@@ -25,15 +25,23 @@ fn frontmatter(quill: &str) -> String {
 }
 
 fn corpus() -> Vec<Value> {
-    serde_json::from_str(&std::fs::read_to_string(resource_path("parity/parity.json")).expect("corpus reads"))
-        .expect("corpus is a JSON array")
+    serde_json::from_str(
+        &std::fs::read_to_string(resource_path("parity/parity.json")).expect("corpus reads"),
+    )
+    .expect("corpus is a JSON array")
 }
 
 #[test]
 fn every_entry_holds_on_every_surface() {
     let corpus = corpus();
-    assert!(corpus.iter().any(|e| e["markdown"].is_null()), "the corpus holds no unspelled entry");
-    assert!(corpus.iter().any(|e| e.get("annotated").is_some()), "the corpus holds no annotated entry");
+    assert!(
+        corpus.iter().any(|e| e["markdown"].is_null()),
+        "the corpus holds no unspelled entry"
+    );
+    assert!(
+        corpus.iter().any(|e| e.get("annotated").is_some()),
+        "the corpus holds no annotated entry"
+    );
 
     let mut names = BTreeSet::new();
     for entry in &corpus {
@@ -44,7 +52,8 @@ fn every_entry_holds_on_every_surface() {
     // The corpus sets its font runs in Roboto, which only a library offers.
     let roboto = include_bytes!("../../backends/typst/src/fonts/Roboto.ttf").to_vec();
     let engine = Engine::with_fonts(vec![roboto]).expect("Roboto is a font library");
-    let quill = quillmark::quill_from_path(quills_path(QUILL)).unwrap_or_else(|e| panic!("{QUILL} loads: {e:?}"));
+    let quill = quillmark::quill_from_path(quills_path(QUILL))
+        .unwrap_or_else(|e| panic!("{QUILL} loads: {e:?}"));
     let failures: Vec<String> = corpus
         .iter()
         .flat_map(|entry| {
@@ -63,12 +72,19 @@ fn every_entry_holds_on_every_surface() {
 /// names each code and imported construct.
 #[test]
 fn the_matrix_has_a_row_per_entry_naming_its_signals() {
-    let matrix = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../prose/canon/PARITY.md"))
-        .expect("PARITY.md reads");
+    let matrix = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../prose/canon/PARITY.md"
+    ))
+    .expect("PARITY.md reads");
     let rows: BTreeMap<&str, Vec<&str>> = matrix
         .lines()
         .filter_map(|line| {
-            let cells: Vec<&str> = line.strip_prefix("| `")?.split('|').map(str::trim).collect();
+            let cells: Vec<&str> = line
+                .strip_prefix("| `")?
+                .split('|')
+                .map(str::trim)
+                .collect();
             let (name, _) = cells[0].split_once('`')?;
             (cells.len() == 8).then(|| (name, cells[1..7].to_vec()))
         })
@@ -85,9 +101,19 @@ fn the_matrix_has_a_row_per_entry_naming_its_signals() {
                 return Some(format!("{name}: the row has no six cells"));
             };
             let signals = &entry["signals"];
-            let list = |key: &str| signals.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+            let list = |key: &str| {
+                signals
+                    .get(key)
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+            };
             let (import, render, validated) = (list("import"), list("render"), list("validate"));
-            let mut codes: BTreeSet<&str> = render.iter().chain(&validated).filter_map(Value::as_str).collect();
+            let mut codes: BTreeSet<&str> = render
+                .iter()
+                .chain(&validated)
+                .filter_map(Value::as_str)
+                .collect();
             if !import.is_empty() {
                 codes.insert("parse::dropped_construct");
             }
@@ -96,12 +122,22 @@ fn the_matrix_has_a_row_per_entry_naming_its_signals() {
                 (markdown == "declines with a signal") != !import.is_empty(),
                 (typst == "declines with a signal") != !render.is_empty(),
                 (validate == "declines with a signal") != !validated.is_empty(),
-                named.iter().filter(|t| t.contains("::")).copied().collect::<BTreeSet<_>>() != codes,
-                import.iter().any(|s| s["construct"].as_str().is_none_or(|c| !named.contains(c))),
+                named
+                    .iter()
+                    .filter(|t| t.contains("::"))
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+                    != codes,
+                import
+                    .iter()
+                    .any(|s| s["construct"].as_str().is_none_or(|c| !named.contains(c))),
             ];
-            mismatches
-                .contains(&true)
-                .then(|| format!("{name}: the row reads {:?} where the entry signals {signals}", rows[name]))
+            mismatches.contains(&true).then(|| {
+                format!(
+                    "{name}: the row reads {:?} where the entry signals {signals}",
+                    rows[name]
+                )
+            })
         })
         .collect();
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
@@ -121,11 +157,17 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
     let reimports = match entry.get("reimports").map(serial::from_canonical_value) {
         None => content.clone(),
         Some(Ok(c)) => c,
-        Some(Err(e)) => return [failures, vec![format!("reimports does not decode: {e}")]].concat(),
+        Some(Err(e)) => {
+            return [failures, vec![format!("reimports does not decode: {e}")]].concat();
+        }
     };
     failures.extend(check_fixed_point(&content, &reimports));
     failures.extend(check_revise(&content, &reimports, &to_markdown(&content)));
-    failures.extend(check_document(&content, &reimports, entry.get("annotated").and_then(Value::as_str)));
+    failures.extend(check_document(
+        &content,
+        &reimports,
+        entry.get("annotated").and_then(Value::as_str),
+    ));
     let import_signals = &entry["signals"]["import"];
     if let Some(annotated) = entry.get("annotated") {
         failures.extend(check_annotated(annotated, &content, &reimports));
@@ -178,7 +220,9 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
             if import_signals.as_array().is_none_or(|a| !a.is_empty()) {
                 failures.push("an entry with no markdown declares import signals".into());
             }
-            let mut doc = Document::parse(&frontmatter(QUILL)).expect("frontmatter parses").document;
+            let mut doc = Document::parse(&frontmatter(QUILL))
+                .expect("frontmatter parses")
+                .document;
             doc.main_mut().overwrite_body(content);
             doc
         }
@@ -222,7 +266,11 @@ fn surfaces(entry: &Value, engine: &Engine, quill: &Quill, doc: &Document) -> Ve
         &RenderOptions::default().with_output_format(OutputFormat::Svg),
     ) {
         Ok(result) => {
-            let codes: Value = result.warnings.iter().filter_map(|d| d.code.clone()).collect();
+            let codes: Value = result
+                .warnings
+                .iter()
+                .filter_map(|d| d.code.clone())
+                .collect();
             if codes != signals["render"] {
                 failures.push(format!("render warns {codes}"));
             }
@@ -272,7 +320,11 @@ fn bundle(stored: &Value) -> Value {
         .filter(|p| !p.is_empty())
         .map(|p| json!({ "insert": p }))
         .collect();
-    let slots = text.chars().enumerate().filter(|&(_, c)| c == ISLAND_SLOT).map(|(at, _)| at);
+    let slots = text
+        .chars()
+        .enumerate()
+        .filter(|&(_, c)| c == ISLAND_SLOT)
+        .map(|(at, _)| at);
     let island_ops: Vec<Value> = slots
         .zip(stored["islands"].as_array().into_iter().flatten())
         .map(|(at, island)| with(island, json!({ "op": "insert", "at": at })))
@@ -346,7 +398,9 @@ fn check_revise(content: &Normalized, reimports: &Normalized, markdown: &str) ->
             .filter(|m| matches!(m.kind, MarkKind::Anchor { .. })),
     );
     let expected = expected.into_normalized();
-    let mut doc = Document::parse(&frontmatter(QUILL)).expect("frontmatter parses").document;
+    let mut doc = Document::parse(&frontmatter(QUILL))
+        .expect("frontmatter parses")
+        .document;
     doc.main_mut().overwrite_body(content.clone());
     match doc.main_mut().revise_body(markdown) {
         Ok(revised) if doc.main().body() == &expected && revised.warnings.is_empty() => vec![],
@@ -362,7 +416,9 @@ fn check_revise(content: &Normalized, reimports: &Normalized, markdown: &str) ->
 /// `content` without its anchors.
 fn unanchored(content: &Normalized) -> Normalized {
     let mut unanchored = content.clone().into_content();
-    unanchored.marks.retain(|m| !matches!(m.kind, MarkKind::Anchor { .. }));
+    unanchored
+        .marks
+        .retain(|m| !matches!(m.kind, MarkKind::Anchor { .. }));
     unanchored.into_normalized()
 }
 
@@ -389,7 +445,10 @@ fn check_annotated(annotated: &Value, content: &Normalized, reimports: &Normaliz
             gone.into_normalized()
         }
     };
-    let warned: Vec<(String, usize)> = (tokens > 0).then(|| ("qm-island".to_string(), tokens)).into_iter().collect();
+    let warned: Vec<(String, usize)> = (tokens > 0)
+        .then(|| ("qm-island".to_string(), tokens))
+        .into_iter()
+        .collect();
     match from_markdown(annotated) {
         Ok(i) if i.content == expected && signals(&i.warnings) == warned => {}
         Ok(i) => failures.push(format!(
@@ -403,15 +462,24 @@ fn check_annotated(annotated: &Value, content: &Normalized, reimports: &Normaliz
 }
 
 fn signals(warnings: &[ImportWarning]) -> Vec<(String, usize)> {
-    warnings.iter().map(|w| (w.construct.to_string(), w.count)).collect()
+    warnings
+        .iter()
+        .map(|w| (w.construct.to_string(), w.count))
+        .collect()
 }
 
 /// A document whose body holds `content` emits markdown that parses, warning
 /// nothing, to a body holding `reimports`, and an annotated read that revises
 /// the document, warning nothing, to a body holding `content`; the read lists
 /// each anchor of `content` at `main.body` and spells `annotated`.
-fn check_document(content: &Normalized, reimports: &Normalized, annotated: Option<&str>) -> Vec<String> {
-    let mut doc = Document::parse(&frontmatter(QUILL)).expect("frontmatter parses").document;
+fn check_document(
+    content: &Normalized,
+    reimports: &Normalized,
+    annotated: Option<&str>,
+) -> Vec<String> {
+    let mut doc = Document::parse(&frontmatter(QUILL))
+        .expect("frontmatter parses")
+        .document;
     doc.main_mut().overwrite_body(content.clone());
     let read = doc.to_markdown_annotated();
     let mut failures: Vec<String> = match Document::parse(&doc.to_markdown()) {
@@ -433,7 +501,11 @@ fn check_document(content: &Normalized, reimports: &Normalized, annotated: Optio
         )),
         Err(e) => failures.push(format!("the annotated read does not parse: {e}")),
     }
-    let listed: Vec<(String, &str)> = read.anchors.iter().map(|a| (a.path.to_string(), a.id.as_str())).collect();
+    let listed: Vec<(String, &str)> = read
+        .anchors
+        .iter()
+        .map(|a| (a.path.to_string(), a.id.as_str()))
+        .collect();
     let held: Vec<(String, &str)> = content
         .marks
         .iter()
@@ -446,7 +518,10 @@ fn check_document(content: &Normalized, reimports: &Normalized, annotated: Optio
         failures.push(format!("the annotated read lists {listed:?}"));
     }
     if annotated.is_some_and(|a| !read.markdown.contains(a)) {
-        failures.push(format!("the annotated read does not spell annotated:\n{}", read.markdown));
+        failures.push(format!(
+            "the annotated read does not spell annotated:\n{}",
+            read.markdown
+        ));
     }
     failures
 }

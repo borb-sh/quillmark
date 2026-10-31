@@ -366,7 +366,12 @@ mod tests {
             title: Some("Title".into()),
         };
         let json = serde_json::to_value(&every).unwrap();
-        let mut fields: Vec<&str> = json.as_object().unwrap().keys().map(String::as_str).collect();
+        let mut fields: Vec<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         let mut keys = RenderOptions::KEYS.to_vec();
         fields.sort_unstable();
         keys.sort_unstable();

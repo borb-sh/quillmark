@@ -1,4 +1,4 @@
-use crate::error::{js_err, WasmError};
+use crate::error::{WasmError, js_err};
 use crate::types::Diagnostic;
 #[cfg(feature = "render")]
 use crate::types::{ChangeSet, ContentHit, FieldRegion, RenderOptions, RenderResult};
@@ -759,7 +759,9 @@ impl Engine {
                 .iter()
                 .map(|font| match font.dyn_into::<Uint8Array>() {
                     Ok(bytes) => Ok(arc_of(&bytes)),
-                    Err(_) => Err(WasmError::from("fonts: every entry is a Uint8Array").to_js_value()),
+                    Err(_) => {
+                        Err(WasmError::from("fonts: every entry is a Uint8Array").to_js_value())
+                    }
                 })
                 .collect::<Result<_, _>>()?
         } else {
@@ -773,10 +775,7 @@ impl Engine {
     /// the host library's, in library order.
     #[wasm_bindgen(js_name = fontFaces, unchecked_return_type = "FontFace[]")]
     pub fn font_faces(&self, quill: &Quill) -> Result<JsValue, JsValue> {
-        let faces = self
-            .inner
-            .font_faces(&quill.inner)
-            .map_err(js_err)?;
+        let faces = self.inner.font_faces(&quill.inner).map_err(js_err)?;
         let out = Array::new();
         // The faces of one collection share its bytes, which cross once.
         let mut file: Option<(*const u8, Uint8Array)> = None;
@@ -853,10 +852,7 @@ impl Engine {
     /// backend matches the quill's declared one.
     #[wasm_bindgen(js_name = supportedFormats, unchecked_return_type = "OutputFormat[]")]
     pub fn supported_formats(&self, quill: &Quill) -> Result<JsValue, JsValue> {
-        let formats = self
-            .inner
-            .supported_formats(&quill.inner)
-            .map_err(js_err)?;
+        let formats = self.inner.supported_formats(&quill.inner).map_err(js_err)?;
         let out: Vec<crate::types::OutputFormat> = formats.iter().map(|f| (*f).into()).collect();
         serialize_or_throw(&out, "supportedFormats")
     }
@@ -959,10 +955,7 @@ impl Quill {
         #[wasm_bindgen(unchecked_param_type = "AuthoringDocument")] value: JsValue,
     ) -> Result<Document, JsValue> {
         let value = js_value_to_json(value, "fromAuthoring")?;
-        let parsed = self
-            .inner
-            .from_authoring(&value)
-            .map_err(js_err)?;
+        let parsed = self.inner.from_authoring(&value).map_err(js_err)?;
         Ok(Document {
             inner: parsed.document,
             parse_warnings: parsed.warnings,
@@ -1177,9 +1170,10 @@ impl Document {
     /// `schema`, missing fields, or unparseable quill reference).
     #[wasm_bindgen(js_name = fromStored)]
     pub fn from_stored(json: &str) -> Result<Document, JsValue> {
-        let inner: quillmark_core::document::Document = serde_json::from_str(json).map_err(|e| {
-            WasmError::from(format!("fromStored: invalid storage DTO: {e}")).to_js_value()
-        })?;
+        let inner: quillmark_core::document::Document =
+            serde_json::from_str(json).map_err(|e| {
+                WasmError::from(format!("fromStored: invalid storage DTO: {e}")).to_js_value()
+            })?;
         let parse_warnings = inner.anchor_collisions();
         Ok(Document {
             inner,
@@ -1276,7 +1270,8 @@ impl Document {
         let (read, path) = match &addr.field {
             None => (card.body_annotated(), base.body()),
             Some(field) => (
-                card.field_annotated(field).map_err(|e| edit_error_to_js(&e, &base))?,
+                card.field_annotated(field)
+                    .map_err(|e| edit_error_to_js(&e, &base))?,
                 base.field(field),
             ),
         };
@@ -1286,7 +1281,12 @@ impl Document {
             anchors: read
                 .anchors
                 .into_iter()
-                .map(|a| DocumentAnchorJs { id: a.id, path: path.to_string(), card_id: card_id.clone(), line: a.line })
+                .map(|a| DocumentAnchorJs {
+                    id: a.id,
+                    path: path.to_string(),
+                    card_id: card_id.clone(),
+                    line: a.line,
+                })
                 .collect(),
         };
         serialize_or_throw(&js, "annotatedAt")
@@ -1314,8 +1314,12 @@ impl Document {
     /// back to `reattach`.
     #[wasm_bindgen(js_name = anchorContexts, unchecked_return_type = "AnchorContext[]")]
     pub fn anchor_contexts(&self) -> Result<JsValue, JsValue> {
-        let js: Vec<AnchorContextJs> =
-            self.inner.anchor_contexts().into_iter().map(Into::into).collect();
+        let js: Vec<AnchorContextJs> = self
+            .inner
+            .anchor_contexts()
+            .into_iter()
+            .map(Into::into)
+            .collect();
         serialize_or_throw(&js, "anchorContexts")
     }
 
@@ -1363,8 +1367,10 @@ impl Document {
             .into_iter()
             .map(|s| {
                 let path = parse_path(&s.path)?;
-                Ok(quillmark_core::document::AnchorSelector::new(s.id, path, s.quote, s.prefix, s.suffix)
-                    .with_card_id(s.card_id))
+                Ok(quillmark_core::document::AnchorSelector::new(
+                    s.id, path, s.quote, s.prefix, s.suffix,
+                )
+                .with_card_id(s.card_id))
             })
             .collect::<Result<Vec<_>, JsValue>>()?;
         let mut by_path = std::collections::HashMap::new();
@@ -1409,9 +1415,10 @@ impl Document {
     /// variable.
     #[wasm_bindgen(js_name = loadStored)]
     pub fn load_stored(&mut self, json: &str) -> Result<(), JsValue> {
-        let inner: quillmark_core::document::Document = serde_json::from_str(json).map_err(|e| {
-            WasmError::from(format!("loadStored: invalid storage DTO: {e}")).to_js_value()
-        })?;
+        let inner: quillmark_core::document::Document =
+            serde_json::from_str(json).map_err(|e| {
+                WasmError::from(format!("loadStored: invalid storage DTO: {e}")).to_js_value()
+            })?;
         self.parse_warnings = inner.anchor_collisions();
         self.inner = inner;
         Ok(())
@@ -1491,7 +1498,9 @@ impl Document {
             )
             .to_js_value());
         }
-        Ok(JsValue::from_str(&self.addr_card_ref(&addr)?.body_markdown()))
+        Ok(JsValue::from_str(
+            &self.addr_card_ref(&addr)?.body_markdown(),
+        ))
     }
 
     /// Interpreted read at `addr`, resolving the field's declared `type` from
@@ -1850,11 +1859,7 @@ impl Document {
     /// takes no address. Sets the starting values new cards of that kind spawn
     /// with. Throws if `overlay` cannot be serialized or nests too deep.
     #[wasm_bindgen(js_name = storeSeedOverlay)]
-    pub fn store_seed_overlay(
-        &mut self,
-        card_kind: &str,
-        overlay: JsValue,
-    ) -> Result<(), JsValue> {
+    pub fn store_seed_overlay(&mut self, card_kind: &str, overlay: JsValue) -> Result<(), JsValue> {
         let json = js_value_to_json(overlay, "storeSeedOverlay")?;
         // `$seed` is config-space, so an error here carries no field anchor.
         self.inner
@@ -2070,7 +2075,9 @@ impl Document {
             (None, None) => writer.revise_field(&field, text),
             (None, Some(read)) => writer.revise_field_against(&field, read, text),
             (Some(index), read) => {
-                let mut card = writer.card(index).map_err(|e| edit_error_to_js(&e, &base))?;
+                let mut card = writer
+                    .card(index)
+                    .map_err(|e| edit_error_to_js(&e, &base))?;
                 match read {
                     None => card.revise_field(&field, text),
                     Some(read) => card.revise_field_against(&field, read, text),
@@ -2261,7 +2268,6 @@ impl Document {
             .move_card(from, to)
             .map_err(|e| edit_error_to_js(&e, &quillmark_core::path::DocPath::new()))
     }
-
 }
 
 impl Document {
@@ -2270,12 +2276,17 @@ impl Document {
         index: usize,
     ) -> Result<quillmark_core::document::CardMut<'_>, JsValue> {
         let len = self.inner.cards().len();
-        self.inner.card_mut(index).ok_or_else(|| index_out_of_range(index, len))
+        self.inner
+            .card_mut(index)
+            .ok_or_else(|| index_out_of_range(index, len))
     }
 
     fn card_or_throw(&self, index: usize) -> Result<&quillmark_core::document::Card, JsValue> {
         let len = self.inner.cards().len();
-        self.inner.cards().get(index).ok_or_else(|| index_out_of_range(index, len))
+        self.inner
+            .cards()
+            .get(index)
+            .ok_or_else(|| index_out_of_range(index, len))
     }
 
     fn addr_card_mut(
@@ -2372,7 +2383,10 @@ impl Addr {
 /// string. The **storage** lane: content read back out of a document must keep
 /// opening whatever it was written as. Host-authored content goes through
 /// [`js_to_authored_content`].
-fn js_to_content(value: JsValue, ctx: &str) -> Result<quillmark_content::model::Normalized, JsValue> {
+fn js_to_content(
+    value: JsValue,
+    ctx: &str,
+) -> Result<quillmark_content::model::Normalized, JsValue> {
     js_to_content_with(value, ctx, quillmark_content::serial::from_canonical_value)
 }
 
@@ -2391,7 +2405,8 @@ fn js_to_content_with(
     ctx: &str,
     read: fn(
         &serde_json::Value,
-    ) -> Result<quillmark_content::model::Normalized, quillmark_content::serial::ParseError>,
+    )
+        -> Result<quillmark_content::model::Normalized, quillmark_content::serial::ParseError>,
 ) -> Result<quillmark_content::model::Normalized, JsValue> {
     let json = js_value_to_json(value, ctx)?;
     if !json.is_object() {
@@ -2400,9 +2415,8 @@ fn js_to_content_with(
         ))
         .to_js_value());
     }
-    read(&json).map_err(|e| {
-        WasmError::from(format!("{ctx}: not a canonical Content: {e}")).to_js_value()
-    })
+    read(&json)
+        .map_err(|e| WasmError::from(format!("{ctx}: not a canonical Content: {e}")).to_js_value())
 }
 
 fn parse_change_bundle(
@@ -2425,7 +2439,10 @@ pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
         .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
     let out = ImportedJs {
         content: quillmark_content::serial::to_canonical_value(&imported.content),
-        warnings: diags(quillmark_core::document::dropped_constructs(imported.warnings, None)),
+        warnings: diags(quillmark_core::document::dropped_constructs(
+            imported.warnings,
+            None,
+        )),
     };
     serialize_or_throw(&out, "importMarkdown")
 }
@@ -2475,7 +2492,8 @@ impl ReadBase {
         // drop it into an unguarded write.
         for key in ["baseHash", "baseMarkdown"] {
             let present = js_sys::Reflect::has(&opts, &key.into()).unwrap_or(false);
-            if present && !js_sys::Reflect::get(&opts, &key.into()).map_or(false, |v| v.is_string()) {
+            if present && !js_sys::Reflect::get(&opts, &key.into()).map_or(false, |v| v.is_string())
+            {
                 return Err(invalid(format!("{key} must be a string when given")));
             }
         }
@@ -2527,7 +2545,9 @@ pub fn export_markdown_checked(
 /// answer's `text` is `rt.text`. Throws where `overwrite` would, with the same
 /// error under this verb's name.
 #[wasm_bindgen(js_name = normalize, unchecked_return_type = "Content")]
-pub fn normalize(#[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue) -> Result<JsValue, JsValue> {
+pub fn normalize(
+    #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
+) -> Result<JsValue, JsValue> {
     let content = js_to_authored_content(rt, "normalize")?;
     serialize_or_throw(
         &quillmark_content::serial::to_canonical_value(&content),
@@ -2604,7 +2624,10 @@ impl From<quillmark_core::document::Revised> for RevisedJs {
             dropped_anchors: revised
                 .dropped_anchors
                 .into_iter()
-                .map(|a| AnchorLineJs { id: a.id, line: a.line })
+                .map(|a| AnchorLineJs {
+                    id: a.id,
+                    line: a.line,
+                })
                 .collect(),
         }
     }
@@ -2717,17 +2740,28 @@ impl From<quillmark_core::outline::Outline> for OutlineJs {
                 fields: card
                     .fields
                     .into_iter()
-                    .map(|f| OutlineFieldJs { name: f.name, path: f.path.to_string(), state: f.state.as_str() })
+                    .map(|f| OutlineFieldJs {
+                        name: f.name,
+                        path: f.path.to_string(),
+                        state: f.state.as_str(),
+                    })
                     .collect(),
                 headings: card
                     .headings
                     .into_iter()
-                    .map(|h| OutlineHeadingJs { line: h.line, level: h.level, text: h.text })
+                    .map(|h| OutlineHeadingJs {
+                        line: h.line,
+                        level: h.level,
+                        text: h.text,
+                    })
                     .collect(),
                 anchors: card
                     .anchors
                     .into_iter()
-                    .map(|a| OutlineAnchorJs { id: a.id, path: a.path.to_string() })
+                    .map(|a| OutlineAnchorJs {
+                        id: a.id,
+                        path: a.path.to_string(),
+                    })
                     .collect(),
             })
             .collect();
@@ -2737,14 +2771,23 @@ impl From<quillmark_core::outline::Outline> for OutlineJs {
 
 impl From<quillmark_core::document::DocumentAnchor> for DocumentAnchorJs {
     fn from(a: quillmark_core::document::DocumentAnchor) -> Self {
-        DocumentAnchorJs { id: a.id, path: a.path.to_string(), card_id: a.card_id, line: a.line }
+        DocumentAnchorJs {
+            id: a.id,
+            path: a.path.to_string(),
+            card_id: a.card_id,
+            line: a.line,
+        }
     }
 }
 
 impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
     fn from(revised: quillmark_core::document::DocumentRevised) -> Self {
         DocumentRevisedJs {
-            dropped_anchors: revised.dropped_anchors.into_iter().map(Into::into).collect(),
+            dropped_anchors: revised
+                .dropped_anchors
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             warnings: diags(revised.warnings),
             from: revised.from,
         }
@@ -2918,13 +2961,11 @@ pub fn map_marks(
 ) -> Result<JsValue, JsValue> {
     let content = js_to_content(content, "mapMarks")?;
     let bundle = parse_change_bundle(&bundle, "mapMarks")?;
-    let marks = content
-        .map_marks(&bundle)
-        .map_err(|e| {
-            // `applyChange`'s wording on the same op, from the same variant.
-            let e = quillmark_core::document::EditError::ContentApply(e);
-            WasmError::from(format!("mapMarks: {e}")).to_js_value()
-        })?;
+    let marks = content.map_marks(&bundle).map_err(|e| {
+        // `applyChange`'s wording on the same op, from the same variant.
+        let e = quillmark_core::document::EditError::ContentApply(e);
+        WasmError::from(format!("mapMarks: {e}")).to_js_value()
+    })?;
     let out = serde_json::Value::Array(
         marks
             .iter()
@@ -2956,7 +2997,7 @@ pub fn map_pos(
         _ => {
             return Err(
                 WasmError::from("mapPos: assoc must be \"before\" or \"after\"").to_js_value(),
-            )
+            );
         }
     };
     Ok(delta.map_pos(pos, assoc))
@@ -3033,7 +3074,6 @@ fn js_value_to_field_batch(
     }
 }
 
-
 /// Read a `PathStep[]` in-field path: a string is an object key, a non-negative
 /// integer an array index. A malformed step throws rather than being dropped —
 /// a silently skipped step reads a different address and never says so. Flat by
@@ -3095,10 +3135,10 @@ fn reject_deep_js_value(value: &JsValue, ctx: &str) -> Result<(), JsValue> {
             continue;
         };
         if depth + 1 > MAX {
-            return Err(WasmError::from(format!(
-                "{ctx}: value nests deeper than {MAX} levels"
-            ))
-            .to_js_value());
+            return Err(
+                WasmError::from(format!("{ctx}: value nests deeper than {MAX} levels"))
+                    .to_js_value(),
+            );
         }
         stack.extend(children.iter().map(|c| (c, depth + 1)));
     }
@@ -3133,8 +3173,10 @@ fn reject_unknown_keys(
             Some(e) => String::from(e.message()),
             None => err.as_string().unwrap_or_else(|| format!("{err:?}")),
         };
-        WasmError::from(format!("{what} must be a plain object, not one whose read throws: {cause}"))
-            .to_js_value()
+        WasmError::from(format!(
+            "{what} must be a plain object, not one whose read throws: {cause}"
+        ))
+        .to_js_value()
     };
     let prototype = |o: &JsValue| js_sys::Reflect::get_prototype_of(o).map_err(unreadable);
     let names = |o: &JsValue| -> Result<Vec<String>, JsValue> {
@@ -3224,9 +3266,7 @@ fn from_ts_or_throw<T: tsify::Tsify + serde::de::DeserializeOwned>(
 where
     T::JsType: Clone,
 {
-    value
-        .to_rust()
-        .map_err(|e| js_err(e.to_string()))
+    value.to_rust().map_err(|e| js_err(e.to_string()))
 }
 
 /// The render date a host supplies: `today` as `YYYY-MM-DD`, else JavaScript's
@@ -3244,7 +3284,9 @@ fn render_date(today: Option<String>) -> Result<quillmark_core::quill::CalendarD
                 now.get_month() as u8 + 1,
                 now.get_date() as u8,
             )
-            .ok_or_else(|| WasmError::from("the local clock reads no date".to_string()).to_js_value())
+            .ok_or_else(|| {
+                WasmError::from("the local clock reads no date".to_string()).to_js_value()
+            })
         }
     }
 }
@@ -3463,10 +3505,7 @@ impl LiveSession {
     /// into a document; this recompiles a document the caller already mutated.
     #[wasm_bindgen(js_name = update)]
     pub fn update(&mut self, doc: &Document) -> Result<Ts<ChangeSet>, JsValue> {
-        let cs = self
-            .inner
-            .update(&doc.inner)
-            .map_err(js_err)?;
+        let cs = self.inner.update(&doc.inner).map_err(js_err)?;
         self.card_kinds = card_kinds_of(&doc.inner);
         to_ts_or_throw(&ChangeSet {
             page_count: cs.page_count,
@@ -3481,10 +3520,7 @@ impl LiveSession {
             "a session renders on the date it opened with: engine.open(quill, doc, today)",
         )?;
 
-        let result = self
-            .inner
-            .render(&rust_opts)
-            .map_err(js_err)?;
+        let result = self.inner.render(&rust_opts).map_err(js_err)?;
         render_result_to_ts(result, &self.kinds())
     }
 
@@ -3499,8 +3535,8 @@ impl LiveSession {
         let regions: Vec<FieldRegion> =
             quillmark_core::region::regions_to_doc_path(self.inner.regions(), &self.kinds())
                 .into_iter()
-            .map(Into::into)
-            .collect();
+                .map(Into::into)
+                .collect();
         serialize_or_throw(&regions, "regions")
     }
 
@@ -3516,8 +3552,8 @@ impl LiveSession {
         let boxes: Vec<FieldRegion> =
             quillmark_core::region::regions_to_doc_path(self.inner.field_boxes(&plate), &kinds)
                 .into_iter()
-            .map(Into::into)
-            .collect();
+                .map(Into::into)
+                .collect();
         serialize_or_throw(&boxes, "fieldBoxes")
     }
 
@@ -3656,8 +3692,8 @@ impl LiveSession {
             .page_size_pt(page)
             .ok_or_else(|| self.page_oob_error("paint", page))?;
 
-        let scale = quillmark_core::backend::canvas_scale(scale, width_pt, height_pt)
-            .map_err(js_err)?;
+        let scale =
+            quillmark_core::backend::canvas_scale(scale, width_pt, height_pt).map_err(js_err)?;
 
         // `page_size_pt(page)` answered, so the page is in range and a raster is
         // owed; a `None` here is a backend bug.
@@ -3756,4 +3792,3 @@ struct PageSize {
     #[serde(rename = "heightPt")]
     height_pt: f32,
 }
-

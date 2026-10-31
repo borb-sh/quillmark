@@ -8,7 +8,10 @@
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use quillmark_core::{document::EditError, error::{Diagnostic, RenderError, Severity}};
+use quillmark_core::{
+    document::EditError,
+    error::{Diagnostic, RenderError, Severity},
+};
 use std::collections::BTreeMap;
 
 create_exception!(_quillmark, QuillmarkError, PyException);

@@ -146,7 +146,10 @@ fn signature_widgets_align_with_the_signature_block() {
         rects.push(rect(&pdf[sig_at..]));
         cursor = sig_at + b"/FT /Sig".len();
     }
-    assert!(!rects.is_empty(), "PDF should contain at least one /FT /Sig widget");
+    assert!(
+        !rects.is_empty(),
+        "PDF should contain at least one /FT /Sig widget"
+    );
 
     for [x0, _, x1, _] in rects {
         let left_in = x0 / PT_PER_IN;
@@ -158,6 +161,9 @@ fn signature_widgets_align_with_the_signature_block() {
              signature block, but was at {left_in:.2}in (rect x0={x0}pt). A value \
              near 1.0in means the field regressed to the left margin."
         );
-        assert!(x1 > x0, "widget rect should have positive width, got x0={x0} x1={x1}");
+        assert!(
+            x1 > x0,
+            "widget rect should have positive width, got x0={x0} x1={x1}"
+        );
     }
 }

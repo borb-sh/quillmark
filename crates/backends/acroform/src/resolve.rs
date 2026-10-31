@@ -8,7 +8,7 @@
 //! scalar coercion are inherited rather than re-implemented. Addressing is a
 //! shallow path (`field`, `field.0`, `field.sub`); absent or null renders blank.
 
-use quillmark_pdf::{FieldSpec, FieldType, CHECKBOX_ON_STATE};
+use quillmark_pdf::{CHECKBOX_ON_STATE, FieldSpec, FieldType};
 use serde_json::Value;
 
 use crate::bind::BoundWidget;
@@ -53,16 +53,18 @@ pub fn field_spec(widget: &BoundWidget, data: &Value) -> FieldSpec {
 
 /// `None` renders a blank widget: unbound, absent/null, signature, empty text,
 /// unchecked checkbox, or a choice value matching no option.
-fn resolve_value(field_type: &FieldType, schema_field: Option<&str>, data: &Value) -> Option<String> {
+fn resolve_value(
+    field_type: &FieldType,
+    schema_field: Option<&str>,
+    data: &Value,
+) -> Option<String> {
     let raw = lookup(data, schema_field?)?;
     match field_type {
         FieldType::Text { .. } => coerce_text(raw),
         // A matrix member binds its presence, and a held member reaches the
         // plate as its mapping of columns.
-        FieldType::Checkbox => {
-            matches!(raw, Value::Bool(true) | Value::Object(_))
-                .then(|| CHECKBOX_ON_STATE.to_string())
-        }
+        FieldType::Checkbox => matches!(raw, Value::Bool(true) | Value::Object(_))
+            .then(|| CHECKBOX_ON_STATE.to_string()),
         FieldType::Choice { options } => coerce_choice(raw, options),
         FieldType::Signature => None,
     }
@@ -226,22 +228,26 @@ mod tests {
 
     #[test]
     fn richtext_content_lowers_to_plaintext() {
-        let rt =
-            quillmark_content::import::from_markdown("A **bold** claim.\n\nSecond line.").unwrap().content;
+        let rt = quillmark_content::import::from_markdown("A **bold** claim.\n\nSecond line.")
+            .unwrap()
+            .content;
         let content = quillmark_content::serial::to_canonical_value(&rt);
         assert_eq!(
             coerce_text(&content).as_deref(),
             Some("A bold claim.\nSecond line.")
         );
-        let blank =
-            quillmark_content::serial::to_canonical_value(&quillmark_content::model::Normalized::empty());
+        let blank = quillmark_content::serial::to_canonical_value(
+            &quillmark_content::model::Normalized::empty(),
+        );
         assert_eq!(coerce_text(&blank), None);
         assert_eq!(coerce_text(&json!({ "x": 1 })), None);
     }
 
     fn el(md: &str) -> Value {
         quillmark_content::serial::to_canonical_value(
-            &quillmark_content::import::from_markdown(md).unwrap().content,
+            &quillmark_content::import::from_markdown(md)
+                .unwrap()
+                .content,
         )
     }
 
@@ -261,7 +267,10 @@ mod tests {
             coerce_text(&rich).as_deref(),
             Some("HEADING\nDetail\n\nNEXT")
         );
-        assert_eq!(coerce_text(&json!(["a", "", "b"])).as_deref(), Some("a\n\nb"));
+        assert_eq!(
+            coerce_text(&json!(["a", "", "b"])).as_deref(),
+            Some("a\n\nb")
+        );
         assert_eq!(coerce_text(&Value::Array(vec![el(""), el("")])), None);
         assert_eq!(coerce_text(&json!(["", ""])), None);
     }
@@ -373,7 +382,9 @@ mod tests {
     #[test]
     fn a_value_carrying_a_newline_reaches_the_stamp_multiline() {
         let two_paragraphs = quillmark_content::serial::to_canonical_value(
-            &quillmark_content::import::from_markdown("One.\n\nTwo.").unwrap().content,
+            &quillmark_content::import::from_markdown("One.\n\nTwo.")
+                .unwrap()
+                .content,
         );
         let data = json!({
             "bio": two_paragraphs,
@@ -386,7 +397,10 @@ mod tests {
         };
         assert!(multiline("bio"), "richtext of two paragraphs");
         assert!(multiline("address"), "block scalar");
-        assert!(!multiline("full_name"), "one line keeps the schema's answer");
+        assert!(
+            !multiline("full_name"),
+            "one line keeps the schema's answer"
+        );
     }
 
     #[test]
@@ -412,8 +426,16 @@ mod tests {
         let max_len = |name: &str| field_spec(&capped, &json!({ "name": name })).max_len;
         assert_eq!(max_len("Ada"), Some(5));
         assert_eq!(max_len("Ada L"), Some(5), "at the cap");
-        assert_eq!(max_len("Ada Lovelace"), None, "a viewer would cut the value");
-        assert_eq!(max_len("abcd\u{1F600}"), None, "a viewer counts UTF-16 units");
+        assert_eq!(
+            max_len("Ada Lovelace"),
+            None,
+            "a viewer would cut the value"
+        );
+        assert_eq!(
+            max_len("abcd\u{1F600}"),
+            None,
+            "a viewer counts UTF-16 units"
+        );
     }
 
     #[test]
@@ -425,5 +447,4 @@ mod tests {
         assert_eq!(coerce_text(&json!([null, { "x": 1 }])), None);
         assert_eq!(coerce_text(&json!([])), None);
     }
-
 }

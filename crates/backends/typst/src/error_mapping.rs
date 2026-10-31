@@ -4,9 +4,9 @@
 use crate::world::QuillWorld;
 use quillmark_core::error::{Diagnostic, Location, Severity};
 use quillmark_core::quill::PLATE_PATH_KEY;
+use typst::World;
 use typst::diag::SourceDiagnostic;
 use typst::syntax::{DiagSpan, FileId, RootedPath, VirtualPath, VirtualRoot};
-use typst::World;
 
 pub(crate) fn map_typst_errors(errors: &[SourceDiagnostic], world: &QuillWorld) -> Vec<Diagnostic> {
     errors
@@ -208,7 +208,10 @@ mod tests {
     }
 
     /// The diagnostics of a plate that fails at open or at render.
-    fn failure_diagnostics(source: &Quill, expectation: &str) -> Vec<quillmark_core::error::Diagnostic> {
+    fn failure_diagnostics(
+        source: &Quill,
+        expectation: &str,
+    ) -> Vec<quillmark_core::error::Diagnostic> {
         match TypstBackend::default().open(source, &serde_json::json!({}), test_date()) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
@@ -262,7 +265,10 @@ mod tests {
         let text = "#let café = 1\n#(café + x)\n";
         assert_eq!(line_and_column(text, 0), (1, 1));
         // `x` on line 2: nine characters precede it, ten bytes.
-        assert_eq!(line_and_column(text, text.find(" x)").unwrap() + 1), (2, 10));
+        assert_eq!(
+            line_and_column(text, text.find(" x)").unwrap() + 1),
+            (2, 10)
+        );
     }
 
     #[test]

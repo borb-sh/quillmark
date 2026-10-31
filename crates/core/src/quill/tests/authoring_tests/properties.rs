@@ -24,7 +24,9 @@ fn arb_json(max_depth: u32) -> impl Strategy<Value = serde_json::Value> {
 
 /// A card envelope over the quill's own field names, each holding any value.
 fn arb_card(kinds: &'static [&'static str]) -> impl Strategy<Value = serde_json::Value> {
-    let names = prop::sample::select(vec!["subject", "from", "count", "when", "refs", "contact", "marking", "kind", "label"]);
+    let names = prop::sample::select(vec![
+        "subject", "from", "count", "when", "refs", "contact", "marking", "kind", "label",
+    ]);
     (
         prop::sample::select(kinds.to_vec()),
         prop::collection::btree_map(names, arb_json(2), 0..=4),

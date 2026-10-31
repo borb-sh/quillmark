@@ -11,8 +11,14 @@ use common::{body_session, content, quill_with_plate as quill, yaml};
 /// The left edge of the caret before the first `needle` in `markdown`'s body.
 fn x_of(markdown: &str, needle: char) -> f32 {
     let session = body_session(content(markdown));
-    let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
-    let pos = rt.text.chars().position(|c| c == needle).expect("needle in text");
+    let rt = quillmark_content::import::from_markdown(markdown)
+        .expect("import")
+        .content;
+    let pos = rt
+        .text
+        .chars()
+        .position(|c| c == needle)
+        .expect("needle in text");
     session.locate("prose", pos).expect("caret").rect[0]
 }
 
@@ -20,14 +26,28 @@ fn x_of(markdown: &str, needle: char) -> f32 {
 fn collapsible_spaces_keep_their_width() {
     let flush = x_of("Indented", 'I');
     let indented = x_of("&#32;&#32;&#32;&#32;Indented", 'I');
-    assert!(indented > flush, "four leading spaces indent: {indented} vs {flush}");
+    assert!(
+        indented > flush,
+        "four leading spaces indent: {indented} vs {flush}"
+    );
 
     let one = x_of("a. Z", 'Z');
     let two = x_of("a.  Z", 'Z');
     let four = x_of("a.    Z", 'Z');
-    assert!(one < two && two < four, "spaces hold their width: {one}, {two}, {four}");
-    assert_eq!(x_of("<u>a. </u> Z", 'Z'), two, "either side of a mark close");
-    assert_eq!(x_of("[a. ](https://x.y) Z", 'Z'), two, "either side of a link close");
+    assert!(
+        one < two && two < four,
+        "spaces hold their width: {one}, {two}, {four}"
+    );
+    assert_eq!(
+        x_of("<u>a. </u> Z", 'Z'),
+        two,
+        "either side of a mark close"
+    );
+    assert_eq!(
+        x_of("[a. ](https://x.y) Z", 'Z'),
+        two,
+        "either side of a link close"
+    );
 }
 
 #[test]

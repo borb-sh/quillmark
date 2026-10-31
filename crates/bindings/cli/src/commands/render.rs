@@ -3,8 +3,8 @@ use crate::errors::{CliError, Result};
 use crate::output::{derive_output_path, page_output_path, write_file, write_stdout};
 use clap::Parser;
 use quillmark::{
-    CalendarDate, Diagnostic, Document, Engine, OutputFormat, Quill, RenderError,
-    RenderOptions, RenderResult, Severity,
+    CalendarDate, Diagnostic, Document, Engine, OutputFormat, Quill, RenderError, RenderOptions,
+    RenderResult, Severity,
 };
 use std::path::{Path, PathBuf};
 
@@ -73,7 +73,14 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     options.ppi = args.ppi;
     options.title = args.title;
     let engine = Engine::with_fonts(read_fonts(&args.fonts)?)?;
-    let rendered = render(&engine, &quill, &parsed, today, &options, args.output_data.as_deref());
+    let rendered = render(
+        &engine,
+        &quill,
+        &parsed,
+        today,
+        &options,
+        args.output_data.as_deref(),
+    );
     let mut result = match rendered {
         Ok(result) => result,
         Err(e) => {
@@ -163,7 +170,9 @@ fn render(
     output_data: Option<&Path>,
 ) -> Result<RenderResult> {
     if let Some(data_path) = output_data {
-        let json_data = quill.compile_data(parsed, today).map_err(CliError::Render)?;
+        let json_data = quill
+            .compile_data(parsed, today)
+            .map_err(CliError::Render)?;
         let f = std::fs::File::create(data_path).map_err(|e| {
             CliError::Io(std::io::Error::new(
                 e.kind(),
