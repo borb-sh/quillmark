@@ -159,6 +159,8 @@ def test_negative_index_is_out_of_range():
         doc.store_ext({}, card=-1)
     with raises_edit_code("edit::index_out_of_range"):
         doc.card(2)
+    with raises_edit_code("edit::index_out_of_range"):
+        doc.hash_at(card=2)
     assert doc.remove_card(-1) is None
     assert doc.remove_card(99) is None
     assert len(doc.cards) == 2
@@ -171,6 +173,8 @@ def test_negative_index_is_out_of_range():
         ed.set("author", "Issa", card=-1)
     with raises_edit_code("edit::index_out_of_range"):
         quill.reader(typed).get("author", card=-1)
+    with raises_edit_code("edit::index_out_of_range"):
+        ed.hash_at(card=1)
 
 
 def test_card_reads_one_card_without_projecting_the_rest():

@@ -539,7 +539,10 @@ impl PyDocument {
         let target = Target::resolve(&self.inner, card)?;
         let card = match target.index {
             None => self.inner.main(),
-            Some(i) => &self.inner.cards()[i],
+            Some(i) => self
+                .inner
+                .card(i)
+                .ok_or_else(|| index_error(i, self.inner.cards().len()))?,
         };
         match field {
             None => Ok(card.body_hash()),
@@ -1046,7 +1049,11 @@ impl PyWriter {
         let Some(field) = field else {
             return Ok(match target.index {
                 None => doc.inner.main().body_hash(),
-                Some(i) => doc.inner.cards()[i].body_hash(),
+                Some(i) => doc
+                    .inner
+                    .card(i)
+                    .ok_or_else(|| index_error(i, doc.inner.cards().len()))?
+                    .body_hash(),
             });
         };
         let mut writer = quill.inner.writer(&mut doc.inner);
