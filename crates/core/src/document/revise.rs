@@ -1,11 +1,11 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use quillmark_content::delta::{rebase_marks, rebase_marks_pinned};
-use quillmark_content::export::to_markdown;
-use quillmark_content::import::{Against, from_markdown_against};
-use quillmark_content::model::Normalized;
-use quillmark_content::serial::{from_canonical_value, to_canonical_value};
+use quillmark_content::lines::delta::{rebase_marks, rebase_marks_pinned};
+use quillmark_content::lines::export::to_markdown;
+use quillmark_content::lines::import::{Against, from_markdown_against};
+use quillmark_content::lines::model::Normalized;
+use quillmark_content::lines::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 

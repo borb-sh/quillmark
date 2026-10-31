@@ -1,11 +1,11 @@
 //! Island types: the dispatch authority over
-//! [`Island::island_type`](crate::model::Island::island_type).
+//! [`Island::island_type`](crate::lines::model::Island::island_type).
 
-use crate::model::Mark;
+use crate::lines::model::Mark;
 use serde_json::Value;
 
 /// The island types. Closed: a wire `type` outside this set is
-/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName).
+/// [`ParseError::UnknownName`](crate::lines::serial::ParseError::UnknownName).
 ///
 /// Every emitter dispatches over the whole set: an island type wired into some
 /// and not others projects the island away silently.
@@ -224,8 +224,8 @@ impl IslandType {
     /// model.
     pub fn cell_marks(self, props: &Value) -> Vec<(String, Vec<Mark>)> {
         match self {
-            Self::Table => crate::serial::table_cells(props),
-            Self::Footnote => vec![crate::serial::parse_cell(props)],
+            Self::Table => crate::lines::serial::table_cells(props),
+            Self::Footnote => vec![crate::lines::serial::parse_cell(props)],
             Self::Image | Self::Math => Vec::new(),
         }
     }
@@ -234,7 +234,7 @@ impl IslandType {
     /// mutable.
     pub(crate) fn cell_values_mut(self, props: &mut Value) -> Vec<&mut Value> {
         match self {
-            Self::Table => crate::serial::table_cell_values_mut(props),
+            Self::Table => crate::lines::serial::table_cell_values_mut(props),
             Self::Footnote => vec![props],
             Self::Image | Self::Math => Vec::new(),
         }
@@ -244,10 +244,10 @@ impl IslandType {
     /// decoder's arm of [`cell_marks`](Self::cell_marks): those read leniently,
     /// so this is the one place the row can be refused rather than silently
     /// re-encoded without the mark.
-    pub fn reject_unknown_cell_mark(self, props: &Value) -> Result<(), crate::serial::ParseError> {
+    pub fn reject_unknown_cell_mark(self, props: &Value) -> Result<(), crate::lines::serial::ParseError> {
         match self {
-            Self::Table => crate::serial::reject_unknown_cell_mark_name(crate::serial::table_cell_values(props)),
-            Self::Footnote => crate::serial::reject_unknown_cell_mark_name([props]),
+            Self::Table => crate::lines::serial::reject_unknown_cell_mark_name(crate::lines::serial::table_cell_values(props)),
+            Self::Footnote => crate::lines::serial::reject_unknown_cell_mark_name([props]),
             Self::Image | Self::Math => Ok(()),
         }
     }
@@ -256,9 +256,9 @@ impl IslandType {
     /// with no shape invariants.
     pub fn normalize_props(self, props: &mut Value) {
         match self {
-            Self::Table => crate::serial::normalize_table_props(props),
-            Self::Footnote => crate::serial::normalize_note_props(props),
-            Self::Math => crate::serial::normalize_math_props(props),
+            Self::Table => crate::lines::serial::normalize_table_props(props),
+            Self::Footnote => crate::lines::serial::normalize_note_props(props),
+            Self::Math => crate::lines::serial::normalize_math_props(props),
             Self::Image => {}
         }
     }

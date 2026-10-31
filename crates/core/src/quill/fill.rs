@@ -45,8 +45,8 @@ pub fn blank(field: &FieldSchema) -> QuillValue {
         // The empty content, not `""`: the seam carries canonical Content-JSON.
         // It is single-`Para`, so it is one line and plain.
         FieldType::RichText { .. } | FieldType::Text { .. } => {
-            quillmark_content::serial::to_canonical_value(
-                &quillmark_content::model::Normalized::empty(),
+            quillmark_content::lines::serial::to_canonical_value(
+                &quillmark_content::lines::model::Normalized::empty(),
             )
         }
         // String, Date, DateTime and an `enum`, whose blank every domain
@@ -63,7 +63,7 @@ mod tests {
     use crate::quill::field;
 
     fn empty_text() -> serde_json::Value {
-        quillmark_content::serial::to_canonical_value(&quillmark_content::model::Normalized::empty())
+        quillmark_content::lines::serial::to_canonical_value(&quillmark_content::lines::model::Normalized::empty())
     }
 
     #[test]

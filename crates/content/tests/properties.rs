@@ -4,12 +4,12 @@
 //! rather than panicking on what a caller hands them.
 
 use proptest::prelude::*;
-use quillmark_content::island::IslandType;
-use quillmark_content::delta::{diff_import, Delta, Op};
-use quillmark_content::export::{to_markdown, to_markdown_annotated};
-use quillmark_content::import::from_markdown;
-use quillmark_content::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
-use quillmark_content::ops::{IslandOp, LineOp, MarkOp};
+use quillmark_content::lines::island::IslandType;
+use quillmark_content::lines::delta::{diff_import, Delta, Op};
+use quillmark_content::lines::export::{to_markdown, to_markdown_annotated};
+use quillmark_content::lines::import::from_markdown;
+use quillmark_content::lines::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
+use quillmark_content::lines::ops::{IslandOp, LineOp, MarkOp};
 use serde_json::{json, Value};
 
 /// The mint's fixed point: normalizing again changes nothing.
@@ -940,7 +940,7 @@ proptest! {
             .map(|&(a, b, k)| {
                 let (s, e) = (a % (n + 1), b % (n + 1));
                 let kind = if k == OV_KINDS { MarkKind::Code } else { ov_kind(k) };
-                quillmark_content::serial::mark_to_value(&Mark::new(s.min(e), s.max(e), kind))
+                quillmark_content::lines::serial::mark_to_value(&Mark::new(s.min(e), s.max(e), kind))
             })
             .collect();
         let rt = table_content(
@@ -967,7 +967,7 @@ proptest! {
         // an edge off a break. A code span is left out: one across a break
         // re-imports as two spans, and its clip can land a wrap's edge on a
         // space the trim exposes.
-        let (stored, kept) = quillmark_content::serial::parse_cell(&rt.islands[0].props["rows"][0][0]);
+        let (stored, kept) = quillmark_content::lines::serial::parse_cell(&rt.islands[0].props["rows"][0][0]);
         let cs: Vec<char> = stored.chars().collect();
         if !kept.iter().any(|m| m.kind == MarkKind::Code) {
             let commas: String = cs.iter().map(|&c| if c == '\n' { ',' } else { c }).collect();
@@ -990,7 +990,7 @@ proptest! {
                     if delimited(&m.kind) {
                         trim(&|c: char| c.is_whitespace());
                     }
-                    (m.start < m.end).then(|| quillmark_content::serial::mark_to_value(&m))
+                    (m.start < m.end).then(|| quillmark_content::lines::serial::mark_to_value(&m))
                 })
                 .collect();
             let twin = table_content(
@@ -1001,7 +1001,7 @@ proptest! {
             .into_normalized();
             let twin2 = from_markdown(&to_markdown(&twin)).unwrap().content;
             let marks_of = |rt: &Normalized| {
-                let mut marks = quillmark_content::serial::parse_cell(&rt.islands[0].props["rows"][0][0]).1;
+                let mut marks = quillmark_content::lines::serial::parse_cell(&rt.islands[0].props["rows"][0][0]).1;
                 // Off the twin's `,` where the cell holds a `\n`, as a stored edge is.
                 for m in &mut marks {
                     while m.start < m.end && cs[m.start] == '\n' {
@@ -1077,15 +1077,15 @@ proptest! {
     /// The `install` lane.
     #[test]
     fn canonical_decode_never_panics(v in decode_json()) {
-        let _ = quillmark_content::serial::from_canonical_value(&v);
+        let _ = quillmark_content::lines::serial::from_canonical_value(&v);
     }
 
     /// The `applyChange` lane.
     #[test]
     fn op_wire_decode_never_panics(v in decode_json()) {
-        let _ = quillmark_content::ops::change_bundle_from_value(&v);
-        let _ = quillmark_content::ops::line_op_from_value(&v);
-        let _ = quillmark_content::ops::mark_op_from_value(&v);
+        let _ = quillmark_content::lines::ops::change_bundle_from_value(&v);
+        let _ = quillmark_content::lines::ops::line_op_from_value(&v);
+        let _ = quillmark_content::lines::ops::mark_op_from_value(&v);
     }
 
     /// A spelled envelope reaches past the `op` tag, where each lane's own
@@ -1098,9 +1098,9 @@ proptest! {
         let mut obj: serde_json::Map<String, Value> = rest.into_iter().collect();
         obj.insert("op".to_string(), Value::from(op));
         let v = Value::Object(obj);
-        let _ = quillmark_content::ops::line_op_from_value(&v);
-        let _ = quillmark_content::ops::mark_op_from_value(&v);
-        let _ = quillmark_content::ops::island_op_from_value(&v);
+        let _ = quillmark_content::lines::ops::line_op_from_value(&v);
+        let _ = quillmark_content::lines::ops::mark_op_from_value(&v);
+        let _ = quillmark_content::lines::ops::island_op_from_value(&v);
     }
 
     /// A line's containers inside an envelope that decodes up to them, on
@@ -1113,9 +1113,9 @@ proptest! {
             "marks": [],
             "islands": [],
         });
-        let _ = quillmark_content::serial::from_canonical_value(&content);
+        let _ = quillmark_content::lines::serial::from_canonical_value(&content);
         let op = serde_json::json!({"op": "setContainers", "line": 0, "containers": containers});
-        let _ = quillmark_content::ops::line_op_from_value(&op);
+        let _ = quillmark_content::lines::ops::line_op_from_value(&op);
     }
 }
 
@@ -1147,10 +1147,66 @@ proptest! {
 
     #[test]
     fn merge_lines_algebra(base in lines(), ours in lines(), theirs in lines()) {
-        use quillmark_content::delta::merge_lines;
+        use quillmark_content::lines::delta::merge_lines;
         prop_assert_eq!(merge_lines(&base, &base, &theirs), Some(theirs.clone()));
         prop_assert_eq!(merge_lines(&base, &ours, &base), Some(ours.clone()));
         prop_assert_eq!(merge_lines(&base, &ours, &ours), Some(ours.clone()));
         prop_assert_eq!(merge_lines(&base, &ours, &theirs), merge_lines(&base, &theirs, &ours));
+    }
+}
+
+mod model {
+    //! The content model over the line form: the migration is deterministic and
+    //! lowers back to what it read, and the wire is a byte and value fixed point.
+
+    use super::*;
+    use quillmark_content::markdown;
+    use quillmark_content::migrate::{from_lines, to_lines};
+    use quillmark_content::model::Content as V2;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(400))]
+
+        #[test]
+        fn migration_lowers_back_to_its_source(md in document()) {
+            let rt = from_markdown(&md).unwrap().content;
+            let v2 = from_lines(&rt);
+            prop_assert_eq!(v2.validate(), Ok(()), "invariants for {:?}", md);
+            prop_assert_eq!(&from_lines(&rt), &v2);
+            prop_assert_eq!(&to_lines(&v2), &rt, "lowering differs for {:?}", md);
+            prop_assert_eq!(from_lines(&to_lines(&v2)), v2);
+            prop_assert_eq!(markdown::to_markdown(&from_lines(&rt)), to_markdown(&rt));
+        }
+
+        #[test]
+        fn wire_fixed_point(md in document()) {
+            let v2 = markdown::from_markdown(&md).unwrap().content;
+            let json = v2.to_json();
+            let back = V2::from_json(&json).unwrap();
+            prop_assert_eq!(back.to_json(), json);
+            prop_assert_eq!(back, v2);
+        }
+
+        #[test]
+        fn a_v1_value_decodes_as_its_migration(md in document()) {
+            let rt = from_markdown(&md).unwrap().content;
+            let v1 = rt.to_canonical_json();
+            prop_assert_eq!(V2::from_json(&v1).unwrap(), from_lines(&rt));
+        }
+
+        #[test]
+        fn decode_never_panics(v in decode_json()) {
+            let _ = V2::from_value(&v);
+        }
+    }
+
+    #[test]
+    fn fixture_bodies_migrate_and_lower_back() {
+        for name in ["sample.md", "card_yaml_demo.md", "extended_metadata_demo.md"] {
+            let rt = from_markdown(&fixture_body(name)).unwrap();
+            let v2 = from_lines(&rt.content);
+            assert_eq!(v2.validate(), Ok(()), "{name}");
+            assert_eq!(to_lines(&v2), rt.content, "{name}");
+        }
     }
 }

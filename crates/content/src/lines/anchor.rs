@@ -7,8 +7,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::delta::MIN_MOVE;
-use crate::model::{Content, Mark, MarkKind, Normalized, Usv, ISLAND_SLOT};
+use crate::lines::delta::MIN_MOVE;
+use crate::lines::model::{Content, Mark, MarkKind, Normalized, Usv, ISLAND_SLOT};
 
 /// Context read on each side of an anchor, in Unicode scalar values.
 pub const ANCHOR_CONTEXT_USV: usize = 32;
@@ -84,7 +84,7 @@ impl<T> Default for Reattached<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Surface {
     Prose,
-    /// The `cell`th cell [`IslandType::cell_marks`](crate::island::IslandType::cell_marks)
+    /// The `cell`th cell [`IslandType::cell_marks`](crate::lines::island::IslandType::cell_marks)
     /// reads of the `island`th island.
     Cell { island: usize, cell: usize },
 }
@@ -177,7 +177,7 @@ impl Content {
 
 /// Every anchor of `rt` with its context, in the order
 /// [`anchor_sites`](Content::anchor_sites) reads them, the order
-/// [`anchors_where`](crate::export::anchors_where) lists them. A cell anchor's
+/// [`anchors_where`](crate::lines::export::anchors_where) lists them. A cell anchor's
 /// context is read off its cell's text and cut at the cell's edges. Read off
 /// the stored text, so it is pure and moves nothing.
 pub fn anchor_contexts(rt: &Normalized) -> Vec<AnchorContext> {
@@ -338,9 +338,9 @@ impl Normalized {
             for (island, isl) in content.islands.iter_mut().enumerate() {
                 for (cell, value) in isl.island_type.cell_values_mut(&mut isl.props).into_iter().enumerate() {
                     if let Some(added) = cells.remove(&(island, cell)) {
-                        let (_, mut held) = crate::serial::parse_cell(value);
+                        let (_, mut held) = crate::lines::serial::parse_cell(value);
                         held.extend(added);
-                        crate::serial::set_cell_marks(value, &held);
+                        crate::lines::serial::set_cell_marks(value, &held);
                     }
                 }
             }
@@ -409,10 +409,10 @@ mod tests {
     mod properties;
 
     use super::*;
-    use crate::ops::MarkOp;
-    use crate::delta::{diff_import, rebase_onto};
-    use crate::import::from_markdown;
-    use crate::model::Mark;
+    use crate::lines::ops::MarkOp;
+    use crate::lines::delta::{diff_import, rebase_onto};
+    use crate::lines::import::from_markdown;
+    use crate::lines::model::Mark;
 
     fn content(markdown: &str) -> Normalized {
         from_markdown(markdown).unwrap().content
@@ -690,15 +690,15 @@ mod tests {
     fn the_ops_reach_cell_anchors_and_refuse_a_collision() {
         let mut rt = table_with_cell_anchor("cell");
         let add = MarkOp::Add { start: 0, end: 4, kind: MarkKind::Anchor { id: "cell".into() } };
-        assert_eq!(rt.apply_mark_ops(&[add]), Err(crate::ops::ApplyError::AnchorIdCollision { id: "cell".into() }));
+        assert_eq!(rt.apply_mark_ops(&[add]), Err(crate::lines::ops::ApplyError::AnchorIdCollision { id: "cell".into() }));
 
         let island = rt.islands[0].clone();
         let mut renamed = island.clone();
         renamed.id = "isl-9".into();
         let mut twice = rt.clone();
-        let insert = crate::ops::IslandOp::Insert { at: twice.len_usv(), island: renamed };
-        assert_eq!(twice.apply_island_ops(&[insert]), Err(crate::ops::ApplyError::AnchorIdCollision { id: "cell".into() }));
-        let set = crate::ops::IslandOp::Set { island: island.clone() };
+        let insert = crate::lines::ops::IslandOp::Insert { at: twice.len_usv(), island: renamed };
+        assert_eq!(twice.apply_island_ops(&[insert]), Err(crate::lines::ops::ApplyError::AnchorIdCollision { id: "cell".into() }));
+        let set = crate::lines::ops::IslandOp::Set { island: island.clone() };
         assert_eq!(rt.clone().apply_island_ops(&[set]), Ok(()), "a set keeps the ids it replaces");
 
         rt.apply_mark_ops(&[MarkOp::RemoveAnchor { id: "cell".into() }]).unwrap();
@@ -708,7 +708,7 @@ mod tests {
     #[test]
     fn a_revise_keeps_an_unchanged_cells_anchor_and_drops_an_edited_ones() {
         let rt = table_with_cell_anchor("cell");
-        let md = crate::export::to_markdown(&rt);
+        let md = crate::lines::export::to_markdown(&rt);
         let (kept, _, _) = diff_import(&rt, &md).unwrap();
         assert_eq!(kept.anchor_sites(), rt.anchor_sites());
 

@@ -78,9 +78,9 @@ impl BlockConstruct {
     /// How many of each construct `content` holds, indexed by discriminant: a
     /// heading, rule or code block per block, a list or quote per container
     /// run at any depth, and a table, image, footnote or equation per island.
-    pub fn tally(content: &quillmark_content::model::Content) -> [usize; 9] {
-        use quillmark_content::island::IslandType;
-        use quillmark_content::model::{Container, LineKind};
+    pub fn tally(content: &quillmark_content::lines::model::Content) -> [usize; 9] {
+        use quillmark_content::lines::island::IslandType;
+        use quillmark_content::lines::model::{Container, LineKind};
         let mut counts = [0; 9];
         for line in content.lines.iter().filter(|l| !l.continues) {
             match line.kind {
@@ -123,12 +123,12 @@ impl BlockConstruct {
 }
 
 fn visit_runs(
-    lines: &[quillmark_content::model::Line],
+    lines: &[quillmark_content::lines::model::Line],
     range: std::ops::Range<usize>,
     depth: usize,
-    f: &mut dyn FnMut(&quillmark_content::model::Container, usize, usize),
+    f: &mut dyn FnMut(&quillmark_content::lines::model::Container, usize, usize),
 ) {
-    use quillmark_content::traverse::{items, runs};
+    use quillmark_content::lines::traverse::{items, runs};
     for run in runs(lines, range, depth) {
         f(run.container, run.range.start, depth);
         for item in items(lines, run.range, depth) {
@@ -352,16 +352,16 @@ pub enum FieldType {
     Date,
     DateTime,
     /// Formatted prose over the canonical content model,
-    /// [`Content`](quillmark_content::model::Content); markdown is a projection of it.
+    /// [`Content`](quillmark_content::lines::model::Content); markdown is a projection of it.
     RichText {
         /// Lifts the one-paragraph constraint (exactly one `Para` line, no
         /// container, no islands) to admit block structure. The constraint is
         /// enforced at coercion, validation, and load-time literal import.
         multiline: bool,
     },
-    /// The same [`Content`](quillmark_content::model::Content) through a *literal*
-    /// codec ([`from_plaintext`](quillmark_content::import::from_plaintext) /
-    /// [`to_plaintext`](quillmark_content::export::to_plaintext)): `*hi*` is four
+    /// The same [`Content`](quillmark_content::lines::model::Content) through a *literal*
+    /// codec ([`from_plaintext`](quillmark_content::lines::import::from_plaintext) /
+    /// [`to_plaintext`](quillmark_content::lines::export::to_plaintext)): `*hi*` is four
     /// characters, verbatim both ways, never emphasis.
     Text {
         /// Lifts the one-line constraint, enforced where
@@ -1128,7 +1128,7 @@ impl FieldSchema {
     }
 
     /// The character count `max:` caps on a `text` or `richtext` value
-    /// ([`quillmark_content::export::char_count`] of its plain text), read as
+    /// ([`quillmark_content::lines::export::char_count`] of its plain text), read as
     /// the render floor reads it: a bare scalar or a one-string array as its
     /// text, and a one-line `text` less its trailing whitespace. `None` for any
     /// other type, or a value the floor cannot read as text.
@@ -1142,12 +1142,12 @@ impl FieldSchema {
             &lenient
         };
         let content = codec.decode_field(value).ok()?;
-        let text = quillmark_content::export::to_plaintext(&content);
+        let text = quillmark_content::lines::export::to_plaintext(&content);
         let text = match self.r#type {
             FieldType::Text { multiline: false } => text.trim_end(),
             _ => text.as_str(),
         };
-        Some(quillmark_content::export::char_count(text))
+        Some(quillmark_content::lines::export::char_count(text))
     }
 }
 

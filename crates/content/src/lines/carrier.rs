@@ -2,8 +2,8 @@
 //! spelling rides on where CommonMark has no syntax, their name and attribute
 //! grammar, and their canonical spelling.
 
-use crate::html;
-use crate::normalize::{is_bidi_char, is_line_separator};
+use crate::lines::html;
+use crate::lines::normalize::{is_bidi_char, is_line_separator};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 

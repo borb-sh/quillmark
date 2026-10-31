@@ -16,7 +16,7 @@ use super::payload::{MetaKey, Payload, PayloadItem};
 
 use super::prescan::{NestedComment, PreItem, Refusal, prescan_fence_content};
 use super::{Card, Document};
-use quillmark_content::import::{ImportError, Imported};
+use quillmark_content::lines::import::{ImportError, Imported};
 
 /// A `MissingQuill` message naming the specific malformation. LLM authors hit a
 /// few recurring shapes — a bare YAML mapping with no fences, an opener whose
@@ -149,7 +149,7 @@ fn import_card_body(
     at: &DocPath,
     import: Import,
     warnings: &mut Vec<Diagnostic>,
-) -> Result<quillmark_content::model::Normalized, ParseError> {
+) -> Result<quillmark_content::lines::model::Normalized, ParseError> {
     let imported = import(body).map_err(|e| ParseError::BodyImport {
         path: at.to_string(),
         message: e.to_string(),

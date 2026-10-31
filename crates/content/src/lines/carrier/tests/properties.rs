@@ -10,11 +10,11 @@ use std::collections::BTreeMap;
 
 use proptest::prelude::*;
 
-use crate::carrier::{decode_attrs, element, is_attr_name, Attrs, Element};
-use crate::export::to_markdown;
-use crate::html;
-use crate::import::tests::generate::{contained, counted, table, tally, word, Piece};
-use crate::import::{from_markdown, options};
+use crate::lines::carrier::{decode_attrs, element, is_attr_name, Attrs, Element};
+use crate::lines::export::to_markdown;
+use crate::lines::html;
+use crate::lines::import::tests::generate::{contained, counted, table, tally, word, Piece};
+use crate::lines::import::{from_markdown, options};
 use pulldown_cmark::{Event, Parser};
 
 /// Values draw from every scalar value, control characters, bidi controls and

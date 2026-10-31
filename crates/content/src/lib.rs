@@ -1,30 +1,24 @@
 //! `Content`: the canonical content model for Quillmark.
 //!
-//! One [`model::Content`] per content field: a single text sequence carrying
-//! line attributes, anchored marks, and embedded islands, over one coordinate
-//! space of Unicode scalar values. Markdown is a *projection*
-//! ([`import::from_markdown`], [`export::to_markdown`]), so every edit is a
-//! splice and all structure moves with it. [`serial`] is the canonical,
-//! byte-deterministic JSON that storage, the render seam and the binding seam
-//! all carry; [`delta`] and [`ops`] are the per-field edit surface.
+//! One [`model::Content`] per content field: flat text whose `\n` ends a
+//! block, blocks carrying their kind and container path, marks, anchors, and
+//! islands, all over one coordinate space of Unicode scalar values. [`wire`] is
+//! the canonical, byte-deterministic JSON storage and the bindings carry.
+//! [`markdown`] is the projection at the edges, read and written through the
+//! line form in [`lines`], which the renderers also read; [`migrate`] moves
+//! values between the two.
 
-pub mod anchor;
-pub mod carrier;
-pub mod delta;
-pub mod export;
-mod html;
-mod html_table;
-pub mod import;
-pub mod island;
+pub mod ids;
+pub mod lines;
+pub mod markdown;
+pub mod migrate;
 pub mod model;
-pub mod normalize;
-pub mod ops;
-pub mod serial;
-pub mod traverse;
+pub mod table;
 pub mod usv;
+pub mod wire;
 
 /// Maximum container nesting depth the markdown codecs accept before erroring.
-/// The import guard ([`import::from_markdown`]) and the typst backend's markup
+/// The import guard ([`markdown::from_markdown`]) and the typst backend's markup
 /// converter share this one limit, so a document that imports also renders.
 /// Typst stops at a show-rule depth of 64, a block quote spends four of it and
 /// the marks and font run around a run at most seven, so the bound leaves a

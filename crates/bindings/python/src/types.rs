@@ -1760,13 +1760,13 @@ fn path_from_py(path: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Vec<quillmark::P
 
 fn content_to_py<'py>(
     py: Python<'py>,
-    content: Option<quillmark_content::model::Normalized>,
+    content: Option<quillmark_content::lines::model::Normalized>,
 ) -> PyResult<Option<Bound<'py, PyAny>>> {
     match content {
         None => Ok(None),
         Some(content) => Ok(Some(json_to_py(
             py,
-            &quillmark_content::serial::to_canonical_value(&content),
+            &quillmark_content::lines::serial::to_canonical_value(&content),
         )?)),
     }
 }

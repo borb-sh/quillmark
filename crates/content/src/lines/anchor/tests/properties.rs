@@ -6,11 +6,11 @@
 
 use proptest::prelude::*;
 
-use crate::anchor::{
+use crate::lines::anchor::{
     anchor_contexts, locate, AnchorContext, ANCHOR_AGREE_USV, ANCHOR_CONTEXT_USV, MIN_ANCHOR_QUOTE,
 };
-use crate::island::IslandType;
-use crate::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized, ISLAND_SLOT};
+use crate::lines::island::IslandType;
+use crate::lines::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized, ISLAND_SLOT};
 
 const ALPHABET: [char; 5] = ['a', 'b', ' ', '\n', ISLAND_SLOT];
 

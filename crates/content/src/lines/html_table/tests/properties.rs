@@ -9,11 +9,11 @@
 use proptest::prelude::*;
 use serde_json::{json, Value};
 
-use crate::export::to_markdown;
-use crate::html_table::writes_html;
-use crate::import::from_markdown;
-use crate::island::IslandType;
-use crate::model::{Content, Island, Line, LineKind, ISLAND_SLOT};
+use crate::lines::export::to_markdown;
+use crate::lines::html_table::writes_html;
+use crate::lines::import::from_markdown;
+use crate::lines::island::IslandType;
+use crate::lines::model::{Content, Island, Line, LineKind, ISLAND_SLOT};
 
 /// A cell: literal text over characters the HTML and pipe spellings both
 /// escape, or a word under one mark.
@@ -95,15 +95,15 @@ fn soup() -> impl Strategy<Value = String> {
 }
 
 /// `rt` with each covered cell's `align` and `valign` gone.
-fn without_covered_alignment(rt: &crate::model::Normalized) -> crate::model::Normalized {
+fn without_covered_alignment(rt: &crate::lines::model::Normalized) -> crate::lines::model::Normalized {
     let mut content = rt.clone().into_content();
     for island in &mut content.islands {
-        let spans = crate::island::table_spans(&island.props);
+        let spans = crate::lines::island::table_spans(&island.props);
         for (r, row) in spans.iter().enumerate() {
             for c in (0..row.len()).filter(|c| row[*c].is_none()) {
                 let at = if r == 0 { format!("/header/{c}") } else { format!("/rows/{}/{c}", r - 1) };
                 if let Some(cell) = island.props.pointer_mut(&at).and_then(Value::as_object_mut) {
-                    for (key, _) in crate::island::CELL_KEYS {
+                    for (key, _) in crate::lines::island::CELL_KEYS {
                         cell.remove(key);
                     }
                 }

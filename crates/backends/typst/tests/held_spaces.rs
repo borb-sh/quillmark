@@ -11,7 +11,7 @@ use common::{body_session, content, quill_with_plate as quill, yaml};
 /// The left edge of the caret before the first `needle` in `markdown`'s body.
 fn x_of(markdown: &str, needle: char) -> f32 {
     let session = body_session(content(markdown));
-    let rt = quillmark_content::import::from_markdown(markdown)
+    let rt = quillmark_content::lines::import::from_markdown(markdown)
         .expect("import")
         .content;
     let pos = rt

@@ -2,7 +2,7 @@
 //! a font family the one it carries.
 
 use super::{Attrs, Element};
-use crate::model::is_font_family_name;
+use crate::lines::model::is_font_family_name;
 use std::collections::BTreeMap;
 
 /// The family `attrs` spell, and every attribute name they hold that spells

@@ -60,13 +60,13 @@
 //!   revise ([`from_markdown_against`]) and dropped by a cold import, a token
 //!   reported.
 
-use crate::model::{
+use crate::lines::model::{
     Container, Island, Line, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
 };
-use crate::carrier;
-use crate::html;
-use crate::island::IslandType;
-use crate::normalize::parse_markdown;
+use crate::lines::carrier;
+use crate::lines::html;
+use crate::lines::island::IslandType;
+use crate::lines::normalize::parse_markdown;
 use crate::MAX_NESTING_DEPTH;
 use pulldown_cmark::{Event, Options, Tag, TagEnd};
 use serde_json::json;
@@ -245,7 +245,7 @@ pub struct Against {
 /// starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pin {
-    pub at: crate::model::Usv,
+    pub at: crate::lines::model::Usv,
     pub id: String,
 }
 
@@ -256,7 +256,7 @@ pub struct Pin {
 /// moved to its line's end, pins nothing. A `<qm-island ref="ID">` token in
 /// prose is the stored island `ID`, its type and props as stored but for its
 /// cells' anchors, which the revise carries onto the island that continues it
-/// ([`crate::delta::rebase_onto`]), so a token written twice copies none. A tag or a
+/// ([`crate::lines::delta::rebase_onto`]), so a token written twice copies none. A tag or a
 /// token naming nothing the stored value holds there, and a second tag naming
 /// one anchor, drop reported under `qm-anchor[ref]` or `qm-island[ref]`; a
 /// token in a table cell, a note, an image's alt text or a code span drops
@@ -295,7 +295,7 @@ fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), I
     let (content, mut dropped) = b.finish();
     let mut at = 0;
     for c in markdown.chars() {
-        if crate::normalize::is_bidi_char(c) {
+        if crate::lines::normalize::is_bidi_char(c) {
             dropped.add(Dropped::Bidi, at);
         } else if c != '\r' {
             at += c.len_utf8();
@@ -306,7 +306,7 @@ fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), I
 
 /// Import plain text (literal) into a [`Content`]: the literal-codec sibling of
 /// [`from_markdown`]. Every character is content, never syntax: `*hi*` is four
-/// literal chars, not emphasis. With [`crate::export::to_plaintext`] it pins the
+/// literal chars, not emphasis. With [`crate::lines::export::to_plaintext`] it pins the
 /// fixed point `to_plaintext(from_plaintext(s)) == s` for any `s` free of `\r`,
 /// bidi controls, line separators (VT, FF, NEL, U+2028, U+2029), and
 /// [`ISLAND_SLOT`].
@@ -321,7 +321,7 @@ pub fn from_plaintext(s: &str) -> Normalized {
     let text: String = s
         .chars()
         .filter(|&c| c != ISLAND_SLOT)
-        .filter_map(crate::normalize::admit_char)
+        .filter_map(crate::lines::normalize::admit_char)
         .collect();
     // One line per `\n`-separated segment. A single streaming pass carries the
     // prior segment's non-emptiness, so line 0 is `false` and no intermediate
@@ -378,7 +378,7 @@ struct OpenSpan {
 
 
 impl Inline {
-    /// Append inline text under the [`crate::normalize::admit_char`] contract,
+    /// Append inline text under the [`crate::lines::normalize::admit_char`] contract,
     /// with a stray [`ISLAND_SLOT`] dropped and a stray `\n` spaced, real line
     /// boundaries going through [`Self::push_raw`]. Admitting a bare slot char
     /// would break the slot-count invariant.
@@ -1172,7 +1172,7 @@ impl Builder {
                 match id.and_then(|id| islands.get(id)) {
                     Some(island) if prose => {
                         let Island { island_type, mut props, .. } = island.clone();
-                        crate::export::drop_anchor_marks(&mut props);
+                        crate::lines::export::drop_anchor_marks(&mut props);
                         self.ensure_open(LineKind::Para);
                         self.inline.push_raw(ISLAND_SLOT);
                         self.mint_island(island_type, props);
@@ -1325,7 +1325,7 @@ impl Builder {
                 if let Some(mut cell) = acc.cell.take() {
                     cell.close_marks();
                     cell.drop_open(&mut self.dropped);
-                    acc.cur_row.push(crate::serial::cell_to_value(&cell.text, &cell.marks));
+                    acc.cur_row.push(crate::lines::serial::cell_to_value(&cell.text, &cell.marks));
                 }
             }
             _ => {
@@ -1366,8 +1366,8 @@ impl Builder {
     /// An HTML table: an island on a line of its own, as a pipe table is, each
     /// cell's content read through the inline import into the cell. In a
     /// footnote's note it is the note's text, a line per row.
-    fn html_table(&mut self, table: crate::html_table::Table) -> Result<(), ImportError> {
-        use crate::html_table::Slot;
+    fn html_table(&mut self, table: crate::lines::html_table::Table) -> Result<(), ImportError> {
+        use crate::lines::html_table::Slot;
         if self.note.is_some() {
             return self.note_table(table);
         }
@@ -1382,7 +1382,7 @@ impl Builder {
             let mut cells = Vec::with_capacity(row.len());
             for slot in row {
                 cells.push(match slot {
-                    Slot::Empty => crate::serial::cell_to_value("", &[]),
+                    Slot::Empty => crate::lines::serial::cell_to_value("", &[]),
                     Slot::Cell(cell) => self.html_cell(cell)?,
                 });
             }
@@ -1399,7 +1399,7 @@ impl Builder {
         Ok(())
     }
 
-    fn html_cell(&mut self, cell: crate::html_table::Cell) -> Result<serde_json::Value, ImportError> {
+    fn html_cell(&mut self, cell: crate::lines::html_table::Cell) -> Result<serde_json::Value, ImportError> {
         if let Some(acc) = self.table.as_mut() {
             acc.cell = Some(Inline::default());
         }
@@ -1407,7 +1407,7 @@ impl Builder {
         let mut inline = self.table.as_mut().and_then(|acc| acc.cell.take()).unwrap_or_default();
         inline.close_marks();
         inline.drop_open(&mut self.dropped);
-        let mut value = crate::serial::cell_to_value(&inline.text, &inline.marks);
+        let mut value = crate::lines::serial::cell_to_value(&inline.text, &inline.marks);
         if let Some(o) = value.as_object_mut() {
             o.extend(cell.keys);
         }
@@ -1416,8 +1416,8 @@ impl Builder {
 
     /// An HTML table inside a footnote's note, flattened as a pipe table is:
     /// each row a line of the note, its cells' text apart by a space.
-    fn note_table(&mut self, table: crate::html_table::Table) -> Result<(), ImportError> {
-        use crate::html_table::Slot;
+    fn note_table(&mut self, table: crate::lines::html_table::Table) -> Result<(), ImportError> {
+        use crate::lines::html_table::Slot;
         if let Some(note) = self.note.as_mut() {
             note.dropped.add(Dropped::NoteBlock("table"), note.at);
         }
@@ -1442,10 +1442,10 @@ impl Builder {
 
     /// Read an HTML table cell's content, at source offset `at`, through the
     /// inline import, as one line of markdown
-    /// ([`cell_source`](crate::html_table::cell_source)).
+    /// ([`cell_source`](crate::lines::html_table::cell_source)).
     fn inline_source(&mut self, content: &str, at: usize) -> Result<(), ImportError> {
-        let src = crate::html_table::cell_source(content);
-        let events = crate::html_table::cell_events(&src);
+        let src = crate::lines::html_table::cell_source(content);
+        let events = crate::lines::html_table::cell_events(&src);
         self.run(MarkdownFixer::new(&src, events.into_iter()).map(|item| item.shifted(at)))
     }
 
@@ -1552,7 +1552,7 @@ impl Builder {
         if self.notes.contains_key(&key) {
             return self.dropped.add(Dropped::Footnote, note.at);
         }
-        let props = crate::serial::cell_to_value(&note.inline.text, &note.inline.marks);
+        let props = crate::lines::serial::cell_to_value(&note.inline.text, &note.inline.marks);
         self.notes.insert(key, Note { props, at: note.at, used: false, dropped: note.dropped });
     }
 
@@ -1580,7 +1580,7 @@ impl Builder {
             return note.dropped.add(Dropped::Math, at);
         }
         let cell = self.table.as_mut().and_then(|acc| acc.cell.as_mut());
-        if self.image_depth > 0 || cell.is_some() || !crate::export::tex_is_writable(&crate::serial::settle_tex(tex), display) {
+        if self.image_depth > 0 || cell.is_some() || !crate::lines::export::tex_is_writable(&crate::lines::serial::settle_tex(tex), display) {
             match cell {
                 Some(cell) => cell.push_text(source),
                 None if self.image_depth > 0 => self.image_alt.extend(admitted(source)),
@@ -1685,21 +1685,21 @@ fn mark_kind(tag: &Tag) -> Option<MarkKind> {
     })
 }
 
-/// `s` as inline text admits it: under [`crate::normalize::admit_char`], a
+/// `s` as inline text admits it: under [`crate::lines::normalize::admit_char`], a
 /// stray [`ISLAND_SLOT`] dropped and a stray `\n` spaced.
 fn admitted(s: &str) -> impl Iterator<Item = char> + '_ {
     s.chars().filter_map(|c| match c {
         ISLAND_SLOT => None,
         '\n' => Some(' '),
-        other => crate::normalize::admit_char(other),
+        other => crate::lines::normalize::admit_char(other),
     })
 }
 
-/// A link or image destination under [`crate::normalize::admit_char`], with
+/// A link or image destination under [`crate::lines::normalize::admit_char`], with
 /// no line ending, which a destination can hold only as a character
 /// reference and a URL parser strips.
 fn admit_url(url: &str) -> String {
-    url.chars().filter(|&c| c != '\n').filter_map(crate::normalize::admit_char).collect()
+    url.chars().filter(|&c| c != '\n').filter_map(crate::lines::normalize::admit_char).collect()
 }
 
 fn ends_mark(end: &TagEnd) -> bool {
@@ -1762,7 +1762,7 @@ enum Fixed<'a> {
     /// written, at its byte offset.
     Math { tex: pulldown_cmark::CowStr<'a>, display: bool, source: &'a str, at: usize },
     /// A table an HTML block spells.
-    HtmlTable(crate::html_table::Table),
+    HtmlTable(crate::lines::html_table::Table),
     /// An inline `qm-anchor` or `qm-island` open tag.
     Held(HeldTag),
 }
@@ -2035,7 +2035,7 @@ where
     }
 
     /// Consume an HTML block through its end. One opening `<table>` hands on
-    /// the tables it spells ([`crate::html_table::scan`]). Any other reports
+    /// the tables it spells ([`crate::lines::html_table::scan`]). Any other reports
     /// its [markup tags](html::block_tags): a block of tag lines alone passes its
     /// carrier tags on; one that drops text with them drops them too, each
     /// open tag reported, and its first tag where no open tag reports: a
@@ -2054,12 +2054,12 @@ where
                 _ => {}
             }
         }
-        if crate::html_table::opens(&text) {
+        if crate::lines::html_table::opens(&text) {
             let source = |off: usize| {
                 let k = lines.partition_point(|&(block, _)| block <= off).saturating_sub(1);
                 lines.get(k).map_or(at, |&(block, src)| src + (off - block))
             };
-            let (tables, drops) = crate::html_table::scan(&text, source, &mut self.cells);
+            let (tables, drops) = crate::lines::html_table::scan(&text, source, &mut self.cells);
             self.held.extend(drops.into_iter().map(|(construct, at)| Fixed::Dropped(construct, at)));
             self.held.extend(tables.into_iter().map(Fixed::HtmlTable));
             self.held.push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock)));
@@ -2219,7 +2219,7 @@ pub(crate) mod tests {
     mod properties;
 
     use super::*;
-    use crate::model::LineKind;
+    use crate::lines::model::LineKind;
 
     fn imp(md: &str) -> Normalized {
         let rt = from_markdown(md).unwrap().content;
@@ -2247,8 +2247,8 @@ pub(crate) mod tests {
     fn plaintext_round_trip_is_verbatim_and_idempotent() {
         for s in ["", "one line", "a\nb", "a\n\nb", "trailing\n", "*not bold*"] {
             let rt = imp_plain(s);
-            assert_eq!(crate::export::to_plaintext(&rt), s, "verbatim for {s:?}");
-            let rt2 = from_plaintext(&crate::export::to_plaintext(&rt));
+            assert_eq!(crate::lines::export::to_plaintext(&rt), s, "verbatim for {s:?}");
+            let rt2 = from_plaintext(&crate::lines::export::to_plaintext(&rt));
             assert_eq!(rt2.text, rt.text, "idempotent for {s:?}");
             assert_eq!(rt2.lines, rt.lines, "idempotent structure for {s:?}");
         }
@@ -2266,7 +2266,7 @@ pub(crate) mod tests {
         let rt = imp_plain("a\u{FFFC}b");
         assert_eq!(rt.text, "ab");
         assert!(rt.islands.is_empty());
-        assert_eq!(crate::export::to_plaintext(&rt), "ab");
+        assert_eq!(crate::lines::export::to_plaintext(&rt), "ab");
         assert_eq!(imp_plain("a\r\nb").text, "a\nb", "CRLF collapses to LF");
     }
 
@@ -2294,7 +2294,7 @@ pub(crate) mod tests {
             let held = Content::new(src, vec![Line::new(LineKind::Para)]);
             assert_eq!(
                 held.validate(),
-                Err(crate::model::Invariant::LineSeparator(sep))
+                Err(crate::lines::model::Invariant::LineSeparator(sep))
             );
         }
     }
@@ -2374,7 +2374,7 @@ pub(crate) mod tests {
         assert_eq!(dropped(&imported), [("u", MAX_NESTING_DEPTH)]);
 
         let imported = imp_fixed("| <u>a **b</u> c** | <u>d |\n|---|---|\n| x | y |");
-        let cells = crate::serial::table_cells(&imported.content.islands[0].props);
+        let cells = crate::lines::serial::table_cells(&imported.content.islands[0].props);
         assert_eq!(
             cells[0].1,
             [Mark::new(0, 3, MarkKind::Underline), Mark::new(2, 5, MarkKind::Strong)]
@@ -2439,9 +2439,9 @@ pub(crate) mod tests {
         }
 
         let imported = imp_fixed("| <qm-span family=\"A\">a **b</qm-span> c** |\n|---|\n\na[^1]\n\n[^1]: <qm-span family=\"B\">n</qm-span>");
-        let cells = crate::serial::table_cells(&imported.content.islands[0].props);
+        let cells = crate::lines::serial::table_cells(&imported.content.islands[0].props);
         assert_eq!(cells[0].1, [Mark::new(0, 3, family("A")), Mark::new(2, 5, MarkKind::Strong)]);
-        let (_, note) = crate::serial::parse_cell(&imported.content.islands[1].props);
+        let (_, note) = crate::lines::serial::parse_cell(&imported.content.islands[1].props);
         assert_eq!(note, [Mark::new(0, 1, family("B"))]);
     }
 
@@ -2541,7 +2541,7 @@ pub(crate) mod tests {
         let once = imp("*a\u{FFFC}*");
         assert_eq!(once.text, "a");
         assert_eq!(once.marks, vec![Mark::new(0, 1, MarkKind::Emph)]);
-        let twice = imp(&crate::export::to_markdown(&once));
+        let twice = imp(&crate::lines::export::to_markdown(&once));
         assert_eq!(twice, once);
     }
 
@@ -2642,7 +2642,7 @@ pub(crate) mod tests {
     #[test]
     fn underline_from_u_tag_in_table_cell() {
         let rt = imp("| h |\n|---|\n| <u>a</u> **b** |");
-        let cells = crate::serial::table_cells(&rt.islands[0].props);
+        let cells = crate::lines::serial::table_cells(&rt.islands[0].props);
         let (text, marks) = cells.iter().find(|(t, _)| t == "a b").expect("cell");
         assert_eq!(text, "a b");
         let kinds: Vec<&MarkKind> = marks.iter().map(|m| &m.kind).collect();
@@ -2722,7 +2722,7 @@ pub(crate) mod tests {
             .iter()
             .map(|isl| {
                 assert_eq!(isl.island_type, IslandType::Footnote);
-                crate::serial::parse_cell(&isl.props)
+                crate::lines::serial::parse_cell(&isl.props)
             })
             .collect();
         let first = ("first\nsecond\npara\nitem".to_string(), vec![]);
@@ -2830,7 +2830,7 @@ pub(crate) mod tests {
         for (md, lines) in cases {
             let rt = imp(md);
             assert_eq!(rt.lines.len(), *lines, "{md:?} -> {:?}", rt.lines);
-            let rt2 = from_markdown(&crate::export::to_markdown(&rt)).unwrap().content;
+            let rt2 = from_markdown(&crate::lines::export::to_markdown(&rt)).unwrap().content;
             assert_eq!(rt2, rt, "{md:?} is not a fixed point");
         }
         assert_eq!(imp("a\n\n<span></span>\n\nb").text, "a\nb");
@@ -2981,7 +2981,7 @@ pub(crate) mod tests {
             assert_eq!(rt.text, text, "{md:?}");
             let last = rt.lines.last().unwrap();
             assert_eq!((&last.kind, last.containers.len()), (&LineKind::Para, 1), "{md:?}");
-            assert_eq!(imp(&crate::export::to_markdown(&rt)), rt, "{md:?}");
+            assert_eq!(imp(&crate::lines::export::to_markdown(&rt)), rt, "{md:?}");
         }
     }
 
@@ -3000,7 +3000,7 @@ pub(crate) mod tests {
     fn imp_fixed(md: &str) -> Imported {
         let imported = from_markdown(md).unwrap();
         assert_eq!(imported.content.validate(), Ok(()), "invariants for {md:?}");
-        let back = from_markdown(&crate::export::to_markdown(&imported.content)).unwrap();
+        let back = from_markdown(&crate::lines::export::to_markdown(&imported.content)).unwrap();
         assert_eq!(back.content, imported.content, "{md:?} is not a fixed point");
         imported
     }
@@ -3030,7 +3030,7 @@ pub(crate) mod tests {
                 row.as_array()
                     .unwrap()
                     .iter()
-                    .map(|cell| crate::serial::parse_cell(cell).0)
+                    .map(|cell| crate::lines::serial::parse_cell(cell).0)
                     .collect()
             })
             .collect()
@@ -3113,7 +3113,7 @@ pub(crate) mod tests {
             let imported = imp_fixed(md);
             assert_eq!(imported.content.text, *text, "{md:?}");
             assert_eq!(container_tags(&imported.content), *tags, "{md:?}");
-            let again = imp_fixed(&crate::export::to_markdown(&imported.content));
+            let again = imp_fixed(&crate::lines::export::to_markdown(&imported.content));
             assert_eq!(again.content, imported.content, "{md:?}");
         }
     }
@@ -3183,7 +3183,7 @@ pub(crate) mod tests {
                 ],
             })
         );
-        assert_eq!(crate::export::to_markdown(&imported.content), md);
+        assert_eq!(crate::lines::export::to_markdown(&imported.content), md);
     }
 
     /// The subset reads as HTML reads it where a writer leaves things out: an
@@ -3379,7 +3379,7 @@ pub(crate) mod tests {
     #[test]
     fn a_stray_backtick_in_a_cell_is_its_text() {
         let texts = |imported: &Imported| -> Vec<String> {
-            crate::serial::table_cells(&imported.content.islands[0].props).into_iter().map(|(text, _)| text).collect()
+            crate::lines::serial::table_cells(&imported.content.islands[0].props).into_iter().map(|(text, _)| text).collect()
         };
         let imported = imp_fixed("<table><tr><td>`a</td><td>b`</td><td>c</td></tr></table>");
         assert_eq!(texts(&imported), ["`a", "b`", "c"]);
@@ -3388,7 +3388,7 @@ pub(crate) mod tests {
         assert!(imported.content.marks.iter().any(|m| m.kind == MarkKind::Code));
         assert!(imported.warnings.is_empty());
         let imported = imp_fixed("<table><tr><td>`a <!-- <td> --> b`</td></tr></table>");
-        let cells: Vec<(String, Vec<Mark>)> = crate::serial::table_cells(&imported.content.islands[0].props);
+        let cells: Vec<(String, Vec<Mark>)> = crate::lines::serial::table_cells(&imported.content.islands[0].props);
         assert_eq!(cells[0], ("a <!-- <td> --> b".into(), vec![Mark::new(0, 7, MarkKind::Code), Mark::new(11, 17, MarkKind::Code)]));
     }
 
@@ -3426,7 +3426,7 @@ pub(crate) mod tests {
                   <td>a<br><u>b</u> &amp; &#32;</td><td>$x$ y[^1]</td></tr></table>\n\n[^1]: n";
         let imported = imp_fixed(md);
         let props = &imported.content.islands[0].props;
-        let cells: Vec<(String, Vec<Mark>)> = crate::serial::table_cells(props);
+        let cells: Vec<(String, Vec<Mark>)> = crate::lines::serial::table_cells(props);
         assert_eq!(cells[0], ("Total and more".into(), vec![Mark::new(0, 5, MarkKind::Strong), Mark::new(10, 14, MarkKind::Emph)]));
         assert_eq!(
             cells[1],
@@ -3442,7 +3442,7 @@ pub(crate) mod tests {
     #[test]
     fn an_html_table_in_a_note_is_its_text() {
         let imported = imp_fixed("a[^1]\n\n[^1]: <table><tr><td>x</td><td>**y**</td></tr><tr><td>z</td><td>w</td></tr></table>");
-        let note = crate::serial::parse_cell(&imported.content.islands[0].props);
+        let note = crate::lines::serial::parse_cell(&imported.content.islands[0].props);
         assert_eq!(note, ("x y\nz w".into(), vec![Mark::new(2, 3, MarkKind::Strong)]));
         assert_eq!(dropped(&imported), [("footnote[table]", 1)]);
     }
@@ -3674,7 +3674,7 @@ pub(crate) mod tests {
         }
 
         let imported = imp_fixed("| <qm-hl>x</qm-hl> y |\n|---|");
-        let (text, marks) = crate::serial::parse_cell(&imported.content.islands[0].props["header"][0]);
+        let (text, marks) = crate::lines::serial::parse_cell(&imported.content.islands[0].props["header"][0]);
         assert_eq!(text, "x y");
         assert!(marks.is_empty());
         assert_eq!(dropped(&imported), [("qm-hl", 1)]);

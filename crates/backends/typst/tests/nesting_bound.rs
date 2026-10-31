@@ -4,9 +4,9 @@
 
 use quillmark_content::{
     MAX_NESTING_DEPTH,
-    export::to_markdown,
-    import::{ImportError, from_markdown},
-    serial::to_canonical_value,
+    lines::export::to_markdown,
+    lines::import::{ImportError, from_markdown},
+    lines::serial::to_canonical_value,
 };
 use quillmark_core::{backend::Backend, types::RenderOptions};
 use quillmark_typst::TypstBackend;

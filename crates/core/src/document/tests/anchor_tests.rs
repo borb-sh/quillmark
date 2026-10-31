@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use quillmark_content::model::{MarkKind, Normalized};
-use quillmark_content::serial::to_canonical_value;
+use quillmark_content::lines::model::{MarkKind, Normalized};
+use quillmark_content::lines::serial::to_canonical_value;
 use serde_json::{Value as JsonValue, json};
 
 use crate::document::{AnchorSelector, Card, Codec, Document};

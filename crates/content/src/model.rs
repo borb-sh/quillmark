@@ -1,372 +1,179 @@
-//! The `Content` content model: one text sequence per field carrying line
-//! attributes, anchored marks, and embedded islands, over a single coordinate
-//! space of Unicode scalar values (Rust `char`).
-//!
-//! Editor-specific policy (edge-expand, adjacent-merge-at-insertion) is *not*
-//! encoded: the model stores only the resulting range, so the stored form is
-//! identical whatever the editor did.
+//! The content model: one rich-text value per field. Flat text over one
+//! coordinate space of Unicode scalar values, a block record per
+//! `\n`-separated segment, containers by id, range marks, anchors, and islands
+//! whose slots hold content of their own.
 
-use crate::island::IslandType;
-use crate::normalize::{is_bidi_char, is_line_separator};
+use crate::ids::is_id;
+use crate::lines::island::IslandType;
+use crate::lines::model::{self as line, is_font_family_name};
+use crate::lines::normalize::{is_bidi_char, is_line_separator};
 use serde_json::Value as JsonValue;
-use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-/// A position in a [`Content`], counted in Unicode scalar values (USV): never
-/// bytes, never UTF-16 units. One astral char is 1 USV / 4 UTF-8 bytes / 2
-/// UTF-16 units. [`crate::usv`] converts one to the UTF-8 byte offset Rust
-/// slicing needs.
+/// A position counted in Unicode scalar values.
 pub type Usv = usize;
 
-/// U+FFFC OBJECT REPLACEMENT CHARACTER: the single-USV slot an island occupies
-/// in the content. One slot per island; every slot has a backing island. A stray
-/// slot (or a slot with no island) is an invariant violation, which
-/// [`Content::validate`] reports and the mint cannot repair — so a codec taking
-/// text it did not write drops one on the way in, beside the `\r`, bidi controls
-/// and line separators the same input loses. Establishing the invariant is the
-/// codec's job, not a hole in it.
+/// The slot an island occupies in the text.
 pub const ISLAND_SLOT: char = '\u{FFFC}';
 
-/// One content field as a content: the text plus the structure that rides on it.
-///
-/// The mint ([`Content::into_normalized`]) establishes the canonical form:
-/// marks sorted and unioned, container paths renumbered, a line's kind agreeing
-/// with its text, table props on one column count. The mint never moves text:
-/// a block island's slot may share its line, and each emitter sets its markup
-/// as a block there. [`Content::validate`] reports what the mint cannot repair: the
-/// text holds no `\r`, no bidi controls, and no line separator (every character
-/// Typst reads as a newline but `\n`); the count of [`ISLAND_SLOT`] equals
-/// `islands.len()`; `lines.len()` equals the number of `\n`-separated segments.
+/// A hard line break inside a block.
+pub const HARD_BREAK: char = '\u{2028}';
+
+/// The slot a footnote's note lives in.
+pub const NOTE_SLOT: &str = "note";
+
+/// One content field.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Content {
-    /// The content. `\n` is a line boundary; [`ISLAND_SLOT`] is an island slot.
+    /// `\n` ends a block, [`ISLAND_SLOT`] is an island's slot and
+    /// [`HARD_BREAK`] a break inside a block.
     pub text: String,
-    /// One entry per `\n`-separated segment of `text`, in order. The line tree
-    /// is *derived* from this flat list plus each line's `containers` path,
-    /// never stored, so a split/join is a single-char edit with no paragraph
-    /// identity to reconcile.
-    pub lines: Vec<Line>,
-    /// Marks over char ranges, kept normalized: sorted by
-    /// `(start, end, type, attrs)`, same-kind formatting marks unioned.
+    /// One record per `\n`-separated segment, in order.
+    pub blocks: Vec<Block>,
+    /// In the order a block's path first names each.
+    pub containers: Vec<Container>,
+    /// Sorted, same-kind unioned, never over a `\n`.
     pub marks: Vec<Mark>,
-    /// One entry per [`ISLAND_SLOT`], in slot order (ascending char position).
+    /// Sorted by range, then id.
+    pub anchors: Vec<Anchor>,
+    /// One per [`ISLAND_SLOT`], in slot order.
     pub islands: Vec<Island>,
 }
 
-/// A line's attributes: its block role plus the container path it sits in.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Line {
-    pub kind: LineKind,
-    /// Ancestor containers, outermost first. A multi-paragraph list item is two
-    /// `Para` lines sharing one `[ListItem]` path; a paragraph in a quote in a
-    /// list item is `[ListItem, Quote]`.
-    pub containers: Vec<Container>,
-    /// Whether this line continues the previous line's *block* across a hard
-    /// line break rather than starting a new block. `false` = a new block
-    /// (paragraph spacing on either side); `true` = a within-block line break (a
-    /// markdown hard break; consecutive lines of one code fence). The first line
-    /// is always `false`, as is one whose container path differs from the line
-    /// above or whose block above renders a single line
-    /// ([`LineKind::takes_continuations`]).
-    pub continues: bool,
+pub struct Block {
+    pub id: String,
+    pub kind: BlockKind,
+    /// Container ids, outermost first.
+    pub path: Vec<String>,
 }
 
-impl Line {
-    /// A line of `kind` at the top level: no containers, starting a new block,
-    /// which is also what the wire reads off the absent keys.
-    pub fn new(kind: LineKind) -> Self {
-        Line {
-            kind,
-            containers: Vec::new(),
-            continues: false,
-        }
-    }
-
-    /// Set the ancestor path, outermost first.
-    pub fn with_containers(mut self, containers: Vec<Container>) -> Self {
-        self.containers = containers;
-        self
-    }
-
-    /// Set [`continues`](Self::continues): `true` makes this line a within-block
-    /// break off the previous one rather than a new block.
-    pub fn with_continues(mut self, continues: bool) -> Self {
-        self.continues = continues;
-        self
-    }
-}
-
-/// The block role of a line. The tree between lines is inferred: two adjacent
-/// lines with equal `kind`+`containers` are two blocks of that role (e.g. two
-/// paragraphs), never one.
-///
-/// **Closed**, on the same terms as [`MarkKind`]: a `kind` outside this set is
-/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName) at every
-/// decoder, so adding a role is a storage-version event.
 #[derive(Debug, Clone, PartialEq)]
-pub enum LineKind {
+pub enum BlockKind {
     Para,
-    /// ATX/Setext heading, level 1..=6.
-    Heading {
-        level: u8,
-    },
-    /// A line of a code block. `lang` is the (sanitized) info string, shared by
-    /// every line of the same block.
-    Code {
-        lang: Option<String>,
-    },
-    /// A thematic break (`---`/`***`/`___`). The line carries no text.
+    Heading { level: u8 },
+    Code { lang: Option<String> },
     Rule,
 }
 
-impl LineKind {
-    /// Whether a block of this kind renders the lines that [`Line::continues`]
-    /// joins to its first. A paragraph spans its hard-break run and a code
-    /// block its fence's interior; a heading and a rule are one line, and both
-    /// emitters render that line alone, so a continuation there is text the
-    /// projection never reaches.
-    ///
-    /// Necessary, not sufficient: a `Para` whose sole content is a block
-    /// island's slot also renders one line, which
-    /// [`Content::block_island_at`] answers off the island the kind cannot see.
-    pub fn takes_continuations(&self) -> bool {
-        matches!(self, LineKind::Para | LineKind::Code { .. })
-    }
-
-    /// The wire `kind` name.
-    pub fn tag(&self) -> &'static str {
-        match self {
-            LineKind::Para => "para",
-            LineKind::Heading { .. } => "heading",
-            LineKind::Code { .. } => "code",
-            LineKind::Rule => "rule",
-        }
-    }
-
-    /// The payload bag, one spelling for every member of the vocabulary.
-    pub fn attrs(&self) -> Cow<'_, JsonValue> {
-        match self {
-            LineKind::Para | LineKind::Rule => Cow::Owned(JsonValue::Null),
-            LineKind::Heading { level } => Cow::Owned(bag([("level", (*level).into())])),
-            LineKind::Code { lang } => Cow::Owned(match lang {
-                Some(l) => bag([("lang", l.as_str().into())]),
-                None => JsonValue::Null,
-            }),
-        }
-    }
-}
-
-/// A payload bag from its entries, which must be listed in ascending key order:
-/// [`Content::normalize`] canonicalizes an opaque bag, and a minted one is
-/// canonical by construction.
-fn bag<'a>(entries: impl IntoIterator<Item = (&'a str, JsonValue)>) -> JsonValue {
-    JsonValue::Object(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
-}
-
-/// Whether a payload bag holds nothing: the two spellings of "no payload" a
-/// decode can produce (an absent key reads as `Null`, an empty object is one).
-/// [`Content::normalize`] collapses them to `Null`, so a bag's presence on the
-/// wire stays a pure function of the value.
-pub(crate) fn is_empty_bag(v: &JsonValue) -> bool {
-    match v {
-        JsonValue::Null => true,
-        JsonValue::Object(m) => m.is_empty(),
-        _ => false,
-    }
-}
-
-/// A container a line nests inside. The ancestor path is a `Vec<Container>`.
-///
-/// **Closed**, on [`LineKind`]'s terms: a `container` outside this set is
-/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName).
 #[derive(Debug, Clone, PartialEq)]
-pub enum Container {
-    /// A list item. `ordered` distinguishes `1.` from `-`; `start` is the list's
-    /// first number (1 by default); `ordinal` is this item's 0-based index in
-    /// its list; `checked` makes it a task, done or not, and is the item's
-    /// own, so a list mixes tasks and plain items; `instance` tells this list
-    /// from an adjacent one of the same shape (see [`Container::instance`]).
-    ///
-    /// Two *adjacent* lines belong to the same item iff their whole container
-    /// path is equal. Identity is path **plus contiguity**: two sibling inner
-    /// lists under one outer item can produce equal first-item paths,
-    /// distinguished only by the non-adjacency of their runs.
-    ListItem {
-        ordered: bool,
-        start: u64,
-        ordinal: u64,
-        checked: Option<bool>,
-        instance: u64,
-    },
-    /// A block quote. Adjacent lines sharing one `Quote` are one
-    /// multi-paragraph quote; two adjacent quotes differ in `instance`.
-    Quote { instance: u64 },
+pub struct Container {
+    pub id: String,
+    pub kind: ContainerKind,
 }
 
-impl Container {
-    /// Which instance of its shape this container is, among a run of adjacent
-    /// siblings that would otherwise be indistinguishable.
-    ///
-    /// Container identity is path plus contiguity, so two adjacent runs of
-    /// equal shape read as one: `[Quote], [Quote]` is one quote, and two
-    /// one-item lists are one item spanning two paragraphs. `instance` is the
-    /// one field that exists to break that tie, and it is the whole reason the
-    /// encoding is complete rather than a quotient.
-    ///
-    /// A producer writes it against [`same_run`](Self::same_run): two adjacent
-    /// runs of one shape need distinct values, whatever they are, or they
-    /// arrive as one container. [`Content::normalize`] collapses those to the
-    /// canonical pair — **0, flipping to 1 only where the projection would
-    /// otherwise [weld](Self::same_weld) the two** — so a document needing no
-    /// discriminator carries none and one that needs it alternates
-    /// `0, 1, 0, 1`. Non-adjacent runs never collide, so two values suffice.
-    pub fn instance(&self) -> u64 {
-        match self {
-            Container::ListItem { instance, .. }
-            | Container::Quote { instance } => *instance,
-        }
-    }
-
-    /// The wire `container` name.
-    pub fn tag(&self) -> &'static str {
-        match self {
-            Container::ListItem { .. } => "list_item",
-            Container::Quote { .. } => "quote",
-        }
-    }
-
-    /// The payload bag, one spelling for every member of the vocabulary.
-    /// `instance` is not in it: it is an envelope key, carried on every arm.
-    pub fn attrs(&self) -> Cow<'_, JsonValue> {
-        match self {
-            Container::ListItem {
-                ordered,
-                start,
-                ordinal,
-                checked,
-                ..
-            } => Cow::Owned(bag(checked.map(|c| ("checked", c.into())).into_iter().chain([
-                ("ordered", (*ordered).into()),
-                ("ordinal", (*ordinal).into()),
-                ("start", (*start).into()),
-            ]))),
-            Container::Quote { .. } => Cow::Owned(JsonValue::Null),
-        }
-    }
-
-    pub(crate) fn set_instance(&mut self, n: u64) {
-        match self {
-            Container::ListItem { instance, .. }
-            | Container::Quote { instance } => *instance = n,
-        }
-    }
-
-    /// Whether these two are the same container shape, `ordinal`, `checked` and
-    /// `instance` aside — `start` counts, so a list starting at 1 and one starting at 3
-    /// are two shapes.
-    ///
-    /// The **identity** rule, read and written alike: two adjacent lines sit in
-    /// one container instance iff this holds *and* their
-    /// [`instance`](Self::instance)s are equal. [`crate::traverse::runs`]
-    /// applies it, and a producer separates its runs against it. Whether the
-    /// *projection* can then tell two runs apart is
-    /// [`same_weld`](Self::same_weld).
-    pub fn same_run(&self, other: &Container) -> bool {
-        match (self, other) {
-            (
-                Container::ListItem {
-                    ordered: a, start: b, ..
-                },
-                Container::ListItem {
-                    ordered: c, start: d, ..
-                },
-            ) => a == c && b == d,
-            (Container::Quote { .. }, Container::Quote { .. }) => true,
-            _ => false,
-        }
-    }
-
-    /// Whether the Markdown projection would read two adjacent runs of these
-    /// shapes as one — that is, whether the canonical form must spend an
-    /// [`instance`](Self::instance) to keep them apart.
-    /// [`Content::normalize`] mints against this;
-    /// [`same_run`](Self::same_run) is what a producer writes against.
-    ///
-    /// Coarser than `same_run` for lists, because `start` is invisible in
-    /// Markdown: CommonMark reads only a list's *first* number, so `1. a`
-    /// beside `3. b` re-imports as one list of two items and the second list's
-    /// `start` is lost. Comparing `ordered` alone mints the discriminator
-    /// there too, and the marker alternation carries it.
-    pub fn same_weld(&self, other: &Container) -> bool {
-        match (self, other) {
-            (Container::ListItem { ordered: a, .. }, Container::ListItem { ordered: b, .. }) => {
-                a == b
-            }
-            _ => self.same_run(other),
-        }
-    }
-}
-
-/// A [`Content`] that [`Content::normalize`] has run on: the precondition both
-/// projections carry. Minted only by [`Content::into_normalized`], which the
-/// codecs decode through; a mutation that does not re-establish the invariant
-/// takes [`into_content`](Self::into_content) and mints again.
-///
-/// ## Canonical, not valid
-///
-/// [`validate`](Content::validate) rejects a disjoint set: what normalization
-/// cannot repair. Nothing it does brings a container path under
-/// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH), so a token can hold a
-/// content `validate` refuses, and the mint stays infallible on that split. The
-/// codecs call `validate` after minting; a Rust embedder hand-building a
-/// [`Content`] may not.
-///
-/// A projection taking a token may therefore assume only what the mint
-/// establishes, and must be **total over any token**:
-/// [`to_markdown`](crate::export::to_markdown) walks containers on an explicit stack
-/// rather than a frame per level, and `emit_content` checks the depth and
-/// returns an error. An unguarded recursion aborts the process, which no
-/// `Result` can catch.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Normalized(Content);
-
-impl Normalized {
-    /// [`Content::empty`], which is already canonical.
-    pub fn empty() -> Normalized {
-        Normalized(Content::empty())
-    }
-
-    pub fn into_content(self) -> Content {
-        self.0
-    }
-
-    /// Every caller must leave this normalized; the forwarded `apply_*` in
-    /// [`crate::ops`] are the ones that do.
-    pub(crate) fn as_content_mut(&mut self) -> &mut Content {
-        &mut self.0
-    }
+pub enum ContainerKind {
+    List { ordered: bool, start: u64 },
+    Item { checked: Option<bool> },
+    Quote,
 }
 
-impl From<Content> for Normalized {
-    fn from(rt: Content) -> Normalized {
-        rt.into_normalized()
-    }
-}
-
-impl std::ops::Deref for Normalized {
-    type Target = Content;
-
-    fn deref(&self) -> &Content {
-        &self.0
-    }
-}
-
-/// A mark over a char range `[start, end)`. `start == end` (zero-width) is legal
-/// only for [`MarkKind::Anchor`]; normalization drops zero-width formatting.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mark {
     pub start: Usv,
     pub end: Usv,
     pub kind: MarkKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum MarkKind {
+    Strong,
+    Emph,
+    Underline,
+    Strike,
+    Code,
+    Link { url: String },
+    FontFamily { name: String },
+}
+
+/// A comment handle over `[start, end)`; a point when the two are equal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Anchor {
+    pub id: String,
+    pub start: Usv,
+    pub end: Usv,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Island {
+    pub id: String,
+    pub island_type: IslandType,
+    pub props: JsonValue,
+    pub slots: BTreeMap<String, Content>,
+}
+
+/// A position: an offset into a field's text, or one inside an island's slot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pos {
+    At(Usv),
+    In { island: String, slot: String, at: Box<Pos> },
+}
+
+impl BlockKind {
+    pub fn tag(&self) -> &'static str {
+        match self {
+            BlockKind::Para => "para",
+            BlockKind::Heading { .. } => "heading",
+            BlockKind::Code { .. } => "code",
+            BlockKind::Rule => "rule",
+        }
+    }
+}
+
+impl ContainerKind {
+    pub fn tag(&self) -> &'static str {
+        match self {
+            ContainerKind::List { .. } => "list",
+            ContainerKind::Item { .. } => "item",
+            ContainerKind::Quote => "quote",
+        }
+    }
+
+    pub fn same_kind(&self, other: &ContainerKind) -> bool {
+        self.tag() == other.tag()
+    }
+}
+
+impl MarkKind {
+    pub fn tag(&self) -> &'static str {
+        self.to_line().tag()
+    }
+
+    /// One value per character: an add replaces what the range held.
+    pub fn is_keyed(&self) -> bool {
+        matches!(self, MarkKind::Link { .. } | MarkKind::FontFamily { .. })
+    }
+
+    pub(crate) fn to_line(&self) -> line::MarkKind {
+        match self {
+            MarkKind::Strong => line::MarkKind::Strong,
+            MarkKind::Emph => line::MarkKind::Emph,
+            MarkKind::Underline => line::MarkKind::Underline,
+            MarkKind::Strike => line::MarkKind::Strike,
+            MarkKind::Code => line::MarkKind::Code,
+            MarkKind::Link { url } => line::MarkKind::Link { url: url.clone() },
+            MarkKind::FontFamily { name } => line::MarkKind::FontFamily { name: name.clone() },
+        }
+    }
+
+    pub(crate) fn from_line(kind: &line::MarkKind) -> Option<MarkKind> {
+        Some(match kind {
+            line::MarkKind::Strong => MarkKind::Strong,
+            line::MarkKind::Emph => MarkKind::Emph,
+            line::MarkKind::Underline => MarkKind::Underline,
+            line::MarkKind::Strike => MarkKind::Strike,
+            line::MarkKind::Code => MarkKind::Code,
+            line::MarkKind::Link { url } => MarkKind::Link { url: url.clone() },
+            line::MarkKind::FontFamily { name } => MarkKind::FontFamily { name: name.clone() },
+            line::MarkKind::Anchor { .. } => return None,
+        })
+    }
+
+    /// The `(type, attrs)` pair the wire spells, which orders marks.
+    pub fn sort_key(&self) -> (String, String) {
+        self.to_line().sort_key()
+    }
 }
 
 impl Mark {
@@ -375,82 +182,23 @@ impl Mark {
     }
 }
 
-/// The mark set, **closed**: a `type` outside it is
-/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName). Two
-/// algebra classes: formatting is a property of a range (two coincident are
-/// redundant); identity is a handle (two over the same range are two things).
-#[derive(Debug, Clone, PartialEq)]
-pub enum MarkKind {
-    // Formatting: round-trippable projection marks. `is_formatting()`.
-    Strong,
-    Emph,
-    Underline,
-    Strike,
-    Code,
-    Link {
-        url: String,
-    },
-    /// The font family a run sets in, stored as written and matched against a
-    /// font book lowercased. [`is_font_family_name`] is the spelling every
-    /// decoder admits. A [keyed](MarkKind::is_keyed) mark: one family per
-    /// character.
-    FontFamily {
-        name: String,
-    },
-    // Identity: a handle, not a property. Never merged, may be zero-width.
-    /// A comment thread or stable anchor, carried by id and rebased across
-    /// edits like any position. The id is caller-supplied, unique per `Content`,
-    /// and invariant while the mark lives; moved-and-rewritten text drops the
-    /// mark whole. No markdown projection: it is omitted on export, spelled
-    /// read-only by [`to_markdown_annotated`](crate::export::to_markdown_annotated),
-    /// and survives via diff-rebase.
-    Anchor {
-        id: String,
-    },
-}
+impl Anchor {
+    pub fn new(id: impl Into<String>, start: Usv, end: Usv) -> Self {
+        Anchor { id: id.into(), start, end }
+    }
 
-/// Whether `name` is a family a [`MarkKind::FontFamily`] may carry: not empty,
-/// no whitespace at either edge, and no character the content text refuses or
-/// that a font book could not hold in a name.
-pub fn is_font_family_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.trim() == name
-        && !name
-            .chars()
-            .any(|c| c.is_control() || is_bidi_char(c) || is_line_separator(c) || c == ISLAND_SLOT)
-}
-
-/// How a raw keyed mark ranks over a character it shares with another of its
-/// tag, the greater setting it: the later start, then the shorter mark, then
-/// the later in canonical order. Only [`normalize_marks`] reads it, settling
-/// raw overlap once; normalized content holds none.
-fn keyed_rank(m: &Mark) -> (Usv, std::cmp::Reverse<Usv>, (String, String)) {
-    (m.start, std::cmp::Reverse(m.end), m.kind.sort_key())
-}
-
-/// A structured object with no honest text encoding (a table, figure, or future
-/// embed) occupying one [`ISLAND_SLOT`] in the content.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Island {
-    /// Deterministically minted, session-stable id: `isl-{n}` by import
-    /// position. Part of the canonical form and thus hash input, so it is never
-    /// ambient. Edits keep it stable rather than re-deriving it, so
-    /// [`Content::validate`] enforces uniqueness, not positional equality.
-    pub id: String,
-    /// Island type discriminator, closed: see [`IslandType`].
-    pub island_type: IslandType,
-    /// Typed payload. Recursively key-sorted by normalization so it hashes
-    /// deterministically despite `serde_json`'s `preserve_order`.
-    pub props: JsonValue,
+    pub fn is_point(&self) -> bool {
+        self.start == self.end
+    }
 }
 
 impl Island {
-    /// An island of `island_type` under `id`, carrying no payload.
-    pub fn new(id: String, island_type: IslandType) -> Self {
+    pub fn new(id: impl Into<String>, island_type: IslandType) -> Self {
         Island {
-            id,
+            id: id.into(),
             island_type,
-            props: JsonValue::Null,
+            props: JsonValue::Object(Default::default()),
+            slots: BTreeMap::new(),
         }
     }
 
@@ -458,1633 +206,592 @@ impl Island {
         self.props = props;
         self
     }
-}
 
-impl MarkKind {
-    /// Formatting marks are a property of a range and union when coincident;
-    /// an identity mark is a handle and never merges.
-    ///
-    /// Class membership is stored meaning, not presentation: moving a member
-    /// *into* this class starts unioning adjacent runs that round-tripped as
-    /// two marks, moving the canonical bytes of documents nobody edited.
-    pub fn is_formatting(&self) -> bool {
-        matches!(
-            self,
-            MarkKind::Strong
-                | MarkKind::Emph
-                | MarkKind::Underline
-                | MarkKind::Strike
-                | MarkKind::Code
-                | MarkKind::Link { .. }
-                | MarkKind::FontFamily { .. }
-        )
+    pub fn with_slots(mut self, slots: BTreeMap<String, Content>) -> Self {
+        self.slots = slots;
+        self
     }
 
-    /// Keyed formatting: the tag is a key and the attrs its value, one value
-    /// per character, so two marks of one tag never overlap in normalized
-    /// content. A member is also [formatting](Self::is_formatting).
-    pub fn is_keyed(&self) -> bool {
-        matches!(self, MarkKind::FontFamily { .. } | MarkKind::Link { .. })
-    }
-
-    /// The wire `type` name.
-    pub fn tag(&self) -> &'static str {
-        match self {
-            MarkKind::Strong => "strong",
-            MarkKind::Emph => "emph",
-            MarkKind::Underline => "underline",
-            MarkKind::Strike => "strike",
-            MarkKind::Code => "code",
-            MarkKind::Link { .. } => "link",
-            MarkKind::FontFamily { .. } => "font_family",
-            MarkKind::Anchor { .. } => "anchor",
+    /// The slot ids the island's props reference, in reading order.
+    pub fn slot_order(&self) -> Vec<String> {
+        match self.island_type {
+            IslandType::Table => crate::table::Table::read(&self.props)
+                .map(|t| t.slot_order())
+                .unwrap_or_default(),
+            IslandType::Footnote => vec![NOTE_SLOT.to_string()],
+            IslandType::Image | IslandType::Math => Vec::new(),
         }
     }
+}
 
-    /// The payload bag, one spelling for every member of the vocabulary.
-    pub fn attrs(&self) -> Cow<'_, JsonValue> {
-        match self {
-            MarkKind::Strong
-            | MarkKind::Emph
-            | MarkKind::Underline
-            | MarkKind::Strike
-            | MarkKind::Code => Cow::Owned(JsonValue::Null),
-            MarkKind::Link { url } => Cow::Owned(bag([("url", url.as_str().into())])),
-            MarkKind::FontFamily { name } => Cow::Owned(bag([("name", name.as_str().into())])),
-            MarkKind::Anchor { id } => Cow::Owned(bag([("id", id.as_str().into())])),
-        }
-    }
-
-    /// The canonical sort tie-break after `(start, end)`, and the grouping key
-    /// for same-kind union (two `link`s union only at one url).
-    ///
-    /// It is the pair the **wire** carries, read back off the value, so
-    /// canonical order is a function of the stored bytes rather than of variant
-    /// declaration order: adding a member reorders nothing already stored.
-    ///
-    /// The attrs half comes from [`attrs`](Self::attrs) rather than a string per
-    /// arm, so it cannot disagree with what the encoder writes.
-    pub fn sort_key(&self) -> (String, String) {
-        let attrs = self.attrs();
-        let attrs = if is_empty_bag(&attrs) {
-            String::new()
-        } else {
-            canonical_json_string(&attrs)
-        };
-        (self.tag().to_string(), attrs)
+impl Pos {
+    pub fn at(n: Usv) -> Pos {
+        Pos::At(n)
     }
 }
 
-/// A `serde_json::Value` rendered to a string with object keys recursively
-/// sorted: order-insensitive, so it is a stable comparison/grouping key.
-pub(crate) fn canonical_json_string(v: &JsonValue) -> String {
-    if is_value_key_sorted(v) {
-        return serde_json::to_string(v).unwrap_or_default();
-    }
-    serde_json::to_string(&sort_keys_owned(v.clone())).unwrap_or_default()
-}
-
-/// Whether every object in `v` already has its keys in ascending order,
-/// recursively: the allocation-free check that lets a re-normalize skip
-/// rebuilding an already-canonical tree.
-pub(crate) fn is_value_key_sorted(v: &JsonValue) -> bool {
-    match v {
-        JsonValue::Array(items) => items.iter().all(is_value_key_sorted),
-        JsonValue::Object(map) => {
-            map.keys().zip(map.keys().skip(1)).all(|(a, b)| a <= b)
-                && map.values().all(is_value_key_sorted)
-        }
-        _ => true,
-    }
-}
-
-/// `true` when `v` nests deeper than `max` container levels: the guard that
-/// keeps the recursive walkers here and `Value`'s own `Drop` inside a bounded
-/// frame count. The walk is iterative, so the check itself cannot overflow on
-/// the adversarially deep input it exists to detect.
-///
-/// The unit is **container levels**, not nodes: only arrays/objects are charged
-/// a level and a scalar leaf is never checked, so an empty container at level
-/// `max + 1` is rejected exactly like a full one. `quillmark_core` re-exports
-/// this as its own depth guard, so every boundary rejects the identical shape.
-pub fn json_depth_exceeds(v: &JsonValue, max: usize) -> bool {
-    // (value, depth) pairs; depth counts container levels entered.
-    let mut stack: Vec<(&JsonValue, usize)> = vec![(v, 0)];
-    while let Some((v, depth)) = stack.pop() {
-        match v {
-            JsonValue::Array(items) => {
-                if depth + 1 > max {
-                    return true;
-                }
-                stack.extend(items.iter().map(|c| (c, depth + 1)));
-            }
-            JsonValue::Object(map) => {
-                if depth + 1 > max {
-                    return true;
-                }
-                stack.extend(map.values().map(|c| (c, depth + 1)));
-            }
-            _ => {}
-        }
-    }
-    false
-}
-
-/// [`json_depth_exceeds`] against [`MAX_JSON_DEPTH`](crate::MAX_JSON_DEPTH) as
-/// an [`Invariant`] result, `what` naming the bag.
-pub(crate) fn check_json_depth(v: &JsonValue, what: &'static str) -> Result<(), Invariant> {
-    if json_depth_exceeds(v, crate::MAX_JSON_DEPTH) {
-        return Err(Invariant::JsonTooDeep {
-            what,
-            max: crate::MAX_JSON_DEPTH,
-        });
-    }
-    Ok(())
-}
-
-/// A `table` island's props against [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS).
-pub(crate) fn check_table_cells(props: &JsonValue) -> Result<(), Invariant> {
-    let cells = crate::serial::table_slots(props);
-    if cells > crate::MAX_TABLE_CELLS {
-        return Err(Invariant::TableTooLarge { cells, max: crate::MAX_TABLE_CELLS });
-    }
-    Ok(())
-}
-
-/// Put `v` in canonical key order, rebuilding it only when a key is out of
-/// order, so an untouched tree pays the scan and skips the deep clone.
-///
-/// Both walks below recurse, where the container walks do not: a container path
-/// is flat memory at any depth, so nothing but the walk bounds it, while a
-/// [`JsonValue`] deep enough to overflow these overflows its own `Drop` in the
-/// frame that built it. The bound belongs where such a value enters —
-/// `bag_from_wire` before the decode clone, [`check_json_depth`] in
-/// [`Content::validate`].
-pub(crate) fn canonicalize_keys(v: &mut JsonValue) {
-    if !is_value_key_sorted(v) {
-        *v = sort_keys_owned(std::mem::take(v));
-    }
-}
-
-/// Reorder every object's keys by **moving** each entry into a freshly
-/// key-sorted map, recursively. Pins the canonical bytes against
-/// `serde_json`'s `preserve_order` leaking insertion order; rebuilding the map
-/// (rather than sorting in place) keeps that independent of whether the feature
-/// is on in the crate graph.
-pub(crate) fn sort_keys_owned(v: JsonValue) -> JsonValue {
-    match v {
-        JsonValue::Array(items) => {
-            JsonValue::Array(items.into_iter().map(sort_keys_owned).collect())
-        }
-        JsonValue::Object(map) => {
-            let mut entries: Vec<(String, JsonValue)> = map.into_iter().collect();
-            entries.sort_by(|a, b| a.0.cmp(&b.0));
-            let mut out = serde_json::Map::with_capacity(entries.len());
-            for (k, child) in entries {
-                out.insert(k, sort_keys_owned(child));
-            }
-            JsonValue::Object(out)
-        }
-        other => other,
-    }
-}
-
-/// What a [`Content`] can hold that [`Content::normalize`] cannot repair.
-/// Returned by [`Content::validate`].
-///
-/// Each names a shape the model has no principled rewrite for: a forbidden
-/// character with no substitute, two counts with no rule saying which is right,
-/// a range or depth past a bound, an id whose collision only its author can
-/// settle. What normalization *does* repair is not here — the mint establishes
-/// it, and nothing re-checks it.
+/// What the model refuses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Invariant {
-    /// `\r` in the text (line endings must be normalized to `\n`).
-    CarriageReturn,
-    /// A bidi formatting control in the text.
-    BidiControl(char),
-    /// A line separator in the text — VT, FF, NEL, U+2028 or U+2029 — which a
-    /// downstream lexer reads as a line break.
-    LineSeparator(char),
-    /// `island_slot_count != islands.len()`.
+    /// A character the text cannot hold: `\r`, a bidi control, or a line
+    /// separator other than [`HARD_BREAK`].
+    ForbiddenChar(char),
+    BlockCountMismatch { blocks: usize, segments: usize },
     IslandSlotMismatch { slots: usize, islands: usize },
-    /// `lines.len() != newline_segment_count`.
-    LineCountMismatch { lines: usize, segments: usize },
-    /// A mark range runs past the content or is inverted (`start > end`).
-    /// Clamping would guess which end the author meant.
-    MarkOutOfRange { start: Usv, end: Usv, len: Usv },
-    /// A heading level outside 1..=6. No rewrite is principled: level 0 exports
-    /// as bare text and level 7 as literal hashes, and a clamp guesses the
-    /// other way. Both wires refuse it ahead of the model
-    /// ([`ParseError::Shape`](crate::serial::ParseError::Shape)), so only a Rust
-    /// caller spelling the level reaches this.
+    BadId { id: String },
+    DuplicateId { id: String },
+    UnknownContainer { block: String, container: String },
+    /// A path whose kinds do not nest: an item outside a list, a list holding
+    /// anything but an item, or a path ending in a list.
+    BadPath { block: String },
+    NestingTooDeep { block: String, depth: usize, max: usize },
     BadHeadingLevel(u8),
-    /// Two islands share an `id`. Uniqueness is the id invariant `validate`
-    /// enforces; positional equality is not, since edits keep an island's id
-    /// stable across renumbers.
-    IslandIdCollision { id: String },
-    /// Two prose anchors share an `id`, or one carries the empty id.
-    /// `RemoveAnchor { id }` retains-out *every* match, so a shared id makes
-    /// removing one destroy both. Scope is prose marks: a collision a cell
-    /// takes part in loads, [`Content::anchor_collisions`] reports it, and the
-    /// ops refuse to make one.
-    AnchorIdCollision { id: String },
-    /// A line's container path is nested deeper than
-    /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH). The Typst emitter
-    /// recurses one frame per container and refuses a deeper path rather than
-    /// overflow the stack; markdown export walks an explicit stack and projects
-    /// any depth.
-    NestingTooDeep {
-        line: usize,
-        depth: usize,
-        max: usize,
-    },
-    /// An opaque JSON payload (an island's `props`) nests deeper than
-    /// [`MAX_JSON_DEPTH`](crate::MAX_JSON_DEPTH). `what` names the bag; no true
-    /// depth is reported, since the check bails at the first over-deep
-    /// container.
+    BadLang(String),
+    BadMark { start: Usv, end: Usv, len: Usv },
+    BadMarkValue,
+    BadAnchor { id: String },
+    BadIsland { id: String, reason: &'static str },
     JsonTooDeep { what: &'static str, max: usize },
-    /// A table's grid, its rows by its widest row, holds more slots than
-    /// [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS): the mint pads every row to
-    /// the widest, so the bound is checked before it.
     TableTooLarge { cells: usize, max: usize },
+    /// A slot holds what only a field's own text may: anything but paragraphs.
+    BadSlot { island: String, slot: String },
+    /// A container whose blocks are not one contiguous run.
+    SplitContainer { id: String },
+    /// A container under two different parent paths.
+    TwoParents { id: String },
+    UnusedContainer { id: String },
+    BreakInHeading { block: String },
+    TextInRule { block: String },
+    SlotInCode { block: String },
+    BlockIslandNotAlone { island: String },
 }
 
-/// Whether a line's text contradicts its `kind`, which [`Content::normalize`]
-/// answers by demoting the line to [`LineKind::Para`].
-///
-/// `Para` and `Heading` carry arbitrary text including slots (an island's slot
-/// sits in a `Para`), so only the two kinds whose contract *names* their
-/// content constrain it: a [`Rule`](LineKind::Rule) carries no text, and a
-/// [`Code`](LineKind::Code) line carries no slot — a fence emits its text
-/// verbatim, so a slot would land raw in the output and re-import as nothing,
-/// taking the island with it.
-pub(crate) fn line_kind_contradicts_text(kind: &LineKind, seg: &str) -> bool {
-    match kind {
-        LineKind::Rule => !seg.is_empty(),
-        LineKind::Code { .. } => seg.contains(ISLAND_SLOT),
-        _ => false,
+impl std::fmt::Display for Invariant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Invariant::ForbiddenChar(c) => write!(f, "the text holds U+{:04X}, which it cannot", *c as u32),
+            Invariant::BlockCountMismatch { blocks, segments } => {
+                write!(f, "{blocks} block records for {segments} segments")
+            }
+            Invariant::IslandSlotMismatch { slots, islands } => write!(f, "{slots} island slots for {islands} islands"),
+            Invariant::BadId { id } => write!(f, "`{id}` is not an id"),
+            Invariant::DuplicateId { id } => write!(f, "the id `{id}` is held twice"),
+            Invariant::UnknownContainer { block, container } => {
+                write!(f, "block `{block}` names container `{container}`, which does not exist")
+            }
+            Invariant::BadPath { block } => write!(f, "block `{block}` has a path whose containers do not nest"),
+            Invariant::NestingTooDeep { block, depth, max } => {
+                write!(f, "block `{block}` nests {depth} deep, past the limit of {max}")
+            }
+            Invariant::BadHeadingLevel(l) => write!(f, "heading level {l} is outside 1 to 6"),
+            Invariant::BadLang(l) => write!(f, "`{l}` is not a code language"),
+            Invariant::BadMark { start, end, len } => write!(f, "mark [{start}, {end}) does not fit text of length {len}"),
+            Invariant::BadMarkValue => write!(f, "a mark carries a value it cannot"),
+            Invariant::BadAnchor { id } => write!(f, "anchor `{id}` is out of range or has no id"),
+            Invariant::BadIsland { id, reason } => write!(f, "island `{id}`: {reason}"),
+            Invariant::JsonTooDeep { what, max } => write!(f, "{what} nest past {max} levels"),
+            Invariant::TableTooLarge { cells, max } => write!(f, "a table of {cells} cells is past the limit of {max}"),
+            Invariant::BadSlot { island, slot } => {
+                write!(f, "slot `{slot}` of island `{island}` holds more than paragraphs")
+            }
+            Invariant::SplitContainer { id } => write!(f, "container `{id}` spans two separate runs"),
+            Invariant::TwoParents { id } => write!(f, "container `{id}` sits under two different paths"),
+            Invariant::UnusedContainer { id } => write!(f, "container `{id}` holds no block"),
+            Invariant::BreakInHeading { block } => write!(f, "heading `{block}` holds a line break"),
+            Invariant::TextInRule { block } => write!(f, "rule `{block}` holds text"),
+            Invariant::SlotInCode { block } => write!(f, "code block `{block}` holds an island"),
+            Invariant::BlockIslandNotAlone { island } => {
+                write!(f, "island `{island}` is set as a block and shares its block with other text")
+            }
+        }
     }
 }
 
-/// Whether `[start, end)` is a whole line of `chars`: a line boundary on each
-/// side and nothing else between them. An empty range asks it of the position a
-/// splice would fill.
-pub(crate) fn is_whole_line(chars: &[char], start: Usv, end: Usv) -> bool {
-    (start == 0 || chars.get(start - 1) == Some(&'\n')) && matches!(chars.get(end), None | Some('\n'))
+impl std::error::Error for Invariant {}
+
+/// Whether the text may hold `c`.
+pub fn is_text_char(c: char) -> bool {
+    c != '\r' && !is_bidi_char(c) && (c == HARD_BREAK || !is_line_separator(c))
 }
 
-/// Every block-only island's slot that shares its line with other content, in
-/// text order: the placement the island lanes refuse and the markdown
-/// projection breaks.
-pub(crate) fn inline_block_islands<'a>(
-    chars: &'a [char],
-    islands: &'a [Island],
-) -> impl Iterator<Item = Usv> + 'a {
-    chars
-        .iter()
-        .enumerate()
-        .filter(|&(_, &c)| c == ISLAND_SLOT)
-        .zip(islands)
-        .filter(|&((at, _), island)| {
-            island.island_type.block_only() && !is_whole_line(chars, at, at + 1)
-        })
-        .map(|((at, _), _)| at)
-}
-
-/// One piece of a line [`Content::split_block_islands`] broke, covering `span`:
-/// the slot's own piece is a `Para`, the kind re-importing the island's block
-/// markup yields even where the broken line was a heading; the prose pieces keep
-/// the line's role, and only the first can still continue the block above.
-fn fragment_line(line: &Line, span: std::ops::Range<Usv>, breaks: &[Usv], first: bool) -> Line {
-    if span.len() == 1 && breaks.binary_search(&span.start).is_ok() {
-        return Line {
-            kind: LineKind::Para,
-            containers: line.containers.clone(),
-            continues: false,
-        };
+impl Default for Content {
+    fn default() -> Self {
+        Content::empty()
     }
-    Line {
-        kind: line.kind.clone(),
-        containers: line.containers.clone(),
-        continues: first && line.continues,
-    }
-}
-
-/// Whether the line whose text is `seg` is a block island's: its sole content is
-/// one [`ISLAND_SLOT`], and `island` — the one backing that slot — is markup
-/// markdown writes as a block
-/// ([`IslandType::block_only`](crate::island::IslandType::block_only)).
-///
-/// Such a line is a [`LineKind::Para`] that nonetheless renders one block, so
-/// this answers beside [`LineKind::takes_continuations`] rather than through it.
-/// [`Content::block_island_at`] is the public read; a pass already holding the
-/// line's text and slot index calls this instead of rescanning for them.
-pub(crate) fn is_block_island_line(seg: &str, island: Option<&Island>) -> bool {
-    let mut chars = seg.chars();
-    (chars.next(), chars.next()) == (Some(ISLAND_SLOT), None)
-        && island.is_some_and(|i| i.island_type.block_only())
 }
 
 impl Content {
-    /// The text and its per-line attributes; marks and islands start empty.
-    ///
-    /// Constructing neither normalizes nor checks: the canonical form is the
-    /// caller's until [`into_normalized`](Self::into_normalized) runs, and
-    /// [`validate`](Self::validate) reports what that cannot repair. The codecs
-    /// ([`crate::import`], [`Content::from_canonical_json`]) do both.
-    pub fn new(text: String, lines: Vec<Line>) -> Self {
+    /// One empty paragraph.
+    pub fn empty() -> Self {
         Content {
-            text,
-            lines,
+            text: String::new(),
+            blocks: vec![Block::new("b0", BlockKind::Para)],
+            containers: Vec::new(),
             marks: Vec::new(),
+            anchors: Vec::new(),
             islands: Vec::new(),
         }
     }
 
-    /// Normalize and seal. With [`Normalized::empty`], the only mint for
-    /// [`Normalized`]; the codecs decode through here.
-    pub fn into_normalized(mut self) -> Normalized {
-        self.normalize();
-        Normalized(self)
-    }
-
-    pub fn with_marks(mut self, marks: Vec<Mark>) -> Self {
-        self.marks = marks;
-        self
-    }
-
-    /// Set the islands, one per [`ISLAND_SLOT`] in slot order.
-    pub fn with_islands(mut self, islands: Vec<Island>) -> Self {
-        self.islands = islands;
-        self
-    }
-
-    /// An empty content: one empty `Para` line, no marks, no islands.
-    pub fn empty() -> Self {
-        Content::new(String::new(), vec![Line::new(LineKind::Para)])
-    }
-
-    /// Total length in USV.
     pub fn len_usv(&self) -> Usv {
         self.text.chars().count()
     }
 
-    /// Whether this content is one line, as a `text` or `richtext` field
-    /// without `multiline: true` requires: exactly one `Para` line, sitting in
-    /// no container, with no islands. [`Content::empty`] is one line, so a
-    /// blank one-line field passes.
-    pub fn is_inline(&self) -> bool {
-        self.islands.is_empty()
-            && self.lines.len() == 1
-            && self.lines[0].kind == LineKind::Para
-            && self.lines[0].containers.is_empty()
+    /// Each block's `[start, end)` in the text, its `\n` excluded.
+    pub fn block_ranges(&self) -> Vec<(Usv, Usv)> {
+        let mut out = Vec::with_capacity(self.blocks.len());
+        let mut start = 0;
+        let mut i = 0;
+        for c in self.text.chars() {
+            if c == '\n' {
+                out.push((start, i));
+                start = i + 1;
+            }
+            i += 1;
+        }
+        out.push((start, i));
+        out
     }
 
-    /// Whether this content satisfies the `text` constraint: no marks, no
-    /// islands, and every line a plain `Para` sitting in no container.
-    /// `continues` is unconstrained. [`Content::empty`] is plain.
-    ///
-    /// The distinguishing property of `text` over a mark-free `richtext` is
-    /// the *literal* codec ([`crate::import::from_plaintext`]), not this
-    /// predicate.
+    /// The index of the block holding `pos`; a `\n` belongs to the block it
+    /// ends.
+    pub fn block_at(&self, pos: Usv) -> usize {
+        self.text.chars().take(pos).filter(|&c| c == '\n').count()
+    }
+
+    pub fn container(&self, id: &str) -> Option<&Container> {
+        self.containers.iter().find(|c| c.id == id)
+    }
+
+    pub fn island(&self, id: &str) -> Option<&Island> {
+        self.islands.iter().find(|i| i.id == id)
+    }
+
+    pub fn anchor(&self, id: &str) -> Option<&Anchor> {
+        self.anchors.iter().find(|a| a.id == id)
+    }
+
+    /// One paragraph in no container, with no island: the shape a one-line
+    /// field holds.
+    pub fn is_inline(&self) -> bool {
+        self.islands.is_empty()
+            && self.blocks.len() == 1
+            && self.blocks[0].kind == BlockKind::Para
+            && self.blocks[0].path.is_empty()
+    }
+
+    /// Paragraphs in no container, with no mark and no island: the shape a
+    /// `text` field holds.
     pub fn is_plain(&self) -> bool {
         self.marks.is_empty()
             && self.islands.is_empty()
-            && self
-                .lines
-                .iter()
-                .all(|l| l.kind == LineKind::Para && l.containers.is_empty())
+            && self.blocks.iter().all(|b| b.kind == BlockKind::Para && b.path.is_empty())
     }
 
-    /// Whether the text is empty or whitespace-only. An [`ISLAND_SLOT`] is not
-    /// whitespace, so an island-bearing content is never blank.
     pub fn is_blank(&self) -> bool {
-        self.text.trim().is_empty()
+        self.text.chars().all(|c| c.is_whitespace())
     }
 
-    /// Every family a `font_family` mark names, over the text and then each
-    /// island's cells and notes, in mark order with repeats.
+    /// Every family a `font_family` mark names, the text's and then each
+    /// slot's, in mark order with repeats.
     pub fn font_families(&self) -> Vec<String> {
-        let family = |m: &Mark| match &m.kind {
-            MarkKind::FontFamily { name } => Some(name.clone()),
-            _ => None,
-        };
-        let mut out: Vec<String> = self.marks.iter().filter_map(family).collect();
+        let mut out: Vec<String> = self
+            .marks
+            .iter()
+            .filter_map(|m| match &m.kind {
+                MarkKind::FontFamily { name } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
         for island in &self.islands {
-            for (_, marks) in island.island_type.cell_marks(&island.props) {
-                out.extend(marks.iter().filter_map(family));
+            for slot in island.slots.values() {
+                out.extend(slot.font_families());
             }
         }
         out
     }
 
-    /// Number of `\n`-separated segments: the required `lines.len()`.
-    pub fn segment_count(&self) -> usize {
-        self.text.chars().filter(|c| *c == '\n').count() + 1
-    }
-
-    /// The block island `line` holds, if its sole content is that island's slot
-    /// and the island's markup is a block
-    /// ([`IslandType::block_only`](crate::island::IslandType::block_only)).
-    ///
-    /// The read a line kind cannot answer: such a line is a
-    /// [`LineKind::Para`] like any other, and the island is the only thing
-    /// saying its markup is a block.
-    pub fn block_island_at(&self, line: usize) -> Option<&Island> {
-        let mut slot = 0usize;
-        for (i, seg) in self.text.split('\n').enumerate() {
-            if i == line {
-                let island = self.islands.get(slot);
-                return island.filter(|_| is_block_island_line(seg, island));
+    /// Every anchor id the field holds, its text's and each slot's.
+    pub fn anchor_ids(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.anchors.iter().map(|a| a.id.clone()).collect();
+        for island in &self.islands {
+            for slot in island.slots.values() {
+                out.extend(slot.anchor_ids());
             }
-            slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
         }
-        None
+        out
     }
 
-    /// Per line, `(ends, alone)`: whether it ends in a block-only island's slot,
-    /// after which both emitters set a block, and whether that slot is all the
-    /// line holds, making the line itself a block — the one-line block a
-    /// [`LineKind`] cannot name. Empty where no island is block-only, which is
-    /// every document holding no table.
-    fn block_island_lines(&self) -> Vec<(bool, bool)> {
-        if !self.islands.iter().any(|i| i.island_type.block_only()) {
-            return Vec::new();
-        }
-        let mut slot = 0usize;
-        self.text
-            .split('\n')
-            .take(self.lines.len())
-            .map(|seg| {
-                let slots = seg.chars().filter(|&c| c == ISLAND_SLOT).count();
-                let ends = seg.ends_with(ISLAND_SLOT)
-                    && self.islands.get(slot + slots - 1).is_some_and(|i| i.island_type.block_only());
-                slot += slots;
-                (ends, ends && seg.chars().count() == 1)
-            })
-            .collect()
+    /// The content at `island`'s `slot`.
+    pub fn slot(&self, island: &str, slot: &str) -> Option<&Content> {
+        self.island(island)?.slots.get(slot)
     }
 
-    /// Normalize in place: canonicalize container `ordinal`/`instance`, split
-    /// formatting at each `\n`, drop zero-width formatting, union same-kind
-    /// formatting that is adjacent or overlapping, recursively key-sort island
-    /// props, then sort marks canonically. Idempotent: the fixed point the
-    /// canonical serialization commits to. It rewrites structure and never the
-    /// text, so a host holding the text elsewhere stores the content as it is.
+    pub fn slot_mut(&mut self, island: &str, slot: &str) -> Option<&mut Content> {
+        self.islands.iter_mut().find(|i| i.id == island)?.slots.get_mut(slot)
+    }
+
+    /// The canonical form: marks cut at each `\n`, settled, unioned and
+    /// sorted; anchors sorted; containers in first-use order, unused ones
+    /// dropped; island props key-sorted and settled; slots likewise.
     pub fn normalize(&mut self) {
-        canonicalize_containers(&mut self.lines);
-        // A splice writes text, never kinds: joining a fence to an image line
-        // leaves it `Code` over a slot, and export reads the kind and not the
-        // text, so the un-repaired line projects its content away. Demote to
-        // `Para`, which is what re-importing the line's own markdown yields.
-        for (line, seg) in self.lines.iter_mut().zip(self.text.split('\n')) {
-            if line_kind_contradicts_text(&line.kind, seg) {
-                line.kind = LineKind::Para;
-            }
-        }
-        // A `continues` flag under a block that cannot take one clears: nothing
-        // precedes the first line, and below it a differing container path, a
-        // one-line block above, a line a table's slot ends above, after which
-        // both emitters set the table as a block, or a table's slot alone on
-        // the line itself.
-        // `Join` across two paths, `SetKind` retagging the line above and
-        // `SetContinues` itself all reach the shape. Read after the demotion,
-        // which settles what the line above is.
-        let block_island = self.block_island_lines();
-        let ends = |i: usize| block_island.get(i).is_some_and(|&(ends, _)| ends);
-        let alone = |i: usize| block_island.get(i).is_some_and(|&(_, alone)| alone);
-        for i in 0..self.lines.len() {
-            if self.lines[i].continues
-                && (i == 0
-                    || self.lines[i].containers != self.lines[i - 1].containers
-                    || !self.lines[i - 1].kind.takes_continuations()
-                    || ends(i - 1)
-                    || alone(i))
-            {
-                self.lines[i].continues = false;
-            }
-        }
-        // A table island's props are repaired (padded to one column count, cell
-        // `\r` rewritten to a space, cell marks canonicalized) before the key
-        // sort, so equal cells serialize to equal bytes.
+        self.normalize_marks();
+        self.sort_anchors();
+        self.order_containers(true);
         for island in &mut self.islands {
-            island.island_type.normalize_props(&mut island.props);
-            canonicalize_keys(&mut island.props);
+            crate::table::normalize_island(island);
+            for slot in island.slots.values_mut() {
+                slot.normalize();
+            }
         }
-        // Skip the full-text char collection when nothing needs splitting.
-        if self.text.contains('\n') && self.marks.iter().any(|m| m.kind.is_formatting()) {
-            let chars: Vec<char> = self.text.chars().collect();
-            self.marks = split_marks_at_newlines(&chars, normalize_marks(std::mem::take(&mut self.marks)));
-        }
-        self.marks = normalize_marks(std::mem::take(&mut self.marks));
     }
 
-    /// Give a block-only island's slot the line its markup needs: a `\n` on each
-    /// side that has other content, so the prose around it becomes its own block
-    /// and the slot is alone. Markdown writes a table as a block, and left
-    /// inline it emits pipes into the middle of a paragraph, which re-imports as
-    /// prose with the island gone, so the markdown projection runs this on a
-    /// copy. The stored content keeps the shape: a merge of concurrent edits
-    /// reaches it, and the mint never moves text. A point mark right after the
-    /// slot moves onto the line after it.
-    pub(crate) fn split_block_islands(&mut self) {
-        use crate::delta::{Assoc, Delta, Op};
+    pub(crate) fn sort_anchors(&mut self) {
+        self.anchors.sort_by(|a, b| (a.start, a.end, &a.id).cmp(&(b.start, b.end, &b.id)));
+    }
 
-        if !self.islands.iter().any(|i| i.island_type.block_only())
-            || self.lines.len() != self.segment_count()
-        {
-            return;
-        }
+    pub(crate) fn normalize_marks(&mut self) {
         let chars: Vec<char> = self.text.chars().collect();
-        let breaks: Vec<Usv> = inline_block_islands(&chars, &self.islands).collect();
-        if breaks.is_empty() {
-            return;
-        }
-        // Where the `\n` goes, in the text's own coordinates, so every cut sits
-        // strictly inside a line and the fragments below stay in step with it.
-        let mut cuts: Vec<Usv> = Vec::with_capacity(breaks.len() * 2);
-        for &at in &breaks {
-            if at > 0 && chars[at - 1] != '\n' {
-                cuts.push(at);
-            }
-            if chars.get(at + 1).is_some_and(|&c| c != '\n') {
-                cuts.push(at + 1);
-            }
-        }
-        cuts.dedup(); // two adjacent slots name the boundary between them twice
-
-        let mut lines = Vec::with_capacity(self.lines.len() + cuts.len());
-        let mut cut = cuts.iter().copied().peekable();
-        let mut pos = 0usize;
-        for (line, seg) in self.lines.iter().zip(self.text.split('\n')) {
-            let end = pos + seg.chars().count();
-            let mut start = pos;
-            let mut first = true;
-            while let Some(p) = cut.next_if(|&p| p < end) {
-                lines.push(fragment_line(line, start..p, &breaks, first));
-                (start, first) = (p, false);
-            }
-            lines.push(fragment_line(line, start..end, &breaks, first));
-            pos = end + 1;
-        }
-
-        let mut text = String::with_capacity(self.text.len() + cuts.len());
-        let mut at_cut = cuts.iter().copied().peekable();
-        for (i, &c) in chars.iter().enumerate() {
-            if at_cut.next_if_eq(&i).is_some() {
-                text.push('\n');
-            }
-            text.push(c);
-        }
-        let mut ops = Vec::with_capacity(cuts.len() * 2);
-        let mut last = 0usize;
-        for &p in &cuts {
-            ops.push(Op::Retain(p - last));
-            ops.push(Op::Insert("\n".to_string()));
-            last = p;
-        }
-
-        self.text = text;
-        self.lines = lines;
-        let delta = Delta { ops };
-        let after_slot: Vec<Usv> = breaks.iter().map(|&at| at + 1).collect();
-        for m in &mut self.marks {
-            if m.start == m.end {
-                let assoc = match after_slot.contains(&m.start) {
-                    true => Assoc::After,
-                    false => Assoc::Before,
-                };
-                m.start = delta.map_pos(m.start, assoc);
-                m.end = m.start;
-            } else {
-                m.start = delta.map_pos(m.start, Assoc::After);
-                m.end = delta.map_pos(m.end, Assoc::Before);
-            }
-        }
+        let marks: Vec<line::Mark> = std::mem::take(&mut self.marks)
+            .into_iter()
+            .map(|m| line::Mark::new(m.start, m.end, m.kind.to_line()))
+            .collect();
+        let marks = line::normalize_marks(line::split_marks_at_newlines(&chars, line::normalize_marks(marks)));
+        let mut out: Vec<Mark> = marks
+            .into_iter()
+            .filter_map(|m| MarkKind::from_line(&m.kind).map(|k| Mark::new(m.start, m.end, k)))
+            .collect();
+        union_across_breaks(&chars, &mut out);
+        self.marks = out;
     }
 
-    /// What the mint cannot repair. `Ok(())` on every content a codec or an
-    /// accepted op hands out; a hand-built one can fail it.
+    /// Containers in the order paths first name them; with `drop`, the ones no
+    /// path names leave.
+    pub(crate) fn order_containers(&mut self, drop: bool) {
+        let mut order: HashMap<&str, usize> = HashMap::new();
+        for b in &self.blocks {
+            for id in &b.path {
+                let n = order.len();
+                order.entry(id.as_str()).or_insert(n);
+            }
+        }
+        let rank: HashMap<String, usize> = order.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        if drop {
+            self.containers.retain(|c| rank.contains_key(&c.id));
+        }
+        self.containers
+            .sort_by_key(|c| rank.get(&c.id).copied().unwrap_or(usize::MAX));
+    }
+
+    /// [`check`](Self::check) and [`check_relations`](Self::check_relations):
+    /// everything a stored value holds to.
     pub fn validate(&self) -> Result<(), Invariant> {
+        self.check()?;
+        self.check_relations()?;
+        let mut ids = HashSet::new();
+        self.check_anchor_ids(&mut ids)
+    }
+
+    /// What every step keeps: the characters, the counts, the ids, the
+    /// ranges and each path's nesting.
+    pub fn check(&self) -> Result<(), Invariant> {
         let mut slots = 0usize;
-        let mut newlines = 0usize;
+        let mut segments = 1usize;
         let mut len: Usv = 0;
         for c in self.text.chars() {
-            if c == '\r' {
-                return Err(Invariant::CarriageReturn);
+            if !is_text_char(c) {
+                return Err(Invariant::ForbiddenChar(c));
             }
-            if is_bidi_char(c) {
-                return Err(Invariant::BidiControl(c));
-            }
-            if is_line_separator(c) {
-                return Err(Invariant::LineSeparator(c));
-            }
-            if c == ISLAND_SLOT {
-                slots += 1;
-            }
-            if c == '\n' {
-                newlines += 1;
+            match c {
+                ISLAND_SLOT => slots += 1,
+                '\n' => segments += 1,
+                _ => {}
             }
             len += 1;
         }
-        if slots != self.islands.len() {
-            return Err(Invariant::IslandSlotMismatch {
-                slots,
-                islands: self.islands.len(),
-            });
+        if self.blocks.len() != segments {
+            return Err(Invariant::BlockCountMismatch { blocks: self.blocks.len(), segments });
         }
-        let segments = newlines + 1;
-        if self.lines.len() != segments {
-            return Err(Invariant::LineCountMismatch {
-                lines: self.lines.len(),
-                segments,
-            });
+        if self.islands.len() != slots {
+            return Err(Invariant::IslandSlotMismatch { slots, islands: self.islands.len() });
         }
-        // Anchor-id uniqueness is what `RemoveAnchor` presumes.
-        let mut seen_anchor_ids = std::collections::HashSet::new();
-        for m in &self.marks {
-            if m.start > m.end || m.end > len {
-                return Err(Invariant::MarkOutOfRange {
-                    start: m.start,
-                    end: m.end,
-                    len,
-                });
+        let mut containers: HashMap<&str, &ContainerKind> = HashMap::new();
+        for c in &self.containers {
+            if !is_id(&c.id) {
+                return Err(Invariant::BadId { id: c.id.clone() });
             }
-            if let MarkKind::Anchor { id } = &m.kind
-                && (id.is_empty() || !seen_anchor_ids.insert(id.as_str()))
-            {
-                return Err(Invariant::AnchorIdCollision { id: id.clone() });
+            if containers.insert(c.id.as_str(), &c.kind).is_some() {
+                return Err(Invariant::DuplicateId { id: c.id.clone() });
             }
         }
-        for (i, line) in self.lines.iter().enumerate() {
-            match &line.kind {
-                LineKind::Heading { level } if !(1..=6).contains(level) => {
+        let mut block_ids = HashSet::new();
+        for b in &self.blocks {
+            if !is_id(&b.id) {
+                return Err(Invariant::BadId { id: b.id.clone() });
+            }
+            if !block_ids.insert(b.id.as_str()) {
+                return Err(Invariant::DuplicateId { id: b.id.clone() });
+            }
+            match &b.kind {
+                BlockKind::Heading { level } if !(1..=6).contains(level) => {
                     return Err(Invariant::BadHeadingLevel(*level));
+                }
+                BlockKind::Code { lang: Some(lang) } if !is_lang(lang) => {
+                    return Err(Invariant::BadLang(lang.clone()));
                 }
                 _ => {}
             }
-            if line.containers.len() > crate::MAX_NESTING_DEPTH {
-                return Err(Invariant::NestingTooDeep {
-                    line: i,
-                    depth: line.containers.len(),
-                    max: crate::MAX_NESTING_DEPTH,
-                });
+            check_path(b, &containers)?;
+        }
+        for m in &self.marks {
+            if m.start >= m.end || m.end > len {
+                return Err(Invariant::BadMark { start: m.start, end: m.end, len });
+            }
+            match &m.kind {
+                MarkKind::FontFamily { name } if !is_font_family_name(name) => return Err(Invariant::BadMarkValue),
+                _ => {}
             }
         }
-        // Table-cell marks: the prose range rule again, but each mark is bounded
-        // by its own cell's text length (in USV).
-        let mut seen_ids = std::collections::HashSet::with_capacity(self.islands.len());
+        for a in &self.anchors {
+            if a.id.is_empty() || a.start > a.end || a.end > len {
+                return Err(Invariant::BadAnchor { id: a.id.clone() });
+            }
+        }
+        let mut island_ids = HashSet::new();
         for island in &self.islands {
-            if !seen_ids.insert(island.id.as_str()) {
-                return Err(Invariant::IslandIdCollision {
-                    id: island.id.clone(),
-                });
+            if !is_id(&island.id) {
+                return Err(Invariant::BadId { id: island.id.clone() });
             }
-            // Depth before any pass that walks `props`; a cell's own `attrs` is
-            // a subtree, so this bounds the cell marks read below as well.
-            check_json_depth(&island.props, "island props")?;
-            if island.island_type == crate::island::IslandType::Table {
-                check_table_cells(&island.props)?;
+            if !island_ids.insert(island.id.as_str()) {
+                return Err(Invariant::DuplicateId { id: island.id.clone() });
             }
-            for (text, marks) in island.island_type.cell_marks(&island.props) {
-                let clen = text.chars().count();
-                for m in &marks {
-                    if m.start > m.end || m.end > clen {
-                        return Err(Invariant::MarkOutOfRange {
-                            start: m.start,
-                            end: m.end,
-                            len: clen,
-                        });
+            check_island(island)?;
+        }
+        Ok(())
+    }
+
+    /// What a whole change keeps: each container's blocks one contiguous run
+    /// under one parent path, every container in use, and each block's kind
+    /// agreeing with its text.
+    pub fn check_relations(&self) -> Result<(), Invariant> {
+        let mut seen: HashMap<&str, (usize, &[String])> = HashMap::new();
+        for (i, b) in self.blocks.iter().enumerate() {
+            for (k, id) in b.path.iter().enumerate() {
+                let prefix = &b.path[..k];
+                match seen.get_mut(id.as_str()) {
+                    None => {
+                        seen.insert(id.as_str(), (i, prefix));
+                    }
+                    Some((last, held)) => {
+                        if *held != prefix {
+                            return Err(Invariant::TwoParents { id: id.clone() });
+                        }
+                        if *last + 1 != i {
+                            return Err(Invariant::SplitContainer { id: id.clone() });
+                        }
+                        *last = i;
                     }
                 }
             }
         }
+        for c in &self.containers {
+            if !seen.contains_key(c.id.as_str()) {
+                return Err(Invariant::UnusedContainer { id: c.id.clone() });
+            }
+        }
+        let mut slot = 0usize;
+        let mut start = 0usize;
+        let chars: Vec<char> = self.text.chars().collect();
+        for (b, (s, e)) in self.blocks.iter().zip(self.block_ranges()) {
+            let seg = &chars[s..e];
+            match b.kind {
+                BlockKind::Heading { .. } if seg.contains(&HARD_BREAK) => {
+                    return Err(Invariant::BreakInHeading { block: b.id.clone() });
+                }
+                BlockKind::Rule if !seg.is_empty() => return Err(Invariant::TextInRule { block: b.id.clone() }),
+                BlockKind::Code { .. } if seg.contains(&ISLAND_SLOT) => {
+                    return Err(Invariant::SlotInCode { block: b.id.clone() });
+                }
+                _ => {}
+            }
+            for &c in seg {
+                if c == ISLAND_SLOT {
+                    let island = &self.islands[slot];
+                    if island.island_type.block_only() && (seg.len() != 1 || b.kind != BlockKind::Para) {
+                        return Err(Invariant::BlockIslandNotAlone { island: island.id.clone() });
+                    }
+                    slot += 1;
+                }
+            }
+            start = e + 1;
+        }
+        let _ = start;
+        for island in &self.islands {
+            for slot in island.slots.values() {
+                slot.check_relations()?;
+            }
+        }
         Ok(())
     }
+
+    /// Anchor ids unique over the text and every slot.
+    pub(crate) fn check_anchor_ids<'a>(&'a self, ids: &mut HashSet<&'a str>) -> Result<(), Invariant> {
+        for a in &self.anchors {
+            if !ids.insert(a.id.as_str()) {
+                return Err(Invariant::DuplicateId { id: a.id.clone() });
+            }
+        }
+        for island in &self.islands {
+            for slot in island.slots.values() {
+                slot.check_anchor_ids(ids)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether this content may sit in a slot: paragraphs in no container,
+    /// holding no island.
+    pub fn is_slot_shape(&self) -> bool {
+        self.islands.is_empty()
+            && self.containers.is_empty()
+            && self.blocks.iter().all(|b| b.kind == BlockKind::Para && b.path.is_empty())
+    }
+
+    /// The text of each block, island slots and breaks as stored.
+    pub fn block_texts(&self) -> Vec<String> {
+        self.text.split('\n').map(str::to_string).collect()
+    }
 }
 
-/// One open container run, while [`canonicalize_containers`] walks past it.
-struct Run {
-    /// The container **as stored** at the line that opened this run, which is
-    /// what decides where the input's runs begin: a producer's own `instance`
-    /// values separate its runs whatever they are, and only their canonical
-    /// spelling is this pass's business. Cloned once per run, not per line.
-    raw: Container,
-    instance: u64,
-    ordinal: u64,
-    raw_ordinal: u64,
-    /// The `checked` of the item's first line, which every line of it takes.
-    checked: Option<bool>,
+impl Block {
+    pub fn new(id: impl Into<String>, kind: BlockKind) -> Self {
+        Block { id: id.into(), kind, path: Vec::new() }
+    }
+
+    pub fn with_path(mut self, path: Vec<String>) -> Self {
+        self.path = path;
+        self
+    }
 }
 
-/// Canonicalize every container path: `instance` to the minimal discriminator
-/// the adjacency needs, `ordinal` to a gapless 0-based index, and `checked` to
-/// the one its item's first line holds.
-///
-/// Both are derived from *run structure*, which the stored path already spells:
-/// a run opens where the stored run key or the stored `instance` changes, and
-/// within one list item `ordinal` repeating continues that item across its
-/// paragraphs while any change opens the next. So `[5, 9]` and `[0, 1]` are the
-/// same two items, `[3, 3, 7]` is two items the first of which spans two
-/// paragraphs, and a producer's `instance: 7, 9` pair reads as the same two
-/// runs as `0, 1`.
-///
-/// `instance` resets to 0 wherever the preceding sibling run could not weld
-/// with this one anyway — a different container kind, an intervening block, a
-/// fresh parent — so it stays 0 in every document that needs no discriminator.
-fn canonicalize_containers(lines: &mut [Line]) {
-    let mut state: Vec<Run> = Vec::new();
-    for line in lines.iter_mut() {
-        let depth_len = line.containers.len();
-        // Once a depth opens a new run, every depth below it is under a fresh
-        // parent, so nothing there can be continuing a run and nothing there
-        // has an adjacent predecessor to be told apart from.
-        let mut opened_above = false;
-        for d in 0..depth_len {
-            let here = &line.containers[d];
-            let (raw_ordinal, checked) = match here {
-                Container::ListItem { ordinal, checked, .. } => (*ordinal, *checked),
-                _ => (0, None),
-            };
-            let continues = !opened_above
-                && state
-                    .get(d)
-                    .is_some_and(|r| r.raw.same_run(here) && r.raw.instance() == here.instance());
-            if continues {
-                let run = &mut state[d];
-                if raw_ordinal != run.raw_ordinal {
-                    run.ordinal += 1;
-                    run.raw_ordinal = raw_ordinal;
-                    run.checked = checked;
-                    // The run continues but the *item* changed, and an item is
-                    // a parent: everything below is inside a different one, so
-                    // it neither continues its predecessor nor has an adjacent
-                    // sibling to be told apart from. Two inner lists under two
-                    // outer items are two lists however alike they look.
-                    state.truncate(d + 1);
-                    opened_above = true;
-                }
+impl Container {
+    pub fn new(id: impl Into<String>, kind: ContainerKind) -> Self {
+        Container { id: id.into(), kind }
+    }
+}
+
+/// A code block's language: the identifier shape a fence spells unquoted.
+pub fn is_lang(lang: &str) -> bool {
+    !lang.is_empty() && crate::lines::import::sanitize_lang(lang) == lang
+}
+
+/// How deep a path nests, counted as the markdown codecs count it: an item
+/// and a quote each one level, a list none of its own.
+pub fn depth(path: &[String], kinds: impl Fn(&str) -> Option<ContainerKind>) -> usize {
+    path.iter()
+        .filter(|id| !matches!(kinds(id), Some(ContainerKind::List { .. })))
+        .count()
+}
+
+fn check_path(b: &Block, containers: &HashMap<&str, &ContainerKind>) -> Result<(), Invariant> {
+    let mut after_list = false;
+    let mut levels = 0usize;
+    for id in &b.path {
+        let Some(kind) = containers.get(id.as_str()) else {
+            return Err(Invariant::UnknownContainer { block: b.id.clone(), container: id.clone() });
+        };
+        let is_item = matches!(kind, ContainerKind::Item { .. });
+        if is_item != after_list {
+            return Err(Invariant::BadPath { block: b.id.clone() });
+        }
+        after_list = matches!(kind, ContainerKind::List { .. });
+        if !after_list {
+            levels += 1;
+        }
+    }
+    if after_list {
+        return Err(Invariant::BadPath { block: b.id.clone() });
+    }
+    if levels > crate::MAX_NESTING_DEPTH {
+        return Err(Invariant::NestingTooDeep { block: b.id.clone(), depth: levels, max: crate::MAX_NESTING_DEPTH });
+    }
+    let mut seen = HashSet::new();
+    if !b.path.iter().all(|id| seen.insert(id)) {
+        return Err(Invariant::BadPath { block: b.id.clone() });
+    }
+    Ok(())
+}
+
+fn check_island(island: &Island) -> Result<(), Invariant> {
+    if line::json_depth_exceeds(&island.props, crate::MAX_JSON_DEPTH) {
+        return Err(Invariant::JsonTooDeep { what: "island props", max: crate::MAX_JSON_DEPTH });
+    }
+    if !island.props.is_object() {
+        return Err(Invariant::BadIsland { id: island.id.clone(), reason: "props is not an object" });
+    }
+    let bad = |reason| Invariant::BadIsland { id: island.id.clone(), reason };
+    match island.island_type {
+        IslandType::Table => crate::table::check(island)?,
+        IslandType::Footnote => {
+            if island.slots.len() != 1 || !island.slots.contains_key(NOTE_SLOT) {
+                return Err(bad("a footnote holds one slot, `note`"));
+            }
+        }
+        IslandType::Math => {
+            if !island.slots.is_empty() {
+                return Err(bad("an equation holds no slot"));
+            }
+            if !island.props.get("tex").is_some_and(JsonValue::is_string) {
+                return Err(bad("an equation's `tex` is not a string"));
+            }
+        }
+        IslandType::Image => {
+            if !island.slots.is_empty() {
+                return Err(bad("an image holds no slot"));
+            }
+            if !island.props.get("url").is_some_and(JsonValue::is_string) {
+                return Err(bad("an image's `url` is not a string"));
+            }
+        }
+    }
+    for (id, slot) in &island.slots {
+        if !is_id(id) {
+            return Err(Invariant::BadId { id: id.clone() });
+        }
+        slot.check()?;
+        if !slot.is_slot_shape() {
+            return Err(Invariant::BadSlot { island: island.id.clone(), slot: id.clone() });
+        }
+    }
+    Ok(())
+}
+
+/// Union same-kind marks whose gap holds nothing but hard breaks, so a break
+/// inside a formatted run is one spelling.
+fn union_across_breaks(chars: &[char], marks: &mut Vec<Mark>) {
+    if !chars.contains(&HARD_BREAK) || marks.len() < 2 {
+        return;
+    }
+    let mut groups: BTreeMap<(String, String), Vec<Mark>> = BTreeMap::new();
+    for m in marks.drain(..) {
+        groups.entry(m.kind.sort_key()).or_default().push(m);
+    }
+    for (_, mut ms) in groups {
+        ms.sort_by_key(|m| (m.start, m.end));
+        let mut cur = ms[0].clone();
+        for m in ms.into_iter().skip(1) {
+            if m.start >= cur.end && chars[cur.end..m.start].iter().all(|&c| c == HARD_BREAK) && m.start > cur.end {
+                cur.end = m.end;
             } else {
-                // The run being replaced is this one's adjacent predecessor,
-                // and only then: a fresh parent above leaves none.
-                let instance = match state.get(d) {
-                    Some(prev) if !opened_above && prev.raw.same_weld(here) => 1 - prev.instance,
-                    _ => 0,
-                };
-                let raw = here.clone();
-                state.truncate(d);
-                state.push(Run {
-                    raw,
-                    instance,
-                    ordinal: 0,
-                    raw_ordinal,
-                    checked,
-                });
-                opened_above = true;
+                marks.push(std::mem::replace(&mut cur, m));
             }
-            let Run { ordinal, instance, checked, .. } = state[d];
-            if let Container::ListItem { ordinal: o, checked: c, .. } = &mut line.containers[d] {
-                *o = ordinal;
-                *c = checked;
-            }
-            line.containers[d].set_instance(instance);
         }
-        state.truncate(depth_len);
+        marks.push(cur);
     }
+    marks.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
 }
 
-/// Trim each formatting mark's leading/trailing `\n` off `chars`; interior
-/// boundaries are kept, a cell's `<br>` writing inside the mark's delimiters.
-/// Zero-width results are left for [`normalize_marks`] to drop.
-pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
-    for m in marks.iter_mut().filter(|m| m.kind.is_formatting()) {
-        while m.start < m.end && chars.get(m.start) == Some(&'\n') {
-            m.start += 1;
-        }
-        while m.end > m.start && chars.get(m.end - 1) == Some(&'\n') {
-            m.end -= 1;
-        }
-    }
-}
-
-/// Cut each formatting mark at every `\n` in `chars`, keeping the pieces
-/// between them: prose export closes a mark at a line's end and reopens it on
-/// the next, so in prose a mark never spans a line join. Zero-width pieces are
-/// left for [`normalize_marks`] to drop.
-pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i).collect();
-    let within = |m: &Mark| {
-        let lo = breaks.partition_point(|&b| b < m.start);
-        let hi = breaks.partition_point(|&b| b < m.end);
-        &breaks[lo..hi.max(lo)]
-    };
-    let mut out = Vec::with_capacity(marks.len());
-    for m in marks {
-        if !m.kind.is_formatting() {
-            out.push(m);
-            continue;
-        }
-        let mut start = m.start;
-        for &at in within(&m) {
-            out.push(Mark::new(start, at, m.kind.clone()));
-            start = at + 1;
-        }
-        out.push(Mark::new(start.min(m.end), m.end, m.kind));
-    }
-    out
-}
-
-/// Apply the merge rules and the canonical sort to a flat mark list:
-/// same-kind formatting marks union when adjacent *or* overlapping, different
-/// kinds overlap freely (never split into runs), and an identity mark never
-/// merges. Keyed marks of one tag are first cut at every edge among them and
-/// each piece given to the one [`keyed_rank`] puts first, so the union that
-/// follows joins only pieces of one value and none of one tag overlap.
-/// Zero-width formatting is dropped; zero-width anchors survive.
-pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
-    use std::collections::BTreeMap;
-
-    let mut groups: BTreeMap<(String, String), Vec<(Usv, Usv)>> = BTreeMap::new();
-    let mut kind_of: BTreeMap<(String, String), MarkKind> = BTreeMap::new();
-    let mut passthrough: Vec<Mark> = Vec::new();
-
-    let (keyed, marks): (Vec<Mark>, Vec<Mark>) = marks.into_iter().partition(|m| m.kind.is_keyed());
-    let marks = marks.into_iter().chain(settle_keyed(keyed));
-    for m in marks {
-        if m.kind.is_formatting() {
-            if m.start >= m.end {
-                continue; // drop zero-width / inverted formatting
-            }
-            let key = m.kind.sort_key();
-            kind_of.entry(key.clone()).or_insert_with(|| m.kind.clone());
-            groups.entry(key).or_default().push((m.start, m.end));
-        } else {
-            passthrough.push(m);
-        }
-    }
-
-    let mut out: Vec<Mark> = Vec::new();
-    for (key, mut ranges) in groups {
-        ranges.sort_unstable();
-        let kind = kind_of.remove(&key).expect("kind recorded with group");
-        let mut cur = ranges[0];
-        for &(s, e) in &ranges[1..] {
-            if s <= cur.1 {
-                // adjacent (s == cur.1) or overlapping: union
-                cur.1 = cur.1.max(e);
-            } else {
-                out.push(Mark {
-                    start: cur.0,
-                    end: cur.1,
-                    kind: kind.clone(),
-                });
-                cur = (s, e);
-            }
-        }
-        out.push(Mark {
-            start: cur.0,
-            end: cur.1,
-            kind,
-        });
-    }
-    out.extend(passthrough);
-
-    // Key cached per mark so `sort_key`'s allocation runs once each, not once
-    // per comparison.
-    out.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
-    // Two marks equal in range, kind and attrs are one handle recorded twice:
-    // redundant bytes, not two handles. The sort makes any such pair adjacent.
-    out.dedup();
-    out
-}
-
-/// Raw keyed marks as disjoint pieces per tag: each stretch between two edges
-/// of a tag's marks goes to the mark [`keyed_rank`] puts first over it, read
-/// off one sweep over the edges.
-fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
-    use std::collections::{BTreeMap, BTreeSet};
-
-    let mut by_tag: BTreeMap<&'static str, Vec<Mark>> = BTreeMap::new();
-    for m in keyed.into_iter().filter(|m| m.start < m.end) {
-        by_tag.entry(m.kind.tag()).or_default().push(m);
-    }
-    let mut out = Vec::new();
-    for mut marks in by_tag.into_values() {
-        marks.sort_by_key(|m| (m.start, m.end));
-        if marks.windows(2).all(|w| w[0].end <= w[1].start) {
-            out.extend(marks);
-            continue;
-        }
-        let ranks: Vec<_> = marks.iter().map(keyed_rank).collect();
-        let mut by_end: Vec<usize> = (0..marks.len()).collect();
-        by_end.sort_by_key(|&i| marks[i].end);
-        let mut edges: Vec<Usv> = marks.iter().flat_map(|m| [m.start, m.end]).collect();
-        edges.sort_unstable();
-        edges.dedup();
-        let mut over = BTreeSet::new();
-        let (mut opened, mut closed) = (0, 0);
-        for cut in edges.windows(2) {
-            let (a, b) = (cut[0], cut[1]);
-            while closed < by_end.len() && marks[by_end[closed]].end <= a {
-                over.remove(&(&ranks[by_end[closed]], by_end[closed]));
-                closed += 1;
-            }
-            while opened < marks.len() && marks[opened].start <= a {
-                over.insert((&ranks[opened], opened));
-                opened += 1;
-            }
-            if let Some(&(_, i)) = over.last() {
-                out.push(Mark { start: a, end: b, kind: marks[i].kind.clone() });
-            }
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn f(start: Usv, end: Usv, kind: MarkKind) -> Mark {
-        Mark { start, end, kind }
-    }
-
-
-    /// Raw overlap among keyed marks settles before the same-key union, so
-    /// each character keeps the family the raw marks gave it and the result
-    /// holds one family per character.
-    #[test]
-    fn keyed_marks_settle_to_one_value_per_character() {
-        let family = |name: &str| MarkKind::FontFamily { name: name.into() };
-        for (raw, settled) in [
-            (
-                vec![f(0, 5, family("Arimo")), f(5, 10, family("Arimo")), f(3, 8, family("Bitter"))],
-                vec![f(0, 3, family("Arimo")), f(3, 5, family("Bitter")), f(5, 10, family("Arimo"))],
-            ),
-            (
-                vec![f(0, 6, family("Bitter")), f(0, 6, family("Arimo"))],
-                vec![f(0, 6, family("Bitter"))],
-            ),
-            (
-                vec![f(0, 4, family("Arimo")), f(2, 6, family("Bitter")), f(1, 5, MarkKind::Strong)],
-                vec![f(0, 2, family("Arimo")), f(1, 5, MarkKind::Strong), f(2, 6, family("Bitter"))],
-            ),
-        ] {
-            let once = normalize_marks(raw.clone());
-            assert_eq!(once, settled, "{raw:?}");
-            assert_eq!(normalize_marks(once.clone()), once, "{raw:?} is not a fixed point");
-        }
-    }
-
-    #[test]
-    fn is_blank_tracks_whitespace_and_islands() {
-        assert!(Content::empty().is_blank());
-        let mut ws = Content::empty();
-        ws.text = "  \n\t ".to_string();
-        ws.lines = vec![
-            Line {
-                kind: LineKind::Para,
-                containers: Vec::new(),
-                continues: false,
-            },
-            Line {
-                kind: LineKind::Para,
-                containers: Vec::new(),
-                continues: false,
-            },
-        ];
-        assert!(ws.is_blank(), "whitespace-only text is blank");
-
-        let mut has_text = Content::empty();
-        has_text.text = "x".to_string();
-        assert!(!has_text.is_blank());
-
-        let mut island_only = Content::empty();
-        island_only.text = ISLAND_SLOT.to_string();
-        assert!(!island_only.is_blank());
-    }
-
-    fn tagged(text: &str, kind: LineKind) -> Content {
-        Content {
-            text: text.to_string(),
-            lines: vec![Line {
-                kind,
-                containers: Vec::new(),
-                continues: false,
-            }],
-            marks: Vec::new(),
-            islands: Vec::new(),
-        }
-    }
-
-    /// Export trusts the kind and never re-reads the segment, so `Rule` over
-    /// prose would project to `---` with the text silently gone. The mint
-    /// demotes to `Para`, which is what re-importing the line's own markdown
-    /// yields.
-    #[test]
-    fn normalize_demotes_a_stranded_line_kind() {
-        let mut rt = tagged("text on a rule line", LineKind::Rule);
-        rt.normalize();
-        assert_eq!(rt.lines[0].kind, LineKind::Para);
-        assert_eq!(rt.validate(), Ok(()));
-
-        // `Para`/`Heading` carry slots, so only a fence, whose text is emitted
-        // verbatim, strands one.
-        let mut code = tagged(&format!("a{ISLAND_SLOT}b"), LineKind::Code { lang: None });
-        code.islands = vec![Island {
-            id: "isl-0".into(),
-            island_type: IslandType::Image,
-            props: serde_json::json!({"alt": "x", "url": "y.png"}),
-        }];
-        for (kind, settles_to) in [
-            (LineKind::Code { lang: None }, LineKind::Para),
-            (LineKind::Para, LineKind::Para),
-            (LineKind::Heading { level: 1 }, LineKind::Heading { level: 1 }),
-        ] {
-            let mut rt = code.clone();
-            rt.lines[0].kind = kind.clone();
-            rt.normalize();
-            assert_eq!(rt.lines[0].kind, settles_to, "a slot under {kind:?}");
-            assert_eq!(rt.validate(), Ok(()));
-        }
-
-        assert_eq!(tagged("", LineKind::Rule).validate(), Ok(()));
-    }
-
-    /// A one-cell table: the island type markdown writes as a block.
-    fn table_island() -> Island {
-        Island::new("isl-0".into(), IslandType::Table).with_props(serde_json::json!({
-            "aligns": ["none"],
-            "header": [{"marks": [], "text": "h"}],
-            "rows": [[{"marks": [], "text": "c"}]],
-        }))
-    }
-
-    /// A lone slot's line answers with its island where that island's markup is
-    /// a block, and with nothing where it is inline or where the line holds
-    /// more than the slot.
-    #[test]
-    fn block_island_at_answers_for_a_block_islands_lone_slot() {
-        let image = |id: &str| {
-            Island::new(id.into(), IslandType::Image)
-                .with_props(serde_json::json!({"alt": "a", "url": "u"}))
-        };
-        let rt = Content::new(
-            format!("intro\n{ISLAND_SLOT}\nx{ISLAND_SLOT}\n{ISLAND_SLOT}"),
-            vec![Line::new(LineKind::Para); 4],
-        )
-        .with_islands(vec![table_island(), image("isl-1"), image("isl-2")])
-        .into_normalized();
-        assert_eq!(rt.validate(), Ok(()));
-
-        assert_eq!(rt.block_island_at(1).map(|i| i.id.as_str()), Some("isl-0"));
-        assert_eq!(rt.block_island_at(0), None, "prose");
-        assert_eq!(rt.block_island_at(2), None, "the slot shares its line");
-        assert_eq!(rt.block_island_at(3), None, "an image is inline markup");
-        assert_eq!(rt.block_island_at(9), None, "past the last line");
-    }
-
-    /// Markdown spells a slot-alone line one way whichever island backs it, so
-    /// the line is a `Para` either way and the type alone decides whether that
-    /// slot's markup is a block. Both are fixed points of the round trip, so no
-    /// document holds a line its own markdown denies.
-    #[test]
-    fn an_island_alone_on_a_line_rests_on_a_para() {
-        let image = Island::new("isl-0".into(), IslandType::Image)
-            .with_props(serde_json::json!({"alt": "a", "url": "u"}));
-        for island in [table_island(), image] {
-            let what = island.island_type.as_str().to_string();
-            let rt = tagged(&ISLAND_SLOT.to_string(), LineKind::Para)
-                .with_islands(vec![island])
-                .into_normalized();
-            assert_eq!(rt.validate(), Ok(()), "{what}");
-            assert_eq!(rt.lines[0].kind, LineKind::Para, "{what}");
-            let md = crate::export::to_markdown(&rt);
-            assert_eq!(
-                crate::import::from_markdown(&md).expect("re-imports").content,
-                rt,
-                "{what} is not a fixed point: {md:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn container_nesting_is_capped() {
-        let mut rt = tagged("hi", LineKind::Para);
-        rt.lines[0].containers = vec![Container::Quote { instance: 0 }; crate::MAX_NESTING_DEPTH];
-        assert_eq!(rt.validate(), Ok(()));
-        rt.lines[0].containers.push(Container::Quote { instance: 0 });
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::NestingTooDeep {
-                line: 0,
-                depth: crate::MAX_NESTING_DEPTH + 1,
-                max: crate::MAX_NESTING_DEPTH,
-            })
-        );
-    }
-
-    #[test]
-    fn same_kind_adjacent_unions() {
-        let got = normalize_marks(vec![f(3, 6, MarkKind::Strong), f(0, 3, MarkKind::Strong)]);
-        assert_eq!(got, vec![f(0, 6, MarkKind::Strong)]);
-    }
-
-    #[test]
-    fn same_kind_overlapping_unions() {
-        let got = normalize_marks(vec![f(0, 4, MarkKind::Emph), f(2, 7, MarkKind::Emph)]);
-        assert_eq!(got, vec![f(0, 7, MarkKind::Emph)]);
-    }
-
-    #[test]
-    fn different_kinds_overlap_freely() {
-        let got = normalize_marks(vec![f(0, 5, MarkKind::Strong), f(2, 7, MarkKind::Emph)]);
-        assert_eq!(
-            got,
-            vec![f(0, 5, MarkKind::Strong), f(2, 7, MarkKind::Emph)]
-        );
-    }
-
-    #[test]
-    fn links_union_only_at_same_url() {
-        let a = MarkKind::Link { url: "a".into() };
-        let b = MarkKind::Link { url: "b".into() };
-        let got = normalize_marks(vec![
-            f(0, 2, a.clone()),
-            f(2, 4, a.clone()),
-            f(4, 6, b.clone()),
-        ]);
-        assert_eq!(got, vec![f(0, 4, a), f(4, 6, b)]);
-    }
-
-    #[test]
-    fn identity_never_merges() {
-        let a = MarkKind::Anchor { id: "c1".into() };
-        let b = MarkKind::Anchor { id: "c2".into() };
-        let got = normalize_marks(vec![f(3, 3, a.clone()), f(3, 3, b.clone())]);
-        assert_eq!(got.len(), 2);
-        assert!(got.contains(&f(3, 3, a)));
-        assert!(got.contains(&f(3, 3, b)));
-    }
-
-    #[test]
-    fn zero_width_formatting_dropped_zero_width_anchor_kept() {
-        let got = normalize_marks(vec![
-            f(2, 2, MarkKind::Strong),
-            f(2, 2, MarkKind::Anchor { id: "x".into() }),
-        ]);
-        assert_eq!(got, vec![f(2, 2, MarkKind::Anchor { id: "x".into() })]);
-    }
-
-    #[test]
-    fn is_inline_only_for_empty_or_a_single_plain_para() {
-        for (md, inline) in [
-            ("", true),
-            ("just one line", true),
-            ("a *bold* run", true),
-            ("one\n\ntwo", false),
-            ("# heading", false),
-            ("- item", false),
-        ] {
-            let content = crate::import::from_markdown(md).unwrap().content;
-            assert_eq!(content.is_inline(), inline, "{md:?}");
-        }
-        assert!(Content::empty().is_inline());
-    }
-
-    #[test]
-    fn validate_catches_slot_mismatch() {
-        let mut rt = Content::empty();
-        rt.text = "\u{FFFC}".into();
-        rt.lines = vec![Line {
-            kind: LineKind::Para,
-            containers: vec![],
-            continues: false,
-        }];
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::IslandSlotMismatch {
-                slots: 1,
-                islands: 0
-            })
-        );
-    }
-
-    #[test]
-    fn validate_catches_line_count() {
-        let mut rt = Content::empty();
-        rt.text = "a\nb".into(); // 2 segments, but 1 line
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::LineCountMismatch {
-                lines: 1,
-                segments: 2
-            })
-        );
-    }
-
-    /// A within-block break lives inside one container. `Join` mints the
-    /// crossing shape by merging two lines of differing paths, which leaves the
-    /// *next* line continuing across the seam; `normalize` clears it.
-    #[test]
-    fn continues_across_a_container_boundary_is_cleared() {
-        let mut rt = Content::new(
-            "a\nb".to_string(),
-            vec![
-                Line::new(LineKind::Para),
-                Line::new(LineKind::Para)
-                    .with_containers(vec![Container::Quote { instance: 0 }])
-                    .with_continues(true),
-            ],
-        );
-        rt.normalize();
-        assert!(!rt.lines[1].continues, "normalize clears it");
-        assert_eq!(rt.validate(), Ok(()));
-
-        // Equal-length but different containers is the same crossing: two list
-        // items are two blocks, and a hard break does not span them.
-        let li = |ordinal| {
-            vec![Container::ListItem {
-                ordered: false,
-                start: 1,
-                ordinal,
-                checked: None,
-                instance: 0,
-            }]
-        };
-        let mut rt = Content::new(
-            "a\nb".to_string(),
-            vec![
-                Line::new(LineKind::Para).with_containers(li(0)),
-                Line::new(LineKind::Para)
-                    .with_containers(li(1))
-                    .with_continues(true),
-            ],
-        );
-        rt.normalize();
-        assert!(!rt.lines[1].continues);
-
-        // The within-container break is untouched: same path, flag kept.
-        let mut rt = Content::new(
-            "a\nb".to_string(),
-            vec![
-                Line::new(LineKind::Para).with_containers(li(0)),
-                Line::new(LineKind::Para)
-                    .with_containers(li(0))
-                    .with_continues(true),
-            ],
-        );
-        rt.normalize();
-        assert!(rt.lines[1].continues, "a hard break inside one item survives");
-        assert_eq!(rt.validate(), Ok(()));
-    }
-
-    /// A heading, a rule and a block island's line each render as their own line
-    /// alone, so a `continues` line after one is text no projection reaches.
-    /// `SetKind` mints the shape by retagging the line a continuation already
-    /// follows, `SetContinues` by raising the flag; `normalize` clears it. The
-    /// island case is a `Para` like any other, so the flag answers to the island
-    /// type rather than the kind.
-    #[test]
-    fn continues_after_a_single_line_block_is_cleared() {
-        let cases = [
-            (LineKind::Heading { level: 1 }, "a\nb", vec![], "# a\n\nb"),
-            (
-                LineKind::Para,
-                "\u{FFFC}\nb",
-                vec![table_island()],
-                "| h |\n| --- |\n| c |\n\nb",
-            ),
-            (LineKind::Rule, "\nb", vec![], "***\n\nb"),
-        ];
-        for (kind, text, islands, markdown) in cases {
-            let mut rt = Content::new(
-                text.to_string(),
-                vec![
-                    Line::new(kind.clone()),
-                    Line::new(LineKind::Para).with_continues(true),
-                ],
-            )
-            .with_islands(islands);
-            rt.normalize();
-            assert!(!rt.lines[1].continues, "normalize clears it after {kind:?}");
-            assert_eq!(rt.validate(), Ok(()));
-            assert_eq!(
-                crate::export::to_markdown(&rt.into_normalized()),
-                markdown,
-                "the continuation projects as the paragraph it is"
-            );
-        }
-
-        // An image is inline markup, so its line is prose and keeps the break.
-        let mut rt = Content::new(
-            "\u{FFFC}\nb".to_string(),
-            vec![
-                Line::new(LineKind::Para),
-                Line::new(LineKind::Para).with_continues(true),
-            ],
-        )
-        .with_islands(vec![Island::new("isl-0".into(), IslandType::Image)
-            .with_props(serde_json::json!({"alt": "a", "url": "u"}))]);
-        rt.normalize();
-        assert!(rt.lines[1].continues, "an inline island's line is prose");
-    }
-
-    /// A block island's line is its own block, so a hard break into it clears
-    /// like one out of it: kept, the markdown writes `x\` above the pipe table,
-    /// and the backslash re-imports as text.
-    #[test]
-    fn continues_onto_a_block_island_line_is_cleared() {
-        let rt = Content::new(
-            "x\n\u{FFFC}".to_string(),
-            vec![Line::new(LineKind::Para), Line::new(LineKind::Para).with_continues(true)],
-        )
-        .with_islands(vec![table_island()])
-        .into_normalized();
-        assert!(!rt.lines[1].continues);
-        assert_eq!(rt.validate(), Ok(()));
-        let markdown = crate::export::to_markdown(&rt);
-        let back = crate::import::from_markdown(&markdown).unwrap().content;
-        assert_eq!(back, rt, "the markdown is a fixed point: {markdown:?}");
-    }
-
-    #[test]
-    fn table_cell_marks_normalize_and_are_idempotent() {
-        fn table(cell_marks: serde_json::Value) -> Content {
-            let mut rt = Content::empty();
-            rt.text = ISLAND_SLOT.to_string();
-            rt.lines = vec![Line {
-                kind: LineKind::Para,
-                containers: vec![],
-                continues: false,
-            }];
-            rt.islands = vec![Island {
-                id: "i".into(),
-                island_type: IslandType::Table,
-                props: serde_json::json!({
-                    "aligns": ["none"],
-                    "header": [{"text": "abcd", "marks": cell_marks}],
-                    "rows": [],
-                }),
-            }];
-            rt
-        }
-        let mut a = table(serde_json::json!([
-            {"start": 2, "end": 4, "type": "strong"},
-            {"start": 1, "end": 1, "type": "strong"},
-            {"start": 0, "end": 2, "type": "strong"}
-        ]));
-        a.normalize();
-        assert_eq!(a.validate(), Ok(()));
-        let cell = &a.islands[0].props["header"][0];
-        assert_eq!(cell["marks"].as_array().unwrap().len(), 1);
-        assert_eq!(cell["marks"][0]["start"], 0);
-        assert_eq!(cell["marks"][0]["end"], 4);
-        let mut b = table(serde_json::json!([
-            {"start": 0, "end": 2, "type": "strong"},
-            {"start": 2, "end": 4, "type": "strong"}
-        ]));
-        b.normalize();
-        let canon = |rt: &Content| rt.clone().into_normalized().to_canonical_json();
-        assert_eq!(canon(&a), canon(&b));
-        let once = canon(&a);
-        a.normalize();
-        assert_eq!(canon(&a), once);
-    }
-
-    /// A cell is canonicalized in place, so a key this build does not recognize
-    /// survives. Two columns with one body cell, so `pad_row` mints the second
-    /// and the pass covers both a carried cell and a synthesized one.
-    #[test]
-    fn unrecognized_cell_key_survives_normalize() {
-        let mut rt = table_rt(serde_json::json!({
-            "aligns": ["none", "none"],
-            "header": [{"text": "h", "marks": [], "x_host": 2}, cell("h2")],
-            "rows": [[cell("a")]],
-        }));
-        rt.normalize();
-        assert_eq!(rt.islands[0].props["header"][0]["x_host"], 2);
-        assert!(rt.islands[0].props["rows"][0][1].get("x_host").is_none());
-        assert!(rt
-            .into_normalized()
-            .to_canonical_json()
-            .contains(r#""x_host":2"#));
-    }
-
-    #[test]
-    fn validate_catches_cell_mark_out_of_range() {
-        let mut rt = Content::empty();
-        rt.text = ISLAND_SLOT.to_string();
-        rt.lines = vec![Line {
-            kind: LineKind::Para,
-            containers: vec![],
-            continues: false,
-        }];
-        rt.islands = vec![Island {
-            id: "i".into(),
-            island_type: IslandType::Table,
-            props: serde_json::json!({
-                "aligns": ["none"],
-                // "ab" is 2 USV; a mark ending at 5 runs past the cell.
-                "header": [{"text": "ab", "marks": [{"start": 0, "end": 5, "type": "strong"}]}],
-                "rows": [],
-            }),
-        }];
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::MarkOutOfRange {
-                start: 0,
-                end: 5,
-                len: 2
-            })
-        );
-    }
-
-    fn table_rt(props: serde_json::Value) -> Content {
-        let mut rt = Content::empty();
-        rt.text = ISLAND_SLOT.to_string();
-        rt.lines = vec![Line {
-            kind: LineKind::Para,
-            containers: vec![],
-            continues: false,
-        }];
-        rt.islands = vec![Island {
-            id: "i".into(),
-            island_type: IslandType::Table,
-            props,
-        }];
-        rt
-    }
-
-    fn cell(t: &str) -> serde_json::Value {
-        serde_json::json!({ "text": t, "marks": [] })
-    }
-
-    /// The widest row (3) drives the header width, so the markdown
-    /// (header-derived) and Typst (widest-row) projections agree.
-    #[test]
-    fn normalize_repairs_table_shape() {
-        let mut rt = table_rt(serde_json::json!({
-            "aligns": ["none"],
-            "header": [cell("h")],
-            "rows": [
-                [cell("a"), cell("b"), cell("c")],
-                [cell("d\u{2028}e")],
-            ],
-        }));
-        rt.normalize();
-        assert_eq!(rt.validate(), Ok(()));
-
-        let props = &rt.islands[0].props;
-        assert_eq!(props["header"].as_array().unwrap().len(), 3);
-        assert_eq!(props["aligns"].as_array().unwrap().len(), 3);
-        for row in props["rows"].as_array().unwrap() {
-            assert_eq!(row.as_array().unwrap().len(), 3);
-        }
-        assert_eq!(props["aligns"][2], serde_json::json!("none"));
-        assert_eq!(props["header"][1]["text"], serde_json::json!(""));
-        assert_eq!(props["rows"][1][0]["text"], serde_json::json!("d e"));
-
-        let canon = |rt: &Content| rt.clone().into_normalized().to_canonical_json();
-        let once = canon(&rt);
-        rt.normalize();
-        assert_eq!(canon(&rt), once);
-    }
-
-    #[test]
-    fn empty_table_is_valid() {
-        let mut rt = table_rt(serde_json::json!({
-            "aligns": [],
-            "header": [],
-            "rows": [],
-        }));
-        assert_eq!(rt.validate(), Ok(()));
-        rt.normalize();
-        assert_eq!(rt.validate(), Ok(()));
-    }
-
-    #[test]
-    fn non_array_table_header_is_repaired() {
-        let mut rt = table_rt(serde_json::json!({
-            "header": "oops",
-            "aligns": [],
-            "rows": [],
-        }));
-        rt.normalize();
-        assert_eq!(rt.validate(), Ok(()));
-        assert_eq!(rt.islands[0].props["header"], serde_json::json!([]));
-    }
-
-    #[test]
-    fn duplicate_island_id_is_rejected() {
-        let mut rt = Content::empty();
-        rt.text = format!("{ISLAND_SLOT}\n{ISLAND_SLOT}");
-        rt.lines = vec![
-            Line {
-                kind: LineKind::Para,
-                containers: vec![],
-                continues: false,
-            },
-            Line {
-                kind: LineKind::Para,
-                containers: vec![],
-                continues: false,
-            },
-        ];
-        let table = |id: &str| Island {
-            id: id.into(),
-            island_type: IslandType::Table,
-            props: serde_json::json!({ "header": [cell("h")], "aligns": ["none"], "rows": [] }),
-        };
-        rt.islands = vec![table("dup"), table("dup")];
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::IslandIdCollision { id: "dup".into() })
-        );
-        rt.islands = vec![table("a"), table("b")];
-        assert_eq!(rt.validate(), Ok(()));
-    }
-
-    /// Byte-identical anchors `normalize` already dedupes; this is the
-    /// surviving collision.
-    #[test]
-    fn duplicate_or_empty_anchor_id_is_rejected() {
-        let mut rt = Content::empty();
-        rt.text = "abcd".into();
-        let anchor = |start, end, id: &str| Mark {
-            start,
-            end,
-            kind: MarkKind::Anchor { id: id.into() },
-        };
-        rt.marks = vec![anchor(0, 2, "x"), anchor(2, 4, "x")];
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::AnchorIdCollision { id: "x".into() })
-        );
-        rt.marks = vec![anchor(0, 2, "x"), anchor(2, 4, "y")];
-        assert_eq!(rt.validate(), Ok(()));
-        rt.marks = vec![anchor(0, 2, "")];
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::AnchorIdCollision { id: String::new() })
-        );
-    }
-
-    #[test]
-    fn normalize_settles_keyed_marks_before_splitting_them() {
-        let family = |name: &str| MarkKind::FontFamily { name: name.into() };
-        let mut rt = Content {
-            text: "abcde\nfghij".into(),
-            lines: vec![Line::new(LineKind::Para); 2],
-            marks: vec![Mark::new(0, 11, family("Zeta")), Mark::new(3, 11, family("Alpha"))],
-            islands: vec![],
-        };
-        rt.normalize();
-        assert_eq!(
-            rt.marks,
-            vec![
-                Mark::new(0, 3, family("Zeta")),
-                Mark::new(3, 5, family("Alpha")),
-                Mark::new(6, 11, family("Alpha")),
-            ]
-        );
-    }
-
-    #[test]
-    fn overlapping_links_split_to_one_link_per_line() {
-        let lines = 50;
-        let text = "a\n".repeat(lines);
-        let len = text.chars().count();
-        let mut rt = Content {
-            lines: vec![Line::new(LineKind::Para); lines + 1],
-            text,
-            marks: (0..20)
-                .map(|i| Mark::new(i, len, MarkKind::Link { url: format!("u{i}") }))
-                .collect(),
-            islands: vec![],
-        };
-        rt.normalize();
-        assert_eq!(rt.marks.len(), lines);
-        let once = rt.clone();
-        rt.normalize();
-        assert_eq!(rt, once);
-    }
-
-    #[test]
-    fn normalize_dedupes_identical_identity_marks() {
-        let mut rt = Content::empty();
-        rt.text = "abcd".into();
-        let anchor = |id: &str| Mark {
-            start: 0,
-            end: 4,
-            kind: MarkKind::Anchor { id: id.into() },
-        };
-        rt.marks = vec![anchor("x"), anchor("x")];
-        rt.normalize();
-        assert_eq!(rt.marks, vec![anchor("x")]);
-        rt.marks = vec![anchor("x"), anchor("y")];
-        rt.normalize();
-        assert_eq!(rt.marks.len(), 2);
-    }
+/// Whether a content value nests past what a slot and an island's props may.
+pub(crate) fn json_too_deep(v: &JsonValue) -> bool {
+    line::json_depth_exceeds(v, crate::MAX_JSON_DEPTH + 8)
 }

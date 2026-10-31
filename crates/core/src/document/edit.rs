@@ -11,11 +11,11 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use quillmark_content::delta::{Delta, carry_anchors, diff_import};
-use quillmark_content::export::{AnchorRead, anchors_where};
-use quillmark_content::import::ImportError;
-use quillmark_content::model::Normalized;
-use quillmark_content::ops::{ApplyError, ChangeBundle};
+use quillmark_content::lines::delta::{Delta, carry_anchors, diff_import};
+use quillmark_content::lines::export::{AnchorRead, anchors_where};
+use quillmark_content::lines::import::ImportError;
+use quillmark_content::lines::model::Normalized;
+use quillmark_content::lines::ops::{ApplyError, ChangeBundle};
 
 use crate::document::base::{Base, BaseError};
 use crate::document::meta::{CardKindError, validate_composable_kind};
@@ -1067,7 +1067,7 @@ impl Card {
         payload.set_kind(kind);
         Ok(Card::from_parts(
             payload,
-            quillmark_content::model::Normalized::empty(),
+            quillmark_content::lines::model::Normalized::empty(),
         ))
     }
 
@@ -1254,7 +1254,7 @@ impl Card {
         self.remove_meta_namespace(MetaKey::Seed, card_kind)
     }
 
-    /// Overwrite the body with a pre-built [`Content`](quillmark_content::model::Content): value semantics, no
+    /// Overwrite the body with a pre-built [`Content`](quillmark_content::lines::model::Content): value semantics, no
     /// markdown import, no diff, no schema check, infallible. A raw `Content`
     /// normalizes on the way in, so what lands is canonical. Anchor fate across
     /// the content lane: **overwrite destroys, [`revise_body`](Self::revise_body)
@@ -1263,7 +1263,7 @@ impl Card {
         self.body = content.into();
     }
 
-    /// Overwrite a content field's value with a pre-built [`Content`](quillmark_content::model::Content): the
+    /// Overwrite a content field's value with a pre-built [`Content`](quillmark_content::lines::model::Content): the
     /// field-level twin of [`overwrite_body`](Self::overwrite_body). Stores the
     /// canonical content JSON (identity and content-only marks intact), no diff,
     /// no schema check. The previous value's anchors are gone. Returns
@@ -1287,7 +1287,7 @@ impl Card {
     /// existing field first. The §8 field count is the payload's, so an absent
     /// `name` on a full card is [`EditError::InvalidPayload`].
     fn store_field_content(&mut self, name: &str, content: &Normalized) -> Result<(), EditError> {
-        let canonical = quillmark_content::serial::to_canonical_value(content);
+        let canonical = quillmark_content::lines::serial::to_canonical_value(content);
         self.payload_mut()
             .insert(name.to_string(), QuillValue::from_json(canonical))
             .map(|_| ())
@@ -1480,7 +1480,7 @@ impl Card {
         let (content, revised) = self.diff_field(name, body)?;
         // Re-canonicalizing a content object keeps its identity marks, so the
         // schema check fires on the value the anchors survived onto.
-        let canonical = quillmark_content::serial::to_canonical_value(&content);
+        let canonical = quillmark_content::lines::serial::to_canonical_value(&content);
         let (stored, _) = resolve_field_write(
             name,
             &QuillValue::from_json(canonical),
@@ -1519,7 +1519,7 @@ impl Card {
             schema,
             &DocPath::new(),
         )?;
-        let delta = quillmark_content::delta::diff(
+        let delta = quillmark_content::lines::delta::diff(
             &base,
             stored
                 .as_json()

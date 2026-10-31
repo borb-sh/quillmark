@@ -7,11 +7,11 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_content::delta::{merge_lines, rebase_marks_pinned};
-use quillmark_content::export::{Annotated, to_markdown, to_markdown_annotated};
-use quillmark_content::import::{ImportWarning, from_markdown_against};
-use quillmark_content::model::Normalized;
-use quillmark_content::serial::to_canonical_value;
+use quillmark_content::lines::delta::{merge_lines, rebase_marks_pinned};
+use quillmark_content::lines::export::{Annotated, to_markdown, to_markdown_annotated};
+use quillmark_content::lines::import::{ImportWarning, from_markdown_against};
+use quillmark_content::lines::model::Normalized;
+use quillmark_content::lines::serial::to_canonical_value;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 

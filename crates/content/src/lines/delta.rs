@@ -29,8 +29,8 @@
 //! in one round loses the match, and the anchor with it: the accepted
 //! residual.
 
-use crate::import::{Against, ImportWarning, Pin};
-use crate::model::{Island, Mark, MarkKind, Content, Normalized};
+use crate::lines::import::{Against, ImportWarning, Pin};
+use crate::lines::model::{Island, Mark, MarkKind, Content, Normalized};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use similar::{capture_diff_slices, Algorithm, ChangeTag, DiffOp, TextDiff};
@@ -192,7 +192,7 @@ impl Delta {
     /// New-text char ranges covered by `Insert` ops: the only regions an anchor
     /// may be re-homed into (moved text must have been *inserted*, not merely
     /// present in surviving text elsewhere), and the hint
-    /// [`locate`](crate::anchor::locate) takes for the same discipline.
+    /// [`locate`](crate::lines::anchor::locate) takes for the same discipline.
     pub fn inserted_spans(&self) -> Vec<(usize, usize)> {
         let mut spans = Vec::new();
         let mut new = 0usize;
@@ -407,7 +407,7 @@ fn push_insert(ops: &mut Vec<Op>, s: &str) {
 }
 
 /// The revise lane: import `new_markdown` as a revise of `base`
-/// ([`from_markdown_against`](crate::import::from_markdown_against)), so its
+/// ([`from_markdown_against`](crate::lines::import::from_markdown_against)), so its
 /// island tokens are `base`'s islands, char-diff it against `base`, and carry
 /// `base`'s non-formatting marks (anchors) forward, rebased through the diff
 /// (re-homing verbatim block moves) or placed where a tag pins them
@@ -420,8 +420,8 @@ fn push_insert(ops: &mut Vec<Op>, s: &str) {
 pub fn diff_import(
     base: &Content,
     new_markdown: &str,
-) -> Result<(Normalized, Delta, Vec<ImportWarning>), crate::import::ImportError> {
-    let Against { content, warnings, pins } = crate::import::from_markdown_against(new_markdown, base)?;
+) -> Result<(Normalized, Delta, Vec<ImportWarning>), crate::lines::import::ImportError> {
+    let Against { content, warnings, pins } = crate::lines::import::from_markdown_against(new_markdown, base)?;
     let (content, delta) = rebase_pinned(base, content, &pins);
     Ok((content, delta, warnings))
 }
@@ -559,7 +559,7 @@ fn carry_marks(base: &Content, new_rt: &mut Content, delta: &Delta, carry: impl 
 fn carry_island_ids(base: &[Island], new: &mut Content) {
     let key = |island: &Island| {
         let mut props = island.props.clone();
-        crate::export::drop_anchor_marks(&mut props);
+        crate::lines::export::drop_anchor_marks(&mut props);
         (island.island_type.as_str(), props.to_string())
     };
     let old: Vec<_> = base.iter().map(key).collect();
@@ -614,7 +614,7 @@ fn carry_cell_anchors(base: &[Island], new: &mut Content, carried: &[Option<usiz
         }
         let cells = island.island_type.cell_values_mut(&mut island.props);
         for (cell, (text, marks)) in cells.into_iter().zip(stored) {
-            let (now, mut now_marks) = crate::serial::parse_cell(cell);
+            let (now, mut now_marks) = crate::lines::serial::parse_cell(cell);
             if now != text {
                 continue;
             }
@@ -626,7 +626,7 @@ fn carry_cell_anchors(base: &[Island], new: &mut Content, carried: &[Option<usiz
                 continue;
             }
             now_marks.extend(fresh);
-            crate::serial::set_cell_marks(cell, &now_marks);
+            crate::lines::serial::set_cell_marks(cell, &now_marks);
         }
     }
 }
@@ -778,8 +778,8 @@ fn line_hunks<'a>(base: &[&'a str], side: &[&'a str]) -> Vec<(std::ops::Range<us
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::import::from_markdown;
-    use crate::model::MarkKind;
+    use crate::lines::import::from_markdown;
+    use crate::lines::model::MarkKind;
 
     #[test]
     fn a_line_within_the_char_limit_pairs_by_its_word_diff_at_any_word_count() {
@@ -1314,7 +1314,7 @@ mod tests {
     #[test]
     fn a_kept_tag_pins_and_a_dropped_tag_falls_back_to_the_diff() {
         let stored = with_anchor("Hello world, again.", (6, 11), "w");
-        let read = crate::export::to_markdown_annotated(&stored).markdown;
+        let read = crate::lines::export::to_markdown_annotated(&stored).markdown;
         assert_eq!(read, "Hello <qm-anchor ref=\"w\"></qm-anchor>world, again.");
 
         let (moved, _, warnings) = diff_import(&stored, "<qm-anchor ref=\"w\"></qm-anchor>Hello world, again.").unwrap();
@@ -1366,12 +1366,12 @@ mod tests {
         let mut stored = from_markdown("See ![a](u.png) here.").unwrap().content.into_content();
         stored.islands[0].props["title"] = "kept".into();
         let stored = stored.into_normalized();
-        let read = crate::export::to_markdown_annotated(&stored).markdown;
+        let read = crate::lines::export::to_markdown_annotated(&stored).markdown;
         assert_eq!(read, "See <qm-island ref=\"isl-0\"></qm-island> here.");
 
         let (revised, _, warnings) = diff_import(&stored, "Now <qm-island ref=\"isl-0\"></qm-island> there.").unwrap();
         assert!(warnings.is_empty());
-        assert_eq!(revised.text, format!("Now {} there.", crate::model::ISLAND_SLOT));
+        assert_eq!(revised.text, format!("Now {} there.", crate::lines::model::ISLAND_SLOT));
         assert_eq!(revised.islands, stored.islands);
 
         let cold = from_markdown(&read).unwrap();
@@ -1387,7 +1387,7 @@ mod tests {
         let mut stored = from_markdown("| h |\n| --- |\n| c |").unwrap().content.into_content();
         stored.islands[0].props["note"] = "kept".into();
         let stored = stored.into_normalized();
-        assert_eq!(crate::export::to_markdown_annotated(&stored).markdown, "<qm-island ref=\"isl-0\"></qm-island>");
+        assert_eq!(crate::lines::export::to_markdown_annotated(&stored).markdown, "<qm-island ref=\"isl-0\"></qm-island>");
 
         let md = "a <qm-island ref=\"isl-0\"></qm-island> b <qm-island ref=\"isl-9\"></qm-island>\n\n\
                   | x |\n| --- |\n| <qm-island ref=\"isl-0\"></qm-island> |";
@@ -1411,7 +1411,7 @@ mod tests {
             serde_json::json!([{ "start": 0, "end": 4, "type": "anchor", "attrs": { "id": "c1" } }]);
         let stored = stored.into_normalized();
         let token = "<qm-island ref=\"isl-0\"></qm-island>";
-        assert_eq!(crate::export::to_markdown_annotated(&stored).markdown, token);
+        assert_eq!(crate::lines::export::to_markdown_annotated(&stored).markdown, token);
 
         let (once, _, _) = diff_import(&stored, token).unwrap();
         assert_eq!(once.islands, stored.islands);
@@ -1430,7 +1430,7 @@ mod tests {
         stored.marks.push(Mark::new(6, 11, MarkKind::Anchor { id: "w".into() }));
         stored.islands[0].props["note"] = "kept".into();
         let stored = stored.into_normalized();
-        let read = crate::export::to_markdown_annotated(&stored).markdown;
+        let read = crate::lines::export::to_markdown_annotated(&stored).markdown;
         let token = &read[read.find("<qm-island").unwrap()..];
         let (next, _, _) = diff_import(&stored, &format!("Hello {token}<qm-anchor ref=\"w\"></qm-anchor>world.")).unwrap();
         assert_eq!(next.text, "Hello \n\u{FFFC}\nworld.");

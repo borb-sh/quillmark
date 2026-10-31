@@ -1,5 +1,5 @@
-use quillmark_content::export::to_markdown_annotated;
-use quillmark_content::import::from_markdown;
+use quillmark_content::lines::export::to_markdown_annotated;
+use quillmark_content::lines::import::from_markdown;
 
 use crate::document::{Base, BaseError, Card, Document, EditError, content_hash, value_hash};
 use crate::quill::{BoundParseError, QuillConfig};
@@ -356,7 +356,7 @@ fn a_moved_tag_pins_through_a_merge() {
         .unwrap();
     let revised = card.revise_body_against(Base::Read(&read), &moved).unwrap();
     assert!(revised.dropped_anchors.is_empty());
-    let ctx = quillmark_content::anchor::anchor_context(card.body(), "c1").unwrap();
+    let ctx = quillmark_content::lines::anchor::anchor_context(card.body(), "c1").unwrap();
     assert!(ctx.quote.starts_with("beta"), "{ctx:?}");
     assert!(card.body_markdown().contains("Third, theirs."));
 }

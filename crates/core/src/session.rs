@@ -5,8 +5,8 @@ use crate::{
     region::{ContentHit, FieldCoverage, RenderedRegion},
     types::RenderOptions,
 };
-pub use quillmark_content::delta::{Assoc, Delta, Op};
-pub use quillmark_content::ops::{ApplyError, ChangeBundle, IslandOp, LineOp, MarkOp};
+pub use quillmark_content::lines::delta::{Assoc, Delta, Op};
+pub use quillmark_content::lines::ops::{ApplyError, ChangeBundle, IslandOp, LineOp, MarkOp};
 use std::sync::OnceLock;
 
 /// What a committed [`LiveSession::update`] changed.

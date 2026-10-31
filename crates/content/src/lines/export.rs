@@ -4,13 +4,13 @@
 //! surviving across edits via diff-rebase rather than the projection.
 //! [`to_markdown_annotated`] spells each at its start as a read-only tag the
 //! import drops. The contract is the **content fixed point**: for a content `rt` from
-//! [`crate::import::from_markdown`], `from_markdown(to_markdown(rt)) == rt`.
+//! [`crate::lines::import::from_markdown`], `from_markdown(to_markdown(rt)) == rt`.
 //! Markdown source is not canonical; the content is.
 //!
 //! ## Export is defined by import
 //!
 //! The `render_marked_core` safety net settles a line's markdown by re-parsing
-//! it with [`crate::import::from_markdown`] and dropping marks until the text
+//! it with [`crate::lines::import::from_markdown`] and dropping marks until the text
 //! comes back intact. CommonMark's emphasis algorithm (delimiter-run matching,
 //! the rule of 3, `\*`-escape adjacency) has corners no local rule captures, and
 //! a local approximation drops good marks on the cases it gets wrong; verifying
@@ -42,9 +42,9 @@
 
 use std::borrow::Cow;
 
-use crate::anchor::{AnchorSite, Surface};
-use crate::island::IslandType;
-use crate::model::{
+use crate::lines::anchor::{AnchorSite, Surface};
+use crate::lines::island::IslandType;
+use crate::lines::model::{
     Container, Island, LineKind, Mark, MarkKind, Content, Normalized, Usv, ISLAND_SLOT,
 };
 
@@ -96,13 +96,13 @@ pub enum ExportLoss {
 }
 
 /// [`to_markdown`] with a receipt: the markdown read back through
-/// [`crate::import::from_markdown`] and compared with `rt`, so every
+/// [`crate::lines::import::from_markdown`] and compared with `rt`, so every
 /// construct the projection does not spell is named. Anchors are not
 /// compared, the projection carrying none. Costs an import and a diff beyond
 /// [`to_markdown`].
 pub fn to_markdown_checked(rt: &Normalized) -> Exported {
     let markdown = to_markdown(rt);
-    let back = match crate::import::from_markdown(&markdown) {
+    let back = match crate::lines::import::from_markdown(&markdown) {
         Ok(imported) => imported.content,
         Err(_) => {
             return Exported {
@@ -116,15 +116,15 @@ pub fn to_markdown_checked(rt: &Normalized) -> Exported {
     if !same_text || back.lines != rt.lines {
         losses.push(ExportLoss::Text);
     }
-    let to_stored = (!same_text).then(|| crate::delta::diff(&back.text, &rt.text));
+    let to_stored = (!same_text).then(|| crate::lines::delta::diff(&back.text, &rt.text));
     let held: Vec<(Usv, Usv, &MarkKind)> = back
         .marks
         .iter()
         .filter(|m| !matches!(m.kind, MarkKind::Anchor { .. }))
         .map(|m| match &to_stored {
             Some(d) => (
-                d.map_pos(m.start, crate::delta::Assoc::After),
-                d.map_pos(m.end, crate::delta::Assoc::Before),
+                d.map_pos(m.start, crate::lines::delta::Assoc::After),
+                d.map_pos(m.end, crate::lines::delta::Assoc::Before),
                 &m.kind,
             ),
             None => (m.start, m.end, &m.kind),
@@ -166,7 +166,7 @@ pub struct Annotated {
     /// [`to_markdown`]'s markdown with the anchor tags it can hold.
     pub markdown: String,
     /// Every anchor, spelled or not, in the prose and in each island's cells,
-    /// in the order [`Content::anchor_sites`](crate::model::Content::anchor_sites)
+    /// in the order [`Content::anchor_sites`](crate::lines::model::Content::anchor_sites)
     /// reads them.
     pub anchors: Vec<AnchorRead>,
 }
@@ -185,7 +185,7 @@ pub struct AnchorRead {
 /// `<qm-anchor ref="ID"></qm-anchor>` at its `start`, and each island whose
 /// markup does not [read back](island_reads_back) spelled as its token
 /// `<qm-island ref="ID"></qm-island>`: the two-way read
-/// (markdown-spec §6.4). A revise ([`crate::delta::diff_import`]) reads
+/// (markdown-spec §6.4). A revise ([`crate::lines::delta::diff_import`]) reads
 /// both against the stored value; a cold import drops both, so where no
 /// token stands the markdown imports cold as [`to_markdown`]'s does. A range
 /// anchor reads as its start.
@@ -272,7 +272,7 @@ fn block_islands_alone(rt: &Normalized) -> Cow<'_, Normalized> {
         return Cow::Borrowed(rt);
     }
     let chars: Vec<char> = rt.text.chars().collect();
-    if crate::model::inline_block_islands(&chars, &rt.islands).next().is_none() {
+    if crate::lines::model::inline_block_islands(&chars, &rt.islands).next().is_none() {
         return Cow::Borrowed(rt);
     }
     let mut broken = rt.clone().into_content();
@@ -493,7 +493,7 @@ fn emit_block(ctx: &Ctx, range: std::ops::Range<usize>, depth: usize, out: &mut 
         if frame.at < frame.range.end {
             let i = frame.at;
             if lines[i].containers.len() > frame.depth {
-                let item = crate::traverse::items(lines, i..frame.range.end, frame.depth)
+                let item = crate::lines::traverse::items(lines, i..frame.range.end, frame.depth)
                     .next()
                     .expect("a line with a container at `depth` opens an item");
                 block_separator(&mut frame.buf, frame.head.is_none());
@@ -502,7 +502,7 @@ fn emit_block(ctx: &Ctx, range: std::ops::Range<usize>, depth: usize, out: &mut 
                 let child = Frame::open(Some(item.container), item.range, frame.depth + 1);
                 stack.push(child);
             } else {
-                let seg = crate::traverse::segment(lines, i..frame.range.end, frame.depth);
+                let seg = crate::lines::traverse::segment(lines, i..frame.range.end, frame.depth);
                 frame.at = seg.end;
                 // Markdown spells an empty paragraph with nothing, so beside
                 // another block one writes nothing; a container's only block
@@ -773,7 +773,7 @@ fn seg_str<'a>(ctx: &'a Ctx, i: usize) -> &'a str {
 /// already carries.
 fn block_island<'a>(ctx: &'a Ctx, i: usize) -> Option<&'a Island> {
     let isl = ctx.rt.islands.get(ctx.segments[i].slots_before);
-    isl.filter(|_| crate::model::is_block_island_line(seg_str(ctx, i), isl))
+    isl.filter(|_| crate::lines::model::is_block_island_line(seg_str(ctx, i), isl))
 }
 
 /// Island `index`'s markup, or its token where the read spells one.
@@ -787,7 +787,7 @@ fn island_markup(ctx: &Ctx, index: usize, out: &mut String) {
 
 /// The carrier's canonical spelling of island `id`'s token.
 fn island_token(id: &str) -> String {
-    crate::carrier::Element::spelling(crate::carrier::ISLAND, [("ref".to_string(), id.to_string())].into())
+    crate::lines::carrier::Element::spelling(crate::lines::carrier::ISLAND, [("ref".to_string(), id.to_string())].into())
         .expect("`island` and `ref` are in the carrier grammar")
         .wrap_inline("")
 }
@@ -799,12 +799,12 @@ pub fn island_reads_back(isl: &Island) -> bool {
     drop_anchor_marks(&mut props);
     let alone = Content {
         text: ISLAND_SLOT.to_string(),
-        lines: vec![crate::model::Line::new(LineKind::Para)],
+        lines: vec![crate::lines::model::Line::new(LineKind::Para)],
         marks: Vec::new(),
         islands: vec![Island { props: props.clone(), ..isl.clone() }],
     }
     .into_normalized();
-    let Ok(back) = crate::import::from_markdown(&to_markdown(&alone)) else {
+    let Ok(back) = crate::lines::import::from_markdown(&to_markdown(&alone)) else {
         return false;
     };
     matches!(&back.content.islands[..], [one] if one.island_type == isl.island_type && one.props == props)
@@ -860,12 +860,12 @@ fn emit_math(isl: &Island, out: &mut String) {
 /// delimiters: `$tex$`, or `$$tex$$` where `display`, parsed alone. An empty
 /// inline `tex`, an unescaped `$` and braces that do not balance are what it
 /// refuses. The authored lanes refuse the rest
-/// ([`crate::serial::from_authored_value`],
-/// [`crate::serial::island_from_authored_value`]).
+/// ([`crate::lines::serial::from_authored_value`],
+/// [`crate::lines::serial::island_from_authored_value`]).
 pub(crate) fn tex_is_writable(tex: &str, display: bool) -> bool {
     let delim = if display { "$$" } else { "$" };
     let md = format!("{delim}{tex}{delim}");
-    let mut events = pulldown_cmark::Parser::new_ext(&md, crate::import::options())
+    let mut events = pulldown_cmark::Parser::new_ext(&md, crate::lines::import::options())
         .filter(|e| !matches!(e, pulldown_cmark::Event::Start(_) | pulldown_cmark::Event::End(_)));
     let read = match (events.next(), events.next()) {
         (Some(pulldown_cmark::Event::InlineMath(t)), None) if !display => t,
@@ -876,7 +876,7 @@ pub(crate) fn tex_is_writable(tex: &str, display: bool) -> bool {
 }
 
 /// A table as a GFM pipe table, or as HTML where it holds what a pipe table
-/// cannot write ([`crate::html_table::writes_html`]).
+/// cannot write ([`crate::lines::html_table::writes_html`]).
 fn emit_table(isl: &Island, out: &mut String) {
     let header = isl.props.get("header").and_then(|v| v.as_array());
     let rows = isl.props.get("rows").and_then(|v| v.as_array());
@@ -885,8 +885,8 @@ fn emit_table(isl: &Island, out: &mut String) {
     if cols == 0 {
         return;
     }
-    if crate::html_table::writes_html(&isl.props) {
-        out.push_str(&crate::html_table::write(&isl.props, |cell| render_cell_md(cell, Frag::HtmlCell)));
+    if crate::lines::html_table::writes_html(&isl.props) {
+        out.push_str(&crate::lines::html_table::write(&isl.props, |cell| render_cell_md(cell, Frag::HtmlCell)));
         return;
     }
     // Cells are canonical `{text, marks}`; each cell's markdown is rebuilt from
@@ -971,8 +971,8 @@ fn emit_url(url: &str, out: &mut String) {
 /// Whether a link or image `url` survives [`to_markdown`] unchanged. CommonMark
 /// admits no line ending in a destination, bare or angle-wrapped, so an authored
 /// lane that stores a url refuses one
-/// ([`crate::serial::reject_unwritable_link_url`],
-/// [`crate::serial::island_from_authored_value`]) and [`emit_url`]
+/// ([`crate::lines::serial::reject_unwritable_link_url`],
+/// [`crate::lines::serial::island_from_authored_value`]) and [`emit_url`]
 /// percent-encodes the one a storage-lane or hand-built content still holds.
 pub(crate) fn url_is_writable(url: &str) -> bool {
     !url.contains(['\n', '\r'])
@@ -1103,7 +1103,7 @@ fn list_marker_punct(chars: &[char]) -> Option<usize> {
 /// back as the net reads one, inside `,…,`.
 fn annotate(md: String, points: &[usize], tags: &[(Usv, &str)]) -> String {
     let reads = |line: &str| {
-        crate::import::from_markdown(&format!(",{line},"))
+        crate::lines::import::from_markdown(&format!(",{line},"))
             .ok()
             .map(|i| i.content)
     };
@@ -1142,7 +1142,7 @@ fn anchor_tag(id: &str, at: Option<&str>) -> String {
     if let Some(at) = at {
         attrs.insert("at".to_string(), at.to_string());
     }
-    crate::carrier::Element::spelling(crate::carrier::ANCHOR, attrs)
+    crate::lines::carrier::Element::spelling(crate::lines::carrier::ANCHOR, attrs)
         .expect("`anchor`, `at` and `ref` are in the carrier grammar")
         .wrap_inline("")
 }
@@ -1537,7 +1537,7 @@ fn render_marked_core(
     // form re-import hands back: a mark the sweep splits around an overlap
     // re-imports as one span, so both sides are normalized before they are compared.
     let want_marks = |keep: &[bool]| {
-        crate::model::normalize_marks(
+        crate::lines::model::normalize_marks(
             fmt.iter()
                 .enumerate()
                 .filter(|&(i, m)| keep[i] && is_flanking(m.2))
@@ -1557,20 +1557,20 @@ fn render_marked_core(
     let probe = |md: &str, want_marks: &[Mark]| -> Option<bool> {
         let (text, marks) = match esc.frag {
             Frag::Cell => {
-                let rt = crate::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |")).ok()?.content;
+                let rt = crate::lines::import::from_markdown(&format!("| h |\n| --- |\n| ,{md}, |")).ok()?.content;
                 let cell = rt.islands.first()?.props.get("rows")?.get(0)?.get(0)?;
-                crate::serial::parse_cell(cell)
+                crate::lines::serial::parse_cell(cell)
             }
             Frag::HtmlCell => {
-                let rt = crate::import::from_markdown(&format!("<table><tr><td>,{md},</td></tr></table>")).ok()?.content;
-                crate::serial::parse_cell(rt.islands.first()?.props.get("header")?.get(0)?)
+                let rt = crate::lines::import::from_markdown(&format!("<table><tr><td>,{md},</td></tr></table>")).ok()?.content;
+                crate::lines::serial::parse_cell(rt.islands.first()?.props.get("header")?.get(0)?)
             }
             Frag::Note => {
-                let rt = crate::import::from_markdown(&format!("a[^1]\n\n[^1]: ,{md},")).ok()?.content;
-                crate::serial::parse_cell(&rt.islands.first()?.props)
+                let rt = crate::lines::import::from_markdown(&format!("a[^1]\n\n[^1]: ,{md},")).ok()?.content;
+                crate::lines::serial::parse_cell(&rt.islands.first()?.props)
             }
             Frag::Prose => {
-                let rt = crate::import::from_markdown(&format!(",{md},{probe_tail}")).ok()?.content.into_content();
+                let rt = crate::lines::import::from_markdown(&format!(",{md},{probe_tail}")).ok()?.content.into_content();
                 (rt.text, rt.marks)
             }
         };
@@ -1734,7 +1734,7 @@ fn split_around_table_tags(chars: &[char], start: usize, end: usize) -> Vec<(usi
     let text: String = chars[start..end].iter().collect();
     let mut at = start;
     let mut out = Vec::new();
-    for (piece, tag) in crate::html_table::tag_pieces(&text) {
+    for (piece, tag) in crate::lines::html_table::tag_pieces(&text) {
         let len = text[piece].chars().count();
         if !tag {
             out.push((at, at + len));
@@ -1777,7 +1777,7 @@ fn clip_asterisk_overlap(fmt: &mut [(usize, usize, &MarkKind)]) {
 /// re-import through `pulldown`'s pipe splitting. A cell is flat inline: no
 /// islands, no leading-block escape.
 fn render_cell_md(v: &serde_json::Value, frag: Frag) -> String {
-    let (text, marks) = crate::serial::parse_cell(v);
+    let (text, marks) = crate::lines::serial::parse_cell(v);
     let chars: Vec<char> = text.chars().collect();
     let (code_ranges, fmt, links) = bucket_marks(&marks, 0, chars.len(), true);
     let esc = Esc { frag, dollar: escapes_dollar(text.matches('$').count(), 0) };
@@ -1787,7 +1787,7 @@ fn render_cell_md(v: &serde_json::Value, frag: Frag) -> String {
 /// A footnote's note as the text of its definition: a cell's sweep on one
 /// source line, opening a block as a paragraph line does.
 fn render_note_md(v: &serde_json::Value) -> String {
-    let (text, marks) = crate::serial::parse_cell(v);
+    let (text, marks) = crate::lines::serial::parse_cell(v);
     let chars: Vec<char> = text.chars().collect();
     let (code_ranges, fmt, links) = bucket_marks(&marks, 0, chars.len(), true);
     let esc = Esc { frag: Frag::Note, dollar: escapes_dollar(text.matches('$').count(), 0) };
@@ -1838,9 +1838,9 @@ const DELIM_SPELLINGS: [Delims; 4] = [
 ];
 
 /// The `qm-span` pair a `font_family` mark writes.
-fn font_pair(kind: &MarkKind) -> crate::carrier::Element {
+fn font_pair(kind: &MarkKind) -> crate::lines::carrier::Element {
     match kind {
-        MarkKind::FontFamily { name } => crate::carrier::span::pair(name),
+        MarkKind::FontFamily { name } => crate::lines::carrier::span::pair(name),
         _ => unreachable!("only a font_family mark is a qm-span pair"),
     }
 }
@@ -1944,8 +1944,8 @@ fn longest_backtick_run(s: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::import::from_markdown;
-    use crate::model::{Line, Mark, MarkKind};
+    use crate::lines::import::from_markdown;
+    use crate::lines::model::{Line, Mark, MarkKind};
 
     /// export∘import is the identity on the content.
     /// A content built by hand, as a client writing `Content` directly builds
@@ -1954,7 +1954,7 @@ mod tests {
         let lines = containers
             .into_iter()
             .map(|c| {
-                let mut l = crate::model::Line::new(LineKind::Para);
+                let mut l = crate::lines::model::Line::new(LineKind::Para);
                 l.containers = c;
                 l
             })
@@ -2039,7 +2039,7 @@ mod tests {
         .with_islands(vec![note("\n# x\ny\n", "isl-0"), note("1. z", "isl-1"), note("", "isl-2")])
         .into_normalized();
         rt.validate().expect("validates");
-        assert_eq!(crate::serial::parse_cell(&rt.islands[0].props).0, "# x\ny");
+        assert_eq!(crate::lines::serial::parse_cell(&rt.islands[0].props).0, "# x\ny");
         let md = to_markdown(&rt);
         assert_eq!(
             md,
@@ -2555,15 +2555,15 @@ mod tests {
     #[test]
     fn a_mark_reaching_over_a_block_islands_slot_does_not_wrap_its_markup() {
         let mut rt = from_markdown("[abc](u)").unwrap().content;
-        rt.apply_field_change(&crate::ops::ChangeBundle {
-            delta: crate::delta::Delta {
+        rt.apply_field_change(&crate::lines::ops::ChangeBundle {
+            delta: crate::lines::delta::Delta {
                 ops: vec![
-                    crate::delta::Op::Retain(1),
-                    crate::delta::Op::Insert("\n\n".into()),
-                    crate::delta::Op::Retain(2),
+                    crate::lines::delta::Op::Retain(1),
+                    crate::lines::delta::Op::Insert("\n\n".into()),
+                    crate::lines::delta::Op::Retain(2),
                 ],
             },
-            island_ops: vec![crate::ops::IslandOp::Insert {
+            island_ops: vec![crate::lines::ops::IslandOp::Insert {
                 at: 2,
                 island: Island::new("isl-t".into(), IslandType::Table).with_props(
                     serde_json::json!({
@@ -2696,7 +2696,7 @@ mod tests {
         );
         let back = from_markdown(&md).unwrap();
         assert!(back.warnings.is_empty(), "{:?}", back.warnings);
-        let (text_back, marks_back) = crate::serial::parse_cell(&back.content.islands[0].props["header"][0]);
+        let (text_back, marks_back) = crate::lines::serial::parse_cell(&back.content.islands[0].props["header"][0]);
         assert_eq!(text_back, text);
         assert!(marks_back.contains(&Mark::new(2, 4, MarkKind::Code)), "{marks_back:?}");
         assert_eq!(to_markdown(&back.content), md);
@@ -2720,7 +2720,6 @@ mod tests {
             "a <br> b",
             "<br>a",
             "a<br>",
-            "a<br><br>b",
             "**a<br>b**",
             "\\<br>",
         ] {
@@ -2730,6 +2729,10 @@ mod tests {
         }
         let rt = from_markdown("| h |\n| --- |\n| \\<br> |").unwrap().content;
         assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "<br>");
+        let rt = from_markdown("| h |\n| --- |\n| a<br><br>b |").unwrap().content;
+        let html = to_markdown(&rt);
+        assert!(html.starts_with("<table>"), "{html}");
+        assert_eq!(from_markdown(&html).unwrap().content, rt);
     }
 
     #[test]
@@ -3278,7 +3281,7 @@ mod tests {
             })
         );
 
-        let isl = crate::model::Island::new("i1".into(), IslandType::Image)
+        let isl = crate::lines::model::Island::new("i1".into(), IslandType::Image)
             .with_props(serde_json::json!({"alt": "a", "url": "u\rv"}));
         let rt = Content::new(format!("x{ISLAND_SLOT}"), vec![Line::new(LineKind::Para)])
             .with_islands(vec![isl])

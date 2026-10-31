@@ -1,10 +1,10 @@
 //! Markdown-string preprocessing at the
-//! [`from_markdown`](crate::import::from_markdown) boundary (markdown-spec §7):
+//! [`from_markdown`](crate::lines::import::from_markdown) boundary (markdown-spec §7):
 //! characters the content cannot hold, then the parser-guided repair.
 
-use crate::carrier;
-use crate::html::{self, BlockKind};
-use crate::html_table;
+use crate::lines::carrier;
+use crate::lines::html::{self, BlockKind};
+use crate::lines::html_table;
 use pulldown_cmark::{Event, OffsetIter, Options, Parser, Tag as PTag, TagEnd};
 use std::ops::Range;
 
@@ -512,7 +512,7 @@ mod tests {
     }
 
     fn normalized(md: &str) -> String {
-        normalize_markdown(md, crate::import::options())
+        normalize_markdown(md, crate::lines::import::options())
     }
 
     #[test]

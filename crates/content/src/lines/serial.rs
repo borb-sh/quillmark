@@ -17,7 +17,7 @@
 //!
 //! Storage, the render seam and the binding seam carry one canonical form.
 
-use crate::model::{
+use crate::lines::model::{
     canonicalize_keys, is_font_family_name, Container, Island, Line, LineKind, Mark,
     MarkKind, Content, Normalized, Usv,
 };
@@ -33,7 +33,7 @@ pub enum ParseError {
     /// The JSON itself did not parse.
     Json(String),
     /// The value parsed but violates a content invariant.
-    Invalid(crate::model::Invariant),
+    Invalid(crate::lines::model::Invariant),
     /// A discriminator outside its vocabulary. `axis` names the wire field
     /// (`line kind`, `container`, `mark type`, `island type`),
     /// `name` the value it carried.
@@ -177,7 +177,7 @@ pub fn respell_retired(v: &Value) -> Value {
     if let Some(islands) = v.get_mut("islands").and_then(Value::as_array_mut) {
         for island in islands.iter_mut().filter_map(Value::as_object_mut) {
             island.shift_remove("loss");
-            if island.get("type").and_then(Value::as_str) == Some(crate::island::IslandType::Table.as_str())
+            if island.get("type").and_then(Value::as_str) == Some(crate::lines::island::IslandType::Table.as_str())
                 && let Some(props) = island.get_mut("props")
             {
                 respell_table(props);
@@ -198,10 +198,10 @@ pub fn respell_retired(v: &Value) -> Value {
 /// holds; props the mint keeps as they are stay in their stored key order, so
 /// a comparison still sees keys out of order.
 fn respell_table(props: &mut Value) {
-    let stored = crate::model::sort_keys_owned(props.clone());
+    let stored = crate::lines::model::sort_keys_owned(props.clone());
     let mut settled = stored.clone();
     normalize_table_props(&mut settled);
-    let settled = crate::model::sort_keys_owned(settled);
+    let settled = crate::lines::model::sort_keys_owned(settled);
     if settled != stored {
         *props = settled;
     }
@@ -229,7 +229,7 @@ fn bag_from_wire(
     let Some(v) = o.get(key) else {
         return Ok(Value::Null);
     };
-    crate::model::check_json_depth(v, what).map_err(ParseError::Invalid)?;
+    crate::lines::model::check_json_depth(v, what).map_err(ParseError::Invalid)?;
     Ok(v.clone())
 }
 
@@ -302,7 +302,7 @@ fn legacy_mark_keys(ty: &str) -> &'static [&'static str] {
 /// empty bag is an absent one here as it is everywhere else, so the two
 /// spellings of "no payload" cannot answer differently.
 fn payload<'a>(o: &'a Map<String, Value>, legacy: &[&str], key: &'static str) -> Option<&'a Value> {
-    match o.get("attrs").filter(|a| !crate::model::is_empty_bag(a)) {
+    match o.get("attrs").filter(|a| !crate::lines::model::is_empty_bag(a)) {
         Some(attrs) => attrs.get(key),
         None if legacy.contains(&key) => o.get(key),
         None => None,
@@ -313,7 +313,7 @@ fn payload<'a>(o: &'a Map<String, Value>, legacy: &[&str], key: &'static str) ->
 /// presence is a pure function of the value, the rule `continues: false`
 /// already follows.
 fn insert_attrs(m: &mut Map<String, Value>, attrs: Cow<'_, Value>) {
-    if !crate::model::is_empty_bag(&attrs) {
+    if !crate::lines::model::is_empty_bag(&attrs) {
         m.insert("attrs".into(), attrs.into_owned());
     }
 }
@@ -355,7 +355,7 @@ pub(crate) fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
         "code" => Ok(LineKind::Code {
             lang: payload(o, legacy, "lang")
                 .and_then(Value::as_str)
-                .map(crate::import::sanitize_lang)
+                .map(crate::lines::import::sanitize_lang)
                 .filter(|l| !l.is_empty()),
         }),
         // No encoder writes `island`; the decoder reads it because the
@@ -567,7 +567,7 @@ pub(crate) fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
 // bag, so `{"type": "link", "url": "…"}` decodes. The two lanes answer that
 // oppositely. Storage (`Content::from_canonical_json`) stays lenient: content
 // stored in that spelling is beyond any migration's reach, a `richtext` field
-// resting as a content object under no schema tag. Authored (the `crate::ops`
+// resting as a content object under no schema tag. Authored (the `crate::lines::ops`
 // wire, and `overwrite` through [`from_authored_value`]) rejects it, the shape
 // meaning a stale copy of the encoding.
 //
@@ -583,7 +583,7 @@ pub(crate) fn line_kind_from_authored_value(v: &Value) -> Result<LineKind, Parse
     line_kind_from_value(v)
 }
 
-/// A `lang` [`crate::import::sanitize_lang`] would change is a shape error: the
+/// A `lang` [`crate::lines::import::sanitize_lang`] would change is a shape error: the
 /// emitter writes it onto the fence header unquoted, so the storage lane's
 /// reduction of it is a repair the host did not ask for.
 fn reject_unwritable_lang(v: &Value) -> Result<(), ParseError> {
@@ -597,7 +597,7 @@ fn reject_unwritable_lang(v: &Value) -> Result<(), ParseError> {
     else {
         return Ok(());
     };
-    if crate::import::sanitize_lang(lang) != lang {
+    if crate::lines::import::sanitize_lang(lang) != lang {
         return Err(ParseError::Shape("code lang"));
     }
     Ok(())
@@ -638,7 +638,7 @@ pub(crate) fn island_from_authored_value(v: &Value) -> Result<Island, ParseError
     island_from_value(v)
 }
 
-/// A link `url` [`crate::export::url_is_writable`] refuses is a shape error: the
+/// A link `url` [`crate::lines::export::url_is_writable`] refuses is a shape error: the
 /// emitter writes it into the destination slot of `[…](…)`, which admits no line
 /// ending, so the export's percent-encoding of it is a rewrite the host did not
 /// ask for.
@@ -662,7 +662,7 @@ pub(crate) fn reject_unwritable_link_url(v: &Value) -> Result<(), ParseError> {
 /// [`reject_unwritable_link_url`] on an `image` island's `url` prop, which the
 /// emitter writes into the same slot.
 fn reject_unwritable_image_url(v: &Value) -> Result<(), ParseError> {
-    let image = crate::island::IslandType::Image.as_str();
+    let image = crate::lines::island::IslandType::Image.as_str();
     if v.get("type").and_then(Value::as_str) != Some(image) {
         return Ok(());
     }
@@ -675,16 +675,16 @@ fn reject_unwritable_image_url(v: &Value) -> Result<(), ParseError> {
 }
 
 /// A `math` island whose `tex` the markdown projection cannot write between
-/// its delimiters ([`crate::export::tex_is_writable`]), read as it rests once
+/// its delimiters ([`crate::lines::export::tex_is_writable`]), read as it rests once
 /// settled. A `tex` that is no string is the props carrier's to hold.
 fn reject_unwritable_tex(v: &Value) -> Result<(), ParseError> {
-    if v.get("type").and_then(Value::as_str) != Some(crate::island::IslandType::Math.as_str()) {
+    if v.get("type").and_then(Value::as_str) != Some(crate::lines::island::IslandType::Math.as_str()) {
         return Ok(());
     }
     let props = v.get("props");
     let display = props.and_then(|p| p.get("display")) == Some(&Value::Bool(true));
     match props.and_then(|p| p.get("tex")).and_then(Value::as_str) {
-        Some(tex) if !crate::export::tex_is_writable(&settle_tex(tex), display) => {
+        Some(tex) if !crate::lines::export::tex_is_writable(&settle_tex(tex), display) => {
             Err(ParseError::Shape("math tex"))
         }
         _ => Ok(()),
@@ -693,7 +693,7 @@ fn reject_unwritable_tex(v: &Value) -> Result<(), ParseError> {
 
 fn reject_unwritable_url(url: Option<&str>, err: &'static str) -> Result<(), ParseError> {
     match url {
-        Some(u) if !crate::export::url_is_writable(u) => Err(ParseError::Shape(err)),
+        Some(u) if !crate::lines::export::url_is_writable(u) => Err(ParseError::Shape(err)),
         _ => Ok(()),
     }
 }
@@ -738,8 +738,8 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
     // here rather than a silent skip.
     for island in arr_or_empty(v, "islands") {
         let ty = island.get("type").and_then(Value::as_str).unwrap_or_default();
-        match crate::island::IslandType::parse(ty) {
-            Some(crate::island::IslandType::Table) => {
+        match crate::lines::island::IslandType::parse(ty) {
+            Some(crate::lines::island::IslandType::Table) => {
                 let Some(props) = island.get("props") else {
                     continue;
                 };
@@ -749,14 +749,14 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
                     }
                 }
             }
-            Some(crate::island::IslandType::Footnote) => {
+            Some(crate::lines::island::IslandType::Footnote) => {
                 if let Some(props) = island.get("props") {
                     arr_or_empty(props, "marks").iter().try_for_each(reject_unreadable_mark)?;
                 }
             }
             // No cells; the one prop the projection writes is the url.
-            Some(crate::island::IslandType::Image) => reject_unwritable_image_url(island)?,
-            Some(crate::island::IslandType::Math) => reject_unwritable_tex(island)?,
+            Some(crate::lines::island::IslandType::Image) => reject_unwritable_image_url(island)?,
+            Some(crate::lines::island::IslandType::Math) => reject_unwritable_tex(island)?,
             // This scan reads raw JSON; an unknown type is the decode's to refuse.
             None => {}
         }
@@ -889,7 +889,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
     table_cell_values(props).map(parse_cell).collect()
 }
 
-// The `table` serializer below is the primitive `crate::island` dispatches into for
+// The `table` serializer below is the primitive `crate::lines::island` dispatches into for
 // `IslandType::Table`; island-type dispatch itself lives there.
 
 /// Repair a table island's props in place to the canonical shape:
@@ -900,7 +900,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 ///   header means the markdown projection (header-derived) and the Typst
 ///   projection (widest-row) agree on one number.
 /// - **One break char.** A `\n` in a cell's text is a line break; a `\r` or a
-///   [`crate::normalize::is_line_separator`] char becomes a space. A 1:1
+///   [`crate::lines::normalize::is_line_separator`] char becomes a space. A 1:1
 ///   replacement keeps char offsets stable, so the cell's marks stay in range.
 /// - **Canonical cell marks.** Each cell's marks are re-normalized (formatting
 ///   edges trimmed off `\n` as prose's are, sort, same-kind union, drop
@@ -911,7 +911,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 /// - **Spans that cover only what they can.** See [`normalize_table_spans`].
 pub(crate) fn normalize_table_props(props: &mut Value) {
     let cols = table_cols(props);
-    let widths = crate::island::TableLayout::of(props).widths;
+    let widths = crate::lines::island::TableLayout::of(props).widths;
     let Some(obj) = props.as_object_mut() else {
         return;
     };
@@ -981,12 +981,12 @@ fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Optio
 }
 
 /// Each drawn cell's `colspan` and `rowspan` settled to what it covers
-/// ([`crate::island::table_spans`]), absent at 1, and each covered cell's span
+/// ([`crate::lines::island::table_spans`]), absent at 1, and each covered cell's span
 /// keys absent. A covered cell keeps its alignment, which it draws again once
 /// no span covers it. A value outside its set stays as written.
 fn normalize_table_spans(props: &mut Value) {
-    use crate::island::CELL_SPANS;
-    let spans = crate::island::table_spans(props);
+    use crate::lines::island::CELL_SPANS;
+    let spans = crate::lines::island::table_spans(props);
     let settle = |row: &mut Value, spans: &[Option<(usize, usize)>]| {
         let cells = row.as_array_mut().into_iter().flatten().zip(spans);
         for (cell, span) in cells {
@@ -1054,10 +1054,10 @@ fn pad_row(v: &mut Value, cols: usize) {
 }
 
 /// Every char a downstream lexer reads as a line break other than `\n`, the
-/// separators [`crate::normalize::is_line_separator`] names included. A cell's
+/// separators [`crate::lines::normalize::is_line_separator`] names included. A cell's
 /// one line break is `\n`.
 fn is_cell_break(c: char) -> bool {
-    c == '\r' || crate::normalize::is_line_separator(c)
+    c == '\r' || crate::lines::normalize::is_line_separator(c)
 }
 
 /// Space a cell's stray line-break chars (1:1, so mark offsets hold) and
@@ -1073,11 +1073,11 @@ pub(crate) fn canon_cell(cell: &mut Value) {
     if text.contains('\n') {
         // Union before the trim: the pieces a sweep reopens across a `\n` meet
         // at it, and trimmed first they would part there.
-        marks = crate::model::normalize_marks(marks);
+        marks = crate::lines::model::normalize_marks(marks);
         let chars: Vec<char> = text.chars().collect();
-        crate::model::trim_marks_off_newlines(&chars, &mut marks);
+        crate::lines::model::trim_marks_off_newlines(&chars, &mut marks);
     }
-    let canon = cell_to_value(&text, &crate::model::normalize_marks(marks));
+    let canon = cell_to_value(&text, &crate::lines::model::normalize_marks(marks));
     match (cell.as_object_mut(), canon) {
         // Overwrite the canonical keys, leave the rest.
         (Some(o), Value::Object(fields)) => o.extend(fields),
@@ -1105,7 +1105,7 @@ pub(crate) fn normalize_note_props(props: &mut Value) {
         .collect();
     let text: String = chars[lead..end].iter().collect();
     if let (Some(o), Value::Object(fields)) =
-        (props.as_object_mut(), cell_to_value(&text, &crate::model::normalize_marks(marks)))
+        (props.as_object_mut(), cell_to_value(&text, &crate::lines::model::normalize_marks(marks)))
     {
         o.extend(fields);
     }
@@ -1135,7 +1135,7 @@ pub fn settle_tex(tex: &str) -> String {
     let mut uncommented = String::with_capacity(tex.len());
     let (mut comment, mut escaped) = (false, false);
     for c in tex.chars() {
-        let ends_line = c == '\n' || c == '\r' || crate::normalize::is_line_separator(c);
+        let ends_line = c == '\n' || c == '\r' || crate::lines::normalize::is_line_separator(c);
         comment &= !ends_line;
         if !comment && c == '%' && !escaped {
             comment = true;
@@ -1147,8 +1147,8 @@ pub fn settle_tex(tex: &str) -> String {
     }
     let spaced: String = uncommented
         .chars()
-        .map(|c| if c.is_control() || crate::normalize::is_line_separator(c) { ' ' } else { c })
-        .filter(|&c| c != crate::model::ISLAND_SLOT)
+        .map(|c| if c.is_control() || crate::lines::normalize::is_line_separator(c) { ' ' } else { c })
+        .filter(|&c| c != crate::lines::model::ISLAND_SLOT)
         .collect();
     spaced.trim().to_string()
 }
@@ -1168,13 +1168,13 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
         .and_then(Value::as_str)
         .ok_or(ParseError::Shape("island type"))?;
     let island_type =
-        crate::island::IslandType::parse(name).ok_or_else(|| ParseError::UnknownName {
+        crate::lines::island::IslandType::parse(name).ok_or_else(|| ParseError::UnknownName {
             axis: "island type",
             name: name.to_string(),
         })?;
     let props = bag_from_wire(o, "props", "island props")?;
-    if island_type == crate::island::IslandType::Table {
-        crate::model::check_table_cells(&props).map_err(ParseError::Invalid)?;
+    if island_type == crate::lines::island::IslandType::Table {
+        crate::lines::model::check_table_cells(&props).map_err(ParseError::Invalid)?;
     }
     island_type.reject_unknown_cell_mark(&props)?;
     Ok(Island {
@@ -1189,7 +1189,7 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
 }
 
 /// The mark vocabulary's verdict on an island's cells, for
-/// [`crate::island::IslandType::reject_unknown_cell_mark`].
+/// [`crate::lines::island::IslandType::reject_unknown_cell_mark`].
 ///
 /// A cell mark reaches no other strict decode: [`parse_cell`] reads them
 /// leniently and `canon_cell` writes the survivors back, so a name outside the
@@ -1232,8 +1232,8 @@ mod tests {
     }
 
     use super::*;
-    use crate::island::IslandType;
-    use crate::model::{Invariant, Line, LineKind};
+    use crate::lines::island::IslandType;
+    use crate::lines::model::{Invariant, Line, LineKind};
 
     fn sample() -> Content {
         Content {
@@ -1382,7 +1382,7 @@ mod tests {
         ));
         let op = serde_json::json!({"op": "insert", "at": 0, "id": "i1", "type": "table", "props": props(rows)});
         assert!(matches!(
-            crate::ops::island_op_from_value(&op),
+            crate::lines::ops::island_op_from_value(&op),
             Err(ParseError::Invalid(Invariant::TableTooLarge { .. }))
         ));
     }
@@ -1394,7 +1394,7 @@ mod tests {
         let op = serde_json::json!({"op":"insert","at":0,
           "id":"i1","type":"image","props":deep});
         assert!(matches!(
-            crate::ops::island_op_from_value(&op),
+            crate::lines::ops::island_op_from_value(&op),
             Err(ParseError::Invalid(Invariant::JsonTooDeep { .. }))
         ));
     }
@@ -1439,7 +1439,7 @@ mod tests {
     /// backstop repairs it — so nothing else notices the regression.
     #[test]
     fn encoders_emit_keys_in_ascending_order() {
-        use crate::model::is_value_key_sorted;
+        use crate::lines::model::is_value_key_sorted;
         let bag = || serde_json::json!({"a": 1, "b": 2});
         let sorted = |v: &Value| is_value_key_sorted(v);
 
@@ -1866,7 +1866,7 @@ mod tests {
     /// The same split on a link or image `url`: CommonMark admits no line
     /// ending in a destination, so the whole-content authored door refuses one
     /// as deep as the values the projection writes, while storage keeps what it
-    /// holds and [`crate::export::emit_url`] percent-encodes it.
+    /// holds and [`crate::lines::export::emit_url`] percent-encodes it.
     #[test]
     fn an_unwritable_url_decodes_on_storage_and_is_refused_when_authored() {
         for (json, refusal) in [
@@ -1939,7 +1939,7 @@ mod tests {
             "the reader moves the row's bytes and nothing else"
         );
         assert_eq!(
-            crate::export::to_markdown(&rt),
+            crate::lines::export::to_markdown(&rt),
             "| h |\n| --- |\n| c |",
             "the table still projects as a block"
         );
@@ -2096,7 +2096,7 @@ mod tests {
             "islands": [],
         });
         let loaded = from_canonical_value(&stored).unwrap();
-        assert_eq!(crate::export::to_markdown(&loaded), "- [x] a\n\n+ [x] b\n\n- [ ] c");
+        assert_eq!(crate::lines::export::to_markdown(&loaded), "- [x] a\n\n+ [x] b\n\n- [ ] c");
         assert_eq!(respell_retired(&stored), to_canonical_value(&loaded));
     }
 
@@ -2157,7 +2157,7 @@ mod tests {
         for k in &all {
             let wire = mark_to_value(&Mark::new(0, 1, k.clone()));
             let attrs = match wire.get("attrs") {
-                Some(a) => crate::model::canonical_json_string(a),
+                Some(a) => crate::lines::model::canonical_json_string(a),
                 None => String::new(),
             };
             assert_eq!(
