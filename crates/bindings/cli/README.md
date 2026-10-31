@@ -6,30 +6,7 @@ Maintained by [borb-sh](https://github.com/borb-sh).
 
 ## Installation
 
-Each [GitHub Release](https://github.com/borb-sh/quillmark/releases) carries
-prebuilt binaries for Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and
-Windows (x86_64). With
-[cargo-binstall](https://github.com/cargo-bins/cargo-binstall), the same
-binaries install by crate name:
-
-```bash
-cargo binstall quillmark-cli
-```
-
-From source, which needs a Rust toolchain:
-
-```bash
-cargo install quillmark-cli --locked
-```
-
-The binary lands at `~/.cargo/bin/quillmark`. To build from a checkout instead:
-
-```bash
-cargo install --path crates/bindings/cli
-```
-
-`quillmark --version` prints the CLI's version and, in parentheses, the Typst
-release plates compile against.
+Prebuilt binaries are on each [GitHub Release](https://github.com/borb-sh/quillmark/releases), and `cargo install quillmark-cli --locked` builds from source. The [CLI reference](https://quillmark.dev/cli/reference/#installation) has the other routes and what `quillmark --version` prints.
 
 ## Quick start
 
@@ -55,80 +32,15 @@ quillmark render my_quill document.md --stdout | lpr
 
 ## Commands
 
-Every command takes a `<QUILL_PATH>` pointing at a quill directory, or at a
-`.quill` bundle of one; `workspace` takes the directory alone.
+Each command and its options are in the [CLI reference](https://quillmark.dev/cli/reference/):
 
-### `quillmark render [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]`
-
-Renders a document. With `MARKDOWN_FILE` omitted, the quill's seeded document is
-rendered instead, so a quill previews without any authored input.
-
-- `-o, --output <FILE>` — output path (default: the input filename with the format's extension)
-- `-f, --format <FORMAT>` — `pdf`, `svg`, or `png`; defaults to the `-o` extension when it names one, else `pdf`, and refuses one that disagrees with it
-- `--ppi <PPI>` — pixels per inch for `png` (default: 144); a page past 16384 px a side at it is refused, naming the ppi that fits; `pdf` and `svg` have no pixel ceiling
-- `--title <TITLE>` — the `pdf` document title (default: the plate's own, else the quill's `description`); `png` and `svg` ignore it
-- `--stdout` — write the artifact to stdout; all chatter moves to stderr
-- `--output-data <DATA_FILE>` — also write the compiled JSON data handed to the backend
-- `--today <YYYY-MM-DD>` — the render date: what a `today` date and a plate's `datetime.today()` render as (default: the local date)
-- `--font <FONT_FILE>` — a font file for the engine's font library, repeatable: a `.ttf`, `.otf`, `.ttc` or `.otc`
-- `--quiet` — suppress warnings and the output-destination line
-
-Warnings go to stderr, including one for each undeclared key or other input the
-page leaves out. A render that fails still prints the parse and validation
-warnings ahead of its error, and after them the backend's warnings from loading
-the quill, such as a package skipped for its manifest.
-
-### `quillmark check [--strict] [--regions] <QUILL_PATH> <MARKDOWN_FILE>...`
-
-Checks documents against the quill's schema and prints every diagnostic.
-Without `--regions` it does not compile the plate. Exits 1 where a document
-draws an error; `--strict` exits 1 on any warning too, for CI. `--regions`
-renders each document that drew no error and lists the filled fields no click
-on the page reaches, and those only an enclosing field's region reaches; the
-list never moves the exit code.
-
-### `quillmark schema <QUILL_PATH> [--authoring]`
-
-Prints the quill's field schema as YAML. `--authoring` prints the JSON Schema
-of the quill's authoring document instead: the JSON an LLM writes, rich text as
-Markdown strings.
-
-### `quillmark validate <QUILL_PATH> [-v] [--no-render]`
-
-Loads the quill — `Quill.yaml` parse errors, `default:` literals against
-their declared types — checks referenced files, and renders the two
-canonical documents (the empty document and the seeded document)
-through the plate. `-v` prints each warning, such as a missing field description, where
-a plain run only counts them; `--no-render` skips the render. Exits 1 where the configuration is invalid or a
-canonical document does not render.
-
-### `quillmark info <QUILL_PATH>`
-
-Prints the quill's identity from its `quill:` section, and its field, card and
-defaults counts.
-
-### `quillmark workspace [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]`
-
-Writes what Typst's own tooling needs to compile a Typst quill's plate against
-one document (the generated helper package, the vendored packages, the fonts),
-then prints the `typst watch` command that compiles it. The helper holds that
-document's data: rerun `workspace` after the document changes. Typst reads files
-and packages a render refuses, and the installed `typst` can be another release
-than the embedded one, so a plate compiling there can still fail to render; the
-[CLI reference](../../../docs/cli/reference.md#workspace) lists the differences.
-
-- `-o, --output <DIR>` — workspace directory (default: `quillmark-workspace`)
-- `--today <YYYY-MM-DD>` — the render date: what a `today` date and, through the printed command's `--creation-timestamp`, a plate's `datetime.today()` render as (default: the local date)
-- `--font <FONT_FILE>` — a font file for the engine's font library, repeatable, as on `render`; written into the workspace's `fonts/`
-- `--quiet` — suppress warnings and the command line
-
-### `quillmark pack [-o FILE] <QUILL_PATH>`
-
-Writes the quill as one `.quill` bundle, its file tree as a ZIP archive with
-`Quill.yaml` at the root: the file `Quill.fromBundle` in `@quillmark/wasm` and
-`Quill.from_bundle` in Python read. The default output is
-`<name>@<version>.quill` in the working directory; one inside the quill is
-refused.
+- [`render`](https://quillmark.dev/cli/reference/#render): a document through a quill into PDF, SVG or PNG
+- [`check`](https://quillmark.dev/cli/reference/#check): a document's diagnostics, optionally as a CI gate
+- [`schema`](https://quillmark.dev/cli/reference/#schema): the quill's field schema, or the JSON Schema an LLM writes against
+- [`validate`](https://quillmark.dev/cli/reference/#validate): the quill itself, loaded and rendered
+- [`info`](https://quillmark.dev/cli/reference/#info): the quill's identity and counts
+- [`workspace`](https://quillmark.dev/cli/reference/#workspace): the files Typst's tooling needs to compile a plate
+- [`pack`](https://quillmark.dev/cli/reference/#pack): the quill as one `.quill` bundle
 
 ## Exit codes
 
