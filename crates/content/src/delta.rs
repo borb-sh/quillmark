@@ -1411,5 +1411,25 @@ mod tests {
             [("qm-island[ref]".to_string(), 1), ("qm-island".to_string(), 1)]
         );
     }
-}
 
+    /// A token written twice copies its table, and its cell's anchor stays on
+    /// the copy that continues the stored island alone.
+    #[test]
+    fn a_token_written_twice_copies_no_cell_anchor() {
+        let mut stored = from_markdown("| h |\n| --- |\n| cell |").unwrap().content.into_content();
+        stored.islands[0].props["note"] = "kept".into();
+        stored.islands[0].props["rows"][0][0]["marks"] =
+            serde_json::json!([{ "start": 0, "end": 4, "type": "anchor", "attrs": { "id": "c1" } }]);
+        let stored = stored.into_normalized();
+        let token = "<qm-island ref=\"isl-0\"></qm-island>";
+        assert_eq!(crate::export::to_markdown_annotated(&stored).markdown, token);
+
+        let (once, _, _) = diff_import(&stored, token).unwrap();
+        assert_eq!(once.islands, stored.islands);
+        let (twice, _, _) = diff_import(&stored, &format!("{token}\n\n{token}")).unwrap();
+        assert_eq!(twice.islands.len(), 2);
+        let ids: Vec<String> = twice.anchor_sites().into_iter().map(|s| s.id).collect();
+        assert_eq!(ids, ["c1"]);
+        assert!(twice.anchor_collisions().is_empty());
+    }
+}

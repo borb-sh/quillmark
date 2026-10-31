@@ -605,7 +605,8 @@ the markup of each island that does not read back as itself, an anchor in a
 cell aside, and writes every other island as markup. A revise reads each
 inline token in prose as that island, a table's taking a line of its own; a
 writer moves an island by moving its token, and copies one by writing it
-twice. A token whose `ref` names no island the stored value holds drops
+twice, its cells' anchors staying on the copy that continues the stored
+island alone. A token whose `ref` names no island the stored value holds drops
 reported as `qm-island[ref]`, and one in a table cell, a footnote's note or an
 image's alt text, where no island sits, drops reported as `qm-island`. A cold
 import drops every token, reported as `qm-island`.
