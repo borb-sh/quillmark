@@ -4,13 +4,13 @@
 //! rather than panicking on what a caller hands them.
 
 use proptest::prelude::*;
-use quillmark_content::delta::{Delta, Op, diff_import};
+use quillmark_content::island::IslandType;
+use quillmark_content::delta::{diff_import, Delta, Op};
 use quillmark_content::export::{to_markdown, to_markdown_annotated};
 use quillmark_content::import::from_markdown;
-use quillmark_content::island::IslandType;
 use quillmark_content::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
 use quillmark_content::ops::{IslandOp, LineOp, MarkOp};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 /// The mint's fixed point: normalizing again changes nothing.
 ///
@@ -213,8 +213,9 @@ fn document() -> impl Strategy<Value = String> {
         (prose(), prose()).prop_map(|(a, b)| format!("{a}\n\n    {b}")),
         (prose(), prose()).prop_map(|(a, b)| format!("{a}\n    - {b}")),
     ];
-    (prop::collection::vec(block(), 1..6), note.clone(), note)
-        .prop_map(|(blocks, a, b)| format!("{}\n\n[^a]: {a}\n\n[^b]: {b}", blocks.join("\n\n")))
+    (prop::collection::vec(block(), 1..6), note.clone(), note).prop_map(|(blocks, a, b)| {
+        format!("{}\n\n[^a]: {a}\n\n[^b]: {b}", blocks.join("\n\n"))
+    })
 }
 
 /// Emphasis delimiters run together with one char from each Unicode class
@@ -244,12 +245,8 @@ fn ov_kind(i: u8) -> MarkKind {
         1 => MarkKind::Emph,
         2 => MarkKind::Strike,
         3 => MarkKind::Underline,
-        4 => MarkKind::FontFamily {
-            name: "Carlito".into(),
-        },
-        _ => MarkKind::FontFamily {
-            name: "Noto Serif".into(),
-        },
+        4 => MarkKind::FontFamily { name: "Carlito".into() },
+        _ => MarkKind::FontFamily { name: "Noto Serif".into() },
     }
 }
 
@@ -557,7 +554,11 @@ proptest! {
 
 /// `Op::Retain(n)`, or nothing when `n == 0` (no empty retains in the script).
 fn retain(n: usize) -> Vec<Op> {
-    if n == 0 { vec![] } else { vec![Op::Retain(n)] }
+    if n == 0 {
+        vec![]
+    } else {
+        vec![Op::Retain(n)]
+    }
 }
 
 proptest! {
@@ -1012,63 +1013,17 @@ proptest! {
 /// The keys the decoders dispatch on, so generated objects reach past the first
 /// branch; the noise arm keeps the rest of the space.
 const DECODE_DISCRIMINATORS: &[&str] = &[
-    "text",
-    "lines",
-    "marks",
-    "islands",
-    "kind",
-    "attrs",
-    "op",
-    "line",
-    "at",
-    "delta",
-    "ops",
-    "retain",
-    "insert",
-    "islandOps",
-    "lineOps",
-    "markOps",
-    "start",
-    "end",
-    "container",
-    "type",
-    "$name",
-    "element",
-    "instance",
-    "containers",
-    "continues",
-    "id",
-    "props",
-    "url",
-    "level",
-    "ordered",
-    "ordinal",
-    "rows",
-    "aligns",
-    "widths",
-    "align",
-    "list_item",
-    "quote",
-    "table",
-    "checked",
-    "head",
-    "colspan",
-    "rowspan",
-    "valign",
+    "text", "lines", "marks", "islands", "kind", "attrs", "op", "line", "at", "delta", "ops",
+    "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end", "container", "type",
+    "$name", "element", "instance", "containers", "continues", "id", "props", "url", "level",
+    "ordered", "ordinal", "rows", "aligns", "widths", "align", "list_item", "quote", "table",
+    "checked", "head", "colspan", "rowspan", "valign",
 ];
 
 /// Every op tag the line, mark and island decoders read.
 const OP_TAGS: &[&str] = &[
-    "add",
-    "remove",
-    "removeAnchor",
-    "split",
-    "join",
-    "setKind",
-    "setContainers",
-    "setContinues",
-    "set",
-    "insert",
+    "add", "remove", "removeAnchor", "split", "join", "setKind", "setContainers", "setContinues",
+    "set", "insert",
 ];
 
 fn decode_key() -> impl Strategy<Value = String> {
@@ -1156,9 +1111,7 @@ fn fixture_bodies_import_and_are_valid() {
         "extended_metadata_demo.md",
     ] {
         let md = fixture_body(name);
-        let rt = from_markdown(&md)
-            .unwrap_or_else(|e| panic!("import {name}: {e}"))
-            .content;
+        let rt = from_markdown(&md).unwrap_or_else(|e| panic!("import {name}: {e}")).content;
         assert_eq!(rt.validate(), Ok(()), "{name} invariants");
         let rt2 = from_markdown(&to_markdown(&rt)).unwrap().content;
         assert_eq!(rt, rt2, "{name} content not a fixed point");
@@ -1169,11 +1122,8 @@ fn fixture_bodies_import_and_are_valid() {
 // generated line sets: one side unchanged is the other side's text, one side
 // equal to the other is that text, and the two sides commute.
 fn lines() -> impl Strategy<Value = String> {
-    prop::collection::vec(
-        prop::sample::select(vec!["a\n", "b\n", "c\n", "\n", "d"]),
-        0..7,
-    )
-    .prop_map(|v| v.concat())
+    prop::collection::vec(prop::sample::select(vec!["a\n", "b\n", "c\n", "\n", "d"]), 0..7)
+        .prop_map(|v| v.concat())
 }
 
 proptest! {

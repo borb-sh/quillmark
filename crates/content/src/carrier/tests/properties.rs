@@ -10,10 +10,10 @@ use std::collections::BTreeMap;
 
 use proptest::prelude::*;
 
-use crate::carrier::{Attrs, Element, decode_attrs, element, is_attr_name};
+use crate::carrier::{decode_attrs, element, is_attr_name, Attrs, Element};
 use crate::export::to_markdown;
 use crate::html;
-use crate::import::tests::generate::{Piece, contained, counted, table, tally, word};
+use crate::import::tests::generate::{contained, counted, table, tally, word, Piece};
 use crate::import::{from_markdown, options};
 use pulldown_cmark::{Event, Parser};
 
@@ -43,20 +43,14 @@ fn carrier() -> impl Strategy<Value = Carrier> {
         prop_oneof![
             Just("keep".to_string()),
             Just("cell".to_string()),
-            "[a-z][a-z0-9]{0,3}(-[a-z0-9]{1,3}){0,2}"
-                .prop_filter("anchor drops silently", |n| n != "anchor"),
+            "[a-z][a-z0-9]{0,3}(-[a-z0-9]{1,3}){0,2}".prop_filter("anchor drops silently", |n| n != "anchor"),
         ],
         attrs(),
     )
         .prop_map(|(name, attrs)| {
             let inline = format!("qm-{name}");
             let e = Element::spelling(name, attrs).unwrap();
-            Carrier {
-                open: e.open_tag(),
-                close: e.close_tag(),
-                reported: inline.clone(),
-                inline,
-            }
+            Carrier { open: e.open_tag(), close: e.close_tag(), reported: inline.clone(), inline }
         });
     let outside = prop_oneof![Just("qm-a--b"), Just("qm-"), Just("qm-9")];
     let outside = outside.prop_map(|n| Carrier {

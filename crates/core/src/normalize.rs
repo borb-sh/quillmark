@@ -53,10 +53,7 @@ mod tests {
         let card = |kind: &str| {
             let mut map = indexmap::IndexMap::new();
             map.insert("a".to_string(), QuillValue::from_json(serde_json::json!(1)));
-            map.insert(
-                "cafe\u{301}".to_string(),
-                QuillValue::from_json(serde_json::json!("hot")),
-            );
+            map.insert("cafe\u{301}".to_string(), QuillValue::from_json(serde_json::json!("hot")));
             map.insert("z".to_string(), QuillValue::from_json(serde_json::json!(2)));
             let mut payload = Payload::from_index_map(map);
             payload.set_kind(kind);
@@ -70,10 +67,7 @@ mod tests {
         for card in std::iter::once(normalized.main()).chain(normalized.cards()) {
             let keys: Vec<&str> = card.payload().keys().map(String::as_str).collect();
             assert_eq!(keys, ["a", "caf\u{e9}", "z"]);
-            assert_eq!(
-                card.payload().get("caf\u{e9}").unwrap().as_str(),
-                Some("hot")
-            );
+            assert_eq!(card.payload().get("caf\u{e9}").unwrap().as_str(), Some("hot"));
         }
     }
 }

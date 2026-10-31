@@ -15,11 +15,11 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use crate::SchemaMeta;
 use crate::emit::{
-    Emission, EmitError, SegmentMap, emit_content, emit_content_inline, escape_string,
+    emit_content, emit_content_inline, escape_string, EmitError, Emission, SegmentMap,
 };
 use crate::families::Families;
+use crate::SchemaMeta;
 use quillmark_content::serial::from_canonical_value;
 use quillmark_core::quill::{
     CONTENT_MEDIA_TYPE, PLATE_PATH_KEY as PATH_KEY, QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY,
@@ -61,24 +61,14 @@ pub fn generate_lib_typ(
     }
     let ink_literal = ink_literal(cg.ink);
     let literal = |set: &std::collections::BTreeSet<String>| {
-        wrap_array(
-            set.iter()
-                .map(|f| format!("\"{}\"", escape_string(f)))
-                .collect(),
-        )
+        wrap_array(set.iter().map(|f| format!("\"{}\"", escape_string(f))).collect())
     };
     let held_literal = literal(&families.held);
     let offered_literal = wrap_dict(
         families
             .offered
             .iter()
-            .map(|(family, alias)| {
-                format!(
-                    "\"{}\": \"{}\"",
-                    escape_string(family),
-                    escape_string(alias)
-                )
-            })
+            .map(|(family, alias)| format!("\"{}\": \"{}\"", escape_string(family), escape_string(alias)))
             .collect(),
     );
 
@@ -134,16 +124,11 @@ pub fn generate_lib_typ(
                 .collect(),
         })
         .collect();
-    windows.extend(
-        ink_literal
-            .windows
-            .into_iter()
-            .map(|(path, block)| ContentMap {
-                path,
-                block: (block.start + ink_at)..(block.end + ink_at),
-                segments: Vec::new(),
-            }),
-    );
+    windows.extend(ink_literal.windows.into_iter().map(|(path, block)| ContentMap {
+        path,
+        block: (block.start + ink_at)..(block.end + ink_at),
+        segments: Vec::new(),
+    }));
     Ok((out, windows))
 }
 
@@ -266,8 +251,7 @@ impl<'m> Codegen<'m> {
             let access = format!("data.at(\"{}\")", escape_string(key));
             if key == "$cards" {
                 if let Some(cards) = value.as_array() {
-                    dict.items
-                        .push(format!("\"$cards\": {}", self.emit_cards(cards, &access)));
+                    dict.items.push(format!("\"$cards\": {}", self.emit_cards(cards, &access)));
                     continue;
                 }
             }
@@ -353,8 +337,7 @@ impl<'m> Codegen<'m> {
             (Lower::Date(kind), serde_json::Value::String(s)) => {
                 // The window covers exactly the `text(..)` call: the node whose
                 // span the produced glyphs carry.
-                let text =
-                    |args: &str| Frag::window(path, format!("text({access}.display({args}))"));
+                let text = |args: &str| Frag::window(path, format!("text({access}.display({args}))"));
                 match self.date_field(path, s, kind) {
                     Some(constructor) => {
                         let mut entry = Frag::from("(..args) => ");
@@ -363,16 +346,14 @@ impl<'m> Codegen<'m> {
                         (constructor, Some(text("")))
                     }
                     None => {
-                        self.ink
-                            .push((path.to_string(), Frag::from("(..args) => none")));
+                        self.ink.push((path.to_string(), Frag::from("(..args) => none")));
                         ("none".to_string(), None)
                     }
                 }
             }
             // A blank date still answers a pattern, with `none`.
             (Lower::Date(_), serde_json::Value::Null) => {
-                self.ink
-                    .push((path.to_string(), Frag::from("(..args) => none")));
+                self.ink.push((path.to_string(), Frag::from("(..args) => none")));
                 ("none".to_string(), None)
             }
             (Lower::Array(items), serde_json::Value::Array(elems)) => {
@@ -380,12 +361,7 @@ impl<'m> Codegen<'m> {
                     .iter()
                     .enumerate()
                     .map(|(i, elem)| {
-                        self.emit_value(
-                            &format!("{path}.{i}"),
-                            &format!("{access}.at({i})"),
-                            items,
-                            elem,
-                        )
+                        self.emit_value(&format!("{path}.{i}"), &format!("{access}.at({i})"), items, elem)
                     })
                     .unzip();
                 let ink = inks(items).then(|| {
@@ -417,10 +393,7 @@ impl<'m> Codegen<'m> {
                 // A matrix's own dictionary keeps exactly its members as keys:
                 // `roster` reads it through the dictionary declaring it.
                 let prefix = format!("{path}.");
-                (
-                    dict.finish((!is_matrix(node)).then_some(prefix.as_str())),
-                    None,
-                )
+                (dict.finish((!is_matrix(node)).then_some(prefix.as_str())), None)
             }
             (
                 Lower::Native,
@@ -552,8 +525,7 @@ impl Container {
         if key == PATH_KEY {
             return;
         }
-        self.items
-            .push(format!("\"{}\": {expr}", escape_string(key)));
+        self.items.push(format!("\"{}\": {expr}", escape_string(key)));
     }
 
     /// `path` leads as `$path`, for `ink(dict, key)` and `roster(dict, key)` to
@@ -576,9 +548,7 @@ enum Lower<'a> {
     /// `richtext` / `text`, which share everything downstream of this
     /// classification. `inline` lowers to pure inline markup, with no block
     /// terminator to warn inside a paragraph.
-    Content {
-        inline: bool,
-    },
+    Content { inline: bool },
     Date(DateKind),
     /// The element node, absent where an array declares no `items`.
     Array(Option<&'a serde_json::Value>),
@@ -652,17 +622,16 @@ enum DateKind {
 /// value that reached here parses and `None` is the defensive arm.
 fn datetime_constructor(s: &str, kind: DateKind) -> Option<String> {
     match kind {
-        DateKind::Date => quillmark_core::quill::parse_date(s).map(|(year, month, day)| {
-            format!("datetime(year: {year}, month: {month}, day: {day})")
-        }),
-        DateKind::DateTime => quillmark_core::quill::parse_datetime(s).map(
-            |(year, month, day, hour, minute, second)| {
+        DateKind::Date => quillmark_core::quill::parse_date(s)
+            .map(|(year, month, day)| format!("datetime(year: {year}, month: {month}, day: {day})")),
+        DateKind::DateTime => {
+            quillmark_core::quill::parse_datetime(s).map(|(year, month, day, hour, minute, second)| {
                 format!(
                     "datetime(year: {year}, month: {month}, day: {day}, \
                      hour: {hour}, minute: {minute}, second: {second})"
                 )
-            },
-        ),
+            })
+        }
     }
 }
 
@@ -718,12 +687,7 @@ fn sorted(obj: &serde_json::Map<String, serde_json::Value>) -> Vec<(&String, &se
 fn declared_order(node: &serde_json::Value) -> Vec<&str> {
     node.get(QUILLMARK_ROSTER_KEY)
         .and_then(|v| v.as_array())
-        .map(|pairs| {
-            pairs
-                .iter()
-                .filter_map(|pair| pair.get(0)?.as_str())
-                .collect()
-        })
+        .map(|pairs| pairs.iter().filter_map(|pair| pair.get(0)?.as_str()).collect())
         .unwrap_or_default()
 }
 
@@ -749,11 +713,7 @@ fn ordered<'a>(
         .iter()
         .filter_map(|id| obj.get_key_value(*id))
         .collect();
-    entries.extend(
-        sorted(obj)
-            .into_iter()
-            .filter(|(k, _)| !order.contains(&k.as_str())),
-    );
+    entries.extend(sorted(obj).into_iter().filter(|(k, _)| !order.contains(&k.as_str())));
     entries
 }
 
@@ -800,9 +760,7 @@ mod tests {
     }
 
     fn content(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown)
-            .expect("import")
-            .content;
+        let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
         quillmark_content::serial::to_canonical_value(&rt)
     }
 
@@ -872,8 +830,7 @@ mod tests {
     fn segment_maps_index_the_generated_lib_typ() {
         let meta = meta_from(serde_json::json!({ "properties": { "intro": richtext_field() } }));
         let rt = quillmark_content::import::from_markdown("Hello **bold**.\n\nSecond para.")
-            .expect("import")
-            .content;
+            .expect("import").content;
         let data =
             serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
         let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
@@ -888,14 +845,8 @@ mod tests {
             for (content_range, generated, ctx) in &seg.runs {
                 let src: String = chars[content_range.clone()].iter().collect();
                 let expect = ctx.escape(&src);
-                assert_eq!(
-                    &lib[generated.clone()],
-                    expect,
-                    "run inverts to its content slice"
-                );
-                assert!(
-                    generated.start >= seg.generated.start && generated.end <= seg.generated.end
-                );
+                assert_eq!(&lib[generated.clone()], expect, "run inverts to its content slice");
+                assert!(generated.start >= seg.generated.start && generated.end <= seg.generated.end);
                 if src == "bold" {
                     saw_bold = true;
                 }
@@ -1018,13 +969,7 @@ mod tests {
 
         // Every projection keys on the address the recursion produced.
         let paths: Vec<&str> = windows.iter().map(|w| w.path.as_str()).collect();
-        for expected in [
-            "stamps.0",
-            "contact.reply_by",
-            "contact.note",
-            "rows.0.on",
-            "rows.0.notes",
-        ] {
+        for expected in ["stamps.0", "contact.reply_by", "contact.note", "rows.0.on", "rows.0.notes"] {
             assert!(paths.contains(&expected), "missing {expected}: {paths:?}");
         }
     }
@@ -1039,8 +984,7 @@ mod tests {
             }},
         }}));
         let data = serde_json::json!({ "contact": { "reply_by": "not-a-date" } });
-        let err = generate_lib_typ(&data, &meta, &Families::default())
-            .expect_err("a bad date stops codegen");
+        let err = generate_lib_typ(&data, &meta, &Families::default()).expect_err("a bad date stops codegen");
         assert_eq!(err.code(), "backend::invalid_date");
         assert!(err.to_string().contains("contact.reply_by"), "{err}");
 
@@ -1133,10 +1077,7 @@ mod tests {
         ] {
             assert!(table.contains(entry), "{entry} in {table}");
         }
-        assert!(
-            !table.contains("\"rows\":"),
-            "a typed table has no ink: {table}"
-        );
+        assert!(!table.contains("\"rows\":"), "a typed table has no ink: {table}");
 
         let windows: Vec<(&str, &str)> = windows
             .iter()
@@ -1155,16 +1096,9 @@ mod tests {
             assert!(windows.contains(&expected), "{expected:?} in {windows:?}");
         }
         // `data` carries `$path` with no field of its own to print.
-        let (lib, _) = generate_lib_typ(
-            &serde_json::json!({ "grid": { "a": { "x": "1" } } }),
-            &meta,
-            &Families::default(),
-        )
-        .unwrap();
-        assert!(
-            lib.contains("#let data = {(\"$path\": \"\", \"grid\": "),
-            "{lib}"
-        );
+        let (lib, _) = generate_lib_typ(&serde_json::json!({ "grid": { "a": { "x": "1" } } }), &meta, &Families::default())
+            .unwrap();
+        assert!(lib.contains("#let data = {(\"$path\": \"\", \"grid\": "), "{lib}");
     }
 
     #[test]
@@ -1175,8 +1109,7 @@ mod tests {
                 "refs": { "type": "array", "items": { "type": "string" } }
             }
         }));
-        let (lib, _) =
-            generate_lib_typ(&serde_json::json!({}), &meta, &Families::default()).unwrap();
+        let (lib, _) = generate_lib_typ(&serde_json::json!({}), &meta, &Families::default()).unwrap();
         assert!(lib.contains("#let _qm-meta = ("));
         // A scalar is a leaf, and a primitive-element array offers its index
         // step onto one: neither carries a `props` entry.
@@ -1223,10 +1156,7 @@ mod tests {
             lib.find(&format!("\"{key}\": {{"))
                 .unwrap_or_else(|| panic!("{key} in {lib}"))
         };
-        assert!(
-            at("cyber") < at("aide") && at("aide") < at("wing_ig"),
-            "{lib}"
-        );
+        assert!(at("cyber") < at("aide") && at("aide") < at("wing_ig"), "{lib}");
         let paths: Vec<&str> = windows.iter().map(|w| w.path.as_str()).collect();
         for path in ["quals.wing_ig.detail", "quals.wing_ig.title"] {
             assert!(paths.contains(&path), "{path} in {paths:?}");
@@ -1239,8 +1169,7 @@ mod tests {
                 .expect("the address tables")
                 .to_string()
         };
-        let (bare, _) =
-            generate_lib_typ(&serde_json::json!({}), &meta, &Families::default()).unwrap();
+        let (bare, _) = generate_lib_typ(&serde_json::json!({}), &meta, &Families::default()).unwrap();
         assert_eq!(tables(&lib), tables(&bare));
         for piece in [
             "\"roster\": ((\"dco\", \"DCO\",), (\"cyber\", \"Cyber\",),)",

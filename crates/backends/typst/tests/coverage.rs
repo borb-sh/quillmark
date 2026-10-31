@@ -58,15 +58,9 @@ fn coverage_names_what_claims_reach_and_what_nothing_does() {
         [
             ("name".to_string(), None),
             ("title".to_string(), reached("title")),
-            (
-                "stratifications.0.year".to_string(),
-                reached("stratifications.0.year")
-            ),
+            ("stratifications.0.year".to_string(), reached("stratifications.0.year")),
             ("stratifications.0.rank".to_string(), None),
-            (
-                "stratifications.1.year".to_string(),
-                reached("stratifications.1.year")
-            ),
+            ("stratifications.1.year".to_string(), reached("stratifications.1.year")),
             ("stratifications.1.rank".to_string(), None),
         ]
     );

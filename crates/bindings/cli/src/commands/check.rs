@@ -2,7 +2,7 @@ use crate::commands::load_quill;
 use crate::errors::{CliError, Result};
 use clap::Parser;
 use quillmark::{
-    DOCUMENT_FILE, Diagnostic, Document, Engine, FieldCoverage, Quill, RenderOptions, Severity,
+    Diagnostic, Document, Engine, FieldCoverage, Quill, RenderOptions, Severity, DOCUMENT_FILE,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -84,15 +84,13 @@ fn check_document(quill: &Quill, path: &Path) -> (Vec<Diagnostic>, Option<Docume
         Ok(markdown) => markdown,
         Err(e) => {
             return (
-                vec![
-                    Diagnostic::new(
-                        Severity::Error,
-                        format!("the document could not be read: {e}"),
-                    )
-                    .with_code("cli::unreadable_document".to_string()),
-                ],
+                vec![Diagnostic::new(
+                    Severity::Error,
+                    format!("the document could not be read: {e}"),
+                )
+                .with_code("cli::unreadable_document".to_string())],
                 None,
-            );
+            )
         }
     };
     let (mut diagnostics, document) = match quill.parse(&markdown) {
@@ -127,7 +125,11 @@ fn coverage(
     let data = quill
         .compile_checked(document, today)
         .map_err(|e| e.into_diagnostics())?;
-    let card_kinds: Vec<Option<&str>> = document.cards().iter().map(|card| card.kind()).collect();
+    let card_kinds: Vec<Option<&str>> = document
+        .cards()
+        .iter()
+        .map(|card| card.kind())
+        .collect();
     let doc_path = |addr: String| {
         quillmark::plate_addr_to_doc_path(&addr, &card_kinds).map_or(addr, |p| p.to_string())
     };

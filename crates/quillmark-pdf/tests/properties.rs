@@ -11,8 +11,8 @@ use std::sync::LazyLock;
 
 use pdf_writer::types::AnnotationType;
 use proptest::prelude::*;
-use quillmark_pdf::testkit::{BasePdf, Held, NO_OBJECT, NULL_OBJECT, RAW_OBJECT, null_spellings};
-use quillmark_pdf::{FieldSpec, FieldType, StampOptions, page_canvas_boxes, stamp};
+use quillmark_pdf::testkit::{null_spellings, BasePdf, Held, NO_OBJECT, NULL_OBJECT, RAW_OBJECT};
+use quillmark_pdf::{page_canvas_boxes, stamp, FieldSpec, FieldType, StampOptions};
 
 /// A real AcroForm the spine accepts, so a mutant of it exercises parse paths a
 /// random buffer never reaches.
@@ -28,33 +28,20 @@ fn base_pdf() -> Vec<u8> {
 /// One field of each `FieldType`, each carrying a value so `stamp` walks every
 /// widget writer and the appearance stream beside it.
 fn every_field_kind() -> Vec<FieldSpec> {
-    let mut text = FieldSpec::new(
-        "t".into(),
-        0,
-        [10.0, 10.0, 90.0, 30.0],
-        FieldType::Text { multiline: true },
-    );
+    let mut text = FieldSpec::new("t".into(), 0, [10.0, 10.0, 90.0, 30.0], FieldType::Text {
+        multiline: true,
+    });
     text.value = Some("first\nsecond".into());
     let mut check = FieldSpec::new("c".into(), 0, [10.0, 40.0, 30.0, 60.0], FieldType::Checkbox);
     check.value = Some(quillmark_pdf::CHECKBOX_ON_STATE.into());
-    let mut choice = FieldSpec::new(
-        "h".into(),
-        0,
-        [10.0, 100.0, 90.0, 120.0],
-        FieldType::Choice {
-            options: vec!["a".into(), "b".into()],
-        },
-    );
+    let mut choice = FieldSpec::new("h".into(), 0, [10.0, 100.0, 90.0, 120.0], FieldType::Choice {
+        options: vec!["a".into(), "b".into()],
+    });
     choice.value = Some("a".into());
     vec![
         text,
         check,
-        FieldSpec::new(
-            "s".into(),
-            0,
-            [10.0, 70.0, 90.0, 90.0],
-            FieldType::Signature,
-        ),
+        FieldSpec::new("s".into(), 0, [10.0, 70.0, 90.0, 90.0], FieldType::Signature),
         choice,
     ]
 }
@@ -140,10 +127,7 @@ fn spelled(name: &str, escaped: &[bool], upper: bool) -> String {
 }
 
 fn count(haystack: &[u8], needle: &[u8]) -> usize {
-    haystack
-        .windows(needle.len())
-        .filter(|w| *w == needle)
-        .count()
+    haystack.windows(needle.len()).filter(|w| *w == needle).count()
 }
 
 proptest! {

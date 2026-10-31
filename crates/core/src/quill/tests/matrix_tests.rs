@@ -7,7 +7,9 @@
 //! pins one surface to the same reading of the same schema.
 
 use crate::document::Document;
-use crate::quill::{Quill, QuillConfig, blank, build_transform_schema, quill_from_yaml, test_date};
+use crate::quill::{
+    blank, build_transform_schema, quill_from_yaml, test_date, Quill, QuillConfig,
+};
 use crate::value::QuillValue;
 use serde_json::json;
 
@@ -44,10 +46,7 @@ main:
 
 /// The probe with its roster open to added items.
 fn open_yaml() -> String {
-    quill_yaml().replace(
-        "      type: matrix\n",
-        "      type: matrix\n      open: true\n",
-    )
+    quill_yaml().replace("      type: matrix\n", "      type: matrix\n      open: true\n")
 }
 
 fn config() -> QuillConfig {
@@ -60,9 +59,7 @@ fn quill() -> Quill {
 
 fn doc(fields: &str) -> Document {
     let markdown = format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\n{fields}~~~\n");
-    Document::parse(&markdown)
-        .expect("document parses")
-        .document
+    Document::parse(&markdown).expect("document parses").document
 }
 
 /// The matrix as the plate receives it.
@@ -87,10 +84,7 @@ fn load_error(backend: &str, fields: &str) -> String {
         "quill:\n  name: bad\n  version: \"0.1.0\"\n  backend: {backend}\n  description: bad\n\
          main:\n  fields:\n{fields}\n"
     );
-    format!(
-        "{:?}",
-        QuillConfig::from_yaml(&yaml).expect_err("expected a load error")
-    )
+    format!("{:?}", QuillConfig::from_yaml(&yaml).expect_err("expected a load error"))
 }
 
 /// The stored-spelling table: a member present in the document is held,
@@ -110,15 +104,8 @@ fn a_member_is_held_by_being_present() {
         )),
     );
     let members = wire.as_object().expect("a matrix projects as a mapping");
-    assert_eq!(
-        members.keys().collect::<Vec<_>>(),
-        ["flight_cc", "dodin_ops", "cyber_200"]
-    );
-    for (id, detail) in [
-        ("flight_cc", "TBD"),
-        ("dodin_ops", "X"),
-        ("cyber_200", "TBD"),
-    ] {
+    assert_eq!(members.keys().collect::<Vec<_>>(), ["flight_cc", "dodin_ops", "cyber_200"]);
+    for (id, detail) in [("flight_cc", "TBD"), ("dodin_ops", "X"), ("cyber_200", "TBD")] {
         assert_eq!(
             wire[id].as_object().unwrap().keys().collect::<Vec<_>>(),
             ["detail"],
@@ -146,10 +133,7 @@ fn a_stored_tick_is_refused() {
             )],
             "{spelling}"
         );
-        assert!(
-            config().compile_data(&document, test_date()).is_err(),
-            "{spelling}"
-        );
+        assert!(config().compile_data(&document, test_date()).is_err(), "{spelling}");
     }
     assert!(codes(&doc("qualifications:\n  flight_cc: { held: null }\n")).is_empty());
 }
@@ -181,10 +165,7 @@ card_kinds:
     );
     let document = Document::parse(markdown).expect("parses").document;
     let found = codes_of(&quill, &document);
-    for path in [
-        "main.rows[0].quals.flight_cc.held",
-        "cards.entry[0].quals.flight_cc.held",
-    ] {
+    for path in ["main.rows[0].quals.flight_cc.held", "cards.entry[0].quals.flight_cc.held"] {
         assert!(
             found.contains(&("validation::held_stored".to_string(), path.to_string())),
             "{path} in {found:?}"
@@ -200,10 +181,7 @@ card_kinds:
         ("", "quill::seed_held_stored"),
     ] {
         let bad = yaml
-            .replace(
-                "      type: array\n",
-                &format!("      type: array\n{literal}"),
-            )
+            .replace("      type: array\n", &format!("      type: array\n{literal}"))
             .replace(
                 "  entry:\n",
                 if literal.is_empty() {
@@ -212,10 +190,7 @@ card_kinds:
                     "  entry:\n"
                 },
             );
-        let error = format!(
-            "{:?}",
-            QuillConfig::from_yaml(&bad).expect_err("refused at load")
-        );
+        let error = format!("{:?}", QuillConfig::from_yaml(&bad).expect_err("refused at load"));
         assert!(error.contains(code), "{code}: {error}");
     }
 }
@@ -233,13 +208,7 @@ fn a_held_member_with_no_answers_rests_as_the_bare_tick() {
     let mut parsed = quill.parse(markdown).expect("parses and conforms");
     assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
     assert_eq!(
-        parsed
-            .document
-            .main()
-            .payload()
-            .get("qualifications")
-            .unwrap()
-            .as_json(),
+        parsed.document.main().payload().get("qualifications").unwrap().as_json(),
         &json!({ "flight_cc": true, "dodin_ops": { "detail": "X" }, "cyber_200": false })
     );
 
@@ -251,13 +220,7 @@ fn a_held_member_with_no_answers_rests_as_the_bare_tick() {
         )
         .expect("the typed write lands");
     assert_eq!(
-        parsed
-            .document
-            .main()
-            .payload()
-            .get("qualifications")
-            .unwrap()
-            .as_json(),
+        parsed.document.main().payload().get("qualifications").unwrap().as_json(),
         &json!({ "sq_cc_candidate": true, "flight_cc": true })
     );
 }
@@ -278,10 +241,7 @@ fn the_plate_holds_the_held_set_in_roster_order() {
     let wire = plate(&document);
     let members = wire.as_object().expect("a matrix projects as a mapping");
 
-    assert_eq!(
-        members.keys().collect::<Vec<_>>(),
-        ["flight_cc", "cyber_200"]
-    );
+    assert_eq!(members.keys().collect::<Vec<_>>(), ["flight_cc", "cyber_200"]);
     assert!(wire["cyber_200"].get("title").is_none(), "{wire}");
 }
 
@@ -316,10 +276,7 @@ fn an_open_matrix_prints_added_items_after_the_roster_in_id_order() {
 
     let wire = plate_of(&yaml, &document);
     let members = wire.as_object().expect("a matrix projects as a mapping");
-    assert_eq!(
-        members.keys().collect::<Vec<_>>(),
-        ["flight_cc", "aide", "wing_ig"]
-    );
+    assert_eq!(members.keys().collect::<Vec<_>>(), ["flight_cc", "aide", "wing_ig"]);
     let reordered = doc(concat!(
         "qualifications:\n",
         "  aide: { title: Flight CC }\n",
@@ -358,30 +315,14 @@ fn a_key_outside_an_open_roster_needs_an_id_and_a_title() {
         let [diag] = diags.as_slice() else {
             panic!("{spelling}: expected one diagnostic, got {diags:?}");
         };
-        assert_eq!(
-            diag.code.as_deref(),
-            Some("validation::enum_violation"),
-            "{spelling}"
-        );
-        assert_eq!(
-            diag.path.as_deref(),
-            Some(format!("main.qualifications.{key}").as_str())
-        );
+        assert_eq!(diag.code.as_deref(), Some("validation::enum_violation"), "{spelling}");
+        assert_eq!(diag.path.as_deref(), Some(format!("main.qualifications.{key}").as_str()));
         assert_eq!(diag.args.get("open"), Some(&json!(true)), "{spelling}");
-        assert!(
-            diag.hint.as_deref().is_some_and(|h| h.contains("`title`")),
-            "{diag:?}"
-        );
-        assert!(
-            quill.compile_data(&document, test_date()).is_err(),
-            "{spelling}"
-        );
+        assert!(diag.hint.as_deref().is_some_and(|h| h.contains("`title`")), "{diag:?}");
+        assert!(quill.compile_data(&document, test_date()).is_err(), "{spelling}");
     }
 
-    let titled = codes_of(
-        &quill,
-        &doc("qualifications:\n  wing_ig: { title: { a: 1 } }\n"),
-    );
+    let titled = codes_of(&quill, &doc("qualifications:\n  wing_ig: { title: { a: 1 } }\n"));
     assert_eq!(
         titled,
         [(
@@ -400,33 +341,20 @@ fn a_key_outside_an_open_roster_needs_an_id_and_a_title() {
 fn a_matrix_is_a_cell_with_a_default_and_a_question_mark() {
     assert_eq!(plate(&doc("title: T\n")), json!({}));
     let field = &config().main.fields["qualifications"];
-    assert_eq!(
-        blank(field).as_json(),
-        &json!({}),
-        "the floor agrees with the projection"
-    );
+    assert_eq!(blank(field).as_json(), &json!({}), "the floor agrees with the projection");
 
     let defaulted = quill_yaml().replace(
         "      properties:\n",
         "      default: { flight_cc: { detail: \"*Flt* CC\" }, cyber_200: true }\n      properties:\n",
     );
     let wire = plate_of(&defaulted, &doc("title: T\n"));
-    assert_eq!(
-        wire.as_object().unwrap().keys().collect::<Vec<_>>(),
-        ["flight_cc", "cyber_200"]
-    );
+    assert_eq!(wire.as_object().unwrap().keys().collect::<Vec<_>>(), ["flight_cc", "cyber_200"]);
     assert_eq!(wire["flight_cc"]["detail"]["text"], json!("*Flt* CC"));
     assert_eq!(wire["cyber_200"]["detail"]["text"], json!(""));
-    assert_eq!(
-        plate_of(&defaulted, &doc("qualifications: {}\n")),
-        json!({})
-    );
+    assert_eq!(plate_of(&defaulted, &doc("qualifications: {}\n")), json!({}));
 
     let optional = quill_yaml().replace("      type: matrix\n", "      type: matrix?\n");
-    assert_eq!(
-        plate_of(&optional, &doc("title: T\n")),
-        serde_json::Value::Null
-    );
+    assert_eq!(plate_of(&optional, &doc("title: T\n")), serde_json::Value::Null);
     assert_eq!(plate_of(&optional, &doc("qualifications: {}\n")), json!({}));
 }
 
@@ -458,31 +386,16 @@ fn a_malformed_matrix_declaration_is_refused_by_code() {
             "    m:\n      type: matrix\n      members: { a: A }\n      properties:\n        title: { type: text }\n",
             "quill::matrix_reserved_column",
         ),
-        (
-            "typst",
-            "    m:\n      type: matrix\n",
-            "quill::field_parse_error",
-        ),
-        (
-            "typst",
-            "    m:\n      type: text\n      members: { a: A }\n",
-            "quill::field_parse_error",
-        ),
-        (
-            "typst",
-            "    m:\n      type: text\n      open: true\n",
-            "quill::field_parse_error",
-        ),
+        ("typst", "    m:\n      type: matrix\n", "quill::field_parse_error"),
+        ("typst", "    m:\n      type: text\n      members: { a: A }\n", "quill::field_parse_error"),
+        ("typst", "    m:\n      type: text\n      open: true\n", "quill::field_parse_error"),
         (
             "acroform",
             "    record:\n      type: object\n      properties:\n        m: { type: matrix, open: true, members: { a: A } }\n",
             "quill::open_matrix_unsupported",
         ),
     ] {
-        assert!(
-            load_error(backend, fields).contains(code),
-            "{code}: {fields}"
-        );
+        assert!(load_error(backend, fields).contains(code), "{code}: {fields}");
     }
 }
 
@@ -517,11 +430,7 @@ fn a_members_cells_are_addressable() {
         ])
     );
     assert_eq!(
-        member["properties"]
-            .as_object()
-            .unwrap()
-            .keys()
-            .collect::<Vec<_>>(),
+        member["properties"].as_object().unwrap().keys().collect::<Vec<_>>(),
         ["detail"],
         "a member's cells are its columns: {member}"
     );
@@ -529,33 +438,15 @@ fn a_members_cells_are_addressable() {
         member["properties"]["detail"]["contentMediaType"].is_string(),
         "a column crosses as the content it is: {member}"
     );
-    assert!(
-        matrix.get("additionalProperties").is_none(),
-        "a closed matrix admits nothing"
-    );
+    assert!(matrix.get("additionalProperties").is_none(), "a closed matrix admits nothing");
 
     let open = QuillConfig::from_yaml(&open_yaml()).expect("open probe loads");
     let schema = build_transform_schema(&open, crate::quill::SchemaCodec::Content);
     let item = &schema.as_json()["properties"]["qualifications"]["additionalProperties"];
-    assert_eq!(
-        item["properties"]["title"]["quillmark:plain"],
-        json!(true),
-        "{item}"
-    );
-    assert!(
-        item["properties"]["title"]
-            .get("quillmark:multiline")
-            .is_none(),
-        "{item}"
-    );
-    assert!(
-        item["properties"]["detail"]["contentMediaType"].is_string(),
-        "{item}"
-    );
-    assert_eq!(
-        open.schema()["main"]["fields"]["qualifications"]["open"],
-        json!(true)
-    );
+    assert_eq!(item["properties"]["title"]["quillmark:plain"], json!(true), "{item}");
+    assert!(item["properties"]["title"].get("quillmark:multiline").is_none(), "{item}");
+    assert!(item["properties"]["detail"]["contentMediaType"].is_string(), "{item}");
+    assert_eq!(open.schema()["main"]["fields"]["qualifications"]["open"], json!(true));
 }
 
 /// A column's cap reaches every member the page prints, roster or added, and
@@ -579,14 +470,8 @@ fn an_overfull_column_warns_under_every_held_member() {
     assert_eq!(
         found,
         [
-            (
-                "validation::cardinality".to_string(),
-                "main.qualifications.flight_cc.units".to_string()
-            ),
-            (
-                "validation::cardinality".to_string(),
-                "main.qualifications.wing_ig.units".to_string()
-            ),
+            ("validation::cardinality".to_string(), "main.qualifications.flight_cc.units".to_string()),
+            ("validation::cardinality".to_string(), "main.qualifications.wing_ig.units".to_string()),
         ]
     );
 }
@@ -604,9 +489,7 @@ fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
     let held_at = |fields: &str| -> bool {
         let markdown = format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\n{fields}~~~\n");
         let document = Document::parse(&markdown).expect("parses").document;
-        quill
-            .compile_data(&document, test_date())
-            .expect("compiles")["qualifications"]
+        quill.compile_data(&document, test_date()).expect("compiles")["qualifications"]
             .get("flight_cc")
             .is_some()
     };

@@ -10,7 +10,7 @@ use quillmark_core::{
 use typst::syntax::package::PackageSpec;
 
 use crate::helper::{self, HELPER_NAME, HELPER_NAMESPACE, HELPER_VERSION};
-use crate::{FontLibrary, SchemaMeta, world};
+use crate::{world, FontLibrary, SchemaMeta};
 
 /// The workspace directory `--package-path` names.
 pub const PACKAGES_DIR: &str = "packages";
@@ -164,10 +164,7 @@ fn host_fonts(library: &FontLibrary) -> Vec<(PathBuf, Vec<u8>)> {
                 Some(b"OTTO") => "otf",
                 _ => "ttf",
             };
-            (
-                PathBuf::from(FONTS_DIR).join(format!("host-{i}.{ext}")),
-                data.to_vec(),
-            )
+            (PathBuf::from(FONTS_DIR).join(format!("host-{i}.{ext}")), data.to_vec())
         })
         .collect()
 }

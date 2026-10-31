@@ -4,9 +4,9 @@
 use crate::world::QuillWorld;
 use quillmark_core::error::{Diagnostic, Location, Severity};
 use quillmark_core::quill::PLATE_PATH_KEY;
-use typst::World;
 use typst::diag::SourceDiagnostic;
 use typst::syntax::{DiagSpan, FileId, RootedPath, VirtualPath, VirtualRoot};
+use typst::World;
 
 pub(crate) fn map_typst_errors(errors: &[SourceDiagnostic], world: &QuillWorld) -> Vec<Diagnostic> {
     errors
@@ -251,10 +251,7 @@ mod tests {
         let text = "#let café = 1\n#(café + x)\n";
         assert_eq!(line_and_column(text, 0), (1, 1));
         // `x` on line 2: nine characters precede it, ten bytes.
-        assert_eq!(
-            line_and_column(text, text.find(" x)").unwrap() + 1),
-            (2, 10)
-        );
+        assert_eq!(line_and_column(text, text.find(" x)").unwrap() + 1), (2, 10));
     }
 
     #[test]
@@ -282,8 +279,7 @@ mod tests {
             "#set page(width: 200pt, height: 200pt)\n#image(\"assets/marc.png\")\n",
         );
 
-        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date())
-        {
+        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date()) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
                 .expect_err("a missing image should fail to compile")
@@ -309,8 +305,7 @@ mod tests {
         let source = source_with_plate(
             "#import \"@local/quillmark-helper:0.2.0\" as qm\n\n#qm.ink(qm.data, \"no_such_field\")\n",
         );
-        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date())
-        {
+        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date()) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
                 .expect_err("an unknown ink address should fail to compile")
@@ -329,8 +324,7 @@ mod tests {
         let source = source_with_plate(EVAL_ERROR_PLATE);
 
         // Compilation happens during `open`, so the error may surface there.
-        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date())
-        {
+        let diags = match TypstBackend::default().open(&source, &serde_json::json!({}), test_date()) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
                 .expect_err("eval of `#general` should fail to compile")

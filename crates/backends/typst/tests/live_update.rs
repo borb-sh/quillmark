@@ -2,11 +2,7 @@
 //! reports the dirty page set. Commit is transactional: a failed recompile
 //! leaves every read serving the last-good compile.
 
-use quillmark_core::{
-    backend::Backend,
-    quill::Quill,
-    types::{OutputFormat, RenderOptions},
-};
+use quillmark_core::{backend::Backend, quill::Quill, types::{OutputFormat, RenderOptions}};
 use quillmark_typst::TypstBackend;
 use serde_json::json;
 
@@ -115,9 +111,7 @@ fn update_with_reordered_fields_same_content_is_clean() {
     )
     .unwrap();
 
-    let mut session = backend
-        .open(&q, &opened, common::test_date())
-        .expect("open");
+    let mut session = backend.open(&q, &opened, common::test_date()).expect("open");
     let cs = session.update_data(&reordered).expect("update reordered");
     assert!(
         cs.dirty_pages.is_empty(),
@@ -142,9 +136,7 @@ fn update_is_transactional_on_compile_failure() {
     let pages = session.page_count();
 
     // No `msg` key → the plate's `data.at("msg")` fails at eval.
-    let err = session
-        .update_data(&json!({}))
-        .expect_err("compile must fail");
+    let err = session.update_data(&json!({})).expect_err("compile must fail");
     assert!(!err.diagnostics().is_empty());
 
     assert_eq!(session.page_count(), pages);

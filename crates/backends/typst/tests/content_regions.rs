@@ -214,11 +214,7 @@ fn a_scalar_printed_in_an_imported_module_surfaces_a_region() {
         ],
     );
     let session = TypstBackend::default()
-        .open(
-            &q,
-            &serde_json::json!({ "count": 1042 }),
-            common::test_date(),
-        )
+        .open(&q, &serde_json::json!({ "count": 1042 }), common::test_date())
         .expect("open");
     let regions = session.regions();
     let count = regions
@@ -545,11 +541,10 @@ fn adversarial_codegen_inputs_still_compile() {
 #qm.data.prose
 #qm.data.overlap
 "#;
-    let overlap =
-        Content::new("abcdef".to_string(), vec![Line::new(LineKind::Para)]).with_marks(vec![
-            Mark::new(0, 4, MarkKind::Strong),
-            Mark::new(2, 6, MarkKind::Code),
-        ]);
+    let overlap = Content::new("abcdef".to_string(), vec![Line::new(LineKind::Para)]).with_marks(vec![
+        Mark::new(0, 4, MarkKind::Strong),
+        Mark::new(2, 6, MarkKind::Code),
+    ]);
     TypstBackend::default()
         .open(
             &quill(
@@ -603,9 +598,7 @@ fn overlapping_widgets_resolve_field_at_by_paint_order_not_name() {
 
 #[test]
 fn segment_regions_carry_span_and_field_union_is_striped() {
-    let session = body_session(content(
-        "First paragraph, alpha.\n\nSecond paragraph, beta.",
-    ));
+    let session = body_session(content("First paragraph, alpha.\n\nSecond paragraph, beta."));
     let body: Vec<_> = session
         .regions()
         .into_iter()
@@ -686,12 +679,8 @@ fn position_at_and_locate_round_trip_a_content_offset() {
     // One past the last character — the caret position while typing — sits at
     // the last glyph, not back at the paragraph's first.
     let text_len = TEXT.chars().count();
-    let end = session
-        .locate("prose", text_len)
-        .expect("end-of-text caret");
-    let last = session
-        .locate("prose", text_len - 1)
-        .expect("last-glyph caret");
+    let end = session.locate("prose", text_len).expect("end-of-text caret");
+    let last = session.locate("prose", text_len - 1).expect("last-glyph caret");
     let first = session.locate("prose", 0).expect("first-glyph caret");
     assert!(
         end.rect[0] >= last.rect[0] && end.rect[0] > first.rect[0],

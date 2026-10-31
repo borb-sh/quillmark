@@ -7,7 +7,7 @@ use proptest::prelude::*;
 use std::collections::BTreeMap;
 
 use super::super::{read_bundle, write_bundle};
-use super::{Raw, archive, raw};
+use super::{archive, raw, Raw};
 use crate::quill::FileTreeNode;
 
 fn arb_segment() -> impl Strategy<Value = String> {
@@ -39,13 +39,8 @@ fn tree_of(files: &BTreeMap<String, Vec<u8>>) -> FileTreeNode {
         files: Default::default(),
     };
     for (path, contents) in files {
-        root.insert(
-            path,
-            FileTreeNode::File {
-                contents: contents.clone(),
-            },
-        )
-        .expect("a generated path inserts");
+        root.insert(path, FileTreeNode::File { contents: contents.clone() })
+            .expect("a generated path inserts");
     }
     root
 }

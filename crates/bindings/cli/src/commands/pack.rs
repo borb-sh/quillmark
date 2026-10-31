@@ -20,10 +20,7 @@ pub fn execute(args: PackArgs) -> Result<()> {
     let quill = load_quill(&args.quill)?;
     let config = quill.config();
     let output = args.output.unwrap_or_else(|| {
-        PathBuf::from(format!(
-            "{}@{}.{BUNDLE_EXTENSION}",
-            config.name, config.version
-        ))
+        PathBuf::from(format!("{}@{}.{BUNDLE_EXTENSION}", config.name, config.version))
     });
     if args.quill.is_dir() && lies_within(&output, &args.quill)? {
         return Err(CliError::InvalidArgument(format!(

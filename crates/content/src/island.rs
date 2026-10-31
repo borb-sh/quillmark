@@ -77,31 +77,21 @@ pub struct TableLayout {
 
 impl Default for TableLayout {
     fn default() -> Self {
-        TableLayout {
-            widths: None,
-            align: None,
-            head: 1,
-        }
+        TableLayout { widths: None, align: None, head: 1 }
     }
 }
 
 impl TableLayout {
     pub fn of(props: &Value) -> Self {
-        let widths = props
-            .get("widths")
-            .and_then(Value::as_array)
-            .and_then(|ws| {
-                ws.iter()
-                    .map(|w| match w {
-                        Value::Null => Some(None),
-                        w => w.as_u64().filter(|n| is_weight(*n)).map(Some),
-                    })
-                    .collect()
-            });
-        let head = props
-            .get("head")
-            .and_then(Value::as_u64)
-            .map_or(1, saturate);
+        let widths = props.get("widths").and_then(Value::as_array).and_then(|ws| {
+            ws.iter()
+                .map(|w| match w {
+                    Value::Null => Some(None),
+                    w => w.as_u64().filter(|n| is_weight(*n)).map(Some),
+                })
+                .collect()
+        });
+        let head = props.get("head").and_then(Value::as_u64).map_or(1, saturate);
         TableLayout {
             widths,
             align: one_of(props.get("align"), &TABLE_ALIGNS),
@@ -117,12 +107,7 @@ fn saturate(n: u64) -> usize {
 /// A table cell's `colspan` and `rowspan` as it holds them, each `1` where the
 /// cell holds no whole number from 1.
 pub fn cell_span(cell: &Value) -> (usize, usize) {
-    let read = |key: &str| {
-        cell.get(key)
-            .and_then(Value::as_u64)
-            .filter(|n| *n >= 1)
-            .map_or(1, saturate)
-    };
+    let read = |key: &str| cell.get(key).and_then(Value::as_u64).filter(|n| *n >= 1).map_or(1, saturate);
     let [colspan, rowspan] = CELL_SPANS;
     (read(colspan), read(rowspan))
 }
@@ -134,13 +119,8 @@ pub fn table_rows(props: &Value) -> Vec<&[Value]> {
         v.as_array().map_or(&[], Vec::as_slice)
     }
     let header = props.get("header").map_or(&[][..], row);
-    let rows = props
-        .get("rows")
-        .and_then(Value::as_array)
-        .map_or(&[][..], Vec::as_slice);
-    std::iter::once(header)
-        .chain(rows.iter().map(row))
-        .collect()
+    let rows = props.get("rows").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    std::iter::once(header).chain(rows.iter().map(row)).collect()
 }
 
 /// Per row of [`table_rows`] and per cell, the columns and rows a drawn cell
@@ -156,15 +136,11 @@ pub fn table_spans(props: &Value) -> Vec<Vec<Option<(usize, usize)>>> {
     let rows = table_rows(props);
     let head = TableLayout::of(props).head;
     let mut covered: Vec<Vec<bool>> = rows.iter().map(|r| vec![false; r.len()]).collect();
-    let mut spans: Vec<Vec<Option<(usize, usize)>>> =
-        rows.iter().map(|r| vec![None; r.len()]).collect();
+    let mut spans: Vec<Vec<Option<(usize, usize)>>> = rows.iter().map(|r| vec![None; r.len()]).collect();
     let free = |covered: &[Vec<bool>], r: usize, c: usize| {
         let empty = rows[r].get(c).is_some_and(|cell| {
             let text = cell.get("text").and_then(Value::as_str).unwrap_or("");
-            let marks = cell
-                .get("marks")
-                .and_then(Value::as_array)
-                .map_or(0, Vec::len);
+            let marks = cell.get("marks").and_then(Value::as_array).map_or(0, Vec::len);
             text.is_empty() && marks == 0
         });
         empty && !covered[r][c]
@@ -197,10 +173,7 @@ pub fn table_spans(props: &Value) -> Vec<Vec<Option<(usize, usize)>>> {
 /// value in its set.
 pub fn cell_alignment(cell: &Value) -> (Option<&'static str>, Option<&'static str>) {
     let [(align, aligns), (valign, valigns)] = CELL_KEYS;
-    (
-        one_of(cell.get(align), aligns),
-        one_of(cell.get(valign), valigns),
-    )
+    (one_of(cell.get(align), aligns), one_of(cell.get(valign), valigns))
 }
 
 fn one_of(value: Option<&Value>, set: &[&'static str]) -> Option<&'static str> {
@@ -210,12 +183,8 @@ fn one_of(value: Option<&Value>, set: &[&'static str]) -> Option<&'static str> {
 
 impl IslandType {
     /// Every known type, for a reader that needs the closed set whole.
-    pub const ALL: &'static [IslandType] = &[
-        IslandType::Table,
-        IslandType::Image,
-        IslandType::Footnote,
-        IslandType::Math,
-    ];
+    pub const ALL: &'static [IslandType] =
+        &[IslandType::Table, IslandType::Image, IslandType::Footnote, IslandType::Math];
 
     /// The wire discriminator; `parse(k.as_str()) == Some(k)` for every variant.
     pub fn as_str(self) -> &'static str {
@@ -277,9 +246,7 @@ impl IslandType {
     /// re-encoded without the mark.
     pub fn reject_unknown_cell_mark(self, props: &Value) -> Result<(), crate::serial::ParseError> {
         match self {
-            Self::Table => crate::serial::reject_unknown_cell_mark_name(
-                crate::serial::table_cell_values(props),
-            ),
+            Self::Table => crate::serial::reject_unknown_cell_mark_name(crate::serial::table_cell_values(props)),
             Self::Footnote => crate::serial::reject_unknown_cell_mark_name([props]),
             Self::Image | Self::Math => Ok(()),
         }
@@ -341,7 +308,7 @@ mod tests {
     /// one outside its set stays as written and reads as absent.
     #[test]
     fn normalize_props_settles_the_layout_keys() {
-        use serde_json::{Value, json};
+        use serde_json::{json, Value};
         let absent = Value::Null;
         let cases: &[(Value, &str, Value)] = &[
             (json!([2, 4, null]), "widths", json!([2, 4, null])),
@@ -355,16 +322,8 @@ mod tests {
             (json!([1, -1, 1]), "widths", json!([1, -1, 1])),
             (json!([1, 1.5, 1]), "widths", json!([1, 1.5, 1])),
             (json!([1, "2", 1]), "widths", json!([1, "2", 1])),
-            (
-                json!([9007199254740992u64, 1]),
-                "widths",
-                json!([9007199254740992u64, 1]),
-            ),
-            (
-                json!([9007199254740991u64, 1]),
-                "widths",
-                json!([9007199254740991u64, 1, null]),
-            ),
+            (json!([9007199254740992u64, 1]), "widths", json!([9007199254740992u64, 1])),
+            (json!([9007199254740991u64, 1]), "widths", json!([9007199254740991u64, 1, null])),
             (json!("1 2 3"), "widths", json!("1 2 3")),
             (json!(2), "widths", json!(2)),
             (json!("center"), "align", json!("center")),
@@ -387,16 +346,8 @@ mod tests {
             let mut props = json!({"header": ["a", "b", "c"], "rows": [["1", "2", "3"]]});
             props[*key] = value.clone();
             IslandType::Table.normalize_props(&mut props);
-            assert_eq!(
-                props.get(*key).unwrap_or(&absent),
-                settled,
-                "{key}: {value}"
-            );
-            assert_eq!(
-                props["header"].as_array().unwrap().len(),
-                3,
-                "{key}: {value}"
-            );
+            assert_eq!(props.get(*key).unwrap_or(&absent), settled, "{key}: {value}");
+            assert_eq!(props["header"].as_array().unwrap().len(), 3, "{key}: {value}");
 
             let once = props.clone();
             IslandType::Table.normalize_props(&mut props);
@@ -408,24 +359,15 @@ mod tests {
     fn the_layout_read_takes_each_key_only_in_its_set() {
         use serde_json::json;
         let rows = json!([["1"], ["2"]]);
-        let read = TableLayout::of(
-            &json!({"widths": [2, null], "align": "center", "head": 2, "rows": rows}),
-        );
-        let layout = TableLayout {
-            widths: Some(vec![Some(2), None]),
-            align: Some("center"),
-            head: 2,
-        };
+        let read = TableLayout::of(&json!({"widths": [2, null], "align": "center", "head": 2, "rows": rows}));
+        let layout = TableLayout { widths: Some(vec![Some(2), None]), align: Some("center"), head: 2 };
         assert_eq!(read, layout);
         let outside = json!({"widths": [2, 0], "align": "middle", "head": "2", "rows": rows});
         assert_eq!(TableLayout::of(&outside), TableLayout::default());
         let heads = [(json!({"head": 0}), 0), (json!({"head": 7}), 3)];
         for (keys, head) in heads {
             let mut props = json!({"header": ["h"], "rows": rows});
-            props
-                .as_object_mut()
-                .unwrap()
-                .extend(keys.as_object().unwrap().clone());
+            props.as_object_mut().unwrap().extend(keys.as_object().unwrap().clone());
             assert_eq!(TableLayout::of(&props).head, head, "{keys}");
         }
     }
@@ -439,39 +381,18 @@ mod tests {
         let cases = [
             (json!({"headless": true}), (json!(0), json!(true))),
             (json!({"head": 0}), (json!(0), json!(true))),
-            (
-                json!({"head": 0, "headless": "yes"}),
-                (json!(0), json!(true)),
-            ),
-            (
-                json!({"headless": true, "head": "x"}),
-                (json!(0), json!(true)),
-            ),
-            (
-                json!({"headless": true, "head": 2}),
-                (json!(2), Value::Null),
-            ),
-            (
-                json!({"headless": true, "head": 1}),
-                (Value::Null, Value::Null),
-            ),
-            (
-                json!({"headless": false, "head": 0}),
-                (json!(0), json!(true)),
-            ),
+            (json!({"head": 0, "headless": "yes"}), (json!(0), json!(true))),
+            (json!({"headless": true, "head": "x"}), (json!(0), json!(true))),
+            (json!({"headless": true, "head": 2}), (json!(2), Value::Null)),
+            (json!({"headless": true, "head": 1}), (Value::Null, Value::Null)),
+            (json!({"headless": false, "head": 0}), (json!(0), json!(true))),
             (json!({"headless": "yes"}), (Value::Null, json!("yes"))),
         ];
         for (keys, (head, headless)) in cases {
             let mut props = json!({"header": ["a"], "rows": [["1"], ["2"]]});
-            props
-                .as_object_mut()
-                .unwrap()
-                .extend(keys.as_object().unwrap().clone());
+            props.as_object_mut().unwrap().extend(keys.as_object().unwrap().clone());
             IslandType::Table.normalize_props(&mut props);
-            let got = (
-                props.get("head").cloned().unwrap_or(Value::Null),
-                props.get("headless").cloned().unwrap_or(Value::Null),
-            );
+            let got = (props.get("head").cloned().unwrap_or(Value::Null), props.get("headless").cloned().unwrap_or(Value::Null));
             assert_eq!(got, (head.clone(), headless.clone()), "{keys}");
             let once = props.clone();
             IslandType::Table.normalize_props(&mut props);
@@ -480,10 +401,10 @@ mod tests {
     }
 
     fn spanned(cells: &[&[(&str, usize, usize)]], head: usize) -> serde_json::Value {
-        let cell = |&(text, colspan, rowspan): &(&str, usize, usize)| serde_json::json!({"text": text, "marks": [], "colspan": colspan, "rowspan": rowspan});
-        let mut rows = cells
-            .iter()
-            .map(|row| row.iter().map(cell).collect::<Vec<_>>());
+        let cell = |&(text, colspan, rowspan): &(&str, usize, usize)| {
+            serde_json::json!({"text": text, "marks": [], "colspan": colspan, "rowspan": rowspan})
+        };
+        let mut rows = cells.iter().map(|row| row.iter().map(cell).collect::<Vec<_>>());
         let header = rows.next().unwrap();
         serde_json::json!({"header": header, "rows": rows.collect::<Vec<_>>(), "head": head})
     }
@@ -493,53 +414,17 @@ mod tests {
     /// stops it, and the earlier cell in reading order claims first.
     #[test]
     fn a_span_covers_only_empty_cells_no_other_span_covers() {
-        let cases: &[(
-            &[&[(&str, usize, usize)]],
-            usize,
-            Vec<Vec<Option<(usize, usize)>>>,
-        )] = &[
-            (
-                &[&[("a", 2, 1), ("", 1, 1)], &[("b", 1, 1), ("c", 1, 1)]],
-                1,
-                vec![vec![Some((2, 1)), None], vec![Some((1, 1)), Some((1, 1))]],
-            ),
-            (
-                &[&[("a", 3, 1), ("x", 1, 1), ("", 1, 1)]],
-                1,
-                vec![vec![Some((1, 1)), Some((1, 1)), Some((1, 1))]],
-            ),
-            (
-                &[&[("a", 9, 9), ("", 1, 1)], &[("", 1, 1), ("", 1, 1)]],
-                1,
-                vec![vec![Some((2, 1)), None], vec![Some((1, 1)), Some((1, 1))]],
-            ),
-            (
-                &[&[("a", 9, 9), ("", 1, 1)], &[("", 1, 1), ("", 1, 1)]],
-                0,
-                vec![vec![Some((2, 2)), None], vec![None, None]],
-            ),
-            (
-                &[&[("a", 1, 2), ("b", 1, 1)], &[("", 2, 1), ("c", 1, 1)]],
-                0,
-                vec![vec![Some((1, 2)), Some((1, 1))], vec![None, Some((1, 1))]],
-            ),
-            (
-                &[&[("a", 1, 1), ("b", 1, 2)], &[("c", 2, 1), ("", 1, 1)]],
-                0,
-                vec![vec![Some((1, 1)), Some((1, 2))], vec![Some((1, 1)), None]],
-            ),
-            (
-                &[&[("a", 2, 2), ("", 1, 1)], &[("", 1, 1), ("d", 1, 1)]],
-                0,
-                vec![vec![Some((2, 1)), None], vec![Some((1, 1)), Some((1, 1))]],
-            ),
+        let cases: &[(&[&[(&str, usize, usize)]], usize, Vec<Vec<Option<(usize, usize)>>>)] = &[
+            (&[&[("a", 2, 1), ("", 1, 1)], &[("b", 1, 1), ("c", 1, 1)]], 1, vec![vec![Some((2, 1)), None], vec![Some((1, 1)), Some((1, 1))]]),
+            (&[&[("a", 3, 1), ("x", 1, 1), ("", 1, 1)]], 1, vec![vec![Some((1, 1)), Some((1, 1)), Some((1, 1))]]),
+            (&[&[("a", 9, 9), ("", 1, 1)], &[("", 1, 1), ("", 1, 1)]], 1, vec![vec![Some((2, 1)), None], vec![Some((1, 1)), Some((1, 1))]]),
+            (&[&[("a", 9, 9), ("", 1, 1)], &[("", 1, 1), ("", 1, 1)]], 0, vec![vec![Some((2, 2)), None], vec![None, None]]),
+            (&[&[("a", 1, 2), ("b", 1, 1)], &[("", 2, 1), ("c", 1, 1)]], 0, vec![vec![Some((1, 2)), Some((1, 1))], vec![None, Some((1, 1))]]),
+            (&[&[("a", 1, 1), ("b", 1, 2)], &[("c", 2, 1), ("", 1, 1)]], 0, vec![vec![Some((1, 1)), Some((1, 2))], vec![Some((1, 1)), None]]),
+            (&[&[("a", 2, 2), ("", 1, 1)], &[("", 1, 1), ("d", 1, 1)]], 0, vec![vec![Some((2, 1)), None], vec![Some((1, 1)), Some((1, 1))]]),
         ];
         for (cells, head, spans) in cases {
-            assert_eq!(
-                &table_spans(&spanned(cells, *head)),
-                spans,
-                "{cells:?} head {head}"
-            );
+            assert_eq!(&table_spans(&spanned(cells, *head)), spans, "{cells:?} head {head}");
         }
     }
 
@@ -558,22 +443,10 @@ mod tests {
             "rows": [[{"text": "d", "marks": [], "rowspan": 0}]],
         });
         IslandType::Table.normalize_props(&mut props);
-        assert_eq!(
-            props["header"][0],
-            json!({"text": "a", "marks": [], "colspan": 2})
-        );
-        assert_eq!(
-            props["header"][1],
-            json!({"text": "", "marks": [], "align": "right", "x_host": 1})
-        );
-        assert_eq!(
-            props["header"][2],
-            json!({"text": "c", "marks": [], "rowspan": "2"})
-        );
-        assert_eq!(
-            props["rows"][0][0],
-            json!({"text": "d", "marks": [], "rowspan": 0})
-        );
+        assert_eq!(props["header"][0], json!({"text": "a", "marks": [], "colspan": 2}));
+        assert_eq!(props["header"][1], json!({"text": "", "marks": [], "align": "right", "x_host": 1}));
+        assert_eq!(props["header"][2], json!({"text": "c", "marks": [], "rowspan": "2"}));
+        assert_eq!(props["rows"][0][0], json!({"text": "d", "marks": [], "rowspan": 0}));
         let once = props.clone();
         IslandType::Table.normalize_props(&mut props);
         assert_eq!(props, once);
@@ -586,31 +459,18 @@ mod tests {
     fn a_cells_alignment_rides_normalization_as_stored() {
         use serde_json::json;
         let keys = [
-            (
-                json!({"align": "right", "valign": "middle"}),
-                (Some("right"), Some("middle")),
-            ),
-            (
-                json!({"align": "middle", "valign": "horizon"}),
-                (None, None),
-            ),
+            (json!({"align": "right", "valign": "middle"}), (Some("right"), Some("middle"))),
+            (json!({"align": "middle", "valign": "horizon"}), (None, None)),
             (json!({"align": ["left"], "valign": 1}), (None, None)),
         ];
         for (keys, read) in keys {
             let mut cell = json!({"text": "c", "marks": []});
-            cell.as_object_mut()
-                .unwrap()
-                .extend(keys.as_object().unwrap().clone());
-            let mut props =
-                json!({"aligns": ["right"], "header": [cell.clone()], "rows": [[cell.clone()]]});
+            cell.as_object_mut().unwrap().extend(keys.as_object().unwrap().clone());
+            let mut props = json!({"aligns": ["right"], "header": [cell.clone()], "rows": [[cell.clone()]]});
             IslandType::Table.normalize_props(&mut props);
             for at in ["/header/0", "/rows/0/0"] {
                 assert_eq!(props.pointer(at), Some(&cell), "{keys} at {at}");
-                assert_eq!(
-                    cell_alignment(props.pointer(at).unwrap()),
-                    read,
-                    "{keys} at {at}"
-                );
+                assert_eq!(cell_alignment(props.pointer(at).unwrap()), read, "{keys} at {at}");
             }
         }
     }
@@ -632,10 +492,7 @@ mod tests {
         props["header"][1]["text"] = json!("b");
         IslandType::Table.normalize_props(&mut props);
         assert_eq!(table_spans(&props), vec![vec![Some((1, 1)), Some((1, 1))]]);
-        assert_eq!(
-            cell_alignment(&props["header"][1]),
-            (Some("right"), Some("top"))
-        );
+        assert_eq!(cell_alignment(&props["header"][1]), (Some("right"), Some("top")));
     }
 
     /// A cell holding a mark, a comment's zero-width anchor included, is no
@@ -643,10 +500,8 @@ mod tests {
     #[test]
     fn a_span_stops_at_a_cell_holding_an_anchor() {
         use serde_json::json;
-        let anchored =
-            json!({"text": "", "marks": [{"start": 0, "end": 0, "type": "anchor", "id": "c1"}]});
-        let mut props =
-            json!({"header": [{"text": "a", "marks": [], "colspan": 2}, anchored], "rows": []});
+        let anchored = json!({"text": "", "marks": [{"start": 0, "end": 0, "type": "anchor", "id": "c1"}]});
+        let mut props = json!({"header": [{"text": "a", "marks": [], "colspan": 2}, anchored], "rows": []});
         IslandType::Table.normalize_props(&mut props);
         assert_eq!(table_spans(&props), vec![vec![Some((1, 1)), Some((1, 1))]]);
         assert_eq!(props["header"][0].get("colspan"), None);

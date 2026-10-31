@@ -21,9 +21,9 @@ use serde_saphyr::SerializerOptions;
 
 use super::payload::{Payload, PayloadItem};
 use super::prescan::NestedComment;
-use super::{Card, Document};
 use crate::path::DocPath;
 use crate::value::PathSegment;
+use super::{Card, Document};
 
 /// The read [`Document::to_markdown_annotated`] returns.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -231,10 +231,7 @@ impl<'a> EmitCtx<'a> {
         let markdown = match self.annotate {
             None => project_content_field(value)?,
             Some((field, anchors)) => {
-                let path = self
-                    .path
-                    .iter()
-                    .fold(field.clone(), |p, seg| p.segment(seg));
+                let path = self.path.iter().fold(field.clone(), |p, seg| p.segment(seg));
                 annotated(&canonical_content(value)?, &path, anchors)
             }
         };
@@ -269,17 +266,12 @@ impl<'a> Comments<'a> {
     }
 
     fn add(&mut self, path: &'a [PathSegment], c: &'a NestedComment) {
-        self.slots
-            .entry((path, c.position, c.inline))
-            .or_default()
-            .push(&c.text);
+        self.slots.entry((path, c.position, c.inline)).or_default().push(&c.text);
         self.containers.entry(path).or_default().push(c);
     }
 
     fn slot(&self, path: &'a [PathSegment], position: usize, inline: bool) -> &[&'a str] {
-        self.slots
-            .get(&(path, position, inline))
-            .map_or(&[], Vec::as_slice)
+        self.slots.get(&(path, position, inline)).map_or(&[], Vec::as_slice)
     }
 
     fn container(&self, path: &[PathSegment]) -> &[&'a NestedComment] {
@@ -739,9 +731,7 @@ fn literal_block(s: &str) -> Option<(&'static str, Vec<&str>)> {
         return None;
     }
     if s.chars().any(|c| {
-        c != '\n'
-            && c != '\t'
-            && (c.is_control() || matches!(c, '\u{2028}' | '\u{2029}' | '\u{FEFF}'))
+        c != '\n' && c != '\t' && (c.is_control() || matches!(c, '\u{2028}' | '\u{2029}' | '\u{FEFF}'))
     }) {
         return None;
     }
@@ -842,6 +832,7 @@ fn double_quote_string(s: &str) -> String {
     out
 }
 
+
 fn push_indent(out: &mut String, spaces: usize) {
     for _ in 0..spaces {
         out.push(' ');
@@ -857,14 +848,13 @@ mod tests {
         let mut yaml = String::from("~~~card-yaml\n$quill: q\n$kind: main\nv: ");
         yaml.push_str(&saphyr_emit_scalar(&value));
         yaml.push_str("\n~~~\n");
-        let doc = crate::document::Document::parse(&yaml)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "failed to parse emitted scalar {:?}: {}\n{}",
-                    value, e, yaml
-                )
-            })
-            .document;
+        let doc = crate::document::Document::parse(&yaml).unwrap_or_else(|e| {
+            panic!(
+                "failed to parse emitted scalar {:?}: {}\n{}",
+                value, e, yaml
+            )
+        })
+        .document;
         let parsed = doc.main().payload().get("v").expect("field 'v'").as_json();
         assert_eq!(
             parsed, &value,
@@ -879,30 +869,9 @@ mod tests {
     #[test]
     fn saphyr_scalar_round_trips_ambiguous_strings() {
         for ambiguous in &[
-            "on",
-            "off",
-            "yes",
-            "no",
-            "true",
-            "false",
-            "null",
-            "~",
-            "01234",
-            "1e10",
-            "0x1F",
-            "2024-01-15",
-            "",
-            " ",
-            "key: value",
-            "- item",
-            "#comment",
-            "&anchor",
-            "*alias",
-            "!tag",
-            "line1\nline2",
-            "he said \"hi\"",
-            "a\\b",
-            "a\\b\"c\nd\te",
+            "on", "off", "yes", "no", "true", "false", "null", "~", "01234", "1e10", "0x1F",
+            "2024-01-15", "", " ", "key: value", "- item", "#comment", "&anchor", "*alias", "!tag",
+            "line1\nline2", "he said \"hi\"", "a\\b", "a\\b\"c\nd\te",
         ] {
             assert_scalar_round_trips(serde_json::json!(*ambiguous));
         }
@@ -945,9 +914,7 @@ mod tests {
             "  - key: []\n      # - inside the list\n",
             "~~~\n",
         );
-        let doc = crate::document::Document::parse(src)
-            .expect("parse src")
-            .document;
+        let doc = crate::document::Document::parse(src).expect("parse src").document;
         assert_eq!(doc.to_markdown(), src);
         assert_eq!(
             doc.main().payload().get("rows").expect("rows").as_json()[0],
@@ -965,9 +932,7 @@ mod tests {
             "  - key:\n      # under key\n    next: 1\n",
             "~~~\n",
         );
-        let doc = crate::document::Document::parse(src)
-            .expect("parse src")
-            .document;
+        let doc = crate::document::Document::parse(src).expect("parse src").document;
         assert_eq!(doc.to_markdown(), src);
     }
 

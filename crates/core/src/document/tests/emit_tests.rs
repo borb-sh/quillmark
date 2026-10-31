@@ -30,16 +30,12 @@ fn every_fixture_document_holds_the_codecs_fixed_points() {
         let b = match Document::parse(&emitted) {
             Ok(p) => p.document,
             Err(e) => {
-                failures.push(format!(
-                    "{label}: the emission does not parse: {e}\n{emitted}"
-                ));
+                failures.push(format!("{label}: the emission does not parse: {e}\n{emitted}"));
                 continue;
             }
         };
         if a != b {
-            failures.push(format!(
-                "{label}: emit∘parse is not the identity\n{emitted}"
-            ));
+            failures.push(format!("{label}: emit∘parse is not the identity\n{emitted}"));
         }
         if b.to_markdown() != emitted {
             failures.push(format!("{label}: a second emission differs\n{emitted}"));
@@ -185,9 +181,7 @@ Body.
         md.contains("  -x: 4\n  # a fifth note\n  end: 5\n"),
         "the fifth comment moved: {md}"
     );
-    let reparsed = Document::parse(&md)
-        .expect("the emitted document re-parses")
-        .document;
+    let reparsed = Document::parse(&md).expect("the emitted document re-parses").document;
     assert_eq!(doc, reparsed, "emit is not a fixed point: {md}");
 
     // And a tag under a quoted key keeps its value and warns at that key.
@@ -204,12 +198,7 @@ Body.
 ";
     let out = Document::parse(tagged).expect("parses");
     assert_eq!(
-        out.document
-            .main()
-            .payload()
-            .get("config")
-            .unwrap()
-            .as_json(),
+        out.document.main().payload().get("config").unwrap().as_json(),
         &serde_json::json!({"a b": "Example", "city": "Anytown"})
     );
     let paths: Vec<_> = out.warnings.iter().map(|w| w.path.as_deref()).collect();
@@ -237,8 +226,7 @@ fn an_indented_text_field_survives_emit_and_reparse() {
         .expect("the field projected to a markdown string");
     assert_eq!(
         quillmark_content::import::from_markdown(projected)
-            .expect("the projection re-imports")
-            .content
+            .expect("the projection re-imports").content
             .text,
         text,
         "indented plaintext lost in emit:\n{md}"
@@ -250,9 +238,7 @@ fn an_indented_text_field_survives_emit_and_reparse() {
 /// same value and re-encodes to different bytes.
 #[test]
 fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
-    let content = quillmark_content::import::from_markdown("> quoted")
-        .unwrap()
-        .content;
+    let content = quillmark_content::import::from_markdown("> quoted").unwrap().content;
     let canonical = quillmark_content::serial::to_canonical_value(&content);
     let mut spelled = canonical.clone();
     spelled["lines"][0]["containers"][0]["instance"] = serde_json::json!(0);
@@ -260,16 +246,9 @@ fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
     let md = doc_with(&[("stored", canonical), ("spelled", spelled)]).to_markdown();
     assert!(md.contains(r#"stored: "> quoted""#), "got:\n{md}");
     let back = Document::parse(&md).expect("re-parses").document;
-    assert_eq!(
-        back.main().payload().get("stored").unwrap().as_str(),
-        Some("> quoted")
-    );
+    assert_eq!(back.main().payload().get("stored").unwrap().as_str(), Some("> quoted"));
 
-    let spelled = back
-        .main()
-        .payload()
-        .get("spelled")
-        .expect("field survives");
+    let spelled = back.main().payload().get("spelled").expect("field survives");
     assert_eq!(
         spelled.as_json()["lines"][0]["containers"][0]["instance"],
         serde_json::json!(0),
@@ -284,9 +263,7 @@ fn a_nested_content_cell_projects_and_ext_content_does_not() {
     use crate::value::QuillValue;
 
     let content = quillmark_content::serial::to_canonical_value(
-        &quillmark_content::import::from_markdown("and **this**")
-            .unwrap()
-            .content,
+        &quillmark_content::import::from_markdown("and **this**").unwrap().content,
     );
     let meta = QuillValue::from_json(serde_json::json!({ "blurb": content.clone() }));
 

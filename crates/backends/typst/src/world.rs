@@ -3,15 +3,15 @@ use std::path::Path;
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime, Duration};
 use typst::syntax::{
-    FileId, RootedPath, Source, VirtualPath, VirtualRoot,
     package::{PackageSpec, PackageVersion},
+    FileId, RootedPath, Source, VirtualPath, VirtualRoot,
 };
 use typst::text::{Coverage, Font, FontBook, FontFlags, FontInfo};
 use typst::utils::LazyHash;
 use typst::{Library, World};
 
 use crate::families::Families;
-use crate::{FontLibrary, Plate, helper};
+use crate::{helper, FontLibrary, Plate};
 use quillmark_core::{
     error::{Diagnostic, Severity},
     quill::{CalendarDate, Quill},
@@ -42,10 +42,7 @@ fn file_id(spec: Option<PackageSpec>, vpath: VirtualPath) -> FileId {
 /// `scripts/fallback-fonts.py` writes them.
 pub(crate) static FALLBACK_FONTS: [(&str, &[u8]); 2] = [
     ("Roboto.ttf", include_bytes!("fonts/Roboto.ttf")),
-    (
-        "Roboto-Italic.ttf",
-        include_bytes!("fonts/Roboto-Italic.ttf"),
-    ),
+    ("Roboto-Italic.ttf", include_bytes!("fonts/Roboto-Italic.ttf")),
 ];
 
 /// The face an equation sets in when the quill ships none of
@@ -141,18 +138,10 @@ pub(crate) fn session_fonts(
     }));
     if !quill_ships {
         for (_, data) in FALLBACK_FONTS {
-            out.extend(
-                faces(Bytes::new(data))
-                    .into_iter()
-                    .flatten()
-                    .map(|font| (font.info().clone(), font)),
-            );
+            out.extend(faces(Bytes::new(data)).into_iter().flatten().map(|font| (font.info().clone(), font)));
         }
     }
-    let holds = |out: &[(FontInfo, Font)], family: &str| {
-        out.iter()
-            .any(|(info, _)| info.family.eq_ignore_ascii_case(family))
-    };
+    let holds = |out: &[(FontInfo, Font)], family: &str| out.iter().any(|(info, _)| info.family.eq_ignore_ascii_case(family));
     if !holds(&out, MATH_FAMILY) {
         for font in faces(Bytes::new(MATH_FONT.1)).into_iter().flatten() {
             let mut info = font.info().clone();
@@ -218,9 +207,7 @@ impl QuillWorld {
         for font in library.faces() {
             if sets_text(font.info(), font) {
                 let family = &font.info().family;
-                families
-                    .offered
-                    .insert(family.to_lowercase(), library.alias(family));
+                families.offered.insert(family.to_lowercase(), library.alias(family));
             }
         }
 
@@ -763,8 +750,7 @@ mod tests {
             ("packages/brokenpkg/lib.typ", "#let x = 1\n"),
         ]);
         let plate = crate::read_plate(&quill).expect("plate");
-        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default())
-            .expect("world builds anyway");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world builds anyway");
 
         let codes: Vec<&str> = world
             .load_warnings()
@@ -788,8 +774,7 @@ mod tests {
     fn a_package_without_a_manifest_is_skipped_with_a_warning() {
         let quill = quill_with(&[("packages/bare/lib.typ", "#let x = 1\n")]);
         let plate = crate::read_plate(&quill).expect("plate");
-        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default())
-            .expect("world builds anyway");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world builds anyway");
 
         let warning = world
             .load_warnings()
@@ -834,8 +819,7 @@ mod tests {
             ("packages/oldver/lib.typ", "#let x = 1\n"),
         ]);
         let plate = crate::read_plate(&quill).expect("plate");
-        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default())
-            .expect("world builds anyway");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world builds anyway");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()
@@ -854,8 +838,7 @@ mod tests {
             ("packages/escapee/lib.typ", "#let x = 1\n"),
         ]);
         let plate = crate::read_plate(&quill).expect("plate");
-        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default())
-            .expect("world builds anyway");
+        let world = QuillWorld::new(&quill, &plate, &crate::FontLibrary::default()).expect("world builds anyway");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()
@@ -885,4 +868,5 @@ mod tests {
             "expected an entrypoint warning, got {codes:?}"
         );
     }
+
 }

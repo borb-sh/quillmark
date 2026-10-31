@@ -108,22 +108,12 @@ impl std::fmt::Display for BindError {
                  nothing on page {page}: `w` and `h` must be positive and the box must overlap the page",
                 rect.x, rect.y, rect.w, rect.h
             ),
-            BindError::BadOption {
-                name,
-                path,
-                option,
-                values,
-            } if values.is_empty() => write!(
+            BindError::BadOption { name, path, option, values } if values.is_empty() => write!(
                 f,
                 "Form.yaml field {name:?} is checked by `option: {option:?}`, but schema_field \
                  {path:?} is not an `enum`; a variant container binds its `.value`"
             ),
-            BindError::BadOption {
-                name,
-                path,
-                option,
-                values,
-            } => write!(
+            BindError::BadOption { name, path, option, values } => write!(
                 f,
                 "Form.yaml field {name:?} is checked by `option: {option:?}`, which `enum` \
                  {path:?} does not hold; its values are {values:?}"
@@ -169,7 +159,7 @@ fn bind_field(
                 .ends_with(&format!(".{VARIANT_DISCRIMINANT_KEY}"));
             match &schema.r#type {
                 SchemaType::Enum { .. } if schema.is_variant_bearing() && !discriminant => {
-                    return Err(bad(&[]));
+                    return Err(bad(&[]))
                 }
                 SchemaType::Enum { values } if values.contains(option) => WidgetType::Checkbox,
                 SchemaType::Enum { values } => return Err(bad(values)),
@@ -178,14 +168,11 @@ fn bind_field(
         }
         None => project_kind(schema, &field.name, &field.schema_field)?,
     };
-    let tooltip = field
-        .tooltip
-        .clone()
-        .or_else(|| match (&schema.description, &field.option) {
-            (Some(description), Some(option)) => Some(format!("{description}: {option}")),
-            (None, Some(option)) => Some(option.clone()),
-            (description, None) => description.clone(),
-        });
+    let tooltip = field.tooltip.clone().or_else(|| match (&schema.description, &field.option) {
+        (Some(description), Some(option)) => Some(format!("{description}: {option}")),
+        (None, Some(option)) => Some(option.clone()),
+        (description, None) => description.clone(),
+    });
     Ok(BoundWidget {
         name: field.name.clone(),
         schema_field: Some(field.schema_field.clone()),
@@ -194,10 +181,7 @@ fn bind_field(
         field_type,
         tooltip,
         max_len: schema.max.filter(|_| {
-            matches!(
-                schema.r#type,
-                SchemaType::Text { .. } | SchemaType::RichText { .. }
-            )
+            matches!(schema.r#type, SchemaType::Text { .. } | SchemaType::RichText { .. })
         }),
         option: field.option.clone(),
     })
@@ -340,7 +324,11 @@ fn descend<'a>(cur: &'a FieldSchema, seg: &str) -> Option<&'a FieldSchema> {
 
 /// Project a resolved [`FieldSchema`] to its widget kind: an `enum` is a
 /// dropdown over its domain, and an `object` has no widget shape at all.
-pub fn project_kind(field: &FieldSchema, name: &str, path: &str) -> Result<WidgetType, BindError> {
+pub fn project_kind(
+    field: &FieldSchema,
+    name: &str,
+    path: &str,
+) -> Result<WidgetType, BindError> {
     let unbindable = || BindError::Unbindable {
         name: name.to_string(),
         path: path.to_string(),
@@ -494,9 +482,7 @@ card_kinds:
 "#;
 
     fn config() -> QuillConfig {
-        QuillConfig::from_yaml_with_warnings(YAML)
-            .expect("schema parses")
-            .0
+        QuillConfig::from_yaml_with_warnings(YAML).expect("schema parses").0
     }
 
     fn kind(path: &str) -> Result<WidgetType, BindError> {
@@ -510,12 +496,7 @@ card_kinds:
             name: "W".into(),
             schema_field: path.into(),
             page: 0,
-            rect: Rect {
-                x: 72.0,
-                y: 72.0,
-                w: 12.0,
-                h: 12.0,
-            },
+            rect: Rect { x: 72.0, y: 72.0, w: 12.0, h: 12.0 },
             tooltip: None,
             option: Some(option.into()),
         };
@@ -527,15 +508,8 @@ card_kinds:
         let green = button("favorite_color", "green").expect("binds");
         assert_eq!(green.field_type, WidgetType::Checkbox);
         assert_eq!(green.option.as_deref(), Some("green"));
-        assert_eq!(
-            green.tooltip.as_deref(),
-            Some("green"),
-            "each box says which value it is"
-        );
-        assert_eq!(
-            button("classification.value", "CUI").unwrap().field_type,
-            WidgetType::Checkbox
-        );
+        assert_eq!(green.tooltip.as_deref(), Some("green"), "each box says which value it is");
+        assert_eq!(button("classification.value", "CUI").unwrap().field_type, WidgetType::Checkbox);
 
         for (path, option) in [
             ("favorite_color", "purple"),
@@ -552,14 +526,8 @@ card_kinds:
 
     #[test]
     fn scalar_and_prose_project_to_text() {
-        assert_eq!(
-            kind("full_name").unwrap(),
-            WidgetType::Text { multiline: false }
-        );
-        assert_eq!(
-            kind("count").unwrap(),
-            WidgetType::Text { multiline: false }
-        );
+        assert_eq!(kind("full_name").unwrap(), WidgetType::Text { multiline: false });
+        assert_eq!(kind("count").unwrap(), WidgetType::Text { multiline: false });
         assert_eq!(kind("when").unwrap(), WidgetType::Text { multiline: false });
         assert_eq!(kind("bio").unwrap(), WidgetType::Text { multiline: true });
     }
@@ -586,27 +554,18 @@ card_kinds:
     /// newlines.
     #[test]
     fn a_scalar_array_projects_to_multiline_text() {
-        assert_eq!(
-            kind("comments").unwrap(),
-            WidgetType::Text { multiline: true }
-        );
+        assert_eq!(kind("comments").unwrap(), WidgetType::Text { multiline: true });
         assert_eq!(kind("tags").unwrap(), WidgetType::Text { multiline: true });
     }
 
     #[test]
     fn array_element_binds_to_scalar_text() {
-        assert_eq!(
-            kind("comments.0").unwrap(),
-            WidgetType::Text { multiline: false }
-        );
+        assert_eq!(kind("comments.0").unwrap(), WidgetType::Text { multiline: false });
     }
 
     #[test]
     fn object_property_binds() {
-        assert_eq!(
-            kind("address.street").unwrap(),
-            WidgetType::Text { multiline: false }
-        );
+        assert_eq!(kind("address.street").unwrap(), WidgetType::Text { multiline: false });
     }
 
     /// A variant container is bound through its resting shape: the discriminant

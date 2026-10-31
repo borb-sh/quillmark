@@ -165,10 +165,7 @@ impl fmt::Display for DocPath {
         for (i, seg) in self.segs.iter().enumerate() {
             match seg {
                 DocSeg::Main => f.write_str("main")?,
-                DocSeg::Card {
-                    kind: Some(k),
-                    index,
-                } => write!(f, "cards.{k}[{index}]")?,
+                DocSeg::Card { kind: Some(k), index } => write!(f, "cards.{k}[{index}]")?,
                 DocSeg::Card { kind: None, index } => write!(f, "cards[{index}]")?,
                 DocSeg::Field { name } => {
                     if i != 0 {
@@ -285,16 +282,12 @@ fn scan(s: &str) -> Result<Vec<DocSeg>, &'static str> {
                 if i == start {
                     return Err("empty segment after '.'");
                 }
-                segs.push(DocSeg::Field {
-                    name: unescape_field(&s[start..i])?,
-                });
+                segs.push(DocSeg::Field { name: unescape_field(&s[start..i])? });
             }
             _ => {
                 let start = i;
                 i = word_end(bytes, start);
-                segs.push(DocSeg::Field {
-                    name: unescape_field(&s[start..i])?,
-                });
+                segs.push(DocSeg::Field { name: unescape_field(&s[start..i])? });
             }
         }
     }
@@ -349,26 +342,19 @@ fn unescape_field(raw: &str) -> Result<String, &'static str> {
 fn parse_card_root(segs: &[DocSeg]) -> Option<(DocSeg, &[DocSeg])> {
     match segs {
         // cards[<i>] …
-        [DocSeg::Field { .. }, DocSeg::Index { index }, rest @ ..] => Some((
-            DocSeg::Card {
-                kind: None,
-                index: *index,
-            },
-            rest,
-        )),
+        [DocSeg::Field { .. }, DocSeg::Index { index }, rest @ ..] => {
+            Some((DocSeg::Card { kind: None, index: *index }, rest))
+        }
         // cards.<kind>[<i>] …
-        [
-            DocSeg::Field { .. },
-            DocSeg::Field { name: kind },
-            DocSeg::Index { index },
-            rest @ ..,
-        ] => Some((
-            DocSeg::Card {
-                kind: Some(kind.clone()),
-                index: *index,
-            },
-            rest,
-        )),
+        [DocSeg::Field { .. }, DocSeg::Field { name: kind }, DocSeg::Index { index }, rest @ ..] => {
+            Some((
+                DocSeg::Card {
+                    kind: Some(kind.clone()),
+                    index: *index,
+                },
+                rest,
+            ))
+        }
         _ => None,
     }
 }
@@ -424,10 +410,7 @@ mod tests {
 
     #[test]
     fn card_roots() {
-        round_trip(
-            DocPath::card(Some("indorsement"), 0),
-            "cards.indorsement[0]",
-        );
+        round_trip(DocPath::card(Some("indorsement"), 0), "cards.indorsement[0]");
         round_trip(DocPath::card(None, 3), "cards[3]");
     }
 
@@ -492,21 +475,9 @@ mod tests {
     #[test]
     fn parse_rejects_malformed() {
         for bad in [
-            "",
-            ".foo",
-            "[0]",
-            "foo[",
-            "foo[a]",
-            "foo[]",
-            "a..b",
-            "a.",
-            "main.a\\",
-            "main.a\\x",
+            "", ".foo", "[0]", "foo[", "foo[a]", "foo[]", "a..b", "a.", "main.a\\", "main.a\\x",
         ] {
-            assert!(
-                bad.parse::<DocPath>().is_err(),
-                "expected error for {bad:?}"
-            );
+            assert!(bad.parse::<DocPath>().is_err(), "expected error for {bad:?}");
         }
     }
 

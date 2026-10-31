@@ -80,19 +80,8 @@ fn aligned_cards_keep_their_anchors_and_the_receipt_names_the_rest() {
     let receipt = doc.revise(md).unwrap();
     assert_eq!(receipt.from, [None, Some(1), Some(0)]);
 
-    let keys: Vec<_> = doc
-        .cards()
-        .iter()
-        .map(|c| c.ext().map(|e| e["app"]["key"].clone()))
-        .collect();
-    assert_eq!(
-        keys,
-        [
-            None,
-            Some(serde_json::json!("n2")),
-            Some(serde_json::json!("n1"))
-        ]
-    );
+    let keys: Vec<_> = doc.cards().iter().map(|c| c.ext().map(|e| e["app"]["key"].clone())).collect();
+    assert_eq!(keys, [None, Some(serde_json::json!("n2")), Some(serde_json::json!("n1"))]);
     assert_eq!(anchor_ids(doc.main().body()), ["m1"]);
     let subject = doc
         .main()
@@ -160,10 +149,7 @@ fn everything_else_lands_as_the_markdown_spells_it() {
     let incoming = "~~~\n$quill: other@1.2\n# kept comment\nsubject: plain now\nqty: 4\n~~~\n";
     let _ = doc.revise(incoming).unwrap();
     assert_eq!(doc.quill_reference().to_string(), "other@1.2");
-    assert_eq!(
-        doc.main().payload().get("qty").unwrap().as_json(),
-        &serde_json::json!(4)
-    );
+    assert_eq!(doc.main().payload().get("qty").unwrap().as_json(), &serde_json::json!(4));
     assert!(doc.cards().is_empty());
     let mut expected = parse(incoming);
     let subject = doc
@@ -171,10 +157,7 @@ fn everything_else_lands_as_the_markdown_spells_it() {
         .field_content("subject", Codec::Richtext)
         .unwrap()
         .unwrap();
-    expected
-        .main_mut()
-        .overwrite_field("subject", subject)
-        .unwrap();
+    expected.main_mut().overwrite_field("subject", subject).unwrap();
     assert_eq!(doc.to_markdown(), expected.to_markdown());
     assert!(doc.to_markdown().contains("# kept comment"));
 }
@@ -217,10 +200,9 @@ fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
     let listed = read.anchors.iter().find(|a| a.id == "i1").unwrap();
     assert_eq!(listed.path.to_string(), "cards.note[0].items[1]");
 
-    let markdown = read.markdown.replace(
-        "  - an item to <qm-anchor ref=\"i1\"></qm-anchor>flag\n",
-        "",
-    );
+    let markdown = read
+        .markdown
+        .replace("  - an item to <qm-anchor ref=\"i1\"></qm-anchor>flag\n", "");
     assert_ne!(markdown, read.markdown);
     let receipt = doc.revise(&markdown).unwrap();
     let dropped: Vec<String> = receipt
@@ -238,13 +220,8 @@ fn a_dropped_anchor_inside_a_field_names_the_content_holding_it() {
 fn an_anchor_in_content_stored_out_of_canonical_order_is_named_when_it_drops() {
     let note = crate::document::import_body("a note to flag").unwrap();
     let canonical = to_canonical_value(&anchored(&note, "flag", "n1"));
-    let reordered: serde_json::Map<String, serde_json::Value> = canonical
-        .as_object()
-        .unwrap()
-        .clone()
-        .into_iter()
-        .rev()
-        .collect();
+    let reordered: serde_json::Map<String, serde_json::Value> =
+        canonical.as_object().unwrap().clone().into_iter().rev().collect();
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
     doc.main_mut()
         .store_field("note", QuillValue::from_json(reordered.into()))
@@ -270,27 +247,14 @@ fn an_anchor_in_content_stored_out_of_canonical_order_is_named_when_it_drops() {
 fn an_anchor_in_a_fields_list_item_survives_an_edit_to_its_item() {
     let mut doc = stored_with_items();
 
-    let markdown = doc
-        .to_markdown()
-        .replace("an item to flag", "an edited item to flag");
+    let markdown = doc.to_markdown().replace("an item to flag", "an edited item to flag");
     let receipt = doc.revise(&markdown).unwrap();
-    assert!(
-        receipt.dropped_anchors.iter().all(|d| d.id != "i1"),
-        "{receipt:?}"
-    );
-    let items = doc.cards()[0]
-        .payload()
-        .get("items")
-        .unwrap()
-        .as_json()
-        .clone();
+    assert!(receipt.dropped_anchors.iter().all(|d| d.id != "i1"), "{receipt:?}");
+    let items = doc.cards()[0].payload().get("items").unwrap().as_json().clone();
     let item = quillmark_content::serial::from_canonical_value(&items[1]).unwrap();
     assert_eq!(item.text, "an edited item to flag");
     assert_eq!(anchor_ids(&item), ["i1"]);
-    assert!(
-        items[0].is_object(),
-        "an unanchored item revises to content too"
-    );
+    assert!(items[0].is_object(), "an unanchored item revises to content too");
 }
 
 #[test]
@@ -323,32 +287,15 @@ fn the_annotated_read_lists_each_anchor_at_its_field() {
         [
             ("main.subject".to_string(), "s1", "The subject line"),
             ("main.body".to_string(), "m1", "Main prose stays here."),
-            (
-                "cards.note[0].items[1]".to_string(),
-                "i1",
-                "an item to flag"
-            ),
-            (
-                "cards.note[0].body".to_string(),
-                "a1",
-                "First note about apples."
-            ),
-            (
-                "cards.note[1].body".to_string(),
-                "p1",
-                "Second note about pears."
-            ),
+            ("cards.note[0].items[1]".to_string(), "i1", "an item to flag"),
+            ("cards.note[0].body".to_string(), "a1", "First note about apples."),
+            ("cards.note[1].body".to_string(), "p1", "Second note about pears."),
             ("cards.memo[2].body".to_string(), "x1", "A memo to drop."),
         ]
     );
     for id in ["s1", "m1", "i1", "a1", "p1", "x1"] {
         let tag = format!("<qm-anchor ref=\"{id}\"></qm-anchor>");
-        assert_eq!(
-            read.markdown.matches(&tag).count(),
-            1,
-            "{id}:\n{}",
-            read.markdown
-        );
+        assert_eq!(read.markdown.matches(&tag).count(), 1, "{id}:\n{}", read.markdown);
     }
 }
 
@@ -359,11 +306,7 @@ fn revising_with_the_annotated_read_keeps_every_anchor() {
     let markdown = doc.to_markdown_annotated().markdown;
     assert!(markdown.contains("<qm-anchor ref=\"s1\"></qm-anchor>"));
     let receipt = doc.revise(&markdown).unwrap();
-    assert!(
-        receipt.dropped_anchors.is_empty(),
-        "{:?}",
-        receipt.dropped_anchors
-    );
+    assert!(receipt.dropped_anchors.is_empty(), "{:?}", receipt.dropped_anchors);
     assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
     assert_eq!(doc, before);
 }
@@ -385,10 +328,7 @@ fn a_revised_fields_nested_comments_stay() {
     assert!(markdown.contains("# inner"), "{markdown}");
     let _ = doc.revise(&markdown).unwrap();
     let out = doc.to_markdown();
-    assert!(
-        out.contains("# lead comment") && out.contains("# inner"),
-        "{out}"
-    );
+    assert!(out.contains("# lead comment") && out.contains("# inner"), "{out}");
 }
 
 /// A card spelling a stored card's `$id` revises it wherever it moved and
@@ -430,11 +370,7 @@ fn a_new_card_in_a_removed_cards_place_takes_none_of_its_identity() {
     assert_eq!(receipt.from, [Some(0), None, Some(2)]);
     assert_ne!(doc.cards()[1].id(), Some(second.as_str()));
     assert!(doc.cards()[1].ext().is_none());
-    let dropped: Vec<_> = receipt
-        .dropped_anchors
-        .iter()
-        .filter_map(|a| Some((a.id.as_str(), a.card_id.as_deref()?)))
-        .collect();
+    let dropped: Vec<_> = receipt.dropped_anchors.iter().filter_map(|a| Some((a.id.as_str(), a.card_id.as_deref()?))).collect();
     assert_eq!(dropped, [("p1", second.as_str())]);
 }
 
@@ -466,11 +402,7 @@ fn a_pasted_copy_of_a_card_is_inserted_with_a_new_id() {
 #[test]
 fn an_inserted_card_keeps_a_fresh_id_and_a_mint_skips_the_stored_ids() {
     let mut doc = stored();
-    let stored_ids: Vec<String> = doc
-        .cards()
-        .iter()
-        .map(|c| c.id().unwrap().to_string())
-        .collect();
+    let stored_ids: Vec<String> = doc.cards().iter().map(|c| c.id().unwrap().to_string()).collect();
     let md = format!(
         "{}\n~~~\n$kind: aside\n$id: my-aside\n~~~\n\nNamed.\n\n~~~\n$kind: aside\n~~~\n\nUnnamed.\n",
         doc.to_markdown()
@@ -488,19 +420,13 @@ fn an_inserted_card_keeps_a_fresh_id_and_a_mint_skips_the_stored_ids() {
 #[test]
 fn an_item_inserted_ahead_keeps_each_anchor_on_its_own_item() {
     let mut doc = stored_with_items();
-    let markdown = doc.to_markdown().replace(
-        "  - a plain item\n",
-        "  - a new first item\n  - a plain item\n",
-    );
+    let markdown = doc
+        .to_markdown()
+        .replace("  - a plain item\n", "  - a new first item\n  - a plain item\n");
     assert_ne!(markdown, doc.to_markdown());
     let receipt = doc.revise(&markdown).unwrap();
     assert!(receipt.dropped_anchors.is_empty(), "{receipt:?}");
-    let items = doc.cards()[0]
-        .payload()
-        .get("items")
-        .unwrap()
-        .as_json()
-        .clone();
+    let items = doc.cards()[0].payload().get("items").unwrap().as_json().clone();
     assert_eq!(items[0], "a new first item");
     let item = quillmark_content::serial::from_canonical_value(&items[2]).unwrap();
     assert_eq!(item.text, "an item to flag");
@@ -524,9 +450,7 @@ pub(super) fn titled(content: &Normalized) -> Normalized {
 /// around it.
 #[test]
 fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
-    let mut doc = parse(
-        "~~~\n$quill: memo@1.0.0\n~~~\n\nSee ![a](u.png) and the plan.\n\n~~~\n$kind: note\n~~~\n\nA note.\n",
-    );
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nSee ![a](u.png) and the plan.\n\n~~~\n$kind: note\n~~~\n\nA note.\n");
     let body = titled(&anchored(doc.main().body(), "plan", "p1"));
     doc.main_mut().overwrite_body(body.clone());
     let read = doc.to_markdown_annotated().markdown;
@@ -538,19 +462,11 @@ fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
     );
     let receipt = doc.revise(&written).unwrap();
     assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
-    assert!(
-        receipt.dropped_anchors.is_empty(),
-        "{:?}",
-        receipt.dropped_anchors
-    );
+    assert!(receipt.dropped_anchors.is_empty(), "{:?}", receipt.dropped_anchors);
     let revised = doc.main().body();
     assert_eq!(revised.text, "Now the plan, beside \u{FFFC}.");
     assert_eq!(revised.islands, body.islands);
-    let p1 = revised
-        .marks
-        .iter()
-        .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "p1"))
-        .unwrap();
+    let p1 = revised.marks.iter().find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "p1")).unwrap();
     assert_eq!((p1.start, p1.end), (4, 12));
 }
 
@@ -566,28 +482,13 @@ fn a_tag_naming_nothing_stored_drops_reported_at_its_card() {
     let reported: Vec<_> = receipt
         .warnings
         .iter()
-        .map(|w| {
-            (
-                w.path.as_deref().unwrap_or_default(),
-                w.args["construct"].as_str().unwrap_or_default(),
-            )
-        })
+        .map(|w| (w.path.as_deref().unwrap_or_default(), w.args["construct"].as_str().unwrap_or_default()))
         .collect();
-    assert_eq!(
-        reported,
-        [
-            ("main.body", "qm-anchor[ref]"),
-            ("cards.note[0].body", "qm-island[ref]")
-        ]
-    );
+    assert_eq!(reported, [("main.body", "qm-anchor[ref]"), ("cards.note[0].body", "qm-island[ref]")]);
     assert_eq!(doc.cards()[0].body().text, "New .");
 
     let cold = Document::parse(written).unwrap();
-    let constructs: Vec<_> = cold
-        .warnings
-        .iter()
-        .filter_map(|w| w.args.get("construct"))
-        .collect();
+    let constructs: Vec<_> = cold.warnings.iter().filter_map(|w| w.args.get("construct")).collect();
     assert_eq!(constructs, [&serde_json::json!("qm-island")]);
 }
 
@@ -596,22 +497,13 @@ fn a_tag_naming_nothing_stored_drops_reported_at_its_card() {
 fn a_token_in_a_field_keeps_its_island() {
     let mut doc = parse("~~~\n$quill: memo@1.0.0\nsummary: x\n~~~\n");
     let summary = titled(&crate::document::import_body("A ![b](v.png) here.").unwrap());
-    doc.main_mut()
-        .overwrite_field("summary", summary.clone())
-        .unwrap();
+    doc.main_mut().overwrite_field("summary", summary.clone()).unwrap();
     let read = doc.to_markdown_annotated().markdown;
-    assert!(
-        read.contains("summary: A <qm-island ref=\"isl-0\"></qm-island> here."),
-        "{read}"
-    );
+    assert!(read.contains("summary: A <qm-island ref=\"isl-0\"></qm-island> here."), "{read}");
 
     let receipt = doc.revise(&read.replace(" here.", " there.")).unwrap();
     assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
-    let now = doc
-        .main()
-        .field_content("summary", Codec::Richtext)
-        .unwrap()
-        .unwrap();
+    let now = doc.main().field_content("summary", Codec::Richtext).unwrap().unwrap();
     assert_eq!(now.text, "A \u{FFFC} there.");
     assert_eq!(now.islands, summary.islands);
 }

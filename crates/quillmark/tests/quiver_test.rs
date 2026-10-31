@@ -116,15 +116,10 @@ fn every_quill_renders_its_seed_document() {
                 common::test_date(),
                 &RenderOptions::default().with_output_format(format),
             )
-            .unwrap_or_else(|e| {
-                panic!("{name} failed to render its seeded document to {format:?}: {e:?}")
-            });
+            .unwrap_or_else(|e| panic!("{name} failed to render its seeded document to {format:?}: {e:?}"));
 
         assert!(
-            rendered
-                .artifacts
-                .first()
-                .is_some_and(|a| !a.bytes.is_empty()),
+            rendered.artifacts.first().is_some_and(|a| !a.bytes.is_empty()),
             "{name} rendered no {format:?} bytes"
         );
     }
@@ -133,20 +128,13 @@ fn every_quill_renders_its_seed_document() {
 #[test]
 fn every_quill_declares_every_key_its_canonical_documents_write() {
     for (name, quill) in QUIVER.iter() {
-        for doc in [quill.seed_document()]
-            .into_iter()
-            .chain(quill.example_document())
-        {
+        for doc in [quill.seed_document()].into_iter().chain(quill.example_document()) {
             let unknown: Vec<_> = quill
                 .validate(&doc)
                 .into_iter()
                 .filter(|d| d.code.as_deref() == Some("validation::unknown_field"))
                 .collect();
-            assert!(
-                unknown.is_empty(),
-                "{name}: {unknown:?}\n---\n{}",
-                doc.to_markdown()
-            );
+            assert!(unknown.is_empty(), "{name}: {unknown:?}\n---\n{}", doc.to_markdown());
         }
     }
 }

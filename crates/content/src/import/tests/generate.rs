@@ -23,18 +23,11 @@ pub(crate) struct Piece {
 
 impl Piece {
     pub(crate) fn text(md: String) -> Piece {
-        Piece {
-            md,
-            ..Piece::default()
-        }
+        Piece { md, ..Piece::default() }
     }
 
     pub(crate) fn word(w: String) -> Piece {
-        Piece {
-            md: w.clone(),
-            words: vec![w],
-            ..Piece::default()
-        }
+        Piece { md: w.clone(), words: vec![w], ..Piece::default() }
     }
 
     pub(crate) fn join(pieces: Vec<Piece>, sep: &str) -> Piece {
@@ -68,10 +61,7 @@ pub(crate) fn table<S: Strategy<Value = Piece>>(cell: fn() -> S) -> impl Strateg
                 })
                 .collect();
             lines.insert(1, Piece::text(format!("|{}", "---|".repeat(cols))));
-            Piece {
-                table: true,
-                ..Piece::join(lines, "\n")
-            }
+            Piece { table: true, ..Piece::join(lines, "\n") }
         })
     })
 }
@@ -79,11 +69,7 @@ pub(crate) fn table<S: Strategy<Value = Piece>>(cell: fn() -> S) -> impl Strateg
 /// Blocks in a list item or a quote.
 pub(crate) fn contained(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> {
     (inner, any::<bool>()).prop_map(|(mut p, list)| {
-        p.md = if list {
-            prefixed(&p.md, "- ", "  ")
-        } else {
-            prefixed(&p.md, "> ", "> ")
-        };
+        p.md = if list { prefixed(&p.md, "- ", "  ") } else { prefixed(&p.md, "> ", "> ") };
         p
     })
 }
@@ -93,11 +79,7 @@ pub(crate) fn prefixed(md: &str, first: &str, rest: &str) -> String {
         .enumerate()
         .map(|(i, line)| {
             let p = if i == 0 { first } else { rest };
-            if line.is_empty() {
-                p.trim_end().to_string()
-            } else {
-                format!("{p}{line}")
-            }
+            if line.is_empty() { p.trim_end().to_string() } else { format!("{p}{line}") }
         })
         .collect::<Vec<_>>()
         .join("\n")

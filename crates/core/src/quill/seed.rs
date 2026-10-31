@@ -6,8 +6,8 @@
 use quillmark_content::model::Normalized;
 
 use super::Quill;
-use crate::document::PayloadItem;
 use crate::quill::{CardSchema, QuillConfig};
+use crate::document::PayloadItem;
 use crate::{
     document::{Card, Document, Payload, SeedOverlay},
     value::QuillValue,
@@ -72,9 +72,7 @@ pub(crate) fn main_reference(config: &QuillConfig) -> QuillReference {
     let selector = config
         .version
         .parse::<Version>()
-        .map_or(VersionSelector::Any, |v| {
-            VersionSelector::Minor(v.major, v.minor)
-        });
+        .map_or(VersionSelector::Any, |v| VersionSelector::Minor(v.major, v.minor));
     QuillReference::new(config.name.clone(), selector)
 }
 

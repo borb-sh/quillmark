@@ -70,12 +70,7 @@ pub(super) fn archive(entries: &[Raw], comment: &[u8]) -> Vec<u8> {
     }
     let directory_at = out.len() as u32;
     out.extend_from_slice(&directory);
-    out.extend_from_slice(&end_record(
-        entries.len() as u16,
-        directory.len() as u32,
-        directory_at,
-        comment,
-    ));
+    out.extend_from_slice(&end_record(entries.len() as u16, directory.len() as u32, directory_at, comment));
     out
 }
 
@@ -115,9 +110,7 @@ fn code_of<T: std::fmt::Debug>(result: Result<T, Vec<Diagnostic>>) -> String {
 
 #[test]
 fn a_quill_round_trips_and_its_bundle_is_a_fixed_point() {
-    let noise: Vec<u8> = (0..4096u32)
-        .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
-        .collect();
+    let noise: Vec<u8> = (0..4096u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
     let quill = Quill::from_tree(tree(&[
         ("Quill.yaml", MANIFEST),
         ("plate.typ", "= Title\n".repeat(200).as_bytes()),
@@ -159,10 +152,7 @@ fn reads_what_other_zip_writers_emit() {
     let quill = Quill::from_bundle(&archive(&entries, b"made elsewhere")).expect("reads");
     let paths: Vec<_> = quill.to_tree().into_iter().map(|(p, _)| p).collect();
     assert_eq!(paths, ["Quill.yaml", "assets/logo.svg", "plate.typ"]);
-    assert_eq!(
-        quill.files().get_file("plate.typ"),
-        Some(&b"= Title\n= Title\n= Title\n"[..])
-    );
+    assert_eq!(quill.files().get_file("plate.typ"), Some(&b"= Title\n= Title\n= Title\n"[..]));
 }
 
 #[test]
@@ -177,108 +167,34 @@ fn refuses_an_archive_outside_the_format_by_code() {
     too_many[8..12].copy_from_slice(&[0x01, 0x08, 0x01, 0x08]);
 
     let cases: Vec<(&str, Vec<u8>, &str)> = vec![
-        (
-            "not a zip",
-            b"%PDF-1.7 not an archive at all".to_vec(),
-            "quill::bundle_invalid",
-        ),
-        (
-            "bad CRC",
-            with(Raw {
-                crc: Some(0),
-                ..raw("a.typ", b"x")
-            }),
-            "quill::bundle_invalid",
-        ),
-        (
-            "truncated",
-            with(raw("a.typ", b"x"))[..40].to_vec(),
-            "quill::bundle_invalid",
-        ),
-        (
-            "traversal",
-            with(raw("../a.typ", b"x")),
-            "quill::bundle_path",
-        ),
+        ("not a zip", b"%PDF-1.7 not an archive at all".to_vec(), "quill::bundle_invalid"),
+        ("bad CRC", with(Raw { crc: Some(0), ..raw("a.typ", b"x") }), "quill::bundle_invalid"),
+        ("truncated", with(raw("a.typ", b"x"))[..40].to_vec(), "quill::bundle_invalid"),
+        ("traversal", with(raw("../a.typ", b"x")), "quill::bundle_path"),
         ("absolute", with(raw("/a.typ", b"x")), "quill::bundle_path"),
-        (
-            "backslash",
-            with(raw("assets\\a.typ", b"x")),
-            "quill::bundle_path",
-        ),
+        ("backslash", with(raw("assets\\a.typ", b"x")), "quill::bundle_path"),
         ("drive", with(raw("C:/a.typ", b"x")), "quill::bundle_path"),
-        (
-            "empty segment",
-            with(raw("assets//a.typ", b"x")),
-            "quill::bundle_path",
-        ),
-        (
-            "not UTF-8",
-            with(Raw {
-                name: vec![0xff, b'a'],
-                ..raw("", b"x")
-            }),
-            "quill::bundle_path",
-        ),
-        (
-            "twice",
-            with(raw("Quill.yaml", MANIFEST)),
-            "quill::bundle_path",
-        ),
+        ("empty segment", with(raw("assets//a.typ", b"x")), "quill::bundle_path"),
+        ("not UTF-8", with(Raw { name: vec![0xff, b'a'], ..raw("", b"x") }), "quill::bundle_path"),
+        ("twice", with(raw("Quill.yaml", MANIFEST)), "quill::bundle_path"),
         (
             "file and directory",
-            archive(
-                &[
-                    raw("Quill.yaml", MANIFEST),
-                    raw("a", b"x"),
-                    raw("a/b", b"y"),
-                ],
-                b"",
-            ),
+            archive(&[raw("Quill.yaml", MANIFEST), raw("a", b"x"), raw("a/b", b"y")], b""),
             "quill::bundle_path",
         ),
         (
             "file and directory entry",
-            archive(
-                &[
-                    raw("a/b/", b""),
-                    raw("Quill.yaml", MANIFEST),
-                    raw("a", b"x"),
-                ],
-                b"",
-            ),
+            archive(&[raw("a/b/", b""), raw("Quill.yaml", MANIFEST), raw("a", b"x")], b""),
             "quill::bundle_path",
         ),
-        (
-            "bzip2",
-            with(Raw {
-                method: 12,
-                ..raw("a.typ", b"x")
-            }),
-            "quill::bundle_unsupported",
-        ),
-        (
-            "encrypted",
-            with(Raw {
-                flags: 1,
-                ..raw("a.typ", b"x")
-            }),
-            "quill::bundle_unsupported",
-        ),
+        ("bzip2", with(Raw { method: 12, ..raw("a.typ", b"x") }), "quill::bundle_unsupported"),
+        ("encrypted", with(Raw { flags: 1, ..raw("a.typ", b"x") }), "quill::bundle_unsupported"),
         (
             "symlink",
-            with(Raw {
-                made_by: MADE_BY_UNIX << 8,
-                external: 0o120777 << 16,
-                ..raw("a.typ", b"/etc/passwd")
-            }),
+            with(Raw { made_by: MADE_BY_UNIX << 8, external: 0o120777 << 16, ..raw("a.typ", b"/etc/passwd") }),
             "quill::bundle_unsupported",
         ),
-        (
-            "one file over budget",
-            with(oversized),
-            "quill::bundle_too_large",
-        ),
+        ("one file over budget", with(oversized), "quill::bundle_too_large"),
         ("too many entries", too_many, "quill::bundle_too_large"),
     ];
     for (what, bytes, code) in cases {
@@ -288,29 +204,17 @@ fn refuses_an_archive_outside_the_format_by_code() {
 
 #[test]
 fn a_tree_zipped_inside_its_folder_names_the_folder() {
-    let bytes = archive(
-        &[raw("memo/Quill.yaml", MANIFEST), raw("memo/plate.typ", b"")],
-        b"",
-    );
+    let bytes = archive(&[raw("memo/Quill.yaml", MANIFEST), raw("memo/plate.typ", b"")], b"");
     let diags = Quill::from_bundle(&bytes).expect_err("no root Quill.yaml");
     assert_eq!(diags[0].code.as_deref(), Some("quill::missing_file"));
-    assert!(
-        diags[0]
-            .hint
-            .as_deref()
-            .is_some_and(|h| h.contains("\"memo\"")),
-        "{diags:?}"
-    );
+    assert!(diags[0].hint.as_deref().is_some_and(|h| h.contains("\"memo\"")), "{diags:?}");
 }
 
 #[test]
 fn the_writer_refuses_what_a_reader_would() {
     let with = |path: &str, contents: Vec<u8>| {
         let mut quill = Quill::from_tree(tree(&[("Quill.yaml", MANIFEST)])).expect("loads");
-        quill
-            .files
-            .insert(path, FileTreeNode::File { contents })
-            .expect("insert");
+        quill.files.insert(path, FileTreeNode::File { contents }).expect("insert");
         quill.to_bundle()
     };
     assert_eq!(code_of(with("a:b.typ", Vec::new())), "quill::bundle_path");

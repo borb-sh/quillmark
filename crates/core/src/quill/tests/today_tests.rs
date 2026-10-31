@@ -2,7 +2,7 @@
 //! supplies to the compile.
 
 use crate::document::Document;
-use crate::quill::{CalendarDate, FieldSource, QuillConfig, quill_from_yaml};
+use crate::quill::{quill_from_yaml, CalendarDate, FieldSource, QuillConfig};
 use serde_json::json;
 
 const QUILL_YAML: &str = r#"
@@ -57,13 +57,7 @@ fn a_today_cell_renders_the_supplied_date_at_every_depth() {
         assert_eq!(row.value.as_json(), &plate[&row.name], "{}", row.name);
     }
     let source = |name: &str| {
-        resolved
-            .main
-            .fields
-            .iter()
-            .find(|r| r.name == name)
-            .unwrap()
-            .source
+        resolved.main.fields.iter().find(|r| r.name == name).unwrap().source
     };
     assert_eq!(source("issued"), FieldSource::Default);
     assert_eq!(source("signed"), FieldSource::Authored);

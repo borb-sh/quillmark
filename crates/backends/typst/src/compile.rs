@@ -20,7 +20,7 @@ use quillmark_core::{
     error::{Diagnostic, RenderError, RenderResult},
     types::{Artifact, OutputFormat},
 };
-use quillmark_pdf::{FieldSpec, StampOptions, stamp};
+use quillmark_pdf::{stamp, FieldSpec, StampOptions};
 
 pub(crate) fn render_options(pixel_per_pt: f32) -> RenderOptions {
     RenderOptions {
@@ -63,10 +63,7 @@ fn escape_link_hrefs(svg: String, page: &Page) -> String {
         .filter(|url| url.contains(['&', '<']))
         .map(|url| {
             let written = url.replace('"', "&quot;");
-            let escaped = url
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('"', "&quot;");
+            let escaped = url.replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;");
             (written, escaped)
         })
         .collect();
@@ -78,9 +75,7 @@ fn escape_link_hrefs(svg: String, page: &Page) -> String {
     let mut rest = svg.as_str();
     while let Some(at) = rest.find(OPEN) {
         let value_start = at + OPEN.len();
-        let Some(len) = rest[value_start..].find('"') else {
-            break;
-        };
+        let Some(len) = rest[value_start..].find('"') else { break };
         let value = &rest[value_start..value_start + len];
         out.push_str(&rest[..value_start]);
         out.push_str(fixes.get(value).map_or(value, String::as_str));
@@ -97,17 +92,12 @@ fn collect_urls(frame: &Frame, urls: &mut Vec<String>) {
             FrameItem::Group(group) => collect_urls(&group.frame, urls),
             FrameItem::Link(Destination::Url(url), _) => urls.push(url.as_str().to_string()),
             FrameItem::Shape(shape, _) => {
-                let paints = shape
-                    .fill
-                    .iter()
-                    .chain(shape.stroke.iter().map(|s| &s.paint));
+                let paints = shape.fill.iter().chain(shape.stroke.iter().map(|s| &s.paint));
                 paints.for_each(|paint| collect_paint_urls(paint, urls));
             }
             FrameItem::Text(text) => {
                 collect_paint_urls(&text.fill, urls);
-                text.stroke
-                    .iter()
-                    .for_each(|s| collect_paint_urls(&s.paint, urls));
+                text.stroke.iter().for_each(|s| collect_paint_urls(&s.paint, urls));
             }
             _ => {}
         }

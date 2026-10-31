@@ -5,12 +5,10 @@
 //! `\` guard at, and the source map's shape: `prose/canon/CONVERT.md`. Which
 //! guard is live is `Tail`, the record of what the emitter last wrote.
 
-use quillmark_content::island::IslandType;
-use quillmark_content::model::{
-    Container, Content, ISLAND_SLOT, LineKind, Mark, MarkKind, Normalized,
-};
-use quillmark_content::normalize::is_line_separator;
 use quillmark_core::error::MAX_NESTING_DEPTH;
+use quillmark_content::island::IslandType;
+use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
+use quillmark_content::normalize::is_line_separator;
 use std::ops::Range;
 
 /// Does Typst's lexer read `c` as a newline where the emitter writes document
@@ -518,9 +516,7 @@ impl<'a> Emit<'a> {
         let rt = self.rt;
         for item in quillmark_content::traverse::items(&rt.lines, range.clone(), depth) {
             let (ordinal, checked) = match item.container {
-                Container::ListItem {
-                    ordinal, checked, ..
-                } => (*ordinal, *checked),
+                Container::ListItem { ordinal, checked, .. } => (*ordinal, *checked),
                 _ => (0, None),
             };
             self.emit_item(item.range, depth, ordered, start, ordinal == 0, checked);
@@ -675,9 +671,7 @@ impl<'a> Emit<'a> {
         let tables: Vec<usize> = (lo..hi)
             .filter(|&p| {
                 self.chars[p] == ISLAND_SLOT
-                    && self
-                        .island_at(p)
-                        .is_some_and(|isl| isl.island_type.block_only())
+                    && self.island_at(p).is_some_and(|isl| isl.island_type.block_only())
             })
             .collect();
         let mut runs = Vec::new();
@@ -751,9 +745,7 @@ impl<'a> Emit<'a> {
             s.is_empty() || s.ends_with('\n')
         };
         head(&self.out)
-            || [true, false]
-                .iter()
-                .any(|&done| self.out.ends_with(&task_open(done)))
+            || [true, false].iter().any(|&done| self.out.ends_with(&task_open(done)))
             || ["- ", "+ "]
                 .iter()
                 .any(|m| self.out.strip_suffix(m).is_some_and(head))
@@ -817,9 +809,7 @@ impl<'a> Emit<'a> {
     }
 
     fn island_at(&self, pos: usize) -> Option<&'a quillmark_content::model::Island> {
-        self.rt
-            .islands
-            .get(self.slot_offsets.partition_point(|&p| p < pos))
+        self.rt.islands.get(self.slot_offsets.partition_point(|&p| p < pos))
     }
 
     fn island_markup(&self, pos: usize) -> String {
@@ -904,9 +894,7 @@ fn sweep_marks(
         if pos == hi {
             break;
         }
-        let mut opening: Vec<usize> = (0..wraps.len())
-            .filter(|&wi| wraps[wi].start == pos)
-            .collect();
+        let mut opening: Vec<usize> = (0..wraps.len()).filter(|&wi| wraps[wi].start == pos).collect();
         // No tie-break beyond `wraps` order, which the stable sort keeps.
         // `wraps` follows the marks, canonically sorted by `(start, end,
         // MarkKind::sort_key)` over their **stored** spans — the order two
@@ -983,26 +971,12 @@ fn wraps_and_codes(
         }
         match &m.kind {
             MarkKind::Code => codes.push((s, e)),
-            MarkKind::Strong => wraps.push(Wrap {
-                start: s,
-                end: e,
-                open: "#strong[".into(),
-            }),
-            MarkKind::Emph => wraps.push(Wrap {
-                start: s,
-                end: e,
-                open: "#emph[".into(),
-            }),
-            MarkKind::Underline => wraps.push(Wrap {
-                start: s,
-                end: e,
-                open: "#underline[".into(),
-            }),
-            MarkKind::Strike => wraps.push(Wrap {
-                start: s,
-                end: e,
-                open: "#strike[".into(),
-            }),
+            MarkKind::Strong => wraps.push(Wrap { start: s, end: e, open: "#strong[".into() }),
+            MarkKind::Emph => wraps.push(Wrap { start: s, end: e, open: "#emph[".into() }),
+            MarkKind::Underline => {
+                wraps.push(Wrap { start: s, end: e, open: "#underline[".into() })
+            }
+            MarkKind::Strike => wraps.push(Wrap { start: s, end: e, open: "#strike[".into() }),
             MarkKind::Link { url } if unsafe_link(url) => {}
             MarkKind::Link { url } => wraps.push(Wrap {
                 start: s,
@@ -1039,12 +1013,7 @@ fn font_runs(
     };
     let hi = fonts.iter().map(|f| f.1).max().unwrap_or(lo);
     let mut cuts: Vec<usize> = fonts.iter().flat_map(|&(s, e, _, _)| [s, e]).collect();
-    cuts.extend(
-        codes
-            .iter()
-            .flat_map(|&(s, e)| [s, e])
-            .filter(|p| (lo..=hi).contains(p)),
-    );
+    cuts.extend(codes.iter().flat_map(|&(s, e)| [s, e]).filter(|p| (lo..=hi).contains(p)));
     let inert = |p: usize| chars[p] == ISLAND_SLOT && inert(p);
     cuts.extend((lo..hi).filter(|&p| inert(p)).flat_map(|p| [p, p + 1]));
     cuts.sort_unstable();
@@ -1064,11 +1033,7 @@ fn font_runs(
             _ => {
                 let start = (a..b).find(|&p| chars[p] != ' ').unwrap_or(b);
                 if start < b {
-                    runs.push(Wrap {
-                        start,
-                        end: b,
-                        open,
-                    });
+                    runs.push(Wrap { start, end: b, open });
                 }
             }
         }
@@ -1082,7 +1047,9 @@ fn font_runs(
 /// control but tab, LF and CR; U+FFFE; U+FFFF). Such a link renders as its
 /// text alone, since SVG output keeps a link target as a live `href`.
 fn unsafe_link(url: &str) -> bool {
-    let unencodable = |c: char| matches!(c, '\0'..='\u{8}' | '\u{B}' | '\u{C}' | '\u{E}'..='\u{1F}' | '\u{FFFE}' | '\u{FFFF}');
+    let unencodable = |c: char| {
+        matches!(c, '\0'..='\u{8}' | '\u{B}' | '\u{C}' | '\u{E}'..='\u{1F}' | '\u{FFFE}' | '\u{FFFF}')
+    };
     if url.contains(unencodable) {
         return true;
     }
@@ -1091,13 +1058,8 @@ fn unsafe_link(url: &str) -> bool {
         .filter(|c| !c.is_whitespace() && !c.is_control())
         .take_while(|c| !matches!(c, '/' | '?' | '#'))
         .collect();
-    let Some((scheme, _)) = head.split_once(':') else {
-        return false;
-    };
-    matches!(
-        scheme.to_ascii_lowercase().as_str(),
-        "javascript" | "vbscript" | "file" | "data"
-    )
+    let Some((scheme, _)) = head.split_once(':') else { return false };
+    matches!(scheme.to_ascii_lowercase().as_str(), "javascript" | "vbscript" | "file" | "data")
 }
 
 /// One run of a mark sweep: the atomic `#raw(..)` code span starting at `pos`,
@@ -1156,11 +1118,7 @@ fn emit_run(
         let g0 = out.len();
         out.push('~');
         let g1 = out.len();
-        return (
-            pos + 1,
-            Tail::Text,
-            (pos..pos + 1, g0..g1, EscapeCtx::Indent),
-        );
+        return (pos + 1, Tail::Text, (pos..pos + 1, g0..g1, EscapeCtx::Indent));
     }
     let content: String = chars[pos..re].iter().collect();
     let guarded = match tail {
@@ -1210,9 +1168,7 @@ fn word_breaks(chars: &[char], codes: &[(usize, usize)]) -> Vec<usize> {
             start += 1;
             continue;
         }
-        let end = (start..chars.len())
-            .find(|&p| chars[p].is_whitespace())
-            .unwrap_or(chars.len());
+        let end = (start..chars.len()).find(|&p| chars[p].is_whitespace()).unwrap_or(chars.len());
         let dotted = |p: usize| {
             chars[p] == '.'
                 && p > start
@@ -1241,35 +1197,20 @@ fn cell_markup(text: &str, marks: &[Mark], breakable: bool) -> String {
     let chars: Vec<char> = text.chars().collect();
     let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len(), &chars, &|_| true);
     clip_wraps_to_codes(&mut wraps, &codes);
-    let breaks = if breakable {
-        word_breaks(&chars, &codes)
-    } else {
-        Vec::new()
-    };
+    let breaks = if breakable { word_breaks(&chars, &codes) } else { Vec::new() };
     let mut out = String::new();
-    sweep_marks(
-        0,
-        chars.len(),
-        &wraps,
-        &mut out,
-        Tail::Anchor,
-        |out, pos, mut tail| {
-            if let Some(step) = linebreak_at(out, &chars, pos) {
-                return step;
-            }
-            if breaks.binary_search(&pos).is_ok() {
-                out.push_str("#box()");
-                tail = Tail::Expr;
-            }
-            let hi = breaks
-                .iter()
-                .copied()
-                .find(|&b| b > pos)
-                .unwrap_or(chars.len());
-            let (re, left, _) = emit_run(out, pos, hi, &chars, &wraps, &codes, tail);
-            (re, left)
-        },
-    );
+    sweep_marks(0, chars.len(), &wraps, &mut out, Tail::Anchor, |out, pos, mut tail| {
+        if let Some(step) = linebreak_at(out, &chars, pos) {
+            return step;
+        }
+        if breaks.binary_search(&pos).is_ok() {
+            out.push_str("#box()");
+            tail = Tail::Expr;
+        }
+        let hi = breaks.iter().copied().find(|&b| b > pos).unwrap_or(chars.len());
+        let (re, left, _) = emit_run(out, pos, hi, &chars, &wraps, &codes, tail);
+        (re, left)
+    });
     out
 }
 
@@ -1378,9 +1319,7 @@ fn table_markup(props: &serde_json::Value) -> String {
     }
     out.push(')');
     match layout.align {
-        Some(at) => format!(
-            "#context {{ show table.cell: set align(align.alignment.x); align({at}, {out}) }}"
-        ),
+        Some(at) => format!("#context {{ show table.cell: set align(align.alignment.x); align({at}, {out}) }}"),
         None => format!("#{out}"),
     }
 }
@@ -1756,7 +1695,7 @@ mod tests {
     /// the codepoint it substitutes, so either shows as a mismatch rather than
     /// as its own source text.
     fn resolve(markup: &str) -> (String, Vec<SyntaxKind>) {
-        use typst::syntax::{SyntaxNode, ast, ast::AstNode};
+        use typst::syntax::{ast, ast::AstNode, SyntaxNode};
 
         fn walk(n: &SyntaxNode, text: &mut String, kinds: &mut Vec<SyntaxKind>) {
             if n.children().len() > 0 {
@@ -1770,7 +1709,9 @@ mod tests {
             kinds.push(if held { SyntaxKind::Space } else { n.kind() });
             match n.kind() {
                 SyntaxKind::Escape => text.push(ast::Escape::from_untyped(n).unwrap().get()),
-                SyntaxKind::Shorthand => text.push(ast::Shorthand::from_untyped(n).unwrap().get()),
+                SyntaxKind::Shorthand => {
+                    text.push(ast::Shorthand::from_untyped(n).unwrap().get())
+                }
                 SyntaxKind::LineComment | SyntaxKind::BlockComment => {}
                 _ => text.push_str(n.leaf_text()),
             }
@@ -1811,21 +1752,11 @@ mod tests {
             "he said \"hi\" and 'bye'",
             "你好 🎉 مرحبا",
             "trailing backslash \\",
-            "-",
-            "--",
-            "---",
-            "...",
-            "//",
-            "-?",
-            "-1",
+            "-", "--", "---", "...", "//", "-?", "-1",
         ];
         for s in samples {
             let (text, kinds) = resolve(&format!("x{}", escape_markup(s)));
-            assert_eq!(
-                text,
-                format!("x{s}"),
-                "escaping {s:?} did not survive Typst"
-            );
+            assert_eq!(text, format!("x{s}"), "escaping {s:?} did not survive Typst");
             for k in kinds {
                 assert!(ALLOWED_LEAVES.contains(&k), "{s:?} lowered to a {k:?} leaf");
             }
@@ -1853,10 +1784,7 @@ mod tests {
         for c in ('\0'..=char::MAX).filter(|c| *c != '\n' && reads_as_newline(*c)) {
             let text = format!("{c}- item{c}{c}tail{c}= not a heading");
             let rt = Content::new(text, vec![Line::new(LineKind::Para)]).into_normalized();
-            assert!(
-                rt.validate().is_err(),
-                "{c:?} passes the content invariants"
-            );
+            assert!(rt.validate().is_err(), "{c:?} passes the content invariants");
 
             let markup = emit_content(&rt).unwrap().markup;
             assert_eq!(markup, "~- item  tail = not a heading\n\n", "for {c:?}");
@@ -2049,14 +1977,8 @@ mod tests {
             }
             // Past-the-end saturates at the run's extents both ways.
             let content_len: usize = run.chars().count();
-            assert_eq!(
-                invert_gen_offset(&generated, ctx, generated.len()),
-                content_len
-            );
-            assert_eq!(
-                forward_content_offset(&generated, ctx, content_len),
-                generated.len()
-            );
+            assert_eq!(invert_gen_offset(&generated, ctx, generated.len()), content_len);
+            assert_eq!(forward_content_offset(&generated, ctx, content_len), generated.len());
         }
     }
 
@@ -2068,10 +1990,7 @@ mod tests {
             let chars: Vec<char> = rt.text.chars().collect();
             for seg in &ec.segments {
                 // Segment window is within the markup and non-decreasing.
-                assert!(
-                    seg.generated.start <= seg.generated.end
-                        && seg.generated.end <= ec.markup.len()
-                );
+                assert!(seg.generated.start <= seg.generated.end && seg.generated.end <= ec.markup.len());
                 for (content, generated, ctx) in &seg.runs {
                     let src: String = chars[content.clone()].iter().collect();
                     let expect = ctx.escape(&src);
@@ -2081,10 +2000,7 @@ mod tests {
                         "run bytes mismatch in {md:?}"
                     );
                     // Runs sit inside their segment's generated window.
-                    assert!(
-                        generated.start >= seg.generated.start
-                            && generated.end <= seg.generated.end
-                    );
+                    assert!(generated.start >= seg.generated.start && generated.end <= seg.generated.end);
                 }
             }
         }
@@ -2094,8 +2010,8 @@ mod tests {
     #[test]
     fn overlapping_marks_close_and_reopen() {
         use quillmark_content::model::{Line, Mark};
-        let rt =
-            Content::new("abcdef".to_string(), vec![Line::new(LineKind::Para)]).with_marks(vec![
+        let rt = Content::new("abcdef".to_string(), vec![Line::new(LineKind::Para)])
+            .with_marks(vec![
                 Mark::new(0, 4, MarkKind::Strong),
                 Mark::new(2, 6, MarkKind::Emph),
             ]);
@@ -2110,7 +2026,8 @@ mod tests {
     /// Hand-placed `marks` reach the free-overlap shapes import never produces.
     fn emit_marked(text: &str, marks: Vec<Mark>) -> String {
         use quillmark_content::model::Line;
-        let rt = Content::new(text.to_string(), vec![Line::new(LineKind::Para)]).with_marks(marks);
+        let rt =
+            Content::new(text.to_string(), vec![Line::new(LineKind::Para)]).with_marks(marks);
         let rt = rt.into_normalized();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
         emit_content(&rt).unwrap().markup
@@ -2128,7 +2045,10 @@ mod tests {
             (MarkKind::Underline, "#underline[abc]\n\n"),
             (MarkKind::Strike, "#strike[abc]\n\n"),
         ] {
-            let out = emit_marked("abc", vec![Mark::new(0, 3, kind.clone())]);
+            let out = emit_marked(
+                "abc",
+                vec![Mark::new(0, 3, kind.clone())],
+            );
             assert_eq!(out, expected, "{kind:?} lowers wrong");
         }
     }
@@ -2178,21 +2098,13 @@ mod tests {
         let out = emit_marked(
             "abcdef",
             vec![
-                Mark::new(
-                    0,
-                    6,
-                    MarkKind::Link {
+                Mark::new(0, 6, MarkKind::Link {
                         url: "wrong".into(),
-                    },
-                ),
+                    }),
                 Mark::new(0, 4, MarkKind::Strong),
-                Mark::new(
-                    2,
-                    6,
-                    MarkKind::Link {
+                Mark::new(2, 6, MarkKind::Link {
                         url: "right".into(),
-                    },
-                ),
+                    }),
             ],
         );
         // The reopened tail after the strong closes carries the inner link's URL.
@@ -2209,65 +2121,26 @@ mod tests {
 
     #[test]
     fn script_scheme_links_render_as_text() {
-        for url in [
-            "javascript:alert(1)",
-            " JavaScript:x",
-            "java\tscript:x",
-            "vbscript:x",
-            "data:text/html,x",
-            "file:///etc/passwd",
-        ] {
-            let out = emit_marked(
-                "abc",
-                vec![Mark::new(0, 3, MarkKind::Link { url: url.into() })],
-            );
+        for url in ["javascript:alert(1)", " JavaScript:x", "java\tscript:x", "vbscript:x", "data:text/html,x", "file:///etc/passwd"] {
+            let out = emit_marked("abc", vec![Mark::new(0, 3, MarkKind::Link { url: url.into() })]);
             assert!(!out.contains("#link"), "{url:?} kept its link, got {out:?}");
             assert!(out.contains("abc"), "{url:?} lost its text, got {out:?}");
         }
-        for url in [
-            "https://example.com",
-            "mailto:a@b.c",
-            "#anchor",
-            "data/notes.txt",
-            "https://e.com/?a=1&b=2",
-            "/p?q=a&b",
-            "a&b.html",
-        ] {
-            let out = emit_marked(
-                "abc",
-                vec![Mark::new(0, 3, MarkKind::Link { url: url.into() })],
-            );
+        for url in ["https://example.com", "mailto:a@b.c", "#anchor", "data/notes.txt", "https://e.com/?a=1&b=2", "/p?q=a&b", "a&b.html"] {
+            let out = emit_marked("abc", vec![Mark::new(0, 3, MarkKind::Link { url: url.into() })]);
             assert!(out.contains("#link"), "{url:?} lost its link, got {out:?}");
         }
     }
 
     #[test]
     fn a_link_holding_a_character_xml_cannot_carry_renders_as_text() {
-        for url in [
-            "https://e.com/\u{0}",
-            "https://e.com/a\u{1}b",
-            "https://e.com/\u{B}",
-            "https://e.com/\u{1F}",
-            "https://e.com/\u{FFFE}",
-            "https://e.com/\u{FFFF}",
-        ] {
-            let out = emit_marked(
-                "abc",
-                vec![Mark::new(0, 3, MarkKind::Link { url: url.into() })],
-            );
+        for url in ["https://e.com/\u{0}", "https://e.com/a\u{1}b", "https://e.com/\u{B}", "https://e.com/\u{1F}", "https://e.com/\u{FFFE}", "https://e.com/\u{FFFF}"] {
+            let out = emit_marked("abc", vec![Mark::new(0, 3, MarkKind::Link { url: url.into() })]);
             assert!(!out.contains("#link"), "{url:?} kept its link, got {out:?}");
             assert!(out.contains("abc"), "{url:?} lost its text, got {out:?}");
         }
-        for url in [
-            "https://e.com/a\tb",
-            "https://e.com/a\nb",
-            "https://e.com/\u{FFFD}",
-            "https://e.com/\u{7F}",
-        ] {
-            let out = emit_marked(
-                "abc",
-                vec![Mark::new(0, 3, MarkKind::Link { url: url.into() })],
-            );
+        for url in ["https://e.com/a\tb", "https://e.com/a\nb", "https://e.com/\u{FFFD}", "https://e.com/\u{7F}"] {
+            let out = emit_marked("abc", vec![Mark::new(0, 3, MarkKind::Link { url: url.into() })]);
             assert!(out.contains("#link"), "{url:?} lost its link, got {out:?}");
         }
     }
@@ -2307,40 +2180,22 @@ mod tests {
     fn a_cell_breaks_inside_an_address_and_nowhere_else() {
         let breaks = |text: &str, codes: &[(usize, usize)]| {
             let chars: Vec<char> = text.chars().collect();
-            word_breaks(&chars, codes)
-                .into_iter()
-                .map(|b| chars[..b].iter().collect())
-                .collect::<Vec<String>>()
+            word_breaks(&chars, codes).into_iter().map(|b| chars[..b].iter().collect()).collect::<Vec<String>>()
         };
         assert_eq!(
             breaks("Michael.Marshall@us.af.mil", &[]),
-            [
-                "Michael.",
-                "Michael.Marshall@",
-                "Michael.Marshall@us.",
-                "Michael.Marshall@us.af."
-            ]
+            ["Michael.", "Michael.Marshall@", "Michael.Marshall@us.", "Michael.Marshall@us.af."]
         );
         assert_eq!(breaks("x@(y)", &[]), ["x@"]);
-        assert_eq!(
-            breaks("host.af.mil, 3.5, e.g. v1.2", &[]),
-            ["host.", "host.af."]
-        );
+        assert_eq!(breaks("host.af.mil, 3.5, e.g. v1.2", &[]), ["host.", "host.af."]);
         for none in ["27.10.2026", "10.0.0.1", "1.234.567", "a@", "@"] {
             assert!(breaks(none, &[]).is_empty(), "{none:?}");
         }
         assert!(breaks("a.b.c", &[(0, 5)]).is_empty(), "inside a code span");
-        assert!(
-            breaks("a.b.c", &[(0, 3)]).is_empty(),
-            "one dot past a code span"
-        );
+        assert!(breaks("a.b.c", &[(0, 3)]).is_empty(), "one dot past a code span");
         for text in ["Michael.Marshall@us.af.mil", "x@(y)", "a@b.c", "1.2.3"] {
             let markup = cell_markup(text, &[], true);
-            assert_eq!(
-                markup.matches("#box()").count(),
-                breaks(text, &[]).len(),
-                "{text:?}"
-            );
+            assert_eq!(markup.matches("#box()").count(), breaks(text, &[]).len(), "{text:?}");
             let (read, _) = resolve(&markup.replace("#box()", ""));
             assert_eq!(read, text);
         }
@@ -2357,11 +2212,7 @@ mod tests {
     fn an_image_island_draws_nothing() {
         let ec = emit("before ![alt](assets/logo.svg) after\n\n![x](y.png)");
         assert!(!ec.markup.contains("#image"), "got {:?}", ec.markup);
-        assert!(
-            !ec.markup.contains("assets/logo.svg"),
-            "got {:?}",
-            ec.markup
-        );
+        assert!(!ec.markup.contains("assets/logo.svg"), "got {:?}", ec.markup);
     }
 
     #[test]
@@ -2379,36 +2230,15 @@ mod tests {
     #[test]
     fn line_anchor_predicate() {
         for yes in [
-            "= h",
-            "== h",
-            "- b",
-            "+ n",
-            "/ term: d",
-            "1. i",
-            "42. i",
+            "= h", "== h", "- b", "+ n", "/ term: d", "1. i", "42. i",
             // Nothing after the marker: Typst reads the line's end as the space
             // it wants, so a run that is one bare marker opens a block too.
-            "=",
-            "==",
-            "-",
-            "+",
-            "/",
-            "1.",
-            "42.",
+            "=", "==", "-", "+", "/", "1.", "42.",
         ] {
             assert!(opens_line_anchor(yes), "{yes:?} should trigger");
         }
         for no in [
-            "=foo",
-            "==foo",
-            "-5 degrees",
-            "and/or",
-            "1.item",
-            "1) i",
-            "hi",
-            "",
-            " = x",
-            "1",
+            "=foo", "==foo", "-5 degrees", "and/or", "1.item", "1) i", "hi", "", " = x", "1",
         ] {
             assert!(!opens_line_anchor(no), "{no:?} should not trigger");
         }
@@ -2459,11 +2289,7 @@ mod tests {
             for (content, generated, ctx) in &seg.runs {
                 let src: String = chars[content.clone()].iter().collect();
                 let expect = ctx.escape(&src);
-                assert_eq!(
-                    &ec.markup[generated.clone()],
-                    expect,
-                    "run slices to its escape"
-                );
+                assert_eq!(&ec.markup[generated.clone()], expect, "run slices to its escape");
             }
         }
     }
@@ -2477,10 +2303,7 @@ mod tests {
         assert_eq!(emit_marked("a.  b", vec![]), "a.~ b\n\n");
         assert_eq!(emit_marked("a   b", vec![]), "a~~ b\n\n");
         assert_eq!(emit_marked("a b", vec![]), "a b\n\n");
-        assert_eq!(
-            emit_marked("  x", vec![Mark::new(2, 3, MarkKind::Strong)]),
-            "~~#strong[x]\n\n"
-        );
+        assert_eq!(emit_marked("  x", vec![Mark::new(2, 3, MarkKind::Strong)]), "~~#strong[x]\n\n");
         assert_eq!(emit("a\\\n&#32;&#32;(b)").markup, "a#linebreak()~~(b)\n\n");
         assert_eq!(emit("a\n\n&#32;&#32;\n\nb").markup, "a\n\nb\n\n");
     }
@@ -2507,10 +2330,11 @@ mod tests {
     /// ends an expression and renders nothing.
     #[test]
     fn guarded_semicolon_survives_the_parser() {
-        use typst::syntax::{SyntaxKind, parse};
+        use typst::syntax::{parse, SyntaxKind};
 
-        let kinds =
-            |src: &str| -> Vec<SyntaxKind> { parse(src).children().map(|c| c.kind()).collect() };
+        let kinds = |src: &str| -> Vec<SyntaxKind> {
+            parse(src).children().map(|c| c.kind()).collect()
+        };
         assert!(kinds("#strong[b];c").contains(&SyntaxKind::Semicolon));
         assert!(!kinds(&emit("**b**;c").markup).contains(&SyntaxKind::Semicolon));
         assert!(kinds(&emit("**b**;c").markup).contains(&SyntaxKind::Escape));
@@ -2520,7 +2344,7 @@ mod tests {
     /// finds are exactly the ones the content asked for.
     #[test]
     fn typst_reads_only_the_blocks_the_content_asked_for() {
-        use typst::syntax::{SyntaxKind, SyntaxNode, parse};
+        use typst::syntax::{parse, SyntaxKind, SyntaxNode};
 
         fn blocks(n: &SyntaxNode, out: &mut Vec<SyntaxKind>) {
             if matches!(
@@ -2586,10 +2410,6 @@ mod tests {
             own + n.children().map(linebreaks).sum::<usize>()
         }
         let cells = emit("| a<br>b |\n| --- |\n| c<br>**d** |").markup;
-        assert_eq!(
-            linebreaks(&parse(&cells)),
-            2,
-            "a cell break is a `linebreak` call: {cells:?}"
-        );
+        assert_eq!(linebreaks(&parse(&cells)), 2, "a cell break is a `linebreak` call: {cells:?}");
     }
 }

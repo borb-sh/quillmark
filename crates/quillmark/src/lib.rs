@@ -34,28 +34,31 @@
 // The python and wasm bindings sit lower, on core's wire and addressing seam,
 // and name `quillmark-core` directly.
 pub use quillmark_core::{
-    Content, Normalized,
     backend::{Backend, FontFace},
     document::{
         AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, Base, BaseError, Card, Document,
         DocumentAnchor, DocumentRevised, EditError, ImportError, Parsed, Reattached, Revised,
     },
-    error::{DOCUMENT_FILE, Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
+    error::{
+        Diagnostic, Location, ParseError, RenderError, RenderResult, Severity, DOCUMENT_FILE,
+    },
+    quill::{
+        BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType, FileTreeNode,
+        ParseDateError, Quill, QuillConfig, QuillIgnore, ValidationError, BUNDLE_EXTENSION,
+    },
     outline::{FieldState, Outline, OutlineAnchor, OutlineCard, OutlineField, OutlineHeading},
     path::DocPath,
-    quill::{
-        BUNDLE_EXTENSION, BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType,
-        FileTreeNode, ParseDateError, Quill, QuillConfig, QuillIgnore, ValidationError,
-    },
     reader::{CardReader, TypedReader},
     region::{
-        ContentHit, FieldCoverage, HitGranularity, RenderedRegion, coverage, plate_addr_to_doc_path,
+        coverage, plate_addr_to_doc_path, ContentHit, FieldCoverage, HitGranularity,
+        RenderedRegion,
     },
     session::{ChangeBundle, ChangeSet, Delta, LiveSession},
     types::{Artifact, OutputFormat, RenderOptions},
     value::{PathSegment, QuillValue},
     version::QuillReference,
     writer::TypedWriter,
+    Content, Normalized,
 };
 
 mod load;
@@ -66,7 +69,7 @@ pub use orchestration::Engine;
 
 #[cfg(feature = "typst")]
 pub use quillmark_typst::{
-    FontLibrary, plate_file as typst_plate_file, typst_version, workspace as typst_workspace,
+    plate_file as typst_plate_file, typst_version, workspace as typst_workspace, FontLibrary,
 };
 
 #[cfg(feature = "acroform")]

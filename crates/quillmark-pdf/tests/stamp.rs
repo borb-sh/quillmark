@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use quillmark_pdf::testkit::BasePdf;
 use quillmark_pdf::{
-    AppearanceStates, CHECKBOX_ON_STATE, FieldSpec, FieldType, StampOptions, regions_of, stamp,
+    regions_of, stamp, AppearanceStates, FieldSpec, FieldType, StampOptions, CHECKBOX_ON_STATE,
 };
 
 /// An `n`-page US-Letter base satisfying the spine's input contract.
@@ -74,11 +74,7 @@ fn stamped_with(
     base: Vec<u8>,
     fields: &[FieldSpec],
     opts: &StampOptions,
-) -> (
-    lopdf::Document,
-    lopdf::Dictionary,
-    HashMap<String, lopdf::Dictionary>,
-) {
+) -> (lopdf::Document, lopdf::Dictionary, HashMap<String, lopdf::Dictionary>) {
     let out = stamp(base, fields, opts).expect("stamp ok");
     let doc = lopdf::Document::load_mem(&out).expect("lopdf reparse");
     let af_ref = doc
@@ -105,22 +101,12 @@ fn stamped_with(
 fn stamped_on(
     base: Vec<u8>,
     fields: &[FieldSpec],
-) -> (
-    lopdf::Document,
-    lopdf::Dictionary,
-    HashMap<String, lopdf::Dictionary>,
-) {
+) -> (lopdf::Document, lopdf::Dictionary, HashMap<String, lopdf::Dictionary>) {
     stamped_with(base, fields, &StampOptions::default())
 }
 
 /// [`stamped_on`] a one-page base.
-fn stamped(
-    fields: &[FieldSpec],
-) -> (
-    lopdf::Document,
-    lopdf::Dictionary,
-    HashMap<String, lopdf::Dictionary>,
-) {
+fn stamped(fields: &[FieldSpec]) -> (lopdf::Document, lopdf::Dictionary, HashMap<String, lopdf::Dictionary>) {
     stamped_on(build_base_pdf(1), fields)
 }
 
@@ -191,10 +177,7 @@ fn signature_field_sets_sigflags() {
     sig.schema_field = Some("signature".into());
     let (doc, af, w) = stamped_on(build_base_pdf(2), &[sig]);
     assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 1);
-    assert_eq!(
-        w["Signature"].get(b"FT").unwrap().as_name().unwrap(),
-        b"Sig"
-    );
+    assert_eq!(w["Signature"].get(b"FT").unwrap().as_name().unwrap(), b"Sig");
     let page2 = doc
         .get_object(*doc.get_pages().get(&2).unwrap())
         .unwrap()
@@ -329,18 +312,8 @@ fn an_out_of_contract_input_is_refused_under_its_code() {
     off_page.schema_field = Some("x".into());
 
     let mut cases: Vec<(&str, Vec<u8>, Vec<FieldSpec>, &str)> = vec![
-        (
-            "rotated page",
-            BasePdf::letter(1).rotate(90).build(),
-            vec![field()],
-            "pdf::rotated_page",
-        ),
-        (
-            "indirect /Rotate",
-            BasePdf::letter(1).indirect_rotate(90).build(),
-            vec![field()],
-            "pdf::parse",
-        ),
+        ("rotated page", BasePdf::letter(1).rotate(90).build(), vec![field()], "pdf::rotated_page"),
+        ("indirect /Rotate", BasePdf::letter(1).indirect_rotate(90).build(), vec![field()], "pdf::parse"),
         (
             "encrypted",
             insert_after(&build_base_pdf(1), b"/Root 1 0 R", b" /Encrypt 1 0 R"),
@@ -348,19 +321,9 @@ fn an_out_of_contract_input_is_refused_under_its_code() {
             "pdf::encrypted",
         ),
         // A non-`xref` byte run at the startxref offset reads as an xref stream.
-        (
-            "xref stream",
-            replaced(&[(b"xref\n0", b"1 0 \n0")]),
-            vec![],
-            "pdf::xref_stream",
-        ),
+        ("xref stream", replaced(&[(b"xref\n0", b"1 0 \n0")]), vec![], "pdf::xref_stream"),
         // Two `/AcroForm` keys are undefined per spec.
-        (
-            "existing /AcroForm",
-            BasePdf::letter(1).acroform().build(),
-            vec![field()],
-            "pdf::existing_acroform",
-        ),
+        ("existing /AcroForm", BasePdf::letter(1).acroform().build(), vec![field()], "pdf::existing_acroform"),
         (
             "non-zero generation catalog",
             replaced(&[(b"1 0 obj", b"1 2 obj"), (b"/Root 1 0 R", b"/Root 1 2 R")]),
@@ -409,31 +372,11 @@ fn an_out_of_contract_input_is_refused_under_its_code() {
             vec![],
             "pdf::xref_stream",
         ),
-        (
-            "near-u32::MAX /Size",
-            base_with_spliced_size("4294967295"),
-            vec![],
-            "pdf::write",
-        ),
-        (
-            "a reference near u32::MAX",
-            with_page_insertion(&build_base_pdf(1), b" /X 4294967294 0 R"),
-            vec![],
-            "pdf::write",
-        ),
+        ("near-u32::MAX /Size", base_with_spliced_size("4294967295"), vec![], "pdf::write"),
+        ("a reference near u32::MAX", with_page_insertion(&build_base_pdf(1), b" /X 4294967294 0 R"), vec![], "pdf::write"),
         // Ids seeded from here fit a `u32` but not the `i32` a reference holds.
-        (
-            "/Size past i32::MAX",
-            base_with_spliced_size("2147483648"),
-            vec![field()],
-            "pdf::write",
-        ),
-        (
-            "field past the last page",
-            build_base_pdf(1),
-            vec![off_page],
-            "pdf::update_parse",
-        ),
+        ("/Size past i32::MAX", base_with_spliced_size("2147483648"), vec![field()], "pdf::write"),
+        ("field past the last page", build_base_pdf(1), vec![off_page], "pdf::update_parse"),
     ];
     // pdf-writer prints a non-finite float verbatim, which parses as no PDF number.
     for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
@@ -553,12 +496,7 @@ fn a_checkbox_registers_the_check_font_and_only_it() {
         FieldType::Checkbox,
     );
     agree.font = quillmark_pdf::FormFont::Times;
-    let out = stamp(
-        build_base_pdf(1),
-        &[agree.clone()],
-        &StampOptions::default(),
-    )
-    .expect("stamp ok");
+    let out = stamp(build_base_pdf(1), &[agree.clone()], &StampOptions::default()).expect("stamp ok");
     let text = String::from_utf8_lossy(&out);
     assert!(
         !text.contains("Times-Roman") && !text.contains("/TiRo"),
@@ -598,10 +536,7 @@ fn a_checkbox_registers_the_check_font_and_only_it() {
 }
 
 /// A widget's `/AP` `/N` stream object, or `None` when it bakes no appearance.
-fn normal_appearance<'a>(
-    doc: &'a lopdf::Document,
-    w: &lopdf::Dictionary,
-) -> Option<&'a lopdf::Stream> {
+fn normal_appearance<'a>(doc: &'a lopdf::Document, w: &lopdf::Dictionary) -> Option<&'a lopdf::Stream> {
     let ap = w.get(b"AP").ok()?.as_dict().expect("/AP is a dict");
     let n = ap.get(b"N").expect("/AP carries /N");
     doc.get_object(n.as_reference().expect("/N is one indirect stream"))

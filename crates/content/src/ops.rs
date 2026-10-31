@@ -4,7 +4,8 @@
 
 use crate::delta::{Assoc, Delta, Op};
 use crate::model::{
-    Container, Content, ISLAND_SLOT, Island, Line, LineKind, Mark, MarkKind, Usv, is_whole_line,
+    is_whole_line, Container, Island, Line, LineKind, Mark,
+    MarkKind, Content, Usv, ISLAND_SLOT,
 };
 use crate::normalize::admit_char;
 use crate::usv::char_to_byte;
@@ -189,8 +190,8 @@ impl ChangeBundle {
 // The wire is a reading direction: bundles are authored on the JS/Python side.
 
 use crate::serial::{
-    ParseError, container_from_authored_value, island_from_authored_value,
-    line_kind_from_authored_value, mark_from_authored_value, reject_unwritable_link_url, usv_from,
+    container_from_authored_value, island_from_authored_value, line_kind_from_authored_value,
+    mark_from_authored_value, reject_unwritable_link_url, usv_from, ParseError,
 };
 use serde_json::Value;
 
@@ -360,37 +361,26 @@ pub enum ApplyError {
     /// than replaced (which would retarget a live thread) or coexisting (which
     /// `RemoveAnchor` cannot disambiguate). A `Set` keeps an id the island it
     /// replaces already held.
-    AnchorIdCollision {
-        id: String,
-    },
+    AnchorIdCollision { id: String },
     /// A [`MarkOp::Add`] of an anchor with the empty `id`.
     EmptyAnchorId,
     /// An [`IslandOp::Set`] naming an `id` no island in the field carries.
-    UnknownIslandId {
-        id: String,
-    },
+    UnknownIslandId { id: String },
     /// An [`IslandOp::Insert`] whose `id` is already live in the field. `Set`
     /// addresses by id, so a duplicate is an island neither op can name.
-    IslandIdCollision {
-        id: String,
-    },
+    IslandIdCollision { id: String },
     /// An [`IslandOp::Insert`] carrying the empty `id`.
     EmptyIslandId,
     /// An [`IslandOp::Insert`] whose `at` is past the end of the text the delta
     /// and this bundle's earlier island ops left.
-    IslandInsertOutOfRange {
-        at: Usv,
-        len: Usv,
-    },
+    IslandInsertOutOfRange { at: Usv, len: Usv },
     /// An island op would leave a **block-only** island's slot
     /// ([`IslandType::block_only`](crate::island::IslandType::block_only), a
     /// `table`) sharing its line with other content. Markdown writes such an
     /// island by breaking the line around it, so the op that lands one mid-line
     /// is refused rather than restructuring the author's blocks. `at` is the
     /// slot's position.
-    BlockIslandNotAlone {
-        at: Usv,
-    },
+    BlockIslandNotAlone { at: Usv },
     /// A [`LineOp::SetContainers`] nested a line deeper than
     /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH).
     NestingTooDeep {
@@ -454,7 +444,9 @@ impl Content {
         self.rebase_marks(delta);
         let new_len = new_text.chars().count();
         self.marks.retain(|m| {
-            m.start <= m.end && m.end <= new_len && (m.start < m.end || !m.kind.is_formatting())
+            m.start <= m.end
+                && m.end <= new_len
+                && (m.start < m.end || !m.kind.is_formatting())
         });
 
         self.text = new_text;
@@ -544,10 +536,7 @@ impl Content {
     pub(crate) fn holds_anchor(&self, id: &str) -> bool {
         let is = |m: &Mark| matches!(&m.kind, MarkKind::Anchor { id: held } if held == id);
         self.marks.iter().any(is)
-            || self
-                .islands
-                .iter()
-                .any(|isl| cell_anchor_ids(isl).iter().any(|held| held == id))
+            || self.islands.iter().any(|isl| cell_anchor_ids(isl).iter().any(|held| held == id))
     }
 
     fn remove_cell_anchor(&mut self, id: &str) {
@@ -567,25 +556,14 @@ impl Content {
     /// field: two of its own cells, or one of them and the prose or another
     /// island. `replacing` is the index of the island a `Set` replaces, whose
     /// ids it may keep and whose cells it no longer counts.
-    fn check_cell_anchors(
-        &self,
-        island: &Island,
-        replacing: Option<usize>,
-    ) -> Result<(), ApplyError> {
-        let kept: HashSet<String> = replacing
-            .map(|idx| cell_anchor_ids(&self.islands[idx]).into_iter().collect())
-            .unwrap_or_default();
+    fn check_cell_anchors(&self, island: &Island, replacing: Option<usize>) -> Result<(), ApplyError> {
+        let kept: HashSet<String> = replacing.map(|idx| cell_anchor_ids(&self.islands[idx]).into_iter().collect()).unwrap_or_default();
         let mut own = HashSet::new();
         for id in cell_anchor_ids(island) {
-            let elsewhere =
-                || {
-                    self.marks
-                        .iter()
-                        .any(|m| matches!(&m.kind, MarkKind::Anchor { id: held } if *held == id))
-                        || self.islands.iter().enumerate().any(|(i, isl)| {
-                            Some(i) != replacing && cell_anchor_ids(isl).contains(&id)
-                        })
-                };
+            let elsewhere = || {
+                self.marks.iter().any(|m| matches!(&m.kind, MarkKind::Anchor { id: held } if *held == id))
+                    || self.islands.iter().enumerate().any(|(i, isl)| Some(i) != replacing && cell_anchor_ids(isl).contains(&id))
+            };
             if !own.insert(id.clone()) || (!kept.contains(&id) && elsewhere()) {
                 return Err(ApplyError::AnchorIdCollision { id });
             }
@@ -609,18 +587,10 @@ impl Content {
             // An edge-aligned subtraction yields a zero-width fragment here;
             // `normalize` drops it.
             if m.start < start {
-                next.push(Mark {
-                    start: m.start,
-                    end: start,
-                    kind: m.kind.clone(),
-                });
+                next.push(Mark { start: m.start, end: start, kind: m.kind.clone() });
             }
             if end < m.end {
-                next.push(Mark {
-                    start: end,
-                    end: m.end,
-                    kind: m.kind.clone(),
-                });
+                next.push(Mark { start: end, end: m.end, kind: m.kind.clone() });
             }
         }
         self.marks = next;
@@ -648,9 +618,7 @@ impl Content {
                     // The type comes from the op, so a `Set` can turn an inline
                     // island into a block-only one over a slot that stays put. A
                     // block-only island already sharing its line keeps it.
-                    if island.island_type.block_only()
-                        && !self.islands[idx].island_type.block_only()
-                    {
+                    if island.island_type.block_only() && !self.islands[idx].island_type.block_only() {
                         let chars: Vec<char> = self.text.chars().collect();
                         let at = nth_slot(&chars, idx);
                         if !is_whole_line(&chars, at, at + 1) {
@@ -680,7 +648,9 @@ impl Content {
                     }
                     // The slot lands alone on its line only where the line is
                     // empty now, which is the `\n` the bundle's delta opened.
-                    if island.island_type.block_only() && !is_whole_line(&chars, *at, *at) {
+                    if island.island_type.block_only()
+                        && !is_whole_line(&chars, *at, *at)
+                    {
                         return Err(ApplyError::BlockIslandNotAlone { at: *at });
                     }
                     // Islands are stored in slot order.
@@ -833,10 +803,7 @@ impl Content {
         // The newline count before `at` is the post-insert line index, since the
         // insertion lands at index `at`, not before it.
         let byte = char_indices.get(at).map_or(self.text.len(), |&(b, _)| b);
-        let line_idx = char_indices[..at]
-            .iter()
-            .filter(|&(_, c)| *c == '\n')
-            .count();
+        let line_idx = char_indices[..at].iter().filter(|&(_, c)| *c == '\n').count();
         self.text.insert(byte, '\n');
 
         self.rebase_marks(&Delta {
@@ -1058,9 +1025,9 @@ impl crate::model::Normalized {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::island::IslandType;
     use crate::delta::diff;
     use crate::import::from_markdown;
-    use crate::island::IslandType;
 
     #[test]
     fn mark_op_wire_decodes_each_variant() {
@@ -1159,25 +1126,16 @@ mod tests {
         let bad = serde_json::json!({
             "op": "setKind", "line": 0, "kind": "heading", "level": 2,
         });
-        assert!(matches!(
-            line_op_from_value(&bad),
-            Err(ParseError::Shape(_))
-        ));
+        assert!(matches!(line_op_from_value(&bad), Err(ParseError::Shape(_))));
         let bad = serde_json::json!({
             "op": "setContainers", "line": 0,
             "containers": [{"container": "list_item", "ordered": true}],
         });
-        assert!(matches!(
-            line_op_from_value(&bad),
-            Err(ParseError::Shape(_))
-        ));
+        assert!(matches!(line_op_from_value(&bad), Err(ParseError::Shape(_))));
         let bad = serde_json::json!({
             "op": "add", "start": 0, "end": 1, "type": "link", "url": "u",
         });
-        assert!(matches!(
-            mark_op_from_value(&bad),
-            Err(ParseError::Shape(_))
-        ));
+        assert!(matches!(mark_op_from_value(&bad), Err(ParseError::Shape(_))));
 
         // One spelling per name: a built-in's payload rides the bag, and a
         // foreign bag on a built-in drops unread.
@@ -1241,7 +1199,9 @@ mod tests {
     /// so a legacy link stays removable.
     #[test]
     fn a_url_the_projection_cannot_write_is_refused_where_an_op_stores_it() {
-        let link = |op: &str, url: &str| serde_json::json!({"op": op, "start": 0, "end": 1, "type": "link", "attrs": {"url": url}});
+        let link = |op: &str, url: &str| {
+            serde_json::json!({"op": op, "start": 0, "end": 1, "type": "link", "attrs": {"url": url}})
+        };
         for url in ["a\nb", "a\rb"] {
             assert!(
                 matches!(
@@ -1602,11 +1562,10 @@ mod tests {
             kind: anchor(),
         }])
         .unwrap();
-        assert!(
-            !rt.marks
-                .iter()
-                .any(|m| matches!(m.kind, MarkKind::Anchor { .. }))
-        );
+        assert!(!rt
+            .marks
+            .iter()
+            .any(|m| matches!(m.kind, MarkKind::Anchor { .. })));
     }
 
     /// A family is set per character: an `Add` replaces the family under its
@@ -1629,50 +1588,22 @@ mod tests {
                 .collect()
         };
         let owned = |runs: &[(Usv, Usv, &str)]| -> Vec<(Usv, Usv, String)> {
-            runs.iter()
-                .map(|&(s, e, n)| (s, e, n.to_string()))
-                .collect()
+            runs.iter().map(|&(s, e, n)| (s, e, n.to_string())).collect()
         };
 
-        let mut rt = content(vec![
-            Mark::new(0, 10, family("Arimo")),
-            Mark::new(3, 7, family("Carlito")),
-        ]);
-        rt.apply_mark_ops(&[MarkOp::Add {
-            start: 4,
-            end: 6,
-            kind: family("Arimo"),
-        }])
-        .unwrap();
+        let mut rt = content(vec![Mark::new(0, 10, family("Arimo")), Mark::new(3, 7, family("Carlito"))]);
+        rt.apply_mark_ops(&[MarkOp::Add { start: 4, end: 6, kind: family("Arimo") }]).unwrap();
         assert_eq!(
             fonts(&rt),
-            owned(&[
-                (0, 3, "Arimo"),
-                (3, 4, "Carlito"),
-                (4, 6, "Arimo"),
-                (6, 7, "Carlito"),
-                (7, 10, "Arimo")
-            ])
+            owned(&[(0, 3, "Arimo"), (3, 4, "Carlito"), (4, 6, "Arimo"), (6, 7, "Carlito"), (7, 10, "Arimo")])
         );
 
-        let mut rt = content(vec![
-            Mark::new(2, 10, family("Zilla")),
-            Mark::new(2, 6, family("Arimo")),
-        ]);
-        rt.apply_text_delta(&Delta {
-            ops: vec![Op::Retain(6), Op::Delete(4), Op::Retain(6)],
-        })
-        .unwrap();
+        let mut rt = content(vec![Mark::new(2, 10, family("Zilla")), Mark::new(2, 6, family("Arimo"))]);
+        rt.apply_text_delta(&Delta { ops: vec![Op::Retain(6), Op::Delete(4), Op::Retain(6)] }).unwrap();
         assert_eq!(fonts(&rt), owned(&[(2, 6, "Arimo")]));
 
-        let mut rt = content(vec![
-            Mark::new(0, 10, family("Arimo")),
-            Mark::new(5, 16, family("Bitter")),
-        ]);
-        rt.apply_text_delta(&Delta {
-            ops: vec![Op::Delete(5), Op::Retain(11)],
-        })
-        .unwrap();
+        let mut rt = content(vec![Mark::new(0, 10, family("Arimo")), Mark::new(5, 16, family("Bitter"))]);
+        rt.apply_text_delta(&Delta { ops: vec![Op::Delete(5), Op::Retain(11)] }).unwrap();
         assert_eq!(fonts(&rt), owned(&[(0, 11, "Bitter")]));
     }
 
@@ -1741,9 +1672,7 @@ mod tests {
         // Tagging a table island's line `Code` would fence the slot, which
         // re-imports as nothing. The demotion settles it back to the `Para` the
         // line started as, and the table still projects.
-        let mut tbl = from_markdown("| a | b |\n|---|---|\n| 1 | 2 |")
-            .unwrap()
-            .content;
+        let mut tbl = from_markdown("| a | b |\n|---|---|\n| 1 | 2 |").unwrap().content;
         assert_eq!(
             tbl.apply_line_ops(&[LineOp::SetKind {
                 line: 0,
@@ -1829,10 +1758,7 @@ mod tests {
             .iter()
             .position(|l| l.continues)
             .expect("the hard break is there");
-        assert!(
-            rt.apply_line_ops(&[LineOp::Join { line: seam - 2 }])
-                .is_ok()
-        );
+        assert!(rt.apply_line_ops(&[LineOp::Join { line: seam - 2 }]).is_ok());
         assert_eq!(rt.validate(), Ok(()), "the join left a storable content");
         let mut again = rt.clone().into_content();
         again.normalize();
@@ -1868,13 +1794,12 @@ mod tests {
             Err(ApplyError::BadHeadingLevel { line: 0, level: 9 })
         );
         assert_eq!(rt.validate(), Ok(()));
-        assert!(
-            rt.apply_line_ops(&[LineOp::SetKind {
+        assert!(rt
+            .apply_line_ops(&[LineOp::SetKind {
                 line: 0,
                 kind: LineKind::Heading { level: 6 },
             }])
-            .is_ok()
-        );
+            .is_ok());
     }
 
     #[test]
@@ -1959,7 +1884,11 @@ mod tests {
         // Import's Trojan-source defense is not bypassed by the delta channel.
         let mut rt = from_markdown("ab").unwrap().content;
         let d = Delta {
-            ops: vec![Op::Retain(1), Op::Insert("\u{202E}".into()), Op::Retain(1)],
+            ops: vec![
+                Op::Retain(1),
+                Op::Insert("\u{202E}".into()),
+                Op::Retain(1),
+            ],
         };
         rt.apply_text_delta(&d).unwrap();
         assert_eq!(rt.text, "ab");
@@ -2062,9 +1991,7 @@ mod tests {
     /// the field survives an edit a whole-value `overwrite` would have cleared.
     #[test]
     fn island_set_edits_props_and_keeps_the_field_anchors() {
-        let mut rt = from_markdown("intro\n\n| H |\n| --- |\n| a |")
-            .unwrap()
-            .content;
+        let mut rt = from_markdown("intro\n\n| H |\n| --- |\n| a |").unwrap().content;
         assert_eq!(rt.islands.len(), 1, "one table island");
         let id = rt.islands[0].id.clone();
         rt.apply_mark_ops(&[MarkOp::Add {
@@ -2238,10 +2165,7 @@ mod tests {
 
         // The line stayed open, so the restore needs no delta.
         rt.apply_field_change(&ChangeBundle {
-            island_ops: vec![IslandOp::Insert {
-                at: 6,
-                island: held,
-            }],
+            island_ops: vec![IslandOp::Insert { at: 6, island: held }],
             ..Default::default()
         })
         .unwrap();
@@ -2253,8 +2177,9 @@ mod tests {
     /// refusal.
     #[test]
     fn a_block_only_island_lands_only_on_a_line_of_its_own() {
-        let table =
-            |id: &str| Island::new(id.into(), IslandType::Table).with_props(table_props("H", "a"));
+        let table = |id: &str| {
+            Island::new(id.into(), IslandType::Table).with_props(table_props("H", "a"))
+        };
         let mut rt = from_markdown("ab").unwrap().content;
         let before = rt.clone();
         assert_eq!(
@@ -2303,16 +2228,10 @@ mod tests {
     /// writes the line apart.
     #[test]
     fn a_table_joined_into_prose_stays_and_stays_editable() {
-        let mut rt = from_markdown("ab\n\n| H |\n| --- |\n| a |")
-            .unwrap()
-            .content;
+        let mut rt = from_markdown("ab\n\n| H |\n| --- |\n| a |").unwrap().content;
         rt.apply_line_ops(&[LineOp::Join { line: 0 }]).unwrap();
         assert_eq!(rt.validate(), Ok(()));
-        assert_eq!(
-            rt.text,
-            format!("ab{ISLAND_SLOT}"),
-            "the slot stays in the paragraph"
-        );
+        assert_eq!(rt.text, format!("ab{ISLAND_SLOT}"), "the slot stays in the paragraph");
 
         let id = rt.islands[0].id.clone();
         rt.apply_field_change(&island_bundle(vec![IslandOp::Set {
@@ -2385,11 +2304,10 @@ mod tests {
         assert_eq!(rt.text, format!("intro\n{ISLAND_SLOT}"));
         assert_eq!(rt.lines[1].kind, LineKind::Para);
         assert_eq!(rt.validate(), Ok(()));
-        assert!(
-            rt.marks
-                .iter()
-                .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
-        );
+        assert!(rt
+            .marks
+            .iter()
+            .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")));
         assert!(
             crate::export::to_markdown(&rt).contains("| H |"),
             "the block island projects as a pipe table"
@@ -2561,10 +2479,7 @@ mod tests {
             &d,
         );
         assert_eq!(tags(&lines), vec![(1, false)]);
-        assert_eq!(
-            islands.iter().map(|i| &i.id).collect::<Vec<_>>(),
-            ["second"]
-        );
+        assert_eq!(islands.iter().map(|i| &i.id).collect::<Vec<_>>(), ["second"]);
     }
 
     #[test]
@@ -2659,10 +2574,7 @@ mod tests {
         staged.apply_line_ops(&line_ops).unwrap();
         staged.apply_mark_ops(&mark_ops).unwrap();
 
-        assert_eq!(
-            bundled, staged,
-            "terminal normalize diverged from per-stage"
-        );
+        assert_eq!(bundled, staged, "terminal normalize diverged from per-stage");
         assert_eq!(bundled.validate(), Ok(()));
     }
 
@@ -2671,10 +2583,7 @@ mod tests {
         let text: String = (0..50).map(|i| format!("line{i}\n")).collect();
         let old_chars: Vec<char> = text.chars().collect();
         let lines: Vec<Line> = (0..=50).map(|i| tag_line((i % 200) as u8, false)).collect();
-        assert_eq!(
-            lines.len(),
-            old_chars.iter().filter(|&&c| c == '\n').count() + 1
-        );
+        assert_eq!(lines.len(), old_chars.iter().filter(|&&c| c == '\n').count() + 1);
         let d = Delta {
             ops: vec![Op::Delete(old_chars.len())],
         };

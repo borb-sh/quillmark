@@ -7,10 +7,7 @@ use indexmap::IndexMap;
 use proptest::prelude::*;
 
 use crate::quill::{CardSchema, CoercionError, FieldSchema, FieldType, QuillConfig};
-use crate::{
-    document::{Card, EditError},
-    value::QuillValue,
-};
+use crate::{document::{Card, EditError}, value::QuillValue};
 
 // Keep aligned with `validate_path_grammar` below, which checks against them.
 const ROOT_FIELD: &str = "f";
@@ -259,18 +256,11 @@ fn an_uncoercible_array_item_is_addressed_by_its_index() {
 
 #[test]
 fn a_singleton_array_collapses_to_its_text_and_rests_there() {
-    let schema = FieldSchema::new(
-        ROOT_FIELD.to_string(),
-        FieldType::Text { multiline: false },
-        None,
-    );
+    let schema = FieldSchema::new(ROOT_FIELD.to_string(), FieldType::Text { multiline: false }, None);
     let config = config_with_one_field(schema);
     let fm = single_field_payload(serde_json::json!(["hello"]));
     let first = config.coerce_payload(&fm).unwrap();
     let second = config.coerce_payload(&first).unwrap();
     assert_eq!(first, second);
-    assert_eq!(
-        first.get(ROOT_FIELD).unwrap().as_json(),
-        &super::text("hello")
-    );
+    assert_eq!(first.get(ROOT_FIELD).unwrap().as_json(), &super::text("hello"));
 }

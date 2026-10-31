@@ -8,7 +8,7 @@
 
 use proptest::prelude::*;
 
-use super::generate::{Piece, contained, counted, prefixed, table, tally, word};
+use super::generate::{contained, counted, prefixed, table, tally, word, Piece};
 use crate::export::to_markdown;
 use crate::import::from_markdown;
 use crate::model::Normalized;
@@ -81,19 +81,16 @@ fn cell() -> impl Strategy<Value = Piece> {
 /// A comment on one line or several, the text after it on its last line
 /// importing.
 fn comment() -> impl Strategy<Value = Piece> {
-    (
-        prop::collection::vec(word(), 1..3),
-        any::<bool>(),
-        prop::option::of(paragraph()),
-    )
-        .prop_map(|(hidden, multiline, tail)| {
+    (prop::collection::vec(word(), 1..3), any::<bool>(), prop::option::of(paragraph())).prop_map(
+        |(hidden, multiline, tail)| {
             // Text after the comment's line-closing `-->` is a paragraph of its
             // own.
             let mut p = tail.unwrap_or_default();
             let sep = if multiline { "\n" } else { " " };
             p.md = format!("<!--{sep}{}{sep}-->{}", hidden.join(" "), p.md);
             p
-        })
+        },
+    )
 }
 
 fn leaf() -> impl Strategy<Value = Piece> {
@@ -128,11 +125,7 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
                 let first = block.md.trim_start_matches(['>', ' ']);
                 let opens = first.starts_with('<') && !first.starts_with("<!--");
                 if i > 0 {
-                    md.push_str(if gap || after_table || after_tag || opens {
-                        "\n\n"
-                    } else {
-                        "\n"
-                    });
+                    md.push_str(if gap || after_table || after_tag || opens { "\n\n" } else { "\n" });
                 }
                 after_table = block.table;
                 after_tag = block.closes;
@@ -146,13 +139,7 @@ fn wrapper(inner: impl Strategy<Value = Piece>) -> impl Strategy<Value = Piece> 
             reported.push(name.to_string());
             // A closing tag straight after a table's rows is one more row to the
             // parser, so the table runs on past it.
-            Piece {
-                md,
-                words,
-                reported,
-                table: after_table && !closed,
-                closes: closed,
-            }
+            Piece { md, words, reported, table: after_table && !closed, closes: closed }
         })
 }
 

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use quillmark_core::{
     error::RenderError,
-    quill::{BUNDLE_EXTENSION, FileTreeNode, Quill, QuillIgnore},
+    quill::{FileTreeNode, Quill, QuillIgnore, BUNDLE_EXTENSION},
 };
 
 /// Load a quill from a filesystem directory, skipping what [`QuillIgnore`]
@@ -19,9 +19,8 @@ use quillmark_core::{
 /// the quill, readable from [`Quill::warnings`].
 pub fn quill_from_path<P: AsRef<Path>>(path: P) -> Result<Quill, RenderError> {
     let path = path.as_ref();
-    let load_failed = |e: &dyn std::fmt::Display| {
-        RenderError::coded("quill::load_failed", format!("Failed to load quill: {e}"))
-    };
+    let load_failed =
+        |e: &dyn std::fmt::Display| RenderError::coded("quill::load_failed", format!("Failed to load quill: {e}"));
     if is_bundle_file(path) {
         let bytes = std::fs::read(path).map_err(|e| load_failed(&e))?;
         return Quill::from_bundle(&bytes).map_err(RenderError::new);
@@ -165,17 +164,11 @@ mod tests {
         let file = dir.path().join("usaf_memo.quill");
         std::fs::write(&file, from_dir.to_bundle().unwrap()).unwrap();
 
-        assert_eq!(
-            quill_from_path(&file).unwrap().to_tree(),
-            from_dir.to_tree()
-        );
+        assert_eq!(quill_from_path(&file).unwrap().to_tree(), from_dir.to_tree());
 
         let zip = dir.path().join("usaf_memo.zip");
         std::fs::rename(&file, &zip).unwrap();
         let refused = quill_from_path(&zip).unwrap_err();
-        assert_eq!(
-            refused.diagnostics()[0].code.as_deref(),
-            Some("quill::load_failed")
-        );
+        assert_eq!(refused.diagnostics()[0].code.as_deref(), Some("quill::load_failed"));
     }
 }

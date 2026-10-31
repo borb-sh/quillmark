@@ -15,7 +15,7 @@ use pdf_writer::{Chunk, Finish, Name, Rect};
 use crate::error::PdfError;
 use crate::reader::UpdatedObject;
 use crate::writer::{pdf_escape, to_ref, winansi_encode};
-use crate::{CHECK_FONT_RESOURCE, CHECK_GLYPH, FieldSpec, FieldType, FormFont};
+use crate::{FieldSpec, FieldType, FormFont, CHECK_FONT_RESOURCE, CHECK_GLYPH};
 
 const MIN_SIZE: f32 = 4.0;
 const MAX_SIZE: f32 = 12.0;
@@ -323,7 +323,7 @@ fn push_f32(out: &mut Vec<u8>, v: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CHECKBOX_ON_STATE, FormFont};
+    use crate::{FormFont, CHECKBOX_ON_STATE};
 
     fn text(value: Option<&str>) -> FieldSpec {
         let mut spec = FieldSpec::new(
@@ -409,10 +409,7 @@ mod tests {
         let drawn = content(&spec);
         assert!(drawn.contains("(first) Tj"), "{drawn}");
         assert!(drawn.contains("(second) Tj"), "{drawn}");
-        assert!(
-            drawn.contains("0 -14.4 Td"),
-            "12pt → 14.4pt leading: {drawn}"
-        );
+        assert!(drawn.contains("0 -14.4 Td"), "12pt → 14.4pt leading: {drawn}");
     }
 
     /// The `(..) Tj` lines a stream shows, unescaped, and the size it sets.
@@ -455,11 +452,7 @@ mod tests {
                     "{font:?}: {line:?} is wider than the box"
                 );
             }
-            assert_eq!(
-                lines.last().unwrap(),
-                "Second statement.",
-                "a newline breaks"
-            );
+            assert_eq!(lines.last().unwrap(), "Second statement.", "a newline breaks");
             assert_eq!(
                 lines[..lines.len() - 1].join(" "),
                 value.lines().next().unwrap(),
@@ -475,21 +468,13 @@ mod tests {
         let (size, lines) = shown(&spec);
         assert!(lines.len() > 1, "{lines:?}");
         assert_eq!(lines.concat(), "W".repeat(40));
-        assert!(
-            lines
-                .iter()
-                .all(|l| FormFont::Helvetica.width(l.as_bytes(), size) <= 96.0)
-        );
+        assert!(lines.iter().all(|l| FormFont::Helvetica.width(l.as_bytes(), size) <= 96.0));
     }
 
     #[test]
     fn an_auto_sized_multiline_value_shrinks_until_its_lines_fit_the_box() {
         let mut spec = text(None);
-        paragraph(
-            &mut spec,
-            &"one two three four five six ".repeat(6),
-            [0.0, 0.0, 200.0, 60.0],
-        );
+        paragraph(&mut spec, &"one two three four five six ".repeat(6), [0.0, 0.0, 200.0, 60.0]);
         let (size, lines) = shown(&spec);
         assert!(size < 12.0, "{size}");
         assert!(
@@ -518,9 +503,7 @@ mod tests {
 
     #[test]
     fn a_shrunk_line_stays_centred_in_its_box() {
-        let mut spec = text(Some(
-            "Lt Col Casey B. Sample, DSN 555-0100, Comm (555) 555-0100",
-        ));
+        let mut spec = text(Some("Lt Col Casey B. Sample, DSN 555-0100, Comm (555) 555-0100"));
         spec.rect = [0.0, 0.0, 150.0, 20.0];
         let (size, _) = shown(&spec);
         let drawn = content(&spec);
@@ -552,17 +535,9 @@ mod tests {
         assert!(overflows(&line), "a widget's own size does not shrink");
 
         let mut box_ = text(None);
-        paragraph(
-            &mut box_,
-            &"Sample text. ".repeat(40),
-            [0.0, 0.0, 200.0, 60.0],
-        );
+        paragraph(&mut box_, &"Sample text. ".repeat(40), [0.0, 0.0, 200.0, 60.0]);
         assert!(!overflows(&box_), "a paragraph shrinks until its lines fit");
-        paragraph(
-            &mut box_,
-            &"Sample text. ".repeat(400),
-            [0.0, 0.0, 200.0, 60.0],
-        );
+        paragraph(&mut box_, &"Sample text. ".repeat(400), [0.0, 0.0, 200.0, 60.0]);
         assert!(overflows(&box_), "past 4pt its last lines are cut off");
     }
 
@@ -584,10 +559,7 @@ mod tests {
         assert!(content(&text(Some("Ada"))).contains("/Helv 12 Tf"));
         let mut small = text(Some("Ada"));
         small.rect = [72.0, 700.0, 300.0, 706.0];
-        assert!(
-            content(&small).contains("/Helv 4 Tf"),
-            "clamped at the floor"
-        );
+        assert!(content(&small).contains("/Helv 4 Tf"), "clamped at the floor");
     }
 
     #[test]
@@ -598,10 +570,7 @@ mod tests {
         assert_eq!(on.resource, Some(CHECK_FONT_RESOURCE));
         let drawn = String::from_utf8_lossy(&on.content).into_owned();
         assert!(drawn.contains("/ZaDb 12 Tf"), "{drawn}");
-        assert!(
-            drawn.contains("\n5.4 3 Td\n"),
-            "centred in the box: {drawn}"
-        );
+        assert!(drawn.contains("\n5.4 3 Td\n"), "centred in the box: {drawn}");
     }
 
     #[test]

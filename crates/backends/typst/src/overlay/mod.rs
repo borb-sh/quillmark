@@ -10,7 +10,7 @@ mod extract;
 mod span_scan;
 
 pub(crate) use extract::extract;
-pub(crate) use span_scan::{FieldWindow, Scan, unclosed_claims};
+pub(crate) use span_scan::{unclosed_claims, FieldWindow, Scan};
 
 /// One form field's geometry in Typst (top-left origin) points, plus its
 /// type/value payload.

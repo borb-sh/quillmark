@@ -24,21 +24,13 @@ fn a_floor_above_this_release_is_the_one_error() {
         "\">=9999.0\"",
         "  from_the_future: true\nnew_section: {}\ntypst:\n  from_the_future: true\n",
     )
-    .expect_err("9999.0 is above this Quillmark release");
+        .expect_err("9999.0 is above this Quillmark release");
     assert_eq!(codes(&refused), ["quill::requires_unmet"]);
 }
 
 #[test]
 fn a_floor_is_spelled_with_its_comparator() {
-    for requires in [
-        "\"1.0\"",
-        "\">1.0\"",
-        "\">=1\"",
-        "\">=x.y\"",
-        "\">= 1.0\"",
-        "1.0",
-        "[\">=1.0\"]",
-    ] {
+    for requires in ["\"1.0\"", "\">1.0\"", "\">=1\"", "\">=x.y\"", "\">= 1.0\"", "1.0", "[\">=1.0\"]"] {
         let refused = load(requires, "").expect_err(requires);
         assert_eq!(codes(&refused), ["quill::invalid_requires"], "{requires}");
     }
@@ -47,8 +39,5 @@ fn a_floor_is_spelled_with_its_comparator() {
 #[test]
 fn a_misspelled_floor_is_reported_beside_the_other_errors() {
     let refused = load("\"1.0\"", "  colour: red\n").expect_err("two errors");
-    assert_eq!(
-        codes(&refused),
-        ["quill::invalid_requires", "quill::unknown_key"]
-    );
+    assert_eq!(codes(&refused), ["quill::invalid_requires", "quill::unknown_key"]);
 }

@@ -42,9 +42,7 @@ const PLAIN: &str = "| Item | Amount |\n| --- | --- |\n| Total | 42 |";
 
 /// [`PLAIN`] as an HTML table, its `<table>` tag carrying `attrs`.
 fn html(attrs: &str) -> String {
-    format!(
-        "<table{attrs}>\n<thead>\n<tr><th>Item</th><th>Amount</th></tr>\n</thead>\n<tbody>\n<tr><td>Total</td><td>42</td></tr>\n</tbody>\n</table>"
-    )
+    format!("<table{attrs}>\n<thead>\n<tr><th>Item</th><th>Amount</th></tr>\n</thead>\n<tbody>\n<tr><td>Total</td><td>42</td></tr>\n</tbody>\n</table>")
 }
 
 /// Each knob alone compiles and moves the table's text.
@@ -53,11 +51,7 @@ fn every_knob_compiles_and_moves_the_table() {
     let quill = quill();
     let plain = origins(&svg(&quill, PLAIN));
     assert_eq!(origins(&svg(&quill, &html(""))), plain);
-    for attrs in [
-        " align=\"center\"",
-        " widths=\"2 1\"",
-        " align=\"center\" widths=\"2 1\"",
-    ] {
+    for attrs in [" align=\"center\"", " widths=\"2 1\"", " align=\"center\" widths=\"2 1\""] {
         let knobs = html(attrs);
         let moved = origins(&svg(&quill, &knobs));
         assert_eq!(moved.len(), plain.len(), "{attrs}: {moved:?}");
@@ -72,11 +66,7 @@ fn every_knob_compiles_and_moves_the_table() {
 #[test]
 fn placing_a_table_keeps_its_cells_aligned_as_they_were() {
     let tables = [
-        (
-            "| A wide header cell |\n| --- |\n| x |",
-            "<tr><th>A wide header cell</th></tr>\n<tr><td>x</td></tr>",
-            "",
-        ),
+        ("| A wide header cell |\n| --- |\n| x |", "<tr><th>A wide header cell</th></tr>\n<tr><td>x</td></tr>", ""),
         (
             "| A wide header cell | b |\n| --- | ---: |\n| x | y |",
             "<tr><th>A wide header cell</th><th>b</th></tr>\n<tr><td>x</td><td>y</td></tr>",
@@ -88,12 +78,7 @@ fn placing_a_table_keeps_its_cells_aligned_as_they_were() {
             " aligns=\"none right\"",
         ),
     ];
-    let sets = [
-        "",
-        "#set table(align: right)\n",
-        "#set align(right)\n",
-        "#show table.cell: set align(horizon)\n",
-    ];
+    let sets = ["", "#set table(align: right)\n", "#set align(right)\n", "#show table.cell: set align(horizon)\n"];
     for (table, rows, aligns) in tables {
         let placed = format!("<table align=\"center\"{aligns}>\n{rows}\n</table>");
         for set in sets {
@@ -101,9 +86,7 @@ fn placing_a_table_keeps_its_cells_aligned_as_they_were() {
             let quill = common::quill_with_plate(&common::yaml("main:\n  fields: {}\n"), &plate);
             let at = origins(&svg(&quill, &placed));
             let unplaced = origins(&svg(&quill, table));
-            let offsets = |o: &[(f64, f64)]| -> Vec<(f64, f64)> {
-                o.iter().map(|p| (p.0 - o[0].0, p.1 - o[0].1)).collect()
-            };
+            let offsets = |o: &[(f64, f64)]| -> Vec<(f64, f64)> { o.iter().map(|p| (p.0 - o[0].0, p.1 - o[0].1)).collect() };
             let kept = at.len() == unplaced.len()
                 && offsets(&at)
                     .iter()
@@ -111,10 +94,7 @@ fn placing_a_table_keeps_its_cells_aligned_as_they_were() {
                     .all(|(a, b)| (a.0 - b.0).abs() < 1e-6 && (a.1 - b.1).abs() < 1e-6);
             assert!(kept, "{table:?} under {set:?}: {at:?} {unplaced:?}");
             if set.is_empty() {
-                assert!(
-                    at[0].0 > unplaced[0].0,
-                    "centered right of {unplaced:?}: {at:?}"
-                );
+                assert!(at[0].0 > unplaced[0].0, "centered right of {unplaced:?}: {at:?}");
             }
         }
     }
@@ -142,23 +122,14 @@ fn a_headless_table_has_no_header_row_to_style() {
 fn a_merged_cell_draws_once_across_what_it_covers() {
     let quill = quill();
     let spanned = |md: &str| origins(&svg(&quill, md));
-    let row = spanned(
-        "<table>\n<tr><td>left</td><td>right</td></tr>\n<tr><td colspan=\"2\" align=\"center\">both</td></tr>\n</table>",
-    );
+    let row = spanned("<table>\n<tr><td>left</td><td>right</td></tr>\n<tr><td colspan=\"2\" align=\"center\">both</td></tr>\n</table>");
     assert_eq!(row.len(), 3, "{row:?}");
     assert!(row[2].0 > row[0].0 && row[2].0 < row[1].0, "{row:?}");
-    let mut column = spanned(
-        "<table>\n<tr><td rowspan=\"2\" valign=\"middle\">both</td><td>top</td></tr>\n<tr><td>bottom</td></tr>\n</table>",
-    );
+    let mut column = spanned("<table>\n<tr><td rowspan=\"2\" valign=\"middle\">both</td><td>top</td></tr>\n<tr><td>bottom</td></tr>\n</table>");
     assert_eq!(column.len(), 3, "{column:?}");
     column.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
-    let [both, top, bottom] = column[..] else {
-        unreachable!()
-    };
-    assert!(
-        both.0 < top.0 && top.1 < both.1 && both.1 < bottom.1,
-        "{column:?}"
-    );
+    let [both, top, bottom] = column[..] else { unreachable!() };
+    assert!(both.0 < top.0 && top.1 < both.1 && both.1 < bottom.1, "{column:?}");
 }
 
 /// Two `thead` rows, one cell spanning both, lower as one `table.header`,
@@ -166,35 +137,20 @@ fn a_merged_cell_draws_once_across_what_it_covers() {
 #[test]
 fn every_head_row_repeats_with_the_header() {
     let quill = quill();
-    let body: String = (0..60)
-        .map(|i| format!("<tr><td>row {i}</td><td>x</td></tr>\n"))
-        .collect();
+    let body: String = (0..60).map(|i| format!("<tr><td>row {i}</td><td>x</td></tr>\n")).collect();
     let md = format!(
         "<table>\n<thead>\n<tr><th rowspan=\"2\">first</th><th>head</th></tr>\n<tr><th>second</th></tr>\n</thead>\n{body}</table>"
     );
     let data = serde_json::json!({ "$body": content(&md) });
-    let session = TypstBackend::default()
-        .open(&quill, &data, common::test_date())
-        .expect("compiles");
+    let session = TypstBackend::default().open(&quill, &data, common::test_date()).expect("compiles");
     let result = session
         .render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
         .expect("render");
     assert!(result.artifacts.len() > 1, "the table fits one page");
-    let heads = |page: &[u8]| {
-        String::from_utf8_lossy(page)
-            .matches("<g transform=\"matrix(1 0 0 -1 ")
-            .count()
-    };
-    let pages: Vec<usize> = result
-        .artifacts
-        .iter()
-        .map(|page| heads(&page.bytes))
-        .collect();
+    let heads = |page: &[u8]| String::from_utf8_lossy(page).matches("<g transform=\"matrix(1 0 0 -1 ").count();
+    let pages: Vec<usize> = result.artifacts.iter().map(|page| heads(&page.bytes)).collect();
     let cells: usize = pages.iter().sum::<usize>() - 3 * pages.len();
-    assert_eq!(
-        cells, 120,
-        "each page draws the three head cells above its body rows: {pages:?}"
-    );
+    assert_eq!(cells, 120, "each page draws the three head cells above its body rows: {pages:?}");
 }
 
 /// A table sharing its line with prose, the shape a merge of concurrent edits
@@ -208,11 +164,7 @@ fn a_table_sharing_its_line_draws_as_the_broken_line_does() {
         value["text"] = text.into();
         value["lines"] = lines;
         let session = TypstBackend::default()
-            .open(
-                &quill,
-                &serde_json::json!({ "$body": value }),
-                common::test_date(),
-            )
+            .open(&quill, &serde_json::json!({ "$body": value }), common::test_date())
             .unwrap_or_else(|e| panic!("{text:?} compiles: {e}"));
         let result = session
             .render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
@@ -223,21 +175,9 @@ fn a_table_sharing_its_line_draws_as_the_broken_line_does() {
     let heading = serde_json::json!({"containers": [], "kind": "heading", "attrs": {"level": 1}});
     let hard_break = serde_json::json!({"containers": [], "kind": "para", "continues": true});
     let cases = [
-        (
-            "before\u{FFFC}after",
-            vec![para.clone()],
-            vec![para.clone(), para.clone(), para.clone()],
-        ),
-        (
-            "before\u{FFFC}after",
-            vec![heading.clone()],
-            vec![heading.clone(), para.clone(), heading.clone()],
-        ),
-        (
-            "before\u{FFFC}\nafter",
-            vec![para.clone(), hard_break],
-            vec![para.clone(), para.clone(), para.clone()],
-        ),
+        ("before\u{FFFC}after", vec![para.clone()], vec![para.clone(), para.clone(), para.clone()]),
+        ("before\u{FFFC}after", vec![heading.clone()], vec![heading.clone(), para.clone(), heading.clone()]),
+        ("before\u{FFFC}\nafter", vec![para.clone(), hard_break], vec![para.clone(), para.clone(), para.clone()]),
     ];
     for (text, shared, broken) in cases {
         let line_broken = draw("before\n\u{FFFC}\nafter", serde_json::Value::Array(broken));

@@ -102,6 +102,7 @@ mod tests {
         );
         assert_eq!(ParseOutputFormatError::new("docx").0, "docx");
     }
+
 }
 
 /// An artifact produced by rendering.

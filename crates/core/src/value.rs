@@ -183,10 +183,7 @@ mod tests {
         };
         let anchor = "x".repeat(10_000);
         assert!(QuillValue::from_yaml_str(&format!("z: &a {anchor}\nzz: [*a]\n")).is_ok());
-        refused(&format!(
-            "z: &a {anchor}\nzz: [{}]\n",
-            vec!["*a"; 90].join(",")
-        ));
+        refused(&format!("z: &a {anchor}\nzz: [{}]\n", vec!["*a"; 90].join(",")));
 
         let tens = |alias: &str| vec![alias; 10].join(",");
         refused(&format!(
@@ -216,8 +213,8 @@ mod tests {
     /// `YamlError` promises the parser is invisible, text included.
     #[test]
     fn yaml_error_strips_the_engine_api_names() {
-        let err =
-            QuillValue::from_yaml_str("a: 1\na: 2\n").expect_err("a duplicate key must not parse");
+        let err = QuillValue::from_yaml_str("a: 1\na: 2\n")
+            .expect_err("a duplicate key must not parse");
         assert!(
             !err.message().contains("DuplicateKeyPolicy") && !err.message().contains("Options"),
             "parser API names reached the message: {}",

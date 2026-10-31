@@ -89,11 +89,7 @@ fn data() -> serde_json::Value {
 
 fn open(plate: &str) -> quillmark_core::session::LiveSession {
     TypstBackend::default()
-        .open(
-            &common::quill_with_plate(YAML, plate),
-            &data(),
-            common::test_date(),
-        )
+        .open(&common::quill_with_plate(YAML, plate), &data(), common::test_date())
         .expect("open")
 }
 
@@ -112,18 +108,10 @@ fn every_print_regions_and_routes_on_the_address_it_names() {
         (
             "#let c = qm.data.classification\n#let a = qm.data.at(\"address\", default: (:))\n\
              #qm.ink(c, \"poc\") #qm.ink(c, \"controlled_by\") #qm.ink(a, \"city\")",
-            &[
-                "classification.poc",
-                "classification.controlled_by",
-                "address.city",
-            ],
+            &["classification.poc", "classification.controlled_by", "address.city"],
             &["classification", "address"],
         ),
-        (
-            "#qm.ink(qm.data.refs.at(0), \"org\")",
-            &["refs.0.org"],
-            &["refs"],
-        ),
+        ("#qm.ink(qm.data.refs.at(0), \"org\")", &["refs.0.org"], &["refs"]),
         (
             "#qm.ink(qm.data, \"classification.value\")\n\
              #assert.eq(qm.ink(qm.data, \"address\"), none)",
@@ -135,12 +123,7 @@ fn every_print_regions_and_routes_on_the_address_it_names() {
              #qm.region(\"address.city\")[#box(stroke: 1pt, inset: 4pt)[#upper(qm.data.address.city)]]\n\
              #qm.region(\"refs.0.org\")[AFRL/RQ]\n\
              #qm.form-field(\"Ref0Num\", field: \"refs.0.num\", value: qm.str(qm.data.refs.at(0).num))",
-            &[
-                "classification.poc",
-                "address.city",
-                "refs.0.org",
-                "refs.0.num",
-            ],
+            &["classification.poc", "address.city", "refs.0.org", "refs.0.num"],
             &[],
         ),
         // A variant cell of a rich type lowers exactly as a card-level one: the
@@ -211,10 +194,7 @@ fn ink_keeps_the_address_through_functions_loops_and_patterns() {
             .find(|r| r.field == field)
             .unwrap_or_else(|| panic!("{field:?} regions through its ink: {regions:?}"));
         let (cx, cy) = ((r.rect[0] + r.rect[2]) / 2.0, (r.rect[1] + r.rect[3]) / 2.0);
-        assert_eq!(
-            session.field_at(r.page, cx, cy, 0.0).as_deref(),
-            Some(field)
-        );
+        assert_eq!(session.field_at(r.page, cx, cy, 0.0).as_deref(), Some(field));
     }
 
     // A date's ink prints its default display, laundered like any other.
@@ -296,11 +276,7 @@ fn a_blank_date_still_projects_none() {
     let mut blank = data();
     blank["classification"]["reply_by"] = serde_json::Value::String(String::new());
     TypstBackend::default()
-        .open(
-            &common::quill_with_plate(YAML, plate),
-            &blank,
-            common::test_date(),
-        )
+        .open(&common::quill_with_plate(YAML, plate), &blank, common::test_date())
         .expect("a blank date compiles");
 }
 
@@ -327,10 +303,6 @@ fn spreading_a_typed_dictionary_hints_its_path_key() {
 
     let sunk = plate.replace("street: none)", "street: none, ..rest)");
     TypstBackend::default()
-        .open(
-            &common::quill_with_plate(YAML, &sunk),
-            &data(),
-            common::test_date(),
-        )
+        .open(&common::quill_with_plate(YAML, &sunk), &data(), common::test_date())
         .expect("the hinted sink takes `$path`");
 }

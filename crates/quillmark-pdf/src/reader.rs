@@ -44,10 +44,7 @@ pub(crate) fn find_startxref(pdf: &[u8]) -> Result<usize, PdfError> {
         .ok_or_else(|| PdfError::new(CODE_PARSE, "startxref offset is not a valid integer"))?;
     // Bound the offset so every downstream `pdf[offset..]` slice is in range.
     if offset >= pdf.len() {
-        return Err(PdfError::new(
-            CODE_PARSE,
-            "startxref offset is past end of file",
-        ));
+        return Err(PdfError::new(CODE_PARSE, "startxref offset is past end of file"));
     }
     Ok(offset)
 }
@@ -947,9 +944,7 @@ impl Page {
         parse: impl Fn(&[u8]) -> Option<T>,
     ) -> Option<T> {
         std::iter::once(self.id)
-            .chain(
-                std::iter::successors(self.ancestors.as_deref(), |a| a.up.as_deref()).map(|a| a.id),
-            )
+            .chain(std::iter::successors(self.ancestors.as_deref(), |a| a.up.as_deref()).map(|a| a.id))
             .find_map(|id| {
                 let dict = idx.dict(id, CODE_PARSE, "page node").ok()?;
                 parse(idx.value(dict, key)?)
@@ -988,10 +983,7 @@ pub(crate) fn walk_page_tree(idx: &ObjectIndex, catalog_id: u32) -> Result<Vec<P
                     format!("page node {node_id} /Kids is not an array"),
                 ));
             }
-            let kid_ancestors = Some(Rc::new(Ancestor {
-                id: node_id,
-                up: ancestors,
-            }));
+            let kid_ancestors = Some(Rc::new(Ancestor { id: node_id, up: ancestors }));
             let mut kid_ids = array_elements(kids)
                 .map(|kid| {
                     parse_indirect_ref(kid).map(|(id, _)| id).ok_or_else(|| {
@@ -1549,7 +1541,7 @@ mod tests {
         assert_eq!(
             &pdf[s..e],
             b"3 0 obj\n<< /Title (My endobj report) /Author (X) >>\nendobj"
-        );
+);
         let dict = extract_outer_dict(&pdf[s..e]).expect("dict parses");
         let title = find_dict_value(dict, "Title").expect("/Title");
         assert_eq!(title.trim_ascii(), b"(My endobj report)");
@@ -1645,10 +1637,7 @@ mod tests {
                     3 0 obj\n<< /Type /Page /Parent 5 0 R /CropBox [10 20 150 300] >>\nendobj\n\
                     4 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n";
         let boxes = canvas_boxes_of(&ObjectIndex::new(pdf), 1).expect("canvas boxes resolve");
-        assert_eq!(
-            boxes,
-            [[10.0, 20.0, 150.0, 300.0], [0.0, 0.0, 612.0, 792.0]]
-        );
+        assert_eq!(boxes, [[10.0, 20.0, 150.0, 300.0], [0.0, 0.0, 612.0, 792.0]]);
     }
 
     #[test]

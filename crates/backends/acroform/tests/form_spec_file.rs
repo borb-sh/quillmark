@@ -15,16 +15,10 @@ fn sample_form_with(files: &[(&str, &str)]) -> FileTreeNode {
     let FileTreeNode::Directory { files: root } = &mut tree else {
         unreachable!("a quill tree is a directory")
     };
-    root.remove("Form.yaml")
-        .expect("the fixture ships Form.yaml");
+    root.remove("Form.yaml").expect("the fixture ships Form.yaml");
     for (path, contents) in files {
-        tree.insert(
-            path,
-            FileTreeNode::File {
-                contents: contents.as_bytes().to_vec(),
-            },
-        )
-        .expect("insert");
+        tree.insert(path, FileTreeNode::File { contents: contents.as_bytes().to_vec() })
+            .expect("insert");
     }
     tree
 }
@@ -48,12 +42,8 @@ fn open(tree: FileTreeNode) -> Result<quillmark::LiveSession, RenderError> {
 }
 
 fn open_err(tree: FileTreeNode) -> quillmark::Diagnostic {
-    let Err(err) = open(tree) else {
-        panic!("the quill must not open")
-    };
-    let [diag] = err.diagnostics() else {
-        panic!("one diagnostic: {err:?}")
-    };
+    let Err(err) = open(tree) else { panic!("the quill must not open") };
+    let [diag] = err.diagnostics() else { panic!("one diagnostic: {err:?}") };
     diag.clone()
 }
 
@@ -62,29 +52,19 @@ fn json_content_under_form_yaml_reads_as_the_fixture_does() {
     let regions = |tree| open(tree).expect("opens").regions();
     let from_yaml = regions(sample_form_with(&[("Form.yaml", &fixture_form_yaml())]));
     assert!(!from_yaml.is_empty());
-    assert_eq!(
-        regions(sample_form_with(&[("Form.yaml", &fixture_as_json())])),
-        from_yaml
-    );
+    assert_eq!(regions(sample_form_with(&[("Form.yaml", &fixture_as_json())])), from_yaml);
 }
 
 #[test]
 fn a_legacy_spec_is_refused_with_or_without_a_form_yaml() {
     for (file, spec, code) in [
         ("form.json", fixture_as_json(), "acroform::legacy_form_json"),
-        (
-            "form.yaml",
-            fixture_form_yaml(),
-            "acroform::legacy_form_yaml",
-        ),
+        ("form.yaml", fixture_form_yaml(), "acroform::legacy_form_yaml"),
     ] {
         let alone = open_err(sample_form_with(&[(file, &spec)]));
         assert_eq!(alone.code.as_deref(), Some(code));
         let hint = alone.hint.expect("names the fix");
-        assert!(
-            hint.contains(&format!("Rename `{file}` to `Form.yaml`")),
-            "{hint}"
-        );
+        assert!(hint.contains(&format!("Rename `{file}` to `Form.yaml`")), "{hint}");
 
         let both = open_err(sample_form_with(&[("Form.yaml", &spec), (file, &spec)]));
         assert_eq!(both.code.as_deref(), Some(code));
@@ -112,15 +92,11 @@ fn a_bad_form_yaml_locates_its_error() {
     };
     let head = "schema: quillmark/form@0.2.0\nfields:\n  - name: FullName\n";
     assert_eq!(
-        located(&format!(
-            "{head}    schema_field: full_name\n    tooltip: Box 14b: name\n"
-        )),
+        located(&format!("{head}    schema_field: full_name\n    tooltip: Box 14b: name\n")),
         (5, 21),
     );
     assert_eq!(
-        located(&format!(
-            "{head}    page: 0\n    rect: {{ x: 0, y: 0, w: 1, h: 1 }}\n"
-        )),
+        located(&format!("{head}    page: 0\n    rect: {{ x: 0, y: 0, w: 1, h: 1 }}\n")),
         (5, 5),
     );
 }
@@ -153,20 +129,11 @@ fn a_box_per_option_checks_the_one_the_document_chose() {
         .expect("render ok");
 
     let pdf = lopdf::Document::load_mem(&result.artifacts[0].bytes).expect("reparse");
-    let af_ref = pdf
-        .catalog()
-        .unwrap()
-        .get(b"AcroForm")
-        .unwrap()
-        .as_reference()
-        .unwrap();
+    let af_ref = pdf.catalog().unwrap().get(b"AcroForm").unwrap().as_reference().unwrap();
     let af = pdf.get_object(af_ref).unwrap().as_dict().unwrap();
     let state = |color: &str| {
         let w = common::widget(&pdf, af, &format!("Color_{color}"));
         String::from_utf8(w.get(b"AS").unwrap().as_name().unwrap().to_vec()).unwrap()
     };
-    assert_eq!(
-        [state("red"), state("green"), state("blue")],
-        ["Off", "Yes", "Off"]
-    );
+    assert_eq!([state("red"), state("green"), state("blue")], ["Off", "Yes", "Off"]);
 }

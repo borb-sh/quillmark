@@ -11,27 +11,27 @@ mod form;
 mod resolve;
 
 use bind::BoundWidget;
-use form::{FORM_YAML, FormSpec};
+use form::{FormSpec, FORM_YAML};
 use quillmark_core::quill::{FileTreeNode, QuillConfig};
 use quillmark_core::session::SessionHandle;
 use quillmark_core::{
     backend::Backend,
     error::{Diagnostic, RenderError, RenderResult, Severity},
     quill::{CalendarDate, Quill},
-    region::{RenderedRegion, plate_addr_to_doc_path},
+    region::{plate_addr_to_doc_path, RenderedRegion},
     session::{ChangeSet, LiveSession},
     types::{Artifact, OutputFormat, RenderOptions},
 };
-use quillmark_pdf::{AppearanceStates, FieldSpec, StampOptions, regions_of, stamp};
+use quillmark_pdf::{regions_of, stamp, AppearanceStates, FieldSpec, StampOptions};
 
 use hayro::hayro_interpret::util::TransformExt;
-use hayro::hayro_interpret::{InterpreterSettings, font::FontQuery};
+use hayro::hayro_interpret::{font::FontQuery, InterpreterSettings};
 use hayro::hayro_syntax::Pdf as HayroPdf;
 use hayro::kurbo::Affine;
 use hayro::vello_cpu::color::palette::css::WHITE;
 use hayro::vello_cpu::peniko::ImageAlphaType;
 use hayro::vello_cpu::{Pixmap, RasterizerSettings, RenderContext, Resources, TargetInit};
-use hayro::{RenderCache, RenderSettings, render_into};
+use hayro::{render_into, RenderCache, RenderSettings};
 use std::sync::Arc;
 
 const FORM_PDF: &str = "form.pdf";
@@ -131,16 +131,11 @@ fn read_form(source: &Quill) -> Result<Form, RenderError> {
 /// or beside `Form.yaml`, is refused: no file is ever chosen silently.
 fn form_spec_bytes(files: &FileTreeNode) -> Result<&[u8], RenderError> {
     let spec = files.get_file(FORM_YAML);
-    if let Some(&(legacy, code)) = LEGACY_SPECS
-        .iter()
-        .find(|(name, _)| files.get_file(name).is_some())
-    {
+    if let Some(&(legacy, code)) = LEGACY_SPECS.iter().find(|(name, _)| files.get_file(name).is_some()) {
         return Err(match spec {
             None => RenderError::coded_hint(
                 code,
-                format!(
-                    "acroform quill ships its field spec as `{legacy}`; the backend reads `{FORM_YAML}`"
-                ),
+                format!("acroform quill ships its field spec as `{legacy}`; the backend reads `{FORM_YAML}`"),
                 format!("Rename `{legacy}` to `{FORM_YAML}`; the contents are valid as-is."),
             ),
             Some(_) => RenderError::coded_hint(
@@ -189,8 +184,7 @@ fn value_warnings(field_specs: &[FieldSpec], json_data: &serde_json::Value) -> V
     let mut warned = std::collections::BTreeSet::new();
     let mut warnings = Vec::new();
     for spec in field_specs {
-        let (Some(field), Some(value)) = (spec.schema_field.as_deref(), spec.value.as_deref())
-        else {
+        let (Some(field), Some(value)) = (spec.schema_field.as_deref(), spec.value.as_deref()) else {
             continue;
         };
         let path = || {
@@ -292,9 +286,7 @@ impl SessionHandle for AcroformSession {
         }
 
         if opts.pages.is_some() {
-            return Err(quillmark_core::backend::page_selection_not_supported(
-                format,
-            ));
+            return Err(quillmark_core::backend::page_selection_not_supported(format));
         }
 
         let pdf = stamp(
@@ -391,7 +383,8 @@ impl AcroformSession {
         let (width, height) = quillmark_core::backend::raster_size(scale, width_pt, height_pt);
         let (width, height) = (width as u16, height as u16);
         let mut ctx = RenderContext::new(width, height);
-        let transform = Affine::scale(f64::from(scale)) * p.initial_transform(true).to_kurbo();
+        let transform =
+            Affine::scale(f64::from(scale)) * p.initial_transform(true).to_kurbo();
         render_into(
             p,
             &RenderCache::new(),

@@ -34,9 +34,7 @@ fn open_markdown(markdown: &str) -> quillmark_core::session::LiveSession {
         .expect("load sample_form quill");
     let engine = Engine::new();
     let doc = Document::parse(markdown).expect("parse markdown").document;
-    engine
-        .open(&quill, &doc, common::test_date())
-        .expect("open session")
+    engine.open(&quill, &doc, common::test_date()).expect("open session")
 }
 
 #[test]
@@ -207,8 +205,11 @@ fields:
 
     let mut tree = quillmark::tree_from_path(quillmark_fixtures::quills_path("sample_form"))
         .expect("load sample_form tree");
-    tree.insert("form.pdf", FileTreeNode::File { contents: form_pdf })
-        .expect("replace form.pdf");
+    tree.insert(
+        "form.pdf",
+        FileTreeNode::File { contents: form_pdf },
+    )
+    .expect("replace form.pdf");
     tree.insert(
         "Form.yaml",
         FileTreeNode::File {
@@ -219,9 +220,7 @@ fields:
 
     let quill = Quill::from_tree(tree).expect("load patched quill");
     let doc = Document::parse(FILLED).expect("parse markdown").document;
-    let session = Engine::new()
-        .open(&quill, &doc, common::test_date())
-        .expect("open session");
+    let session = Engine::new().open(&quill, &doc, common::test_date()).expect("open session");
 
     let scale: f32 = 2.0;
     let (width_pt, height_pt) = session.page_size_pt(0).expect("page 0 size");

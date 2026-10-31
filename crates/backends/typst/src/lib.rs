@@ -17,8 +17,8 @@ mod tex;
 
 mod helper;
 mod overlay;
-pub mod workspace;
 mod world;
+pub mod workspace;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -27,7 +27,10 @@ pub use library::FontLibrary;
 use quillmark_core::{
     backend::{Backend, FontFace},
     error::{Diagnostic, RenderError, RenderResult, Severity},
-    quill::{CalendarDate, QUILLMARK_ROSTER_KEY, Quill, QuillConfig, build_transform_schema},
+    quill::{
+        build_transform_schema, CalendarDate, Quill, QuillConfig,
+        QUILLMARK_ROSTER_KEY,
+    },
     region::{ContentHit, RenderedRegion},
     session::{ChangeSet, LiveSession, SessionHandle},
     types::{OutputFormat, RenderOptions},
@@ -370,11 +373,7 @@ impl TypstSession {
     }
 }
 
-fn quill_world(
-    source: &Quill,
-    plate: &Plate,
-    library: &FontLibrary,
-) -> Result<world::QuillWorld, RenderError> {
+fn quill_world(source: &Quill, plate: &Plate, library: &FontLibrary) -> Result<world::QuillWorld, RenderError> {
     world::QuillWorld::new(source, plate, library).map_err(|e| {
         RenderError::coded(
             "typst::world_creation",
@@ -566,11 +565,7 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
     };
     let declared = match source.config().backend_config.get("plate_file") {
         None => None,
-        Some(value) => Some(
-            value
-                .as_str()
-                .ok_or_else(|| no_path(value.as_json().to_string()))?,
-        ),
+        Some(value) => Some(value.as_str().ok_or_else(|| no_path(value.as_json().to_string()))?),
     };
     let named = declared.unwrap_or(PLATE_FILE);
     let steps: Vec<&str> = named
@@ -676,8 +671,13 @@ impl AddressNode {
                     .collect()
             })
             .unwrap_or_default();
-        let item = (helper::node_type(node) == Some("array"))
-            .then(|| Box::new(node.get("items").map(Self::from_schema).unwrap_or_default()));
+        let item = (helper::node_type(node) == Some("array")).then(|| {
+            Box::new(
+                node.get("items")
+                    .map(Self::from_schema)
+                    .unwrap_or_default(),
+            )
+        });
         let added = node
             .get("additionalProperties")
             .filter(|v| v.is_object())
@@ -769,9 +769,7 @@ impl SchemaMeta {
 
     /// The meta a session over `config` lowers by: its transform schema.
     pub(crate) fn from_config(config: &QuillConfig) -> Self {
-        Self::from_schema_json(
-            build_transform_schema(config, quillmark_core::quill::SchemaCodec::Content).as_json(),
-        )
+        Self::from_schema_json(build_transform_schema(config, quillmark_core::quill::SchemaCodec::Content).as_json())
     }
 
     /// The address tables the helper's `_qm-node` walks.
@@ -819,9 +817,7 @@ mod tests {
 
     /// The shape the seam carries for a richtext field.
     fn content(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown)
-            .expect("import")
-            .content;
+        let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
         quillmark_content::serial::to_canonical_value(&rt)
     }
 
@@ -862,11 +858,11 @@ mod tests {
             Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
         };
 
-        let json = serde_json::json!({ "prose": content("A **markdown** body with real ink to lay out.") });
+        let json =
+            serde_json::json!({ "prose": content("A **markdown** body with real ink to lay out.") });
         let hashes_of = |quill: &Quill| {
             let plate_content = read_plate(quill).expect("plate");
-            let transform_schema =
-                build_transform_schema(quill.config(), quillmark_core::quill::SchemaCodec::Content);
+            let transform_schema = build_transform_schema(quill.config(), quillmark_core::quill::SchemaCodec::Content);
             let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
             let data = &json;
             let (world, _windows) =
@@ -902,15 +898,11 @@ mod tests {
             let mut files = HashMap::new();
             files.insert(
                 "Quill.yaml".to_string(),
-                FileTreeNode::File {
-                    contents: yaml.as_bytes().to_vec(),
-                },
+                FileTreeNode::File { contents: yaml.as_bytes().to_vec() },
             );
             files.insert(
                 "plate.typ".to_string(),
-                FileTreeNode::File {
-                    contents: PLATE.as_bytes().to_vec(),
-                },
+                FileTreeNode::File { contents: PLATE.as_bytes().to_vec() },
             );
             Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
         };
@@ -919,8 +911,7 @@ mod tests {
                 serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(rt) });
             let q = quill();
             let plate_content = read_plate(&q).expect("plate");
-            let transform_schema =
-                build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
+            let transform_schema = build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
             let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
             let data = &json;
             let (world, _w) =
@@ -942,10 +933,11 @@ mod tests {
         // The second half is the same five markers with nothing after them, which
         // Typst reads off the line's end: the bare `/` is a term list missing its
         // colon, so an unescaped one fails the compile rather than the count.
-        use quillmark_content::model::{Container, Content, Line, LineKind};
+        use quillmark_content::model::{Container, Line, LineKind, Content};
         let para = |_: usize| Line::new(LineKind::Para);
         let rt = Content::new(
-            "= Heading\n- bullet\n+ numbered\n1. dotted\n/ term: desc\n=\n-\n+\n1.\n/".to_string(),
+            "= Heading\n- bullet\n+ numbered\n1. dotted\n/ term: desc\n=\n-\n+\n1.\n/"
+                .to_string(),
             (0..10).map(para).collect(),
         );
         let rt = rt.into_normalized();
@@ -964,7 +956,10 @@ mod tests {
                 instance: 0,
             }])
         };
-        let rt = Content::new("=\n-\n+\n1.\n/".to_string(), (0..5).map(item).collect());
+        let rt = Content::new(
+            "=\n-\n+\n1.\n/".to_string(),
+            (0..5).map(item).collect(),
+        );
         let rt = rt.into_normalized();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
         assert_eq!(counts(&rt), [0, 1, 0, 0], "item text stays literal");
@@ -987,15 +982,11 @@ mod tests {
             let mut files = HashMap::new();
             files.insert(
                 "Quill.yaml".to_string(),
-                FileTreeNode::File {
-                    contents: yaml.into_bytes(),
-                },
+                FileTreeNode::File { contents: yaml.into_bytes() },
             );
             files.insert(
                 "plate.typ".to_string(),
-                FileTreeNode::File {
-                    contents: PLATE.as_bytes().to_vec(),
-                },
+                FileTreeNode::File { contents: PLATE.as_bytes().to_vec() },
             );
             Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
         };
@@ -1003,8 +994,7 @@ mod tests {
             let q = quill(inline);
             let json = serde_json::json!({ "subject": content("A subject line") });
             let plate_content = read_plate(&q).expect("plate");
-            let transform_schema =
-                build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
+            let transform_schema = build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
             let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
             let data = &json;
             let (world, _w) =
@@ -1013,7 +1003,8 @@ mod tests {
             let (_doc, warnings) = compile::compile_document(&world).expect("compile");
             warnings
         };
-        let has_parbreak = |ws: &[Diagnostic]| ws.iter().any(|d| d.message.contains("parbreak"));
+        let has_parbreak =
+            |ws: &[Diagnostic]| ws.iter().any(|d| d.message.contains("parbreak"));
 
         // Negative control: the block lowering warns, so the probe has teeth.
         assert!(
@@ -1050,10 +1041,7 @@ mod tests {
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
         };
-        assert_eq!(
-            format_of(meta.field_node("issued")).as_deref(),
-            Some("date")
-        );
+        assert_eq!(format_of(meta.field_node("issued")).as_deref(), Some("date"));
         // A nested declaration is reachable, which is what the lowering walk
         // reads and what a table of top-level names cannot express.
         let contact = meta.field_node("contact").expect("contact declared");
@@ -1062,11 +1050,7 @@ mod tests {
             Some("date"),
         );
         assert_eq!(
-            format_of(
-                meta.card_props("indorsement")
-                    .and_then(|p| p.get("signed_on"))
-            )
-            .as_deref(),
+            format_of(meta.card_props("indorsement").and_then(|p| p.get("signed_on"))).as_deref(),
             Some("date"),
         );
         assert!(meta.field_node("nonexistent").is_none());

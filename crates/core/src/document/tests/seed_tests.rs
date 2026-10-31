@@ -28,10 +28,7 @@ Body.
     assert_eq!(seed["indorsement"]["from"], json!("49 FW/CC"));
 
     let emitted = doc.to_markdown();
-    assert!(
-        emitted.contains("# pin the squadron office symbol"),
-        "{emitted}"
-    );
+    assert!(emitted.contains("# pin the squadron office symbol"), "{emitted}");
     assert_eq!(doc, parse(&emitted));
 
     let json = serde_json::to_string(&doc).unwrap();

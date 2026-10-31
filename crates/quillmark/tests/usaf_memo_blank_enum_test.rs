@@ -88,10 +88,7 @@ fn a_blank_seal_omits_the_seal_rather_than_choosing_one() {
             .artifacts[0]
             .bytes
             .clone();
-        String::from_utf8(svg)
-            .expect("svg")
-            .matches("<image")
-            .count()
+        String::from_utf8(svg).expect("svg").matches("<image").count()
     };
 
     assert!(

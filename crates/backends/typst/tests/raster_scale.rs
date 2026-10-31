@@ -6,7 +6,7 @@
 //! that check, and every page it counts paints at the size the check counts.
 
 use quillmark_core::{
-    backend::{Backend, raster_size},
+    backend::{raster_size, Backend},
     error::RenderError,
     session::LiveSession,
     types::{OutputFormat, RenderOptions},
@@ -45,28 +45,21 @@ fn both_raster_knobs_reach_the_check_and_every_counted_page_paints() {
             .with_ppi(ppi)
     };
     assert_eq!(
-        code(
-            session
-                .render(&png(f32::INFINITY))
-                .expect_err("an infinite ppi is not rasterizable")
-        ),
+        code(session
+            .render(&png(f32::INFINITY))
+            .expect_err("an infinite ppi is not rasterizable")),
         "backend::invalid_raster_scale"
     );
     assert!(
-        !session
-            .render(&png(144.0))
-            .expect("144 ppi renders")
-            .artifacts[0]
+        !session.render(&png(144.0)).expect("144 ppi renders").artifacts[0]
             .bytes
             .is_empty()
     );
 
     assert_eq!(
-        code(
-            session
-                .render_rgba(0, f32::INFINITY)
-                .expect_err("an infinite canvas scale is not rasterizable")
-        ),
+        code(session
+            .render_rgba(0, f32::INFINITY)
+            .expect_err("an infinite canvas scale is not rasterizable")),
         "backend::invalid_raster_scale"
     );
     assert!(

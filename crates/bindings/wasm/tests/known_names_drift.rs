@@ -19,7 +19,10 @@ fn line_kind_tags() -> Vec<&'static str> {
     ];
     for k in &all {
         match k {
-            LineKind::Para | LineKind::Heading { .. } | LineKind::Code { .. } | LineKind::Rule => {}
+            LineKind::Para
+            | LineKind::Heading { .. }
+            | LineKind::Code { .. }
+            | LineKind::Rule => {}
         }
     }
     all.iter().map(LineKind::tag).collect()
@@ -39,7 +42,8 @@ fn container_tags() -> Vec<&'static str> {
     ];
     for c in &all {
         match c {
-            Container::ListItem { .. } | Container::Quote { .. } => {}
+            Container::ListItem { .. }
+            | Container::Quote { .. } => {}
         }
     }
     all.iter().map(Container::tag).collect()
@@ -55,9 +59,7 @@ fn mark_type_tags() -> Vec<&'static str> {
         MarkKind::Code,
         MarkKind::Link { url: String::new() },
         MarkKind::Anchor { id: String::new() },
-        MarkKind::FontFamily {
-            name: String::new(),
-        },
+        MarkKind::FontFamily { name: String::new() },
     ];
     for k in &all {
         match k {
@@ -82,10 +84,7 @@ fn js_variant_discriminant_matches_the_rust_key() {
     let key = VARIANT_DISCRIMINANT_KEY;
 
     for (file, decl) in [
-        (
-            RUNTIME_JS,
-            format!("export const VARIANT_DISCRIMINANT_KEY = '{key}'"),
-        ),
+        (RUNTIME_JS, format!("export const VARIANT_DISCRIMINANT_KEY = '{key}'")),
         (
             RUNTIME_DTS,
             format!("export declare const VARIANT_DISCRIMINANT_KEY: '{key}'"),

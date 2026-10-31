@@ -9,20 +9,14 @@ mod today_tests;
 mod variant_tests;
 
 use super::*;
-use crate::{
-    document::Document,
-    error::{Diagnostic, Severity},
-    value::QuillValue,
-};
+use crate::{document::Document, error::{Diagnostic, Severity}, value::QuillValue};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// The minimal `Quill.yaml` a load needs, with `name` spelled in.
 fn manifest(name: &str) -> Vec<u8> {
-    format!(
-        "quill:\n  name: {name}\n  version: \"1.0.0\"\n  backend: typst\n  description: {name}\n"
-    )
-    .into_bytes()
+    format!("quill:\n  name: {name}\n  version: \"1.0.0\"\n  backend: typst\n  description: {name}\n")
+        .into_bytes()
 }
 
 /// A quill tree from `(path, contents)` pairs. A path nests on `/`, and one
@@ -55,9 +49,7 @@ fn quill_from(entries: &[(&str, &[u8])]) -> Quill {
 /// `sections` under the four required `quill:` keys. Only a test *about* the
 /// header spells its own.
 fn with_header(sections: &str) -> String {
-    format!(
-        "quill:\n  name: q\n  version: \"1.0.0\"\n  backend: typst\n  description: q\n{sections}"
-    )
+    format!("quill:\n  name: q\n  version: \"1.0.0\"\n  backend: typst\n  description: q\n{sections}")
 }
 
 /// The codes `diags` carry, in order.
@@ -277,20 +269,10 @@ fn a_quill_version_is_major_minor_patch() {
     for version in ["1.10.0", "\"1.10.0\""] {
         assert_eq!(load(version).expect(version).0.version, "1.10.0");
     }
-    for version in [
-        "\"1.2\"",
-        "1.10",
-        "\"1.2.x\"",
-        "\"1.2.3.4\"",
-        "\"\"",
-        "!!float 1.10",
-        "1.1e1",
-    ] {
+    for version in ["\"1.2\"", "1.10", "\"1.2.x\"", "\"1.2.3.4\"", "\"\"", "!!float 1.10", "1.1e1"] {
         let errors = load(version).expect_err(version);
         assert!(
-            errors
-                .iter()
-                .any(|d| d.code.as_deref() == Some("quill::invalid_version")),
+            errors.iter().any(|d| d.code.as_deref() == Some("quill::invalid_version")),
             "{version}: {errors:?}"
         );
     }
@@ -301,18 +283,9 @@ fn a_quill_version_is_major_minor_patch() {
 #[test]
 fn a_defective_quill_header_names_what_it_is_missing() {
     for (yaml, code) in [
-        (
-            "fields:\n  title:\n    description: Title\n",
-            "quill::missing_section",
-        ),
-        (
-            "quill:\n  backend: typst\n  description: d\n",
-            "quill::missing_name",
-        ),
-        (
-            "quill:\n  name: test\n  description: d\n",
-            "quill::missing_backend",
-        ),
+        ("fields:\n  title:\n    description: Title\n", "quill::missing_section"),
+        ("quill:\n  backend: typst\n  description: d\n", "quill::missing_name"),
+        ("quill:\n  name: test\n  description: d\n", "quill::missing_backend"),
         (
             "quill:\n  name: test\n  version: \"1.0.0\"\n  backend: typst\n",
             "quill::missing_description",
@@ -323,10 +296,7 @@ fn a_defective_quill_header_names_what_it_is_missing() {
         ),
     ] {
         let errs = QuillConfig::from_yaml_with_warnings(yaml).expect_err(code);
-        assert!(
-            errs.iter().any(|d| d.code.as_deref() == Some(code)),
-            "{code}: {errs:?}"
-        );
+        assert!(errs.iter().any(|d| d.code.as_deref() == Some(code)), "{code}: {errs:?}");
     }
 }
 
@@ -335,8 +305,7 @@ fn a_defective_quill_header_names_what_it_is_missing() {
 fn test_quill_config_rejects_non_snake_case_identifiers() {
     for (yaml, code) in [
         (
-            "quill:\n  name: BadQuill\n  version: \"1.0.0\"\n  backend: typst\n  description: q\n"
-                .to_string(),
+            "quill:\n  name: BadQuill\n  version: \"1.0.0\"\n  backend: typst\n  description: q\n".to_string(),
             "quill::invalid_name",
         ),
         (
@@ -353,24 +322,17 @@ fn test_quill_config_rejects_non_snake_case_identifiers() {
             "quill::invalid_field_name",
         ),
         (
-            with_header(
-                "card_kinds:\n  profile:\n    fields:\n      DisplayName: { type: text }\n",
-            ),
+            with_header("card_kinds:\n  profile:\n    fields:\n      DisplayName: { type: text }\n"),
             "quill::invalid_field_name",
         ),
     ] {
         let errs = QuillConfig::from_yaml_with_warnings(&yaml).expect_err(code);
-        assert!(
-            errs.iter().any(|d| d.code.as_deref() == Some(code)),
-            "{code}: {errs:?}"
-        );
+        assert!(errs.iter().any(|d| d.code.as_deref() == Some(code)), "{code}: {errs:?}");
     }
-    assert!(
-        QuillConfig::from_yaml(&with_header(
-            "card_kinds:\n  _private_card:\n    fields:\n      title: { type: text }\n"
-        ))
-        .is_ok()
-    );
+    assert!(QuillConfig::from_yaml(&with_header(
+        "card_kinds:\n  _private_card:\n    fields:\n      title: { type: text }\n"
+    ))
+    .is_ok());
 }
 
 /// `body` is the body terminal of every card's path, so no field may take it.
@@ -382,9 +344,8 @@ fn a_field_named_body_is_refused() {
     ] {
         let errs = QuillConfig::from_yaml_with_warnings(&with_header(yaml)).expect_err(yaml);
         assert!(
-            errs.iter().any(
-                |d| d.code.as_deref() == Some("quill::reserved_field_name") && d.hint.is_some()
-            ),
+            errs.iter().any(|d| d.code.as_deref() == Some("quill::reserved_field_name")
+                && d.hint.is_some()),
             "{yaml}: {errs:?}"
         );
     }
@@ -430,16 +391,12 @@ fn an_overlong_quill_name_hints_the_bound() {
         .iter()
         .find(|d| d.code.as_deref() == Some("quill::invalid_name"))
         .expect("a 65-character name is refused");
-    assert!(
-        diag.hint.as_deref().is_some_and(|h| h.contains("64")),
-        "{diag:?}"
-    );
+    assert!(diag.hint.as_deref().is_some_and(|h| h.contains("64")), "{diag:?}");
 }
 
 #[test]
 fn test_config_defaults_method() {
-    let yaml_content = &with_header(
-        r#"main:
+    let yaml_content = &with_header(r#"main:
   fields:
     author:
       type: text
@@ -449,8 +406,7 @@ fn test_config_defaults_method() {
       default: draft
     title:
       type: text
-"#,
-    );
+"#);
 
     let config = QuillConfig::from_yaml(yaml_content).unwrap();
     let defaults = config.main.defaults();
@@ -463,8 +419,7 @@ fn test_config_defaults_method() {
 
 #[test]
 fn test_parse_card_with_fields_in_yaml() {
-    let yaml_content = &with_header(
-        r#"card_kinds:
+    let yaml_content = &with_header(r#"card_kinds:
   endorsements:
     description: Chain of endorsements
     fields:
@@ -475,8 +430,7 @@ fn test_parse_card_with_fields_in_yaml() {
         default: Unknown
   myscope:
     description: My scope
-"#,
-    );
+"#);
 
     let config = QuillConfig::from_yaml(yaml_content).unwrap();
 
@@ -485,10 +439,7 @@ fn test_parse_card_with_fields_in_yaml() {
     assert_eq!(card.description, Some("Chain of endorsements".to_string()));
     let names: Vec<&str> = card.fields.keys().map(|k| k.as_str()).collect();
     assert_eq!(names, ["name", "org"]);
-    assert_eq!(
-        card.defaults().get("org").and_then(|v| v.as_str()),
-        Some("Unknown")
-    );
+    assert_eq!(card.defaults().get("org").and_then(|v| v.as_str()), Some("Unknown"));
 
     assert!(config.card_kind("myscope").unwrap().fields.is_empty());
 }
@@ -522,8 +473,7 @@ fn a_card_declaring_more_fields_than_a_block_carries_is_refused_at_load() {
 
 #[test]
 fn test_quill_config_allows_card_collision() {
-    let yaml_content = &with_header(
-        r#"main:
+    let yaml_content = &with_header(r#"main:
   fields:
     conflict:
       description: Field
@@ -532,8 +482,7 @@ fn test_quill_config_allows_card_collision() {
 card_kinds:
   conflict:
     description: Card
-"#,
-    );
+"#);
 
     let config = QuillConfig::from_yaml(yaml_content).expect("a card may share a field's name");
     assert!(config.main.fields.contains_key("conflict"));
@@ -575,46 +524,22 @@ fn containers_nest_at_every_position() {
     let row = config.main.fields["rows"].items.as_ref().expect("items");
     assert_eq!(row.r#type, FieldType::Object);
     let props = row.properties.as_ref().expect("properties");
-    assert_eq!(
-        props.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["zulu", "alpha"]
-    );
+    assert_eq!(props.keys().map(String::as_str).collect::<Vec<_>>(), ["zulu", "alpha"]);
     assert_eq!(props["zulu"].r#type, FieldType::Number);
-    assert!(
-        props["alpha"]
-            .properties
-            .as_ref()
-            .expect("properties")
-            .contains_key("inner")
-    );
+    assert!(props["alpha"].properties.as_ref().expect("properties").contains_key("inner"));
 
     let grid_row = config.main.fields["grid"].items.as_ref().expect("items");
-    assert_eq!(
-        grid_row.items.as_ref().expect("items").r#type,
-        FieldType::Integer
-    );
+    assert_eq!(grid_row.items.as_ref().expect("items").r#type, FieldType::Integer);
 
-    let lines = &config.main.fields["address"]
-        .properties
-        .as_ref()
-        .expect("properties")["lines"];
-    assert_eq!(
-        lines.items.as_ref().expect("items").r#type,
-        FieldType::Text { multiline: false }
-    );
+    let lines = &config.main.fields["address"].properties.as_ref().expect("properties")["lines"];
+    assert_eq!(lines.items.as_ref().expect("items").r#type, FieldType::Text { multiline: false });
 }
 
 #[test]
 fn a_malformed_container_declaration_is_refused_by_code() {
     for (field, code) in [
-        (
-            "    m:\n      type: object\n",
-            "quill::object_missing_properties",
-        ),
-        (
-            "    m:\n      type: object\n      properties: {}\n",
-            "quill::object_empty_properties",
-        ),
+        ("    m:\n      type: object\n", "quill::object_missing_properties"),
+        ("    m:\n      type: object\n      properties: {}\n", "quill::object_empty_properties"),
         (
             "    m:\n      type: array\n      items:\n        type: object\n        properties: {}\n",
             "quill::object_empty_properties",
@@ -626,10 +551,7 @@ fn a_malformed_container_declaration_is_refused_by_code() {
         ),
     ] {
         let err = quill_with_field(field).expect_err(code);
-        assert!(
-            err.iter().any(|d| d.code.as_deref() == Some(code)),
-            "{code}: {err:?}"
-        );
+        assert!(err.iter().any(|d| d.code.as_deref() == Some(code)), "{code}: {err:?}");
     }
 }
 
@@ -680,10 +602,7 @@ fn a_bad_group_declaration_is_refused_by_code() {
         ),
     ] {
         let err = config_with_sections(&format!("main:\n{main}")).expect_err(code);
-        assert!(
-            err.iter().any(|d| d.code.as_deref() == Some(code)),
-            "{code}: {err:?}"
-        );
+        assert!(err.iter().any(|d| d.code.as_deref() == Some(code)), "{code}: {err:?}");
     }
 }
 
@@ -713,34 +632,18 @@ main:
     assert_eq!(codes, ["quill::deprecated_groups"]);
 
     let schema = config.schema();
-    let keys =
-        |v: &serde_json::Value| -> Vec<String> { v.as_object().unwrap().keys().cloned().collect() };
+    let keys = |v: &serde_json::Value| -> Vec<String> {
+        v.as_object().unwrap().keys().cloned().collect()
+    };
     let main = &schema["main"];
     assert_eq!(
         keys(&main["fields"]),
-        [
-            "notes",
-            "subject",
-            "memo_for",
-            "letterhead_title",
-            "qualifications"
-        ]
+        ["notes", "subject", "memo_for", "letterhead_title", "qualifications"]
     );
-    assert_eq!(
-        keys(&main["ui"]["groups"]),
-        ["addressing", "letterhead", "quals"]
-    );
-    assert_eq!(
-        main["ui"]["groups"]["letterhead"]["title"],
-        "Letterhead & Seal"
-    );
+    assert_eq!(keys(&main["ui"]["groups"]), ["addressing", "letterhead", "quals"]);
+    assert_eq!(main["ui"]["groups"]["letterhead"]["title"], "Letterhead & Seal");
     assert_eq!(main["fields"]["memo_for"]["ui"]["group"], "addressing");
-    assert!(
-        main["fields"]["qualifications"]["ui"]
-            .get("layout")
-            .is_none(),
-        "{main}"
-    );
+    assert!(main["fields"]["qualifications"]["ui"].get("layout").is_none(), "{main}");
 }
 
 /// A card-level field outside every group draws above the groups, so one
@@ -763,19 +666,14 @@ fn a_loose_field_after_a_top_level_object_warns() {
     )
     .try_into()
     .unwrap_or_else(|w: Vec<_>| panic!("one warning expected, got {w:?}"));
-    assert!(
-        diag.message.contains("'signature'") && diag.message.contains("'letterhead'"),
-        "{diag:?}"
-    );
+    assert!(diag.message.contains("'signature'") && diag.message.contains("'letterhead'"), "{diag:?}");
 
-    assert!(
-        warned(
-            "  fields:\n    subject: { type: text }\n    letterhead:\n      type: object\n      \
+    assert!(warned(
+        "  fields:\n    subject: { type: text }\n    letterhead:\n      type: object\n      \
          properties:\n        title: { type: text }\n    seal:\n      type: object\n      \
          properties:\n        image: { type: text }\n",
-        )
-        .is_empty()
-    );
+    )
+    .is_empty());
     assert!(warned(
         "  ui:\n    groups: [addressing]\n  fields:\n    memo_for: { type: text, ui: { group: addressing } }\n    \
          subject: { type: text }\n",
@@ -840,11 +738,7 @@ fn coerce(
     let mut payload = indexmap::IndexMap::new();
     payload.insert("f".to_string(), QuillValue::from_json(value));
     match config.coerce_payload(&payload) {
-        Ok(coerced) => Ok(coerced
-            .get("f")
-            .expect("the field survives")
-            .as_json()
-            .clone()),
+        Ok(coerced) => Ok(coerced.get("f").expect("the field survives").as_json().clone()),
         Err(super::CoercionError::Uncoercible { path, target, .. }) => Err((path, target)),
     }
 }
@@ -860,12 +754,7 @@ fn a_document_value_coerces_by_declared_type_or_names_where_it_could_not() {
     const ROWS: &str = "    f:\n      type: array\n      items:\n        type: object\n        properties:\n          name: { type: text }\n          value: { type: number }\n          active: { type: boolean }\n";
 
     for (what, field, value, want) in [
-        (
-            "number",
-            "    f: { type: number }\n",
-            json!("42"),
-            json!(42),
-        ),
+        ("number", "    f: { type: number }\n", json!("42"), json!(42)),
         (
             "boolean",
             "    f: { type: boolean }\n",
@@ -958,24 +847,16 @@ fn a_document_value_coerces_by_declared_type_or_names_where_it_could_not() {
 /// A card's fields take the same walk through the card-kind's own schema.
 #[test]
 fn test_config_coerce_cards_item_wise() {
-    let yaml_content = &with_header(
-        r#"card_kinds:
+    let yaml_content = &with_header(r#"card_kinds:
   indorsement:
     fields:
       score: { type: number }
       active: { type: boolean }
-"#,
-    );
+"#);
     let config = QuillConfig::from_yaml(yaml_content).unwrap();
     let card_fields = indexmap::IndexMap::from([
-        (
-            "score".to_string(),
-            QuillValue::from_json(serde_json::json!("100")),
-        ),
-        (
-            "active".to_string(),
-            QuillValue::from_json(serde_json::json!("false")),
-        ),
+        ("score".to_string(), QuillValue::from_json(serde_json::json!("100"))),
+        ("active".to_string(), QuillValue::from_json(serde_json::json!("false"))),
     ]);
 
     let coerced = config.coerce_card("indorsement", &card_fields).unwrap();
@@ -1002,10 +883,7 @@ card_kinds:
 
     let schema = config.schema();
     assert_eq!(schema["main"]["title"], "Memorandum");
-    assert_eq!(
-        schema["main"]["fields"]["contact"]["title"],
-        "Point of contact"
-    );
+    assert_eq!(schema["main"]["fields"]["contact"]["title"], "Point of contact");
     assert_eq!(schema["main"]["fields"]["budget"]["title"], "Budget {FY26}");
     assert_eq!(schema["card_kinds"]["note"]["title"], "Marginal note");
     assert!(schema["card_kinds"]["note"].get("ui").is_none());
@@ -1053,10 +931,8 @@ fn a_title_that_is_not_a_literal_label_is_refused_by_code() {
 
 #[test]
 fn test_unknown_key_in_quill_section_errors() {
-    let yaml_content = &with_header(
-        r#"  auther: Jane Doe
-"#,
-    );
+    let yaml_content = &with_header(r#"  auther: Jane Doe
+"#);
 
     let err = QuillConfig::from_yaml_with_warnings(yaml_content).unwrap_err();
 
@@ -1074,12 +950,7 @@ fn a_backend_section_holds_only_the_keys_its_backend_reads() {
         .unwrap_err();
     let refused: Vec<_> = err
         .iter()
-        .map(|d| {
-            (
-                d.code.as_deref(),
-                d.args.get("key").and_then(|k| k.as_str()),
-            )
-        })
+        .map(|d| (d.code.as_deref(), d.args.get("key").and_then(|k| k.as_str())))
         .collect();
     assert_eq!(
         refused,
@@ -1088,16 +959,8 @@ fn a_backend_section_holds_only_the_keys_its_backend_reads() {
             (Some("quill::unknown_backend_key"), Some("pages")),
         ]
     );
-    assert!(
-        err[0].hint.as_deref().unwrap_or("").contains("packages/"),
-        "{:?}",
-        err[0].hint
-    );
-    assert!(
-        err[1].hint.as_deref().unwrap_or("").contains("plate_file"),
-        "{:?}",
-        err[1].hint
-    );
+    assert!(err[0].hint.as_deref().unwrap_or("").contains("packages/"), "{:?}", err[0].hint);
+    assert!(err[1].hint.as_deref().unwrap_or("").contains("plate_file"), "{:?}", err[1].hint);
 
     let acroform = "quill:\n  name: q\n  version: \"1.0.0\"\n  backend: acroform\n  description: q\n\
                     acroform:\n  plate_file: plate.typ\n";
@@ -1118,12 +981,10 @@ fn a_backend_section_holds_only_the_keys_its_backend_reads() {
 
 #[test]
 fn test_root_level_fields_gets_targeted_hint() {
-    let yaml_content = &with_header(
-        r#"fields:
+    let yaml_content = &with_header(r#"fields:
   author:
     type: text
-"#,
-    );
+"#);
 
     let err = QuillConfig::from_yaml_with_warnings(yaml_content).unwrap_err();
 
@@ -1142,13 +1003,11 @@ fn test_root_level_fields_gets_targeted_hint() {
         fields_errors[0].code.as_deref(),
         Some("quill::unknown_section")
     );
-    assert!(
-        fields_errors[0]
-            .hint
-            .as_deref()
-            .unwrap_or("")
-            .contains("main.fields")
-    );
+    assert!(fields_errors[0]
+        .hint
+        .as_deref()
+        .unwrap_or("")
+        .contains("main.fields"));
 }
 
 #[test]
@@ -1212,29 +1071,22 @@ fn main_refuses_every_shape_a_card_kind_refuses() {
 #[test]
 fn a_malformed_ui_or_body_block_reports_its_own_code_on_main_and_card_kinds() {
     for (prefix, indent) in [("main:\n", "  "), ("card_kinds:\n  note:\n", "    ")] {
-        let ui_err =
-            config_with_sections(&format!("{prefix}{indent}ui:\n{indent}  bogus_key: nope"))
-                .expect_err("a malformed ui block");
+        let ui_err = config_with_sections(&format!("{prefix}{indent}ui:\n{indent}  bogus_key: nope"))
+            .expect_err("a malformed ui block");
         assert!(
-            ui_err
-                .iter()
-                .any(|d| d.code.as_deref() == Some("quill::invalid_ui")),
+            ui_err.iter().any(|d| d.code.as_deref() == Some("quill::invalid_ui")),
             "{prefix}: {ui_err:?}"
         );
 
-        let body_err = config_with_sections(&format!(
-            "{prefix}{indent}body:\n{indent}  unsuported: [Table]"
-        ))
-        .expect_err("a malformed body block");
+        let body_err =
+            config_with_sections(&format!("{prefix}{indent}body:\n{indent}  unsuported: [Table]"))
+                .expect_err("a malformed body block");
         let hint = body_err
             .iter()
             .find(|d| d.code.as_deref() == Some("quill::invalid_body"))
             .and_then(|d| d.hint.clone())
             .expect("a malformed body carries a hint");
-        assert!(
-            hint.contains("enabled"),
-            "{prefix}: hint omits enabled: {hint}"
-        );
+        assert!(hint.contains("enabled"), "{prefix}: hint omits enabled: {hint}");
     }
 }
 
@@ -1243,22 +1095,10 @@ fn a_malformed_ui_or_body_block_reports_its_own_code_on_main_and_card_kinds() {
 #[test]
 fn a_literal_outside_its_declaration_is_refused_by_code() {
     for (field, code) in [
-        (
-            "    f:\n      type: integer\n      default: 20.04\n",
-            "quill::default_type_mismatch",
-        ),
-        (
-            "    f:\n      type: boolean\n      default: \"true\"\n",
-            "quill::default_type_mismatch",
-        ),
-        (
-            "    f:\n      type: boolean\n      default: yes\n",
-            "quill::default_type_mismatch",
-        ),
-        (
-            "    f:\n      type: datetime\n      default: 42\n",
-            "quill::default_type_mismatch",
-        ),
+        ("    f:\n      type: integer\n      default: 20.04\n", "quill::default_type_mismatch"),
+        ("    f:\n      type: boolean\n      default: \"true\"\n", "quill::default_type_mismatch"),
+        ("    f:\n      type: boolean\n      default: yes\n", "quill::default_type_mismatch"),
+        ("    f:\n      type: datetime\n      default: 42\n", "quill::default_type_mismatch"),
         (
             "    f:\n      type: array\n      items: { type: text }\n      default: foo\n",
             "quill::default_type_mismatch",
@@ -1267,26 +1107,19 @@ fn a_literal_outside_its_declaration_is_refused_by_code() {
             "    f:\n      type: array\n      items: { type: text }\n      default: [1]\n",
             "quill::default_type_mismatch",
         ),
-        (
-            "    f:\n      type: text\n      default: [one, two]\n",
-            "quill::default_type_mismatch",
-        ),
+        ("    f:\n      type: text\n      default: [one, two]\n", "quill::default_type_mismatch"),
         (
             "    f:\n      type: enum\n      values: [a, b]\n      default: c\n",
             "quill::default_not_in_enum",
         ),
     ] {
         let err = quill_with_field(field).expect_err(code);
-        assert!(
-            err.iter().any(|d| d.code.as_deref() == Some(code)),
-            "{field}: {err:?}"
-        );
+        assert!(err.iter().any(|d| d.code.as_deref() == Some(code)), "{field}: {err:?}");
     }
 
     let err = quill_with_field("    f:\n      type: text\n      default: 20.04\n").unwrap_err();
     assert!(
-        err.iter()
-            .any(|d| d.hint.as_deref().is_some_and(|h| h.contains("\"20.04\""))),
+        err.iter().any(|d| d.hint.as_deref().is_some_and(|h| h.contains("\"20.04\""))),
         "an unquoted decimal under a text is hinted to its quoted form: {err:?}"
     );
 
@@ -1320,10 +1153,7 @@ fn enum_rejects_a_blank_value_but_accepts_a_blank_default() {
     )
     .expect("a blank default is the field's blank, not an out-of-domain member");
     let field = config.main.fields.get("classification").unwrap();
-    assert_eq!(
-        field.default.as_ref().unwrap().as_json(),
-        &serde_json::json!("")
-    );
+    assert_eq!(field.default.as_ref().unwrap().as_json(), &serde_json::json!(""));
     assert_eq!(
         field.r#type,
         FieldType::Enum {
@@ -1395,8 +1225,7 @@ fn a_declaration_outside_the_field_grammar_is_a_field_parse_error() {
     ] {
         let err = quill_with_field(field).expect_err(field);
         assert!(
-            err.iter()
-                .any(|d| d.code.as_deref() == Some("quill::field_parse_error")),
+            err.iter().any(|d| d.code.as_deref() == Some("quill::field_parse_error")),
             "{field}: {err:?}"
         );
     }
@@ -1409,14 +1238,8 @@ fn a_retired_spelling_names_its_replacement() {
         ("    f:\n      type: string\n", "type: text"),
         ("    f:\n      type: plaintext\n", "type: text"),
         ("    f:\n      type: string?\n", "type: text"),
-        (
-            "    f:\n      type: text\n      inline: true\n",
-            "multiline: false",
-        ),
-        (
-            "    f:\n      type: text\n      ui: { multiline: true }\n",
-            "multiline: true",
-        ),
+        ("    f:\n      type: text\n      inline: true\n", "multiline: false"),
+        ("    f:\n      type: text\n      ui: { multiline: true }\n", "multiline: true"),
         ("    f:\n      type: richtext\n", "multiline:"),
     ] {
         let err = quill_with_field(field).expect_err(field);
@@ -1445,13 +1268,9 @@ fn single_line_richtext_default_over_one_para_is_a_load_error() {
 /// scalar's text.
 #[test]
 fn a_bare_scalar_richtext_default_is_a_load_error() {
-    let err = quill_with_field(
-        "    tag:\n      type: richtext\n      multiline: true\n      default: 47\n",
-    )
-    .unwrap_err();
+    let err = quill_with_field("    tag:\n      type: richtext\n      multiline: true\n      default: 47\n").unwrap_err();
     assert!(
-        err.iter()
-            .any(|d| d.code.as_deref() == Some("quill::richtext_default_import")),
+        err.iter().any(|d| d.code.as_deref() == Some("quill::richtext_default_import")),
         "{err:?}"
     );
 }
@@ -1461,8 +1280,7 @@ fn a_bare_scalar_richtext_default_is_a_load_error() {
 /// cell to the render floor, where a missing companion blank-fills.
 #[test]
 fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
-    let yaml = with_header(
-        r#"main:
+    let yaml = with_header(r#"main:
   fields:
     top:
       type: richtext
@@ -1500,8 +1318,7 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
             type: richtext
             multiline: true
             default: "A **variant** note"
-"#,
-    );
+"#);
     let config = QuillConfig::from_yaml(&yaml).expect("nested defaults load");
     let document = Document::parse(concat!(
         "~~~\n",
@@ -1515,9 +1332,7 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
     ))
     .expect("parses")
     .document;
-    let plate = config
-        .compile_data(&document, test_date())
-        .expect("compiles");
+    let plate = config.compile_data(&document, test_date()).expect("compiles");
 
     for (path, cell, text) in [
         ("top", &plate["top"], "A top note"),
@@ -1547,8 +1362,7 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
 /// an `array` — the one container that is itself a cell — commits its own.
 #[test]
 fn a_content_default_inside_an_absent_container_reaches_the_plate_as_content() {
-    let yaml = with_header(
-        r#"main:
+    let yaml = with_header(r#"main:
   fields:
     dict:
       type: object
@@ -1570,8 +1384,7 @@ fn a_content_default_inside_an_absent_container_reaches_the_plate_as_content() {
           type: enum
           values: [bare, dressed]
           default: bare
-"#,
-    );
+"#);
     let config = QuillConfig::from_yaml(&yaml).expect("container defaults load");
     let document = Document::parse(concat!(
         "~~~\n",
@@ -1581,9 +1394,7 @@ fn a_content_default_inside_an_absent_container_reaches_the_plate_as_content() {
     ))
     .expect("parses")
     .document;
-    let plate = config
-        .compile_data(&document, test_date())
-        .expect("compiles");
+    let plate = config.compile_data(&document, test_date()).expect("compiles");
 
     for (path, cell, text) in [
         ("dict.note", &plate["dict"]["note"], "A dict note"),
@@ -1632,13 +1443,10 @@ fn a_nested_single_line_richtext_default_over_one_para_is_a_load_error() {
 fn a_single_line_text_literal_ending_in_a_newline_loads() {
     quill_with_field("    pti:\n      type: text\n      default: |\n        one line\n")
         .expect("a trailing newline is no second line");
-    let err = quill_with_field(
-        "    pti:\n      type: text\n      default: |\n        one\n        two\n",
-    )
-    .unwrap_err();
+    let err = quill_with_field("    pti:\n      type: text\n      default: |\n        one\n        two\n")
+        .unwrap_err();
     assert!(
-        err.iter()
-            .any(|d| d.code.as_deref() == Some("validation::not_single_line")),
+        err.iter().any(|d| d.code.as_deref() == Some("validation::not_single_line")),
         "{err:?}"
     );
 }
@@ -1672,15 +1480,11 @@ fn single_line_coercion_takes_one_block_and_folds_or_refuses_more() {
         assert!(coerce(&field, serde_json::json!("just one line")).is_ok_and(|v| v.is_object()));
     }
     assert_eq!(
-        coerce(
-            "    f:\n      type: richtext\n      multiline: false\n",
-            serde_json::json!("one\n\ntwo")
-        ),
+        coerce("    f:\n      type: richtext\n      multiline: false\n", serde_json::json!("one\n\ntwo")),
         Err(("f".to_string(), "richtext(single_line)".to_string()))
     );
     let folded = |value: &str| {
-        let coerced =
-            coerce("    f:\n      type: text\n", serde_json::json!(value)).expect("folds");
+        let coerced = coerce("    f:\n      type: text\n", serde_json::json!(value)).expect("folds");
         let content = quillmark_content::serial::from_canonical_value(&coerced).expect("content");
         assert!(content.is_inline(), "{value:?}");
         quillmark_content::export::to_plaintext(&content)
@@ -1691,11 +1495,7 @@ fn single_line_coercion_takes_one_block_and_folds_or_refuses_more() {
 
 #[test]
 fn richtext_blank_is_empty_content() {
-    let field = FieldSchema::new(
-        "x".to_string(),
-        FieldType::RichText { multiline: true },
-        None,
-    );
+    let field = FieldSchema::new("x".to_string(), FieldType::RichText { multiline: true }, None);
     let floor = blank(&field);
     assert!(
         floor.as_json().is_object(),
@@ -1712,10 +1512,7 @@ fn text_field_caches_literal_content() {
     .expect("text default loads");
     let field = config.main.fields.get("subject").unwrap();
     assert_eq!(field.r#type, FieldType::Text { multiline: true });
-    let content = field
-        .default_content
-        .as_ref()
-        .expect("default_content cached");
+    let content = field.default_content.as_ref().expect("default_content cached");
     let rt = quillmark_content::serial::from_canonical_value(content.as_json()).unwrap();
     assert!(rt.is_plain(), "cached text content is plain");
     assert_eq!(
@@ -1733,21 +1530,14 @@ fn text_coercion_imports_verbatim_and_refuses_marks() {
     let value = coerce(FIELD, serde_json::json!("*not bold* text")).expect("text coerces");
     let rt = quillmark_content::serial::from_canonical_value(&value).unwrap();
     assert!(rt.marks.is_empty(), "no marks: delimiters stayed literal");
-    assert_eq!(
-        quillmark_content::export::to_plaintext(&rt),
-        "*not bold* text"
-    );
+    assert_eq!(quillmark_content::export::to_plaintext(&rt), "*not bold* text");
 
     let marked = quillmark_content::import::from_markdown("a **bold** word")
-        .unwrap()
-        .content
+        .unwrap().content
         .into_content()
         .into_normalized();
     assert_eq!(
-        coerce(
-            FIELD,
-            quillmark_content::serial::to_canonical_value(&marked)
-        ),
+        coerce(FIELD, quillmark_content::serial::to_canonical_value(&marked)),
         Err(("f".to_string(), "text".to_string()))
     );
 }
@@ -1771,9 +1561,10 @@ fn multiline_survives_the_declaration_wire_for_both_content_types() {
 
 #[test]
 fn enum_declares_its_values_without_the_blank() {
-    let config =
-        quill_with_field("    color:\n      type: enum\n      values: [red, green, blue]\n")
-            .expect("type: enum loads");
+    let config = quill_with_field(
+        "    color:\n      type: enum\n      values: [red, green, blue]\n",
+    )
+    .expect("type: enum loads");
     let field = config.main.fields.get("color").unwrap();
     // The model layer carries the declared choices only: the blank is not one.
     assert_eq!(
@@ -1800,8 +1591,7 @@ fn enum_membership_is_validated_on_a_document_value() {
         &crate::path::DocPath::main().field("color"),
     );
     assert!(
-        errs.iter()
-            .any(|e| e.code() == "validation::enum_violation"),
+        errs.iter().any(|e| e.code() == "validation::enum_violation"),
         "an out-of-domain enum value should raise enum_violation, got: {errs:?}"
     );
     let ok = super::validation::validate_field(
@@ -1844,10 +1634,7 @@ card_kinds:
     assert_eq!(bodiless[0].severity, Severity::Warning);
     assert!(bodiless[0].message.contains("itinerary"));
     assert!(
-        bodiless[0]
-            .hint
-            .as_deref()
-            .is_some_and(|h| h.contains("array")),
+        bodiless[0].hint.as_deref().is_some_and(|h| h.contains("array")),
         "the hint points at the row shape: {:?}",
         bodiless[0].hint
     );
@@ -1939,9 +1726,8 @@ fn ui_layout_flat_loads_on_a_typed_dictionary_and_is_refused_elsewhere() {
     ] {
         let err = quill_with_field(field).expect_err(label);
         assert!(
-            err.iter()
-                .any(|d| d.code.as_deref() == Some("quill::invalid_ui")
-                    && d.message.contains("ui.layout: flat")),
+            err.iter().any(|d| d.code.as_deref() == Some("quill::invalid_ui")
+                && d.message.contains("ui.layout: flat")),
             "{label}: expected the flat refusal, got {err:?}"
         );
     }
@@ -1988,10 +1774,9 @@ fn a_table_column_is_a_leaf_and_a_container_column_is_refused() {
 /// characters. No other type has a count to cap.
 #[test]
 fn max_loads_on_an_array_or_text_and_is_refused_elsewhere() {
-    let config = quill_with_field(
-        "    rows:\n      type: array\n      max: 37\n      items: { type: text }\n",
-    )
-    .expect("an array may declare its cap");
+    let config =
+        quill_with_field("    rows:\n      type: array\n      max: 37\n      items: { type: text }\n")
+            .expect("an array may declare its cap");
     assert_eq!(config.main.fields["rows"].max, Some(37));
     assert_eq!(
         config.schema()["main"]["fields"]["rows"]["max"],
@@ -2044,8 +1829,7 @@ fn a_literal_longer_than_max_is_a_load_error() {
     )
     .expect_err("a literal over the cap");
     assert!(
-        err.iter()
-            .any(|d| d.code.as_deref() == Some("quill::default_over_max")),
+        err.iter().any(|d| d.code.as_deref() == Some("quill::default_over_max")),
         "{err:?}"
     );
 
@@ -2072,8 +1856,7 @@ fn a_text_literal_longer_than_max_is_a_load_error() {
     ] {
         let err = quill_with_field(field).expect_err("a literal over the cap");
         assert!(
-            err.iter()
-                .any(|d| d.code.as_deref() == Some("quill::default_over_length")),
+            err.iter().any(|d| d.code.as_deref() == Some("quill::default_over_length")),
             "{field}: {err:?}"
         );
     }
@@ -2170,11 +1953,9 @@ fn a_stored_line_break_in_one_line_text_renders_folded_and_stays_stored() {
     );
 
     let conformed = quill.conform(&mut doc).expect("conforms");
-    assert!(
-        conformed
-            .iter()
-            .any(|d| d.code.as_deref() == Some("conform::field_not_single_line"))
-    );
+    assert!(conformed
+        .iter()
+        .any(|d| d.code.as_deref() == Some("conform::field_not_single_line")));
     assert_eq!(
         doc.main().payload().get("address").and_then(|v| v.as_str()),
         Some("123 ABW/CC\n100 Main St")

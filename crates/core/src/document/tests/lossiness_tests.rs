@@ -60,17 +60,8 @@ fn block_scalar_on_a_dash_line_key_holds_its_markdown() {
 
     let doc = Document::parse(src).unwrap().document;
     let emitted = doc.to_markdown();
-    assert!(
-        !emitted.contains("\n    # Heading"),
-        "no phantom comment\nGot:\n{emitted}"
-    );
-    let job = &doc
-        .main()
-        .payload()
-        .get("jobs")
-        .unwrap()
-        .as_array()
-        .unwrap()[0];
+    assert!(!emitted.contains("\n    # Heading"), "no phantom comment\nGot:\n{emitted}");
+    let job = &doc.main().payload().get("jobs").unwrap().as_array().unwrap()[0];
     assert_eq!(job["details"].as_str(), Some("# Heading\n- a\nb: c\n"));
     assert_eq!(job["title"].as_str(), Some("x"));
     let doc2 = Document::parse(&emitted).unwrap().document;
@@ -87,11 +78,7 @@ fn unknown_tag_warns_and_is_not_emitted() {
         [("parse::unsupported_yaml_tag", Some("main.memo_from"))]
     );
     assert_eq!(
-        out.document
-            .main()
-            .payload()
-            .get("memo_from")
-            .and_then(|v| v.as_str()),
+        out.document.main().payload().get("memo_from").and_then(|v| v.as_str()),
         Some("value.txt")
     );
     let emitted = out.document.to_markdown();
@@ -112,33 +99,15 @@ fn a_tag_keeps_its_value_and_warns_at_its_path() {
                ~~~card-yaml\n$kind: intro\n~~~\n\n\
                ~~~card-yaml\n$kind: note\nsubject: !custom Example\n~~~\n";
     let out = Document::parse(src).unwrap();
-    let get = |k: &str| {
-        out.document
-            .main()
-            .payload()
-            .get(k)
-            .unwrap()
-            .as_json()
-            .clone()
-    };
+    let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
     assert_eq!(get("subject"), "Example");
     assert_eq!(get("recipient"), serde_json::json!(["Mr. John Doe"]));
     assert_eq!(get("bare"), serde_json::Value::Null);
-    assert_eq!(
-        get("addr"),
-        serde_json::json!({"street": "Main", "city": "Springfield"})
-    );
+    assert_eq!(get("addr"), serde_json::json!({"street": "Main", "city": "Springfield"}));
     assert_eq!(get("x"), serde_json::json!({"a": 1}));
+    assert_eq!(get("to"), serde_json::json!([{"name": "Jane", "rank": "Capt"}]));
     assert_eq!(
-        get("to"),
-        serde_json::json!([{"name": "Jane", "rank": "Capt"}])
-    );
-    assert_eq!(
-        out.document.cards()[1]
-            .payload()
-            .get("subject")
-            .unwrap()
-            .as_json(),
+        out.document.cards()[1].payload().get("subject").unwrap().as_json(),
         "Example"
     );
     let tagged = [
@@ -196,11 +165,10 @@ fn a_body_import_warns_per_dropped_construct_at_the_body() {
             (serde_json::json!("kbd"), serde_json::json!(1)),
         ]
     );
-    assert!(
-        out.warnings
-            .iter()
-            .all(|w| w.severity == crate::error::Severity::Warning)
-    );
+    assert!(out
+        .warnings
+        .iter()
+        .all(|w| w.severity == crate::error::Severity::Warning));
 }
 
 /// A `$seed` / `$ext` value is opaque, with no document address, so a tag
@@ -225,15 +193,7 @@ fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
                tags: [!t \"a # [\", b]\n\
                c: !t C\n~~~\n";
     let out = Document::parse(src).unwrap();
-    let get = |k: &str| {
-        out.document
-            .main()
-            .payload()
-            .get(k)
-            .unwrap()
-            .as_json()
-            .clone()
-    };
+    let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
     assert_eq!(get("b"), "kept");
     assert_eq!(get("x"), serde_json::json!({"a": "it's", "b": 2}));
     assert_eq!(
@@ -261,10 +221,7 @@ fn a_comment_on_a_continuation_line_stays_with_its_value() {
             "  addr: # verified\n",
         ),
         ("rows:\n  - {a: 1,\n     b: 2}  # c\n", "  - a: 1 # c\n"),
-        (
-            "$ext:\n  og: {title: T,\n    url: http://x}  # c\n",
-            "  og: # c\n",
-        ),
+        ("$ext:\n  og: {title: T,\n    url: http://x}  # c\n", "  og: # c\n"),
         (
             "memo:\n  note: \"Reply by Friday,\n    see: attached\"  # from Jo\n",
             "  note: \"Reply by Friday, see: attached\" # from Jo\n",
@@ -340,10 +297,7 @@ fn a_comment_under_a_tagged_empty_value_survives() {
     let cases = [
         ("k: !\n  # c\nj: 1\n", "k: \"\"\n# c\nj: 1\n"),
         ("k: !!str # t\n  # c\nj: 1\n", "k: \"\" # t\n# c\nj: 1\n"),
-        (
-            "rows:\n  - k: !\n      # c\n    j: 1\n",
-            "  - k: \"\"\n    # c\n    j: 1\n",
-        ),
+        ("rows:\n  - k: !\n      # c\n    j: 1\n", "  - k: \"\"\n    # c\n    j: 1\n"),
         ("k: !!null\n  # c\nj: 1\n", "k:\n  # c\nj: 1\n"),
         (
             "m:\n  k: !!str\n    # c\n  # d\n# e\nj: 1\n",
@@ -353,10 +307,7 @@ fn a_comment_under_a_tagged_empty_value_survives() {
             "m:\n  k: !t\n    # c\n  # d\n# e\nj: 1\n",
             "m:\n  k:\n    # c\n  # d\n# e\nj: 1\n",
         ),
-        (
-            "l:\n  - !!str\n  # c\n  - b\n# d\nj: 1\n",
-            "l:\n  - \"\"\n  # c\n  - b\n# d\nj: 1\n",
-        ),
+        ("l:\n  - !!str\n  # c\n  - b\n# d\nj: 1\n", "l:\n  - \"\"\n  # c\n  - b\n# d\nj: 1\n"),
     ];
     for (fields, emitted) in cases {
         let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
@@ -378,15 +329,9 @@ fn an_alias_key_holds_its_comments_and_tags() {
                *x : 1 # t\n\
                b: 2\n~~~\n";
     let out = Document::parse(src).unwrap();
-    assert_eq!(
-        anchors(&out),
-        [("parse::unsupported_yaml_tag", Some("main.o.foo.s"))]
-    );
+    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some("main.o.foo.s"))]);
     let md = out.document.to_markdown();
-    assert!(
-        md.contains("o:\n  foo:\n    # c\n    s: 1\nfoo: 1 # t\nb: 2\n"),
-        "{md}"
-    );
+    assert!(md.contains("o:\n  foo:\n    # c\n    s: 1\nfoo: 1 # t\nb: 2\n"), "{md}");
     assert_eq!(Document::parse(&md).unwrap().document, out.document, "{md}");
 }
 
@@ -422,18 +367,9 @@ fn a_comment_around_or_inside_a_merge_keeps_its_slot() {
             "m:\n  <<:\n    a:\n      # inside a\n      deep: 1\n    <<: {b: 2}\n  a: 0\n",
             "m:\n  a: 0\n  # inside a\n  b: 2\n",
         ),
-        (
-            "l:\n  - <<: {x: 1}\n    c: 2 # c\n",
-            "l:\n  - c: 2 # c\n    x: 1\n",
-        ),
-        (
-            "l:\n  - <<:\n      # c\n  - 1\n",
-            "l:\n  - {}\n  # c\n  - 1\n",
-        ),
-        (
-            "d: &d {}\nl:\n  - <<: *d\n    # note\n",
-            "l:\n  - {}\n  # note\n",
-        ),
+        ("l:\n  - <<: {x: 1}\n    c: 2 # c\n", "l:\n  - c: 2 # c\n    x: 1\n"),
+        ("l:\n  - <<:\n      # c\n  - 1\n", "l:\n  - {}\n  # c\n  - 1\n"),
+        ("d: &d {}\nl:\n  - <<: *d\n    # note\n", "l:\n  - {}\n  # note\n"),
         (
             "$ext:\n  d: &d {a: 1}\nx: 0\n# before\n<<: *d # on\nc: 2\n",
             "x: 0\nc: 2\n# before\n# on\na: 1\n",
@@ -441,9 +377,7 @@ fn a_comment_around_or_inside_a_merge_keeps_its_slot() {
     ];
     for (fields, emitted) in cases {
         let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
-        let doc = Document::parse(&src)
-            .unwrap_or_else(|e| panic!("{src}\n{e}"))
-            .document;
+        let doc = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}")).document;
         let md = doc.to_markdown();
         assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
         assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
@@ -455,11 +389,7 @@ fn a_comment_around_or_inside_a_merge_keeps_its_slot() {
 /// fence's trim drops, reads back as the same text.
 #[test]
 fn a_comment_ending_in_whitespace_reads_back_the_same() {
-    for fields in [
-        "k: 1\n# c  \n...\n",
-        "k: 1 # c \t\n...\n",
-        "k: 1\n# c \u{3000}\nj: 2\n",
-    ] {
+    for fields in ["k: 1\n# c  \n...\n", "k: 1 # c \t\n...\n", "k: 1\n# c \u{3000}\nj: 2\n"] {
         let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
         let doc = Document::parse(&src).unwrap().document;
         let md = doc.to_markdown();
@@ -526,10 +456,7 @@ fn a_comment_keeps_its_slot_under_any_indentation() {
             "l:\n  - - x # c1\n    - w # c2\n  - - z # c3\n",
             "l:\n  -\n    - x # c1\n    - w # c2\n  -\n    - z # c3\n",
         ),
-        (
-            "note: first\n  key:value # z\n",
-            "note: first key:value # z\n",
-        ),
+        ("note: first\n  key:value # z\n", "note: first key:value # z\n"),
         (
             "to:\n- a\n- b\n# about next\nnext: 1\n",
             "to:\n  - a\n  - b\n# about next\nnext: 1\n",
@@ -537,9 +464,7 @@ fn a_comment_keeps_its_slot_under_any_indentation() {
     ];
     for (fields, emitted) in cases {
         let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
-        let doc = Document::parse(&src)
-            .unwrap_or_else(|e| panic!("{src}\n{e}"))
-            .document;
+        let doc = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}")).document;
         let md = doc.to_markdown();
         assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
         assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
@@ -603,37 +528,15 @@ fn a_hash_inside_a_quoted_value_behind_a_tag_or_anchor_is_text() {
     let cases: [(&str, &str, serde_json::Value); 6] = [
         ("k: !t \"a # b\" # c\n", "k", serde_json::json!("a # b")),
         ("k: &a 'a # b' # c\n", "k", serde_json::json!("a # b")),
-        (
-            "m:\n  k: !t 'a # b' # c\n",
-            "m",
-            serde_json::json!({"k": "a # b"}),
-        ),
-        (
-            "k: !t [\"a # b\", c] # c\n",
-            "k",
-            serde_json::json!(["a # b", "c"]),
-        ),
-        (
-            "rows:\n  - k: !t \"a # b\" # c\n",
-            "rows",
-            serde_json::json!([{"k": "a # b"}]),
-        ),
-        (
-            "rows:\n  - !t \"a # b\" # c\n",
-            "rows",
-            serde_json::json!(["a # b"]),
-        ),
+        ("m:\n  k: !t 'a # b' # c\n", "m", serde_json::json!({"k": "a # b"})),
+        ("k: !t [\"a # b\", c] # c\n", "k", serde_json::json!(["a # b", "c"])),
+        ("rows:\n  - k: !t \"a # b\" # c\n", "rows", serde_json::json!([{"k": "a # b"}])),
+        ("rows:\n  - !t \"a # b\" # c\n", "rows", serde_json::json!(["a # b"])),
     ];
     for (fields, key, value) in cases {
         let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
-        let doc = Document::parse(&src)
-            .unwrap_or_else(|e| panic!("{src}\n{e}"))
-            .document;
-        assert_eq!(
-            doc.main().payload().get(key).unwrap().as_json(),
-            &value,
-            "{src}"
-        );
+        let doc = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}")).document;
+        assert_eq!(doc.main().payload().get(key).unwrap().as_json(), &value, "{src}");
         let md = doc.to_markdown();
         assert!(md.contains("# c\n"), "Source:\n{src}\nGot:\n{md}");
         assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
@@ -649,24 +552,13 @@ fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
                memo:\n  body: &a |\n    # Summary\n    subject: !t TBD\n  subject: Final\n\
                notes:\n  - !!str >\n    # kept\n~~~\n";
     let out = Document::parse(src).unwrap();
-    let get = |k: &str| {
-        out.document
-            .main()
-            .payload()
-            .get(k)
-            .unwrap()
-            .as_json()
-            .clone()
-    };
+    let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
     assert_eq!(
         get("memo"),
         serde_json::json!({"body": "# Summary\nsubject: !t TBD\n", "subject": "Final"})
     );
     assert_eq!(get("notes"), serde_json::json!(["# kept\n"]));
-    assert_eq!(
-        anchors(&out),
-        [("parse::unsupported_yaml_tag", Some("main.notes[0]"))]
-    );
+    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some("main.notes[0]"))]);
     let md = out.document.to_markdown();
     assert_eq!(md.matches("# Summary").count(), 1, "{md}");
     assert_eq!(md.matches("# kept").count(), 1, "{md}");
@@ -843,10 +735,7 @@ fn a_card_payload_comment_round_trips_below_its_kind() {
     let doc = Document::parse(src).unwrap().document;
     let emitted = doc.to_markdown();
     let id = doc.cards()[0].id().unwrap();
-    assert!(
-        emitted.contains(&format!("~~~\n$kind: foo\n$id: {id}\n# the foo card\n")),
-        "{emitted}"
-    );
+    assert!(emitted.contains(&format!("~~~\n$kind: foo\n$id: {id}\n# the foo card\n")), "{emitted}");
     assert_eq!(Document::parse(&emitted).unwrap().document, doc);
 }
 
@@ -904,10 +793,7 @@ fn nested_empty_mapping_survives_round_trip() {
 
     let emitted = doc.to_markdown();
     let doc2 = Document::parse(&emitted).unwrap().document;
-    assert_eq!(
-        doc, doc2,
-        "nested empty mapping must not become null\nGot:\n{emitted}"
-    );
+    assert_eq!(doc, doc2, "nested empty mapping must not become null\nGot:\n{emitted}");
     assert_eq!(emitted, doc2.to_markdown(), "round-trip must be idempotent");
 }
 
@@ -974,10 +860,6 @@ fn a_tag_inside_a_merge_warns_where_the_value_holds_it() {
     ] {
         let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{yaml}\n~~~\n");
         let out = Document::parse(&src).unwrap();
-        assert_eq!(
-            anchors(&out),
-            [("parse::unsupported_yaml_tag", Some(path))],
-            "{yaml}"
-        );
+        assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some(path))], "{yaml}");
     }
 }

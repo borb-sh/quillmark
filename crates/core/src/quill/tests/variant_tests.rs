@@ -7,7 +7,7 @@
 
 use crate::document::Document;
 use crate::quill::{
-    FieldSchema, Quill, QuillConfig, blank, build_transform_schema, quill_from_yaml, test_date,
+    blank, build_transform_schema, quill_from_yaml, test_date, FieldSchema, Quill, QuillConfig,
 };
 use crate::value::QuillValue;
 use serde_json::json;
@@ -54,10 +54,9 @@ fn quill() -> Quill {
 }
 
 fn doc(fields: &str) -> Document {
-    let markdown = format!("~~~\n$quill: variant_probe@0.1.0\n$kind: main\n{fields}~~~\n");
-    Document::parse(&markdown)
-        .expect("document parses")
-        .document
+    let markdown =
+        format!("~~~\n$quill: variant_probe@0.1.0\n$kind: main\n{fields}~~~\n");
+    Document::parse(&markdown).expect("document parses").document
 }
 
 fn plate(document: &Document) -> serde_json::Value {
@@ -123,10 +122,7 @@ fn a_malformed_variant_declaration_is_refused_by_code() {
             "    c:\n      type: enum\n      values: [A]\n      variants:\n        A: {}\n",
             "quill::variant_empty",
         ),
-        (
-            "    c:\n      type: enum\n      values: [A]\n      variants: {}\n",
-            "quill::variant_empty",
-        ),
+        ("    c:\n      type: enum\n      values: [A]\n      variants: {}\n", "quill::variant_empty"),
         (
             "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          x: { type: text, ui: { group: g } }\n",
             "quill::nested_group_not_supported",
@@ -157,9 +153,7 @@ fn a_variant_cell_carries_any_field_type() {
             "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          x: {{ type: {decl} }}\n"
         ))
         .unwrap_or_else(|e| panic!("type: {ty} must load inside a variant: {e:?}"));
-        let cell = config.main.fields["c"]
-            .variant_field("x")
-            .expect("cell resolves");
+        let cell = config.main.fields["c"].variant_field("x").expect("cell resolves");
         assert_eq!(cell.r#type.as_str(), ty);
     }
     for cell in [
@@ -227,10 +221,8 @@ classification:
         quill_from_yaml(YAML).validate(&document)
     );
 
-    let plate = config
-        .compile_data(&document, test_date())
-        .expect("compiles")["classification"]
-        .clone();
+    let plate =
+        config.compile_data(&document, test_date()).expect("compiles")["classification"].clone();
     // Coercion imported the markdown to canonical content, so the cell reaches
     // the plate as the content object a card-level richtext would.
     assert_eq!(plate["value"], json!("CUI"));
@@ -250,10 +242,8 @@ classification:
     ))
     .expect("parses")
     .document;
-    let blank_plate = config
-        .compile_data(&blank_doc, test_date())
-        .expect("compiles")["classification"]
-        .clone();
+    let blank_plate =
+        config.compile_data(&blank_doc, test_date()).expect("compiles")["classification"].clone();
     assert_eq!(blank_plate, json!({ "value": "" }));
 }
 
@@ -271,13 +261,8 @@ fn a_name_two_worlds_declare_identically_loads() {
     )
     .expect("parses")
     .document;
-    let data = config
-        .compile_data(&doc, test_date())
-        .expect("compile_data succeeds");
-    assert_eq!(
-        data["classification"]["controlled_by"]["text"],
-        json!("SAF/AA")
-    );
+    let data = config.compile_data(&doc, test_date()).expect("compile_data succeeds");
+    assert_eq!(data["classification"]["controlled_by"]["text"], json!("SAF/AA"));
 }
 
 /// A world may open where the position's own live shape is the schema's. A
@@ -363,10 +348,7 @@ fn a_world_opens_in_a_dictionary_and_nowhere_else_below_a_card() {
 fn the_blank_of_a_variant_bearing_enum_is_the_container_holding_the_blank() {
     let schema = field("type: enum\nvalues: [A]\nvariants:\n  A:\n    x: { type: text }\n");
     assert_eq!(blank(&schema).into_json(), json!({ "value": "" }));
-    assert_eq!(
-        blank(&field("type: enum\nvalues: [A]\n")).into_json(),
-        json!("")
-    );
+    assert_eq!(blank(&field("type: enum\nvalues: [A]\n")).into_json(), json!(""));
 }
 
 /// The container is a closed shape: the live world arrives complete and
@@ -385,10 +367,7 @@ fn the_plate_carries_exactly_the_live_world() {
             "classification:\n  value: UNCLASSIFIED\n  controlled_by: SAF/AA\n",
             json!({ "value": "UNCLASSIFIED" }),
         ),
-        (
-            "classification: SECRET\n",
-            json!({ "value": "SECRET", "declassify_on": text("") }),
-        ),
+        ("classification: SECRET\n", json!({ "value": "SECRET", "declassify_on": text("") })),
     ] {
         assert_eq!(plate(&doc(fields)), want, "{fields}");
     }
@@ -396,14 +375,8 @@ fn the_plate_carries_exactly_the_live_world() {
 
 #[test]
 fn the_discriminant_falls_to_the_default_and_carries_its_world() {
-    let yaml = quill_yaml().replace(
-        "      default: \"\"\n      variants:",
-        "      default: CUI\n      variants:",
-    );
-    let data = QuillConfig::from_yaml(&yaml)
-        .unwrap()
-        .compile_data(&doc(""), test_date())
-        .unwrap();
+    let yaml = quill_yaml().replace("      default: \"\"\n      variants:", "      default: CUI\n      variants:");
+    let data = QuillConfig::from_yaml(&yaml).unwrap().compile_data(&doc(""), test_date()).unwrap();
     assert_eq!(
         data["classification"],
         json!({ "value": "CUI", "controlled_by": text(""), "category": text("") })
@@ -430,10 +403,7 @@ fn resolve_reports_the_container_as_one_cell_at_its_strongest_rung() {
     use crate::quill::resolved::FieldSource::{Authored, Default};
     let quill = quill();
     for (fields, source) in [
-        (
-            "classification:\n  value: CUI\n  controlled_by: SAF/AA\n",
-            Authored,
-        ),
+        ("classification:\n  value: CUI\n  controlled_by: SAF/AA\n", Authored),
         ("classification: {}\n", Authored),
         ("classification:\n  value:\n", Authored),
         ("", Default),
@@ -454,11 +424,7 @@ fn resolve_reports_the_container_as_one_cell_at_its_strongest_rung() {
     ));
     for (fields, source, controlled_by) in [
         ("classification: {}\n", Authored, ""),
-        (
-            "classification:\n  controlled_by: SAF/AA\n",
-            Authored,
-            "SAF/AA",
-        ),
+        ("classification:\n  controlled_by: SAF/AA\n", Authored, "SAF/AA"),
         ("classification:\n", Default, ""),
     ] {
         let row = classification_row(&defaulted, &doc(fields));
@@ -489,12 +455,7 @@ fn a_stranded_value_is_kept_and_warned_never_gated() {
     assert_eq!(stranded.args["variant"], json!("CUI"));
     // Kept in the document…
     assert_eq!(
-        document
-            .main()
-            .payload()
-            .get("classification")
-            .unwrap()
-            .as_json()["controlled_by"],
+        document.main().payload().get("classification").unwrap().as_json()["controlled_by"],
         json!("SAF/AA")
     );
     // …and dropped from the wire.
@@ -507,12 +468,10 @@ fn a_stranded_value_is_kept_and_warned_never_gated() {
 #[test]
 fn an_undeclared_key_draws_no_variant_warning() {
     let document = doc("classification:\n  value: CUI\n  note: hello\n");
-    assert!(
-        !quill()
-            .validate(&document)
-            .iter()
-            .any(|d| d.code.as_deref() == Some("validation::out_of_variant"))
-    );
+    assert!(!quill()
+        .validate(&document)
+        .iter()
+        .any(|d| d.code.as_deref() == Some("validation::out_of_variant")));
 }
 
 #[test]
@@ -528,24 +487,18 @@ fn the_domain_check_lands_on_the_discriminant_path() {
 /// nothing downstream reads them.
 #[test]
 fn only_the_live_worlds_fields_are_type_checked() {
-    let bad_live = codes(&doc(
-        "classification:\n  value: CUI\n  controlled_by: [1, 2]\n",
-    ));
-    assert!(
-        bad_live
-            .iter()
-            .any(|(code, path)| code == "validation::type_mismatch"
-                && path == "main.classification.controlled_by")
-    );
+    let bad_live = codes(&doc("classification:\n  value: CUI\n  controlled_by: [1, 2]\n"));
+    assert!(bad_live
+        .iter()
+        .any(|(code, path)| code == "validation::type_mismatch"
+            && path == "main.classification.controlled_by"));
 
     let bad_dormant = codes(&doc(
         "classification:\n  value: UNCLASSIFIED\n  controlled_by: [1, 2]\n",
     ));
-    assert!(
-        !bad_dormant
-            .iter()
-            .any(|(code, _)| code == "validation::type_mismatch")
-    );
+    assert!(!bad_dormant
+        .iter()
+        .any(|(code, _)| code == "validation::type_mismatch"));
 }
 
 #[test]
@@ -558,23 +511,12 @@ fn the_transform_schema_flattens_every_world_into_one_container() {
         cls["properties"]["value"]["enum"],
         json!(["", "UNCLASSIFIED", "CUI", "SECRET"])
     );
-    assert_eq!(
-        cls["properties"]["controlled_by"]["quillmark:plain"],
-        json!(true)
-    );
-    assert_eq!(
-        cls["properties"]["declassify_on"]["quillmark:plain"],
-        json!(true)
-    );
+    assert_eq!(cls["properties"]["controlled_by"]["quillmark:plain"], json!(true));
+    assert_eq!(cls["properties"]["declassify_on"]["quillmark:plain"], json!(true));
     // `variants:` on the declaration view states which member owns a cell.
     for name in ["controlled_by", "category", "declassify_on"] {
-        let cell = cls["properties"][name]
-            .as_object()
-            .expect("cell projects as an object");
-        assert!(
-            !cell.keys().any(|k| k.starts_with("quillmark:variant")),
-            "{name}"
-        );
+        let cell = cls["properties"][name].as_object().expect("cell projects as an object");
+        assert!(!cell.keys().any(|k| k.starts_with("quillmark:variant")), "{name}");
     }
 }
 
@@ -667,9 +609,7 @@ main:
 
 fn nested_doc(fields: &str) -> Document {
     let markdown = format!("~~~\n$quill: nested_probe@0.1.0\n$kind: main\n{fields}~~~\n");
-    Document::parse(&markdown)
-        .expect("document parses")
-        .document
+    Document::parse(&markdown).expect("document parses").document
 }
 
 fn nested_header(document: &Document) -> serde_json::Value {
@@ -725,7 +665,8 @@ fn a_nested_worlds_strand_names_the_path_through_the_dictionary() {
 
     // Kept in the document, as it is at card level: only the wire is strict.
     assert_eq!(
-        document.main().payload().get("header").unwrap().as_json()["classification"]["controlled_by"],
+        document.main().payload().get("header").unwrap().as_json()["classification"]
+            ["controlled_by"],
         json!("SAF/AA")
     );
 }
@@ -739,19 +680,11 @@ fn a_nested_cell_is_addressable_through_the_dictionary() {
     let schema = build_transform_schema(&config, crate::quill::SchemaCodec::Content);
     let cls = &schema.as_json()["properties"]["header"]["properties"]["classification"];
     assert_eq!(cls["type"], json!("object"));
-    assert_eq!(
-        cls["properties"]["value"]["enum"],
-        json!(["", "UNCLASSIFIED", "CUI"])
-    );
-    assert_eq!(
-        cls["properties"]["controlled_by"]["quillmark:plain"],
-        json!(true)
-    );
-    assert_eq!(
-        cls["properties"]["category"]["quillmark:plain"],
-        json!(true)
-    );
+    assert_eq!(cls["properties"]["value"]["enum"], json!(["", "UNCLASSIFIED", "CUI"]));
+    assert_eq!(cls["properties"]["controlled_by"]["quillmark:plain"], json!(true));
+    assert_eq!(cls["properties"]["category"]["quillmark:plain"], json!(true));
 }
+
 
 /// `validate` reports a drop in a cell the discriminant does not select, as
 /// `conform` does, whether the variant is a field or nested in a dictionary.
@@ -793,8 +726,5 @@ main:
 
     let loaded = Document::parse(md).unwrap().document;
     assert_eq!(drops(quill.validate(&loaded)), ["main.box.k.y", "main.c.y"]);
-    assert_eq!(
-        drops(quill.parse(md).unwrap().warnings),
-        ["main.c.y", "main.box.k.y"]
-    );
+    assert_eq!(drops(quill.parse(md).unwrap().warnings), ["main.c.y", "main.box.k.y"]);
 }

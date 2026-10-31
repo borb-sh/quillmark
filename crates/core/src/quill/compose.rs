@@ -8,12 +8,12 @@ use indexmap::IndexMap;
 
 use super::resolved::FieldSource;
 use super::{
-    CalendarDate, CardSchema, CoercionError, FieldSchema, FieldType, Leniency, MATRIX_HELD_KEY,
-    MATRIX_TITLE_KEY, Quill, QuillConfig, TODAY, VARIANT_DISCRIMINANT_KEY, seed,
+    seed, CalendarDate, CardSchema, CoercionError, FieldSchema, FieldType, Leniency, Quill,
+    QuillConfig, MATRIX_HELD_KEY, MATRIX_TITLE_KEY, TODAY, VARIANT_DISCRIMINANT_KEY,
 };
 use crate::normalize::{normalize_document, normalize_field_name};
-use crate::path::DocPath;
 use crate::quill::blank;
+use crate::path::DocPath;
 use crate::{
     document::{Card, Codec, Document, Payload, SeedOverlay},
     error::{Diagnostic, RenderError, Severity},
@@ -92,11 +92,9 @@ impl QuillConfig {
                 let schema = self.card_kind(card.kind().unwrap_or(""));
                 card_bodies.push(schema.is_some_and(|s| s.body_enabled()));
                 let fields = match schema {
-                    Some(schema) => plate_fields(ladder_sourced(
-                        schema,
-                        &card.payload().to_index_map(),
-                        today,
-                    )),
+                    Some(schema) => {
+                        plate_fields(ladder_sourced(schema, &card.payload().to_index_map(), today))
+                    }
                     // No ladder, as `resolved::card_states` leaves it.
                     None => card.payload().to_index_map(),
                 };
@@ -325,14 +323,12 @@ pub(crate) fn seed_overlay_diagnostics(
 ) -> Vec<Diagnostic> {
     let kind = &card_schema.name;
     let Some(obj) = overlay.as_object() else {
-        return vec![
-            Diagnostic::new(
-                Severity::Warning,
-                format!("`{at}` must be a mapping of field overrides"),
-            )
-            .with_code("validation::seed_overlay_shape".to_string())
-            .with_path(at.to_string()),
-        ];
+        return vec![Diagnostic::new(
+            Severity::Warning,
+            format!("`{at}` must be a mapping of field overrides"),
+        )
+        .with_code("validation::seed_overlay_shape".to_string())
+        .with_path(at.to_string())];
     };
     let mut diags = Vec::new();
     for (field, value) in obj {
@@ -429,14 +425,16 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
     for (raw_name, value) in card.payload().to_index_map() {
         let name = normalize_field_name(&raw_name);
         let entry = match schema.fields.get(&raw_name) {
-            Some(field_schema) => QuillConfig::conform_value(
-                &value,
-                field_schema,
-                &DocPath::new().field(&name),
-                Leniency::Render,
-                &mut Vec::new(),
-            )
-            .unwrap_or(value),
+            Some(field_schema) => {
+                QuillConfig::conform_value(
+                    &value,
+                    field_schema,
+                    &DocPath::new().field(&name),
+                    Leniency::Render,
+                    &mut Vec::new(),
+                )
+                .unwrap_or(value)
+            }
             None => value,
         };
         coerced.insert(name, entry);
@@ -585,7 +583,9 @@ fn compose(
         (FieldType::Matrix { .. }, _, _) if composes_as(entry, serde_json::Value::is_object) => {
             compose_matrix(entry.and_then(|v| v.as_json().as_object()), field, today)
         }
-        (FieldType::Object, Some(props), _) if composes_as(entry, serde_json::Value::is_object) => {
+        (FieldType::Object, Some(props), _)
+            if composes_as(entry, serde_json::Value::is_object) =>
+        {
             let obj = entry.and_then(|v| v.as_json().as_object());
             let mut out = serde_json::Map::new();
             let rung = compose_members(obj, props, today, &mut out);
@@ -649,21 +649,11 @@ fn compose_matrix(
     let roster = field.r#type.matrix_roster();
     let none = serde_json::Map::new();
     let stored = stored.unwrap_or(&none);
-    let mut added: Vec<&String> = stored
-        .keys()
-        .filter(|key| !roster.contains_key(*key))
-        .collect();
+    let mut added: Vec<&String> = stored.keys().filter(|key| !roster.contains_key(*key)).collect();
     added.sort();
-    for key in roster
-        .keys()
-        .filter(|id| stored.contains_key(*id))
-        .chain(added)
-    {
+    for key in roster.keys().filter(|id| stored.contains_key(*id)).chain(added) {
         let value = &stored[key.as_str()];
-        let composed = match field
-            .matrix_member(key, value)
-            .map(|m| (m, held_cells(value)))
-        {
+        let composed = match field.matrix_member(key, value).map(|m| (m, held_cells(value))) {
             None | Some((_, Err(Unreadable))) => Some(value.clone()),
             Some((_, Ok(None))) => None,
             Some((member, Ok(Some(cells)))) => {
@@ -904,11 +894,7 @@ fn collect_unknown_keys(
         }
         let (unwritten, containers) = hints.get_or_insert_with(|| {
             let written: HashSet<&str> = authored.iter().map(|(k, _)| *k).collect();
-            let unwritten = declared
-                .keys()
-                .copied()
-                .filter(|n| !written.contains(n))
-                .collect();
+            let unwritten = declared.keys().copied().filter(|n| !written.contains(n)).collect();
             let containers = declared
                 .iter()
                 .filter(|(_, field)| field.is_variant_bearing())
@@ -941,9 +927,7 @@ fn collect_unknown_in(
     out: &mut Vec<Diagnostic>,
 ) {
     if field.is_variant_bearing() {
-        let Some(object) = json.as_object() else {
-            return;
-        };
+        let Some(object) = json.as_object() else { return };
         let live = field.variant_fields(&field.selected_member(Some(json)));
         let declared: Declared = live
             .into_iter()
@@ -962,9 +946,7 @@ fn collect_unknown_in(
         return;
     }
     if matches!(field.r#type, FieldType::Matrix { .. }) {
-        let Some(object) = json.as_object() else {
-            return;
-        };
+        let Some(object) = json.as_object() else { return };
         let roster = field.r#type.matrix_roster();
         for (id, cell) in object {
             let (Some(member), Some(cells)) = (field.matrix_member(id, cell), cell.as_object())
@@ -982,13 +964,8 @@ fn collect_unknown_in(
         return;
     }
     if let Some(props) = field.namespace_props() {
-        let Some(object) = json.as_object() else {
-            return;
-        };
-        let declared: Declared = props
-            .iter()
-            .map(|(n, f)| (n.as_str(), f.as_ref()))
-            .collect();
+        let Some(object) = json.as_object() else { return };
+        let declared: Declared = props.iter().map(|(n, f)| (n.as_str(), f.as_ref())).collect();
         let authored: Vec<(&str, &serde_json::Value)> =
             object.iter().map(|(k, v)| (k.as_str(), v)).collect();
         collect_unknown_keys(&declared, &authored, path, out);
@@ -1011,7 +988,10 @@ fn collect_unknown_in(
 /// the variant cell written beside its discriminant instead of under it. Each
 /// container comes with its selected member, which wins where several worlds
 /// declare the name.
-fn variant_owner<'a>(key: &str, containers: &[Container<'a>]) -> Option<(&'a str, &'a str)> {
+fn variant_owner<'a>(
+    key: &str,
+    containers: &[Container<'a>],
+) -> Option<(&'a str, &'a str)> {
     containers.iter().find_map(|(name, field, selected)| {
         let variants = field.variants.as_ref()?;
         let member = variants
@@ -1044,13 +1024,7 @@ fn nearest_name<'a>(key: &str, candidates: &[&'a str]) -> Option<&'a str> {
         .iter()
         // Edit distance is at least the length difference.
         .filter(|(lower, _)| lower.chars().count().abs_diff(len) <= limit)
-        .map(|(lower, c)| {
-            (
-                edit_distance(&key_lower, lower),
-                std::cmp::Reverse(shared(lower)),
-                *c,
-            )
-        })
+        .map(|(lower, c)| (edit_distance(&key_lower, lower), std::cmp::Reverse(shared(lower)), *c))
         .filter(|&(d, _, _)| d <= limit)
         .min_by_key(|&(d, prefix, _)| (d, prefix))
         .map(|(_, _, c)| c);
@@ -1242,9 +1216,7 @@ impl QuillConfig {
             for &construct in declined {
                 let count = counts[construct as usize];
                 if count > 0 {
-                    diags.push(crate::backend::declined_construct(
-                        backend, construct, count, at,
-                    ));
+                    diags.push(crate::backend::declined_construct(backend, construct, count, at));
                 }
             }
         });
@@ -1258,9 +1230,7 @@ impl QuillConfig {
         data: &serde_json::Value,
         each: &mut dyn FnMut(&DocPath, &crate::Content),
     ) {
-        let mut card = |schema: &CardSchema,
-                        obj: &serde_json::Map<String, serde_json::Value>,
-                        path: DocPath| {
+        let mut card = |schema: &CardSchema, obj: &serde_json::Map<String, serde_json::Value>, path: DocPath| {
             for (key, value) in obj {
                 if key == "$body" {
                     if let Ok(content) = quillmark_content::serial::from_canonical_value(value) {
@@ -1280,9 +1250,7 @@ impl QuillConfig {
         let cards = main.get("$cards").and_then(|c| c.as_array());
         for (index, obj) in cards.into_iter().flatten().enumerate() {
             let Some(obj) = obj.as_object() else { continue };
-            let Some(kind) = obj.get("$kind").and_then(|k| k.as_str()) else {
-                continue;
-            };
+            let Some(kind) = obj.get("$kind").and_then(|k| k.as_str()) else { continue };
             if let Some(schema) = self.card_kind(kind) {
                 card(schema, obj, DocPath::card(Some(kind), index));
             }
@@ -1570,26 +1538,11 @@ card_kinds:
         assert_eq!(
             validated,
             vec![
-                (
-                    "cards.note[0].items[1]".into(),
-                    json!({ "backend": "typst", "construct": "image", "count": 1 })
-                ),
-                (
-                    "cards.note[0].more[0]".into(),
-                    json!({ "backend": "typst", "construct": "image", "count": 1 })
-                ),
-                (
-                    "main.banner".into(),
-                    json!({ "backend": "typst", "construct": "image", "count": 1 })
-                ),
-                (
-                    "main.body".into(),
-                    json!({ "backend": "typst", "construct": "image", "count": 2 })
-                ),
-                (
-                    "main.intro".into(),
-                    json!({ "backend": "typst", "construct": "image", "count": 1 })
-                ),
+                ("cards.note[0].items[1]".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
+                ("cards.note[0].more[0]".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
+                ("main.banner".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
+                ("main.body".into(), json!({ "backend": "typst", "construct": "image", "count": 2 })),
+                ("main.intro".into(), json!({ "backend": "typst", "construct": "image", "count": 1 })),
             ]
         );
     }
@@ -1602,10 +1555,7 @@ card_kinds:
         let content = crate::document::import_body(md).expect("imports");
         let counts = |id: &str| -> Vec<(crate::quill::BlockConstruct, usize)> {
             let tally = crate::quill::BlockConstruct::tally(&content);
-            crate::backend::declines(id)
-                .iter()
-                .map(|&c| (c, tally[c as usize]))
-                .collect()
+            crate::backend::declines(id).iter().map(|&c| (c, tally[c as usize])).collect()
         };
         use crate::quill::BlockConstruct::*;
         assert_eq!(
@@ -1650,15 +1600,9 @@ card_kinds:
                   ~~~\n$kind: ghost\nnote: g\n~~~\n\nGhost prose.\n";
         let doc = Document::parse(md).expect("parse").document;
 
-        let plate = config
-            .compile_data(&doc, test_date())
-            .expect("unclaimed input renders");
+        let plate = config.compile_data(&doc, test_date()).expect("unclaimed input renders");
         let cards = plate["$cards"].as_array().unwrap();
-        assert_eq!(
-            cards.len(),
-            3,
-            "every card rides `$cards` in document order"
-        );
+        assert_eq!(cards.len(), 3, "every card rides `$cards` in document order");
         assert!(plate.get("$body").is_none() && cards[0].get("$body").is_none());
         assert_eq!(cards[2]["$kind"], "ghost");
         assert_eq!(cards[2]["note"], "g");
@@ -1676,10 +1620,7 @@ card_kinds:
         ]
         .map(|(c, p)| (c.to_string(), p.to_string()));
         assert_eq!(warned, expected, "a whitespace-only body is empty");
-        assert!(
-            config.validate_document(&doc).is_ok(),
-            "nothing here is fatal"
-        );
+        assert!(config.validate_document(&doc).is_ok(), "nothing here is fatal");
     }
 
     #[test]
@@ -1728,14 +1669,8 @@ card_kinds:
                   ~~~\n$kind: item\npresentr: Alan Turing\n~~~\n";
         let doc = Document::parse(md).expect("parse").document;
 
-        assert!(
-            config.compile_data(&doc, test_date()).is_ok(),
-            "an undeclared key renders"
-        );
-        assert!(
-            config.validate_document(&doc).is_ok(),
-            "nothing here is fatal"
-        );
+        assert!(config.compile_data(&doc, test_date()).is_ok(), "an undeclared key renders");
+        assert!(config.validate_document(&doc).is_ok(), "nothing here is fatal");
 
         let warned: Vec<(String, Option<String>, Option<String>)> =
             validate_unclaimed(&config, &doc)
@@ -1746,8 +1681,9 @@ card_kinds:
                 })
                 .map(|d| {
                     let arg = |k: &str| d.args.get(k).and_then(|v| v.as_str()).map(String::from);
-                    let hint = arg("suggestion")
-                        .or_else(|| Some(format!("{}/{}", arg("container")?, arg("variant")?)));
+                    let hint = arg("suggestion").or_else(|| {
+                        Some(format!("{}/{}", arg("container")?, arg("variant")?))
+                    });
                     (d.path.unwrap(), arg("field"), hint)
                 })
                 .collect();
@@ -1962,8 +1898,7 @@ main:
             "the blank date survives coercion and outranks the default; got {plate}"
         );
         assert_eq!(
-            plate["subtitle"],
-            text(""),
+            plate["subtitle"], text(""),
             "the blank text does the same: one spelling of \"explicitly nothing\" for both"
         );
     }
@@ -1971,13 +1906,8 @@ main:
     #[test]
     fn nearest_name_ranks_misspellings_and_extends_a_truncated_key() {
         let declared = [
-            "memo_for",
-            "memo_from",
-            "from_address",
-            "signature_block",
-            "font_size",
-            "font_family",
-            "distribution",
+            "memo_for", "memo_from", "from_address", "signature_block", "font_size",
+            "font_family", "distribution",
         ];
         for (key, expected) in [
             ("to_address", None),

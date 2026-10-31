@@ -98,10 +98,7 @@ fn a_content_image_renders_nothing_and_the_plate_keeps_its_own() {
     let w = declined[0];
     assert_eq!(w.severity, Severity::Warning);
     assert_eq!(w.path.as_deref(), Some("main.body"));
-    assert_eq!(
-        w.args.get("backend").and_then(|v| v.as_str()),
-        Some("typst")
-    );
+    assert_eq!(w.args.get("backend").and_then(|v| v.as_str()), Some("typst"));
     assert_eq!(
         w.args.get("construct").and_then(|v| v.as_str()),
         Some("image")
@@ -120,9 +117,7 @@ fn a_named_field_and_a_card_body_carry_their_own_paths() {
         ],
     });
 
-    let session = TypstBackend::default()
-        .open(&quill(), &data, common::test_date())
-        .expect("open");
+    let session = TypstBackend::default().open(&quill(), &data, common::test_date()).expect("open");
     let paths: Vec<_> = declines(session.warnings())
         .iter()
         .filter_map(|d| d.path.clone())

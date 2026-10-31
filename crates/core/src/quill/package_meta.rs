@@ -41,13 +41,8 @@ pub(super) fn parse_license(
         errors.push(refuse("not a string", LICENSE_HINT.to_string()));
         return None;
     };
-    if text.contains([
-        '\n', '\r', '\u{0B}', '\u{0C}', '\u{85}', '\u{2028}', '\u{2029}',
-    ]) {
-        errors.push(refuse(
-            "a line break",
-            "Write the expression on one line.".to_string(),
-        ));
+    if text.contains(['\n', '\r', '\u{0B}', '\u{0C}', '\u{85}', '\u{2028}', '\u{2029}']) {
+        errors.push(refuse("a line break", "Write the expression on one line.".to_string()));
         return None;
     }
     let raw = text.trim();
@@ -88,7 +83,8 @@ pub(super) fn parse_homepage(
         value,
         reason,
         "quill::invalid_homepage",
-        "Write an absolute http or https URL, such as 'https://github.com/org/quills'.".to_string(),
+        "Write an absolute http or https URL, such as 'https://github.com/org/quills'."
+            .to_string(),
     ));
     None
 }
@@ -107,14 +103,12 @@ fn check_license(raw: &str) -> Result<Vec<&'static str>, (String, Range<usize>)>
             .is_some_and(|text| text.bytes().any(|b| b.is_ascii_lowercase()));
         let refused = match token {
             Token::And | Token::Or | Token::With if lowercase => Some("an operator in lowercase"),
-            Token::LicenseRef {
-                doc_ref,
-                lic_ref: name,
+            Token::LicenseRef { doc_ref, lic_ref: name }
+            | Token::AdditionRef { doc_ref, add_ref: name }
+                if name.is_empty() || doc_ref == Some("") =>
+            {
+                Some("an empty reference")
             }
-            | Token::AdditionRef {
-                doc_ref,
-                add_ref: name,
-            } if name.is_empty() || doc_ref == Some("") => Some("an empty reference"),
             Token::Spdx(id) if matches!(id.name, "NOASSERTION" | "NONE") => Some("not a license"),
             Token::Spdx(id) if id.is_deprecated() => {
                 deprecated.push(id.name);
@@ -139,7 +133,9 @@ fn check_license(raw: &str) -> Result<Vec<&'static str>, (String, Range<usize>)>
 /// `gnu gpl v2` to `GPL-3.0-only` among them.
 fn canonical(raw: &str) -> Option<String> {
     let fixed = Expression::canonicalize(raw).ok()??;
-    let versions = |s: &str| -> String { s.chars().filter(|c| matches!(c, '1'..='9')).collect() };
+    let versions = |s: &str| -> String {
+        s.chars().filter(|c| matches!(c, '1'..='9')).collect()
+    };
     (versions(&fixed) == versions(raw)
         && check_license(&fixed).is_ok_and(|deprecated| deprecated.is_empty()))
     .then_some(fixed)
@@ -162,23 +158,14 @@ fn license_hint(raw: &str, span: Range<usize>) -> String {
             .next()
             .is_some_and(|word| word.eq_ignore_ascii_case("WITH"))
     });
-    if after_with {
-        EXCEPTION_HINT
-    } else {
-        LICENSE_HINT
-    }
-    .to_string()
+    if after_with { EXCEPTION_HINT } else { LICENSE_HINT }.to_string()
 }
 
 /// The SPDX list's spelling of `term` when it differs from `term` only in
 /// case, and the license or exception it names is not deprecated.
 fn listed_spelling(term: &str) -> Option<&'static str> {
-    let licenses = spdx::identifiers::LICENSES
-        .iter()
-        .map(|l| (l.name, l.flags));
-    let exceptions = spdx::identifiers::EXCEPTIONS
-        .iter()
-        .map(|e| (e.name, e.flags));
+    let licenses = spdx::identifiers::LICENSES.iter().map(|l| (l.name, l.flags));
+    let exceptions = spdx::identifiers::EXCEPTIONS.iter().map(|e| (e.name, e.flags));
     licenses
         .chain(exceptions)
         .find(|(name, _)| *name != term && name.eq_ignore_ascii_case(term))
@@ -187,11 +174,7 @@ fn listed_spelling(term: &str) -> Option<&'static str> {
 }
 
 fn deprecated_license(raw: &str, ids: &[&str]) -> Diagnostic {
-    let named = ids
-        .iter()
-        .map(|id| format!("'{id}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let named = ids.iter().map(|id| format!("'{id}'")).collect::<Vec<_>>().join(", ");
     let (noun, replace) = match ids.len() {
         1 => ("id", "Replace it with a current id"),
         _ => ("ids", "Replace them with current ids"),
@@ -202,9 +185,7 @@ fn deprecated_license(raw: &str, ids: &[&str]) -> Diagnostic {
     };
     Diagnostic::new(
         Severity::Warning,
-        format!(
-            "'license' value '{raw}' in 'quill' section uses the deprecated SPDX {noun} {named}"
-        ),
+        format!("'license' value '{raw}' in 'quill' section uses the deprecated SPDX {noun} {named}"),
     )
     .with_code("quill::deprecated_license".to_string())
     .with_hint(hint)
@@ -241,9 +222,7 @@ fn is_web_url(raw: &str) -> bool {
     };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
     (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"))
-        && !raw
-            .chars()
-            .any(|c| c.is_whitespace() || c.is_control() || is_format(c))
+        && !raw.chars().any(|c| c.is_whitespace() || c.is_control() || is_format(c))
         && is_host_and_port(authority)
 }
 
@@ -275,9 +254,7 @@ fn is_domain(host: &str) -> bool {
     let labels = host.strip_suffix('.').unwrap_or(host);
     let last = labels.rsplit('.').next().unwrap_or_default();
     let numeric = !last.is_empty()
-        && (last.bytes().all(|b| b.is_ascii_digit())
-            || last.starts_with("0x")
-            || last.starts_with("0X"));
+        && (last.bytes().all(|b| b.is_ascii_digit()) || last.starts_with("0x") || last.starts_with("0X"));
     !host.trim_matches('.').is_empty()
         && !host.contains(FORBIDDEN)
         && (!numeric || labels.parse::<Ipv4Addr>().is_ok())

@@ -5,7 +5,7 @@
 //! the plate sees `none`, and `validate` still asks for an answer.
 
 use crate::document::Document;
-use crate::quill::{FieldSource, QuillConfig, build_transform_schema, quill_from_yaml, test_date};
+use crate::quill::{build_transform_schema, quill_from_yaml, test_date, FieldSource, QuillConfig};
 use serde_json::json;
 
 const QUILL_YAML: &str = r#"
@@ -43,26 +43,14 @@ fn document(fields: &str) -> Document {
 fn an_unanswered_optional_cell_renders_none_at_every_depth() {
     let quill = quill_from_yaml(QUILL_YAML);
     let doc = document("quorum: 0\nlocation: \"\"\nresult: \"\"\ntally: {}\n");
-    let plate = quill
-        .config()
-        .compile_data(&doc, test_date())
-        .expect("compiles");
+    let plate = quill.config().compile_data(&doc, test_date()).expect("compiles");
 
     assert_eq!(plate["quorum"], json!(0));
     assert_eq!(plate["location"]["text"], json!(""), "{plate}");
-    for name in [
-        "confidential",
-        "attendees",
-        "result",
-        "adjourned",
-        "minutes",
-    ] {
+    for name in ["confidential", "attendees", "result", "adjourned", "minutes"] {
         assert_eq!(plate[name], json!(null), "{name}: {plate}");
     }
-    assert_eq!(
-        plate["tally"],
-        json!({ "votes_for": null, "votes_against": 0 })
-    );
+    assert_eq!(plate["tally"], json!({ "votes_for": null, "votes_against": 0 }));
 
     let resolved = quill.resolve(&doc, test_date());
     let row = |name: &str| {
@@ -85,10 +73,7 @@ fn every_projection_carries_the_question_mark() {
     let config = QuillConfig::from_yaml(QUILL_YAML).expect("loads");
 
     let declared = config.schema();
-    assert_eq!(
-        declared["main"]["fields"]["quorum"]["type"],
-        json!("integer?")
-    );
+    assert_eq!(declared["main"]["fields"]["quorum"]["type"], json!("integer?"));
     assert_eq!(
         declared["main"]["fields"]["tally"]["properties"]["votes_for"]["type"],
         json!("integer?")
@@ -104,14 +89,8 @@ fn every_projection_carries_the_question_mark() {
     let props = &wire.as_json()["properties"];
     assert_eq!(props["quorum"]["type"], json!(["integer", "null"]));
     assert_eq!(props["attendees"]["type"], json!(["array", "null"]));
-    assert_eq!(
-        props["result"]["enum"],
-        json!([null, "", "carried", "failed"])
-    );
-    assert_eq!(
-        props["tally"]["properties"]["votes_against"]["type"],
-        json!("integer")
-    );
+    assert_eq!(props["result"]["enum"], json!([null, "", "carried", "failed"]));
+    assert_eq!(props["tally"]["properties"]["votes_against"]["type"], json!("integer"));
 }
 
 #[test]

@@ -67,18 +67,12 @@ fn tilde_code_in_a_body_fails_at_its_fence() {
     assert_eq!(tagged.code.as_deref(), Some("parse::payload_not_mapping"));
     assert_eq!(tagged.location.map(|l| (l.line, l.column)), Some((8, 1)));
     assert_eq!(tagged.args.get("info"), Some(&serde_json::json!("python")));
-    assert_eq!(
-        tagged.args.get("actual"),
-        Some(&serde_json::json!("string"))
-    );
+    assert_eq!(tagged.args.get("actual"), Some(&serde_json::json!("string")));
 
     let bare = fails("~~~~  \n- a\n- b\n~~~~\n");
     assert_eq!(bare.code.as_deref(), Some("parse::payload_not_mapping"));
     assert_eq!(bare.args.get("info"), None);
-    assert_eq!(
-        bare.args.get("actual"),
-        Some(&serde_json::json!("sequence"))
-    );
+    assert_eq!(bare.args.get("actual"), Some(&serde_json::json!("sequence")));
 
     // A block after the root is a card, so a mapping naming no `$kind` fails:
     // a card missing its kind line, or code whose text reads as a mapping.
@@ -89,22 +83,12 @@ fn tilde_code_in_a_body_fails_at_its_fence() {
         ("~~~card-yaml\ntitle: T\n~~~\n", Some("card-yaml")),
     ] {
         let kindless = fails(block);
-        assert_eq!(
-            kindless.code.as_deref(),
-            Some("parse::missing_kind"),
-            "{block:?}"
-        );
+        assert_eq!(kindless.code.as_deref(), Some("parse::missing_kind"), "{block:?}");
         assert_eq!(kindless.location.map(|l| (l.line, l.column)), Some((8, 1)));
-        assert_eq!(
-            kindless.args.get("info"),
-            info.map(|i| serde_json::json!(i)).as_ref()
-        );
+        assert_eq!(kindless.args.get("info"), info.map(|i| serde_json::json!(i)).as_ref());
         let hint = kindless.hint.unwrap();
         let fence = format!("```{}", info.filter(|i| *i != "card-yaml").unwrap_or(""));
-        assert!(
-            hint.contains("`$kind: <kind>`") && hint.ends_with(&fence),
-            "{hint}"
-        );
+        assert!(hint.contains("`$kind: <kind>`") && hint.ends_with(&fence), "{hint}");
     }
 
     let card = fails("~~~yaml\n$kind: note\nbad-name: 1\n~~~\n");
@@ -127,11 +111,10 @@ fn unclosed_bare_tilde_in_body_falls_through_to_commonmark() {
     let out = Document::parse(src).unwrap();
     assert_eq!(out.document.cards().len(), 0);
     assert!(out.document.main().body_markdown().contains("stray"));
-    assert!(
-        out.warnings
-            .iter()
-            .any(|w| w.code.as_deref() == Some("parse::unclosed_code_block"))
-    );
+    assert!(out
+        .warnings
+        .iter()
+        .any(|w| w.code.as_deref() == Some("parse::unclosed_code_block")));
 }
 
 #[test]
@@ -139,11 +122,10 @@ fn card_fence_without_blank_line_above_is_not_a_card() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n\nSome prose.\n~~~card-yaml\n$kind: product\nname: Widget\n~~~\n";
     let out = Document::parse(src).unwrap();
     assert_eq!(out.document.cards().len(), 0);
-    assert!(
-        out.warnings
-            .iter()
-            .any(|w| w.code.as_deref() == Some("parse::card_fence_missing_blank"))
-    );
+    assert!(out
+        .warnings
+        .iter()
+        .any(|w| w.code.as_deref() == Some("parse::card_fence_missing_blank")));
 }
 
 #[test]
@@ -181,10 +163,9 @@ fn a_fence_in_a_list_item_closes_with_the_item() {
     assert_eq!(out.document.cards().len(), 1);
     assert_eq!(out.document.cards()[0].kind(), Some("x"));
     assert!(!out.document.main().body_markdown().contains("$kind"));
-    assert!(
-        out.warnings
-            .iter()
-            .all(|w| w.code.as_deref() != Some("parse::unclosed_code_block"))
-    );
+    assert!(out
+        .warnings
+        .iter()
+        .all(|w| w.code.as_deref() != Some("parse::unclosed_code_block")));
     super::assert_round_trip("list-item fence", src);
 }

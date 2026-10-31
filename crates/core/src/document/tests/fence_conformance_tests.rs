@@ -10,8 +10,8 @@
 use proptest::prelude::*;
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
-use crate::document::Document;
 use crate::document::fences::find_metadata_blocks;
+use crate::document::Document;
 
 fn pulldown_fence_spans(md: &str) -> Vec<(usize, usize)> {
     let mut opts = Options::empty();
@@ -199,9 +199,7 @@ fn scanner_agrees_with_commonmark_on_fixtures() {
 fn arb_body_line() -> impl Strategy<Value = String> {
     let indent = prop::sample::select(vec!["", " ", "  ", "   ", "    ", "     ", "\t"]);
     let lead = prop::sample::select(vec!["", "- ", "* ", "1. ", "2) ", "- - ", "> ", "-", "#"]);
-    let rest = prop::sample::select(vec![
-        "```", "````", "~~~", "```rust", "code", "text", "* * *", "",
-    ]);
+    let rest = prop::sample::select(vec!["```", "````", "~~~", "```rust", "code", "text", "* * *", ""]);
     (indent, lead, rest).prop_map(|(indent, lead, rest)| {
         let line = format!("{indent}{lead}{rest}");
         if line.starts_with("~~~") {

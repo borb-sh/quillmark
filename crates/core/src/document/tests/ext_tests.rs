@@ -1,7 +1,7 @@
 use serde_json::json;
 
-use crate::document::Document;
 use crate::document::tests::parse;
+use crate::document::Document;
 
 #[test]
 fn ext_rides_any_card_through_markdown_and_storage() {

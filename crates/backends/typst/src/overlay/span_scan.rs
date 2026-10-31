@@ -144,15 +144,11 @@ enum Owner {
 /// Where a hit falls in the key space.
 #[derive(Clone, Copy)]
 enum HitClass {
-    Boxable {
-        key: Key,
-    },
+    Boxable { key: Key },
     /// A content window's ink between its segments (brackets, container-open
     /// syntax). Suspends a *different* window's run like foreign ink, but is a
     /// no-op while its own window's segment is the run.
-    Transparent {
-        window: usize,
-    },
+    Transparent { window: usize },
     /// Ink from a detached span that no claim takes: Typst's synthesized text
     /// decorations (the `underline`/`strike` line, drawn as a `Shape` mid-run),
     /// and list markers outside a claim. Attributable to no field, and never a
@@ -167,12 +163,8 @@ enum HitClass {
 impl HitClass {
     fn owner(self) -> Option<Owner> {
         match self {
-            HitClass::Boxable {
-                key: Key::Span(w, _),
-            } => Some(Owner::Window(w)),
-            HitClass::Boxable {
-                key: Key::Marker(c),
-            } => Some(Owner::Claim(c)),
+            HitClass::Boxable { key: Key::Span(w, _) } => Some(Owner::Window(w)),
+            HitClass::Boxable { key: Key::Marker(c) } => Some(Owner::Claim(c)),
             HitClass::Transparent { window } => Some(Owner::Window(window)),
             HitClass::Anonymous | HitClass::Foreign => None,
         }
@@ -199,17 +191,13 @@ fn hit_class(
     match resolved {
         None if detached && !(glyph && marker.is_some()) => HitClass::Anonymous,
         None => match marker {
-            Some(c) => HitClass::Boxable {
-                key: Key::Marker(c),
-            },
+            Some(c) => HitClass::Boxable { key: Key::Marker(c) },
             None => HitClass::Foreign,
         },
-        Some((w, Some(s))) => HitClass::Boxable {
-            key: Key::Span(w, Some(s)),
-        },
-        Some((w, None)) if windows[w].segments.is_empty() => HitClass::Boxable {
-            key: Key::Span(w, None),
-        },
+        Some((w, Some(s))) => HitClass::Boxable { key: Key::Span(w, Some(s)) },
+        Some((w, None)) if windows[w].segments.is_empty() => {
+            HitClass::Boxable { key: Key::Span(w, None) }
+        }
         Some((w, None)) => HitClass::Transparent { window: w },
     }
 }
@@ -260,11 +248,7 @@ impl Markers {
             if !self.suppressed.contains(&claim) {
                 self.stack.push((claim, self.barriers.len()));
             }
-        } else if let Some(i) = self
-            .stack
-            .iter()
-            .rposition(|&(c, _)| self.claims[c] == path)
-        {
+        } else if let Some(i) = self.stack.iter().rposition(|&(c, _)| self.claims[c] == path) {
             self.stack.truncate(i);
         }
     }
@@ -358,9 +342,7 @@ impl<'a> Classifier<'a> {
     /// binary search rather than a scan of the whole table.
     fn new(helper: &'a Source, windows: &'a [FieldWindow]) -> Self {
         debug_assert!(
-            windows
-                .windows(2)
-                .all(|w| w[0].range.end <= w[1].range.start),
+            windows.windows(2).all(|w| w[0].range.end <= w[1].range.start),
             "ink windows are appended in byte order and never nest"
         );
         Self {
@@ -384,10 +366,13 @@ impl<'a> Classifier<'a> {
                 let helper = self.helper;
                 let nodes = self.helper_nodes.get_or_insert_with(|| node_ranges(helper));
                 let raw = span.into_raw().get();
-                nodes.binary_search_by_key(&raw, |(k, _)| *k).ok().map(|i| {
-                    let overall = nodes[i].1.clone();
-                    sub_range.map_or(overall.clone(), |s| s.to_absolute(overall.start))
-                })
+                nodes
+                    .binary_search_by_key(&raw, |(k, _)| *k)
+                    .ok()
+                    .map(|i| {
+                        let overall = nodes[i].1.clone();
+                        sub_range.map_or(overall.clone(), |s| s.to_absolute(overall.start))
+                    })
             }
             DiagSpanKind::Range { id, range } if id == self.helper.id() => Some(range),
             _ => None,
@@ -453,35 +438,30 @@ fn collect_page_hits(
     markers: &mut Markers,
     out: &mut Vec<Hit>,
 ) {
-    walk_items(
-        frame,
-        Transform::identity(),
-        page,
-        &mut |page, item| match item {
-            Item::Marker { path, close } => markers.edge(&path, close),
-            Item::Artifact { loc, end } => markers.barrier(loc, end),
-            Item::Parent { loc, end } => {
-                if relocated(flow, loc) {
-                    markers.barrier(loc, end);
-                }
+    walk_items(frame, Transform::identity(), page, &mut |page, item| match item {
+        Item::Marker { path, close } => markers.edge(&path, close),
+        Item::Artifact { loc, end } => markers.barrier(loc, end),
+        Item::Parent { loc, end } => {
+            if relocated(flow, loc) {
+                markers.barrier(loc, end);
             }
-            Item::Ink {
-                span, glyph, aabb, ..
-            } => {
-                let class = hit_class(
-                    cls.classify_seg(span),
-                    span.is_detached(),
-                    glyph,
-                    cls.windows,
-                    markers.current(),
-                );
-                // Foreign ink still emits a rect-less Hit so the run machine sees
-                // the full ink sequence.
-                let rect = class.owner().is_some().then(aabb);
-                out.push(Hit { page, class, rect });
-            }
-        },
-    );
+        }
+        Item::Ink {
+            span, glyph, aabb, ..
+        } => {
+            let class = hit_class(
+                cls.classify_seg(span),
+                span.is_detached(),
+                glyph,
+                cls.windows,
+                markers.current(),
+            );
+            // Foreign ink still emits a rect-less Hit so the run machine sees
+            // the full ink sequence.
+            let rect = class.owner().is_some().then(aabb);
+            out.push(Hit { page, class, rect });
+        }
+    });
 }
 
 /// The marker half of [`collect_page_hits`] for a page whose ink a query
@@ -491,10 +471,7 @@ fn scan_markers(frame: &Frame, flow: &PagedIntrospector, markers: &mut Markers) 
     for (_, item) in frame.items() {
         match item {
             FrameItem::Group(group) => {
-                let barrier = group
-                    .parent
-                    .map(|p| p.location)
-                    .filter(|&l| relocated(flow, l));
+                let barrier = group.parent.map(|p| p.location).filter(|&l| relocated(flow, l));
                 if let Some(loc) = barrier {
                     markers.barrier(loc, false);
                 }
@@ -716,11 +693,7 @@ impl<'a> Scan<'a> {
                 Key::Marker(ci) => (markers.claims[ci].clone(), None),
             };
             for (page, b) in &boxes[ki] {
-                let Some(page_h) = self
-                    .doc
-                    .pages()
-                    .get(*page)
-                    .map(|p| p.frame.size().y.to_pt())
+                let Some(page_h) = self.doc.pages().get(*page).map(|p| p.frame.size().y.to_pt())
                 else {
                     continue;
                 };
@@ -739,7 +712,13 @@ impl<'a> Scan<'a> {
     /// [`regions`](Self::regions) every placement answers, not just the first.
     /// The nearest tracked ink wins, later-painted on a tie; untracked ink never
     /// occludes. The gap is what ranks this lane against another.
-    pub(crate) fn field_at(&self, page: usize, x: f32, y: f32, tol: f32) -> Option<(f32, String)> {
+    pub(crate) fn field_at(
+        &self,
+        page: usize,
+        x: f32,
+        y: f32,
+        tol: f32,
+    ) -> Option<(f32, String)> {
         let frame = &self.doc.pages().get(page)?.frame;
         let page_h = frame.size().y.to_pt();
         let (x, y) = (x as f64, page_h - y as f64);
@@ -814,13 +793,7 @@ impl<'a> Scan<'a> {
         let mut cls = self.classifier();
         let mut hits = Vec::new();
         for (page, p) in self.doc.pages().iter().enumerate() {
-            walk_glyphs(
-                &p.frame,
-                page,
-                &mut cls,
-                Some((wi, Some(seg_idx))),
-                &mut hits,
-            );
+            walk_glyphs(&p.frame, page, &mut cls, Some((wi, Some(seg_idx))), &mut hits);
         }
 
         // A covering glyph always beats a non-covering one, so a caret near a
@@ -861,7 +834,8 @@ fn flatten_keys(windows: &[FieldWindow]) -> Vec<Key> {
 /// following page. A [`Key::Marker`] run always resumes: its extent is the
 /// bracketing markers, so an interruption inside it is never a second placement.
 fn run_scan_machine(keys: &[Key], hits: &[Hit]) -> Vec<Vec<(usize, Aabb)>> {
-    let key_index: HashMap<Key, usize> = keys.iter().enumerate().map(|(i, k)| (*k, i)).collect();
+    let key_index: HashMap<Key, usize> =
+        keys.iter().enumerate().map(|(i, k)| (*k, i)).collect();
     let mut state = vec![Run::NotSeen; keys.len()];
     let mut boxes: Vec<Vec<(usize, Aabb)>> = vec![Vec::new(); keys.len()];
     let mut current: Option<(usize, usize)> = None; // (key index, last_page)
@@ -1075,18 +1049,16 @@ main:
 "#;
         let q = quill(YAML, PLATE);
         let plate = crate::read_plate(&q).expect("plate");
-        let schema = quillmark_core::quill::build_transform_schema(
-            q.config(),
-            quillmark_core::quill::SchemaCodec::Content,
-        );
+        let schema = quillmark_core::quill::build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
         let rt = quillmark_content::import::from_markdown("A probe paragraph, PROBETOKEN.")
-            .expect("import")
-            .content;
+            .expect("import").content;
         let data =
             serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
         let mut world = QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
-        let windows = world.inject_helper_package(&data, &meta).expect("inject");
+        let windows = world
+            .inject_helper_package(&data, &meta)
+            .expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
         let helper = world
             .source(QuillWorld::helper_fid("lib.typ"))
@@ -1121,7 +1093,7 @@ main:
     /// `Foreign` would truncate the region at the mark's start.
     #[test]
     fn decoration_marks_do_not_truncate_the_region() {
-        use quillmark_content::model::{Content, Line, LineKind, Mark, MarkKind};
+        use quillmark_content::model::{Line, LineKind, Mark, MarkKind, Content};
         const YAML: &str = r#"
 quill:
   name: deco_probe
@@ -1149,16 +1121,14 @@ main:
                 .into_normalized();
             let q = quill(YAML, PLATE);
             let plate = crate::read_plate(&q).expect("plate");
-            let schema = quillmark_core::quill::build_transform_schema(
-                q.config(),
-                quillmark_core::quill::SchemaCodec::Content,
-            );
+            let schema = quillmark_core::quill::build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
             let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
             let data =
                 serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) });
-            let mut world =
-                QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
-            let windows = world.inject_helper_package(&data, &meta).expect("inject");
+            let mut world = QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
+            let windows = world
+                .inject_helper_package(&data, &meta)
+                .expect("inject");
             let (doc, _) = compile_document(&world).expect("compile");
             let helper = world
                 .source(QuillWorld::helper_fid("lib.typ"))
@@ -1230,18 +1200,16 @@ main:
 "#;
         let q = quill(YAML, PLATE);
         let plate = crate::read_plate(&q).expect("plate");
-        let schema = quillmark_core::quill::build_transform_schema(
-            q.config(),
-            quillmark_core::quill::SchemaCodec::Content,
-        );
+        let schema = quillmark_core::quill::build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
-        let rt = quillmark_content::import::from_markdown("- Item ONE\n- Item TWO")
-            .expect("import")
-            .content;
+        let rt =
+            quillmark_content::import::from_markdown("- Item ONE\n- Item TWO").expect("import").content;
         let data =
             serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) });
         let mut world = QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
-        let windows = world.inject_helper_package(&data, &meta).expect("inject");
+        let windows = world
+            .inject_helper_package(&data, &meta)
+            .expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
         let helper = world
             .source(QuillWorld::helper_fid("lib.typ"))
@@ -1277,10 +1245,7 @@ main:
             seg_hits[0] > 0 && seg_hits[1] > 0,
             "each list item's own ink resolves to its own segment: {seg_hits:?}"
         );
-        assert_eq!(
-            field_only_hits, 0,
-            "list markers produce no (window, None) ink"
-        );
+        assert_eq!(field_only_hits, 0, "list markers produce no (window, None) ink");
         assert!(
             untracked_hits > 0,
             "the two markers are hit but resolve to no window (detached span)"
@@ -1318,14 +1283,12 @@ main:
     fn probe(plate: &str, data: serde_json::Value) -> Probe {
         let q = quill(REGION_YAML, plate);
         let plate_src = crate::read_plate(&q).expect("plate");
-        let schema = quillmark_core::quill::build_transform_schema(
-            q.config(),
-            quillmark_core::quill::SchemaCodec::Content,
-        );
+        let schema = quillmark_core::quill::build_transform_schema(q.config(), quillmark_core::quill::SchemaCodec::Content);
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
-        let mut world =
-            QuillWorld::new(&q, &plate_src, &crate::FontLibrary::default()).expect("world");
-        let windows = world.inject_helper_package(&data, &meta).expect("inject");
+        let mut world = QuillWorld::new(&q, &plate_src, &crate::FontLibrary::default()).expect("world");
+        let windows = world
+            .inject_helper_package(&data, &meta)
+            .expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
         let helper = world
             .source(QuillWorld::helper_fid("lib.typ"))
@@ -1341,10 +1304,7 @@ main:
         /// What `open` stores on the session: the claims left open at the end
         /// of the walk, by index.
         fn unclosed(&self) -> Vec<usize> {
-            unclosed_claims(&self.doc)
-                .into_iter()
-                .map(|(c, _)| c)
-                .collect()
+            unclosed_claims(&self.doc).into_iter().map(|(c, _)| c).collect()
         }
 
         fn scan<'a>(&'a self, unclosed: &'a [usize]) -> Scan<'a> {
@@ -1363,9 +1323,7 @@ main:
     }
 
     fn prose(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown)
-            .expect("import")
-            .content;
+        let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
         serde_json::json!({
             "prose": quillmark_content::serial::to_canonical_value(&rt),
             "classification": "UNCLASSIFIED",
@@ -1408,9 +1366,7 @@ main:
 "#;
         let regions = probe_regions(PLATE, prose("Body PROBETOKEN text."));
         assert!(
-            regions
-                .iter()
-                .any(|r| r.field == "prose" && r.span.is_some()),
+            regions.iter().any(|r| r.field == "prose" && r.span.is_some()),
             "the nested content field keeps its own span-bearing region: {regions:?}"
         );
         assert!(
@@ -1446,10 +1402,7 @@ Interleaved plate chrome.
 #qm.region("classification")[#stamp("two")]
 "#;
         let regions = probe_regions(PLATE, prose("Unused."));
-        let claimed = regions
-            .iter()
-            .filter(|r| r.field == "classification")
-            .count();
+        let claimed = regions.iter().filter(|r| r.field == "classification").count();
         assert_eq!(claimed, 2, "one region per call: {regions:?}");
     }
 
@@ -1530,10 +1483,7 @@ PLATE TEXT
     /// that it is threaded through.
     #[test]
     fn an_unclosed_claim_does_not_capture_clicks_on_later_pages() {
-        let p = probe(
-            STRANDED_OPEN,
-            prose(&"A long paragraph of body text. ".repeat(60)),
-        );
+        let p = probe(STRANDED_OPEN, prose(&"A long paragraph of body text. ".repeat(60)));
         assert!(p.doc.pages().len() > 1, "the runaway needs a later page");
 
         let last = p.doc.pages().len() - 1;
@@ -1553,9 +1503,7 @@ PLATE TEXT
             "sanity: unsuppressed, that ink routes to the stranded claim"
         );
         assert_eq!(
-            p.scan(&p.unclosed())
-                .field_at(last, cx, cy, 0.0)
-                .map(|(_, f)| f),
+            p.scan(&p.unclosed()).field_at(last, cx, cy, 0.0).map(|(_, f)| f),
             None,
             "suppressed, plate ink under a runaway claim answers to no field"
         );
@@ -1716,7 +1664,7 @@ PLATE TEXT
 
         let cross_page = vec![
             boxable_hit(0, Key::Span(1, Some(0)), r), // field 1's segment 0, page 0
-            transparent_hit(0, 0),                    // field 0's own structural ink
+            transparent_hit(0, 0),           // field 0's own structural ink
             boxable_hit(1, Key::Span(1, Some(0)), r), // field 1's segment 0 resumes, page 1
         ];
         assert_eq!(

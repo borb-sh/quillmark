@@ -29,10 +29,7 @@ impl Version {
 /// takes a leading `+`, a spelling no `Display` writes back.
 fn parse_segment(s: &str, label: &str) -> Result<u32, String> {
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(format!(
-            "Invalid {} version '{}': must be a number",
-            label, s
-        ));
+        return Err(format!("Invalid {} version '{}': must be a number", label, s));
     }
     s.parse::<u32>()
         .map_err(|_| format!("Invalid {} version '{}': must be a number", label, s))
@@ -347,6 +344,7 @@ mod tests {
         assert!(any.matches(v3_0_0));
     }
 
+
     /// The bare name is the only way to match any version: `@latest` is
     /// refused, so no second spelling of `Any` exists to be erased by a round
     /// trip.
@@ -386,10 +384,7 @@ mod tests {
     #[test]
     fn test_quill_reference_display_round_trips() {
         for (selector, written) in [
-            (
-                VersionSelector::Exact(Version::new(2, 1, 0)),
-                "resume@2.1.0",
-            ),
+            (VersionSelector::Exact(Version::new(2, 1, 0)), "resume@2.1.0"),
             (VersionSelector::Minor(2, 1), "resume@2.1"),
             (VersionSelector::Any, "resume"),
         ] {

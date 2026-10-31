@@ -5,14 +5,14 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
-use quillmark_content::anchor::{AnchorContext, Reattached, anchor_context, anchor_contexts};
+use quillmark_content::anchor::{anchor_context, anchor_contexts, AnchorContext, Reattached};
 use quillmark_content::delta::Delta;
 use quillmark_content::model::Normalized;
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 
 use super::{Card, Document};
-use crate::error::{Diagnostic, Severity, diag_args};
+use crate::error::{diag_args, Diagnostic, Severity};
 use crate::path::{DocPath, DocSeg};
 
 pub const ANCHOR_ID_COLLISION: &str = "parse::anchor_id_collision";
@@ -98,11 +98,7 @@ impl Document {
     pub fn anchor_contexts(&self) -> Vec<AnchorSelector> {
         let mut out = Vec::new();
         self.each_content(&mut |path, content| {
-            out.extend(
-                anchor_contexts(content)
-                    .into_iter()
-                    .map(|ctx| AnchorSelector::at(ctx, path, self)),
-            );
+            out.extend(anchor_contexts(content).into_iter().map(|ctx| AnchorSelector::at(ctx, path, self)));
             ControlFlow::Continue(())
         });
         out
@@ -151,18 +147,14 @@ impl Document {
         deltas: &HashMap<DocPath, Delta>,
     ) -> Reattached<AnchorSelector> {
         let mut answered = HashSet::new();
-        let selectors: Vec<&AnchorSelector> = selectors
-            .iter()
-            .filter(|s| answered.insert(s.id.as_str()))
-            .collect();
+        let selectors: Vec<&AnchorSelector> =
+            selectors.iter().filter(|s| answered.insert(s.id.as_str())).collect();
         let paths: Vec<Option<DocPath>> = selectors.iter().map(|s| self.resolve_card(s)).collect();
 
         let mut known: HashMap<String, AnchorSelector> = HashMap::new();
         self.each_content(&mut |path, content| {
             for ctx in anchor_contexts(content) {
-                known
-                    .entry(ctx.id.clone())
-                    .or_insert_with(|| AnchorSelector::at(ctx, path, self));
+                known.entry(ctx.id.clone()).or_insert_with(|| AnchorSelector::at(ctx, path, self));
             }
             ControlFlow::Continue(())
         });
@@ -188,20 +180,14 @@ impl Document {
             let ctxs: Vec<AnchorContext> = at.iter().map(|&i| selectors[i].context()).collect();
             let inserted = deltas.get(path).map(Delta::inserted_spans);
             let Some(placed) = self.edit_content_at(path, |content| {
-                content
-                    .reattach(&ctxs, inserted.as_deref(), &HashSet::new())
-                    .reattached
+                content.reattach(&ctxs, inserted.as_deref(), &HashSet::new()).reattached
             }) else {
                 continue;
             };
-            let mut placed: HashMap<String, AnchorContext> = placed
-                .into_iter()
-                .map(|ctx| (ctx.id.clone(), ctx))
-                .collect();
+            let mut placed: HashMap<String, AnchorContext> =
+                placed.into_iter().map(|ctx| (ctx.id.clone(), ctx)).collect();
             for i in at {
-                answer[i] = placed
-                    .remove(&selectors[i].id)
-                    .map(|ctx| AnchorSelector::at(ctx, path, self));
+                answer[i] = placed.remove(&selectors[i].id).map(|ctx| AnchorSelector::at(ctx, path, self));
             }
         }
 
@@ -233,10 +219,7 @@ impl Document {
         let Some(DocSeg::Card { kind, .. }) = selector.path.segs().first() else {
             return None;
         };
-        let index = self
-            .cards
-            .iter()
-            .position(|card| card.id() == Some(card_id))?;
+        let index = self.cards.iter().position(|card| card.id() == Some(card_id))?;
         if self.cards[index].kind() != kind.as_deref() {
             return None;
         }
@@ -268,17 +251,12 @@ impl Document {
         match rest {
             [DocSeg::Body] => Some(f(card.body_mut())),
             [DocSeg::Field { name }, tail @ ..] => {
-                let (_, value) = card
-                    .payload_mut()
-                    .fields_mut()
-                    .find(|(key, _)| *key == name)?;
-                let leaf = tail
-                    .iter()
-                    .try_fold(value.as_json_mut(), |value, seg| match seg {
-                        DocSeg::Field { name } => value.as_object_mut()?.get_mut(name),
-                        DocSeg::Index { index } => value.as_array_mut()?.get_mut(*index),
-                        _ => None,
-                    })?;
+                let (_, value) = card.payload_mut().fields_mut().find(|(key, _)| *key == name)?;
+                let leaf = tail.iter().try_fold(value.as_json_mut(), |value, seg| match seg {
+                    DocSeg::Field { name } => value.as_object_mut()?.get_mut(name),
+                    DocSeg::Index { index } => value.as_array_mut()?.get_mut(*index),
+                    _ => None,
+                })?;
                 let mut content = content_of(leaf)?;
                 let before = content.clone();
                 let out = f(&mut content);
@@ -301,24 +279,15 @@ impl Document {
     pub fn anchor_collisions(&self) -> Vec<Diagnostic> {
         let mut out = Vec::new();
         self.each_content(&mut |path, content| {
-            out.extend(
-                content
-                    .anchor_collisions()
-                    .into_iter()
-                    .map(|id| anchor_collision(&id, path)),
-            );
+            out.extend(content.anchor_collisions().into_iter().map(|id| anchor_collision(&id, path)));
             ControlFlow::Continue(())
         });
         out
     }
 
     fn each_content(&self, visit: &mut Visit<'_>) {
-        let roots = std::iter::once((DocPath::main(), &self.main)).chain(
-            self.cards
-                .iter()
-                .enumerate()
-                .map(|(i, card)| (DocPath::card(card.kind(), i), card)),
-        );
+        let roots = std::iter::once((DocPath::main(), &self.main))
+            .chain(self.cards.iter().enumerate().map(|(i, card)| (DocPath::card(card.kind(), i), card)));
         for (at, card) in roots {
             if each_in_card(card, &at, visit).is_break() {
                 return;
@@ -357,8 +326,5 @@ fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> Cont
 }
 
 fn content_of(value: &JsonValue) -> Option<Normalized> {
-    value
-        .is_object()
-        .then(|| from_canonical_value(value).ok())
-        .flatten()
+    value.is_object().then(|| from_canonical_value(value).ok()).flatten()
 }

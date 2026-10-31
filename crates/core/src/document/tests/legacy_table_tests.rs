@@ -1,6 +1,6 @@
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
-use crate::document::{Document, STORAGE_V0_129_0, peek_storage_version};
+use crate::document::{peek_storage_version, Document, STORAGE_V0_129_0};
 
 use super::parse;
 
@@ -17,21 +17,15 @@ fn sorted(v: Value) -> Value {
 }
 
 fn summary(row: &mut Value) -> &mut Value {
-    let items = row["main"]["payload"]["items"]
-        .as_array_mut()
-        .expect("payload items");
-    let item = items
-        .iter_mut()
-        .find(|i| i["key"] == "summary")
-        .expect("the summary field");
+    let items = row["main"]["payload"]["items"].as_array_mut().expect("payload items");
+    let item = items.iter_mut().find(|i| i["key"] == "summary").expect("the summary field");
     &mut item["value"]
 }
 
 /// A row as 0.130 saved it: the body's table and the `summary` field's table
 /// each spelled `headless: true`, with no `head`.
 fn saved_by_0_130() -> Value {
-    let doc =
-        parse("~~~card-yaml\n$quill: q@1.0\n$kind: main\nsummary: x\n~~~\n\n| h |\n|---|\n| c |\n");
+    let doc = parse("~~~card-yaml\n$quill: q@1.0\n$kind: main\nsummary: x\n~~~\n\n| h |\n|---|\n| c |\n");
     let mut row = serde_json::to_value(&doc).expect("the document serializes");
     let mut body = row["main"]["body"].take();
     body["islands"][0]["props"]["headless"] = json!(true);
@@ -70,16 +64,10 @@ fn a_fields_headless_table_from_0_130_reads_as_content() {
 fn a_headless_table_resaves_readable_by_0_130() {
     let doc: Document = serde_json::from_value(saved_by_0_130()).expect("the row loads");
     let saved = serde_json::to_string(&doc).expect("the document serializes");
-    assert_eq!(
-        peek_storage_version(&saved).as_deref(),
-        Some(STORAGE_V0_129_0)
-    );
+    assert_eq!(peek_storage_version(&saved).as_deref(), Some(STORAGE_V0_129_0));
     let row: Value = serde_json::from_str(&saved).unwrap();
     let props = table_props(&row["main"]["body"]);
-    assert_eq!(
-        (&props["head"], &props["headless"]),
-        (&json!(0), &json!(true))
-    );
+    assert_eq!((&props["head"], &props["headless"]), (&json!(0), &json!(true)));
 
     let again: Document = serde_json::from_str(&saved).expect("the resave loads");
     assert_eq!(serde_json::to_string(&again).unwrap(), saved);

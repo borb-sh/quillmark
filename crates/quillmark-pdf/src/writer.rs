@@ -4,7 +4,7 @@
 use pdf_writer::{Chunk, Name, Ref};
 
 use crate::error::PdfError;
-use crate::reader::{InfoSource, ObjectIndex, UpdatedObject, set_dict_value};
+use crate::reader::{set_dict_value, InfoSource, ObjectIndex, UpdatedObject};
 
 const CODE_PARSE: &str = "pdf::write";
 

@@ -21,10 +21,7 @@ pub fn read_fonts(paths: &[PathBuf]) -> Result<Vec<Vec<u8>>> {
         .iter()
         .map(|path| {
             std::fs::read(path).map_err(|e| {
-                CliError::Io(std::io::Error::new(
-                    e.kind(),
-                    format!("Failed to read font '{}': {e}", path.display()),
-                ))
+                CliError::Io(std::io::Error::new(e.kind(), format!("Failed to read font '{}': {e}", path.display())))
             })
         })
         .collect()
@@ -34,8 +31,8 @@ pub fn read_fonts(paths: &[PathBuf]) -> Result<Vec<Vec<u8>>> {
 /// or the UTC date where the local offset cannot be read.
 pub fn render_date(pinned: Option<CalendarDate>) -> CalendarDate {
     pinned.unwrap_or_else(|| {
-        let now =
-            time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+        let now = time::OffsetDateTime::now_local()
+            .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
         CalendarDate::new(now.year(), u8::from(now.month()), now.day())
             .expect("the clock reads a calendar date")
     })
@@ -43,10 +40,7 @@ pub fn render_date(pinned: Option<CalendarDate>) -> CalendarDate {
 
 /// `markdown` parsed against `quill`, beside its parse warnings; the quill's
 /// seeded document without one.
-pub fn read_document(
-    quill: &Quill,
-    markdown: Option<&Path>,
-) -> Result<(Document, Vec<Diagnostic>)> {
+pub fn read_document(quill: &Quill, markdown: Option<&Path>) -> Result<(Document, Vec<Diagnostic>)> {
     let Some(path) = markdown else {
         return Ok((quill.seed_document(), Vec::new()));
     };

@@ -57,10 +57,7 @@ fn per_block_field_count_cap() {
     let s = block(MAX_FIELD_COUNT + 1);
     let diag = Document::parse(&s).unwrap_err().to_diagnostic();
     assert_eq!(diag.code.as_deref(), Some("parse::too_many_fields"));
-    assert_eq!(
-        diag.args.get("count"),
-        Some(&serde_json::json!(MAX_FIELD_COUNT + 1))
-    );
+    assert_eq!(diag.args.get("count"), Some(&serde_json::json!(MAX_FIELD_COUNT + 1)));
 }
 
 #[test]
@@ -71,10 +68,7 @@ fn card_count_cap_is_per_card() {
     }
     let diag = Document::parse(&s).unwrap_err().to_diagnostic();
     assert_eq!(diag.code.as_deref(), Some("parse::too_many_cards"));
-    assert_eq!(
-        diag.args.get("count"),
-        Some(&serde_json::json!(MAX_CARD_COUNT + 1))
-    );
+    assert_eq!(diag.args.get("count"), Some(&serde_json::json!(MAX_CARD_COUNT + 1)));
 }
 
 /// `docs/integration/operations.md` tells an integrator to read the caps rather
@@ -84,12 +78,7 @@ fn card_count_cap_is_per_card() {
 fn spec_caps_are_reachable_at_their_documented_paths() {
     use quillmark_core::error::{MAX_INPUT_SIZE, MAX_YAML_SIZE};
 
-    for cap in [
-        MAX_INPUT_SIZE,
-        MAX_YAML_SIZE,
-        MAX_CARD_COUNT,
-        MAX_FIELD_COUNT,
-    ] {
+    for cap in [MAX_INPUT_SIZE, MAX_YAML_SIZE, MAX_CARD_COUNT, MAX_FIELD_COUNT] {
         assert!(cap > 0);
     }
 }

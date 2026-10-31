@@ -15,12 +15,12 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
-use super::payload::{MetaKey, Payload, PayloadItem, trim_comment_text};
+use super::payload::{trim_comment_text, MetaKey, Payload, PayloadItem};
 use super::{Card, EditError};
 use crate::error::diag_args;
-use crate::error::{Diagnostic, Severity};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
+use crate::error::{Diagnostic, Severity};
 use quillmark_content::model::Normalized;
 
 /// One entry in a [`CardWire`]'s `payload_items`: a user field or a comment.
@@ -132,8 +132,8 @@ impl WireError {
     /// [`code`](Self::code) and the facts its message interpolates. The card is
     /// not placed yet, so nothing anchors it: no `path` rides here.
     pub fn to_diagnostic(&self) -> Diagnostic {
-        let diag =
-            Diagnostic::new(Severity::Error, self.to_string()).with_code(self.code().to_string());
+        let diag = Diagnostic::new(Severity::Error, self.to_string())
+            .with_code(self.code().to_string());
         match self {
             WireError::InvalidQuillReference { value, .. } => diag
                 .with_args(diag_args! { "value" => value })
@@ -264,10 +264,7 @@ mod tests {
         use quillmark_content::model::{Mark, MarkKind};
 
         let mut card = Card::new("note").unwrap();
-        let mut content = quillmark_content::import::from_markdown("underlined intro")
-            .unwrap()
-            .content
-            .into_content();
+        let mut content = quillmark_content::import::from_markdown("underlined intro").unwrap().content.into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
         let content = content.into_normalized();
         let json = quillmark_content::serial::to_canonical_value(&content);
@@ -285,15 +282,8 @@ mod tests {
 
         let back = Card::try_from(wire).expect("wire → card");
         assert_eq!(back, card, "content field must survive Card → wire → Card");
-        let read = back
-            .field_content("intro", Codec::Richtext)
-            .unwrap()
-            .unwrap();
-        assert!(
-            read.marks
-                .iter()
-                .any(|m| matches!(m.kind, MarkKind::Underline))
-        );
+        let read = back.field_content("intro", Codec::Richtext).unwrap().unwrap();
+        assert!(read.marks.iter().any(|m| matches!(m.kind, MarkKind::Underline)));
     }
 
     #[test]
@@ -394,7 +384,8 @@ mod tests {
             Card::try_from(wire).expect_err("the wire refuses it")
         };
         let mut card = Card::new("note").unwrap();
-        let deep = (0..=quillmark_content::MAX_JSON_DEPTH).fold(json!(1), |v, _| json!({ "a": v }));
+        let deep = (0..=quillmark_content::MAX_JSON_DEPTH)
+            .fold(json!(1), |v, _| json!({ "a": v }));
 
         for (wire_err, mutator_err) in [
             (

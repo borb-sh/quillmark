@@ -519,9 +519,7 @@ mod tests {
                 .to_string();
             let enriched = enrich_yaml_error(&raw, content);
             assert!(
-                !enriched
-                    .message
-                    .contains("reject_non_finite_typeless_float"),
+                !enriched.message.contains("reject_non_finite_typeless_float"),
                 "{}",
                 enriched.message
             );
@@ -549,10 +547,7 @@ mod tests {
                 .expect_err("the content does not parse")
                 .to_string();
             let hint = enrich_yaml_error(&raw, content).hint.expect("a hint");
-            assert!(
-                hint.contains(wants) && !hint.contains(shuns),
-                "{content:?}: {hint}"
-            );
+            assert!(hint.contains(wants) && !hint.contains(shuns), "{content:?}: {hint}");
         }
     }
 
@@ -615,8 +610,7 @@ mod tests {
 
     #[test]
     fn hint_for_indented_bare_key_names_the_leading_space() {
-        let content =
-            "subject: Near-Miss On The Flightline\n distribution:\nauthority_line: \"\"\n";
+        let content = "subject: Near-Miss On The Flightline\n distribution:\nauthority_line: \"\"\n";
         let enriched = enrich_yaml_error(
             "error: line 2 column 14: mapping values are not allowed in this context",
             content,
@@ -734,8 +728,7 @@ mod tests {
     #[test]
     fn hint_for_prose_after_a_blank_line_says_close_the_block() {
         let content = "title: Memo\n\nThis memorandum documents a near-miss on the flight line.\n";
-        let enriched =
-            enrich_yaml_error("error: line 3 column 1: simple key expected ':'", content);
+        let enriched = enrich_yaml_error("error: line 3 column 1: simple key expected ':'", content);
         let hint = enriched.hint.expect("hint should be set");
         assert!(hint.contains("Line 3"), "{hint}");
         assert!(hint.contains("reads as prose"), "{hint}");
@@ -744,10 +737,8 @@ mod tests {
 
     #[test]
     fn hint_for_prose_right_after_a_multi_word_field_says_close_the_block() {
-        let content =
-            "title: Near-Miss Report\n88th Communications Squadron, Wright-Patterson AFB\n";
-        let enriched =
-            enrich_yaml_error("error: line 2 column 1: simple key expected ':'", content);
+        let content = "title: Near-Miss Report\n88th Communications Squadron, Wright-Patterson AFB\n";
+        let enriched = enrich_yaml_error("error: line 2 column 1: simple key expected ':'", content);
         let hint = enriched.hint.expect("hint should be set");
         assert!(hint.contains("reads as prose"), "{hint}");
     }

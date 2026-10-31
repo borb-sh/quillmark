@@ -7,8 +7,8 @@ mod types;
 pub use enums::{PyOutputFormat, PySeverity};
 pub use errors::QuillmarkError;
 pub use types::{
-    PyArtifact, PyDiagnostic, PyDocument, PyEngine, PyLocation, PyQuill, PyReader, PyRenderResult,
-    PyWriter,
+    PyArtifact, PyDiagnostic, PyDocument, PyEngine, PyLocation, PyQuill,
+    PyRenderResult, PyReader, PyWriter,
 };
 
 #[pymodule]

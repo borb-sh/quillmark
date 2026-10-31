@@ -39,7 +39,9 @@ fn render(plate: &str, fields: &str) -> Result<(), String> {
     fs::write(quill_path.join("Quill.yaml"), QUILL_YAML).unwrap();
     fs::write(
         quill_path.join("plate.typ"),
-        format!("#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}\nok\n"),
+        format!(
+            "#import \"@local/quillmark-helper:0.2.0\" as qm\n{plate}\nok\n"
+        ),
     )
     .unwrap();
     let quill = quillmark::quill_from_path(&quill_path).expect("load quill");

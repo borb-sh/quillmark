@@ -101,7 +101,8 @@ fn arb_field_value() -> impl Strategy<Value = (&'static str, serde_json::Value)>
         arb_text().prop_map(|t| ("rich_inline", serde_json::Value::String(t))),
         arb_text().prop_map(|t| ("plain", serde_json::Value::String(t))),
         arb_text().prop_map(|t| ("plain_inline", serde_json::Value::String(t))),
-        prop::collection::vec(arb_text(), 0..3).prop_map(|ts| ("riches", serde_json::json!(ts))),
+        prop::collection::vec(arb_text(), 0..3)
+            .prop_map(|ts| ("riches", serde_json::json!(ts))),
         (arb_text(), arb_text())
             .prop_map(|(l, b)| ("pair", serde_json::json!({ "label": l, "blurb": b }))),
         // Shapes the strict write refuses: they must rest authored, not retype.

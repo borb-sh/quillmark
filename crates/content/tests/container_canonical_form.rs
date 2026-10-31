@@ -102,7 +102,10 @@ fn every_normalized_pair_is_idempotent_and_a_markdown_fixed_point() {
 /// and the discriminator at depth 1.
 #[test]
 fn triples_over_the_container_alphabet_are_fixed_points() {
-    let ps: Vec<Vec<Container>> = paths().into_iter().filter(|p| p.len() == 2).collect();
+    let ps: Vec<Vec<Container>> = paths()
+        .into_iter()
+        .filter(|p| p.len() == 2)
+        .collect();
     let mut broken = 0usize;
     for a in ps.iter().step_by(5) {
         for b in ps.iter().step_by(5) {
@@ -141,19 +144,11 @@ fn a_start_only_difference_separates_the_runs_and_still_costs_a_discriminator() 
         instance: 0,
     };
     assert!(!one.same_run(&three), "start is part of the shape");
-    assert!(
-        one.same_weld(&three),
-        "markdown cannot carry the second start"
-    );
+    assert!(one.same_weld(&three), "markdown cannot carry the second start");
 
     let rt = build(&[&vec![one], &vec![three]]);
     assert_eq!(rt.lines[1].containers[0].instance(), 1);
-    assert_eq!(
-        from_markdown(&to_markdown(&rt))
-            .expect("re-imports")
-            .content,
-        rt
-    );
+    assert_eq!(from_markdown(&to_markdown(&rt)).expect("re-imports").content, rt);
 }
 
 /// The projection rule is coarser than the identity rule, never finer: two runs

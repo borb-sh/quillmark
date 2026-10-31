@@ -3,11 +3,7 @@
 //! `selected_pages` refuses is pinned at `quillmark_core::backend`; what a
 //! selection reaching this backend *does* is here.
 
-use quillmark_core::{
-    backend::Backend,
-    session::LiveSession,
-    types::{OutputFormat, RenderOptions},
-};
+use quillmark_core::{backend::Backend, session::LiveSession, types::{OutputFormat, RenderOptions}};
 use quillmark_typst::TypstBackend;
 use serde_json::json;
 
@@ -46,11 +42,7 @@ fn refusal_code(format: OutputFormat, pages: Vec<usize>) -> String {
 #[test]
 fn page_selection_narrows_svg_to_the_named_page() {
     let session = session();
-    assert_eq!(
-        session.page_count(),
-        2,
-        "the plate breaks onto a second page"
-    );
+    assert_eq!(session.page_count(), 2, "the plate breaks onto a second page");
 
     let mut opts = RenderOptions::default().with_output_format(OutputFormat::Svg);
     opts.pages = Some(vec![1]);
@@ -58,10 +50,7 @@ fn page_selection_narrows_svg_to_the_named_page() {
     assert_eq!(selected.artifacts.len(), 1);
 
     opts.pages = None;
-    assert_eq!(
-        session.render(&opts).expect("render whole").artifacts.len(),
-        2
-    );
+    assert_eq!(session.render(&opts).expect("render whole").artifacts.len(), 2);
 }
 
 #[test]

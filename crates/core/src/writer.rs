@@ -63,13 +63,7 @@ impl<'a> TypedWriter<'a> {
         value: impl Into<QuillValue>,
     ) -> Result<Vec<Diagnostic>, EditError> {
         let schema = Some(&self.config.main.fields);
-        commit_impl(
-            self.doc.main_card_mut(),
-            schema,
-            name,
-            value,
-            &DocPath::main(),
-        )
+        commit_impl(self.doc.main_card_mut(), schema, name, value, &DocPath::main())
     }
 
     /// Write several main-card fields atomically, the typed twin of
@@ -81,10 +75,7 @@ impl<'a> TypedWriter<'a> {
     /// is charged over the whole batch, so a batch that would take the card
     /// past it reports every name in the overflowing tail. Returns
     /// [`set`](Self::set)'s warnings for every field, in batch order.
-    pub fn set_all<K, V, I>(
-        &mut self,
-        fields: I,
-    ) -> Result<Vec<Diagnostic>, Vec<(String, EditError)>>
+    pub fn set_all<K, V, I>(&mut self, fields: I) -> Result<Vec<Diagnostic>, Vec<(String, EditError)>>
     where
         K: Into<String>,
         V: Into<QuillValue>,
@@ -105,15 +96,8 @@ impl<'a> TypedWriter<'a> {
 
     /// [`revise_body`](Self::revise_body) under `base`, which refuses a stale
     /// write or merges it onto what changed since the writer's read.
-    pub fn revise_body_against(
-        &mut self,
-        base: Base<'_>,
-        markdown: &str,
-    ) -> Result<Revised, EditError> {
-        let revised = self
-            .doc
-            .main_card_mut()
-            .revise_body_against(base, markdown)?;
+    pub fn revise_body_against(&mut self, base: Base<'_>, markdown: &str) -> Result<Revised, EditError> {
+        let revised = self.doc.main_card_mut().revise_body_against(base, markdown)?;
         Ok(revised.with_path(&DocPath::main_body()))
     }
 
@@ -129,14 +113,7 @@ impl<'a> TypedWriter<'a> {
     /// byte no-op. The [`Revised`] receipt's warnings anchor at the field.
     pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Revised, EditError> {
         let schema = Some(&self.config.main.fields);
-        revise_impl(
-            self.doc.main_card_mut(),
-            schema,
-            name,
-            None,
-            text,
-            &DocPath::main(),
-        )
+        revise_impl(self.doc.main_card_mut(), schema, name, None, text, &DocPath::main())
     }
 
     /// [`revise_field`](Self::revise_field) under `base`. A `text` field's
@@ -148,14 +125,7 @@ impl<'a> TypedWriter<'a> {
         text: &str,
     ) -> Result<Revised, EditError> {
         let schema = Some(&self.config.main.fields);
-        revise_impl(
-            self.doc.main_card_mut(),
-            schema,
-            name,
-            Some(base),
-            text,
-            &DocPath::main(),
-        )
+        revise_impl(self.doc.main_card_mut(), schema, name, Some(base), text, &DocPath::main())
     }
 
     /// Replace the document with `markdown` through [`Document::revise`], then
@@ -208,8 +178,7 @@ impl<'a> TypedWriter<'a> {
     }
 
     fn revise_parsed(&mut self, revising: Revising) -> Result<DocumentRevised, BoundParseError> {
-        self.config
-            .check_quill_reference(&revising.parsed.document)?;
+        self.config.check_quill_reference(&revising.parsed.document)?;
         let mut revised = self.doc.revise_parsed(revising);
         revised.warnings.extend(
             self.config
@@ -353,11 +322,7 @@ impl<'a> CardWriter<'a> {
     }
 
     /// The card twin of [`TypedWriter::revise_body_against`].
-    pub fn revise_body_against(
-        &mut self,
-        read: Base<'_>,
-        markdown: &str,
-    ) -> Result<Revised, EditError> {
+    pub fn revise_body_against(&mut self, read: Base<'_>, markdown: &str) -> Result<Revised, EditError> {
         let base = self.base();
         let revised = self.card_mut().revise_body_against(read, markdown)?;
         Ok(revised.with_path(&base.body()))
@@ -395,10 +360,7 @@ impl<'a> CardWriter<'a> {
     /// Write several fields on this card atomically; see
     /// [`TypedWriter::set_all`]; an undeclared name aborts the whole batch with
     /// [`EditError::UnknownField`].
-    pub fn set_all<K, V, I>(
-        &mut self,
-        fields: I,
-    ) -> Result<Vec<Diagnostic>, Vec<(String, EditError)>>
+    pub fn set_all<K, V, I>(&mut self, fields: I) -> Result<Vec<Diagnostic>, Vec<(String, EditError)>>
     where
         K: Into<String>,
         V: Into<QuillValue>,
@@ -552,13 +514,7 @@ card_kinds:
             doc.main().payload().get("qty").unwrap().as_json(),
             &serde_json::json!(3)
         );
-        assert_eq!(
-            doc.main()
-                .field_text("subject", Codec::Richtext)
-                .unwrap()
-                .unwrap(),
-            "Hello"
-        );
+        assert_eq!(doc.main().field_text("subject", Codec::Richtext).unwrap().unwrap(), "Hello");
     }
 
     #[test]
@@ -616,10 +572,7 @@ card_kinds:
         let fields: IndexMap<String, FieldSchema> = (0..=max)
             .map(|i| {
                 let name = format!("f{i}");
-                (
-                    name.clone(),
-                    FieldSchema::new(name, FieldType::Text { multiline: false }, None),
-                )
+                (name.clone(), FieldSchema::new(name, FieldType::Text { multiline: false }, None))
             })
             .collect();
         let config = QuillConfig::new(
@@ -635,16 +588,11 @@ card_kinds:
             .set_all((0..=max).map(|i| (format!("f{i}"), "v")))
             .unwrap_err();
         assert_eq!(
-            errs.iter()
-                .map(|(name, _)| name.as_str())
-                .collect::<Vec<_>>(),
+            errs.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(),
             [format!("f{max}")]
         );
         assert_eq!(errs[0].1.code(), "edit::invalid_payload");
-        assert!(
-            doc.main().payload().is_empty(),
-            "the batch applied none of itself"
-        );
+        assert!(doc.main().payload().is_empty(), "the batch applied none of itself");
     }
 
     #[test]
@@ -656,13 +604,7 @@ card_kinds:
             .unwrap();
         assert_eq!(doc.cards().len(), 1);
         assert_eq!(doc.cards()[0].kind(), Some("note"));
-        assert_eq!(
-            doc.cards()[0]
-                .field_text("prose", Codec::Richtext)
-                .unwrap()
-                .unwrap(),
-            "**hi**"
-        );
+        assert_eq!(doc.cards()[0].field_text("prose", Codec::Richtext).unwrap().unwrap(), "**hi**");
         assert_eq!(doc.cards()[0].body_markdown(), "card body");
     }
 
@@ -674,8 +616,7 @@ card_kinds:
             let mut ed = TypedWriter::new(&config, &mut doc);
             ed.add_card("note", [("prose", "a")], None, None).unwrap();
             ed.add_card("note", [("prose", "c")], None, None).unwrap();
-            ed.add_card("note", [("prose", "b")], None, Some(1))
-                .unwrap();
+            ed.add_card("note", [("prose", "b")], None, Some(1)).unwrap();
         }
         let bodies: Vec<String> = doc
             .cards()
@@ -697,13 +638,7 @@ card_kinds:
         {
             let mut ed = TypedWriter::new(&config, &mut doc);
             let removed = ed.remove_card(1).unwrap();
-            assert_eq!(
-                removed
-                    .field_text("prose", Codec::Richtext)
-                    .unwrap()
-                    .unwrap(),
-                "b"
-            );
+            assert_eq!(removed.field_text("prose", Codec::Richtext).unwrap().unwrap(), "b");
             assert!(ed.remove_card(5).is_none());
         }
         assert_eq!(doc.cards().len(), 2);
@@ -734,16 +669,13 @@ card_kinds:
         let err = card_ed.set("stray", "v").unwrap_err();
         assert_eq!(err.code(), "edit::unknown_field");
 
-        assert_eq!(
-            doc.cards()[0]
-                .field_text("prose", Codec::Richtext)
-                .unwrap()
-                .unwrap(),
-            "**hi**"
-        );
+        assert_eq!(doc.cards()[0].field_text("prose", Codec::Richtext).unwrap().unwrap(), "**hi**");
 
         let mut ed = TypedWriter::new(&config, &mut doc);
-        assert!(matches!(ed.card(9), Err(EditError::IndexOutOfRange { .. })));
+        assert!(matches!(
+            ed.card(9),
+            Err(EditError::IndexOutOfRange { .. })
+        ));
     }
 
     #[test]
@@ -752,13 +684,7 @@ card_kinds:
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
         let _delta = ed.revise_field("subject", "Hello").unwrap();
-        assert_eq!(
-            doc.main()
-                .field_text("subject", Codec::Richtext)
-                .unwrap()
-                .unwrap(),
-            "Hello"
-        );
+        assert_eq!(doc.main().field_text("subject", Codec::Richtext).unwrap().unwrap(), "Hello");
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         assert_eq!(
@@ -768,29 +694,21 @@ card_kinds:
         // A one-line `richtext` rejects a multi-block result.
         let err = ed.revise_field("subject", "a\n\nb").unwrap_err();
         assert_eq!(err.code(), "edit::field_not_single_line");
-        assert_eq!(
-            doc.main()
-                .field_text("subject", Codec::Richtext)
-                .unwrap()
-                .unwrap(),
-            "Hello"
-        );
+        assert_eq!(doc.main().field_text("subject", Codec::Richtext).unwrap().unwrap(), "Hello");
     }
 
     #[test]
     fn set_drops_a_single_line_text_value_s_trailing_whitespace() {
-        let config = QuillConfig::from_yaml(
-            &QUILL_YAML.replace("    qty:\n", "    pti:\n      type: text\n    qty:\n"),
-        )
+        let config = QuillConfig::from_yaml(&QUILL_YAML.replace(
+            "    qty:\n",
+            "    pti:\n      type: text\n    qty:\n",
+        ))
         .unwrap();
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
 
         ed.set("pti", QuillValue::from("x \t\n")).unwrap();
-        assert_eq!(
-            doc.main().field_text("pti", Codec::Text).unwrap().unwrap(),
-            "x"
-        );
+        assert_eq!(doc.main().field_text("pti", Codec::Text).unwrap().unwrap(), "x");
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         let err = ed.set("pti", QuillValue::from("x\ny")).unwrap_err();
@@ -805,13 +723,7 @@ card_kinds:
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         let _ = ed.card(0).unwrap().revise_field("prose", "**hi**").unwrap();
-        assert_eq!(
-            doc.cards()[0]
-                .field_text("prose", Codec::Richtext)
-                .unwrap()
-                .unwrap(),
-            "**hi**"
-        );
+        assert_eq!(doc.cards()[0].field_text("prose", Codec::Richtext).unwrap().unwrap(), "**hi**");
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         assert_eq!(
@@ -832,10 +744,7 @@ card_kinds:
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
         let anchors = |warnings: &[Diagnostic]| -> Vec<(Option<String>, Option<String>)> {
-            warnings
-                .iter()
-                .map(|w| (w.code.clone(), w.path.clone()))
-                .collect()
+            warnings.iter().map(|w| (w.code.clone(), w.path.clone())).collect()
         };
         let dropped = |path: &str| {
             vec![(
@@ -844,9 +753,7 @@ card_kinds:
             )]
         };
 
-        let added = ed
-            .add_card("note", [("prose", "a")], Some("<span>x</span>"), None)
-            .unwrap();
+        let added = ed.add_card("note", [("prose", "a")], Some("<span>x</span>"), None).unwrap();
         assert_eq!(anchors(&added), dropped("cards.note[0].body"));
         let revised = ed.revise_body("<kbd>x</kbd>").unwrap();
         assert_eq!(anchors(&revised.warnings), dropped("main.body"));
@@ -854,36 +761,20 @@ card_kinds:
         assert_eq!(anchors(&revised.warnings), dropped("main.subject"));
         let revised = ed.card(0).unwrap().revise_body("<kbd>x</kbd>").unwrap();
         assert_eq!(anchors(&revised.warnings), dropped("cards.note[0].body"));
-        let revised = ed
-            .card(0)
-            .unwrap()
-            .revise_field("blurb", "<kbd>x</kbd>")
-            .unwrap();
+        let revised = ed.card(0).unwrap().revise_field("blurb", "<kbd>x</kbd>").unwrap();
         assert_eq!(anchors(&revised.warnings), dropped("cards.note[0].blurb"));
         let revised = ed.card(0).unwrap().revise_field("blurb", "plain").unwrap();
         assert!(revised.warnings.is_empty());
-        let added = ed
-            .add_card("note", [("prose", "b")], Some("<span>y</span>"), Some(0))
-            .unwrap();
+        let added = ed.add_card("note", [("prose", "b")], Some("<span>y</span>"), Some(0)).unwrap();
         assert_eq!(anchors(&added), dropped("cards.note[0].body"));
         let set = ed.set("subject", "<kbd>x</kbd>").unwrap();
         assert_eq!(anchors(&set), dropped("main.subject"));
-        let set = ed
-            .card(1)
-            .unwrap()
-            .set_all([("blurb", "<kbd>x</kbd>")])
-            .unwrap();
+        let set = ed.card(1).unwrap().set_all([("blurb", "<kbd>x</kbd>")]).unwrap();
         assert_eq!(anchors(&set), dropped("cards.note[1].blurb"));
-        let added = ed
-            .add_card("note", [("blurb", "<em>z</em>")], None, None)
-            .unwrap();
+        let added = ed.add_card("note", [("blurb", "<em>z</em>")], None, None).unwrap();
         assert_eq!(anchors(&added), dropped("cards.note[2].blurb"));
 
-        let revised = doc
-            .card_mut(1)
-            .unwrap()
-            .revise_body("<kbd>x</kbd>")
-            .unwrap();
+        let revised = doc.card_mut(1).unwrap().revise_body("<kbd>x</kbd>").unwrap();
         assert_eq!(
             anchors(&revised.warnings),
             [(Some(crate::document::DROPPED_CONSTRUCT.to_string()), None)]
@@ -909,27 +800,15 @@ card_kinds:
             .iter()
             .map(|w| {
                 let construct = w.args.get("construct").and_then(|c| c.as_str());
-                (
-                    w.code.as_deref().unwrap_or_default(),
-                    w.path.as_deref(),
-                    construct,
-                )
+                (w.code.as_deref().unwrap_or_default(), w.path.as_deref(), construct)
             })
             .collect();
         assert_eq!(
             warnings,
             [
                 ("parse::dropped_construct", Some("main.body"), Some("span")),
-                (
-                    "parse::dropped_construct",
-                    Some("cards.note[0].body"),
-                    Some("em")
-                ),
-                (
-                    "parse::dropped_construct",
-                    Some("main.subject"),
-                    Some("kbd")
-                ),
+                ("parse::dropped_construct", Some("cards.note[0].body"), Some("em")),
+                ("parse::dropped_construct", Some("main.subject"), Some("kbd")),
                 ("conform::field_decode", Some("cards.note[0].blurb"), None),
             ]
         );

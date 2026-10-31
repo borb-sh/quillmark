@@ -9,9 +9,7 @@
 //! The background owns the visual chrome, so a widget is a transparent input over
 //! it: no borders, no fills, black text.
 
-use pdf_writer::types::{
-    AnnotationFlags, FieldFlags, FieldType as PwFieldType, Quadding, SigFlags,
-};
+use pdf_writer::types::{AnnotationFlags, FieldFlags, FieldType as PwFieldType, Quadding, SigFlags};
 use pdf_writer::writers::{Field, Form};
 use pdf_writer::{Chunk, Finish, Name, Rect, Ref, Str, TextStr};
 
@@ -20,8 +18,8 @@ use quillmark_core::region::RenderedRegion;
 use crate::appearance::{self, Appearance, Normal};
 use crate::error::PdfError;
 use crate::reader::{
-    ObjectIndex, UpdatedObject, array_elements, as_dict, is_name, parse_indirect_ref,
-    set_dict_value,
+    array_elements, as_dict, is_name, parse_indirect_ref, set_dict_value, ObjectIndex,
+    UpdatedObject,
 };
 use crate::update::PdfUpdate;
 use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
@@ -315,10 +313,7 @@ pub fn stamp(
 /// reference, as a viewer reads them. An annotation dictionary the reader
 /// cannot read is `Err`, since it may be a widget.
 fn holds_a_widget<'a>(idx: &ObjectIndex<'a>, page: &'a [u8]) -> Result<bool, PdfError> {
-    let Some(annots) = idx
-        .value(page, "Annots")
-        .and_then(|annots| idx.resolve(annots))
-    else {
+    let Some(annots) = idx.value(page, "Annots").and_then(|annots| idx.resolve(annots)) else {
         return Ok(false);
     };
     for annot in array_elements(annots).filter_map(|annot| idx.resolve(annot)) {
@@ -351,7 +346,13 @@ fn bake(up: &mut PdfUpdate, ap: &Appearance, font_id: u32) -> Result<u32, PdfErr
 pub fn regions_of(fields: &[FieldSpec]) -> Vec<RenderedRegion> {
     fields
         .iter()
-        .filter_map(|f| Some(RenderedRegion::new(f.schema_field.clone()?, f.page, f.rect)))
+        .filter_map(|f| {
+            Some(RenderedRegion::new(
+                f.schema_field.clone()?,
+                f.page,
+                f.rect,
+            ))
+        })
         .collect()
 }
 
