@@ -3,7 +3,7 @@ its producers `revise` and `replace`, the reads, and the pure helpers over
 changes. Offsets count code points."""
 
 import pytest
-from quillmark import Document, compose, diff, invert, map_pos
+from quillmark import Document, compose, diff, invert, map_pos, repair
 
 from conftest import raises_edit_code
 
@@ -84,3 +84,26 @@ def test_compose_map_pos_and_diff_answer_without_a_document():
     doc2 = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\nhello brave world\n")
     doc.apply(diff(before, doc2.read()))
     assert doc.read()["text"] == "hello brave world"
+
+
+def test_repair_makes_a_merged_state_valid_in_code_points():
+    out = repair(
+        {
+            "text": "😀ab￼cd",
+            "blocks": [{"id": "b0", "kind": "para", "path": ["l9"]}],
+            "anchors": [{"id": "c-1", "start": 1, "end": 3}, {"id": "c-2", "start": 2, "end": 2, "range": True}],
+            "slot_ids": ["t0"],
+            "islands": {"m0": {"type": "math", "props": {"tex": "x"}}},
+        }
+    )
+    assert out["content"]["text"] == "😀abcd"
+    assert out["content"]["anchors"] == [{"id": "c-1", "start": 1, "end": 3}]
+    assert [r["repair"] for r in out["repairs"]] == [
+        "orphan_slot",
+        "orphan_island",
+        "missing_container",
+        "collapsed_anchor",
+    ]
+    assert repair(out["content"]) == {"content": out["content"], "repairs": []}
+    with pytest.raises(ValueError):
+        repair({"blocks": []})

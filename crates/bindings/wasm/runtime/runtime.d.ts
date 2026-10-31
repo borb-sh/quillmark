@@ -23,6 +23,7 @@ import type {
 	invert,
 	compose,
 	diff,
+	repair,
 	isInline,
 	isPlain,
 	parseDocPath,
@@ -47,6 +48,7 @@ export interface CoreSurface {
 	invert: typeof invert;
 	compose: typeof compose;
 	diff: typeof diff;
+	repair: typeof repair;
 	isInline: typeof isInline;
 	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;
@@ -124,9 +126,10 @@ export type {
 
 // The content model `Document`'s write primitive and readers speak
 // (`apply(addr, change)`, `revise(addr, md)`, `replace(addr, content)`,
-// `read(addr)`), offsets in UTF-16 code units. `ContentBlockKind` and
-// `ContentMarkKind` are the shared halves of a read value and a step:
-// destructure the kind off the envelope and spread it into the step.
+// `read(addr)`), offsets in UTF-16 code units, with `repair`'s raw value and
+// report. `ContentBlockKind` and `ContentMarkKind` are the shared halves of a
+// read value and a step: destructure the kind off the envelope and spread it
+// into the step.
 export type {
 	Content,
 	ContentBlock,
@@ -144,6 +147,9 @@ export type {
 	Receipt,
 	WriteOptions,
 	Write,
+	RawContent,
+	Repair,
+	Repaired,
 	CardInput,
 	PathStep,
 	Addr,

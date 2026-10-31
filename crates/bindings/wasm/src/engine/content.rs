@@ -170,6 +170,40 @@ export interface Write {
     change: Change;
     base?: string;
 }
+
+/**
+ * A value as a merge of the shared state left it, for `repair`: shaped as
+ * `Content`, its invariants unchecked. `islands` may be an object keyed by
+ * island id, with `slot_ids` naming the island each `U+FFFC` of `text`
+ * carries, `null` where it carries none; an `islands` array pairs with the
+ * slots in order. An anchor placed as a range carries `range: true`, since at
+ * zero width it cannot be told from a point.
+ */
+export type RawContent = Omit<Content, "islands" | "anchors" | "blocks"> & {
+    blocks?: ContentBlock[];
+    anchors?: (ContentAnchor & { range?: boolean })[];
+    islands?: ContentIsland[] | Record<string, Omit<ContentIsland, "id" | "slots"> & { slots?: Record<string, RawContent> }>;
+    slot_ids?: (string | null)[];
+};
+
+/** One change `repair` made. */
+export type Repair =
+    | { repair: "missing_container"; block: string; container: string }
+    | { repair: "two_parents"; container: string }
+    | { repair: "split_run"; container: string; fresh: string }
+    | { repair: "orphan_slot"; island: string | null }
+    | { repair: "orphan_island"; island: string }
+    | { repair: "shared_island"; island: string; fresh: string }
+    | { repair: "split_block"; island: string; block: string }
+    | { repair: "collapsed_anchor"; id: string }
+    | { repair: "invalid"; reason: string }
+    | { repair: "in_slot"; island: string; slot: string; inner: Repair };
+
+/** A repaired value and what changed to make it valid. */
+export interface Repaired {
+    content: Content;
+    repairs: Repair[];
+}
 "#;
 
 #[derive(serde::Serialize)]
@@ -586,4 +620,21 @@ pub fn diff(
     let change = quillmark_content::diff::diff(&before, &after);
     let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
     serialize_or_throw(&change.to_value(), "diff")
+}
+
+/// `raw` made valid by the merge-repair rules, and what changed. Total over
+/// any value shaped as content, and deterministic: the same raw value always
+/// repairs to the same content, so two peers repairing at once agree.
+#[wasm_bindgen(js_name = repair, unchecked_return_type = "Repaired")]
+pub fn repair(#[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue) -> Result<JsValue, JsValue> {
+    let mut json = js_value_to_json(raw, "repair")?;
+    units::raw_to_scalars(&mut json, Utf16);
+    let raw = quillmark_content::repair::Raw::from_value(&json)
+        .map_err(|e| WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value())?;
+    let (content, repairs) = quillmark_content::repair::repair(raw);
+    let out = serde_json::json!({
+        "content": content.to_value_in(Utf16),
+        "repairs": repairs.iter().map(|r| r.to_value()).collect::<Vec<_>>(),
+    });
+    serialize_or_throw(&out, "repair")
 }

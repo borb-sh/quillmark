@@ -16,6 +16,7 @@ import {
   invert,
   compose,
   diff,
+  repair,
   isInline,
   isPlain,
   parseDocPath,
@@ -735,6 +736,26 @@ describe('Document apply: the write primitive', () => {
     doc.replace({}, before)
     doc.apply({}, change)
     expect(doc.read({}).text).toBe('hello brave world')
+  })
+
+  it('repair makes a merged state valid, in UTF-16 offsets', () => {
+    const { content, repairs } = repair({
+      text: '😀ab\uFFFCcd',
+      blocks: [{ id: 'b0', kind: 'para', path: ['l9'] }],
+      anchors: [{ id: 'c-1', start: 2, end: 4 }, { id: 'c-2', start: 3, end: 3, range: true }],
+      slot_ids: ['t0'],
+      islands: { m0: { type: 'math', props: { tex: 'x' } } },
+    })
+    expect(content.text).toBe('😀abcd')
+    expect(content.anchors).toEqual([{ id: 'c-1', start: 2, end: 4 }])
+    expect(repairs).toEqual([
+      { repair: 'orphan_slot', island: 't0' },
+      { repair: 'orphan_island', island: 'm0' },
+      { repair: 'missing_container', block: 'b0', container: 'l9' },
+      { repair: 'collapsed_anchor', id: 'c-2' },
+    ])
+    expect(repair(content)).toEqual({ content, repairs: [] })
+    expect(() => repair({ blocks: [] })).toThrow(/not shaped as content/)
   })
 
   it('normalize answers what replace stores, and refuses what replace refuses', () => {

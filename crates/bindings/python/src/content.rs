@@ -154,3 +154,20 @@ pub fn diff<'py>(py: Python<'py>, before: &Bound<'_, PyAny>, after: &Bound<'_, P
     let (before, after) = (content_from_py(before, "diff")?, content_from_py(after, "diff")?);
     json_to_py(py, &quillmark_content::diff::diff(&before, &after).to_value())
 }
+
+/// `raw` made valid by the merge-repair rules, as `{"content", "repairs"}`.
+/// Total over any value shaped as content, and deterministic: the same raw
+/// value always repairs to the same content.
+#[pyfunction]
+pub fn repair<'py>(py: Python<'py>, raw: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+    let raw = quillmark_content::repair::Raw::from_value(&py_to_json(raw)?)
+        .map_err(|e| PyValueError::new_err(format!("repair: not shaped as content: {e}")))?;
+    let (content, repairs) = quillmark_content::repair::repair(raw);
+    json_to_py(
+        py,
+        &serde_json::json!({
+            "content": content.to_value(),
+            "repairs": repairs.iter().map(|r| r.to_value()).collect::<Vec<_>>(),
+        }),
+    )
+}
