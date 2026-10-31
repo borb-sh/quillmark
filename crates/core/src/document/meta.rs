@@ -30,9 +30,10 @@ pub(super) fn meta_key(item: &PayloadItem) -> Option<&'static str> {
 ///
 /// The accepted keys are the closed set `{$quill, $kind, $id, $ext, $seed}`;
 /// any other `$` key is a parse error. `$quill` and `$kind` require string
-/// scalars, `$ext` and `$seed` a mapping. `$id` takes any value, a string as
-/// written and anything else as its JSON text, since a settle re-mints an id
-/// outside the grammar rather than refusing the card. Duplicates cannot arise
+/// scalars, `$ext` and `$seed` a mapping. `$id` takes any value: a null as
+/// no `$id`, a string as written, and anything else as its JSON text (YAML's
+/// `0x1F` reads as `31`), since a settle re-mints an id outside the grammar
+/// rather than refusing the card. Duplicates cannot arise
 /// here: the YAML parser rejects them first.
 pub(super) fn extract_meta_items(payload: &mut JsonValue) -> Result<Vec<PayloadItem>, ParseError> {
     let map = match payload {
@@ -78,11 +79,10 @@ pub(super) fn extract_meta_items(payload: &mut JsonValue) -> Result<Vec<PayloadI
                 }
                 PayloadItem::Kind { value: s }
             }
-            "$id" => PayloadItem::Id {
-                value: match value {
-                    JsonValue::String(s) => s,
-                    other => other.to_string(),
-                },
+            "$id" => match value {
+                JsonValue::Null => continue,
+                JsonValue::String(s) => PayloadItem::Id { value: s },
+                other => PayloadItem::Id { value: other.to_string() },
             },
             "$ext" | "$seed" => {
                 let meta_key = MetaKey::from_key_str(&key).expect("matched $ext/$seed above");
