@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use quillmark_content::model::{MarkKind, Normalized};
 use quillmark_content::serial::to_canonical_value;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 
 use crate::document::{AnchorSelector, Card, Codec, Document};
 use crate::path::DocPath;
@@ -29,7 +29,8 @@ fn document() -> Document {
         to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
         to_canonical_value(&anchored(&item, "worth a flag", "i1")),
     ]);
-    note.store_field("items", QuillValue::from_json(items)).unwrap();
+    note.store_field("items", QuillValue::from_json(items))
+        .unwrap();
     doc
 }
 
@@ -66,13 +67,22 @@ fn contexts_list_every_anchor_at_its_path_in_annotated_order() {
         .into_iter()
         .map(|a| (a.id, a.path.to_string()))
         .collect();
-    let read: Vec<(String, String)> =
-        selectors.iter().map(|s| (s.id.clone(), s.path.to_string())).collect();
+    let read: Vec<(String, String)> = selectors
+        .iter()
+        .map(|s| (s.id.clone(), s.path.to_string()))
+        .collect();
     assert_eq!(read, listed);
     assert_eq!(read[1], ("i1".into(), "cards.note[0].items[1]".into()));
 
     let item = doc.anchor_context("i1").unwrap();
-    assert_eq!((item.quote.as_str(), item.prefix.as_str(), item.suffix.as_str()), ("worth a flag", "an item ", ""));
+    assert_eq!(
+        (
+            item.quote.as_str(),
+            item.prefix.as_str(),
+            item.suffix.as_str()
+        ),
+        ("worth a flag", "an item ", "")
+    );
     assert_eq!(doc.anchor_context("nope"), None);
 }
 
@@ -89,9 +99,15 @@ fn contexts_then_reattach_is_the_identity_and_restores_what_a_store_lost() {
 
     let mut bare = without_anchors(&doc);
     assert!(bare.anchor_contexts().is_empty());
-    let again = AnchorSelector { path: DocPath::main_body(), ..selectors[2].clone() };
+    let again = AnchorSelector {
+        path: DocPath::main_body(),
+        ..selectors[2].clone()
+    };
     let out = bare.reattach(&[selectors.clone(), vec![again]].concat(), &HashMap::new());
-    assert!(out.orphaned.is_empty(), "an id repeated is answered once: {out:?}");
+    assert!(
+        out.orphaned.is_empty(),
+        "an id repeated is answered once: {out:?}"
+    );
     assert_eq!(out.reattached, selectors);
     assert_eq!(bare, doc);
 }
@@ -103,7 +119,11 @@ fn a_cold_reopen_recovers_the_body_anchors_from_their_selectors() {
     let mut reopened = parse(&doc.to_markdown());
     let out = reopened.reattach(&selectors, &HashMap::new());
     assert_eq!(ids(&out.reattached), ["m1", "n1"]);
-    assert_eq!(ids(&out.orphaned), ["i1"], "the reopened list holds markdown, not content");
+    assert_eq!(
+        ids(&out.orphaned),
+        ["i1"],
+        "the reopened list holds markdown, not content"
+    );
     assert_eq!(anchor_ids(reopened.main().body()), ["m1"]);
 }
 
@@ -133,15 +153,27 @@ fn a_path_naming_no_body_or_content_value_orphans_its_selector() {
 #[test]
 fn an_id_live_anywhere_is_answered_and_not_written() {
     let mut doc = document();
-    let table = crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| 1 | 2 |").unwrap();
+    let table =
+        crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| 1 | 2 |").unwrap();
     let mut table = table.into_content();
     table.islands[0].props["rows"][0][0]["marks"] =
         json!([{ "start": 0, "end": 1, "type": "anchor", "id": "cell1" }]);
-    doc.main_mut().overwrite_field("grid", Normalized::from(table)).unwrap();
+    doc.main_mut()
+        .overwrite_field("grid", Normalized::from(table))
+        .unwrap();
     let held = doc.clone();
 
-    let cell = AnchorSelector::new("cell1", DocPath::main_body(), "met on Monday", "The committee ", " to plan the roads");
-    let elsewhere = AnchorSelector { path: DocPath::main_body(), ..doc.anchor_context("n1").unwrap() };
+    let cell = AnchorSelector::new(
+        "cell1",
+        DocPath::main_body(),
+        "met on Monday",
+        "The committee ",
+        " to plan the roads",
+    );
+    let elsewhere = AnchorSelector {
+        path: DocPath::main_body(),
+        ..doc.anchor_context("n1").unwrap()
+    };
     let out = doc.reattach(&[cell, elsewhere], &HashMap::new());
     assert_eq!(doc, held);
     let live = AnchorSelector::new("cell1", "main.grid".parse().unwrap(), "1", "", "");
@@ -152,15 +184,26 @@ fn an_id_live_anywhere_is_answered_and_not_written() {
 #[test]
 fn a_delta_binds_only_the_path_it_is_keyed_by() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nThe committee met on Monday to plan.\n");
-    let body = anchored(&anchored(doc.main().body(), "met on Monday", "m1"), "to plan", "m2");
+    let body = anchored(
+        &anchored(doc.main().body(), "met on Monday", "m1"),
+        "to plan",
+        "m2",
+    );
     doc.main_mut().overwrite_body(body);
     let before = doc.anchor_contexts();
     let mut bare = without_anchors(&doc);
-    let revised = bare.main_mut().revise_body("Minutes.\n\nThe committee met on Monday to plan.").unwrap();
+    let revised = bare
+        .main_mut()
+        .revise_body("Minutes.\n\nThe committee met on Monday to plan.")
+        .unwrap();
 
     let mut strict = bare.clone();
     let here = HashMap::from([(DocPath::main_body(), revised.delta.clone())]);
-    assert_eq!(strict.reattach(&before, &here).orphaned, before, "both quotes sit in kept text");
+    assert_eq!(
+        strict.reattach(&before, &here).orphaned,
+        before,
+        "both quotes sit in kept text"
+    );
 
     let elsewhere = HashMap::from([("cards.note[0].body".parse().unwrap(), revised.delta)]);
     let out = bare.reattach(&before, &elsewhere);
@@ -170,7 +213,9 @@ fn a_delta_binds_only_the_path_it_is_keyed_by() {
 
 #[test]
 fn a_quote_found_again_in_inserted_text_is_placed_with_the_delta() {
-    let mut doc = parse("~~~\n$quill: q\n~~~\n\nIntro.\n\nOver the fiscal year we approved the budget for roads.\n");
+    let mut doc = parse(
+        "~~~\n$quill: q\n~~~\n\nIntro.\n\nOver the fiscal year we approved the budget for roads.\n",
+    );
     let body = anchored(doc.main().body(), "approved the budget", "c1");
     doc.main_mut().overwrite_body(body);
     let before = doc.anchor_contexts();
@@ -184,7 +229,10 @@ fn a_quote_found_again_in_inserted_text_is_placed_with_the_delta() {
     assert_eq!(out.reattached[0].quote, "approved the budget");
 
     let revised = doc.main_mut().revise_body(rewritten).unwrap();
-    assert!(revised.dropped_anchors.is_empty(), "revise relocates it itself");
+    assert!(
+        revised.dropped_anchors.is_empty(),
+        "revise relocates it itself"
+    );
     assert_eq!(doc, bare);
 }
 
@@ -195,7 +243,11 @@ fn every_field_revise_names_the_anchor_it_drops() {
     let base = crate::document::import_body("Keep this line.\n\nDrop this anchored line.").unwrap();
     let base = anchored(&base, "anchored", "c1");
     let next = crate::document::import_body("Keep this line.").unwrap();
-    let schema = FieldSchema::new("f".to_string(), FieldType::RichText { multiline: true }, None);
+    let schema = FieldSchema::new(
+        "f".to_string(),
+        FieldType::RichText { multiline: true },
+        None,
+    );
     let fresh = || {
         let mut card = Card::new("note").unwrap();
         card.overwrite_body(base.clone());
@@ -204,25 +256,44 @@ fn every_field_revise_names_the_anchor_it_drops() {
     };
     type Rung = fn(&mut Card, &Normalized, &FieldSchema) -> crate::document::Revised;
     let rungs: [(&str, Rung); 5] = [
-        ("revise_body", |c, _, _| c.revise_body("Keep this line.").unwrap()),
-        ("revise_field", |c, _, _| c.revise_field("f", "Keep this line.").unwrap()),
-        ("revise_body_content", |c, n, _| c.revise_body_content(n.clone())),
-        ("revise_field_content", |c, n, _| c.revise_field_content("f", n.clone()).unwrap()),
-        ("revise_field_checked", |c, _, s| c.revise_field_checked("f", "Keep this line.", s).unwrap()),
+        ("revise_body", |c, _, _| {
+            c.revise_body("Keep this line.").unwrap()
+        }),
+        ("revise_field", |c, _, _| {
+            c.revise_field("f", "Keep this line.").unwrap()
+        }),
+        ("revise_body_content", |c, n, _| {
+            c.revise_body_content(n.clone())
+        }),
+        ("revise_field_content", |c, n, _| {
+            c.revise_field_content("f", n.clone()).unwrap()
+        }),
+        ("revise_field_checked", |c, _, s| {
+            c.revise_field_checked("f", "Keep this line.", s).unwrap()
+        }),
     ];
     for (rung, revise) in rungs {
         let mut card = fresh();
         let revised = revise(&mut card, &next, &schema);
-        let dropped: Vec<(&str, &str)> =
-            revised.dropped_anchors.iter().map(|a| (a.id.as_str(), a.line.as_str())).collect();
+        let dropped: Vec<(&str, &str)> = revised
+            .dropped_anchors
+            .iter()
+            .map(|a| (a.id.as_str(), a.line.as_str()))
+            .collect();
         assert_eq!(dropped, [("c1", "Drop this anchored line.")], "{rung}");
     }
 
     let mut card = fresh();
-    let kept = card.revise_field("f", "Keep this line.\n\nDrop this anchored line, edited.").unwrap();
+    let kept = card
+        .revise_field("f", "Keep this line.\n\nDrop this anchored line, edited.")
+        .unwrap();
     assert!(kept.dropped_anchors.is_empty(), "{kept:?}");
     let read = card.field_content("f", Codec::Richtext).unwrap().unwrap();
-    assert!(read.marks.iter().any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")));
+    assert!(
+        read.marks
+            .iter()
+            .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
+    );
 }
 
 /// A selector naming its card's `$id` finds the card wherever it moved, and
@@ -234,7 +305,11 @@ fn a_selector_resolves_its_card_by_id() {
     let id = doc.cards()[0].id().unwrap().to_string();
     assert_eq!(n1.card_id.as_deref(), Some(id.as_str()));
     assert_eq!(
-        doc.to_markdown_annotated().anchors.iter().map(|a| a.card_id.as_deref()).collect::<Vec<_>>(),
+        doc.to_markdown_annotated()
+            .anchors
+            .iter()
+            .map(|a| a.card_id.as_deref())
+            .collect::<Vec<_>>(),
         [None, Some(id.as_str()), Some(id.as_str())]
     );
 
@@ -249,8 +324,14 @@ fn a_selector_resolves_its_card_by_id() {
     assert_eq!(out.reattached[0].path.to_string(), "cards.note[1].body");
     assert_eq!(anchor_ids(reopened.cards()[1].body()), ["n1"]);
 
-    let gone = AnchorSelector { card_id: Some("nobody".into()), ..n1.clone() };
-    let other_kind = AnchorSelector { path: "cards.memo[0].body".parse().unwrap(), ..n1 };
+    let gone = AnchorSelector {
+        card_id: Some("nobody".into()),
+        ..n1.clone()
+    };
+    let other_kind = AnchorSelector {
+        path: "cards.memo[0].body".parse().unwrap(),
+        ..n1
+    };
     for selector in [gone, other_kind] {
         let out = without_anchors(&doc).reattach(&[selector.clone()], &HashMap::new());
         assert_eq!(out.orphaned, [selector]);
@@ -258,7 +339,9 @@ fn a_selector_resolves_its_card_by_id() {
 }
 
 fn table_body(cell_id: &str) -> Normalized {
-    let table = crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| one cell | 2 |").unwrap();
+    let table =
+        crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| one cell | 2 |")
+            .unwrap();
     let mut table = table.into_content();
     table.islands[0].props["rows"][0][0]["marks"] =
         json!([{ "start": 4, "end": 8, "type": "anchor", "attrs": { "id": cell_id } }]);
@@ -270,25 +353,44 @@ fn a_revise_names_a_cell_anchor_it_drops() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
     doc.main_mut().overwrite_body(table_body("t1"));
     let read = doc.to_markdown_annotated();
-    let line = read.anchors.iter().find(|a| a.id == "t1").map(|a| a.line.clone());
+    let line = read
+        .anchors
+        .iter()
+        .find(|a| a.id == "t1")
+        .map(|a| a.line.clone());
     assert_eq!(line.as_deref(), Some("one cell"));
 
     let markdown = doc.main().body_markdown();
     let kept = doc.main_mut().revise_body(&markdown).unwrap();
-    assert!(kept.dropped_anchors.is_empty(), "{:?}", kept.dropped_anchors);
-    let revised = doc.main_mut().revise_body("Lead line.\n\n| a | b |\n|---|---|\n| one row | 2 |").unwrap();
-    let dropped: Vec<(&str, &str)> = revised.dropped_anchors.iter().map(|a| (a.id.as_str(), a.line.as_str())).collect();
+    assert!(
+        kept.dropped_anchors.is_empty(),
+        "{:?}",
+        kept.dropped_anchors
+    );
+    let revised = doc
+        .main_mut()
+        .revise_body("Lead line.\n\n| a | b |\n|---|---|\n| one row | 2 |")
+        .unwrap();
+    let dropped: Vec<(&str, &str)> = revised
+        .dropped_anchors
+        .iter()
+        .map(|a| (a.id.as_str(), a.line.as_str()))
+        .collect();
     assert_eq!(dropped, [("t1", "one cell")]);
 }
 
 #[test]
 fn a_collision_a_cell_takes_part_in_loads_reported() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
-    doc.main_mut().overwrite_body(anchored(&table_body("t1"), "Lead", "t1"));
+    doc.main_mut()
+        .overwrite_body(anchored(&table_body("t1"), "Lead", "t1"));
     let stored = serde_json::to_string(&doc).unwrap();
     let loaded: Document = serde_json::from_str(&stored).expect("a collision loads");
     let warnings = loaded.anchor_collisions();
     assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].code.as_deref(), Some(crate::document::ANCHOR_ID_COLLISION));
+    assert_eq!(
+        warnings[0].code.as_deref(),
+        Some(crate::document::ANCHOR_ID_COLLISION)
+    );
     assert_eq!(warnings[0].path.as_deref(), Some("main.body"));
 }

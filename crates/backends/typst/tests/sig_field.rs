@@ -3,7 +3,11 @@
 
 use std::collections::HashMap;
 
-use quillmark_core::{backend::Backend, error::RenderError, types::{OutputFormat, RenderOptions}};
+use quillmark_core::{
+    backend::Backend,
+    error::RenderError,
+    types::{OutputFormat, RenderOptions},
+};
 use quillmark_typst::TypstBackend;
 
 mod common;
@@ -20,7 +24,11 @@ fn compile(plate: &str, json_data: &serde_json::Value) -> Result<Vec<u8>, Render
 fn acroform(
     plate: &str,
     json_data: &serde_json::Value,
-) -> (lopdf::Document, lopdf::Dictionary, HashMap<String, lopdf::Dictionary>) {
+) -> (
+    lopdf::Document,
+    lopdf::Dictionary,
+    HashMap<String, lopdf::Dictionary>,
+) {
     let pdf = compile(plate, json_data).expect("compile ok");
     let doc = lopdf::Document::load_mem(&pdf).expect("reparse");
     let af_ref = doc
@@ -33,7 +41,11 @@ fn acroform(
     let af = doc.get_object(af_ref).unwrap().as_dict().unwrap().clone();
     let mut by_name = HashMap::new();
     for f in af.get(b"Fields").unwrap().as_array().unwrap() {
-        let widget = doc.get_object(f.as_reference().unwrap()).unwrap().as_dict().unwrap();
+        let widget = doc
+            .get_object(f.as_reference().unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
         let name =
             String::from_utf8_lossy(widget.get(b"T").unwrap().as_str().unwrap()).into_owned();
         by_name.insert(name, widget.clone());
@@ -163,7 +175,10 @@ fn form_field_maps_each_type_and_binds_values_from_data() {
 #qm.form-field("name", type: "text", value: qm.data.full_name)
 #qm.form-field("count", type: "text", value: str(qm.data.count))
 "#;
-    let (_, af, w) = acroform(plate, &serde_json::json!({ "full_name": "Ada Lovelace", "count": 7 }));
+    let (_, af, w) = acroform(
+        plate,
+        &serde_json::json!({ "full_name": "Ada Lovelace", "count": 7 }),
+    );
 
     let ft = |name: &str| w[name].get(b"FT").unwrap().as_name().unwrap().to_vec();
     let v = |name: &str| w[name].get(b"V").unwrap().as_str().unwrap().to_vec();
@@ -173,7 +188,10 @@ fn form_field_maps_each_type_and_binds_values_from_data() {
     assert_eq!(v("single"), b"hello");
     assert_eq!(v("name"), b"Ada Lovelace");
     assert_eq!(v("count"), b"7");
-    assert!(w["sig"].get(b"V").is_err(), "signature field must carry no /V");
+    assert!(
+        w["sig"].get(b"V").is_err(),
+        "signature field must carry no /V"
+    );
     assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 1);
 }
 

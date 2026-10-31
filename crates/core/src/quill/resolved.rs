@@ -9,7 +9,10 @@ use serde::Serialize;
 
 use super::compose::resolve_card_sourced;
 use super::{CalendarDate, CardSchema, Quill, QuillConfig};
-use crate::{document::{Card, Document}, value::QuillValue};
+use crate::{
+    document::{Card, Document},
+    value::QuillValue,
+};
 
 /// The rung of the commitment ladder that produced a [`ResolvedField::value`].
 /// Serializes lowercase (`"authored" | "default" | "blank"`).
@@ -234,8 +237,8 @@ fn body_state(card: &Card) -> ResolvedField {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quill::{quill_from_yaml, test_date};
     use crate::document::{Card, Document, Payload};
+    use crate::quill::{quill_from_yaml, test_date};
 
     fn parse(md: &str) -> Document {
         Document::parse(md).expect("document should parse").document
@@ -290,7 +293,6 @@ card_kinds:
       tag:
         type: text
 "#;
-
 
     #[test]
     fn scalar_sources_authored_default_blank() {
@@ -390,7 +392,10 @@ main:
         let absent = quill.resolve(&shape_doc(""), test_date());
         let r = row(&absent.main.fields, "address");
         assert_eq!(r.source, FieldSource::Blank);
-        assert_eq!(r.value.as_json(), &serde_json::json!({ "street": text("") }));
+        assert_eq!(
+            r.value.as_json(),
+            &serde_json::json!({ "street": text("") })
+        );
     }
 
     // Both projections cut the one shared ladder (`ladder_sourced`), but over
@@ -466,7 +471,6 @@ main:
         assert_eq!(r.value.as_json(), &serde_json::json!("hot"));
     }
 
-
     #[test]
     fn body_row_authored_vs_blank_source() {
         let quill = quill_from_yaml(QUILL);
@@ -474,7 +478,12 @@ main:
         let authored =
             parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\n~~~\n\nHello body.\n");
         assert_eq!(
-            quill.resolve(&authored, test_date()).main.body.unwrap().source,
+            quill
+                .resolve(&authored, test_date())
+                .main
+                .body
+                .unwrap()
+                .source,
             FieldSource::Authored
         );
 
@@ -482,7 +491,10 @@ main:
         let states = quill.resolve(&blank, test_date());
         let body = states.main.body.as_ref().unwrap();
         assert_eq!(body.source, FieldSource::Blank);
-        assert!(body.value.as_json().is_object(), "blank body is empty content");
+        assert!(
+            body.value.as_json().is_object(),
+            "blank body is empty content"
+        );
     }
 
     const BODY_DISABLED_QUILL: &str = r#"
@@ -514,9 +526,11 @@ card_kinds:
         let states = quill.resolve(&doc, test_date());
         let card = &states.cards[0];
         assert!(card.body.is_none(), "a body-disabled kind has no body row");
-        assert!(has_row(&card.fields, "label"), "declared rows still present");
+        assert!(
+            has_row(&card.fields, "label"),
+            "declared rows still present"
+        );
     }
-
 
     #[test]
     fn unknown_kind_card_shape() {
@@ -532,10 +546,12 @@ card_kinds:
         assert_eq!(card.index, 0);
         // Authored fields only: no body row, no ladder.
         assert_eq!(row(&card.fields, "foo").source, FieldSource::Authored);
-        assert_eq!(row(&card.fields, "foo").value.as_json(), &serde_json::json!("bar"));
+        assert_eq!(
+            row(&card.fields, "foo").value.as_json(),
+            &serde_json::json!("bar")
+        );
         assert!(card.body.is_none());
     }
-
 
     #[test]
     fn undeclared_authored_field_row_is_authored() {
@@ -548,7 +564,6 @@ card_kinds:
         assert_eq!(r.source, FieldSource::Authored);
         assert_eq!(r.value.as_json(), &serde_json::json!("whatever"));
     }
-
 
     #[test]
     fn field_source_serializes_the_blank_token() {
@@ -569,7 +584,11 @@ card_kinds:
         };
         let json = serde_json::to_value(&state).unwrap();
         let obj = json.as_object().unwrap();
-        assert_eq!(obj.len(), 3, "only name + value + source on the wire: {json}");
+        assert_eq!(
+            obj.len(),
+            3,
+            "only name + value + source on the wire: {json}"
+        );
         assert!(
             obj.contains_key("name") && obj.contains_key("value") && obj.contains_key("source")
         );

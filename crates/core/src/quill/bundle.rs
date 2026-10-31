@@ -52,7 +52,10 @@ fn invalid(message: impl Into<String>) -> Diagnostic {
 fn unsupported(message: impl Into<String>) -> Diagnostic {
     refusal(
         "quill::bundle_unsupported",
-        format!("The .quill bundle uses a zip feature the format leaves out: {}", message.into()),
+        format!(
+            "The .quill bundle uses a zip feature the format leaves out: {}",
+            message.into()
+        ),
     )
 }
 
@@ -110,7 +113,10 @@ fn check_path(path: &str) -> Result<(), Diagnostic> {
         return Err(bad_path(path, "has an empty name"));
     }
     if path.starts_with('/') {
-        return Err(bad_path(path, "is absolute; entry names are relative to the quill root"));
+        return Err(bad_path(
+            path,
+            "is absolute; entry names are relative to the quill root",
+        ));
     }
     if let Some(c) = path.chars().find(|c| matches!(c, '\\' | ':' | '\0')) {
         return Err(bad_path(
@@ -147,7 +153,8 @@ fn find_end(bytes: &[u8]) -> Option<usize> {
     let first = last.saturating_sub(usize::from(u16::MAX));
     (first..=last).rev().find(|&at| {
         u32_at(bytes, at) == Some(END_SIG)
-            && u16_at(bytes, at + 20).map(|len| at + END_LEN + usize::from(len)) == Some(bytes.len())
+            && u16_at(bytes, at + 20).map(|len| at + END_LEN + usize::from(len))
+                == Some(bytes.len())
     })
 }
 
@@ -165,8 +172,10 @@ struct Entry<'a> {
 /// directory entries.
 fn central_directory(bytes: &[u8]) -> Result<(Vec<Entry<'_>>, Vec<&str>), Diagnostic> {
     let end = find_end(bytes).ok_or_else(|| invalid("no zip end-of-central-directory record"))?;
-    let field16 = |at: usize| u16_at(bytes, end + at).ok_or_else(|| invalid("truncated end record"));
-    let field32 = |at: usize| u32_at(bytes, end + at).ok_or_else(|| invalid("truncated end record"));
+    let field16 =
+        |at: usize| u16_at(bytes, end + at).ok_or_else(|| invalid("truncated end record"));
+    let field32 =
+        |at: usize| u32_at(bytes, end + at).ok_or_else(|| invalid("truncated end record"));
     let (disk, directory_disk) = (field16(4)?, field16(6)?);
     let (on_disk, total) = (field16(8)?, field16(10)?);
     let (directory_len, directory_at) = (field32(12)?, field32(16)?);
@@ -194,8 +203,12 @@ fn central_directory(bytes: &[u8]) -> Result<(Vec<Entry<'_>>, Vec<&str>), Diagno
     let mut directories = Vec::new();
     let mut at = directory_at;
     for _ in 0..total {
-        let field16 = |o: usize| u16_at(directory, at + o).ok_or_else(|| invalid("truncated central directory"));
-        let field32 = |o: usize| u32_at(directory, at + o).ok_or_else(|| invalid("truncated central directory"));
+        let field16 = |o: usize| {
+            u16_at(directory, at + o).ok_or_else(|| invalid("truncated central directory"))
+        };
+        let field32 = |o: usize| {
+            u32_at(directory, at + o).ok_or_else(|| invalid("truncated central directory"))
+        };
         if field32(0)? != CENTRAL_SIG {
             return Err(invalid("a central directory entry has no signature"));
         }
@@ -216,9 +229,8 @@ fn central_directory(bytes: &[u8]) -> Result<(Vec<Entry<'_>>, Vec<&str>), Diagno
             .ok_or_else(|| invalid("truncated central directory"))?;
         at = name_at + name_len + extra_len + comment_len;
 
-        let name = std::str::from_utf8(name).map_err(|_| {
-            bad_path(&String::from_utf8_lossy(name), "is not UTF-8")
-        })?;
+        let name = std::str::from_utf8(name)
+            .map_err(|_| bad_path(&String::from_utf8_lossy(name), "is not UTF-8"))?;
         if flags & (FLAG_ENCRYPTED | FLAG_STRONG_ENCRYPTION) != 0 {
             return Err(unsupported(format!("{name:?} is encrypted")));
         }
@@ -305,7 +317,10 @@ pub(crate) fn read_bundle(bytes: &[u8]) -> Result<FileTreeNode, Diagnostic> {
     let (files, directories) = central_directory(bytes)?;
     for entry in files {
         if root.get_node(entry.path).is_some() {
-            return Err(bad_path(entry.path, "is listed twice, or as a file and a directory"));
+            return Err(bad_path(
+                entry.path,
+                "is listed twice, or as a file and a directory",
+            ));
         }
         let node = FileTreeNode::File {
             contents: contents(bytes, &entry)?,
@@ -314,9 +329,15 @@ pub(crate) fn read_bundle(bytes: &[u8]) -> Result<FileTreeNode, Diagnostic> {
             .map_err(|_| bad_path(entry.path, "sits under a path the bundle lists as a file"))?;
     }
     for path in directories {
-        let mut ancestry = path.match_indices('/').map(|(at, _)| at).chain([path.len()]);
+        let mut ancestry = path
+            .match_indices('/')
+            .map(|(at, _)| at)
+            .chain([path.len()]);
         if ancestry.any(|end| root.get_file(&path[..end]).is_some()) {
-            return Err(bad_path(path, "is listed as a directory, at or under a path the bundle lists as a file"));
+            return Err(bad_path(
+                path,
+                "is listed as a directory, at or under a path the bundle lists as a file",
+            ));
         }
     }
     Ok(root)

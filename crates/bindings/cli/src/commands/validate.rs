@@ -1,9 +1,9 @@
 use crate::errors::{CliError, Result};
 use clap::Parser;
+use indexmap::IndexMap;
 use quillmark::{
     CardSchema, Diagnostic, Document, Engine, FieldSchema, Quill, RenderOptions, Severity,
 };
-use indexmap::IndexMap;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -33,7 +33,10 @@ impl ValidationResult {
     }
 
     fn count(&self, severity: Severity) -> usize {
-        self.issues.iter().filter(|d| d.severity == severity).count()
+        self.issues
+            .iter()
+            .filter(|d| d.severity == severity)
+            .count()
     }
 
     fn has_errors(&self) -> bool {
@@ -263,7 +266,9 @@ fn validate_renders(
     }
 
     let Some(example) = example else { return };
-    let Some(document) = &example.document else { return };
+    let Some(document) = &example.document else {
+        return;
+    };
     let (failed, diagnostics) = match render(document) {
         Ok(warnings) => (None, warnings),
         Err(failure) => (Some(failure.what), failure.diagnostics),

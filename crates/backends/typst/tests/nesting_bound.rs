@@ -3,10 +3,10 @@
 //! marks around the deepest run spend from again.
 
 use quillmark_content::{
-    export::to_markdown,
-    import::{from_markdown, ImportError},
-    serial::to_canonical_value,
     MAX_NESTING_DEPTH,
+    export::to_markdown,
+    import::{ImportError, from_markdown},
+    serial::to_canonical_value,
 };
 use quillmark_core::{backend::Backend, types::RenderOptions};
 use quillmark_typst::TypstBackend;
@@ -50,9 +50,8 @@ fn marked_content_nested_to_the_bound_renders_and_round_trips() {
         "#import \"@local/quillmark-helper:0.2.0\" as qm\n#qm.data.at(\"$body\", default: [])\n",
     );
     let n = MAX_NESTING_DEPTH;
-    let alternating = |a: &str, b: &str| -> String {
-        (0..n).map(|i| if i % 2 == 0 { a } else { b }).collect()
-    };
+    let alternating =
+        |a: &str, b: &str| -> String { (0..n).map(|i| if i % 2 == 0 { a } else { b }).collect() };
     let shapes: [&dyn Fn(&str) -> String; 5] = [
         &|marks| format!("{}{marks}", "> ".repeat(n)),
         &|marks| format!("{}{marks}", "- ".repeat(n)),
@@ -64,7 +63,11 @@ fn marked_content_nested_to_the_bound_renders_and_round_trips() {
         for marks in [MARKED, EXPORTABLE] {
             let markdown = shape(marks);
             let imported = from_markdown(&markdown).expect("imports at the bound");
-            assert!(imported.warnings.is_empty(), "{markdown:?}: {:?}", imported.warnings);
+            assert!(
+                imported.warnings.is_empty(),
+                "{markdown:?}: {:?}",
+                imported.warnings
+            );
             let content = imported.content;
             if marks == EXPORTABLE {
                 let exported = to_markdown(&content);
@@ -78,11 +81,19 @@ fn marked_content_nested_to_the_bound_renders_and_round_trips() {
             let session = TypstBackend::default()
                 .open(&quill, &data, common::test_date())
                 .unwrap_or_else(|e| panic!("{markdown:?} opens: {e}"));
-            assert!(session.warnings().is_empty(), "{markdown:?}: {:?}", session.warnings());
+            assert!(
+                session.warnings().is_empty(),
+                "{markdown:?}: {:?}",
+                session.warnings()
+            );
             let result = session
                 .render(&RenderOptions::default())
                 .unwrap_or_else(|e| panic!("{markdown:?} renders: {e}"));
-            assert!(result.warnings.is_empty(), "{markdown:?}: {:?}", result.warnings);
+            assert!(
+                result.warnings.is_empty(),
+                "{markdown:?}: {:?}",
+                result.warnings
+            );
         }
     }
 }

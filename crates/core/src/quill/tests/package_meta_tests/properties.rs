@@ -13,8 +13,14 @@ use super::*;
 
 /// The load of `key: text`, or `None` when the YAML envelope does not carry
 /// `text` verbatim, which leaves the seam unexercised.
-fn load_key(key: &str, text: &str) -> Option<Result<(QuillConfig, Vec<Diagnostic>), Vec<Diagnostic>>> {
-    let yaml = with_header(&format!("  {key}: {}\n", serde_json::to_string(text).unwrap()));
+fn load_key(
+    key: &str,
+    text: &str,
+) -> Option<Result<(QuillConfig, Vec<Diagnostic>), Vec<Diagnostic>>> {
+    let yaml = with_header(&format!(
+        "  {key}: {}\n",
+        serde_json::to_string(text).unwrap()
+    ));
     let carried = crate::value::parse_yaml::<serde_json::Value>(&yaml)
         .ok()
         .is_some_and(|v| v["quill"][key].as_str() == Some(text));
@@ -22,7 +28,10 @@ fn load_key(key: &str, text: &str) -> Option<Result<(QuillConfig, Vec<Diagnostic
 }
 
 fn license_term() -> impl Strategy<Value = String> {
-    let listed = (0..LICENSES.len(), prop_oneof![24 => Just(0u8), 1 => Just(1), 1 => Just(2)])
+    let listed = (
+        0..LICENSES.len(),
+        prop_oneof![24 => Just(0u8), 1 => Just(1), 1 => Just(2)],
+    )
         .prop_map(|(i, case)| match case {
             0 => LICENSES[i].name.to_string(),
             1 => LICENSES[i].name.to_lowercase(),
@@ -86,8 +95,10 @@ fn homepage() -> impl Strategy<Value = String> {
         1 => "\\PC{0,4}",
     ];
     let port = prop_oneof![3 => Just(String::new()), 2 => ":[0-9]{1,5}", 1 => ":[0-9a-z+]{0,6}"];
-    let shaped = (scheme, user, host, port, "\\PC{0,6}")
-        .prop_map(|(scheme, user, host, port, rest)| format!("{scheme}://{user}{host}{port}/{rest}"));
+    let shaped =
+        (scheme, user, host, port, "\\PC{0,6}").prop_map(|(scheme, user, host, port, rest)| {
+            format!("{scheme}://{user}{host}{port}/{rest}")
+        });
     prop_oneof![
         4 => shaped,
         1 => any::<String>().prop_map(|text| format!("https://{text}")),

@@ -2,7 +2,11 @@
 //! the stamped PDF: each widget's `/DA` and `/Q`, and the `/DR` `/Font` the
 //! `/DA` names resolve against.
 
-use quillmark_core::{backend::Backend, error::RenderError, types::{OutputFormat, RenderOptions}};
+use quillmark_core::{
+    backend::Backend,
+    error::RenderError,
+    types::{OutputFormat, RenderOptions},
+};
 use quillmark_typst::TypstBackend;
 
 mod common;
@@ -10,7 +14,8 @@ use common::host_with_plate as source_with_plate;
 
 fn compile(plate: &str) -> Result<Vec<u8>, RenderError> {
     let source = source_with_plate(plate);
-    let session = TypstBackend::default().open(&source, &serde_json::json!({}), common::test_date())?;
+    let session =
+        TypstBackend::default().open(&source, &serde_json::json!({}), common::test_date())?;
     let result = session.render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))?;
     Ok(result.artifacts[0].bytes.clone())
 }
@@ -61,11 +66,23 @@ const PLATE: &str = r#"
 
 /// The base fonts `/DR` `/Font` registers, sorted.
 fn dr_base_fonts(doc: &lopdf::Document, af: &lopdf::Dictionary) -> Vec<String> {
-    let fonts = af.get(b"DR").unwrap().as_dict().unwrap().get(b"Font").unwrap().as_dict().unwrap();
+    let fonts = af
+        .get(b"DR")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Font")
+        .unwrap()
+        .as_dict()
+        .unwrap();
     let mut base_fonts: Vec<String> = fonts
         .iter()
         .map(|(_, v)| {
-            let f = doc.get_object(v.as_reference().unwrap()).unwrap().as_dict().unwrap();
+            let f = doc
+                .get_object(v.as_reference().unwrap())
+                .unwrap()
+                .as_dict()
+                .unwrap();
             String::from_utf8_lossy(f.get(b"BaseFont").unwrap().as_name().unwrap()).into_owned()
         })
         .collect();
@@ -88,8 +105,19 @@ fn the_dials_reach_da_q_and_dr() {
     assert_eq!(w["dated"].get(b"Q").unwrap().as_i64().unwrap(), 2);
     assert_eq!(w["centred"].get(b"Q").unwrap().as_i64().unwrap(), 1);
 
-    assert_eq!(dr_base_fonts(&doc, &af), ["Courier", "Helvetica", "Times-Roman"]);
-    let fonts = af.get(b"DR").unwrap().as_dict().unwrap().get(b"Font").unwrap().as_dict().unwrap();
+    assert_eq!(
+        dr_base_fonts(&doc, &af),
+        ["Courier", "Helvetica", "Times-Roman"]
+    );
+    let fonts = af
+        .get(b"DR")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Font")
+        .unwrap()
+        .as_dict()
+        .unwrap();
     for key in ["Helv", "TiRo", "Cour"] {
         assert!(fonts.has(key.as_bytes()), "/DR /Font is missing /{key}");
     }

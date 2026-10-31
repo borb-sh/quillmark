@@ -31,7 +31,9 @@ impl Engine {
     /// diagnostic per file, when a file is another format
     /// (`engine::font_unsupported`) or holds no readable face
     /// (`engine::font_unreadable`). An acroform session reads no fonts.
-    pub fn with_fonts<F: Into<Arc<[u8]>>>(fonts: impl IntoIterator<Item = F>) -> Result<Self, RenderError> {
+    pub fn with_fonts<F: Into<Arc<[u8]>>>(
+        fonts: impl IntoIterator<Item = F>,
+    ) -> Result<Self, RenderError> {
         // `mut` is unused when no backend features are enabled (e.g. a
         // Typst-less core build).
         #[allow(unused_mut)]
@@ -112,7 +114,11 @@ impl Engine {
         today: CalendarDate,
         opts: &RenderOptions,
     ) -> Result<RenderResult, RenderError> {
-        let default_format = self.resolve_backend(quill)?.supported_formats().first().copied();
+        let default_format = self
+            .resolve_backend(quill)?
+            .supported_formats()
+            .first()
+            .copied();
         let session = self.open(quill, doc, today)?;
         // Clone-and-narrow so a new RenderOptions field is carried through by
         // default; only `output_format` gets the backend-default fallback.

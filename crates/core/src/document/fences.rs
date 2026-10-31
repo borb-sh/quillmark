@@ -11,8 +11,8 @@
 use std::borrow::Cow;
 
 use crate::error::ParseError;
-use quillmark_content::normalize::fence_opener;
 use crate::error::{Diagnostic, Severity};
+use quillmark_content::normalize::fence_opener;
 
 use super::assemble::MetadataBlock;
 
@@ -70,10 +70,10 @@ pub(super) fn code_fence_on_line(
 ) -> Option<(u8, usize, bool)> {
     let (c, n, info) = fence_opener(line)?;
     match open_fence {
-        Some((open_char, open_len)) => (c == open_char
-            && n >= open_len
-            && info.trim_matches([' ', '\t']).is_empty())
-            .then_some((c, n, true)),
+        Some((open_char, open_len)) => {
+            (c == open_char && n >= open_len && info.trim_matches([' ', '\t']).is_empty())
+                .then_some((c, n, true))
+        }
         None => Some((c, n, false)),
     }
 }
@@ -141,7 +141,10 @@ fn list_marker(rest: &str) -> Option<ListMarker> {
     let (end, starts_at_one) = match bytes.get(at)? {
         b'-' | b'+' | b'*' => (at + 1, true),
         b'0'..=b'9' => {
-            let digits = bytes[at..].iter().take_while(|b| b.is_ascii_digit()).count();
+            let digits = bytes[at..]
+                .iter()
+                .take_while(|b| b.is_ascii_digit())
+                .count();
             let end = at + digits;
             if digits > 9 || !matches!(bytes.get(end), Some(b'.' | b')')) {
                 return None;
@@ -152,13 +155,21 @@ fn list_marker(rest: &str) -> Option<ListMarker> {
     };
     let gap = bytes[end..].iter().take_while(|&&b| b == b' ').count();
     if end + gap == bytes.len() {
-        return Some(ListMarker { width: end + 1, interrupts: false, empty: true });
+        return Some(ListMarker {
+            width: end + 1,
+            interrupts: false,
+            empty: true,
+        });
     }
     if gap == 0 {
         return None;
     }
     let width = if gap > 4 { end + 1 } else { end + gap };
-    Some(ListMarker { width, interrupts: starts_at_one, empty: false })
+    Some(ListMarker {
+        width,
+        interrupts: starts_at_one,
+        empty: false,
+    })
 }
 
 fn is_thematic_break(rest: &str) -> bool {
@@ -175,7 +186,9 @@ fn is_thematic_break(rest: &str) -> bool {
 fn is_setext_underline(rest: &str) -> bool {
     let t = rest.trim_matches(' ');
     leading_spaces(rest) <= 3
-        && t.bytes().next().is_some_and(|c| (c == b'=' || c == b'-') && t.bytes().all(|b| b == c))
+        && t.bytes()
+            .next()
+            .is_some_and(|c| (c == b'=' || c == b'-') && t.bytes().all(|b| b == c))
 }
 
 fn is_atx_heading(rest: &str) -> bool {
@@ -304,7 +317,8 @@ fn key_end(line: &str) -> Option<usize> {
 fn near_closer_below(lines: &Lines<'_>, opener_k: usize) -> Option<(usize, String)> {
     ((opener_k + 1)..lines.len()).find_map(|j| {
         let trimmed = lines.line_text(j).trim();
-        (!trimmed.is_empty() && trimmed.bytes().all(|b| b == b'~')).then(|| (j, trimmed.to_string()))
+        (!trimmed.is_empty() && trimmed.bytes().all(|b| b == b'~'))
+            .then(|| (j, trimmed.to_string()))
     })
 }
 

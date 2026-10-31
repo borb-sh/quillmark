@@ -126,7 +126,11 @@ impl BasePdf {
 
     /// A `subtype` annotation last in page `page`'s `/Annots`, held as `held`.
     pub fn annot(mut self, page: usize, subtype: AnnotationType, held: Held) -> Self {
-        self.annots.push(Annot { page, subtype, held });
+        self.annots.push(Annot {
+            page,
+            subtype,
+            held,
+        });
         self
     }
 
@@ -354,7 +358,9 @@ fn write_entries(mut array: Array<'_>, entries: &[Entry]) {
 }
 
 fn annotate(mut annot: Annotation<'_>, subtype: AnnotationType) {
-    annot.subtype(subtype).rect(Rect::new(10.0, 40.0, 30.0, 60.0));
+    annot
+        .subtype(subtype)
+        .rect(Rect::new(10.0, 40.0, 30.0, 60.0));
 }
 
 fn names(entries: &[(String, Vec<u8>)], key: &str) -> bool {

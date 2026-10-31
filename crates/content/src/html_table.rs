@@ -5,7 +5,9 @@
 use crate::carrier;
 use crate::html;
 use crate::import::Dropped;
-use crate::island::{cell_alignment, is_weight, table_rows, table_spans, TableLayout, CELL_VALIGNS, TABLE_ALIGNS};
+use crate::island::{
+    CELL_VALIGNS, TABLE_ALIGNS, TableLayout, cell_alignment, is_weight, table_rows, table_spans,
+};
 use pulldown_cmark::{CowStr, Event, Parser, Tag as PTag, TagEnd};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -107,7 +109,13 @@ struct RawRow {
 
 impl RawRow {
     fn new(at: usize) -> Self {
-        Self { at, cells: Vec::new(), th: true, rowspan: 0, cut: false }
+        Self {
+            at,
+            cells: Vec::new(),
+            th: true,
+            rowspan: 0,
+            cut: false,
+        }
     }
 
     fn heading(&self) -> bool {
@@ -138,7 +146,11 @@ struct RawTable {
 /// cell drops alone, and so does text outside every cell. A `<table>` the
 /// block ends before its `</table>`, or that another `<table>` interrupts,
 /// closes there.
-pub(crate) fn scan(text: &str, at: impl Fn(usize) -> usize, budget: &mut usize) -> (Vec<Table>, Vec<(Dropped, usize)>) {
+pub(crate) fn scan(
+    text: &str,
+    at: impl Fn(usize) -> usize,
+    budget: &mut usize,
+) -> (Vec<Table>, Vec<(Dropped, usize)>) {
     let s = run(text, at, *budget);
     *budget = s.budget;
     (s.tables, s.drops)
@@ -180,7 +192,8 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F, budget: usize) -> Scan<'_, F> {
                 }
                 b'`' => {
                     let runs = runs.get_or_insert_with(|| backtick_runs(b));
-                    let tags = tags.get_or_insert_with(|| tag_spans(text).map(|t| t.start).collect());
+                    let tags =
+                        tags.get_or_insert_with(|| tag_spans(text).map(|t| t.start).collect());
                     i = code_span_end(b, i, runs, tags);
                     continue;
                 }
@@ -205,7 +218,9 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F, budget: usize) -> Scan<'_, F> {
                     s.structural(name, &tag, i);
                     stray = false;
                 } else if s.cell.is_none() {
-                    if let Some(dropped) = crate::import::dropped_tag(tag.name).filter(|_| !tag.closing) {
+                    if let Some(dropped) =
+                        crate::import::dropped_tag(tag.name).filter(|_| !tag.closing)
+                    {
                         s.drops.push((dropped, (s.at)(i)));
                     }
                     stray = false;
@@ -250,12 +265,22 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
                 let mut layout = Map::new();
                 let mut aligns = Vec::new();
                 self.attrs(name, tag, at, |attr, value| match attr {
-                    "widths" => widths(value).map(|v| layout.insert(attr.into(), v)).is_some(),
+                    "widths" => widths(value)
+                        .map(|v| layout.insert(attr.into(), v))
+                        .is_some(),
                     "aligns" => column_aligns(value).map(|a| aligns = a).is_some(),
-                    "align" => one_of(value, &TABLE_ALIGNS).map(|a| layout.insert(attr.into(), a.into())).is_some(),
+                    "align" => one_of(value, &TABLE_ALIGNS)
+                        .map(|a| layout.insert(attr.into(), a.into()))
+                        .is_some(),
                     _ => false,
                 });
-                self.table = Some(RawTable { at, layout, aligns, groups: Vec::new(), slots: [0; 3] });
+                self.table = Some(RawTable {
+                    at,
+                    layout,
+                    aligns,
+                    groups: Vec::new(),
+                    slots: [0; 3],
+                });
             }
             ("table", true) => {
                 if self.table.is_some() {
@@ -276,7 +301,10 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
                         _ => Group::Body,
                     };
                     if let Some(table) = self.table.as_mut() {
-                        table.groups.push(RawGroup { kind: group, rows: Vec::new() });
+                        table.groups.push(RawGroup {
+                            kind: group,
+                            rows: Vec::new(),
+                        });
                     }
                 }
             }
@@ -293,22 +321,40 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
                 self.attrs(name, tag, at, |attr, value| match attr {
                     "colspan" => span(value).map(|n| colspan = n.min(MAX_COLSPAN)).is_some(),
                     "rowspan" => span(value).map(|n| rowspan = n).is_some(),
-                    "align" => one_of(value, &TABLE_ALIGNS).map(|a| keys.insert(attr.into(), a.into())).is_some(),
-                    "valign" => one_of(value, &CELL_VALIGNS).map(|v| keys.insert(attr.into(), v.into())).is_some(),
+                    "align" => one_of(value, &TABLE_ALIGNS)
+                        .map(|a| keys.insert(attr.into(), a.into()))
+                        .is_some(),
+                    "valign" => one_of(value, &CELL_VALIGNS)
+                        .map(|v| keys.insert(attr.into(), v.into()))
+                        .is_some(),
                     _ => false,
                 });
                 self.row.get_or_insert_with(|| RawRow::new(at));
                 let start = tag.span.end;
                 let content = String::new();
                 let at = (self.at)(start);
-                self.cell = Some(RawCell { tag: name, start, at, content, colspan, rowspan, keys });
+                self.cell = Some(RawCell {
+                    tag: name,
+                    start,
+                    at,
+                    content,
+                    colspan,
+                    rowspan,
+                    keys,
+                });
             }
             (_, true) => self.close_cell(i),
         }
     }
 
     /// Read a tag's attributes, each `read` takes kept; any other drops alone.
-    fn attrs(&mut self, tag_name: &str, tag: &html::Tag, at: usize, mut read: impl FnMut(&str, &str) -> bool) {
+    fn attrs(
+        &mut self,
+        tag_name: &str,
+        tag: &html::Tag,
+        at: usize,
+        mut read: impl FnMut(&str, &str) -> bool,
+    ) {
         let attrs = carrier::decode_attrs(&tag.attrs);
         let mut dropped = attrs.refused;
         for (attr, value) in attrs.values {
@@ -316,8 +362,17 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
                 dropped.push(attr);
             }
         }
-        for attr in dropped.into_iter().filter(|a| !PRESENTATIONAL.contains(&a.as_str())) {
-            self.drops.push((Dropped::TableAttr { tag: tag_name.into(), attr }, at));
+        for attr in dropped
+            .into_iter()
+            .filter(|a| !PRESENTATIONAL.contains(&a.as_str()))
+        {
+            self.drops.push((
+                Dropped::TableAttr {
+                    tag: tag_name.into(),
+                    attr,
+                },
+                at,
+            ));
         }
     }
 
@@ -326,7 +381,9 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
     /// in grid order, is left out, its row marked cut: no grid holds it, and
     /// the scan holds no more cells than a grid could.
     fn close_cell(&mut self, end: usize) {
-        let (Some(mut cell), Some(row), Some(table)) = (self.cell.take(), self.row.as_mut(), self.table.as_mut()) else {
+        let (Some(mut cell), Some(row), Some(table)) =
+            (self.cell.take(), self.row.as_mut(), self.table.as_mut())
+        else {
             return;
         };
         row.th &= cell.tag == "th";
@@ -336,7 +393,11 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
             _ => Group::Body,
         } as usize;
         table.slots[kind] = table.slots[kind].saturating_add(cell.colspan);
-        if table.slots[..=kind].iter().fold(0, |sum: usize, &n| sum.saturating_add(n)) > self.budget {
+        if table.slots[..=kind]
+            .iter()
+            .fold(0, |sum: usize, &n| sum.saturating_add(n))
+            > self.budget
+        {
             row.cut = true;
             return;
         }
@@ -350,7 +411,10 @@ impl<F: Fn(usize) -> usize> Scan<'_, F> {
             return;
         };
         if !self.group_open || table.groups.is_empty() {
-            table.groups.push(RawGroup { kind: Group::Body, rows: Vec::new() });
+            table.groups.push(RawGroup {
+                kind: Group::Body,
+                rows: Vec::new(),
+            });
             self.group_open = true;
         }
         if let Some(group) = table.groups.last_mut() {
@@ -391,17 +455,32 @@ fn resolve(raw: RawTable, budget: usize, drops: &mut Vec<(Dropped, usize)>) -> O
         && let Some(first) = groups.first_mut().filter(|g| g.kind == Group::Body)
     {
         let (mut n, mut reach) = (0, 0);
-        for (r, row) in first.rows.iter().take_while(|row| row.heading()).enumerate() {
+        for (r, row) in first
+            .rows
+            .iter()
+            .take_while(|row| row.heading())
+            .enumerate()
+        {
             reach = reach.max(r.saturating_add(row.rowspan));
             if reach <= r + 1 {
                 n = r + 1;
             }
         }
         let rows: Vec<RawRow> = first.rows.drain(..n).collect();
-        groups.insert(0, RawGroup { kind: Group::Head, rows });
+        groups.insert(
+            0,
+            RawGroup {
+                kind: Group::Head,
+                rows,
+            },
+        );
     }
     groups.sort_by_key(|group| group.kind as u8);
-    let head: usize = groups.iter().filter(|g| g.kind == Group::Head).map(|g| g.rows.len()).sum();
+    let head: usize = groups
+        .iter()
+        .filter(|g| g.kind == Group::Head)
+        .map(|g| g.rows.len())
+        .sum();
     let mut rows: Vec<(RawRow, usize)> = Vec::new();
     for group in groups {
         let end = rows.len() + group.rows.len();
@@ -434,10 +513,20 @@ fn resolve(raw: RawTable, budget: usize, drops: &mut Vec<(Dropped, usize)>) -> O
                     keys.insert(key.into(), n.into());
                 }
             }
-            cells.push((x, Cell { content: cell.content, at: cell.at, keys }));
+            cells.push((
+                x,
+                Cell {
+                    content: cell.content,
+                    at: cell.at,
+                    keys,
+                },
+            ));
             x += cell.colspan;
         }
-        let wide = covers.iter().rposition(|&n| n > 0).map_or(cols, |k| cols.max(k + 1));
+        let wide = covers
+            .iter()
+            .rposition(|&n| n > 0)
+            .map_or(cols, |k| cols.max(k + 1));
         if past || row.cut || (r + 1).saturating_mul(wide) > budget {
             drops.push((Dropped::TableSize, row.at));
             break;
@@ -471,7 +560,11 @@ fn resolve(raw: RawTable, budget: usize, drops: &mut Vec<(Dropped, usize)>) -> O
     }
     let mut aligns = raw.aligns;
     aligns.resize(cols, "none");
-    Some(Table { layout, aligns, rows: grid })
+    Some(Table {
+        layout,
+        aligns,
+        rows: grid,
+    })
 }
 
 /// The offset just past the code span a backtick run at `i` opens: through
@@ -481,7 +574,10 @@ fn resolve(raw: RawTable, budget: usize, drops: &mut Vec<(Dropped, usize)>) -> O
 fn code_span_end(b: &[u8], i: usize, runs: &HashMap<usize, Vec<usize>>, tags: &[usize]) -> usize {
     let n = b[i..].iter().take_while(|&&c| c == b'`').count();
     let starts = runs.get(&n).map_or(&[][..], Vec::as_slice);
-    let tag = tags.get(tags.partition_point(|&at| at < i + n)).copied().unwrap_or(usize::MAX);
+    let tag = tags
+        .get(tags.partition_point(|&at| at < i + n))
+        .copied()
+        .unwrap_or(usize::MAX);
     match starts.get(starts.partition_point(|&at| at < i + n)) {
         Some(&at) if at < tag => at + n,
         _ => i + n,
@@ -490,7 +586,11 @@ fn code_span_end(b: &[u8], i: usize, runs: &HashMap<usize, Vec<usize>>, tags: &[
 
 /// The span of each of the subset's tags in `text`, wherever it stands.
 pub(crate) fn tag_spans(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
-    text.match_indices('<').filter_map(|(i, _)| html::tag_at(text, i).filter(|t| is_tag(t.name)).map(|t| t.span))
+    text.match_indices('<').filter_map(|(i, _)| {
+        html::tag_at(text, i)
+            .filter(|t| is_tag(t.name))
+            .map(|t| t.span)
+    })
 }
 
 /// `text` cut at the subset's tags, in order: each piece's span, and whether
@@ -573,7 +673,10 @@ fn widths(value: &str) -> Option<Value> {
 /// An `aligns` value: whitespace-separated tokens, each one of
 /// [`COLUMN_ALIGNS`].
 fn column_aligns(value: &str) -> Option<Vec<&'static str>> {
-    value.split_ascii_whitespace().map(|t| one_of(t, &COLUMN_ALIGNS)).collect()
+    value
+        .split_ascii_whitespace()
+        .map(|t| one_of(t, &COLUMN_ALIGNS))
+        .collect()
 }
 
 /// The member of `set` a value names, ASCII-case-insensitively.
@@ -631,14 +734,23 @@ pub(crate) fn cell_events(src: &str) -> Vec<(Event<'_>, Range<usize>)> {
             Event::Code(code) if tag_spans(&code).next().is_some() => {
                 for (piece, tag) in tag_pieces(&code) {
                     let piece = code[piece].to_string().into();
-                    events.push((if tag { Event::Text(piece) } else { Event::Code(piece) }, range.clone()));
+                    events.push((
+                        if tag {
+                            Event::Text(piece)
+                        } else {
+                            Event::Code(piece)
+                        },
+                        range.clone(),
+                    ));
                 }
             }
             event => events.push((event, range)),
         }
     }
     let first = events.iter().position(|(e, _)| matches!(e, Event::Text(_)));
-    let last = events.iter().rposition(|(e, _)| matches!(e, Event::Text(_)));
+    let last = events
+        .iter()
+        .rposition(|(e, _)| matches!(e, Event::Text(_)));
     for (k, lead) in [(first, true), (last, false)] {
         if let Some((Event::Text(t), _)) = k.and_then(|k| events.get_mut(k)) {
             let kept = match lead {
@@ -662,7 +774,11 @@ pub(crate) fn writes_html(props: &Value) -> bool {
         || layout.widths.is_some()
         || layout.align.is_some()
         || crate::serial::table_cell_values(props).any(|cell| cell_alignment(cell) != (None, None))
-        || table_spans(props).iter().flatten().flatten().any(|span| *span != (1, 1))
+        || table_spans(props)
+            .iter()
+            .flatten()
+            .flatten()
+            .any(|span| *span != (1, 1))
 }
 
 /// The table's HTML spelling: the `<table>` tag's layout attributes, its head
@@ -677,14 +793,25 @@ pub(crate) fn write(props: &Value, cell: impl Fn(&Value) -> String) -> String {
     let mut out = String::from("<table");
     if let Some(widths) = &layout.widths {
         let tokens: Vec<String> = (0..cols)
-            .map(|k| widths.get(k).copied().flatten().map_or_else(|| AUTO.to_string(), |n| n.to_string()))
+            .map(|k| {
+                widths
+                    .get(k)
+                    .copied()
+                    .flatten()
+                    .map_or_else(|| AUTO.to_string(), |n| n.to_string())
+            })
             .collect();
         out.push_str(&format!(" widths=\"{}\"", tokens.join(" ")));
     }
     let aligns: Vec<&str> = (0..cols)
         .map(|k| {
-            let entry = props.get("aligns").and_then(|a| a.get(k)).and_then(Value::as_str);
-            entry.and_then(|a| COLUMN_ALIGNS.into_iter().find(|v| *v == a)).unwrap_or("none")
+            let entry = props
+                .get("aligns")
+                .and_then(|a| a.get(k))
+                .and_then(Value::as_str);
+            entry
+                .and_then(|a| COLUMN_ALIGNS.into_iter().find(|v| *v == a))
+                .unwrap_or("none")
         })
         .collect();
     if aligns.iter().any(|a| *a != "none") {
@@ -727,7 +854,11 @@ pub(crate) fn write(props: &Value, cell: impl Fn(&Value) -> String) -> String {
         }
         out.push_str("</tr>");
     }
-    out.push_str(if layout.head == rows.len() { "\n</thead>" } else { "\n</tbody>" });
+    out.push_str(if layout.head == rows.len() {
+        "\n</thead>"
+    } else {
+        "\n</tbody>"
+    });
     out.push_str("\n</table>");
     out
 }

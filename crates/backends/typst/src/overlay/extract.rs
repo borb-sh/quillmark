@@ -44,13 +44,13 @@ pub(crate) fn extract(doc: &PagedDocument) -> Result<Vec<FieldPlacement>, Render
                 return Err(RenderError::coded(
                     CODE_INTERNAL,
                     format!("expected metadata value to be a dict, got {}", other.ty()),
-                ))
+                ));
             }
             Err(e) => {
                 return Err(RenderError::coded(
                     CODE_INTERNAL,
                     format!("metadata.value missing: {e:?}"),
-                ))
+                ));
             }
         };
         if get::<Str>(&dict, "kind")?.as_str() != FIELD_LABEL {
@@ -66,22 +66,18 @@ pub(crate) fn extract(doc: &PagedDocument) -> Result<Vec<FieldPlacement>, Render
         let font = read_font(&dict)?;
         let font_size = get::<Option<f64>>(&dict, "size")?.map(|s| s as f32);
         let align = read_align(&dict)?;
-        let loc = c
-            .location()
-            .ok_or_else(|| {
-                RenderError::coded(CODE_INTERNAL, "form-field metadata is not located")
-            })?;
+        let loc = c.location().ok_or_else(|| {
+            RenderError::coded(CODE_INTERNAL, "form-field metadata is not located")
+        })?;
 
         if let Some(&prior) = by_name.get(&name) {
             return Err(duplicate_field_error(&name, prior, loc));
         }
         by_name.insert(name.clone(), loc);
 
-        let pos = intro
-            .position(loc)
-            .ok_or_else(|| {
-                RenderError::coded(CODE_INTERNAL, "form-field metadata has no position")
-            })?;
+        let pos = intro.position(loc).ok_or_else(|| {
+            RenderError::coded(CODE_INTERNAL, "form-field metadata has no position")
+        })?;
         placements.push(FieldPlacement {
             name,
             schema_field,
@@ -106,10 +102,7 @@ pub(crate) fn extract(doc: &PagedDocument) -> Result<Vec<FieldPlacement>, Render
     Ok(placements)
 }
 
-fn read_field_kind(
-    d: &Dict,
-    field_type: &str,
-) -> Result<(FieldType, Option<String>), RenderError> {
+fn read_field_kind(d: &Dict, field_type: &str) -> Result<(FieldType, Option<String>), RenderError> {
     match field_type {
         "text" => Ok((
             FieldType::Text {
@@ -158,9 +151,7 @@ fn get<T: FromValue>(d: &Dict, key: &str) -> Result<T, RenderError> {
         .cloned()
         .unwrap_or(Value::None)
         .cast()
-        .map_err(|e| {
-            RenderError::coded(CODE_INTERNAL, format!("metadata.{key}: {}", e.message()))
-        })
+        .map_err(|e| RenderError::coded(CODE_INTERNAL, format!("metadata.{key}: {}", e.message())))
 }
 
 /// An empty string yields `None` so the widget carries no `/V` (mirrors
@@ -179,7 +170,7 @@ fn read_value_str(d: &Dict, key: &str) -> Result<Option<String>, RenderError> {
                     "expected metadata.{key} to be str/int/float/bool/none, got {}",
                     other.ty()
                 ),
-            ))
+            ));
         }
     };
     Ok((!s.is_empty()).then_some(s))

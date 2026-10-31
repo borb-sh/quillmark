@@ -278,7 +278,10 @@ mod tests {
         }
         for v in ["0.1.9", "1.0.0", "0.2.x", "0.2-rc"] {
             assert!(
-                matches!(FormSpec::parse(tagged(v).as_bytes()), Err(FormParseError::BadSchema(_))),
+                matches!(
+                    FormSpec::parse(tagged(v).as_bytes()),
+                    Err(FormParseError::BadSchema(_))
+                ),
                 "{v}"
             );
         }
@@ -290,6 +293,9 @@ mod tests {
 widgets:
   - { name: T, type: text, multiline: yes, page: 0, rect: { x: 0, y: 0, w: 1, h: 1 } }
 ";
-        assert!(matches!(FormSpec::parse(multiline_yes), Err(FormParseError::Yaml(_))));
+        assert!(matches!(
+            FormSpec::parse(multiline_yes),
+            Err(FormParseError::Yaml(_))
+        ));
     }
 }

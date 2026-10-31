@@ -11,20 +11,20 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use quillmark_content::delta::{carry_anchors, diff_import, Delta};
-use quillmark_content::export::{anchors_where, AnchorRead};
+use quillmark_content::delta::{Delta, carry_anchors, diff_import};
+use quillmark_content::export::{AnchorRead, anchors_where};
 use quillmark_content::import::ImportError;
 use quillmark_content::model::Normalized;
 use quillmark_content::ops::{ApplyError, ChangeBundle};
 
-use crate::document::meta::{validate_composable_kind, CardKindError};
-use crate::error::diag_args;
-use crate::document::payload::MetaKey;
 use crate::document::base::{Base, BaseError};
+use crate::document::meta::{CardKindError, validate_composable_kind};
+use crate::document::payload::MetaKey;
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
 use crate::error::Diagnostic;
-use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
+use crate::error::diag_args;
 use crate::path::DocPath;
+use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
 use crate::value::{PathSegment, QuillValue};
 use crate::version::QuillReference;
 
@@ -103,7 +103,9 @@ pub enum EditError {
 
     /// A card placed with a `$id` outside the card-id grammar
     /// ([`is_card_id`](super::card_id::is_card_id)).
-    #[error("invalid card id '{0}': must be 1 to 64 of [A-Za-z0-9_-], opening with a letter or digit")]
+    #[error(
+        "invalid card id '{0}': must be 1 to 64 of [A-Za-z0-9_-], opening with a letter or digit"
+    )]
     InvalidCardId(String),
 
     /// A card placed with a `$id` another card of the document holds.
@@ -262,7 +264,9 @@ impl EditError {
                 "index" => index,
                 "len" => len,
             },
-            EditError::InvalidCardId(id) | EditError::DuplicateCardId(id) => diag_args! { "id" => id },
+            EditError::InvalidCardId(id) | EditError::DuplicateCardId(id) => {
+                diag_args! { "id" => id }
+            }
             EditError::TooManyCards { max } => diag_args! { "max" => max },
             EditError::ValueTooDeep { max } => diag_args! { "max" => max },
             EditError::Import(_) => diag_args! {},
@@ -406,9 +410,9 @@ impl std::fmt::Display for PayloadViolation {
             PayloadViolation::DuplicateMeta { key } => {
                 write!(f, "duplicate `{key}` entry")
             }
-            PayloadViolation::MultiLineComment => f.write_str(
-                "comment text spans multiple lines; a comment occupies one line",
-            ),
+            PayloadViolation::MultiLineComment => {
+                f.write_str("comment text spans multiple lines; a comment occupies one line")
+            }
         }
     }
 }
@@ -619,9 +623,14 @@ pub(crate) fn resolve_field_write(
 ) -> Result<(QuillValue, Vec<Diagnostic>), EditError> {
     check_field_name(name)?;
     let mut drops = Vec::new();
-    let stored =
-        QuillConfig::conform_value(value, schema, &base.field(name), Leniency::Write, &mut drops)
-            .map_err(|e| conform_error_to_edit(name, e))?;
+    let stored = QuillConfig::conform_value(
+        value,
+        schema,
+        &base.field(name),
+        Leniency::Write,
+        &mut drops,
+    )
+    .map_err(|e| conform_error_to_edit(name, e))?;
     check_field(name, stored.as_json())?;
     Ok((stored, drops))
 }
@@ -649,7 +658,11 @@ impl Revised {
     /// Anchor every warning at `path`, the revised body or field.
     pub fn with_path(mut self, path: &crate::path::DocPath) -> Self {
         let at = path.to_string();
-        self.warnings = self.warnings.into_iter().map(|w| w.with_path(at.clone())).collect();
+        self.warnings = self
+            .warnings
+            .into_iter()
+            .map(|w| w.with_path(at.clone()))
+            .collect();
         self
     }
 }
@@ -663,7 +676,14 @@ pub fn revise_import(
     let (content, delta, warnings) = diff_import(base, &body.into())?;
     let warnings = crate::document::dropped_constructs(warnings, None);
     let dropped_anchors = dropped_anchors(base, &content);
-    Ok((content, Revised { delta, warnings, dropped_anchors }))
+    Ok((
+        content,
+        Revised {
+            delta,
+            warnings,
+            dropped_anchors,
+        },
+    ))
 }
 
 /// [`revise_body_content`](Card::revise_body_content)'s carry, with its receipt.
@@ -685,7 +705,11 @@ pub(crate) fn dropped_anchors(stored: &Normalized, next: &Normalized) -> Vec<Anc
     if sites.is_empty() {
         return Vec::new();
     }
-    let held: HashSet<String> = next.anchor_sites().into_iter().map(|site| site.id).collect();
+    let held: HashSet<String> = next
+        .anchor_sites()
+        .into_iter()
+        .map(|site| site.id)
+        .collect();
     anchors_where(stored, |id| !held.contains(id))
 }
 
@@ -714,7 +738,11 @@ impl<'a> CardMut<'a> {
     }
 
     /// [`Card::store_field`].
-    pub fn store_field(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
+    pub fn store_field(
+        &mut self,
+        name: &str,
+        value: impl Into<QuillValue>,
+    ) -> Result<(), EditError> {
         self.0.store_field(name, value)
     }
 
@@ -780,7 +808,11 @@ impl<'a> CardMut<'a> {
     }
 
     /// [`Card::revise_field`].
-    pub fn revise_field(&mut self, name: &str, body: impl Into<String>) -> Result<Revised, EditError> {
+    pub fn revise_field(
+        &mut self,
+        name: &str,
+        body: impl Into<String>,
+    ) -> Result<Revised, EditError> {
         self.0.revise_field(name, body)
     }
 
@@ -852,7 +884,11 @@ impl<'a> CardMut<'a> {
     }
 
     #[doc(hidden)]
-    pub fn field_hash_checked(&self, name: &str, schema: &FieldSchema) -> Result<String, EditError> {
+    pub fn field_hash_checked(
+        &self,
+        name: &str,
+        schema: &FieldSchema,
+    ) -> Result<String, EditError> {
         self.0.field_hash_checked(name, schema)
     }
 
@@ -864,7 +900,8 @@ impl<'a> CardMut<'a> {
         body: impl Into<String>,
         schema: &FieldSchema,
     ) -> Result<Revised, EditError> {
-        self.0.revise_field_checked_against(name, base, body, schema)
+        self.0
+            .revise_field_checked_against(name, base, body, schema)
     }
 }
 
@@ -909,11 +946,19 @@ impl Document {
         }
         Self::check_composable_placement(&card)?;
         self.check_card_room()?;
-        let held: std::collections::HashSet<String> =
-            self.cards().iter().filter_map(Card::id).map(str::to_string).collect();
+        let held: std::collections::HashSet<String> = self
+            .cards()
+            .iter()
+            .filter_map(Card::id)
+            .map(str::to_string)
+            .collect();
         match card.id() {
-            Some(id) if !super::card_id::is_card_id(id) => return Err(EditError::InvalidCardId(id.to_string())),
-            Some(id) if held.contains(id) => return Err(EditError::DuplicateCardId(id.to_string())),
+            Some(id) if !super::card_id::is_card_id(id) => {
+                return Err(EditError::InvalidCardId(id.to_string()));
+            }
+            Some(id) if held.contains(id) => {
+                return Err(EditError::DuplicateCardId(id.to_string()));
+            }
             Some(_) => {}
             None => {
                 let id = super::card_id::Mint::new(held).mint();
@@ -1024,7 +1069,11 @@ impl Card {
     /// is absent and the card already carries
     /// [`MAX_FIELD_COUNT`](crate::error::MAX_FIELD_COUNT) fields; overwriting a
     /// field a full card already carries is not a growth and lands.
-    pub fn store_field(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
+    pub fn store_field(
+        &mut self,
+        name: &str,
+        value: impl Into<QuillValue>,
+    ) -> Result<(), EditError> {
         let value = value.into();
         check_field(name, value.as_json())?;
         self.payload_mut()
@@ -1064,10 +1113,9 @@ impl Card {
         if !errors.is_empty() {
             return Err(errors);
         }
-        if let Some(errors) = overflow_errors(
-            self.payload(),
-            fields.iter().map(|(name, _)| name.as_str()),
-        ) {
+        if let Some(errors) =
+            overflow_errors(self.payload(), fields.iter().map(|(name, _)| name.as_str()))
+        {
             return Err(errors);
         }
         for (name, value) in fields {
@@ -1343,7 +1391,11 @@ impl Card {
     /// [`EditError::Import`] on an over-nested markdown input, and
     /// [`EditError::InvalidPayload`] when an absent `name` would take the card
     /// past the §8 field count.
-    pub fn revise_field(&mut self, name: &str, body: impl Into<String>) -> Result<Revised, EditError> {
+    pub fn revise_field(
+        &mut self,
+        name: &str,
+        body: impl Into<String>,
+    ) -> Result<Revised, EditError> {
         let (content, revised) = self.diff_field(name, body)?;
         self.store_field_content(name, &content)?;
         Ok(revised)
@@ -1417,8 +1469,12 @@ impl Card {
         // Re-canonicalizing a content object keeps its identity marks, so the
         // schema check fires on the value the anchors survived onto.
         let canonical = quillmark_content::serial::to_canonical_value(&content);
-        let (stored, _) =
-            resolve_field_write(name, &QuillValue::from_json(canonical), schema, &DocPath::new())?;
+        let (stored, _) = resolve_field_write(
+            name,
+            &QuillValue::from_json(canonical),
+            schema,
+            &DocPath::new(),
+        )?;
         self.payload_mut()
             .insert(name.to_string(), stored)
             .map_err(EditError::InvalidPayload)?;
@@ -1445,8 +1501,12 @@ impl Card {
         };
         // The strict write is the codec: it runs the `from_plaintext` boundary
         // cleanup, so the committed string is what the diff must measure against.
-        let (stored, _) =
-            resolve_field_write(name, &QuillValue::from(text.into()), schema, &DocPath::new())?;
+        let (stored, _) = resolve_field_write(
+            name,
+            &QuillValue::from(text.into()),
+            schema,
+            &DocPath::new(),
+        )?;
         let delta = quillmark_content::delta::diff(
             &base,
             stored

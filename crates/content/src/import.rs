@@ -60,14 +60,14 @@
 //!   revise ([`from_markdown_against`]) and dropped by a cold import, a token
 //!   reported.
 
-use crate::model::{
-    Container, Island, Line, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
-};
+use crate::MAX_NESTING_DEPTH;
 use crate::carrier;
 use crate::html;
 use crate::island::IslandType;
+use crate::model::{
+    Container, Content, ISLAND_SLOT, Island, Line, LineKind, Mark, MarkKind, Normalized,
+};
 use crate::normalize::parse_markdown;
-use crate::MAX_NESTING_DEPTH;
 use pulldown_cmark::{Event, Options, Tag, TagEnd};
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -270,14 +270,21 @@ pub fn from_markdown_against(markdown: &str, stored: &Content) -> Result<Against
             _ => None,
         })
         .collect();
-    let islands = stored.islands.iter().map(|i| (i.id.clone(), i.clone())).collect();
+    let islands = stored
+        .islands
+        .iter()
+        .map(|i| (i.id.clone(), i.clone()))
+        .collect();
     let (mut content, warnings) = import(markdown, Tags::Against { anchors, islands })?;
     content.split_block_islands();
     let mut content = content.into_normalized().into_content();
     let mut pins = Vec::new();
     content.marks.retain(|m| match &m.kind {
         MarkKind::Anchor { id } => {
-            pins.push(Pin { at: m.start, id: id.clone() });
+            pins.push(Pin {
+                at: m.start,
+                id: id.clone(),
+            });
             false
         }
         _ => true,
@@ -290,8 +297,13 @@ pub fn from_markdown_against(markdown: &str, stored: &Content) -> Result<Against
 }
 
 fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), ImportError> {
-    let mut b = Builder { tags, ..Builder::default() };
-    parse_markdown(markdown, options(), |text, events| b.run(MarkdownFixer::new(text, events.into_iter())))?;
+    let mut b = Builder {
+        tags,
+        ..Builder::default()
+    };
+    parse_markdown(markdown, options(), |text, events| {
+        b.run(MarkdownFixer::new(text, events.into_iter()))
+    })?;
     let (content, mut dropped) = b.finish();
     let mut at = 0;
     for c in markdown.chars() {
@@ -375,7 +387,6 @@ struct OpenSpan {
     /// Its stretches closed by an inner pair setting a family.
     done: Vec<(usize, usize)>,
 }
-
 
 impl Inline {
     /// Append inline text under the [`crate::normalize::admit_char`] contract,
@@ -474,7 +485,12 @@ impl Inline {
                 if let Some(outer) = self.fonts.iter_mut().rev().find_map(Option::as_mut) {
                     outer.done.push((outer.from, pos));
                 }
-                self.fonts.push(Some(OpenSpan { at, family, from: pos, done: Vec::new() }));
+                self.fonts.push(Some(OpenSpan {
+                    at,
+                    family,
+                    from: pos,
+                    done: Vec::new(),
+                }));
             }
             SpanTag::Held => self.fonts.push(None),
             SpanTag::Close => {
@@ -484,7 +500,9 @@ impl Inline {
                 span.done.push((span.from, pos));
                 for (start, end) in span.done {
                     if start < end {
-                        let kind = MarkKind::FontFamily { name: span.family.clone() };
+                        let kind = MarkKind::FontFamily {
+                            name: span.family.clone(),
+                        };
                         self.marks.push(Mark { start, end, kind });
                     }
                 }
@@ -878,7 +896,13 @@ impl Builder {
                             note.nested += 1;
                             self.dropped.add(Dropped::Footnote, at);
                         }
-                        None => self.note = Some(NoteAcc { label, at, ..NoteAcc::default() }),
+                        None => {
+                            self.note = Some(NoteAcc {
+                                label,
+                                at,
+                                ..NoteAcc::default()
+                            })
+                        }
                     }
                     continue;
                 }
@@ -886,7 +910,12 @@ impl Builder {
                     self.note_ref(label, at);
                     continue;
                 }
-                Fixed::Math { tex, display, source, at } => {
+                Fixed::Math {
+                    tex,
+                    display,
+                    source,
+                    at,
+                } => {
                     self.math(&tex, display, source, at);
                     continue;
                 }
@@ -961,7 +990,8 @@ impl Builder {
                 }
                 // A soft break with nothing before it on its line, all before it
                 // having dropped, is nothing, and so is one beside a hard break.
-                Event::SoftBreak if self.line_empty() || self.broke_at == Some(self.inline.pos) => {}
+                Event::SoftBreak if self.line_empty() || self.broke_at == Some(self.inline.pos) => {
+                }
                 Event::SoftBreak => {
                     self.push_inline(" ");
                     self.soft_at = Some(self.inline.pos);
@@ -1021,11 +1051,7 @@ impl Builder {
                 self.code_lang = match kind {
                     pulldown_cmark::CodeBlockKind::Fenced(lang) => {
                         let l = sanitize_lang(&lang);
-                        if l.is_empty() {
-                            None
-                        } else {
-                            Some(l)
-                        }
+                        if l.is_empty() { None } else { Some(l) }
                     }
                     pulldown_cmark::CodeBlockKind::Indented => None,
                 };
@@ -1140,7 +1166,9 @@ impl Builder {
     /// Drop one carrier tag: an open tag reports `qm-<name>`, a close tag
     /// drops silently, and what lies between them imports as written.
     fn carrier_tag(&mut self, tag: CarrierTag) {
-        let CarrierTag { name, attrs, at, .. } = tag;
+        let CarrierTag {
+            name, attrs, at, ..
+        } = tag;
         let (opened, dropped) = match self.note.as_mut() {
             Some(note) => (&mut note.opened, &mut note.dropped),
             None => (&mut self.opened, &mut self.dropped),
@@ -1163,7 +1191,8 @@ impl Builder {
     fn held_tag(&mut self, tag: HeldTag) {
         let HeldTag { element, attrs, at } = tag;
         let id = attrs.values.get("ref");
-        let prose = self.note.is_none() && self.image_depth == 0 && self.table.is_none() && !self.in_code;
+        let prose =
+            self.note.is_none() && self.image_depth == 0 && self.table.is_none() && !self.in_code;
         let report = match &self.tags {
             Tags::Unresolved => return,
             Tags::Cold if element == carrier::ANCHOR => return,
@@ -1171,7 +1200,11 @@ impl Builder {
             Tags::Against { islands, .. } if element == carrier::ISLAND => {
                 match id.and_then(|id| islands.get(id)) {
                     Some(island) if prose => {
-                        let Island { island_type, mut props, .. } = island.clone();
+                        let Island {
+                            island_type,
+                            mut props,
+                            ..
+                        } = island.clone();
                         crate::export::drop_anchor_marks(&mut props);
                         self.ensure_open(LineKind::Para);
                         self.inline.push_raw(ISLAND_SLOT);
@@ -1179,7 +1212,10 @@ impl Builder {
                         None
                     }
                     Some(_) => Some(Dropped::Element(element)),
-                    None => Some(Dropped::ElementAttr { element, attr: "ref".into() }),
+                    None => Some(Dropped::ElementAttr {
+                        element,
+                        attr: "ref".into(),
+                    }),
                 }
             }
             Tags::Against { anchors, .. } => match id {
@@ -1187,11 +1223,18 @@ impl Builder {
                     if prose && !attrs.values.contains_key("at") {
                         self.open_early();
                         let pos = self.inline.pos;
-                        self.inline.marks.push(Mark::new(pos, pos, MarkKind::Anchor { id: id.clone() }));
+                        self.inline.marks.push(Mark::new(
+                            pos,
+                            pos,
+                            MarkKind::Anchor { id: id.clone() },
+                        ));
                     }
                     None
                 }
-                _ => Some(Dropped::ElementAttr { element, attr: "ref".into() }),
+                _ => Some(Dropped::ElementAttr {
+                    element,
+                    attr: "ref".into(),
+                }),
             },
         };
         if let Some(construct) = report {
@@ -1325,7 +1368,8 @@ impl Builder {
                 if let Some(mut cell) = acc.cell.take() {
                     cell.close_marks();
                     cell.drop_open(&mut self.dropped);
-                    acc.cur_row.push(crate::serial::cell_to_value(&cell.text, &cell.marks));
+                    acc.cur_row
+                        .push(crate::serial::cell_to_value(&cell.text, &cell.marks));
                 }
             }
             _ => {
@@ -1399,12 +1443,19 @@ impl Builder {
         Ok(())
     }
 
-    fn html_cell(&mut self, cell: crate::html_table::Cell) -> Result<serde_json::Value, ImportError> {
+    fn html_cell(
+        &mut self,
+        cell: crate::html_table::Cell,
+    ) -> Result<serde_json::Value, ImportError> {
         if let Some(acc) = self.table.as_mut() {
             acc.cell = Some(Inline::default());
         }
         self.inline_source(&cell.content, cell.at)?;
-        let mut inline = self.table.as_mut().and_then(|acc| acc.cell.take()).unwrap_or_default();
+        let mut inline = self
+            .table
+            .as_mut()
+            .and_then(|acc| acc.cell.take())
+            .unwrap_or_default();
         inline.close_marks();
         inline.drop_open(&mut self.dropped);
         let mut value = crate::serial::cell_to_value(&inline.text, &inline.marks);
@@ -1496,11 +1547,7 @@ impl Builder {
                 self.rearm_item();
             }
             Event::Start(
-                Tag::Paragraph
-                | Tag::Heading { .. }
-                | Tag::Item
-                | Tag::TableHead
-                | Tag::TableRow,
+                Tag::Paragraph | Tag::Heading { .. } | Tag::Item | Tag::TableHead | Tag::TableRow,
             ) => {
                 note.block();
                 note.in_row = false;
@@ -1553,7 +1600,15 @@ impl Builder {
             return self.dropped.add(Dropped::Footnote, note.at);
         }
         let props = crate::serial::cell_to_value(&note.inline.text, &note.inline.marks);
-        self.notes.insert(key, Note { props, at: note.at, used: false, dropped: note.dropped });
+        self.notes.insert(
+            key,
+            Note {
+                props,
+                at: note.at,
+                used: false,
+                dropped: note.dropped,
+            },
+        );
     }
 
     /// A footnote reference: an island in prose, its note filled in once
@@ -1567,7 +1622,8 @@ impl Builder {
         }
         self.ensure_open(LineKind::Para);
         self.inline.push_raw(ISLAND_SLOT);
-        self.note_refs.push((self.islands.len(), UniCase::new(label)));
+        self.note_refs
+            .push((self.islands.len(), UniCase::new(label)));
         self.mint_island(IslandType::Footnote, serde_json::Value::Null);
     }
 
@@ -1580,7 +1636,10 @@ impl Builder {
             return note.dropped.add(Dropped::Math, at);
         }
         let cell = self.table.as_mut().and_then(|acc| acc.cell.as_mut());
-        if self.image_depth > 0 || cell.is_some() || !crate::export::tex_is_writable(&crate::serial::settle_tex(tex), display) {
+        if self.image_depth > 0
+            || cell.is_some()
+            || !crate::export::tex_is_writable(&crate::serial::settle_tex(tex), display)
+        {
             match cell {
                 Some(cell) => cell.push_text(source),
                 None if self.image_depth > 0 => self.image_alt.extend(admitted(source)),
@@ -1612,7 +1671,9 @@ impl Builder {
         else {
             return;
         };
-        self.inline.text.replace_range(byte..byte + ISLAND_SLOT.len_utf8(), text);
+        self.inline
+            .text
+            .replace_range(byte..byte + ISLAND_SLOT.len_utf8(), text);
         let grown = text.chars().count() - 1;
         for m in &mut self.inline.marks {
             if m.start > at {
@@ -1680,7 +1741,9 @@ fn mark_kind(tag: &Tag) -> Option<MarkKind> {
         Tag::Emphasis => MarkKind::Emph,
         Tag::Strong => MarkKind::Strong,
         Tag::Strikethrough => MarkKind::Strike,
-        Tag::Link { dest_url, .. } => MarkKind::Link { url: admit_url(dest_url) },
+        Tag::Link { dest_url, .. } => MarkKind::Link {
+            url: admit_url(dest_url),
+        },
         _ => return None,
     })
 }
@@ -1699,11 +1762,17 @@ fn admitted(s: &str) -> impl Iterator<Item = char> + '_ {
 /// no line ending, which a destination can hold only as a character
 /// reference and a URL parser strips.
 fn admit_url(url: &str) -> String {
-    url.chars().filter(|&c| c != '\n').filter_map(crate::normalize::admit_char).collect()
+    url.chars()
+        .filter(|&c| c != '\n')
+        .filter_map(crate::normalize::admit_char)
+        .collect()
 }
 
 fn ends_mark(end: &TagEnd) -> bool {
-    matches!(end, TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link)
+    matches!(
+        end,
+        TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link
+    )
 }
 
 /// Whether `event` stands inside an inline run.
@@ -1755,12 +1824,23 @@ enum Fixed<'a> {
     /// A construct the fixer dropped, at its byte offset.
     Dropped(Dropped, usize),
     /// A footnote definition's start, at its byte offset.
-    NoteDef { label: String, at: usize },
+    NoteDef {
+        label: String,
+        at: usize,
+    },
     /// A footnote reference, at its byte offset.
-    NoteRef { label: String, at: usize },
+    NoteRef {
+        label: String,
+        at: usize,
+    },
     /// An equation: its TeX, whether `$$` delimits it, and its markup as
     /// written, at its byte offset.
-    Math { tex: pulldown_cmark::CowStr<'a>, display: bool, source: &'a str, at: usize },
+    Math {
+        tex: pulldown_cmark::CowStr<'a>,
+        display: bool,
+        source: &'a str,
+        at: usize,
+    },
     /// A table an HTML block spells.
     HtmlTable(crate::html_table::Table),
     /// An inline `qm-anchor` or `qm-island` open tag.
@@ -1781,13 +1861,26 @@ impl Fixed<'_> {
     /// item read off text that starts there.
     fn shifted(self, by: usize) -> Self {
         match self {
-            Fixed::Carrier(tag) => Fixed::Carrier(CarrierTag { at: tag.at + by, ..tag }),
+            Fixed::Carrier(tag) => Fixed::Carrier(CarrierTag {
+                at: tag.at + by,
+                ..tag
+            }),
             Fixed::Underline(UTag::Open { at }) => Fixed::Underline(UTag::Open { at: at + by }),
             Fixed::Swallowed(name, at) => Fixed::Swallowed(name, at + by),
             Fixed::Dropped(construct, at) => Fixed::Dropped(construct, at + by),
             Fixed::NoteDef { label, at } => Fixed::NoteDef { label, at: at + by },
             Fixed::NoteRef { label, at } => Fixed::NoteRef { label, at: at + by },
-            Fixed::Math { tex, display, source, at } => Fixed::Math { tex, display, source, at: at + by },
+            Fixed::Math {
+                tex,
+                display,
+                source,
+                at,
+            } => Fixed::Math {
+                tex,
+                display,
+                source,
+                at: at + by,
+            },
             other => other,
         }
     }
@@ -1797,7 +1890,9 @@ impl Fixed<'_> {
 #[derive(Clone, Copy)]
 enum UTag {
     /// A bare `<u>`, at this byte offset: it underlines what it wraps.
-    Open { at: usize },
+    Open {
+        at: usize,
+    },
     /// A `<u>` carrying an attribute, or self-closing: it drops, and still
     /// pairs with a `</u>`.
     Held,
@@ -1807,7 +1902,10 @@ enum UTag {
 /// An inline `<qm-span>` tag, paired by the builder as a `<u>` is.
 enum SpanTag {
     /// An open tag setting a family, at this byte offset.
-    Open { at: usize, family: String },
+    Open {
+        at: usize,
+        family: String,
+    },
     /// An open tag setting none, or self-closing: it drops, and still pairs
     /// with a `</qm-span>`.
     Held,
@@ -1920,8 +2018,7 @@ struct MarkdownFixer<'a, I> {
 
 /// Whether a tag ending `end` holds a line of carrier tags as text.
 fn deepens(end: &TagEnd) -> bool {
-    ends_mark(end)
-        || matches!(end, TagEnd::Image | TagEnd::Heading(_) | TagEnd::Table)
+    ends_mark(end) || matches!(end, TagEnd::Image | TagEnd::Heading(_) | TagEnd::Table)
 }
 
 impl<'a, I> MarkdownFixer<'a, I>
@@ -1975,7 +2072,8 @@ where
         let (family, refused) = carrier::span::read(&carrier::decode_attrs(&tag.attrs));
         for attr in refused {
             let element = carrier::SPAN.to_string();
-            self.held.push_back(Fixed::Dropped(Dropped::ElementAttr { element, attr }, at));
+            self.held
+                .push_back(Fixed::Dropped(Dropped::ElementAttr { element, attr }, at));
         }
         match family {
             Some(family) if !tag.self_closing => SpanTag::Open { at, family },
@@ -1995,13 +2093,21 @@ where
 
     /// The end and the tags of the line `event` opens, when it holds only the
     /// open and close tags of wrappers (markdown-spec §6.2).
-    fn carrier_line(&self, event: &Event, range: &Range<usize>) -> Option<(usize, Vec<CarrierTag>)> {
+    fn carrier_line(
+        &self,
+        event: &Event,
+        range: &Range<usize>,
+    ) -> Option<(usize, Vec<CarrierTag>)> {
         if self.depth > 0 || self.underlines > 0 || !matches!(event, Event::InlineHtml(_)) {
             return None;
         }
-        let end = self.src[range.start..].find('\n').map_or(self.src.len(), |i| range.start + i);
+        let end = self.src[range.start..]
+            .find('\n')
+            .map_or(self.src.len(), |i| range.start + i);
         let tags = carrier::tag_line(&self.src[range.start..end])?;
-        let carriers = tags.iter().filter_map(|tag| CarrierTag::of(tag, true, range.start + tag.span.start));
+        let carriers = tags
+            .iter()
+            .filter_map(|tag| CarrierTag::of(tag, true, range.start + tag.span.start));
         Some((end, carriers.collect()))
     }
 
@@ -2022,11 +2128,14 @@ where
                 self.ahead = Some((event, range));
                 return;
             }
-            let Some((event, range)) = self.read() else { return };
+            let Some((event, range)) = self.read() else {
+                return;
+            };
             match self.carrier_line(&event, &range) {
                 Some(line) => (end, tags) = line,
                 None => {
-                    self.held.push_back(Fixed::Event(Event::Start(Tag::Paragraph)));
+                    self.held
+                        .push_back(Fixed::Event(Event::Start(Tag::Paragraph)));
                     self.ahead = Some((event, range));
                     return;
                 }
@@ -2056,26 +2165,39 @@ where
         }
         if crate::html_table::opens(&text) {
             let source = |off: usize| {
-                let k = lines.partition_point(|&(block, _)| block <= off).saturating_sub(1);
+                let k = lines
+                    .partition_point(|&(block, _)| block <= off)
+                    .saturating_sub(1);
                 lines.get(k).map_or(at, |&(block, src)| src + (off - block))
             };
             let (tables, drops) = crate::html_table::scan(&text, source, &mut self.cells);
-            self.held.extend(drops.into_iter().map(|(construct, at)| Fixed::Dropped(construct, at)));
+            self.held.extend(
+                drops
+                    .into_iter()
+                    .map(|(construct, at)| Fixed::Dropped(construct, at)),
+            );
             self.held.extend(tables.into_iter().map(Fixed::HtmlTable));
-            self.held.push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock)));
+            self.held
+                .push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock)));
             return;
         }
         let tags = html::block_tags(&text);
-        let swallows = text.lines().any(|l| !l.trim().is_empty() && html::tag_line(l).is_none());
-        let reports = tags.iter().any(|t| !t.closing && dropped_tag(t.name).is_some());
+        let swallows = text
+            .lines()
+            .any(|l| !l.trim().is_empty() && html::tag_line(l).is_none());
+        let reports = tags
+            .iter()
+            .any(|t| !t.closing && dropped_tag(t.name).is_some());
         if let Some(first) = tags.first().filter(|_| swallows && !reports) {
-            self.held.push_back(match carrier::wrapper(first.name).filter(|_| first.closing) {
-                Some(name) => Fixed::Swallowed(name, at),
-                None => {
-                    let anchor = Dropped::Tag(first.name.to_ascii_lowercase());
-                    Fixed::Dropped(dropped_tag(first.name).unwrap_or(anchor), at)
-                }
-            });
+            self.held.push_back(
+                match carrier::wrapper(first.name).filter(|_| first.closing) {
+                    Some(name) => Fixed::Swallowed(name, at),
+                    None => {
+                        let anchor = Dropped::Tag(first.name.to_ascii_lowercase());
+                        Fixed::Dropped(dropped_tag(first.name).unwrap_or(anchor), at)
+                    }
+                },
+            );
         }
         for tag in tags {
             match CarrierTag::of(&tag, true, at).filter(|_| !swallows) {
@@ -2083,13 +2205,17 @@ where
                 None => self.drop_tag(&tag, at),
             }
         }
-        self.held.push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock)));
+        self.held
+            .push_back(Fixed::Event(Event::End(TagEnd::HtmlBlock)));
     }
 
     /// One event as the builder takes it, or `None` for one that `held` now
     /// carries or that drops.
     fn fix(&mut self, event: Event<'a>, range: Range<usize>) -> Option<Fixed<'a>> {
-        let opens = matches!(event, Event::Start(Tag::Paragraph | Tag::Item) | Event::TaskListMarker(_));
+        let opens = matches!(
+            event,
+            Event::Start(Tag::Paragraph | Tag::Item) | Event::TaskListMarker(_)
+        );
         let line_start = std::mem::replace(&mut self.line_start, opens);
         if line_start {
             if let Some(line) = self.carrier_line(&event, &range) {
@@ -2124,10 +2250,13 @@ where
                 self.grid = Some((aligns.len(), aligns.len(), false));
                 Fixed::Event(Event::Start(Tag::Table(aligns)))
             }
-            Event::Start(Tag::TableRow) if self.grid.is_some_and(|(cols, n, _)| n + cols > self.cells) => {
+            Event::Start(Tag::TableRow)
+                if self.grid.is_some_and(|(cols, n, _)| n + cols > self.cells) =>
+            {
                 self.skip_through(TagEnd::TableRow);
                 let (_, _, cut) = self.grid.as_mut()?;
-                return (!std::mem::replace(cut, true)).then_some(Fixed::Dropped(Dropped::TableSize, range.start));
+                return (!std::mem::replace(cut, true))
+                    .then_some(Fixed::Dropped(Dropped::TableSize, range.start));
             }
             Event::Start(Tag::TableRow) => {
                 if let Some((cols, n, _)) = self.grid.as_mut() {
@@ -2167,7 +2296,9 @@ where
                 if let Some(carrier) = CarrierTag::of(&tag, false, range.start) {
                     return Some(Fixed::Carrier(carrier));
                 }
-                if let Some(element) = carrier::element(tag.name).filter(|e| carrier::RESERVED.contains(&e.as_str())) {
+                if let Some(element) =
+                    carrier::element(tag.name).filter(|e| carrier::RESERVED.contains(&e.as_str()))
+                {
                     return (!tag.closing).then(|| {
                         Fixed::Held(HeldTag {
                             element,
@@ -2187,8 +2318,18 @@ where
                 label: label.to_string(),
                 at: range.start,
             },
-            Event::InlineMath(tex) => Fixed::Math { tex, display: false, source: &self.src[range.clone()], at: range.start },
-            Event::DisplayMath(tex) => Fixed::Math { tex, display: true, source: &self.src[range.clone()], at: range.start },
+            Event::InlineMath(tex) => Fixed::Math {
+                tex,
+                display: false,
+                source: &self.src[range.clone()],
+                at: range.start,
+            },
+            Event::DisplayMath(tex) => Fixed::Math {
+                tex,
+                display: true,
+                source: &self.src[range.clone()],
+                at: range.start,
+            },
             other => Fixed::Event(other),
         })
     }
@@ -2275,13 +2416,22 @@ pub(crate) mod tests {
         let rt = imp_plain("a\nb");
         assert_eq!(rt.lines.len(), 2);
         assert!(!rt.lines[0].continues);
-        assert!(rt.lines[1].continues, "lone \\n is a within-paragraph break");
+        assert!(
+            rt.lines[1].continues,
+            "lone \\n is a within-paragraph break"
+        );
 
         let rt = imp_plain("a\n\nb");
         assert_eq!(rt.lines.len(), 3);
         assert!(!rt.lines[0].continues);
-        assert!(!rt.lines[1].continues, "the blank line is a paragraph boundary");
-        assert!(!rt.lines[2].continues, "text after a blank line starts a new block");
+        assert!(
+            !rt.lines[1].continues,
+            "the blank line is a paragraph boundary"
+        );
+        assert!(
+            !rt.lines[2].continues,
+            "text after a blank line starts a new block"
+        );
     }
 
     #[test]
@@ -2313,8 +2463,16 @@ pub(crate) mod tests {
         for (md, text, mark) in [
             ("a **b** _c_", "a b c", Mark::new(2, 3, MarkKind::Strong)),
             ("a **b** _c_", "a b c", Mark::new(4, 5, MarkKind::Emph)),
-            ("x <u>y</u> z", "x y z", Mark::new(2, 3, MarkKind::Underline)),
-            ("run `cargo test` now", "run cargo test now", Mark::new(4, 14, MarkKind::Code)),
+            (
+                "x <u>y</u> z",
+                "x y z",
+                Mark::new(2, 3, MarkKind::Underline),
+            ),
+            (
+                "run `cargo test` now",
+                "run cargo test now",
+                Mark::new(4, 14, MarkKind::Code),
+            ),
         ] {
             let rt = imp(md);
             assert_eq!(rt.text, text, "{md}");
@@ -2328,11 +2486,37 @@ pub(crate) mod tests {
     #[test]
     fn a_u_pair_crosses_other_marks() {
         let cases: &[(&str, &[Mark], &[(&str, usize)])] = &[
-            ("<u>a **b</u> c**", &[Mark::new(0, 3, MarkKind::Underline), Mark::new(2, 5, MarkKind::Strong)], &[]),
-            ("**a <u>b** c</u>", &[Mark::new(0, 3, MarkKind::Strong), Mark::new(2, 5, MarkKind::Underline)], &[]),
-            ("**bold <u class=\"x\">a</u> b**", &[Mark::new(0, 8, MarkKind::Strong)], &[("u", 1)]),
-            ("<u>a <u class=\"x\">b</u> c</u>", &[Mark::new(0, 5, MarkKind::Underline)], &[("u", 1)]),
-            ("<u>a <u>b</u> c</u>", &[Mark::new(0, 5, MarkKind::Underline)], &[]),
+            (
+                "<u>a **b</u> c**",
+                &[
+                    Mark::new(0, 3, MarkKind::Underline),
+                    Mark::new(2, 5, MarkKind::Strong),
+                ],
+                &[],
+            ),
+            (
+                "**a <u>b** c</u>",
+                &[
+                    Mark::new(0, 3, MarkKind::Strong),
+                    Mark::new(2, 5, MarkKind::Underline),
+                ],
+                &[],
+            ),
+            (
+                "**bold <u class=\"x\">a</u> b**",
+                &[Mark::new(0, 8, MarkKind::Strong)],
+                &[("u", 1)],
+            ),
+            (
+                "<u>a <u class=\"x\">b</u> c</u>",
+                &[Mark::new(0, 5, MarkKind::Underline)],
+                &[("u", 1)],
+            ),
+            (
+                "<u>a <u>b</u> c</u>",
+                &[Mark::new(0, 5, MarkKind::Underline)],
+                &[],
+            ),
             ("**a </u> b**", &[Mark::new(0, 4, MarkKind::Strong)], &[]),
         ];
         for (md, marks, warned) in cases {
@@ -2353,14 +2537,20 @@ pub(crate) mod tests {
         assert_eq!(dropped(&imported), [("u", 1)]);
 
         let imported = imp_fixed(&format!("{}x</u>", "<u>".repeat(MAX_NESTING_DEPTH + 1)));
-        assert_eq!(imported.content.marks, [Mark::new(0, 1, MarkKind::Underline)]);
+        assert_eq!(
+            imported.content.marks,
+            [Mark::new(0, 1, MarkKind::Underline)]
+        );
         assert_eq!(dropped(&imported), [("u", MAX_NESTING_DEPTH)]);
 
         let imported = imp_fixed("| <u>a **b</u> c** | <u>d |\n|---|---|\n| x | y |");
         let cells = crate::serial::table_cells(&imported.content.islands[0].props);
         assert_eq!(
             cells[0].1,
-            [Mark::new(0, 3, MarkKind::Underline), Mark::new(2, 5, MarkKind::Strong)]
+            [
+                Mark::new(0, 3, MarkKind::Underline),
+                Mark::new(2, 5, MarkKind::Strong)
+            ]
         );
         assert!(cells[1].1.is_empty());
         assert_eq!(dropped(&imported), [("u", 1)]);
@@ -2376,13 +2566,20 @@ pub(crate) mod tests {
             (
                 "<qm-span family=\"A\">a <qm-span family=\"B\">b</qm-span> c</qm-span>",
                 "a b c",
-                vec![Mark::new(0, 2, family("A")), Mark::new(2, 3, family("B")), Mark::new(3, 5, family("A"))],
+                vec![
+                    Mark::new(0, 2, family("A")),
+                    Mark::new(2, 3, family("B")),
+                    Mark::new(3, 5, family("A")),
+                ],
                 vec![],
             ),
             (
                 "**a <qm-span family=\"A\">b** c</qm-span>",
                 "a b c",
-                vec![Mark::new(0, 3, MarkKind::Strong), Mark::new(2, 5, family("A"))],
+                vec![
+                    Mark::new(0, 3, MarkKind::Strong),
+                    Mark::new(2, 5, family("A")),
+                ],
                 vec![],
             ),
             (
@@ -2391,9 +2588,24 @@ pub(crate) mod tests {
                 vec![Mark::new(0, 1, family("A"))],
                 vec![("qm-span[color]", 1)],
             ),
-            ("<qm-span>a</qm-span> <qm-span color=\"red\">b</qm-span>", "a b", vec![], vec![("qm-span", 2), ("qm-span[color]", 1)]),
-            ("<qm-span family=\" A\">a</qm-span>", "a", vec![], vec![("qm-span[family]", 1), ("qm-span", 1)]),
-            ("<qm-span family=\"A\"/>a", "a", vec![], vec![("qm-span", 1)]),
+            (
+                "<qm-span>a</qm-span> <qm-span color=\"red\">b</qm-span>",
+                "a b",
+                vec![],
+                vec![("qm-span", 2), ("qm-span[color]", 1)],
+            ),
+            (
+                "<qm-span family=\" A\">a</qm-span>",
+                "a",
+                vec![],
+                vec![("qm-span[family]", 1), ("qm-span", 1)],
+            ),
+            (
+                "<qm-span family=\"A\"/>a",
+                "a",
+                vec![],
+                vec![("qm-span", 1)],
+            ),
         ];
         for (md, text, marks, warned) in cases {
             let imported = imp_fixed(md);
@@ -2421,9 +2633,17 @@ pub(crate) mod tests {
             assert_eq!(imp_fixed(md).content.marks, marks, "{md:?}");
         }
 
-        let imported = imp_fixed("| <qm-span family=\"A\">a **b</qm-span> c** |\n|---|\n\na[^1]\n\n[^1]: <qm-span family=\"B\">n</qm-span>");
+        let imported = imp_fixed(
+            "| <qm-span family=\"A\">a **b</qm-span> c** |\n|---|\n\na[^1]\n\n[^1]: <qm-span family=\"B\">n</qm-span>",
+        );
         let cells = crate::serial::table_cells(&imported.content.islands[0].props);
-        assert_eq!(cells[0].1, [Mark::new(0, 3, family("A")), Mark::new(2, 5, MarkKind::Strong)]);
+        assert_eq!(
+            cells[0].1,
+            [
+                Mark::new(0, 3, family("A")),
+                Mark::new(2, 5, MarkKind::Strong)
+            ]
+        );
         let (_, note) = crate::serial::parse_cell(&imported.content.islands[1].props);
         assert_eq!(note, [Mark::new(0, 1, family("B"))]);
     }
@@ -2434,7 +2654,13 @@ pub(crate) mod tests {
     fn a_tag_line_inside_an_open_qm_span_pair_is_text() {
         let imported = imp_fixed("<qm-span family=\"A\">a\n<qm-keep>\nb</qm-span>");
         assert_eq!(imported.content.lines.len(), 1);
-        assert!(imported.content.marks.iter().all(|m| m.kind == MarkKind::FontFamily { name: "A".into() }));
+        assert!(
+            imported
+                .content
+                .marks
+                .iter()
+                .all(|m| m.kind == MarkKind::FontFamily { name: "A".into() })
+        );
     }
 
     /// `qm-span` tag lines around blocks wrap nothing: the tags drop and warn,
@@ -2443,7 +2669,13 @@ pub(crate) mod tests {
     fn a_qm_span_tag_line_drops() {
         let imported = imp_fixed("<qm-span family=\"A\">\n\nOne.\n\nTwo.\n\n</qm-span>");
         assert_eq!(imported.content.text, "One.\nTwo.");
-        assert!(imported.content.lines.iter().all(|l| l.containers.is_empty()));
+        assert!(
+            imported
+                .content
+                .lines
+                .iter()
+                .all(|l| l.containers.is_empty())
+        );
         assert!(imported.content.marks.is_empty());
         assert_eq!(dropped(&imported), [("qm-span", 1)]);
     }
@@ -2479,10 +2711,11 @@ pub(crate) mod tests {
     fn ul_lookalike_is_not_underline() {
         let rt = imp("x <ul>y</ul> z");
         assert_eq!(rt.text, "x y z");
-        assert!(rt
-            .marks
-            .iter()
-            .all(|m| m.kind != MarkKind::Underline && m.kind != MarkKind::Strong));
+        assert!(
+            rt.marks
+                .iter()
+                .all(|m| m.kind != MarkKind::Underline && m.kind != MarkKind::Strong)
+        );
     }
 
     #[test]
@@ -2516,10 +2749,11 @@ pub(crate) mod tests {
         let rt = imp("```\na\u{FFFC}b\nc\rd\n```");
         assert_eq!(rt.text, "ab\nc\nd");
         assert_eq!(rt.lines.len(), 3);
-        assert!(rt
-            .lines
-            .iter()
-            .all(|l| l.kind == LineKind::Code { lang: None }));
+        assert!(
+            rt.lines
+                .iter()
+                .all(|l| l.kind == LineKind::Code { lang: None })
+        );
     }
 
     /// The prose sibling of the code-block case above, on the other door.
@@ -2616,7 +2850,10 @@ pub(crate) mod tests {
     fn blockquote_container() {
         let rt = imp("> quoted");
         assert_eq!(rt.text, "quoted");
-        assert_eq!(rt.lines[0].containers, vec![Container::Quote { instance: 0 }]);
+        assert_eq!(
+            rt.lines[0].containers,
+            vec![Container::Quote { instance: 0 }]
+        );
     }
 
     #[test]
@@ -2704,7 +2941,10 @@ pub(crate) mod tests {
                 vec![None, Some(true)],
             ]
         );
-        assert!(rt.lines.iter().all(|l| l.containers[0].instance() == 0), "one list");
+        assert!(
+            rt.lines.iter().all(|l| l.containers[0].instance() == 0),
+            "one list"
+        );
 
         let rt = imp_fixed("- [x]\n  # h\n\n  p").content;
         assert_eq!(rt.lines[0].kind, LineKind::Heading { level: 1 });
@@ -2748,10 +2988,26 @@ pub(crate) mod tests {
     #[test]
     fn a_footnote_with_no_place_drops() {
         let cases: &[(&str, &str, &[(&str, usize)])] = &[
-            ("a[^1]\n\n[^1]: x\n\n[^2]: y", "a\u{FFFC}", &[("footnote", 1)]),
-            ("a[^1]\n\n[^1]: x\n\n[^1]: y", "a\u{FFFC}", &[("footnote", 1)]),
-            ("| h[^1] |\n| --- |\n| c |\n\n[^1]: x", "\u{FFFC}", &[("footnote", 2)]),
-            ("a[^1]\n\n[^1]: x[^2]\n\n[^2]: y", "a\u{FFFC}", &[("footnote", 2)]),
+            (
+                "a[^1]\n\n[^1]: x\n\n[^2]: y",
+                "a\u{FFFC}",
+                &[("footnote", 1)],
+            ),
+            (
+                "a[^1]\n\n[^1]: x\n\n[^1]: y",
+                "a\u{FFFC}",
+                &[("footnote", 1)],
+            ),
+            (
+                "| h[^1] |\n| --- |\n| c |\n\n[^1]: x",
+                "\u{FFFC}",
+                &[("footnote", 2)],
+            ),
+            (
+                "a[^1]\n\n[^1]: x[^2]\n\n[^2]: y",
+                "a\u{FFFC}",
+                &[("footnote", 2)],
+            ),
             ("a[^9]", "a[^9]", &[]),
         ];
         for (md, text, warned) in cases {
@@ -2778,7 +3034,11 @@ pub(crate) mod tests {
     fn a_definition_list_reads_as_a_paragraph() {
         let rt = imp_fixed("T\n: a\n\nU").content;
         assert_eq!(rt.text, "T : a\nU");
-        assert!(rt.lines.iter().all(|l| l.kind == LineKind::Para && l.containers.is_empty()));
+        assert!(
+            rt.lines
+                .iter()
+                .all(|l| l.kind == LineKind::Para && l.containers.is_empty())
+        );
     }
 
     #[test]
@@ -2811,7 +3071,10 @@ pub(crate) mod tests {
         let rt = imp("![$a$ b](u)");
         assert_eq!(rt.islands[0].props["alt"], "$a$ b");
         let imported = imp_fixed("a $\u{2000}$ b");
-        assert_eq!(imported.content.text, "a $\u{2000}$ b", "a blank equation stays as its text");
+        assert_eq!(
+            imported.content.text, "a $\u{2000}$ b",
+            "a blank equation stays as its text"
+        );
         assert_eq!(dropped(&imported), [("math", 1)]);
         let rt = imp("n[^1]\n\n[^1]: $a$");
         assert_eq!(rt.islands[0].props["text"], "$a$");
@@ -2841,7 +3104,9 @@ pub(crate) mod tests {
         for (md, lines) in cases {
             let rt = imp(md);
             assert_eq!(rt.lines.len(), *lines, "{md:?} -> {:?}", rt.lines);
-            let rt2 = from_markdown(&crate::export::to_markdown(&rt)).unwrap().content;
+            let rt2 = from_markdown(&crate::export::to_markdown(&rt))
+                .unwrap()
+                .content;
             assert_eq!(rt2, rt, "{md:?} is not a fixed point");
         }
         assert_eq!(imp("a\n\n<span></span>\n\nb").text, "a\nb");
@@ -2851,7 +3116,10 @@ pub(crate) mod tests {
     fn empty_blockquote_keeps_its_line() {
         let rt = imp("> ");
         assert_eq!(rt.lines.len(), 1);
-        assert_eq!(rt.lines[0].containers, vec![Container::Quote { instance: 0 }]);
+        assert_eq!(
+            rt.lines[0].containers,
+            vec![Container::Quote { instance: 0 }]
+        );
     }
 
     #[test]
@@ -2933,7 +3201,12 @@ pub(crate) mod tests {
 
     #[test]
     fn a_soft_break_beside_a_hard_break_is_nothing() {
-        for md in ["one<br>\ntwo", "one\n<br>two", "one<br>\n<br>two", "one\n\\\ntwo"] {
+        for md in [
+            "one<br>\ntwo",
+            "one\n<br>two",
+            "one<br>\n<br>two",
+            "one\n\\\ntwo",
+        ] {
             let rt = imp(md);
             assert_eq!(rt.text, "one\ntwo", "{md:?}");
             assert!(rt.lines[1].continues, "{md:?}");
@@ -2961,7 +3234,14 @@ pub(crate) mod tests {
         ] {
             let rt = imp_fixed(md).content;
             assert_eq!(rt.text, text, "{md:?}");
-            assert_eq!(rt.lines.iter().map(|l| l.containers.len()).collect::<Vec<_>>(), depths, "{md:?}");
+            assert_eq!(
+                rt.lines
+                    .iter()
+                    .map(|l| l.containers.len())
+                    .collect::<Vec<_>>(),
+                depths,
+                "{md:?}"
+            );
         }
         let rt = imp_fixed("- [x] [](u)").content;
         assert!(
@@ -2969,7 +3249,10 @@ pub(crate) mod tests {
             "an item keeps its line: {:?}",
             rt.lines
         );
-        assert_eq!(imp_fixed("# [](u)").content.lines[0].kind, LineKind::Heading { level: 1 });
+        assert_eq!(
+            imp_fixed("# [](u)").content.lines[0].kind,
+            LineKind::Heading { level: 1 }
+        );
     }
 
     #[test]
@@ -3005,7 +3288,11 @@ pub(crate) mod tests {
             let rt = imp(md);
             assert_eq!(rt.text, text, "{md:?}");
             let last = rt.lines.last().unwrap();
-            assert_eq!((&last.kind, last.containers.len()), (&LineKind::Para, 1), "{md:?}");
+            assert_eq!(
+                (&last.kind, last.containers.len()),
+                (&LineKind::Para, 1),
+                "{md:?}"
+            );
             assert_eq!(imp(&crate::export::to_markdown(&rt)), rt, "{md:?}");
         }
     }
@@ -3015,10 +3302,11 @@ pub(crate) mod tests {
         let rt = imp("a😀**b**");
         // 'a'(0) '😀'(1) 'b'(2): strong over "b" is 2..3 in USV.
         assert_eq!(rt.text, "a😀b");
-        assert!(rt
-            .marks
-            .iter()
-            .any(|m| m.start == 2 && m.end == 3 && m.kind == MarkKind::Strong));
+        assert!(
+            rt.marks
+                .iter()
+                .any(|m| m.start == 2 && m.end == 3 && m.kind == MarkKind::Strong)
+        );
     }
 
     /// `from_markdown` and the content fixed point over its result.
@@ -3026,7 +3314,10 @@ pub(crate) mod tests {
         let imported = from_markdown(md).unwrap();
         assert_eq!(imported.content.validate(), Ok(()), "invariants for {md:?}");
         let back = from_markdown(&crate::export::to_markdown(&imported.content)).unwrap();
-        assert_eq!(back.content, imported.content, "{md:?} is not a fixed point");
+        assert_eq!(
+            back.content, imported.content,
+            "{md:?} is not a fixed point"
+        );
         imported
     }
 
@@ -3036,9 +3327,7 @@ pub(crate) mod tests {
         imported
             .warnings
             .iter()
-            .map(|ImportWarning { construct, count }| {
-                (&*construct.to_string().leak(), *count)
-            })
+            .map(|ImportWarning { construct, count }| (&*construct.to_string().leak(), *count))
             .collect()
     }
 
@@ -3067,8 +3356,14 @@ pub(crate) mod tests {
     #[test]
     fn a_tag_line_tight_against_markdown_drops_its_block() {
         for (md, tag) in [
-            ("<div align=\"center\">\n| a | b |\n|---|---|\n| 1 | 2 |\n</div>", "div"),
-            ("<x-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</x-keep>", "x-keep"),
+            (
+                "<div align=\"center\">\n| a | b |\n|---|---|\n| 1 | 2 |\n</div>",
+                "div",
+            ),
+            (
+                "<x-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</x-keep>",
+                "x-keep",
+            ),
             ("<center>\n**Signed**\nJ. Doe\n</center>", "center"),
         ] {
             let imported = imp_fixed(md);
@@ -3080,7 +3375,8 @@ pub(crate) mod tests {
         assert_eq!(beside.content.text, "");
         assert_eq!(dropped(&beside), [("span", 1), ("qm-keep", 1)]);
 
-        let imported = imp_fixed("<div align=\"center\">\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n</div>");
+        let imported =
+            imp_fixed("<div align=\"center\">\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n</div>");
         assert_eq!(imported.content.text, "\u{FFFC}");
         assert_eq!(table_rows(&imported.content), [["1", "2"]]);
         assert_eq!(dropped(&imported), [("div", 1)]);
@@ -3092,30 +3388,72 @@ pub(crate) mod tests {
     #[test]
     fn a_line_of_carrier_tags_reads_as_tag_lines_wherever_it_stands() {
         let cases: &[(&str, &str, &[&[&str]])] = &[
-            ("<qm-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</qm-keep>", "\u{FFFC}", &[&[]]),
-            ("<qm-keep>\n**Signed**\nJ. Doe\n</qm-keep>", "Signed J. Doe", &[&[]]),
+            (
+                "<qm-keep>\n| a | b |\n|---|---|\n| 1 | 2 |\n</qm-keep>",
+                "\u{FFFC}",
+                &[&[]],
+            ),
+            (
+                "<qm-keep>\n**Signed**\nJ. Doe\n</qm-keep>",
+                "Signed J. Doe",
+                &[&[]],
+            ),
             ("<qm-keep>\n\nA\n</qm-keep>\nB", "A\nB", &[&[], &[]]),
             ("A\n<qm-keep>\nB\n</qm-keep>", "A\nB", &[&[], &[]]),
             ("A\n    <qm-keep>\nB\n</qm-keep>", "A\nB", &[&[], &[]]),
             ("A\\\n</qm-keep>\nB", "A\nB", &[&[], &[]]),
-            ("- a\n  <qm-keep>\n  b\n  </qm-keep>", "a\nb", &[&["list_item"], &["list_item"]]),
-            ("> A\n<qm-keep>\n> B\n> </qm-keep>", "A\nB", &[&["quote"], &["quote"]]),
-            ("> A\n> <qm-keep>\n> B\n> </qm-keep>", "A\nB", &[&["quote"], &["quote"]]),
+            (
+                "- a\n  <qm-keep>\n  b\n  </qm-keep>",
+                "a\nb",
+                &[&["list_item"], &["list_item"]],
+            ),
+            (
+                "> A\n<qm-keep>\n> B\n> </qm-keep>",
+                "A\nB",
+                &[&["quote"], &["quote"]],
+            ),
+            (
+                "> A\n> <qm-keep>\n> B\n> </qm-keep>",
+                "A\nB",
+                &[&["quote"], &["quote"]],
+            ),
             ("<qm-sig></qm-sig>", "", &[&[]]),
-            ("<qm-sig name=\"a\"></qm-sig>\n<qm-sig name=\"b\"></qm-sig>", "", &[&[]]),
-            ("- [ ] <qm-sig></qm-sig>\n- [x] b", "\nb", &[&["list_item"], &["list_item"]]),
-            ("<qm-keep><qm-box>\n\n| a |\n|---|\n| 1 |\n\n</qm-box></qm-keep>", "\u{FFFC}", &[&[]]),
-            ("| a |\n|---|\n<qm-sig></qm-sig>\nB", "\u{FFFC}\nB", &[&[], &[]]),
+            (
+                "<qm-sig name=\"a\"></qm-sig>\n<qm-sig name=\"b\"></qm-sig>",
+                "",
+                &[&[]],
+            ),
+            (
+                "- [ ] <qm-sig></qm-sig>\n- [x] b",
+                "\nb",
+                &[&["list_item"], &["list_item"]],
+            ),
+            (
+                "<qm-keep><qm-box>\n\n| a |\n|---|\n| 1 |\n\n</qm-box></qm-keep>",
+                "\u{FFFC}",
+                &[&[]],
+            ),
+            (
+                "| a |\n|---|\n<qm-sig></qm-sig>\nB",
+                "\u{FFFC}\nB",
+                &[&[], &[]],
+            ),
         ];
         for (md, text, tags) in cases {
             let imported = imp_fixed(md);
             assert_eq!(imported.content.text, *text, "{md:?}");
             assert_eq!(container_tags(&imported.content), *tags, "{md:?}");
-            assert!(dropped(&imported).iter().all(|(t, _)| t.starts_with("qm-")), "{md:?}");
+            assert!(
+                dropped(&imported).iter().all(|(t, _)| t.starts_with("qm-")),
+                "{md:?}"
+            );
         }
 
         let split = imp_fixed("1. a\n<qm-keep>\n2. b\n</qm-keep>");
-        assert_eq!(container_tags(&split.content), [["list_item"], ["list_item"]]);
+        assert_eq!(
+            container_tags(&split.content),
+            [["list_item"], ["list_item"]]
+        );
         assert_eq!(dropped(&split), [("qm-keep", 1)]);
     }
 
@@ -3125,14 +3463,30 @@ pub(crate) mod tests {
     #[test]
     fn the_text_under_a_tag_line_keeps_its_paragraph_reading() {
         let cases: &[(&str, &str, &[&[&str]])] = &[
-            ("A\n<qm-keep>\n[x]: /url\nB\n</qm-keep>", "A\n[x]: /url B", &[&[], &[]]),
+            (
+                "A\n<qm-keep>\n[x]: /url\nB\n</qm-keep>",
+                "A\n[x]: /url B",
+                &[&[], &[]],
+            ),
             ("A\n<qm-sig></qm-sig>\n    code", "A\ncode", &[&[], &[]]),
             ("A\n<qm-sig></qm-sig>\n2. b", "A\n2. b", &[&[], &[]]),
             ("A\n<qm-sig></qm-sig>\n<span>\nB", "A\nB", &[&[], &[]]),
-            ("A\n<qm-sig></qm-sig>\n<qm-x>\nB\n</qm-x>", "A\nB", &[&[], &[]]),
+            (
+                "A\n<qm-sig></qm-sig>\n<qm-x>\nB\n</qm-x>",
+                "A\nB",
+                &[&[], &[]],
+            ),
             ("> <qm-sig></qm-sig>\nB", "B", &[&["quote"]]),
-            ("- a\n  <qm-sig></qm-sig>\nb", "a\nb", &[&["list_item"], &["list_item"]]),
-            ("> A\n> <qm-keep>\nB\n> </qm-keep>", "A\nB", &[&["quote"], &["quote"]]),
+            (
+                "- a\n  <qm-sig></qm-sig>\nb",
+                "a\nb",
+                &[&["list_item"], &["list_item"]],
+            ),
+            (
+                "> A\n> <qm-keep>\nB\n> </qm-keep>",
+                "A\nB",
+                &[&["quote"], &["quote"]],
+            ),
         ];
         for (md, text, tags) in cases {
             let imported = imp_fixed(md);
@@ -3148,7 +3502,10 @@ pub(crate) mod tests {
     #[test]
     fn a_line_holding_other_tags_stays_inline() {
         let cases: &[(&str, &[(&str, usize)])] = &[
-            ("A\n<span><qm-keep>\nB\n\n</qm-keep>", &[("span", 1), ("qm-keep", 1)]),
+            (
+                "A\n<span><qm-keep>\nB\n\n</qm-keep>",
+                &[("span", 1), ("qm-keep", 1)],
+            ),
             ("*a\n<qm-keep>\nb*\n\n</qm-keep>", &[("qm-keep", 1)]),
             ("<u>a\n<qm-sig></qm-sig>\nb</u>", &[("qm-sig", 1)]),
             ("A\n<qm-sig/>\nB", &[("qm-sig", 1)]),
@@ -3219,13 +3576,34 @@ pub(crate) mod tests {
     #[test]
     fn an_html_table_reads_as_html_reads_it() {
         let cases = [
-            ("<table><tr><th>a<th>b<tr><td>1<td>2</table>", "| a | b |\n| --- | --- |\n| 1 | 2 |"),
-            ("<TABLE><THEAD><TR><TH>a</TH><TH>b</TH></TR></THEAD><TR><TD>1</TD><TD>2</TD></TR></TABLE>", "| a | b |\n| --- | --- |\n| 1 | 2 |"),
-            ("<table aligns=left,right>\n<tr><th>a</th><th>b</th></tr>\n</table>", "| a | b |\n| --- | --- |"),
-            ("<table aligns='Left Right'>\n<thead><tr><th>a</th><th>b</th></tr></thead>\n</table>", "| a | b |\n| :--- | ---: |"),
-            ("<table>\n<tr><th>a</th><th>b</th></tr>\n<tfoot><tr><td>f</td><td>g</td></tr></tfoot>\n<tr><td>1</td><td>2</td></tr>\n</table>", "| a | b |\n| --- | --- |\n| 1 | 2 |\n| f | g |"),
-            ("<table>\n<thead><tr><td>a</td><td>b</td></tr></thead>\n<tbody><tr><th>1</th><td/>2</tr></tbody>\n</table>", "| a | b |\n| --- | --- |\n| 1 | 2 |"),
-            ("<table>\n<tr><th>a</th><th>b</th></tr>\n<!-- </table> -->\n<tr><td>1</td><td>2</td></tr>\n</table>", "| a | b |\n| --- | --- |\n| 1 | 2 |"),
+            (
+                "<table><tr><th>a<th>b<tr><td>1<td>2</table>",
+                "| a | b |\n| --- | --- |\n| 1 | 2 |",
+            ),
+            (
+                "<TABLE><THEAD><TR><TH>a</TH><TH>b</TH></TR></THEAD><TR><TD>1</TD><TD>2</TD></TR></TABLE>",
+                "| a | b |\n| --- | --- |\n| 1 | 2 |",
+            ),
+            (
+                "<table aligns=left,right>\n<tr><th>a</th><th>b</th></tr>\n</table>",
+                "| a | b |\n| --- | --- |",
+            ),
+            (
+                "<table aligns='Left Right'>\n<thead><tr><th>a</th><th>b</th></tr></thead>\n</table>",
+                "| a | b |\n| :--- | ---: |",
+            ),
+            (
+                "<table>\n<tr><th>a</th><th>b</th></tr>\n<tfoot><tr><td>f</td><td>g</td></tr></tfoot>\n<tr><td>1</td><td>2</td></tr>\n</table>",
+                "| a | b |\n| --- | --- |\n| 1 | 2 |\n| f | g |",
+            ),
+            (
+                "<table>\n<thead><tr><td>a</td><td>b</td></tr></thead>\n<tbody><tr><th>1</th><td/>2</tr></tbody>\n</table>",
+                "| a | b |\n| --- | --- |\n| 1 | 2 |",
+            ),
+            (
+                "<table>\n<tr><th>a</th><th>b</th></tr>\n<!-- </table> -->\n<tr><td>1</td><td>2</td></tr>\n</table>",
+                "| a | b |\n| --- | --- |\n| 1 | 2 |",
+            ),
         ];
         for (html, pipes) in cases {
             let imported = imp_fixed(html);
@@ -3237,13 +3615,19 @@ pub(crate) mod tests {
             assert_eq!(warned, want, "{html:?}");
             assert_eq!(imported.content, imp_fixed(pipes).content, "{html:?}");
         }
-        let headed = imp_fixed("<table>\n<tbody>\n<tr><th>a</th></tr>\n<tr><td>1</td></tr>\n</tbody>\n</table>");
+        let headed = imp_fixed(
+            "<table>\n<tbody>\n<tr><th>a</th></tr>\n<tr><td>1</td></tr>\n</tbody>\n</table>",
+        );
         assert_eq!(headed.content, imp_fixed("| a |\n| --- |\n| 1 |").content);
         let headless = imp_fixed("<table>\n<tbody>\n<tr><td>a</td></tr>\n</tbody>\n</table>");
         assert_eq!(grid(&headless.content)["head"], 0);
-        let reaching = imp_fixed("<table>\n<tr><th rowspan=2>a</th><th>b</th></tr>\n<tr><th>c</th></tr>\n<tr><td>1</td><td>2</td></tr>\n</table>");
+        let reaching = imp_fixed(
+            "<table>\n<tr><th rowspan=2>a</th><th>b</th></tr>\n<tr><th>c</th></tr>\n<tr><td>1</td><td>2</td></tr>\n</table>",
+        );
         assert_eq!(grid(&reaching.content)["head"], 2);
-        let past = imp_fixed("<table>\n<tr><th rowspan=2>a</th><th>b</th></tr>\n<tr><td>1</td></tr>\n</table>");
+        let past = imp_fixed(
+            "<table>\n<tr><th rowspan=2>a</th><th>b</th></tr>\n<tr><td>1</td></tr>\n</table>",
+        );
         assert!(past.warnings.is_empty(), "{:?}", past.warnings);
         assert_eq!(grid(&past.content)["head"], 0);
         assert_eq!(grid(&past.content)["header"][0]["rowspan"], 2);
@@ -3261,7 +3645,14 @@ pub(crate) mod tests {
         let cases: &[(&str, &[(&str, usize)], serde_json::Value)] = &[
             (
                 "<table border=1 bgcolor=red widths=\"0 1\"><tr><td class=x style=\"color: red\" scope=col colspan=0>a</td><td rowspan=two align=justify valign=baseline>b</td></tr></table>",
-                &[("table[bgcolor]", 1), ("table[widths]", 1), ("td[colspan]", 1), ("td[align]", 1), ("td[rowspan]", 1), ("td[valign]", 1)],
+                &[
+                    ("table[bgcolor]", 1),
+                    ("table[widths]", 1),
+                    ("td[colspan]", 1),
+                    ("td[align]", 1),
+                    ("td[rowspan]", 1),
+                    ("td[valign]", 1),
+                ],
                 json!({"aligns": ["none", "none"], "head": 0, "headless": true, "header": [{"text": "a"}, {"text": "b"}], "rows": []}),
             ),
             (
@@ -3271,7 +3662,12 @@ pub(crate) mod tests {
             ),
             (
                 "<table><caption>Roster</caption><colgroup><col></colgroup><tr><td>a</td>stray<td>b</td></tr></table>",
-                &[("caption", 1), ("table:text", 2), ("colgroup", 1), ("col", 1)],
+                &[
+                    ("caption", 1),
+                    ("table:text", 2),
+                    ("colgroup", 1),
+                    ("col", 1),
+                ],
                 json!({"aligns": ["none", "none"], "head": 0, "headless": true, "header": [{"text": "a"}, {"text": "b"}], "rows": []}),
             ),
             (
@@ -3317,8 +3713,13 @@ pub(crate) mod tests {
         let memo = imp_fixed(&memo);
         assert!(memo.warnings.is_empty(), "{:?}", memo.warnings);
         assert_eq!(memo.content.islands.len(), 12);
-        assert!(memo.content.text.ends_with("Flight 12\n\u{FFFC}"), "{:?}", memo.content.text);
-        let kept = imp_fixed("<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n</qm-keep>\n\nafter");
+        assert!(
+            memo.content.text.ends_with("Flight 12\n\u{FFFC}"),
+            "{:?}",
+            memo.content.text
+        );
+        let kept =
+            imp_fixed("<qm-keep>\n\n<table><tr><td>a</td></tr></table>\n</qm-keep>\n\nafter");
         assert_eq!(dropped(&kept), [("qm-keep", 1)]);
         assert_eq!(kept.content.text, "\u{FFFC}\nafter");
         assert!(kept.content.lines.iter().all(|l| l.containers.is_empty()));
@@ -3328,7 +3729,9 @@ pub(crate) mod tests {
     /// pads, and its `<th>` rows in a `tbody` are its head rows.
     #[test]
     fn a_short_title_row_pads() {
-        let imported = imp_fixed("<table><tbody><tr><th>Roster</th></tr><tr><td>a</td><td>b</td><td>c</td></tr></tbody></table>");
+        let imported = imp_fixed(
+            "<table><tbody><tr><th>Roster</th></tr><tr><td>a</td><td>b</td><td>c</td></tr></tbody></table>",
+        );
         assert_eq!(dropped(&imported), [("table:row", 1)]);
         assert_eq!(table_rows(&imported.content), [["a", "b", "c"]]);
         assert_eq!(grid(&imported.content)["header"][0]["text"], "Roster");
@@ -3340,7 +3743,10 @@ pub(crate) mod tests {
     fn unclosed_comments_and_code_spans_read_in_linear_time() {
         for md in [
             format!("<table>{}", "<!--".repeat(100_000)),
-            format!("<table><tr><td>{}</td></tr></table>", (1..1_500).map(|n| "`".repeat(n) + "x").collect::<String>()),
+            format!(
+                "<table><tr><td>{}</td></tr></table>",
+                (1..1_500).map(|n| "`".repeat(n) + "x").collect::<String>()
+            ),
             format!("<table><tr><th>a{}", "<tr><th rowspan=2>a".repeat(30_000)),
         ] {
             assert_eq!(from_markdown(&md).unwrap().content.validate(), Ok(()));
@@ -3354,15 +3760,26 @@ pub(crate) mod tests {
     fn a_table_stops_at_its_cell_bound() {
         let cols = 1000;
         let rows = crate::MAX_TABLE_CELLS / cols;
-        let html = format!("<table><tr><td colspan={cols}>a</td></tr>{}</table>", "<tr>".repeat(rows + 5));
-        let pipe = format!("|{}\n|{}\n{}", " a |".repeat(cols), " - |".repeat(cols), "| b |\n".repeat(rows + 5));
+        let html = format!(
+            "<table><tr><td colspan={cols}>a</td></tr>{}</table>",
+            "<tr>".repeat(rows + 5)
+        );
+        let pipe = format!(
+            "|{}\n|{}\n{}",
+            " a |".repeat(cols),
+            " - |".repeat(cols),
+            "| b |\n".repeat(rows + 5)
+        );
         for md in [html, pipe] {
             let imported = imp_fixed(&md);
             assert_eq!(dropped(&imported).last(), Some(&("table:size", 1)));
             assert_eq!(1 + table_rows(&imported.content).len(), rows);
         }
         for n in [101, 20_000] {
-            let wide = format!("<table><tr>{}</tr></table>", "<td colspan=1000></td>".repeat(n));
+            let wide = format!(
+                "<table><tr>{}</tr></table>",
+                "<td colspan=1000></td>".repeat(n)
+            );
             let imported = imp_fixed(&wide);
             assert_eq!(dropped(&imported), [("table:size", 1)]);
             assert!(imported.content.islands.is_empty());
@@ -3378,12 +3795,31 @@ pub(crate) mod tests {
     fn a_documents_tables_share_the_cell_bound() {
         let slots = |imported: &Imported| -> usize {
             let rows = |isl: &Island| 1 + isl.props["rows"].as_array().map_or(0, Vec::len);
-            imported.content.islands.iter().map(|isl| rows(isl) * isl.props["aligns"].as_array().map_or(0, Vec::len)).sum()
+            imported
+                .content
+                .islands
+                .iter()
+                .map(|isl| rows(isl) * isl.props["aligns"].as_array().map_or(0, Vec::len))
+                .sum()
         };
-        let sized = |imported: &Imported| imported.warnings.iter().any(|w| w.construct == Dropped::TableSize);
+        let sized = |imported: &Imported| {
+            imported
+                .warnings
+                .iter()
+                .any(|w| w.construct == Dropped::TableSize)
+        };
         let html = format!("<table>{}</table>\n\n", "<tr><td colspan=1000>".repeat(100));
-        let pipe = format!("{}|\n{}|\n{}\n", "|a".repeat(1000), "|-".repeat(1000), "|x|\n".repeat(99));
-        for md in [html.repeat(5), pipe.repeat(3), format!("{html}{pipe}{html}")] {
+        let pipe = format!(
+            "{}|\n{}|\n{}\n",
+            "|a".repeat(1000),
+            "|-".repeat(1000),
+            "|x|\n".repeat(99)
+        );
+        for md in [
+            html.repeat(5),
+            pipe.repeat(3),
+            format!("{html}{pipe}{html}"),
+        ] {
             let imported = from_markdown(&md).unwrap();
             assert_eq!(slots(&imported), crate::MAX_TABLE_CELLS);
             assert!(sized(&imported));
@@ -3391,9 +3827,15 @@ pub(crate) mod tests {
         let small = imp_fixed(&"<table><td>x</table>\n\n|a|\n|-|\n|x|\n\n".repeat(1_000));
         assert_eq!((small.content.islands.len(), slots(&small)), (2_000, 3_000));
         assert!(small.warnings.is_empty());
-        let late_head = format!("<table><tbody><tr>{}</tbody><thead><tr><th>h</thead></table>", "<td>".repeat(crate::MAX_TABLE_CELLS + 1));
+        let late_head = format!(
+            "<table><tbody><tr>{}</tbody><thead><tr><th>h</thead></table>",
+            "<td>".repeat(crate::MAX_TABLE_CELLS + 1)
+        );
         let imported = from_markdown(&late_head).unwrap();
-        assert_eq!(grid(&imported.content)["header"], serde_json::json!([{"text": "h"}]));
+        assert_eq!(
+            grid(&imported.content)["header"],
+            serde_json::json!([{"text": "h"}])
+        );
         assert_eq!(table_rows(&imported.content), Vec::<Vec<String>>::new());
         assert!(sized(&imported));
     }
@@ -3404,17 +3846,36 @@ pub(crate) mod tests {
     #[test]
     fn a_stray_backtick_in_a_cell_is_its_text() {
         let texts = |imported: &Imported| -> Vec<String> {
-            crate::serial::table_cells(&imported.content.islands[0].props).into_iter().map(|(text, _)| text).collect()
+            crate::serial::table_cells(&imported.content.islands[0].props)
+                .into_iter()
+                .map(|(text, _)| text)
+                .collect()
         };
         let imported = imp_fixed("<table><tr><td>`a</td><td>b`</td><td>c</td></tr></table>");
         assert_eq!(texts(&imported), ["`a", "b`", "c"]);
         let imported = imp_fixed("<table><tr><td>`a</td></tr></table> after `x`");
         assert_eq!(texts(&imported), ["`a"]);
-        assert!(imported.content.marks.iter().any(|m| m.kind == MarkKind::Code));
+        assert!(
+            imported
+                .content
+                .marks
+                .iter()
+                .any(|m| m.kind == MarkKind::Code)
+        );
         assert!(imported.warnings.is_empty());
         let imported = imp_fixed("<table><tr><td>`a <!-- <td> --> b`</td></tr></table>");
-        let cells: Vec<(String, Vec<Mark>)> = crate::serial::table_cells(&imported.content.islands[0].props);
-        assert_eq!(cells[0], ("a <!-- <td> --> b".into(), vec![Mark::new(0, 7, MarkKind::Code), Mark::new(11, 17, MarkKind::Code)]));
+        let cells: Vec<(String, Vec<Mark>)> =
+            crate::serial::table_cells(&imported.content.islands[0].props);
+        assert_eq!(
+            cells[0],
+            (
+                "a <!-- <td> --> b".into(),
+                vec![
+                    Mark::new(0, 7, MarkKind::Code),
+                    Mark::new(11, 17, MarkKind::Code)
+                ]
+            )
+        );
     }
 
     /// A table is one HTML block: a blank line inside it ends the table there,
@@ -3428,16 +3889,33 @@ pub(crate) mod tests {
             "> <table>\n> <tr><td>a</td></tr>\n>\n> <tr><td>b</td></tr>\n> </table>",
         ] {
             let imported = imp_fixed(md);
-            assert_eq!(dropped(&imported), [("table", 1), ("tr", 1), ("td", 1)], "{md:?}");
-            assert_eq!(table_rows(&imported.content), Vec::<Vec<String>>::new(), "{md:?}");
-            assert_eq!(grid(&imported.content)["header"], serde_json::json!([{"text": "a"}]), "{md:?}");
+            assert_eq!(
+                dropped(&imported),
+                [("table", 1), ("tr", 1), ("td", 1)],
+                "{md:?}"
+            );
+            assert_eq!(
+                table_rows(&imported.content),
+                Vec::<Vec<String>>::new(),
+                "{md:?}"
+            );
+            assert_eq!(
+                grid(&imported.content)["header"],
+                serde_json::json!([{"text": "a"}]),
+                "{md:?}"
+            );
         }
-        let two = imp_fixed("<table><tr><td>a<table><tr><td>b</td></tr></table>\n<table><tr><td>c</td></tr></table>");
+        let two = imp_fixed(
+            "<table><tr><td>a<table><tr><td>b</td></tr></table>\n<table><tr><td>c</td></tr></table>",
+        );
         assert_eq!(two.content.islands.len(), 3);
         assert_eq!(two.content.text, "\u{FFFC}\n\u{FFFC}\n\u{FFFC}");
         assert_eq!(dropped(&two), [("table", 1)]);
         let empty = imp_fixed("para\n\n<table>\n<tr></tr>\n</table>");
-        assert_eq!((empty.content.text.as_str(), empty.warnings.len()), ("para", 0));
+        assert_eq!(
+            (empty.content.text.as_str(), empty.warnings.len()),
+            ("para", 0)
+        );
     }
 
     /// A cell's content is one line of inline markdown, a line break in the
@@ -3452,12 +3930,33 @@ pub(crate) mod tests {
         let imported = imp_fixed(md);
         let props = &imported.content.islands[0].props;
         let cells: Vec<(String, Vec<Mark>)> = crate::serial::table_cells(props);
-        assert_eq!(cells[0], ("Total and more".into(), vec![Mark::new(0, 5, MarkKind::Strong), Mark::new(10, 14, MarkKind::Emph)]));
+        assert_eq!(
+            cells[0],
+            (
+                "Total and more".into(),
+                vec![
+                    Mark::new(0, 5, MarkKind::Strong),
+                    Mark::new(10, 14, MarkKind::Emph)
+                ]
+            )
+        );
         assert_eq!(
             cells[1],
-            ("a <td> l".into(), vec![Mark::new(0, 1, MarkKind::Code), Mark::new(7, 8, MarkKind::Link { url: "td x".into() })])
+            (
+                "a <td> l".into(),
+                vec![
+                    Mark::new(0, 1, MarkKind::Code),
+                    Mark::new(7, 8, MarkKind::Link { url: "td x".into() })
+                ]
+            )
         );
-        assert_eq!(cells[2], ("a\nb &  ".into(), vec![Mark::new(2, 3, MarkKind::Underline)]));
+        assert_eq!(
+            cells[2],
+            (
+                "a\nb &  ".into(),
+                vec![Mark::new(2, 3, MarkKind::Underline)]
+            )
+        );
         assert_eq!(cells[3].0, "$x$ y[^1]");
         assert_eq!(dropped(&imported), [("math", 1), ("footnote", 1)]);
     }
@@ -3466,9 +3965,14 @@ pub(crate) mod tests {
     /// it keeps a pipe table's.
     #[test]
     fn an_html_table_in_a_note_is_its_text() {
-        let imported = imp_fixed("a[^1]\n\n[^1]: <table><tr><td>x</td><td>**y**</td></tr><tr><td>z</td><td>w</td></tr></table>");
+        let imported = imp_fixed(
+            "a[^1]\n\n[^1]: <table><tr><td>x</td><td>**y**</td></tr><tr><td>z</td><td>w</td></tr></table>",
+        );
         let note = crate::serial::parse_cell(&imported.content.islands[0].props);
-        assert_eq!(note, ("x y\nz w".into(), vec![Mark::new(2, 3, MarkKind::Strong)]));
+        assert_eq!(
+            note,
+            ("x y\nz w".into(), vec![Mark::new(2, 3, MarkKind::Strong)])
+        );
         assert_eq!(dropped(&imported), [("footnote[table]", 1)]);
     }
 
@@ -3489,7 +3993,11 @@ pub(crate) mod tests {
         assert_eq!(dropped(&imported), [("div", 1)]);
         let rt = imp_fixed("> | a |\n> |---|\n> | 1 |\n> </qm-keep>\n> next").content;
         assert_eq!(table_rows(&rt), [["1"]]);
-        assert!(rt.lines.iter().all(|l| l.containers.len() == 1), "{:?}", rt.lines);
+        assert!(
+            rt.lines.iter().all(|l| l.containers.len() == 1),
+            "{:?}",
+            rt.lines
+        );
     }
 
     /// Text after a comment's `-->` on its last line moves to a line of its
@@ -3500,14 +4008,23 @@ pub(crate) mod tests {
     fn text_after_a_comment_imports() {
         let cases: &[(&str, &str)] = &[
             ("<!-- comment -->Same line text", "Same line text"),
-            ("<!--\nmultiline\ncomment\n-->Trailing text", "Trailing text"),
-            ("<!-- first -->Text\n\n<!-- second -->More text", "Text\nMore text"),
+            (
+                "<!--\nmultiline\ncomment\n-->Trailing text",
+                "Trailing text",
+            ),
+            (
+                "<!-- first -->Text\n\n<!-- second -->More text",
+                "Text\nMore text",
+            ),
             ("<!--- comment --->Trailing text", "Trailing text"),
             ("<!-- <!-- -->Trailing", "Trailing"),
             ("   <!-- c -->Text", "Text"),
             ("    <!-- c -->Text", "<!-- c -->Text"),
             ("-->some text", "-->some text"),
-            ("Some text before <!-- comment -->and after", "Some text before and after"),
+            (
+                "Some text before <!-- comment -->and after",
+                "Some text before and after",
+            ),
             ("<!-- a -->Title\n===", "Title\n==="),
             ("<!-- a --><div>\nnext", "next"),
             ("<!-- a --><!-- b\nmore\n-->", "more -->"),
@@ -3567,7 +4084,11 @@ pub(crate) mod tests {
                 ("center", 1)
             ]
         );
-        assert!(imp_fixed("plain **text**, `<code>`, \\<escaped>").warnings.is_empty());
+        assert!(
+            imp_fixed("plain **text**, `<code>`, \\<escaped>")
+                .warnings
+                .is_empty()
+        );
         assert!(imp_fixed("</div>\n\npara").warnings.is_empty());
     }
 
@@ -3580,8 +4101,14 @@ pub(crate) mod tests {
             ("a\n\n</qm-keep>\n</span>\ntext", ("qm-keep", 1)),
             ("a\n\n</qm-anchor>\ntext", ("qm-anchor", 1)),
             ("<qm-anchor ref=\"x\">\ntext", ("qm-anchor", 1)),
-            ("<qm-keep>\n\nx\n\n</qm-keep>\n</span>\ntext", ("qm-keep", 1)),
-            ("<qm-keep>\n\nx\n\n</qm-keep>\n</span>\ntext\n\n</qm-keep>", ("qm-keep", 1)),
+            (
+                "<qm-keep>\n\nx\n\n</qm-keep>\n</span>\ntext",
+                ("qm-keep", 1),
+            ),
+            (
+                "<qm-keep>\n\nx\n\n</qm-keep>\n</span>\ntext\n\n</qm-keep>",
+                ("qm-keep", 1),
+            ),
         ];
         for (md, report) in cases {
             let imported = imp_fixed(md);
@@ -3596,9 +4123,18 @@ pub(crate) mod tests {
     #[test]
     fn a_raw_text_block_drops_through_its_close_and_reports_its_tag() {
         for (md, tag) in [
-            ("before\n\n<script>\nlet a = 1;\n\nlet b = 2;\n</script>\n\nafter", "script"),
-            ("before\n\n<style>p { color: red }</style>\n\nafter", "style"),
-            ("before\n\n<textarea>\n**not**\n\n<qm-keep>\n</textarea> tail\n\nafter", "textarea"),
+            (
+                "before\n\n<script>\nlet a = 1;\n\nlet b = 2;\n</script>\n\nafter",
+                "script",
+            ),
+            (
+                "before\n\n<style>p { color: red }</style>\n\nafter",
+                "style",
+            ),
+            (
+                "before\n\n<textarea>\n**not**\n\n<qm-keep>\n</textarea> tail\n\nafter",
+                "textarea",
+            ),
         ] {
             let imported = imp_fixed(md);
             assert_eq!(imported.content.text, "before\nafter", "{md:?}");
@@ -3613,12 +4149,24 @@ pub(crate) mod tests {
     fn a_carrier_tag_among_raw_tag_lines_drops() {
         let imported = imp_fixed("<div>\n<qm-keep>\n\npara\n\n</qm-keep>\n</div>\n\nafter");
         assert_eq!(imported.content.text, "para\nafter");
-        assert!(imported.content.lines.iter().all(|l| l.containers.is_empty()));
+        assert!(
+            imported
+                .content
+                .lines
+                .iter()
+                .all(|l| l.containers.is_empty())
+        );
         assert_eq!(dropped(&imported), [("div", 1), ("qm-keep", 1)]);
 
         let imported = imp_fixed("<div><qm-keep>\n\npara\n\n</qm-keep></div>\n\nafter");
         assert_eq!(imported.content.text, "para\nafter");
-        assert!(imported.content.lines.iter().all(|l| l.containers.is_empty()));
+        assert!(
+            imported
+                .content
+                .lines
+                .iter()
+                .all(|l| l.containers.is_empty())
+        );
         assert_eq!(dropped(&imported), [("div", 1), ("qm-keep", 1)]);
     }
 
@@ -3633,7 +4181,11 @@ pub(crate) mod tests {
         assert_eq!(dropped(&imported), [("qm-keep", 2)]);
         let note = "x[^1]\n\n[^1]: n\n\n    </qm-keep>\n    </div>\n    lost";
         for markdown in [format!("{pair}\n\n{note}"), format!("{note}\n\n{pair}")] {
-            assert_eq!(dropped(&imp_fixed(&markdown)), [("qm-keep", 2)], "{markdown:?}");
+            assert_eq!(
+                dropped(&imp_fixed(&markdown)),
+                [("qm-keep", 2)],
+                "{markdown:?}"
+            );
         }
     }
 
@@ -3658,7 +4210,10 @@ pub(crate) mod tests {
     }
 
     fn container_tags(rt: &Normalized) -> Vec<Vec<&'static str>> {
-        rt.lines.iter().map(|l| l.containers.iter().map(Container::tag).collect()).collect()
+        rt.lines
+            .iter()
+            .map(|l| l.containers.iter().map(Container::tag).collect())
+            .collect()
     }
 
     /// An element tag alone on its line wraps nothing: the blocks up to its
@@ -3668,17 +4223,32 @@ pub(crate) mod tests {
     fn an_element_tag_line_wraps_nothing() {
         let cases: &[(&str, &str, &[&[&str]])] = &[
             ("<qm-keep>\n\npara\n\n</qm-keep>", "para", &[&[]]),
-            ("<qm-keep>\n\n- a\n- b\n\n</qm-keep>", "a\nb", &[&["list_item"], &["list_item"]]),
-            ("- <qm-keep>\n\n  a\n\n  </qm-keep>\n- b", "a\nb", &[&["list_item"], &["list_item"]]),
+            (
+                "<qm-keep>\n\n- a\n- b\n\n</qm-keep>",
+                "a\nb",
+                &[&["list_item"], &["list_item"]],
+            ),
+            (
+                "- <qm-keep>\n\n  a\n\n  </qm-keep>\n- b",
+                "a\nb",
+                &[&["list_item"], &["list_item"]],
+            ),
             ("> <qm-keep>\n>\n> q\n>\n> </qm-keep>", "q", &[&["quote"]]),
             ("<qm-keep>\n</qm-keep>", "", &[&[]]),
-            ("- a\n\n<qm-keep>\n\n- b\n\n</qm-keep>", "a\nb", &[&["list_item"], &["list_item"]]),
+            (
+                "- a\n\n<qm-keep>\n\n- b\n\n</qm-keep>",
+                "a\nb",
+                &[&["list_item"], &["list_item"]],
+            ),
         ];
         for (md, text, tags) in cases {
             let imported = imp_fixed(md);
             assert_eq!(imported.content.text, *text, "{md:?}");
             assert_eq!(container_tags(&imported.content), *tags, "{md:?}");
-            assert!(dropped(&imported).iter().all(|(t, _)| t.starts_with("qm-")), "{md:?}");
+            assert!(
+                dropped(&imported).iter().all(|(t, _)| t.starts_with("qm-")),
+                "{md:?}"
+            );
         }
     }
 
@@ -3694,12 +4264,20 @@ pub(crate) mod tests {
         ] {
             let imported = imp_fixed(md);
             assert_eq!(imported.content.text, text, "{md:?}");
-            assert!(imported.content.marks.iter().all(|m| m.kind == MarkKind::Strong), "{md:?}");
+            assert!(
+                imported
+                    .content
+                    .marks
+                    .iter()
+                    .all(|m| m.kind == MarkKind::Strong),
+                "{md:?}"
+            );
             assert_eq!(dropped(&imported), [("qm-hl", 1)], "{md:?}");
         }
 
         let imported = imp_fixed("| <qm-hl>x</qm-hl> y |\n|---|");
-        let (text, marks) = crate::serial::parse_cell(&imported.content.islands[0].props["header"][0]);
+        let (text, marks) =
+            crate::serial::parse_cell(&imported.content.islands[0].props["header"][0]);
         assert_eq!(text, "x y");
         assert!(marks.is_empty());
         assert_eq!(dropped(&imported), [("qm-hl", 1)]);
@@ -3715,7 +4293,11 @@ pub(crate) mod tests {
         let cases: &[(&str, &str, &[(&str, usize)])] = &[
             ("<qm-keep>\n\na", "a", &[("qm-keep", 1)]),
             ("<qm-keep/>\n\na", "a", &[("qm-keep", 1)]),
-            ("- <qm-keep>\n\n  a\n- b\n\n</qm-keep>", "a\nb", &[("qm-keep", 1)]),
+            (
+                "- <qm-keep>\n\n  a\n- b\n\n</qm-keep>",
+                "a\nb",
+                &[("qm-keep", 1)],
+            ),
             ("> <qm-keep>\n>\n> a\n\n</qm-keep>", "a", &[("qm-keep", 1)]),
             ("</qm-keep>\n\na", "a", &[]),
             ("a\n</qm-keep>", "a", &[]),
@@ -3727,11 +4309,15 @@ pub(crate) mod tests {
             assert_eq!(imported.content.text, *text, "{md:?}");
             assert!(imported.content.marks.is_empty(), "{md:?}");
             assert!(
-                imported.content.lines.iter().flat_map(|l| &l.containers).all(|c| c.tag() != "element"),
+                imported
+                    .content
+                    .lines
+                    .iter()
+                    .flat_map(|l| &l.containers)
+                    .all(|c| c.tag() != "element"),
                 "{md:?}"
             );
             assert_eq!(dropped(&imported), *warned, "{md:?}");
         }
-
     }
 }

@@ -37,7 +37,12 @@ fn a_workspace_lays_out_packages_by_spec_and_carries_the_fallback_fonts() {
             ("packages/vendor-x/src/lib.typ", b"#let x = 1\n"),
         ],
     );
-    let ws = workspace(&q, &serde_json::json!({ "title": "Quarterly Findings" }), &Default::default()).expect("workspace");
+    let ws = workspace(
+        &q,
+        &serde_json::json!({ "title": "Quarterly Findings" }),
+        &Default::default(),
+    )
+    .expect("workspace");
     assert_eq!(ws.plate_file, "plate.typ");
 
     let file = |path: &str| {
@@ -46,7 +51,10 @@ fn a_workspace_lays_out_packages_by_spec_and_carries_the_fallback_fonts() {
             .find(|(p, _)| p.as_path() == std::path::Path::new(path))
             .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
             .unwrap_or_else(|| {
-                panic!("{path} missing from {:?}", ws.files.iter().map(|(p, _)| p).collect::<Vec<_>>())
+                panic!(
+                    "{path} missing from {:?}",
+                    ws.files.iter().map(|(p, _)| p).collect::<Vec<_>>()
+                )
             })
     };
     assert!(file("packages/local/quillmark-helper/0.2.0/lib.typ").contains("Quarterly Findings"));

@@ -3,13 +3,13 @@
 //! `/Producer`) and close it with one incremental-update append. The stamp
 //! supplies only the objects in between.
 
+use crate::FieldSpec;
 use crate::error::PdfError;
 use crate::reader::{
-    append_incremental_update, assert_unrotated_pages, find_dict_value, open_trailer,
-    read_info_source, walk_page_tree, write_trailer_tail, ObjectIndex, Page, UpdatedObject,
+    ObjectIndex, Page, UpdatedObject, append_incremental_update, assert_unrotated_pages,
+    find_dict_value, open_trailer, read_info_source, walk_page_tree, write_trailer_tail,
 };
 use crate::writer::apply_producer_stamp;
-use crate::FieldSpec;
 
 const CODE_PARSE: &str = "pdf::update_parse";
 

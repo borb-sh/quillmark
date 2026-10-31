@@ -5,7 +5,7 @@ use crate::error::{Diagnostic, Severity, diag_args};
 use crate::path::DocPath;
 use crate::quill::formats::{format_grammar, is_valid_date, is_valid_datetime};
 use crate::quill::{
-    CardSchema, FieldSchema, FieldType, QuillConfig, MATRIX_HELD_KEY, VARIANT_DISCRIMINANT_KEY,
+    CardSchema, FieldSchema, FieldType, MATRIX_HELD_KEY, QuillConfig, VARIANT_DISCRIMINANT_KEY,
 };
 use crate::value::QuillValue;
 
@@ -54,7 +54,9 @@ pub enum ValidationError {
     /// list or quote container, or an island. Both prose types are one line
     /// unless `multiline: true`, so this is one condition under one code, the validation twin of
     /// [`EditError::FieldNotSingleLine`](crate::document::EditError::FieldNotSingleLine).
-    NotSingleLine { path: String },
+    NotSingleLine {
+        path: String,
+    },
 
     /// A `text` field whose content carries marks, islands, or block
     /// formatting.
@@ -394,7 +396,13 @@ fn validate_fields_for_card(
         let path = base.field(field_name);
         // Absence is never malformed.
         if let Some(value) = fields.get(field_name) {
-            errors.extend(validate_value(schema, value, &path, ValueContext::Document, drops));
+            errors.extend(validate_value(
+                schema,
+                value,
+                &path,
+                ValueContext::Document,
+                drops,
+            ));
         }
     }
 
@@ -846,9 +854,11 @@ fn validate_variant(
                 &mut cell_drops,
             );
             if conformed.is_ok() {
-                drops.extend(cell_drops.into_iter().filter(|d| {
-                    d.code.as_deref() != Some(super::compose::LINE_BREAK_FOLDED)
-                }));
+                drops.extend(
+                    cell_drops
+                        .into_iter()
+                        .filter(|d| d.code.as_deref() != Some(super::compose::LINE_BREAK_FOLDED)),
+                );
             }
         }
     }
@@ -898,7 +908,13 @@ pub(crate) fn validate_schema_literal(
     value: &QuillValue,
     path: &DocPath,
 ) -> Vec<ValidationError> {
-    validate_value(schema, value, path, ValueContext::SchemaLiteral, &mut Vec::new())
+    validate_value(
+        schema,
+        value,
+        path,
+        ValueContext::SchemaLiteral,
+        &mut Vec::new(),
+    )
 }
 
 #[cfg(test)]
@@ -956,7 +972,8 @@ main:
     fn typed_card(tag: &str, fields: &[(&str, serde_json::Value)]) -> Card {
         let mut card = Card::new(tag).unwrap();
         for (k, v) in fields {
-            card.store_field(k, QuillValue::from_json(v.clone())).unwrap();
+            card.store_field(k, QuillValue::from_json(v.clone()))
+                .unwrap();
         }
         card
     }
@@ -1012,7 +1029,11 @@ main:
                 .iter()
                 .find(|e| matches!(e, ValidationError::TypeMismatch { path, .. } if path == field))
                 .unwrap_or_else(|| panic!("no type mismatch on {field}: {errors:?}"));
-            assert_eq!(err.args().get("expected"), Some(&json!(declared)), "{field}");
+            assert_eq!(
+                err.args().get("expected"),
+                Some(&json!(declared)),
+                "{field}"
+            );
         }
     }
 
@@ -1101,10 +1122,7 @@ main:
             .hint
             .as_deref()
             .expect("type_mismatch diagnostic should carry a hint");
-        assert!(
-            hint.contains("text"),
-            "hint missing expected type: {hint}"
-        );
+        assert!(hint.contains("text"), "hint missing expected type: {hint}");
     }
 
     #[test]
@@ -1125,7 +1143,9 @@ main:
     #[test]
     fn rejects_single_line_richtext_with_multi_block_content() {
         let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
-        let rt = quillmark_content::import::from_markdown("one\n\ntwo").unwrap().content;
+        let rt = quillmark_content::import::from_markdown("one\n\ntwo")
+            .unwrap()
+            .content;
         let content = quillmark_content::serial::to_canonical_value(&rt);
         let doc = doc_from_fm(&[("tag", content)]);
         let errors = config.validate_document(&doc).unwrap_err();
@@ -1145,7 +1165,10 @@ main:
             let doc = Document::parse(&md).expect("parses").document;
             let mut drops = Vec::new();
             let errors = validate_document_values(&config, &doc, &mut drops);
-            assert!(errors.is_empty() && drops.is_empty(), "{errors:?} {drops:?}");
+            assert!(
+                errors.is_empty() && drops.is_empty(),
+                "{errors:?} {drops:?}"
+            );
         };
 
         validate("|\n  one line\n");
@@ -1160,7 +1183,9 @@ main:
     #[test]
     fn accepts_single_line_richtext_single_para_content() {
         let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
-        let rt = quillmark_content::import::from_markdown("one line only").unwrap().content;
+        let rt = quillmark_content::import::from_markdown("one line only")
+            .unwrap()
+            .content;
         let content = quillmark_content::serial::to_canonical_value(&rt);
         let doc = doc_from_fm(&[("tag", content)]);
         assert!(config.validate_document(&doc).is_ok());

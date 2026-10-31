@@ -5,10 +5,10 @@
 use std::collections::HashMap;
 
 use quillmark::{
-    AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, CalendarDate, CardReader, Delta, DocPath,
-    Document, DocumentAnchor, DocumentRevised, EditError, FileTreeNode, ImportError, Normalized,
-    Outline, OutlineCard, ParseDateError, Parsed, Quill, QuillReference, QuillValue, Reattached, Revised, TypedReader,
-    TypedWriter,
+    AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, CalendarDate, CardReader, Delta,
+    DocPath, Document, DocumentAnchor, DocumentRevised, EditError, FileTreeNode, ImportError,
+    Normalized, Outline, OutlineCard, ParseDateError, Parsed, Quill, QuillReference, QuillValue,
+    Reattached, Revised, TypedReader, TypedWriter,
 };
 
 const QUILL: &str = r#"
@@ -59,10 +59,16 @@ fn typed_write_and_read_spell_through_the_facade() {
     let reader: TypedReader = quill.reader(&doc);
 
     let subject: Option<QuillValue> = reader.get("subject").expect("subject is declared");
-    assert_eq!(subject.as_ref().and_then(|v| v.as_str()), Some("Hello **world**"));
+    assert_eq!(
+        subject.as_ref().and_then(|v| v.as_str()),
+        Some("Hello **world**")
+    );
 
     let typo: Result<Option<QuillValue>, EditError> = reader.get("nope");
-    assert!(matches!(typo, Err(EditError::UnknownField { .. })), "{typo:?}");
+    assert!(
+        matches!(typo, Err(EditError::UnknownField { .. })),
+        "{typo:?}"
+    );
 
     let card: CardReader = reader.card(0).expect("the note card resolves its schema");
     assert_eq!(card.kind(), Some("note"));
@@ -85,7 +91,11 @@ fn content_lane_spells_through_the_facade() {
     let _: Annotated = doc.main().body_annotated();
 
     let revised: Result<Revised, EditError> = doc.main_mut().revise_body("# Body");
-    let Revised { delta, dropped_anchors, .. } = revised.expect("a heading imports");
+    let Revised {
+        delta,
+        dropped_anchors,
+        ..
+    } = revised.expect("a heading imports");
     let _: Delta = delta;
     let _: Vec<AnchorRead> = dropped_anchors;
     let _: fn(ImportError) -> EditError = EditError::Import;
@@ -104,7 +114,11 @@ fn content_lane_spells_through_the_facade() {
     let selectors: Vec<AnchorSelector> = doc.anchor_contexts();
     let _: Option<AnchorSelector> = doc.anchor_context("c1");
     let deltas: HashMap<DocPath, Delta> = HashMap::new();
-    let Reattached { reattached, orphaned, .. } = doc.reattach(&selectors, &deltas);
+    let Reattached {
+        reattached,
+        orphaned,
+        ..
+    } = doc.reattach(&selectors, &deltas);
     let _: (Vec<AnchorSelector>, Vec<AnchorSelector>) = (reattached, orphaned);
 }
 

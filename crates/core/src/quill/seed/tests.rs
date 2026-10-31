@@ -1,8 +1,10 @@
-
 use serde_json::json;
 
 use crate::quill::{quill_from_yaml, test_date};
-use crate::{document::{Document, SeedOverlay}, error::Severity};
+use crate::{
+    document::{Document, SeedOverlay},
+    error::Severity,
+};
 
 fn overlay(value: serde_json::Value) -> SeedOverlay {
     SeedOverlay::from_json(&value).expect("overlay json must be an object")
@@ -133,7 +135,10 @@ fn overlay_fills_fields_and_body_and_ignores_non_schema_keys() {
     let quill = quill_from_yaml(QUILL);
     let ov = overlay(json!({ "tag": "pinned", "$body": "Overlay body.", "bogus": "drop me" }));
     let card = quill.seed_card("note", Some(&ov)).expect("known kind");
-    assert_eq!(card.payload().get("tag").and_then(|v| v.as_str()), Some("pinned"));
+    assert_eq!(
+        card.payload().get("tag").and_then(|v| v.as_str()),
+        Some("pinned")
+    );
     assert!(card.payload().get("author").is_none());
     assert_eq!(card.body_markdown(), "Overlay body.");
     assert!(card.payload().get("bogus").is_none());
@@ -177,8 +182,10 @@ card_kinds:
     .document;
     let diags = quill.validate(&doc);
     assert!(
-        diags.iter().any(|d| d.path.as_deref() == Some("$seed.data.$body")
-            && d.code.as_deref() == Some("validation::seed_unknown_field")),
+        diags
+            .iter()
+            .any(|d| d.path.as_deref() == Some("$seed.data.$body")
+                && d.code.as_deref() == Some("validation::seed_unknown_field")),
         "{diags:?}"
     );
 }
@@ -194,9 +201,21 @@ fn doc_with_seed(seed_block: &str) -> Document {
 fn seed_overlay_diagnostics_are_advisory_and_do_not_gate_render() {
     let quill = quill_from_yaml(QUILL);
     for (seed, path, code) in [
-        ("$seed:\n  note:\n    author: { given: A }\n", "$seed.note.author", "validation::type_mismatch"),
-        ("$seed:\n  bogus_kind:\n    x: 1\n", "$seed.bogus_kind", "validation::seed_unknown_kind"),
-        ("$seed:\n  note:\n    $body: 3\n", "$seed.note.$body", "validation::seed_overlay_shape"),
+        (
+            "$seed:\n  note:\n    author: { given: A }\n",
+            "$seed.note.author",
+            "validation::type_mismatch",
+        ),
+        (
+            "$seed:\n  bogus_kind:\n    x: 1\n",
+            "$seed.bogus_kind",
+            "validation::seed_unknown_kind",
+        ),
+        (
+            "$seed:\n  note:\n    $body: 3\n",
+            "$seed.note.$body",
+            "validation::seed_overlay_shape",
+        ),
     ] {
         let doc = doc_with_seed(seed);
         let diags = quill.validate(&doc);
@@ -210,10 +229,15 @@ fn seed_overlay_diagnostics_are_advisory_and_do_not_gate_render() {
         assert!(quill.dry_run(&doc).is_ok(), "{path}");
     }
 
-    for seed in ["$seed:\n  note:\n    author: Custom\n", "$seed:\n  note:\n    author: null\n"] {
+    for seed in [
+        "$seed:\n  note:\n    author: Custom\n",
+        "$seed:\n  note:\n    author: null\n",
+    ] {
         let diags = quill.validate(&doc_with_seed(seed));
         assert!(
-            !diags.iter().any(|d| d.path.as_deref().is_some_and(|p| p.starts_with("$seed"))),
+            !diags
+                .iter()
+                .any(|d| d.path.as_deref().is_some_and(|p| p.starts_with("$seed"))),
             "{seed}: {diags:?}"
         );
     }
@@ -320,7 +344,10 @@ card_kinds:
 
     let doc = Document::from_main_and_cards(quill.seed_main(), vec![card]);
     let diags = quill.validate(&doc);
-    assert!(diags.is_empty(), "a seeded card is a valid document: {diags:?}");
+    assert!(
+        diags.is_empty(),
+        "a seeded card is a valid document: {diags:?}"
+    );
 }
 
 const KIND_SEED_QUILL: &str = r#"
@@ -353,23 +380,35 @@ fn a_document_overlay_replaces_the_kind_seed_whole() {
     let field = |card: &crate::document::Card, name: &str| card.payload().get(name).cloned();
 
     let bare = quill.seed_card("note", None).expect("known kind");
-    assert_eq!(field(&bare, "author").as_ref().and_then(|v| v.as_str()), Some("Kind Author"));
-    assert_eq!(field(&bare, "tag").as_ref().and_then(|v| v.as_str()), Some("kind"));
+    assert_eq!(
+        field(&bare, "author").as_ref().and_then(|v| v.as_str()),
+        Some("Kind Author")
+    );
+    assert_eq!(
+        field(&bare, "tag").as_ref().and_then(|v| v.as_str()),
+        Some("kind")
+    );
     assert!(field(&bare, "level").is_none());
     assert_eq!(bare.body_markdown(), "Kind body.");
 
     let ov = overlay(json!({ "author": "Doc Author", "tag": null, "level": 2 }));
     let card = quill.seed_card("note", Some(&ov)).expect("known kind");
-    assert_eq!(field(&card, "author").as_ref().and_then(|v| v.as_str()), Some("Doc Author"));
+    assert_eq!(
+        field(&card, "author").as_ref().and_then(|v| v.as_str()),
+        Some("Doc Author")
+    );
     assert!(field(&card, "tag").is_none());
-    assert_eq!(field(&card, "level").as_ref().and_then(|v| v.as_json().as_i64()), Some(2));
+    assert_eq!(
+        field(&card, "level")
+            .as_ref()
+            .and_then(|v| v.as_json().as_i64()),
+        Some(2)
+    );
     assert_eq!(card.body_markdown(), "");
 
-    let doc = Document::parse(
-        "~~~\n$quill: kind_seed@1.0\n$kind: main\n$seed:\n  note: {}\n~~~\n",
-    )
-    .expect("doc should parse")
-    .document;
+    let doc = Document::parse("~~~\n$quill: kind_seed@1.0\n$kind: main\n$seed:\n  note: {}\n~~~\n")
+        .expect("doc should parse")
+        .document;
     let empty = doc
         .main()
         .seed()
@@ -431,8 +470,16 @@ card_kinds:
         ("", "{ level: high }", "quill::seed_type_mismatch"),
         ("", "{ $body: Text }", "quill::seed_unknown_field"),
         ("", "{ names: [a, b] }", "quill::seed_cardinality"),
-        ("", "{ office: { symbol: X, bogus: 1 } }", "quill::seed_unknown_field"),
-        ("", "{ mark: { value: U, note: stranded } }", "quill::seed_out_of_variant"),
+        (
+            "",
+            "{ office: { symbol: X, bogus: 1 } }",
+            "quill::seed_unknown_field",
+        ),
+        (
+            "",
+            "{ mark: { value: U, note: stranded } }",
+            "quill::seed_out_of_variant",
+        ),
         ("", "[a]", "quill::seed_overlay_shape"),
         ("", "{ author: Anon }", "quill::seed_redundant"),
         ("", "{ level: 1.0 }", "quill::seed_redundant"),
@@ -442,18 +489,25 @@ card_kinds:
         ("", "{}", "quill::seed_redundant"),
         ("", "{ author: \"a\\nb\" }", "quill::seed_not_single_line"),
         ("", "{ code: abcd }", "quill::seed_over_length"),
-        ("  seed: { title: T }", "{ names: [a] }", "quill::invalid_card_schema"),
+        (
+            "  seed: { title: T }",
+            "{ names: [a] }",
+            "quill::invalid_card_schema",
+        ),
     ] {
         let errors = crate::quill::QuillConfig::from_yaml_with_warnings(&quill_yaml(main, seed))
             .expect_err(seed);
         assert!(
-            errors.iter().any(|d| d.code.as_deref() == Some(code)
-                && d.severity == Severity::Error),
+            errors
+                .iter()
+                .any(|d| d.code.as_deref() == Some(code) && d.severity == Severity::Error),
             "{seed}: expected {code}, got {errors:?}"
         );
         assert!(
-            !errors.iter().any(|d| d.code.as_deref() == Some("quill::seed_unknown_field")
-                && d.message.contains("broken")),
+            !errors
+                .iter()
+                .any(|d| d.code.as_deref() == Some("quill::seed_unknown_field")
+                    && d.message.contains("broken")),
             "{seed}: a field that failed to parse draws no seed error: {errors:?}"
         );
     }
@@ -486,12 +540,15 @@ card_kinds:
 "#,
     );
     let doc = quill.seed_document();
-    assert!(quill.validate(&doc).is_empty(), "{:?}", quill.validate(&doc));
+    assert!(
+        quill.validate(&doc).is_empty(),
+        "{:?}",
+        quill.validate(&doc)
+    );
     let mut conformed = doc.clone();
     quill.conform(&mut conformed).expect("conforms");
     assert_eq!(conformed, doc);
 }
-
 
 /// A one-line `text` seed's trailing newline is no second line.
 #[test]
@@ -507,7 +564,11 @@ card_kinds:
 "#,
     );
     let doc = quill.seed_document();
-    assert!(quill.validate(&doc).is_empty(), "{:?}", quill.validate(&doc));
+    assert!(
+        quill.validate(&doc).is_empty(),
+        "{:?}",
+        quill.validate(&doc)
+    );
 }
 
 /// `quill::seed_redundant` asks the render floor: a seed is refused only where
@@ -541,7 +602,9 @@ card_kinds:
     ] {
         let errors = load(seed).expect_err(seed);
         assert!(
-            errors.iter().any(|d| d.code.as_deref() == Some("quill::seed_redundant")),
+            errors
+                .iter()
+                .any(|d| d.code.as_deref() == Some("quill::seed_redundant")),
             "{seed}: {errors:?}"
         );
     }

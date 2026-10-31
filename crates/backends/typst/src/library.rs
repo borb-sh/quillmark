@@ -8,7 +8,7 @@ use quillmark_core::error::{Diagnostic, RenderError, Severity};
 use typst::foundations::Bytes;
 use typst::text::Font;
 
-use crate::world::{faces, MAX_COLLECTION_FACES};
+use crate::world::{MAX_COLLECTION_FACES, faces};
 
 /// The faces a host supplies, every one readable. Frozen at construction: a
 /// session sees the library as it was when the engine was built.
@@ -30,7 +30,9 @@ impl FontLibrary {
     /// reads and drops the rest. Each file is held once, shared by its faces
     /// and by every [`FontFace`](quillmark_core::backend::FontFace) listing
     /// them.
-    pub fn new<F: Into<Arc<[u8]>>>(files: impl IntoIterator<Item = F>) -> Result<Self, RenderError> {
+    pub fn new<F: Into<Arc<[u8]>>>(
+        files: impl IntoIterator<Item = F>,
+    ) -> Result<Self, RenderError> {
         let mut library = FontLibrary {
             alias_key: alias_key(),
             ..FontLibrary::default()
@@ -123,16 +125,41 @@ mod tests {
     use quillmark_core::quill::{FileTreeNode, Quill};
 
     fn taro_font(name: &str) -> Vec<u8> {
-        std::fs::read(quillmark_fixtures::quills_path("taro").join("assets/fonts").join(name)).expect("read font")
+        std::fs::read(
+            quillmark_fixtures::quills_path("taro")
+                .join("assets/fonts")
+                .join(name),
+        )
+        .expect("read font")
     }
 
     fn quill_shipping(fonts: &[(&str, Vec<u8>)]) -> Quill {
         let yaml = "quill:\n  name: t\n  version: 0.1.0\n  backend: typst\n  description: d\ntypst:\n  plate_file: plate.typ\n";
-        let mut root = FileTreeNode::Directory { files: Default::default() };
-        root.insert("Quill.yaml", FileTreeNode::File { contents: yaml.as_bytes().to_vec() }).unwrap();
-        root.insert("plate.typ", FileTreeNode::File { contents: b"x".to_vec() }).unwrap();
+        let mut root = FileTreeNode::Directory {
+            files: Default::default(),
+        };
+        root.insert(
+            "Quill.yaml",
+            FileTreeNode::File {
+                contents: yaml.as_bytes().to_vec(),
+            },
+        )
+        .unwrap();
+        root.insert(
+            "plate.typ",
+            FileTreeNode::File {
+                contents: b"x".to_vec(),
+            },
+        )
+        .unwrap();
         for (name, data) in fonts {
-            root.insert(format!("assets/fonts/{name}"), FileTreeNode::File { contents: data.clone() }).unwrap();
+            root.insert(
+                format!("assets/fonts/{name}"),
+                FileTreeNode::File {
+                    contents: data.clone(),
+                },
+            )
+            .unwrap();
         }
         Quill::from_tree(root).expect("quill")
     }
@@ -153,7 +180,10 @@ mod tests {
         let host = || FontLibrary::new(vec![taro_font("Figtree-Bold.ttf")]).expect("library");
         let shipping = quill_shipping(&[("Figtree-Regular.ttf", taro_font("Figtree-Regular.ttf"))]);
         assert_eq!(faces_of(&shipping, host()), [("Figtree".into(), 700)]);
-        assert_eq!(faces_of(&quill_shipping(&[]), host()), [("Figtree".into(), 700)]);
+        assert_eq!(
+            faces_of(&quill_shipping(&[]), host()),
+            [("Figtree".into(), 700)]
+        );
         assert_eq!(faces_of(&shipping, FontLibrary::default()), []);
     }
 
@@ -172,7 +202,13 @@ mod tests {
     #[test]
     fn a_host_font_in_another_format_is_refused_by_its_signature() {
         let roboto = crate::world::FALLBACK_FONTS[0].1.to_vec();
-        assert_eq!(FontLibrary::new(vec![roboto.clone()]).unwrap().faces().len(), 1);
+        assert_eq!(
+            FontLibrary::new(vec![roboto.clone()])
+                .unwrap()
+                .faces()
+                .len(),
+            1
+        );
         let err = FontLibrary::new(vec![
             roboto,
             b"wOF2rest".to_vec(),
@@ -181,10 +217,19 @@ mod tests {
             b"OTTOtruncated".to_vec(),
         ])
         .unwrap_err();
-        let codes: Vec<&str> = err.diagnostics().iter().map(|d| d.code.as_deref().unwrap()).collect();
+        let codes: Vec<&str> = err
+            .diagnostics()
+            .iter()
+            .map(|d| d.code.as_deref().unwrap())
+            .collect();
         assert_eq!(
             codes,
-            ["engine::font_unsupported", "engine::font_unsupported", "engine::font_unsupported", "engine::font_unreadable"],
+            [
+                "engine::font_unsupported",
+                "engine::font_unsupported",
+                "engine::font_unsupported",
+                "engine::font_unreadable"
+            ],
             "one refusal per file past the readable first, in file order"
         );
     }

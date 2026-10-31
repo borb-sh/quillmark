@@ -6,12 +6,12 @@ pub(crate) mod compose;
 mod config;
 pub(crate) mod conform;
 mod example;
-mod resolved;
 mod fill;
 mod formats;
 mod ignore;
 mod load;
 mod package_meta;
+mod resolved;
 mod schema;
 mod schema_yaml;
 mod seed;
@@ -21,31 +21,30 @@ pub(crate) mod validation;
 
 pub use authoring::AUTHORING_INVALID_SHAPE;
 pub use bundle::{
-    BUNDLE_EXTENSION, BUNDLE_MEDIA_TYPE, MAX_BUNDLE_BYTES, MAX_BUNDLE_ENTRIES, MAX_BUNDLE_FILE_BYTES,
-};
-pub use config::{CoercionError, QuillConfig};
-pub(crate) use config::{
-    Leniency, RICHTEXT_SINGLE_LINE_TARGET, TEXT_SINGLE_LINE_TARGET,
+    BUNDLE_EXTENSION, BUNDLE_MEDIA_TYPE, MAX_BUNDLE_BYTES, MAX_BUNDLE_ENTRIES,
+    MAX_BUNDLE_FILE_BYTES,
 };
 pub use compose::PLATE_PATH_KEY;
+pub use config::{CoercionError, QuillConfig};
+pub(crate) use config::{Leniency, RICHTEXT_SINGLE_LINE_TARGET, TEXT_SINGLE_LINE_TARGET};
 pub use conform::BoundParseError;
-pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedMain};
-pub(crate) use resolved::resolve_document;
 pub use fill::blank;
-pub use formats::{parse_date, parse_datetime, CalendarDate, ParseDateError, TODAY};
+pub use formats::{CalendarDate, ParseDateError, TODAY, parse_date, parse_datetime};
 pub use ignore::QuillIgnore;
+pub(crate) use resolved::resolve_document;
+pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedMain};
 pub use schema::{
-    build_transform_schema, SchemaCodec, AUTHORING_KIND_KEY, CONTENT_MEDIA_TYPE,
-    MARKDOWN_MEDIA_TYPE, QUILLMARK_MAX_ITEMS_KEY, QUILLMARK_MAX_LENGTH_KEY,
-    QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY,
+    AUTHORING_KIND_KEY, CONTENT_MEDIA_TYPE, MARKDOWN_MEDIA_TYPE, QUILLMARK_MAX_ITEMS_KEY,
+    QUILLMARK_MAX_LENGTH_KEY, QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY, SchemaCodec,
+    build_transform_schema,
 };
 pub use tree::FileTreeNode;
-pub use validation::ValidationError;
 pub use types::{
     BlockConstruct, BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType, GroupRegistry,
-    GroupSchema, UiCardSchema, UiFieldSchema, VariantFields, MATRIX_HELD_KEY,
-    MATRIX_RESERVED_COLUMNS, MATRIX_TITLE_KEY, VARIANT_DISCRIMINANT_KEY,
+    GroupSchema, MATRIX_HELD_KEY, MATRIX_RESERVED_COLUMNS, MATRIX_TITLE_KEY, UiCardSchema,
+    UiFieldSchema, VARIANT_DISCRIMINANT_KEY, VariantFields,
 };
+pub use validation::ValidationError;
 
 /// Portable, validated quill data: the file bundle and parsed config of an
 /// authored quill, tagged with its *declared* backend id.

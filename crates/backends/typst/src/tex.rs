@@ -10,10 +10,10 @@
 use std::collections::BTreeSet;
 
 use quillmark_content::island::IslandType;
+use quillmark_core::Content;
 use quillmark_core::error::{Diagnostic, Severity};
 use quillmark_core::path::DocPath;
 use quillmark_core::quill::QuillConfig;
-use quillmark_core::Content;
 
 const CODE: &str = "typst::unsupported_tex";
 
@@ -166,20 +166,32 @@ enum Node {
     Atom(String),
     Group(Vec<Node>),
     Call(&'static str, Vec<Vec<Node>>),
-    Attach { base: Box<Node>, b: Option<Vec<Node>>, t: Option<Vec<Node>> },
+    Attach {
+        base: Box<Node>,
+        b: Option<Vec<Node>>,
+        t: Option<Vec<Node>>,
+    },
     Align,
     Break,
 }
 
 fn render(nodes: &[Node]) -> String {
-    nodes.iter().map(render_node).filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" ")
+    nodes
+        .iter()
+        .map(render_node)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn render_node(node: &Node) -> String {
     match node {
         Node::Atom(s) => s.clone(),
         Node::Group(nodes) => render(nodes),
-        Node::Call(name, args) => format!("{name}({})", args.iter().map(|a| arg(a)).collect::<Vec<_>>().join(", ")),
+        Node::Call(name, args) => format!(
+            "{name}({})",
+            args.iter().map(|a| arg(a)).collect::<Vec<_>>().join(", ")
+        ),
         Node::Attach { base, b, t } => {
             let mut out = format!("attach({}", arg(std::slice::from_ref(base)));
             if let Some(b) = b {
@@ -200,11 +212,7 @@ fn render_node(node: &Node) -> String {
 /// A call argument: never empty, which Typst refuses.
 fn arg(nodes: &[Node]) -> String {
     let s = render(nodes);
-    if s.is_empty() {
-        "\"\"".to_string()
-    } else {
-        s
-    }
+    if s.is_empty() { "\"\"".to_string() } else { s }
 }
 
 /// A character of the TeX as one atom. A non-ASCII one is a `\u{…}` escape,
@@ -298,7 +306,12 @@ impl Parser {
             match self.peek() {
                 None | Some(Tok::Close) => break,
                 Some(Tok::Cmd(c)) if c == "right" || c == "end" => break,
-                Some(Tok::Cmd(c)) if matches!(c.as_str(), "displaystyle" | "textstyle" | "scriptstyle" | "scriptscriptstyle") => {
+                Some(Tok::Cmd(c))
+                    if matches!(
+                        c.as_str(),
+                        "displaystyle" | "textstyle" | "scriptstyle" | "scriptscriptstyle"
+                    ) =>
+                {
                     let name = match c.as_str() {
                         "displaystyle" => "display",
                         "textstyle" => "inline",
@@ -374,13 +387,18 @@ impl Parser {
             }
         }
         if primes > 0 {
-            t.get_or_insert_with(Vec::new).extend((0..primes).map(|_| Node::Atom("′".into())));
+            t.get_or_insert_with(Vec::new)
+                .extend((0..primes).map(|_| Node::Atom("′".into())));
         }
         if b.is_none() && t.is_none() {
             return;
         }
         let base = nodes.pop().unwrap_or(Node::Atom(String::new()));
-        nodes.push(Node::Attach { base: Box::new(base), b, t });
+        nodes.push(Node::Attach {
+            base: Box::new(base),
+            b,
+            t,
+        });
     }
 
     /// A command's or script's argument: a `{…}` group or one token's atom.
@@ -431,7 +449,11 @@ impl Parser {
                 Tok::Sup => out.push('^'),
                 Tok::Sub => out.push('_'),
                 Tok::Cmd(c) if c.chars().count() == 1 && !c.chars().all(char::is_alphabetic) => {
-                    out.push_str(if c == " " || c == "," || c == ";" { " " } else { &c });
+                    out.push_str(if c == " " || c == "," || c == ";" {
+                        " "
+                    } else {
+                        &c
+                    });
                 }
                 Tok::Cmd(c) => {
                     out.push('\\');
@@ -447,7 +469,10 @@ impl Parser {
         if self.too_deep() {
             return match self.next() {
                 Some(Tok::Char(c)) => vec![atom(c)],
-                Some(Tok::Cmd(c)) => symbol(&c).map(|s| Node::Atom(s.to_string())).into_iter().collect(),
+                Some(Tok::Cmd(c)) => symbol(&c)
+                    .map(|s| Node::Atom(s.to_string()))
+                    .into_iter()
+                    .collect(),
                 _ => Vec::new(),
             };
         }
@@ -458,7 +483,9 @@ impl Parser {
     }
 
     fn atom_items(&mut self) -> Vec<Node> {
-        let Some(tok) = self.next() else { return Vec::new() };
+        let Some(tok) = self.next() else {
+            return Vec::new();
+        };
         match tok {
             Tok::Open => {
                 let inner = self.seq();
@@ -535,14 +562,19 @@ impl Parser {
             "underline" => vec![Node::Call("underline", vec![self.arg()])],
             "overbrace" => vec![Node::Call("overbrace", vec![self.arg()])],
             "underbrace" => vec![Node::Call("underbrace", vec![self.arg()])],
-            "text" | "textrm" | "textnormal" | "mbox" | "textup" | "hbox" => vec![string(&self.text_arg())],
+            "text" | "textrm" | "textnormal" | "mbox" | "textup" | "hbox" => {
+                vec![string(&self.text_arg())]
+            }
             "textit" | "textsl" => vec![Node::Call("italic", vec![vec![string(&self.text_arg())]])],
             "textbf" => vec![Node::Call("bold", vec![vec![string(&self.text_arg())]])],
             "texttt" => vec![Node::Call("mono", vec![vec![string(&self.text_arg())]])],
             "textsf" => vec![Node::Call("sans", vec![vec![string(&self.text_arg())]])],
             "operatorname" => {
                 let name = self.text_arg();
-                vec![Node::Atom(format!("op(\"{}\")", crate::emit::escape_string(&name)))]
+                vec![Node::Atom(format!(
+                    "op(\"{}\")",
+                    crate::emit::escape_string(&name)
+                ))]
             }
             "left" => {
                 let open = self.delimiter();
@@ -559,8 +591,10 @@ impl Parser {
                 vec![Node::Call("lr", vec![inner])]
             }
             "middle" => vec![Node::Call("mid", vec![vec![Node::Atom(self.delimiter())]])],
-            "big" | "Big" | "bigg" | "Bigg" | "bigl" | "Bigl" | "biggl" | "Biggl" | "bigr" | "Bigr" | "biggr"
-            | "Biggr" | "bigm" | "Bigm" | "biggm" | "Biggm" => vec![Node::Atom(self.delimiter())],
+            "big" | "Big" | "bigg" | "Bigg" | "bigl" | "Bigl" | "biggl" | "Biggl" | "bigr"
+            | "Bigr" | "biggr" | "Biggr" | "bigm" | "Bigm" | "biggm" | "Biggm" => {
+                vec![Node::Atom(self.delimiter())]
+            }
             "begin" => self.environment(),
             "\\" | "newline" | "cr" => {
                 self.bracket();
@@ -574,16 +608,23 @@ impl Parser {
             "enspace" => vec![space("0.5")],
             "quad" => vec![space("1")],
             "qquad" => vec![space("2")],
-            "{" | "}" | "$" | "%" | "#" | "&" | "_" => vec![atom(name.chars().next().unwrap_or(' '))],
+            "{" | "}" | "$" | "%" | "#" | "&" | "_" => {
+                vec![atom(name.chars().next().unwrap_or(' '))]
+            }
             "|" => vec![Node::Atom("‖".into())],
             "not" => {
                 let mut next = self.atom_node();
                 let negated = match next.last() {
-                    Some(Node::Atom(s)) => NEGATED.iter().find(|(from, _)| from == s).map(|&(_, to)| to),
+                    Some(Node::Atom(s)) => NEGATED
+                        .iter()
+                        .find(|(from, _)| from == s)
+                        .map(|&(_, to)| to),
                     _ => None,
                 };
                 match negated {
-                    Some(to) => *next.last_mut().expect("a negated atom") = Node::Atom(to.to_string()),
+                    Some(to) => {
+                        *next.last_mut().expect("a negated atom") = Node::Atom(to.to_string())
+                    }
                     None => {
                         self.unknown.insert("not".to_string());
                     }
@@ -601,19 +642,26 @@ impl Parser {
                 inner.push(Node::Atom("\\)".into()));
                 inner
             }
-            "mathop" | "mathbin" | "mathrel" | "mathord" | "mathopen" | "mathclose" | "mathpunct" | "mathinner" => {
-                self.arg()
-            }
+            "mathop" | "mathbin" | "mathrel" | "mathord" | "mathopen" | "mathclose"
+            | "mathpunct" | "mathinner" => self.arg(),
             "phantom" | "vphantom" | "hphantom" => vec![Node::Call("hide", vec![self.arg()])],
             "stackrel" | "overset" => {
                 let top = self.arg();
                 let base = self.arg();
-                vec![Node::Attach { base: Box::new(Node::Call("limits", vec![base])), b: None, t: Some(top) }]
+                vec![Node::Attach {
+                    base: Box::new(Node::Call("limits", vec![base])),
+                    b: None,
+                    t: Some(top),
+                }]
             }
             "underset" => {
                 let bottom = self.arg();
                 let base = self.arg();
-                vec![Node::Attach { base: Box::new(Node::Call("limits", vec![base])), b: Some(bottom), t: None }]
+                vec![Node::Attach {
+                    base: Box::new(Node::Call("limits", vec![base])),
+                    b: Some(bottom),
+                    t: None,
+                }]
             }
             _ => {
                 self.unknown.insert(name.to_string());
@@ -664,7 +712,10 @@ impl Parser {
 
     fn environment(&mut self) -> Vec<Node> {
         let env = self.text_arg();
-        if matches!(env.trim_end_matches('*'), "array" | "subarray" | "alignedat" | "alignat") {
+        if matches!(
+            env.trim_end_matches('*'),
+            "array" | "subarray" | "alignedat" | "alignat"
+        ) {
             self.text_arg();
         }
         if env.ends_with("matrix*") {
@@ -690,12 +741,19 @@ impl Parser {
                 .iter()
                 .map(|cells| cells.iter().map(|c| arg(c)).collect::<Vec<_>>().join(", "))
                 .collect();
-            return vec![Node::Atom(format!("mat(delim: {delim}, {})", rows.join("; ")))];
+            return vec![Node::Atom(format!(
+                "mat(delim: {delim}, {})",
+                rows.join("; ")
+            ))];
         }
         let lines: Vec<String> = rows
             .iter()
             .map(|cells| {
-                let line = cells.iter().map(|c| render(c)).collect::<Vec<_>>().join(" & ");
+                let line = cells
+                    .iter()
+                    .map(|c| render(c))
+                    .collect::<Vec<_>>()
+                    .join(" & ");
                 // A linebreak's `\` reads as one only before whitespace.
                 match line.trim() {
                     l if l.ends_with('\\') => format!("{l} "),
@@ -704,10 +762,29 @@ impl Parser {
             })
             .collect();
         if env == "cases" || env == "dcases" {
-            let lines: Vec<String> = lines.into_iter().map(|l| if l.trim().is_empty() { "\"\"".into() } else { l }).collect();
+            let lines: Vec<String> = lines
+                .into_iter()
+                .map(|l| {
+                    if l.trim().is_empty() {
+                        "\"\"".into()
+                    } else {
+                        l
+                    }
+                })
+                .collect();
             return vec![Node::Atom(format!("cases({})", lines.join(", ")))];
         }
-        if !matches!(env.trim_end_matches('*'), "aligned" | "align" | "gathered" | "gather" | "split" | "alignedat" | "eqnarray" | "multline") {
+        if !matches!(
+            env.trim_end_matches('*'),
+            "aligned"
+                | "align"
+                | "gathered"
+                | "gather"
+                | "split"
+                | "alignedat"
+                | "eqnarray"
+                | "multline"
+        ) {
             self.unknown.insert(format!("begin{{{env}}}"));
         }
         vec![Node::Atom(lines.join(" \\ "))]
@@ -722,7 +799,12 @@ fn rows(body: Vec<Node>) -> Vec<Vec<Vec<Node>>> {
         match node {
             Node::Break => rows.push(vec![Vec::new()]),
             Node::Align => rows.last_mut().expect("a row").push(Vec::new()),
-            node => rows.last_mut().expect("a row").last_mut().expect("a cell").push(node),
+            node => rows
+                .last_mut()
+                .expect("a row")
+                .last_mut()
+                .expect("a cell")
+                .push(node),
         }
     }
     if rows.len() > 1 && rows.last().is_some_and(|r| r.len() == 1 && r[0].is_empty()) {
@@ -733,37 +815,99 @@ fn rows(body: Vec<Node>) -> Vec<Vec<Vec<Node>>> {
 
 /// Operator names, upright, and whether each takes limits in display.
 const OPERATORS: &[(&str, bool)] = &[
-    ("arccos", false), ("arcsin", false), ("arctan", false), ("arg", false), ("cos", false),
-    ("cosh", false), ("cot", false), ("coth", false), ("csc", false), ("deg", false),
-    ("det", true), ("dim", false), ("exp", false), ("gcd", true), ("hom", false),
-    ("inf", true), ("ker", false), ("lg", false), ("lim", true), ("liminf", true),
-    ("limsup", true), ("ln", false), ("log", false), ("max", true), ("min", true),
-    ("Pr", true), ("sec", false), ("sin", false), ("sinh", false), ("sup", true),
-    ("tan", false), ("tanh", false), ("lcm", true), ("argmax", true), ("argmin", true),
+    ("arccos", false),
+    ("arcsin", false),
+    ("arctan", false),
+    ("arg", false),
+    ("cos", false),
+    ("cosh", false),
+    ("cot", false),
+    ("coth", false),
+    ("csc", false),
+    ("deg", false),
+    ("det", true),
+    ("dim", false),
+    ("exp", false),
+    ("gcd", true),
+    ("hom", false),
+    ("inf", true),
+    ("ker", false),
+    ("lg", false),
+    ("lim", true),
+    ("liminf", true),
+    ("limsup", true),
+    ("ln", false),
+    ("log", false),
+    ("max", true),
+    ("min", true),
+    ("Pr", true),
+    ("sec", false),
+    ("sin", false),
+    ("sinh", false),
+    ("sup", true),
+    ("tan", false),
+    ("tanh", false),
+    ("lcm", true),
+    ("argmax", true),
+    ("argmin", true),
 ];
 
 /// Accent commands and the combining mark each sets over its argument.
 const ACCENTS: &[(&str, &str)] = &[
-    ("hat", "\u{302}"), ("widehat", "\u{302}"), ("tilde", "\u{303}"), ("widetilde", "\u{303}"),
-    ("bar", "\u{304}"), ("vec", "\u{20d7}"), ("overrightarrow", "\u{20d7}"),
-    ("overleftarrow", "\u{20d6}"), ("dot", "\u{307}"), ("ddot", "\u{308}"),
-    ("dddot", "\u{20db}"), ("check", "\u{30c}"), ("breve", "\u{306}"), ("acute", "\u{301}"),
-    ("grave", "\u{300}"), ("mathring", "\u{30a}"),
+    ("hat", "\u{302}"),
+    ("widehat", "\u{302}"),
+    ("tilde", "\u{303}"),
+    ("widetilde", "\u{303}"),
+    ("bar", "\u{304}"),
+    ("vec", "\u{20d7}"),
+    ("overrightarrow", "\u{20d7}"),
+    ("overleftarrow", "\u{20d6}"),
+    ("dot", "\u{307}"),
+    ("ddot", "\u{308}"),
+    ("dddot", "\u{20db}"),
+    ("check", "\u{30c}"),
+    ("breve", "\u{306}"),
+    ("acute", "\u{301}"),
+    ("grave", "\u{300}"),
+    ("mathring", "\u{30a}"),
 ];
 
 /// Font commands and the Typst style function each lowers to; `upbold` is
 /// upright bold.
 const STYLES: &[(&str, &str)] = &[
-    ("mathbf", "upbold"), ("boldsymbol", "bold"), ("bm", "bold"), ("mathrm", "upright"),
-    ("mathit", "italic"), ("mathbb", "bb"), ("mathcal", "cal"), ("mathscr", "scr"),
-    ("mathfrak", "frak"), ("mathsf", "sans"), ("mathtt", "mono"), ("mathnormal", "italic"),
+    ("mathbf", "upbold"),
+    ("boldsymbol", "bold"),
+    ("bm", "bold"),
+    ("mathrm", "upright"),
+    ("mathit", "italic"),
+    ("mathbb", "bb"),
+    ("mathcal", "cal"),
+    ("mathscr", "scr"),
+    ("mathfrak", "frak"),
+    ("mathsf", "sans"),
+    ("mathtt", "mono"),
+    ("mathnormal", "italic"),
 ];
 
 /// A `\not` before a relation that has its own negated character.
 const NEGATED: &[(&str, &str)] = &[
-    ("\\=", "≠"), ("∈", "∉"), ("⊂", "⊄"), ("⊃", "⊅"), ("⊆", "⊈"), ("⊇", "⊉"), ("≡", "≢"),
-    ("∼", "≁"), ("≈", "≉"), ("≅", "≇"), ("\\<", "≮"), ("\\>", "≯"), ("≤", "≰"), ("≥", "≱"),
-    ("∣", "∤"), ("∥", "∦"), ("∋", "∌"),
+    ("\\=", "≠"),
+    ("∈", "∉"),
+    ("⊂", "⊄"),
+    ("⊃", "⊅"),
+    ("⊆", "⊈"),
+    ("⊇", "⊉"),
+    ("≡", "≢"),
+    ("∼", "≁"),
+    ("≈", "≉"),
+    ("≅", "≇"),
+    ("\\<", "≮"),
+    ("\\>", "≯"),
+    ("≤", "≰"),
+    ("≥", "≱"),
+    ("∣", "∤"),
+    ("∥", "∦"),
+    ("∋", "∌"),
 ];
 
 fn symbol(name: &str) -> Option<&'static str> {
@@ -773,82 +917,312 @@ fn symbol(name: &str) -> Option<&'static str> {
 /// Symbol commands and the character each draws.
 const SYMBOLS: &[(&str, &str)] = &[
     // Greek.
-    ("alpha", "α"), ("beta", "β"), ("gamma", "γ"), ("delta", "δ"), ("epsilon", "ϵ"),
-    ("varepsilon", "ε"), ("zeta", "ζ"), ("eta", "η"), ("theta", "θ"), ("vartheta", "ϑ"),
-    ("iota", "ι"), ("kappa", "κ"), ("varkappa", "ϰ"), ("lambda", "λ"), ("mu", "μ"),
-    ("nu", "ν"), ("xi", "ξ"), ("omicron", "ο"), ("pi", "π"), ("varpi", "ϖ"), ("rho", "ρ"),
-    ("varrho", "ϱ"), ("sigma", "σ"), ("varsigma", "ς"), ("tau", "τ"), ("upsilon", "υ"),
-    ("phi", "ϕ"), ("varphi", "φ"), ("chi", "χ"), ("psi", "ψ"), ("omega", "ω"),
-    ("digamma", "ϝ"), ("Gamma", "Γ"), ("Delta", "Δ"), ("Theta", "Θ"), ("Lambda", "Λ"),
-    ("Xi", "Ξ"), ("Pi", "Π"), ("Sigma", "Σ"), ("Upsilon", "Υ"), ("Phi", "Φ"), ("Psi", "Ψ"),
-    ("Omega", "Ω"), ("varGamma", "𝛤"), ("varDelta", "𝛥"), ("varTheta", "𝛩"),
-    ("varLambda", "𝛬"), ("varXi", "𝛯"), ("varPi", "𝛱"), ("varSigma", "𝛴"),
-    ("varUpsilon", "𝛶"), ("varPhi", "𝛷"), ("varPsi", "𝛹"), ("varOmega", "𝛺"),
+    ("alpha", "α"),
+    ("beta", "β"),
+    ("gamma", "γ"),
+    ("delta", "δ"),
+    ("epsilon", "ϵ"),
+    ("varepsilon", "ε"),
+    ("zeta", "ζ"),
+    ("eta", "η"),
+    ("theta", "θ"),
+    ("vartheta", "ϑ"),
+    ("iota", "ι"),
+    ("kappa", "κ"),
+    ("varkappa", "ϰ"),
+    ("lambda", "λ"),
+    ("mu", "μ"),
+    ("nu", "ν"),
+    ("xi", "ξ"),
+    ("omicron", "ο"),
+    ("pi", "π"),
+    ("varpi", "ϖ"),
+    ("rho", "ρ"),
+    ("varrho", "ϱ"),
+    ("sigma", "σ"),
+    ("varsigma", "ς"),
+    ("tau", "τ"),
+    ("upsilon", "υ"),
+    ("phi", "ϕ"),
+    ("varphi", "φ"),
+    ("chi", "χ"),
+    ("psi", "ψ"),
+    ("omega", "ω"),
+    ("digamma", "ϝ"),
+    ("Gamma", "Γ"),
+    ("Delta", "Δ"),
+    ("Theta", "Θ"),
+    ("Lambda", "Λ"),
+    ("Xi", "Ξ"),
+    ("Pi", "Π"),
+    ("Sigma", "Σ"),
+    ("Upsilon", "Υ"),
+    ("Phi", "Φ"),
+    ("Psi", "Ψ"),
+    ("Omega", "Ω"),
+    ("varGamma", "𝛤"),
+    ("varDelta", "𝛥"),
+    ("varTheta", "𝛩"),
+    ("varLambda", "𝛬"),
+    ("varXi", "𝛯"),
+    ("varPi", "𝛱"),
+    ("varSigma", "𝛴"),
+    ("varUpsilon", "𝛶"),
+    ("varPhi", "𝛷"),
+    ("varPsi", "𝛹"),
+    ("varOmega", "𝛺"),
     // Letterlike.
-    ("aleph", "ℵ"), ("beth", "ℶ"), ("gimel", "ℷ"), ("hbar", "ℏ"), ("hslash", "ℏ"),
-    ("ell", "ℓ"), ("Re", "ℜ"), ("Im", "ℑ"), ("partial", "∂"), ("infty", "∞"),
-    ("nabla", "∇"), ("emptyset", "∅"), ("varnothing", "∅"), ("forall", "∀"), ("exists", "∃"),
-    ("nexists", "∄"), ("neg", "¬"), ("lnot", "¬"), ("top", "⊤"), ("bot", "⊥"),
-    ("angle", "∠"), ("measuredangle", "∡"), ("triangle", "△"), ("square", "□"),
-    ("Box", "□"), ("prime", "′"), ("backprime", "‵"), ("imath", "ı"), ("jmath", "ȷ"),
-    ("complement", "∁"), ("surd", "√"), ("dagger", "†"), ("dag", "†"), ("S", "§"),
-    ("checkmark", "✓"), ("clubsuit", "♣"), ("diamondsuit", "♢"), ("heartsuit", "♡"),
-    ("spadesuit", "♠"), ("flat", "♭"), ("natural", "♮"), ("sharp", "♯"),
+    ("aleph", "ℵ"),
+    ("beth", "ℶ"),
+    ("gimel", "ℷ"),
+    ("hbar", "ℏ"),
+    ("hslash", "ℏ"),
+    ("ell", "ℓ"),
+    ("Re", "ℜ"),
+    ("Im", "ℑ"),
+    ("partial", "∂"),
+    ("infty", "∞"),
+    ("nabla", "∇"),
+    ("emptyset", "∅"),
+    ("varnothing", "∅"),
+    ("forall", "∀"),
+    ("exists", "∃"),
+    ("nexists", "∄"),
+    ("neg", "¬"),
+    ("lnot", "¬"),
+    ("top", "⊤"),
+    ("bot", "⊥"),
+    ("angle", "∠"),
+    ("measuredangle", "∡"),
+    ("triangle", "△"),
+    ("square", "□"),
+    ("Box", "□"),
+    ("prime", "′"),
+    ("backprime", "‵"),
+    ("imath", "ı"),
+    ("jmath", "ȷ"),
+    ("complement", "∁"),
+    ("surd", "√"),
+    ("dagger", "†"),
+    ("dag", "†"),
+    ("S", "§"),
+    ("checkmark", "✓"),
+    ("clubsuit", "♣"),
+    ("diamondsuit", "♢"),
+    ("heartsuit", "♡"),
+    ("spadesuit", "♠"),
+    ("flat", "♭"),
+    ("natural", "♮"),
+    ("sharp", "♯"),
     // Binary operators.
-    ("pm", "±"), ("mp", "∓"), ("times", "×"), ("div", "÷"), ("cdot", "⋅"), ("ast", "∗"),
-    ("star", "⋆"), ("circ", "∘"), ("bullet", "∙"), ("oplus", "⊕"), ("ominus", "⊖"),
-    ("otimes", "⊗"), ("oslash", "⊘"), ("odot", "⊙"), ("cap", "∩"), ("cup", "∪"),
-    ("uplus", "⊎"), ("sqcap", "⊓"), ("sqcup", "⊔"), ("vee", "∨"), ("lor", "∨"),
-    ("wedge", "∧"), ("land", "∧"), ("setminus", "∖"), ("smallsetminus", "∖"), ("wr", "≀"),
-    ("diamond", "⋄"), ("bigtriangleup", "△"), ("bigtriangledown", "▽"),
-    ("triangleleft", "◁"), ("triangleright", "▷"), ("amalg", "⨿"), ("bigcirc", "◯"),
-    ("ltimes", "⋉"), ("rtimes", "⋊"), ("centerdot", "⋅"), ("dotplus", "∔"),
+    ("pm", "±"),
+    ("mp", "∓"),
+    ("times", "×"),
+    ("div", "÷"),
+    ("cdot", "⋅"),
+    ("ast", "∗"),
+    ("star", "⋆"),
+    ("circ", "∘"),
+    ("bullet", "∙"),
+    ("oplus", "⊕"),
+    ("ominus", "⊖"),
+    ("otimes", "⊗"),
+    ("oslash", "⊘"),
+    ("odot", "⊙"),
+    ("cap", "∩"),
+    ("cup", "∪"),
+    ("uplus", "⊎"),
+    ("sqcap", "⊓"),
+    ("sqcup", "⊔"),
+    ("vee", "∨"),
+    ("lor", "∨"),
+    ("wedge", "∧"),
+    ("land", "∧"),
+    ("setminus", "∖"),
+    ("smallsetminus", "∖"),
+    ("wr", "≀"),
+    ("diamond", "⋄"),
+    ("bigtriangleup", "△"),
+    ("bigtriangledown", "▽"),
+    ("triangleleft", "◁"),
+    ("triangleright", "▷"),
+    ("amalg", "⨿"),
+    ("bigcirc", "◯"),
+    ("ltimes", "⋉"),
+    ("rtimes", "⋊"),
+    ("centerdot", "⋅"),
+    ("dotplus", "∔"),
     // Relations.
-    ("leq", "≤"), ("le", "≤"), ("geq", "≥"), ("ge", "≥"), ("neq", "≠"), ("ne", "≠"),
-    ("leqslant", "⩽"), ("geqslant", "⩾"), ("ll", "≪"), ("gg", "≫"), ("lll", "⋘"),
-    ("ggg", "⋙"), ("equiv", "≡"), ("sim", "∼"), ("simeq", "≃"), ("approx", "≈"),
-    ("cong", "≅"), ("asymp", "≍"), ("propto", "∝"), ("doteq", "≐"), ("in", "∈"),
-    ("notin", "∉"), ("ni", "∋"), ("owns", "∋"), ("subset", "⊂"), ("supset", "⊃"),
-    ("subseteq", "⊆"), ("supseteq", "⊇"), ("subsetneq", "⊊"), ("supsetneq", "⊋"),
-    ("nsubseteq", "⊈"), ("nsupseteq", "⊉"), ("sqsubset", "⊏"), ("sqsupset", "⊐"),
-    ("sqsubseteq", "⊑"), ("sqsupseteq", "⊒"), ("vdash", "⊢"), ("dashv", "⊣"),
-    ("models", "⊨"), ("perp", "⟂"), ("parallel", "∥"), ("nparallel", "∦"), ("mid", "∣"),
-    ("nmid", "∤"), ("prec", "≺"), ("succ", "≻"), ("preceq", "⪯"), ("succeq", "⪰"),
-    ("bowtie", "⋈"), ("smile", "⌣"), ("frown", "⌢"), ("coloneqq", "≔"), ("eqqcolon", "≕"),
-    ("triangleq", "≜"), ("lesssim", "≲"), ("gtrsim", "≳"), ("nless", "≮"), ("ngtr", "≯"),
-    ("nleq", "≰"), ("ngeq", "≱"), ("nsim", "≁"), ("ncong", "≇"), ("therefore", "∴"),
-    ("because", "∵"), ("vDash", "⊨"), ("Vdash", "⊩"),
+    ("leq", "≤"),
+    ("le", "≤"),
+    ("geq", "≥"),
+    ("ge", "≥"),
+    ("neq", "≠"),
+    ("ne", "≠"),
+    ("leqslant", "⩽"),
+    ("geqslant", "⩾"),
+    ("ll", "≪"),
+    ("gg", "≫"),
+    ("lll", "⋘"),
+    ("ggg", "⋙"),
+    ("equiv", "≡"),
+    ("sim", "∼"),
+    ("simeq", "≃"),
+    ("approx", "≈"),
+    ("cong", "≅"),
+    ("asymp", "≍"),
+    ("propto", "∝"),
+    ("doteq", "≐"),
+    ("in", "∈"),
+    ("notin", "∉"),
+    ("ni", "∋"),
+    ("owns", "∋"),
+    ("subset", "⊂"),
+    ("supset", "⊃"),
+    ("subseteq", "⊆"),
+    ("supseteq", "⊇"),
+    ("subsetneq", "⊊"),
+    ("supsetneq", "⊋"),
+    ("nsubseteq", "⊈"),
+    ("nsupseteq", "⊉"),
+    ("sqsubset", "⊏"),
+    ("sqsupset", "⊐"),
+    ("sqsubseteq", "⊑"),
+    ("sqsupseteq", "⊒"),
+    ("vdash", "⊢"),
+    ("dashv", "⊣"),
+    ("models", "⊨"),
+    ("perp", "⟂"),
+    ("parallel", "∥"),
+    ("nparallel", "∦"),
+    ("mid", "∣"),
+    ("nmid", "∤"),
+    ("prec", "≺"),
+    ("succ", "≻"),
+    ("preceq", "⪯"),
+    ("succeq", "⪰"),
+    ("bowtie", "⋈"),
+    ("smile", "⌣"),
+    ("frown", "⌢"),
+    ("coloneqq", "≔"),
+    ("eqqcolon", "≕"),
+    ("triangleq", "≜"),
+    ("lesssim", "≲"),
+    ("gtrsim", "≳"),
+    ("nless", "≮"),
+    ("ngtr", "≯"),
+    ("nleq", "≰"),
+    ("ngeq", "≱"),
+    ("nsim", "≁"),
+    ("ncong", "≇"),
+    ("therefore", "∴"),
+    ("because", "∵"),
+    ("vDash", "⊨"),
+    ("Vdash", "⊩"),
     // Arrows.
-    ("leftarrow", "←"), ("gets", "←"), ("rightarrow", "→"), ("to", "→"),
-    ("leftrightarrow", "↔"), ("Leftarrow", "⇐"), ("Rightarrow", "⇒"),
-    ("Leftrightarrow", "⇔"), ("longleftarrow", "⟵"), ("longrightarrow", "⟶"),
-    ("longleftrightarrow", "⟷"), ("Longleftarrow", "⟸"), ("Longrightarrow", "⟹"),
-    ("Longleftrightarrow", "⟺"), ("iff", "⟺"), ("implies", "⟹"), ("impliedby", "⟸"),
-    ("mapsto", "↦"), ("longmapsto", "⟼"), ("uparrow", "↑"), ("downarrow", "↓"),
-    ("updownarrow", "↕"), ("Uparrow", "⇑"), ("Downarrow", "⇓"), ("Updownarrow", "⇕"),
-    ("nearrow", "↗"), ("searrow", "↘"), ("swarrow", "↙"), ("nwarrow", "↖"),
-    ("hookleftarrow", "↩"), ("hookrightarrow", "↪"), ("leftharpoonup", "↼"),
-    ("leftharpoondown", "↽"), ("rightharpoonup", "⇀"), ("rightharpoondown", "⇁"),
-    ("rightleftharpoons", "⇌"), ("leftrightharpoons", "⇋"), ("leadsto", "⇝"),
-    ("nrightarrow", "↛"), ("nleftarrow", "↚"), ("nRightarrow", "⇏"), ("nLeftarrow", "⇍"),
-    ("twoheadrightarrow", "↠"), ("rightrightarrows", "⇉"), ("leftleftarrows", "⇇"),
-    ("circlearrowleft", "↺"), ("circlearrowright", "↻"),
+    ("leftarrow", "←"),
+    ("gets", "←"),
+    ("rightarrow", "→"),
+    ("to", "→"),
+    ("leftrightarrow", "↔"),
+    ("Leftarrow", "⇐"),
+    ("Rightarrow", "⇒"),
+    ("Leftrightarrow", "⇔"),
+    ("longleftarrow", "⟵"),
+    ("longrightarrow", "⟶"),
+    ("longleftrightarrow", "⟷"),
+    ("Longleftarrow", "⟸"),
+    ("Longrightarrow", "⟹"),
+    ("Longleftrightarrow", "⟺"),
+    ("iff", "⟺"),
+    ("implies", "⟹"),
+    ("impliedby", "⟸"),
+    ("mapsto", "↦"),
+    ("longmapsto", "⟼"),
+    ("uparrow", "↑"),
+    ("downarrow", "↓"),
+    ("updownarrow", "↕"),
+    ("Uparrow", "⇑"),
+    ("Downarrow", "⇓"),
+    ("Updownarrow", "⇕"),
+    ("nearrow", "↗"),
+    ("searrow", "↘"),
+    ("swarrow", "↙"),
+    ("nwarrow", "↖"),
+    ("hookleftarrow", "↩"),
+    ("hookrightarrow", "↪"),
+    ("leftharpoonup", "↼"),
+    ("leftharpoondown", "↽"),
+    ("rightharpoonup", "⇀"),
+    ("rightharpoondown", "⇁"),
+    ("rightleftharpoons", "⇌"),
+    ("leftrightharpoons", "⇋"),
+    ("leadsto", "⇝"),
+    ("nrightarrow", "↛"),
+    ("nleftarrow", "↚"),
+    ("nRightarrow", "⇏"),
+    ("nLeftarrow", "⇍"),
+    ("twoheadrightarrow", "↠"),
+    ("rightrightarrows", "⇉"),
+    ("leftleftarrows", "⇇"),
+    ("circlearrowleft", "↺"),
+    ("circlearrowright", "↻"),
     // Large operators.
-    ("sum", "∑"), ("prod", "∏"), ("coprod", "∐"), ("int", "∫"), ("iint", "∬"),
-    ("iiint", "∭"), ("oint", "∮"), ("oiint", "∯"), ("bigcup", "⋃"), ("bigcap", "⋂"),
-    ("bigsqcup", "⨆"), ("bigvee", "⋁"), ("bigwedge", "⋀"), ("bigoplus", "⨁"),
-    ("bigotimes", "⨂"), ("bigodot", "⨀"), ("biguplus", "⨄"),
+    ("sum", "∑"),
+    ("prod", "∏"),
+    ("coprod", "∐"),
+    ("int", "∫"),
+    ("iint", "∬"),
+    ("iiint", "∭"),
+    ("oint", "∮"),
+    ("oiint", "∯"),
+    ("bigcup", "⋃"),
+    ("bigcap", "⋂"),
+    ("bigsqcup", "⨆"),
+    ("bigvee", "⋁"),
+    ("bigwedge", "⋀"),
+    ("bigoplus", "⨁"),
+    ("bigotimes", "⨂"),
+    ("bigodot", "⨀"),
+    ("biguplus", "⨄"),
     // Delimiters.
-    ("langle", "⟨"), ("rangle", "⟩"), ("lfloor", "⌊"), ("rfloor", "⌋"), ("lceil", "⌈"),
-    ("rceil", "⌉"), ("lbrace", "\\{"), ("rbrace", "\\}"), ("lbrack", "\\["),
-    ("rbrack", "\\]"), ("vert", "\\|"), ("Vert", "‖"), ("lvert", "\\|"), ("rvert", "\\|"),
-    ("lVert", "‖"), ("rVert", "‖"), ("backslash", "\\\\"), ("ulcorner", "⌜"),
-    ("urcorner", "⌝"), ("llcorner", "⌞"), ("lrcorner", "⌟"), ("llbracket", "⟦"),
+    ("langle", "⟨"),
+    ("rangle", "⟩"),
+    ("lfloor", "⌊"),
+    ("rfloor", "⌋"),
+    ("lceil", "⌈"),
+    ("rceil", "⌉"),
+    ("lbrace", "\\{"),
+    ("rbrace", "\\}"),
+    ("lbrack", "\\["),
+    ("rbrack", "\\]"),
+    ("vert", "\\|"),
+    ("Vert", "‖"),
+    ("lvert", "\\|"),
+    ("rvert", "\\|"),
+    ("lVert", "‖"),
+    ("rVert", "‖"),
+    ("backslash", "\\\\"),
+    ("ulcorner", "⌜"),
+    ("urcorner", "⌝"),
+    ("llcorner", "⌞"),
+    ("lrcorner", "⌟"),
+    ("llbracket", "⟦"),
     ("rrbracket", "⟧"),
     // Dots.
-    ("dots", "…"), ("ldots", "…"), ("cdots", "⋯"), ("vdots", "⋮"), ("ddots", "⋱"),
-    ("dotsc", "…"), ("dotsb", "⋯"), ("dotsm", "⋯"), ("dotsi", "⋯"), ("dotso", "…"),
-    ("colon", "\\:"), ("lq", "‘"), ("rq", "’"),
+    ("dots", "…"),
+    ("ldots", "…"),
+    ("cdots", "⋯"),
+    ("vdots", "⋮"),
+    ("ddots", "⋱"),
+    ("dotsc", "…"),
+    ("dotsb", "⋯"),
+    ("dotsm", "⋯"),
+    ("dotsi", "⋯"),
+    ("dotso", "…"),
+    ("colon", "\\:"),
+    ("lq", "‘"),
+    ("rq", "’"),
 ];
 
 #[cfg(test)]
@@ -887,23 +1261,36 @@ mod tests {
 
     #[test]
     fn environments_lower_to_matrices_cases_and_aligned_rows() {
-        assert_eq!(typst("\\begin{pmatrix}a&b\\\\c&\\end{pmatrix}"), "mat(delim: \"(\", a, b; c, \"\")");
-        assert_eq!(typst("\\begin{cases}1&x>0\\\\0&\\text{else}\\end{cases}"), "cases(1 & x \\> 0, 0 & \"else\")");
-        assert_eq!(typst("\\begin{aligned}a&=b\\\\&=c\\end{aligned}"), "a & \\= b \\ & \\= c");
+        assert_eq!(
+            typst("\\begin{pmatrix}a&b\\\\c&\\end{pmatrix}"),
+            "mat(delim: \"(\", a, b; c, \"\")"
+        );
+        assert_eq!(
+            typst("\\begin{cases}1&x>0\\\\0&\\text{else}\\end{cases}"),
+            "cases(1 & x \\> 0, 0 & \"else\")"
+        );
+        assert_eq!(
+            typst("\\begin{aligned}a&=b\\\\&=c\\end{aligned}"),
+            "a & \\= b \\ & \\= c"
+        );
     }
 
     #[test]
     fn an_unknown_command_draws_its_name_and_is_named() {
         let lowered = lower("\\foo{x} + \\begin{weird}y\\end{weird}");
         assert_eq!(lowered.markup, "\"\\\\foo\" x \\+ y");
-        assert_eq!(lowered.unknown, BTreeSet::from(["foo".to_string(), "begin{weird}".to_string()]));
+        assert_eq!(
+            lowered.unknown,
+            BTreeSet::from(["foo".to_string(), "begin{weird}".to_string()])
+        );
     }
 
     /// What a symbol, accent or negation draws, the embedded math face covers.
     #[test]
     fn the_embedded_math_face_draws_every_character_the_vocabulary_writes() {
         let (name, data) = crate::world::MATH_FONT;
-        let font = typst::text::Font::new(typst::foundations::Bytes::new(data.to_vec()), 0).expect(name);
+        let font =
+            typst::text::Font::new(typst::foundations::Bytes::new(data.to_vec()), 0).expect(name);
         let written = SYMBOLS
             .iter()
             .chain(ACCENTS)
@@ -928,20 +1315,40 @@ mod tests {
 
     #[test]
     fn a_linebreak_in_a_group_ends_no_line_on_its_backslash() {
-        for tex in [r"\begin{aligned}{a\\}\end{aligned}", r"\begin{cases}{a\\}\end{cases}", r"a\\"] {
+        for tex in [
+            r"\begin{aligned}{a\\}\end{aligned}",
+            r"\begin{cases}{a\\}\end{cases}",
+            r"a\\",
+        ] {
             let markup = equation(tex, false);
-            assert!(markup.ends_with(" $") || !markup.trim_end_matches('$').ends_with('\\'), "{tex:?} lowered to {markup:?}");
-            let errors = typst::syntax::parse(&format!("{markup} after $b$")).errors_and_warnings().0;
-            assert!(errors.is_empty(), "{tex:?} lowered to {markup:?}: {errors:?}");
+            assert!(
+                markup.ends_with(" $") || !markup.trim_end_matches('$').ends_with('\\'),
+                "{tex:?} lowered to {markup:?}"
+            );
+            let errors = typst::syntax::parse(&format!("{markup} after $b$"))
+                .errors_and_warnings()
+                .0;
+            assert!(
+                errors.is_empty(),
+                "{tex:?} lowered to {markup:?}: {errors:?}"
+            );
         }
     }
 
     #[test]
     fn nesting_past_the_depth_draws_flat_and_marks_the_equation_deep() {
-        for tex in ["{".repeat(5000), r"\sqrt{".repeat(2000), r"\left(".repeat(2000), r"\not".repeat(5000), r"\frac".repeat(5000)] {
+        for tex in [
+            "{".repeat(5000),
+            r"\sqrt{".repeat(2000),
+            r"\left(".repeat(2000),
+            r"\not".repeat(5000),
+            r"\frac".repeat(5000),
+        ] {
             let lowered = lower(&tex);
             assert!(lowered.deep, "{}", &tex[..12]);
-            let errors = typst::syntax::parse(&equation(&tex, false)).errors_and_warnings().0;
+            let errors = typst::syntax::parse(&equation(&tex, false))
+                .errors_and_warnings()
+                .0;
             assert!(errors.is_empty(), "{}: {errors:?}", &tex[..12]);
         }
         assert!(!lower(r"\frac{\sqrt{x^{2}}}{y}").deep);
@@ -951,7 +1358,10 @@ mod tests {
     fn what_draws_nothing_is_named_and_what_takes_an_argument_reads_it() {
         assert_eq!(lower(r"a \\[4pt] b").markup, "a \\  b");
         assert_eq!(lower(r"\begin{alignedat}{2} x \end{alignedat}").markup, "x");
-        assert_eq!(lower(r"\begin{pmatrix*}[r] x \end{pmatrix*}").markup, "mat(delim: \"(\", x)");
+        assert_eq!(
+            lower(r"\begin{pmatrix*}[r] x \end{pmatrix*}").markup,
+            "mat(delim: \"(\", x)"
+        );
         assert_eq!(lower("a % b").markup, "a");
         for tex in [r"\not{=}", r"\not", r"\left\lgroup x \right."] {
             assert!(!lower(tex).unknown.is_empty(), "{tex:?}");
@@ -960,10 +1370,16 @@ mod tests {
 
     #[test]
     fn stray_braces_and_closers_lower_to_valid_markup() {
-        for tex in ["}", "{", "a}b", "\\right)", "\\end{x}", "^", "_{", "\\sqrt[", "\\left(", "x^", "''", "&", "\\\\"] {
+        for tex in [
+            "}", "{", "a}b", "\\right)", "\\end{x}", "^", "_{", "\\sqrt[", "\\left(", "x^", "''",
+            "&", "\\\\",
+        ] {
             let markup = equation(tex, false);
             let errors = typst::syntax::parse(&markup).errors_and_warnings().0;
-            assert!(errors.is_empty(), "{tex:?} lowered to {markup:?}: {errors:?}");
+            assert!(
+                errors.is_empty(),
+                "{tex:?} lowered to {markup:?}: {errors:?}"
+            );
         }
     }
 }

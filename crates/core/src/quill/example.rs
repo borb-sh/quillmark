@@ -2,7 +2,7 @@
 //! and the `example` its bodies declare.
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
-use super::{seed, CardSchema, FieldSchema, FieldType, Quill, VARIANT_DISCRIMINANT_KEY};
+use super::{CardSchema, FieldSchema, FieldType, Quill, VARIANT_DISCRIMINANT_KEY, seed};
 use crate::document::{Document, SeedOverlay};
 use crate::value::QuillValue;
 
@@ -55,7 +55,9 @@ fn example_overlay(card: &CardSchema) -> Option<SeedOverlay> {
         body: None,
     });
     for (name, value) in examples {
-        overlay.fields.insert(name.clone(), QuillValue::from_json(value));
+        overlay
+            .fields
+            .insert(name.clone(), QuillValue::from_json(value));
     }
     if let Some(body) = body {
         overlay.body = Some(body.to_string());
@@ -105,11 +107,17 @@ fn example_value(field: &FieldSchema) -> Option<JsonValue> {
 
 /// A slot's `example:` as a value. Null ≡ absent, so `example: ~` declares none.
 fn declared_example(field: &FieldSchema) -> Option<&JsonValue> {
-    field.example.as_ref().map(|e| e.as_json()).filter(|e| !e.is_null())
+    field
+        .example
+        .as_ref()
+        .map(|e| e.as_json())
+        .filter(|e| !e.is_null())
 }
 
 /// The mapping of each property's [`example_value`], `None` where none has one.
-fn composed(props: &indexmap::IndexMap<String, Box<FieldSchema>>) -> Option<JsonMap<String, JsonValue>> {
+fn composed(
+    props: &indexmap::IndexMap<String, Box<FieldSchema>>,
+) -> Option<JsonMap<String, JsonValue>> {
     let map: JsonMap<String, JsonValue> = props
         .iter()
         .filter_map(|(name, prop)| Some((name.clone(), example_value(prop)?)))

@@ -6,15 +6,15 @@
 //! regardless of which side of the `$` boundary that is.
 
 use crate::error::ParseError;
+use crate::error::{Diagnostic, Severity};
 use crate::path::DocPath;
 use crate::value::{PathSegment, QuillValue};
-use crate::error::{Diagnostic, Severity};
 
-use super::fences::{find_metadata_blocks, UnclosedRoot};
+use super::fences::{UnclosedRoot, find_metadata_blocks};
 use super::meta::{extract_meta_items, meta_key, yaml_type_name};
 use super::payload::{MetaKey, Payload, PayloadItem};
 
-use super::prescan::{prescan_fence_content, NestedComment, PreItem, Refusal};
+use super::prescan::{NestedComment, PreItem, Refusal, prescan_fence_content};
 use super::{Card, Document};
 use quillmark_content::import::{ImportError, Imported};
 
@@ -92,7 +92,10 @@ fn missing_block_message(markdown: &str, unclosed_root: Option<&UnclosedRoot>) -
             .to_string();
     }
 
-    let first_line = markdown.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+    let first_line = markdown
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("");
     if first_line.trim_start().starts_with("~~~") && first_line.starts_with(char::is_whitespace) {
         return "Missing required root card-yaml block. Your document's opening \
                 `~~~` is indented; a card-yaml fence starts at column zero. Dedent \
@@ -276,7 +279,7 @@ pub(super) fn build_block(
                      more than {} bytes, each level above them costing its key and a fixed \
                      overhead. Merge the comments, or move them nearer the top level.",
                     budget
-                ))
+                ));
             }
             Refusal::PastRoot { line, column } => (
                 "text follows the block's YAML value".to_string(),
@@ -375,7 +378,11 @@ pub(super) fn decompose_with_warnings(
         return Err(ParseError::MissingQuill(msg.to_string()));
     }
 
-    if root_block.meta_items.iter().any(|m| matches!(m, PayloadItem::Id { .. })) {
+    if root_block
+        .meta_items
+        .iter()
+        .any(|m| matches!(m, PayloadItem::Id { .. }))
+    {
         return Err(ParseError::InvalidStructure(
             "The document's root card-yaml block must not declare `$id`: the root \
              is addressed as `main`, and only a composable card carries an id."
@@ -454,11 +461,15 @@ pub(super) fn decompose_with_warnings(
         }
 
         // Seeding overlays live on the document root only (like `$quill`).
-        if block
-            .meta_items
-            .iter()
-            .any(|m| matches!(m, PayloadItem::Meta { key: MetaKey::Seed, .. }))
-        {
+        if block.meta_items.iter().any(|m| {
+            matches!(
+                m,
+                PayloadItem::Meta {
+                    key: MetaKey::Seed,
+                    ..
+                }
+            )
+        }) {
             return Err(ParseError::InvalidStructure(
                 "A composable card-yaml block must not carry `$seed`: only the \
                  document's root block carries seeding overlays."

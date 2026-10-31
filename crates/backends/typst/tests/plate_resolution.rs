@@ -17,17 +17,26 @@ const BARE: &str = "quill:\n  name: t\n  version: \"1.0.0\"\n  backend: typst\n 
 #[test]
 fn the_plate_is_plate_typ_by_name_unless_plate_file_names_another() {
     let by_name = tree_quill(&[("Quill.yaml", BARE), ("plate.typ", "hello\n")]);
-    assert_eq!(quillmark_typst::plate_file(&by_name).expect("plate.typ loads"), "plate.typ");
+    assert_eq!(
+        quillmark_typst::plate_file(&by_name).expect("plate.typ loads"),
+        "plate.typ"
+    );
     TypstBackend::default()
         .open(&by_name, &serde_json::json!({}), common::test_date())
         .expect("plate.typ renders");
 
     let declared = tree_quill(&[
-        ("Quill.yaml", &format!("{BARE}typst:\n  plate_file: tpl/main.typ\n")),
+        (
+            "Quill.yaml",
+            &format!("{BARE}typst:\n  plate_file: tpl/main.typ\n"),
+        ),
         ("plate.typ", "#nowhere\n"),
         ("tpl/main.typ", "hello\n"),
     ]);
-    assert_eq!(quillmark_typst::plate_file(&declared).expect("the plate loads"), "tpl/main.typ");
+    assert_eq!(
+        quillmark_typst::plate_file(&declared).expect("the plate loads"),
+        "tpl/main.typ"
+    );
     TypstBackend::default()
         .open(&declared, &serde_json::json!({}), common::test_date())
         .expect("the declared plate renders, and plate.typ is not compiled");
@@ -41,7 +50,10 @@ fn a_quill_with_no_plate_fails_at_open() {
     let codes: Vec<_> = diags.iter().map(|d| d.code.as_deref()).collect();
     assert_eq!(codes, [Some("typst::plate_missing")], "{diags:?}");
     let hint = diags[0].hint.as_deref().expect("a hint");
-    assert!(hint.contains("`plate.typ`") && hint.contains("`typst.plate_file`"), "{hint}");
+    assert!(
+        hint.contains("`plate.typ`") && hint.contains("`typst.plate_file`"),
+        "{hint}"
+    );
 }
 
 /// A plate the quill holds at a path Typst refuses has no name the world can
@@ -64,7 +76,11 @@ fn a_plate_file_typst_cannot_address_fails_at_open() {
             ("main.typ", "#let word = \"real\"\n"),
         ]);
         let codes: Vec<_> = diags.iter().map(|d| d.code.as_deref()).collect();
-        assert_eq!(codes, [Some("typst::plate_path_invalid")], "{declared}: {diags:?}");
+        assert_eq!(
+            codes,
+            [Some("typst::plate_path_invalid")],
+            "{declared}: {diags:?}"
+        );
     }
 }
 
@@ -83,7 +99,10 @@ fn a_plate_file_drops_its_dot_and_empty_steps() {
             ("Quill.yaml", &YAML.replace("plate.typ", declared)),
             (file, "#set text(font: \"nosuchfont\")\nhello\n"),
         ]);
-        assert_eq!(quillmark_typst::plate_file(&q).expect("the plate loads"), file);
+        assert_eq!(
+            quillmark_typst::plate_file(&q).expect("the plate loads"),
+            file
+        );
         let session = TypstBackend::default()
             .open(&q, &serde_json::json!({}), common::test_date())
             .expect("the plate loads");
@@ -112,7 +131,11 @@ fn a_rooted_or_dot_dot_plate_file_misses_and_hints_the_spelling_from_the_root() 
             ("plate.typ", "hello\n"),
         ]);
         let codes: Vec<_> = diags.iter().map(|d| d.code.as_deref()).collect();
-        assert_eq!(codes, [Some("typst::plate_missing")], "{declared}: {diags:?}");
+        assert_eq!(
+            codes,
+            [Some("typst::plate_missing")],
+            "{declared}: {diags:?}"
+        );
         diags[0].hint.clone()
     };
 
@@ -120,7 +143,10 @@ fn a_rooted_or_dot_dot_plate_file_misses_and_hints_the_spelling_from_the_root() 
         let hint = hint_of(declared).expect("a hint");
         assert!(hint.contains("`plate.typ`"), "{declared}: {hint}");
     }
-    for (declared, spelling) in [("../plate.typ", "`plate.typ`"), ("/absent.typ", "`absent.typ`")] {
+    for (declared, spelling) in [
+        ("../plate.typ", "`plate.typ`"),
+        ("/absent.typ", "`absent.typ`"),
+    ] {
         let hint = hint_of(declared).expect("a hint");
         assert!(!hint.contains(spelling), "{declared}: {hint}");
     }
@@ -202,7 +228,10 @@ fn a_path_missed_below_the_quill_root_hints_the_rooted_file_the_root_holds() {
 
     let hint = hint_of(&[
         ("Quill.yaml", YAML),
-        ("tpl/layout.typ", "#import \"parts/header.typ\": accent\n#accent\n"),
+        (
+            "tpl/layout.typ",
+            "#import \"parts/header.typ\": accent\n#accent\n",
+        ),
         (
             "tpl/parts/header.typ",
             "#import \"shared/theme.typ\": accent\n",
@@ -271,24 +300,45 @@ fn a_package_file_is_located_under_its_spec() {
 fn every_helper_import_but_the_module_form_fails_at_open() {
     for (file, import) in [
         ("plate.typ", "#import \"@local/quillmark-helper:0.2.0\": *"),
-        ("plate.typ", "#import \"@local/quillmark-helper:0.2.0\": data, ink"),
+        (
+            "plate.typ",
+            "#import \"@local/quillmark-helper:0.2.0\": data, ink",
+        ),
         ("plate.typ", "#import \"@local/quillmark-helper:0.2.0\""),
-        ("plate.typ", "#import \"@local/quillmark-helper:0.2.0\" as qm: data"),
-        ("plate.typ", "#import \"@local/quillmark-helper:0.1.0\" as qm"),
+        (
+            "plate.typ",
+            "#import \"@local/quillmark-helper:0.2.0\" as qm: data",
+        ),
+        (
+            "plate.typ",
+            "#import \"@local/quillmark-helper:0.1.0\" as qm",
+        ),
         ("lib.typ", "#import \"@local/quillmark-helper:0.2.0\": data"),
     ] {
         let (plate, module) = if file == "plate.typ" {
             (format!("hello\n{import}\n"), "#let x = 1\n".to_string())
         } else {
-            ("#import \"lib.typ\"\nhello\n".to_string(), format!("{import}\n"))
+            (
+                "#import \"lib.typ\"\nhello\n".to_string(),
+                format!("{import}\n"),
+            )
         };
-        let diags = open_err(&[("Quill.yaml", YAML), ("plate.typ", &plate), ("lib.typ", &module)]);
+        let diags = open_err(&[
+            ("Quill.yaml", YAML),
+            ("plate.typ", &plate),
+            ("lib.typ", &module),
+        ]);
         let [diag] = &diags[..] else {
             panic!("{import}: one refusal: {diags:?}");
         };
-        assert_eq!(diag.code.as_deref(), Some("typst::helper_import"), "{import}");
+        assert_eq!(
+            diag.code.as_deref(),
+            Some("typst::helper_import"),
+            "{import}"
+        );
         assert!(
-            diag.message.contains("#import \"@local/quillmark-helper:0.2.0\" as qm"),
+            diag.message
+                .contains("#import \"@local/quillmark-helper:0.2.0\" as qm"),
             "{import}: {}",
             diag.message
         );
@@ -300,7 +350,10 @@ fn every_helper_import_but_the_module_form_fails_at_open() {
     let session = TypstBackend::default().open(
         &tree_quill(&[
             ("Quill.yaml", YAML),
-            ("plate.typ", "#import \"@local/quillmark-helper:0.2.0\" as helper\n#helper.data\n"),
+            (
+                "plate.typ",
+                "#import \"@local/quillmark-helper:0.2.0\" as helper\n#helper.data\n",
+            ),
         ]),
         &serde_json::json!({}),
         common::test_date(),
@@ -309,7 +362,11 @@ fn every_helper_import_but_the_module_form_fails_at_open() {
 }
 
 fn open_err(files: &[(&str, &str)]) -> Vec<quillmark_core::error::Diagnostic> {
-    match TypstBackend::default().open(&tree_quill(files), &serde_json::json!({}), common::test_date()) {
+    match TypstBackend::default().open(
+        &tree_quill(files),
+        &serde_json::json!({}),
+        common::test_date(),
+    ) {
         Ok(_) => panic!("the compile must fail"),
         Err(e) => e.into_diagnostics(),
     }

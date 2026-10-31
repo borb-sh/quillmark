@@ -20,10 +20,10 @@ use quillmark_content::import::ImportError;
 use quillmark_content::model::{Container, Content, MarkKind, Normalized};
 
 use super::meta::validate_composable_kind;
-use super::payload::{trim_comment_text, MetaKey, Payload, PayloadItem};
+use super::payload::{MetaKey, Payload, PayloadItem, trim_comment_text};
 use super::prescan::NestedComment;
-use crate::value::PathSegment;
 use super::{Card, Document};
+use crate::value::PathSegment;
 use crate::value::QuillValue;
 use crate::version::QuillReference;
 
@@ -305,10 +305,12 @@ fn spells_0_131_0(tree: &DocumentV0_131_0) -> bool {
 /// whole, not searched further.
 fn json_spells_0_131_0(value: &serde_json::Value) -> bool {
     match value {
-        serde_json::Value::Object(map) => match quillmark_content::serial::from_canonical_value(value) {
-            Ok(_) => content_spells_0_131_0(value),
-            Err(_) => map.values().any(json_spells_0_131_0),
-        },
+        serde_json::Value::Object(map) => {
+            match quillmark_content::serial::from_canonical_value(value) {
+                Ok(_) => content_spells_0_131_0(value),
+                Err(_) => map.values().any(json_spells_0_131_0),
+            }
+        }
         serde_json::Value::Array(items) => items.iter().any(json_spells_0_131_0),
         _ => false,
     }
@@ -322,7 +324,9 @@ fn content_spells_0_131_0(content: &serde_json::Value) -> bool {
     fn list<'a>(v: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
         v.get(key).and_then(Value::as_array).into_iter().flatten()
     }
-    let has_font = |v: &Value| list(v, "marks").any(|m| m.get("type").and_then(Value::as_str) == Some("font_family"));
+    let has_font = |v: &Value| {
+        list(v, "marks").any(|m| m.get("type").and_then(Value::as_str) == Some("font_family"))
+    };
     let island = |island: &Value| {
         let props = island.get("props").unwrap_or(&Value::Null);
         match island.get("type").and_then(Value::as_str) {
@@ -332,12 +336,16 @@ fn content_spells_0_131_0(content: &serde_json::Value) -> bool {
                     Some(0) => props.get("headless") != Some(&Value::Bool(true)),
                     Some(_) => true,
                 };
-                let mut cells = list(props, "header").chain(list(props, "rows").flat_map(|row| row.as_array().into_iter().flatten()));
+                let mut cells = list(props, "header").chain(
+                    list(props, "rows").flat_map(|row| row.as_array().into_iter().flatten()),
+                );
                 head || cells.any(|cell| {
                     has_font(cell)
-                        || quillmark_content::island::CELL_SPANS
-                            .iter()
-                            .any(|key| cell.get(*key).and_then(Value::as_u64).is_some_and(|n| n > 1))
+                        || quillmark_content::island::CELL_SPANS.iter().any(|key| {
+                            cell.get(*key)
+                                .and_then(Value::as_u64)
+                                .is_some_and(|n| n > 1)
+                        })
                 })
             }
             Some("footnote") => has_font(props),
@@ -485,7 +493,7 @@ impl TryFrom<DocumentV0_129_0> for Document {
                 return Err(StorageError::Malformed(format!(
                     "main card has $kind {other:?}, but `main` is reserved for \
                      the document root"
-                )))
+                )));
             }
         }
         let cards = payload
@@ -501,7 +509,9 @@ impl TryFrom<DocumentV0_129_0> for Document {
                     return Err(StorageError::Malformed(format!("invalid card id {id:?}")));
                 }
                 if !ids.insert(id) {
-                    return Err(StorageError::Malformed(format!("card id {id:?} is held by two cards")));
+                    return Err(StorageError::Malformed(format!(
+                        "card id {id:?} is held by two cards"
+                    )));
                 }
             }
             if card.quill().is_some() {
@@ -660,8 +670,7 @@ fn append_block(mut dst: Content, mut src: Content) -> Content {
     for line in &mut src.lines {
         if let Some(top) = line.containers.first_mut() {
             match top {
-                Container::ListItem { instance, .. }
-                | Container::Quote { instance } => {
+                Container::ListItem { instance, .. } | Container::Quote { instance } => {
                     *instance += lift;
                 }
             }
@@ -789,7 +798,10 @@ fn depth_check_meta_map(
     key: &str,
 ) -> Result<serde_json::Map<String, serde_json::Value>, StorageError> {
     crate::value::depth_check_meta_map(value, |max| {
-        StorageError::Malformed(format!("{key} nests deeper than the maximum of {} levels", max))
+        StorageError::Malformed(format!(
+            "{key} nests deeper than the maximum of {} levels",
+            max
+        ))
     })
 }
 
@@ -887,7 +899,10 @@ This body and the metadata above are an indorsement card.
         use quillmark_content::model::{Mark, MarkKind};
 
         let mut doc = sample();
-        let mut content = quillmark_content::import::from_markdown("underlined intro").unwrap().content.into_content();
+        let mut content = quillmark_content::import::from_markdown("underlined intro")
+            .unwrap()
+            .content
+            .into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
         let content = content.into_normalized();
         let json = quillmark_content::serial::to_canonical_value(&content);
@@ -902,10 +917,19 @@ This body and the metadata above are an indorsement card.
 
         let stored = serde_json::to_string(&doc).unwrap();
         let restored: Document = serde_json::from_str(&stored).unwrap();
-        assert_eq!(doc, restored, "content field must survive storage round-trip");
-        let read = restored.main().field_content("intro", Codec::Richtext).unwrap().unwrap();
+        assert_eq!(
+            doc, restored,
+            "content field must survive storage round-trip"
+        );
+        let read = restored
+            .main()
+            .field_content("intro", Codec::Richtext)
+            .unwrap()
+            .unwrap();
         assert!(
-            read.marks.iter().any(|m| matches!(m.kind, MarkKind::Underline)),
+            read.marks
+                .iter()
+                .any(|m| matches!(m.kind, MarkKind::Underline)),
             "underline (content-only) must survive the DTO carrier"
         );
     }
@@ -1027,16 +1051,24 @@ This body and the metadata above are an indorsement card.
         let doc: Document = serde_json::from_value(row.into()).unwrap();
         assert!(doc.main().body().lines[0].containers.is_empty());
         let rewritten = serde_json::to_string(&doc).unwrap();
-        assert_eq!(peek_storage_version(&rewritten).as_deref(), Some(STORAGE_V0_129_0));
+        assert_eq!(
+            peek_storage_version(&rewritten).as_deref(),
+            Some(STORAGE_V0_129_0)
+        );
     }
 
     #[test]
     fn a_task_survives_storage() {
-        let doc = Document::parse("~~~card-yaml\n$quill: q@1.0\n$kind: main\n~~~\n\n- [x] done\n- [ ] open\n")
-            .unwrap()
-            .document;
+        let doc = Document::parse(
+            "~~~card-yaml\n$quill: q@1.0\n$kind: main\n~~~\n\n- [x] done\n- [ ] open\n",
+        )
+        .unwrap()
+        .document;
         let stored = serde_json::to_string(&doc).unwrap();
-        assert_eq!(peek_storage_version(&stored).as_deref(), Some(STORAGE_V0_129_0));
+        assert_eq!(
+            peek_storage_version(&stored).as_deref(),
+            Some(STORAGE_V0_129_0)
+        );
         assert!(stored.contains(r#""checked":true"#), "{stored}");
         assert!(stored.contains(r#""checked":false"#), "{stored}");
         let back: Document = serde_json::from_str(&stored).unwrap();
@@ -1046,8 +1078,13 @@ This body and the metadata above are an indorsement card.
     #[test]
     fn rejects_unknown_schema_version() {
         let json = r#"{"schema":"quillmark/document@0.99.0","main":{}}"#;
-        let err = serde_json::from_str::<Document>(json).unwrap_err().to_string();
-        assert!(err.contains("unknown variant `quillmark/document@0.99.0`"), "{err}");
+        let err = serde_json::from_str::<Document>(json)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("unknown variant `quillmark/document@0.99.0`"),
+            "{err}"
+        );
     }
 
     /// The half no migration reaches: a `richtext` field rests as a content
@@ -1096,7 +1133,10 @@ This body and the metadata above are an indorsement card.
     fn peek_storage_version_reads_field_without_full_parse() {
         let doc = sample();
         let json = serde_json::to_string(&doc).unwrap();
-        assert_eq!(peek_storage_version(&json).as_deref(), Some(STORAGE_V0_134_0));
+        assert_eq!(
+            peek_storage_version(&json).as_deref(),
+            Some(STORAGE_V0_134_0)
+        );
 
         let future = r#"{"schema":"quillmark/document@0.99.0","main":{}}"#;
         assert_eq!(
@@ -1120,9 +1160,11 @@ title: Hi
         let json = serde_json::to_string(&doc).unwrap();
         let restored: Document = serde_json::from_str(&json).unwrap();
         assert_eq!(doc, restored);
-        assert!(restored
-            .to_markdown()
-            .contains("$kind: main # required for root"));
+        assert!(
+            restored
+                .to_markdown()
+                .contains("$kind: main # required for root")
+        );
     }
 
     /// A field's content is untagged, so no hop respells a stored `loss`, an
@@ -1147,8 +1189,10 @@ title: Hi
             )
         };
 
-        let content = quillmark_content::import::from_markdown("see ![a](u.png)\n\n| h |\n|---|\n| c |")
-            .expect("content").content;
+        let content =
+            quillmark_content::import::from_markdown("see ![a](u.png)\n\n| h |\n|---|\n| c |")
+                .expect("content")
+                .content;
         let canonical =
             serde_json::to_string(&quillmark_content::serial::to_canonical_value(&content))
                 .expect("canonical content serializes");
@@ -1166,8 +1210,8 @@ title: Hi
         assert!(retired.contains(r#""kind":"term""#), "{retired}");
         let current = serde_json::from_str::<Document>(&blob(&canonical))
             .expect("the current spelling loads");
-        let respelled = serde_json::from_str::<Document>(&blob(&retired))
-            .expect("the retired spelling loads");
+        let respelled =
+            serde_json::from_str::<Document>(&blob(&retired)).expect("the retired spelling loads");
         assert_eq!(respelled.to_markdown(), current.to_markdown());
     }
 
@@ -1178,7 +1222,9 @@ title: Hi
             "main": {"payload": {"items": [{"type": "kind", "value": "main"}]}, "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}},
             "cards": []
         }"#;
-        let err = serde_json::from_str::<Document>(json).unwrap_err().to_string();
+        let err = serde_json::from_str::<Document>(json)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("$quill"), "{err}");
     }
 
@@ -1197,7 +1243,9 @@ title: Hi
                 {"payload": {"items": [{"type": "kind", "value": "main"}]}, "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}}
             ]
         }"#;
-        let err = serde_json::from_str::<Document>(json).unwrap_err().to_string();
+        let err = serde_json::from_str::<Document>(json)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("reserved (root only)"), "{err}");
     }
 
@@ -1211,9 +1259,15 @@ title: Hi
         .unwrap()
         .document;
         let mut ext = serde_json::Map::new();
-        ext.insert("editor".into(), serde_json::json!({"title": "Secret draft name"}));
+        ext.insert(
+            "editor".into(),
+            serde_json::json!({"title": "Secret draft name"}),
+        );
         let kindless = Payload::from_items(vec![
-            PayloadItem::Meta { key: MetaKey::Ext, value: ext },
+            PayloadItem::Meta {
+                key: MetaKey::Ext,
+                value: ext,
+            },
             PayloadItem::comment("note"),
             PayloadItem::Field {
                 key: "name".to_string(),
@@ -1253,13 +1307,20 @@ title: Hi
             .map(|m| match &m.kind {
                 MarkKind::Anchor { id } => (
                     id.clone(),
-                    main.text.chars().skip(m.start).take(m.end - m.start).collect(),
+                    main.text
+                        .chars()
+                        .skip(m.start)
+                        .take(m.end - m.start)
+                        .collect(),
                 ),
                 other => panic!("{other:?}"),
             })
             .collect();
         let expected = [("c1", "Intro"), ("c2", "Conclusion")];
-        assert_eq!(anchors, expected.map(|(i, t)| (i.to_string(), t.to_string())));
+        assert_eq!(
+            anchors,
+            expected.map(|(i, t)| (i.to_string(), t.to_string()))
+        );
         assert_eq!(restored.cards()[0].body().marks.len(), 1);
     }
 
@@ -1277,10 +1338,7 @@ title: Hi
         };
         let isl = |n: u128| format!("isl-{n}");
         let max = u128::from(u64::MAX);
-        let folded = append_block(
-            body(&[&isl(max)]),
-            body(&[&isl(max), &isl(max + 1)]),
-        );
+        let folded = append_block(body(&[&isl(max)]), body(&[&isl(max), &isl(max + 1)]));
         let ids: Vec<&str> = folded.islands.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, [isl(max), isl(max + 2), isl(max + 1)]);
         folded.validate().unwrap();
@@ -1309,20 +1367,35 @@ title: Hi
                 Payload::from_items(items),
                 super::super::import_body(body_md).unwrap(),
             );
-            let json = serde_json::to_value(&Document { main, cards: vec![card] }).unwrap();
+            let json = serde_json::to_value(&Document {
+                main,
+                cards: vec![card],
+            })
+            .unwrap();
             let restored: Document = serde_json::from_value(json).unwrap_or_else(|e| panic!("{e}"));
             let again = Document::parse(&restored.to_markdown()).unwrap().document;
             assert_eq!(again, restored);
             restored.main().body().clone()
         };
 
-        let body = fold("Intro.", serde_json::json!({ "name": "a\u{202D}b\u{2028}c\u{FFFC}d" }), "");
-        assert_eq!(body.text, "Intro.\nname: \"ab\\Lcd\"", "admitted as a body import admits it");
+        let body = fold(
+            "Intro.",
+            serde_json::json!({ "name": "a\u{202D}b\u{2028}c\u{FFFC}d" }),
+            "",
+        );
+        assert_eq!(
+            body.text, "Intro.\nname: \"ab\\Lcd\"",
+            "admitted as a body import admits it"
+        );
 
         for (above, below) in [("> a", "> b"), ("1. a", "1. b"), ("- a", "- b")] {
             let body = fold(above, serde_json::json!({}), below);
             let top = |line: &quillmark_content::model::Line| line.containers.first().cloned();
-            assert_ne!(top(&body.lines[0]), top(body.lines.last().unwrap()), "{above:?}: {body:?}");
+            assert_ne!(
+                top(&body.lines[0]),
+                top(body.lines.last().unwrap()),
+                "{above:?}: {body:?}"
+            );
         }
     }
 
@@ -1339,7 +1412,9 @@ title: Hi
             },
             "cards": []
         }"#;
-        let err = serde_json::from_str::<Document>(json).unwrap_err().to_string();
+        let err = serde_json::from_str::<Document>(json)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("invalid quill reference"), "{err}");
     }
 
@@ -1361,8 +1436,13 @@ title: Hi
                 ]}, "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}}
             ]
         }"#;
-        let err = serde_json::from_str::<Document>(json).unwrap_err().to_string();
-        assert!(err.contains("composable cards must not carry a $seed entry"), "{err}");
+        let err = serde_json::from_str::<Document>(json)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("composable cards must not carry a $seed entry"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -1467,7 +1547,10 @@ title: Hi
             first, second,
             "V0_134_0 serialize→deserialize is a byte-fixed point"
         );
-        assert_eq!(peek_storage_version(&first).as_deref(), Some(STORAGE_V0_134_0));
+        assert_eq!(
+            peek_storage_version(&first).as_deref(),
+            Some(STORAGE_V0_134_0)
+        );
     }
 
     fn tag_of(doc: &Document) -> Option<String> {
@@ -1475,19 +1558,28 @@ title: Hi
     }
 
     fn body_tag(markdown: &str) -> Option<String> {
-        let doc = Document::parse(&format!("~~~card-yaml\n$quill: q@1.0\n$kind: main\n~~~\n\n{markdown}\n"))
-            .unwrap()
-            .document;
+        let doc = Document::parse(&format!(
+            "~~~card-yaml\n$quill: q@1.0\n$kind: main\n~~~\n\n{markdown}\n"
+        ))
+        .unwrap()
+        .document;
         tag_of(&doc)
     }
 
     fn with_item(item: serde_json::Value) -> Document {
         let mut row: serde_json::Value = serde_json::to_value(sample_main()).unwrap();
-        row["main"]["payload"]["items"].as_array_mut().unwrap().push(item);
+        row["main"]["payload"]["items"]
+            .as_array_mut()
+            .unwrap()
+            .push(item);
         serde_json::from_value(row).unwrap()
     }
 
-    fn content(text: &str, marks: serde_json::Value, islands: serde_json::Value) -> serde_json::Value {
+    fn content(
+        text: &str,
+        marks: serde_json::Value,
+        islands: serde_json::Value,
+    ) -> serde_json::Value {
         serde_json::json!({
             "islands": islands,
             "lines": [{"containers": [], "kind": "para"}],
@@ -1510,18 +1602,29 @@ title: Hi
         .unwrap()
         .document;
         let first = serde_json::to_string(&in_body).unwrap();
-        assert_eq!(peek_storage_version(&first).as_deref(), Some(STORAGE_V0_131_0));
+        assert_eq!(
+            peek_storage_version(&first).as_deref(),
+            Some(STORAGE_V0_131_0)
+        );
         let restored: Document = serde_json::from_str(&first).unwrap();
         assert_eq!(serde_json::to_string(&restored).unwrap(), first);
 
-        let field = |value| with_item(serde_json::json!({"type": "field", "key": "summary", "value": value}));
-        let in_field = field(content("a", serde_json::json!([font_mark()]), serde_json::json!([])));
+        let field = |value| {
+            with_item(serde_json::json!({"type": "field", "key": "summary", "value": value}))
+        };
+        let in_field = field(content(
+            "a",
+            serde_json::json!([font_mark()]),
+            serde_json::json!([]),
+        ));
         assert_eq!(tag_of(&in_field).as_deref(), Some(STORAGE_V0_131_0));
         assert_eq!(tag_of(&sample_main()).as_deref(), Some(STORAGE_V0_129_0));
 
         let cell = serde_json::json!({"marks": [font_mark()], "text": "c"});
         let table = serde_json::json!([{"id": "t", "type": "table", "props": {"header": [cell], "rows": [], "aligns": ["none"]}}]);
-        let in_field_cell = field(serde_json::json!({"nested": [content("\u{FFFC}", serde_json::json!([]), table)]}));
+        let in_field_cell = field(
+            serde_json::json!({"nested": [content("\u{FFFC}", serde_json::json!([]), table)]}),
+        );
         assert_eq!(tag_of(&in_field_cell).as_deref(), Some(STORAGE_V0_131_0));
 
         assert_eq!(
@@ -1539,7 +1642,10 @@ title: Hi
     #[test]
     fn a_span_takes_the_newest_tag() {
         for (markdown, tag) in [
-            ("<table><tr><th colspan=\"2\">h</th></tr><tr><td>a</td><td>b</td></tr></table>", STORAGE_V0_131_0),
+            (
+                "<table><tr><th colspan=\"2\">h</th></tr><tr><td>a</td><td>b</td></tr></table>",
+                STORAGE_V0_131_0,
+            ),
             (
                 "<table><tr><th>h</th><th>i</th></tr><tr><td rowspan=\"2\">a</td><td>b</td></tr><tr><td>c</td></tr></table>",
                 STORAGE_V0_131_0,
@@ -1556,19 +1662,37 @@ title: Hi
     #[test]
     fn a_table_head_0_130_cannot_draw_takes_the_newest_tag() {
         let table = |props: serde_json::Value| {
-            content("\u{FFFC}", serde_json::json!([]), serde_json::json!([{"id": "t", "type": "table", "props": props}]))
+            content(
+                "\u{FFFC}",
+                serde_json::json!([]),
+                serde_json::json!([{"id": "t", "type": "table", "props": props}]),
+            )
         };
         let props = |extra: serde_json::Value| {
             let mut p = serde_json::json!({"header": [{"marks": [], "text": "h"}], "rows": [[{"marks": [], "text": "a"}], [{"marks": [], "text": "b"}]], "aligns": ["none"]});
-            p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            p.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
             p
         };
-        assert!(content_spells_0_131_0(&table(props(serde_json::json!({"head": 0})))));
-        assert!(content_spells_0_131_0(&table(props(serde_json::json!({"head": 2})))));
-        assert!(!content_spells_0_131_0(&table(props(serde_json::json!({"head": 0, "headless": true})))));
-        assert!(!content_spells_0_131_0(&table(props(serde_json::json!({"head": 1})))));
-        assert!(!content_spells_0_131_0(&table(props(serde_json::json!({"headless": true})))));
-        assert!(!content_spells_0_131_0(&table(props(serde_json::json!({})))));
+        assert!(content_spells_0_131_0(&table(props(
+            serde_json::json!({"head": 0})
+        ))));
+        assert!(content_spells_0_131_0(&table(props(
+            serde_json::json!({"head": 2})
+        ))));
+        assert!(!content_spells_0_131_0(&table(props(
+            serde_json::json!({"head": 0, "headless": true})
+        ))));
+        assert!(!content_spells_0_131_0(&table(props(
+            serde_json::json!({"head": 1})
+        ))));
+        assert!(!content_spells_0_131_0(&table(props(
+            serde_json::json!({"headless": true})
+        ))));
+        assert!(!content_spells_0_131_0(&table(props(
+            serde_json::json!({})
+        ))));
     }
 
     /// Opaque host data is never content: an `$ext` value, or a field or seed
@@ -1597,7 +1721,13 @@ title: Hi
         assert_eq!(tag_of(&in_ext).as_deref(), Some(STORAGE_V0_129_0));
 
         let seed = |value| with_item(serde_json::json!({"type": "seed", "value": {"note": value}}));
-        assert_eq!(tag_of(&seed(serde_json::json!({"marks": [{"type": "font_family"}]}))).as_deref(), Some(STORAGE_V0_129_0));
+        assert_eq!(
+            tag_of(&seed(
+                serde_json::json!({"marks": [{"type": "font_family"}]})
+            ))
+            .as_deref(),
+            Some(STORAGE_V0_129_0)
+        );
         assert_eq!(
             tag_of(&seed(serde_json::json!({"summary": content("a", serde_json::json!([font_mark()]), serde_json::json!([]))}))).as_deref(),
             Some(STORAGE_V0_131_0)
@@ -1613,10 +1743,12 @@ title: Hi
         let row: serde_json::Value = serde_json::to_value(&doc).unwrap();
         assert_eq!(row["schema"], STORAGE_V0_134_0);
         let id = doc.cards()[0].id().unwrap().to_string();
-        assert!(row["cards"][0]["payload"]["items"]
-            .as_array()
-            .unwrap()
-            .contains(&serde_json::json!({"type": "id", "value": id})));
+        assert!(
+            row["cards"][0]["payload"]["items"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!({"type": "id", "value": id}))
+        );
 
         let mut older = row.clone();
         older["schema"] = STORAGE_V0_129_0.into();
@@ -1632,7 +1764,9 @@ title: Hi
         let refuse = |edit: &dyn Fn(&mut serde_json::Value)| {
             let mut bad = row.clone();
             edit(&mut bad);
-            serde_json::from_value::<Document>(bad).unwrap_err().to_string()
+            serde_json::from_value::<Document>(bad)
+                .unwrap_err()
+                .to_string()
         };
         let set_id = |value: &str| {
             let value = value.to_string();
@@ -1645,18 +1779,22 @@ title: Hi
             }
         };
         assert!(refuse(&set_id("-x")).contains("invalid card id"));
-        assert!(refuse(&|row| {
-            let card = row["cards"][0].clone();
-            row["cards"].as_array_mut().unwrap().push(card);
-        })
-        .contains("held by two cards"));
-        assert!(refuse(&|row| {
-            row["main"]["payload"]["items"]
-                .as_array_mut()
-                .unwrap()
-                .push(serde_json::json!({"type": "id", "value": "m"}));
-        })
-        .contains("must not carry a $id"));
+        assert!(
+            refuse(&|row| {
+                let card = row["cards"][0].clone();
+                row["cards"].as_array_mut().unwrap().push(card);
+            })
+            .contains("held by two cards")
+        );
+        assert!(
+            refuse(&|row| {
+                row["main"]["payload"]["items"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"type": "id", "value": "m"}));
+            })
+            .contains("must not carry a $id")
+        );
     }
 
     /// The tag follows the content saved, not the tag read: a `0.131.0` row

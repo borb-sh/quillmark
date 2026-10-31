@@ -34,7 +34,7 @@ use quillmark_content::model::Normalized;
 use crate::document::edit::field_decode;
 use crate::document::{Card, Document, EditError};
 use crate::quill::{
-    resolve_document, CalendarDate, CardSchema, FieldSchema, FieldType, QuillConfig, Resolved,
+    CalendarDate, CardSchema, FieldSchema, FieldType, QuillConfig, Resolved, resolve_document,
 };
 use crate::value::{PathSegment, QuillValue};
 
@@ -208,7 +208,13 @@ fn read_field(
     let Some(value) = card.payload().get(name) else {
         return Ok(None);
     };
-    let projected = project_value(name, value.as_json(), schema, Leaves::Decode, &mut Vec::new())?;
+    let projected = project_value(
+        name,
+        value.as_json(),
+        schema,
+        Leaves::Decode,
+        &mut Vec::new(),
+    )?;
     Ok(Some(QuillValue::from_json(projected)))
 }
 
@@ -230,12 +236,19 @@ fn read_content(
     let leaf = schema_at(field, name, at)?;
     // The codec rides out of the dispatch: it is the declared type's, not the
     // stored shape's.
-    let codec = leaf.r#type.codec().ok_or_else(|| EditError::FieldNotContent {
-        field: name.to_string(),
-        at: at.to_vec(),
-        declared: leaf.r#type.as_str().to_string(),
-    })?;
-    let Some(value) = card.payload().get(name).and_then(|v| value_at(v.as_json(), at)) else {
+    let codec = leaf
+        .r#type
+        .codec()
+        .ok_or_else(|| EditError::FieldNotContent {
+            field: name.to_string(),
+            at: at.to_vec(),
+            declared: leaf.r#type.as_str().to_string(),
+        })?;
+    let Some(value) = card
+        .payload()
+        .get(name)
+        .and_then(|v| value_at(v.as_json(), at))
+    else {
         return Ok(None);
     };
     codec
@@ -309,16 +322,15 @@ pub(crate) fn project_value(
         }
         (FieldType::Matrix { .. }, serde_json::Value::Object(map)) => {
             project_map(name, map, leaves, at, |key| {
-                map.get(key).and_then(|stored| schema.matrix_member(key, stored))
+                map.get(key)
+                    .and_then(|stored| schema.matrix_member(key, stored))
             })
         }
         // Which world is live is a value-time fact, so the walk unions the
         // worlds: a cell of a dormant world projects at its own codec, as the
         // document carries it. The discriminant declares no cell and rides
         // verbatim.
-        (FieldType::Enum { .. }, serde_json::Value::Object(map))
-            if schema.is_variant_bearing() =>
-        {
+        (FieldType::Enum { .. }, serde_json::Value::Object(map)) if schema.is_variant_bearing() => {
             project_map(name, map, leaves, at, |key| schema.variant_field(key))
         }
         _ => Ok(value.clone()),
@@ -374,7 +386,9 @@ fn schema_at<'a>(
             at: at[..=depth].to_vec(),
         };
         cursor = match (&cursor.r#type, seg) {
-            (FieldType::Array, PathSegment::Index(_)) => cursor.items.as_deref().ok_or_else(blocked)?,
+            (FieldType::Array, PathSegment::Index(_)) => {
+                cursor.items.as_deref().ok_or_else(blocked)?
+            }
             (FieldType::Object, PathSegment::Key(key)) => match cursor.namespace_props() {
                 None => return Err(blocked()),
                 Some(props) => props.get(key).map(Box::as_ref).ok_or_else(unknown)?,
@@ -413,8 +427,8 @@ fn value_at<'a>(value: &'a serde_json::Value, at: &[PathSegment]) -> Option<&'a 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::edit::CODEC_RICHTEXT;
     use crate::document::Document;
+    use crate::document::edit::CODEC_RICHTEXT;
     use crate::version::QuillReference;
     use std::str::FromStr;
 
@@ -514,7 +528,8 @@ card_kinds:
             let mut w = crate::writer::TypedWriter::new(config, &mut doc);
             w.set("subject", "Hello **world**").unwrap();
             w.set("qty", "3").unwrap();
-            w.add_card("note", [("prose", "a *card*")], None, None).unwrap();
+            w.add_card("note", [("prose", "a *card*")], None, None)
+                .unwrap();
         }
         doc
     }
@@ -618,7 +633,10 @@ card_kinds:
             )
             .unwrap();
         let view = TypedReader::new(&config, &doc);
-        assert_eq!(view.get("note").unwrap(), json(serde_json::json!("a *literal* line")));
+        assert_eq!(
+            view.get("note").unwrap(),
+            json(serde_json::json!("a *literal* line"))
+        );
     }
 
     #[test]
@@ -654,12 +672,20 @@ card_kinds:
         let text = serde_json::json!("a *literal* line");
         {
             let mut card = doc.main_mut();
-            card.store_field("subject", QuillValue::from_json(text.clone())).unwrap();
-            card.store_field("note", QuillValue::from_json(text)).unwrap();
+            card.store_field("subject", QuillValue::from_json(text.clone()))
+                .unwrap();
+            card.store_field("note", QuillValue::from_json(text))
+                .unwrap();
         }
         let view = TypedReader::new(&config, &doc);
-        assert_eq!(view.get_content("subject").unwrap().unwrap().text, "a literal line");
-        assert_eq!(view.get_content("note").unwrap().unwrap().text, "a *literal* line");
+        assert_eq!(
+            view.get_content("subject").unwrap().unwrap().text,
+            "a literal line"
+        );
+        assert_eq!(
+            view.get_content("note").unwrap().unwrap().text,
+            "a *literal* line"
+        );
     }
 
     #[test]
@@ -708,8 +734,10 @@ card_kinds:
         let mut committed = blank_doc();
         {
             let mut w = crate::writer::TypedWriter::new(&config, &mut committed);
-            w.set("recipients", serde_json::json!(["a *literal* line"])).unwrap();
-            w.set("paragraphs", serde_json::json!(["Hello **world**"])).unwrap();
+            w.set("recipients", serde_json::json!(["a *literal* line"]))
+                .unwrap();
+            w.set("paragraphs", serde_json::json!(["Hello **world**"]))
+                .unwrap();
         }
 
         for (field, text) in [
@@ -748,7 +776,10 @@ card_kinds:
         }
         let view = TypedReader::new(&config, &doc);
         assert_eq!(
-            view.get_content_at("letterhead", &key("motto")).unwrap().unwrap().text,
+            view.get_content_at("letterhead", &key("motto"))
+                .unwrap()
+                .unwrap()
+                .text,
             "Fly fight"
         );
         assert_eq!(
@@ -794,18 +825,27 @@ card_kinds:
         let doc = cui_doc();
         let view = TypedReader::new(&config, &doc);
         assert_eq!(
-            view.get_content_at("classification", &key("controlled_by")).unwrap().unwrap().text,
+            view.get_content_at("classification", &key("controlled_by"))
+                .unwrap()
+                .unwrap()
+                .text,
             "a *literal* line",
             "a text cell decodes literally, as a card-level one does"
         );
         assert_eq!(
-            view.get_content_at("classification", &key("banner")).unwrap().unwrap().text,
+            view.get_content_at("classification", &key("banner"))
+                .unwrap()
+                .unwrap()
+                .text,
             "Hello world"
         );
         assert_eq!(
             view.get_content_at(
                 "classification",
-                &[PathSegment::Key("nest".into()), PathSegment::Key("deep".into())]
+                &[
+                    PathSegment::Key("nest".into()),
+                    PathSegment::Key("deep".into())
+                ]
             )
             .unwrap()
             .unwrap()
@@ -895,12 +935,18 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         doc.main_mut()
-            .store_field("recipients", QuillValue::from_json(serde_json::json!(["a"])))
+            .store_field(
+                "recipients",
+                QuillValue::from_json(serde_json::json!(["a"])),
+            )
             .unwrap();
         let view = TypedReader::new(&config, &doc);
         assert_eq!(view.get_content_at("recipients", &idx(7)).unwrap(), None);
         assert_eq!(view.get_content_at("paragraphs", &idx(0)).unwrap(), None);
-        assert_eq!(view.get_content_at("letterhead", &key("motto")).unwrap(), None);
+        assert_eq!(
+            view.get_content_at("letterhead", &key("motto")).unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -943,15 +989,22 @@ card_kinds:
             "{err:?}"
         );
         assert_eq!(
-            err.doc_path(&crate::path::DocPath::main()).unwrap().to_string(),
+            err.doc_path(&crate::path::DocPath::main())
+                .unwrap()
+                .to_string(),
             "main.letterhead.nope"
         );
 
         let deep = view
-            .get_content_at("rows", &[PathSegment::Index(0), PathSegment::Key("nope".into())])
+            .get_content_at(
+                "rows",
+                &[PathSegment::Index(0), PathSegment::Key("nope".into())],
+            )
             .unwrap_err();
         assert_eq!(
-            deep.doc_path(&crate::path::DocPath::main()).unwrap().to_string(),
+            deep.doc_path(&crate::path::DocPath::main())
+                .unwrap()
+                .to_string(),
             "main.rows[0].nope"
         );
     }
@@ -993,10 +1046,21 @@ card_kinds:
             .unwrap();
         let view = TypedReader::new(&config, &doc);
         assert_eq!(
-            view.card(0).unwrap().get_content_at("lines", &idx(0)).unwrap().unwrap().text,
+            view.card(0)
+                .unwrap()
+                .get_content_at("lines", &idx(0))
+                .unwrap()
+                .unwrap()
+                .text,
             "a *b*"
         );
-        assert_eq!(view.card(0).unwrap().get_content_at("lines", &idx(4)).unwrap(), None);
+        assert_eq!(
+            view.card(0)
+                .unwrap()
+                .get_content_at("lines", &idx(4))
+                .unwrap(),
+            None
+        );
     }
 
     #[test]
@@ -1006,8 +1070,14 @@ card_kinds:
         let view = TypedReader::new(&config, &doc);
         let card = view.card(0).unwrap();
         assert_eq!(card.kind(), Some("note"));
-        assert_eq!(card.get("prose").unwrap(), json(serde_json::json!("a *card*")));
-        assert!(matches!(card.get("nope"), Err(EditError::UnknownField { .. })));
+        assert_eq!(
+            card.get("prose").unwrap(),
+            json(serde_json::json!("a *card*"))
+        );
+        assert!(matches!(
+            card.get("nope"),
+            Err(EditError::UnknownField { .. })
+        ));
     }
 
     #[test]
@@ -1016,10 +1086,15 @@ card_kinds:
         let mut doc = blank_doc();
         {
             let mut w = crate::writer::TypedWriter::new(&config, &mut doc);
-            w.set("paragraphs", serde_json::json!(["Para **one**"])).unwrap();
-            w.set("recipients", serde_json::json!(["a *literal* line"])).unwrap();
-            w.set("letterhead", serde_json::json!({"motto": "Fly **fight**", "code": 9}))
+            w.set("paragraphs", serde_json::json!(["Para **one**"]))
                 .unwrap();
+            w.set("recipients", serde_json::json!(["a *literal* line"]))
+                .unwrap();
+            w.set(
+                "letterhead",
+                serde_json::json!({"motto": "Fly **fight**", "code": 9}),
+            )
+            .unwrap();
         }
         let view = TypedReader::new(&config, &doc);
         assert_eq!(
@@ -1061,9 +1136,13 @@ card_kinds:
                 QuillValue::from_json(serde_json::json!(["ok", 3])),
             )
             .unwrap();
-        let err = TypedReader::new(&config, &doc).get("paragraphs").unwrap_err();
+        let err = TypedReader::new(&config, &doc)
+            .get("paragraphs")
+            .unwrap_err();
         assert_eq!(
-            err.doc_path(&crate::path::DocPath::main()).unwrap().to_string(),
+            err.doc_path(&crate::path::DocPath::main())
+                .unwrap()
+                .to_string(),
             "main.paragraphs[1]",
             "the strict read anchors at the element, as get_content_at does"
         );
@@ -1079,5 +1158,4 @@ card_kinds:
             Err(EditError::IndexOutOfRange { index: 9, len: 0 })
         ));
     }
-
 }

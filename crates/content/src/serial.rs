@@ -18,8 +18,8 @@
 //! Storage, the render seam and the binding seam carry one canonical form.
 
 use crate::model::{
-    canonicalize_keys, is_font_family_name, Container, Island, Line, LineKind, Mark,
-    MarkKind, Content, Normalized, Usv,
+    Container, Content, Island, Line, LineKind, Mark, MarkKind, Normalized, Usv, canonicalize_keys,
+    is_font_family_name,
 };
 use serde_json::{Map, Value};
 use std::borrow::Cow;
@@ -37,10 +37,7 @@ pub enum ParseError {
     /// A discriminator outside its vocabulary. `axis` names the wire field
     /// (`line kind`, `container`, `mark type`, `island type`),
     /// `name` the value it carried.
-    UnknownName {
-        axis: &'static str,
-        name: String,
-    },
+    UnknownName { axis: &'static str, name: String },
 }
 
 impl std::fmt::Display for ParseError {
@@ -167,8 +164,12 @@ pub fn from_canonical_value(v: &Value) -> Result<Normalized, ParseError> {
 pub fn respell_retired(v: &Value) -> Value {
     let retired = arr_or_empty(v, "lines").iter().any(|line| {
         line.get("kind").and_then(Value::as_str) == Some("term")
-            || arr_or_empty(line, "containers")
-                .iter().any(|c| matches!(c.get("container").and_then(Value::as_str), Some("description" | "element")))
+            || arr_or_empty(line, "containers").iter().any(|c| {
+                matches!(
+                    c.get("container").and_then(Value::as_str),
+                    Some("description" | "element")
+                )
+            })
     });
     if retired && let Ok(decoded) = from_canonical_value(v) {
         return to_canonical_value(&decoded);
@@ -177,7 +178,8 @@ pub fn respell_retired(v: &Value) -> Value {
     if let Some(islands) = v.get_mut("islands").and_then(Value::as_array_mut) {
         for island in islands.iter_mut().filter_map(Value::as_object_mut) {
             island.shift_remove("loss");
-            if island.get("type").and_then(Value::as_str) == Some(crate::island::IslandType::Table.as_str())
+            if island.get("type").and_then(Value::as_str)
+                == Some(crate::island::IslandType::Table.as_str())
                 && let Some(props) = island.get_mut("props")
             {
                 respell_table(props);
@@ -186,7 +188,10 @@ pub fn respell_retired(v: &Value) -> Value {
     }
     if let Some(lines) = v.get_mut("lines").and_then(Value::as_array_mut) {
         for line in lines.iter_mut().filter_map(Value::as_object_mut) {
-            if let Some(kind) = line.get_mut("kind").filter(|k| k.as_str() == Some("island")) {
+            if let Some(kind) = line
+                .get_mut("kind")
+                .filter(|k| k.as_str() == Some("island"))
+            {
                 *kind = Value::String("para".into());
             }
         }
@@ -433,7 +438,10 @@ fn line_from_value(v: &Value) -> Result<Line, ParseError> {
 /// One instance from a dropped run's identity and the instance beneath it,
 /// distinct from the instance alone so the run's edge survives the drop.
 fn fold_run(run: u64, instance: u64) -> u64 {
-    run.wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29) ^ instance
+    run.wrapping_add(1)
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .rotate_left(29)
+        ^ instance
 }
 
 /// Encode a [`Container`] into its canonical wire object. A zero `instance` is
@@ -560,7 +568,7 @@ pub fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
             return Err(ParseError::UnknownName {
                 axis: "mark type",
                 name: other.to_string(),
-            })
+            });
         }
     };
     Ok(Mark { start, end, kind })
@@ -614,7 +622,11 @@ pub(crate) fn container_from_authored_value(v: &Value) -> Result<Container, Pars
     reject_container_legacy(v)?;
     container_from_value(v)?.ok_or_else(|| ParseError::UnknownName {
         axis: "container",
-        name: v.get("container").and_then(Value::as_str).unwrap_or_default().to_string(),
+        name: v
+            .get("container")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
     })
 }
 
@@ -723,7 +735,10 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
         for c in arr_or_empty(line, "containers") {
             reject_container_legacy(c)?;
             if container_from_value(c)?.is_none() {
-                let name = c.get("container").and_then(Value::as_str).unwrap_or_default();
+                let name = c
+                    .get("container")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 return Err(ParseError::UnknownName {
                     axis: "container",
                     name: name.to_string(),
@@ -742,7 +757,10 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
     // through `IslandType`, so a new mark-carrying type is a compile error
     // here rather than a silent skip.
     for island in arr_or_empty(v, "islands") {
-        let ty = island.get("type").and_then(Value::as_str).unwrap_or_default();
+        let ty = island
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         match crate::island::IslandType::parse(ty) {
             Some(crate::island::IslandType::Table) => {
                 let Some(props) = island.get("props") else {
@@ -756,7 +774,9 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
             }
             Some(crate::island::IslandType::Footnote) => {
                 if let Some(props) = island.get("props") {
-                    arr_or_empty(props, "marks").iter().try_for_each(reject_unreadable_mark)?;
+                    arr_or_empty(props, "marks")
+                        .iter()
+                        .try_for_each(reject_unreadable_mark)?;
                 }
             }
             // No cells; the one prop the projection writes is the url.
@@ -959,11 +979,21 @@ pub(crate) fn normalize_table_props(props: &mut Value) {
 /// reader cannot read, and is absent beside any other `head`; a stored
 /// `headless: true` settles to `head: 0` where `head` holds no whole number. A
 /// value outside its set stays as written.
-fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Option<u64>>>, cols: usize) {
+fn normalize_table_layout(
+    obj: &mut Map<String, Value>,
+    widths: Option<Vec<Option<u64>>>,
+    cols: usize,
+) {
     if let Some(mut widths) = widths {
         widths.resize(cols, None);
         match widths.iter().any(Option::is_some) {
-            true => obj.insert("widths".into(), widths.into_iter().map(|w| w.map_or(Value::Null, Value::from)).collect()),
+            true => obj.insert(
+                "widths".into(),
+                widths
+                    .into_iter()
+                    .map(|w| w.map_or(Value::Null, Value::from))
+                    .collect(),
+            ),
             false => obj.remove("widths"),
         };
     }
@@ -971,8 +1001,14 @@ fn normalize_table_layout(obj: &mut Map<String, Value>, widths: Option<Vec<Optio
     if headless == Some(true) && obj.get("head").and_then(Value::as_u64).is_none() {
         obj.insert("head".into(), 0.into());
     }
-    let rows = 1 + obj.get("rows").and_then(Value::as_array).map_or(0, Vec::len);
-    let head = obj.get("head").and_then(Value::as_u64).map(|head| usize::try_from(head).unwrap_or(usize::MAX).min(rows));
+    let rows = 1 + obj
+        .get("rows")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let head = obj
+        .get("head")
+        .and_then(Value::as_u64)
+        .map(|head| usize::try_from(head).unwrap_or(usize::MAX).min(rows));
     match head {
         Some(1) => obj.remove("head"),
         Some(head) => obj.insert("head".into(), head.into()),
@@ -995,10 +1031,16 @@ fn normalize_table_spans(props: &mut Value) {
     let settle = |row: &mut Value, spans: &[Option<(usize, usize)>]| {
         let cells = row.as_array_mut().into_iter().flatten().zip(spans);
         for (cell, span) in cells {
-            let Some(cell) = cell.as_object_mut() else { continue };
+            let Some(cell) = cell.as_object_mut() else {
+                continue;
+            };
             let settled = span.map_or([None, None], |(w, h)| [Some(w), Some(h)]);
             for (key, n) in CELL_SPANS.into_iter().zip(settled) {
-                if !cell.get(key).and_then(Value::as_u64).is_some_and(|n| n >= 1) {
+                if !cell
+                    .get(key)
+                    .and_then(Value::as_u64)
+                    .is_some_and(|n| n >= 1)
+                {
                     continue;
                 }
                 match n {
@@ -1044,7 +1086,10 @@ fn table_cols(props: &Value) -> usize {
 /// The slots a table's grid holds once padded: its rows, the header among
 /// them, by its [column count](table_cols).
 pub(crate) fn table_slots(props: &Value) -> usize {
-    let rows = props.get("rows").and_then(Value::as_array).map_or(0, Vec::len);
+    let rows = props
+        .get("rows")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
     rows.saturating_add(1).saturating_mul(table_cols(props))
 }
 
@@ -1109,9 +1154,10 @@ pub(crate) fn normalize_note_props(props: &mut Value) {
         .map(|m| Mark::new(clip(m.start), clip(m.end), m.kind))
         .collect();
     let text: String = chars[lead..end].iter().collect();
-    if let (Some(o), Value::Object(fields)) =
-        (props.as_object_mut(), cell_to_value(&text, &crate::model::normalize_marks(marks)))
-    {
+    if let (Some(o), Value::Object(fields)) = (
+        props.as_object_mut(),
+        cell_to_value(&text, &crate::model::normalize_marks(marks)),
+    ) {
         o.extend(fields);
     }
 }
@@ -1152,7 +1198,13 @@ pub fn settle_tex(tex: &str) -> String {
     }
     let spaced: String = uncommented
         .chars()
-        .map(|c| if c.is_control() || crate::normalize::is_line_separator(c) { ' ' } else { c })
+        .map(|c| {
+            if c.is_control() || crate::normalize::is_line_separator(c) {
+                ' '
+            } else {
+                c
+            }
+        })
         .filter(|&c| c != crate::model::ISLAND_SLOT)
         .collect();
     spaced.trim().to_string()
@@ -1162,7 +1214,10 @@ pub(crate) fn island_to_value(island: &Island) -> Value {
     let mut m = Map::new();
     m.insert("id".into(), Value::String(island.id.clone()));
     m.insert("props".into(), island.props.clone());
-    m.insert("type".into(), Value::String(island.island_type.as_str().into()));
+    m.insert(
+        "type".into(),
+        Value::String(island.island_type.as_str().into()),
+    );
     Value::Object(m)
 }
 
@@ -1377,9 +1432,7 @@ mod tests {
     #[test]
     fn a_table_past_its_cell_bound_is_refused() {
         let cell = serde_json::json!({"text": "", "marks": []});
-        let props = |rows: usize| {
-            serde_json::json!({"header": vec![cell.clone(); 1000], "rows": vec![[cell.clone()]; rows], "aligns": []})
-        };
+        let props = |rows: usize| serde_json::json!({"header": vec![cell.clone(); 1000], "rows": vec![[cell.clone()]; rows], "aligns": []});
         let content = |props| {
             serde_json::json!({"text": "\u{FFFC}", "lines": [{"kind": "para", "containers": []}], "marks": [],
               "islands": [{"id": "isl-0", "type": "table", "props": props}]})
@@ -1527,16 +1580,20 @@ mod tests {
         let mut rt = Content::empty();
         rt.text = "\u{FFFC}".into();
         rt.lines = vec![Line::new(LineKind::Para)];
-        rt.islands = vec![Island::new("i1".into(), IslandType::Table).with_props(
-            serde_json::json!({
-                "header": [{"text": "h", "marks": [{"start": 0, "end": 1, "type": "emph"}]}],
-                "rows": [[{"text": "r", "marks": []}]],
-                "aligns": ["none"],
-            }),
-        )];
+        rt.islands =
+            vec![
+                Island::new("i1".into(), IslandType::Table).with_props(serde_json::json!({
+                    "header": [{"text": "h", "marks": [{"start": 0, "end": 1, "type": "emph"}]}],
+                    "rows": [[{"text": "r", "marks": []}]],
+                    "aligns": ["none"],
+                })),
+            ];
         rt.normalize();
         assert_eq!(rt.validate(), Ok(()));
-        assert!(sorted(&rt.to_value()), "the root, or a bag the mint settled");
+        assert!(
+            sorted(&rt.to_value()),
+            "the root, or a bag the mint settled"
+        );
     }
 
     #[test]
@@ -1618,7 +1675,9 @@ mod tests {
     #[test]
     fn an_unknown_name_is_refused_on_every_axis_and_both_lanes() {
         let doc = |islands: &str, lines: &str, marks: &str, text: &str| {
-            format!(r#"{{"islands":[{islands}],"lines":[{lines}],"marks":[{marks}],"text":"{text}"}}"#)
+            format!(
+                r#"{{"islands":[{islands}],"lines":[{lines}],"marks":[{marks}],"text":"{text}"}}"#
+            )
         };
         let cases = [
             (
@@ -1725,10 +1784,7 @@ mod tests {
             "{\"islands\":[{\"id\":\"i\",\"props\":{},\"type\":7}],\"lines\":[{\"containers\":[],\"kind\":\"island\"}],\"marks\":[],\"text\":\"\u{fffc}\"}",
         ] {
             assert!(
-                matches!(
-                    Content::from_canonical_json(bad),
-                    Err(ParseError::Shape(_))
-                ),
+                matches!(Content::from_canonical_json(bad), Err(ParseError::Shape(_))),
                 "not a shape error: {bad}"
             );
         }
@@ -1778,10 +1834,12 @@ mod tests {
         // …and what storage does with the unreadable one: skips it, keeping the
         // document openable.
         let rt = Content::from_canonical_json(bad[4]).unwrap();
-        assert!(rt.islands[0].props["header"][0]["marks"]
-            .as_array()
-            .unwrap()
-            .is_empty());
+        assert!(
+            rt.islands[0].props["header"][0]["marks"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// A foreign bag on a built-in is neither the legacy spelling nor a
@@ -1899,7 +1957,9 @@ mod tests {
             let v: Value = serde_json::from_str(json).unwrap();
             assert_eq!(from_authored_value(&v), Err(ParseError::Shape(refusal)));
             assert_eq!(
-                Content::from_canonical_json(json).unwrap().to_canonical_json(),
+                Content::from_canonical_json(json)
+                    .unwrap()
+                    .to_canonical_json(),
                 json
             );
         }
@@ -1919,7 +1979,8 @@ mod tests {
         let stored = Content::from_canonical_json(json).expect("storage lane accepts");
         assert_eq!(stored.validate(), Ok(()));
         assert_eq!(stored.to_canonical_json(), json);
-        let authored = from_authored_value(&serde_json::from_str(json).unwrap()).expect("authored lane accepts");
+        let authored = from_authored_value(&serde_json::from_str(json).unwrap())
+            .expect("authored lane accepts");
         assert_eq!(authored, stored);
     }
 
@@ -2067,7 +2128,11 @@ mod tests {
             "islands": [],
         });
         let loaded = from_canonical_value(&stored).unwrap();
-        let shape: Vec<_> = loaded.lines.iter().map(|l| (l.kind.clone(), l.containers.clone())).collect();
+        let shape: Vec<_> = loaded
+            .lines
+            .iter()
+            .map(|l| (l.kind.clone(), l.containers.clone()))
+            .collect();
         assert_eq!(
             shape,
             [
@@ -2079,11 +2144,17 @@ mod tests {
         let element = serde_json::json!({"container": "element", "attrs": {"$name": "keep"}});
         assert!(matches!(
             container_from_authored_value(&element),
-            Err(ParseError::UnknownName { axis: "container", .. })
+            Err(ParseError::UnknownName {
+                axis: "container",
+                ..
+            })
         ));
         assert!(matches!(
             from_authored_value(&stored),
-            Err(ParseError::UnknownName { axis: "container", .. })
+            Err(ParseError::UnknownName {
+                axis: "container",
+                ..
+            })
         ));
     }
 
@@ -2092,9 +2163,7 @@ mod tests {
     /// the stored value respells as what it loads to.
     #[test]
     fn a_dropped_container_still_parts_the_runs_below_it() {
-        let item = |ordinal: u64, checked: bool| {
-            serde_json::json!({"container": "list_item", "attrs": {"checked": checked, "ordered": false, "ordinal": ordinal, "start": 1}})
-        };
+        let item = |ordinal: u64, checked: bool| serde_json::json!({"container": "list_item", "attrs": {"checked": checked, "ordered": false, "ordinal": ordinal, "start": 1}});
         let keep = |instance: u64| serde_json::json!({"container": "element", "attrs": {"$name": "keep"}, "instance": instance});
         let stored = serde_json::json!({
             "text": "a\nb\nc",
@@ -2107,7 +2176,10 @@ mod tests {
             "islands": [],
         });
         let loaded = from_canonical_value(&stored).unwrap();
-        assert_eq!(crate::export::to_markdown(&loaded), "- [x] a\n\n+ [x] b\n\n- [ ] c");
+        assert_eq!(
+            crate::export::to_markdown(&loaded),
+            "- [x] a\n\n+ [x] b\n\n- [ ] c"
+        );
         assert_eq!(respell_retired(&stored), to_canonical_value(&loaded));
     }
 
@@ -2116,11 +2188,19 @@ mod tests {
     /// shape error on both lanes.
     #[test]
     fn a_font_mark_decodes_only_a_family_it_can_hold() {
-        let content = |marks: &str| format!(r#"{{"islands":[],"lines":[{{"containers":[],"kind":"para"}}],"marks":[{marks}],"text":"abc"}}"#);
-        let flat = content(r#"{"attrs":{"name":"Carlito"},"end":1,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"},{"attrs":{"name":"Carlito"},"end":3,"start":2,"type":"font_family"}"#);
+        let content = |marks: &str| {
+            format!(
+                r#"{{"islands":[],"lines":[{{"containers":[],"kind":"para"}}],"marks":[{marks}],"text":"abc"}}"#
+            )
+        };
+        let flat = content(
+            r#"{"attrs":{"name":"Carlito"},"end":1,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"},{"attrs":{"name":"Carlito"},"end":3,"start":2,"type":"font_family"}"#,
+        );
         let rt = Content::from_canonical_json(&flat).expect("decodes");
         assert_eq!(rt.to_canonical_json(), flat);
-        let json = content(r#"{"attrs":{"name":"Carlito"},"end":3,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"}"#);
+        let json = content(
+            r#"{"attrs":{"name":"Carlito"},"end":3,"start":0,"type":"font_family"},{"attrs":{"name":"Arimo"},"end":2,"start":1,"type":"font_family"}"#,
+        );
         let rt = Content::from_canonical_json(&json).expect("decodes");
         assert_eq!(rt.to_canonical_json(), flat);
         for mark in [
@@ -2130,9 +2210,17 @@ mod tests {
         ] {
             let shape = "font_family name";
             let json = content(mark);
-            assert_eq!(Content::from_canonical_json(&json), Err(ParseError::Shape(shape)), "{mark}");
+            assert_eq!(
+                Content::from_canonical_json(&json),
+                Err(ParseError::Shape(shape)),
+                "{mark}"
+            );
             let value: Value = serde_json::from_str(&json).unwrap();
-            assert_eq!(from_authored_value(&value), Err(ParseError::Shape(shape)), "{mark}");
+            assert_eq!(
+                from_authored_value(&value),
+                Err(ParseError::Shape(shape)),
+                "{mark}"
+            );
         }
     }
 
@@ -2178,5 +2266,4 @@ mod tests {
             );
         }
     }
-
 }

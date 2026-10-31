@@ -82,18 +82,34 @@ fn the_example_document_commits_every_declared_example() {
     assert_eq!(field(main, "refs"), json!([{ "org": "ACME" }]));
     assert_eq!(field(main, "rows"), json!([{ "org": "Initech" }]));
     assert_eq!(field(main, "tags"), json!(["urgent"]));
-    assert_eq!(field(main, "quals"), json!({ "cc": { "detail": "Earned 2024" } }));
-    assert_eq!(field(main, "marking"), json!({ "value": "CUI", "poc": "J. Doe" }));
+    assert_eq!(
+        field(main, "quals"),
+        json!({ "cc": { "detail": "Earned 2024" } })
+    );
+    assert_eq!(
+        field(main, "marking"),
+        json!({ "value": "CUI", "poc": "J. Doe" })
+    );
     assert_eq!(
         quillmark_content::export::to_markdown(main.body()),
         "Filled-in *prose*."
     );
 
-    let [card] = doc.cards() else { panic!("one card per kind") };
+    let [card] = doc.cards() else {
+        panic!("one card per kind")
+    };
     assert_eq!(field(card, "title"), json!("First milestone"));
-    assert_eq!(field(card, "owner"), json!("OWNER"), "a seed no example names stays");
+    assert_eq!(
+        field(card, "owner"),
+        json!("OWNER"),
+        "a seed no example names stays"
+    );
 
-    assert!(quill.validate(&doc).is_empty(), "{:?}", quill.validate(&doc));
+    assert!(
+        quill.validate(&doc).is_empty(),
+        "{:?}",
+        quill.validate(&doc)
+    );
     let mut conformed = doc.clone();
     quill.conform(&mut conformed).expect("conforms");
     assert_eq!(conformed, doc, "the example is at rest");
@@ -114,7 +130,10 @@ fn a_variant_world_commits_under_the_member_that_opens_it() {
         .example_document()
         .map(|doc| field(doc.main(), "marking"))
     };
-    assert_eq!(world("      default: CUI\n"), Some(json!({ "poc": "J. Doe" })));
+    assert_eq!(
+        world("      default: CUI\n"),
+        Some(json!({ "poc": "J. Doe" }))
+    );
     assert_eq!(world(""), None);
 }
 
@@ -124,7 +143,10 @@ fn a_variant_world_commits_under_the_member_that_opens_it() {
 fn a_quill_declaring_no_example_has_no_example_document() {
     let quill = load(
         "main:\n  fields:\n    subject: { type: text, default: Hello }\n",
-        &[("example.md", b"~~~\n$quill: q\nsubject: Budget review\n~~~\n")],
+        &[(
+            "example.md",
+            b"~~~\n$quill: q\nsubject: Budget review\n~~~\n",
+        )],
     );
     assert!(quill.example_document().is_none());
 }
@@ -132,14 +154,26 @@ fn a_quill_declaring_no_example_has_no_example_document() {
 #[test]
 fn an_example_is_checked_at_load_as_a_default_is() {
     for (field_yaml, code) in [
-        ("    n: { type: integer, example: many }\n", "quill::example_type_mismatch"),
-        ("    e: { type: enum, values: [a, b], example: c }\n", "quill::example_not_in_enum"),
-        ("    d: { type: date, example: 2026-13-40 }\n", "quill::example_format_violation"),
+        (
+            "    n: { type: integer, example: many }\n",
+            "quill::example_type_mismatch",
+        ),
+        (
+            "    e: { type: enum, values: [a, b], example: c }\n",
+            "quill::example_not_in_enum",
+        ),
+        (
+            "    d: { type: date, example: 2026-13-40 }\n",
+            "quill::example_format_violation",
+        ),
         (
             "    a: { type: array, max: 1, items: { type: text }, example: [x, y] }\n",
             "quill::example_over_max",
         ),
-        ("    t: { type: text, max: 3, example: long }\n", "quill::example_over_length"),
+        (
+            "    t: { type: text, max: 3, example: long }\n",
+            "quill::example_over_length",
+        ),
         (
             "    o:\n      type: object\n      example: { x: y }\n      properties:\n        x: { type: text }\n",
             "quill::example_on_namespace",
@@ -157,12 +191,20 @@ fn an_example_is_checked_at_load_as_a_default_is() {
 #[test]
 fn a_body_example_and_description_are_checked_at_load() {
     for (body, code) in [
-        ("    enabled: false\n    example: Prose.\n", "quill::invalid_body"),
-        ("    enabled: false\n    description: Prose.\n", "quill::invalid_body"),
-        ("    example: \"<div>x</div>\"\n", "quill::richtext_example_import"),
+        (
+            "    enabled: false\n    example: Prose.\n",
+            "quill::invalid_body",
+        ),
+        (
+            "    enabled: false\n    description: Prose.\n",
+            "quill::invalid_body",
+        ),
+        (
+            "    example: \"<div>x</div>\"\n",
+            "quill::richtext_example_import",
+        ),
     ] {
-        let errors = config_with_sections(&format!("main:\n  body:\n{body}"))
-            .expect_err(body);
+        let errors = config_with_sections(&format!("main:\n  body:\n{body}")).expect_err(body);
         assert_eq!(codes(&errors), [code], "{body}");
     }
 }

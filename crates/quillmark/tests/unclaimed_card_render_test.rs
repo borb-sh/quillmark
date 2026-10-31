@@ -15,9 +15,7 @@ fn unclaimed_cards_render_and_warn() {
     let engine = Engine::new();
     let quill = quillmark::quill_from_path(quills_path("taro")).expect("taro loads");
     let seeded = quill.seed_document().to_markdown();
-    let markdown = format!(
-        "{seeded}\n~~~\n$kind: ghost\nnote: unknown\n~~~\n\nGhost body.\n"
-    );
+    let markdown = format!("{seeded}\n~~~\n$kind: ghost\nnote: unknown\n~~~\n\nGhost body.\n");
     let doc = Document::parse(&markdown)
         .unwrap_or_else(|e| panic!("document failed to parse: {e:?}\n---\n{markdown}"))
         .document;
@@ -41,7 +39,10 @@ fn unclaimed_cards_render_and_warn() {
         assert_eq!(d.severity, Severity::Warning, "{d:?}");
         d.path.clone()
     };
-    assert_eq!(at("validation::unknown_card"), Some(format!("cards[{ghost}]")));
+    assert_eq!(
+        at("validation::unknown_card"),
+        Some(format!("cards[{ghost}]"))
+    );
 
     let validation = |d: &Diagnostic| {
         d.code
@@ -49,7 +50,10 @@ fn unclaimed_cards_render_and_warn() {
             .is_some_and(|c| c.starts_with("validation::"))
     };
     assert!(
-        diags.iter().skip_while(|d| validation(d)).all(|d| !validation(d)),
+        diags
+            .iter()
+            .skip_while(|d| validation(d))
+            .all(|d| !validation(d)),
         "validate's warnings lead the compile's: {diags:?}"
     );
 }

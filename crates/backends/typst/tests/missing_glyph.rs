@@ -61,10 +61,16 @@ fn text_the_page_never_draws_warns_nothing() {
         "#set text(font: \"Roboto\")\n#link(\"https://例え.jp/パス\")[idn]\n",
     );
     let session = TypstBackend::default()
-        .open(&quill, &serde_json::json!({ "a": "中文" }), common::test_date())
+        .open(
+            &quill,
+            &serde_json::json!({ "a": "中文" }),
+            common::test_date(),
+        )
         .expect("the plate compiles");
-    assert!(session
-        .warnings()
-        .iter()
-        .all(|d| d.code.as_deref() != Some("typst::missing_glyph")));
+    assert!(
+        session
+            .warnings()
+            .iter()
+            .all(|d| d.code.as_deref() != Some("typst::missing_glyph"))
+    );
 }

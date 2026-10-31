@@ -45,7 +45,10 @@ fn read_commands_print_the_quill() {
         (&["schema", "--authoring"], "\"ice_cream\""),
     ] {
         let stdout = ok(&[args, &[quill.to_str().unwrap()]].concat());
-        assert!(stdout.contains(needle), "{args:?} omits {needle:?}: {stdout}");
+        assert!(
+            stdout.contains(needle),
+            "{args:?} omits {needle:?}: {stdout}"
+        );
     }
     ok(&["validate", quill.to_str().unwrap()]);
 }
@@ -165,8 +168,7 @@ card_kinds:
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.matches("cli::canonical_document_failed").count() == 1
-            && stderr.contains("empty"),
+        stderr.matches("cli::canonical_document_failed").count() == 1 && stderr.contains("empty"),
         "the empty document alone should fail: {stderr}"
     );
 
@@ -187,8 +189,11 @@ fn validate_fails_a_quill_whose_example_warns() {
     };
     let dir = quill_with_config(&config(""));
     std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
-    std::fs::write(dir.path().join("example.md"), "~~~\n$quill: w\ntitel: x\n~~~\n")
-        .expect("write example.md");
+    std::fs::write(
+        dir.path().join("example.md"),
+        "~~~\n$quill: w\ntitel: x\n~~~\n",
+    )
+    .expect("write example.md");
     let path = dir.path().to_str().unwrap();
     let verbose = |expected: &str| {
         let out = run(&["validate", path, "--no-render", "-v"]);
@@ -207,11 +212,22 @@ fn validate_fails_a_quill_whose_example_warns() {
     verbose("Example: derived");
     for args in [&["validate", path][..], &["validate", path, "--no-render"]] {
         let out = run(args);
-        assert_eq!(out.status.code(), Some(1), "{args:?} exited {:?}", out.status.code());
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{args:?} exited {:?}",
+            out.status.code()
+        );
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.contains("cli::example_not_clean"), "{args:?}: {stderr}");
+        assert!(
+            stderr.contains("cli::example_not_clean"),
+            "{args:?}: {stderr}"
+        );
         let declines = stderr.matches("backend::declined_construct").count();
-        assert_eq!(declines, 1, "{args:?} reports the image {declines} times: {stderr}");
+        assert_eq!(
+            declines, 1,
+            "{args:?} reports the image {declines} times: {stderr}"
+        );
     }
 }
 
@@ -230,7 +246,11 @@ fn validate_reports_a_load_warning_once() {
         let out = run(&["validate", dir.path().to_str().unwrap(), "-v"]);
         let text = String::from_utf8_lossy(&out.stdout).to_string()
             + &String::from_utf8_lossy(&out.stderr);
-        assert_eq!(text.matches("typst::package_manifest").count(), 1, "{plate:?}: {text}");
+        assert_eq!(
+            text.matches("typst::package_manifest").count(),
+            1,
+            "{plate:?}: {text}"
+        );
     }
 }
 
@@ -238,7 +258,10 @@ fn validate_reports_a_load_warning_once() {
 /// holding no plate at all included.
 #[test]
 fn validate_without_rendering_refuses_a_plate_a_render_refuses() {
-    for (typst, plate) in [("typst:\n  plate_file: tpl/../plate.typ\n", "plate.typ"), ("", "main.typ")] {
+    for (typst, plate) in [
+        ("typst:\n  plate_file: tpl/../plate.typ\n", "plate.typ"),
+        ("", "main.typ"),
+    ] {
         let dir = quill_with_config(&format!(
             "quill:\n  name: d\n  version: 0.1.0\n  backend: typst\n  description: d\n{typst}"
         ));
@@ -246,7 +269,10 @@ fn validate_without_rendering_refuses_a_plate_a_render_refuses() {
         let out = run(&["validate", dir.path().to_str().unwrap(), "--no-render"]);
         assert_eq!(out.status.code(), Some(1), "{typst:?}");
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.contains("typst::plate_missing"), "{typst:?}: {stderr}");
+        assert!(
+            stderr.contains("typst::plate_missing"),
+            "{typst:?}: {stderr}"
+        );
     }
 }
 
@@ -267,11 +293,18 @@ fn validate_without_rendering_refuses_a_form_spec_a_render_refuses() {
     };
     let spec = std::fs::read(form.join("Form.yaml")).expect("read Form.yaml");
 
-    ok(&["validate", quill(Some(("Form.yaml", &spec))).path().to_str().unwrap(), "--no-render"]);
+    ok(&[
+        "validate",
+        quill(Some(("Form.yaml", &spec))).path().to_str().unwrap(),
+        "--no-render",
+    ]);
     for (spec, code) in [
         (Some(("form.json", &spec[..])), "acroform::legacy_form_json"),
         (None, "acroform::missing_form_spec"),
-        (Some(("Form.yaml", &b"fields: [\n"[..])), "acroform::invalid_form_spec"),
+        (
+            Some(("Form.yaml", &b"fields: [\n"[..])),
+            "acroform::invalid_form_spec",
+        ),
     ] {
         let dir = quill(spec);
         let out = run(&["validate", dir.path().to_str().unwrap(), "--no-render"]);
@@ -315,15 +348,33 @@ fn pack_writes_a_bundle_every_command_reads() {
     ok(&["pack", taro().to_str().unwrap(), "-o", bundle]);
 
     let stdout = ok(&["schema", bundle]);
-    assert!(stdout.contains("ice_cream"), "schema omits ice_cream: {stdout}");
+    assert!(
+        stdout.contains("ice_cream"),
+        "schema omits ice_cream: {stdout}"
+    );
     ok(&["validate", bundle]);
 
     for args in [
-        vec!["workspace", bundle, "-o", dir.path().join("ws").to_str().unwrap()],
-        vec!["pack", taro().to_str().unwrap(), "-o", taro().join("x.quill").to_str().unwrap()],
+        vec![
+            "workspace",
+            bundle,
+            "-o",
+            dir.path().join("ws").to_str().unwrap(),
+        ],
+        vec![
+            "pack",
+            taro().to_str().unwrap(),
+            "-o",
+            taro().join("x.quill").to_str().unwrap(),
+        ],
     ] {
         let out = run(&args.iter().map(|a| &**a).collect::<Vec<_>>());
-        assert_eq!(out.status.code(), Some(1), "`quillmark {}` succeeded", args.join(" "));
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "`quillmark {}` succeeded",
+            args.join(" ")
+        );
     }
     assert!(!taro().join("x.quill").exists());
 }
@@ -335,7 +386,12 @@ fn render_writes_a_pdf_creating_parent_directories() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("nested").join("deeper").join("out.pdf");
 
-    let out = run(&["render", taro().to_str().unwrap(), "-o", path.to_str().unwrap()]);
+    let out = run(&[
+        "render",
+        taro().to_str().unwrap(),
+        "-o",
+        path.to_str().unwrap(),
+    ]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "render exited nonzero: {stderr}");
 
@@ -390,7 +446,15 @@ fn multi_page_svg_writes_one_file_per_page_and_refuses_stdout() {
     let quill = quill.to_str().unwrap();
 
     let out = dir.path().join("out.svg");
-    ok(&["render", quill, &doc, "-f", "svg", "-o", out.to_str().unwrap()]);
+    ok(&[
+        "render",
+        quill,
+        &doc,
+        "-f",
+        "svg",
+        "-o",
+        out.to_str().unwrap(),
+    ]);
     assert!(
         !out.exists(),
         "an unnumbered out.svg sits beside the numbered pages"
@@ -473,7 +537,11 @@ fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
 
     let out = run(&["check", quill, typo]);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code(), Some(0), "warnings alone failed check: {stderr}");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "warnings alone failed check: {stderr}"
+    );
     assert!(
         stderr.contains("validation::unknown_field"),
         "check omits the warning: {stderr}"
@@ -484,7 +552,11 @@ fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
 
     let out = run(&["check", quill, missing, binary, bad, typo]);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code(), Some(1), "a parse error passed check: {stderr}");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "a parse error passed check: {stderr}"
+    );
     assert!(
         stderr.contains("cli::unreadable_document")
             && stderr.contains("parse::")
@@ -511,7 +583,12 @@ fn check_regions_reports_reach_and_fails_only_on_a_failed_render() {
         .expect("the fixture declares examples")
         .to_markdown();
     std::fs::write(&example, markdown).expect("write the example");
-    let stdout = ok(&["check", "--regions", memo.to_str().unwrap(), example.to_str().unwrap()]);
+    let stdout = ok(&[
+        "check",
+        "--regions",
+        memo.to_str().unwrap(),
+        example.to_str().unwrap(),
+    ]);
     assert!(
         stdout.contains("unreachable  main.memo_style")
             && stdout.contains("coarse       main.signature_block[0] ← main.signature_block"),
@@ -600,7 +677,11 @@ card_kinds:
         dir.path().join("typo.pdf").to_str().unwrap(),
     ]);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code(), Some(1), "the plate did not fail: {stderr}");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "the plate did not fail: {stderr}"
+    );
     let warning = stderr.find("validation::unknown_card");
     let error = stderr.find("typst::");
     assert!(
@@ -621,7 +702,10 @@ fn a_usage_error_exits_two_with_stderr() {
         out.status,
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(!out.stderr.is_empty(), "usage error wrote nothing to stderr");
+    assert!(
+        !out.stderr.is_empty(),
+        "usage error wrote nothing to stderr"
+    );
 }
 
 /// The Typst `--version` names is the one a plate compiles against: a plate
@@ -712,7 +796,11 @@ fn the_output_extension_reconciles_with_the_format_flag() {
         "--output-data",
         &path("clash.json"),
     ]);
-    assert_eq!(out.status.code(), Some(1), "-f png -o clash.pdf was not refused");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "-f png -o clash.pdf was not refused"
+    );
     let written: Vec<_> = std::fs::read_dir(dir.path())
         .unwrap()
         .map(|e| e.unwrap().file_name())
@@ -827,12 +915,28 @@ main:
     ]);
     assert_eq!(data("pinned.json")["issued"], "2026-03-14");
 
-    ok(&["render", quill, "-o", &path("local.svg"), "--output-data", &path("local.json")]);
-    let local = data("local.json")["issued"].as_str().unwrap_or_default().to_owned();
-    assert!(local.parse::<quillmark::CalendarDate>().is_ok(), "{local:?} is not a date");
+    ok(&[
+        "render",
+        quill,
+        "-o",
+        &path("local.svg"),
+        "--output-data",
+        &path("local.json"),
+    ]);
+    let local = data("local.json")["issued"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        local.parse::<quillmark::CalendarDate>().is_ok(),
+        "{local:?} is not a date"
+    );
 
     ok(&["validate", quill]);
-    assert_eq!(run(&["render", quill, "--today", "today"]).status.code(), Some(2));
+    assert_eq!(
+        run(&["render", quill, "--today", "today"]).status.code(),
+        Some(2)
+    );
 }
 
 /// `workspace` writes the helper package where the printed `--package-path`
@@ -860,12 +964,15 @@ fn workspace_writes_the_helper_and_prints_the_typst_command() {
             .to_owned()
     };
     let current = command("2026-03-14");
-    assert!(out
-        .join("packages/local/quillmark-helper/0.2.0/lib.typ")
-        .is_file());
     assert!(
-        current.contains(&format!("--package-path {}", out.join("packages").display()))
-            && current.contains(&quill.join("plate.typ").display().to_string())
+        out.join("packages/local/quillmark-helper/0.2.0/lib.typ")
+            .is_file()
+    );
+    assert!(
+        current.contains(&format!(
+            "--package-path {}",
+            out.join("packages").display()
+        )) && current.contains(&quill.join("plate.typ").display().to_string())
             && current.contains("--creation-timestamp=1773489600 "),
         "{current}"
     );
@@ -948,7 +1055,12 @@ fn workspace_replaces_an_earlier_export_and_refuses_a_foreign_one() {
     let foreign = dir.path().join("home");
     std::fs::create_dir_all(foreign.join("fonts")).expect("mkdir");
     std::fs::write(foreign.join("fonts/mine.ttf"), b"x").expect("write font");
-    let refused = run(&["workspace", quill.to_str().unwrap(), "-o", foreign.to_str().unwrap()]);
+    let refused = run(&[
+        "workspace",
+        quill.to_str().unwrap(),
+        "-o",
+        foreign.to_str().unwrap(),
+    ]);
     assert_eq!(refused.status.code(), Some(1));
     assert!(foreign.join("fonts/mine.ttf").exists());
 }
@@ -958,9 +1070,17 @@ fn workspace_replaces_an_earlier_export_and_refuses_a_foreign_one() {
 fn workspace_quotes_a_path_with_a_space() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out = dir.path().join("my ws");
-    let stdout = ok(&["workspace", taro().to_str().unwrap(), "-o", out.to_str().unwrap()]);
+    let stdout = ok(&[
+        "workspace",
+        taro().to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+    ]);
     assert!(
-        stdout.contains(&format!("--package-path '{}'", out.join("packages").display())),
+        stdout.contains(&format!(
+            "--package-path '{}'",
+            out.join("packages").display()
+        )),
         "{stdout}"
     );
 }

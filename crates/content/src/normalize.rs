@@ -115,7 +115,9 @@ const REPAIR_ROUNDS: usize = 8;
 fn may_need_repair(s: &str) -> bool {
     s.lines().any(|line| {
         let rest = line.trim_start_matches(|c: char| {
-            c.is_ascii_whitespace() || c.is_ascii_digit() || matches!(c, '>' | '-' | '+' | '*' | '.' | ')')
+            c.is_ascii_whitespace()
+                || c.is_ascii_digit()
+                || matches!(c, '>' | '-' | '+' | '*' | '.' | ')')
         });
         rest.starts_with('<')
     })
@@ -144,7 +146,8 @@ fn plan<'a>(src: &str, events: impl Iterator<Item = (Event<'a>, Range<usize>)>) 
             }
             Event::End(TagEnd::HtmlBlock) => {
                 if let Some(starts) = block.take() {
-                    let lines: Vec<SrcLine> = starts.iter().map(|&at| SrcLine::at(src, at)).collect();
+                    let lines: Vec<SrcLine> =
+                        starts.iter().map(|&at| SrcLine::at(src, at)).collect();
                     edits.extend(comment_edit(src, &lines));
                     edits.extend(table_tail_edit(src, &lines));
                     if notes == 0 {
@@ -273,7 +276,11 @@ fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     if rest.is_empty() || runs_on {
         return None;
     }
-    let prefix = format!("{}{}", continuation_of(last.prefix), shallow_lead(last.content));
+    let prefix = format!(
+        "{}{}",
+        continuation_of(last.prefix),
+        shallow_lead(last.content)
+    );
     let mut lines = vec![
         format!("{}{}", last.prefix, &last.content[..at]),
         format!("{prefix}{rest}"),
@@ -283,7 +290,10 @@ fn comment_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
         lines.push(blank_of(last.prefix));
     }
     let with = lines.join("\n");
-    (with != src[start..end]).then_some(Edit { range: start..end, with })
+    (with != src[start..end]).then_some(Edit {
+        range: start..end,
+        with,
+    })
 }
 
 /// The edit setting what follows each table's `</table>` in its HTML block
@@ -296,7 +306,11 @@ fn table_tail_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     if !html_table::opens(first.content) {
         return None;
     }
-    let text = lines.iter().map(|l| l.content).collect::<Vec<_>>().join("\n");
+    let text = lines
+        .iter()
+        .map(|l| l.content)
+        .collect::<Vec<_>>()
+        .join("\n");
     let mut ends = html_table::tails(&text).into_iter().peekable();
     ends.peek()?;
     let runs_on = |piece: &str| match html::block_start(piece) {
@@ -323,7 +337,15 @@ fn table_tail_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
             out.push(format!("{lead}{}", head.trim()));
         } else {
             stopped |= apart;
-            out.push(format!("{}{}", line.prefix, if cuts.is_empty() { head } else { head.trim_end() }));
+            out.push(format!(
+                "{}{}",
+                line.prefix,
+                if cuts.is_empty() {
+                    head
+                } else {
+                    head.trim_end()
+                }
+            ));
         }
         apart = false;
         for (k, &cut) in cuts.iter().enumerate() {
@@ -369,22 +391,40 @@ fn shallow_lead(line: &str) -> &str {
 /// continue it lazily.
 fn carrier_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
     let (first, last) = (lines.first()?, lines.last()?);
-    if html::block_start(first.content) != Some(BlockKind::Open) || html_table::opens(first.content) {
+    if html::block_start(first.content) != Some(BlockKind::Open) || html_table::opens(first.content)
+    {
         return None;
     }
-    let carrier: Vec<bool> = lines.iter().map(|l| carrier::tag_line(l.content).is_some()).collect();
+    let carrier: Vec<bool> = lines
+        .iter()
+        .map(|l| carrier::tag_line(l.content).is_some())
+        .collect();
     let markdown: Vec<bool> = lines
         .iter()
-        .map(|l| html::tag_line(l.content).is_none_or(|tags| tags.iter().all(|t| html_table::is_tag(t.name))))
+        .map(|l| {
+            html::tag_line(l.content)
+                .is_none_or(|tags| tags.iter().all(|t| html_table::is_tag(t.name)))
+        })
         .collect();
-    let lead = |line: &SrcLine| format!("{}{}{}", line.prefix, shallow_lead(line.content), line.content.trim_start());
+    let lead = |line: &SrcLine| {
+        format!(
+            "{}{}{}",
+            line.prefix,
+            shallow_lead(line.content),
+            line.content.trim_start()
+        )
+    };
     let mut out = Vec::with_capacity(lines.len() + 3);
     let mut changed = false;
     let mut opens = false;
     let mut k = 0;
     while k < lines.len() {
         if !carrier[k] {
-            out.push(if std::mem::take(&mut opens) { lead(&lines[k]) } else { lines[k].whole() });
+            out.push(if std::mem::take(&mut opens) {
+                lead(&lines[k])
+            } else {
+                lines[k].whole()
+            });
             k += 1;
             continue;
         }
@@ -399,7 +439,11 @@ fn carrier_block_edit(src: &str, lines: &[SrcLine]) -> Option<Edit> {
             out.push(blank_of(lines[k].prefix));
         }
         for line in &lines[k..to] {
-            out.push(if above || below { lead(line) } else { line.whole() });
+            out.push(if above || below {
+                lead(line)
+            } else {
+                line.whole()
+            });
         }
         if below {
             out.push(blank_of(lines[to - 1].prefix));
@@ -546,10 +590,16 @@ mod tests {
     fn a_carrier_line_in_an_html_block_is_set_apart_from_its_markdown() {
         let cases = [
             ("<qm-keep>\nA\n</qm-keep>", "<qm-keep>\n\nA\n\n</qm-keep>"),
-            ("<qm-keep>\nA\n    </qm-keep>\nB", "<qm-keep>\n\nA\n\n</qm-keep>\n\nB"),
+            (
+                "<qm-keep>\nA\n    </qm-keep>\nB",
+                "<qm-keep>\n\nA\n\n</qm-keep>\n\nB",
+            ),
             ("> <qm-keep>\n> **B**", "> <qm-keep>\n>\n> **B**"),
             ("- <qm-keep>\n  A", "- <qm-keep>\n\n  A"),
-            ("<qm-keep>\n<qm-sig></qm-sig>\nA", "<qm-keep>\n<qm-sig></qm-sig>\n\nA"),
+            (
+                "<qm-keep>\n<qm-sig></qm-sig>\nA",
+                "<qm-keep>\n<qm-sig></qm-sig>\n\nA",
+            ),
             ("- <qm-keep>\n  A\nB", "- <qm-keep>\n\n  A\n\nB"),
             ("> <qm-keep>\n> A\nB", "> <qm-keep>\n>\n> A\n>\nB"),
             (
@@ -586,11 +636,26 @@ mod tests {
     #[test]
     fn what_follows_a_table_is_set_apart() {
         let cases = [
-            ("<table><tr><td>a</td></tr></table>\nProse.", "<table><tr><td>a</td></tr></table>\n\nProse."),
-            ("<table><tr><td>a</td></tr></table> Prose.", "<table><tr><td>a</td></tr></table>\n\nProse."),
-            ("> <table><tr><td>a</td></tr></table>\n> Prose.", "> <table><tr><td>a</td></tr></table>\n>\n> Prose."),
-            ("- <table><tr><td>a</td></tr></table> Prose.", "- <table><tr><td>a</td></tr></table>\n\n  Prose."),
-            ("<table><tr><td>`</table>` b</td></tr></table>", "<table><tr><td>`</table>\n\n` b</td></tr></table>"),
+            (
+                "<table><tr><td>a</td></tr></table>\nProse.",
+                "<table><tr><td>a</td></tr></table>\n\nProse.",
+            ),
+            (
+                "<table><tr><td>a</td></tr></table> Prose.",
+                "<table><tr><td>a</td></tr></table>\n\nProse.",
+            ),
+            (
+                "> <table><tr><td>a</td></tr></table>\n> Prose.",
+                "> <table><tr><td>a</td></tr></table>\n>\n> Prose.",
+            ),
+            (
+                "- <table><tr><td>a</td></tr></table> Prose.",
+                "- <table><tr><td>a</td></tr></table>\n\n  Prose.",
+            ),
+            (
+                "<table><tr><td>`</table>` b</td></tr></table>",
+                "<table><tr><td>`</table>\n\n` b</td></tr></table>",
+            ),
             (
                 "<table><tr><td>a</td></tr></table>\n<table><tr><td>b</td></tr></table>",
                 "<table><tr><td>a</td></tr></table>\n\n<table><tr><td>b</td></tr></table>",
@@ -621,7 +686,10 @@ mod tests {
     fn a_split_piece_keeps_its_lines_indent() {
         let cases = [
             ("- a\n\n  <!-- c -->b", "- a\n\n  <!-- c -->\n  b"),
-            ("- a\n\n  <!--\n  c\n  -->b", "- a\n\n  <!--\n  c\n  -->\n  b"),
+            (
+                "- a\n\n  <!--\n  c\n  -->b",
+                "- a\n\n  <!--\n  c\n  -->\n  b",
+            ),
         ];
         for (md, repaired) in cases {
             assert_eq!(normalized(md), repaired, "{md:?}");

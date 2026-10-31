@@ -310,12 +310,13 @@ pub fn doc_path_to_plate_addr(path: &DocPath, card_kinds: &[Option<&str>]) -> Op
     match path.segs() {
         [DocSeg::Main, DocSeg::Body] => Some("$body".to_string()),
         [DocSeg::Main, tail @ ..] if !tail.is_empty() => plate_tail(tail),
-        [DocSeg::Card {
-            kind: Some(kind),
-            index,
-        }, tail @ ..]
-            if !tail.is_empty() =>
-        {
+        [
+            DocSeg::Card {
+                kind: Some(kind),
+                index,
+            },
+            tail @ ..,
+        ] if !tail.is_empty() => {
             // The path must actually name the card that sits at `index`.
             if card_kinds.get(*index).copied().flatten() != Some(kind.as_str()) {
                 return None;
@@ -396,8 +397,12 @@ fn required_paths(config: &QuillConfig, data: &serde_json::Value, out: &mut Vec<
     required_in_card(&config.main, main, DocPath::main(), out);
     let cards = main.get("$cards").and_then(|c| c.as_array());
     for (index, card) in cards.into_iter().flatten().enumerate() {
-        let Some(card) = card.as_object() else { continue };
-        let Some(kind) = card.get("$kind").and_then(|k| k.as_str()) else { continue };
+        let Some(card) = card.as_object() else {
+            continue;
+        };
+        let Some(kind) = card.get("$kind").and_then(|k| k.as_str()) else {
+            continue;
+        };
         if let Some(schema) = config.card_kind(kind) {
             required_in_card(schema, card, DocPath::card(Some(kind), index), out);
         }
@@ -415,7 +420,10 @@ fn required_in_card(
             required_in_cell(field, value, &path.field(name), out);
         }
     }
-    if card.get("$body").is_some_and(|body| !content_is_blank(body)) {
+    if card
+        .get("$body")
+        .is_some_and(|body| !content_is_blank(body))
+    {
         out.push(path.body());
     }
 }
@@ -532,7 +540,11 @@ mod tests {
             (f32::INFINITY, f32::INFINITY),
             (f32::NEG_INFINITY, 15.0),
         ] {
-            assert_ne!(region.distance(0, x, y), Some(0.0), "({x}, {y}) reads as zero gap");
+            assert_ne!(
+                region.distance(0, x, y),
+                Some(0.0),
+                "({x}, {y}) reads as zero gap"
+            );
         }
         assert_eq!(region.distance(0, 15.0, 15.0), Some(0.0));
 
@@ -646,7 +658,11 @@ mod tests {
         ] {
             let doc = plate_addr_to_doc_path(plate, KINDS).unwrap();
             assert_eq!(doc.to_string(), path, "{plate}");
-            assert_eq!(path.parse::<DocPath>().ok(), Some(doc), "string leg {plate}");
+            assert_eq!(
+                path.parse::<DocPath>().ok(),
+                Some(doc),
+                "string leg {plate}"
+            );
             assert_eq!(to_plate(path).as_deref(), Some(plate), "round-trip {plate}");
         }
     }
@@ -746,7 +762,9 @@ card_kinds:
             &quillmark_content::model::Normalized::empty(),
         );
         let body = quillmark_content::serial::to_canonical_value(
-            &quillmark_content::import::from_markdown("A body.").expect("import").content,
+            &quillmark_content::import::from_markdown("A body.")
+                .expect("import")
+                .content,
         );
         let data = serde_json::json!({
             "name": "Ada",

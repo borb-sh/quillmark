@@ -42,7 +42,8 @@ fn code(err: &RenderError) -> Option<&str> {
 #[test]
 fn the_reference_is_checked_against_the_loaded_quill() {
     let temp_dir = TempDir::new().unwrap();
-    let quill = quillmark::quill_from_path(make_quill(&temp_dir, "2.1.0")).expect("from_path failed");
+    let quill =
+        quillmark::quill_from_path(make_quill(&temp_dir, "2.1.0")).expect("from_path failed");
     for (quill_ref, expected) in [
         ("test_quill@2.1.0", None),
         ("test_quill@2.1", None),
@@ -54,7 +55,11 @@ fn the_reference_is_checked_against_the_loaded_quill() {
         ("other_quill@3.0", Some("quill::name_mismatch")),
     ] {
         let got = quill.dry_run(&doc(quill_ref));
-        assert_eq!(got.as_ref().err().and_then(code), expected, "{quill_ref}: {got:?}");
+        assert_eq!(
+            got.as_ref().err().and_then(code),
+            expected,
+            "{quill_ref}: {got:?}"
+        );
     }
 }
 
@@ -75,7 +80,10 @@ fn a_created_document_pins_its_quills_series() {
         let patched = quill_at("1.2.1").dry_run(&doc);
         assert!(patched.is_ok(), "{patched:?}");
         let next_minor = quill_at("1.3.0").dry_run(&doc);
-        assert_eq!(next_minor.as_ref().err().and_then(code), Some("quill::version_mismatch"));
+        assert_eq!(
+            next_minor.as_ref().err().and_then(code),
+            Some("quill::version_mismatch")
+        );
     }
 }
 
@@ -85,11 +93,17 @@ fn a_created_document_pins_its_quills_series() {
 #[cfg(feature = "typst")]
 fn update_rechecks_the_reference_against_the_sessions_quill() {
     let temp_dir = TempDir::new().unwrap();
-    let quill = quillmark::quill_from_path(make_quill(&temp_dir, "3.0.0")).expect("from_path failed");
+    let quill =
+        quillmark::quill_from_path(make_quill(&temp_dir, "3.0.0")).expect("from_path failed");
 
     let engine = Engine::new();
     let err = engine
-        .render(&quill, &doc("other_quill@3.0"), common::test_date(), &RenderOptions::default())
+        .render(
+            &quill,
+            &doc("other_quill@3.0"),
+            common::test_date(),
+            &RenderOptions::default(),
+        )
         .expect_err("render must refuse another quill's document");
     assert_eq!(code(&err), Some("quill::name_mismatch"));
 

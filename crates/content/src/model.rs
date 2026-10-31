@@ -159,7 +159,12 @@ impl LineKind {
 /// [`Content::normalize`] canonicalizes an opaque bag, and a minted one is
 /// canonical by construction.
 fn bag<'a>(entries: impl IntoIterator<Item = (&'a str, JsonValue)>) -> JsonValue {
-    JsonValue::Object(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+    JsonValue::Object(
+        entries
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    )
 }
 
 /// Whether a payload bag holds nothing: the two spellings of "no payload" a
@@ -221,8 +226,7 @@ impl Container {
     /// `0, 1, 0, 1`. Non-adjacent runs never collide, so two values suffice.
     pub fn instance(&self) -> u64 {
         match self {
-            Container::ListItem { instance, .. }
-            | Container::Quote { instance } => *instance,
+            Container::ListItem { instance, .. } | Container::Quote { instance } => *instance,
         }
     }
 
@@ -244,19 +248,21 @@ impl Container {
                 ordinal,
                 checked,
                 ..
-            } => Cow::Owned(bag(checked.map(|c| ("checked", c.into())).into_iter().chain([
-                ("ordered", (*ordered).into()),
-                ("ordinal", (*ordinal).into()),
-                ("start", (*start).into()),
-            ]))),
+            } => Cow::Owned(bag(checked
+                .map(|c| ("checked", c.into()))
+                .into_iter()
+                .chain([
+                    ("ordered", (*ordered).into()),
+                    ("ordinal", (*ordinal).into()),
+                    ("start", (*start).into()),
+                ]))),
             Container::Quote { .. } => Cow::Owned(JsonValue::Null),
         }
     }
 
     pub(crate) fn set_instance(&mut self, n: u64) {
         match self {
-            Container::ListItem { instance, .. }
-            | Container::Quote { instance } => *instance = n,
+            Container::ListItem { instance, .. } | Container::Quote { instance } => *instance = n,
         }
     }
 
@@ -274,10 +280,14 @@ impl Container {
         match (self, other) {
             (
                 Container::ListItem {
-                    ordered: a, start: b, ..
+                    ordered: a,
+                    start: b,
+                    ..
                 },
                 Container::ListItem {
-                    ordered: c, start: d, ..
+                    ordered: c,
+                    start: d,
+                    ..
                 },
             ) => a == c && b == d,
             (Container::Quote { .. }, Container::Quote { .. }) => true,
@@ -606,7 +616,10 @@ pub(crate) fn check_json_depth(v: &JsonValue, what: &'static str) -> Result<(), 
 pub(crate) fn check_table_cells(props: &JsonValue) -> Result<(), Invariant> {
     let cells = crate::serial::table_slots(props);
     if cells > crate::MAX_TABLE_CELLS {
-        return Err(Invariant::TableTooLarge { cells, max: crate::MAX_TABLE_CELLS });
+        return Err(Invariant::TableTooLarge {
+            cells,
+            max: crate::MAX_TABLE_CELLS,
+        });
     }
     Ok(())
 }
@@ -731,7 +744,8 @@ pub(crate) fn line_kind_contradicts_text(kind: &LineKind, seg: &str) -> bool {
 /// side and nothing else between them. An empty range asks it of the position a
 /// splice would fill.
 pub(crate) fn is_whole_line(chars: &[char], start: Usv, end: Usv) -> bool {
-    (start == 0 || chars.get(start - 1) == Some(&'\n')) && matches!(chars.get(end), None | Some('\n'))
+    (start == 0 || chars.get(start - 1) == Some(&'\n'))
+        && matches!(chars.get(end), None | Some('\n'))
 }
 
 /// Every block-only island's slot that shares its line with other content, in
@@ -918,7 +932,10 @@ impl Content {
             .map(|seg| {
                 let slots = seg.chars().filter(|&c| c == ISLAND_SLOT).count();
                 let ends = seg.ends_with(ISLAND_SLOT)
-                    && self.islands.get(slot + slots - 1).is_some_and(|i| i.island_type.block_only());
+                    && self
+                        .islands
+                        .get(slot + slots - 1)
+                        .is_some_and(|i| i.island_type.block_only());
                 slot += slots;
                 ends
             })
@@ -970,7 +987,8 @@ impl Content {
         // Skip the full-text char collection when nothing needs splitting.
         if self.text.contains('\n') && self.marks.iter().any(|m| m.kind.is_formatting()) {
             let chars: Vec<char> = self.text.chars().collect();
-            self.marks = split_marks_at_newlines(&chars, normalize_marks(std::mem::take(&mut self.marks)));
+            self.marks =
+                split_marks_at_newlines(&chars, normalize_marks(std::mem::take(&mut self.marks)));
         }
         self.marks = normalize_marks(std::mem::take(&mut self.marks));
     }
@@ -1199,7 +1217,9 @@ fn canonicalize_containers(lines: &mut [Line]) {
         for d in 0..depth_len {
             let here = &line.containers[d];
             let (raw_ordinal, checked) = match here {
-                Container::ListItem { ordinal, checked, .. } => (*ordinal, *checked),
+                Container::ListItem {
+                    ordinal, checked, ..
+                } => (*ordinal, *checked),
                 _ => (0, None),
             };
             let continues = !opened_above
@@ -1238,8 +1258,18 @@ fn canonicalize_containers(lines: &mut [Line]) {
                 });
                 opened_above = true;
             }
-            let Run { ordinal, instance, checked, .. } = state[d];
-            if let Container::ListItem { ordinal: o, checked: c, .. } = &mut line.containers[d] {
+            let Run {
+                ordinal,
+                instance,
+                checked,
+                ..
+            } = state[d];
+            if let Container::ListItem {
+                ordinal: o,
+                checked: c,
+                ..
+            } = &mut line.containers[d]
+            {
                 *o = ordinal;
                 *c = checked;
             }
@@ -1268,7 +1298,12 @@ pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
 /// the next, so in prose a mark never spans a line join. Zero-width pieces are
 /// left for [`normalize_marks`] to drop.
 pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i).collect();
+    let breaks: Vec<Usv> = chars
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| **c == '\n')
+        .map(|(i, _)| i)
+        .collect();
     let within = |m: &Mark| {
         let lo = breaks.partition_point(|&b| b < m.start);
         let hi = breaks.partition_point(|&b| b < m.end);
@@ -1390,7 +1425,11 @@ fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
                 opened += 1;
             }
             if let Some(&(_, i)) = over.last() {
-                out.push(Mark { start: a, end: b, kind: marks[i].kind.clone() });
+                out.push(Mark {
+                    start: a,
+                    end: b,
+                    kind: marks[i].kind.clone(),
+                });
             }
         }
     }
@@ -1405,7 +1444,6 @@ mod tests {
         Mark { start, end, kind }
     }
 
-
     /// Raw overlap among keyed marks settles before the same-key union, so
     /// each character keeps the family the raw marks gave it and the result
     /// holds one family per character.
@@ -1414,21 +1452,41 @@ mod tests {
         let family = |name: &str| MarkKind::FontFamily { name: name.into() };
         for (raw, settled) in [
             (
-                vec![f(0, 5, family("Arimo")), f(5, 10, family("Arimo")), f(3, 8, family("Bitter"))],
-                vec![f(0, 3, family("Arimo")), f(3, 5, family("Bitter")), f(5, 10, family("Arimo"))],
+                vec![
+                    f(0, 5, family("Arimo")),
+                    f(5, 10, family("Arimo")),
+                    f(3, 8, family("Bitter")),
+                ],
+                vec![
+                    f(0, 3, family("Arimo")),
+                    f(3, 5, family("Bitter")),
+                    f(5, 10, family("Arimo")),
+                ],
             ),
             (
                 vec![f(0, 6, family("Bitter")), f(0, 6, family("Arimo"))],
                 vec![f(0, 6, family("Bitter"))],
             ),
             (
-                vec![f(0, 4, family("Arimo")), f(2, 6, family("Bitter")), f(1, 5, MarkKind::Strong)],
-                vec![f(0, 2, family("Arimo")), f(1, 5, MarkKind::Strong), f(2, 6, family("Bitter"))],
+                vec![
+                    f(0, 4, family("Arimo")),
+                    f(2, 6, family("Bitter")),
+                    f(1, 5, MarkKind::Strong),
+                ],
+                vec![
+                    f(0, 2, family("Arimo")),
+                    f(1, 5, MarkKind::Strong),
+                    f(2, 6, family("Bitter")),
+                ],
             ),
         ] {
             let once = normalize_marks(raw.clone());
             assert_eq!(once, settled, "{raw:?}");
-            assert_eq!(normalize_marks(once.clone()), once, "{raw:?} is not a fixed point");
+            assert_eq!(
+                normalize_marks(once.clone()),
+                once,
+                "{raw:?} is not a fixed point"
+            );
         }
     }
 
@@ -1495,7 +1553,10 @@ mod tests {
         for (kind, settles_to) in [
             (LineKind::Code { lang: None }, LineKind::Para),
             (LineKind::Para, LineKind::Para),
-            (LineKind::Heading { level: 1 }, LineKind::Heading { level: 1 }),
+            (
+                LineKind::Heading { level: 1 },
+                LineKind::Heading { level: 1 },
+            ),
         ] {
             let mut rt = code.clone();
             rt.lines[0].kind = kind.clone();
@@ -1557,7 +1618,9 @@ mod tests {
             assert_eq!(rt.lines[0].kind, LineKind::Para, "{what}");
             let md = crate::export::to_markdown(&rt);
             assert_eq!(
-                crate::import::from_markdown(&md).expect("re-imports").content,
+                crate::import::from_markdown(&md)
+                    .expect("re-imports")
+                    .content,
                 rt,
                 "{what} is not a fixed point: {md:?}"
             );
@@ -1569,7 +1632,9 @@ mod tests {
         let mut rt = tagged("hi", LineKind::Para);
         rt.lines[0].containers = vec![Container::Quote { instance: 0 }; crate::MAX_NESTING_DEPTH];
         assert_eq!(rt.validate(), Ok(()));
-        rt.lines[0].containers.push(Container::Quote { instance: 0 });
+        rt.lines[0]
+            .containers
+            .push(Container::Quote { instance: 0 });
         assert_eq!(
             rt.validate(),
             Err(Invariant::NestingTooDeep {
@@ -1635,23 +1700,40 @@ mod tests {
     #[test]
     fn is_inline_accepts_empty_and_single_para() {
         assert!(Content::empty().is_inline());
-        assert!(crate::import::from_markdown("just one line")
-            .unwrap().content
-            .is_inline());
-        assert!(crate::import::from_markdown("a *bold* run")
-            .unwrap().content
-            .is_inline());
+        assert!(
+            crate::import::from_markdown("just one line")
+                .unwrap()
+                .content
+                .is_inline()
+        );
+        assert!(
+            crate::import::from_markdown("a *bold* run")
+                .unwrap()
+                .content
+                .is_inline()
+        );
     }
 
     #[test]
     fn is_inline_rejects_blocks_containers_and_islands() {
-        assert!(!crate::import::from_markdown("one\n\ntwo")
-            .unwrap().content
-            .is_inline());
-        assert!(!crate::import::from_markdown("# heading")
-            .unwrap().content
-            .is_inline());
-        assert!(!crate::import::from_markdown("- item").unwrap().content.is_inline());
+        assert!(
+            !crate::import::from_markdown("one\n\ntwo")
+                .unwrap()
+                .content
+                .is_inline()
+        );
+        assert!(
+            !crate::import::from_markdown("# heading")
+                .unwrap()
+                .content
+                .is_inline()
+        );
+        assert!(
+            !crate::import::from_markdown("- item")
+                .unwrap()
+                .content
+                .is_inline()
+        );
     }
 
     #[test]
@@ -1737,7 +1819,10 @@ mod tests {
             ],
         );
         rt.normalize();
-        assert!(rt.lines[1].continues, "a hard break inside one item survives");
+        assert!(
+            rt.lines[1].continues,
+            "a hard break inside one item survives"
+        );
         assert_eq!(rt.validate(), Ok(()));
     }
 
@@ -1786,8 +1871,10 @@ mod tests {
                 Line::new(LineKind::Para).with_continues(true),
             ],
         )
-        .with_islands(vec![Island::new("isl-0".into(), IslandType::Image)
-            .with_props(serde_json::json!({"alt": "a", "url": "u"}))]);
+        .with_islands(vec![
+            Island::new("isl-0".into(), IslandType::Image)
+                .with_props(serde_json::json!({"alt": "a", "url": "u"})),
+        ]);
         rt.normalize();
         assert!(rt.lines[1].continues, "an inline island's line is prose");
     }
@@ -1849,10 +1936,11 @@ mod tests {
         rt.normalize();
         assert_eq!(rt.islands[0].props["header"][0]["x_host"], 2);
         assert!(rt.islands[0].props["rows"][0][1].get("x_host").is_none());
-        assert!(rt
-            .into_normalized()
-            .to_canonical_json()
-            .contains(r#""x_host":2"#));
+        assert!(
+            rt.into_normalized()
+                .to_canonical_json()
+                .contains(r#""x_host":2"#)
+        );
     }
 
     #[test]
@@ -2020,7 +2108,10 @@ mod tests {
         let mut rt = Content {
             text: "abcde\nfghij".into(),
             lines: vec![Line::new(LineKind::Para); 2],
-            marks: vec![Mark::new(0, 11, family("Zeta")), Mark::new(3, 11, family("Alpha"))],
+            marks: vec![
+                Mark::new(0, 11, family("Zeta")),
+                Mark::new(3, 11, family("Alpha")),
+            ],
             islands: vec![],
         };
         rt.normalize();
@@ -2043,7 +2134,15 @@ mod tests {
             lines: vec![Line::new(LineKind::Para); lines + 1],
             text,
             marks: (0..20)
-                .map(|i| Mark::new(i, len, MarkKind::Link { url: format!("u{i}") }))
+                .map(|i| {
+                    Mark::new(
+                        i,
+                        len,
+                        MarkKind::Link {
+                            url: format!("u{i}"),
+                        },
+                    )
+                })
                 .collect(),
             islands: vec![],
         };

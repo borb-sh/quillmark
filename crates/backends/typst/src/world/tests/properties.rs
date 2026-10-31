@@ -5,7 +5,7 @@
 use proptest::prelude::*;
 use typst::foundations::Bytes;
 
-use crate::world::{faces, MAX_COLLECTION_FACES};
+use crate::world::{MAX_COLLECTION_FACES, faces};
 
 proptest! {
     #[test]

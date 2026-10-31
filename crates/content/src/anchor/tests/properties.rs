@@ -7,10 +7,10 @@
 use proptest::prelude::*;
 
 use crate::anchor::{
-    anchor_contexts, locate, AnchorContext, ANCHOR_AGREE_USV, ANCHOR_CONTEXT_USV, MIN_ANCHOR_QUOTE,
+    ANCHOR_AGREE_USV, ANCHOR_CONTEXT_USV, AnchorContext, MIN_ANCHOR_QUOTE, anchor_contexts, locate,
 };
 use crate::island::IslandType;
-use crate::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized, ISLAND_SLOT};
+use crate::model::{Content, ISLAND_SLOT, Island, Line, LineKind, Mark, MarkKind, Normalized};
 
 const ALPHABET: [char; 5] = ['a', 'b', ' ', '\n', ISLAND_SLOT];
 
@@ -22,12 +22,17 @@ fn content(text: &str) -> Normalized {
                 .with_props(serde_json::json!({ "text": "note", "marks": [] }))
         })
         .collect();
-    Content::new(text.to_string(), lines).with_islands(islands).into_normalized()
+    Content::new(text.to_string(), lines)
+        .with_islands(islands)
+        .into_normalized()
 }
 
 fn text(max: usize) -> impl Strategy<Value = String> {
-    prop::collection::vec(prop::sample::select(vec!['a', 'b', 'a', 'b', ' ', '\n', ISLAND_SLOT]), 0..max)
-        .prop_map(String::from_iter)
+    prop::collection::vec(
+        prop::sample::select(vec!['a', 'b', 'a', 'b', ' ', '\n', ISLAND_SLOT]),
+        0..max,
+    )
+    .prop_map(String::from_iter)
 }
 
 /// A field and a selector cut from it at `i..j`, its context the stored text
@@ -39,7 +44,11 @@ fn field_and_selector() -> impl Strategy<Value = (String, AnchorContext)> {
     prop_oneof![text(60), periodic]
         .prop_flat_map(|field| {
             let n = field.chars().count();
-            let change = prop::option::of((0usize..3, 0usize..64, prop::sample::select(ALPHABET.to_vec())));
+            let change = prop::option::of((
+                0usize..3,
+                0usize..64,
+                prop::sample::select(ALPHABET.to_vec()),
+            ));
             (Just(field), 0..=n, 0..=n, change)
         })
         .prop_map(|(field, a, b, change)| {
@@ -63,21 +72,42 @@ fn field_and_selector() -> impl Strategy<Value = (String, AnchorContext)> {
 }
 
 /// Every place the rule counts, read off its statement in COMMENTS.md.
-fn counted(text: &[char], ctx: &AnchorContext, inserted: Option<&[(usize, usize)]>) -> Vec<(usize, usize)> {
+fn counted(
+    text: &[char],
+    ctx: &AnchorContext,
+    inserted: Option<&[(usize, usize)]>,
+) -> Vec<(usize, usize)> {
     let quote: Vec<char> = ctx.quote.chars().collect();
     let prefix: Vec<char> = ctx.prefix.chars().collect();
     let suffix: Vec<char> = ctx.suffix.chars().collect();
-    if !quote.is_empty() && quote.len() < MIN_ANCHOR_QUOTE && !quote.iter().all(|&c| c == ISLAND_SLOT) {
+    if !quote.is_empty()
+        && quote.len() < MIN_ANCHOR_QUOTE
+        && !quote.iter().all(|&c| c == ISLAND_SLOT)
+    {
         return Vec::new();
     }
-    let (before, after) = (prefix.len().min(ANCHOR_AGREE_USV), suffix.len().min(ANCHOR_AGREE_USV));
-    let agrees_before = |i: usize| i >= before && text[i - before..i] == prefix[prefix.len() - before..];
+    let (before, after) = (
+        prefix.len().min(ANCHOR_AGREE_USV),
+        suffix.len().min(ANCHOR_AGREE_USV),
+    );
+    let agrees_before =
+        |i: usize| i >= before && text[i - before..i] == prefix[prefix.len() - before..];
     let agrees_after = |j: usize| text.len() - j >= after && text[j..j + after] == suffix[..after];
-    let overlaps = |(a, b): (usize, usize)| inserted.is_none_or(|spans| spans.iter().any(|&(s, e)| a < e && b > s));
+    let overlaps = |(a, b): (usize, usize)| {
+        inserted.is_none_or(|spans| spans.iter().any(|&(s, e)| a < e && b > s))
+    };
     (0..=text.len())
         .map(|i| (i, i + quote.len()))
-        .filter(|&(i, j)| j <= text.len() && text[i..j] == quote[..] && agrees_before(i) && agrees_after(j))
-        .filter(|&(i, j)| overlaps(if i == j { (i - before, j + after) } else { (i, j) }))
+        .filter(|&(i, j)| {
+            j <= text.len() && text[i..j] == quote[..] && agrees_before(i) && agrees_after(j)
+        })
+        .filter(|&(i, j)| {
+            overlaps(if i == j {
+                (i - before, j + after)
+            } else {
+                (i, j)
+            })
+        })
         .collect()
 }
 

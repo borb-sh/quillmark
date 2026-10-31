@@ -326,7 +326,10 @@ enum Landing {
 
 impl Flat {
     fn of(children: Vec<Child>) -> Self {
-        let own = children.iter().filter(|c| matches!(c, Child::Key(_))).count();
+        let own = children
+            .iter()
+            .filter(|c| matches!(c, Child::Key(_)))
+            .count();
         let mut keys = Vec::with_capacity(own);
         let mut merged = Vec::new();
         let parts = children
@@ -513,7 +516,11 @@ fn byte(marker: Marker) -> usize {
 /// none.
 fn comment_text(raw: &str) -> String {
     let after = raw.trim_start_matches('#');
-    after.strip_prefix(' ').unwrap_or(after).trim_end().to_string()
+    after
+        .strip_prefix(' ')
+        .unwrap_or(after)
+        .trim_end()
+        .to_string()
 }
 
 impl<'a> Walk<'a> {
@@ -545,12 +552,15 @@ impl<'a> Walk<'a> {
     /// as it does one with no tag: `!!str` and `!` read it as text. The probe
     /// spells the tag verbatim, which resolves without the block's `%TAG` lines.
     fn reads_null(&mut self, tag: &Tag) -> bool {
-        *self.nulls.entry(format!("!<{tag}>")).or_insert_with_key(|probe| {
-            matches!(
-                crate::value::parse_yaml::<serde_json::Value>(probe),
-                Ok(serde_json::Value::Null)
-            )
-        })
+        *self
+            .nulls
+            .entry(format!("!<{tag}>"))
+            .or_insert_with_key(|probe| {
+                matches!(
+                    crate::value::parse_yaml::<serde_json::Value>(probe),
+                    Ok(serde_json::Value::Null)
+                )
+            })
     }
 
     fn step(&mut self, event: &Event<'_>, span: Span) -> Result<(), Refusal> {
@@ -575,7 +585,8 @@ impl<'a> Walk<'a> {
         } else {
             self.place_run(run)?;
         }
-        self.nested.sort_by(|a, b| (&a.order, a.offset).cmp(&(&b.order, b.offset)));
+        self.nested
+            .sort_by(|a, b| (&a.order, a.offset).cmp(&(&b.order, b.offset)));
         Ok(PreScan {
             items: self.items,
             nested_comments: self.nested.into_iter().map(|r| r.comment).collect(),
@@ -590,8 +601,8 @@ impl<'a> Walk<'a> {
         self.last_start = byte(span.start);
         let end = byte(span.end);
         // A key's absent value sits on the key's `:`.
-        let on_colon = span.start.index() == span.end.index()
-            && self.src.as_bytes().get(end) == Some(&b':');
+        let on_colon =
+            span.start.index() == span.end.index() && self.src.as_bytes().get(end) == Some(&b':');
         self.last_end = end + usize::from(on_colon);
         let last_end = self.last_end;
         self.gap.retain(|&(from, _)| from >= last_end);
@@ -720,7 +731,8 @@ impl<'a> Walk<'a> {
         };
         if let Event::Scalar(text, style, anchor @ 1.., tag) = event {
             let merge = is_merge_key(text, *style, tag.as_deref());
-            self.anchors.insert(*anchor, Anchored::Scalar(text.to_string(), merge));
+            self.anchors
+                .insert(*anchor, Anchored::Scalar(text.to_string(), merge));
         }
         let depth = top.map_or(0, |t| t + 1);
         if event.tag().is_some() {
@@ -797,7 +809,9 @@ impl<'a> Walk<'a> {
                 empty: false,
             });
             if frame.collects {
-                frame.children.push(Child::Merged(Flat::of_node(event, &self.anchors)));
+                frame
+                    .children
+                    .push(Child::Merged(Flat::of_node(event, &self.anchors)));
             }
             return Ok(Role::Item);
         }
@@ -1145,8 +1159,13 @@ impl<'a> Walk<'a> {
             }
             if frame.anchor != 0 {
                 let mut seen = HashSet::new();
-                let keys = flat.keys.iter().filter(|k| seen.insert(k.as_str())).cloned();
-                self.anchors.insert(frame.anchor, Anchored::Keys(keys.collect()));
+                let keys = flat
+                    .keys
+                    .iter()
+                    .filter(|k| seen.insert(k.as_str()))
+                    .cloned();
+                self.anchors
+                    .insert(frame.anchor, Anchored::Keys(keys.collect()));
             }
             if let Some(Child::Merged(slot)) =
                 self.frames.last_mut().and_then(|f| f.children.last_mut())
@@ -1170,7 +1189,11 @@ impl<'a> Walk<'a> {
                 continue;
             }
             if let Some((position, inline)) = reseat(r, &chain, &path, flat, &seat) {
-                r.at = if inline { At::Trailer(position) } else { At::Ahead(position) };
+                r.at = if inline {
+                    At::Trailer(position)
+                } else {
+                    At::Ahead(position)
+                };
                 r.order = [chain.as_slice(), &[position, usize::from(inline)]].concat();
                 r.comment.container_path = path.clone();
                 r.comment.position = position;
@@ -1271,17 +1294,27 @@ impl<'a> Walk<'a> {
         }
         landed.sort_by_key(|&(position, inline, offset, _)| (position, inline, offset));
         let mut landed = landed.into_iter().peekable();
-        let fields = flat.keys.iter().enumerate().filter(|&(o, _)| seat[o + 1] > seat[o]);
+        let fields = flat
+            .keys
+            .iter()
+            .enumerate()
+            .filter(|&(o, _)| seat[o + 1] > seat[o]);
         for (position, (_, key)) in fields.enumerate() {
             while let Some((.., text)) = landed.next_if(|l| (l.0, l.1) == (position, false)) {
-                self.items.push(PreItem::Comment { text, inline: false });
+                self.items.push(PreItem::Comment {
+                    text,
+                    inline: false,
+                });
             }
             self.items.push(PreItem::Field { key: key.clone() });
             while let Some((.., text)) = landed.next_if(|l| (l.0, l.1) == (position, true)) {
                 self.items.push(PreItem::Comment { text, inline: true });
             }
         }
-        self.items.extend(landed.map(|(.., text)| PreItem::Comment { text, inline: false }));
+        self.items.extend(landed.map(|(.., text)| PreItem::Comment {
+            text,
+            inline: false,
+        }));
     }
 }
 
@@ -1337,7 +1370,12 @@ mod tests {
             out.nested_comments,
             vec![
                 nested(vec![key("rows")], 0, "- a", false),
-                nested(vec![key("row"), PathSegment::Index(0), key("key")], 0, "b", false),
+                nested(
+                    vec![key("row"), PathSegment::Index(0), key("key")],
+                    0,
+                    "b",
+                    false
+                ),
             ]
         );
     }
@@ -1361,7 +1399,9 @@ mod tests {
 
     #[test]
     fn multibyte_text_around_a_comment_keeps_its_offsets() {
-        let out = scan("arr:\n  - – en-dash # c\n  -\n    # d\n    \u{1F600} emoji\n  - \u{201C}q\u{201D}\n");
+        let out = scan(
+            "arr:\n  - – en-dash # c\n  -\n    # d\n    \u{1F600} emoji\n  - \u{201C}q\u{201D}\n",
+        );
         assert_eq!(
             out.nested_comments,
             vec![
@@ -1409,7 +1449,8 @@ mod tests {
     /// and one at that column after its last item is the next key's.
     #[test]
     fn a_sequence_at_its_key_column_holds_its_comments() {
-        let out = scan("to:\n# lead\n- name: a # c1\n  # inner\n  rank: 1\n- b\n # last\n# next\nn: 1\n");
+        let out =
+            scan("to:\n# lead\n- name: a # c1\n  # inner\n  rank: 1\n- b\n # last\n# next\nn: 1\n");
         let to = || vec![key("to")];
         assert_eq!(
             out.nested_comments,
@@ -1420,7 +1461,10 @@ mod tests {
                 nested(to(), 2, "last", false),
             ]
         );
-        assert_eq!(out.items, vec![field("to"), comment("next", false), field("n")]);
+        assert_eq!(
+            out.items,
+            vec![field("to"), comment("next", false), field("n")]
+        );
     }
 
     /// A run of own-line comments that closes collections lands each comment in
@@ -1463,7 +1507,10 @@ mod tests {
         }
         assert_eq!(
             scan("l:\n- # b\n  k: v # c\n").nested_comments,
-            vec![nested(vec![key("l")], 0, "b", true), nested(item(0), 0, "c", true)]
+            vec![
+                nested(vec![key("l")], 0, "b", true),
+                nested(item(0), 0, "c", true)
+            ]
         );
         assert_eq!(
             scan("l:\n  -\n    k: v # a\n").nested_comments,
@@ -1471,7 +1518,10 @@ mod tests {
         );
         assert_eq!(
             scan("l:\n  -\n    # o\n    k: v # a\n").nested_comments,
-            vec![nested(item(0), 0, "o", false), nested(item(0), 0, "a", true)]
+            vec![
+                nested(item(0), 0, "o", false),
+                nested(item(0), 0, "a", true)
+            ]
         );
     }
 
@@ -1479,7 +1529,8 @@ mod tests {
     /// it after the scalar's text, and the next dash line's is the next item's.
     #[test]
     fn a_block_scalar_header_trailer_is_its_entrys() {
-        let out = scan("l:\n  - | # a\n    text\n  - >- # b\n    x\n  - # c\n    k: v\nm: | # d\n  t\n");
+        let out =
+            scan("l:\n  - | # a\n    text\n  - >- # b\n    x\n  - # c\n    k: v\nm: | # d\n  t\n");
         assert_eq!(
             out.nested_comments,
             vec![

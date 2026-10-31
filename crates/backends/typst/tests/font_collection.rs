@@ -56,8 +56,13 @@ fn a_ttc_under_assets_fonts_sets_every_family_it_holds() {
         ),
         ("assets/fonts/Both.ttc", &ttc),
     ] {
-        root.insert(path, FileTreeNode::File { contents: contents.to_vec() })
-            .expect("insert");
+        root.insert(
+            path,
+            FileTreeNode::File {
+                contents: contents.to_vec(),
+            },
+        )
+        .expect("insert");
     }
     let q = Quill::from_tree(root).expect("load quill");
     let session = TypstBackend::default()
@@ -86,8 +91,13 @@ fn a_collection_header_declaring_u32_max_faces_opens_promptly() {
         ("plate.typ", b"one\n".as_slice()),
         ("assets/fonts/Huge.ttc", &ttc),
     ] {
-        root.insert(path, FileTreeNode::File { contents: contents.to_vec() })
-            .expect("insert");
+        root.insert(
+            path,
+            FileTreeNode::File {
+                contents: contents.to_vec(),
+            },
+        )
+        .expect("insert");
     }
     let q = Quill::from_tree(root).expect("load quill");
     TypstBackend::default()
@@ -111,8 +121,13 @@ fn a_collection_declaring_past_the_face_cap_loads_none_and_warns() {
         ("plate.typ", b"one\n".as_slice()),
         ("assets/fonts/Many.ttc", &ttc),
     ] {
-        root.insert(path, FileTreeNode::File { contents: contents.to_vec() })
-            .expect("insert");
+        root.insert(
+            path,
+            FileTreeNode::File {
+                contents: contents.to_vec(),
+            },
+        )
+        .expect("insert");
     }
     let q = Quill::from_tree(root).expect("load quill");
     let session = TypstBackend::default()

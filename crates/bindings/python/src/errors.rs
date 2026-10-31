@@ -8,7 +8,10 @@
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use quillmark_core::{document::EditError, error::{Diagnostic, RenderError, Severity}};
+use quillmark_core::{
+    document::EditError,
+    error::{Diagnostic, RenderError, Severity},
+};
 use std::collections::BTreeMap;
 
 create_exception!(_quillmark, QuillmarkError, PyException);
@@ -54,10 +57,9 @@ pub fn page_indices(pages: Vec<isize>) -> PyResult<Vec<usize>> {
 /// the error anchors at relative to `base`: the card root the mutator ran
 /// against, empty for a card built before placement.
 pub fn convert_edit_error(err: EditError, base: &quillmark_core::path::DocPath) -> PyErr {
-    let mut diagnostic =
-        Diagnostic::new(Severity::Error, err.to_string())
-            .with_code(err.code().to_string())
-            .with_args(err.args());
+    let mut diagnostic = Diagnostic::new(Severity::Error, err.to_string())
+        .with_code(err.code().to_string())
+        .with_args(err.args());
     if let Some(path) = err.doc_path(base) {
         diagnostic = diagnostic.with_path(path.to_string());
     }

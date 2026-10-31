@@ -176,8 +176,14 @@ mod tests {
 
     #[test]
     fn a_segment_takes_the_continuations_at_its_own_depth() {
-        assert_eq!(seg(&[vec![], vec![], vec![]], &[false, true, true], 0), 0..3);
-        assert_eq!(seg(&[vec![], vec![], vec![]], &[false, true, false], 0), 0..2);
+        assert_eq!(
+            seg(&[vec![], vec![], vec![]], &[false, true, true], 0),
+            0..3
+        );
+        assert_eq!(
+            seg(&[vec![], vec![], vec![]], &[false, true, false], 0),
+            0..2
+        );
     }
 
     #[test]

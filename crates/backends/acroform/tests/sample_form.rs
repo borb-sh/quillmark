@@ -26,13 +26,22 @@ fn quill() -> quillmark::Quill {
 
 fn open_session(markdown: &str) -> quillmark::LiveSession {
     let doc = Document::parse(markdown).expect("parse markdown").document;
-    Engine::new().open(&quill(), &doc, common::test_date()).expect("open ok")
+    Engine::new()
+        .open(&quill(), &doc, common::test_date())
+        .expect("open ok")
 }
 
 /// The rendered PDF and its AcroForm dict.
 fn acroform(result: &quillmark::RenderResult) -> (PdfDoc, lopdf::Dictionary) {
-    let doc = PdfDoc::load_mem(&result.artifacts[0].bytes).expect("lopdf reparse: structurally valid");
-    let af_ref = doc.catalog().unwrap().get(b"AcroForm").unwrap().as_reference().unwrap();
+    let doc =
+        PdfDoc::load_mem(&result.artifacts[0].bytes).expect("lopdf reparse: structurally valid");
+    let af_ref = doc
+        .catalog()
+        .unwrap()
+        .get(b"AcroForm")
+        .unwrap()
+        .as_reference()
+        .unwrap();
     let af = doc.get_object(af_ref).unwrap().as_dict().unwrap().clone();
     (doc, af)
 }
@@ -86,7 +95,10 @@ fn fixture_renders_structurally_valid_filled_pdf() {
         ("Bio", "A bold claim and emphasis."),
     ] {
         let w = widget(&doc, af, name);
-        assert_eq!(decode_pdf_text(w.get(b"V").unwrap().as_str().unwrap()), text);
+        assert_eq!(
+            decode_pdf_text(w.get(b"V").unwrap().as_str().unwrap()),
+            text
+        );
         assert!(w.get(b"RV").is_err(), "{name} carries no /RV");
     }
 
@@ -115,7 +127,11 @@ fn unbound_widgets_stamp_their_declared_kind_and_take_no_value() {
         ("Signature", &b"Sig"[..]),
     ] {
         assert_eq!(
-            widget(&doc, af, name).get(b"FT").unwrap().as_name().unwrap(),
+            widget(&doc, af, name)
+                .get(b"FT")
+                .unwrap()
+                .as_name()
+                .unwrap(),
             ft,
             "{name}"
         );
@@ -261,9 +277,15 @@ fn a_construct_the_form_declines_warns_at_validate_and_on_the_session() {
         .map(|&(c, n)| ("main.bio".to_string(), c.to_string(), n))
         .collect();
 
-    assert_eq!(declines(&quill().validate(&doc), "backend::declined_construct"), expected);
+    assert_eq!(
+        declines(&quill().validate(&doc), "backend::declined_construct"),
+        expected
+    );
     let session = open_session(&md);
-    assert_eq!(declines(session.warnings(), "backend::declined_construct"), expected);
+    assert_eq!(
+        declines(session.warnings(), "backend::declined_construct"),
+        expected
+    );
 }
 
 #[test]
@@ -285,7 +307,10 @@ fn a_value_the_form_font_cannot_draw_warns_at_its_field_until_it_can() {
     let mut session = open_session(&md("Łukasz Nguyễn", "Arrow → here"));
     let warned = unencodable(&session);
     assert_eq!(
-        warned.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
+        warned
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .collect::<Vec<_>>(),
         ["main.full_name", "main.comments"]
     );
     assert!(warned[0].1.starts_with("2 character(s)"), "{}", warned[0].1);
@@ -294,7 +319,10 @@ fn a_value_the_form_font_cannot_draw_warns_at_its_field_until_it_can() {
         .expect("parse markdown")
         .document;
     session.update(&doc).expect("update");
-    assert!(unencodable(&session).is_empty(), "WinAnsi draws every character");
+    assert!(
+        unencodable(&session).is_empty(),
+        "WinAnsi draws every character"
+    );
 }
 
 #[test]

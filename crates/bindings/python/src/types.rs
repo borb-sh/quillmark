@@ -1,12 +1,12 @@
+use pyo3::Bound;
 use pyo3::conversion::IntoPyObjectExt;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pycell::{PyRef, PyRefMut};
 use pyo3::types::{PyBytes, PyDate, PyDict, PyList, PyString};
-use pyo3::Bound;
 
 use quillmark::{
-    quill_from_path, Diagnostic, Document, Engine, Location, OutputFormat, Quill, RenderResult,
+    Diagnostic, Document, Engine, Location, OutputFormat, Quill, RenderResult, quill_from_path,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,8 +43,15 @@ impl PyEngine {
     /// the host library's, in library order. Each is a dict of `family`,
     /// `weight`, `style`,
     /// `index` and `data` (the font file's bytes).
-    fn font_faces<'py>(&self, py: Python<'py>, quill: &PyQuill) -> PyResult<Vec<Bound<'py, PyDict>>> {
-        let faces = self.inner.font_faces(&quill.inner).map_err(convert_render_error)?;
+    fn font_faces<'py>(
+        &self,
+        py: Python<'py>,
+        quill: &PyQuill,
+    ) -> PyResult<Vec<Bound<'py, PyDict>>> {
+        let faces = self
+            .inner
+            .font_faces(&quill.inner)
+            .map_err(convert_render_error)?;
         faces
             .into_iter()
             .map(|face| {
@@ -149,7 +156,10 @@ fn render_date(
 ) -> PyResult<quillmark_core::quill::CalendarDate> {
     let date = match today {
         Some(date) => date,
-        None => py.import("datetime")?.getattr("date")?.call_method0("today")?,
+        None => py
+            .import("datetime")?
+            .getattr("date")?
+            .call_method0("today")?,
     };
     let (year, month, day) = (
         date.getattr("year")?.extract()?,
@@ -546,7 +556,9 @@ impl PyDocument {
         };
         match field {
             None => Ok(card.body_hash()),
-            Some(field) => card.field_hash(field).map_err(|e| convert_edit_error(e, &target.base)),
+            Some(field) => card
+                .field_hash(field)
+                .map_err(|e| convert_edit_error(e, &target.base)),
         }
     }
 
@@ -636,7 +648,10 @@ impl PyDocument {
     fn card<'py>(&self, py: Python<'py>, index: isize) -> PyResult<Bound<'py, PyDict>> {
         let len = self.inner.cards().len();
         let index = card_index(index, len)?;
-        let card = self.inner.card(index).ok_or_else(|| index_error(index, len))?;
+        let card = self
+            .inner
+            .card(index)
+            .ok_or_else(|| index_error(index, len))?;
         card_to_pydict(py, card)
     }
 
@@ -649,7 +664,6 @@ impl PyDocument {
             None => py.None().into_bound_py_any(py),
         }
     }
-
 
     /// Remove a payload field, returning its previous value or `None`. `card`
     /// selects the target, here as on every `card=` verb: `None` the main card,
@@ -789,13 +803,22 @@ impl PyDocument {
     /// Each card's fields come before its body. A table cell's or a note's
     /// anchor is read too, its context cut at the cell's edges.
     fn anchor_contexts<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let selectors = self.inner.anchor_contexts().into_iter().map(selector_json).collect();
+        let selectors = self
+            .inner
+            .anchor_contexts()
+            .into_iter()
+            .map(selector_json)
+            .collect();
         json_to_py(py, &serde_json::Value::Array(selectors))
     }
 
     /// The context of the anchor `id`, as `anchor_contexts` reads it, or
     /// `None` where no body or content value holds one.
-    fn anchor_context<'py>(&self, py: Python<'py>, id: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
+    fn anchor_context<'py>(
+        &self,
+        py: Python<'py>,
+        id: &str,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
         self.inner
             .anchor_context(id)
             .map(|selector| json_to_py(py, &selector_json(selector)))
@@ -832,20 +855,27 @@ impl PyDocument {
                 .map_err(|e| invalid(format!("invalid path {path:?}: {e}")))
         };
         let serde_json::Value::Array(selectors) = py_to_json(selectors)? else {
-            return Err(invalid("selectors must be a list of anchor contexts".into()));
+            return Err(invalid(
+                "selectors must be a list of anchor contexts".into(),
+            ));
         };
         let selectors = selectors
             .iter()
             .map(|s| {
                 let key = |name: &str| {
-                    s.get(name).and_then(|v| v.as_str()).map(str::to_string).ok_or_else(|| {
-                        invalid(format!("an anchor context needs a string `{name}`"))
-                    })
+                    s.get(name)
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                        .ok_or_else(|| {
+                            invalid(format!("an anchor context needs a string `{name}`"))
+                        })
                 };
                 let card_id = match s.get("card_id") {
                     None | Some(serde_json::Value::Null) => None,
                     Some(serde_json::Value::String(id)) => Some(id.clone()),
-                    Some(_) => return Err(invalid("an anchor context's `card_id` is a string".into())),
+                    Some(_) => {
+                        return Err(invalid("an anchor context's `card_id` is a string".into()));
+                    }
                 };
                 Ok(quillmark_core::document::AnchorSelector::new(
                     key("id")?,
@@ -899,11 +929,15 @@ fn revised_to_py<'py>(
         .into_iter()
         .map(|a| serde_json::json!({ "id": a.id, "line": a.line }))
         .collect();
-    let delta = serde_json::to_value(&revised.delta).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let delta =
+        serde_json::to_value(&revised.delta).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let receipt = PyDict::new(py);
     receipt.set_item("delta", json_to_py(py, &delta)?)?;
     receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
-    receipt.set_item("dropped_anchors", json_to_py(py, &serde_json::Value::Array(dropped))?)?;
+    receipt.set_item(
+        "dropped_anchors",
+        json_to_py(py, &serde_json::Value::Array(dropped))?,
+    )?;
     Ok(receipt)
 }
 
@@ -914,7 +948,9 @@ impl PyDocument {
     ) -> PyResult<quillmark_core::document::CardMut<'_>> {
         let len = self.inner.cards().len();
         let index = card_index(index, len)?;
-        self.inner.card_mut(index).ok_or_else(|| index_error(index, len))
+        self.inner
+            .card_mut(index)
+            .ok_or_else(|| index_error(index, len))
     }
 
     fn addr_card_mut(
@@ -1042,7 +1078,12 @@ impl PyWriter {
     /// value, an absent field as `None`. Raises `edit::unknown_field` for an
     /// undeclared name.
     #[pyo3(signature = (field=None, card=None))]
-    fn hash_at(&self, py: Python<'_>, field: Option<&str>, card: Option<isize>) -> PyResult<String> {
+    fn hash_at(
+        &self,
+        py: Python<'_>,
+        field: Option<&str>,
+        card: Option<isize>,
+    ) -> PyResult<String> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
@@ -1153,7 +1194,9 @@ impl PyWriter {
             (None, None) => writer.revise_body(markdown),
             (None, Some(read)) => writer.revise_body_against(read, markdown),
             (Some(i), read) => {
-                let mut card = writer.card(i).map_err(|e| convert_edit_error(e, &target.base))?;
+                let mut card = writer
+                    .card(i)
+                    .map_err(|e| convert_edit_error(e, &target.base))?;
                 match read {
                     None => card.revise_body(markdown),
                     Some(read) => card.revise_body_against(read, markdown),
@@ -1192,7 +1235,9 @@ impl PyWriter {
             (None, None) => writer.revise_field(name, text),
             (None, Some(read)) => writer.revise_field_against(name, read, text),
             (Some(i), read) => {
-                let mut card = writer.card(i).map_err(|e| convert_edit_error(e, &target.base))?;
+                let mut card = writer
+                    .card(i)
+                    .map_err(|e| convert_edit_error(e, &target.base))?;
                 match read {
                     None => card.revise_field(name, text),
                     Some(read) => card.revise_field_against(name, read, text),
@@ -1253,7 +1298,10 @@ impl PyWriter {
             })
             .collect();
         let receipt = PyDict::new(py);
-        receipt.set_item("dropped_anchors", json_to_py(py, &serde_json::Value::Array(dropped))?)?;
+        receipt.set_item(
+            "dropped_anchors",
+            json_to_py(py, &serde_json::Value::Array(dropped))?,
+        )?;
         receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
         receipt.set_item("from", revised.from)?;
         Ok(receipt)
@@ -1580,7 +1628,10 @@ pub struct PyDiagnostic {
 }
 
 pub(crate) fn py_diagnostics(diags: Vec<Diagnostic>) -> Vec<PyDiagnostic> {
-    diags.into_iter().map(|inner| PyDiagnostic { inner }).collect()
+    diags
+        .into_iter()
+        .map(|inner| PyDiagnostic { inner })
+        .collect()
 }
 
 #[pymethods]
@@ -1670,7 +1721,6 @@ fn quillvalue_to_py<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     json_to_py(py, value.as_json())
 }
-
 
 /// Read an in-field path: a `str` is an object key, a non-negative `int` an
 /// array index. A malformed step raises rather than being dropped — a skipped
@@ -1966,4 +2016,3 @@ fn py_dict_to_card(value: &Bound<'_, PyAny>) -> PyResult<quillmark_core::documen
     })?;
     quillmark_core::document::Card::try_from(wire).map_err(convert_wire_error)
 }
-
