@@ -409,6 +409,7 @@ mod tests {
     mod properties;
 
     use super::*;
+    use crate::ops::MarkOp;
     use crate::delta::{diff_import, rebase_onto};
     use crate::import::from_markdown;
     use crate::model::Mark;

@@ -1432,4 +1432,20 @@ mod tests {
         assert_eq!(ids, ["c1"]);
         assert!(twice.anchor_collisions().is_empty());
     }
+
+    /// A tag right after a table's token pins the line the split gives the
+    /// prose after it, not the table's.
+    #[test]
+    fn a_tag_after_a_tables_token_pins_the_prose_after_it() {
+        let mut stored = from_markdown("Hello world.\n\n| h |\n| --- |\n| c |").unwrap().content.into_content();
+        stored.marks.push(Mark::new(6, 11, MarkKind::Anchor { id: "w".into() }));
+        stored.islands[0].props["note"] = "kept".into();
+        let stored = stored.into_normalized();
+        let read = crate::export::to_markdown_annotated(&stored).markdown;
+        let token = &read[read.find("<qm-island").unwrap()..];
+        let (next, _, _) = diff_import(&stored, &format!("Hello {token}<qm-anchor ref=\"w\"></qm-anchor>world.")).unwrap();
+        assert_eq!(next.text, "Hello \n\u{FFFC}\nworld.");
+        let sites: Vec<(String, usize, usize)> = next.anchor_sites().into_iter().map(|s| (s.id, s.start, s.end)).collect();
+        assert_eq!(sites, [("w".to_string(), 9, 14)]);
+    }
 }
