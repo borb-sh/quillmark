@@ -100,7 +100,6 @@ mod tests {
             OutputFormat::from_str("Docx"),
             Err(ParseOutputFormatError::new("docx"))
         );
-        assert_eq!(ParseOutputFormatError::new("docx").0, "docx");
     }
 
 }

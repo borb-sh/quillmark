@@ -361,10 +361,8 @@ impl LiveSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quill::test_date;
-    use crate::version::QuillReference;
+    use crate::quill::{blank_doc as doc, test_date};
     use crate::error::Severity;
-    use std::str::FromStr;
 
     const QUILL_YAML: &str = "\
 quill:
@@ -381,10 +379,6 @@ main:
 
     fn config() -> QuillConfig {
         QuillConfig::from_yaml(QUILL_YAML).expect("valid quill")
-    }
-
-    fn doc() -> Document {
-        Document::new(QuillReference::from_str("memo@1.0.0").unwrap())
     }
 
     /// The canvas contract for a double whose subject is not canvas: one letter

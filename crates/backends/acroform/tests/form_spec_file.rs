@@ -129,8 +129,7 @@ fn a_box_per_option_checks_the_one_the_document_chose() {
         .expect("render ok");
 
     let pdf = lopdf::Document::load_mem(&result.artifacts[0].bytes).expect("reparse");
-    let af_ref = pdf.catalog().unwrap().get(b"AcroForm").unwrap().as_reference().unwrap();
-    let af = pdf.get_object(af_ref).unwrap().as_dict().unwrap();
+    let af = common::acroform(&pdf);
     let state = |color: &str| {
         let w = common::widget(&pdf, af, &format!("Color_{color}"));
         String::from_utf8(w.get(b"AS").unwrap().as_name().unwrap().to_vec()).unwrap()

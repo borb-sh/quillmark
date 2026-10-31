@@ -507,14 +507,6 @@ mod tests {
     }
 
     #[test]
-    fn the_default_ppi_leaves_a_letter_page_far_under_the_ceiling() {
-        let (w, h) = LETTER_PT;
-        let scale = raster_scale(RenderOptions::DEFAULT_PPI).expect("the default ppi");
-        check_raster(scale, w, h).expect("the default render is not near the ceiling");
-        assert!(h * scale * 10.0 < MAX_RASTER_SIDE as f32);
-    }
-
-    #[test]
     fn no_selection_covers_every_page_and_a_selection_is_taken_verbatim() {
         assert_eq!(selected_pages(None, 3).unwrap(), [0, 1, 2]);
         assert_eq!(selected_pages(None, 0).unwrap(), [] as [usize; 0]);

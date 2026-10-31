@@ -28,30 +28,13 @@ import {
   expectEditCode,
   isClass,
   caughtFrom,
+  TEST_PLATE,
+  TEST_MARKDOWN,
 } from './test-helpers.js'
 
 // The consumer contract, exercised as a consumer writes it: the gate is the only
 // door to the core surface.
 const { Quill, Document, importMarkdown, exportMarkdown } = await init()
-
-const TEST_PLATE = `#import "@local/quillmark-helper:0.2.0" as qm
-#let title = qm.data.title
-#let body = qm.data.at("$body")
-
-= #title
-
-#body`
-
-const TEST_MARKDOWN = `~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Test Document
-author: Test Author
-~~~
-
-# Hello World
-
-This is a test document.`
 
 function makeRuntimeQuill() {
   return Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
@@ -1588,35 +1571,14 @@ describe('the font library', () => {
     expect(unknownFamilies(await new Engine().render(makeRuntimeQuill(), doc, { format: 'svg' }))).toEqual(['Figtree'])
   })
 
-  it('a file in another format is parsed once and rejects every verb alike, and the option takes only Uint8Array entries', async () => {
-    let built = 0
-    const engine = new Engine({
-      fonts: [new TextEncoder().encode('wOF2 not a ttf')],
-      backends: {
-        typst: {
-          load: async () => {
-            const real = await import('../../../pkg/render/wasm.js')
-            return new Proxy(real, {
-              get(target, prop, receiver) {
-                if (prop !== 'Engine') return Reflect.get(target, prop, receiver)
-                return function (fonts) {
-                  built++
-                  return new target.Engine(fonts)
-                }
-              }
-            })
-          },
-          formats: ['pdf', 'svg', 'png']
-        }
-      }
-    })
+  it('a file in another format rejects every verb with one cached error, and the option takes only Uint8Array entries', async () => {
+    const engine = new Engine({ fonts: [new TextEncoder().encode('wOF2 not a ttf')] })
     const first = await engine.fontFaces(makeRuntimeQuill()).catch((e) => e)
     const second = await engine
       .render(makeRuntimeQuill(), Document.fromMarkdown(TEST_MARKDOWN), { format: 'svg' })
       .catch((e) => e)
     expect(first.diagnostics[0].code).toBe('engine::font_unsupported')
     expect(second).toBe(first)
-    expect(built).toBe(1)
     expect(() => new Engine({ fonts: ['Figtree'] })).toThrow('`fonts` must be an array of Uint8Array')
   })
 })

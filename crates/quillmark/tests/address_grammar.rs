@@ -9,9 +9,8 @@
 
 #![cfg(all(feature = "typst", feature = "acroform"))]
 
-use quillmark::{Backend, FileTreeNode, Quill};
+use quillmark::{Backend, Quill};
 use quillmark_typst::TypstBackend;
-use std::collections::HashMap;
 
 mod common;
 
@@ -218,16 +217,7 @@ const PREAMBLE: &str = r#"#import "@local/quillmark-helper:0.2.0" as qm
 "#;
 
 fn quill(plate: &str) -> Quill {
-    let mut files = HashMap::new();
-    for (name, contents) in [("Quill.yaml", YAML), ("plate.typ", plate)] {
-        files.insert(
-            name.to_string(),
-            FileTreeNode::File {
-                contents: contents.as_bytes().to_vec(),
-            },
-        );
-    }
-    Quill::from_tree(FileTreeNode::Directory { files }).expect("load quill")
+    common::quill_from_files(&[("Quill.yaml", YAML), ("plate.typ", plate)])
 }
 
 fn data() -> serde_json::Value {

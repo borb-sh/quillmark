@@ -8,7 +8,7 @@ use quillmark_core::session::LiveSession;
 use quillmark_typst::TypstBackend;
 
 mod common;
-use common::{content, quill_with_plate as quill, yaml};
+use common::{body_session, content, quill_with_plate as quill, yaml};
 
 fn open(schema: &str, plate: &str, data: serde_json::Value) -> LiveSession {
     TypstBackend::default()
@@ -18,21 +18,6 @@ fn open(schema: &str, plate: &str, data: serde_json::Value) -> LiveSession {
 
 fn centre(rect: [f32; 4]) -> (f32, f32) {
     ((rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0)
-}
-
-/// One richtext `prose` on a letter page.
-fn body_session(body: serde_json::Value) -> LiveSession {
-    open(
-        "main:\n  fields:\n    prose: { type: richtext, multiline: true }\n",
-        r#"
-#import "@local/quillmark-helper:0.2.0" as qm
-#set page(width: 612pt, height: 792pt, margin: 72pt)
-#set text(size: 11pt)
-
-#qm.data.prose
-"#,
-        serde_json::json!({ "prose": body }),
-    )
 }
 
 #[test]

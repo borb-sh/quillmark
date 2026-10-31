@@ -3,27 +3,17 @@
 //! quill is a hard error, never a warning.
 
 use quillmark::{Document, RenderError};
-use std::fs;
-use tempfile::TempDir;
 
 mod common;
 
 #[cfg(feature = "typst")]
 use quillmark::{Engine, OutputFormat, RenderOptions};
 
-fn make_quill(temp_dir: &TempDir, version: &str) -> std::path::PathBuf {
-    let quill_path = temp_dir.path().join("test_quill");
-    fs::create_dir_all(&quill_path).unwrap();
-    fs::write(
-        quill_path.join("Quill.yaml"),
-        format!(
-            "quill:\n  name: \"test_quill\"\n  version: \"{}\"\n  backend: \"typst\"\n  description: \"Test\"\n\ntypst:\n  plate_file: plate.typ\n",
-            version
-        ),
-    )
-    .unwrap();
-    fs::write(quill_path.join("plate.typ"), "Content").unwrap();
-    quill_path
+fn make_quill(version: &str) -> quillmark::Quill {
+    let yaml = format!(
+        "quill:\n  name: \"test_quill\"\n  version: \"{version}\"\n  backend: \"typst\"\n  description: \"Test\"\n\ntypst:\n  plate_file: plate.typ\n"
+    );
+    common::quill_from_files(&[("Quill.yaml", &yaml), ("plate.typ", "Content")])
 }
 
 fn doc(quill_ref: &str) -> Document {
@@ -41,8 +31,7 @@ fn code(err: &RenderError) -> Option<&str> {
 
 #[test]
 fn the_reference_is_checked_against_the_loaded_quill() {
-    let temp_dir = TempDir::new().unwrap();
-    let quill = quillmark::quill_from_path(make_quill(&temp_dir, "2.1.0")).expect("from_path failed");
+    let quill = make_quill("2.1.0");
     for (quill_ref, expected) in [
         ("test_quill@2.1.0", None),
         ("test_quill@2.1", None),
@@ -62,10 +51,7 @@ fn the_reference_is_checked_against_the_loaded_quill() {
 /// it, and the next minor refuses it.
 #[test]
 fn a_created_document_pins_its_quills_series() {
-    let quill_at = |version: &str| {
-        let temp_dir = TempDir::new().unwrap();
-        quillmark::quill_from_path(make_quill(&temp_dir, version)).expect("from_path failed")
-    };
+    let quill_at = make_quill;
     let created = quill_at("1.2.0");
     let authored = created
         .from_authoring(&serde_json::json!({}))
@@ -84,8 +70,7 @@ fn a_created_document_pins_its_quills_series() {
 #[test]
 #[cfg(feature = "typst")]
 fn update_rechecks_the_reference_against_the_sessions_quill() {
-    let temp_dir = TempDir::new().unwrap();
-    let quill = quillmark::quill_from_path(make_quill(&temp_dir, "3.0.0")).expect("from_path failed");
+    let quill = make_quill("3.0.0");
 
     let engine = Engine::new();
     let err = engine

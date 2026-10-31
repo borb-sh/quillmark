@@ -323,6 +323,18 @@ function requireLocalQuill(quill, method) {
 	throw notLocal(quill, method, 'Quill');
 }
 
+/**
+ * Throw unless `quill` and `doc` are both THIS copy's.
+ * @param {unknown} quill
+ * @param {unknown} doc
+ * @param {string} method
+ * @returns {void}
+ */
+function requireLocalBind(quill, doc, method) {
+	requireLocalQuill(quill, method);
+	requireLocalDoc(doc, method);
+}
+
 // WELD_KEYS is the rule `Container::same_weld` owns upstream: which `attrs`
 // entries two adjacent runs must share for the markdown projection to read them
 // as one. `start` is not among them, since CommonMark reads only a list's first
@@ -858,8 +870,7 @@ export class DocumentWriter {
 	 * @param {Document} doc the document to mutate, held by reference (not owned)
 	 */
 	constructor(quill, doc) {
-		requireLocalQuill(quill, 'quill.writer(doc)');
-		requireLocalDoc(doc, 'quill.writer(doc)');
+		requireLocalBind(quill, doc, 'quill.writer(doc)');
 		this.#quill = quill;
 		this.#doc = doc;
 	}
@@ -955,8 +966,7 @@ export class CardWriter {
 	 * @param {number} index the composable card's index
 	 */
 	constructor(quill, doc, index) {
-		requireLocalQuill(quill, 'writer.card(index)');
-		requireLocalDoc(doc, 'writer.card(index)');
+		requireLocalBind(quill, doc, 'writer.card(index)');
 		this.#quill = quill;
 		this.#doc = doc;
 		this.#index = index;
@@ -1035,8 +1045,7 @@ export class DocumentReader {
 	 * @param {Document} doc the document to read, held by reference (not owned)
 	 */
 	constructor(quill, doc) {
-		requireLocalQuill(quill, 'quill.reader(doc)');
-		requireLocalDoc(doc, 'quill.reader(doc)');
+		requireLocalBind(quill, doc, 'quill.reader(doc)');
 		this.#quill = quill;
 		this.#doc = doc;
 	}
@@ -1103,8 +1112,7 @@ export class CardReader {
 	 * @param {number} index the composable card's index
 	 */
 	constructor(quill, doc, index) {
-		requireLocalQuill(quill, 'reader.card(index)');
-		requireLocalDoc(doc, 'reader.card(index)');
+		requireLocalBind(quill, doc, 'reader.card(index)');
 		this.#quill = quill;
 		this.#doc = doc;
 		this.#index = index;

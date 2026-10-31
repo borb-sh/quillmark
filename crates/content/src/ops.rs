@@ -1481,69 +1481,28 @@ mod tests {
     }
 
     #[test]
-    fn apply_mark_ops_remove_punches_hole() {
-        let mut rt = from_markdown("abcdef").unwrap().content;
-        rt.apply_mark_ops(&[MarkOp::Add {
-            start: 0,
-            end: 6,
-            kind: MarkKind::Strong,
-        }])
-        .unwrap();
-        rt.apply_mark_ops(&[MarkOp::Remove {
-            start: 2,
-            end: 4,
-            kind: MarkKind::Strong,
-        }])
-        .unwrap();
-        let strong: Vec<_> = rt
-            .marks
-            .iter()
-            .filter(|m| matches!(m.kind, MarkKind::Strong))
-            .map(|m| (m.start, m.end))
-            .collect();
-        assert_eq!(strong, vec![(0, 2), (4, 6)]);
-    }
-
-    #[test]
-    fn apply_mark_ops_remove_at_edge_leaves_no_zero_width() {
-        let mut rt = from_markdown("abcdef").unwrap().content;
-        rt.apply_mark_ops(&[MarkOp::Add {
-            start: 0,
-            end: 6,
-            kind: MarkKind::Strong,
-        }])
-        .unwrap();
-        rt.apply_mark_ops(&[MarkOp::Remove {
-            start: 0,
-            end: 2,
-            kind: MarkKind::Strong,
-        }])
-        .unwrap();
-        let strong: Vec<_> = rt
-            .marks
-            .iter()
-            .filter(|m| matches!(m.kind, MarkKind::Strong))
-            .map(|m| (m.start, m.end))
-            .collect();
-        assert_eq!(strong, vec![(2, 6)]);
-    }
-
-    #[test]
-    fn apply_mark_ops_remove_covering_range_drops_mark() {
-        let mut rt = from_markdown("abcdef").unwrap().content;
-        rt.apply_mark_ops(&[MarkOp::Add {
-            start: 2,
-            end: 4,
-            kind: MarkKind::Emph,
-        }])
-        .unwrap();
-        rt.apply_mark_ops(&[MarkOp::Remove {
-            start: 0,
-            end: 6,
-            kind: MarkKind::Emph,
-        }])
-        .unwrap();
-        assert!(!rt.marks.iter().any(|m| matches!(m.kind, MarkKind::Emph)));
+    fn apply_mark_ops_remove_trims_splits_or_drops_the_mark() {
+        use MarkKind::{Emph, Strong};
+        // (added span, removed span, kind, remaining spans of that kind)
+        let cases = [
+            ((0, 6), (2, 4), Strong, vec![(0, 2), (4, 6)]), // hole
+            ((0, 6), (0, 2), Strong, vec![(2, 6)]),         // edge: no zero-width remnant
+            ((2, 4), (0, 6), Emph, vec![]),                 // covered: dropped
+        ];
+        for ((a0, a1), (r0, r1), kind, want) in cases {
+            let mut rt = from_markdown("abcdef").unwrap().content;
+            rt.apply_mark_ops(&[MarkOp::Add { start: a0, end: a1, kind: kind.clone() }])
+                .unwrap();
+            rt.apply_mark_ops(&[MarkOp::Remove { start: r0, end: r1, kind: kind.clone() }])
+                .unwrap();
+            let got: Vec<_> = rt
+                .marks
+                .iter()
+                .filter(|m| m.kind == kind)
+                .map(|m| (m.start, m.end))
+                .collect();
+            assert_eq!(got, want, "add {a0}..{a1} remove {r0}..{r1}");
+        }
     }
 
     #[test]

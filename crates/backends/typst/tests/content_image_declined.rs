@@ -7,11 +7,10 @@
 use quillmark_core::{
     backend::Backend,
     error::{Diagnostic, Severity},
-    quill::{FileTreeNode, Quill},
+    quill::Quill,
     types::{OutputFormat, RenderOptions},
 };
 use quillmark_typst::TypstBackend;
-use std::collections::HashMap;
 
 mod common;
 use common::content;
@@ -51,23 +50,10 @@ const LOGO: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" heigh
 viewBox="0 0 16 16"><rect width="16" height="16" fill="blue"/></svg>"#;
 
 fn quill() -> Quill {
-    let mut root = FileTreeNode::Directory {
-        files: HashMap::new(),
-    };
-    for (path, contents) in [
-        ("Quill.yaml", YAML.as_bytes()),
-        ("plate.typ", PLATE.as_bytes()),
-        ("assets/logo.svg", LOGO),
-    ] {
-        root.insert(
-            path,
-            FileTreeNode::File {
-                contents: contents.to_vec(),
-            },
-        )
-        .expect("insert quill file");
-    }
-    Quill::from_tree(root).expect("load quill")
+    common::quill(
+        YAML,
+        &[("plate.typ", PLATE.as_bytes()), ("assets/logo.svg", LOGO)],
+    )
 }
 
 fn declines(warnings: &[Diagnostic]) -> Vec<&Diagnostic> {

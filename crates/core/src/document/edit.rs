@@ -303,6 +303,18 @@ impl EditError {
         }
     }
 
+    /// This error as a [`Diagnostic`] under its [`code`](Self::code) and
+    /// [`args`](Self::args), anchored at `path` when given.
+    pub fn to_diagnostic(&self, path: Option<DocPath>) -> Diagnostic {
+        let diagnostic = Diagnostic::new(crate::error::Severity::Error, self.to_string())
+            .with_code(self.code().to_string())
+            .with_args(self.args());
+        match path {
+            Some(path) => diagnostic.with_path(path.to_string()),
+            None => diagnostic,
+        }
+    }
+
     /// The [`DocPath`] this error anchors to, relative to
     /// `base`: the card root the mutator ran against, empty for a card built
     /// before placement.

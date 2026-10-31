@@ -24,7 +24,15 @@ import {
   formatDiagnostic,
 } from '@quillmark-wasm'
 import * as renderBuild from '@quillmark-wasm'
-import { makeQuill, makeCard, expectEditCode, initBuildSync } from './test-helpers.js'
+import {
+  makeQuill,
+  makeCard,
+  expectEditCode,
+  initBuildSync,
+  TEST_PLATE,
+  TEST_MARKDOWN,
+  MD_WITH_CARD,
+} from './test-helpers.js'
 
 initBuildSync(renderBuild, 'render')
 
@@ -35,25 +43,6 @@ const field = (card, key) =>
 /** True when a field key is absent from a card's payloadItems. */
 const hasField = (card, key) =>
   card.payloadItems.some((i) => i.type === 'field' && i.key === key)
-
-const TEST_MARKDOWN = `~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Test Document
-author: Test Author
-~~~
-
-# Hello World
-
-This is a test document.`
-
-const TEST_PLATE = `#import "@local/quillmark-helper:0.2.0" as qm
-#let title = qm.data.title
-#let body = qm.data.at("$body")
-
-= #title
-
-#body`
 
 describe('Document.fromMarkdown', () => {
   it('reads quillRef, payload fields, body content, cards and warnings', () => {
@@ -72,21 +61,7 @@ describe('Document.fromMarkdown', () => {
   })
 
   it('should expose card fields and body', () => {
-    const md = `~~~card-yaml
-$quill: test_quill
-$kind: main
-~~~
-
-Global body.
-
-~~~card-yaml
-$kind: note
-foo: bar
-~~~
-
-Card body.
-`
-    const doc = Document.fromMarkdown(md)
+    const doc = Document.fromMarkdown(MD_WITH_CARD)
 
     expect(doc.cards.length).toBe(1)
     expect(doc.cards[0].kind).toBe('note')
@@ -991,21 +966,6 @@ describe('Document.equals / clone', () => {
 })
 
 describe('Document editor surface: storeField / removeField / overwrite / revise (card)', () => {
-  const MD_WITH_CARD = `~~~card-yaml
-$quill: test_quill
-$kind: main
-~~~
-
-Body.
-
-~~~card-yaml
-$kind: note
-foo: bar
-~~~
-
-Card body.
-`
-
   it('storeField / removeField take a card address', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
     doc.storeField({ card: 0, field: 'content' }, 'hello')

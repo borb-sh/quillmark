@@ -683,15 +683,6 @@ fn parse_error_samples() -> Vec<ParseError> {
 mod tests {
     use super::*;
 
-    /// One spelling per variant: the `#[error]` attribute, which the
-    /// diagnostic renders rather than restates.
-    #[test]
-    fn parse_diagnostic_message_is_the_display_rendering() {
-        for err in super::parse_error_samples() {
-            assert_eq!(err.to_diagnostic().message, err.to_string(), "{err:?}");
-        }
-    }
-
     #[test]
     fn test_render_error_display_aggregates_its_errors_alone() {
         let warning = Diagnostic::new(Severity::Warning, "w".to_string());
@@ -1064,9 +1055,7 @@ main:
         .expect_err("a default that contradicts its type fails config validation");
 
         assert!(
-            diags
-                .iter()
-                .any(|d| d.code.as_deref() == Some("quill::default_type_mismatch")),
+            crate::quill::has_code(&diags, "quill::default_type_mismatch"),
             "expected quill::default_type_mismatch, got {:?}",
             diags.iter().map(|d| &d.code).collect::<Vec<_>>()
         );

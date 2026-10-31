@@ -149,7 +149,7 @@ stored   = doc.to_stored()
 restored = Document.from_stored(stored)
 
 Document.storage_version_of(blob)                # raw tag, even one this build does not read; None when not a DTO
-Document.current_storage_version()               # newest tag this build writes; a row holding no vocabulary 0.130 lacks keeps the tag before it
+Document.current_storage_version()               # newest tag this build writes; a row holding no vocabulary the previous tag lacks keeps the previous tag
 
 Document.markdown_rules()                        # Quillmark Markdown rules (static text)
 Document.quill_ref_hint()                        # $quill reference grammar (static text)
@@ -190,21 +190,12 @@ interpreted value is the reader's (`quill.reader(doc).get(...)`).
 
 ## Schema model
 
-A field declares no `required:` key on `FieldSchema`: nothing is required.
-
-**`default:`** — what an unanswered field renders. With one, the render path
-uses it when the document omits the field, and the authoring schema carries it
-as the field's `default`. Without one, an absent field blank-fills.
-
-An unanswered field draws no diagnostic. Partial documents are accepted, and
-`engine.render(quill, doc)` raises only for malformed input.
+A field declares no `required:` key and an unanswered field draws no diagnostic; [`default:`](https://quillmark.dev/quills/quill-yaml-reference/#default) is what an unanswered field renders.
 
 ## Error contract
 
 A Quillmark refusal raises `QuillmarkError`, carrying a non-empty `.diagnostics`
-list of `Diagnostic` objects, the first an error. A failed Typst render also
-carries the quill's load warnings after its errors, so read each entry's
-`severity`. An argument the binding cannot read at all — a
+list of `Diagnostic` objects, the first an error; [Error Handling](https://quillmark.dev/integration/error-handling/) has the shape, the code namespaces and the warnings that follow. An argument the binding cannot read at all — a
 non-finite float, a value with no JSON form, a malformed `path` sequence —
 raises `ValueError` before core is called, described by no diagnostic.
 
@@ -216,12 +207,6 @@ except QuillmarkError as exc:
         print(d.severity, d.code, d.message, d.path)
         print(str(d))   # canonical pretty-printed text (matches CLI / WASM)
 ```
-
-Mutator failures (invalid field names, kind names, out-of-range indices) carry a
-namespaced `edit::*` `code` on `diagnostics[0]`: `edit::invalid_field_name`,
-`edit::unknown_field`, `edit::index_out_of_range`, `edit::field_coercion_failed`,
-…. `insert_card` refuses a card's contents under those same codes.
-Route on `diagnostics[0].code`, never on message text.
 
 Card and page indices count from the front, so a negative one addresses nothing
 rather than the last card or page: it takes the same answer as an index past the

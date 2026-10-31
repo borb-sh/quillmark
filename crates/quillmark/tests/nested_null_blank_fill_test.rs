@@ -4,29 +4,12 @@
 //! array elements.
 
 use quillmark::Document;
-use std::fs;
-use tempfile::TempDir;
 
 mod common;
 
-fn create_test_quill(temp_dir: &TempDir, quill_yaml: &str) -> std::path::PathBuf {
-    let quill_path = temp_dir.path().join("test_quill");
-    fs::create_dir_all(&quill_path).unwrap();
-    fs::write(quill_path.join("Quill.yaml"), quill_yaml).unwrap();
-    fs::write(
-        quill_path.join("plate.typ"),
-        "#import \"@local/quillmark-helper:0.2.0\" as qm\n= Document\n#qm.data",
-    )
-    .unwrap();
-    quill_path
-}
-
 #[test]
 fn nested_nulls_blank_fill_in_the_plate_data() {
-    let temp_dir = TempDir::new().unwrap();
-    let quill_path = create_test_quill(
-        &temp_dir,
-        r#"quill:
+    let quill_yaml = r#"quill:
   name: "test_quill"
   version: "1.0.0"
   backend: "typst"
@@ -42,9 +25,14 @@ main:
     tags:
       type: array
       items: { type: text }
-"#,
-    );
-    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
+"#;
+    let quill = common::quill_from_files(&[
+        ("Quill.yaml", quill_yaml),
+        (
+            "plate.typ",
+            "#import \"@local/quillmark-helper:0.2.0\" as qm\n= Document\n#qm.data",
+        ),
+    ]);
     let md = "~~~card-yaml\n$quill: test_quill\n$kind: main\n\
               addr:\n  street:\n  city: Pittsburgh\n\
               tags:\n  - alpha\n  - null\n  - gamma\n~~~\n\nbody\n";

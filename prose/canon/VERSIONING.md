@@ -22,21 +22,7 @@ is refused, as is a `$quill` reference whose `@` carries no selector.
 
 ## Bump Classes
 
-A bump is ranked by what it costs to migrate a document stored against the
-previous version:
-
-| Bump | A stored document | Changes |
-|------|-------------------|---------|
-| **PATCH** | needs no change | Fixes, presentation changes, a new optional field, a new enum member, a `values:` reorder, a `text` or `richtext` field's `multiline` from `false` to `true` |
-| **MINOR** | migrates mechanically | A field renamed, a type changed with a lossless mapping (`date` → `datetime`), an enum member renamed |
-| **MAJOR** | migrates with loss of data or function | A field or enum member removed with no counterpart, a field's meaning changed |
-
-This is not standard semver. The compatibility boundary is `MAJOR.MINOR`, the
-same below and above `1.0.0`: every patch in one `MAJOR.MINOR` series reads the
-documents an earlier patch stored unchanged, and a MINOR bump needs each one
-rewritten, mechanically. The quill's seeded, empty and example documents, and
-a document `from_authoring` builds, pin `name@MAJOR.MINOR`
-(`seed::main_reference`).
+A bump is ranked by what it costs to migrate a document stored against the previous version. The PATCH, MINOR and MAJOR table and the `MAJOR.MINOR` compatibility boundary are in [Quill Versioning](../../docs/quills/versioning.md#choosing-the-bump). The quill's seeded, empty and example documents, and a document `from_authoring` builds, pin `name@MAJOR.MINOR` (`seed::main_reference`).
 
 **A `values:` reorder is render-safe.** A field's blank is `""`, not `values[0]`,
 so reordering changes no document's rendered output. It still changes picker

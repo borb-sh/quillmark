@@ -2,17 +2,12 @@
 //! the stamped PDF: each widget's `/DA` and `/Q`, and the `/DR` `/Font` the
 //! `/DA` names resolve against.
 
-use quillmark_core::{backend::Backend, error::RenderError, types::{OutputFormat, RenderOptions}};
-use quillmark_typst::TypstBackend;
+use quillmark_core::error::RenderError;
 
 mod common;
-use common::host_with_plate as source_with_plate;
 
 fn compile(plate: &str) -> Result<Vec<u8>, RenderError> {
-    let source = source_with_plate(plate);
-    let session = TypstBackend::default().open(&source, &serde_json::json!({}), common::test_date())?;
-    let result = session.render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))?;
-    Ok(result.artifacts[0].bytes.clone())
+    common::compile(plate, &serde_json::json!({}))
 }
 
 /// The parsed document, its AcroForm dict, and a `/T` → widget map.
@@ -23,27 +18,7 @@ fn acroform(
     lopdf::Dictionary,
     std::collections::HashMap<String, lopdf::Dictionary>,
 ) {
-    let pdf = compile(plate).expect("compile ok");
-    let doc = lopdf::Document::load_mem(&pdf).expect("reparse");
-    let cat = doc.catalog().expect("catalog");
-    let af = doc
-        .get_object(cat.get(b"AcroForm").unwrap().as_reference().unwrap())
-        .unwrap()
-        .as_dict()
-        .unwrap()
-        .clone();
-    let mut by_name = std::collections::HashMap::new();
-    for f in af.get(b"Fields").unwrap().as_array().unwrap() {
-        let w = doc
-            .get_object(f.as_reference().unwrap())
-            .unwrap()
-            .as_dict()
-            .unwrap()
-            .clone();
-        let name = String::from_utf8_lossy(w.get(b"T").unwrap().as_str().unwrap()).into_owned();
-        by_name.insert(name, w);
-    }
-    (doc, af, by_name)
+    common::acroform_of(&compile(plate).expect("compile ok"))
 }
 
 fn da(w: &lopdf::Dictionary) -> String {

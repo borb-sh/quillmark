@@ -34,7 +34,7 @@ The diagnostic's `message` is the variant's `Display` rendering, so the
 `#[error]` attribute is the one place a variant's English is spelled and a Rust
 caller formatting `{err}` reads the same sentence a binding reads off `message`.
 
-**`YamlError`**: the one adapter every `serde-saphyr` error passes through. Sanitizes the message (the parser appends its own Rust API names (`from_multiple`, `DuplicateKeyPolicy`) which `yaml_hints::enrich_yaml_error` strips), derives the hint, and carries the 1-indexed line/column the parser located; `to_diagnostic(code, file)` renders all three. The emit side has no input to point at, so it carries neither position nor hint.
+**`YamlError`**: the one adapter every `serde-saphyr` error passes through. Sanitizes the message (the parser appends its own Rust API names (`from_str_multiple`, `DuplicateKeyPolicy`) which `yaml_hints::enrich_yaml_error` strips), derives the hint, and carries the 1-indexed line/column the parser located; `to_diagnostic(code, file)` renders all three. The emit side has no input to point at, so it carries neither position nor hint.
 
 It exists so no public signature names `serde-saphyr`. A third-party error type in a published signature chains this crate's major to that crate's, and to the choice of parser at all; the workspace pins `~1.0` and keeps the parser an implementation detail. That promise covers the message as much as the type, which is why the sanitizer is inside the adapter rather than beside it.
 

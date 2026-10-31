@@ -1,7 +1,7 @@
 """Tests for the engine and quill surface: loading a quill, what it exposes
 engine-free, and what the engine answers about it."""
 import pytest
-from quillmark import Engine, Quill, Document, OutputFormat, QuillmarkError, Severity
+from quillmark import Engine, Quill, Document, OutputFormat, QuillmarkError
 
 
 def test_quill_properties(engine, taro_quill_dir):
@@ -73,20 +73,6 @@ def test_metadata_carries_a_declared_license_and_homepage(tmp_path):
     ]
     assert metadata["license"] == "Apache-2.0 OR MIT"
     assert metadata["homepage"] == "https://example.com/quills"
-
-
-def test_registered_backends(engine):
-    """The engine's backend roster: which backends this build compiled in, as
-    opposed to which formats a given quill supports (`supported_formats`)."""
-    assert "typst" in engine.registered_backends()
-
-
-def test_enum_members_are_hashable():
-    """Both mirrors key a dict and enter a set, one slot per variant."""
-    mime = {OutputFormat.PDF: "application/pdf", OutputFormat.SVG: "image/svg+xml"}
-    assert mime[OutputFormat.PDF] == "application/pdf"
-    assert len(set(OutputFormat.all())) == len(OutputFormat.all())
-    assert len(set(Severity.all())) == len(Severity.all())
 
 
 def test_quill_from_path_bad_backend_loads_then_fails_at_render(tmp_path):

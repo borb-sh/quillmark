@@ -1473,14 +1473,7 @@ mod tests {
     use crate::quill::test_date;
     use serde_json::json;
 
-    fn field(yaml: &str) -> FieldSchema {
-        let value = QuillValue::from_yaml_str(yaml).unwrap();
-        FieldSchema::from_quill_value("field".to_string(), &value).unwrap()
-    }
-
-    fn text(s: &str) -> serde_json::Value {
-        quillmark_content::serial::to_canonical_value(&quillmark_content::import::from_plaintext(s))
-    }
+    use crate::quill::{field, text};
 
     #[test]
     fn typed_dict_preserves_undeclared_keys() {

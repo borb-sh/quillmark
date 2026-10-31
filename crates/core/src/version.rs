@@ -253,20 +253,35 @@ mod tests {
 
     #[test]
     fn test_version_parsing() {
-        let v = Version::from_str("2.1.0").unwrap();
-        assert_eq!(v.major, 2);
-        assert_eq!(v.minor, 1);
-        assert_eq!(v.patch, 0);
-        assert_eq!(v.to_string(), "2.1.0");
+        for text in ["2.1.0", "2.1"] {
+            let v = Version::from_str(text).unwrap();
+            assert_eq!(v, Version::new(2, 1, 0), "{text}");
+            assert_eq!(v.to_string(), "2.1.0", "{text}");
+        }
     }
 
     #[test]
-    fn test_version_parsing_two_segment_fills_patch_zero() {
-        let v = Version::from_str("2.1").unwrap();
-        assert_eq!(v.major, 2);
-        assert_eq!(v.minor, 1);
-        assert_eq!(v.patch, 0);
-        assert_eq!(v.to_string(), "2.1.0");
+    fn version_order_is_numeric_by_field() {
+        assert!(Version::new(1, 10, 0) > Version::new(1, 9, 9));
+    }
+
+    /// The grammar `quill_ref_hint` promises is plain digits, and `Display`
+    /// never writes a sign back. `memo@` is a typo for `memo`, not a spelling
+    /// of it: an absent selector matches any version, a written one has to say
+    /// something. The bare name is the only way to match any version, so
+    /// `@latest` is refused and no second spelling of `Any` exists to be
+    /// erased by a round trip.
+    #[test]
+    fn malformed_selectors_are_refused() {
+        for text in ["memo@+2.+1", "memo@", "memo@latest"] {
+            assert!(QuillReference::from_str(text).is_err(), "{text}");
+        }
+        for text in ["@+2.1", "@", "@latest"] {
+            assert!(VersionSelector::from_str(text).is_err(), "{text}");
+        }
+        for text in ["+2.1", "2.+1", "2.1.+0"] {
+            assert!(Version::from_str(text).is_err(), "{text}");
+        }
     }
 
     #[test]
@@ -276,40 +291,6 @@ mod tests {
         assert!(Version::from_str("abc").is_err());
         assert!(Version::from_str("2.x").is_err());
         assert!(Version::from_str("2.1.x").is_err());
-    }
-
-    /// The grammar `quill_ref_hint` promises is plain digits, and `Display`
-    /// never writes a sign back.
-    #[test]
-    fn a_signed_segment_is_not_a_version() {
-        assert!(Version::from_str("+2.1").is_err());
-        assert!(Version::from_str("2.+1").is_err());
-        assert!(Version::from_str("2.1.+0").is_err());
-        assert!(QuillReference::from_str("memo@+2.+1").is_err());
-        assert!(VersionSelector::from_str("@+2.1").is_err());
-    }
-
-    /// `memo@` is a typo for `memo`, not a spelling of it: an absent selector
-    /// matches any version, a written one has to say something.
-    #[test]
-    fn a_trailing_at_is_not_a_selector() {
-        assert!(QuillReference::from_str("memo@").is_err());
-        assert!(VersionSelector::from_str("@").is_err());
-    }
-
-    #[test]
-    fn test_version_ordering() {
-        let v1_0_0 = Version::new(1, 0, 0);
-        let v1_0_1 = Version::new(1, 0, 1);
-        let v1_1_0 = Version::new(1, 1, 0);
-        let v2_0_0 = Version::new(2, 0, 0);
-        let v2_1_0 = Version::new(2, 1, 0);
-
-        assert!(v1_0_0 < v1_0_1);
-        assert!(v1_0_1 < v1_1_0);
-        assert!(v1_1_0 < v2_0_0);
-        assert!(v2_0_0 < v2_1_0);
-        assert_eq!(v1_0_0, v1_0_0);
     }
 
     #[test]
@@ -344,15 +325,6 @@ mod tests {
         assert!(any.matches(v3_0_0));
     }
 
-
-    /// The bare name is the only way to match any version: `@latest` is
-    /// refused, so no second spelling of `Any` exists to be erased by a round
-    /// trip.
-    #[test]
-    fn at_latest_is_not_a_selector() {
-        assert!(QuillReference::from_str("memo@latest").is_err());
-        assert!(VersionSelector::from_str("@latest").is_err());
-    }
 
     #[test]
     fn test_quill_reference_invalid_names() {

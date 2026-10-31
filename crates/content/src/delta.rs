@@ -798,17 +798,13 @@ mod tests {
     }
 
     #[test]
-    fn diff_apply_round_trips() {
-        let d = diff("the quick brown fox", "the slow brown fox");
-        assert_eq!(d.try_apply("the quick brown fox").unwrap(), "the slow brown fox");
-    }
-
-    #[test]
-    fn map_pos_insertion() {
+    fn map_pos_across_an_insertion() {
         let d = diff("abcdef", "abcXYdef");
         assert_eq!(d.try_apply("abcdef").unwrap(), "abcXYdef");
         assert_eq!(d.map_pos(2, Assoc::After), 2);
         assert_eq!(d.map_pos(4, Assoc::Before), 6);
+        assert_eq!(d.map_pos(3, Assoc::After), 5);
+        assert_eq!(d.map_pos(3, Assoc::Before), 3);
     }
 
     #[test]
@@ -1003,13 +999,6 @@ mod tests {
                 .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")),
             "anchor wrongly re-homed onto surviving unrelated text"
         );
-    }
-
-    #[test]
-    fn map_pos_after_moves_past_boundary_insertion() {
-        let d = diff("abcdef", "abcXYdef");
-        assert_eq!(d.map_pos(3, Assoc::After), 5);
-        assert_eq!(d.map_pos(3, Assoc::Before), 3);
     }
 
     #[test]

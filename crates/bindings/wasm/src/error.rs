@@ -35,6 +35,11 @@ impl WasmError {
     }
 }
 
+/// The JS `Error` for anything that converts to a [`WasmError`].
+pub fn js_err(error: impl Into<WasmError>) -> JsValue {
+    error.into().to_js_value()
+}
+
 impl From<ParseError> for WasmError {
     fn from(error: ParseError) -> Self {
         WasmError {
