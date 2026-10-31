@@ -38,17 +38,14 @@ pub(crate) fn enrich_yaml_error(raw: &str, content: &str) -> EnrichedYamlError {
 fn sanitize_message(raw: &str) -> String {
     // The leading `;` / `,` goes too, so no trailing separator is left.
     const STRIPS: &[&str] = &[
-        "; use from_multiple_with_options",
-        "; use from_multiple or from_multiple_with_options",
-        ", use from_multiple_with_options",
-        ", use from_multiple or from_multiple_with_options",
+        "; use from_str_multiple or from_str_multiple_with_options",
+        ", use from_str_multiple or from_str_multiple_with_options",
+        " use from_str_multiple or from_str_multiple_with_options",
         "; set DuplicateKeyPolicy in Options if acceptable",
         ", set DuplicateKeyPolicy in Options if acceptable",
-        " use from_multiple or from_multiple_with_options",
-        " use from_multiple_with_options",
         " set DuplicateKeyPolicy in Options if acceptable",
         " (strict mode expects true/false)",
-        " rejected by reject_non_finite_typeless_float",
+        " rejected by the configured policy",
     ];
 
     // The parser's snippet repeats its message under the caret.
@@ -477,10 +474,14 @@ mod tests {
 
     #[test]
     fn strips_from_multiple_advice() {
-        let raw =
-            "multiple YAML documents detected; use from_multiple or from_multiple_with_options";
-        let out = sanitize_message(raw);
-        assert_eq!(out, "multiple YAML documents detected");
+        let content = "a: 1\n---\nb: 2\n";
+        let raw = crate::value::parse_yaml::<serde_json::Value>(content)
+            .expect_err("a second document is refused")
+            .to_string();
+        let out = sanitize_message(&raw);
+        let first = out.lines().next().unwrap_or_default();
+        assert!(first.ends_with("multiple YAML documents detected"), "{out}");
+        assert!(!out.contains("from_"), "Rust API name leaked: {out}");
     }
 
     #[test]
@@ -519,7 +520,7 @@ mod tests {
                 .to_string();
             let enriched = enrich_yaml_error(&raw, content);
             assert!(
-                !enriched.message.contains("reject_non_finite_typeless_float"),
+                !enriched.message.contains("rejected by"),
                 "{}",
                 enriched.message
             );
