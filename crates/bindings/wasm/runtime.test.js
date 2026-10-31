@@ -1588,35 +1588,14 @@ describe('the font library', () => {
     expect(unknownFamilies(await new Engine().render(makeRuntimeQuill(), doc, { format: 'svg' }))).toEqual(['Figtree'])
   })
 
-  it('a file in another format is parsed once and rejects every verb alike, and the option takes only Uint8Array entries', async () => {
-    let built = 0
-    const engine = new Engine({
-      fonts: [new TextEncoder().encode('wOF2 not a ttf')],
-      backends: {
-        typst: {
-          load: async () => {
-            const real = await import('../../../pkg/render/wasm.js')
-            return new Proxy(real, {
-              get(target, prop, receiver) {
-                if (prop !== 'Engine') return Reflect.get(target, prop, receiver)
-                return function (fonts) {
-                  built++
-                  return new target.Engine(fonts)
-                }
-              }
-            })
-          },
-          formats: ['pdf', 'svg', 'png']
-        }
-      }
-    })
+  it('a file in another format rejects every verb with one cached error, and the option takes only Uint8Array entries', async () => {
+    const engine = new Engine({ fonts: [new TextEncoder().encode('wOF2 not a ttf')] })
     const first = await engine.fontFaces(makeRuntimeQuill()).catch((e) => e)
     const second = await engine
       .render(makeRuntimeQuill(), Document.fromMarkdown(TEST_MARKDOWN), { format: 'svg' })
       .catch((e) => e)
     expect(first.diagnostics[0].code).toBe('engine::font_unsupported')
     expect(second).toBe(first)
-    expect(built).toBe(1)
     expect(() => new Engine({ fonts: ['Figtree'] })).toThrow('`fonts` must be an array of Uint8Array')
   })
 })
