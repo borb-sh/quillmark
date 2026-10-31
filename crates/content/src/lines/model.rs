@@ -1268,12 +1268,13 @@ pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
     }
 }
 
-/// Cut each formatting mark at every `\n` in `chars`, keeping the pieces
-/// between them: prose export closes a mark at a line's end and reopens it on
-/// the next, so in prose a mark never spans a line join. Zero-width pieces are
-/// left for [`normalize_marks`] to drop.
+/// Cut each formatting mark at every `\n` and hard break in `chars`, keeping
+/// the pieces between them: prose export closes a mark at a line's end and
+/// reopens it on the next, so in prose a mark never spans a line join. Zero-width
+/// pieces are left for [`normalize_marks`] to drop.
 pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i).collect();
+    let breaks: Vec<Usv> =
+        chars.iter().enumerate().filter(|(_, c)| matches!(**c, '\n' | crate::model::HARD_BREAK)).map(|(i, _)| i).collect();
     let within = |m: &Mark| {
         let lo = breaks.partition_point(|&b| b < m.start);
         let hi = breaks.partition_point(|&b| b < m.end);
