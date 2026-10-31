@@ -28,12 +28,9 @@ use quillmark_pdf::{stamp, AppearanceStates, FieldSpec, StampOptions};
 use {
     hayro::hayro_interpret::{font::FontQuery, InterpreterSettings},
     hayro::hayro_syntax::Pdf as HayroPdf,
-    hayro::hayro_interpret::util::TransformExt,
-    hayro::kurbo::Affine,
     hayro::vello_cpu::color::palette::css::WHITE,
-    hayro::vello_cpu::peniko::ImageAlphaType,
-    hayro::vello_cpu::{Pixmap, RasterizerSettings, RenderContext, Resources, TargetInit},
-    hayro::{render_into, RenderCache, RenderSettings},
+    hayro::vello_cpu::Pixmap,
+    hayro::{render, RenderCache, RenderSettings},
     std::sync::Arc,
 };
 
@@ -322,7 +319,11 @@ impl SessionHandle for AcroformSession {
         };
         let w = pixmap.width() as u32;
         let h = pixmap.height() as u32;
-        let bytes = pixmap.take_rgba8(ImageAlphaType::Alpha);
+        let bytes = pixmap
+            .take_unpremultiplied()
+            .into_iter()
+            .flat_map(|p| [p.r, p.g, p.b, p.a])
+            .collect();
         Ok(Some((w, h, bytes)))
     }
 
@@ -385,25 +386,16 @@ impl AcroformSession {
         // of at least one; `check_raster` bounds each side within `u16`.
         let (width, height) = quillmark_core::backend::raster_size(scale, width_pt, height_pt);
         let (width, height) = (width as u16, height as u16);
-        let mut ctx = RenderContext::new(width, height);
-        let transform =
-            Affine::scale(f64::from(scale)) * p.initial_transform(true).to_kurbo();
-        render_into(
+        let pixmap = render(
             p,
             &RenderCache::new(),
             &standard_font_settings(),
-            &RenderSettings::default(),
-            &mut ctx,
-            transform,
-        );
-        ctx.flush();
-        let mut pixmap = Pixmap::new(width, height);
-        ctx.render_with(
-            &mut pixmap,
-            &mut Resources::default(),
-            RasterizerSettings {
-                target_init: TargetInit::Clear(WHITE),
-                ..Default::default()
+            &RenderSettings {
+                x_scale: scale,
+                y_scale: scale,
+                width: Some(width),
+                height: Some(height),
+                bg_color: WHITE,
             },
         );
         Ok(Some(pixmap))
