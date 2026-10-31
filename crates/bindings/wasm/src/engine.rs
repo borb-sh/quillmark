@@ -2999,17 +2999,8 @@ fn edit_error_to_js(
     err: &quillmark_core::document::EditError,
     base: &quillmark_core::path::DocPath,
 ) -> JsValue {
-    let mut diagnostic = quillmark_core::error::Diagnostic::new(
-        quillmark_core::error::Severity::Error,
-        err.to_string(),
-    )
-    .with_code(err.code().to_string())
-    .with_args(err.args());
-    if let Some(path) = err.doc_path(base) {
-        diagnostic = diagnostic.with_path(path.to_string());
-    }
     WasmError {
-        diagnostics: vec![diagnostic],
+        diagnostics: vec![err.to_diagnostic(err.doc_path(base))],
     }
     .to_js_value()
 }
@@ -3029,17 +3020,9 @@ fn edit_errors_to_js(
     errors: Vec<(String, quillmark_core::document::EditError)>,
     base: &quillmark_core::path::DocPath,
 ) -> JsValue {
-    let diagnostics: Vec<quillmark_core::error::Diagnostic> = errors
+    let diagnostics = errors
         .into_iter()
-        .map(|(name, err)| {
-            quillmark_core::error::Diagnostic::new(
-                quillmark_core::error::Severity::Error,
-                err.to_string(),
-            )
-            .with_code(err.code().to_string())
-            .with_args(err.args())
-            .with_path(base.field(&name).to_string())
-        })
+        .map(|(name, err)| err.to_diagnostic(Some(base.field(&name))))
         .collect();
     WasmError { diagnostics }.to_js_value()
 }

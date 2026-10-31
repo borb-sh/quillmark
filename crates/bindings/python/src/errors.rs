@@ -54,13 +54,7 @@ pub fn page_indices(pages: Vec<isize>) -> PyResult<Vec<usize>> {
 /// the error anchors at relative to `base`: the card root the mutator ran
 /// against, empty for a card built before placement.
 pub fn convert_edit_error(err: EditError, base: &quillmark_core::path::DocPath) -> PyErr {
-    let mut diagnostic =
-        Diagnostic::new(Severity::Error, err.to_string())
-            .with_code(err.code().to_string())
-            .with_args(err.args());
-    if let Some(path) = err.doc_path(base) {
-        diagnostic = diagnostic.with_path(path.to_string());
-    }
+    let diagnostic = err.to_diagnostic(err.doc_path(base));
     let message = diagnostic.message.clone();
     raise_with_diagnostics(vec![diagnostic], message)
 }
@@ -81,12 +75,7 @@ pub fn convert_edit_errors(
 ) -> PyErr {
     let diags: Vec<Diagnostic> = errors
         .into_iter()
-        .map(|(name, err)| {
-            Diagnostic::new(Severity::Error, err.to_string())
-                .with_code(err.code().to_string())
-                .with_args(err.args())
-                .with_path(base.field(&name).to_string())
-        })
+        .map(|(name, err)| err.to_diagnostic(Some(base.field(&name))))
         .collect();
     raise_summarized(diags)
 }
