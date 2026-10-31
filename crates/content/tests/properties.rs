@@ -1154,3 +1154,59 @@ proptest! {
         prop_assert_eq!(merge_lines(&base, &ours, &theirs), merge_lines(&base, &theirs, &ours));
     }
 }
+
+mod model {
+    //! The content model over the line form: the migration is deterministic and
+    //! lowers back to what it read, and the wire is a byte and value fixed point.
+
+    use super::*;
+    use quillmark_content::markdown;
+    use quillmark_content::migrate::{from_lines, to_lines};
+    use quillmark_content::model::Content as V2;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(400))]
+
+        #[test]
+        fn migration_lowers_back_to_its_source(md in document()) {
+            let rt = from_markdown(&md).unwrap().content;
+            let v2 = from_lines(&rt);
+            prop_assert_eq!(v2.validate(), Ok(()), "invariants for {:?}", md);
+            prop_assert_eq!(&from_lines(&rt), &v2);
+            prop_assert_eq!(&to_lines(&v2), &rt, "lowering differs for {:?}", md);
+            prop_assert_eq!(from_lines(&to_lines(&v2)), v2);
+            prop_assert_eq!(markdown::to_markdown(&from_lines(&rt)), to_markdown(&rt));
+        }
+
+        #[test]
+        fn wire_fixed_point(md in document()) {
+            let v2 = markdown::from_markdown(&md).unwrap().content;
+            let json = v2.to_json();
+            let back = V2::from_json(&json).unwrap();
+            prop_assert_eq!(back.to_json(), json);
+            prop_assert_eq!(back, v2);
+        }
+
+        #[test]
+        fn a_v1_value_decodes_as_its_migration(md in document()) {
+            let rt = from_markdown(&md).unwrap().content;
+            let v1 = rt.to_canonical_json();
+            prop_assert_eq!(V2::from_json(&v1).unwrap(), from_lines(&rt));
+        }
+
+        #[test]
+        fn decode_never_panics(v in decode_json()) {
+            let _ = V2::from_value(&v);
+        }
+    }
+
+    #[test]
+    fn fixture_bodies_migrate_and_lower_back() {
+        for name in ["sample.md", "card_yaml_demo.md", "extended_metadata_demo.md"] {
+            let rt = from_markdown(&fixture_body(name)).unwrap();
+            let v2 = from_lines(&rt.content);
+            assert_eq!(v2.validate(), Ok(()), "{name}");
+            assert_eq!(to_lines(&v2), rt.content, "{name}");
+        }
+    }
+}

@@ -654,14 +654,17 @@ pub(crate) fn cell_events(src: &str) -> Vec<(Event<'_>, Range<usize>)> {
 }
 
 /// Whether a table writes as HTML: one holding more or fewer header rows than
-/// one, `widths`, a placement, or a cell's alignment or span, which a GFM pipe
-/// table has no spelling for.
+/// one, `widths`, a placement, a cell's alignment or span, or a cell of several
+/// paragraphs, which a GFM pipe table has no spelling for.
 pub(crate) fn writes_html(props: &Value) -> bool {
     let layout = TableLayout::of(props);
     layout.head != 1
         || layout.widths.is_some()
         || layout.align.is_some()
-        || crate::lines::serial::table_cell_values(props).any(|cell| cell_alignment(cell) != (None, None))
+        || crate::lines::serial::table_cell_values(props).any(|cell| {
+            cell_alignment(cell) != (None, None)
+                || cell.get("text").and_then(Value::as_str).is_some_and(|t| t.contains("\n\n"))
+        })
         || table_spans(props).iter().flatten().flatten().any(|span| *span != (1, 1))
 }
 

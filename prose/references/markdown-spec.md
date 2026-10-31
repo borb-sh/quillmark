@@ -673,11 +673,12 @@ table island. Export picks the spelling from what the island holds, never
 from how the source wrote it, so a plain `<table>` re-exports as pipes.
 
 **Pipes or HTML.** Export writes a pipe table exactly when the table has one
-header row and holds no `widths`, no placement, and no cell `align`, `valign`,
-`colspan` or `rowspan`. Column alignment rides the delimiter row, and a `<br>`
-in a cell is inline HTML GitHub renders, so neither forces HTML. Any other
-table writes as HTML, and one that loses its last such key writes as pipes
-again.
+header row and holds no `widths`, no placement, no cell `align`, `valign`,
+`colspan` or `rowspan`, and no cell of several paragraphs. Column alignment
+rides the delimiter row, and a `<br>` in a cell is inline HTML GitHub renders,
+so neither forces HTML. Any other table writes as HTML, and one that loses its
+last such key writes as pipes again. A cell's paragraphs are written apart by
+`<br><br>`, which reads back as a paragraph break in either spelling.
 
 ```markdown
 <table widths="1 2 2" aligns="left left right" align="center">
