@@ -59,7 +59,7 @@ spdx = "0.13.6"
 
 # The `.quill` bundle's deflate and CRC-32: both already in the render graph
 # through Typst, so the core artifact adds them and the render one adds nothing.
-miniz_oxide = "0.8.9"
+miniz_oxide = "0.9.1"
 crc32fast = "1.5"
 
 pulldown-cmark = "0.13.0"
