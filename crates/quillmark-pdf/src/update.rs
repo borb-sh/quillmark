@@ -3,13 +3,13 @@
 //! `/Producer`) and close it with one incremental-update append. The stamp
 //! supplies only the objects in between.
 
+use crate::FieldSpec;
 use crate::error::PdfError;
 use crate::reader::{
-    append_incremental_update, assert_unrotated_pages, err, find_dict_value, open_trailer,
-    read_info_source, walk_page_tree, write_trailer_tail, ObjectIndex, Page, UpdatedObject,
+    ObjectIndex, Page, UpdatedObject, append_incremental_update, assert_unrotated_pages,
+    find_dict_value, open_trailer, read_info_source, walk_page_tree, write_trailer_tail,
 };
 use crate::writer::apply_producer_stamp;
-use crate::FieldSpec;
 
 const CODE_PARSE: &str = "pdf::update_parse";
 
@@ -36,7 +36,7 @@ impl PdfUpdate {
     pub fn begin(idx: &ObjectIndex, producer: &str) -> Result<Self, PdfError> {
         let (xref_offset, trailer, catalog_id) = open_trailer(idx.bytes(), CODE_PARSE)?;
         if idx.value(trailer, "Encrypt").is_some() {
-            return Err(err(
+            return Err(PdfError::new(
                 "pdf::encrypted",
                 "PDF is encrypted; the stamp spine does not handle encrypted PDFs",
             ));
@@ -48,7 +48,7 @@ impl PdfUpdate {
         let size = find_dict_value(trailer, "Size")
             .and_then(|v| std::str::from_utf8(v.trim_ascii()).ok())
             .and_then(|s| s.parse::<u32>().ok())
-            .ok_or_else(|| err(CODE_PARSE, "/Size missing or malformed in trailer"))?;
+            .ok_or_else(|| PdfError::new(CODE_PARSE, "/Size missing or malformed in trailer"))?;
         // One counter seeded at `/Size`, or past it where the base names an id
         // at or above it, so created ids never collide with the base's.
         // `alloc_id` bounds it: a malformed large `/Size` errors instead of
@@ -84,7 +84,7 @@ impl PdfUpdate {
         let mut targeted = Vec::new();
         for spec in fields {
             if spec.page >= page_count {
-                return Err(err(
+                return Err(PdfError::new(
                     CODE_PARSE,
                     format!(
                         "field {:?} targets page {} but the PDF has {page_count} page(s)",

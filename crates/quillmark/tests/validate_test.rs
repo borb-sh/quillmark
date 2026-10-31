@@ -110,10 +110,7 @@ fn validate_accepts_every_value_the_render_floor_adopts() {
     assert!(
         diags.is_empty(),
         "every value here is one the render floor adopts; got: {:?}",
-        diags
-            .iter()
-            .map(|d| (&d.code, &d.path))
-            .collect::<Vec<_>>()
+        diags.iter().map(|d| (&d.code, &d.path)).collect::<Vec<_>>()
     );
     assert!(quill.dry_run(&doc).is_ok(), "and the render door agrees");
 }
@@ -174,10 +171,7 @@ fn validate_refuses_a_well_shaped_value_the_floor_cannot_conform() {
                 .any(|d| d.code.as_deref() == Some("validation::type_mismatch")
                     && d.path.as_deref() == Some(&format!("main.{field}")[..])),
             "`{authored}` should be a type_mismatch at `main.{field}`; got: {:?}",
-            diags
-                .iter()
-                .map(|d| (&d.code, &d.path))
-                .collect::<Vec<_>>()
+            diags.iter().map(|d| (&d.code, &d.path)).collect::<Vec<_>>()
         );
         assert!(
             quill.dry_run(&doc).is_err(),

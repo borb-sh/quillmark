@@ -18,10 +18,7 @@ import type {
 	Document as CoreDocument,
 	importMarkdown,
 	exportMarkdown,
-	exportMarkdownChecked,
 	normalize,
-	rebase,
-	hashContent,
 	mapPos,
 	mapMarks,
 	isInline,
@@ -43,10 +40,7 @@ export interface CoreSurface {
 	Document: typeof CoreDocument;
 	importMarkdown: typeof importMarkdown;
 	exportMarkdown: typeof exportMarkdown;
-	exportMarkdownChecked: typeof exportMarkdownChecked;
 	normalize: typeof normalize;
-	rebase: typeof rebase;
-	hashContent: typeof hashContent;
 	mapPos: typeof mapPos;
 	mapMarks: typeof mapMarks;
 	isInline: typeof isInline;
@@ -125,7 +119,7 @@ export type {
 } from '../core/wasm.js';
 
 // Content edit vocabulary: the op-grained content model `Document`'s methods
-// speak (`applyChange(addr, bundle)`, `overwrite(addr, rt)`, `revise(…) => Revised`).
+// speak (`applyChange(addr, bundle)`, `overwrite(addr, rt)`, `reviseContent(addr, rt) => Revised`).
 // `ContentLineKind` is the shared half of `ContentLine` and `setKind`, and
 // `ContentMarkKind` of `ContentMark` and a mark op's `add` / `remove`: lifting a
 // read value's kind whole — destructure off the envelope, spread the rest into
@@ -173,9 +167,7 @@ export type {
 	ResolvedField,
 	ResolvedMain,
 	ResolvedCard,
-	Resolved,
-	Outline,
-	OutlineCard
+	Resolved
 } from '../core/wasm.js';
 
 /**
@@ -206,42 +198,10 @@ export interface QuillmarkError extends Error {
  */
 export declare function isQuillmarkError(e: unknown): e is QuillmarkError;
 
-import type { ContentContainer } from '../core/wasm.js';
-
 // `ContentIsland.type`, `ContentMark.type`, `ContentLine.kind` and
 // `ContentContainer.container` are closed sets, so a bare discriminant check
 // narrows the payload on its own:
 // `line.kind === 'heading'` reaches `line.attrs.level`, with no guard to call.
-
-/**
- * Stamp `instance` across one parent's blocks at one depth, in document order,
- * returning containers ready to write.
- *
- * One entry per container RUN — a list, not a list item — and `null` for a
- * block carrying no container at this depth. A bare paragraph between two lists
- * is such a block, and separates them on its own. Every line of a run then
- * carries that run's returned container, `ordinal` varying per item and
- * `instance` held.
- *
- * The `instance` it stamps is canonical, so a document reads back the value it
- * was written — a `0` as an absent key, which decodes to the same value.
- * `ordinal` stays the caller's, and a write is renumbered to a gapless index
- * within its run.
- *
- * Which fields decide a weld is coarser than equality for a list: CommonMark
- * reads only a list's first number, so `1. a` beside `3. b` welds despite the
- * differing `start`.
- *
- * ```js
- * const [outer, , inner] = assignInstances([listA, null, listB]);
- * // outer.instance === 0, inner.instance === 0 — the paragraph parts them
- * const [a, b] = assignInstances([listA, listB]);
- * // a.instance === 0, b.instance === 1 — adjacent, one shape
- * ```
- */
-export declare function assignInstances(
-	runs: (ContentContainer | null)[]
-): (ContentContainer | null)[];
 
 // The backend-neutral render contract, defined here rather than re-exported from
 // one private backend because no single backend owns the canonical API's types.
@@ -423,7 +383,7 @@ export interface BackendDescriptor {
 	formats: OutputFormat[];
 }
 
-/** Options for `new Engine(...)`, as a plain object. A key other than `backends` throws. */
+/** Options for `new Engine(...)`, as a plain object. A key other than `backends` or `fonts` throws. */
 export interface EngineOptions {
 	/**
 	 * Extra or overriding backend descriptors, merged over the built-ins. Keys are
@@ -557,7 +517,6 @@ export declare class Engine {
 export declare class LiveSession {
 	private constructor();
 	readonly pageCount: number;
-	readonly backendId: string;
 	readonly warnings: Diagnostic[];
 	/**
 	 * Recompile the session against `doc`: the edit verb of a live preview.
@@ -682,7 +641,7 @@ declare module '../core/wasm.js' {
 	}
 }
 
-import type { Addr, BaseOptions, Content, DocumentRevised, Outline, PathStep, Resolved, Revised } from '../core/wasm.js';
+import type { Addr, BaseOptions, Content, DocumentRevised, PathStep, Resolved, Revised } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -692,14 +651,12 @@ import type { Addr, BaseOptions, Content, DocumentRevised, Outline, PathStep, Re
  *
  * Typed commit is the default whenever a quill is in hand: it resolves each
  * field's schema type and strict-commits it, throwing `UnknownField` for an
- * undeclared name rather than falling back. The raw `Document.storeField` /
- * `storeFields` verbs remain the deliberate quill-free primitive (standalone
+ * undeclared name rather than falling back. The raw `Document.storeField`
+ * verb remains the deliberate quill-free primitive (standalone
  * data, storage/migration infra, or not-yet-conforming in-progress input).
  */
 export declare class DocumentWriter {
 	constructor(quill: Quill, doc: Document);
-	/** The bound document: the instance passed in, mutated in place. */
-	readonly document: Document;
 	/**
 	 * The hash of the document as this quill conforms it: the `baseHash`
 	 * {@link reviseDocument} checks. A document loaded without its quill
@@ -734,8 +691,7 @@ export declare class DocumentWriter {
 	 * Revise the main body from markdown; anchors rebase. Returns the
 	 * `Revised` receipt, its warnings at `main.body` and `droppedAnchors`
 	 * naming each anchor the diff dropped: a body carries no field schema to
-	 * type against, so this is the content lane's `revise` reached through the
-	 * writer. `opts` names what the writer read, as on `doc.revise`: a stale
+	 * type against. `opts` names what the writer read: a stale
 	 * `baseHash` (from {@link hashAt}) throws `edit::stale_base`, and a
 	 * `baseMarkdown` merges.
 	 */
@@ -801,13 +757,6 @@ export declare class DocumentWriter {
  */
 export declare class CardWriter {
 	constructor(quill: Quill, doc: Document, index: number);
-	/** The bound card index. */
-	readonly index: number;
-	/**
-	 * The bound card's `$kind`. Throws `IndexOutOfRange` for a bad bound
-	 * index.
-	 */
-	readonly kind: string;
 	/** The card twin of {@link DocumentWriter.hashAt}; no `field` reads the body. */
 	hashAt(field?: string): string;
 	set(name: string, value: unknown): Diagnostic[];
@@ -844,8 +793,6 @@ export declare class CardWriter {
  */
 export declare class DocumentReader {
 	constructor(quill: Quill, doc: Document);
-	/** The bound document: the instance passed in. */
-	readonly document: Document;
 	/**
 	 * Read the value at `addr`, interpreted by its declared type: a richtext field
 	 * to markdown, every other type verbatim. A bare string is `Addr` shorthand for
@@ -888,14 +835,6 @@ export declare class DocumentReader {
 	/** The main body's markdown: the quill-free body read. Equals `get({})`. */
 	bodyMarkdown(): string;
 	/**
-	 * The document's outline: each card with its path, `$kind` and `$id`, each
-	 * declared field's `state` (`ok`, `empty` or `invalid`), the body's headings
-	 * by line, and each anchor by id and path. The read that picks the address a
-	 * writer reads (`doc.annotatedAt`) and writes next, and names what is still
-	 * pending, without the document's text.
-	 */
-	outline(): Outline;
-	/**
 	 * The resolved-value view: for every declared field, the value the render
 	 * projection would use and the rung it came from (`authored` / `default` /
 	 * `blank`). The one read that blank-fills and coerces; {@link get} reports
@@ -904,42 +843,4 @@ export declare class DocumentReader {
 	 * pairing it with a session passes the session's opening date.
 	 */
 	resolve(today?: string): Resolved;
-	/**
-	 * A {@link CardReader} for the composable card at `index`. Index validity is
-	 * checked lazily at read time, so an out-of-range index does not throw here.
-	 * The cursor is ephemeral: a `removeCard`/`addCard` between binding and reading
-	 * silently retargets it.
-	 */
-	card(index: number): CardReader;
-}
-
-/**
- * A composable card bound to its `Quill` for interpreted reads, from
- * {@link DocumentReader.card}. Same verbs as {@link DocumentReader}, reading the card
- * at its bound index; each read throws `IndexOutOfRange` if that index is out of
- * range.
- */
-export declare class CardReader {
-	constructor(quill: Quill, doc: Document, index: number);
-	/** The bound card index. */
-	readonly index: number;
-	/**
-	 * The bound card's `$kind`. Throws `IndexOutOfRange` if the bound index is
-	 * out of range.
-	 */
-	readonly kind: string;
-	/**
-	 * Read the field `name` on this card, interpreted by its declared type.
-	 * `undefined` when absent; throws `UnknownField` for an undeclared name and
-	 * `IndexOutOfRange` for a bad index.
-	 */
-	get(name: string): unknown;
-	/**
-	 * The card twin of {@link DocumentReader.getContent}.
-	 */
-	getContent(name: string): Content | undefined;
-	/** The card twin of {@link DocumentReader.getContentAt}. */
-	getContentAt(name: string, path: PathStep[]): Content | undefined;
-	/** This card's body markdown: the card twin of {@link DocumentReader.bodyMarkdown}. */
-	bodyMarkdown(): string;
 }

@@ -102,7 +102,12 @@ impl QuillConfig {
     pub(crate) fn conform(&self, doc: &mut Document) -> Result<Vec<Diagnostic>, RenderError> {
         self.check_quill_reference(doc)?;
         let mut diags = Vec::new();
-        conform_card(&self.main, doc.main_card_mut(), &DocPath::main(), &mut diags);
+        conform_card(
+            &self.main,
+            doc.main_card_mut(),
+            &DocPath::main(),
+            &mut diags,
+        );
         for (index, card) in doc.cards_vec_mut().iter_mut().enumerate() {
             // A card whose `$kind` declares no schema has no declared field to
             // conform: it passes untouched, as the render gate passes it. The
@@ -122,12 +127,7 @@ impl QuillConfig {
 /// Conform one card's declared content fields in place. Field-name resolution
 /// is the render gate's raw lookup (`schema.fields.get(name)`, no NFC respelling)
 /// so the two walks cannot diverge on which fields count as declared.
-fn conform_card(
-    schema: &CardSchema,
-    card: &mut Card,
-    base: &DocPath,
-    diags: &mut Vec<Diagnostic>,
-) {
+fn conform_card(schema: &CardSchema, card: &mut Card, base: &DocPath, diags: &mut Vec<Diagnostic>) {
     let mut updates: Vec<(String, QuillValue)> = Vec::new();
     for item in card.payload().items() {
         let PayloadItem::Field { key: name, value } = item else {

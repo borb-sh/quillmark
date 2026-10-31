@@ -6,7 +6,7 @@
 //! located error.
 
 use proptest::prelude::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::super::{FormParseError, FormSpec};
 
@@ -30,14 +30,27 @@ fn arb_text() -> impl Strategy<Value = String> {
 }
 
 fn arb_rect() -> impl Strategy<Value = Value> {
-    let coord = || prop_oneof![(0u32..2000).prop_map(Value::from), (-1e6f64..1e6).prop_map(Value::from)];
-    (coord(), coord(), coord(), coord()).prop_map(|(x, y, w, h)| json!({ "x": x, "y": y, "w": w, "h": h }))
+    let coord = || {
+        prop_oneof![
+            (0u32..2000).prop_map(Value::from),
+            (-1e6f64..1e6).prop_map(Value::from)
+        ]
+    };
+    (coord(), coord(), coord(), coord())
+        .prop_map(|(x, y, w, h)| json!({ "x": x, "y": y, "w": w, "h": h }))
 }
 
 fn arb_field() -> impl Strategy<Value = Value> {
-    (arb_text(), arb_text(), 0u32..8, arb_rect(), proptest::option::of(arb_text()))
+    (
+        arb_text(),
+        arb_text(),
+        0u32..8,
+        arb_rect(),
+        proptest::option::of(arb_text()),
+    )
         .prop_map(|(name, schema_field, page, rect, tooltip)| {
-            let mut f = json!({ "name": name, "schema_field": schema_field, "page": page, "rect": rect });
+            let mut f =
+                json!({ "name": name, "schema_field": schema_field, "page": page, "rect": rect });
             if let Some(t) = tooltip {
                 f["tooltip"] = Value::from(t);
             }
@@ -49,7 +62,8 @@ fn arb_widget() -> impl Strategy<Value = Value> {
     let kind = prop_oneof![
         any::<bool>().prop_map(|m| json!({ "type": "text", "multiline": m })),
         Just(json!({ "type": "checkbox" })),
-        proptest::collection::vec(arb_text(), 0..4).prop_map(|o| json!({ "type": "choice", "options": o })),
+        proptest::collection::vec(arb_text(), 0..4)
+            .prop_map(|o| json!({ "type": "choice", "options": o })),
         Just(json!({ "type": "signature" })),
     ];
     (arb_text(), 0u32..8, arb_rect(), kind).prop_map(|(name, page, rect, mut w)| {

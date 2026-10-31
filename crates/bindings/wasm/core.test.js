@@ -74,10 +74,6 @@ describe('@quillmark/wasm/core surface', () => {
     const doc = quill.seedDocument()
     expect(doc).toBeInstanceOf(Document)
 
-    const main = quill.seedMain()
-    expect(main.kind).toBe('main')
-    expect(main.payloadItems).toEqual([])
-
     expect(quill.validate(doc)).toEqual([])
   })
 
@@ -171,7 +167,7 @@ title: Draft
 
     // bodyMarkdown is the card body read (card address); a field address throws.
     // A field's markdown reads through the schema-plane view,
-    // quill.reader(doc).card(i).get(name).
+    // quill.reader(doc).get({ card, field }).
     expect(doc.bodyMarkdown({ card: 0 })).toContain('A note body.')
     expect(() => doc.bodyMarkdown({ card: 0, field: 'author' })).toThrow(/body-only/)
 

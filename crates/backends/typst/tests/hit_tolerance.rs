@@ -12,7 +12,8 @@ use common::{content, quill_with_plate as quill, yaml};
 const SCHEMA: &str = "main:\n  fields:\n    intro: { type: richtext, multiline: true }\n    prose: { type: richtext, multiline: true }\n";
 
 /// A fill-in widget above a paragraph.
-const WIDGET_SCHEMA: &str = "main:\n  fields:\n    blank: { type: text }\n    prose: { type: richtext, multiline: true }\n";
+const WIDGET_SCHEMA: &str =
+    "main:\n  fields:\n    blank: { type: text }\n    prose: { type: richtext, multiline: true }\n";
 
 const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -61,12 +62,18 @@ fn a_click_in_the_leading_between_two_lines_takes_the_nearer_line() {
     let session = open();
     let x = 120.0;
     let bands = live_bands(&session, x);
-    assert!(bands.len() >= 3, "the two fields wrap to several lines: {bands:?}");
+    assert!(
+        bands.len() >= 3,
+        "the two fields wrap to several lines: {bands:?}"
+    );
 
     // Adjacent lines of one paragraph, `lower` printed after `upper` on the page.
     let (lower, upper) = (bands[bands.len() - 2], bands[bands.len() - 1]);
     let gap = upper[0] - lower[1];
-    assert!(gap > 1.0, "the leading is a real gap: {gap}pt between {lower:?} and {upper:?}");
+    assert!(
+        gap > 1.0,
+        "the leading is a real gap: {gap}pt between {lower:?} and {upper:?}"
+    );
 
     let tol = gap;
     let near_upper = session
@@ -80,10 +87,7 @@ fn a_click_in_the_leading_between_two_lines_takes_the_nearer_line() {
         "the two halves of the leading take different lines"
     );
 
-    for (hit, band, side) in [
-        (&near_upper, upper, "upper"),
-        (&near_lower, lower, "lower"),
-    ] {
+    for (hit, band, side) in [(&near_upper, upper, "upper"), (&near_lower, lower, "lower")] {
         let caret = session
             .locate(&hit.field, hit.pos)
             .expect("the resolved position locates a caret");
@@ -108,7 +112,11 @@ fn the_nearer_field_wins_over_the_later_painted_one() {
         let mut lowest: Option<[f32; 2]> = None;
         for band in &bands {
             let mid = (band[0] + band[1]) / 2.0;
-            if session.position_at(0, x, mid, 0.0).map(|h| h.field).as_deref() == Some(field)
+            if session
+                .position_at(0, x, mid, 0.0)
+                .map(|h| h.field)
+                .as_deref()
+                == Some(field)
                 && lowest.is_none_or(|low| band[0] < low[0])
             {
                 lowest = Some(*band);
@@ -130,7 +138,8 @@ fn the_nearer_field_wins_over_the_later_painted_one() {
         .position_at(0, x, y, gap)
         .expect("the paragraph break resolves under a tolerance spanning it");
     assert_eq!(
-        hit.field, "intro",
+        hit.field,
+        "intro",
         "a point {:.2}pt below the intro and {:.2}pt above the body takes the intro",
         intro_last[0] - y,
         y - body_first[1]
@@ -171,7 +180,10 @@ fn a_tolerance_never_changes_an_answer_an_exact_hit_already_had() {
         x += step;
     }
     assert!(exact > 0, "the sweep crosses ink");
-    assert!(filled > 0, "the sweep crosses ink it only reaches under tolerance");
+    assert!(
+        filled > 0,
+        "the sweep crosses ink it only reaches under tolerance"
+    );
 }
 
 /// A short line with the rest of its measure empty beside it: `intro` is one
@@ -236,8 +248,16 @@ fn a_non_finite_point_resolves_to_nothing() {
             (f32::INFINITY, f32::INFINITY),
             (f32::NEG_INFINITY, 100.0),
         ] {
-            assert_eq!(session.position_at(0, x, y, tol), None, "positionAt({x}, {y}, {tol})");
-            assert_eq!(session.field_at(0, x, y, tol), None, "fieldAt({x}, {y}, {tol})");
+            assert_eq!(
+                session.position_at(0, x, y, tol),
+                None,
+                "positionAt({x}, {y}, {tol})"
+            );
+            assert_eq!(
+                session.field_at(0, x, y, tol),
+                None,
+                "fieldAt({x}, {y}, {tol})"
+            );
         }
     }
 }

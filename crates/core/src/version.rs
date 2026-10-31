@@ -29,7 +29,10 @@ impl Version {
 /// takes a leading `+`, a spelling no `Display` writes back.
 fn parse_segment(s: &str, label: &str) -> Result<u32, String> {
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(format!("Invalid {} version '{}': must be a number", label, s));
+        return Err(format!(
+            "Invalid {} version '{}': must be a number",
+            label, s
+        ));
     }
     s.parse::<u32>()
         .map_err(|_| format!("Invalid {} version '{}': must be a number", label, s))
@@ -159,11 +162,8 @@ pub const MAX_QUILL_NAME_LEN: usize = 64;
 
 /// Whether `name` is a quill name: `[a-z][a-z0-9_]*`, at most
 /// [`MAX_QUILL_NAME_LEN`] bytes. A collection name is held to the same rule.
-pub fn is_quill_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    name.len() <= MAX_QUILL_NAME_LEN
-        && chars.next().is_some_and(|c| c.is_ascii_lowercase())
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+pub(crate) fn is_quill_name(name: &str) -> bool {
+    name.len() <= MAX_QUILL_NAME_LEN && crate::quill::QuillConfig::is_snake_case_identifier(name)
 }
 
 /// A `$quill` reference: `[<collection>.]<name>[@<selector>]`.
@@ -325,7 +325,6 @@ mod tests {
         assert!(any.matches(v3_0_0));
     }
 
-
     #[test]
     fn test_quill_reference_invalid_names() {
         assert!(QuillReference::from_str("Resume@2.1.0").is_err());
@@ -356,7 +355,10 @@ mod tests {
     #[test]
     fn test_quill_reference_display_round_trips() {
         for (selector, written) in [
-            (VersionSelector::Exact(Version::new(2, 1, 0)), "resume@2.1.0"),
+            (
+                VersionSelector::Exact(Version::new(2, 1, 0)),
+                "resume@2.1.0",
+            ),
             (VersionSelector::Minor(2, 1), "resume@2.1"),
             (VersionSelector::Any, "resume"),
         ] {

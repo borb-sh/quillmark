@@ -58,7 +58,10 @@ fn the_schema_is_the_document_envelope_with_a_kind_per_card() {
     assert_eq!(schema["additionalProperties"], json!(false));
     let props = &schema["properties"];
     assert_eq!(props["fields"]["type"], json!(["object", "null"]));
-    assert_eq!(props["body"]["contentMediaType"], json!(MARKDOWN_MEDIA_TYPE));
+    assert_eq!(
+        props["body"]["contentMediaType"],
+        json!(MARKDOWN_MEDIA_TYPE)
+    );
     assert_eq!(props["body"]["description"], json!("What the memo says."));
     assert_eq!(props["body"]["examples"], json!(["Filled-in *prose*."]));
     assert_eq!(
@@ -69,7 +72,10 @@ fn the_schema_is_the_document_envelope_with_a_kind_per_card() {
     let indorsement = &schema["$defs"]["indorsement"];
     assert_eq!(indorsement["title"], json!("Indorsement"));
     assert_eq!(indorsement["required"], json!(["kind"]));
-    assert_eq!(indorsement["properties"]["kind"], json!({ "const": "indorsement" }));
+    assert_eq!(
+        indorsement["properties"]["kind"],
+        json!({ "const": "indorsement" })
+    );
     // A quill field named `kind` sits under `fields`, clear of the discriminator.
     assert_eq!(
         indorsement["properties"]["fields"]["properties"]["kind"]["type"],
@@ -95,11 +101,20 @@ fn a_content_leaf_is_its_codecs_text_and_every_cell_admits_null() {
             "examples": ["Budget *review*"],
         })
     );
-    assert_eq!(fields["from"], json!({ "type": ["string", "null"], "default": "HQ" }));
+    assert_eq!(
+        fields["from"],
+        json!({ "type": ["string", "null"], "default": "HQ" })
+    );
     assert_eq!(fields["count"]["type"], json!(["integer", "null"]));
-    assert_eq!(fields["when"], json!({ "type": ["string", "null"], "format": "date" }));
+    assert_eq!(
+        fields["when"],
+        json!({ "type": ["string", "null"], "format": "date" })
+    );
     assert_eq!(fields["refs"]["items"]["type"], json!(["string", "null"]));
-    assert_eq!(fields["contact"]["properties"]["city"]["type"], json!(["string", "null"]));
+    assert_eq!(
+        fields["contact"]["properties"]["city"]["type"],
+        json!(["string", "null"])
+    );
     assert!(!schema.to_string().contains(CONTENT_MEDIA_TYPE), "{schema}");
 }
 
@@ -109,11 +124,23 @@ fn a_variant_bearing_enum_is_one_branch_per_world() {
     let marking = &schema["properties"]["fields"]["properties"]["marking"];
     assert_eq!(marking["default"], json!({ "value": "PUBLIC" }));
     let branches = marking["oneOf"].as_array().unwrap();
-    assert_eq!(branches[0]["properties"]["value"], json!({ "const": "CUI" }));
-    assert_eq!(branches[0]["properties"]["poc"]["contentMediaType"], json!(MARKDOWN_MEDIA_TYPE));
+    assert_eq!(
+        branches[0]["properties"]["value"],
+        json!({ "const": "CUI" })
+    );
+    assert_eq!(
+        branches[0]["properties"]["poc"]["contentMediaType"],
+        json!(MARKDOWN_MEDIA_TYPE)
+    );
     assert_eq!(branches[0]["required"], json!(["value"]));
-    assert_eq!(branches[1]["properties"]["value"]["enum"], json!(["", "PUBLIC", "SECRET"]));
-    assert_eq!(branches[2], json!({ "type": "string", "enum": ["", "PUBLIC", "CUI", "SECRET"] }));
+    assert_eq!(
+        branches[1]["properties"]["value"]["enum"],
+        json!(["", "PUBLIC", "SECRET"])
+    );
+    assert_eq!(
+        branches[2],
+        json!({ "type": "string", "enum": ["", "PUBLIC", "CUI", "SECRET"] })
+    );
     assert_eq!(branches[3], json!({ "type": "null" }));
 }
 
@@ -123,13 +150,19 @@ fn every_declared_object_refuses_an_undeclared_key_the_import_still_stores() {
     let schema = quill.config().authoring_schema();
     let fields = &schema["properties"]["fields"];
     assert_eq!(fields["additionalProperties"], json!(false));
-    assert_eq!(fields["properties"]["contact"]["additionalProperties"], json!(false));
+    assert_eq!(
+        fields["properties"]["contact"]["additionalProperties"],
+        json!(false)
+    );
     let branches = fields["properties"]["marking"]["oneOf"].as_array().unwrap();
     assert_eq!(branches[0]["additionalProperties"], json!(false));
     assert_eq!(branches[1]["additionalProperties"], json!(false));
     let indorsement = &schema["$defs"]["indorsement"];
     assert_eq!(indorsement["additionalProperties"], json!(false));
-    assert_eq!(indorsement["properties"]["fields"]["additionalProperties"], json!(false));
+    assert_eq!(
+        indorsement["properties"]["fields"]["additionalProperties"],
+        json!(false)
+    );
 
     let imported = quill
         .from_authoring(&json!({ "fields": { "stranger": "kept", "contact": { "zip": "1" } } }))
@@ -139,7 +172,10 @@ fn every_declared_object_refuses_an_undeclared_key_the_import_still_stores() {
         .into_iter()
         .filter_map(|d| d.code)
         .collect();
-    assert_eq!(codes, ["validation::unknown_field", "validation::unknown_field"]);
+    assert_eq!(
+        codes,
+        ["validation::unknown_field", "validation::unknown_field"]
+    );
 }
 
 const MARKDOWN: &str = r#"~~~
@@ -210,7 +246,10 @@ fn null_is_absent_and_the_quill_reference_is_the_quills() {
         .document;
     assert_eq!(imported.quill_reference().to_string(), "q@1.0");
     assert!(imported.main().payload().get("subject").is_none());
-    assert_eq!(imported.main().payload().get("from").unwrap().as_json(), &json!("Ops"));
+    assert_eq!(
+        imported.main().payload().get("from").unwrap().as_json(),
+        &json!("Ops")
+    );
     assert_eq!(imported.cards()[0].kind(), Some("stamp"));
     assert_eq!(
         quill.to_authoring(&imported),
@@ -221,7 +260,10 @@ fn null_is_absent_and_the_quill_reference_is_the_quills() {
 #[test]
 fn a_field_stored_as_null_exports_absent_so_the_round_trip_holds() {
     let quill = quill();
-    let document = quill.parse("~~~\n$quill: q\nsubject: ~\nfrom: Ops\n~~~\n").expect("parses").document;
+    let document = quill
+        .parse("~~~\n$quill: q\nsubject: ~\nfrom: Ops\n~~~\n")
+        .expect("parses")
+        .document;
     assert!(document.main().payload().get("subject").is_some());
     let authored = quill.to_authoring(&document);
     assert_eq!(authored["fields"], json!({ "from": "Ops" }));
@@ -239,7 +281,10 @@ fn a_value_the_schema_refuses_lands_and_validates_at_its_document_path() {
         }))
         .expect("imports");
     assert!(
-        imported.warnings.iter().any(|d| d.path.as_deref() == Some("main.subject")),
+        imported
+            .warnings
+            .iter()
+            .any(|d| d.path.as_deref() == Some("main.subject")),
         "{:?}",
         imported.warnings
     );
@@ -263,7 +308,10 @@ fn a_shape_the_document_does_not_take_is_refused_with_every_error() {
             .map(|d| match d.args.get("pointer") {
                 Some(pointer) => {
                     assert_eq!(d.path, None, "a shape error names no document-model path");
-                    (d.code.unwrap_or_default(), pointer.as_str().map(str::to_string))
+                    (
+                        d.code.unwrap_or_default(),
+                        pointer.as_str().map(str::to_string),
+                    )
                 }
                 None => (d.code.unwrap_or_default(), d.path),
             })
@@ -286,13 +334,22 @@ fn a_shape_the_document_does_not_take_is_refused_with_every_error() {
             shape("/body"),
             shape("/cards/0/kind"),
             shape("/cards/1/a~1b"),
-            ("edit::invalid_kind_name".to_string(), Some("cards[2]".to_string())),
+            (
+                "edit::invalid_kind_name".to_string(),
+                Some("cards[2]".to_string())
+            ),
         ]
     );
-    assert_eq!(refusals(json!({ "fields": { "": 1 } })), [shape("/fields/")]);
+    assert_eq!(
+        refusals(json!({ "fields": { "": 1 } })),
+        [shape("/fields/")]
+    );
     assert_eq!(
         refusals(json!({ "fields": { "$ext": {} } })),
-        [("edit::invalid_field_name".to_string(), Some("main.$ext".to_string()))]
+        [(
+            "edit::invalid_field_name".to_string(),
+            Some("main.$ext".to_string())
+        )]
     );
 }
 
@@ -307,5 +364,8 @@ fn a_leaf_that_does_not_decode_exports_as_stored() {
     let imported = quill.from_authoring(&one_line).expect("imports").document;
     let exported = quill.to_authoring(&imported);
     assert_eq!(exported["fields"], one_line["fields"]);
-    assert_eq!(quill.from_authoring(&exported).expect("imports").document, imported);
+    assert_eq!(
+        quill.from_authoring(&exported).expect("imports").document,
+        imported
+    );
 }

@@ -101,7 +101,6 @@ mod tests {
             Err(ParseOutputFormatError::new("docx"))
         );
     }
-
 }
 
 /// An artifact produced by rendering.
@@ -120,7 +119,7 @@ impl Artifact {
     }
 }
 
-/// Internal rendering options.
+/// Options for one render.
 ///
 /// Built from [`Default`] and narrowed by the `with_*` setters:
 ///

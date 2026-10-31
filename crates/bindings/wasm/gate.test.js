@@ -44,15 +44,13 @@ describe('@quillmark/wasm: the static surface, before init', () => {
   })
 
   // What this asserts is that the call needs no wasm instance, not that the
-  // argument is tolerated. `{}` is one every guard and `isQuillmarkError` takes;
-  // an export taking another shape names it here.
-  const PROBE = { assignInstances: [[]] }
+  // argument is tolerated. `{}` is one every guard and `isQuillmarkError` takes.
 
   it('answers every non-class export without an instance', () => {
     for (const name of EXEMPT.filter((n) => !CLASSES.includes(n))) {
       const value = runtime[name]
       if (typeof value === 'function')
-        expect(() => value(...(PROBE[name] ?? [{}])), name).not.toThrow()
+        expect(() => value({}), name).not.toThrow()
       else if (value !== null && typeof value === 'object')
         expect(Object.isFrozen(value), name).toBe(true)
     }

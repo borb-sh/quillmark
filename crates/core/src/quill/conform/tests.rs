@@ -1,11 +1,14 @@
-
 mod properties;
 
 use serde_json::json;
 
 use crate::document::StoredDocument;
 use crate::quill::{quill_from_yaml, test_date};
-use crate::{document::{Document, SeedOverlay}, quill::Quill, value::QuillValue};
+use crate::{
+    document::{Document, SeedOverlay},
+    quill::Quill,
+    value::QuillValue,
+};
 
 const QUILL: &str = r#"
 quill:
@@ -164,7 +167,10 @@ fn a_nested_content_cell_emits_markdown_and_the_bound_door_restores_it() {
     ] {
         assert!(md.contains(line), "missing {line:?}:\n{md}");
     }
-    assert!(!md.contains("islands"), "a content tree reached card-yaml:\n{md}");
+    assert!(
+        !md.contains("islands"),
+        "a content tree reached card-yaml:\n{md}"
+    );
 
     let (back, warnings) = parse_bound(&quill, &md);
     assert!(warnings.is_empty(), "{warnings:?}");
@@ -220,7 +226,11 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
     let (doc, warnings) = parse_bound(&quill, md);
     let diag = warnings
         .iter()
-        .find(|d| d.code.as_deref().is_some_and(|c| c.starts_with("conform::")))
+        .find(|d| {
+            d.code
+                .as_deref()
+                .is_some_and(|c| c.starts_with("conform::"))
+        })
         .expect("a conform diagnostic");
     assert_eq!(diag.code.as_deref(), Some("conform::field_decode"));
     assert_eq!(diag.path.as_deref(), Some("main.subject"));
@@ -229,7 +239,9 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
         &json!(42),
         "the value stays authored: no silent retype"
     );
-    quill.compile_data(&doc, test_date()).expect("still renders");
+    quill
+        .compile_data(&doc, test_date())
+        .expect("still renders");
     assert!(
         !quill
             .validate(&doc)
@@ -241,15 +253,19 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
     let mut legacy = doc;
     legacy
         .main_mut()
-        .store_field("subject", QuillValue::from_json(json!({ "prose": "older" })))
+        .store_field(
+            "subject",
+            QuillValue::from_json(json!({ "prose": "older" })),
+        )
         .unwrap();
     let before = bytes(&legacy);
     let diags = quill.conform(&mut legacy).expect("the quill matches");
+    assert_eq!(diags[0].code.as_deref(), Some("conform::field_decode"));
     assert_eq!(
-        diags[0].code.as_deref(),
-        Some("conform::field_decode")
+        bytes(&legacy),
+        before,
+        "the value is left exactly as stored"
     );
-    assert_eq!(bytes(&legacy), before, "the value is left exactly as stored");
 }
 
 #[test]
@@ -265,7 +281,9 @@ fn conform_is_a_no_op_on_seeds() {
         &json!({ "caption": "overlaid *text*", "$body": "overlaid **body**" }),
     )
     .unwrap();
-    let card = quill.seed_card("entry", Some(&overlay)).expect("kind exists");
+    let card = quill
+        .seed_card("entry", Some(&overlay))
+        .expect("kind exists");
     assert_eq!(
         card.payload().get("caption").unwrap().as_json(),
         &json!("overlaid *text*")
@@ -310,7 +328,9 @@ card_kinds:
         "classification": { "value": "CUI", "note": "**bold note**" }
     }))
     .unwrap();
-    let card = quill.seed_card("entry", Some(&overlay)).expect("kind exists");
+    let card = quill
+        .seed_card("entry", Some(&overlay))
+        .expect("kind exists");
     let value = card
         .payload()
         .get("classification")
@@ -328,18 +348,20 @@ card_kinds:
     let before = bytes(&doc);
     let diags = quill.conform(&mut doc).expect("conform");
     assert!(diags.is_empty(), "{diags:?}");
-    assert_eq!(bytes(&doc), before, "the seeded container is already at rest");
+    assert_eq!(
+        bytes(&doc),
+        before,
+        "the seeded container is already at rest"
+    );
 }
 
 #[test]
 fn the_plate_shape_for_text_is_unchanged() {
     let quill = quill();
     let plate_note = |value: serde_json::Value| {
-        let mut doc = Document::parse(
-            "~~~card-yaml\n$quill: conform_test@1.0.0\n~~~\n\nBody.",
-        )
-        .expect("parse")
-        .document;
+        let mut doc = Document::parse("~~~card-yaml\n$quill: conform_test@1.0.0\n~~~\n\nBody.")
+            .expect("parse")
+            .document;
         {
             let mut w = quill.writer(&mut doc);
             w.set("note", value).unwrap();
@@ -440,7 +462,14 @@ fn a_0_124_0_row_migrates_then_converges() {
     )
     .expect("and migrates forward");
     assert_eq!(doc.main().body_markdown(), "Main **body**.");
-    assert!(doc.main().payload().get("subject").unwrap().as_json().is_string());
+    assert!(
+        doc.main()
+            .payload()
+            .get("subject")
+            .unwrap()
+            .as_json()
+            .is_string()
+    );
 
     let diags = quill.conform(&mut doc).expect("the quill matches");
     assert!(diags.is_empty(), "{diags:?}");
@@ -467,7 +496,11 @@ prose: card **body**
 Entry body.
 ",
     );
-    assert_eq!(restored, bytes(&authored), "one document, two ingress routes");
+    assert_eq!(
+        restored,
+        bytes(&authored),
+        "one document, two ingress routes"
+    );
 }
 
 #[test]
@@ -482,7 +515,8 @@ fn revise_document_revises_then_conforms() {
         .unwrap()
         .into_content();
     // 0..4 is "card".
-    body.marks.push(Mark::new(0, 4, MarkKind::Anchor { id: "k".into() }));
+    body.marks
+        .push(Mark::new(0, 4, MarkKind::Anchor { id: "k".into() }));
     doc.card_mut(0)
         .unwrap()
         .overwrite_field("prose", body.into_normalized())
@@ -500,7 +534,11 @@ fn revise_document_revises_then_conforms() {
 
     assert!(receipt.dropped_anchors.is_empty());
     assert_eq!(receipt.warnings, warnings);
-    assert_eq!(doc.cards()[1].id(), Some(stored_id.as_str()), "the revised card keeps its id");
+    assert_eq!(
+        doc.cards()[1].id(),
+        Some(stored_id.as_str()),
+        "the revised card keeps its id"
+    );
     assert_ne!(doc.cards()[0].id(), Some(stored_id.as_str()));
     let without_ids = |doc: &Document| {
         let mut doc = doc.clone();
@@ -514,10 +552,12 @@ fn revise_document_revises_then_conforms() {
         .field_content("prose", crate::document::Codec::Richtext)
         .unwrap()
         .unwrap();
-    assert!(anchored
-        .marks
-        .iter()
-        .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "k")));
+    assert!(
+        anchored
+            .marks
+            .iter()
+            .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "k"))
+    );
     for name in ["subject", "note", "tags"] {
         assert_eq!(
             doc.main().payload().get(name),
@@ -548,20 +588,37 @@ fn a_richtext_string_reports_its_drops_where_it_imports() {
         diags
             .iter()
             .filter(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
-            .map(|d| (d.path.clone().unwrap_or_default(), d.args["construct"].as_str().unwrap().to_string()))
+            .map(|d| {
+                (
+                    d.path.clone().unwrap_or_default(),
+                    d.args["construct"].as_str().unwrap().to_string(),
+                )
+            })
             .collect()
     };
-    let expected: Vec<(String, String)> = [("main.subject", "span"), ("main.tags[1]", "kbd"), ("main.meta.blurb", "em")]
-        .into_iter()
-        .map(|(p, c)| (p.to_string(), c.to_string()))
-        .collect();
+    let expected: Vec<(String, String)> = [
+        ("main.subject", "span"),
+        ("main.tags[1]", "kbd"),
+        ("main.meta.blurb", "em"),
+    ]
+    .into_iter()
+    .map(|(p, c)| (p.to_string(), c.to_string()))
+    .collect();
 
     let (doc, warnings) = parse_bound(&quill, md);
     assert_eq!(drops(&warnings), expected);
-    assert_eq!(drops(&quill.validate(&doc)), [], "a conformed field holds content");
+    assert_eq!(
+        drops(&quill.validate(&doc)),
+        [],
+        "a conformed field holds content"
+    );
 
     let loaded = Document::parse(md).unwrap().document;
     let mut by_field = expected;
     by_field.sort();
-    assert_eq!(drops(&quill.validate(&loaded)), by_field, "validate walks fields by name");
+    assert_eq!(
+        drops(&quill.validate(&loaded)),
+        by_field,
+        "validate walks fields by name"
+    );
 }

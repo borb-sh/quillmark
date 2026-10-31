@@ -10,7 +10,7 @@ use quillmark_core::{
 use typst::syntax::package::PackageSpec;
 
 use crate::helper::{self, HELPER_NAME, HELPER_NAMESPACE, HELPER_VERSION};
-use crate::{world, FontLibrary, SchemaMeta};
+use crate::{FontLibrary, SchemaMeta, world};
 
 /// The workspace directory `--package-path` names.
 pub const PACKAGES_DIR: &str = "packages";
@@ -82,8 +82,7 @@ pub fn workspace(
     for (family, alias) in &mut families.offered {
         alias.clone_from(family);
     }
-    let (lib_typ, _) = helper::generate_lib_typ(json_data, &meta, &families)
-        .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
+    let (lib_typ, _) = helper::generate_lib_typ(json_data, &meta, &families)?;
     let helper_dir = PathBuf::from(PACKAGES_DIR)
         .join(HELPER_DIR)
         .join(HELPER_VERSION);
@@ -165,7 +164,10 @@ fn host_fonts(library: &FontLibrary) -> Vec<(PathBuf, Vec<u8>)> {
                 Some(b"OTTO") => "otf",
                 _ => "ttf",
             };
-            (PathBuf::from(FONTS_DIR).join(format!("host-{i}.{ext}")), data.to_vec())
+            (
+                PathBuf::from(FONTS_DIR).join(format!("host-{i}.{ext}")),
+                data.to_vec(),
+            )
         })
         .collect()
 }

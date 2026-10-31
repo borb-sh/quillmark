@@ -9,7 +9,7 @@
 //! survive the projection whole, take the identity.
 
 use proptest::prelude::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::document::{Card, CardWire, Document};
 use crate::value::QuillValue;
@@ -17,8 +17,21 @@ use crate::value::QuillValue;
 /// The keys the decoders dispatch on, so generated objects reach past the first
 /// branch; the noise arm keeps the rest of the space.
 const DISCRIMINATORS: &[&str] = &[
-    "type", "kind", "key", "value", "fill", "schema", "main", "cards", "quill", "body", "payload",
-    "payloadItems", "items", "text", "inline",
+    "type",
+    "kind",
+    "key",
+    "value",
+    "fill",
+    "schema",
+    "main",
+    "cards",
+    "quill",
+    "body",
+    "payload",
+    "payloadItems",
+    "items",
+    "text",
+    "inline",
 ];
 
 fn arb_key() -> impl Strategy<Value = String> {
@@ -184,7 +197,13 @@ fn arb_boolean_word() -> impl Strategy<Value = String> {
         .prop_map(|(word, upper)| {
             word.chars()
                 .enumerate()
-                .map(|(i, c)| if (upper >> i) & 1 == 1 { c.to_ascii_uppercase() } else { c })
+                .map(|(i, c)| {
+                    if (upper >> i) & 1 == 1 {
+                        c.to_ascii_uppercase()
+                    } else {
+                        c
+                    }
+                })
                 .collect()
         })
 }

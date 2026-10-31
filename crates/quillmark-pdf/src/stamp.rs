@@ -9,7 +9,9 @@
 //! The background owns the visual chrome, so a widget is a transparent input over
 //! it: no borders, no fills, black text.
 
-use pdf_writer::types::{AnnotationFlags, FieldFlags, FieldType as PwFieldType, Quadding, SigFlags};
+use pdf_writer::types::{
+    AnnotationFlags, FieldFlags, FieldType as PwFieldType, Quadding, SigFlags,
+};
 use pdf_writer::writers::{Field, Form};
 use pdf_writer::{Chunk, Finish, Name, Rect, Ref, Str, TextStr};
 
@@ -18,8 +20,8 @@ use quillmark_core::region::RenderedRegion;
 use crate::appearance::{self, Appearance, Normal};
 use crate::error::PdfError;
 use crate::reader::{
-    array_elements, as_dict, err, is_name, parse_indirect_ref, set_dict_value, ObjectIndex,
-    UpdatedObject,
+    ObjectIndex, UpdatedObject, array_elements, as_dict, is_name, parse_indirect_ref,
+    set_dict_value,
 };
 use crate::update::PdfUpdate;
 use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
@@ -44,7 +46,7 @@ pub const CHECK_FONT_RESOURCE: &str = "ZaDb";
 
 /// The [`CHECK_FONT`] glyph a checked box shows, 0x34, the filled check mark:
 /// the widget's `/MK /CA` caption, and what a drawn raster shows in its place.
-pub const CHECK_GLYPH: &[u8] = b"4";
+pub(crate) const CHECK_GLYPH: &[u8] = b"4";
 
 /// House-style default appearance: Helvetica, `0 Tf` (auto-size), black fill.
 /// `Helv` is registered in the form `/DR` `/Font`.
@@ -185,7 +187,7 @@ pub fn stamp(
         // page `/Annots` this update preserves, whatever its catalog names.
         let catalog = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
         if idx.value(catalog, "AcroForm").is_some() {
-            return Err(err(
+            return Err(PdfError::new(
                 CODE_EXISTING_ACROFORM,
                 "base PDF already carries an /AcroForm; strip its form before stamping",
             ));
@@ -195,7 +197,7 @@ pub fn stamp(
         for (at, page) in pages.iter().enumerate() {
             let what = format!("page node {}", page.id);
             if holds_a_widget(&idx, idx.dict(page.id, CODE_PARSE, &what)?)? {
-                return Err(err(
+                return Err(PdfError::new(
                     CODE_EXISTING_ACROFORM,
                     format!(
                         "page {} of the base PDF holds a widget annotation in its /Annots; \
@@ -313,7 +315,10 @@ pub fn stamp(
 /// reference, as a viewer reads them. An annotation dictionary the reader
 /// cannot read is `Err`, since it may be a widget.
 fn holds_a_widget<'a>(idx: &ObjectIndex<'a>, page: &'a [u8]) -> Result<bool, PdfError> {
-    let Some(annots) = idx.value(page, "Annots").and_then(|annots| idx.resolve(annots)) else {
+    let Some(annots) = idx
+        .value(page, "Annots")
+        .and_then(|annots| idx.resolve(annots))
+    else {
         return Ok(false);
     };
     for annot in array_elements(annots).filter_map(|annot| idx.resolve(annot)) {
@@ -346,13 +351,7 @@ fn bake(up: &mut PdfUpdate, ap: &Appearance, font_id: u32) -> Result<u32, PdfErr
 pub fn regions_of(fields: &[FieldSpec]) -> Vec<RenderedRegion> {
     fields
         .iter()
-        .filter_map(|f| {
-            Some(RenderedRegion::new(
-                f.schema_field.clone()?,
-                f.page,
-                f.rect,
-            ))
-        })
+        .filter_map(|f| Some(RenderedRegion::new(f.schema_field.clone()?, f.page, f.rect)))
         .collect()
 }
 
@@ -495,12 +494,12 @@ fn rewrite_page_with_annots(
 
 fn non_array_annots(existing: &[u8]) -> PdfError {
     if parse_indirect_ref(existing).is_some() {
-        err(
+        PdfError::new(
             "pdf::indirect_annots",
             "/Annots is an indirect reference; only inline arrays are supported",
         )
     } else {
-        err(CODE_PARSE, "/Annots is neither array nor indirect ref")
+        PdfError::new(CODE_PARSE, "/Annots is neither array nor indirect ref")
     }
 }
 

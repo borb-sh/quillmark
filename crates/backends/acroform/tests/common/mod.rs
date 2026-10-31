@@ -22,7 +22,13 @@ pub fn decode_pdf_text(bytes: &[u8]) -> String {
 
 /// The catalog's `/AcroForm` dict.
 pub fn acroform(doc: &PdfDoc) -> &lopdf::Dictionary {
-    let af_ref = doc.catalog().unwrap().get(b"AcroForm").unwrap().as_reference().unwrap();
+    let af_ref = doc
+        .catalog()
+        .unwrap()
+        .get(b"AcroForm")
+        .unwrap()
+        .as_reference()
+        .unwrap();
     doc.get_object(af_ref).unwrap().as_dict().unwrap()
 }
 

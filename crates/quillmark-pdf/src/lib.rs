@@ -22,11 +22,11 @@ pub mod testkit;
 
 pub use appearance::overflows;
 pub use error::PdfError;
-pub use writer::unencodable_chars;
 pub use stamp::{
-    regions_of, stamp, AppearanceStates, StampOptions, CHECKBOX_ON_STATE, CHECK_FONT,
-    CHECK_FONT_RESOURCE, CHECK_GLYPH,
+    AppearanceStates, CHECK_FONT, CHECK_FONT_RESOURCE, CHECKBOX_ON_STATE, StampOptions, regions_of,
+    stamp,
 };
+pub use writer::unencodable_chars;
 
 const CODE_BAD_RECT: &str = "pdf::bad_rect";
 
@@ -112,7 +112,7 @@ impl FieldSpec {
     /// coordinate is finite. `rect` is public and every writer here prints a
     /// float verbatim, so an unchecked one reaches a widget `/Rect` or a drawn
     /// content stream as `NaN`/`inf`, a token no PDF number grammar admits.
-    pub fn assert_finite_rect(&self) -> Result<(), PdfError> {
+    pub(crate) fn assert_finite_rect(&self) -> Result<(), PdfError> {
         if self.rect.iter().all(|v| v.is_finite()) {
             return Ok(());
         }
@@ -131,11 +131,15 @@ impl FieldSpec {
 /// [`FormFont`] and [`TextAlign`] are inert on the other two.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldType {
-    Text { multiline: bool },
+    Text {
+        multiline: bool,
+    },
     /// A checkbox with Quillmark's fixed on-state ([`CHECKBOX_ON_STATE`]).
     Checkbox,
     /// A dropdown over `options`, bare display strings.
-    Choice { options: Vec<String> },
+    Choice {
+        options: Vec<String>,
+    },
     /// An unsigned signature field.
     Signature,
 }

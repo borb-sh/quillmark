@@ -323,7 +323,10 @@ fn typst_refuses_every_address_the_grammar_refuses() {
         let Err(err) = compile(&claims([*address])) else {
             panic!("{address:?} must not compile");
         };
-        assert!(err.contains("not a schema field address"), "{address:?}: {err}");
+        assert!(
+            err.contains("not a schema field address"),
+            "{address:?}: {err}"
+        );
     }
 }
 
@@ -336,7 +339,10 @@ fn every_address_taking_helper_binds_the_same_grammar() {
         let Err(err) = compile(&bound(call, refused)) else {
             panic!("{helper} must refuse {refused:?}");
         };
-        assert!(err.contains("not a schema field address"), "{helper}: {err}");
+        assert!(
+            err.contains("not a schema field address"),
+            "{helper}: {err}"
+        );
     }
 }
 

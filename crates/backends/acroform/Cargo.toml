@@ -2,7 +2,7 @@
 name = "quillmark-acroform"
 version.workspace = true
 edition.workspace = true
-include = ["src/**", "Cargo.toml", "README*", "LICENSE*", "NOTICE"]
+include.workspace = true
 readme.workspace = true
 description = "Typst-free acroform backend for Quillmark: fills existing PDF forms via the quillmark-pdf stamping spine"
 license.workspace = true

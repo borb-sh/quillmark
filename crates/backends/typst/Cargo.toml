@@ -2,7 +2,7 @@
 name = "quillmark-typst"
 version.workspace = true
 edition.workspace = true
-include = ["src/**", "Cargo.toml", "README*", "LICENSE*", "NOTICE"]
+include.workspace = true
 readme.workspace = true
 description = "Typst backend for Quillmark"
 license.workspace = true
@@ -33,7 +33,6 @@ typst-render = { workspace = true }
 typst-svg = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 proptest = { workspace = true }
 # Acceptance tests parse the injected PDF to validate AcroForm structure.
 lopdf = { workspace = true }

@@ -31,7 +31,9 @@ fn link_hrefs_parse_as_xml_and_decode_to_the_url() {
     let doc = roxmltree::Document::parse(&svg).unwrap_or_else(|e| panic!("{e}: {svg}"));
     let xlink = "http://www.w3.org/1999/xlink";
     let links: Vec<_> = doc.descendants().filter(|n| n.has_tag_name("a")).collect();
-    let hrefs: Vec<_> =
-        links.iter().map(|a| (a.attribute("href"), a.attribute((xlink, "href")))).collect();
+    let hrefs: Vec<_> = links
+        .iter()
+        .map(|a| (a.attribute("href"), a.attribute((xlink, "href"))))
+        .collect();
     assert_eq!(hrefs, [(Some(URL), Some(URL)), (Some(TILED), Some(TILED))]);
 }

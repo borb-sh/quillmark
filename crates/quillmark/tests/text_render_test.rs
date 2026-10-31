@@ -64,7 +64,9 @@ fn session() -> LiveSession {
          subject: \"{SUBJECT}\"\ntags:\n  - \"{STAR_TAG}\"\n  - \"second plain tag\"\n~~~\n"
     );
     let parsed = Document::parse(&md).expect("parse").document;
-    Engine::new().open(&quill, &parsed, common::test_date()).expect("open")
+    Engine::new()
+        .open(&quill, &parsed, common::test_date())
+        .expect("open")
 }
 
 #[test]
@@ -127,7 +129,10 @@ fn a_text_delimiter_is_one_cluster_under_click_and_caret() {
     let mut prev = f32::MIN;
     for &pos in &expected {
         let x = session.locate("tags.0", pos).expect("caret").rect[0];
-        assert!(x >= prev, "carets advance left to right at {pos}: {x} < {prev}");
+        assert!(
+            x >= prev,
+            "carets advance left to right at {pos}: {x} < {prev}"
+        );
         prev = x;
     }
     assert_eq!(
@@ -143,7 +148,14 @@ fn a_text_delimiter_is_one_cluster_under_click_and_caret() {
 fn qm_str_projects_a_text_value_to_its_verbatim_string() {
     const ONE: &str = r#"a *b* _c_ "d" it's -- e ... f  g #h $i \j @k <l> // m ~n -1"#;
     const MANY: &str = "first line\n  second, indented\n\nthird";
-    let lit = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n"));
+    let lit = |s: &str| {
+        format!(
+            "\"{}\"",
+            s.replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n")
+        )
+    };
     let yaml = r#"quill:
   name: "str_quill"
   version: "1.0.0"
@@ -163,16 +175,16 @@ main:
     absent: { type: text? }
 "#;
     let plate = format!(
-            "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
+        "#import \"@local/quillmark-helper:0.2.0\" as qm\n\
              #assert.eq(qm.str(qm.data.one), {})\n\
              #assert.eq(qm.str(qm.data.many), {})\n\
              #assert.eq(qm.str(qm.data.blank), \"\")\n\
              #assert.eq(qm.str(qm.data.absent), none)\n\
              #set document(author: qm.str(qm.data.one))\n\
              ok\n",
-            lit(ONE),
-            lit(MANY),
-        );
+        lit(ONE),
+        lit(MANY),
+    );
     let quill = common::quill_from_files(&[("Quill.yaml", yaml), ("plate.typ", &plate)]);
     let block = |s: &str| s.lines().map(|l| format!("  {l}\n")).collect::<String>();
     let md = format!(
@@ -228,11 +240,20 @@ fn a_one_line_text_written_as_a_block_scalar_renders() {
         .expect("load status_report");
     let md = "~~~\n$quill: status_report\nproject: |\n  Harbor Migration\nstate: at_risk\n~~~\n\nBody.\n";
     let mut doc = Document::parse(md).expect("parse").document;
-    assert!(quill.validate(&doc).is_empty(), "{:?}", quill.validate(&doc));
-    let options = quillmark::RenderOptions::default().with_output_format(quillmark::OutputFormat::Pdf);
+    assert!(
+        quill.validate(&doc).is_empty(),
+        "{:?}",
+        quill.validate(&doc)
+    );
+    let options =
+        quillmark::RenderOptions::default().with_output_format(quillmark::OutputFormat::Pdf);
     Engine::new()
         .render(&quill, &doc, common::test_date(), &options)
         .expect("renders");
     quill.conform(&mut doc).expect("conforms");
-    assert!(doc.to_markdown().contains("\nproject: Harbor Migration\n"), "{}", doc.to_markdown());
+    assert!(
+        doc.to_markdown().contains("\nproject: Harbor Migration\n"),
+        "{}",
+        doc.to_markdown()
+    );
 }

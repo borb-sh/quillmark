@@ -370,7 +370,9 @@ pub enum FieldType {
     },
     /// A closed string domain, `values` in declaration order. The blank (`""`)
     /// is accepted beside them and is never one of them.
-    Enum { values: Vec<String> },
+    Enum {
+        values: Vec<String>,
+    },
     /// A vocabulary someone ticks: `roster` is member id to display title in
     /// declaration order, the domain of the ids a value holds. `open` admits
     /// items a document adds beside the roster. A cell whose value is the set of
@@ -408,17 +410,8 @@ impl FieldType {
     }
 
     pub(crate) const NAMES: [&'static str; 11] = [
-        "number",
-        "integer",
-        "boolean",
-        "array",
-        "object",
-        "date",
-        "datetime",
-        "text",
-        "richtext",
-        "enum",
-        "matrix",
+        "number", "integer", "boolean", "array", "object", "date", "datetime", "text", "richtext",
+        "enum", "matrix",
     ];
 
     /// The `type:` token alone. An `enum`'s domain and a text type's
@@ -533,8 +526,7 @@ fn unknown_type<E: serde::de::Error>(token: &str) -> E {
 impl<'de> Deserialize<'de> for FieldType {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
-        FieldType::from_str(&s)
-            .ok_or_else(|| unknown_type(&s))
+        FieldType::from_str(&s).ok_or_else(|| unknown_type(&s))
     }
 }
 
@@ -553,8 +545,7 @@ impl<'de> Deserialize<'de> for TypeToken {
             Some(token) => (token, true),
             None => (s.as_str(), false),
         };
-        let r#type = FieldType::from_str(token)
-            .ok_or_else(|| unknown_type(&s))?;
+        let r#type = FieldType::from_str(token).ok_or_else(|| unknown_type(&s))?;
         Ok(Self { r#type, optional })
     }
 }
@@ -936,7 +927,11 @@ impl FieldSchema {
         }
         let declared = |props: &'s IndexMap<String, Box<FieldSchema>>,
                         object: &'v serde_json::Map<String, serde_json::Value>,
-                        f: &mut dyn FnMut(&'s FieldSchema, &'v serde_json::Value, &crate::path::DocPath)| {
+                        f: &mut dyn FnMut(
+            &'s FieldSchema,
+            &'v serde_json::Value,
+            &crate::path::DocPath,
+        )| {
             for (name, prop) in props {
                 if let Some(value) = object.get(name) {
                     f(prop, value, &path.field(name));
@@ -1013,19 +1008,23 @@ impl FieldSchema {
             return Ok(());
         };
         if def.contains_key("inline") {
-            return Err("inline: is retired: text and richtext are one line by default; \
+            return Err(
+                "inline: is retired: text and richtext are one line by default; \
                         write inline: true as multiline: false on a richtext (a text \
                         drops it), and inline: false as multiline: true"
-                .to_string());
+                    .to_string(),
+            );
         }
         let ui_multiline = def
             .get("ui")
             .and_then(|ui| ui.as_object())
             .is_some_and(|ui| ui.contains_key("multiline"));
         if ui_multiline {
-            return Err("ui.multiline is retired: declare multiline: true on the field \
+            return Err(
+                "ui.multiline is retired: declare multiline: true on the field \
                         itself (type: text or type: richtext), or delete it on any other type"
-                .to_string());
+                    .to_string(),
+            );
         }
         Ok(())
     }

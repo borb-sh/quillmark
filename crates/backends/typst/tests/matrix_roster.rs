@@ -81,8 +81,13 @@ fn roster_rows_are_the_vocabulary_in_order_from_every_container() {
     )
     .expect("every assertion holds");
 
-    let refused = open(r#"#qm.roster(qm.data, "rows")"#).err().expect("a table is no matrix");
-    assert!(refused.contains("is not a matrix field address"), "{refused}");
+    let refused = open(r#"#qm.roster(qm.data, "rows")"#)
+        .err()
+        .expect("a table is no matrix");
+    assert!(
+        refused.contains("is not a matrix field address"),
+        "{refused}"
+    );
 }
 
 /// A row's `path` is a claimable address whether or not the row is held, and
@@ -98,7 +103,13 @@ fn a_rows_path_claims_its_region() {
     )
     .expect("opens");
     let fields: Vec<String> = session.regions().into_iter().map(|r| r.field).collect();
-    for field in ["quals.dco", "quals.cyber", "quals.aide", "quals.wing_ig", "quals.wing_ig.title"] {
+    for field in [
+        "quals.dco",
+        "quals.cyber",
+        "quals.aide",
+        "quals.wing_ig",
+        "quals.wing_ig.title",
+    ] {
         assert!(fields.iter().any(|f| f == field), "{field} in {fields:?}");
     }
 }
@@ -107,12 +118,21 @@ fn a_rows_path_claims_its_region() {
 /// member's `title` is no address, and a display pattern belongs to a date.
 #[test]
 fn ink_answers_a_blank_cell_and_refuses_what_no_address_carries() {
-    open(r#"#assert.eq(qm.ink(qm.data.quals.aide, "detail"), none)"#).expect("a blank cell is none");
+    open(r#"#assert.eq(qm.ink(qm.data.quals.aide, "detail"), none)"#)
+        .expect("a blank cell is none");
     for (body, refusal) in [
-        (r#"#qm.ink(qm.data.quals.dco, "title")"#, "not a schema field address"),
-        (r#"#qm.ink(qm.data.quals.dco, "detail", "[year]")"#, "display pattern"),
+        (
+            r#"#qm.ink(qm.data.quals.dco, "title")"#,
+            "not a schema field address",
+        ),
+        (
+            r#"#qm.ink(qm.data.quals.dco, "detail", "[year]")"#,
+            "display pattern",
+        ),
     ] {
-        let err = open(body).err().unwrap_or_else(|| panic!("{body} must not compile"));
+        let err = open(body)
+            .err()
+            .unwrap_or_else(|| panic!("{body} must not compile"));
         assert!(err.contains(refusal), "{body}: {err}");
     }
 }

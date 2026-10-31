@@ -180,7 +180,6 @@ pub fn parse_datetime(s: &str) -> Option<(i32, u8, u8, u8, u8, u8)> {
 mod tests {
     use super::*;
 
-
     #[test]
     fn parse_date_accepts_bare_calendar_dates() {
         assert_eq!(parse_date("2026-06-01"), Some((2026, 6, 1)));
@@ -193,22 +192,21 @@ mod tests {
             "",
             "2026",
             "2026-06",
-            "2026-6-1",              // not zero-padded
-            "2026-13-01",            // month out of range
-            "2026-02-30",            // Feb 30
-            "2026-06-01T12:00",      // time component → this is a datetime
-            "2026-06-01T12:00:00",   // time component
-            "2026-06-01 12:00",      // space-separated time component
-            "2026-06-01Z",           // stray offset marker
-            "2026-06-01T12:00:00Z",  // offset instant
+            "2026-6-1",             // not zero-padded
+            "2026-13-01",           // month out of range
+            "2026-02-30",           // Feb 30
+            "2026-06-01T12:00",     // time component → this is a datetime
+            "2026-06-01T12:00:00",  // time component
+            "2026-06-01 12:00",     // space-separated time component
+            "2026-06-01Z",          // stray offset marker
+            "2026-06-01T12:00:00Z", // offset instant
             "not-a-date",
-            "-2026-01-01",           // signed year (BCE): leading sign rejected
-            "+2026-01-01",           // signed year: leading sign rejected
+            "-2026-01-01", // signed year (BCE): leading sign rejected
+            "+2026-01-01", // signed year: leading sign rejected
         ] {
             assert_eq!(parse_date(s), None, "expected rejected date: {s}");
         }
     }
-
 
     #[test]
     fn parse_datetime_accepts_offsetless_wall_clock() {
@@ -232,21 +230,21 @@ mod tests {
     fn parse_datetime_rejects_offsets_space_fraction_and_bare_date() {
         for s in [
             "",
-            "2026-06-01",               // bare date → this is a `type: date`
-            "2026-06-01T14:30:00Z",     // UTC offset, rejected, never treated as local
+            "2026-06-01",                // bare date → this is a `type: date`
+            "2026-06-01T14:30:00Z",      // UTC offset, rejected, never treated as local
             "2026-06-01T14:30:00+00:00", // explicit zero offset, no special case
             "2026-06-01T14:30:00+05:30", // offset
             "2026-06-01T14:30:00-05:00", // offset
-            "2026-06-01 14:30:00",      // YAML space separator, not RFC 3339
-            "2026-06-01T14:30:00.5",    // fractional seconds
-            "2026-06-01T14:30:00.123",  // fractional seconds
-            "2026-06-01T14:30:00 ",     // trailing space
-            "2026-06-01T14",            // no minute
-            "2026-06-01T14:3",          // single-digit minute
-            "2026-13-01T14:30:00",      // month out of range
-            "2026-02-30T14:30:00",      // Feb 30
-            "-2026-06-01T12:00",        // signed year (BCE), leading sign rejected
-            "+2026-06-01T12:00",        // signed year, leading sign rejected
+            "2026-06-01 14:30:00",       // YAML space separator, not RFC 3339
+            "2026-06-01T14:30:00.5",     // fractional seconds
+            "2026-06-01T14:30:00.123",   // fractional seconds
+            "2026-06-01T14:30:00 ",      // trailing space
+            "2026-06-01T14",             // no minute
+            "2026-06-01T14:3",           // single-digit minute
+            "2026-13-01T14:30:00",       // month out of range
+            "2026-02-30T14:30:00",       // Feb 30
+            "-2026-06-01T12:00",         // signed year (BCE), leading sign rejected
+            "+2026-06-01T12:00",         // signed year, leading sign rejected
         ] {
             assert_eq!(parse_datetime(s), None, "expected rejected datetime: {s}");
         }

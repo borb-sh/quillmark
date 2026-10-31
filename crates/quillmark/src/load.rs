@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use quillmark_core::{
     error::RenderError,
-    quill::{FileTreeNode, Quill, QuillIgnore, BUNDLE_EXTENSION},
+    quill::{BUNDLE_EXTENSION, FileTreeNode, Quill, QuillIgnore},
 };
 
 /// Load a quill from a filesystem directory, skipping what [`QuillIgnore`]
@@ -19,13 +19,14 @@ use quillmark_core::{
 /// the quill, readable from [`Quill::warnings`].
 pub fn quill_from_path<P: AsRef<Path>>(path: P) -> Result<Quill, RenderError> {
     let path = path.as_ref();
-    let load_failed =
-        |e: &dyn std::fmt::Display| RenderError::coded("quill::load_failed", format!("Failed to load quill: {e}"));
+    let load_failed = |e: &dyn std::fmt::Display| {
+        RenderError::coded("quill::load_failed", format!("Failed to load quill: {e}"))
+    };
     if is_bundle_file(path) {
         let bytes = std::fs::read(path).map_err(|e| load_failed(&e))?;
         return Quill::from_bundle(&bytes).map_err(RenderError::new);
     }
-    let tree = load_tree_from_path(path).map_err(|e| load_failed(&e))?;
+    let tree = tree_from_path(path).map_err(|e| load_failed(&e))?;
     Quill::from_tree(tree).map_err(RenderError::new)
 }
 
@@ -39,10 +40,7 @@ fn is_bundle_file(path: &Path) -> bool {
 pub fn tree_from_path<P: AsRef<Path>>(
     path: P,
 ) -> Result<FileTreeNode, Box<dyn StdError + Send + Sync>> {
-    load_tree_from_path(path.as_ref())
-}
-
-fn load_tree_from_path(path: &Path) -> Result<FileTreeNode, Box<dyn StdError + Send + Sync>> {
+    let path = path.as_ref();
     // The root is the one directory whose absence is the caller's mistake
     // rather than a walk detail: unchecked, a typo'd path walks to an empty
     // tree and fails as `Quill.yaml not found in file tree`.
@@ -58,17 +56,16 @@ fn load_tree_from_path(path: &Path) -> Result<FileTreeNode, Box<dyn StdError + S
         return Err(format!("Quill directory not found: {}", path.display()).into());
     }
 
-    load_dir(path, path, &QuillIgnore)
+    load_dir(path, path)
 }
 
-/// Bounds one oversize file from an untrusted bundle; neither file count nor
+/// Bounds one oversize file from an untrusted directory; neither file count nor
 /// aggregate bytes is capped.
 const MAX_QUILL_FILE_SIZE: u64 = 50 * 1024 * 1024;
 
 fn load_dir(
     current_dir: &Path,
     base_dir: &Path,
-    ignore: &QuillIgnore,
 ) -> Result<FileTreeNode, Box<dyn StdError + Send + Sync>> {
     use std::fs;
 
@@ -81,7 +78,7 @@ fn load_dir(
             .map_err(|e| format!("Failed to get relative path: {}", e))?
             .to_path_buf();
 
-        if ignore.is_ignored(&relative_path) {
+        if QuillIgnore.is_ignored(&relative_path) {
             continue;
         }
 
@@ -112,7 +109,7 @@ fn load_dir(
                 .map_err(|e| format!("Failed to read file '{}': {}", path.display(), e))?;
             files.insert(filename, FileTreeNode::File { contents });
         } else if file_type.is_dir() {
-            let subdir_tree = load_dir(&path, base_dir, ignore)?;
+            let subdir_tree = load_dir(&path, base_dir)?;
             files.insert(filename, subdir_tree);
         }
     }
@@ -139,7 +136,7 @@ mod tests {
         std::fs::write(&secret, b"TOPSECRET").unwrap();
         std::os::unix::fs::symlink(&secret, root.join("leak.txt")).unwrap();
 
-        let tree = load_tree_from_path(root).unwrap();
+        let tree = tree_from_path(root).unwrap();
         assert!(tree.get_file("leak.txt").is_none());
         assert_eq!(tree.get_file("real.txt"), Some(&b"ok"[..]));
     }
@@ -155,7 +152,7 @@ mod tests {
         std::fs::create_dir(root.join("nested")).unwrap();
         std::fs::write(root.join("nested/plate.typ"), b"keep").unwrap();
 
-        let tree = load_tree_from_path(root).unwrap();
+        let tree = tree_from_path(root).unwrap();
         assert!(tree.get_file(".gitignore").is_none());
         assert!(tree.get_file("target/debug/build.log").is_none());
         assert_eq!(tree.get_file("nested/plate.typ"), Some(&b"keep"[..]));
@@ -168,11 +165,17 @@ mod tests {
         let file = dir.path().join("usaf_memo.quill");
         std::fs::write(&file, from_dir.to_bundle().unwrap()).unwrap();
 
-        assert_eq!(quill_from_path(&file).unwrap().to_tree(), from_dir.to_tree());
+        assert_eq!(
+            quill_from_path(&file).unwrap().to_tree(),
+            from_dir.to_tree()
+        );
 
         let zip = dir.path().join("usaf_memo.zip");
         std::fs::rename(&file, &zip).unwrap();
         let refused = quill_from_path(&zip).unwrap_err();
-        assert_eq!(refused.diagnostics()[0].code.as_deref(), Some("quill::load_failed"));
+        assert_eq!(
+            refused.diagnostics()[0].code.as_deref(),
+            Some("quill::load_failed")
+        );
     }
 }

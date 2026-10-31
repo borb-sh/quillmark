@@ -17,7 +17,6 @@ fn multibyte_in_quoted_scalar_parses() {
 fn multibyte_yaml_errors_reach_the_renderer_char_bounded() {
     // `assemble` must hand the caret renderer a char-bounded slice. A parse error
     // is the expected outcome; a panic is not.
-    // The renderer's own multibyte guarantee is pinned at its altitude
     let inputs = [
         "~~~card-yaml\n$quill: q@0.1\n$kind: main\nf\u{2014}o: 1\nf\u{2014}o: 2\n~~~\n",
         "~~~card-yaml\n$quill: q@0.1\n$kind: main\nx: hello \u{2014} world\nbluf: *bad-alias\n~~~\n",

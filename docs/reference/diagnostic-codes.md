@@ -265,7 +265,6 @@ The render contract every backend shares.
 - `backend::invalid_raster_scale`
 - `backend::page_index_out_of_bounds`
 - `backend::page_selection_not_supported`
-- `backend::update_unsupported`
 
 ## `engine::`
 

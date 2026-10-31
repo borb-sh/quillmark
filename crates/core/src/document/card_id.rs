@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use sha2::{Digest, Sha256};
 
 use super::Card;
-use crate::error::{diag_args, Diagnostic, Severity};
+use crate::error::{Diagnostic, Severity, diag_args};
 use crate::path::DocPath;
 
 /// The diagnostic code a parse's re-minted card id rides.
@@ -22,11 +22,10 @@ pub(crate) fn reminted_warning(spelled: &str) -> Diagnostic {
         format!("card id `{spelled}` was replaced with a new one: it is not a card id, or an earlier card holds it"),
     )
     .with_code(CARD_ID_REMINTED.to_string())
-    .with_hint(
-        "A card id is 1 to 64 of [A-Za-z0-9_-], opening with a letter or digit, and unique in the document. \
+    .with_hint(format!(
+        "A card id is 1 to {MAX_CARD_ID_LEN} of [A-Za-z0-9_-], opening with a letter or digit, and unique in the document. \
          Leave `$id` out of a new card and one is minted."
-            .to_string(),
-    )
+    ))
     .with_args(diag_args! { "id" => spelled })
 }
 
@@ -38,7 +37,9 @@ pub const MAX_CARD_ID_LEN: usize = 64;
 pub fn is_card_id(id: &str) -> bool {
     id.len() <= MAX_CARD_ID_LEN
         && id.starts_with(|c: char| c.is_ascii_alphanumeric())
-        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// The base32 letters a minted id spells, without `l`, `o`, `0` or `1`.
@@ -49,7 +50,11 @@ const ALPHABET: &[u8; 32] = b"abcdefghijkmnpqrstuvwxyz23456789";
 /// document, and shaped so it reads as no ordinal.
 fn token(n: usize) -> String {
     let digest = Sha256::digest(format!("quillmark/card-id\n{n}").as_bytes());
-    let bits = u64::from_be_bytes(digest[..8].try_into().expect("a SHA-256 digest is 32 bytes"));
+    let bits = u64::from_be_bytes(
+        digest[..8]
+            .try_into()
+            .expect("a SHA-256 digest is 32 bytes"),
+    );
     let mut out = String::from("c");
     for k in 0..5 {
         out.push(char::from(ALPHABET[((bits >> (59 - 5 * k)) & 31) as usize]));
@@ -146,7 +151,12 @@ mod tests {
 
     #[test]
     fn the_grammar() {
-        for ok in ["c3kq9f", "intro", "0d8e2b9c-6f6a-4e8b-9a8d-2a6f1d1c3b4e", "a_b"] {
+        for ok in [
+            "c3kq9f",
+            "intro",
+            "0d8e2b9c-6f6a-4e8b-9a8d-2a6f1d1c3b4e",
+            "a_b",
+        ] {
             assert!(is_card_id(ok), "{ok}");
         }
         for bad in ["", "-a", "_a", "a b", "a.b", "é", &"a".repeat(65)] {
@@ -163,10 +173,25 @@ mod tests {
     #[test]
     fn a_blank_id_is_no_id() {
         let fence = |id: &str| format!("~~~\n$kind: item\n$id:{id}\n~~~\n");
-        let md = format!("~~~\n$quill: q\n~~~\n\n{}\n{}\n{}", fence(""), fence(" ~"), fence(" null"));
+        let md = format!(
+            "~~~\n$quill: q\n~~~\n\n{}\n{}\n{}",
+            fence(""),
+            fence(" ~"),
+            fence(" null")
+        );
         let parsed = crate::document::Document::parse(&md).expect("parses");
-        let ids: Vec<&str> = parsed.document.cards().iter().filter_map(|c| c.id()).collect();
+        let ids: Vec<&str> = parsed
+            .document
+            .cards()
+            .iter()
+            .filter_map(|c| c.id())
+            .collect();
         assert_eq!(ids, [token(0), token(1), token(2)]);
-        assert!(parsed.warnings.iter().all(|w| w.code.as_deref() != Some(CARD_ID_REMINTED)));
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .all(|w| w.code.as_deref() != Some(CARD_ID_REMINTED))
+        );
     }
 }

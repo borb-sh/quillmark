@@ -3,10 +3,10 @@
 
 use std::collections::BTreeMap;
 
+use quillmark_core::Content;
 use quillmark_core::error::{Diagnostic, Severity};
 use quillmark_core::path::DocPath;
 use quillmark_core::quill::QuillConfig;
-use quillmark_core::Content;
 
 /// A session's running-text families, lowercased.
 #[derive(Debug, Default, Clone)]
@@ -24,7 +24,11 @@ const CODE: &str = "typst::unknown_font_family";
 /// One `typst::unknown_font_family` per family a content field of the plate
 /// JSON `data` names and `families` does not offer, spelled as the field
 /// first does.
-pub(crate) fn unknown(config: &QuillConfig, data: &serde_json::Value, families: &Families) -> Vec<Diagnostic> {
+pub(crate) fn unknown(
+    config: &QuillConfig,
+    data: &serde_json::Value,
+    families: &Families,
+) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     config.each_plate_content(data, &mut |at: &DocPath, content: &Content| {
         let mut missing: BTreeMap<String, String> = BTreeMap::new();
@@ -58,13 +62,15 @@ mod tests {
     use quillmark_core::quill::{FileTreeNode, Quill};
     use typst::layout::{Frame, FrameItem};
 
-    use crate::{compile, read_plate, world, FontLibrary, SchemaMeta};
+    use crate::{FontLibrary, SchemaMeta, compile, read_plate, world};
 
     const YAML: &str = "quill:\n  name: fonts\n  version: 0.1.0\n  backend: typst\n  description: font runs\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    prose:\n      type: richtext\n      multiline: true\n      description: body\n";
 
     fn figtree() -> Vec<u8> {
-        std::fs::read(quillmark_fixtures::quills_path("taro").join("assets/fonts/Figtree-Regular.ttf"))
-            .expect("read Figtree")
+        std::fs::read(
+            quillmark_fixtures::quills_path("taro").join("assets/fonts/Figtree-Regular.ttf"),
+        )
+        .expect("read Figtree")
     }
 
     fn roboto() -> Vec<u8> {
@@ -79,31 +85,77 @@ mod tests {
         let plate = format!(
             "#import \"@local/quillmark-helper:0.2.0\" as qm\n#set page(width: 400pt, height: 300pt, margin: 20pt)\n{plate_head}\n#qm.data.prose\n"
         );
-        let mut root = FileTreeNode::Directory { files: HashMap::new() };
-        root.insert("Quill.yaml", FileTreeNode::File { contents: YAML.as_bytes().to_vec() }).unwrap();
-        root.insert("plate.typ", FileTreeNode::File { contents: plate.into_bytes() }).unwrap();
+        let mut root = FileTreeNode::Directory {
+            files: HashMap::new(),
+        };
+        root.insert(
+            "Quill.yaml",
+            FileTreeNode::File {
+                contents: YAML.as_bytes().to_vec(),
+            },
+        )
+        .unwrap();
+        root.insert(
+            "plate.typ",
+            FileTreeNode::File {
+                contents: plate.into_bytes(),
+            },
+        )
+        .unwrap();
         for (name, data) in fonts {
-            root.insert(format!("assets/fonts/{name}"), FileTreeNode::File { contents: data.clone() }).unwrap();
+            root.insert(
+                format!("assets/fonts/{name}"),
+                FileTreeNode::File {
+                    contents: data.clone(),
+                },
+            )
+            .unwrap();
         }
         Quill::from_tree(root).expect("quill")
     }
 
     fn data(md: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(md).expect("import").content;
+        let rt = quillmark_content::import::from_markdown(md)
+            .expect("import")
+            .content;
         serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) })
     }
 
     /// Each run of text `prose` places, as `(text, family)`, and the session's
     /// warnings.
-    fn runs(plate_head: &str, md: &str, library: FontLibrary) -> (Vec<(String, String)>, Vec<quillmark_core::error::Diagnostic>) {
+    fn runs(
+        plate_head: &str,
+        md: &str,
+        library: FontLibrary,
+    ) -> (
+        Vec<(String, String)>,
+        Vec<quillmark_core::error::Diagnostic>,
+    ) {
         runs_of(&quill(plate_head), md, library)
     }
 
-    fn runs_of(quill: &Quill, md: &str, library: FontLibrary) -> (Vec<(String, String)>, Vec<quillmark_core::error::Diagnostic>) {
+    fn runs_of(
+        quill: &Quill,
+        md: &str,
+        library: FontLibrary,
+    ) -> (
+        Vec<(String, String)>,
+        Vec<quillmark_core::error::Diagnostic>,
+    ) {
         let data = data(md);
-        let meta = SchemaMeta::from_schema_json(quillmark_core::quill::build_transform_schema(quill.config(), quillmark_core::quill::SchemaCodec::Content).as_json());
-        let mut world = world::QuillWorld::new(quill, &read_plate(quill).expect("plate"), &Arc::new(library))
-            .expect("world");
+        let meta = SchemaMeta::from_schema_json(
+            quillmark_core::quill::build_transform_schema(
+                quill.config(),
+                quillmark_core::quill::SchemaCodec::Content,
+            )
+            .as_json(),
+        );
+        let mut world = world::QuillWorld::new(
+            quill,
+            &read_plate(quill).expect("plate"),
+            &Arc::new(library),
+        )
+        .expect("world");
         world.inject_helper_package(&data, &meta).expect("inject");
         let (document, mut warnings) = compile::compile_document(&world).expect("compile");
         warnings.extend(super::unknown(quill.config(), &data, world.families()));
@@ -112,7 +164,9 @@ mod tests {
             for (_, item) in frame.items() {
                 match item {
                     FrameItem::Group(g) => walk(&g.frame, out),
-                    FrameItem::Text(t) => out.push((t.text.to_string(), t.font.info().family.clone())),
+                    FrameItem::Text(t) => {
+                        out.push((t.text.to_string(), t.font.info().family.clone()))
+                    }
                     _ => {}
                 }
             }
@@ -125,7 +179,10 @@ mod tests {
     }
 
     fn family<'a>(runs: &'a [(String, String)], text: &str) -> &'a str {
-        let (_, family) = runs.iter().find(|r| r.0.contains(text)).unwrap_or_else(|| panic!("{text:?} in {runs:?}"));
+        let (_, family) = runs
+            .iter()
+            .find(|r| r.0.contains(text))
+            .unwrap_or_else(|| panic!("{text:?} in {runs:?}"));
         family
     }
 
@@ -142,16 +199,27 @@ mod tests {
         assert_eq!(family(&runs, "outer"), "Figtree");
         assert_eq!(family(&runs, "inner"), "Roboto");
         assert_eq!(family(&runs, "after"), "Figtree");
-        assert_ne!(family(&runs, "mono"), "Figtree", "a code span keeps raw's own font: {runs:?}");
+        assert_ne!(
+            family(&runs, "mono"),
+            "Figtree",
+            "a code span keeps raw's own font: {runs:?}"
+        );
         assert_eq!(family(&runs, "gone"), "Roboto");
         let codes: Vec<(&str, &str)> = warnings
             .iter()
             .map(|d| (d.code.as_deref().unwrap_or(""), d.message.as_str()))
             .collect();
-        assert_eq!(codes.len(), 1, "one warning for the field, none of Typst's own: {codes:?}");
+        assert_eq!(
+            codes.len(),
+            1,
+            "one warning for the field, none of Typst's own: {codes:?}"
+        );
         assert_eq!(codes[0].0, "typst::unknown_font_family");
         assert_eq!(warnings[0].path.as_deref(), Some("main.prose"));
-        assert_eq!(warnings[0].args.get("family"), Some(&serde_json::json!("Nope")));
+        assert_eq!(
+            warnings[0].args.get("family"),
+            Some(&serde_json::json!("Nope"))
+        );
     }
 
     /// A family entering on `update` is checked as one present at `open` is.
@@ -159,12 +227,19 @@ mod tests {
     fn an_update_checks_the_families_it_brings() {
         use quillmark_core::backend::Backend;
         let today = quillmark_core::quill::CalendarDate::new(2026, 1, 1).expect("a calendar day");
-        let mut session = crate::TypstBackend::default().open(&quill(""), &data("plain"), today).expect("open");
+        let mut session = crate::TypstBackend::default()
+            .open(&quill(""), &data("plain"), today)
+            .expect("open");
         let unknown = |warnings: &[quillmark_core::error::Diagnostic]| {
-            warnings.iter().filter(|d| d.code.as_deref() == Some(super::CODE)).count()
+            warnings
+                .iter()
+                .filter(|d| d.code.as_deref() == Some(super::CODE))
+                .count()
         };
         assert_eq!(unknown(session.warnings()), 0);
-        session.update_data(&data("<qm-span family=\"Nope\">a</qm-span>")).expect("update");
+        session
+            .update_data(&data("<qm-span family=\"Nope\">a</qm-span>"))
+            .expect("update");
         assert_eq!(unknown(session.warnings()), 1);
     }
 
@@ -180,8 +255,14 @@ mod tests {
         );
         assert_eq!(family(&runs, "plain"), "Figtree");
         assert_eq!(family(&runs, "own"), "Figtree");
-        let families: Vec<_> = warnings.iter().filter_map(|d| d.args.get("family")).collect();
-        assert_eq!(families, [&serde_json::json!("Figtree"), &serde_json::json!("Roboto")]);
+        let families: Vec<_> = warnings
+            .iter()
+            .filter_map(|d| d.args.get("family"))
+            .collect();
+        assert_eq!(
+            families,
+            [&serde_json::json!("Figtree"), &serde_json::json!("Roboto")]
+        );
     }
 
     /// A library face sets only text a mark sets: neither a plate naming its
@@ -197,8 +278,15 @@ mod tests {
         assert_eq!(family(&runs, "set"), "Figtree");
 
         let quill = quill_shipping("", &[("Figtree-Regular.ttf", figtree())]);
-        let (runs, _) = runs_of(&quill, "plain Ж", FontLibrary::new(vec![roboto()]).expect("library"));
-        assert!(runs.iter().all(|(_, family)| family == "Figtree"), "{runs:?}");
+        let (runs, _) = runs_of(
+            &quill,
+            "plain Ж",
+            FontLibrary::new(vec![roboto()]).expect("library"),
+        );
+        assert!(
+            runs.iter().all(|(_, family)| family == "Figtree"),
+            "{runs:?}"
+        );
     }
 
     /// The family a library face is filed under is drawn per library, so a
@@ -225,8 +313,17 @@ mod tests {
         );
         assert_eq!(family(&runs, "abc"), "Roboto");
         assert_eq!(family(&runs, "def"), "Roboto");
-        let families: Vec<_> = warnings.iter().filter_map(|d| d.args.get("family")).collect();
-        assert_eq!(families, [&serde_json::json!("New Computer Modern Math"), &serde_json::json!("Noto Sans Math")]);
+        let families: Vec<_> = warnings
+            .iter()
+            .filter_map(|d| d.args.get("family"))
+            .collect();
+        assert_eq!(
+            families,
+            [
+                &serde_json::json!("New Computer Modern Math"),
+                &serde_json::json!("Noto Sans Math")
+            ]
+        );
     }
 
     #[test]
@@ -248,10 +345,19 @@ mod tests {
             "a <qm-span family=\"Figtree\">b[^1] c</qm-span>\n\n[^1]: note <qm-span family=\"Figtree\">own</qm-span>",
             library,
         );
-        let families: Vec<(&str, &str)> = runs.iter().map(|r| (r.0.as_str(), r.1.as_str())).collect();
+        let families: Vec<(&str, &str)> =
+            runs.iter().map(|r| (r.0.as_str(), r.1.as_str())).collect();
         assert_eq!(
             families,
-            [("a ", "Roboto"), ("b", "Figtree"), ("1", "Figtree"), (" c", "Figtree"), ("1", "Roboto"), ("note ", "Roboto"), ("own", "Figtree")]
+            [
+                ("a ", "Roboto"),
+                ("b", "Figtree"),
+                ("1", "Figtree"),
+                (" c", "Figtree"),
+                ("1", "Roboto"),
+                ("note ", "Roboto"),
+                ("own", "Figtree")
+            ]
         );
     }
 

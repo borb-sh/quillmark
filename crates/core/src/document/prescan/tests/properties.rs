@@ -15,7 +15,7 @@ use proptest::prelude::*;
 use serde_json::{Map, Value};
 use serde_saphyr::granit_parser::{Event, Parser, ScanError};
 
-use super::super::{options, prescan_fence_content, Refusal};
+use super::super::{Refusal, options, prescan_fence_content};
 use crate::document::{Document, NestedComment, PayloadItem};
 use crate::value::{PathSegment, QuillValue};
 
@@ -53,12 +53,9 @@ impl Node {
             Node::Tagged(_) => Value::Null,
             Node::EmptyMap => Value::Object(Map::new()),
             Node::EmptySeq => Value::Array(Vec::new()),
-            Node::Map(entries) => Value::Object(
-                entries
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.json()))
-                    .collect(),
-            ),
+            Node::Map(entries) => {
+                Value::Object(entries.iter().map(|(k, v)| (k.clone(), v.json())).collect())
+            }
             Node::Merged(own, merged) => Value::Object(
                 own.iter()
                     .chain(merged.iter().filter(|(k, _)| !holds(own, k)))
@@ -181,7 +178,8 @@ fn child(path: &[PathSegment], segment: PathSegment) -> Vec<PathSegment> {
 }
 
 fn trailer(text: &Option<String>) -> String {
-    text.as_ref().map_or_else(String::new, |t| format!(" # {}", spaced(t)))
+    text.as_ref()
+        .map_or_else(String::new, |t| format!(" # {}", spaced(t)))
 }
 
 /// `c`, numbered `cN`, as a hand might end it: bare or past trailing
@@ -236,7 +234,8 @@ impl Render {
     fn mark(&mut self, path: &[PathSegment], position: usize, text: &str, inline: bool) {
         if path.is_empty() {
             let comment = Item::Comment(text.to_string(), inline);
-            self.items.push((position, 2 * usize::from(inline), comment));
+            self.items
+                .push((position, 2 * usize::from(inline), comment));
             return;
         }
         self.nested.push(NestedComment {
@@ -399,7 +398,14 @@ impl Render {
         self.own(dash + usize::from(at_key), path, items.len());
     }
 
-    fn item(&mut self, dash: usize, item: &Node, path: &[PathSegment], i: usize, t: Option<String>) {
+    fn item(
+        &mut self,
+        dash: usize,
+        item: &Node,
+        path: &[PathSegment],
+        i: usize,
+        t: Option<String>,
+    ) {
         let own = child(path, PathSegment::Index(i));
         match item {
             Node::Map(_) | Node::Merged(..) => {
@@ -427,7 +433,14 @@ impl Render {
                     if let Some(t) = &t {
                         self.mark(path, i, t, true);
                     }
-                    self.entry(format!("{}- ", " ".repeat(dash)), dash + 2, k, v, &value, &t)
+                    self.entry(
+                        format!("{}- ", " ".repeat(dash)),
+                        dash + 2,
+                        k,
+                        v,
+                        &value,
+                        &t,
+                    )
                 };
                 if let Some(c) = after {
                     self.mark(&own, next_slot(entries, merged, 1, 0), &c, false);
@@ -470,7 +483,10 @@ fn emit_order(fields: &Map<String, Value>, c: &NestedComment) -> Vec<usize> {
         let (place, next) = match (segment, value) {
             (PathSegment::Index(i), Some(Value::Array(items))) => (*i, &items[*i]),
             (PathSegment::Key(k), _) => {
-                let place = map.keys().position(|x| x == k).expect("a key the value holds");
+                let place = map
+                    .keys()
+                    .position(|x| x == k)
+                    .expect("a key the value holds");
                 (place, &map[k])
             }
             _ => unreachable!("a path into the value"),
@@ -897,7 +913,11 @@ impl Scribble {
                 self.notes(dash + 4);
             }
             Node::EmptyMap | Node::EmptySeq => {
-                let empty = if matches!(item, Node::EmptyMap) { "{}" } else { "[]" };
+                let empty = if matches!(item, Node::EmptyMap) {
+                    "{}"
+                } else {
+                    "[]"
+                };
                 let t = self.tail();
                 self.line(0, &format!("{lead}- {empty}{t}"));
             }
@@ -963,17 +983,43 @@ fn arb_line() -> impl Strategy<Value = String> {
     let indent = prop::sample::select(&["", " ", "  ", "    ", "      "][..]);
     let dashes = prop::sample::select(&["", "", "- ", "- - ", "-"][..]);
     let key = prop::sample::select(
-        &["", "k: ", "j: ", "k:", "\"q k\": ", "? ", "!t m: ", "<<: ", "*a : "][..],
+        &[
+            "",
+            "k: ",
+            "j: ",
+            "k:",
+            "\"q k\": ",
+            "? ",
+            "!t m: ",
+            "<<: ",
+            "*a : ",
+        ][..],
     );
     let value = prop::sample::select(
         &[
-            "", "v", "w x", "[a, b]", "{a: 1}", "[]", "{}", "!t v", "&a v", "*a", "|", "null", "[a,",
-            "'q", "!!str", "!", "{<<: *a}", "[*a]", "&a {x: 1}",
+            "",
+            "v",
+            "w x",
+            "[a, b]",
+            "{a: 1}",
+            "[]",
+            "{}",
+            "!t v",
+            "&a v",
+            "*a",
+            "|",
+            "null",
+            "[a,",
+            "'q",
+            "!!str",
+            "!",
+            "{<<: *a}",
+            "[*a]",
+            "&a {x: 1}",
         ][..],
     );
     let comment = prop::sample::select(&["", "", " # c", "# own", " #"][..]);
-    (indent, dashes, key, value, comment)
-        .prop_map(|(i, d, k, v, c)| format!("{i}{d}{k}{v}{c}"))
+    (indent, dashes, key, value, comment).prop_map(|(i, d, k, v, c)| format!("{i}{d}{k}{v}{c}"))
 }
 
 /// The error the prescan's parser meets in `body`, and whether it lies inside
@@ -1003,13 +1049,16 @@ fn arb_body() -> impl Strategy<Value = String> {
 /// A body with a run of up to 200 own-line comments at one of its lines: the
 /// parser buffers such a run while it works out the entry after it.
 fn arb_run() -> impl Strategy<Value = String> {
-    (prop::collection::vec(arb_line(), 1..14), any::<prop::sample::Index>(), 0..200usize).prop_map(
-        |(mut lines, at, run)| {
+    (
+        prop::collection::vec(arb_line(), 1..14),
+        any::<prop::sample::Index>(),
+        0..200usize,
+    )
+        .prop_map(|(mut lines, at, run)| {
             let at = at.index(lines.len() + 1);
             lines.splice(at..at, std::iter::repeat_n("# r".to_string(), run));
             lines.join("\n")
-        },
-    )
+        })
 }
 
 /// Any text, its lines ended by `\n`, `\r\n` or a lone `\r`, some of them

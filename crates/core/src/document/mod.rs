@@ -7,12 +7,12 @@
 use serde::{Deserialize, Serialize};
 
 use quillmark_content::export::ExportLoss;
-use quillmark_content::import::{from_markdown as import_markdown, Imported};
+use quillmark_content::import::{Imported, from_markdown as import_markdown};
 use quillmark_content::model::Normalized;
 
 use crate::error::ParseError;
-use crate::version::QuillReference;
 use crate::error::{Diagnostic, Severity};
+use crate::version::QuillReference;
 
 pub(crate) fn import_body(md: &str) -> Result<Normalized, ImportError> {
     import_markdown(md).map(|imported| imported.content)
@@ -75,12 +75,20 @@ pub const LOST_CONSTRUCT: &str = "export::lost_construct";
 pub fn lost_construct(loss: ExportLoss) -> Diagnostic {
     let mut args = std::collections::BTreeMap::new();
     let (message, hint) = match loss {
-        ExportLoss::Mark { kind, start, end, now } => {
+        ExportLoss::Mark {
+            kind,
+            start,
+            end,
+            now,
+        } => {
             args.insert("construct".to_string(), kind.tag().into());
             args.insert("start".to_string(), start.into());
             args.insert("end".to_string(), end.into());
             let message = match now {
-                Some(_) => format!("markdown export writes a `{}` mark over other text than it holds", kind.tag()),
+                Some(_) => format!(
+                    "markdown export writes a `{}` mark over other text than it holds",
+                    kind.tag()
+                ),
                 None => format!("markdown export drops a `{}` mark", kind.tag()),
             };
             (
@@ -130,10 +138,16 @@ fn listed(words: &[&str], last: &str) -> String {
 fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
     use quillmark_content::carrier::RESERVED_ATTRS;
     use quillmark_content::island::{CELL_VALIGNS, TABLE_ALIGNS};
-    const TIGHT: &str = "Markdown on the lines under a tag line drops with it, up to the next blank line.";
-    const BESIDE: &str =
-        "A tag line beside a line of other tags drops with the markdown under it, up to the next blank line.";
-    let some = |one: &str, many: &str| if n == 1 { format!("a {one}") } else { format!("{n} {many}") };
+    const TIGHT: &str =
+        "Markdown on the lines under a tag line drops with it, up to the next blank line.";
+    const BESIDE: &str = "A tag line beside a line of other tags drops with the markdown under it, up to the next blank line.";
+    let some = |one: &str, many: &str| {
+        if n == 1 {
+            format!("a {one}")
+        } else {
+            format!("{n} {many}")
+        }
+    };
     let some_in_field = |one: &str, many: &str| {
         if n == 1 {
             format!("a {one} in this field was")
@@ -142,9 +156,15 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
         }
     };
     let attr_dropped = |tag: &str, attr: &str, hint: String| {
-        let on = if n == 1 { String::new() } else { format!(" on {n} tags") };
+        let on = if n == 1 {
+            String::new()
+        } else {
+            format!(" on {n} tags")
+        };
         (
-            format!("markdown import dropped the `{attr}` attribute of `<{tag}>`{on} in this field"),
+            format!(
+                "markdown import dropped the `{attr}` attribute of `<{tag}>`{on} in this field"
+            ),
             hint,
         )
     };
@@ -405,8 +425,9 @@ impl Codec {
                     .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             ),
             serde_json::Value::String(s) => Some(match self {
-                Codec::Richtext => import_markdown(s)
-                    .map_err(|e| ContentDecodeError::BadMarkdown(e.to_string())),
+                Codec::Richtext => {
+                    import_markdown(s).map_err(|e| ContentDecodeError::BadMarkdown(e.to_string()))
+                }
                 Codec::Text => Ok(whole(quillmark_content::import::from_plaintext(s))),
             }),
             _ => None,
@@ -481,7 +502,10 @@ pub(crate) fn canonical_richtext_value(
     if inline && !content.is_inline() {
         return Err(RichtextValueError::NotSingleLine);
     }
-    Ok((quillmark_content::serial::to_canonical_value(&content), warnings))
+    Ok((
+        quillmark_content::serial::to_canonical_value(&content),
+        warnings,
+    ))
 }
 
 /// Plain content less its trailing whitespace: a one-line `text` value's form
@@ -524,24 +548,24 @@ pub mod revise;
 pub mod wire;
 pub(crate) mod yaml_hints;
 
+pub use anchors::{ANCHOR_ID_COLLISION, AnchorSelector};
+pub use base::{Base, BaseError, HASH_TAG, content_hash, revise_import_against, value_hash};
 pub use dto::{
-    peek_storage_version, StorageError, StoredDocument, STORAGE_V0_124_0, STORAGE_V0_129_0,
-    STORAGE_V0_131_0, STORAGE_V0_134_0,
+    STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, StorageError,
+    StoredDocument, peek_storage_version,
 };
-pub use anchors::{AnchorSelector, ANCHOR_ID_COLLISION};
-pub use base::{content_hash, revise_import_against, value_hash, Base, BaseError, HASH_TAG};
-pub use edit::{revise_import, CardMut, EditError, Revised};
-/// Carried by [`Revised::dropped_anchors`], so nameable from here.
-pub use quillmark_content::export::{AnchorRead, Annotated};
+pub use edit::{CardMut, EditError, Revised, revise_import};
+pub use emit::{AnnotatedMarkdown, DocumentAnchor};
+pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
+pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
 pub use quillmark_content::anchor::Reattached;
-pub use emit::{AnnotatedMarkdown, DocumentAnchor};
+/// Carried by [`Revised::dropped_anchors`], so nameable from here.
+pub use quillmark_content::export::{AnchorRead, Annotated};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::import::ImportError;
 /// Taken by [`dropped_construct`], so nameable from here.
 pub use quillmark_content::import::{Dropped, ImportWarning};
-pub use meta::{is_valid_kind_name, validate_composable_kind, CardKindError};
-pub use payload::{MetaKey, Payload, PayloadItem};
 pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
@@ -786,7 +810,7 @@ impl Document {
     /// `TryFrom<StoredDocument>` for external data, which checks all three and
     /// returns `StorageError::Malformed`), and a placed card is reachable only
     /// as a [`CardMut`], which carries no whole-card assignment.
-    pub(crate) fn from_main_and_cards(main: Card, cards: Vec<Card>) -> Self {
+    pub(crate) fn from_main_and_cards(main: Card, mut cards: Vec<Card>) -> Self {
         debug_assert!(main.quill().is_some(), "main card must carry `$quill`");
         debug_assert!(
             cards.iter().all(|c| c.kind().is_some()),
@@ -800,17 +824,7 @@ impl Document {
             cards.iter().all(|c| c.seed().is_none()),
             "composable cards must not carry `$seed`"
         );
-        Self::with_card_ids(main, cards, &std::collections::HashSet::new())
-    }
-
-    /// [`from_main_and_cards`](Self::from_main_and_cards), each card that
-    /// carries no card id of its own minting past `reserved` too.
-    pub(crate) fn with_card_ids(
-        main: Card,
-        mut cards: Vec<Card>,
-        reserved: &std::collections::HashSet<String>,
-    ) -> Self {
-        card_id::settle(&mut cards, reserved);
+        card_id::settle(&mut cards, &std::collections::HashSet::new());
         Self { main, cards }
     }
 
@@ -839,8 +853,10 @@ impl Document {
     /// stored card it aligns the body's card to, and each body's markdown is
     /// kept for it.
     pub(crate) fn parse_revising(markdown: &str) -> Result<Revising, ParseError> {
-        let (document, warnings, bodies) =
-            assemble::decompose_with_warnings(markdown, quillmark_content::import::from_markdown_unresolved)?;
+        let (document, warnings, bodies) = assemble::decompose_with_warnings(
+            markdown,
+            quillmark_content::import::from_markdown_unresolved,
+        )?;
         Ok(Revising {
             parsed: Parsed { document, warnings },
             bodies,
@@ -868,9 +884,7 @@ impl Document {
     }
 
     /// A single composable card by index: the immutable twin of
-    /// [`card_mut`](Document::card_mut), so reading one card's payload does not
-    /// require materializing every card via [`cards`](Document::cards). `None`
-    /// when out of range.
+    /// [`card_mut`](Document::card_mut). `None` when out of range.
     pub fn card(&self, index: usize) -> Option<&Card> {
         self.cards.get(index)
     }

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Vitest integration tests for quillmark-wasm",
   "scripts": {
-    "test": "bash ../../../scripts/build-wasm.sh && vitest run",
+    "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

@@ -3,13 +3,13 @@
 
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
-use super::schema::{build_transform_schema, SchemaCodec, AUTHORING_KIND_KEY};
+use super::schema::{AUTHORING_KIND_KEY, SchemaCodec, build_transform_schema};
 use super::seed::main_reference;
 use super::{CardSchema, Quill, QuillConfig};
-use crate::document::{import_body_at, Card, Document, EditError, Parsed};
+use crate::document::{Card, Document, EditError, Parsed, import_body_at};
 use crate::error::{Diagnostic, Severity};
 use crate::path::DocPath;
-use crate::reader::{project_value, Leaves};
+use crate::reader::{Leaves, project_value};
 
 /// The code every structural refusal of [`Quill::from_authoring`] carries: a
 /// value whose shape is not the authoring document's.
@@ -80,7 +80,10 @@ impl Quill {
         };
         for key in root.keys() {
             if !matches!(key.as_str(), "fields" | "body" | "cards") {
-                errors.push(shape_error(&pointer("", key), "is not an authoring document key; expected `fields`, `body` or `cards`"));
+                errors.push(shape_error(
+                    &pointer("", key),
+                    "is not an authoring document key; expected `fields`, `body` or `cards`",
+                ));
             }
         }
         let main = document.main_card_mut();
@@ -108,7 +111,10 @@ impl Quill {
                 }
             }
             let Some(kind) = envelope.get(AUTHORING_KIND_KEY).and_then(JsonValue::as_str) else {
-                errors.push(shape_error(&pointer(&at, AUTHORING_KIND_KEY), "must name the card's kind"));
+                errors.push(shape_error(
+                    &pointer(&at, AUTHORING_KIND_KEY),
+                    "must name the card's kind",
+                ));
                 continue;
             };
             let mut card = match Card::new(kind) {
@@ -128,7 +134,9 @@ impl Quill {
         if !errors.is_empty() {
             return Err(errors);
         }
-        let conformed = self.conform(&mut document).map_err(|e| e.diagnostics().to_vec())?;
+        let conformed = self
+            .conform(&mut document)
+            .map_err(|e| e.diagnostics().to_vec())?;
         warnings.extend(conformed);
         Ok(Parsed { document, warnings })
     }
@@ -137,10 +145,20 @@ impl Quill {
 /// One card's `fields` and `body` in the authoring form.
 fn authoring_card(card: &Card, schema: Option<&CardSchema>) -> JsonMap<String, JsonValue> {
     let mut fields = JsonMap::new();
-    for (name, value) in card.payload().iter().filter(|(_, v)| !v.as_json().is_null()) {
+    for (name, value) in card
+        .payload()
+        .iter()
+        .filter(|(_, v)| !v.as_json().is_null())
+    {
         let value = match schema.and_then(|s| s.fields.get(name)) {
-            Some(field) => project_value(name, value.as_json(), field, Leaves::Preserve, &mut Vec::new())
-                .unwrap_or_else(|_| value.as_json().clone()),
+            Some(field) => project_value(
+                name,
+                value.as_json(),
+                field,
+                Leaves::Preserve,
+                &mut Vec::new(),
+            )
+            .unwrap_or_else(|_| value.as_json().clone()),
             None => value.as_json().clone(),
         };
         fields.insert(name.clone(), value);
@@ -169,7 +187,10 @@ fn fill_card(
     if let Some(fields) = fields.and_then(|f| expect_object(f, &fields_at, errors)) {
         for (name, value) in fields.iter().filter(|(_, v)| !v.is_null()) {
             if name.is_empty() {
-                errors.push(shape_error(&pointer(&fields_at, name), "is an empty field name"));
+                errors.push(shape_error(
+                    &pointer(&fields_at, name),
+                    "is an empty field name",
+                ));
                 continue;
             }
             if let Err(e) = card.store_field(name, value.clone()) {
@@ -189,7 +210,10 @@ fn fill_card(
                 ),
             }
         }
-        Some(_) => errors.push(shape_error(&pointer(at, "body"), "must be a Markdown string")),
+        Some(_) => errors.push(shape_error(
+            &pointer(at, "body"),
+            "must be a Markdown string",
+        )),
     }
 }
 

@@ -82,7 +82,9 @@ pub(super) fn extract_meta_items(payload: &mut JsonValue) -> Result<Vec<PayloadI
             "$id" => match value {
                 JsonValue::Null => continue,
                 JsonValue::String(s) => PayloadItem::Id { value: s },
-                other => PayloadItem::Id { value: other.to_string() },
+                other => PayloadItem::Id {
+                    value: other.to_string(),
+                },
             },
             "$ext" | "$seed" => {
                 let meta_key = MetaKey::from_key_str(&key).expect("matched $ext/$seed above");
