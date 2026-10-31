@@ -903,11 +903,12 @@ impl Content {
         None
     }
 
-    /// Per line, whether it ends in a block-only island's slot, after which
-    /// both emitters set a block: a block island's line, the one-line block a
-    /// [`LineKind`] cannot name, or prose a table closes. Empty where no island
-    /// is block-only, which is every document holding no table.
-    fn lines_ending_in_a_block_island(&self) -> Vec<bool> {
+    /// Per line, `(ends, alone)`: whether it ends in a block-only island's slot,
+    /// after which both emitters set a block, and whether that slot is all the
+    /// line holds, making the line itself a block — the one-line block a
+    /// [`LineKind`] cannot name. Empty where no island is block-only, which is
+    /// every document holding no table.
+    fn block_island_lines(&self) -> Vec<(bool, bool)> {
         if !self.islands.iter().any(|i| i.island_type.block_only()) {
             return Vec::new();
         }
@@ -920,7 +921,7 @@ impl Content {
                 let ends = seg.ends_with(ISLAND_SLOT)
                     && self.islands.get(slot + slots - 1).is_some_and(|i| i.island_type.block_only());
                 slot += slots;
-                ends
+                (ends, ends && seg.chars().count() == 1)
             })
             .collect()
     }
@@ -944,18 +945,22 @@ impl Content {
         }
         // A `continues` flag under a block that cannot take one clears: nothing
         // precedes the first line, and below it a differing container path, a
-        // one-line block above, or a line a table's slot ends, after which both
-        // emitters set the table as a block.
+        // one-line block above, a line a table's slot ends above, after which
+        // both emitters set the table as a block, or a table's slot alone on
+        // the line itself.
         // `Join` across two paths, `SetKind` retagging the line above and
         // `SetContinues` itself all reach the shape. Read after the demotion,
         // which settles what the line above is.
-        let block_island = self.lines_ending_in_a_block_island();
+        let block_island = self.block_island_lines();
+        let ends = |i: usize| block_island.get(i).is_some_and(|&(ends, _)| ends);
+        let alone = |i: usize| block_island.get(i).is_some_and(|&(_, alone)| alone);
         for i in 0..self.lines.len() {
             if self.lines[i].continues
                 && (i == 0
                     || self.lines[i].containers != self.lines[i - 1].containers
                     || !self.lines[i - 1].kind.takes_continuations()
-                    || block_island.get(i - 1).copied().unwrap_or(false))
+                    || ends(i - 1)
+                    || alone(i))
             {
                 self.lines[i].continues = false;
             }
@@ -1784,6 +1789,24 @@ mod tests {
             .with_props(serde_json::json!({"alt": "a", "url": "u"}))]);
         rt.normalize();
         assert!(rt.lines[1].continues, "an inline island's line is prose");
+    }
+
+    /// A block island's line is its own block, so a hard break into it clears
+    /// like one out of it: kept, the markdown writes `x\` above the pipe table,
+    /// and the backslash re-imports as text.
+    #[test]
+    fn continues_onto_a_block_island_line_is_cleared() {
+        let rt = Content::new(
+            "x\n\u{FFFC}".to_string(),
+            vec![Line::new(LineKind::Para), Line::new(LineKind::Para).with_continues(true)],
+        )
+        .with_islands(vec![table_island()])
+        .into_normalized();
+        assert!(!rt.lines[1].continues);
+        assert_eq!(rt.validate(), Ok(()));
+        let markdown = crate::export::to_markdown(&rt);
+        let back = crate::import::from_markdown(&markdown).unwrap().content;
+        assert_eq!(back, rt, "the markdown is a fixed point: {markdown:?}");
     }
 
     #[test]
