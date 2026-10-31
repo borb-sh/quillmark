@@ -627,6 +627,10 @@ drops both, the token reported.
   tag inside a code span or a link moves to its start, marked `at="span"`. A
   line whose tags in place would change what it imports to holds them at its
   end, each marked `at="line"`, or none where that changes it too.
+- The scoped read (`Card::body_annotated`, `field_annotated`; WASM
+  `doc.annotatedAt(addr)`) is the same read of one body or richtext field:
+  what a revise at that address reads back, so a writer that edits one card
+  reads and writes it alone, its `baseMarkdown` that read.
 - The read lists every anchor with the text of its line, spelled or not,
   so a consumer locates the anchor whose tag a writer lost. An anchor in a
   table cell or a footnote's note is listed unspelled, with its cell's text,
