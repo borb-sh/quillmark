@@ -182,38 +182,9 @@ const doc = Document.storageVersionOf(content)
   : Document.fromMarkdown(content);
 ```
 
-The `schema` value (`quillmark/document@0.131.0` for a document holding
-vocabulary `@0.129.0` lacks, `@0.129.0` for any other) is the **model version**, not the running crate
-version. It is a hand-set constant, bumped only when the `Document` model
-itself changes, so every `0.131.x` patch release reads and writes those same
-values.
+The tag model, what upgrading reads, and the one-time rewrites a release asks of stored rows are in [Persistence](https://quillmark.dev/integration/persistence/).
 
-- **Upgrading is safe.** A newer build reads documents an older build's
-  *writer* produced. Each schema version's wire format is frozen and never
-  changes; when the model does change, the new build ships a migration that
-  converts old payloads on `fromStored`. A document you commit as your
-  canonical on-disk format keeps loading across crate upgrades until its tag
-  is retired: 0.130 reads `@0.124.0` and `@0.129.0` only, so resave an older
-  row with a 0.124 to 0.129 build before taking 0.130, as that release's
-  migration guide shows. The other exception is a row a host authored a
-  content construct of its own into — a line `kind`, container, mark `type`
-  or island `type` outside the vocabulary. Those are refused from 0.113 on;
-  see that release's migration guide. An island `loss` is not one of them:
-  0.115 drops the key, so a row spelling one opens whatever the class and
-  comes back without it. From 0.126 on, a row whose `$quill` is a lone major,
-  `memo@1`, or whose body nests past 12 levels is refused too; rewrite it
-  before upgrading, as that release's migration guide shows.
-- **Downgrading is not.** `fromStored` rejects a `schema` version it does not
-  read, newer than the build or retired, rather than guessing at its format.
-  Don't feed documents written by a newer build back into an older one.
-
-`Document.currentStorageVersion()` is the newest tag this build writes. A
-save writes the oldest tag that holds the row, so a fresh row can carry an
-older tag still read: a row holding no vocabulary the previous tag lacks saves
-under the previous tag (the list is in `prose/canon/DOCUMENT_STORAGE.md`
-§ Schema Versioning). A tag other than `currentStorageVersion()` is
-therefore not a mismatch. Use `storageVersionOf` after `fromStored` throws,
-to tell "a version this build does not read" from "corrupt":
+`Document.currentStorageVersion()` is the newest tag this build writes, and a save writes the oldest tag that holds the row, so a tag other than it is not a mismatch. Use `storageVersionOf` after `fromStored` throws, to tell "a version this build does not read" from "corrupt":
 
 ```ts
 try {
@@ -224,13 +195,7 @@ try {
 }
 ```
 
-`storageVersionOf` does not validate the payload: it only reads the
-`schema` field, returning `undefined` for non-JSON, non-objects, or
-payloads that don't carry one.
-
-In short: persist the `toStored` string, resave rows under a retired tag
-before upgrading past it, never downgrade. The full design (including how
-migrations are added) is in `prose/canon/DOCUMENT_STORAGE.md`.
+`storageVersionOf` does not validate the payload: it only reads the `schema` field, returning `undefined` for non-JSON, non-objects, or payloads that don't carry one.
 
 ### Cards, seeds, and addresses
 
@@ -459,14 +424,7 @@ if (cssPxPerPt > 0) {                        // 0 while the canvas has no layout
 
 ### Schema model
 
-A field declares no `required` key: nothing is required.
-
-**`default:`** — what an unanswered field renders. With one, the render path
-uses it when the document omits the field, and `quill.authoringSchema` carries
-it as the field's `default`. Without one, an absent field blank-fills.
-
-An unanswered field draws no diagnostic. Partial documents are accepted, and
-`engine.render(quill, doc)` throws only for malformed input.
+A field declares no `required` key and an unanswered field draws no diagnostic; [`default`](https://quillmark.dev/quills/quill-yaml-reference/#default) is what an unanswered field renders.
 
 ### Errors
 
@@ -500,19 +458,11 @@ throws a real `Error` and attaches the property, so there is no constructor to
 `instanceof` against. Narrow with `isQuillmarkError`, which also works on errors
 from any build or WASM instance in the page.
 
-`diagnostics` is always non-empty: length 1 for most failures, length N for
-backend compilation errors, and `message` is derived from it. `diagnostics[0]`
-is an error. A failed Typst `engine.render` or `engine.open` also carries the
-quill's load warnings after its errors, so read each entry's `severity`. The
-same shape applies to every throw site:
+`diagnostics` is always non-empty and its first entry is an error; [Error Handling](https://quillmark.dev/integration/error-handling/) has the shape, the code namespaces and the warnings that follow. The same shape applies to every throw site:
 
 - `Document.fromMarkdown`: parse errors (missing root `$quill` metadata, YAML
   errors, `parse::input_too_large` for inputs > 10 MiB).
-- `Document` mutators (`storeField`, `insertCard`, the writer's
-  `set`, etc.): mutator failures carry a namespaced `edit::*` `code` on
-  `diagnostics[0]` (`edit::invalid_field_name`, `edit::unknown_field`,
-  `edit::index_out_of_range`, `edit::field_coercion_failed`, …). Route on
-  `diagnostics[0].code`, never on message text.
+- `Document` mutators (`storeField`, `insertCard`, the writer's `set`, etc.): a namespaced `edit::*` `code` on `diagnostics[0]`.
 - `engine.render` / `session.render`: backend compilation failures and
   validation errors.
 - An object argument carrying a key its verb does not read: the render
