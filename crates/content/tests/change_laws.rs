@@ -5,14 +5,15 @@
 
 use proptest::prelude::*;
 use quillmark_content::change::{
-    AnchorStep, Assoc, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply, compose, invert,
-    map_pos,
+    AnchorStep, Assoc, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply, compose, compose_in,
+    invert, map_pos, map_pos_in,
 };
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{
     Anchor, Block, BlockKind, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT, Island, Mark, MarkKind, Pos,
 };
+use quillmark_content::units::{Utf16, change_from_scalars, change_to_scalars, from_scalars};
 use serde_json::json;
 
 fn word() -> impl Strategy<Value = String> {
@@ -23,6 +24,7 @@ fn word() -> impl Strategy<Value = String> {
         "[a-z]{1,4}".prop_map(|w| format!("[{w}](https://x.io/{w})")),
         Just("$x^2$".to_string()),
         Just("[^n]".to_string()),
+        Just("é😀".to_string()),
     ]
 }
 
@@ -68,7 +70,7 @@ fn ops() -> impl Strategy<Value = Vec<Op>> {
     prop::collection::vec((0u8..9, any::<usize>(), any::<usize>(), any::<u8>()), 1..8)
 }
 
-const INSERTS: [&str; 6] = ["x", "yz", " ", "\n", "q\nr", "\u{2028}"];
+const INSERTS: [&str; 7] = ["x", "yz", " ", "\n", "q\nr", "\u{2028}", "😀a"];
 const TAGS: [&str; 4] = ["strong", "emph", "code", "link"];
 
 fn kind_of(tag: &str) -> MarkKind {
@@ -587,4 +589,67 @@ mod diffs {
         assert_eq!(done.islands[0].slot_order(), d.islands[0].slot_order());
         assert!(r.change.steps.iter().any(|s| matches!(s, Step::Nested { .. })));
     }
+}
+
+/// `p` with its offsets in UTF-16 code units, each level on its own text.
+fn pos_utf16(c: &Content, p: &Pos) -> Pos {
+    match p {
+        Pos::At(n) => Pos::At(from_scalars(Utf16, &c.text, *n)),
+        Pos::In { island, slot, at } => Pos::In {
+            island: island.clone(),
+            slot: slot.clone(),
+            at: Box::new(pos_utf16(c.slot(island, slot).expect("the position's slot"), at)),
+        },
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(200))]
+
+    #[test]
+    fn a_value_crosses_utf16_and_back(d in document()) {
+        prop_assert_eq!(Content::from_value_in(&d.to_value_in(Utf16), Utf16).unwrap(), d);
+    }
+
+    #[test]
+    fn a_change_crosses_utf16_and_back(d in document(), ops in ops()) {
+        let c = apply(&d, &change_for(&d, &ops)).unwrap().applied;
+        let wire = Change::from_value_in(&change_from_scalars(&c, &d, Utf16).unwrap().to_value(), Utf16).unwrap();
+        prop_assert_eq!(change_to_scalars(&wire, &d, Utf16).unwrap(), c);
+    }
+
+    #[test]
+    fn composing_in_utf16_agrees_with_applying_in_turn(d in document(), ops in ops(), cut in any::<usize>()) {
+        let c = change_for(&d, &ops);
+        let cut = cut % (c.steps.len() + 1);
+        let (a, b) = (Change::new(c.steps[..cut].to_vec()), Change::new(c.steps[cut..].to_vec()));
+        let Ok(mid) = apply(&d, &a).map(|m| m.content) else { return Ok(()) };
+        let Ok(end) = apply(&mid, &b).map(|e| e.content) else { return Ok(()) };
+        let (a16, b16) = (change_from_scalars(&a, &d, Utf16).unwrap(), change_from_scalars(&b, &mid, Utf16).unwrap());
+        let composed = change_to_scalars(&compose_in(&a16, &b16, Utf16), &d, Utf16).unwrap();
+        prop_assert_eq!(apply(&d, &composed).unwrap().content, end);
+    }
+
+    #[test]
+    fn mapping_in_utf16_agrees_with_mapping_in_scalars(d in document(), ops in ops()) {
+        let after = apply(&d, &change_for(&d, &ops)).unwrap();
+        let c16 = change_from_scalars(&after.applied, &d, Utf16).unwrap();
+        for (p, _) in positions(&d) {
+            for assoc in [Assoc::Before, Assoc::After] {
+                let want = map_pos(&after.applied, &p, assoc).map(|q| pos_utf16(&after.content, &q));
+                prop_assert_eq!(map_pos_in(&c16, &pos_utf16(&d, &p), assoc, Utf16), want);
+            }
+        }
+    }
+}
+
+#[test]
+fn an_offset_inside_a_surrogate_pair_is_refused() {
+    let d = from_markdown("a😀b").unwrap().content;
+    let wire = serde_json::json!({"steps": [{"splice": {"at": 2, "delete": "", "insert": "x"}}]});
+    let c = Change::from_value_in(&wire, Utf16).unwrap();
+    assert!(change_to_scalars(&c, &d, Utf16).is_err());
+    let at3 = serde_json::json!({"steps": [{"splice": {"at": 3, "delete": "", "insert": "x"}}]});
+    let c = change_to_scalars(&Change::from_value_in(&at3, Utf16).unwrap(), &d, Utf16).unwrap();
+    assert_eq!(apply(&d, &c).unwrap().content.text, "a😀xb");
 }
