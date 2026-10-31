@@ -11,7 +11,7 @@ name = "_quillmark"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.29", features = ["extension-module", "abi3-py310"] }
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py310"] }
 quillmark = { workspace = true, default-features = true }
 quillmark-core = { workspace = true }
 quillmark-content = { workspace = true }
