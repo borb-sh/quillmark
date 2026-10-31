@@ -54,9 +54,8 @@ the render seam, and the binding seam all carry), the markdown⇄content
 import/export codecs with a table's HTML spelling (`html_table`), the `qm-*`
 carrier grammar (`carrier`), edit deltas, and the comment-anchor contexts and
 exact re-attachment (`anchor`, [COMMENTS.md](COMMENTS.md)).
-The workspace's only markdown parser (`pulldown-cmark`) lives here: the
-import runs it once at ingest, and the export runs it to check that what it
-wrote reads back. **Invariant:** the Markdown
+The workspace's only markdown parser (`pulldown-cmark`) lives here, in
+`quillmark-content::import`, run once at ingest. **Invariant:** the Markdown
 parser appears exactly once in the workspace; no render path parses markdown:
 backends lower the content.
 

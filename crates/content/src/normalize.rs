@@ -75,10 +75,9 @@ fn admit_chars(s: &str) -> String {
 /// repair, handed to `f` with its parse.
 ///
 /// The repair rewrites the text so the parse reads the text after a comment's
-/// `-->` on its line, ends a pipe table at a line of tags under its rows, sets
-/// what follows a table's `</table>` apart, and sets a line of carrier tags in
-/// an HTML block apart from the markdown beside it (markdown-spec §6.2, §7
-/// step 5). Each round parses and edits only inside
+/// `-->` on its line, ends a pipe table at a line of tags under its rows, and
+/// sets a line of carrier tags in an HTML block apart from the markdown beside
+/// it (markdown-spec §6.2, §7 step 5). Each round parses and edits only inside
 /// the spans that parse located, so a fence is never touched; the rounds end
 /// at one that plans no edit, and `f` takes a parse of the text they leave,
 /// read as it goes rather than held whole.
