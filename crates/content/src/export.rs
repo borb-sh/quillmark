@@ -2869,19 +2869,12 @@ mod tests {
         );
     }
 
-    /// A mark over a line join imports as one mark per line, the form export
-    /// writes, so the first import is already the fixed point.
+    /// A mark over a `<br>` line join imports as one mark per line, the form
+    /// export writes, so the first import is already the fixed point. The
+    /// properties fuzz the `\` join.
     #[test]
     fn a_mark_across_a_hard_break_is_a_fixed_point() {
-        let link = MarkKind::Link { url: "https://e.com".into() };
-        for (md, kind) in [
-            ("**a\\\nx**", MarkKind::Strong),
-            ("**a<br>x**", MarkKind::Strong),
-            ("*a\\\nx*", MarkKind::Emph),
-            ("~~a\\\nx~~", MarkKind::Strike),
-            ("<u>a<br>x</u>", MarkKind::Underline),
-            ("[a\\\nx](https://e.com)", link),
-        ] {
+        for (md, kind) in [("**a<br>x**", MarkKind::Strong), ("<u>a<br>x</u>", MarkKind::Underline)] {
             let rt = from_markdown(md).unwrap().content;
             assert_eq!(rt.text, "a\nx", "{md}");
             assert_eq!(
