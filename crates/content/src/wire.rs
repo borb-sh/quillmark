@@ -44,7 +44,7 @@ impl From<Invariant> for ParseError {
     }
 }
 
-fn shape(s: impl Into<String>) -> ParseError {
+pub(crate) fn shape(s: impl Into<String>) -> ParseError {
     ParseError::Shape(s.into())
 }
 
@@ -87,7 +87,7 @@ impl Content {
     }
 }
 
-fn content_value(c: &Content) -> Value {
+pub(crate) fn content_value(c: &Content) -> Value {
     let mut m = Map::new();
     m.insert("text".into(), Value::String(c.text.clone()));
     m.insert("blocks".into(), c.blocks.iter().map(block_value).collect());
@@ -201,7 +201,7 @@ pub fn pos_from_value(v: &Value) -> Result<Pos, ParseError> {
     Ok(Pos::In { island, slot, at: Box::new(pos_from_value(at)?) })
 }
 
-fn obj<const N: usize>(entries: [(&str, Value); N]) -> Value {
+pub(crate) fn obj<const N: usize>(entries: [(&str, Value); N]) -> Value {
     Value::Object(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
 }
 
@@ -220,7 +220,7 @@ pub(crate) fn usize_key(v: &Value, key: &str) -> Result<usize, ParseError> {
     v.get(key).and_then(Value::as_u64).map(usize_of).ok_or_else(|| shape(format!("`{key}` is not a whole number")))
 }
 
-fn array<'a>(v: &'a Value, key: &str) -> Result<&'a [Value], ParseError> {
+pub(crate) fn array<'a>(v: &'a Value, key: &str) -> Result<&'a [Value], ParseError> {
     match v.get(key) {
         None | Some(Value::Null) => Ok(&[]),
         Some(Value::Array(a)) => Ok(a),
@@ -228,7 +228,7 @@ fn array<'a>(v: &'a Value, key: &str) -> Result<&'a [Value], ParseError> {
     }
 }
 
-fn attrs(v: &Value) -> Result<Map<String, Value>, ParseError> {
+pub(crate) fn attrs(v: &Value) -> Result<Map<String, Value>, ParseError> {
     match v.get("attrs") {
         None | Some(Value::Null) => Ok(Map::new()),
         Some(Value::Object(m)) => Ok(m.clone()),

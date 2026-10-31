@@ -431,8 +431,8 @@ impl Content {
         self.islands.iter_mut().find(|i| i.id == island)?.slots.get_mut(slot)
     }
 
-    /// The canonical form: marks cut at each `\n`, settled, unioned and
-    /// sorted; anchors sorted; containers in first-use order, unused ones
+    /// The canonical form: marks cut at each `\n` and [`HARD_BREAK`], settled
+    /// and sorted; anchors sorted; containers in first-use order, unused ones
     /// dropped; island props key-sorted and settled; slots likewise.
     pub fn normalize(&mut self) {
         self.normalize_marks();
@@ -457,11 +457,10 @@ impl Content {
             .map(|m| line::Mark::new(m.start, m.end, m.kind.to_line()))
             .collect();
         let marks = line::normalize_marks(line::split_marks_at_newlines(&chars, line::normalize_marks(marks)));
-        let mut out: Vec<Mark> = marks
+        let out: Vec<Mark> = marks
             .into_iter()
             .filter_map(|m| MarkKind::from_line(&m.kind).map(|k| Mark::new(m.start, m.end, k)))
             .collect();
-        union_across_breaks(&chars, &mut out);
         self.marks = out;
     }
 
@@ -600,7 +599,6 @@ impl Content {
             }
         }
         let mut slot = 0usize;
-        let mut start = 0usize;
         let chars: Vec<char> = self.text.chars().collect();
         for (b, (s, e)) in self.blocks.iter().zip(self.block_ranges()) {
             let seg = &chars[s..e];
@@ -623,9 +621,7 @@ impl Content {
                     slot += 1;
                 }
             }
-            start = e + 1;
         }
-        let _ = start;
         for island in &self.islands {
             for slot in island.slots.values() {
                 slot.check_relations()?;
@@ -764,31 +760,6 @@ fn check_island(island: &Island) -> Result<(), Invariant> {
         }
     }
     Ok(())
-}
-
-/// Union same-kind marks whose gap holds nothing but hard breaks, so a break
-/// inside a formatted run is one spelling.
-fn union_across_breaks(chars: &[char], marks: &mut Vec<Mark>) {
-    if !chars.contains(&HARD_BREAK) || marks.len() < 2 {
-        return;
-    }
-    let mut groups: BTreeMap<(String, String), Vec<Mark>> = BTreeMap::new();
-    for m in marks.drain(..) {
-        groups.entry(m.kind.sort_key()).or_default().push(m);
-    }
-    for (_, mut ms) in groups {
-        ms.sort_by_key(|m| (m.start, m.end));
-        let mut cur = ms[0].clone();
-        for m in ms.into_iter().skip(1) {
-            if m.start >= cur.end && chars[cur.end..m.start].iter().all(|&c| c == HARD_BREAK) && m.start > cur.end {
-                cur.end = m.end;
-            } else {
-                marks.push(std::mem::replace(&mut cur, m));
-            }
-        }
-        marks.push(cur);
-    }
-    marks.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
 }
 
 /// Whether a content value nests past what a slot and an island's props may.
