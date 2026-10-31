@@ -68,7 +68,7 @@ impl Card {
     /// Apply `change` to the value at `target`, refused when `base` is not
     /// the value's hash. A refused change writes nothing.
     pub fn apply(&mut self, target: Target<'_>, change: &Change, base: Option<&str>) -> Result<Receipt, EditError> {
-        let before = self.read_at_base(target, base)?;
+        let before = self.read_at(target, base)?;
         let applied = change::apply(&before, change).map_err(EditError::Change)?;
         self.land(target, before, applied, Vec::new())
     }
@@ -77,7 +77,7 @@ impl Card {
     /// whose `qm-*` tags it keeps stay put, and the rest of the value keeps
     /// what a word-aligned diff keeps.
     pub fn revise(&mut self, target: Target<'_>, markdown: &str, base: Option<&str>) -> Result<Receipt, EditError> {
-        let before = self.read_at_base(target, base)?;
+        let before = self.read_at(target, base)?;
         let revision = diff::revise(&before, markdown).map_err(EditError::Import)?;
         let applied = change::apply(&before, &revision.change).map_err(EditError::Change)?;
         self.land(target, before, applied, revision.warnings)
@@ -86,12 +86,14 @@ impl Card {
     /// Write `content` over the value at `target`, each anchor `content` does
     /// not name carried where the diff keeps its text.
     pub fn replace(&mut self, target: Target<'_>, content: &Content, base: Option<&str>) -> Result<Receipt, EditError> {
-        let before = self.read_at_base(target, base)?;
+        let before = self.read_at(target, base)?;
         let applied = change::apply(&before, &diff::replace(&before, content)).map_err(EditError::Change)?;
         self.land(target, before, applied, Vec::new())
     }
 
-    fn read_at_base(&self, target: Target<'_>, base: Option<&str>) -> Result<Content, EditError> {
+    /// The value at `target`, refused with `edit::stale_base` when `base` is
+    /// not its hash.
+    pub fn read_at(&self, target: Target<'_>, base: Option<&str>) -> Result<Content, EditError> {
         let before = self.read(target)?;
         if let Some(base) = base {
             let current = content_hash(&before);

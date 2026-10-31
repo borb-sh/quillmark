@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use quillmark::{Diagnostic, Document, Engine, Normalized, OutputFormat, Quill, RenderOptions};
 use quillmark_content::{
     lines::export::{to_markdown, to_markdown_annotated},
+    migrate::from_lines,
+    model::Content,
     lines::import::{ImportWarning, from_markdown},
     lines::model::{ISLAND_SLOT, MarkKind},
     lines::ops::change_bundle_from_value,
@@ -145,13 +147,23 @@ fn the_matrix_has_a_row_per_entry_naming_its_signals() {
 
 fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
     let mut failures = Vec::new();
-    let stored = &entry["content"];
+    let stored = &entry["lines"];
     let content = match serial::from_canonical_value(stored) {
         Ok(c) => c,
-        Err(e) => return vec![format!("content does not decode: {e}")],
+        Err(e) => return vec![format!("lines does not decode: {e}")],
     };
     if serial::to_canonical_value(&content) != *stored {
-        failures.push(format!("content is not canonical: {}", canonical(&content)));
+        failures.push(format!("lines is not canonical: {}", canonical(&content)));
+    }
+    let value = &entry["content"];
+    let migrated = from_lines(&content).to_value();
+    if migrated != *value {
+        failures.push(format!("lines migrates to {migrated}"));
+    }
+    match Content::from_value(value) {
+        Ok(c) if c.to_value() == *value => {}
+        Ok(c) => failures.push(format!("content is not canonical: {}", c.to_value())),
+        Err(e) => failures.push(format!("content does not decode: {e}")),
     }
     failures.extend(check_op_wire(stored, &content));
     let reimports = match entry.get("reimports").map(serial::from_canonical_value) {
@@ -204,6 +216,9 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
                 Ok(p) => p,
                 Err(e) => return [failures, vec![format!("a body does not parse: {e}")]].concat(),
             };
+            if parsed.document.main().body().to_value() != *value {
+                failures.push(format!("a body stores {}", parsed.document.main().body().to_value()));
+            }
             if parsed.document.main().body_lines() != &content {
                 failures.push(format!(
                     "a body imports as {}",

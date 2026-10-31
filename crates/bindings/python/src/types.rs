@@ -506,7 +506,7 @@ impl PyDocument {
     /// main card alone carries the oldest tag that holds its content.
     #[staticmethod]
     fn current_storage_version() -> &'static str {
-        quillmark_core::document::STORAGE_V0_134_0
+        quillmark_core::document::STORAGE_V0_135_0
     }
 
     /// The Quillmark Markdown rules.

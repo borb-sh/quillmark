@@ -32,7 +32,7 @@ import {
 
 // The consumer contract, exercised as a consumer writes it: the gate is the only
 // door to the core surface.
-const { Quill, Document, importMarkdown, exportMarkdown } = await init()
+const { Quill, Document, importMarkdown, exportMarkdown, normalize } = await init()
 
 function makeRuntimeQuill() {
   return Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
@@ -169,8 +169,8 @@ card_kinds:
     )
     const ed = buildQuill().writer(doc)
     ed.card(0).reviseField('prose', 'Keep this.\n\nFlag this line.')
-    doc.applyChange({}, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'b' } }] })
-    doc.applyChange({ card: 0, field: 'prose' }, { markOps: [{ op: 'add', start: 11, end: 15, type: 'anchor', attrs: { id: 'p' } }] })
+    doc.apply({}, { steps: [{ anchor: { id: 'b', start: 0, end: 4 } }] })
+    doc.apply({ card: 0, field: 'prose' }, { steps: [{ anchor: { id: 'p', start: 11, end: 15 } }] })
     expect(ed.reviseBody('Other.').droppedAnchors).toEqual([{ id: 'b', line: 'Body.' }])
     expect(ed.card(0).reviseField('prose', 'Keep this.').droppedAnchors).toEqual([{ id: 'p', line: 'Flag this line.' }])
   })
@@ -265,8 +265,8 @@ card_kinds:
     const doc = quill.parse(
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nFirst note.\n',
     )
-    doc.applyChange({}, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }] })
-    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 6, end: 10, type: 'anchor', attrs: { id: 'n' } }] })
+    doc.apply({}, { steps: [{ anchor: { id: 'm', start: 0, end: 4 } }] })
+    doc.apply({ card: 0 }, { steps: [{ anchor: { id: 'n', start: 6, end: 10 } }] })
     const cardId = doc.cards[0].id
     const receipt = quill
       .writer(doc)
@@ -274,7 +274,7 @@ card_kinds:
     expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', cardId, id: 'n', line: 'First note.' }])
     expect(receipt.from).toEqual([])
     expect(receipt.warnings).toEqual([])
-    expect(doc.main.body.marks).toEqual([{ start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }])
+    expect(doc.main.body.anchors).toEqual([{ id: 'm', start: 0, end: 4 }])
     expect(doc.cards).toEqual([])
   })
 
@@ -443,7 +443,7 @@ card_kinds:
     const quill = buildQuill()
     const doc = seededDoc(quill)
     quill.writer(doc).reviseBody('# Plan\n\nMain **body**.')
-    doc.applyChange({}, { markOps: [{ op: 'add', start: 10, end: 14, type: 'anchor', attrs: { id: 'c1' } }] })
+    doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 10, end: 14 } }] })
 
     const read = doc.annotatedAt({})
     expect(read.markdown).toBe('# Plan\n\nMain <qm-anchor ref="c1"></qm-anchor>**body**.')
@@ -522,9 +522,9 @@ card_kinds:
       "~~~card-yaml\n$quill: view_test\nparagraphs: ['> a']\n~~~\n\n> a\n\n- b"
     )
     const v = quill.reader(doc)
-    const written = (rt) => rt.lines.flatMap((l) => l.containers).map((c) => c.instance)
-    expect(written(v.getContent({}))).toEqual([undefined, undefined])
-    expect(written(v.getContentAt('paragraphs', [0]))).toEqual([undefined])
+    expect(v.getContent({})).toEqual(doc.read({}))
+    expect(normalize(v.getContent({}))).toEqual(v.getContent({}))
+    expect(normalize(v.getContentAt('paragraphs', [0]))).toEqual(v.getContentAt('paragraphs', [0]))
   })
 
   it('getContentAt takes a mixed index/key path, on the document and on a card', () => {

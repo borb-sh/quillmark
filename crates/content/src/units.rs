@@ -119,11 +119,11 @@ impl Content {
         if crate::model::json_too_deep(v) || crate::wire::is_v1(v) {
             return Content::from_value(v);
         }
-        let mut c = crate::wire::decode(v)?;
-        content(u, Dir::In, &mut c).ok_or_else(|| shape(SPLIT))?;
-        c.normalize();
-        c.validate()?;
-        Ok(c)
+        let mut v = v.clone();
+        if !value_to_scalars(&mut v, u) {
+            return Err(shape(SPLIT));
+        }
+        Content::from_value(&v)
     }
 
     /// [`to_value`](Self::to_value) with offsets in `u`.
@@ -132,6 +132,51 @@ impl Content {
         content(u, Dir::Out, &mut c);
         c.to_value()
     }
+}
+
+/// Whether `v` is shaped as a v2 content value: a `text` string and a
+/// `blocks` array.
+pub fn is_content_value(v: &Value) -> bool {
+    v.get("text").is_some_and(Value::is_string) && v.get("blocks").is_some_and(Value::is_array)
+}
+
+/// Move a content value's offsets from `u` to scalar values in place, its
+/// other keys untouched; false when one falls inside a character or past its
+/// text. A value not shaped as v2 content is left as it is.
+pub fn value_to_scalars(v: &mut Value, u: impl Units) -> bool {
+    value_offsets(v, u, Dir::In).is_some()
+}
+
+/// Move a content value's offsets from scalar values to `u` in place.
+pub fn value_from_scalars(v: &mut Value, u: impl Units) {
+    value_offsets(v, u, Dir::Out);
+}
+
+fn value_offsets(v: &mut Value, u: impl Units, dir: Dir) -> Option<()> {
+    if !is_content_value(v) {
+        return Some(());
+    }
+    let text = v["text"].as_str().unwrap_or_default().to_string();
+    for key in ["marks", "anchors"] {
+        let Some(Value::Array(items)) = v.get_mut(key) else { continue };
+        for item in items {
+            for edge in ["start", "end"] {
+                let Some(n) = item.get(edge).and_then(Value::as_u64) else { continue };
+                let n = offset(u, dir, &text, usize::try_from(n).ok()?)?;
+                item[edge] = n.into();
+            }
+        }
+    }
+    if let Some(Value::Array(islands)) = v.get_mut("islands") {
+        for island in islands {
+            if let Some(Value::Object(slots)) = island.get_mut("slots") {
+                for slot in slots.values_mut() {
+                    value_offsets(slot, u, dir)?;
+                }
+            }
+        }
+    }
+    Some(())
 }
 
 /// `change`, its offsets in `u`, in scalar values, read against `before`.

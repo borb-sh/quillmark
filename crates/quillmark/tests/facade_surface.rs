@@ -80,7 +80,7 @@ fn content_lane_spells_through_the_facade() {
 
     let _: &Normalized = doc.main().body_lines();
     let reader: TypedReader = quill.reader(&doc);
-    let _: Option<Normalized> = reader.get_content("subject").expect("subject is declared");
+    let _: Option<quillmark_content::model::Content> = reader.get_content("subject").expect("subject is declared");
     let _: Annotated = doc.main().body_annotated();
 
     let revised: Result<Revised, EditError> = doc.main_mut().revise_body("# Body");
