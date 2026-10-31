@@ -894,7 +894,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
     table_cell_values(props).map(parse_cell).collect()
 }
 
-// The `table` codec below is the primitive `crate::island` dispatches into for
+// The `table` serializer below is the primitive `crate::island` dispatches into for
 // `IslandType::Table`; island-type dispatch itself lives there.
 
 /// Repair a table island's props in place to the canonical shape:

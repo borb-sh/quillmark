@@ -1350,7 +1350,7 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
             "{path} keeps the default's marks: {plate}"
         );
     }
-    // A `text` leaf is the other content codec, and its literal imports
+    // A `text` leaf reads through the literal codec, and its literal imports
     // verbatim: the asterisks are text, not emphasis.
     let literal = &plate["literal"][0];
     assert_eq!(literal["text"].as_str(), Some("A *literal* line"));

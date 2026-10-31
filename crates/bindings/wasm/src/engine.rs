@@ -2430,7 +2430,7 @@ fn parse_change_bundle(
         .map_err(|e| WasmError::from(format!("{ctx}: {e}")).to_js_value())
 }
 
-/// Import a markdown string: the pure, document-free codec. Returns the
+/// Import a markdown string: the markdown codec's import, pure and document-free. Returns the
 /// canonical `content` and a `parse::dropped_construct` warning per construct
 /// the import dropped, with no `path`. `overwrite(addr, importMarkdown(md).content)`
 /// spells the cold, anchor-losing write; prefer `revise` for edit semantics.

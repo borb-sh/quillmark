@@ -317,7 +317,7 @@ void annotated;
 // The container write lane. `instance` is optional, because a read omits a zero
 // and a read is a write input; the value it decodes to is the same either way,
 // so both spellings type-check on the op lane and on the whole-`Content` lane a
-// document-shaped codec writes through.
+// document-shaped editor converter writes through.
 import type { assignInstances } from '../../../pkg/runtime/runtime.d.ts';
 
 const bareOp: Extract<LineOp, { op: 'setContainers' }> = {
