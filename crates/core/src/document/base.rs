@@ -322,7 +322,8 @@ impl Card {
 
     /// [`revise_field_checked`](Self::revise_field_checked) under `base`, its
     /// hash [`field_hash_checked`](Self::field_hash_checked). A `text` field
-    /// merges its literal text.
+    /// merges its literal text; a field of any other type but `richtext`
+    /// revises as it does with no base.
     #[doc(hidden)]
     pub fn revise_field_checked_against(
         &mut self,
@@ -332,7 +333,10 @@ impl Card {
         schema: &FieldSchema,
     ) -> Result<Revised, EditError> {
         let body = body.into();
-        if !matches!(schema.r#type, FieldType::Text { .. }) {
+        if !matches!(schema.r#type, FieldType::Text { .. } | FieldType::RichText { .. }) {
+            return self.revise_field_checked(name, body, schema);
+        }
+        if matches!(schema.r#type, FieldType::RichText { .. }) {
             let stored = self.richtext_base(name)?;
             let write = richtext_write(&stored, || content_hash(&stored), base, &body)
                 .map_err(|e| at_field(e, name))?;

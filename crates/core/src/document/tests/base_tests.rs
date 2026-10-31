@@ -23,6 +23,8 @@ main:
     note:
       type: text
       multiline: true
+    on:
+      type: date
 card_kinds:
   item:
     fields:
@@ -125,6 +127,20 @@ fn a_text_field_merges_its_literal_text() {
     assert_eq!(err.doc_path(&crate::path::DocPath::main()).map(|p| p.to_string()), Some("main.note".into()));
     let w = TypedWriter::new(&config, &mut doc);
     assert_eq!(current_of(err), ("stale", w.field_hash("note").unwrap()));
+}
+
+/// A revise of a field neither `text` nor `richtext` fails as it does with no
+/// base, never as a stale read of a fresh hash.
+#[test]
+fn a_revise_of_a_date_under_a_fresh_hash_fails_as_a_plain_revise() {
+    let config = config();
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\non: 2024-01-01\n~~~\n");
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let plain = w.revise_field("on", "2024-02-02").unwrap_err().code();
+    let read = w.field_hash("on").unwrap();
+    let err = w.revise_field_against("on", Base::Hash(&read), "2024-02-02").unwrap_err();
+    assert_eq!(err.code(), plain);
+    assert_ne!(plain, "edit::stale_base");
 }
 
 #[test]
@@ -286,7 +302,7 @@ fn a_plain_read_of_an_unchanged_value_writes_the_writers_own() {
     doc.main_mut().overwrite_body(card.body().clone());
     let read = doc.to_markdown();
     let mut w = TypedWriter::new(&config, &mut doc);
-    w.revise_document_against(Base::Read(&read), &read.replace("edited", "edited twice")).unwrap();
+    let _ = w.revise_document_against(Base::Read(&read), &read.replace("edited", "edited twice")).unwrap();
     assert!(doc.main().body_markdown().contains("edited twice"));
 }
 
