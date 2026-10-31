@@ -4,7 +4,7 @@
 use pdf_writer::{Chunk, Name, Ref};
 
 use crate::error::PdfError;
-use crate::reader::{err, set_dict_value, InfoSource, ObjectIndex, UpdatedObject};
+use crate::reader::{set_dict_value, InfoSource, ObjectIndex, UpdatedObject};
 
 const CODE_PARSE: &str = "pdf::write";
 
@@ -45,7 +45,7 @@ pub(crate) fn type1_font_object(
 pub(crate) fn alloc_id(next: &mut u32) -> Result<u32, PdfError> {
     let id = *next;
     if id > MAX_ID {
-        return Err(err(
+        return Err(PdfError::new(
             CODE_PARSE,
             "PDF object id space exhausted (/Size, or an id the base names, too large)",
         ));
@@ -58,7 +58,7 @@ pub(crate) fn alloc_id(next: &mut u32) -> Result<u32, PdfError> {
 /// reach this straight from the file, so the bound is the reader's to enforce.
 pub(crate) fn to_ref(id: u32) -> Result<Ref, PdfError> {
     if id == 0 || id > MAX_ID {
-        return Err(err(
+        return Err(PdfError::new(
             CODE_PARSE,
             format!("PDF object id {id} is outside the writable id space 1..={MAX_ID}"),
         ));
@@ -124,7 +124,7 @@ pub(crate) fn append_refs_to_array_key(
         let end = trimmed
             .iter()
             .rposition(|&b| b == b']')
-            .ok_or_else(|| err(code, format!("/{key} array missing ]")))?;
+            .ok_or_else(|| PdfError::new(code, format!("/{key} array missing ]")))?;
         let inner = trimmed[1..end].trim_ascii();
         merged.extend_from_slice(inner);
         // A `%` comment runs to the end of its line, so only a newline keeps

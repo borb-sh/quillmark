@@ -153,10 +153,6 @@ pub fn declined_construct(
     count: usize,
     path: &crate::path::DocPath,
 ) -> crate::error::Diagnostic {
-    let mut args = std::collections::BTreeMap::new();
-    args.insert("backend".to_string(), backend.into());
-    args.insert("construct".to_string(), construct.as_str().into());
-    args.insert("count".to_string(), count.into());
     let diag = crate::error::Diagnostic::new(
         crate::error::Severity::Warning,
         format!(
@@ -167,7 +163,11 @@ pub fn declined_construct(
     )
     .with_code(DECLINED_CONSTRUCT.to_string())
     .with_path(path.to_string())
-    .with_args(args);
+    .with_args(crate::error::diag_args! {
+        "backend" => backend,
+        "construct" => construct.as_str(),
+        "count" => count,
+    });
     match (backend, construct) {
         ("typst", BlockConstruct::Image) => diag.with_hint(
             "a content image's url resolves to nothing; a plate draws a \

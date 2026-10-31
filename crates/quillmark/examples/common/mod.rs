@@ -6,7 +6,7 @@ use std::error::Error;
 pub fn demo(quill_dir: &str, render_output: &str) -> Result<(), Box<dyn Error>> {
     let quill_path = quills_path(quill_dir);
     let engine = quillmark::Engine::new();
-    let quill = quillmark::quill_from_path(quill_path.clone()).expect("Failed to load quill");
+    let quill = quillmark::quill_from_path(quill_path).expect("Failed to load quill");
 
     let parsed = quill.seed_document();
 

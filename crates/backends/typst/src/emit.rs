@@ -322,6 +322,12 @@ impl EmitError {
     }
 }
 
+impl From<EmitError> for quillmark_core::error::RenderError {
+    fn from(e: EmitError) -> Self {
+        Self::coded(e.code(), e.to_string())
+    }
+}
+
 /// Lower `rt` to Typst markup.
 pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
     let max_depth = rt

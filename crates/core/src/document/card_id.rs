@@ -22,11 +22,10 @@ pub(crate) fn reminted_warning(spelled: &str) -> Diagnostic {
         format!("card id `{spelled}` was replaced with a new one: it is not a card id, or an earlier card holds it"),
     )
     .with_code(CARD_ID_REMINTED.to_string())
-    .with_hint(
-        "A card id is 1 to 64 of [A-Za-z0-9_-], opening with a letter or digit, and unique in the document. \
+    .with_hint(format!(
+        "A card id is 1 to {MAX_CARD_ID_LEN} of [A-Za-z0-9_-], opening with a letter or digit, and unique in the document. \
          Leave `$id` out of a new card and one is minted."
-            .to_string(),
-    )
+    ))
     .with_args(diag_args! { "id" => spelled })
 }
 

@@ -82,8 +82,7 @@ pub fn workspace(
     for (family, alias) in &mut families.offered {
         alias.clone_from(family);
     }
-    let (lib_typ, _) = helper::generate_lib_typ(json_data, &meta, &families)
-        .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
+    let (lib_typ, _) = helper::generate_lib_typ(json_data, &meta, &families)?;
     let helper_dir = PathBuf::from(PACKAGES_DIR)
         .join(HELPER_DIR)
         .join(HELPER_VERSION);

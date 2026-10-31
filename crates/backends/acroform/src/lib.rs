@@ -22,20 +22,17 @@ use quillmark_core::{
     session::{ChangeSet, LiveSession},
     types::{Artifact, OutputFormat, RenderOptions},
 };
-use quillmark_pdf::regions_of;
-use quillmark_pdf::{stamp, AppearanceStates, FieldSpec, StampOptions};
+use quillmark_pdf::{regions_of, stamp, AppearanceStates, FieldSpec, StampOptions};
 
-use {
-    hayro::hayro_interpret::{font::FontQuery, InterpreterSettings},
-    hayro::hayro_syntax::Pdf as HayroPdf,
-    hayro::hayro_interpret::util::TransformExt,
-    hayro::kurbo::Affine,
-    hayro::vello_cpu::color::palette::css::WHITE,
-    hayro::vello_cpu::peniko::ImageAlphaType,
-    hayro::vello_cpu::{Pixmap, RasterizerSettings, RenderContext, Resources, TargetInit},
-    hayro::{render_into, RenderCache, RenderSettings},
-    std::sync::Arc,
-};
+use hayro::hayro_interpret::util::TransformExt;
+use hayro::hayro_interpret::{font::FontQuery, InterpreterSettings};
+use hayro::hayro_syntax::Pdf as HayroPdf;
+use hayro::kurbo::Affine;
+use hayro::vello_cpu::color::palette::css::WHITE;
+use hayro::vello_cpu::peniko::ImageAlphaType;
+use hayro::vello_cpu::{Pixmap, RasterizerSettings, RenderContext, Resources, TargetInit};
+use hayro::{render_into, RenderCache, RenderSettings};
+use std::sync::Arc;
 
 const FORM_PDF: &str = "form.pdf";
 /// The names a field spec once had, each refused under its own code, never read.

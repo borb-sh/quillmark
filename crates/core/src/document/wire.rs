@@ -145,15 +145,10 @@ impl WireError {
 
 impl From<&Card> for CardWire {
     fn from(card: &Card) -> Self {
-        let mut wire = CardWire {
-            kind: String::new(),
-            id: None,
-            quill: None,
-            ext: None,
-            seed: None,
-            payload_items: Vec::new(),
-            body: quillmark_content::serial::to_canonical_value(card.body()),
-        };
+        let mut wire = CardWire::new(
+            String::new(),
+            quillmark_content::serial::to_canonical_value(card.body()),
+        );
         for item in card.payload().items() {
             match item {
                 PayloadItem::Quill { reference } => wire.quill = Some(reference.to_string()),

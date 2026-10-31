@@ -1479,7 +1479,7 @@ impl Document {
     /// throws: read a field's markdown through `quill.reader(doc).get(field)`,
     /// which interprets by declared type. An out-of-range `addr.card` throws.
     #[wasm_bindgen(js_name = bodyMarkdown, unchecked_return_type = "string")]
-    pub fn get_markdown(
+    pub fn body_markdown(
         &self,
         #[wasm_bindgen(unchecked_optional_param_type = "CardAddr")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
@@ -1745,13 +1745,7 @@ impl Document {
     /// collisions, and `writer.reviseDocument` clears it.
     #[wasm_bindgen(getter, js_name = warnings, unchecked_return_type = "Diagnostic[]")]
     pub fn warnings(&self) -> Result<JsValue, JsValue> {
-        let diags: Vec<Diagnostic> = self
-            .parse_warnings
-            .iter()
-            .cloned()
-            .map(Into::into)
-            .collect();
-        serialize_or_throw(&diags, "warnings")
+        serialize_or_throw(&diags(self.parse_warnings.iter().cloned()), "warnings")
     }
 
     /// Store a field verbatim at `addr`, deferring coercion to render; the typed
@@ -2009,14 +2003,6 @@ impl Document {
         serialize_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
     }
 
-    /// Revise the content field at `addr` from authored text, typed *and*
-    /// anchor-preserving: the ABI under `writer.reviseField`. Surviving anchors
-    /// rebase as in [`revise`](Self::revise), then the diffed result is
-    /// schema-conformed, so a one-paragraph `richtext` field rejects a multi-block
-    /// result with `edit::field_not_single_line`. Returns the `Revised` receipt, its
-    /// warnings anchored at the field. The codec is the declared type's:
-    /// `richtext` diffs markdown, `text` literal text, which drops nothing.
-    ///
     /// The ABI under `writer.hash`: the hash of the document as `quill`
     /// conforms it, the `baseHash` `writer.reviseDocument` checks. Throws when
     /// the document declares a `$quill` this quill does not answer to.
@@ -2056,6 +2042,14 @@ impl Document {
         .map_err(|e| edit_error_to_js(&e, &base))
     }
 
+    /// Revise the content field at `addr` from authored text, typed *and*
+    /// anchor-preserving: the ABI under `writer.reviseField`. Surviving anchors
+    /// rebase as in [`revise`](Self::revise), then the diffed result is
+    /// schema-conformed, so a one-paragraph `richtext` field rejects a multi-block
+    /// result with `edit::field_not_single_line`. Returns the `Revised` receipt, its
+    /// warnings anchored at the field. The codec is the declared type's:
+    /// `richtext` diffs markdown, `text` literal text, which drops nothing.
+    ///
     /// `addr` must name a field; a body address throws, since a body carries no
     /// field schema (use [`revise`](Self::revise)). An undeclared name throws
     /// `edit::unknown_field`, an out-of-range card throws.
@@ -3476,14 +3470,7 @@ impl LiveSession {
     /// Also appended to `RenderResult.warnings` on each `render()`.
     #[wasm_bindgen(getter, js_name = warnings, unchecked_return_type = "Diagnostic[]")]
     pub fn warnings(&self) -> Result<JsValue, JsValue> {
-        let diags: Vec<Diagnostic> = self
-            .inner
-            .warnings()
-            .iter()
-            .cloned()
-            .map(Into::into)
-            .collect();
-        serialize_or_throw(&diags, "warnings")
+        serialize_or_throw(&diags(self.inner.warnings().iter().cloned()), "warnings")
     }
 
     /// Recompile the session against `doc`: the edit verb of a live preview. The

@@ -378,7 +378,12 @@ impl QuillConfig {
         &self,
         doc: &crate::document::Document,
     ) -> Result<(), Vec<super::validation::ValidationError>> {
-        super::validation::validate_typed_document(self, doc)
+        let errors = super::validation::validate_document_values(self, doc, &mut Vec::new());
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 
     /// The one per-type dispatch: given a value, a field's schema, and a

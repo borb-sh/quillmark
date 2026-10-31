@@ -24,10 +24,6 @@ use crate::error::PdfError;
 const CODE_PARSE: &str = "pdf::parse";
 const CODE_XREF_STREAM: &str = "pdf::xref_stream";
 
-pub(crate) fn err(code: &'static str, msg: impl Into<String>) -> PdfError {
-    PdfError::new(code, msg)
-}
-
 /// The offset stored after the last `startxref` marker.
 pub(crate) fn find_startxref(pdf: &[u8]) -> Result<usize, PdfError> {
     let needle = b"startxref";
@@ -36,7 +32,7 @@ pub(crate) fn find_startxref(pdf: &[u8]) -> Result<usize, PdfError> {
     let pos = tail
         .windows(needle.len())
         .rposition(|w| w == needle)
-        .ok_or_else(|| err(CODE_PARSE, "missing startxref marker near EOF"))?;
+        .ok_or_else(|| PdfError::new(CODE_PARSE, "missing startxref marker near EOF"))?;
     let after = skip_ws(&tail[pos + needle.len()..]);
     let mut end = 0;
     while end < after.len() && after[end].is_ascii_digit() {
@@ -45,10 +41,10 @@ pub(crate) fn find_startxref(pdf: &[u8]) -> Result<usize, PdfError> {
     let offset: usize = std::str::from_utf8(&after[..end])
         .ok()
         .and_then(|s| s.parse().ok())
-        .ok_or_else(|| err(CODE_PARSE, "startxref offset is not a valid integer"))?;
+        .ok_or_else(|| PdfError::new(CODE_PARSE, "startxref offset is not a valid integer"))?;
     // Bound the offset so every downstream `pdf[offset..]` slice is in range.
     if offset >= pdf.len() {
-        return Err(err(CODE_PARSE, "startxref offset is past end of file"));
+        return Err(PdfError::new(CODE_PARSE, "startxref offset is past end of file"));
     }
     Ok(offset)
 }
@@ -56,7 +52,7 @@ pub(crate) fn find_startxref(pdf: &[u8]) -> Result<usize, PdfError> {
 /// Bail if the base PDF stores an xref stream instead of a traditional table.
 pub(crate) fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<(), PdfError> {
     if pdf.get(xref_offset..xref_offset + 4) != Some(b"xref") {
-        return Err(err(
+        return Err(PdfError::new(
             CODE_XREF_STREAM,
             "PDF declares an xref stream; only traditional xref is supported",
         ));
@@ -74,7 +70,7 @@ fn assert_no_object_streams(pdf: &[u8], trailer: &[u8]) -> Result<(), PdfError> 
     let mut seen = HashSet::new();
     loop {
         if find_dict_value(trailer, "XRefStm").is_some() {
-            return Err(err(
+            return Err(PdfError::new(
                 CODE_XREF_STREAM,
                 "PDF is a hybrid file whose trailer names /XRefStm; objects in its object \
                  streams are unreadable here, so only traditional xref is supported",
@@ -103,7 +99,7 @@ pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8],
     let pos = pdf[xref_offset..]
         .windows(needle.len())
         .position(|w| w == needle)
-        .ok_or_else(|| err(CODE_PARSE, "trailer marker not found"))?
+        .ok_or_else(|| PdfError::new(CODE_PARSE, "trailer marker not found"))?
         + xref_offset;
     parse_dict(&pdf[pos + needle.len()..], CODE_PARSE, "trailer")
 }
@@ -309,7 +305,7 @@ impl<'a> ObjectIndex<'a> {
     pub fn dict(&self, id: u32, code: &'static str, what: &str) -> Result<&'a [u8], PdfError> {
         let (s, e) = self
             .object_bytes(id)
-            .ok_or_else(|| err(code, format!("{what} not found")))?;
+            .ok_or_else(|| PdfError::new(code, format!("{what} not found")))?;
         parse_dict(&self.pdf[s..e], code, what)
     }
 
@@ -396,7 +392,7 @@ impl<'a> ObjectIndex<'a> {
     pub(crate) fn assert_overwrite_gen_zero(&self, id: u32, what: &str) -> Result<(), PdfError> {
         match self.generation(id) {
             Some(0) | None => Ok(()),
-            Some(generation) => Err(err(
+            Some(generation) => Err(PdfError::new(
                 "pdf::nonzero_generation",
                 format!(
                     "{what} object {id} is at generation {generation}; the stamp spine re-emits \
@@ -543,7 +539,7 @@ fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d
     let mut keys = HashSet::new();
     for (key, entry) in dict_entries(dict) {
         if !keys.insert(decode_name(key)) {
-            return Err(err(
+            return Err(PdfError::new(
                 code,
                 format!(
                     "{what} dict names {} twice; a dictionary names each key once, so keep one \
@@ -553,7 +549,7 @@ fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d
             ));
         }
         if skip_ws_and_comments(entry, 0) == entry.len() {
-            return Err(err(
+            return Err(PdfError::new(
                 code,
                 format!(
                     "{what} dict names {} with no value",
@@ -563,7 +559,7 @@ fn well_formed<'d>(dict: &'d [u8], code: &'static str, what: &str) -> Result<&'d
         }
     }
     if skip_ws_and_comments(dict, entries_end(dict)) < dict.len() {
-        return Err(err(
+        return Err(PdfError::new(
             code,
             format!("{what} dict holds a token where a key belongs"),
         ));
@@ -595,7 +591,7 @@ pub(crate) fn as_dict<'v>(
 /// The inner bytes of the first dictionary in `bytes`, [`well_formed`].
 fn parse_dict<'b>(bytes: &'b [u8], code: &'static str, what: &str) -> Result<&'b [u8], PdfError> {
     let dict = extract_outer_dict(bytes)
-        .ok_or_else(|| err(code, format!("{what} dict not parseable")))?;
+        .ok_or_else(|| PdfError::new(code, format!("{what} dict not parseable")))?;
     well_formed(dict, code, what)
 }
 
@@ -904,7 +900,7 @@ pub(crate) fn open_trailer<'a>(
     assert_no_object_streams(pdf, trailer)?;
     let (catalog_id, _) = find_dict_value(trailer, "Root")
         .and_then(parse_indirect_ref)
-        .ok_or_else(|| err(code, "/Root missing or malformed in trailer"))?;
+        .ok_or_else(|| PdfError::new(code, "/Root missing or malformed in trailer"))?;
     Ok((xref_offset, trailer, catalog_id))
 }
 
@@ -970,7 +966,7 @@ pub(crate) fn walk_page_tree(idx: &ObjectIndex, catalog_id: u32) -> Result<Vec<P
     let mut seen: HashSet<u32> = HashSet::new();
     while let Some((node_id, ancestors)) = stack.pop() {
         if !seen.insert(node_id) {
-            return Err(err(
+            return Err(PdfError::new(
                 CODE_PARSE,
                 format!("page tree revisits node {node_id} (cycle or shared node)"),
             ));
@@ -980,15 +976,18 @@ pub(crate) fn walk_page_tree(idx: &ObjectIndex, catalog_id: u32) -> Result<Vec<P
             let kids = idx
                 .value(dict, "Kids")
                 .and_then(|kids| idx.resolve(kids))
-                .ok_or_else(|| err(CODE_PARSE, "/Pages node missing /Kids"))?;
+                .ok_or_else(|| PdfError::new(CODE_PARSE, "/Pages node missing /Kids"))?;
             if !(kids.starts_with(b"[") && kids.ends_with(b"]")) {
-                return Err(err(CODE_PARSE, format!("page node {node_id} /Kids is not an array")));
+                return Err(PdfError::new(
+                    CODE_PARSE,
+                    format!("page node {node_id} /Kids is not an array"),
+                ));
             }
             let kid_ancestors = Some(Rc::new(Ancestor { id: node_id, up: ancestors }));
             let mut kid_ids = array_elements(kids)
                 .map(|kid| {
                     parse_indirect_ref(kid).map(|(id, _)| id).ok_or_else(|| {
-                        err(
+                        PdfError::new(
                             CODE_PARSE,
                             format!("page node {node_id} /Kids holds a non-reference"),
                         )
@@ -998,7 +997,7 @@ pub(crate) fn walk_page_tree(idx: &ObjectIndex, catalog_id: u32) -> Result<Vec<P
             // Every queued kid is a distinct node or a revisit error, so the
             // cap holds before a wide `/Kids` is queued.
             if seen.len() + stack.len() + kid_ids.len() > MAX_NODES {
-                return Err(err(CODE_PARSE, "page tree exceeds 100 000 nodes"));
+                return Err(PdfError::new(CODE_PARSE, "page tree exceeds 100 000 nodes"));
             }
             kid_ids.reverse();
             stack.extend(kid_ids.into_iter().map(|id| (id, kid_ancestors.clone())));
@@ -1018,7 +1017,7 @@ fn root_pages_id(idx: &ObjectIndex, catalog_id: u32) -> Result<u32, PdfError> {
     find_dict_value(cat_dict, "Pages")
         .and_then(parse_indirect_ref)
         .map(|(id, _)| id)
-        .ok_or_else(|| err(CODE_PARSE, "catalog /Pages reference not found"))
+        .ok_or_else(|| PdfError::new(CODE_PARSE, "catalog /Pages reference not found"))
 }
 
 /// Reject a page whose `/Rotate`, its own or inherited, is non-zero: the stamp
@@ -1040,7 +1039,7 @@ pub(crate) fn assert_unrotated_pages<'p>(
             .ok()
             .and_then(|s| s.parse().ok())
             .ok_or_else(|| {
-                err(
+                PdfError::new(
                     CODE_PARSE,
                     format!(
                         "page object {} has /Rotate {}, which is not an integer",
@@ -1050,7 +1049,7 @@ pub(crate) fn assert_unrotated_pages<'p>(
                 )
             })?;
         if rotate.rem_euclid(360) != 0 {
-            return Err(err(
+            return Err(PdfError::new(
                 "pdf::rotated_page",
                 format!(
                     "page object {} has /Rotate {rotate}; the stamp spine only \
@@ -1127,7 +1126,7 @@ fn canvas_boxes_of(idx: &ObjectIndex, catalog_id: u32) -> Result<Vec<[f32; 4]>, 
 /// normalized; a page reaching no `/CropBox` takes its `/MediaBox`.
 fn canvas_box(idx: &ObjectIndex, page: &Page) -> Result<[f32; 4], PdfError> {
     let media = page_box(idx, page, "MediaBox")?.ok_or_else(|| {
-        err(
+        PdfError::new(
             CODE_PARSE,
             format!("page {} has no resolvable /MediaBox", page.id),
         )
@@ -1141,7 +1140,7 @@ fn canvas_box(idx: &ObjectIndex, page: &Page) -> Result<[f32; 4], PdfError> {
     // (`hayro_syntax::page::Page::base_dimensions`), so its raster would not
     // match the extent reported here.
     if w < 1.0 || h < 1.0 {
-        return Err(err(
+        return Err(PdfError::new(
             "pdf::degenerate_page_box",
             format!(
                 "page {} has a {w} × {h} pt canvas box (/CropBox ∩ /MediaBox); \
@@ -1165,7 +1164,7 @@ fn page_box(idx: &ObjectIndex, page: &Page, key: &str) -> Result<Option<[f32; 4]
         .map(normalize_rect)
         .map(Some)
         .ok_or_else(|| {
-            err(
+            PdfError::new(
                 CODE_PARSE,
                 format!(
                     "page {} has /{key} {}, which is not an [x0 y0 x1 y1] array of numbers",

@@ -495,8 +495,8 @@ pub struct ContentHit {
     pub field: String,
     /// USV offset into the field's `Content`.
     pub pos: usize,
-    /// `None` when the backend does not report it (no source map, or an older
-    /// wire payload). Omitted from the wire when `None`.
+    /// `None` when the backend does not report it. Omitted from the wire when
+    /// `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub granularity: Option<HitGranularity>,
 }

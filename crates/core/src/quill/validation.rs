@@ -348,20 +348,7 @@ fn yaml_scalar_type(value: &serde_json::Value) -> &'static str {
     }
 }
 
-/// Validate a typed [`Document`] (typed [`Payload`] + typed `Card` list).
-pub fn validate_typed_document(
-    config: &QuillConfig,
-    doc: &Document,
-) -> Result<(), Vec<ValidationError>> {
-    let errors = validate_document_values(config, doc, &mut Vec::new());
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
-}
-
-/// [`validate_typed_document`]'s errors, pushing onto `drops` one
+/// [`QuillConfig::validate_document`]'s errors, pushing onto `drops` one
 /// `parse::dropped_construct` per construct a `richtext` markdown string drops
 /// on the import the render floor runs, at the string's path.
 pub(crate) fn validate_document_values(
@@ -985,14 +972,14 @@ main:
     fn validates_simple_text_field() {
         let config = config_with("    title:\n      type: text", "");
         let doc = doc_from_fm(&[("title", json!("Memo"))]);
-        assert!(validate_typed_document(&config, &doc).is_ok());
+        assert!(config.validate_document(&doc).is_ok());
     }
 
     #[test]
     fn rejects_simple_text_type_mismatch() {
         let config = config_with("    title:\n      type: text\n      default: \"\"", "");
         let doc = doc_from_fm(&[("title", json!([1, 2, 3]))]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
+        let errors = config.validate_document(&doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(
             e,
             ValidationError::TypeMismatch { path, expected, actual, source_token, .. }
@@ -1004,7 +991,7 @@ main:
     fn rejects_integer_field_with_decimal_value() {
         let config = config_with("    count:\n      type: integer\n      default: 0", "");
         let doc = doc_from_fm(&[("count", json!(9.5))]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
+        let errors = config.validate_document(&doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(
             e,
             ValidationError::TypeMismatch { path, expected, actual, source_token, .. }
@@ -1019,7 +1006,7 @@ main:
             "",
         );
         let doc = doc_from_fm(&[("due", json!(20260101)), ("lvl", json!(["a", "b"]))]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
+        let errors = config.validate_document(&doc).unwrap_err();
         for (field, declared) in [("main.due", "date"), ("main.lvl", "enum")] {
             let err = errors
                 .iter()
@@ -1033,7 +1020,7 @@ main:
     fn absent_defaultless_field_raises_nothing() {
         let config = config_with("    memo_for:\n      type: text", "");
         let doc = doc_from_fm(&[]);
-        assert!(validate_typed_document(&config, &doc).is_ok());
+        assert!(config.validate_document(&doc).is_ok());
     }
 
     #[test]
@@ -1044,7 +1031,7 @@ main:
         );
         let doc = doc_from_fm(&[("memo_for", json!(null)), ("n", json!(null))]);
         assert!(
-            validate_typed_document(&config, &doc).is_ok(),
+            config.validate_document(&doc).is_ok(),
             "present-null must validate like absence"
         );
     }
@@ -1056,7 +1043,7 @@ main:
             "",
         );
         let doc = doc_from_fm(&[("recipients", json!([{ "org": "HQ" }]))]);
-        assert!(validate_typed_document(&config, &doc).is_ok());
+        assert!(config.validate_document(&doc).is_ok());
     }
 
     #[test]
@@ -1072,7 +1059,7 @@ main:
                 &[("signature_block", json!("Signed"))],
             )],
         );
-        assert!(validate_typed_document(&config, &doc).is_ok());
+        assert!(config.validate_document(&doc).is_ok());
     }
 
     #[test]
@@ -1088,7 +1075,7 @@ main:
                 &[("signature_block", json!([1, 2, 3]))],
             )],
         );
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
+        let errors = config.validate_document(&doc).unwrap_err();
         assert!(has_error(&errors, |e| {
             matches!(e, ValidationError::TypeMismatch { path, .. } if path == "cards.indorsement[0].signature_block")
         }));
@@ -1129,7 +1116,7 @@ main:
             );
             let doc = doc_from_fm(&[("build_number", value.clone())]);
             assert!(
-                validate_typed_document(&config, &doc).is_ok(),
+                config.validate_document(&doc).is_ok(),
                 "bare scalar {value} should validate as text"
             );
         }
@@ -1141,7 +1128,7 @@ main:
         let rt = quillmark_content::import::from_markdown("one\n\ntwo").unwrap().content;
         let content = quillmark_content::serial::to_canonical_value(&rt);
         let doc = doc_from_fm(&[("tag", content)]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
+        let errors = config.validate_document(&doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(
             e,
             ValidationError::NotSingleLine { path, .. } if path == "main.tag"
@@ -1167,7 +1154,7 @@ main:
         let config = config_with("    pti:\n      type: richtext\n      multiline: false", "");
         let md = "~~~\n$quill: native_validation@1.0.0\npti: |\n  *one* line\n~~~\n";
         let doc = Document::parse(md).expect("parses").document;
-        assert!(validate_typed_document(&config, &doc).is_ok());
+        assert!(config.validate_document(&doc).is_ok());
     }
 
     #[test]
@@ -1176,7 +1163,7 @@ main:
         let rt = quillmark_content::import::from_markdown("one line only").unwrap().content;
         let content = quillmark_content::serial::to_canonical_value(&rt);
         let doc = doc_from_fm(&[("tag", content)]);
-        assert!(validate_typed_document(&config, &doc).is_ok());
+        assert!(config.validate_document(&doc).is_ok());
     }
 
     /// A domain admits its members and the blank, so an empty one admits the

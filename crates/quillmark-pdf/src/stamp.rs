@@ -18,7 +18,7 @@ use quillmark_core::region::RenderedRegion;
 use crate::appearance::{self, Appearance, Normal};
 use crate::error::PdfError;
 use crate::reader::{
-    array_elements, as_dict, err, is_name, parse_indirect_ref, set_dict_value, ObjectIndex,
+    array_elements, as_dict, is_name, parse_indirect_ref, set_dict_value, ObjectIndex,
     UpdatedObject,
 };
 use crate::update::PdfUpdate;
@@ -185,7 +185,7 @@ pub fn stamp(
         // page `/Annots` this update preserves, whatever its catalog names.
         let catalog = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
         if idx.value(catalog, "AcroForm").is_some() {
-            return Err(err(
+            return Err(PdfError::new(
                 CODE_EXISTING_ACROFORM,
                 "base PDF already carries an /AcroForm; strip its form before stamping",
             ));
@@ -195,7 +195,7 @@ pub fn stamp(
         for (at, page) in pages.iter().enumerate() {
             let what = format!("page node {}", page.id);
             if holds_a_widget(&idx, idx.dict(page.id, CODE_PARSE, &what)?)? {
-                return Err(err(
+                return Err(PdfError::new(
                     CODE_EXISTING_ACROFORM,
                     format!(
                         "page {} of the base PDF holds a widget annotation in its /Annots; \
@@ -495,12 +495,12 @@ fn rewrite_page_with_annots(
 
 fn non_array_annots(existing: &[u8]) -> PdfError {
     if parse_indirect_ref(existing).is_some() {
-        err(
+        PdfError::new(
             "pdf::indirect_annots",
             "/Annots is an indirect reference; only inline arrays are supported",
         )
     } else {
-        err(CODE_PARSE, "/Annots is neither array nor indirect ref")
+        PdfError::new(CODE_PARSE, "/Annots is neither array nor indirect ref")
     }
 }
 

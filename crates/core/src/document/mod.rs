@@ -786,7 +786,7 @@ impl Document {
     /// `TryFrom<StoredDocument>` for external data, which checks all three and
     /// returns `StorageError::Malformed`), and a placed card is reachable only
     /// as a [`CardMut`], which carries no whole-card assignment.
-    pub(crate) fn from_main_and_cards(main: Card, cards: Vec<Card>) -> Self {
+    pub(crate) fn from_main_and_cards(main: Card, mut cards: Vec<Card>) -> Self {
         debug_assert!(main.quill().is_some(), "main card must carry `$quill`");
         debug_assert!(
             cards.iter().all(|c| c.kind().is_some()),
@@ -800,17 +800,7 @@ impl Document {
             cards.iter().all(|c| c.seed().is_none()),
             "composable cards must not carry `$seed`"
         );
-        Self::with_card_ids(main, cards, &std::collections::HashSet::new())
-    }
-
-    /// [`from_main_and_cards`](Self::from_main_and_cards), each card that
-    /// carries no card id of its own minting past `reserved` too.
-    pub(crate) fn with_card_ids(
-        main: Card,
-        mut cards: Vec<Card>,
-        reserved: &std::collections::HashSet<String>,
-    ) -> Self {
-        card_id::settle(&mut cards, reserved);
+        card_id::settle(&mut cards, &std::collections::HashSet::new());
         Self { main, cards }
     }
 
@@ -868,9 +858,7 @@ impl Document {
     }
 
     /// A single composable card by index: the immutable twin of
-    /// [`card_mut`](Document::card_mut), so reading one card's payload does not
-    /// require materializing every card via [`cards`](Document::cards). `None`
-    /// when out of range.
+    /// [`card_mut`](Document::card_mut). `None` when out of range.
     pub fn card(&self, index: usize) -> Option<&Card> {
         self.cards.get(index)
     }

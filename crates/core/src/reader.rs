@@ -362,45 +362,36 @@ fn schema_at<'a>(
 ) -> Result<&'a FieldSchema, EditError> {
     let mut cursor = field;
     for (depth, seg) in at.iter().enumerate() {
-        let blocked = EditError::FieldNotContent {
+        let blocked = || EditError::FieldNotContent {
             field: name.to_string(),
             at: at[..depth].to_vec(),
             declared: cursor.r#type.as_str().to_string(),
         };
+        // Through the failed step, not up to it: the anchor names the
+        // undeclared property, not the object holding it.
+        let unknown = || EditError::UnknownField {
+            field: name.to_string(),
+            at: at[..=depth].to_vec(),
+        };
         cursor = match (&cursor.r#type, seg) {
-            (FieldType::Array, PathSegment::Index(_)) => cursor.items.as_deref().ok_or(blocked)?,
+            (FieldType::Array, PathSegment::Index(_)) => cursor.items.as_deref().ok_or_else(blocked)?,
             (FieldType::Object, PathSegment::Key(key)) => match cursor.namespace_props() {
-                None => return Err(blocked),
-                Some(props) => props.get(key).map(Box::as_ref).ok_or_else(|| {
-                    EditError::UnknownField {
-                        field: name.to_string(),
-                        // Through the failed step, not up to it: the anchor names
-                        // the undeclared property, not the object holding it.
-                        at: at[..=depth].to_vec(),
-                    }
-                })?,
+                None => return Err(blocked()),
+                Some(props) => props.get(key).map(Box::as_ref).ok_or_else(unknown)?,
             },
             // An open matrix's id past its roster is an added item's, whose
             // stored `title` this schema walk does not read.
             (FieldType::Matrix { .. }, PathSegment::Key(key)) => {
-                cursor.matrix_member_at(key).ok_or_else(|| EditError::UnknownField {
-                    field: name.to_string(),
-                    at: at[..=depth].to_vec(),
-                })?
+                cursor.matrix_member_at(key).ok_or_else(unknown)?
             }
             // Which world is live is a value-time fact, so the walk unions the
             // worlds: a dormant cell resolves here and reads absent at
             // `value_at`. The guard holds a variantless enum to a scalar, which
             // `variant_field` alone would answer as an unknown cell.
             (FieldType::Enum { .. }, PathSegment::Key(key)) if cursor.is_variant_bearing() => {
-                cursor
-                    .variant_field(key)
-                    .ok_or_else(|| EditError::UnknownField {
-                        field: name.to_string(),
-                        at: at[..=depth].to_vec(),
-                    })?
+                cursor.variant_field(key).ok_or_else(unknown)?
             }
-            _ => return Err(blocked),
+            _ => return Err(blocked()),
         };
     }
     Ok(cursor)

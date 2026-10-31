@@ -1,7 +1,7 @@
 use quillmark_core::{
     backend::{Backend, FontFace},
     document::Document,
-    error::{Diagnostic, RenderError, RenderResult, Severity},
+    error::{RenderError, RenderResult, Severity},
     quill::{CalendarDate, Quill},
     session::LiveSession,
     types::{OutputFormat, RenderOptions},
@@ -72,16 +72,13 @@ impl Engine {
     fn resolve_backend(&self, quill: &Quill) -> Result<&Arc<dyn Backend>, RenderError> {
         let backend_id = quill.backend_id();
         self.backends.get(backend_id).ok_or_else(|| {
-            RenderError::from_diag(
-                Diagnostic::new(
-                    Severity::Error,
-                    format!("Backend '{}' not registered or not enabled", backend_id),
-                )
-                .with_code("engine::backend_not_found".to_string())
-                .with_hint(format!(
+            RenderError::coded_hint(
+                "engine::backend_not_found",
+                format!("Backend '{}' not registered or not enabled", backend_id),
+                format!(
                     "Available backends: {}",
                     self.backends.keys().cloned().collect::<Vec<_>>().join(", ")
-                )),
+                ),
             )
         })
     }

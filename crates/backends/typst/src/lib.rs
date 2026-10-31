@@ -104,9 +104,7 @@ fn recompile(
     config: &QuillConfig,
     schema_meta: &SchemaMeta,
 ) -> Result<Compiled, RenderError> {
-    let windows = world
-        .inject_helper_package(data, schema_meta)
-        .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
+    let windows = world.inject_helper_package(data, schema_meta)?;
 
     let (document, compile_warnings) = compile::compile_document(world)?;
     let helper_source = helper_source(world)?;

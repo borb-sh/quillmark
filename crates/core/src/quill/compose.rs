@@ -172,12 +172,12 @@ impl QuillConfig {
         let doc_ref = doc.quill_reference();
 
         if doc_ref.name.as_str() != self.name {
-            return Err(quill_mismatch(
+            return Err(RenderError::coded_hint(
+                "quill::name_mismatch",
                 format!(
                     "document declares $quill '{}' but was paired with '{}'",
                     doc_ref, self.name
                 ),
-                "quill::name_mismatch",
                 "use the quill named by $quill, or update the $quill name",
             ));
         }
@@ -186,12 +186,12 @@ impl QuillConfig {
             return Ok(());
         };
         if !doc_ref.selector.matches(quill_version) {
-            return Err(quill_mismatch(
+            return Err(RenderError::coded_hint(
+                "quill::version_mismatch",
                 format!(
                     "document declares $quill '{}' but the loaded quill is version '{}'",
                     doc_ref, quill_version
                 ),
-                "quill::version_mismatch",
                 "use a quill whose version satisfies the selector, or update the $quill selector",
             ));
         }
@@ -311,16 +311,6 @@ impl Quill {
     }
 }
 
-/// A single-diagnostic quill-mismatch failure. `path` is unset: the
-/// mismatch is the root `$quill` line, not a field.
-fn quill_mismatch(message: String, code: &str, hint: &str) -> RenderError {
-    RenderError::from_diag(
-        Diagnostic::new(Severity::Error, message)
-            .with_code(code.to_string())
-            .with_hint(hint.to_string()),
-    )
-}
-
 /// Check one seed overlay against its card kind, as warnings under the
 /// document's `validation::*` codes rooted at `at`: a document's
 /// `$seed.<kind>` and a kind's own `seed:` in `Quill.yaml` are one shape, and
@@ -384,27 +374,17 @@ pub(crate) fn seed_overlay_diagnostics(
         };
         let qv = QuillValue::from_json(value.clone());
         for violation in super::validation::validate_seed_field(field_schema, &qv, &field_path) {
-            diags.push(seed_violation_diagnostic(&violation));
+            // Seed overlays are advisory and never gate render.
+            diags.push(Diagnostic {
+                severity: Severity::Warning,
+                ..violation.to_diagnostic()
+            });
         }
         collect_unknown_in(field_schema, value, &field_path, &mut diags);
         collect_stranded(field_schema, value, &field_path, &mut diags);
         collect_cardinality_diags(field_schema, value, &field_path, &mut diags);
     }
     diags
-}
-
-/// Render a seed-overlay validation error as a **warning**-severity diagnostic:
-/// seed overlays are advisory and never gate render. The error's `path` is
-/// already rooted at the overlay by the caller.
-fn seed_violation_diagnostic(v: &super::validation::ValidationError) -> Diagnostic {
-    let mut diag = Diagnostic::new(Severity::Warning, v.to_string())
-        .with_code(v.code().to_string())
-        .with_path(v.path().to_string())
-        .with_args(v.args());
-    if let Some(hint) = v.hint() {
-        diag = diag.with_hint(hint);
-    }
-    diag
 }
 
 /// Wrap a coercion error into a `validation::coercion_failed` failure.

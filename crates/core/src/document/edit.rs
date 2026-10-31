@@ -422,6 +422,14 @@ pub(crate) fn edit_error_from_violation(name: &str, v: FieldViolation) -> EditEr
     }
 }
 
+fn check_field_name(name: &str) -> Result<(), EditError> {
+    if is_valid_field_name(name) {
+        Ok(())
+    } else {
+        Err(EditError::InvalidFieldName(name.to_string()))
+    }
+}
+
 fn check_field(name: &str, value: &serde_json::Value) -> Result<(), EditError> {
     validate_field(name, value).map_err(|v| edit_error_from_violation(name, v))
 }
@@ -609,9 +617,7 @@ pub(crate) fn resolve_field_write(
     schema: &FieldSchema,
     base: &crate::path::DocPath,
 ) -> Result<(QuillValue, Vec<Diagnostic>), EditError> {
-    if !is_valid_field_name(name) {
-        return Err(EditError::InvalidFieldName(name.to_string()));
-    }
+    check_field_name(name)?;
     let mut drops = Vec::new();
     let stored =
         QuillConfig::conform_value(value, schema, &base.field(name), Leniency::Write, &mut drops)
@@ -1075,9 +1081,7 @@ impl Card {
     /// Remove a payload field; `Ok(None)` when the name is absent. Same name
     /// validation as [`Card::store_field`].
     pub fn remove_field(&mut self, name: &str) -> Result<Option<QuillValue>, EditError> {
-        if !is_valid_field_name(name) {
-            return Err(EditError::InvalidFieldName(name.to_string()));
-        }
+        check_field_name(name)?;
         Ok(self.payload_mut().remove(name))
     }
 
@@ -1215,9 +1219,7 @@ impl Card {
         name: &str,
         content: impl Into<Normalized>,
     ) -> Result<(), EditError> {
-        if !is_valid_field_name(name) {
-            return Err(EditError::InvalidFieldName(name.to_string()));
-        }
+        check_field_name(name)?;
         self.store_field_content(name, &content.into())
     }
 
@@ -1312,9 +1314,7 @@ impl Card {
 
     /// The field's current content as a diff base: an absent field is empty.
     pub(crate) fn richtext_base(&self, name: &str) -> Result<Normalized, EditError> {
-        if !is_valid_field_name(name) {
-            return Err(EditError::InvalidFieldName(name.to_string()));
-        }
+        check_field_name(name)?;
         match self.field_content(name, Codec::Richtext) {
             Some(Ok(rt)) => Ok(rt),
             Some(Err(e)) => Err(field_decode(name, &[], Codec::Richtext, e)),
@@ -1437,9 +1437,7 @@ impl Card {
     ) -> Result<Delta, EditError> {
         // Ahead of the read: a directly-constructed payload can hold an ill-named
         // field, whose decode error would otherwise mask the bad name.
-        if !is_valid_field_name(name) {
-            return Err(EditError::InvalidFieldName(name.to_string()));
-        }
+        check_field_name(name)?;
         let base = match self.field_text(name, Codec::Text) {
             Some(Ok(text)) => text,
             Some(Err(e)) => return Err(field_decode(name, &[], Codec::Text, e)),
@@ -1502,9 +1500,7 @@ impl Card {
             Some(Err(e)) => return Err(field_decode(name, &[], Codec::Richtext, e)),
             // Only this arm creates; the `Some` arms resolved an existing field.
             None => {
-                if !is_valid_field_name(name) {
-                    return Err(EditError::InvalidFieldName(name.to_string()));
-                }
+                check_field_name(name)?;
                 Normalized::empty()
             }
         };

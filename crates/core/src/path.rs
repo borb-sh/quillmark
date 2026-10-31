@@ -233,12 +233,8 @@ impl FromStr for DocPath {
         // A main field literally named `body` reads back as the body: the
         // accepted residual collision.
         if matches!(segs.first(), Some(DocSeg::Field { name }) if name == "main") {
-            let rest = &segs[1..];
-            if matches!(rest, [DocSeg::Field { name }] if name == "body") {
-                return Ok(DocPath::main_body());
-            }
             let mut out = vec![DocSeg::Main];
-            out.extend_from_slice(rest);
+            out.extend(tail_segs(&segs[1..]));
             return Ok(DocPath { segs: out });
         }
 

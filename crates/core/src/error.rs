@@ -28,6 +28,7 @@ pub(crate) use diag_args;
 /// Maximum markdown input size.
 pub const MAX_INPUT_SIZE: usize = 10 * 1024 * 1024;
 
+/// Maximum bytes in one card-yaml block.
 pub const MAX_YAML_SIZE: usize = 1024 * 1024;
 
 /// Maximum nesting depth for markdown structures (12 levels). Owned by the
