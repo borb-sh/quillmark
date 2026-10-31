@@ -8,7 +8,7 @@ The engine's own terms are below. The words a quill author meets (card, seed, au
 
 | Term | Means |
 |---|---|
-| Quillmark | The framework. Also a release, as in "Quillmark 0.127". |
+| Quillmark | The framework. Also a release of it. |
 | engine | The runtime object that renders: a backend registry and render dispatcher, `Engine` in Rust, Python and JavaScript alike. |
 | backend | Typst or acroform: turns a quill plus document data into PDF, SVG or PNG. |
 | parser | serde-saphyr for YAML, pulldown-cmark for Markdown. |

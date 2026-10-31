@@ -92,7 +92,7 @@ vocabularies), and the hop decodes the `body`. It is the oldest tag read: a row
 under any earlier tag (`0.81.0` through `0.116.0`) fails as an unknown schema
 version (§ Schema Versioning).
 
-A composable card naming no `$kind`, which 0.115 parsed as a card and stored,
+A composable card naming no `$kind`, which an earlier parse accepted as a card and stored,
 folds on load, under any tag, into the body above it: its fields and comments
 as an untagged backtick code block, whose text is admitted as a body import
 admits it, then its own body. Its `$ext` drops, since `$ext` reaches no render
@@ -140,13 +140,7 @@ applied: the output is `serde_json`'s compact form otherwise. Bumping the
 `schema` version is the only event that may change the byte layout of a
 document written by the current writer.
 
-**One settle under a held tag.** 0.131 settles a table's props further than
-0.130 did (§ Content vocabularies), so a `@0.129.0` row 0.130 wrote holding a table's
-`headless: true`, a cell's `colspan` or `rowspan`, or a `head` it now settles
-saves once with other bytes, and a hash over it recomputes once. The tag holds
-unless the settled props spell a member `0.131.0` adds, a span past 1 or a
-`head` past 1, which moves the row to `@0.131.0` (§ Schema Versioning). The settle is a fixed point, so the guarantee holds for every row 0.131
-wrote.
+**One settle under a held tag.** Normalization settles a table's props further than an earlier build did (§ Content vocabularies), so a `@0.129.0` row holding a table's `headless: true`, a cell's `colspan` or `rowspan`, or a `head` it now settles saves once with other bytes, and a hash over it recomputes once. The tag holds unless the settled props spell a member `0.131.0` adds, a span past 1 or a `head` past 1, which moves the row to `@0.131.0` (§ Schema Versioning). The settle is a fixed point, so the guarantee holds for every row saved after it.
 
 **Resting form.** Byte-equality is over `Document` values, so it is only
 as useful as the model's agreement on what a given document *is*. A
@@ -348,7 +342,7 @@ default:
 | `head` | how many rows, from the top of `header` then `rows`, are header rows: a whole number, at most the row count; `0` draws `header` as the first body row | `1` |
 
 `widths` are weights, not lengths, so each plate decides what full width is.
-`headless: true` sits beside every `head: 0`, which a 0.130 reader, knowing
+`headless: true` sits beside every `head: 0`, which a `@0.129.0` reader, knowing
 `headless` alone, needs to draw no header row; beside any other `head` it is
 absent. A stored `headless: true` beside no whole-number `head` reads as
 `head: 0`, and normalization writes `head: 0` beside it. The keys ride the opaque props carrier, which an
@@ -704,11 +698,9 @@ current format was fixed in `0.134.0`, so the version tag is
 value, because patches do not change the format. A save writes the oldest tag
 that holds the row. A row holding a composable card, which carries its `$id`,
 takes `0.134.0`. A row of the main card alone takes `0.131.0` when it holds a
-member a 0.130 build refuses or draws otherwise, and keeps
-`quillmark/document@0.129.0`, which a 0.129 or 0.130 build reads, when it
-holds none. Those members are a `font_family` mark, a table cell whose `colspan` or `rowspan` exceeds 1, and a table `head` other
-than 1, save a `head: 0` stored beside the `headless: true` a 0.130 build
-reads. The writer looks for them in each body and in each field and `$seed`
+member `0.129.0` lacks, and keeps `quillmark/document@0.129.0` when it holds
+none. Those members are a `font_family` mark, a table cell whose `colspan` or `rowspan` exceeds 1, and a table `head` other
+than 1 unless it is `0` stored beside `headless: true`. The writer looks for them in each body and in each field and `$seed`
 value that decodes as content; an `$ext` value is opaque and never read
 (`dto::spells_0_131_0`).
 

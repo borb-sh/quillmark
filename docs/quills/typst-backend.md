@@ -480,21 +480,7 @@ PNG resolution is set via the `ppi` option (default **144**, 2× at 72pt/inch, s
 
 ## Iterating on a Plate
 
-The plate imports a helper Quillmark generates per render, so Typst's own tools
-cannot compile it from the quill alone. `quillmark workspace` writes that helper
-for one document, beside the quill's packages and fonts, and prints the
-`typst watch` command that compiles the plate from them:
-
-```bash
-quillmark workspace ./my-quill input.md -o ws --today 2026-03-14
-typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts --creation-timestamp=1773489600 ./my-quill/plate.typ ws/plate.pdf
-```
-
-Edits to the plate recompile on save. The helper holds `input.md`'s data, so
-rerun `workspace` after changing the document. `--creation-timestamp` carries
-the render date, so `datetime.today()` agrees with the render's. Tinymist takes
-the same flags through `tinymist.typstExtraArgs`, for completion on `qm.data.`
-fields and a live preview.
+The plate imports a helper Quillmark generates per render, so Typst's own tools cannot compile it from the quill alone. [`quillmark workspace`](../cli/reference.md#workspace) writes that helper for one document, beside the quill's packages and fonts, and prints the `typst watch` command that compiles the plate from them. Edits to the plate recompile on save.
 
 Typst reads more of the quill than a render does: any file under `--root`, a
 vendored package's files by their paths, and a package the quill does not
