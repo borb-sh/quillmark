@@ -25,6 +25,7 @@ pub mod backend;
 pub mod document;
 pub mod error;
 pub mod normalize;
+pub mod outline;
 pub mod path;
 pub mod quill;
 pub mod reader;

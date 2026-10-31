@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use quillmark_content::delta::{merge_lines, rebase_marks_pinned};
-use quillmark_content::export::to_markdown_tokened;
+use quillmark_content::export::{to_markdown_annotated, to_markdown_tokened, Annotated};
 use quillmark_content::import::{from_markdown_against, ImportWarning};
 use quillmark_content::model::Normalized;
 use quillmark_content::serial::to_canonical_value;
@@ -223,6 +223,21 @@ impl Card {
     /// checks.
     pub fn body_hash(&self) -> String {
         content_hash(self.body())
+    }
+
+    /// The body's annotated read ([`to_markdown_annotated`]): the scoped read
+    /// a body revise reads back, and the markdown a [`Base::Read`] merge of one
+    /// takes. Its anchors carry no path; the body is theirs.
+    pub fn body_annotated(&self) -> Annotated {
+        to_markdown_annotated(self.body())
+    }
+
+    /// The richtext field's annotated read, decoded as
+    /// [`revise_field`](Self::revise_field) decodes it, an absent field the
+    /// empty content's: the scoped read a field revise reads back.
+    /// **Richtext only**, as [`field_hash`](Self::field_hash) is.
+    pub fn field_annotated(&self, name: &str) -> Result<Annotated, EditError> {
+        Ok(to_markdown_annotated(&self.richtext_base(name)?))
     }
 
     /// The hash of the richtext field's content, decoded as

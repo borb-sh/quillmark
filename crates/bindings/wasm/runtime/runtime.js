@@ -1072,6 +1072,12 @@ export class DocumentReader {
 		return this.#doc._readerGet(this.#quill, {});
 	}
 	/**
+	 * @returns {import('../core/wasm.js').Outline}
+	 */
+	outline() {
+		return this.#doc._readerOutline(this.#quill);
+	}
+	/**
 	 * @param {string} [today] the render date, `YYYY-MM-DD`
 	 * @returns {Resolved}
 	 */

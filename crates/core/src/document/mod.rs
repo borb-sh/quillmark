@@ -528,7 +528,7 @@ pub use anchors::{AnchorSelector, ANCHOR_ID_COLLISION};
 pub use base::{content_hash, revise_import_against, value_hash, Base, BaseError, HASH_TAG};
 pub use edit::{revise_import, CardMut, EditError, Revised};
 /// Carried by [`Revised::dropped_anchors`], so nameable from here.
-pub use quillmark_content::export::AnchorRead;
+pub use quillmark_content::export::{AnchorRead, Annotated};
 /// Returned by [`Document::reattach`], so nameable from here.
 pub use quillmark_content::anchor::Reattached;
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};

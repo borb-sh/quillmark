@@ -62,6 +62,17 @@ over its keys: read `receipt["warnings"]`.
   `loadStored` and Python `from_stored` put a `parse::anchor_id_collision`
   warning per value on `doc.warnings`.
 
+### Scoped reads
+
+- feat(core): **`reader.outline()`.** The schema-bound outline names each
+  card with its path, `$kind` and `$id`, each declared field with its state
+  (`ok`, `empty` or `invalid`), the body's headings by line, and each anchor
+  by id and path, without the document's text. WASM `quill.reader(doc).outline()`.
+- feat(core): **the annotated read of one address.** `Card::body_annotated`
+  and `field_annotated` (WASM `doc.annotatedAt(addr)`) read one body or
+  richtext field as the revise at that address reads it back, and as its
+  `baseMarkdown`.
+
 ### Guarded revise
 
 - feat(core)!: **a revise states what its writer read.** `Base::Hash` is the

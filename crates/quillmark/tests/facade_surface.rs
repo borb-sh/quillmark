@@ -5,9 +5,9 @@
 use std::collections::HashMap;
 
 use quillmark::{
-    AnchorRead, AnchorSelector, AnnotatedMarkdown, CalendarDate, CardReader, Delta, DocPath,
+    AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, CalendarDate, CardReader, Delta, DocPath,
     Document, DocumentAnchor, DocumentRevised, EditError, FileTreeNode, ImportError, Normalized,
-    ParseDateError, Parsed, Quill, QuillReference, QuillValue, Reattached, Revised, TypedReader,
+    Outline, OutlineCard, ParseDateError, Parsed, Quill, QuillReference, QuillValue, Reattached, Revised, TypedReader,
     TypedWriter,
 };
 
@@ -80,6 +80,9 @@ fn content_lane_spells_through_the_facade() {
     let _: &Normalized = doc.main().body();
     let reader: TypedReader = quill.reader(&doc);
     let _: Option<Normalized> = reader.get_content("subject").expect("subject is declared");
+    let outline: Outline = reader.outline();
+    let _: Option<&OutlineCard> = outline.cards.first();
+    let _: Annotated = doc.main().body_annotated();
 
     let revised: Result<Revised, EditError> = doc.main_mut().revise_body("# Body");
     let Revised { delta, dropped_anchors, .. } = revised.expect("a heading imports");
