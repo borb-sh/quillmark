@@ -199,6 +199,11 @@ pub enum EditError {
     #[error("content apply failed: {0:?}")]
     ContentApply(ApplyError),
 
+    /// A content [`Change`](quillmark_content::change::Change) the value
+    /// refused; the value is as it was.
+    #[error("content change refused: {0}")]
+    Change(quillmark_content::change::ApplyError),
+
     /// The card's item list violates an invariant of the list as a whole. A
     /// door taking a whole payload at once ([`Card::try_from`] a
     /// [`CardWire`](crate::document::CardWire)) reaches every variant; a field
@@ -240,7 +245,7 @@ impl EditError {
             EditError::FieldNotContent { .. } => "edit::field_not_content",
             EditError::FieldNotSingleLine { .. } => "edit::field_not_single_line",
             EditError::FieldCoercionFailed { .. } => "edit::field_coercion_failed",
-            EditError::ContentApply(_) => "edit::content_apply",
+            EditError::ContentApply(_) | EditError::Change(_) => "edit::content_apply",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::Base(e) => e.code(),
         }
@@ -299,7 +304,7 @@ impl EditError {
                 "field" => field,
                 "target" => target,
             },
-            EditError::ContentApply(_) => diag_args! {},
+            EditError::ContentApply(_) | EditError::Change(_) => diag_args! {},
             // One code, four sentences: the variant that spoke is not on the
             // wire, so a consumer's template falls back to `message`.
             EditError::InvalidPayload(_) => diag_args! {},
@@ -805,6 +810,31 @@ impl<'a> CardMut<'a> {
         self.0.overwrite_body(content)
     }
 
+    /// [`Card::apply`].
+    pub fn apply(
+        &mut self,
+        target: super::Target<'_>,
+        change: &quillmark_content::change::Change,
+        base: Option<&str>,
+    ) -> Result<super::Receipt, EditError> {
+        self.0.apply(target, change, base)
+    }
+
+    /// [`Card::revise`].
+    pub fn revise(&mut self, target: super::Target<'_>, markdown: &str, base: Option<&str>) -> Result<super::Receipt, EditError> {
+        self.0.revise(target, markdown, base)
+    }
+
+    /// [`Card::replace`].
+    pub fn replace(
+        &mut self,
+        target: super::Target<'_>,
+        content: &quillmark_content::model::Content,
+        base: Option<&str>,
+    ) -> Result<super::Receipt, EditError> {
+        self.0.replace(target, content, base)
+    }
+
     /// [`Card::overwrite_field`].
     pub fn overwrite_field(
         &mut self,
@@ -1260,7 +1290,7 @@ impl Card {
     /// the content lane: **overwrite destroys, [`revise_body`](Self::revise_body)
     /// rebases, [`apply_body_change`](Self::apply_body_change) preserves.**
     pub fn overwrite_body(&mut self, content: impl Into<Normalized>) {
-        self.set_body(quillmark_content::migrate::from_lines(&content.into()));
+        self.set_body_lines(content.into());
     }
 
     /// Overwrite a content field's value with a pre-built [`Content`](quillmark_content::lines::model::Content): the
