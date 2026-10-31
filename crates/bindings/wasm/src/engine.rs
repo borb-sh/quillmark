@@ -1,4 +1,4 @@
-use crate::error::WasmError;
+use crate::error::{js_err, WasmError};
 use crate::types::Diagnostic;
 #[cfg(feature = "render")]
 use crate::types::{ChangeSet, ContentHit, FieldRegion, RenderOptions, RenderResult};
@@ -765,7 +765,7 @@ impl Engine {
         } else {
             return Err(WasmError::from("fonts: expected an array of Uint8Array").to_js_value());
         };
-        let inner = quillmark::Engine::with_fonts(fonts).map_err(|e| WasmError::from(e).to_js_value())?;
+        let inner = quillmark::Engine::with_fonts(fonts).map_err(js_err)?;
         Ok(Engine { inner })
     }
 
@@ -776,7 +776,7 @@ impl Engine {
         let faces = self
             .inner
             .font_faces(&quill.inner)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         let out = Array::new();
         // The faces of one collection share its bytes, which cross once.
         let mut file: Option<(*const u8, Uint8Array)> = None;
@@ -814,7 +814,7 @@ impl Engine {
         let session = self
             .inner
             .open(&quill.inner, &doc.inner, today)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         Ok(LiveSession {
             inner: session,
             backend_id: quill.inner.backend_id().to_string(),
@@ -843,7 +843,7 @@ impl Engine {
         let result = self
             .inner
             .render(&quill.inner, &doc.inner, today, &rust_opts)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
         render_result_to_ts(result, &kinds)
     }
@@ -856,7 +856,7 @@ impl Engine {
         let formats = self
             .inner
             .supported_formats(&quill.inner)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         let out: Vec<crate::types::OutputFormat> = formats.iter().map(|f| (*f).into()).collect();
         serialize_or_throw(&out, "supportedFormats")
     }
@@ -962,7 +962,7 @@ impl Quill {
         let parsed = self
             .inner
             .from_authoring(&value)
-            .map_err(|diags| WasmError::from(diags).to_js_value())?;
+            .map_err(js_err)?;
         Ok(Document {
             inner: parsed.document,
             parse_warnings: parsed.warnings,
@@ -1027,7 +1027,7 @@ impl Quill {
         let parsed = self
             .inner
             .parse(markdown)
-            .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())?;
+            .map_err(|e| js_err(e.to_diagnostics()))?;
         Ok(Document {
             inner: parsed.document,
             parse_warnings: parsed.warnings,
@@ -2004,7 +2004,7 @@ impl Document {
             None => writer.revise_document(markdown),
             Some(read) => writer.revise_document_against(read, markdown),
         }
-        .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())?;
+        .map_err(|e| js_err(e.to_diagnostics()))?;
         self.parse_warnings.clear();
         serialize_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
     }
@@ -2026,7 +2026,7 @@ impl Document {
             .inner
             .writer(&mut self.inner)
             .hash()
-            .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())
+            .map_err(|e| js_err(e.to_diagnostics()))
     }
 
     /// The ABI under `writer.hashAt`: the body's hash, or a field's through its
@@ -2871,7 +2871,7 @@ export interface Resolved {
 pub fn parse_doc_path(path: &str) -> Result<JsValue, JsValue> {
     let doc_path = path
         .parse::<quillmark_core::path::DocPath>()
-        .map_err(|e| WasmError::from(e.to_string()).to_js_value())?;
+        .map_err(|e| js_err(e.to_string()))?;
     // Via `serde_json::Value` so the tagged segments cross as plain objects,
     // sidestepping serde-wasm-bindgen's tagged-enum handling; nullable because
     // the `DocPathSeg` contract is `kind: string | null`.
@@ -3206,7 +3206,7 @@ fn serialize_or_throw<T: serde::Serialize + ?Sized>(
 /// type, under that type's `tsify` serialization config.
 #[cfg(feature = "render")]
 fn to_ts_or_throw<T: tsify::Tsify + Serialize>(value: &T) -> Result<Ts<T>, JsValue> {
-    Ts::from_rust(value).map_err(|e| WasmError::from(e.to_string()).to_js_value())
+    Ts::from_rust(value).map_err(|e| js_err(e.to_string()))
 }
 
 #[cfg(feature = "render")]
@@ -3235,7 +3235,7 @@ where
 {
     value
         .to_rust()
-        .map_err(|e| WasmError::from(e.to_string()).to_js_value())
+        .map_err(|e| js_err(e.to_string()))
 }
 
 /// The render date a host supplies: `today` as `YYYY-MM-DD`, else JavaScript's
@@ -3244,7 +3244,7 @@ fn render_date(today: Option<String>) -> Result<quillmark_core::quill::CalendarD
     match today {
         Some(s) => s
             .parse::<quillmark_core::quill::CalendarDate>()
-            .map_err(|e| WasmError::from(e.to_string()).to_js_value()),
+            .map_err(|e| js_err(e.to_string())),
         None => {
             let now = js_sys::Date::new_0();
             quillmark_core::quill::CalendarDate::new(
@@ -3482,7 +3482,7 @@ impl LiveSession {
         let cs = self
             .inner
             .update(&doc.inner)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         self.card_kinds = card_kinds_of(&doc.inner);
         to_ts_or_throw(&ChangeSet {
             page_count: cs.page_count,
@@ -3500,7 +3500,7 @@ impl LiveSession {
         let result = self
             .inner
             .render(&rust_opts)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         render_result_to_ts(result, &self.kinds())
     }
 
@@ -3673,14 +3673,14 @@ impl LiveSession {
             .ok_or_else(|| self.page_oob_error("paint", page))?;
 
         let scale = quillmark_core::backend::canvas_scale(scale, width_pt, height_pt)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
 
         // `page_size_pt(page)` answered, so the page is in range and a raster is
         // owed; a `None` here is a backend bug.
         let (pixel_w, pixel_h, mut rgba) = self
             .inner
             .render_rgba(page, scale)
-            .map_err(|e| WasmError::from(e).to_js_value())?
+            .map_err(js_err)?
             .ok_or_else(|| {
                 WasmError::from(format!(
                     "paint: backend '{}' returned no raster for page {page}, which is in \
