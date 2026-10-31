@@ -351,6 +351,29 @@ fn a_card_spelling_its_id_revises_its_stored_card() {
     assert_eq!(doc.cards()[1].ext().unwrap()["app"]["key"], "n1");
 }
 
+/// A writer keeping the ids it read that leaves a card out and writes a new
+/// one in its place removed the card: the new one takes neither its id nor
+/// its `$ext`.
+#[test]
+fn a_new_card_in_a_removed_cards_place_takes_none_of_its_identity() {
+    let mut doc = stored();
+    let first = doc.cards()[0].id().unwrap().to_string();
+    let second = doc.cards()[1].id().unwrap().to_string();
+    let memo = doc.cards()[2].id().unwrap().to_string();
+    let md = format!(
+        "~~~\n$quill: q\n~~~\n\n\
+~~~\n$kind: note\n$id: {first}\n~~~\n\nFirst note about apples.\n\n\
+~~~\n$kind: note\n~~~\n\nA new note about plums.\n\n\
+~~~\n$kind: memo\n$id: {memo}\n~~~\n\nA memo to drop.\n"
+    );
+    let receipt = doc.revise(&md).unwrap();
+    assert_eq!(receipt.from, [Some(0), None, Some(2)]);
+    assert_ne!(doc.cards()[1].id(), Some(second.as_str()));
+    assert!(doc.cards()[1].ext().is_none());
+    let dropped: Vec<_> = receipt.dropped_anchors.iter().filter_map(|a| Some((a.id.as_str(), a.card_id.as_deref()?))).collect();
+    assert_eq!(dropped, [("p1", second.as_str())]);
+}
+
 /// A pasted copy spells the id of the card it copies: the one more like the
 /// stored card keeps it, and the other is an inserted card with a new id.
 #[test]

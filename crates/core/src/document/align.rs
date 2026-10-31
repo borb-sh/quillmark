@@ -44,7 +44,9 @@ pub(crate) enum Pairing {
 /// Only cards of one `$kind` pair. An incoming card spelling a stored card's
 /// `$id` pairs with it; of several spelling one, the one whose text most
 /// resembles the stored card's, the first at a tie. The rest align by text,
-/// as [`align_by_text`] does.
+/// as [`align_by_text`] does. Where the incoming cards spell any stored id,
+/// the writer read the ids, so a stored card holding an id no incoming card
+/// spells was removed, and pairs with none.
 pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(usize, Pairing)>> {
     let mut out = vec![None; incoming.len()];
     let by_id: HashMap<&str, usize> = stored
@@ -77,7 +79,10 @@ pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(u
         out[j] = Some((i, Pairing::Id));
     }
 
-    let rest_stored: Vec<usize> = (0..stored.len()).filter(|i| !best.contains_key(i)).collect();
+    let spelled: Vec<&str> = incoming.iter().filter_map(|slot| slot.id).collect();
+    let reads_ids = spelled.iter().any(|id| by_id.contains_key(id));
+    let removed = |i: usize| reads_ids && stored[i].id.is_some_and(|id| !spelled.contains(&id));
+    let rest_stored: Vec<usize> = (0..stored.len()).filter(|&i| !best.contains_key(&i) && !removed(i)).collect();
     let rest_incoming: Vec<usize> = (0..incoming.len()).filter(|&j| out[j].is_none()).collect();
     let stored_rest: Vec<Slot<'_>> = rest_stored.iter().map(|&k| stored[k]).collect();
     let incoming_rest: Vec<Slot<'_>> = rest_incoming.iter().map(|&k| incoming[k]).collect();
@@ -330,6 +335,25 @@ mod tests {
         let stored = with_ids(&[("note", "a", "the original text")]);
         let incoming = with_ids(&[("note", "a", "a pasted copy"), ("note", "a", "the original text")]);
         assert_eq!(align(&stored, &incoming), vec![None, Some((0, Pairing::Id))]);
+    }
+
+    /// A writer that keeps the ids it read and leaves one card out removed
+    /// it, so a new card in its place does not take its id.
+    #[test]
+    fn a_stored_id_no_card_spells_is_removed_where_the_writer_spells_ids() {
+        let stored = with_ids(&[("note", "a", "first"), ("note", "d", "dropped"), ("note", "b", "last")]);
+        let incoming = slots(&[("note", "first"), ("note", "something new"), ("note", "last")]);
+        let incoming = [
+            Slot { id: Some("a"), ..incoming[0] },
+            incoming[1],
+            Slot { id: Some("b"), ..incoming[2] },
+        ];
+        assert_eq!(
+            align(&stored, &incoming),
+            vec![Some((0, Pairing::Id)), None, Some((2, Pairing::Id))]
+        );
+        let unspelled = slots(&[("note", "first"), ("note", "something new"), ("note", "last")]);
+        assert_eq!(align(&stored, &unspelled)[1], Some((1, Pairing::Position)), "a writer spelling no id pairs by text");
     }
 
     #[test]

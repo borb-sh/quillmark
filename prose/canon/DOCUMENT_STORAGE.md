@@ -683,7 +683,9 @@ is written, and never rewritten while its card lives.**
   and mints for a row written before `0.134.0`.
 - **Revise.** `Document::revise` pairs an incoming card spelling a stored
   card's `$id` with it, when both are of one `$kind`. Of several spelling one
-  id, the one whose text most resembles the stored card's keeps it. The rest
+  id, the one whose text most resembles the stored card's keeps it. Where the
+  incoming cards spell any stored id, the writer read the ids, so a stored card
+  holding an id none spells was removed and pairs with nothing. The rest
   align by text ([BINDINGS.md](BINDINGS.md) § The write surface). A card revising a stored one
   holds its id whatever it spells. An inserted card keeps a valid id no stored
   card held and mints past every stored id otherwise, so a removed card's id
