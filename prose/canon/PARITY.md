@@ -115,10 +115,10 @@ A task item's body lowers through the helper, through the renderer a plate sets 
 
 An anchor draws nothing, which is how the lowering honors it, and a cold
 `to_markdown` → `from_markdown` loses it ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Anchor-id identity").
-The annotated read spells it at its start as a `qm-anchor` tag the import
-drops, so the markdown cell stays `carries opaquely`: a write keeps an anchor by
-diff-rebase alone. The row's corpus entry pins the spelling under
-`annotated`.
+The annotated read spells it at its start as a `qm-anchor` tag a revise reads
+back and a cold import drops, so the markdown cell stays `carries opaquely`:
+the plain markdown spells nothing, and a write keeps the anchor by a revise.
+The row's corpus entry pins the spelling under `annotated`.
 
 A font run lowers to the helper's `_qm-font` around each stretch one family
 sets ([CONVERT.md](CONVERT.md#font-runs)). Whether it sets that family depends
@@ -165,8 +165,11 @@ Roboto.
 | `island.math.display`: a display equation's TeX | spells | spells | spells | honors | silent: honored | none |
 | `island.math.unsupported`: a TeX command the lowering does not know | spells | spells | spells | declines with a signal | drops silently | `typst::unsupported_tex` |
 
-A table re-imports from its spelling, so `to_markdown` and `revise` both mint
-it without a key Quillmark does not name.
+A table re-imports from its spelling, so `to_markdown` and a revise of it mint
+the table without a key Quillmark does not name. The annotated read writes
+such a table as its `qm-island` token, which a revise keeps as stored, so the
+key survives a writer that keeps the token; the corpus entry pins the token
+under `annotated`.
 
 A table with one header row and no `widths`, placement, or cell alignment or
 span is a GFM pipe table. Any other is an HTML table
@@ -248,7 +251,7 @@ matrix row:
 |---|---|
 | `name` | the row's name |
 | `markdown` | the row's spelling, or `null` where markdown spells none (`mark.anchor`, the unnamed keys) |
-| `annotated` | `to_markdown_annotated(content)`'s markdown, on a row whose construct has a read-only spelling (`mark.anchor`); absent elsewhere |
+| `annotated` | `to_markdown_annotated(content)`'s markdown, on a row whose construct only the annotated read spells: an anchor's tag (`mark.anchor`) or an island's token (the unnamed keys); absent elsewhere |
 | `content` | the canonical stored content, `serial::to_canonical_value`, pretty-printed so a change diffs by line |
 | `reimports` | what `from_markdown(to_markdown(content))` lands on, on a row markdown cannot spell (`mark.anchor`, the unnamed keys); absent where it is `content` |
 | `typst` | substrings the body's lowering contains, never a whole emission |
@@ -272,13 +275,16 @@ fails:
   point where the entry has none.
 - A body holding `content`, revised with `to_markdown(content)`, lands on
   `reimports` plus every anchor `content` holds, warning nothing.
-- An entry's `annotated` is `to_markdown_annotated(content)`'s markdown,
-  imports, warning nothing, to `content` without its anchors, and revises a
-  body holding `content` to `content`.
-- A document whose body holds `content` emits markdown, and an annotated read,
-  that each parse through `Document::parse`, warning nothing, to a body
-  holding `reimports`; the read lists each anchor of `content` at `main.body`
-  and spells `annotated`.
+- An entry's `annotated` is `to_markdown_annotated(content)`'s markdown and
+  revises a body holding `content` to `content`, warning nothing. Imported
+  cold, it lands on `content` without its anchors, warning nothing, where it
+  holds no token, and on `reimports` without its islands, warning one
+  `qm-island` per token, where it holds one.
+- A document whose body holds `content` emits markdown that parses through
+  `Document::parse`, warning nothing, to a body holding `reimports`, and an
+  annotated read that revises the document through `Document::revise`,
+  warning nothing, to a body holding `content`; the read lists each anchor of
+  `content` at `main.body` and spells `annotated`.
 - The rest runs through the fixture quill `table_demo`, against `typst` and
   `signals`.
 - The body's block in the generated helper, which is `emit_content`'s markup,

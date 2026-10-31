@@ -16,6 +16,7 @@ use super::payload::{MetaKey, Payload, PayloadItem};
 
 use super::prescan::{prescan_fence_content, NestedComment, PreItem, Refusal};
 use super::{Card, Document};
+use quillmark_content::import::{ImportError, Imported};
 
 /// A `MissingQuill` message naming the specific malformation. LLM authors hit a
 /// few recurring shapes — a bare YAML mapping with no fences, an opener whose
@@ -143,13 +144,19 @@ fn body_after(markdown: &str, blocks: &[MetadataBlock], idx: usize) -> String {
 fn import_card_body(
     body: &str,
     at: &DocPath,
+    import: Import,
     warnings: &mut Vec<Diagnostic>,
 ) -> Result<quillmark_content::model::Normalized, ParseError> {
-    super::import_body_at(body, at, warnings).map_err(|e| ParseError::BodyImport {
+    let imported = import(body).map_err(|e| ParseError::BodyImport {
         path: at.to_string(),
         message: e.to_string(),
-    })
+    })?;
+    warnings.extend(super::dropped_constructs(imported.warnings, Some(at)));
+    Ok(imported.content)
 }
+
+/// The markdown import a parse reads each body with.
+pub(super) type Import = fn(&str) -> Result<Imported, ImportError>;
 
 /// An intermediate representation of one `~~~ … ~~~` card-yaml block.
 #[derive(Debug)]
@@ -313,13 +320,15 @@ pub(super) fn build_block(
     })
 }
 
-/// Decompose markdown into a typed [`Document`] and its non-fatal warnings: the
+/// Decompose markdown into a typed [`Document`], its non-fatal warnings (the
 /// fence scan's, then each card's YAML-tag and body-import warnings in card
-/// order. Each card holds the `$id` it spells, or none: the caller settles
-/// them.
+/// order) and each body's markdown, the main card's first, every body read
+/// through `import`. Each card holds the `$id` it spells, or none: the caller
+/// settles them.
 pub(super) fn decompose_with_warnings(
     markdown: &str,
-) -> Result<(Document, Vec<Diagnostic>), crate::error::ParseError> {
+    import: Import,
+) -> Result<(Document, Vec<Diagnostic>, Vec<String>), crate::error::ParseError> {
     let markdown = markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown);
 
     if markdown.trim().is_empty() {
@@ -410,8 +419,9 @@ pub(super) fn decompose_with_warnings(
 
     let global_body = body_after(markdown, &blocks, 0);
 
-    let main_body = import_card_body(&global_body, &DocPath::main_body(), &mut warnings)?;
+    let main_body = import_card_body(&global_body, &DocPath::main_body(), import, &mut warnings)?;
     let main = Card::from_parts(main_payload, main_body);
+    let mut bodies = vec![global_body];
 
     let mut cards: Vec<Card> = Vec::new();
     for idx in 1..blocks.len() {
@@ -483,13 +493,14 @@ pub(super) fn decompose_with_warnings(
         let base = DocPath::card(card_payload.kind(), cards.len());
         warnings.extend(tag_warnings(&base, &blocks[idx]));
 
-        let card_body = body_after(markdown, &blocks, idx);
-        let card_body = import_card_body(&card_body, &base.body(), &mut warnings)?;
+        let body = body_after(markdown, &blocks, idx);
+        let card_body = import_card_body(&body, &base.body(), import, &mut warnings)?;
+        bodies.push(body);
 
         cards.push(Card::from_parts(card_payload, card_body));
     }
 
-    Ok((Document { main, cards }, warnings))
+    Ok((Document { main, cards }, warnings, bodies))
 }
 
 /// Validate a user field entering the payload from the parse path, mapping a

@@ -1,9 +1,9 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use quillmark_content::delta::rebase_marks;
+use quillmark_content::delta::{rebase_marks, rebase_marks_pinned};
 use quillmark_content::export::to_markdown;
-use quillmark_content::import::from_markdown;
+use quillmark_content::import::{from_markdown_against, Against};
 use quillmark_content::model::{MarkKind, Normalized};
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
@@ -13,7 +13,7 @@ use super::align::{align, Pairing, Slot};
 use super::card_id::{is_card_id, reminted_warning, settle_reporting};
 use super::edit::dropped_anchors;
 use super::emit::{canonical_content, emit_payload_fields, DocumentAnchor};
-use super::{dropped_constructs, Card, Document, Parsed};
+use super::{dropped_constructs, Card, Document, Parsed, Revising};
 use crate::error::{Diagnostic, ParseError};
 use crate::path::DocPath;
 use crate::value::QuillValue;
@@ -70,18 +70,22 @@ impl Document {
     ///
     /// Errors as [`Document::parse`] does, and then leaves `self` unchanged.
     pub fn revise(&mut self, markdown: &str) -> Result<DocumentRevised, ParseError> {
-        let parsed = Document::parse_unsettled(markdown)?;
-        Ok(self.revise_parsed(parsed))
+        let revising = Document::parse_revising(markdown)?;
+        Ok(self.revise_parsed(revising))
     }
 
-    /// [`revise`](Self::revise) from `parsed`, whose cards hold the `$id`
-    /// each spells or none, as [`Document::parse_unsettled`] leaves them.
-    pub(crate) fn revise_parsed(&mut self, parsed: Parsed) -> DocumentRevised {
-        let Parsed {
-            document: incoming,
-            mut warnings,
-        } = parsed;
+    /// [`revise`](Self::revise) from `revising`, whose cards hold the `$id`
+    /// each spells or none, as [`Document::parse_revising`] leaves them.
+    pub(crate) fn revise_parsed(&mut self, revising: Revising) -> DocumentRevised {
+        let Revising {
+            parsed: Parsed {
+                document: incoming,
+                mut warnings,
+            },
+            bodies,
+        } = revising;
         let Document { main, cards } = incoming;
+        let mut bodies = bodies.into_iter();
 
         let pairs = align_cards(&self.cards, &cards);
         let same_kinds = self.cards.iter().map(Card::kind).eq(cards.iter().map(Card::kind));
@@ -92,6 +96,7 @@ impl Document {
         let main = revise_card(
             &self.main,
             main,
+            bodies.next().as_deref(),
             (&DocPath::main(), &DocPath::main()),
             true,
             &mut warnings,
@@ -105,6 +110,7 @@ impl Document {
         let mut kept = vec![None; self.cards.len()];
         for (j, mut card) in cards.into_iter().enumerate() {
             let at = DocPath::card(card.kind(), j);
+            let body = bodies.next();
             let card = match pairs[j] {
                 Some((i, pairing)) => {
                     kept[i] = Some(j);
@@ -115,9 +121,13 @@ impl Document {
                     }
                     let carry_ext = matches!(pairing, Pairing::Id | Pairing::Text) || same_kinds;
                     let from = DocPath::card(stored.kind(), i);
-                    revise_card(stored, card, (&at, &from), carry_ext, &mut warnings, &mut moves)
+                    let places = (&at, &from);
+                    revise_card(stored, card, body.as_deref(), places, carry_ext, &mut warnings, &mut moves)
                 }
                 None => {
+                    if let Some(body) = body {
+                        revise_body(&Normalized::empty(), &body, &at.body(), &mut warnings);
+                    }
                     if let Some(spelled) = card.id().map(str::to_string) {
                         if !is_card_id(&spelled) || stored_ids.contains(&spelled) {
                             warnings.push(reminted_warning(&spelled).with_path(at.to_string()));
@@ -187,18 +197,22 @@ type Moves = HashMap<DocPath, Vec<Option<usize>>>;
 
 /// `incoming` with `stored`'s anchors rebased onto its body and the content
 /// in its fields, and `stored`'s `$ext` when `incoming` omits it and
-/// `carry_ext`. `at` is the card's address in the revised document, `from`
-/// the stored card's.
+/// `carry_ext`. The body revises from `source`, its markdown, when given. `at`
+/// is the card's address in the revised document, `from` the stored card's.
 fn revise_card(
     stored: &Card,
     mut incoming: Card,
+    source: Option<&str>,
     (at, from): (&DocPath, &DocPath),
     carry_ext: bool,
     warnings: &mut Vec<Diagnostic>,
     moves: &mut Moves,
 ) -> Card {
     let body = std::mem::replace(incoming.body_mut(), Normalized::empty());
-    *incoming.body_mut() = rebase_marks(stored.body(), body);
+    *incoming.body_mut() = match source.and_then(|md| revise_body(stored.body(), md, &at.body(), warnings)) {
+        Some(revised) => revised,
+        None => rebase_marks(stored.body(), body),
+    };
 
     for (name, value) in incoming.payload_mut().fields_mut() {
         if let Some(stored) = stored.payload().get(name) {
@@ -215,6 +229,17 @@ fn revise_card(
     incoming
 }
 
+/// `source`, a body the parse read with its tokens unresolved, revising
+/// `stored`: its tags pinned and its tokens resolved against `stored`, its
+/// anchors rebased, and a `parse::dropped_construct` at `at` for each tag the
+/// parse did not report.
+fn revise_body(stored: &Normalized, source: &str, at: &DocPath, warnings: &mut Vec<Diagnostic>) -> Option<Normalized> {
+    let Against { content, warnings: reported, pins } = from_markdown_against(source, stored).ok()?;
+    let tags = reported.into_iter().filter(|w| w.construct.is_held_tag()).collect();
+    warnings.extend(dropped_constructs(tags, Some(at)));
+    Some(rebase_marks_pinned(stored, content, &pins))
+}
+
 /// Revise each markdown string in `incoming` that sits where `stored` holds a
 /// content object, by key in an object and by [aligned](align_items) item in
 /// an array, into the content it imports with `stored`'s anchors rebased.
@@ -229,11 +254,11 @@ fn revise_value(
         let JsonValue::String(text) = incoming else {
             return;
         };
-        let Ok(imported) = from_markdown(text) else {
+        let Ok(Against { content, warnings: reported, pins }) = from_markdown_against(text, &base) else {
             return;
         };
-        warnings.extend(dropped_constructs(imported.warnings, Some(at)));
-        *incoming = to_canonical_value(&rebase_marks(&base, imported.content));
+        warnings.extend(dropped_constructs(reported, Some(at)));
+        *incoming = to_canonical_value(&rebase_marks_pinned(&base, content, &pins));
         return;
     }
     match (stored, incoming) {

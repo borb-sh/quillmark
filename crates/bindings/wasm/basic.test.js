@@ -1055,6 +1055,20 @@ Card body.
     expect(Document.fromMarkdown(read.markdown).equals(Document.fromMarkdown(doc.toMarkdown()))).toBe(true)
   })
 
+  it('a revise reads the annotated read back: a moved tag moves its anchor, a ref nothing holds reports', () => {
+    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nMain body here.\n')
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 5, end: 9, type: 'anchor', attrs: { id: 'b' } }] })
+    const read = doc.toAnnotatedMarkdown().markdown
+    expect(read).toContain('Main <qm-anchor ref="b"></qm-anchor>body here.')
+    const moved = read.replace('Main <qm-anchor ref="b"></qm-anchor>body here.', 'Main body <qm-anchor ref="b"></qm-anchor>here.')
+    const receipt = doc.revise({}, moved.split('~~~\n\n')[1].trim() + ' <qm-anchor ref="gone"></qm-anchor>')
+    expect(receipt.droppedAnchors).toEqual([])
+    expect(receipt.warnings).toEqual([
+      expect.objectContaining({ code: 'parse::dropped_construct', args: { construct: 'qm-anchor[ref]', count: 1 } }),
+    ])
+    expect(doc.anchorContext('b')).toMatchObject({ quote: 'here' })
+  })
+
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     const addr = { card: 0, field: 'foo' }

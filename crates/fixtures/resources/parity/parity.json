@@ -1411,6 +1411,7 @@
   {
     "name": "island.table.props.unnamed",
     "markdown": null,
+    "annotated": "<qm-island ref=\"isl-0\"></qm-island>",
     "content": {
       "islands": [
         {
@@ -1493,6 +1494,7 @@
   {
     "name": "island.table.cell.unnamed",
     "markdown": null,
+    "annotated": "<qm-island ref=\"isl-0\"></qm-island>",
     "content": {
       "islands": [
         {
@@ -1575,6 +1577,7 @@
   {
     "name": "island.table.cell.value",
     "markdown": null,
+    "annotated": "<qm-island ref=\"isl-0\"></qm-island>",
     "content": {
       "islands": [
         {
@@ -1675,6 +1678,7 @@
   {
     "name": "island.table.props.value",
     "markdown": null,
+    "annotated": "<qm-island ref=\"isl-0\"></qm-island>",
     "content": {
       "islands": [
         {

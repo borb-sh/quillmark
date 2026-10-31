@@ -507,9 +507,9 @@ proptest! {
         prop_assert_eq!(&new_rt.text[anchor.start..anchor.end], a.as_str());
     }
 
-    /// The annotated read imports as the plain projection does, lists every
-    /// prose anchor once, in `(start, id)` order, and revises its content to
-    /// itself.
+    /// The annotated read of an imported content spells no island token,
+    /// imports as the plain projection does, lists every prose anchor once,
+    /// in `(start, id)` order, and revises its content to itself.
     #[test]
     fn the_annotated_read_imports_as_the_plain_one(
         md in prop_oneof![document(), delimiter_run()],
@@ -527,6 +527,7 @@ proptest! {
 
         let plain = to_markdown(&rt);
         let read = to_markdown_annotated(&rt);
+        prop_assert!(!read.markdown.contains("<qm-island"), "a generated island has no markdown: {:?}", read.markdown);
         prop_assert_eq!(
             from_markdown(&read.markdown).unwrap().content,
             from_markdown(&plain).unwrap().content,

@@ -527,7 +527,7 @@ follow from that.
 | Unique across       | the `Content`'s islands                            | the `Content`'s prose marks                        | the document's composable cards                    |
 | Required            | yes: `insert` rejects the empty id                 | yes: the empty id is rejected                     | yes: every placed composable card holds one; the main card none |
 | On collision        | `insert` rejects; `validate` scans                 | `add` rejects                                      | a parse re-mints and warns; a placing edit rejects; a load refuses |
-| Markdown round-trip | re-minted identically                              | carried by revise; spelled read-only by the annotated export | spelled as `$id`, read back as written |
+| Markdown round-trip | re-minted identically; kept as stored through a revise of the annotated read's token | carried by revise; spelled by the annotated read, which a revise reads back | spelled as `$id`, read back as written |
 
 The main card is addressed as `main` and carries no `$id`.
 
@@ -614,27 +614,37 @@ import mints none, so a cold export→import loses every anchor.
 
 The annotated read (`export::to_markdown_annotated`,
 `Document::to_markdown_annotated`) spells each prose anchor as
-`<qm-anchor ref="ID"></qm-anchor>` at its start, a spelling a cold
-import drops unreported ([markdown-spec.md](../references/markdown-spec.md)
-§6.4).
+`<qm-anchor ref="ID"></qm-anchor>` at its start, and each island whose markup
+does not read back as `<qm-island ref="ID"></qm-island>`
+([markdown-spec.md](../references/markdown-spec.md) §6.4). It is two-way: a
+revise reads both against the value stored at its address, and a cold import
+drops both, the token reported.
 
 - A range anchor reads as its start, and keeps its range through `revise`.
 - A code-block line, a block island's line and an empty line hold no tag. A
+  tag inside a code span or a link moves to its start, marked `at="span"`. A
   line whose tags in place would change what it imports to holds them at its
-  end, or none where that changes it too.
+  end, each marked `at="line"`, or none where that changes it too.
 - The read lists every prose anchor with the text of its line, spelled or not,
   so a consumer locates the anchor whose tag a writer lost. An anchor in a table
   cell is outside the read, as it is outside the op surface.
 
-Anchors are edit-lane infrastructure: they survive only through diff-rebase
+Anchors are edit-lane infrastructure: they survive only through a revise
 (`revise` / `rebase`). A whole-document markdown write keeps them through
-`Document::revise`, which aligns cards by `$kind` and text and rebases each
-aligned body and content field; a prose anchor on a card it cannot align, or
-one the diff drops, drops, and the receipt names it. An anchor in a table cell
-drops on every markdown write, and no receipt names it. Reading the annotated
-markdown and writing it back through `revise` keeps what a write of the plain markdown
-keeps: the import drops the tags, and the read shows a writer where each
-anchor sits. Non-rendering is a property of
+`Document::revise`, which aligns cards by `$id`, `$kind` and text and revises
+each aligned body and content field; a prose anchor on a card it cannot align,
+or one the diff drops, drops, and the receipt names it. An anchor in a table
+cell drops on every markdown write whose cell is spelled, and no receipt names
+it. On a revise, a tag the writer kept pins its anchor's start where the tag
+stands; a tag without `at` that the writer moved moves the anchor; a tag the
+writer dropped leaves the anchor to the diff; and a tag naming an anchor the
+stored value does not hold drops, reported. A token keeps its island's type
+and props as stored, so a table's spans, keys Quillmark does not name and an
+equation's TeX survive a rewrite of the text around them; the island's id
+carries as any revise carries it. A merge under a base read
+([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive))
+compares the sides with tokens and without anchor tags, so a token survives
+it and an anchor rides the diff. Non-rendering is a property of
 review-time metadata, not a gap; a future render projection (proof annotations,
 PDF destinations) would render the referent or a position, never the id, so
 this policy holds either way.
