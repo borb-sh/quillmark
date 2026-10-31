@@ -117,12 +117,11 @@ jobs:
       # `cargo test` builds each cdylib's rlib for the harness and stops there,
       # so nothing links `quillmark_wasm`, `_quillmark`, or the `quillmark` bin
       # on the host. `--all-targets` links every artifact the workspace ships
-      # and compiles the four examples, which no test target reaches.
+      # and compiles the examples, which no test target reaches.
       - name: Build every target
         run: cargo build --workspace --all-targets --locked
 
-      # Doctests ride along here: `cargo test` runs them by default, 3 across
-      # the workspace with 2 more `ignore`d.
+      # Doctests ride along here: `cargo test` runs them by default.
       - name: Tests
         run: cargo test --workspace --all-features --locked
 

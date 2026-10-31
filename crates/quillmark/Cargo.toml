@@ -31,6 +31,5 @@ jsonschema = { workspace = true }
 default = ["typst", "acroform"]
 typst = ["dep:quillmark-typst"]
 # The acroform backend renders forms → PDF, and paints canvas pages via its
-# always-linked hayro seam, so the acroform session reports
-# `supports_canvas() == true` and a canvas binding can paint acroform quills.
+# always-linked hayro seam, so a canvas binding can paint acroform quills.
 acroform = ["dep:quillmark-acroform"]
