@@ -23,6 +23,8 @@ main:
     note:
       type: text
       multiline: true
+    on:
+      type: date
 card_kinds:
   item:
     fields:
@@ -125,6 +127,20 @@ fn a_text_field_merges_its_literal_text() {
     assert_eq!(err.doc_path(&crate::path::DocPath::main()).map(|p| p.to_string()), Some("main.note".into()));
     let w = TypedWriter::new(&config, &mut doc);
     assert_eq!(current_of(err), ("stale", w.field_hash("note").unwrap()));
+}
+
+/// A revise of a field neither `text` nor `richtext` fails as it does with no
+/// base, never as a stale read of a fresh hash.
+#[test]
+fn a_revise_of_a_date_under_a_fresh_hash_fails_as_a_plain_revise() {
+    let config = config();
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\non: 2024-01-01\n~~~\n");
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let plain = w.revise_field("on", "2024-02-02").unwrap_err().code();
+    let read = w.field_hash("on").unwrap();
+    let err = w.revise_field_against("on", Base::Hash(&read), "2024-02-02").unwrap_err();
+    assert_eq!(err.code(), plain);
+    assert_ne!(plain, "edit::stale_base");
 }
 
 #[test]
@@ -245,6 +261,51 @@ fn a_document_revise_merges_a_read_and_refuses_a_stale_hash() {
 /// A merge compares the three sides with their islands that have no markdown
 /// as tokens, so a token the writer kept survives a change made since its
 /// read, in a body and in a document.
+/// A tag the writer moved pins its anchor through a merge, as it does with no
+/// change since the read.
+#[test]
+fn a_moved_tag_pins_through_a_merge() {
+    let mut card = card_with_body("Alpha beta gamma delta.\n\nSecond.\n\nThird.");
+    let body = anchored(card.body(), "delta", "c1");
+    card.overwrite_body(body);
+    let read = to_markdown_annotated(card.body()).markdown;
+    assert!(read.contains("<qm-anchor ref=\"c1\"></qm-anchor>delta"), "{read}");
+    let moved = read
+        .replace("<qm-anchor ref=\"c1\"></qm-anchor>delta", "delta")
+        .replace("beta", "<qm-anchor ref=\"c1\"></qm-anchor>beta");
+
+    let _ = card.revise_body(read.replace("Third.", "Third, theirs.")).unwrap();
+    let revised = card.revise_body_against(Base::Read(&read), &moved).unwrap();
+    assert!(revised.dropped_anchors.is_empty());
+    let ctx = quillmark_content::anchor::anchor_context(card.body(), "c1").unwrap();
+    assert!(ctx.quote.starts_with("beta"), "{ctx:?}");
+    assert!(card.body_markdown().contains("Third, theirs."));
+}
+
+/// A plain read of a value whose markup loses an island is still a read of
+/// it now: the writer's own markdown lands, rather than a merge that could
+/// only conflict on the island's line.
+#[test]
+fn a_plain_read_of_an_unchanged_value_writes_the_writers_own() {
+    let mut card = Card::new("note").unwrap();
+    let mut body = from_markdown("Lead.\n\n| h |\n| --- |\n| cell |").unwrap().content.into_content();
+    body.islands[0].props["note"] = "kept".into();
+    card.overwrite_body(body.into_normalized());
+    let read = card.body_markdown();
+    let edited = read.replace("cell", "cell, edited");
+    let revised = card.revise_body_against(Base::Read(&read), &edited).unwrap();
+    assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
+    assert_eq!(card.body_markdown(), edited);
+
+    let config = config();
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nLead.\n");
+    doc.main_mut().overwrite_body(card.body().clone());
+    let read = doc.to_markdown();
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let _ = w.revise_document_against(Base::Read(&read), &read.replace("edited", "edited twice")).unwrap();
+    assert!(doc.main().body_markdown().contains("edited twice"));
+}
+
 #[test]
 fn a_token_survives_a_merge() {
     let mut card = Card::new("note").unwrap();

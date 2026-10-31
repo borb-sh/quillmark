@@ -9,7 +9,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::delta::MIN_MOVE;
 use crate::model::{Content, Mark, MarkKind, Normalized, Usv, ISLAND_SLOT};
-use crate::ops::MarkOp;
 
 /// Context read on each side of an anchor, in Unicode scalar values.
 pub const ANCHOR_CONTEXT_USV: usize = 32;
@@ -254,10 +253,21 @@ pub fn locate_site(
     ctx: &AnchorContext,
     inserted: Option<&[(Usv, Usv)]>,
 ) -> Option<(Surface, Usv, Usv)> {
-    let surfaces = match inserted {
+    locate_among(&searched(rt, inserted), ctx, inserted)
+}
+
+fn searched(rt: &Normalized, inserted: Option<&[(Usv, Usv)]>) -> Vec<(Surface, Vec<char>)> {
+    match inserted {
         Some(_) => vec![(Surface::Prose, rt.text.chars().collect())],
         None => rt.surfaces(),
-    };
+    }
+}
+
+fn locate_among(
+    surfaces: &[(Surface, Vec<char>)],
+    ctx: &AnchorContext,
+    inserted: Option<&[(Usv, Usv)]>,
+) -> Option<(Surface, Usv, Usv)> {
     let mut hits = surfaces
         .iter()
         .filter_map(|(surface, text)| locate_in(text, ctx, inserted).map(|(start, end)| (*surface, start, end)));
@@ -281,9 +291,8 @@ impl Content {
 }
 
 impl Normalized {
-    /// Re-add each context's anchor where [`locate_site`] finds it, in the
-    /// prose through the [`MarkOp::Add`] arm and in a cell as that cell's
-    /// mark, and answer which landed. An id in `live`, or already an anchor
+    /// Re-add each context's anchor where [`locate_site`] finds it, as a mark
+    /// of the prose or of its cell, and answer which landed. An id in `live`, or already an anchor
     /// here on any surface, is not written and is answered as reattached at
     /// its live range. Never mints an id, never moves a live anchor, and
     /// places each anchor whole or not at all.
@@ -303,38 +312,36 @@ impl Normalized {
         let mut answered = HashSet::new();
         let ctxs: Vec<&AnchorContext> = ctxs.iter().filter(|c| answered.insert(c.id.as_str())).collect();
         let held: HashSet<String> = self.anchor_sites().into_iter().map(|site| site.id).collect();
+        let surfaces = searched(self, inserted);
         let mut placed = Vec::with_capacity(ctxs.len());
-        let mut in_cells = Vec::new();
+        let mut marks = Vec::new();
         for ctx in &ctxs {
             if live.contains(ctx.id.as_str()) || held.contains(&ctx.id) {
                 placed.push(true);
                 continue;
             }
-            let landed = match locate_site(self, ctx, inserted) {
-                Some((Surface::Prose, start, end)) => {
-                    let add = MarkOp::Add {
-                        start,
-                        end,
-                        kind: MarkKind::Anchor { id: ctx.id.clone() },
-                    };
-                    self.apply_mark_ops(&[add]).is_ok()
-                }
-                Some((Surface::Cell { island, cell }, start, end)) => {
-                    in_cells.push((island, cell, Mark::new(start, end, MarkKind::Anchor { id: ctx.id.clone() })));
-                    true
-                }
-                None => false,
-            };
-            placed.push(landed);
+            let site = locate_among(&surfaces, ctx, inserted).filter(|_| !ctx.id.is_empty());
+            if let Some((surface, start, end)) = site {
+                marks.push((surface, Mark::new(start, end, MarkKind::Anchor { id: ctx.id.clone() })));
+            }
+            placed.push(site.is_some());
         }
-        if !in_cells.is_empty() {
+        if !marks.is_empty() {
             let mut content = std::mem::replace(self, Content::empty().into_normalized()).into_content();
-            for (island, cell, mark) in in_cells {
-                let isl = &mut content.islands[island];
-                if let Some(value) = isl.island_type.cell_values_mut(&mut isl.props).into_iter().nth(cell) {
-                    let (_, mut marks) = crate::serial::parse_cell(value);
-                    marks.push(mark);
-                    crate::serial::set_cell_marks(value, &marks);
+            let mut cells: HashMap<(usize, usize), Vec<Mark>> = HashMap::new();
+            for (surface, mark) in marks {
+                match surface {
+                    Surface::Prose => content.marks.push(mark),
+                    Surface::Cell { island, cell } => cells.entry((island, cell)).or_default().push(mark),
+                }
+            }
+            for (island, isl) in content.islands.iter_mut().enumerate() {
+                for (cell, value) in isl.island_type.cell_values_mut(&mut isl.props).into_iter().enumerate() {
+                    if let Some(added) = cells.remove(&(island, cell)) {
+                        let (_, mut held) = crate::serial::parse_cell(value);
+                        held.extend(added);
+                        crate::serial::set_cell_marks(value, &held);
+                    }
                 }
             }
             *self = content.into_normalized();
@@ -402,6 +409,7 @@ mod tests {
     mod properties;
 
     use super::*;
+    use crate::ops::MarkOp;
     use crate::delta::{diff_import, rebase_onto};
     use crate::import::from_markdown;
     use crate::model::Mark;

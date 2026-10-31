@@ -254,7 +254,9 @@ pub struct Pin {
 /// pins the anchor `ID` the stored value holds in prose to start where the
 /// tag sits; one with an `at` attribute, which the read writes where its tag
 /// moved to its line's end, pins nothing. A `<qm-island ref="ID">` token in
-/// prose is the stored island `ID`, its type and props as stored. A tag or a
+/// prose is the stored island `ID`, its type and props as stored but for its
+/// cells' anchors, which the revise carries onto the island that continues it
+/// ([`crate::delta::rebase_onto`]), so a token written twice copies none. A tag or a
 /// token naming nothing the stored value holds there, and a second tag naming
 /// one anchor, drop reported under `qm-anchor[ref]` or `qm-island[ref]`; a
 /// token in a table cell, a note, an image's alt text or a code span drops
@@ -1169,7 +1171,8 @@ impl Builder {
             Tags::Against { islands, .. } if element == carrier::ISLAND => {
                 match id.and_then(|id| islands.get(id)) {
                     Some(island) if prose => {
-                        let Island { island_type, props, .. } = island.clone();
+                        let Island { island_type, mut props, .. } = island.clone();
+                        crate::export::drop_anchor_marks(&mut props);
                         self.ensure_open(LineKind::Para);
                         self.inline.push_raw(ISLAND_SLOT);
                         self.mint_island(island_type, props);

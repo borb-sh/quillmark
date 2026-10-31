@@ -981,9 +981,10 @@ impl Content {
     /// inline it emits pipes into the middle of a paragraph, which re-imports as
     /// prose with the island gone, so the markdown projection runs this on a
     /// copy. The stored content keeps the shape: a merge of concurrent edits
-    /// reaches it, and the mint never moves text.
+    /// reaches it, and the mint never moves text. A point mark right after the
+    /// slot moves onto the line after it.
     pub(crate) fn split_block_islands(&mut self) {
-        use crate::delta::{Delta, Op};
+        use crate::delta::{Assoc, Delta, Op};
 
         if !self.islands.iter().any(|i| i.island_type.block_only())
             || self.lines.len() != self.segment_count()
@@ -1041,7 +1042,21 @@ impl Content {
 
         self.text = text;
         self.lines = lines;
-        self.rebase_marks(&Delta { ops });
+        let delta = Delta { ops };
+        let after_slot: Vec<Usv> = breaks.iter().map(|&at| at + 1).collect();
+        for m in &mut self.marks {
+            if m.start == m.end {
+                let assoc = match after_slot.contains(&m.start) {
+                    true => Assoc::After,
+                    false => Assoc::Before,
+                };
+                m.start = delta.map_pos(m.start, assoc);
+                m.end = m.start;
+            } else {
+                m.start = delta.map_pos(m.start, Assoc::After);
+                m.end = delta.map_pos(m.end, Assoc::Before);
+            }
+        }
     }
 
     /// What the mint cannot repair. `Ok(())` on every content a codec or an

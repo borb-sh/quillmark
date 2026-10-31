@@ -650,8 +650,8 @@ and props as stored, so a table's spans, keys Quillmark does not name and an
 equation's TeX survive a rewrite of the text around them; the island's id
 carries as any revise carries it. A merge under a base read
 ([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive))
-compares the sides with tokens and without anchor tags, so a token survives
-it and an anchor rides the diff. Non-rendering is a property of
+compares the sides as annotated reads, so a token survives it and a tag the
+writer moved pins wherever the merge keeps the writer's line. Non-rendering is a property of
 review-time metadata, not a gap; a future render projection (proof annotations,
 PDF destinations) would render the referent or a position, never the id, so
 this policy holds either way.
@@ -683,11 +683,16 @@ is written, and never rewritten while its card lives.**
   and mints for a row written before `0.134.0`.
 - **Revise.** `Document::revise` pairs an incoming card spelling a stored
   card's `$id` with it, when both are of one `$kind`. Of several spelling one
-  id, the one whose text most resembles the stored card's keeps it. The rest
+  id, the one whose text most resembles the stored card's keeps it. Where the
+  incoming cards spell any stored id, the writer read the ids, so a stored card
+  holding an id none spells was removed and pairs with nothing. The rest
   align by text ([BINDINGS.md](BINDINGS.md) § The write surface). A card revising a stored one
   holds its id whatever it spells. An inserted card keeps a valid id no stored
-  card held and mints past every stored id otherwise, so a removed card's id
-  is never handed to a new one.
+  card held and mints past every stored id otherwise, so a card a revise
+  removes never hands its id to a card that revise inserts. The document keeps
+  no record of an id it no longer holds: a later edit may mint it again. A
+  consumer keeping selectors by card id drops a removed card's when the
+  receipt's `from` names that card in no entry.
 - **Never rendered.** `$id` never reaches the plate JSON, as `$ext` does not.
 
 ## Schema Versioning

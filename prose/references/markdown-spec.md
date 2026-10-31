@@ -178,7 +178,8 @@ author wrote the line.
 - **`$id: <card-id>`**: names a composable card across writes. A card id is 1
   to 64 of `[A-Za-z0-9_-]`, opening with a letter or digit, and unique in the
   document. The root block may not declare it: the root is `main`. A value
-  that is not a string is read as its JSON text, so `$id: 7` is the id `7`. A card that omits `$id` is
+  that is not a string is read as its JSON text, so `$id: 7` is the id `7` and `$id: 0x1F` the id `31`:
+  quote an id YAML reads as a number. A null `$id` (`$id:`, `~`) is no `$id`. A card that omits `$id` is
   minted one: `c` and five base32 letters, the first of a fixed sequence that
   no card holds, so equal markdown parses to equal ids. A card spelling an id
   outside the grammar, or one an earlier card holds, is minted one in its place,
@@ -605,7 +606,8 @@ the markup of each island that does not read back as itself, an anchor in a
 cell aside, and writes every other island as markup. A revise reads each
 inline token in prose as that island, a table's taking a line of its own; a
 writer moves an island by moving its token, and copies one by writing it
-twice. A token whose `ref` names no island the stored value holds drops
+twice, its cells' anchors staying on the copy that continues the stored
+island alone. A token whose `ref` names no island the stored value holds drops
 reported as `qm-island[ref]`, and one in a table cell, a footnote's note or an
 image's alt text, where no island sits, drops reported as `qm-island`. A cold
 import drops every token, reported as `qm-island`.

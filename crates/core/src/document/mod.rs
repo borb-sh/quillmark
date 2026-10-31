@@ -255,7 +255,9 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                     some(&format!("`<{element}>` {}", spelling.0), &format!("`<{element}>` {}", spelling.1))
                 ),
                 format!(
-                    "A `ref` names a {what} of the value the annotated read was taken from, once per {what}:                      copy the tag from the read, or remove it. An anchor without its tag keeps its place by                      the text around it."
+                    "A `ref` names a {what} of the value the annotated read was taken from, once per {what}: \
+                     copy the tag from the read, or remove it. An anchor without its tag keeps its place by \
+                     the text around it."
                 ),
             )
         }
@@ -294,7 +296,9 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 some(&format!("`<{tag}>` token"), &format!("`<{tag}>` tokens"))
             ),
             format!(
-                "A `<{tag}>` token stands for an island of the stored value an annotated read was taken from,                  in prose: only a revise of that value reads it. A plain import, a table cell, a footnote and                  an image's alt text drop it."
+                "A `<{tag}>` token stands for an island of the stored value an annotated read was taken from, \
+                 in prose: only a revise of that value reads it. A plain import, a table cell, a footnote and \
+                 an image's alt text drop it."
             ),
         ),
         Dropped::Element(_) => (

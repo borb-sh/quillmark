@@ -149,7 +149,7 @@ pub fn to_markdown_checked(rt: &Normalized) -> Exported {
         let kept = back
             .islands
             .get(index)
-            .is_some_and(|b| b.island_type == isl.island_type && b.props == isl.props);
+            .is_some_and(|b| b.island_type == isl.island_type && without_anchors(&b.props) == without_anchors(&isl.props));
         if !kept {
             losses.push(ExportLoss::Island {
                 index,
@@ -241,25 +241,6 @@ pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
         tokens: &tokens,
     });
     Annotated { markdown, anchors }
-}
-
-/// [`to_markdown`] with each island [`to_markdown_annotated`] spells as its
-/// token so spelled, and no anchor tag: the form a revise merge compares, so
-/// an island that has no markdown survives the merge.
-pub fn to_markdown_tokened(rt: &Normalized) -> String {
-    let rt = &*block_islands_alone(rt);
-    let segments = line_segments(rt);
-    let line_marks = line_marks(rt, &segments);
-    let labels = note_labels(rt);
-    let tokens = island_tokens(rt);
-    project(&Ctx {
-        rt,
-        segments: &segments,
-        line_marks: &line_marks,
-        labels: &labels,
-        tags: &[],
-        tokens: &tokens,
-    })
 }
 
 /// The anchors [`to_markdown_annotated`] lists for `rt` whose id `keep`
@@ -827,6 +808,12 @@ pub fn island_reads_back(isl: &Island) -> bool {
         return false;
     };
     matches!(&back.content.islands[..], [one] if one.island_type == isl.island_type && one.props == props)
+}
+
+fn without_anchors(props: &serde_json::Value) -> serde_json::Value {
+    let mut props = props.clone();
+    drop_anchor_marks(&mut props);
+    props
 }
 
 /// `props` with every anchor mark of each `{text, marks}` it holds gone.
@@ -2313,6 +2300,11 @@ mod tests {
         let broken = hard_break_block("a\n\nb");
         let losses = to_markdown_checked(&broken).losses;
         assert_eq!(losses, vec![ExportLoss::Text]);
+
+        let mut cell = imported.into_content();
+        cell.islands[0].props["rows"][0][0]["marks"] =
+            serde_json::json!([{ "start": 0, "end": 1, "type": "anchor", "attrs": { "id": "c1" } }]);
+        assert_eq!(to_markdown_checked(&cell.into_normalized()).losses, vec![], "a cell's anchor is no loss");
     }
 
     /// One deterministic fixed-point smoke per construct `properties.rs` fuzzes,

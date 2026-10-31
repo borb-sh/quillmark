@@ -159,4 +159,14 @@ mod tests {
         let mut mint = Mint::new([token(0), token(2)].into_iter().collect());
         assert_eq!((mint.mint(), mint.mint()), (token(1), token(3)));
     }
+
+    #[test]
+    fn a_blank_id_is_no_id() {
+        let fence = |id: &str| format!("~~~\n$kind: item\n$id:{id}\n~~~\n");
+        let md = format!("~~~\n$quill: q\n~~~\n\n{}\n{}\n{}", fence(""), fence(" ~"), fence(" null"));
+        let parsed = crate::document::Document::parse(&md).expect("parses");
+        let ids: Vec<&str> = parsed.document.cards().iter().filter_map(|c| c.id()).collect();
+        assert_eq!(ids, [token(0), token(1), token(2)]);
+        assert!(parsed.warnings.iter().all(|w| w.code.as_deref() != Some(CARD_ID_REMINTED)));
+    }
 }
