@@ -18,8 +18,11 @@ pub const SPAN: &str = "span";
 /// The anchor spelling's element name.
 pub const ANCHOR: &str = "anchor";
 
-/// Element names no stored element carries: [`ANCHOR`].
-pub const RESERVED: [&str; 1] = [ANCHOR];
+/// The island token's element name.
+pub const ISLAND: &str = "island";
+
+/// Element names no stored element carries: [`ANCHOR`] and [`ISLAND`].
+pub const RESERVED: [&str; 2] = [ANCHOR, ISLAND];
 
 /// Attribute names outside the grammar besides every `on*`: each is one a
 /// downstream HTML renderer acts on.
@@ -158,7 +161,7 @@ impl std::fmt::Display for Refused {
 impl std::error::Error for Refused {}
 
 /// One carrier element, its name and attributes in the grammar, and its
-/// canonical spelling: a `qm-span` pair's or a `qm-anchor`'s.
+/// canonical spelling: a `qm-span` pair's, a `qm-anchor`'s or a `qm-island`'s.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Element {
     name: String,

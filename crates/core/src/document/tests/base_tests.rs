@@ -241,3 +241,36 @@ fn a_document_revise_merges_a_read_and_refuses_a_stale_hash() {
     );
     assert_eq!(doc.to_markdown(), expected.to_markdown());
 }
+
+/// A merge compares the three sides with their islands that have no markdown
+/// as tokens, so a token the writer kept survives a change made since its
+/// read, in a body and in a document.
+#[test]
+fn a_token_survives_a_merge() {
+    let mut card = Card::new("note").unwrap();
+    let body = super::revise_tests::titled(&from_markdown("Alpha ![a](u.png).\n\nBeta two.").unwrap().content);
+    card.overwrite_body(body.clone());
+    let read = to_markdown_annotated(card.body()).markdown;
+    assert_eq!(read, "Alpha <qm-island ref=\"isl-0\"></qm-island>.\n\nBeta two.");
+
+    let _ = card.revise_body(read.replace("Beta two.", "Beta two, theirs.")).unwrap();
+    let revised = card
+        .revise_body_against(Base::Read(&read), read.replace("Alpha", "Alpha, mine,"))
+        .unwrap();
+    assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
+    assert_eq!(card.body().text, "Alpha, mine, \u{FFFC}.\nBeta two, theirs.");
+    assert_eq!(card.body().islands, body.islands);
+
+    let config = config();
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nAlpha ![a](u.png).\n\nBeta two.\n");
+    doc.main_mut().overwrite_body(body.clone());
+    let read = doc.to_markdown_annotated().markdown;
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let _ = w.revise_document(&read.replace("Beta two.", "Beta two, theirs.")).unwrap();
+    let revised = w
+        .revise_document_against(Base::Read(&read), &read.replace("Alpha", "Alpha, mine,"))
+        .unwrap();
+    assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
+    assert_eq!(doc.main().body().text, "Alpha, mine, \u{FFFC}.\nBeta two, theirs.");
+    assert_eq!(doc.main().body().islands, body.islands);
+}

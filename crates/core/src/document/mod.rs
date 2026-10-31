@@ -240,6 +240,25 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 _ => format!("`<{element}>` takes no attributes."),
             },
         ),
+        Dropped::ElementAttr { element, attr }
+            if attr == "ref" && quillmark_content::carrier::RESERVED.contains(&element.as_str()) =>
+        {
+            let (what, spelling) = match element == quillmark_content::carrier::ANCHOR {
+                true => ("anchor", ("tag", "tags")),
+                false => ("island", ("token", "tokens")),
+            };
+            let element = Dropped::Element(element.clone());
+            (
+                format!(
+                    "markdown revise dropped {} naming no {what} the stored value holds, or one an earlier \
+                     tag names, in this field",
+                    some(&format!("`<{element}>` {}", spelling.0), &format!("`<{element}>` {}", spelling.1))
+                ),
+                format!(
+                    "A `ref` names a {what} of the value the annotated read was taken from, once per {what}:                      copy the tag from the read, or remove it. An anchor without its tag keeps its place by                      the text around it."
+                ),
+            )
+        }
         Dropped::ElementAttr { element, attr } => attr_dropped(
             &Dropped::Element(element.clone()).to_string(),
             attr,
@@ -267,6 +286,15 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
             format!(
                 "A `<{tag}>` pair sets a `family` inside one line of text and closes with `</{tag}>` there; \
                  HTML reads `<{tag}/>` as an open tag. A family is a run's, never a block's. {BESIDE}"
+            ),
+        ),
+        Dropped::Element(name) if name == quillmark_content::carrier::ISLAND => (
+            format!(
+                "markdown import dropped {} in this field",
+                some(&format!("`<{tag}>` token"), &format!("`<{tag}>` tokens"))
+            ),
+            format!(
+                "A `<{tag}>` token stands for an island of the stored value an annotated read was taken from,                  in prose: only a revise of that value reads it. A plain import, a table cell, a footnote and                  an image's alt text drop it."
             ),
         ),
         Dropped::Element(_) => (
@@ -527,7 +555,8 @@ pub const MARKDOWN_RULES: &str = "Quillmark Markdown rules:
 \u{2022} Prose body is the text after a block's closing `~~~`, up to the next opener or EOF. To include a literal fenced code block in prose, use a backtick fence (```); any column-zero `~~~` block is parsed as card metadata.
 \u{2022} A blank or null value (`field:`, `field: null`, `field: ~`) is the same as omitting the field: it falls back to the field's default, else its blank. `field: \"\"` is kept as written, an explicit empty value.
 \u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.
-\u{2022} In a body or richtext value, `<qm-span family=\"<family>\">text</qm-span>` sets a run's font family. Pairs nest, the innermost winning and the outer resuming past it. Name only a family the host's font library supplies: any other keeps the surrounding font and warns.";
+\u{2022} In a body or richtext value, `<qm-span family=\"<family>\">text</qm-span>` sets a run's font family. Pairs nest, the innermost winning and the outer resuming past it. Name only a family the host's font library supplies: any other keeps the surrounding font and warns.
+\u{2022} Markdown read from an annotated read carries `<qm-anchor ref=\"\u{2026}\"></qm-anchor>` tags and `<qm-island ref=\"\u{2026}\"></qm-island>` tokens. Keep each tag before the text it marks, moving it with that text; drop a tag only with its text. Keep each token where its island belongs: it stands for a table, image or equation kept as stored. Never write a `ref` the read did not hold.";
 
 #[cfg(test)]
 mod tests;
@@ -542,6 +571,14 @@ mod tests;
 pub struct Parsed {
     pub document: Document,
     pub warnings: Vec<Diagnostic>,
+}
+
+/// A parse ahead of a revise: the [`Parsed`] document, its cards unsettled,
+/// and each body's markdown, the main card's first.
+#[derive(Debug)]
+pub(crate) struct Revising {
+    pub parsed: Parsed,
+    pub bodies: Vec<String>,
 }
 
 /// A single card-yaml block (root or composable). `body` is the content
@@ -789,8 +826,21 @@ impl Document {
     /// [`parse`](Self::parse) with each card holding the `$id` it spells, or
     /// none, for a revise to settle against the ids it started from.
     pub(crate) fn parse_unsettled(markdown: &str) -> Result<Parsed, ParseError> {
-        assemble::decompose_with_warnings(markdown)
-            .map(|(document, warnings)| Parsed { document, warnings })
+        assemble::decompose_with_warnings(markdown, import_markdown)
+            .map(|(document, warnings, _)| Parsed { document, warnings })
+    }
+
+    /// [`parse_unsettled`](Self::parse_unsettled) for a revise: each body's
+    /// `qm-island` tokens drop silently, the revise resolving them against the
+    /// stored card it aligns the body's card to, and each body's markdown is
+    /// kept for it.
+    pub(crate) fn parse_revising(markdown: &str) -> Result<Revising, ParseError> {
+        let (document, warnings, bodies) =
+            assemble::decompose_with_warnings(markdown, quillmark_content::import::from_markdown_unresolved)?;
+        Ok(Revising {
+            parsed: Parsed { document, warnings },
+            bodies,
+        })
     }
 
     pub fn main(&self) -> &Card {

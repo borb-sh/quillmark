@@ -128,10 +128,10 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
     failures.extend(check_document(&content, &reimports, entry.get("annotated").and_then(Value::as_str)));
     let import_signals = &entry["signals"]["import"];
     if let Some(annotated) = entry.get("annotated") {
-        failures.extend(check_annotated(annotated, &content));
+        failures.extend(check_annotated(annotated, &content, &reimports));
         if let Some(annotated) = annotated.as_str() {
             failures.extend(
-                check_revise(&content, &reimports, annotated)
+                check_revise(&content, &unanchored(&content), annotated)
                     .into_iter()
                     .map(|f| format!("annotated: {f}")),
             );
@@ -359,9 +359,18 @@ fn check_revise(content: &Normalized, reimports: &Normalized, markdown: &str) ->
     }
 }
 
-/// `annotated` is the content's annotated read, and imports, warning nothing,
-/// as the content without its anchors.
-fn check_annotated(annotated: &Value, content: &Normalized) -> Vec<String> {
+/// `content` without its anchors.
+fn unanchored(content: &Normalized) -> Normalized {
+    let mut unanchored = content.clone().into_content();
+    unanchored.marks.retain(|m| !matches!(m.kind, MarkKind::Anchor { .. }));
+    unanchored.into_normalized()
+}
+
+/// `annotated` is the content's annotated read. Holding no island token, it
+/// imports cold, warning nothing, as the content without its anchors; holding
+/// one, it imports as `reimports` would with that island gone, warning one
+/// dropped `qm-island` per token.
+fn check_annotated(annotated: &Value, content: &Normalized, reimports: &Normalized) -> Vec<String> {
     let Some(annotated) = annotated.as_str() else {
         return vec!["annotated is not a string".into()];
     };
@@ -370,10 +379,19 @@ fn check_annotated(annotated: &Value, content: &Normalized) -> Vec<String> {
     if read != annotated {
         failures.push(format!("to_markdown_annotated writes {read:?}"));
     }
-    let mut unanchored = content.clone().into_content();
-    unanchored.marks.retain(|m| !matches!(m.kind, MarkKind::Anchor { .. }));
+    let tokens = annotated.matches("<qm-island").count();
+    let expected = match tokens {
+        0 => unanchored(content),
+        _ => {
+            let mut gone = reimports.clone().into_content();
+            gone.text.retain(|c| c != ISLAND_SLOT);
+            gone.islands.clear();
+            gone.into_normalized()
+        }
+    };
+    let warned: Vec<(String, usize)> = (tokens > 0).then(|| ("qm-island".to_string(), tokens)).into_iter().collect();
     match from_markdown(annotated) {
-        Ok(i) if i.content == unanchored.into_normalized() && i.warnings.is_empty() => {}
+        Ok(i) if i.content == expected && signals(&i.warnings) == warned => {}
         Ok(i) => failures.push(format!(
             "annotated imports as {}, warning {:?}",
             canonical(&i.content),
@@ -384,25 +402,37 @@ fn check_annotated(annotated: &Value, content: &Normalized) -> Vec<String> {
     failures
 }
 
-/// A document whose body holds `content` emits markdown, and an annotated read,
-/// that each parse, warning nothing, to a body holding `reimports`; the read
-/// lists each anchor of `content` at `main.body` and spells `annotated`.
+fn signals(warnings: &[ImportWarning]) -> Vec<(String, usize)> {
+    warnings.iter().map(|w| (w.construct.to_string(), w.count)).collect()
+}
+
+/// A document whose body holds `content` emits markdown that parses, warning
+/// nothing, to a body holding `reimports`, and an annotated read that revises
+/// the document, warning nothing, to a body holding `content`; the read lists
+/// each anchor of `content` at `main.body` and spells `annotated`.
 fn check_document(content: &Normalized, reimports: &Normalized, annotated: Option<&str>) -> Vec<String> {
     let mut doc = Document::parse(&frontmatter(QUILL)).expect("frontmatter parses").document;
     doc.main_mut().overwrite_body(content.clone());
     let read = doc.to_markdown_annotated();
-    let mut failures: Vec<String> = [("the document", doc.to_markdown()), ("the annotated read", read.markdown.clone())]
-        .into_iter()
-        .filter_map(|(what, markdown)| match Document::parse(&markdown) {
-            Ok(p) if p.document.main().body() == reimports && p.warnings.is_empty() => None,
-            Ok(p) => Some(format!(
-                "{what} parses to a body {}, warning {:?}",
-                canonical(p.document.main().body()),
-                p.warnings
-            )),
-            Err(e) => Some(format!("{what} does not parse: {e}")),
-        })
-        .collect();
+    let mut failures: Vec<String> = match Document::parse(&doc.to_markdown()) {
+        Ok(p) if p.document.main().body() == reimports && p.warnings.is_empty() => vec![],
+        Ok(p) => vec![format!(
+            "the document parses to a body {}, warning {:?}",
+            canonical(p.document.main().body()),
+            p.warnings
+        )],
+        Err(e) => vec![format!("the document does not parse: {e}")],
+    };
+    let mut revised = doc.clone();
+    match revised.revise(&read.markdown) {
+        Ok(r) if revised.main().body() == content && r.warnings.is_empty() => {}
+        Ok(r) => failures.push(format!(
+            "the annotated read revises to a body {}, warning {:?}",
+            canonical(revised.main().body()),
+            r.warnings
+        )),
+        Err(e) => failures.push(format!("the annotated read does not parse: {e}")),
+    }
     let listed: Vec<(String, &str)> = read.anchors.iter().map(|a| (a.path.to_string(), a.id.as_str())).collect();
     let held: Vec<(String, &str)> = content
         .marks

@@ -23,8 +23,8 @@ an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
   (§6.1).
 - **Tables**: a GFM pipe table, or an HTML table in a subset that spells
   layout and merged cells (§6.8).
-- **The `qm-*` carrier**: inline font runs and anchors, spelled as custom
-  HTML elements (§6.4).
+- **The `qm-*` carrier**: inline font runs, anchors and island tokens,
+  spelled as custom HTML elements (§6.4).
 
 A document containing no card-yaml blocks is ordinary CommonMark, parsed as
 such.
@@ -436,7 +436,7 @@ open around the tag. An import reports each dropped opening tag by its lowercase
 `parse::dropped_construct`, and a block holding no other opening tag under its
 first where it drops text with it, `qm-anchor` included; any other closing
 tag, a comment, the content of a type 1–5 block and any other `qm-anchor`
-report nothing.
+report nothing. A `qm-island` token reports as §6.4 sets out.
 
 Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
 an injection vector for downstream HTML-producing tooling; `<u>` is an
@@ -481,8 +481,9 @@ handles them, but produce limited or no Quillmark-specific output:
 ### 6.4 The `qm-*` Carrier
 
 A `qm-*` tag spells what CommonMark has no syntax for: a run's font family
-(`qm-span`) and an anchor (`qm-anchor`). Each is a CommonMark raw-HTML tag and
-a valid custom-element name, which an HTML renderer draws as its children.
+(`qm-span`), an anchor (`qm-anchor`) and an island markdown cannot spell
+(`qm-island`). Each is a CommonMark raw-HTML tag and a valid custom-element
+name, which an HTML renderer draws as its children.
 
 **Names.** A carrier tag's name is `qm-` and a name matching
 `[a-z][a-z0-9]*(-[a-z0-9]+)*`: `qm-span`, `qm-sig`, `qm-a1-b`. CommonMark tag
@@ -504,7 +505,8 @@ CommonMark reads it; any other `&` is text.
 self-closing, is a tag line wherever it stands (§6.2), set apart from the
 markdown beside it (§7). Inside a line of text, a table cell's included, or
 beside a tag outside the carrier in a block tight against markdown, a carrier
-tag drops like any raw tag; `qm-anchor` drops inside a line without a report.
+tag drops like any raw tag; `qm-anchor` and `qm-island` read inside a line as
+their own entries below set out.
 
 **Canonical spelling.** A carrier tag is written with its attributes sorted by
 name, each value double-quoted, with `&`, `<`, `>` and `"` as `&amp;`, `&lt;`,
@@ -512,8 +514,8 @@ name, each value double-quoted, with `&`, `<`, `>` and `"` as `&amp;`, `&lt;`,
 separator in a value as a hexadecimal reference (`&#x7C;`): a `|` ends a table
 cell, a line ending ends the tag's line, and §7 rewrites the rest.
 
-**Any other name.** A `qm-<name>` tag other than `qm-span` and `qm-anchor`
-carries nothing. An open tag drops, reported under `parse::dropped_construct`
+**Any other name.** A `qm-<name>` tag other than `qm-span`, `qm-anchor` and
+`qm-island` carries nothing. An open tag drops, reported under `parse::dropped_construct`
 by its tag name (`qm-keep`), its attributes with it; a close tag drops without a
 report; and what lies between imports as written. A pair of such tag lines
 around a paragraph, `<qm-keep>` tight above it included, leaves the paragraph
@@ -553,22 +555,62 @@ Pay <qm-span family="Carlito">**today**, as <qm-span family="Arimo">§4</qm-span
   `qm-span`, and the blocks between them stay. A family is a run's, never a
   block's.
 
-**`qm-anchor`** is reserved for an anchor's read-only spelling,
-`<qm-anchor ref="…"></qm-anchor>`, which the annotated export writes and
-no plain export does. Import drops it without a report, inline or alone on its
-line, unless its line drops markdown with it (§6.2), and mints no anchor from
-it. The annotated export writes one inline at
-each anchor's start:
+**The annotated read** is the markdown an LLM or another writer reads and
+writes back: the plain export with an anchor tag at each anchor's start and
+an island token for each island whose markup does not read back as itself.
+Both tags are reserved: no stored element carries their names. A cold import
+drops both and mints nothing from them. A revise, which imports the markdown
+as an edit of the value stored at its address, reads them against that value:
+the stored value is the side map, and the markdown stays the one carrier.
+
+**`qm-anchor`**, `<qm-anchor ref="ID"></qm-anchor>`, stands where the anchor
+`ID` starts. A cold import drops it without a report, inline or alone on its
+line, unless its line drops markdown with it (§6.2). A revise reads each inline
+tag in prose:
+
+- A tag the writer kept pins: the anchor starts where the tag stands. Where
+  its start was elsewhere, it ends where the diff carries its stored end, when
+  that lands on the tag's line after the tag, and otherwise spans its stored
+  length, cut at the line's end.
+- A tag the writer dropped leaves the anchor to the diff, which carries it
+  with its text or drops it with its text.
+- A tag whose `ref` names no anchor the stored value holds in prose, and a
+  second tag naming one anchor, drops reported as `qm-anchor[ref]`.
+- A tag carrying `at` pins nothing. The read writes `at="span"` where an
+  anchor's start sits inside a code span or a link, whose start the tag moves
+  to, and `at="line"` where the line's tags move to its end.
+- A tag in a table cell, a footnote's note, an image's alt text or a code
+  block pins nothing.
+
+The annotated read writes one inline at each anchor's start:
 
 - after the delimiters of the marks closing there and before those opening
   there;
-- at a code span's or link's start, for an anchor inside one;
+- at a code span's or link's start, for an anchor inside one, with
+  `at="span"`;
 - in no code block, block island's line, table cell or empty line;
 - at the end of a line whose tags in place would change what it imports to,
-  and nowhere on a line where the end changes it too.
+  each with `at="line"`, and nowhere on a line where the end changes it too.
 
 ```markdown
 A <qm-anchor ref="c1"></qm-anchor>**flagged** phrase.
+```
+
+**`qm-island`**, `<qm-island ref="ID"></qm-island>`, stands for the stored
+island `ID` with its type and props as stored: a table's spans, widths and
+keys Quillmark does not name, an equation's TeX its dollars cannot write, an
+image's props beyond `url` and `alt`. The annotated read writes it in place of
+the markup of each island that does not read back as itself, an anchor in a
+cell aside, and writes every other island as markup. A revise reads each
+inline token in prose as that island, a table's taking a line of its own; a
+writer moves an island by moving its token, and copies one by writing it
+twice. A token whose `ref` names no island the stored value holds drops
+reported as `qm-island[ref]`, and one in a table cell, a footnote's note or an
+image's alt text, where no island sits, drops reported as `qm-island`. A cold
+import drops every token, reported as `qm-island`.
+
+```markdown
+See <qm-island ref="isl-2"></qm-island> for the merged cells.
 ```
 
 ### 6.5 Footnotes

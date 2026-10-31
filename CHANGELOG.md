@@ -30,6 +30,21 @@ over its keys: read `receipt["warnings"]`.
   `DocumentAnchor` and the `Card` / `CardInput` `id`; Python `card_id` and the
   card dict's `id`.
 
+### Two-way annotated read
+
+- feat(content)!: **a revise reads the annotated read back.** A
+  `qm-anchor` tag the writer kept pins its anchor's start where it stands,
+  one it dropped leaves the anchor to the diff, and one naming nothing stored
+  reports `qm-anchor[ref]`. The read marks a tag it moved off its anchor's
+  start `at="span"` or `at="line"`, which pins nothing.
+- feat(content)!: **an island markdown cannot spell reads as a
+  `qm-island` token**, `<qm-island ref="ID"></qm-island>`, which a revise
+  keeps as stored: a table's unnamed keys, an equation's unwritable TeX, an
+  image's extra props. A token naming no stored island reports
+  `qm-island[ref]`; a cold import drops every token, reported as
+  `qm-island`. A `Base::Read` merge compares the sides with their tokens, so
+  a token survives it.
+
 ### Guarded revise
 
 - feat(core)!: **a revise states what its writer read.** `Base::Hash` is the

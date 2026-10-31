@@ -481,9 +481,11 @@ export interface DocumentRevised {
 
 /**
  * The read `toAnnotatedMarkdown` returns: `toMarkdown`'s markdown with a
- * read-only `<qm-anchor ref="…"></qm-anchor>` at each prose anchor's
- * start its line can hold, and every prose anchor of every body and content
- * field, spelled or not; a table cell's anchors are neither. Each names the
+ * `<qm-anchor ref="…"></qm-anchor>` at each prose anchor's start its line
+ * can hold, and a `<qm-island ref="…"></qm-island>` token for each island
+ * whose markdown does not read back, which every revise reads back; and every
+ * prose anchor of every body and content field, spelled or not; a table
+ * cell's anchors are neither. Each names the
  * `path` of its body or field and the text of the `line` its start sits on,
  * island slots removed.
  */
@@ -1237,10 +1239,11 @@ impl Document {
     }
 
     /// `toMarkdown` with each prose anchor of every body and content field
-    /// spelled read-only at its start where its line can hold the tag, and
-    /// listed with its field's path and line either way. An import drops every
-    /// tag, so `writer.reviseDocument` with the markdown keeps the anchors it keeps
-    /// with `toMarkdown`'s.
+    /// spelled at its start where its line can hold the tag, and listed with
+    /// its field's path and line either way, and each island whose markdown
+    /// does not read back spelled as its token. `writer.reviseDocument` reads
+    /// both back: a kept tag pins its anchor, and a token keeps its island as
+    /// stored.
     #[wasm_bindgen(js_name = toAnnotatedMarkdown, unchecked_return_type = "AnnotatedMarkdown")]
     pub fn to_annotated_markdown(&self) -> Result<JsValue, JsValue> {
         let read = self.inner.to_markdown_annotated();

@@ -7,9 +7,9 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_content::delta::merge_lines;
-use quillmark_content::export::to_markdown;
-use quillmark_content::import::{from_markdown, ImportWarning};
+use quillmark_content::delta::{merge_lines, rebase_marks_pinned};
+use quillmark_content::export::to_markdown_tokened;
+use quillmark_content::import::{from_markdown_against, ImportWarning};
 use quillmark_content::model::Normalized;
 use quillmark_content::serial::to_canonical_value;
 use serde_json::Value as JsonValue;
@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 
 use super::edit::{is_valid_field_name, revise_import, EditError, Revised};
 use super::revise::align_cards;
-use super::{dropped_constructs, Card, Codec, Document, Parsed};
+use super::{dropped_constructs, Card, Codec, Document, Parsed, Revising};
 use crate::error::{diag_args, Diagnostic};
 use crate::path::{DocPath, DocSeg};
 use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
@@ -166,9 +166,11 @@ fn check(current: String, read: &str) -> Result<(), BaseError> {
     }
 }
 
-/// The [`Write`] for a richtext revise of `stored`. Each markdown is read through
-/// one import and export, so the three sides of a merge are spelled alike and a
-/// read of the stored value, annotated or not, matches it.
+/// The [`Write`] for a richtext revise of `stored`. Each markdown is read as a
+/// revise of `stored` and exported with its islands that have no markdown as
+/// their tokens and no anchor tag, so the three sides of a merge are spelled
+/// alike, a token survives the merge, and a read of the stored value,
+/// annotated or not, matches it.
 fn richtext_write(
     stored: &Normalized,
     current: impl FnOnce() -> String,
@@ -180,11 +182,14 @@ fn richtext_write(
         Base::Read(read) => read,
     };
     let spelled = |md: &str| {
-        from_markdown(md)
-            .map(|imported| (to_markdown(&imported.content), imported.warnings))
+        from_markdown_against(md, stored)
+            .map(|against| {
+                let content = rebase_marks_pinned(stored, against.content, &against.pins);
+                (to_markdown_tokened(&content), against.warnings)
+            })
             .map_err(EditError::Import)
     };
-    let (now, _) = spelled(&to_markdown(stored))?;
+    let now = to_markdown_tokened(stored);
     let (read, _) = spelled(read)?;
     if read == now {
         return Ok(Write::Own);
@@ -366,46 +371,54 @@ pub(crate) fn conformed(config: &QuillConfig, doc: &Document) -> Result<Document
 /// Parse `markdown` as a revise of `doc` under `base`: the writer's markdown,
 /// or the line merge of its edit onto what changed since its read, carrying
 /// the writer's own parse warnings at their cards' places in the merge. Each
-/// side is parsed, conformed and emitted, so a richtext field keeps no tag an
-/// annotated read spelled into it and the three sides are spelled alike. A
-/// merge that does not parse as a document, or names another quill, is a
-/// [`BaseError::Conflict`], since the writer's own markdown parsed. No side
-/// mints a card id: each card holds the `$id` it spells, for the revise to
-/// settle against the stored ones.
+/// side is spelled as `doc` revised by it and conformed, its islands that
+/// have no markdown as their tokens and no anchor tag, so a token survives
+/// the merge and the three sides are spelled alike. A merge that does not
+/// parse as a document, or names another quill, is a [`BaseError::Conflict`],
+/// since the writer's own markdown parsed.
 pub(crate) fn parse_against(
     config: &QuillConfig,
     doc: &Document,
     base: Base<'_>,
     markdown: &str,
-) -> Result<Parsed, BoundParseError> {
+) -> Result<Revising, BoundParseError> {
     let hash = || conformed(config, doc).map(|d| d.hash());
     let read = match base {
         Base::Hash(read) => {
             check(hash()?, read)?;
-            return Ok(Document::parse_unsettled(markdown)?);
+            return Ok(Document::parse_revising(markdown)?);
         }
         Base::Read(read) => read,
     };
-    let parsed = Document::parse_unsettled(markdown)?;
-    config.check_quill_reference(&parsed.document)?;
-    let spell = |md: &str| -> Result<String, BoundParseError> {
-        Ok(conformed(config, &Document::parse_unsettled(md)?.document)?.to_markdown())
+    let revising = Document::parse_revising(markdown)?;
+    config.check_quill_reference(&revising.parsed.document)?;
+    let spell = |side: Revising| -> Result<String, BoundParseError> {
+        let mut revised = doc.clone();
+        let _ = revised.revise_parsed(side);
+        Ok(conformed(config, &revised)?.to_markdown_tokened())
     };
-    let now = conformed(config, doc)?.to_markdown();
-    let read = spell(read)?;
+    let now = conformed(config, doc)?.to_markdown_tokened();
+    let read = spell(Document::parse_revising(read)?)?;
     if read == now {
-        return Ok(parsed);
+        return Ok(revising);
     }
-    let new = conformed(config, &parsed.document)?.to_markdown();
+    let new = spell(Revising {
+        parsed: Parsed {
+            document: revising.parsed.document.clone(),
+            warnings: Vec::new(),
+        },
+        bodies: revising.bodies.clone(),
+    })?;
     let conflict = || BaseError::Conflict {
         current: hash().unwrap_or_default(),
         field: None,
     };
     let merged = merge_lines(&read, &now, &new).ok_or_else(conflict)?;
-    let merged = Document::parse_unsettled(&merged).map_err(|_| conflict())?.document;
-    config.check_quill_reference(&merged).map_err(|_| conflict())?;
-    let pairs = align_cards(&merged.cards, &parsed.document.cards);
-    let warnings = parsed
+    let merged = Document::parse_revising(&merged).map_err(|_| conflict())?;
+    config.check_quill_reference(&merged.parsed.document).map_err(|_| conflict())?;
+    let pairs = align_cards(&merged.parsed.document.cards, &revising.parsed.document.cards);
+    let warnings = revising
+        .parsed
         .warnings
         .into_iter()
         .map(|w| match w.path.as_deref().and_then(|p| p.parse::<DocPath>().ok()) {
@@ -416,9 +429,12 @@ pub(crate) fn parse_against(
             None => w,
         })
         .collect();
-    Ok(Parsed {
-        document: merged,
-        warnings,
+    Ok(Revising {
+        parsed: Parsed {
+            document: merged.parsed.document,
+            warnings,
+        },
+        bodies: merged.bodies,
     })
 }
 

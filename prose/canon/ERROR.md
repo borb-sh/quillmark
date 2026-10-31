@@ -168,10 +168,15 @@ families:
     grammar such as `qm-a--b`, `qm-anchor` where its block drops
     markdown, or a tag in an HTML table outside the subset, such as
     `caption`;
-  - `qm-<name>` for the open tag of a name outside `qm-span` and
-    `qm-anchor`, which carries nothing, and for a `qm-span` tag that drops:
-    left unclosed, self-closing, setting no family, or on a tag line;
+  - `qm-<name>` for the open tag of a name outside `qm-span`, `qm-anchor`
+    and `qm-island`, which carries nothing, and for a `qm-span` tag that
+    drops: left unclosed, self-closing, setting no family, or on a tag line;
+  - `qm-island` for an island token a cold import drops, or one a revise
+    reads where no island sits;
   - `qm-span[<attr>]` for one `qm-span` attribute that drops;
+  - `qm-anchor[ref]` and `qm-island[ref]` for a revise's anchor tag or island
+    token naming nothing the stored value holds, or an anchor an earlier tag
+    names;
   - `table` for an HTML table its block ends before its `</table>`, at a
     blank line or another `<table>`;
   - `table:row` for an HTML table's row too short for its grid,

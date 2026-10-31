@@ -28,7 +28,7 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Base, Card, Document, DocumentRevised, EditError, Parsed, Revised};
+use crate::document::{Base, Card, Document, DocumentRevised, EditError, Revised, Revising};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -137,8 +137,8 @@ impl<'a> TypedWriter<'a> {
     /// [`BoundParseError::Mismatch`] before any mutation, and a parse failure
     /// as [`BoundParseError::Parse`].
     pub fn revise_document(&mut self, markdown: &str) -> Result<DocumentRevised, BoundParseError> {
-        let parsed = Document::parse_unsettled(markdown)?;
-        self.revise_parsed(parsed)
+        let revising = Document::parse_revising(markdown)?;
+        self.revise_parsed(revising)
     }
 
     /// [`revise_document`](Self::revise_document) under `base`: the hash is
@@ -177,9 +177,9 @@ impl<'a> TypedWriter<'a> {
         }
     }
 
-    fn revise_parsed(&mut self, parsed: Parsed) -> Result<DocumentRevised, BoundParseError> {
-        self.config.check_quill_reference(&parsed.document)?;
-        let mut revised = self.doc.revise_parsed(parsed);
+    fn revise_parsed(&mut self, revising: Revising) -> Result<DocumentRevised, BoundParseError> {
+        self.config.check_quill_reference(&revising.parsed.document)?;
+        let mut revised = self.doc.revise_parsed(revising);
         revised.warnings.extend(
             self.config
                 .conform(self.doc)
