@@ -3,34 +3,14 @@
 //! the spaces in it.
 
 use quillmark_core::backend::Backend;
-use quillmark_core::session::LiveSession;
 use quillmark_typst::TypstBackend;
 
 mod common;
-use common::{content, quill_with_plate as quill, yaml};
-
-fn body_session(markdown: &str) -> LiveSession {
-    TypstBackend::default()
-        .open(
-            &quill(
-                &yaml("main:\n  fields:\n    prose: { type: richtext, multiline: true }\n"),
-                r#"
-#import "@local/quillmark-helper:0.2.0" as qm
-#set page(width: 612pt, height: 792pt, margin: 72pt)
-#set text(size: 11pt)
-
-#qm.data.prose
-"#,
-            ),
-            &serde_json::json!({ "prose": content(markdown) }),
-            common::test_date(),
-        )
-        .expect("open")
-}
+use common::{body_session, content, quill_with_plate as quill, yaml};
 
 /// The left edge of the caret before the first `needle` in `markdown`'s body.
 fn x_of(markdown: &str, needle: char) -> f32 {
-    let session = body_session(markdown);
+    let session = body_session(content(markdown));
     let rt = quillmark_content::import::from_markdown(markdown).expect("import").content;
     let pos = rt.text.chars().position(|c| c == needle).expect("needle in text");
     session.locate("prose", pos).expect("caret").rect[0]

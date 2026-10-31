@@ -234,7 +234,7 @@ fn body_state(card: &Card) -> ResolvedField {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quill::{quill_from_yaml, test_date};
+    use crate::quill::{quill_from_yaml, test_date, text};
     use crate::document::{Card, Document, Payload};
 
     fn parse(md: &str) -> Document {
@@ -251,10 +251,6 @@ mod tests {
 
     fn has_row(fields: &[ResolvedField], name: &str) -> bool {
         fields.iter().any(|f| f.name == name)
-    }
-
-    fn text(s: &str) -> serde_json::Value {
-        quillmark_content::serial::to_canonical_value(&quillmark_content::import::from_plaintext(s))
     }
 
     const QUILL: &str = r#"

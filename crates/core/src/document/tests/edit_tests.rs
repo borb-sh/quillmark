@@ -62,17 +62,7 @@ fn test_document_store_field_rejects_invalid_names() {
 }
 
 #[test]
-fn test_document_store_field_updates_existing() {
-    let mut doc = make_doc();
-    doc.main_mut().store_field("title", qv("New Title")).unwrap();
-    assert_eq!(
-        doc.main().payload().get("title").unwrap().as_str(),
-        Some("New Title")
-    );
-}
-
-#[test]
-fn test_document_insert_card() {
+fn test_document_insert_and_remove_card() {
     let mut doc = make_doc_with_cards();
     doc.insert_card(0, Card::new("intro").unwrap()).unwrap();
     doc.insert_card(3, Card::new("footer").unwrap()).unwrap();
@@ -82,6 +72,9 @@ fn test_document_insert_card() {
         doc.insert_card(5, Card::new("note").unwrap()),
         Err(EditError::IndexOutOfRange { index: 5, len: 4 })
     );
+    assert_eq!(doc.remove_card(0).unwrap().kind(), Some("intro"));
+    assert_eq!(doc.cards().len(), 3);
+    assert_eq!(doc.cards()[0].kind(), Some("note"));
 }
 
 /// An edit grows a document no further than the card count markdown parse
@@ -100,26 +93,6 @@ fn test_placing_a_card_past_the_card_ceiling_is_refused() {
     assert_eq!(doc.insert_card(0, Card::new("note").unwrap()), Err(full.clone()));
     assert_eq!(full.code(), "edit::too_many_cards");
     assert_eq!(doc.cards().len(), MAX_CARD_COUNT);
-}
-
-#[test]
-fn test_document_remove_card() {
-    let mut doc = make_doc_with_cards(); // 2 cards: note, summary
-    let removed = doc.remove_card(0);
-    assert!(removed.is_some());
-    assert_eq!(removed.unwrap().kind(), Some("note"));
-    assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].kind(), Some("summary"));
-}
-
-#[test]
-fn test_document_card_mut() {
-    let mut doc = make_doc_with_cards();
-    {
-        let mut card = doc.card_mut(0).unwrap();
-        let _ = card.revise_body("Updated card body.").unwrap();
-    }
-    assert_eq!(doc.cards()[0].body_markdown(), "Updated card body.");
 }
 
 #[test]

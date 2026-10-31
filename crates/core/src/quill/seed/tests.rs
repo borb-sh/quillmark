@@ -1,7 +1,7 @@
 
 use serde_json::json;
 
-use crate::quill::{quill_from_yaml, test_date};
+use crate::quill::{has_code, quill_from_yaml, test_date};
 use crate::{document::{Document, SeedOverlay}, error::Severity};
 
 fn overlay(value: serde_json::Value) -> SeedOverlay {
@@ -541,7 +541,7 @@ card_kinds:
     ] {
         let errors = load(seed).expect_err(seed);
         assert!(
-            errors.iter().any(|d| d.code.as_deref() == Some("quill::seed_redundant")),
+            has_code(&errors, "quill::seed_redundant"),
             "{seed}: {errors:?}"
         );
     }

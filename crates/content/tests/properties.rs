@@ -100,16 +100,32 @@ fn prose() -> impl Strategy<Value = String> {
     prop::collection::vec(inline_token(), 1..5).prop_map(|toks| toks.join(" "))
 }
 
-// Hard breaks join clean, non-empty *text* lines. An empty line adjacent to one
-// is a documented codec limit (the `export` module docs), and a mark spanning
-// one is pinned by `export::tests::a_mark_across_a_hard_break_is_a_fixed_point`;
-// neither is fuzzed here.
-fn hard_break_line() -> impl Strategy<Value = String> {
-    prop::collection::vec(clean_word(), 1..4).prop_map(|w| w.join(" "))
+// Hard breaks join clean, non-empty *text* lines, and a mark can open on one
+// line's last word and close on the next line's first, across the break. An
+// empty line adjacent to one is a documented codec limit (the `export` module
+// docs), and is not fuzzed here.
+fn hard_break_line() -> impl Strategy<Value = Vec<String>> {
+    prop::collection::vec(clean_word(), 1..4)
 }
 
 fn hard_break_prose() -> impl Strategy<Value = String> {
-    prop::collection::vec(hard_break_line(), 2..4).prop_map(|lines| lines.join("\\\n"))
+    let wraps = ["**{}**", "_{}_", "~~{}~~", "<u>{}</u>", "[{}](https://ex.com/u)"];
+    (
+        prop::collection::vec(hard_break_line(), 2..4),
+        prop::option::of((any::<prop::sample::Index>(), prop::sample::select(wraps.to_vec()))),
+    )
+        .prop_map(|(lines, wrap)| {
+            let mut lines: Vec<String> = lines.into_iter().map(|w| w.join(" ")).collect();
+            if let Some((at, wrap)) = wrap {
+                let k = at.index(lines.len() - 1);
+                let (open, close) = wrap.split_once("{}").unwrap();
+                let tail = lines[k].rfind(' ').map_or(0, |i| i + 1);
+                lines[k].insert_str(tail, open);
+                let head = lines[k + 1].find(' ').unwrap_or(lines[k + 1].len());
+                lines[k + 1].insert_str(head, close);
+            }
+            lines.join("\\\n")
+        })
 }
 
 fn block() -> impl Strategy<Value = String> {

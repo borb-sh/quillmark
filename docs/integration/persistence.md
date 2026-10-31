@@ -27,7 +27,7 @@ projection, never a stored row: persist with `to_stored`.
     const doc2 = Document.fromStored(blob);   // Document.storageVersionOf(blob) first to test without throwing
     ```
 
-Every blob carries a `schema` tag (`quillmark/document@<version>`). Readers dispatch on it, accept every still-supported past version by migrating forward on read, and **reject an unknown version** rather than guessing. A save writes the oldest tag that holds the document: `quillmark/document@0.134.0` for one holding a composable card, which carries its `$id`; for the main card alone, `quillmark/document@0.131.0` when it holds a font mark, an element named `table`, a merged table cell or a table `head` 0.130 cannot draw, and `quillmark/document@0.129.0` otherwise.
+Every blob carries a `schema` tag (`quillmark/document@<version>`). Readers dispatch on it, accept every still-supported past version by migrating forward on read, and **reject an unknown version** rather than guessing. A save writes the oldest tag that holds the document: `quillmark/document@0.134.0` for one holding a composable card, which carries its `$id`; for the main card alone, `quillmark/document@0.131.0` when it holds vocabulary `@0.129.0` lacks, and `quillmark/document@0.129.0` otherwise. [DOCUMENT_STORAGE.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/DOCUMENT_STORAGE.md#schema-versioning) lists that vocabulary.
 
 ## Byte-stability
 

@@ -1,4 +1,4 @@
-use crate::error::WasmError;
+use crate::error::{js_err, WasmError};
 use crate::types::Diagnostic;
 #[cfg(feature = "render")]
 use crate::types::{ChangeSet, ContentHit, FieldRegion, RenderOptions, RenderResult};
@@ -765,7 +765,7 @@ impl Engine {
         } else {
             return Err(WasmError::from("fonts: expected an array of Uint8Array").to_js_value());
         };
-        let inner = quillmark::Engine::with_fonts(fonts).map_err(|e| WasmError::from(e).to_js_value())?;
+        let inner = quillmark::Engine::with_fonts(fonts).map_err(js_err)?;
         Ok(Engine { inner })
     }
 
@@ -776,7 +776,7 @@ impl Engine {
         let faces = self
             .inner
             .font_faces(&quill.inner)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         let out = Array::new();
         // The faces of one collection share its bytes, which cross once.
         let mut file: Option<(*const u8, Uint8Array)> = None;
@@ -814,7 +814,7 @@ impl Engine {
         let session = self
             .inner
             .open(&quill.inner, &doc.inner, today)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         Ok(LiveSession {
             inner: session,
             backend_id: quill.inner.backend_id().to_string(),
@@ -843,7 +843,7 @@ impl Engine {
         let result = self
             .inner
             .render(&quill.inner, &doc.inner, today, &rust_opts)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
         render_result_to_ts(result, &kinds)
     }
@@ -856,7 +856,7 @@ impl Engine {
         let formats = self
             .inner
             .supported_formats(&quill.inner)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         let out: Vec<crate::types::OutputFormat> = formats.iter().map(|f| (*f).into()).collect();
         serialize_or_throw(&out, "supportedFormats")
     }
@@ -962,7 +962,7 @@ impl Quill {
         let parsed = self
             .inner
             .from_authoring(&value)
-            .map_err(|diags| WasmError::from(diags).to_js_value())?;
+            .map_err(js_err)?;
         Ok(Document {
             inner: parsed.document,
             parse_warnings: parsed.warnings,
@@ -1027,7 +1027,7 @@ impl Quill {
         let parsed = self
             .inner
             .parse(markdown)
-            .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())?;
+            .map_err(|e| js_err(e.to_diagnostics()))?;
         Ok(Document {
             inner: parsed.document,
             parse_warnings: parsed.warnings,
@@ -2004,7 +2004,7 @@ impl Document {
             None => writer.revise_document(markdown),
             Some(read) => writer.revise_document_against(read, markdown),
         }
-        .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())?;
+        .map_err(|e| js_err(e.to_diagnostics()))?;
         self.parse_warnings.clear();
         serialize_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
     }
@@ -2026,7 +2026,7 @@ impl Document {
             .inner
             .writer(&mut self.inner)
             .hash()
-            .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())
+            .map_err(|e| js_err(e.to_diagnostics()))
     }
 
     /// The ABI under `writer.hashAt`: the body's hash, or a field's through its
@@ -2276,22 +2276,12 @@ impl Document {
         index: usize,
     ) -> Result<quillmark_core::document::CardMut<'_>, JsValue> {
         let len = self.inner.cards().len();
-        self.inner.card_mut(index).ok_or_else(|| {
-            edit_error_to_js(
-                &quillmark_core::document::EditError::IndexOutOfRange { index, len },
-                &quillmark_core::path::DocPath::new(),
-            )
-        })
+        self.inner.card_mut(index).ok_or_else(|| index_out_of_range(index, len))
     }
 
     fn card_or_throw(&self, index: usize) -> Result<&quillmark_core::document::Card, JsValue> {
         let len = self.inner.cards().len();
-        self.inner.cards().get(index).ok_or_else(|| {
-            edit_error_to_js(
-                &quillmark_core::document::EditError::IndexOutOfRange { index, len },
-                &quillmark_core::path::DocPath::new(),
-            )
-        })
+        self.inner.cards().get(index).ok_or_else(|| index_out_of_range(index, len))
     }
 
     fn addr_card_mut(
@@ -2871,7 +2861,7 @@ export interface Resolved {
 pub fn parse_doc_path(path: &str) -> Result<JsValue, JsValue> {
     let doc_path = path
         .parse::<quillmark_core::path::DocPath>()
-        .map_err(|e| WasmError::from(e.to_string()).to_js_value())?;
+        .map_err(|e| js_err(e.to_string()))?;
     // Via `serde_json::Value` so the tagged segments cross as plain objects,
     // sidestepping serde-wasm-bindgen's tagged-enum handling; nullable because
     // the `DocPathSeg` contract is `kind: string | null`.
@@ -2993,23 +2983,21 @@ fn invalid_quill_reference(ctx: &str, value: &str, reason: &str) -> JsValue {
     .to_js_value()
 }
 
+fn index_out_of_range(index: usize, len: usize) -> JsValue {
+    edit_error_to_js(
+        &quillmark_core::document::EditError::IndexOutOfRange { index, len },
+        &quillmark_core::path::DocPath::new(),
+    )
+}
+
 /// Maps `EditError` to a JS `Error` carrying one diagnostic, its `DocPath`
 /// anchored relative to `base` (the card root the mutator ran against).
 fn edit_error_to_js(
     err: &quillmark_core::document::EditError,
     base: &quillmark_core::path::DocPath,
 ) -> JsValue {
-    let mut diagnostic = quillmark_core::error::Diagnostic::new(
-        quillmark_core::error::Severity::Error,
-        err.to_string(),
-    )
-    .with_code(err.code().to_string())
-    .with_args(err.args());
-    if let Some(path) = err.doc_path(base) {
-        diagnostic = diagnostic.with_path(path.to_string());
-    }
     WasmError {
-        diagnostics: vec![diagnostic],
+        diagnostics: vec![err.to_diagnostic(err.doc_path(base))],
     }
     .to_js_value()
 }
@@ -3029,17 +3017,9 @@ fn edit_errors_to_js(
     errors: Vec<(String, quillmark_core::document::EditError)>,
     base: &quillmark_core::path::DocPath,
 ) -> JsValue {
-    let diagnostics: Vec<quillmark_core::error::Diagnostic> = errors
+    let diagnostics = errors
         .into_iter()
-        .map(|(name, err)| {
-            quillmark_core::error::Diagnostic::new(
-                quillmark_core::error::Severity::Error,
-                err.to_string(),
-            )
-            .with_code(err.code().to_string())
-            .with_args(err.args())
-            .with_path(base.field(&name).to_string())
-        })
+        .map(|(name, err)| err.to_diagnostic(Some(base.field(&name))))
         .collect();
     WasmError { diagnostics }.to_js_value()
 }
@@ -3223,7 +3203,7 @@ fn serialize_or_throw<T: serde::Serialize + ?Sized>(
 /// type, under that type's `tsify` serialization config.
 #[cfg(feature = "render")]
 fn to_ts_or_throw<T: tsify::Tsify + Serialize>(value: &T) -> Result<Ts<T>, JsValue> {
-    Ts::from_rust(value).map_err(|e| WasmError::from(e.to_string()).to_js_value())
+    Ts::from_rust(value).map_err(|e| js_err(e.to_string()))
 }
 
 #[cfg(feature = "render")]
@@ -3252,7 +3232,7 @@ where
 {
     value
         .to_rust()
-        .map_err(|e| WasmError::from(e.to_string()).to_js_value())
+        .map_err(|e| js_err(e.to_string()))
 }
 
 /// The render date a host supplies: `today` as `YYYY-MM-DD`, else JavaScript's
@@ -3261,7 +3241,7 @@ fn render_date(today: Option<String>) -> Result<quillmark_core::quill::CalendarD
     match today {
         Some(s) => s
             .parse::<quillmark_core::quill::CalendarDate>()
-            .map_err(|e| WasmError::from(e.to_string()).to_js_value()),
+            .map_err(|e| js_err(e.to_string())),
         None => {
             let now = js_sys::Date::new_0();
             quillmark_core::quill::CalendarDate::new(
@@ -3499,7 +3479,7 @@ impl LiveSession {
         let cs = self
             .inner
             .update(&doc.inner)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         self.card_kinds = card_kinds_of(&doc.inner);
         to_ts_or_throw(&ChangeSet {
             page_count: cs.page_count,
@@ -3517,7 +3497,7 @@ impl LiveSession {
         let result = self
             .inner
             .render(&rust_opts)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
         render_result_to_ts(result, &self.kinds())
     }
 
@@ -3690,14 +3670,14 @@ impl LiveSession {
             .ok_or_else(|| self.page_oob_error("paint", page))?;
 
         let scale = quillmark_core::backend::canvas_scale(scale, width_pt, height_pt)
-            .map_err(|e| WasmError::from(e).to_js_value())?;
+            .map_err(js_err)?;
 
         // `page_size_pt(page)` answered, so the page is in range and a raster is
         // owed; a `None` here is a backend bug.
         let (pixel_w, pixel_h, mut rgba) = self
             .inner
             .render_rgba(page, scale)
-            .map_err(|e| WasmError::from(e).to_js_value())?
+            .map_err(js_err)?
             .ok_or_else(|| {
                 WasmError::from(format!(
                     "paint: backend '{}' returned no raster for page {page}, which is in \

@@ -147,3 +147,29 @@ pub(crate) fn quill_from_yaml(yaml: &str) -> Quill {
 pub(crate) fn test_date() -> CalendarDate {
     CalendarDate::new(2026, 3, 14).expect("a calendar day")
 }
+
+/// The canonical content a `text` cell carries for `s`.
+#[cfg(test)]
+pub(crate) fn text(s: &str) -> serde_json::Value {
+    quillmark_content::serial::to_canonical_value(&quillmark_content::import::from_plaintext(s))
+}
+
+/// A field schema parsed from `yaml`.
+#[cfg(test)]
+pub(crate) fn field(yaml: &str) -> FieldSchema {
+    let value = crate::value::QuillValue::from_yaml_str(yaml).unwrap();
+    FieldSchema::from_quill_value("field".to_string(), &value).unwrap()
+}
+
+/// An empty document pinned to `memo@1.0.0`.
+#[cfg(test)]
+pub(crate) fn blank_doc() -> crate::document::Document {
+    use std::str::FromStr;
+    crate::document::Document::new(crate::version::QuillReference::from_str("memo@1.0.0").unwrap())
+}
+
+/// Whether any of `diags` carries `code`.
+#[cfg(test)]
+pub(crate) fn has_code(diags: &[crate::error::Diagnostic], code: &str) -> bool {
+    diags.iter().any(|d| d.code.as_deref() == Some(code))
+}

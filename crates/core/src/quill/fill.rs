@@ -58,10 +58,7 @@ pub fn blank(field: &FieldSchema) -> QuillValue {
 mod tests {
     use super::*;
 
-    fn field(yaml: &str) -> FieldSchema {
-        let value = QuillValue::from_yaml_str(yaml).unwrap();
-        FieldSchema::from_quill_value("field".to_string(), &value).unwrap()
-    }
+    use crate::quill::field;
 
     fn empty_text() -> serde_json::Value {
         quillmark_content::serial::to_canonical_value(&quillmark_content::model::Normalized::empty())

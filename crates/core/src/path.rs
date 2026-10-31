@@ -386,18 +386,57 @@ mod tests {
     }
 
     #[test]
-    fn main_field_and_nested() {
-        round_trip(DocPath::main(), "main");
-        round_trip(DocPath::main().field("title"), "main.title");
-        round_trip(
-            DocPath::main().field("recipients").index(0).field("name"),
-            "main.recipients[0].name",
-        );
-    }
-
-    #[test]
-    fn main_body() {
-        round_trip(DocPath::main_body(), "main.body");
+    fn paths_round_trip_through_their_text() {
+        let addr = || DocPath::main().field("addr");
+        let cases = [
+            (DocPath::main(), "main"),
+            (DocPath::main().field("title"), "main.title"),
+            (
+                DocPath::main().field("recipients").index(0).field("name"),
+                "main.recipients[0].name",
+            ),
+            (DocPath::main_body(), "main.body"),
+            (DocPath::card(Some("indorsement"), 0), "cards.indorsement[0]"),
+            (DocPath::card(None, 3), "cards[3]"),
+            (
+                DocPath::card(Some("indorsement"), 0).field("signature_block"),
+                "cards.indorsement[0].signature_block",
+            ),
+            (DocPath::card(Some("skills"), 2).body(), "cards.skills[2].body"),
+            (
+                DocPath::card(Some("indorsement"), 0)
+                    .field("recipients")
+                    .index(1)
+                    .field("name"),
+                "cards.indorsement[0].recipients[1].name",
+            ),
+            // `body` is reserved only as a root terminal.
+            (
+                DocPath::card(Some("k"), 0).field("body").field("x"),
+                "cards.k[0].body.x",
+            ),
+            (DocPath::main().field("x"), "main.x"),
+            // A field named for a root is not a root.
+            (DocPath::main().field("cards"), "main.cards"),
+            (DocPath::main().field("main"), "main.main"),
+            // No index, so a config-space chain rather than a card.
+            (DocPath::new().field("cards").field("foo"), "cards.foo"),
+            // The config-space anchor is the unrooted form.
+            (
+                DocPath::new()
+                    .field("$seed")
+                    .field("indorsement")
+                    .field("author"),
+                "$seed.indorsement.author",
+            ),
+            (addr().field("a[0"), "main.addr.a\\[0"),
+            (addr().field("a]0"), "main.addr.a\\]0"),
+            (addr().field("[a][b]"), "main.addr.\\[a\\]\\[b\\]"),
+            (addr().field(r"a\b"), "main.addr.a\\\\b"),
+        ];
+        for (path, rendered) in cases {
+            round_trip(path, rendered);
+        }
     }
 
     /// `collect_fill_diags` mints this shape, so the reading is live.
@@ -409,59 +448,6 @@ mod tests {
             DocSeg::Field {
                 name: "0".to_string()
             }
-        );
-    }
-
-    #[test]
-    fn card_roots() {
-        round_trip(DocPath::card(Some("indorsement"), 0), "cards.indorsement[0]");
-        round_trip(DocPath::card(None, 3), "cards[3]");
-    }
-
-    #[test]
-    fn card_field_and_body() {
-        round_trip(
-            DocPath::card(Some("indorsement"), 0).field("signature_block"),
-            "cards.indorsement[0].signature_block",
-        );
-        round_trip(
-            DocPath::card(Some("skills"), 2).body(),
-            "cards.skills[2].body",
-        );
-        round_trip(
-            DocPath::card(Some("indorsement"), 0)
-                .field("recipients")
-                .index(1)
-                .field("name"),
-            "cards.indorsement[0].recipients[1].name",
-        );
-    }
-
-    #[test]
-    fn body_is_reserved_only_as_a_root_terminal() {
-        round_trip(
-            DocPath::card(Some("k"), 0).field("body").field("x"),
-            "cards.k[0].body.x",
-        );
-        round_trip(DocPath::main().field("x"), "main.x");
-    }
-
-    #[test]
-    fn main_field_named_for_a_root_is_not_a_root() {
-        round_trip(DocPath::main().field("cards"), "main.cards");
-        round_trip(DocPath::main().field("main"), "main.main");
-        // No index, so a config-space chain rather than a card.
-        round_trip(DocPath::new().field("cards").field("foo"), "cards.foo");
-    }
-
-    #[test]
-    fn config_space_anchor_is_the_unrooted_form() {
-        round_trip(
-            DocPath::new()
-                .field("$seed")
-                .field("indorsement")
-                .field("author"),
-            "$seed.indorsement.author",
         );
     }
 
@@ -493,30 +479,6 @@ mod tests {
         assert_eq!(split.to_string(), "main.addr.a.b");
         assert_ne!(dotted, split);
         assert_ne!(dotted.to_string(), split.to_string());
-    }
-
-    #[test]
-    fn field_name_containing_brackets_round_trips() {
-        round_trip(
-            DocPath::main().field("addr").field("a[0"),
-            "main.addr.a\\[0",
-        );
-        round_trip(
-            DocPath::main().field("addr").field("a]0"),
-            "main.addr.a\\]0",
-        );
-        round_trip(
-            DocPath::main().field("addr").field("[a][b]"),
-            "main.addr.\\[a\\]\\[b\\]",
-        );
-    }
-
-    #[test]
-    fn field_name_containing_escape_char_round_trips() {
-        round_trip(
-            DocPath::main().field("addr").field(r"a\b"),
-            "main.addr.a\\\\b",
-        );
     }
 
     #[test]
