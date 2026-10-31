@@ -688,8 +688,11 @@ is written, and never rewritten while its card lives.**
   holding an id none spells was removed and pairs with nothing. The rest
   align by text ([BINDINGS.md](BINDINGS.md) § The write surface). A card revising a stored one
   holds its id whatever it spells. An inserted card keeps a valid id no stored
-  card held and mints past every stored id otherwise, so a removed card's id
-  is never handed to a new one.
+  card held and mints past every stored id otherwise, so a card a revise
+  removes never hands its id to a card that revise inserts. The document keeps
+  no record of an id it no longer holds: a later edit may mint it again. A
+  consumer keeping selectors by card id drops a removed card's when the
+  receipt's `from` names that card in no entry.
 - **Never rendered.** `$id` never reaches the plate JSON, as `$ext` does not.
 
 ## Schema Versioning
