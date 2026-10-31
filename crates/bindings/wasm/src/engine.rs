@@ -2276,22 +2276,12 @@ impl Document {
         index: usize,
     ) -> Result<quillmark_core::document::CardMut<'_>, JsValue> {
         let len = self.inner.cards().len();
-        self.inner.card_mut(index).ok_or_else(|| {
-            edit_error_to_js(
-                &quillmark_core::document::EditError::IndexOutOfRange { index, len },
-                &quillmark_core::path::DocPath::new(),
-            )
-        })
+        self.inner.card_mut(index).ok_or_else(|| index_out_of_range(index, len))
     }
 
     fn card_or_throw(&self, index: usize) -> Result<&quillmark_core::document::Card, JsValue> {
         let len = self.inner.cards().len();
-        self.inner.cards().get(index).ok_or_else(|| {
-            edit_error_to_js(
-                &quillmark_core::document::EditError::IndexOutOfRange { index, len },
-                &quillmark_core::path::DocPath::new(),
-            )
-        })
+        self.inner.cards().get(index).ok_or_else(|| index_out_of_range(index, len))
     }
 
     fn addr_card_mut(
@@ -2991,6 +2981,13 @@ fn invalid_quill_reference(ctx: &str, value: &str, reason: &str) -> JsValue {
         diagnostics: vec![diag],
     }
     .to_js_value()
+}
+
+fn index_out_of_range(index: usize, len: usize) -> JsValue {
+    edit_error_to_js(
+        &quillmark_core::document::EditError::IndexOutOfRange { index, len },
+        &quillmark_core::path::DocPath::new(),
+    )
 }
 
 /// Maps `EditError` to a JS `Error` carrying one diagnostic, its `DocPath`

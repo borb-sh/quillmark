@@ -34,6 +34,43 @@ export const makeCard = (kind, fields = {}, body = '') => ({
   body,
 })
 
+/** The plate the suites' `test_quill` renders. */
+export const TEST_PLATE = `#import "@local/quillmark-helper:0.2.0" as qm
+#let title = qm.data.title
+#let body = qm.data.at("$body")
+
+= #title
+
+#body`
+
+/** The document the suites' `test_quill` parses. */
+export const TEST_MARKDOWN = `~~~card-yaml
+$quill: test_quill
+$kind: main
+title: Test Document
+author: Test Author
+~~~
+
+# Hello World
+
+This is a test document.`
+
+/** A `test_quill` document with one `note` card. */
+export const MD_WITH_CARD = `~~~card-yaml
+$quill: test_quill
+$kind: main
+~~~
+
+Body.
+
+~~~card-yaml
+$kind: note
+foo: bar
+~~~
+
+Card body.
+`
+
 /** An ES class, not a plain function. */
 export const isClass = (v) => typeof v === 'function' && /^class[\s{]/.test(String(v))
 

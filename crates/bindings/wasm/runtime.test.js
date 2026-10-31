@@ -28,30 +28,13 @@ import {
   expectEditCode,
   isClass,
   caughtFrom,
+  TEST_PLATE,
+  TEST_MARKDOWN,
 } from './test-helpers.js'
 
 // The consumer contract, exercised as a consumer writes it: the gate is the only
 // door to the core surface.
 const { Quill, Document, importMarkdown, exportMarkdown } = await init()
-
-const TEST_PLATE = `#import "@local/quillmark-helper:0.2.0" as qm
-#let title = qm.data.title
-#let body = qm.data.at("$body")
-
-= #title
-
-#body`
-
-const TEST_MARKDOWN = `~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Test Document
-author: Test Author
-~~~
-
-# Hello World
-
-This is a test document.`
 
 function makeRuntimeQuill() {
   return Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
