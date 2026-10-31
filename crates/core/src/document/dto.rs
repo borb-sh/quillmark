@@ -37,8 +37,8 @@ use crate::version::QuillReference;
 pub const STORAGE_V0_134_0: &str = "quillmark/document@0.134.0";
 
 /// The tag before [`STORAGE_V0_134_0`], read, and written for a document of
-/// the main card alone holding a member a `0.130` build refuses or draws
-/// otherwise.
+/// the main card alone holding vocabulary [`STORAGE_V0_129_0`] lacks
+/// (`DOCUMENT_STORAGE.md` § Schema Versioning).
 pub const STORAGE_V0_131_0: &str = "quillmark/document@0.131.0";
 
 /// The tag before [`STORAGE_V0_131_0`], read, and written for a document
@@ -285,8 +285,7 @@ impl From<Document> for StoredDocument {
     }
 }
 
-/// Whether `tree` holds content a `0.130` build refuses or draws otherwise, in
-/// a body or in a field or seed value that decodes as content (see
+/// Whether `tree` holds vocabulary `0.129.0` lacks, in a body or in a field or seed value that decodes as content (see
 /// [`content_spells_0_131_0`]). A tree without any is written under `0.129.0`.
 /// An `$ext` value is opaque and never content, so it is not read.
 fn spells_0_131_0(tree: &DocumentV0_131_0) -> bool {

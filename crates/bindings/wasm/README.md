@@ -182,8 +182,8 @@ const doc = Document.storageVersionOf(content)
   : Document.fromMarkdown(content);
 ```
 
-The `schema` value (`quillmark/document@0.131.0` for a document holding a font
-mark, `@0.129.0` for any other) is the **model version**, not the running crate
+The `schema` value (`quillmark/document@0.131.0` for a document holding
+vocabulary `@0.129.0` lacks, `@0.129.0` for any other) is the **model version**, not the running crate
 version. It is a hand-set constant, bumped only when the `Document` model
 itself changes, so every `0.131.x` patch release reads and writes those same
 values.
@@ -209,9 +209,9 @@ values.
 
 `Document.currentStorageVersion()` is the newest tag this build writes. A
 save writes the oldest tag that holds the row, so a fresh row can carry an
-older tag still read: a row holding no font mark, `table` element, merged
-table cell or table `head` 0.130 cannot draw saves as
-`quillmark/document@0.129.0`. A tag other than `currentStorageVersion()` is
+older tag still read: a row holding no vocabulary the previous tag lacks saves
+under the previous tag (the list is in `prose/canon/DOCUMENT_STORAGE.md`
+§ Schema Versioning). A tag other than `currentStorageVersion()` is
 therefore not a mismatch. Use `storageVersionOf` after `fromStored` throws,
 to tell "a version this build does not read" from "corrupt":
 

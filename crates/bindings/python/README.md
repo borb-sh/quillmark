@@ -149,7 +149,7 @@ stored   = doc.to_stored()
 restored = Document.from_stored(stored)
 
 Document.storage_version_of(blob)                # raw tag, even one this build does not read; None when not a DTO
-Document.current_storage_version()               # newest tag this build writes; a row holding no vocabulary 0.130 lacks keeps the tag before it
+Document.current_storage_version()               # newest tag this build writes; a row holding no vocabulary the previous tag lacks keeps the previous tag
 
 Document.markdown_rules()                        # Quillmark Markdown rules (static text)
 Document.quill_ref_hint()                        # $quill reference grammar (static text)
