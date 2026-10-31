@@ -2,12 +2,12 @@
 //! splices. All three apply after [`Content::apply_text_delta`] in one
 //! [`ChangeBundle`], in that order; mark ranges are in final-text coordinates.
 
-use crate::delta::{Assoc, Delta, Op};
-use crate::model::{
+use crate::lines::delta::{Assoc, Delta, Op};
+use crate::lines::model::{
     is_whole_line, Container, Island, Line, LineKind, Mark,
     MarkKind, Content, Usv, ISLAND_SLOT,
 };
-use crate::normalize::admit_char;
+use crate::lines::normalize::admit_char;
 use crate::usv::char_to_byte;
 use serde::Deserialize;
 use std::borrow::Cow;
@@ -121,7 +121,7 @@ pub enum IslandOp {
     /// after island ops.
     ///
     /// A type markdown writes as a block
-    /// ([`IslandType::block_only`](crate::island::IslandType::block_only)) has
+    /// ([`IslandType::block_only`](crate::lines::island::IslandType::block_only)) has
     /// no inline placement: `at` must be an empty line, else
     /// [`ApplyError::BlockIslandNotAlone`].
     ///
@@ -189,7 +189,7 @@ impl ChangeBundle {
 // speaks the shapes the content read surface does rather than a second dialect.
 // The wire is a reading direction: bundles are authored on the JS/Python side.
 
-use crate::serial::{
+use crate::lines::serial::{
     container_from_authored_value, island_from_authored_value, line_kind_from_authored_value,
     mark_from_authored_value, reject_unwritable_link_url, usv_from, ParseError,
 };
@@ -375,7 +375,7 @@ pub enum ApplyError {
     /// and this bundle's earlier island ops left.
     IslandInsertOutOfRange { at: Usv, len: Usv },
     /// An island op would leave a **block-only** island's slot
-    /// ([`IslandType::block_only`](crate::island::IslandType::block_only), a
+    /// ([`IslandType::block_only`](crate::lines::island::IslandType::block_only), a
     /// `table`) sharing its line with other content. Markdown writes such an
     /// island by breaking the line around it, so the op that lands one mid-line
     /// is refused rather than restructuring the author's blocks. `at` is the
@@ -542,11 +542,11 @@ impl Content {
     fn remove_cell_anchor(&mut self, id: &str) {
         for isl in &mut self.islands {
             for cell in isl.island_type.cell_values_mut(&mut isl.props) {
-                let (_, mut marks) = crate::serial::parse_cell(cell);
+                let (_, mut marks) = crate::lines::serial::parse_cell(cell);
                 let n = marks.len();
                 marks.retain(|m| !matches!(&m.kind, MarkKind::Anchor { id: held } if held == id));
                 if marks.len() < n {
-                    crate::serial::set_cell_marks(cell, &marks);
+                    crate::lines::serial::set_cell_marks(cell, &marks);
                 }
             }
         }
@@ -987,8 +987,8 @@ fn newline_at_line_boundary(text: &str, line: usize) -> Result<Usv, ApplyError> 
 /// partway leaves its earlier ops applied. So the token states that the value
 /// is canonical, not that the edit landed.
 ///
-/// Any other edit takes [`into_content`](crate::model::Normalized::into_content).
-impl crate::model::Normalized {
+/// Any other edit takes [`into_content`](crate::lines::model::Normalized::into_content).
+impl crate::lines::model::Normalized {
     fn seal(&mut self, applied: Result<(), ApplyError>) -> Result<(), ApplyError> {
         if applied.is_err() {
             self.as_content_mut().normalize();
@@ -1025,9 +1025,9 @@ impl crate::model::Normalized {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::island::IslandType;
-    use crate::delta::diff;
-    use crate::import::from_markdown;
+    use crate::lines::island::IslandType;
+    use crate::lines::delta::diff;
+    use crate::lines::import::from_markdown;
 
     #[test]
     fn mark_op_wire_decodes_each_variant() {
@@ -1264,7 +1264,7 @@ mod tests {
         assert_eq!(rt.text, "hXello");
     }
 
-    fn anchored(text: &str, at: Usv) -> crate::model::Normalized {
+    fn anchored(text: &str, at: Usv) -> crate::lines::model::Normalized {
         let mut rt = from_markdown(text).unwrap().content;
         rt.apply_mark_ops(&[MarkOp::Add {
             start: at,
@@ -1537,7 +1537,7 @@ mod tests {
                 .with_marks(marks)
                 .into_normalized()
         };
-        let fonts = |rt: &crate::model::Normalized| -> Vec<(Usv, Usv, String)> {
+        let fonts = |rt: &crate::lines::model::Normalized| -> Vec<(Usv, Usv, String)> {
             rt.marks
                 .iter()
                 .filter_map(|m| match &m.kind {
@@ -1640,7 +1640,7 @@ mod tests {
             Ok(())
         );
         assert_eq!(tbl.lines[0].kind, LineKind::Para);
-        assert!(crate::export::to_markdown(&tbl).starts_with("| a | b |"));
+        assert!(crate::lines::export::to_markdown(&tbl).starts_with("| a | b |"));
     }
 
     /// A within-block break lives inside one container, and a heading, an
@@ -1684,7 +1684,7 @@ mod tests {
                 "{markdown}"
             );
             assert!(!rt.lines[line].continues, "{markdown}");
-            assert_eq!(crate::export::to_markdown(&rt), markdown, "{markdown}");
+            assert_eq!(crate::lines::export::to_markdown(&rt), markdown, "{markdown}");
         }
 
         // `SetKind` reaches the shape from the other side, by retagging the
@@ -1702,7 +1702,7 @@ mod tests {
         );
         assert!(!rt.lines[1].continues);
         assert_eq!(rt.validate(), Ok(()));
-        assert_eq!(crate::export::to_markdown(&rt), "# a\n\nb");
+        assert_eq!(crate::lines::export::to_markdown(&rt), "# a\n\nb");
     }
 
     /// A `Join` merging two lines of differing paths leaves the line after the
@@ -1775,7 +1775,7 @@ mod tests {
         assert!(rt.lines[1].continues);
         assert_eq!(rt.validate(), Ok(()));
         assert_eq!(
-            crate::export::to_markdown(&rt).matches("\n\n").count(),
+            crate::lines::export::to_markdown(&rt).matches("\n\n").count(),
             0,
             "a within-block hard break is not a paragraph boundary"
         );
@@ -2198,7 +2198,7 @@ mod tests {
         }]))
         .expect("a table sharing its line takes its own edit");
         assert_eq!(
-            crate::export::to_markdown(&rt),
+            crate::lines::export::to_markdown(&rt),
             "ab\n\n| H |\n| --- |\n| b |"
         );
     }
@@ -2268,7 +2268,7 @@ mod tests {
             .iter()
             .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")));
         assert!(
-            crate::export::to_markdown(&rt).contains("| H |"),
+            crate::lines::export::to_markdown(&rt).contains("| H |"),
             "the block island projects as a pipe table"
         );
     }

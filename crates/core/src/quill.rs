@@ -147,7 +147,7 @@ pub(crate) fn test_date() -> CalendarDate {
 /// The canonical content a `text` cell carries for `s`.
 #[cfg(test)]
 pub(crate) fn text(s: &str) -> serde_json::Value {
-    quillmark_content::serial::to_canonical_value(&quillmark_content::import::from_plaintext(s))
+    quillmark_content::lines::serial::to_canonical_value(&quillmark_content::lines::import::from_plaintext(s))
 }
 
 /// A field schema parsed from `yaml`.

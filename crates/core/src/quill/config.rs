@@ -569,8 +569,8 @@ impl QuillConfig {
             FieldType::Text { multiline } => {
                 // The literal codec and its two rests: `SCHEMAS.md`
                 // §"Content fields rest per codec".
-                let mut plain_check = |rt: quillmark_content::model::Normalized| -> Result<
-                    quillmark_content::model::Normalized,
+                let mut plain_check = |rt: quillmark_content::lines::model::Normalized| -> Result<
+                    quillmark_content::lines::model::Normalized,
                     CoercionError,
                 > {
                     if !rt.is_plain() {
@@ -600,18 +600,18 @@ impl QuillConfig {
                     }
                     Ok(rt)
                 };
-                let commit = |rt: &quillmark_content::model::Normalized| -> QuillValue {
+                let commit = |rt: &quillmark_content::lines::model::Normalized| -> QuillValue {
                     match mode {
                         Leniency::Render => {
-                            QuillValue::from_json(quillmark_content::serial::to_canonical_value(rt))
+                            QuillValue::from_json(quillmark_content::lines::serial::to_canonical_value(rt))
                         }
                         Leniency::Write => QuillValue::from_json(serde_json::Value::String(
-                            quillmark_content::export::to_plaintext(rt),
+                            quillmark_content::lines::export::to_plaintext(rt),
                         )),
                     }
                 };
                 if json_value.is_object() {
-                    let rt = quillmark_content::serial::from_canonical_value(json_value).map_err(
+                    let rt = quillmark_content::lines::serial::from_canonical_value(json_value).map_err(
                         |e| {
                             CoercionError::uncoercible(
                                 path,
@@ -634,7 +634,7 @@ impl QuillConfig {
                         )),
                     };
                 };
-                let rt = quillmark_content::import::from_plaintext(&text);
+                let rt = quillmark_content::lines::import::from_plaintext(&text);
                 Ok(commit(&plain_check(rt)?))
             }
             FieldType::RichText { multiline } => {
@@ -654,7 +654,7 @@ impl QuillConfig {
                     )
                 };
                 let inline_check =
-                    |rt: &quillmark_content::model::Content| -> Result<(), CoercionError> {
+                    |rt: &quillmark_content::lines::model::Content| -> Result<(), CoercionError> {
                         if !multiline && !rt.is_inline() {
                             return Err(inline_err());
                         }
@@ -686,7 +686,7 @@ impl QuillConfig {
                         });
                 }
                 if json_value.is_object() {
-                    let rt = quillmark_content::serial::from_canonical_value(json_value).map_err(
+                    let rt = quillmark_content::lines::serial::from_canonical_value(json_value).map_err(
                         |e| {
                             CoercionError::uncoercible(
                                 path,
@@ -698,7 +698,7 @@ impl QuillConfig {
                     )?;
                     inline_check(&rt)?;
                     return Ok(QuillValue::from_json(
-                        quillmark_content::serial::to_canonical_value(&rt),
+                        quillmark_content::lines::serial::to_canonical_value(&rt),
                     ));
                 }
                 let Some(markdown) = lenient_string(json_value) else {
@@ -707,7 +707,7 @@ impl QuillConfig {
                     return Ok(value.clone());
                 };
                 let imported =
-                    quillmark_content::import::from_markdown(&markdown).map_err(|e| {
+                    quillmark_content::lines::import::from_markdown(&markdown).map_err(|e| {
                         CoercionError::uncoercible(
                             path,
                             &markdown,
@@ -722,7 +722,7 @@ impl QuillConfig {
                 let rt = imported.content;
                 inline_check(&rt)?;
                 Ok(QuillValue::from_json(
-                    quillmark_content::serial::to_canonical_value(&rt),
+                    quillmark_content::lines::serial::to_canonical_value(&rt),
                 ))
             }
             FieldType::Date | FieldType::DateTime => {
@@ -2019,7 +2019,7 @@ impl QuillConfig {
                 match value {
                     serde_json::Value::Null => true,
                     serde_json::Value::String(md) => crate::document::import_body(md)
-                        .is_ok_and(|body| body == quillmark_content::model::Normalized::empty()),
+                        .is_ok_and(|body| body == quillmark_content::lines::model::Normalized::empty()),
                     _ => false,
                 }
             } else {
@@ -3123,7 +3123,7 @@ fn populate_card_content(card: &mut CardSchema, label: &str, errors: &mut Vec<Di
     let Some(example) = card.body.as_ref().and_then(|b| b.example.as_deref()) else {
         return;
     };
-    let reason = match quillmark_content::import::from_markdown(example) {
+    let reason = match quillmark_content::lines::import::from_markdown(example) {
         Err(e) => e.to_string(),
         Ok(imported) => match imported.warnings.first() {
             None => return,
@@ -3211,7 +3211,7 @@ fn literal_content(
                 return Err(single_line_error(label, "text"));
             }
             Ok(Some(QuillValue::from_json(
-                quillmark_content::serial::to_canonical_value(&rt),
+                quillmark_content::lines::serial::to_canonical_value(&rt),
             )))
         }
         FieldType::Array => {

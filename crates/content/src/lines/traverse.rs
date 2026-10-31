@@ -1,7 +1,7 @@
 //! The loops that group adjacent lines: by container, applying the rule
 //! [`Container::same_run`] states, and by continuation.
 
-use crate::model::{Container, Line};
+use crate::lines::model::{Container, Line};
 use std::ops::Range;
 
 /// A maximal span of adjacent lines sharing one container at a depth.
@@ -105,7 +105,7 @@ impl<'a> Iterator for Spans<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Content, LineKind};
+    use crate::lines::model::{Content, LineKind};
 
     fn li(ordinal: u64, instance: u64) -> Container {
         Container::ListItem {

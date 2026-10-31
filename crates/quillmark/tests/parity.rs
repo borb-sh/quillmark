@@ -7,11 +7,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use quillmark::{Diagnostic, Document, Engine, Normalized, OutputFormat, Quill, RenderOptions};
 use quillmark_content::{
-    export::{to_markdown, to_markdown_annotated},
-    import::{ImportWarning, from_markdown},
-    model::{ISLAND_SLOT, MarkKind},
-    ops::change_bundle_from_value,
-    serial,
+    lines::export::{to_markdown, to_markdown_annotated},
+    lines::import::{ImportWarning, from_markdown},
+    lines::model::{ISLAND_SLOT, MarkKind},
+    lines::ops::change_bundle_from_value,
+    lines::serial,
 };
 use quillmark_fixtures::{quills_path, resource_path};
 use serde_json::{Value, json};

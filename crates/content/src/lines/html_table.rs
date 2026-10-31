@@ -2,10 +2,10 @@
 //! is written in where a GFM pipe table cannot carry it, read off an HTML block
 //! into the grid a table island holds, and written back from one.
 
-use crate::carrier;
-use crate::html;
-use crate::import::Dropped;
-use crate::island::{cell_alignment, is_weight, table_rows, table_spans, TableLayout, CELL_VALIGNS, TABLE_ALIGNS};
+use crate::lines::carrier;
+use crate::lines::html;
+use crate::lines::import::Dropped;
+use crate::lines::island::{cell_alignment, is_weight, table_rows, table_spans, TableLayout, CELL_VALIGNS, TABLE_ALIGNS};
 use pulldown_cmark::{CowStr, Event, Parser, Tag as PTag, TagEnd};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -205,7 +205,7 @@ fn run<F: Fn(usize) -> usize>(text: &str, at: F, budget: usize) -> Scan<'_, F> {
                     s.structural(name, &tag, i);
                     stray = false;
                 } else if s.cell.is_none() {
-                    if let Some(dropped) = crate::import::dropped_tag(tag.name).filter(|_| !tag.closing) {
+                    if let Some(dropped) = crate::lines::import::dropped_tag(tag.name).filter(|_| !tag.closing) {
                         s.drops.push((dropped, (s.at)(i)));
                     }
                     stray = false;
@@ -625,7 +625,7 @@ pub(crate) fn cell_source(content: &str) -> String {
 /// holds one.
 pub(crate) fn cell_events(src: &str) -> Vec<(Event<'_>, Range<usize>)> {
     let mut events: Vec<(Event, Range<usize>)> = Vec::new();
-    for (event, range) in Parser::new_ext(src, crate::import::options()).into_offset_iter() {
+    for (event, range) in Parser::new_ext(src, crate::lines::import::options()).into_offset_iter() {
         match event {
             Event::Start(PTag::Paragraph) | Event::End(TagEnd::Paragraph) => {}
             Event::Code(code) if tag_spans(&code).next().is_some() => {
@@ -661,7 +661,7 @@ pub(crate) fn writes_html(props: &Value) -> bool {
     layout.head != 1
         || layout.widths.is_some()
         || layout.align.is_some()
-        || crate::serial::table_cell_values(props).any(|cell| cell_alignment(cell) != (None, None))
+        || crate::lines::serial::table_cell_values(props).any(|cell| cell_alignment(cell) != (None, None))
         || table_spans(props).iter().flatten().flatten().any(|span| *span != (1, 1))
 }
 

@@ -8,19 +8,7 @@
 //! byte-deterministic JSON that storage, the render seam and the binding seam
 //! all carry; [`delta`] and [`ops`] are the per-field edit surface.
 
-pub mod anchor;
-pub mod carrier;
-pub mod delta;
-pub mod export;
-mod html;
-mod html_table;
-pub mod import;
-pub mod island;
-pub mod model;
-pub mod normalize;
-pub mod ops;
-pub mod serial;
-pub mod traverse;
+pub mod lines;
 pub mod usv;
 
 /// Maximum container nesting depth the markdown codecs accept before erroring.

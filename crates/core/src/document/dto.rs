@@ -16,8 +16,8 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::import::ImportError;
-use quillmark_content::model::{Container, Content, MarkKind, Normalized};
+use quillmark_content::lines::import::ImportError;
+use quillmark_content::lines::model::{Container, Content, MarkKind, Normalized};
 
 use super::meta::validate_composable_kind;
 use super::payload::{MetaKey, Payload, PayloadItem, trim_comment_text};
@@ -216,7 +216,7 @@ pub enum PayloadItemV0_124_0 {
 }
 
 /// A card body embedded as the **canonical content**. Its serde delegates to the
-/// frozen canonical serializer (`quillmark_content::serial`) rather than a
+/// frozen canonical serializer (`quillmark_content::lines::serial`) rather than a
 /// hand-mirrored DTO tree that could drift from it:
 ///
 /// - `Serialize` validates, then emits the recursively key-sorted structure
@@ -240,7 +240,7 @@ impl Serialize for CanonicalContent {
         self.0
             .validate()
             .map_err(|inv| serde::ser::Error::custom(format!("content invariant: {inv:?}")))?;
-        quillmark_content::serial::to_canonical_value(&self.0).serialize(serializer)
+        quillmark_content::lines::serial::to_canonical_value(&self.0).serialize(serializer)
     }
 }
 
@@ -250,7 +250,7 @@ impl<'de> Deserialize<'de> for CanonicalContent {
         D: serde::Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        let rt = quillmark_content::serial::from_canonical_value(&value)
+        let rt = quillmark_content::lines::serial::from_canonical_value(&value)
             .map_err(serde::de::Error::custom)?;
         Ok(CanonicalContent(rt))
     }
@@ -290,7 +290,7 @@ impl From<Document> for StoredDocument {
 /// An `$ext` value is opaque and never content, so it is not read.
 fn spells_0_131_0(tree: &DocumentV0_131_0) -> bool {
     std::iter::once(&tree.main).chain(&tree.cards).any(|card| {
-        content_spells_0_131_0(&quillmark_content::serial::to_canonical_value(&card.body.0))
+        content_spells_0_131_0(&quillmark_content::lines::serial::to_canonical_value(&card.body.0))
             || card.payload.items.iter().any(|item| match item {
                 PayloadItemV0_124_0::Field { value, .. } => json_spells_0_131_0(value),
                 PayloadItemV0_124_0::Seed { value } => value.values().any(json_spells_0_131_0),
@@ -305,7 +305,7 @@ fn spells_0_131_0(tree: &DocumentV0_131_0) -> bool {
 fn json_spells_0_131_0(value: &serde_json::Value) -> bool {
     match value {
         serde_json::Value::Object(map) => {
-            match quillmark_content::serial::from_canonical_value(value) {
+            match quillmark_content::lines::serial::from_canonical_value(value) {
                 Ok(_) => content_spells_0_131_0(value),
                 Err(_) => map.values().any(json_spells_0_131_0),
             }
@@ -340,7 +340,7 @@ fn content_spells_0_131_0(content: &serde_json::Value) -> bool {
                 );
                 head || cells.any(|cell| {
                     has_font(cell)
-                        || quillmark_content::island::CELL_SPANS.iter().any(|key| {
+                        || quillmark_content::lines::island::CELL_SPANS.iter().any(|key| {
                             cell.get(*key)
                                 .and_then(Value::as_u64)
                                 .is_some_and(|n| n > 1)
@@ -725,7 +725,7 @@ impl TryFrom<CardV0_124_0> for CardV0_129_0 {
     type Error = StorageError;
 
     fn try_from(card: CardV0_124_0) -> Result<Self, Self::Error> {
-        let body = quillmark_content::serial::from_canonical_value(&card.body)
+        let body = quillmark_content::lines::serial::from_canonical_value(&card.body)
             .map_err(|e| StorageError::Malformed(format!("card body: {e}")))?;
         Ok(CardV0_129_0 {
             payload: card.payload,
@@ -879,7 +879,7 @@ This body and the metadata above are an indorsement card.
     /// alone, so an invalid shape reaches the DTO.
     #[test]
     fn an_unreadable_body_is_refused_on_write() {
-        use quillmark_content::model::{Container, Content, Line, LineKind};
+        use quillmark_content::lines::model::{Container, Content, Line, LineKind};
 
         let mut doc = sample();
         let mut line = Line::new(LineKind::Para);
@@ -895,16 +895,16 @@ This body and the metadata above are an indorsement card.
     fn content_field_survives_storage_round_trip_losslessly() {
         // The storage DTO is the lossless carrier: an `underline` with no
         // markdown form survives here where a markdown save would drop it.
-        use quillmark_content::model::{Mark, MarkKind};
+        use quillmark_content::lines::model::{Mark, MarkKind};
 
         let mut doc = sample();
-        let mut content = quillmark_content::import::from_markdown("underlined intro")
+        let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
             .unwrap()
             .content
             .into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
         let content = content.into_normalized();
-        let json = quillmark_content::serial::to_canonical_value(&content);
+        let json = quillmark_content::lines::serial::to_canonical_value(&content);
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
             crate::quill::FieldType::RichText { multiline: true },
@@ -1118,13 +1118,13 @@ This body and the metadata above are an indorsement card.
             .expect("the legacy spelling still decodes");
         assert_eq!(
             content.lines[0].kind,
-            quillmark_content::model::LineKind::Code {
+            quillmark_content::lines::model::LineKind::Code {
                 lang: Some("rust".into())
             }
         );
         assert_eq!(
             content.marks[0].kind,
-            quillmark_content::model::MarkKind::Anchor { id: "a1".into() }
+            quillmark_content::lines::model::MarkKind::Anchor { id: "a1".into() }
         );
     }
 
@@ -1189,11 +1189,11 @@ title: Hi
         };
 
         let content =
-            quillmark_content::import::from_markdown("see ![a](u.png)\n\n| h |\n|---|\n| c |")
+            quillmark_content::lines::import::from_markdown("see ![a](u.png)\n\n| h |\n|---|\n| c |")
                 .expect("content")
                 .content;
         let canonical =
-            serde_json::to_string(&quillmark_content::serial::to_canonical_value(&content))
+            serde_json::to_string(&quillmark_content::lines::serial::to_canonical_value(&content))
                 .expect("canonical content serializes");
         let retired = canonical
             .replace(r#""id":"isl-0","#, r#""id":"isl-0","loss":"lossless","#)
@@ -1389,7 +1389,7 @@ title: Hi
 
         for (above, below) in [("> a", "> b"), ("1. a", "1. b"), ("- a", "- b")] {
             let body = fold(above, serde_json::json!({}), below);
-            let top = |line: &quillmark_content::model::Line| line.containers.first().cloned();
+            let top = |line: &quillmark_content::lines::model::Line| line.containers.first().cloned();
             assert_ne!(
                 top(&body.lines[0]),
                 top(body.lines.last().unwrap()),

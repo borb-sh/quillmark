@@ -965,7 +965,7 @@ main:
         let mut p = Payload::from_index_map(payload);
         p.set_quill("test_quill".parse().unwrap());
         p.set_kind("main");
-        let main = Card::from_parts(p, quillmark_content::model::Normalized::empty());
+        let main = Card::from_parts(p, quillmark_content::lines::model::Normalized::empty());
         Document::from_main_and_cards(main, cards)
     }
 
@@ -1143,10 +1143,10 @@ main:
     #[test]
     fn rejects_single_line_richtext_with_multi_block_content() {
         let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
-        let rt = quillmark_content::import::from_markdown("one\n\ntwo")
+        let rt = quillmark_content::lines::import::from_markdown("one\n\ntwo")
             .unwrap()
             .content;
-        let content = quillmark_content::serial::to_canonical_value(&rt);
+        let content = quillmark_content::lines::serial::to_canonical_value(&rt);
         let doc = doc_from_fm(&[("tag", content)]);
         let errors = config.validate_document(&doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(
@@ -1183,10 +1183,10 @@ main:
     #[test]
     fn accepts_single_line_richtext_single_para_content() {
         let config = config_with("    tag:\n      type: richtext\n      multiline: false", "");
-        let rt = quillmark_content::import::from_markdown("one line only")
+        let rt = quillmark_content::lines::import::from_markdown("one line only")
             .unwrap()
             .content;
-        let content = quillmark_content::serial::to_canonical_value(&rt);
+        let content = quillmark_content::lines::serial::to_canonical_value(&rt);
         let doc = doc_from_fm(&[("tag", content)]);
         assert!(config.validate_document(&doc).is_ok());
     }

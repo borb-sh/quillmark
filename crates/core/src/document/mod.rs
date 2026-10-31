@@ -6,9 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::export::ExportLoss;
-use quillmark_content::import::{Imported, from_markdown as import_markdown};
-use quillmark_content::model::Normalized;
+use quillmark_content::lines::export::ExportLoss;
+use quillmark_content::lines::import::{Imported, from_markdown as import_markdown};
+use quillmark_content::lines::model::Normalized;
 
 use crate::error::ParseError;
 use crate::error::{Diagnostic, Severity};
@@ -69,7 +69,7 @@ pub const LOST_CONSTRUCT: &str = "export::lost_construct";
 
 /// The warning a markdown export owes what it does not spell: one
 /// [`ExportLoss`] of a content, read by
-/// [`to_markdown_checked`](quillmark_content::export::to_markdown_checked).
+/// [`to_markdown_checked`](quillmark_content::lines::export::to_markdown_checked).
 /// `construct` is the mark's wire type, the island's, or `text`; a mark's
 /// `start` and `end` are its range in the content's text.
 pub fn lost_construct(loss: ExportLoss) -> Diagnostic {
@@ -136,8 +136,8 @@ fn listed(words: &[&str], last: &str) -> String {
 /// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
 /// the spelling that keeps it.
 fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
-    use quillmark_content::carrier::RESERVED_ATTRS;
-    use quillmark_content::island::{CELL_VALIGNS, TABLE_ALIGNS};
+    use quillmark_content::lines::carrier::RESERVED_ATTRS;
+    use quillmark_content::lines::island::{CELL_VALIGNS, TABLE_ALIGNS};
     const TIGHT: &str =
         "Markdown on the lines under a tag line drops with it, up to the next blank line.";
     const BESIDE: &str = "A tag line beside a line of other tags drops with the markdown under it, up to the next blank line.";
@@ -261,9 +261,9 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
             },
         ),
         Dropped::ElementAttr { element, attr }
-            if attr == "ref" && quillmark_content::carrier::RESERVED.contains(&element.as_str()) =>
+            if attr == "ref" && quillmark_content::lines::carrier::RESERVED.contains(&element.as_str()) =>
         {
-            let (what, spelling) = match element == quillmark_content::carrier::ANCHOR {
+            let (what, spelling) = match element == quillmark_content::lines::carrier::ANCHOR {
                 true => ("anchor", ("tag", "tags")),
                 false => ("island", ("token", "tokens")),
             };
@@ -300,7 +300,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                  opening with a letter. {TIGHT}"
             ),
         ),
-        Dropped::Element(name) if name == quillmark_content::carrier::SPAN => (
+        Dropped::Element(name) if name == quillmark_content::lines::carrier::SPAN => (
             format!(
                 "markdown import dropped {} in this field",
                 some(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
@@ -310,7 +310,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                  HTML reads `<{tag}/>` as an open tag. A family is a run's, never a block's. {BESIDE}"
             ),
         ),
-        Dropped::Element(name) if name == quillmark_content::carrier::ISLAND => (
+        Dropped::Element(name) if name == quillmark_content::lines::carrier::ISLAND => (
             format!(
                 "markdown import dropped {} in this field",
                 some(&format!("`<{tag}>` token"), &format!("`<{tag}>` tokens"))
@@ -372,7 +372,7 @@ impl ContentDecodeError {
     }
 }
 
-/// A content codec: which authored string a [`Content`](quillmark_content::model::Content) field accepts, and which
+/// A content codec: which authored string a [`Content`](quillmark_content::lines::model::Content) field accepts, and which
 /// text a stored content projects back to. Both codecs also accept a canonical
 /// content object, so a codec is exactly the string end of the round trip. The
 /// declared type names one (`FieldType::codec`), and every schema-bound
@@ -420,7 +420,7 @@ impl Codec {
         };
         match value {
             serde_json::Value::Object(_) => Some(
-                quillmark_content::serial::from_canonical_value(value)
+                quillmark_content::lines::serial::from_canonical_value(value)
                     .map(whole)
                     .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             ),
@@ -428,7 +428,7 @@ impl Codec {
                 Codec::Richtext => {
                     import_markdown(s).map_err(|e| ContentDecodeError::BadMarkdown(e.to_string()))
                 }
-                Codec::Text => Ok(whole(quillmark_content::import::from_plaintext(s))),
+                Codec::Text => Ok(whole(quillmark_content::lines::import::from_plaintext(s))),
             }),
             _ => None,
         }
@@ -469,8 +469,8 @@ impl Codec {
     /// encoding.
     pub(crate) fn project(self, content: &Normalized) -> String {
         match self {
-            Codec::Richtext => quillmark_content::export::to_markdown(content),
-            Codec::Text => quillmark_content::export::to_plaintext(content),
+            Codec::Richtext => quillmark_content::lines::export::to_markdown(content),
+            Codec::Text => quillmark_content::lines::export::to_plaintext(content),
         }
     }
 }
@@ -503,7 +503,7 @@ pub(crate) fn canonical_richtext_value(
         return Err(RichtextValueError::NotSingleLine);
     }
     Ok((
-        quillmark_content::serial::to_canonical_value(&content),
+        quillmark_content::lines::serial::to_canonical_value(&content),
         warnings,
     ))
 }
@@ -512,24 +512,24 @@ pub(crate) fn canonical_richtext_value(
 /// before its single-line check, so the newline a clip-chomped YAML `|` scalar
 /// keeps is no second line.
 pub(crate) fn trim_line_end(
-    content: quillmark_content::model::Normalized,
-) -> quillmark_content::model::Normalized {
-    let text = quillmark_content::export::to_plaintext(&content);
+    content: quillmark_content::lines::model::Normalized,
+) -> quillmark_content::lines::model::Normalized {
+    let text = quillmark_content::lines::export::to_plaintext(&content);
     let trimmed = text.trim_end();
     if trimmed.len() == text.len() {
         content
     } else {
-        quillmark_content::import::from_plaintext(trimmed)
+        quillmark_content::lines::import::from_plaintext(trimmed)
     }
 }
 
 /// Plain content on one line, each line break a space. The length holds, so a
 /// rendered region's offsets still index the stored value.
 pub(crate) fn fold_line_breaks(
-    content: quillmark_content::model::Normalized,
-) -> quillmark_content::model::Normalized {
-    let text = quillmark_content::export::to_plaintext(&content);
-    quillmark_content::import::from_plaintext(&text.replace('\n', " "))
+    content: quillmark_content::lines::model::Normalized,
+) -> quillmark_content::lines::model::Normalized {
+    let text = quillmark_content::lines::export::to_plaintext(&content);
+    quillmark_content::lines::import::from_plaintext(&text.replace('\n', " "))
 }
 
 pub(crate) mod align;
@@ -559,13 +559,13 @@ pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
-pub use quillmark_content::anchor::Reattached;
+pub use quillmark_content::lines::anchor::Reattached;
 /// Carried by [`Revised::dropped_anchors`], so nameable from here.
-pub use quillmark_content::export::{AnchorRead, Annotated};
+pub use quillmark_content::lines::export::{AnchorRead, Annotated};
 /// Carried by [`EditError::Import`], so nameable from here.
-pub use quillmark_content::import::ImportError;
+pub use quillmark_content::lines::import::ImportError;
 /// Taken by [`dropped_construct`], so nameable from here.
-pub use quillmark_content::import::{Dropped, ImportWarning};
+pub use quillmark_content::lines::import::{Dropped, ImportWarning};
 pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
@@ -610,7 +610,7 @@ pub(crate) struct Revising {
 }
 
 /// A single card-yaml block (root or composable). `body` is the content
-/// ([`Content`](quillmark_content::model::Content)) form of the prose after the closing fence: the empty content
+/// ([`Content`](quillmark_content::lines::model::Content)) form of the prose after the closing fence: the empty content
 /// when none follows; check `card.body().is_blank()`. Markdown is a projection:
 /// [`Card::body_markdown`] re-emits it.
 #[derive(Debug, Clone, PartialEq)]
@@ -657,7 +657,7 @@ impl Card {
         &mut self.payload
     }
 
-    /// The card body as a [`Content`](quillmark_content::model::Content): the canonical content model. For the
+    /// The card body as a [`Content`](quillmark_content::lines::model::Content): the canonical content model. For the
     /// markdown projection use [`Card::body_markdown`].
     pub fn body(&self) -> &Normalized {
         &self.body
@@ -667,7 +667,7 @@ impl Card {
     /// derived view (`export ∘ body`), not stored state; a `Document` round-trip
     /// therefore canonicalizes the body (e.g. `__b__` → `**b**`).
     pub fn body_markdown(&self) -> String {
-        quillmark_content::export::to_markdown(&self.body)
+        quillmark_content::lines::export::to_markdown(&self.body)
     }
 
     pub(crate) fn body_mut(&mut self) -> &mut Normalized {
@@ -855,7 +855,7 @@ impl Document {
     pub(crate) fn parse_revising(markdown: &str) -> Result<Revising, ParseError> {
         let (document, warnings, bodies) = assemble::decompose_with_warnings(
             markdown,
-            quillmark_content::import::from_markdown_unresolved,
+            quillmark_content::lines::import::from_markdown_unresolved,
         )?;
         Ok(Revising {
             parsed: Parsed { document, warnings },
@@ -943,7 +943,7 @@ impl Document {
         if main_body {
             map.insert(
                 "$body".to_string(),
-                quillmark_content::serial::to_canonical_value(self.main.body()),
+                quillmark_content::lines::serial::to_canonical_value(self.main.body()),
             );
         }
 
@@ -963,7 +963,7 @@ impl Document {
                 if card_bodies.map_or(true, |f| f.get(i).copied().unwrap_or(true)) {
                     card_map.insert(
                         "$body".to_string(),
-                        quillmark_content::serial::to_canonical_value(card.body()),
+                        quillmark_content::lines::serial::to_canonical_value(card.body()),
                     );
                 }
                 for (key, value) in card.payload.iter() {

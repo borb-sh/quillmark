@@ -1,15 +1,15 @@
 //! Content → Typst-markup emitter that records a per-segment source map.
 //!
-//! Walks a [`Content`](quillmark_content::model::Content) to Typst markup, never
+//! Walks a [`Content`](quillmark_content::lines::model::Content) to Typst markup, never
 //! re-parsing markdown. The escape rules, the three positions a text run takes a
 //! `\` guard at, and the source map's shape: `prose/canon/CONVERT.md`. Which
 //! guard is live is `Tail`, the record of what the emitter last wrote.
 
-use quillmark_content::island::IslandType;
-use quillmark_content::model::{
+use quillmark_content::lines::island::IslandType;
+use quillmark_content::lines::model::{
     Container, Content, ISLAND_SLOT, LineKind, Mark, MarkKind, Normalized,
 };
-use quillmark_content::normalize::is_line_separator;
+use quillmark_content::lines::normalize::is_line_separator;
 use quillmark_core::error::MAX_NESTING_DEPTH;
 use std::ops::Range;
 
@@ -355,7 +355,7 @@ pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
 /// without Typst's "parbreak may not occur inside of a paragraph" warning.
 /// Anything not [`is_inline`] falls back to [`emit_content`].
 ///
-/// [`is_inline`]: quillmark_content::model::Content::is_inline
+/// [`is_inline`]: quillmark_content::lines::model::Content::is_inline
 pub(crate) fn emit_content_inline(rt: &Normalized) -> Result<Emission, EmitError> {
     if !rt.is_inline() {
         return emit_content(rt);
@@ -397,7 +397,7 @@ impl<'a> Emit<'a> {
         let chars: Vec<char> = rt.text.chars().collect();
         // Per-line USV `[start, end)` from the shared segmentation (including
         // the malformed-content padding) so the two crates cannot drift.
-        let line_usv: Vec<(usize, usize)> = quillmark_content::export::line_segments(rt)
+        let line_usv: Vec<(usize, usize)> = quillmark_content::lines::export::line_segments(rt)
             .iter()
             .map(|s| (s.start, s.end))
             .collect();
@@ -459,7 +459,7 @@ impl<'a> Emit<'a> {
         // A leaf first: `runs` skips a line carrying no container at `depth`,
         // so without this the run *after* the leaf would swallow it.
         rt.lines[i].containers.get(depth)?;
-        let run = quillmark_content::traverse::runs(&rt.lines, i..range.end, depth)
+        let run = quillmark_content::lines::traverse::runs(&rt.lines, i..range.end, depth)
             .next()
             .expect("a line with a container at `depth` opens a run");
         let j = run.range.end;
@@ -476,7 +476,7 @@ impl<'a> Emit<'a> {
     }
 
     fn segment_end(&self, range: Range<usize>, depth: usize, i: usize) -> usize {
-        quillmark_content::traverse::segment(&self.rt.lines, i..range.end, depth).end
+        quillmark_content::lines::traverse::segment(&self.rt.lines, i..range.end, depth).end
     }
 
     /// Opens a block's line at [`Self::indent`], ending the current one if
@@ -516,7 +516,7 @@ impl<'a> Emit<'a> {
             .iter()
             .any(|c| matches!(c, Container::ListItem { .. }));
         let rt = self.rt;
-        for item in quillmark_content::traverse::items(&rt.lines, range.clone(), depth) {
+        for item in quillmark_content::lines::traverse::items(&rt.lines, range.clone(), depth) {
             let (ordinal, checked) = match item.container {
                 Container::ListItem {
                     ordinal, checked, ..
@@ -816,7 +816,7 @@ impl<'a> Emit<'a> {
         runs
     }
 
-    fn island_at(&self, pos: usize) -> Option<&'a quillmark_content::model::Island> {
+    fn island_at(&self, pos: usize) -> Option<&'a quillmark_content::lines::model::Island> {
         self.rt
             .islands
             .get(self.slot_offsets.partition_point(|&p| p < pos))
@@ -833,7 +833,7 @@ impl<'a> Emit<'a> {
             IslandType::Image => String::new(),
             IslandType::Table => table_markup(&isl.props),
             IslandType::Footnote => {
-                let (text, marks) = quillmark_content::serial::parse_cell(&isl.props);
+                let (text, marks) = quillmark_content::lines::serial::parse_cell(&isl.props);
                 format!("#footnote[{}]", cell_markup(&text, &marks, false))
             }
             IslandType::Math => crate::tex::equation(
@@ -853,10 +853,10 @@ struct Wrap {
 
 /// Clip wrapping marks out of atomic `#raw(...)` interiors and drop any a span
 /// swallowed whole, via the shared
-/// [`clip_range_to_atomic`](quillmark_content::export::clip_range_to_atomic).
+/// [`clip_range_to_atomic`](quillmark_content::lines::export::clip_range_to_atomic).
 fn clip_wraps_to_codes(wraps: &mut Vec<Wrap>, codes: &[(usize, usize)]) {
     for w in wraps.iter_mut() {
-        quillmark_content::export::clip_range_to_atomic(&mut w.start, &mut w.end, codes);
+        quillmark_content::lines::export::clip_range_to_atomic(&mut w.start, &mut w.end, codes);
     }
     wraps.retain(|w| w.start < w.end);
 }
@@ -1307,14 +1307,14 @@ fn table_markup(props: &serde_json::Value) -> String {
         return String::new();
     }
 
-    let layout = quillmark_content::island::TableLayout::of(props);
-    let spans = quillmark_content::island::table_spans(props);
-    let grid = quillmark_content::island::table_rows(props);
+    let layout = quillmark_content::lines::island::TableLayout::of(props);
+    let spans = quillmark_content::lines::island::table_spans(props);
+    let grid = quillmark_content::lines::island::table_rows(props);
 
     let cell = |v: &Value, (colspan, rowspan): (usize, usize)| {
-        let (text, marks) = quillmark_content::serial::parse_cell(v);
+        let (text, marks) = quillmark_content::lines::serial::parse_cell(v);
         let body = cell_markup(&text, &marks, true);
-        let (align, valign) = quillmark_content::island::cell_alignment(v);
+        let (align, valign) = quillmark_content::lines::island::cell_alignment(v);
         let valign = valign.map(|v| if v == "middle" { "horizon" } else { v });
         let mut args: Vec<String> = [("colspan", colspan), ("rowspan", rowspan)]
             .into_iter()
@@ -1390,7 +1390,7 @@ mod tests {
     mod properties;
 
     use super::*;
-    use quillmark_content::import::from_markdown;
+    use quillmark_content::lines::import::from_markdown;
     use typst::syntax::SyntaxKind;
 
     fn emit(md: &str) -> Emission {
@@ -1660,7 +1660,7 @@ mod tests {
     /// from the clip.
     #[test]
     fn clipping_two_marks_together_nests_them_in_their_stored_order() {
-        use quillmark_content::model::Line;
+        use quillmark_content::lines::model::Line;
         let rt = Content::new("abcdefghij".to_string(), vec![Line::new(LineKind::Para)])
             .with_marks(vec![
                 Mark::new(0, 3, MarkKind::Code),
@@ -1849,7 +1849,7 @@ mod tests {
     /// decoded from storage — so the content is built here rather than imported.
     #[test]
     fn a_stray_newline_lowers_to_a_space_and_opens_no_block() {
-        use quillmark_content::model::Line;
+        use quillmark_content::lines::model::Line;
         for c in ('\0'..=char::MAX).filter(|c| *c != '\n' && reads_as_newline(*c)) {
             let text = format!("{c}- item{c}{c}tail{c}= not a heading");
             let rt = Content::new(text, vec![Line::new(LineKind::Para)]).into_normalized();
@@ -1919,7 +1919,7 @@ mod tests {
     /// whatever the marks and islands.
     #[test]
     fn no_emission_forms_a_shorthand_or_a_comment() {
-        use quillmark_content::model::{Island, Line};
+        use quillmark_content::lines::model::{Island, Line};
 
         let mut cases: Vec<String> = sample_inputs().iter().map(|md| emit(md).markup).collect();
 
@@ -2093,7 +2093,7 @@ mod tests {
     /// Free-overlapping marks are never produced by import, only by an editor.
     #[test]
     fn overlapping_marks_close_and_reopen() {
-        use quillmark_content::model::{Line, Mark};
+        use quillmark_content::lines::model::{Line, Mark};
         let rt =
             Content::new("abcdef".to_string(), vec![Line::new(LineKind::Para)]).with_marks(vec![
                 Mark::new(0, 4, MarkKind::Strong),
@@ -2109,7 +2109,7 @@ mod tests {
 
     /// Hand-placed `marks` reach the free-overlap shapes import never produces.
     fn emit_marked(text: &str, marks: Vec<Mark>) -> String {
-        use quillmark_content::model::Line;
+        use quillmark_content::lines::model::Line;
         let rt = Content::new(text.to_string(), vec![Line::new(LineKind::Para)]).with_marks(marks);
         let rt = rt.into_normalized();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
@@ -2133,7 +2133,7 @@ mod tests {
         }
     }
 
-    use quillmark_content::model::Mark;
+    use quillmark_content::lines::model::Mark;
 
     /// A wrap `end` inside an atomic code span must still close its bracket, or
     /// the generated helper file fails to parse.
@@ -2450,7 +2450,7 @@ mod tests {
 
         // Source-map integrity: every run's generated slice equals the escape of
         // its content, and the leading `\` is not inside any run.
-        use quillmark_content::model::Line;
+        use quillmark_content::lines::model::Line;
         let rt = Content::new("= x".to_string(), vec![Line::new(LineKind::Para)]);
         let rt = rt.into_normalized();
         let ec = emit_content(&rt).unwrap();

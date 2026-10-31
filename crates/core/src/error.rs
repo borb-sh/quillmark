@@ -781,7 +781,7 @@ mod args_canon {
             EditError::DuplicateCardId("intro".into()),
             EditError::TooManyCards { max: 1 },
             EditError::ValueTooDeep { max: 8 },
-            EditError::Import(quillmark_content::import::ImportError::NestingTooDeep {
+            EditError::Import(quillmark_content::lines::import::ImportError::NestingTooDeep {
                 depth: 9,
                 max: 8,
             }),
@@ -805,7 +805,7 @@ mod args_canon {
                 target: "integer".into(),
                 message: "x".into(),
             },
-            EditError::ContentApply(quillmark_content::ops::ApplyError::LineOutOfRange {
+            EditError::ContentApply(quillmark_content::lines::ops::ApplyError::LineOutOfRange {
                 line: 3,
                 lines: 1,
             }),
@@ -991,14 +991,14 @@ card_kinds:
             crate::document::card_id::CARD_ID_REMINTED,
             sample.args.clone(),
         );
-        let mut grid = quillmark_content::import::from_markdown("x\n\n| a |\n|---|\n| b |")
+        let mut grid = quillmark_content::lines::import::from_markdown("x\n\n| a |\n|---|\n| b |")
             .unwrap()
             .content
             .into_content();
-        grid.marks.push(quillmark_content::model::Mark::new(
+        grid.marks.push(quillmark_content::lines::model::Mark::new(
             0,
             1,
-            quillmark_content::model::MarkKind::Anchor { id: "c1".into() },
+            quillmark_content::lines::model::MarkKind::Anchor { id: "c1".into() },
         ));
         grid.islands[0].props["rows"][0][0]["marks"] = serde_json::json!([{ "start": 0, "end": 1, "type": "anchor", "attrs": { "id": "c1" } }]);
         let mut collided = crate::document::Document::parse("~~~\n$quill: q\n$kind: main\n~~~\n")
@@ -1011,12 +1011,12 @@ card_kinds:
             .next()
             .expect("no `parse::anchor_id_collision` sample from the collision probe");
         add(crate::document::ANCHOR_ID_COLLISION, sample.args);
-        let mut wide = quillmark_content::import::from_markdown("a **b** c")
+        let mut wide = quillmark_content::lines::import::from_markdown("a **b** c")
             .unwrap()
             .content
             .into_content();
         wide.marks[0].end += 1;
-        let lost = quillmark_content::export::to_markdown_checked(&wide.into_normalized());
+        let lost = quillmark_content::lines::export::to_markdown_checked(&wide.into_normalized());
         add(
             crate::document::LOST_CONSTRUCT,
             crate::document::lost_construct(lost.losses.into_iter().next().expect("a loss")).args,

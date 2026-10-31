@@ -5,10 +5,10 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
-use quillmark_content::anchor::{AnchorContext, Reattached, anchor_context, anchor_contexts};
-use quillmark_content::delta::Delta;
-use quillmark_content::model::Normalized;
-use quillmark_content::serial::{from_canonical_value, to_canonical_value};
+use quillmark_content::lines::anchor::{AnchorContext, Reattached, anchor_context, anchor_contexts};
+use quillmark_content::lines::delta::Delta;
+use quillmark_content::lines::model::Normalized;
+use quillmark_content::lines::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 
 use super::{Card, Document};
@@ -47,10 +47,10 @@ pub struct AnchorSelector {
     /// The anchored text as stored, island slots and line breaks included;
     /// empty for a point.
     pub quote: String,
-    /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::anchor::ANCHOR_CONTEXT_USV)
+    /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_USV)
     /// scalar values before the anchor, cut at the value's start.
     pub prefix: String,
-    /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::anchor::ANCHOR_CONTEXT_USV)
+    /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_USV)
     /// scalar values after the anchor, cut at the value's end.
     pub suffix: String,
 }
@@ -126,7 +126,7 @@ impl Document {
 
     /// Re-add dropped anchors, each at the path its selector names, where the
     /// quote is found under the exact rule of
-    /// [`locate_site`](quillmark_content::anchor::locate_site): in the value's
+    /// [`locate_site`](quillmark_content::lines::anchor::locate_site): in the value's
     /// prose or one of its cells. Answers each selector in
     /// the order given, reattached with its selector as read after the write,
     /// or orphaned as given. Each value a selector names is read and written

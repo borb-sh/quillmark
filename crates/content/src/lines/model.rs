@@ -6,8 +6,8 @@
 //! encoded: the model stores only the resulting range, so the stored form is
 //! identical whatever the editor did.
 
-use crate::island::IslandType;
-use crate::normalize::{is_bidi_char, is_line_separator};
+use crate::lines::island::IslandType;
+use crate::lines::normalize::{is_bidi_char, is_line_separator};
 use serde_json::Value as JsonValue;
 use std::borrow::Cow;
 
@@ -100,7 +100,7 @@ impl Line {
 /// paragraphs), never one.
 ///
 /// **Closed**, on the same terms as [`MarkKind`]: a `kind` outside this set is
-/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName) at every
+/// [`ParseError::UnknownName`](crate::lines::serial::ParseError::UnknownName) at every
 /// decoder, so adding a role is a storage-version event.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LineKind {
@@ -177,7 +177,7 @@ pub(crate) fn is_empty_bag(v: &JsonValue) -> bool {
 /// A container a line nests inside. The ancestor path is a `Vec<Container>`.
 ///
 /// **Closed**, on [`LineKind`]'s terms: a `container` outside this set is
-/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName).
+/// [`ParseError::UnknownName`](crate::lines::serial::ParseError::UnknownName).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Container {
     /// A list item. `ordered` distinguishes `1.` from `-`; `start` is the list's
@@ -266,7 +266,7 @@ impl Container {
     ///
     /// The **identity** rule, read and written alike: two adjacent lines sit in
     /// one container instance iff this holds *and* their
-    /// [`instance`](Self::instance)s are equal. [`crate::traverse::runs`]
+    /// [`instance`](Self::instance)s are equal. [`crate::lines::traverse::runs`]
     /// applies it, and a producer separates its runs against it. Whether the
     /// *projection* can then tell two runs apart is
     /// [`same_weld`](Self::same_weld).
@@ -322,7 +322,7 @@ impl Container {
 ///
 /// A projection taking a token may therefore assume only what the mint
 /// establishes, and must be **total over any token**:
-/// [`to_markdown`](crate::export::to_markdown) walks containers on an explicit stack
+/// [`to_markdown`](crate::lines::export::to_markdown) walks containers on an explicit stack
 /// rather than a frame per level, and `emit_content` checks the depth and
 /// returns an error. An unguarded recursion aborts the process, which no
 /// `Result` can catch.
@@ -340,7 +340,7 @@ impl Normalized {
     }
 
     /// Every caller must leave this normalized; the forwarded `apply_*` in
-    /// [`crate::ops`] are the ones that do.
+    /// [`crate::lines::ops`] are the ones that do.
     pub(crate) fn as_content_mut(&mut self) -> &mut Content {
         &mut self.0
     }
@@ -376,7 +376,7 @@ impl Mark {
 }
 
 /// The mark set, **closed**: a `type` outside it is
-/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName). Two
+/// [`ParseError::UnknownName`](crate::lines::serial::ParseError::UnknownName). Two
 /// algebra classes: formatting is a property of a range (two coincident are
 /// redundant); identity is a handle (two over the same range are two things).
 #[derive(Debug, Clone, PartialEq)]
@@ -402,7 +402,7 @@ pub enum MarkKind {
     /// edits like any position. The id is caller-supplied, unique per `Content`,
     /// and invariant while the mark lives; moved-and-rewritten text drops the
     /// mark whole. No markdown projection: it is omitted on export, spelled
-    /// read-only by [`to_markdown_annotated`](crate::export::to_markdown_annotated),
+    /// read-only by [`to_markdown_annotated`](crate::lines::export::to_markdown_annotated),
     /// and survives via diff-rebase.
     Anchor {
         id: String,
@@ -604,7 +604,7 @@ pub(crate) fn check_json_depth(v: &JsonValue, what: &'static str) -> Result<(), 
 
 /// A `table` island's props against [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS).
 pub(crate) fn check_table_cells(props: &JsonValue) -> Result<(), Invariant> {
-    let cells = crate::serial::table_slots(props);
+    let cells = crate::lines::serial::table_slots(props);
     if cells > crate::MAX_TABLE_CELLS {
         return Err(Invariant::TableTooLarge { cells, max: crate::MAX_TABLE_CELLS });
     }
@@ -676,7 +676,7 @@ pub enum Invariant {
     /// A heading level outside 1..=6. No rewrite is principled: level 0 exports
     /// as bare text and level 7 as literal hashes, and a clamp guesses the
     /// other way. Both wires refuse it ahead of the model
-    /// ([`ParseError::Shape`](crate::serial::ParseError::Shape)), so only a Rust
+    /// ([`ParseError::Shape`](crate::lines::serial::ParseError::Shape)), so only a Rust
     /// caller spelling the level reaches this.
     BadHeadingLevel(u8),
     /// Two islands share an `id`. Uniqueness is the id invariant `validate`
@@ -774,7 +774,7 @@ fn fragment_line(line: &Line, span: std::ops::Range<Usv>, breaks: &[Usv], first:
 /// Whether the line whose text is `seg` is a block island's: its sole content is
 /// one [`ISLAND_SLOT`], and `island` — the one backing that slot — is markup
 /// markdown writes as a block
-/// ([`IslandType::block_only`](crate::island::IslandType::block_only)).
+/// ([`IslandType::block_only`](crate::lines::island::IslandType::block_only)).
 ///
 /// Such a line is a [`LineKind::Para`] that nonetheless renders one block, so
 /// this answers beside [`LineKind::takes_continuations`] rather than through it.
@@ -792,7 +792,7 @@ impl Content {
     /// Constructing neither normalizes nor checks: the canonical form is the
     /// caller's until [`into_normalized`](Self::into_normalized) runs, and
     /// [`validate`](Self::validate) reports what that cannot repair. The codecs
-    /// ([`crate::import`], [`Content::from_canonical_json`]) do both.
+    /// ([`crate::lines::import`], [`Content::from_canonical_json`]) do both.
     pub fn new(text: String, lines: Vec<Line>) -> Self {
         Content {
             text,
@@ -846,7 +846,7 @@ impl Content {
     /// `continues` is unconstrained. [`Content::empty`] is plain.
     ///
     /// The distinguishing property of `text` over a mark-free `richtext` is
-    /// the *literal* codec ([`crate::import::from_plaintext`]), not this
+    /// the *literal* codec ([`crate::lines::import::from_plaintext`]), not this
     /// predicate.
     pub fn is_plain(&self) -> bool {
         self.marks.is_empty()
@@ -886,7 +886,7 @@ impl Content {
 
     /// The block island `line` holds, if its sole content is that island's slot
     /// and the island's markup is a block
-    /// ([`IslandType::block_only`](crate::island::IslandType::block_only)).
+    /// ([`IslandType::block_only`](crate::lines::island::IslandType::block_only)).
     ///
     /// The read a line kind cannot answer: such a line is a
     /// [`LineKind::Para`] like any other, and the island is the only thing
@@ -989,7 +989,7 @@ impl Content {
     /// reaches it, and the mint never moves text. A point mark right after the
     /// slot moves onto the line after it.
     pub(crate) fn split_block_islands(&mut self) {
-        use crate::delta::{Assoc, Delta, Op};
+        use crate::lines::delta::{Assoc, Delta, Op};
 
         if !self.islands.iter().any(|i| i.island_type.block_only())
             || self.lines.len() != self.segment_count()
@@ -1144,7 +1144,7 @@ impl Content {
             // Depth before any pass that walks `props`; a cell's own `attrs` is
             // a subtree, so this bounds the cell marks read below as well.
             check_json_depth(&island.props, "island props")?;
-            if island.island_type == crate::island::IslandType::Table {
+            if island.island_type == crate::lines::island::IslandType::Table {
                 check_table_cells(&island.props)?;
             }
             for (text, marks) in island.island_type.cell_marks(&island.props) {
@@ -1560,9 +1560,9 @@ mod tests {
                 .into_normalized();
             assert_eq!(rt.validate(), Ok(()), "{what}");
             assert_eq!(rt.lines[0].kind, LineKind::Para, "{what}");
-            let md = crate::export::to_markdown(&rt);
+            let md = crate::lines::export::to_markdown(&rt);
             assert_eq!(
-                crate::import::from_markdown(&md).expect("re-imports").content,
+                crate::lines::import::from_markdown(&md).expect("re-imports").content,
                 rt,
                 "{what} is not a fixed point: {md:?}"
             );
@@ -1647,7 +1647,7 @@ mod tests {
             ("# heading", false),
             ("- item", false),
         ] {
-            let content = crate::import::from_markdown(md).unwrap().content;
+            let content = crate::lines::import::from_markdown(md).unwrap().content;
             assert_eq!(content.is_inline(), inline, "{md:?}");
         }
         assert!(Content::empty().is_inline());
@@ -1771,7 +1771,7 @@ mod tests {
             assert!(!rt.lines[1].continues, "normalize clears it after {kind:?}");
             assert_eq!(rt.validate(), Ok(()));
             assert_eq!(
-                crate::export::to_markdown(&rt.into_normalized()),
+                crate::lines::export::to_markdown(&rt.into_normalized()),
                 markdown,
                 "the continuation projects as the paragraph it is"
             );
@@ -1804,8 +1804,8 @@ mod tests {
         .into_normalized();
         assert!(!rt.lines[1].continues);
         assert_eq!(rt.validate(), Ok(()));
-        let markdown = crate::export::to_markdown(&rt);
-        let back = crate::import::from_markdown(&markdown).unwrap().content;
+        let markdown = crate::lines::export::to_markdown(&rt);
+        let back = crate::lines::import::from_markdown(&markdown).unwrap().content;
         assert_eq!(back, rt, "the markdown is a fixed point: {markdown:?}");
     }
 

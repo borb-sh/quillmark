@@ -1406,7 +1406,7 @@ impl Document {
         let card = self.addr_card_ref(&addr)?;
         match &addr.field {
             None => serialize_or_throw(
-                &quillmark_content::serial::to_canonical_value(card.body()),
+                &quillmark_content::lines::serial::to_canonical_value(card.body()),
                 "getStored",
             ),
             Some(field) => match card.payload().get(field) {
@@ -1514,7 +1514,7 @@ impl Document {
         let base = self.addr_base(&addr);
         match &addr.field {
             None => serialize_or_throw(
-                &quillmark_content::serial::to_canonical_value(self.addr_card_ref(&addr)?.body()),
+                &quillmark_content::lines::serial::to_canonical_value(self.addr_card_ref(&addr)?.body()),
                 "reader.getContent",
             ),
             Some(field) => {
@@ -1530,7 +1530,7 @@ impl Document {
                 match read {
                     None => Ok(JsValue::UNDEFINED),
                     Some(content) => serialize_or_throw(
-                        &quillmark_content::serial::to_canonical_value(&content),
+                        &quillmark_content::lines::serial::to_canonical_value(&content),
                         "reader.getContent",
                     ),
                 }
@@ -1584,7 +1584,7 @@ impl Document {
         match read {
             None => Ok(JsValue::UNDEFINED),
             Some(content) => serialize_or_throw(
-                &quillmark_content::serial::to_canonical_value(&content),
+                &quillmark_content::lines::serial::to_canonical_value(&content),
                 "reader.getContentAt",
             ),
         }
@@ -2297,8 +2297,8 @@ impl Addr {
 fn js_to_content(
     value: JsValue,
     ctx: &str,
-) -> Result<quillmark_content::model::Normalized, JsValue> {
-    js_to_content_with(value, ctx, quillmark_content::serial::from_canonical_value)
+) -> Result<quillmark_content::lines::model::Normalized, JsValue> {
+    js_to_content_with(value, ctx, quillmark_content::lines::serial::from_canonical_value)
 }
 
 /// [`js_to_content`] on the **authored** lane. The host is writing this content
@@ -2307,8 +2307,8 @@ fn js_to_content(
 fn js_to_authored_content(
     value: JsValue,
     ctx: &str,
-) -> Result<quillmark_content::model::Normalized, JsValue> {
-    js_to_content_with(value, ctx, quillmark_content::serial::from_authored_value)
+) -> Result<quillmark_content::lines::model::Normalized, JsValue> {
+    js_to_content_with(value, ctx, quillmark_content::lines::serial::from_authored_value)
 }
 
 fn js_to_content_with(
@@ -2317,8 +2317,8 @@ fn js_to_content_with(
     read: fn(
         &serde_json::Value,
     )
-        -> Result<quillmark_content::model::Normalized, quillmark_content::serial::ParseError>,
-) -> Result<quillmark_content::model::Normalized, JsValue> {
+        -> Result<quillmark_content::lines::model::Normalized, quillmark_content::lines::serial::ParseError>,
+) -> Result<quillmark_content::lines::model::Normalized, JsValue> {
     let json = js_value_to_json(value, ctx)?;
     if !json.is_object() {
         return Err(WasmError::from(format!(
@@ -2333,9 +2333,9 @@ fn js_to_content_with(
 fn parse_change_bundle(
     value: &JsValue,
     ctx: &str,
-) -> Result<quillmark_content::ops::ChangeBundle, JsValue> {
+) -> Result<quillmark_content::lines::ops::ChangeBundle, JsValue> {
     let json = js_value_to_json(value.clone(), ctx)?;
-    quillmark_content::ops::change_bundle_from_value(&json)
+    quillmark_content::lines::ops::change_bundle_from_value(&json)
         .map_err(|e| WasmError::from(format!("{ctx}: {e}")).to_js_value())
 }
 
@@ -2346,10 +2346,10 @@ fn parse_change_bundle(
 /// Throws on an over-nested input.
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
-    let imported = quillmark_content::import::from_markdown(markdown)
+    let imported = quillmark_content::lines::import::from_markdown(markdown)
         .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
     let out = ImportedJs {
-        content: quillmark_content::serial::to_canonical_value(&imported.content),
+        content: quillmark_content::lines::serial::to_canonical_value(&imported.content),
         warnings: diags(quillmark_core::document::dropped_constructs(
             imported.warnings,
             None,
@@ -2365,7 +2365,7 @@ pub fn export_markdown(
     #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
 ) -> Result<String, JsValue> {
     let content = js_to_content(rt, "exportMarkdown")?;
-    Ok(quillmark_content::export::to_markdown(&content))
+    Ok(quillmark_content::lines::export::to_markdown(&content))
 }
 
 /// What a revise's writer read, off a `BaseOptions`.
@@ -2426,7 +2426,7 @@ pub fn normalize(
 ) -> Result<JsValue, JsValue> {
     let content = js_to_authored_content(rt, "normalize")?;
     serialize_or_throw(
-        &quillmark_content::serial::to_canonical_value(&content),
+        &quillmark_content::lines::serial::to_canonical_value(&content),
         "normalize",
     )
 }
@@ -2723,7 +2723,7 @@ pub fn map_marks(
     let out = serde_json::Value::Array(
         marks
             .iter()
-            .map(quillmark_content::serial::mark_to_value)
+            .map(quillmark_content::lines::serial::mark_to_value)
             .collect(),
     );
     serialize_or_throw(&out, "mapMarks")

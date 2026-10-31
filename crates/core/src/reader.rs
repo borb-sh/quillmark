@@ -29,7 +29,7 @@
 //! boundary; those surfaces construct one per call from the quill handle.
 
 use indexmap::IndexMap;
-use quillmark_content::model::Normalized;
+use quillmark_content::lines::model::Normalized;
 
 use crate::document::edit::field_decode;
 use crate::document::{Card, Document, EditError};
@@ -66,23 +66,23 @@ impl<'a> TypedReader<'a> {
         read_field(self.doc.main(), Some(&self.config.main.fields), name)
     }
 
-    /// Read a main-card content field as its [`Content`](quillmark_content::model::Content), decoded through the
-    /// codec its declared type names: the [`Content`](quillmark_content::model::Content) twin of [`get`](Self::get).
+    /// Read a main-card content field as its [`Content`](quillmark_content::lines::model::Content), decoded through the
+    /// codec its declared type names: the [`Content`](quillmark_content::lines::model::Content) twin of [`get`](Self::get).
     /// Total over the storage form, so a canonical content object and an
-    /// authored string both read back as a [`Content`](quillmark_content::model::Content).
+    /// authored string both read back as a [`Content`](quillmark_content::lines::model::Content).
     ///
     /// `Ok(None)` when the field is absent;
     /// [`EditError::UnknownField`] for a name the schema does not declare;
     /// [`EditError::FieldNotContent`] for a declared type that is not a content
-    /// leaf (an `integer` has no [`Content`](quillmark_content::model::Content) even when it holds a string, and an
-    /// `array<richtext>` carries content without having one [`Content`](quillmark_content::model::Content));
+    /// leaf (an `integer` has no [`Content`](quillmark_content::lines::model::Content) even when it holds a string, and an
+    /// `array<richtext>` carries content without having one [`Content`](quillmark_content::lines::model::Content));
     /// [`EditError::FieldDecode`] when the stored value decodes under
     /// neither encoding.
     pub fn get_content(&self, name: &str) -> Result<Option<Normalized>, EditError> {
         self.get_content_at(name, &[])
     }
 
-    /// Read the [`Content`](quillmark_content::model::Content) *nested inside* a composite field at `at`: an
+    /// Read the [`Content`](quillmark_content::lines::model::Content) *nested inside* a composite field at `at`: an
     /// `array<richtext>` element, an `object`'s content property, a leaf under
     /// both (`cells[1].notes`), or a variant's cell.
     /// [`get_content`](Self::get_content) is the empty path.
@@ -164,7 +164,7 @@ impl CardReader<'_> {
         read_field(self.card, self.schema.map(|s| &s.fields), name)
     }
 
-    /// Read a content field on this card as its [`Content`](quillmark_content::model::Content): the card twin
+    /// Read a content field on this card as its [`Content`](quillmark_content::lines::model::Content): the card twin
     /// of [`TypedReader::get_content`], carrying the same outcomes.
     pub fn get_content(&self, name: &str) -> Result<Option<Normalized>, EditError> {
         self.get_content_at(name, &[])
@@ -209,12 +209,12 @@ fn read_field(
     Ok(Some(QuillValue::from_json(projected)))
 }
 
-/// The shared [`Content`](quillmark_content::model::Content) dispatch behind every `get_content` /
+/// The shared [`Content`](quillmark_content::lines::model::Content) dispatch behind every `get_content` /
 /// `get_content_at`, the whole-field read being the empty `at`.
 /// [`EditError::FieldNotContent`] is answered from the schema before the payload
-/// is read: whether an address has a [`Content`](quillmark_content::model::Content) is a declared-type fact, so a
+/// is read: whether an address has a [`Content`](quillmark_content::lines::model::Content) is a declared-type fact, so a
 /// `enum` holding markdown-looking text is not content, and an
-/// `array<richtext>` has no single [`Content`](quillmark_content::model::Content) while each of its elements does.
+/// `array<richtext>` has no single [`Content`](quillmark_content::lines::model::Content) while each of its elements does.
 fn read_content(
     card: &Card,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,

@@ -9,9 +9,9 @@
 use proptest::prelude::*;
 
 use super::generate::{contained, counted, prefixed, table, tally, word, Piece};
-use crate::export::to_markdown;
-use crate::import::from_markdown;
-use crate::model::Normalized;
+use crate::lines::export::to_markdown;
+use crate::lines::import::from_markdown;
+use crate::lines::model::Normalized;
 
 fn inline() -> impl Strategy<Value = Piece> {
     let tagged = (
@@ -188,7 +188,7 @@ fn imported_text(rt: &Normalized) -> String {
             });
         for cell in cells {
             all.push('\n');
-            all.push_str(&crate::serial::parse_cell(&cell).0);
+            all.push_str(&crate::lines::serial::parse_cell(&cell).0);
         }
     }
     all

@@ -1,5 +1,5 @@
-use quillmark_content::model::{Mark, MarkKind, Normalized};
-use quillmark_content::serial::to_canonical_value;
+use quillmark_content::lines::model::{Mark, MarkKind, Normalized};
+use quillmark_content::lines::serial::to_canonical_value;
 
 use crate::document::{Codec, Document};
 use crate::value::QuillValue;
@@ -284,7 +284,7 @@ fn an_anchor_in_a_fields_list_item_survives_an_edit_to_its_item() {
         .unwrap()
         .as_json()
         .clone();
-    let item = quillmark_content::serial::from_canonical_value(&items[1]).unwrap();
+    let item = quillmark_content::lines::serial::from_canonical_value(&items[1]).unwrap();
     assert_eq!(item.text, "an edited item to flag");
     assert_eq!(anchor_ids(&item), ["i1"]);
     assert!(
@@ -502,7 +502,7 @@ fn an_item_inserted_ahead_keeps_each_anchor_on_its_own_item() {
         .as_json()
         .clone();
     assert_eq!(items[0], "a new first item");
-    let item = quillmark_content::serial::from_canonical_value(&items[2]).unwrap();
+    let item = quillmark_content::lines::serial::from_canonical_value(&items[2]).unwrap();
     assert_eq!(item.text, "an item to flag");
     assert_eq!(anchor_ids(&item), ["i1"]);
 
