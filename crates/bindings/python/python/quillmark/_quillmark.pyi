@@ -30,6 +30,7 @@ __all__ = [
     "diff",
     "invert",
     "map_pos",
+    "repair",
 ]
 
 @final
@@ -209,6 +210,18 @@ def invert(change: Change, before: Content) -> Change: ...
 def compose(a: Change, b: Change) -> Change: ...
 def map_pos(change: Change, pos: Pos, assoc: Literal["before", "after"]) -> Pos | None: ...
 def diff(before: Content, after: Content) -> Change: ...
+
+# A value as a merge left it: shaped as `Content`, its invariants unchecked.
+# `islands` may be a dict keyed by island id with `slot_ids` naming the island
+# each slot carries (`None` for none), and an anchor placed as a range may
+# carry `"range": True`.
+RawContent = dict[str, Any]
+
+class Repaired(TypedDict):
+    content: Content
+    repairs: list[dict[str, Any]]
+
+def repair(raw: RawContent) -> Repaired: ...
 
 class AnchorContext(TypedDict):
     id: str

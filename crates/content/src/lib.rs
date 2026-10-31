@@ -6,7 +6,8 @@
 //! the canonical, byte-deterministic JSON storage and the bindings carry.
 //! [`markdown`] is the projection at the edges, read and written through the
 //! line form in [`lines`], which the renderers also read; [`migrate`] moves
-//! values between the two.
+//! values between the two. [`change`] is the one way a value is edited, and
+//! [`repair`] makes valid a state two concurrent edits merged into.
 
 pub mod change;
 pub mod diff;
@@ -15,6 +16,7 @@ pub mod lines;
 pub mod markdown;
 pub mod migrate;
 pub mod model;
+pub mod repair;
 pub mod table;
 pub mod units;
 pub mod usv;

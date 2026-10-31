@@ -17,6 +17,7 @@ from ._quillmark import (
     diff,
     invert,
     map_pos,
+    repair,
 )
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "diff",
     "invert",
     "map_pos",
+    "repair",
 ]
 
 try:
