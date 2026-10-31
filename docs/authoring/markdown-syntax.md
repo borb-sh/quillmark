@@ -170,7 +170,7 @@ Consequences:
 - An HTML block drops as CommonMark reads it, unless it opens `<table>`. A line starting with a tag such as `<div>`, `<center>` or `<details>` opens a block that runs to the next blank line, so markdown on the lines under it drops with it; a blank line after the tag line keeps what follows. Embedded SVG draws nothing.
 - A `<pre>`, `<script>`, `<style>` or `<textarea>` block drops whole, content included, through the end of its closing tag's line.
 - HTML comments do not appear in output. Text after a comment's `-->` on the same line still does.
-- Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included. Comments are not reported, and neither are closing tags and `<qm-anchor>` tags, except where the block they open drops markdown. A tag in a `richtext` field's value in the card-yaml block drops the same way, reported at the field.
+- Each dropped tag is reported as a `parse::dropped_construct` warning naming it in lowercase and counting its opening tags, a `<pre>` block's included. Comments are not reported, and neither are closing tags and `<qm-anchor>` tags, except where the block they open drops markdown. A `<qm-island>` token, which only a revise of an annotated read resolves, is reported where it drops. A tag in a `richtext` field's value in the card-yaml block drops the same way, reported at the field.
 
 ### A column-zero `~~~` always opens a card-yaml block
 

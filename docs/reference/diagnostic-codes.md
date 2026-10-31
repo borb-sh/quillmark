@@ -6,8 +6,10 @@ Every `code` a `Diagnostic` can carry, by namespace. Route on these, not on `mes
 
 Reading a document: card-yaml, limits, body import.
 
+- `parse::anchor_id_collision`
 - `parse::body_import`
 - `parse::card_fence_missing_blank`
+- `parse::card_id_reminted`
 - `parse::dropped_construct`
 - `parse::empty_input`
 - `parse::input_too_large`
@@ -21,6 +23,12 @@ Reading a document: card-yaml, limits, body import.
 - `parse::unclosed_code_block`
 - `parse::unsupported_yaml_tag`
 - `parse::yaml_error_with_location`
+
+## `export::`
+
+Writing a content to markdown.
+
+- `export::lost_construct`
 
 ## `validation::`
 
@@ -147,17 +155,21 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 A mutator or typed write the document refuses.
 
 - `edit::content_apply`
+- `edit::duplicate_card_id`
 - `edit::field_coercion_failed`
 - `edit::field_decode`
 - `edit::field_not_content`
 - `edit::field_not_single_line`
 - `edit::import`
 - `edit::index_out_of_range`
+- `edit::invalid_card_id`
 - `edit::invalid_field_name`
 - `edit::invalid_kind_name`
 - `edit::invalid_payload`
+- `edit::rebase_conflict`
 - `edit::reserved_kind`
 - `edit::root_only_entry`
+- `edit::stale_base`
 - `edit::too_many_cards`
 - `edit::unknown_field`
 - `edit::value_too_deep`

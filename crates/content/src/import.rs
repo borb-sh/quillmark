@@ -53,9 +53,12 @@
 //! - Raw HTML produces no content beyond the allowlist, a table and the
 //!   carrier. Any other HTML block drops whole, as CommonMark runs it; one of
 //!   tag lines alone passes its carrier tags on.
-//! - A `qm-*` tag outside `qm-span` and `qm-anchor` wraps nothing: an open
-//!   tag drops, reported under its name, a close tag drops silently, and the
-//!   blocks between them import as written.
+//! - A `qm-*` tag outside `qm-span`, `qm-anchor` and `qm-island` wraps
+//!   nothing: an open tag drops, reported under its name, a close tag drops
+//!   silently, and the blocks between them import as written.
+//! - An annotated read's `qm-anchor` tags and `qm-island` tokens are read by a
+//!   revise ([`from_markdown_against`]) and dropped by a cold import, a token
+//!   reported.
 
 use crate::model::{
     Container, Island, Line, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
@@ -67,7 +70,7 @@ use crate::normalize::parse_markdown;
 use crate::MAX_NESTING_DEPTH;
 use pulldown_cmark::{Event, Options, Tag, TagEnd};
 use serde_json::json;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use unicase::UniCase;
 
@@ -107,10 +110,13 @@ pub enum Dropped {
     /// A tag named with the carrier's prefix and no element name after it: its
     /// lowercase name (`qm-a--b`).
     BadName(String),
-    /// The open tag of a `qm-*` name the carrier does not read, and a
-    /// `qm-span` tag that drops: `qm-<name>`.
+    /// The open tag of a `qm-*` name the carrier does not read, a `qm-span`
+    /// tag that drops, and a `qm-island` token outside a revise or where no
+    /// island sits: `qm-<name>`.
     Element(String),
-    /// A `qm-span` attribute it does not read: `qm-span[<attr>]`.
+    /// A `qm-span` attribute it does not read, and the `ref` of a `qm-anchor`
+    /// tag or `qm-island` token naming nothing a revise can keep:
+    /// `qm-<element>[<attr>]`.
     ElementAttr { element: String, attr: String },
     /// An HTML table its block ends before its `</table>`, or another
     /// `<table>` interrupts, which closes there: `table`.
@@ -137,6 +143,20 @@ pub enum Dropped {
     /// An equation where no island can sit, or whose TeX its delimiters would
     /// not write back, which stays as its markup's text: `math`.
     Math,
+    /// A bidi formatting control, which the content does not admit: `bidi`.
+    Bidi,
+}
+
+impl Dropped {
+    /// Whether this reports a `qm-anchor` tag or a `qm-island` token, which
+    /// [`from_markdown_unresolved`] drops silently.
+    pub fn is_held_tag(&self) -> bool {
+        match self {
+            Dropped::Element(element) => element == carrier::ISLAND,
+            Dropped::ElementAttr { element, .. } => carrier::RESERVED.contains(&element.as_str()),
+            _ => false,
+        }
+    }
 }
 
 impl std::fmt::Display for Dropped {
@@ -149,6 +169,7 @@ impl std::fmt::Display for Dropped {
             Dropped::Footnote => f.write_str("footnote"),
             Dropped::NoteBlock(block) => write!(f, "footnote[{block}]"),
             Dropped::Math => f.write_str("math"),
+            Dropped::Bidi => f.write_str("bidi"),
             Dropped::Table => f.write_str("table"),
             Dropped::TableRow => f.write_str("table:row"),
             Dropped::TableText => f.write_str("table:text"),
@@ -183,17 +204,104 @@ pub(crate) fn options() -> Options {
 /// `<pre>`, `<script>`, `<style>` or `<textarea>` block's included, a block
 /// holding no other opening tag under its first where it drops markdown with
 /// it, each footnote no reference reads and each equation that stays as its
-/// markup's text. A comment, the content of a type 1–5 HTML block, and any other
+/// markup's text, and each bidi control the text drops. A comment, the content
+/// of a type 1–5 HTML block, and any other
 /// closing tag or `qm-anchor` tag drop silently. What a footnote nothing
-/// reads holds reports nothing of its own.
+/// reads holds reports nothing of its own. A `qm-island` token, which only a revise reads, drops reported under
+/// `qm-island`.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
-    let mut b = Builder::default();
-    parse_markdown(markdown, options(), |text, events| b.run(MarkdownFixer::new(text, events.into_iter())))?;
-    let (content, dropped) = b.finish();
+    let (content, warnings) = import(markdown, Tags::Cold)?;
     Ok(Imported {
         content: content.into_normalized(),
-        warnings: dropped.into_warnings(),
+        warnings,
     })
+}
+
+/// [`from_markdown`] with each `qm-island` token dropped silently: the read
+/// of a markdown whose tokens a [`from_markdown_against`] of the same
+/// markdown resolves once the stored value it revises is known.
+pub fn from_markdown_unresolved(markdown: &str) -> Result<Imported, ImportError> {
+    let (content, warnings) = import(markdown, Tags::Unresolved)?;
+    Ok(Imported {
+        content: content.into_normalized(),
+        warnings,
+    })
+}
+
+/// A [`from_markdown_against`] import.
+#[derive(Debug, Clone, PartialEq)]
+#[must_use = "carries the import's warnings and pins; read them or bind it"]
+pub struct Against {
+    /// The content, each token's island in it and no anchor.
+    pub content: Normalized,
+    /// [`from_markdown`]'s warnings, with each tag and token reported in
+    /// place of a token's drop.
+    pub warnings: Vec<ImportWarning>,
+    /// Each anchor a tag pins, in position order.
+    pub pins: Vec<Pin>,
+}
+
+/// An anchor tag's position in a revise's content: where the anchor of `id`
+/// starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pin {
+    pub at: crate::model::Usv,
+    pub id: String,
+}
+
+/// Import `markdown` as a revise of `stored`, reading the tags of an
+/// annotated read (markdown-spec §6.4). A `<qm-anchor ref="ID">` tag in prose
+/// pins the anchor `ID` the stored value holds in prose to start where the
+/// tag sits; one with an `at` attribute, which the read writes where its tag
+/// moved to its line's end, pins nothing. A `<qm-island ref="ID">` token in
+/// prose is the stored island `ID`, its type and props as stored but for its
+/// cells' anchors, which the revise carries onto the island that continues it
+/// ([`crate::delta::rebase_onto`]), so a token written twice copies none. A tag or a
+/// token naming nothing the stored value holds there, and a second tag naming
+/// one anchor, drop reported under `qm-anchor[ref]` or `qm-island[ref]`; a
+/// token in a table cell, a note, an image's alt text or a code span drops
+/// reported under `qm-island`. An anchor tag outside prose pins nothing.
+pub fn from_markdown_against(markdown: &str, stored: &Content) -> Result<Against, ImportError> {
+    let anchors = stored
+        .marks
+        .iter()
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some(id.clone()),
+            _ => None,
+        })
+        .collect();
+    let islands = stored.islands.iter().map(|i| (i.id.clone(), i.clone())).collect();
+    let (mut content, warnings) = import(markdown, Tags::Against { anchors, islands })?;
+    content.split_block_islands();
+    let mut content = content.into_normalized().into_content();
+    let mut pins = Vec::new();
+    content.marks.retain(|m| match &m.kind {
+        MarkKind::Anchor { id } => {
+            pins.push(Pin { at: m.start, id: id.clone() });
+            false
+        }
+        _ => true,
+    });
+    Ok(Against {
+        content: content.into_normalized(),
+        warnings,
+        pins,
+    })
+}
+
+fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), ImportError> {
+    let mut b = Builder { tags, ..Builder::default() };
+    parse_markdown(markdown, options(), |text, events| b.run(MarkdownFixer::new(text, events.into_iter())))?;
+    let (content, mut dropped) = b.finish();
+    let mut at = 0;
+    for c in markdown.chars() {
+        if crate::normalize::is_bidi_char(c) {
+            dropped.add(Dropped::Bidi, at);
+        } else if c != '\r' {
+            at += c.len_utf8();
+        }
+    }
+    Ok((content, dropped.into_warnings()))
 }
 
 /// Import plain text (literal) into a [`Content`]: the literal-codec sibling of
@@ -484,6 +592,27 @@ struct Builder {
     notes: HashMap<UniCase<String>, Note>,
     /// Each footnote island minted, by index, and the label it reads.
     note_refs: Vec<(usize, UniCase<String>)>,
+    /// How the walk reads an anchor tag or an island token.
+    tags: Tags,
+    /// Each anchor id a tag has named, so a second tag naming it reports.
+    pinned: HashSet<String>,
+}
+
+/// How an import reads the `qm-anchor` tags and `qm-island` tokens of an
+/// annotated read.
+#[derive(Default)]
+enum Tags {
+    /// A cold import: both drop, a token reported.
+    #[default]
+    Cold,
+    /// Both drop silently, a later [`from_markdown_against`] reading them.
+    Unresolved,
+    /// A revise of a stored value: its prose anchors' ids and its islands by
+    /// id.
+    Against {
+        anchors: HashSet<String>,
+        islands: HashMap<String, Island>,
+    },
 }
 
 /// A footnote definition whose events the import is reading into a note.
@@ -765,6 +894,10 @@ impl Builder {
                     self.html_table(table)?;
                     continue;
                 }
+                Fixed::Held(tag) => {
+                    self.held_tag(tag);
+                    continue;
+                }
             };
             if self.note.is_some() {
                 self.note_event(event);
@@ -1019,6 +1152,54 @@ impl Builder {
         }
         *open += 1;
         dropped.add(Dropped::Element(name), at);
+    }
+
+    /// One anchor tag or island token. A revise pins a prose anchor its
+    /// stored value holds where a tag without `at` names it, and places the
+    /// stored island a token names where prose can hold it. A tag naming no
+    /// anchor or island the stored value holds, or an anchor another tag named
+    /// already, reports its `ref`, and a token where no island sits reports
+    /// itself.
+    fn held_tag(&mut self, tag: HeldTag) {
+        let HeldTag { element, attrs, at } = tag;
+        let id = attrs.values.get("ref");
+        let prose = self.note.is_none() && self.image_depth == 0 && self.table.is_none() && !self.in_code;
+        let report = match &self.tags {
+            Tags::Unresolved => return,
+            Tags::Cold if element == carrier::ANCHOR => return,
+            Tags::Cold => Some(Dropped::Element(element)),
+            Tags::Against { islands, .. } if element == carrier::ISLAND => {
+                match id.and_then(|id| islands.get(id)) {
+                    Some(island) if prose => {
+                        let Island { island_type, mut props, .. } = island.clone();
+                        crate::export::drop_anchor_marks(&mut props);
+                        self.ensure_open(LineKind::Para);
+                        self.inline.push_raw(ISLAND_SLOT);
+                        self.mint_island(island_type, props);
+                        None
+                    }
+                    Some(_) => Some(Dropped::Element(element)),
+                    None => Some(Dropped::ElementAttr { element, attr: "ref".into() }),
+                }
+            }
+            Tags::Against { anchors, .. } => match id {
+                Some(id) if anchors.contains(id) && self.pinned.insert(id.clone()) => {
+                    if prose && !attrs.values.contains_key("at") {
+                        self.open_early();
+                        let pos = self.inline.pos;
+                        self.inline.marks.push(Mark::new(pos, pos, MarkKind::Anchor { id: id.clone() }));
+                    }
+                    None
+                }
+                _ => Some(Dropped::ElementAttr { element, attr: "ref".into() }),
+            },
+        };
+        if let Some(construct) = report {
+            match self.note.as_mut() {
+                Some(note) => note.dropped.add(construct, at),
+                None => self.dropped.add(construct, at),
+            }
+        }
     }
 
     /// Pair one `<u>` tag in the run or table cell it stands in. In an image's
@@ -1582,6 +1763,17 @@ enum Fixed<'a> {
     Math { tex: pulldown_cmark::CowStr<'a>, display: bool, source: &'a str, at: usize },
     /// A table an HTML block spells.
     HtmlTable(crate::html_table::Table),
+    /// An inline `qm-anchor` or `qm-island` open tag.
+    Held(HeldTag),
+}
+
+/// An inline open tag of a [reserved](carrier::RESERVED) element: an anchor
+/// tag or an island token, which only a revise reads.
+struct HeldTag {
+    element: String,
+    attrs: carrier::Attrs,
+    /// The tag's byte offset.
+    at: usize,
 }
 
 impl Fixed<'_> {
@@ -1974,6 +2166,15 @@ where
                 }
                 if let Some(carrier) = CarrierTag::of(&tag, false, range.start) {
                     return Some(Fixed::Carrier(carrier));
+                }
+                if let Some(element) = carrier::element(tag.name).filter(|e| carrier::RESERVED.contains(&e.as_str())) {
+                    return (!tag.closing).then(|| {
+                        Fixed::Held(HeldTag {
+                            element,
+                            attrs: carrier::decode_attrs(&tag.attrs),
+                            at: range.start,
+                        })
+                    });
                 }
                 self.drop_tag(&tag, range.start);
                 return None;
@@ -3434,6 +3635,13 @@ pub(crate) mod tests {
         for markdown in [format!("{pair}\n\n{note}"), format!("{note}\n\n{pair}")] {
             assert_eq!(dropped(&imp_fixed(&markdown)), [("qm-keep", 2)], "{markdown:?}");
         }
+    }
+
+    #[test]
+    fn a_bidi_control_drops_with_a_report() {
+        let imported = imp_fixed("Price \u{200F}123\u{200E} shekel \u{2067}abc\u{2069}");
+        assert_eq!(imported.content.text, "Price 123 shekel abc");
+        assert_eq!(dropped(&imported), [("bidi", 4)]);
     }
 
     /// CRLF line endings import as LF ones do, through every block the

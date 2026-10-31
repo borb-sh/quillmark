@@ -111,6 +111,15 @@ impl<'a> TypedReader<'a> {
         read_content(self.doc.main(), Some(&self.config.main.fields), name, at)
     }
 
+    /// The document's [`Outline`](crate::outline::Outline): each card with its
+    /// path, `$kind` and `$id`, each declared field with its
+    /// [`FieldState`](crate::outline::FieldState), the body's headings by line,
+    /// and each anchor by id and path. The read that tells a writer which
+    /// address to read and write next, and what is still pending.
+    pub fn outline(&self) -> crate::outline::Outline {
+        crate::outline::outline(self.config, self.doc)
+    }
+
     /// The main body's markdown projection. Consults no schema and never
     /// raises; the body is never absent.
     pub fn body_markdown(&self) -> String {

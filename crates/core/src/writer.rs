@@ -28,7 +28,7 @@
 use indexmap::IndexMap;
 
 use crate::document::edit::{overflow_errors, resolve_field_write};
-use crate::document::{Card, Document, DocumentRevised, EditError, Revised};
+use crate::document::{Base, Card, Document, DocumentRevised, EditError, Revised, Revising};
 use crate::error::Diagnostic;
 use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
@@ -94,6 +94,13 @@ impl<'a> TypedWriter<'a> {
         Ok(revised.with_path(&DocPath::main_body()))
     }
 
+    /// [`revise_body`](Self::revise_body) under `base`, which refuses a stale
+    /// write or merges it onto what changed since the writer's read.
+    pub fn revise_body_against(&mut self, base: Base<'_>, markdown: &str) -> Result<Revised, EditError> {
+        let revised = self.doc.main_card_mut().revise_body_against(base, markdown)?;
+        Ok(revised.with_path(&DocPath::main_body()))
+    }
+
     /// Revise a content field on the main card from authored text: typed *and*
     /// anchor-preserving. Surviving anchors rebase and the diffed result is
     /// schema-conformed (a one-line `richtext` rejects a multi-block result).
@@ -106,7 +113,19 @@ impl<'a> TypedWriter<'a> {
     /// byte no-op. The [`Revised`] receipt's warnings anchor at the field.
     pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Revised, EditError> {
         let schema = Some(&self.config.main.fields);
-        revise_impl(self.doc.main_card_mut(), schema, name, text, &DocPath::main())
+        revise_impl(self.doc.main_card_mut(), schema, name, None, text, &DocPath::main())
+    }
+
+    /// [`revise_field`](Self::revise_field) under `base`. A `text` field's
+    /// [`Base::Read`] is its literal text.
+    pub fn revise_field_against(
+        &mut self,
+        name: &str,
+        base: Base<'_>,
+        text: &str,
+    ) -> Result<Revised, EditError> {
+        let schema = Some(&self.config.main.fields);
+        revise_impl(self.doc.main_card_mut(), schema, name, Some(base), text, &DocPath::main())
     }
 
     /// Replace the document with `markdown` through [`Document::revise`], then
@@ -118,9 +137,49 @@ impl<'a> TypedWriter<'a> {
     /// [`BoundParseError::Mismatch`] before any mutation, and a parse failure
     /// as [`BoundParseError::Parse`].
     pub fn revise_document(&mut self, markdown: &str) -> Result<DocumentRevised, BoundParseError> {
-        let parsed = Document::parse(markdown)?;
-        self.config.check_quill_reference(&parsed.document)?;
-        let mut revised = self.doc.revise_parsed(parsed);
+        let revising = Document::parse_revising(markdown)?;
+        self.revise_parsed(revising)
+    }
+
+    /// [`revise_document`](Self::revise_document) under `base`: the hash is
+    /// [`hash`](Self::hash), and a read is the whole document's markdown,
+    /// annotated or not. Each side is parsed, conformed and emitted before the
+    /// merge. A stale or conflicting write fails as [`BoundParseError::Base`]
+    /// before any mutation.
+    pub fn revise_document_against(
+        &mut self,
+        base: Base<'_>,
+        markdown: &str,
+    ) -> Result<DocumentRevised, BoundParseError> {
+        let parsed = crate::document::base::parse_against(self.config, self.doc, base, markdown)?;
+        self.revise_parsed(parsed)
+    }
+
+    /// The hash of the document as this quill conforms it: the [`Base::Hash`]
+    /// [`revise_document_against`](Self::revise_document_against) checks. A
+    /// document loaded without its quill hashes as its conformed self, so a
+    /// conform between the read and the write does not stale the base. Fails
+    /// as [`BoundParseError::Mismatch`] on a `$quill` this quill does not
+    /// answer to.
+    pub fn hash(&self) -> Result<String, BoundParseError> {
+        Ok(crate::document::base::conformed(self.config, self.doc)?.hash())
+    }
+
+    /// The hash of a main-card field through its schema: the [`Base::Hash`]
+    /// [`revise_field_against`](Self::revise_field_against) checks. A
+    /// `richtext` field hashes its content however it rests, a `text` field
+    /// its literal text, any other type its stored value. An undeclared name
+    /// fails with [`EditError::UnknownField`].
+    pub fn field_hash(&self, name: &str) -> Result<String, EditError> {
+        match self.config.main.fields.get(name) {
+            Some(schema) => self.doc.main().field_hash_checked(name, schema),
+            None => Err(EditError::unknown_field(name)),
+        }
+    }
+
+    fn revise_parsed(&mut self, revising: Revising) -> Result<DocumentRevised, BoundParseError> {
+        self.config.check_quill_reference(&revising.parsed.document)?;
+        let mut revised = self.doc.revise_parsed(revising);
         revised.warnings.extend(
             self.config
                 .conform(self.doc)
@@ -262,12 +321,40 @@ impl<'a> CardWriter<'a> {
         Ok(revised.with_path(&base.body()))
     }
 
+    /// The card twin of [`TypedWriter::revise_body_against`].
+    pub fn revise_body_against(&mut self, read: Base<'_>, markdown: &str) -> Result<Revised, EditError> {
+        let base = self.base();
+        let revised = self.card_mut().revise_body_against(read, markdown)?;
+        Ok(revised.with_path(&base.body()))
+    }
+
     /// The card twin of [`TypedWriter::revise_field`], resolved against the
     /// card's [`CardSchema`](crate::quill::CardSchema).
     pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Revised, EditError> {
         let schema = self.fields_schema();
         let base = self.base();
-        revise_impl(self.card_mut(), schema, name, text, &base)
+        revise_impl(self.card_mut(), schema, name, None, text, &base)
+    }
+
+    /// The card twin of [`TypedWriter::field_hash`].
+    pub fn field_hash(&self, name: &str) -> Result<String, EditError> {
+        let schema = self.fields_schema().and_then(|m| m.get(name));
+        match schema {
+            Some(schema) => self.card().field_hash_checked(name, schema),
+            None => Err(EditError::unknown_field(name)),
+        }
+    }
+
+    /// The card twin of [`TypedWriter::revise_field_against`].
+    pub fn revise_field_against(
+        &mut self,
+        name: &str,
+        read: Base<'_>,
+        text: &str,
+    ) -> Result<Revised, EditError> {
+        let schema = self.fields_schema();
+        let base = self.base();
+        revise_impl(self.card_mut(), schema, name, Some(read), text, &base)
     }
 
     /// Write several fields on this card atomically; see
@@ -302,22 +389,25 @@ fn commit_impl(
     card.commit_field_at(name, &value.into(), schema, base)
 }
 
-/// The anchor-preserving twin of [`commit_impl`], shared by
-/// [`TypedWriter::revise_field`] and [`CardWriter::revise_field`]. `base` is
-/// the card's root, where the receipt's warnings anchor under the field.
+/// The anchor-preserving twin of [`commit_impl`], shared by the writers'
+/// `revise_field` and `revise_field_against`. `base` is the card's root, where
+/// the receipt's warnings anchor under the field.
 fn revise_impl(
     card: &mut Card,
     fields_schema: Option<&IndexMap<String, FieldSchema>>,
     name: &str,
+    read: Option<Base<'_>>,
     text: &str,
     base: &DocPath,
 ) -> Result<Revised, EditError> {
-    match fields_schema.and_then(|m| m.get(name)) {
-        Some(schema) => Ok(card
-            .revise_field_checked(name, text, schema)?
-            .with_path(&base.field(name))),
-        None => Err(EditError::unknown_field(name)),
-    }
+    let Some(schema) = fields_schema.and_then(|m| m.get(name)) else {
+        return Err(EditError::unknown_field(name));
+    };
+    let revised = match read {
+        None => card.revise_field_checked(name, text, schema)?,
+        Some(read) => card.revise_field_checked_against(name, read, text, schema)?,
+    };
+    Ok(revised.with_path(&base.field(name)))
 }
 
 /// All-or-nothing batched write shared by [`TypedWriter::set_all`] and

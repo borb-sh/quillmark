@@ -461,7 +461,9 @@ impl PyDocument {
         })
     }
 
-    /// Reconstruct a `Document` from its versioned storage DTO string.
+    /// Reconstruct a `Document` from its versioned storage DTO string. Its
+    /// `warnings` hold one `parse::anchor_id_collision` per anchor id a value
+    /// holds more than once, a table cell or footnote taking part.
     /// Raises `QuillmarkError` on malformed JSON, unknown `schema`, missing fields,
     /// or unparseable quill reference.
     #[staticmethod]
@@ -476,9 +478,10 @@ impl PyDocument {
                 msg,
             )
         })?;
+        let parse_warnings = inner.anchor_collisions();
         Ok(PyDocument {
             inner,
-            parse_warnings: Vec::new(),
+            parse_warnings,
         })
     }
 
@@ -490,13 +493,12 @@ impl PyDocument {
         quillmark_core::document::peek_storage_version(json)
     }
 
-    /// The newest storage version this build writes: a document spelling a
-    /// font mark, a `table` element, a merged table cell or a table head 0.130
-    /// cannot draw carries it, every other the tag before it, which a 0.130
-    /// build reads.
+    /// The newest storage version this build writes: a document holding a
+    /// composable card, each carrying its `$id`, carries it. A document of the
+    /// main card alone carries the oldest tag that holds its content.
     #[staticmethod]
     fn current_storage_version() -> &'static str {
-        quillmark_core::document::STORAGE_V0_131_0
+        quillmark_core::document::STORAGE_V0_134_0
     }
 
     /// The Quillmark Markdown rules.
@@ -517,6 +519,32 @@ impl PyDocument {
     /// drop and its island ids re-mint. `to_stored` keeps both.
     fn to_markdown(&self) -> String {
         self.inner.to_markdown()
+    }
+
+    /// The hash of the document's stored form, the quill-free twin of
+    /// `writer.hash()`. Equal documents hash alike, whatever order a store kept
+    /// their keys in.
+    fn hash(&self) -> String {
+        self.inner.hash()
+    }
+
+    /// The hash of the body (`field=None`) or richtext field on `card` (`None`
+    /// for the main card): the field's content however it rests, an absent
+    /// field the empty content. Richtext only; `writer.hash_at` reads a field
+    /// of any type through its schema, and is the `base_hash` the writer's
+    /// verbs check. Raises `QuillmarkError` on a bad card index, a malformed
+    /// field name, or a present non-content field value.
+    #[pyo3(signature = (field=None, card=None))]
+    fn hash_at(&self, field: Option<&str>, card: Option<isize>) -> PyResult<String> {
+        let target = Target::resolve(&self.inner, card)?;
+        let card = match target.index {
+            None => self.inner.main(),
+            Some(i) => &self.inner.cards()[i],
+        };
+        match field {
+            None => Ok(card.body_hash()),
+            Some(field) => card.field_hash(field).map_err(|e| convert_edit_error(e, &target.base)),
+        }
     }
 
     /// Serialize to a versioned storage DTO string. Byte-deterministic per schema version.
@@ -748,20 +776,21 @@ impl PyDocument {
             .map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))
     }
 
-    /// Every prose anchor of every body and content value with its context, as
-    /// dicts `{id, path, quote, prefix, suffix}`: the selector a host stores
-    /// beside a comment thread and hands back to `reattach`. `path` is the
-    /// value's `DocPath` string; `quote` the anchored text as stored, an inline
+    /// Every anchor of every body and content value with its context, as
+    /// dicts `{id, path, card_id, quote, prefix, suffix}`: the selector a host
+    /// stores beside a comment thread and hands back to `reattach`. `path` is
+    /// the value's `DocPath` string; `card_id` the `$id` of the card it names,
+    /// `None` on the main card; `quote` the anchored text as stored, an inline
     /// island its `U+FFFC` slot, empty for a point; `prefix` and `suffix` up to
     /// 32 characters either side.
-    /// Each card's fields come before its body. A table cell's anchors are
-    /// outside the read.
+    /// Each card's fields come before its body. A table cell's or a note's
+    /// anchor is read too, its context cut at the cell's edges.
     fn anchor_contexts<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let selectors = self.inner.anchor_contexts().into_iter().map(selector_json).collect();
         json_to_py(py, &serde_json::Value::Array(selectors))
     }
 
-    /// The context of the prose anchor `id`, as `anchor_contexts` reads it, or
+    /// The context of the anchor `id`, as `anchor_contexts` reads it, or
     /// `None` where no body or content value holds one.
     fn anchor_context<'py>(&self, py: Python<'py>, id: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
         self.inner
@@ -778,8 +807,10 @@ impl PyDocument {
     /// selector given either placed with its context as read after the write or
     /// orphaned as given.
     ///
-    /// A path naming no body or content value orphans its selector, and nothing
-    /// remaps a card index. An id live anywhere in the document, a table cell's
+    /// A selector with a `card_id` finds its card by that id wherever it now
+    /// sits, and is orphaned where no card of its path's kind holds it; one
+    /// without is path-strict. A path naming no body or content value orphans
+    /// its selector. An id live anywhere in the document, a table cell's
     /// included, is answered as reattached and not written. Each id is answered
     /// once, by its first selector. `deltas` maps a path to the `delta` of the
     /// revise that dropped its anchors, and a match there must overlap text
@@ -808,13 +839,19 @@ impl PyDocument {
                         invalid(format!("an anchor context needs a string `{name}`"))
                     })
                 };
+                let card_id = match s.get("card_id") {
+                    None | Some(serde_json::Value::Null) => None,
+                    Some(serde_json::Value::String(id)) => Some(id.clone()),
+                    Some(_) => return Err(invalid("an anchor context's `card_id` is a string".into())),
+                };
                 Ok(quillmark_core::document::AnchorSelector::new(
                     key("id")?,
                     parse_path(&key("path")?)?,
                     key("quote")?,
                     key("prefix")?,
                     key("suffix")?,
-                ))
+                )
+                .with_card_id(card_id))
             })
             .collect::<PyResult<Vec<_>>>()?;
         let mut by_path = std::collections::HashMap::new();
@@ -841,6 +878,7 @@ fn selector_json(s: quillmark_core::document::AnchorSelector) -> serde_json::Val
     serde_json::json!({
         "id": s.id,
         "path": s.path.to_string(),
+        "card_id": s.card_id,
         "quote": s.quote,
         "prefix": s.prefix,
         "suffix": s.suffix,
@@ -911,6 +949,23 @@ fn index_error(index: usize, len: usize) -> PyErr {
     )
 }
 
+/// What a revise's writer read, off its `base_hash` / `base_markdown`
+/// keywords: one or neither.
+fn read_base<'a>(
+    base_hash: Option<&'a str>,
+    base_markdown: Option<&'a str>,
+) -> PyResult<Option<quillmark_core::document::Base<'a>>> {
+    use quillmark_core::document::Base;
+    match (base_hash, base_markdown) {
+        (None, None) => Ok(None),
+        (Some(hash), None) => Ok(Some(Base::Hash(hash))),
+        (None, Some(markdown)) => Ok(Some(Base::Read(markdown))),
+        (Some(_), Some(_)) => Err(PyValueError::new_err(
+            "name base_hash or base_markdown, not both",
+        )),
+    }
+}
+
 /// Which card a `Writer` / `Reader` verb addresses, and the `DocPath` its
 /// diagnostics anchor at: `None` is the main card.
 struct Target {
@@ -961,6 +1016,48 @@ impl PyWriter {
     #[getter]
     fn document(&self, py: Python<'_>) -> Py<PyDocument> {
         self.doc.clone_ref(py)
+    }
+
+    /// The hash of the document as this quill conforms it: the `base_hash`
+    /// `revise_document` checks. A document loaded without its quill hashes as
+    /// its conformed self, so a conform between the read and the write does
+    /// not stale the base. Raises on a `$quill` this quill does not answer to.
+    fn hash(&self, py: Python<'_>) -> PyResult<String> {
+        let quill = self.quill.borrow(py);
+        let mut doc = self.doc.borrow_mut(py);
+        quill
+            .inner
+            .writer(&mut doc.inner)
+            .hash()
+            .map_err(|e| raise_summarized(e.to_diagnostics()))
+    }
+
+    /// The hash of the body (`field=None`) or of `field` through its schema on
+    /// `card` (`None` for the main card): the `base_hash` `revise_body` /
+    /// `revise_field` check. A `richtext` field hashes its content however it
+    /// rests, a `text` field its literal text, any other type its stored
+    /// value, an absent field as `None`. Raises `edit::unknown_field` for an
+    /// undeclared name.
+    #[pyo3(signature = (field=None, card=None))]
+    fn hash_at(&self, py: Python<'_>, field: Option<&str>, card: Option<isize>) -> PyResult<String> {
+        let quill = self.quill.borrow(py);
+        let mut doc = self.doc.borrow_mut(py);
+        let target = Self::target(&doc, card)?;
+        let Some(field) = field else {
+            return Ok(match target.index {
+                None => doc.inner.main().body_hash(),
+                Some(i) => doc.inner.cards()[i].body_hash(),
+            });
+        };
+        let mut writer = quill.inner.writer(&mut doc.inner);
+        match target.index {
+            None => writer.field_hash(field),
+            Some(i) => writer
+                .card(i)
+                .map_err(|e| convert_edit_error(e, &target.base))?
+                .field_hash(field),
+        }
+        .map_err(|e| convert_edit_error(e, &target.base))
     }
 
     /// Typed-commit one field (strict coerce, mismatch raises now), resolving
@@ -1024,23 +1121,37 @@ impl PyWriter {
     /// `parse::dropped_construct` as `Diagnostic` objects, anchored at the
     /// body; and `dropped_anchors`, each anchor the diff dropped as
     /// `{id, line}`.
-    #[pyo3(signature = (markdown, card=None))]
+    ///
+    /// `base_hash` or `base_markdown` names what the writer read: a
+    /// `base_hash` (`hash_at`) the body no longer hashes to raises
+    /// `edit::stale_base`, and a `base_markdown` the body has moved on from
+    /// merges the writer's edit onto the change by line, raising
+    /// `edit::rebase_conflict` where both changed one. Either refusal's
+    /// `args["current"]` is the hash now.
+    #[pyo3(signature = (markdown, card=None, *, base_hash=None, base_markdown=None))]
     fn revise_body<'py>(
         &self,
         py: Python<'py>,
         markdown: &str,
         card: Option<isize>,
+        base_hash: Option<&str>,
+        base_markdown: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
+        let read = read_base(base_hash, base_markdown)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
         let mut writer = quill.inner.writer(&mut doc.inner);
-        match target.index {
-            None => writer.revise_body(markdown),
-            Some(i) => writer
-                .card(i)
-                .map_err(|e| convert_edit_error(e, &target.base))?
-                .revise_body(markdown),
+        match (target.index, read) {
+            (None, None) => writer.revise_body(markdown),
+            (None, Some(read)) => writer.revise_body_against(read, markdown),
+            (Some(i), read) => {
+                let mut card = writer.card(i).map_err(|e| convert_edit_error(e, &target.base))?;
+                match read {
+                    None => card.revise_body(markdown),
+                    Some(read) => card.revise_body_against(read, markdown),
+                }
+            }
         }
         .map_err(|e| convert_edit_error(e, &target.base))
         .and_then(|revised| revised_to_py(py, revised))
@@ -1053,57 +1164,86 @@ impl PyWriter {
     /// one-paragraph `richtext` field rejects a multi-block result with
     /// `edit::field_not_single_line`. Raises `edit::unknown_field` for an undeclared
     /// name. Returns the receipt as `revise_body` does, its warnings anchored
-    /// at the field.
-    #[pyo3(signature = (name, text, card=None))]
+    /// at the field. `base_hash` / `base_markdown` guard the write as on
+    /// `revise_body`; a `text` field's `base_markdown` is its literal text.
+    #[pyo3(signature = (name, text, card=None, *, base_hash=None, base_markdown=None))]
     fn revise_field<'py>(
         &self,
         py: Python<'py>,
         name: &str,
         text: &str,
         card: Option<isize>,
+        base_hash: Option<&str>,
+        base_markdown: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
+        let read = read_base(base_hash, base_markdown)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
         let mut writer = quill.inner.writer(&mut doc.inner);
-        match target.index {
-            None => writer.revise_field(name, text),
-            Some(i) => writer
-                .card(i)
-                .map_err(|e| convert_edit_error(e, &target.base))?
-                .revise_field(name, text),
+        match (target.index, read) {
+            (None, None) => writer.revise_field(name, text),
+            (None, Some(read)) => writer.revise_field_against(name, read, text),
+            (Some(i), read) => {
+                let mut card = writer.card(i).map_err(|e| convert_edit_error(e, &target.base))?;
+                match read {
+                    None => card.revise_field(name, text),
+                    Some(read) => card.revise_field_against(name, read, text),
+                }
+            }
         }
         .map_err(|e| convert_edit_error(e, &target.base))
         .and_then(|revised| revised_to_py(py, revised))
     }
 
-    /// Replace the bound document with `markdown`, then conform it: composable
-    /// cards align to the stored ones by `$kind` and text, and each aligned
+    /// Replace the bound document with `markdown`, then conform it: a
+    /// composable card spelling a stored card's `$id` revises it, the rest
+    /// align to the stored ones by `$kind` and text, and each aligned
     /// body and richtext field revises as `revise_body` / `revise_field` do.
     /// Everything else lands as written; an omitted `$ext` keeps the stored one
-    /// on the main card, on a card that aligned by text, and on one that aligned
+    /// on the main card, on a card that aligned by id or text, and on one that aligned
     /// by position only when the `$kind` sequence is unchanged. Returns the
     /// receipt as a dict: `dropped_anchors`, each anchor the write dropped as
-    /// `{id, path, line}` at its address in the stored document; `warnings`,
+    /// `{id, path, card_id, line}` at its address in the stored document; `warnings`,
     /// `Diagnostic` objects, the `conform::*` ones last; and
     /// `from`, for each composable card of the revised document the index of
     /// the stored card it revises, or `None` for an inserted card. Clears the
     /// document's load `warnings`. Raises `QuillmarkError` on a parse failure
     /// or a `$quill` this quill does not answer to, leaving the document
     /// unchanged.
-    fn revise_document<'py>(&self, py: Python<'py>, markdown: &str) -> PyResult<Bound<'py, PyDict>> {
+    ///
+    /// `base_hash` (`hash()`) or `base_markdown` (the whole document's
+    /// markdown, annotated or not) guard the write as on `revise_body`,
+    /// raising before any mutation.
+    #[pyo3(signature = (markdown, *, base_hash=None, base_markdown=None))]
+    fn revise_document<'py>(
+        &self,
+        py: Python<'py>,
+        markdown: &str,
+        base_hash: Option<&str>,
+        base_markdown: Option<&str>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let read = read_base(base_hash, base_markdown)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
-        let revised = quill
-            .inner
-            .writer(&mut doc.inner)
-            .revise_document(markdown)
-            .map_err(|e| raise_summarized(e.to_diagnostics()))?;
+        let mut writer = quill.inner.writer(&mut doc.inner);
+        let revised = match read {
+            None => writer.revise_document(markdown),
+            Some(read) => writer.revise_document_against(read, markdown),
+        }
+        .map_err(|e| raise_summarized(e.to_diagnostics()))?;
         doc.parse_warnings.clear();
         let dropped: Vec<_> = revised
             .dropped_anchors
             .into_iter()
-            .map(|a| serde_json::json!({ "id": a.id, "path": a.path.to_string(), "line": a.line }))
+            .map(|a| {
+                serde_json::json!({
+                    "id": a.id,
+                    "path": a.path.to_string(),
+                    "card_id": a.card_id,
+                    "line": a.line,
+                })
+            })
             .collect();
         let receipt = PyDict::new(py);
         receipt.set_item("dropped_anchors", json_to_py(py, &serde_json::Value::Array(dropped))?)?;

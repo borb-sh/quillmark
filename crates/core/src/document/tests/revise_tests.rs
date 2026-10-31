@@ -330,3 +330,180 @@ fn a_revised_fields_nested_comments_stay() {
     let out = doc.to_markdown();
     assert!(out.contains("# lead comment") && out.contains("# inner"), "{out}");
 }
+
+/// A card spelling a stored card's `$id` revises it wherever it moved and
+/// however its text changed, keeping its `$ext` and its anchors.
+#[test]
+fn a_card_spelling_its_id_revises_its_stored_card() {
+    let mut doc = stored();
+    let first = doc.cards()[0].id().unwrap().to_string();
+    let second = doc.cards()[1].id().unwrap().to_string();
+    let md = format!(
+        "~~~\n$quill: q\n~~~\n\n\
+~~~\n$kind: note\n$id: {second}\n~~~\n\nPears, rewritten from the ground up.\n\n\
+~~~\n$kind: note\n$id: {first}\n~~~\n\nNothing like apples now.\n"
+    );
+    let receipt = doc.revise(&md).unwrap();
+    assert_eq!(receipt.from, [Some(1), Some(0)]);
+    assert_eq!(doc.cards()[0].id(), Some(second.as_str()));
+    assert_eq!(doc.cards()[0].ext().unwrap()["app"]["key"], "n2");
+    assert_eq!(anchor_ids(doc.cards()[0].body()), ["p1"]);
+    assert_eq!(doc.cards()[1].ext().unwrap()["app"]["key"], "n1");
+}
+
+/// A writer keeping the ids it read that leaves a card out and writes a new
+/// one in its place removed the card: the new one takes neither its id nor
+/// its `$ext`.
+#[test]
+fn a_new_card_in_a_removed_cards_place_takes_none_of_its_identity() {
+    let mut doc = stored();
+    let first = doc.cards()[0].id().unwrap().to_string();
+    let second = doc.cards()[1].id().unwrap().to_string();
+    let memo = doc.cards()[2].id().unwrap().to_string();
+    let md = format!(
+        "~~~\n$quill: q\n~~~\n\n\
+~~~\n$kind: note\n$id: {first}\n~~~\n\nFirst note about apples.\n\n\
+~~~\n$kind: note\n~~~\n\nA new note about plums.\n\n\
+~~~\n$kind: memo\n$id: {memo}\n~~~\n\nA memo to drop.\n"
+    );
+    let receipt = doc.revise(&md).unwrap();
+    assert_eq!(receipt.from, [Some(0), None, Some(2)]);
+    assert_ne!(doc.cards()[1].id(), Some(second.as_str()));
+    assert!(doc.cards()[1].ext().is_none());
+    let dropped: Vec<_> = receipt.dropped_anchors.iter().filter_map(|a| Some((a.id.as_str(), a.card_id.as_deref()?))).collect();
+    assert_eq!(dropped, [("p1", second.as_str())]);
+}
+
+/// A pasted copy spells the id of the card it copies: the one more like the
+/// stored card keeps it, and the other is an inserted card with a new id.
+#[test]
+fn a_pasted_copy_of_a_card_is_inserted_with_a_new_id() {
+    let mut doc = stored();
+    let id = doc.cards()[0].id().unwrap().to_string();
+    let card = doc.to_markdown();
+    let copy = format!("~~~\n$kind: note\n$id: {id}\n~~~\n\nA copy, then changed.\n\n");
+    let md = card.replacen("~~~\n$kind: note", &format!("{copy}~~~\n$kind: note"), 1);
+    let receipt = doc.revise(&md).unwrap();
+    assert_eq!(&receipt.from[..2], [None, Some(0)]);
+    assert_eq!(doc.cards()[1].id(), Some(id.as_str()));
+    let minted = doc.cards()[0].id().unwrap();
+    assert_ne!(minted, id);
+    let warned: Vec<_> = receipt
+        .warnings
+        .iter()
+        .filter(|w| w.code.as_deref() == Some(crate::document::card_id::CARD_ID_REMINTED))
+        .map(|w| w.path.clone())
+        .collect();
+    assert_eq!(warned, [Some("cards.note[0]".to_string())]);
+}
+
+/// An inserted card keeps a valid `$id` no stored card holds, and a minted
+/// one never repeats a stored card's, though both mints start alike.
+#[test]
+fn an_inserted_card_keeps_a_fresh_id_and_a_mint_skips_the_stored_ids() {
+    let mut doc = stored();
+    let stored_ids: Vec<String> = doc.cards().iter().map(|c| c.id().unwrap().to_string()).collect();
+    let md = format!(
+        "{}\n~~~\n$kind: aside\n$id: my-aside\n~~~\n\nNamed.\n\n~~~\n$kind: aside\n~~~\n\nUnnamed.\n",
+        doc.to_markdown()
+    );
+    let receipt = doc.revise(&md).unwrap();
+    assert_eq!(receipt.from, [Some(0), Some(1), Some(2), None, None]);
+    assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
+    assert_eq!(doc.cards()[3].id(), Some("my-aside"));
+    let minted = doc.cards()[4].id().unwrap();
+    assert!(!stored_ids.iter().any(|id| id == minted), "{minted}");
+}
+
+/// An item inserted ahead of an anchored one leaves the anchor on its own
+/// item, and the receipt names no drop.
+#[test]
+fn an_item_inserted_ahead_keeps_each_anchor_on_its_own_item() {
+    let mut doc = stored_with_items();
+    let markdown = doc
+        .to_markdown()
+        .replace("  - a plain item\n", "  - a new first item\n  - a plain item\n");
+    assert_ne!(markdown, doc.to_markdown());
+    let receipt = doc.revise(&markdown).unwrap();
+    assert!(receipt.dropped_anchors.is_empty(), "{receipt:?}");
+    let items = doc.cards()[0].payload().get("items").unwrap().as_json().clone();
+    assert_eq!(items[0], "a new first item");
+    let item = quillmark_content::serial::from_canonical_value(&items[2]).unwrap();
+    assert_eq!(item.text, "an item to flag");
+    assert_eq!(anchor_ids(&item), ["i1"]);
+
+    let markdown = doc.to_markdown().replace("  - a plain item\n", "");
+    let receipt = doc.revise(&markdown).unwrap();
+    assert!(receipt.dropped_anchors.is_empty(), "{receipt:?}");
+}
+
+/// `content` with its first island holding a `title` its markdown cannot
+/// spell, so an annotated read writes the island as its token.
+pub(super) fn titled(content: &Normalized) -> Normalized {
+    let mut content = content.clone().into_content();
+    content.islands[0].props["title"] = "kept".into();
+    content.into_normalized()
+}
+
+/// The annotated read is two-way: a writer that moves a tag moves its anchor's
+/// start, and a token keeps its island as stored through a rewrite of the text
+/// around it.
+#[test]
+fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nSee ![a](u.png) and the plan.\n\n~~~\n$kind: note\n~~~\n\nA note.\n");
+    let body = titled(&anchored(doc.main().body(), "plan", "p1"));
+    doc.main_mut().overwrite_body(body.clone());
+    let read = doc.to_markdown_annotated().markdown;
+    assert!(read.contains("See <qm-island ref=\"isl-0\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan."), "{read}");
+
+    let written = read.replace(
+        "See <qm-island ref=\"isl-0\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan.",
+        "Now <qm-anchor ref=\"p1\"></qm-anchor>the plan, beside <qm-island ref=\"isl-0\"></qm-island>.",
+    );
+    let receipt = doc.revise(&written).unwrap();
+    assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
+    assert!(receipt.dropped_anchors.is_empty(), "{:?}", receipt.dropped_anchors);
+    let revised = doc.main().body();
+    assert_eq!(revised.text, "Now the plan, beside \u{FFFC}.");
+    assert_eq!(revised.islands, body.islands);
+    let p1 = revised.marks.iter().find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "p1")).unwrap();
+    assert_eq!((p1.start, p1.end), (4, 12));
+}
+
+/// A tag or token naming nothing the card it lands in holds, an inserted
+/// card's among them, drops reported at that card's body; a cold parse drops
+/// a token reported and an anchor tag silently.
+#[test]
+fn a_tag_naming_nothing_stored_drops_reported_at_its_card() {
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nBody.\n");
+    let written = "~~~\n$quill: memo@1.0.0\n~~~\n\nBody <qm-anchor ref=\"x\"></qm-anchor>.\n\n\
+                   ~~~\n$kind: note\n~~~\n\nNew <qm-island ref=\"isl-0\"></qm-island>.\n";
+    let receipt = doc.revise(written).unwrap();
+    let reported: Vec<_> = receipt
+        .warnings
+        .iter()
+        .map(|w| (w.path.as_deref().unwrap_or_default(), w.args["construct"].as_str().unwrap_or_default()))
+        .collect();
+    assert_eq!(reported, [("main.body", "qm-anchor[ref]"), ("cards.note[0].body", "qm-island[ref]")]);
+    assert_eq!(doc.cards()[0].body().text, "New .");
+
+    let cold = Document::parse(written).unwrap();
+    let constructs: Vec<_> = cold.warnings.iter().filter_map(|w| w.args.get("construct")).collect();
+    assert_eq!(constructs, [&serde_json::json!("qm-island")]);
+}
+
+/// A token in a richtext field keeps the field's island as stored.
+#[test]
+fn a_token_in_a_field_keeps_its_island() {
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\nsummary: x\n~~~\n");
+    let summary = titled(&crate::document::import_body("A ![b](v.png) here.").unwrap());
+    doc.main_mut().overwrite_field("summary", summary.clone()).unwrap();
+    let read = doc.to_markdown_annotated().markdown;
+    assert!(read.contains("summary: A <qm-island ref=\"isl-0\"></qm-island> here."), "{read}");
+
+    let receipt = doc.revise(&read.replace(" here.", " there.")).unwrap();
+    assert!(receipt.warnings.is_empty(), "{:?}", receipt.warnings);
+    let now = doc.main().field_content("summary", Codec::Richtext).unwrap().unwrap();
+    assert_eq!(now.text, "A \u{FFFC} there.");
+    assert_eq!(now.islands, summary.islands);
+}

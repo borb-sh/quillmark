@@ -29,7 +29,7 @@
 //! in one round loses the match, and the anchor with it: the accepted
 //! residual.
 
-use crate::import::{ImportWarning, Imported};
+use crate::import::{Against, ImportWarning, Pin};
 use crate::model::{Island, Mark, MarkKind, Content, Normalized};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -40,7 +40,7 @@ use similar::{capture_diff_slices, Algorithm, ChangeTag, DiffOp, TextDiff};
 /// text. USV throughout.
 ///
 /// Serializes as `{ "ops": [ {"retain": n} | {"insert": s} | {"delete": n} ] }`:
-/// the wire the `rebase` codec and `applyChange` bundle carry across the
+/// the wire `rebase` and the `applyChange` bundle carry across the
 /// language bindings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Delta {
@@ -406,11 +406,13 @@ fn push_insert(ops: &mut Vec<Op>, s: &str) {
     }
 }
 
-/// The stale-text writer path: cold-parse `new_markdown`, char-diff it against
-/// `base`, and carry `base`'s non-formatting marks (anchors) forward, rebased
-/// through the diff (re-homing verbatim block moves). The
-/// returned content is `new_rt` (structure/marks/islands from the fresh import)
-/// plus the surviving handles.
+/// The revise lane: import `new_markdown` as a revise of `base`
+/// ([`from_markdown_against`](crate::import::from_markdown_against)), so its
+/// island tokens are `base`'s islands, char-diff it against `base`, and carry
+/// `base`'s non-formatting marks (anchors) forward, rebased through the diff
+/// (re-homing verbatim block moves) or placed where a tag pins them
+/// ([`rebase_pinned`]). The returned content is the fresh import's
+/// structure, marks and islands plus the surviving handles.
 ///
 /// Returns the new content, the [`Delta`] used (the text change an editor
 /// bridge can map its own positions through), and the import's
@@ -419,9 +421,55 @@ pub fn diff_import(
     base: &Content,
     new_markdown: &str,
 ) -> Result<(Normalized, Delta, Vec<ImportWarning>), crate::import::ImportError> {
-    let Imported { content, warnings } = crate::import::from_markdown(new_markdown)?;
-    let (content, delta) = rebase_onto(base, content);
+    let Against { content, warnings, pins } = crate::import::from_markdown_against(new_markdown, base)?;
+    let (content, delta) = rebase_pinned(base, content, &pins);
     Ok((content, delta, warnings))
+}
+
+/// [`rebase_onto`], then each anchor a pin names placed to start at the pin.
+/// One whose rebased start the pin already is keeps its range. Any other
+/// ends where the diff carries its stored end, when that lands from the pin to
+/// the end of the pin's line, and otherwise spans its stored length, cut at
+/// the line's end. A pin naming no prose anchor of `base` pins nothing.
+pub fn rebase_pinned(base: &Content, new: Normalized, pins: &[Pin]) -> (Normalized, Delta) {
+    let (rebased, delta) = rebase_onto(base, new);
+    if pins.is_empty() {
+        return (rebased, delta);
+    }
+    let mut next = rebased.into_content();
+    let chars: Vec<char> = next.text.chars().collect();
+    let anchor = |marks: &[Mark], id: &str| {
+        marks.iter().position(|m| matches!(&m.kind, MarkKind::Anchor { id: held } if held == id))
+    };
+    for pin in pins {
+        let Some(stored) = anchor(&base.marks, &pin.id).map(|k| &base.marks[k]) else {
+            continue;
+        };
+        let carried = anchor(&next.marks, &pin.id);
+        if carried.is_some_and(|k| next.marks[k].start == pin.at) {
+            continue;
+        }
+        let line_end = chars[pin.at..].iter().position(|&c| c == '\n').map_or(chars.len(), |n| pin.at + n);
+        let mapped = delta.map_pos(stored.end, Assoc::Before);
+        let end = if (pin.at..=line_end).contains(&mapped) {
+            mapped
+        } else {
+            pin.at + (stored.end - stored.start).min(line_end - pin.at)
+        };
+        if let Some(k) = carried {
+            next.marks.remove(k);
+        }
+        next.marks.push(Mark::new(pin.at, end, stored.kind.clone()));
+    }
+    (next.into_normalized(), delta)
+}
+
+/// [`rebase_marks`] with each pin placed as [`rebase_pinned`] places it.
+pub fn rebase_marks_pinned(base: &Content, new: Normalized, pins: &[Pin]) -> Normalized {
+    match pins.is_empty() {
+        true => rebase_marks(base, new),
+        false => rebase_pinned(base, new, pins).0,
+    }
 }
 
 /// [`diff_import`] over a content already imported: diff `new` against `base`
@@ -431,7 +479,7 @@ pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
     let mut new_rt = new.into_content();
     let delta = diff(&base.text, &new_rt.text);
     carry_marks(base, &mut new_rt, &delta, |_| true);
-    carry_island_ids(&base.islands, &mut new_rt.islands);
+    carry_island_ids(&base.islands, &mut new_rt);
     (new_rt.into_normalized(), delta)
 }
 
@@ -471,7 +519,7 @@ pub fn carry_anchors(base: &Content, next: Normalized) -> (Normalized, Delta) {
 pub fn rebase_marks(base: &Content, new: Normalized) -> Normalized {
     if base.marks.iter().all(|m| m.kind.is_formatting()) {
         let mut new_rt = new.into_content();
-        carry_island_ids(&base.islands, &mut new_rt.islands);
+        carry_island_ids(&base.islands, &mut new_rt);
         return new_rt.into_normalized();
     }
     rebase_onto(base, new).0
@@ -500,15 +548,23 @@ fn carry_marks(base: &Content, new_rt: &mut Content, delta: &Delta, carry: impl 
 /// Give each island of `new` the id of the `base` island it continues, and
 /// every other island the next `isl-{n}` past the highest in `base`, so a
 /// revise rewrites no island's id and gives none a dropped island's. An
-/// island continues one equal to it in the longest run of equal islands the
-/// two sequences share, or, in a stretch between two of those where both
-/// sides hold as many islands of the same types in order, the one at its
-/// place: an edited table.
-fn carry_island_ids(base: &[Island], new: &mut [Island]) {
-    let key = |island: &Island| (island.island_type.as_str(), island.props.to_string());
+/// island continues one equal to it, anchor marks aside, in the longest run of
+/// equal islands the two sequences share, or, in a stretch between two of
+/// those where both sides hold as many islands of the same types in order,
+/// the one at its place: an edited table.
+///
+/// An island that continues one also takes each anchor of the cell at the
+/// same place in it whose text is unchanged, unless `new` already holds the
+/// id, in its prose or a cell.
+fn carry_island_ids(base: &[Island], new: &mut Content) {
+    let key = |island: &Island| {
+        let mut props = island.props.clone();
+        crate::export::drop_anchor_marks(&mut props);
+        (island.island_type.as_str(), props.to_string())
+    };
     let old: Vec<_> = base.iter().map(key).collect();
-    let fresh: Vec<_> = new.iter().map(key).collect();
-    let mut carried: Vec<Option<&str>> = vec![None; new.len()];
+    let fresh: Vec<_> = new.islands.iter().map(key).collect();
+    let mut carried: Vec<Option<usize>> = vec![None; new.islands.len()];
     for op in capture_diff_slices(Algorithm::Myers, &old, &fresh) {
         let (from, to, len) = match op {
             DiffOp::Equal { old_index, new_index, len } => (old_index, new_index, len),
@@ -521,9 +577,10 @@ fn carry_island_ids(base: &[Island], new: &mut [Island]) {
             _ => continue,
         };
         for k in 0..len {
-            carried[to + k] = Some(&base[from + k].id);
+            carried[to + k] = Some(from + k);
         }
     }
+    carry_cell_anchors(base, new, &carried);
     let taken: HashSet<&str> = base.iter().map(|i| i.id.as_str()).collect();
     // `u128` counts past `isl-{u64::MAX}`; `taken` steps over an id past that,
     // which the count does not parse.
@@ -532,8 +589,8 @@ fn carry_island_ids(base: &[Island], new: &mut [Island]) {
         .filter_map(|island| island.id.strip_prefix("isl-")?.parse::<u64>().ok())
         .max()
         .map_or(0, |n| u128::from(n) + 1);
-    for (island, id) in new.iter_mut().zip(carried) {
-        island.id = id.map(str::to_string).unwrap_or_else(|| {
+    for (island, from) in new.islands.iter_mut().zip(carried) {
+        island.id = from.map(|k| base[k].id.clone()).unwrap_or_else(|| {
             while taken.contains(format!("isl-{next}").as_str()) {
                 next += 1;
             }
@@ -541,6 +598,36 @@ fn carry_island_ids(base: &[Island], new: &mut [Island]) {
             next += 1;
             id
         });
+    }
+}
+
+fn carry_cell_anchors(base: &[Island], new: &mut Content, carried: &[Option<usize>]) {
+    let anchors = |marks: &[Mark]| -> Vec<Mark> {
+        marks.iter().filter(|m| matches!(m.kind, MarkKind::Anchor { .. })).cloned().collect()
+    };
+    let mut held: HashSet<String> = new.anchor_sites().into_iter().map(|site| site.id).collect();
+    for (island, from) in new.islands.iter_mut().zip(carried) {
+        let Some(from) = *from else { continue };
+        let stored = base[from].island_type.cell_marks(&base[from].props);
+        if stored.iter().all(|(_, marks)| anchors(marks).is_empty()) {
+            continue;
+        }
+        let cells = island.island_type.cell_values_mut(&mut island.props);
+        for (cell, (text, marks)) in cells.into_iter().zip(stored) {
+            let (now, mut now_marks) = crate::serial::parse_cell(cell);
+            if now != text {
+                continue;
+            }
+            let fresh: Vec<Mark> = anchors(&marks)
+                .into_iter()
+                .filter(|m| matches!(&m.kind, MarkKind::Anchor { id } if held.insert(id.clone())))
+                .collect();
+            if fresh.is_empty() {
+                continue;
+            }
+            now_marks.extend(fresh);
+            crate::serial::set_cell_marks(cell, &now_marks);
+        }
     }
 }
 
@@ -629,6 +716,63 @@ fn find_in_spans(hay: &[char], needle: &[char], spans: &[(usize, usize)]) -> Opt
         &hay[i..i + needle.len()] == needle
             && spans.iter().any(|&(s, e)| i < e && i + needle.len() > s)
     })
+}
+
+/// Three-way merge of `current` and `new`, two edits of `base`, by line: each
+/// side's changed runs of base lines apply together. `None` when a run of one
+/// side overlaps or touches a run of the other and the two do not make the same
+/// change, so edits to adjacent lines conflict, and two inserts at one place
+/// conflict.
+pub fn merge_lines(base: &str, current: &str, new: &str) -> Option<String> {
+    let base: Vec<&str> = base.split_inclusive('\n').collect();
+    let current: Vec<&str> = current.split_inclusive('\n').collect();
+    let new: Vec<&str> = new.split_inclusive('\n').collect();
+    let ours = line_hunks(&base, &current);
+    let theirs = line_hunks(&base, &new);
+    let (mut ours, mut theirs) = (ours.iter().peekable(), theirs.iter().peekable());
+    let mut out = String::new();
+    let mut at = 0;
+    loop {
+        let hunk = match (ours.peek(), theirs.peek()) {
+            (None, None) => break,
+            (Some(a), Some(b)) if a.0.start <= b.0.end && b.0.start <= a.0.end => {
+                if a != b {
+                    return None;
+                }
+                theirs.next();
+                ours.next().unwrap()
+            }
+            (Some(a), Some(b)) if b.0.start < a.0.start => theirs.next().unwrap(),
+            (Some(_), _) => ours.next().unwrap(),
+            (None, Some(_)) => theirs.next().unwrap(),
+        };
+        out.extend(base[at..hunk.0.start].iter().copied());
+        out.extend(hunk.1.iter().copied());
+        at = hunk.0.end;
+    }
+    out.extend(base[at..].iter().copied());
+    Some(out)
+}
+
+/// The runs of `base` lines `side` changes, each with the lines it puts in their
+/// place, adjacent runs coalesced so one change reads as one run however the
+/// diff spelled it.
+fn line_hunks<'a>(base: &[&'a str], side: &[&'a str]) -> Vec<(std::ops::Range<usize>, Vec<&'a str>)> {
+    let mut hunks: Vec<(std::ops::Range<usize>, Vec<&'a str>)> = Vec::new();
+    for op in capture_diff_slices(Algorithm::Myers, base, side) {
+        if let DiffOp::Equal { .. } = op {
+            continue;
+        }
+        let (old, new) = (op.old_range(), op.new_range());
+        match hunks.last_mut() {
+            Some((range, lines)) if range.end == old.start => {
+                range.end = old.end;
+                lines.extend(&side[new]);
+            }
+            _ => hunks.push((old, side[new].to_vec())),
+        }
+    }
+    hunks
 }
 
 #[cfg(test)]
@@ -1141,5 +1285,167 @@ mod tests {
                 format!("isl-{}", u128::from(u64::MAX) + 2),
             ]
         );
+    }
+
+    #[test]
+    fn merge_lines_lands_both_sides_and_refuses_touching_runs() {
+        let base = "one\n\ntwo\n\nthree\n";
+        let person = "one, edited\n\ntwo\n\nthree\n";
+        let writer = "one\n\ntwo\n\nthree, rewritten\n\nfour\n";
+        assert_eq!(
+            merge_lines(base, person, writer).as_deref(),
+            Some("one, edited\n\ntwo\n\nthree, rewritten\n\nfour\n")
+        );
+        assert_eq!(merge_lines(base, person, person).as_deref(), Some(person));
+        assert_eq!(merge_lines(base, person, "one, other\n\ntwo\n\nthree\n"), None);
+        assert_eq!(merge_lines(base, person, "one\nzero\n\ntwo\n\nthree\n"), None);
+        assert_eq!(merge_lines(base, base, writer).as_deref(), Some(writer));
+    }
+
+    fn with_anchor(markdown: &str, (start, end): (usize, usize), id: &str) -> Normalized {
+        let mut rt = from_markdown(markdown).unwrap().content.into_content();
+        rt.marks.push(Mark::new(start, end, MarkKind::Anchor { id: id.into() }));
+        rt.into_normalized()
+    }
+
+    fn anchor_of(rt: &Content, id: &str) -> Option<(usize, usize)> {
+        rt.marks.iter().find_map(|m| match &m.kind {
+            MarkKind::Anchor { id: held } if held == id => Some((m.start, m.end)),
+            _ => None,
+        })
+    }
+
+    fn reported(warnings: &[ImportWarning]) -> Vec<(String, usize)> {
+        warnings.iter().map(|w| (w.construct.to_string(), w.count)).collect()
+    }
+
+    /// A kept tag pins: the anchor starts where the writer moved its tag and
+    /// ends where its text still ends on that line. A tag dropped falls back to
+    /// the diff, and a moved tag's anchor drops nothing where its text went.
+    #[test]
+    fn a_kept_tag_pins_and_a_dropped_tag_falls_back_to_the_diff() {
+        let stored = with_anchor("Hello world, again.", (6, 11), "w");
+        let read = crate::export::to_markdown_annotated(&stored).markdown;
+        assert_eq!(read, "Hello <qm-anchor ref=\"w\"></qm-anchor>world, again.");
+
+        let (moved, _, warnings) = diff_import(&stored, "<qm-anchor ref=\"w\"></qm-anchor>Hello world, again.").unwrap();
+        assert_eq!(anchor_of(&moved, "w"), Some((0, 11)));
+        assert!(warnings.is_empty());
+
+        let (later, _, _) = diff_import(&stored, "Hello world, <qm-anchor ref=\"w\"></qm-anchor>again.").unwrap();
+        assert_eq!(anchor_of(&later, "w"), Some((13, 18)), "the stored length, cut at the line's end");
+
+        let (dropped, _, _) = diff_import(&stored, "Hello brave world, again.").unwrap();
+        assert_eq!(anchor_of(&dropped, "w"), Some((12, 17)));
+
+        let (kept, _, _) = diff_import(&stored, &read).unwrap();
+        assert_eq!(kept, stored, "the read revises to itself");
+    }
+
+    /// A tag the read moved off its anchor's start, to a code span's start or
+    /// the line's end, pins nothing.
+    #[test]
+    fn a_tag_marked_at_pins_nothing() {
+        let stored = with_anchor("Hello world.", (6, 11), "w");
+        for at in ["line", "span"] {
+            let md = format!("<qm-anchor at=\"{at}\" ref=\"w\"></qm-anchor>Hello world.");
+            let (revised, _, warnings) = diff_import(&stored, &md).unwrap();
+            assert_eq!(anchor_of(&revised, "w"), Some((6, 11)), "{at}");
+            assert!(warnings.is_empty());
+        }
+    }
+
+    /// A tag naming no anchor the stored value holds, and a second tag naming
+    /// one, report its `ref`; a cold import drops either silently.
+    #[test]
+    fn a_ref_the_stored_value_does_not_hold_drops_reported() {
+        let stored = with_anchor("Hello world.", (6, 11), "w");
+        let md = "Hello <qm-anchor ref=\"w\"></qm-anchor>world<qm-anchor ref=\"w\"></qm-anchor>. \
+                  <qm-anchor ref=\"gone\"></qm-anchor><qm-anchor></qm-anchor>";
+        let (revised, _, warnings) = diff_import(&stored, md).unwrap();
+        assert_eq!(anchor_of(&revised, "w"), Some((6, 11)));
+        assert_eq!(anchor_of(&revised, "gone"), None);
+        assert_eq!(reported(&warnings), [("qm-anchor[ref]".to_string(), 3)]);
+        assert!(from_markdown(md).unwrap().warnings.is_empty());
+    }
+
+    /// An island markdown cannot spell reads as its token, and a revise keeps
+    /// it as stored wherever the writer leaves the token; a cold import drops
+    /// the token, reported.
+    #[test]
+    fn a_token_keeps_its_island_as_stored() {
+        let mut stored = from_markdown("See ![a](u.png) here.").unwrap().content.into_content();
+        stored.islands[0].props["title"] = "kept".into();
+        let stored = stored.into_normalized();
+        let read = crate::export::to_markdown_annotated(&stored).markdown;
+        assert_eq!(read, "See <qm-island ref=\"isl-0\"></qm-island> here.");
+
+        let (revised, _, warnings) = diff_import(&stored, "Now <qm-island ref=\"isl-0\"></qm-island> there.").unwrap();
+        assert!(warnings.is_empty());
+        assert_eq!(revised.text, format!("Now {} there.", crate::model::ISLAND_SLOT));
+        assert_eq!(revised.islands, stored.islands);
+
+        let cold = from_markdown(&read).unwrap();
+        assert!(cold.content.islands.is_empty());
+        assert_eq!(reported(&cold.warnings), [("qm-island".to_string(), 1)]);
+    }
+
+    /// A token naming no island the stored value holds reports its `ref`, and
+    /// one where no island sits reports itself. A table's token on a line of
+    /// prose takes a line of its own.
+    #[test]
+    fn a_token_drops_reported_where_it_cannot_be_kept() {
+        let mut stored = from_markdown("| h |\n| --- |\n| c |").unwrap().content.into_content();
+        stored.islands[0].props["note"] = "kept".into();
+        let stored = stored.into_normalized();
+        assert_eq!(crate::export::to_markdown_annotated(&stored).markdown, "<qm-island ref=\"isl-0\"></qm-island>");
+
+        let md = "a <qm-island ref=\"isl-0\"></qm-island> b <qm-island ref=\"isl-9\"></qm-island>\n\n\
+                  | x |\n| --- |\n| <qm-island ref=\"isl-0\"></qm-island> |";
+        let (revised, _, warnings) = diff_import(&stored, md).unwrap();
+        assert_eq!(revised.text, "a \n\u{FFFC}\n b \n\u{FFFC}");
+        assert_eq!(revised.islands[0].props, stored.islands[0].props);
+        assert_eq!(revised.islands[0].id, "isl-0");
+        assert_eq!(
+            reported(&warnings),
+            [("qm-island[ref]".to_string(), 1), ("qm-island".to_string(), 1)]
+        );
+    }
+
+    /// A token written twice copies its table, and its cell's anchor stays on
+    /// the copy that continues the stored island alone.
+    #[test]
+    fn a_token_written_twice_copies_no_cell_anchor() {
+        let mut stored = from_markdown("| h |\n| --- |\n| cell |").unwrap().content.into_content();
+        stored.islands[0].props["note"] = "kept".into();
+        stored.islands[0].props["rows"][0][0]["marks"] =
+            serde_json::json!([{ "start": 0, "end": 4, "type": "anchor", "attrs": { "id": "c1" } }]);
+        let stored = stored.into_normalized();
+        let token = "<qm-island ref=\"isl-0\"></qm-island>";
+        assert_eq!(crate::export::to_markdown_annotated(&stored).markdown, token);
+
+        let (once, _, _) = diff_import(&stored, token).unwrap();
+        assert_eq!(once.islands, stored.islands);
+        let (twice, _, _) = diff_import(&stored, &format!("{token}\n\n{token}")).unwrap();
+        assert_eq!(twice.islands.len(), 2);
+        let ids: Vec<String> = twice.anchor_sites().into_iter().map(|s| s.id).collect();
+        assert_eq!(ids, ["c1"]);
+        assert!(twice.anchor_collisions().is_empty());
+    }
+
+    /// A tag right after a table's token pins the line the split gives the
+    /// prose after it, not the table's.
+    #[test]
+    fn a_tag_after_a_tables_token_pins_the_prose_after_it() {
+        let mut stored = from_markdown("Hello world.\n\n| h |\n| --- |\n| c |").unwrap().content.into_content();
+        stored.marks.push(Mark::new(6, 11, MarkKind::Anchor { id: "w".into() }));
+        stored.islands[0].props["note"] = "kept".into();
+        let stored = stored.into_normalized();
+        let read = crate::export::to_markdown_annotated(&stored).markdown;
+        let token = &read[read.find("<qm-island").unwrap()..];
+        let (next, _, _) = diff_import(&stored, &format!("Hello {token}<qm-anchor ref=\"w\"></qm-anchor>world.")).unwrap();
+        assert_eq!(next.text, "Hello \n\u{FFFC}\nworld.");
+        let sites: Vec<(String, usize, usize)> = next.anchor_sites().into_iter().map(|s| (s.id, s.start, s.end)).collect();
+        assert_eq!(sites, [("w".to_string(), 9, 14)]);
     }
 }

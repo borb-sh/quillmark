@@ -203,12 +203,14 @@ export type PayloadItem =
  * `CardInput`, so a card read from one document pushes straight into another.
  *
  * `$` system entries are hoisted to named fields: `kind` (the `$kind`),
- * `quill` (`$quill` `name@version`, main card only), `ext` (`$ext`), and
- * `seed` (the `$seed` per-kind overlay map, main card only).
- * `payloadItems` carries user fields and comments in order.
+ * `id` (the `$id`, composable cards only), `quill` (`$quill`
+ * `name@version`, main card only), `ext` (`$ext`), and `seed` (the `$seed`
+ * per-kind overlay map, main card only). `payloadItems` carries user fields
+ * and comments in order.
  */
 export interface Card {
     kind: string;
+    id?: string;
     quill?: string;
     ext?: Record<string, unknown>;
     seed?: Record<string, unknown>;
@@ -223,10 +225,13 @@ export interface Card {
 /**
  * A card written *into* a document, accepted by `Document.insertCard`. Like
  * `Card`, but `body` also takes a markdown `string`, and every field but `kind`
- * is optional (defaulting to no payload items and an empty body).
+ * is optional (defaulting to no payload items and an empty body). A card
+ * without an `id` is minted one where it is placed; one whose `id` is not a
+ * card id, or is held by another card of the document, is refused.
  */
 export interface CardInput {
     kind: string;
+    id?: string;
     quill?: string;
     ext?: Record<string, unknown>;
     seed?: Record<string, unknown>;
@@ -413,7 +418,7 @@ export interface CardAddr {
 
 /**
  * A text-splice change set over the USV content (CodeMirror `ChangeSet`
- * semantics), returned by `revise` and by the `rebase` codec. Map a stored
+ * semantics), returned by `revise` and by `rebase`. Map a stored
  * position through it with `mapPos`.
  *
  * Applying one admits an `insert` string rather than storing it verbatim: `\r`
@@ -428,15 +433,33 @@ export interface Delta {
  * The receipt of a revise (`revise`, `reviseContent`, `writer.reviseBody`,
  * `writer.reviseField`): the text `delta`, one `parse::dropped_construct`
  * warning per construct a markdown import dropped, anchored at the revised
- * address, and `droppedAnchors`, every prose anchor of the stored value whose
- * id the revised value holds nowhere, each with the text of the line it stood
- * on. `reviseContent` imports nothing, so its `warnings` is empty. The revised
+ * address, and `droppedAnchors`, every anchor of the stored value, in its
+ * prose or a cell, whose id the revised value holds nowhere, each with the
+ * text of the line or cell it stood in. `reviseContent` imports nothing, so its `warnings` is empty. The revised
  * address is the dropped anchors' path, so they carry none.
  */
 export interface Revised {
     delta: Delta;
     warnings: Diagnostic[];
     droppedAnchors: { id: string; line: string }[];
+}
+
+/**
+ * What a revise's writer read, the optional last argument of `revise`,
+ * `rebase` and the writer's `reviseBody` / `reviseField` / `reviseDocument`.
+ * Name one or neither; a key present with no string throws. `baseHash` is the
+ * hash the writer read, paired with the lane it writes on: `writer.hashAt` /
+ * `writer.hash` for the writer's verbs, `doc.hashAt` for `revise`, and
+ * `hashContent` for `rebase`. A write onto a value that hashes otherwise
+ * throws `edit::stale_base`. `baseMarkdown` is the markdown the writer read, annotated
+ * or not (a `text` field's literal text): when the value has changed since,
+ * the writer's edit and the change since merge by line, so both land, and
+ * runs of lines both changed throw `edit::rebase_conflict`. Each refusal's
+ * `args.current` is the hash now, and leaves the value unchanged.
+ */
+export interface BaseOptions {
+    baseHash?: string;
+    baseMarkdown?: string;
 }
 
 /**
@@ -458,34 +481,62 @@ export interface DocumentRevised {
 
 /**
  * The read `toAnnotatedMarkdown` returns: `toMarkdown`'s markdown with a
- * read-only `<qm-anchor ref="…"></qm-anchor>` at each prose anchor's
- * start its line can hold, and every prose anchor of every body and content
- * field, spelled or not; a table cell's anchors are neither. Each names the
- * `path` of its body or field and the text of the `line` its start sits on,
- * island slots removed.
+ * `<qm-anchor ref="…"></qm-anchor>` at each prose anchor's start its line
+ * can hold, and a `<qm-island ref="…"></qm-island>` token for each island
+ * whose markdown does not read back, which every revise reads back; and every
+ * anchor of every body and content field, spelled or not, a table cell's or
+ * a note's listed unspelled. Each names the `path` of its body or field and
+ * the text of the `line` its start sits on, island slots removed, or of its
+ * cell.
  */
 export interface AnnotatedMarkdown {
     markdown: string;
     anchors: DocumentAnchor[];
 }
 
+/**
+ * The outline `reader.outline()` returns: each card with its path, `$kind`
+ * (`main` on the main card) and `$id`, each declared field with its `state`,
+ * the body's headings by line, and each anchor by id and path. A field is
+ * `empty` when absent, null, blank or an empty list or map, `invalid` when
+ * `quill.validate` reports an error at or under it, and `ok` otherwise.
+ */
+export interface Outline {
+    cards: OutlineCard[];
+}
+
+export interface OutlineCard {
+    path: string;
+    kind: string;
+    id?: string;
+    fields: { name: string; path: string; state: 'ok' | 'empty' | 'invalid' }[];
+    headings: { line: number; level: number; text: string }[];
+    anchors: { id: string; path: string }[];
+}
+
 export interface DocumentAnchor {
     id: string;
     path: string;
+    /** The `$id` of the card `path` names; absent on the main card. */
+    cardId?: string;
     line: string;
 }
 
 /**
- * A prose anchor's context at its address (`anchorContexts`, `anchorContext`,
+ * An anchor's context at its address (`anchorContexts`, `anchorContext`,
  * `reattach`): the text-quote selector a host stores beside a comment thread.
  * `path` is the body or content value's `DocPath` string. `quote` is the
  * anchored text as stored, an inline island its `U+FFFC` slot and a line break
  * its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
- * of stored text on each side, cut at the value's edges.
+ * of stored text on each side, cut at the value's edges or a cell's. `cardId` is the `$id`
+ * of the card `path` names, absent on the main card: `reattach` finds the card
+ * by it wherever the card now sits, and orphans the selector where no card of
+ * the path's kind holds it.
  */
 export interface AnchorContext {
     id: string;
     path: string;
+    cardId?: string;
     quote: string;
     prefix: string;
     suffix: string;
@@ -506,6 +557,16 @@ export interface Reattached {
  */
 export interface Imported {
     content: Content;
+    warnings: Diagnostic[];
+}
+
+/**
+ * What `exportMarkdownChecked` returns: `exportMarkdown`'s markdown, and an
+ * `export::lost_construct` warning per part of the content it reads back as
+ * something else, with no `path`.
+ */
+export interface Exported {
+    markdown: string;
     warnings: Diagnostic[];
 }
 
@@ -1109,7 +1170,9 @@ impl Document {
     }
 
     /// Reconstruct a `Document` from a versioned storage DTO string produced by
-    /// [`toStored`](Document::to_stored). The result carries no parse-time warnings.
+    /// [`toStored`](Document::to_stored). Its `warnings` hold one
+    /// `parse::anchor_id_collision` per anchor id a value holds more than once,
+    /// a table cell or footnote taking part, and nothing else.
     /// Throws if `json` is not a valid storage DTO (malformed JSON, unknown
     /// `schema`, missing fields, or unparseable quill reference).
     #[wasm_bindgen(js_name = fromStored)]
@@ -1117,9 +1180,10 @@ impl Document {
         let inner: quillmark_core::document::Document = serde_json::from_str(json).map_err(|e| {
             WasmError::from(format!("fromStored: invalid storage DTO: {e}")).to_js_value()
         })?;
+        let parse_warnings = inner.anchor_collisions();
         Ok(Document {
             inner,
-            parse_warnings: Vec::new(),
+            parse_warnings,
         })
     }
 
@@ -1134,14 +1198,13 @@ impl Document {
     }
 
     /// The newest storage version this build writes via
-    /// [`toStored`](Document::to_stored): a document spelling a font mark, a
-    /// `table` element, a merged table cell or a table head 0.130 cannot draw
-    /// carries it, every other the tag before it, which a 0.130 build reads.
-    /// The tag advances only when the wire format changes, not on every
-    /// release.
+    /// [`toStored`](Document::to_stored): a document holding a composable
+    /// card, each carrying its `$id`, carries it. A document of the main card
+    /// alone carries the oldest tag that holds its content. The tag advances
+    /// only when the wire format changes, not on every release.
     #[wasm_bindgen(js_name = currentStorageVersion)]
     pub fn current_storage_version() -> String {
-        quillmark_core::document::STORAGE_V0_131_0.to_string()
+        quillmark_core::document::STORAGE_V0_134_0.to_string()
     }
 
     /// The Quillmark Markdown rules, re-exposed from core. Constant across
@@ -1168,11 +1231,73 @@ impl Document {
         self.inner.to_markdown()
     }
 
+    /// The hash of the document's stored form, the quill-free twin of
+    /// `writer.hash()`. Equal documents hash alike, whatever order a store
+    /// kept their keys in.
+    #[wasm_bindgen(js_name = hash)]
+    pub fn hash(&self) -> String {
+        self.inner.hash()
+    }
+
+    /// The hash of the body or richtext field at `addr`, the `baseHash` a
+    /// `revise` at `addr` checks: `hashContent` of its content, an absent field
+    /// the empty content. An absent `addr.field` reads the body, an absent
+    /// `addr.card` the main card. Richtext only, on `revise`'s terms; the
+    /// typed `writer.hashAt` reads a field of any type through its schema.
+    /// Throws on an out-of-range card, a malformed field name, or a present
+    /// non-content field value.
+    #[wasm_bindgen(js_name = hashAt)]
+    pub fn hash_at(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+    ) -> Result<String, JsValue> {
+        let addr = Addr::from_js_or_string(&addr)?;
+        let card = self.addr_card_ref(&addr)?;
+        match &addr.field {
+            None => Ok(card.body_hash()),
+            Some(field) => card
+                .field_hash(field)
+                .map_err(|e| edit_error_to_js(&e, &self.addr_base(&addr))),
+        }
+    }
+
+    /// The annotated read of the body or richtext field at `addr` alone: the
+    /// scoped twin of `toAnnotatedMarkdown`, what a `revise` at `addr` reads
+    /// back and the `baseMarkdown` it merges against. Each anchor names `addr`'s
+    /// path. An absent field reads as the empty content. Throws as `hashAt`.
+    #[wasm_bindgen(js_name = annotatedAt, unchecked_return_type = "AnnotatedMarkdown")]
+    pub fn annotated_at(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let addr = Addr::from_js_or_string(&addr)?;
+        let card = self.addr_card_ref(&addr)?;
+        let base = self.addr_base(&addr);
+        let (read, path) = match &addr.field {
+            None => (card.body_annotated(), base.body()),
+            Some(field) => (
+                card.field_annotated(field).map_err(|e| edit_error_to_js(&e, &base))?,
+                base.field(field),
+            ),
+        };
+        let card_id = card.id().map(str::to_string);
+        let js = AnnotatedMarkdownJs {
+            markdown: read.markdown,
+            anchors: read
+                .anchors
+                .into_iter()
+                .map(|a| DocumentAnchorJs { id: a.id, path: path.to_string(), card_id: card_id.clone(), line: a.line })
+                .collect(),
+        };
+        serialize_or_throw(&js, "annotatedAt")
+    }
+
     /// `toMarkdown` with each prose anchor of every body and content field
-    /// spelled read-only at its start where its line can hold the tag, and
-    /// listed with its field's path and line either way. An import drops every
-    /// tag, so `writer.reviseDocument` with the markdown keeps the anchors it keeps
-    /// with `toMarkdown`'s.
+    /// spelled at its start where its line can hold the tag, every anchor,
+    /// a cell's too, listed with its field's path and line, and each island whose markdown
+    /// does not read back spelled as its token. `writer.reviseDocument` reads
+    /// both back: a kept tag pins its anchor, and a token keeps its island as
+    /// stored.
     #[wasm_bindgen(js_name = toAnnotatedMarkdown, unchecked_return_type = "AnnotatedMarkdown")]
     pub fn to_annotated_markdown(&self) -> Result<JsValue, JsValue> {
         let read = self.inner.to_markdown_annotated();
@@ -1183,10 +1308,10 @@ impl Document {
         serialize_or_throw(&js, "toAnnotatedMarkdown")
     }
 
-    /// Every prose anchor of every body and content value with its context, in
-    /// the order `toAnnotatedMarkdown` lists anchors: the selector a host
-    /// stores beside a comment thread and hands back to `reattach`. A table
-    /// cell's anchors are outside it.
+    /// Every anchor of every body and content value with its context, a table
+    /// cell's or a note's included, in the order `toAnnotatedMarkdown` lists
+    /// anchors: the selector a host stores beside a comment thread and hands
+    /// back to `reattach`.
     #[wasm_bindgen(js_name = anchorContexts, unchecked_return_type = "AnchorContext[]")]
     pub fn anchor_contexts(&self) -> Result<JsValue, JsValue> {
         let js: Vec<AnchorContextJs> =
@@ -1194,7 +1319,7 @@ impl Document {
         serialize_or_throw(&js, "anchorContexts")
     }
 
-    /// The context of the prose anchor `id`, or `undefined` where no body or
+    /// The context of the anchor `id`, or `undefined` where no body or
     /// content value holds one.
     #[wasm_bindgen(js_name = anchorContext, unchecked_return_type = "AnchorContext | undefined")]
     pub fn anchor_context(&self, id: &str) -> Result<JsValue, JsValue> {
@@ -1238,7 +1363,8 @@ impl Document {
             .into_iter()
             .map(|s| {
                 let path = parse_path(&s.path)?;
-                Ok(quillmark_core::document::AnchorSelector::new(s.id, path, s.quote, s.prefix, s.suffix))
+                Ok(quillmark_core::document::AnchorSelector::new(s.id, path, s.quote, s.prefix, s.suffix)
+                    .with_card_id(s.card_id))
             })
             .collect::<Result<Vec<_>, JsValue>>()?;
         let mut by_path = std::collections::HashMap::new();
@@ -1278,7 +1404,7 @@ impl Document {
 
     /// Replace this document's contents **in place** from a versioned storage DTO
     /// string: the mutating twin of [`fromStored`](Document::from_stored).
-    /// Parse-time `warnings` are cleared. Throws on an invalid DTO, leaving the
+    /// Its `warnings` are replaced as `fromStored` reads them. Throws on an invalid DTO, leaving the
     /// document unchanged. A caller holding the document need not re-bind its
     /// variable.
     #[wasm_bindgen(js_name = loadStored)]
@@ -1286,8 +1412,8 @@ impl Document {
         let inner: quillmark_core::document::Document = serde_json::from_str(json).map_err(|e| {
             WasmError::from(format!("loadStored: invalid storage DTO: {e}")).to_js_value()
         })?;
+        self.parse_warnings = inner.anchor_collisions();
         self.inner = inner;
-        self.parse_warnings.clear();
         Ok(())
     }
 
@@ -1465,6 +1591,13 @@ impl Document {
         }
     }
 
+    /// The ABI under `reader.outline()`: the document's outline under `quill`.
+    #[wasm_bindgen(js_name = _readerOutline, skip_typescript, unchecked_return_type = "Outline")]
+    pub fn reader_outline(&self, quill: &Quill) -> Result<JsValue, JsValue> {
+        let outline = quill.inner.reader(&self.inner).outline();
+        serialize_or_throw(&OutlineJs::from(outline), "reader.outline")
+    }
+
     /// Interpreted **`Content`** read of a value nested inside the composite
     /// field at `addr`: the stable ABI under the runtime `reader.getContentAt`,
     /// and [`reader.getContent`](Self::reader_get_content) with the path spelled
@@ -1608,7 +1741,8 @@ impl Document {
     /// The non-fatal diagnostics of the load that produced this document: parse
     /// warnings, plus `conform::*` warnings when it came through `quill.parse`.
     /// Session state, not document value: `equals` and the storage DTO exclude
-    /// it, and `fromStored` / `loadStored` / `writer.reviseDocument` clear it.
+    /// it. `fromStored` / `loadStored` set it to the stored value's anchor id
+    /// collisions, and `writer.reviseDocument` clears it.
     #[wasm_bindgen(getter, js_name = warnings, unchecked_return_type = "Diagnostic[]")]
     pub fn warnings(&self) -> Result<JsValue, JsValue> {
         let diags: Vec<Diagnostic> = self
@@ -1791,6 +1925,10 @@ impl Document {
     /// targets the body, an absent `addr.card` the main card; an absent field
     /// cold-imports from empty.
     ///
+    /// `opts` names what the writer read (`BaseOptions`): a stale `baseHash`
+    /// throws `edit::stale_base`, and a `baseMarkdown` the value has moved on
+    /// from merges, throwing `edit::rebase_conflict` where both changed a line.
+    ///
     /// Throws on an out-of-range card, a malformed field name, a present
     /// non-content field value, or an over-nested markdown input.
     #[wasm_bindgen(js_name = revise, unchecked_return_type = "Revised")]
@@ -1798,16 +1936,22 @@ impl Document {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         markdown: &str,
+        #[wasm_bindgen(unchecked_optional_param_type = "BaseOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
+        let read = ReadBase::from_js(opts, "revise")?;
         let addr = Addr::from_js_or_string(&addr)?;
         let base = self.addr_base(&addr);
         let mut card = self.addr_card_mut(&addr)?;
-        let revised = match &addr.field {
-            None => card.revise_body(markdown).map(|r| r.with_path(&base.body())),
-            Some(field) => card
-                .revise_field(field, markdown)
-                .map(|r| r.with_path(&base.field(field))),
+        let revised = match (&addr.field, read.as_base()) {
+            (None, None) => card.revise_body(markdown),
+            (None, Some(read)) => card.revise_body_against(read, markdown),
+            (Some(field), None) => card.revise_field(field, markdown),
+            (Some(field), Some(read)) => card.revise_field_against(field, read, markdown),
         }
+        .map(|r| match &addr.field {
+            None => r.with_path(&base.body()),
+            Some(field) => r.with_path(&base.field(field)),
+        })
         .map_err(|e| edit_error_to_js(&e, &base))?;
         serialize_or_throw(&RevisedJs::from(revised), "revise")
     }
@@ -1848,12 +1992,19 @@ impl Document {
     /// conform against `quill`. Throws when `markdown` declares a `$quill` this quill
     /// does not answer to, before any mutation.
     #[wasm_bindgen(js_name = _reviseDocument, skip_typescript, unchecked_return_type = "DocumentRevised")]
-    pub fn revise_document_abi(&mut self, quill: &Quill, markdown: &str) -> Result<JsValue, JsValue> {
-        let revised = quill
-            .inner
-            .writer(&mut self.inner)
-            .revise_document(markdown)
-            .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())?;
+    pub fn revise_document_abi(
+        &mut self,
+        quill: &Quill,
+        markdown: &str,
+        opts: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let read = ReadBase::from_js(opts, "reviseDocument")?;
+        let mut writer = quill.inner.writer(&mut self.inner);
+        let revised = match read.as_base() {
+            None => writer.revise_document(markdown),
+            Some(read) => writer.revise_document_against(read, markdown),
+        }
+        .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())?;
         self.parse_warnings.clear();
         serialize_or_throw(&DocumentRevisedJs::from(revised), "reviseDocument")
     }
@@ -1866,6 +2017,45 @@ impl Document {
     /// warnings anchored at the field. The codec is the declared type's:
     /// `richtext` diffs markdown, `text` literal text, which drops nothing.
     ///
+    /// The ABI under `writer.hash`: the hash of the document as `quill`
+    /// conforms it, the `baseHash` `writer.reviseDocument` checks. Throws when
+    /// the document declares a `$quill` this quill does not answer to.
+    #[wasm_bindgen(js_name = _hash, skip_typescript)]
+    pub fn hash_abi(&mut self, quill: &Quill) -> Result<String, JsValue> {
+        quill
+            .inner
+            .writer(&mut self.inner)
+            .hash()
+            .map_err(|e| WasmError::from(e.to_diagnostics()).to_js_value())
+    }
+
+    /// The ABI under `writer.hashAt`: the body's hash, or a field's through its
+    /// schema (a `richtext` field its content however it rests, a `text` field
+    /// its literal text, any other type its stored value), the `baseHash` the
+    /// writer's `reviseBody` / `reviseField` check. An undeclared name throws
+    /// `edit::unknown_field`, an out-of-range card throws.
+    #[wasm_bindgen(js_name = _hashAt, skip_typescript)]
+    pub fn hash_at_abi(
+        &mut self,
+        quill: &Quill,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+    ) -> Result<String, JsValue> {
+        let addr = Addr::from_js_or_string(&addr)?;
+        let base = self.addr_base(&addr);
+        let Some(field) = addr.field.clone() else {
+            return Ok(self.addr_card_ref(&addr)?.body_hash());
+        };
+        let mut writer = quill.inner.writer(&mut self.inner);
+        match addr.card {
+            None => writer.field_hash(&field),
+            Some(index) => writer
+                .card(index)
+                .map_err(|e| edit_error_to_js(&e, &base))?
+                .field_hash(&field),
+        }
+        .map_err(|e| edit_error_to_js(&e, &base))
+    }
+
     /// `addr` must name a field; a body address throws, since a body carries no
     /// field schema (use [`revise`](Self::revise)). An undeclared name throws
     /// `edit::unknown_field`, an out-of-range card throws.
@@ -1875,17 +2065,23 @@ impl Document {
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         text: &str,
+        opts: JsValue,
     ) -> Result<JsValue, JsValue> {
+        let read = ReadBase::from_js(opts, "reviseField")?;
         let addr = Addr::from_js_or_string(&addr)?;
         let field = addr.require_field("reviseField")?.to_string();
         let base = self.addr_base(&addr);
         let mut writer = quill.inner.writer(&mut self.inner);
-        let revised = match addr.card {
-            None => writer.revise_field(&field, text),
-            Some(index) => writer
-                .card(index)
-                .map_err(|e| edit_error_to_js(&e, &base))?
-                .revise_field(&field, text),
+        let revised = match (addr.card, read.as_base()) {
+            (None, None) => writer.revise_field(&field, text),
+            (None, Some(read)) => writer.revise_field_against(&field, read, text),
+            (Some(index), read) => {
+                let mut card = writer.card(index).map_err(|e| edit_error_to_js(&e, &base))?;
+                match read {
+                    None => card.revise_field(&field, text),
+                    Some(read) => card.revise_field_against(&field, read, text),
+                }
+            }
         }
         .map_err(|e| edit_error_to_js(&e, &base))?;
         serialize_or_throw(&RevisedJs::from(revised), "reviseField")
@@ -2234,7 +2430,7 @@ fn parse_change_bundle(
         .map_err(|e| WasmError::from(format!("{ctx}: {e}")).to_js_value())
 }
 
-/// Import a markdown string: the pure, document-free codec. Returns the
+/// Import a markdown string: the markdown codec's import, pure and document-free. Returns the
 /// canonical `content` and a `parse::dropped_construct` warning per construct
 /// the import dropped, with no `path`. `overwrite(addr, importMarkdown(md).content)`
 /// spells the cold, anchor-losing write; prefer `revise` for edit semantics.
@@ -2260,6 +2456,88 @@ pub fn export_markdown(
     Ok(quillmark_content::export::to_markdown(&content))
 }
 
+/// The hash of `rt`'s canonical form: what `doc.hashAt` answers for a body or
+/// richtext field whose content it is, however the field rests, and the
+/// `baseHash` `rebase` checks. Throws where `overwrite` would.
+#[wasm_bindgen(js_name = hashContent)]
+pub fn hash_content(
+    #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
+) -> Result<String, JsValue> {
+    let content = js_to_authored_content(rt, "hashContent")?;
+    Ok(quillmark_core::document::content_hash(&content))
+}
+
+/// What a revise's writer read, off a `BaseOptions`.
+enum ReadBase {
+    None,
+    Hash(String),
+    Markdown(String),
+}
+
+impl ReadBase {
+    fn from_js(opts: JsValue, verb: &str) -> Result<Self, JsValue> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Opts {
+            base_hash: Option<String>,
+            base_markdown: Option<String>,
+        }
+        if opts.is_undefined() || opts.is_null() {
+            return Ok(ReadBase::None);
+        }
+        let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
+        // A key that is present but holds no string is a caller bug (a lookup
+        // that found nothing, a missing `await`), and `JSON.stringify` would
+        // drop it into an unguarded write.
+        for key in ["baseHash", "baseMarkdown"] {
+            let present = js_sys::Reflect::has(&opts, &key.into()).unwrap_or(false);
+            if present && !js_sys::Reflect::get(&opts, &key.into()).map_or(false, |v| v.is_string()) {
+                return Err(invalid(format!("{key} must be a string when given")));
+            }
+        }
+        let opts: Opts = serde_json::from_value(js_value_to_json(opts, verb)?)
+            .map_err(|e| invalid(format!("options must be BaseOptions: {e}")))?;
+        match (opts.base_hash, opts.base_markdown) {
+            (None, None) => Ok(ReadBase::None),
+            (Some(hash), None) => Ok(ReadBase::Hash(hash)),
+            (None, Some(markdown)) => Ok(ReadBase::Markdown(markdown)),
+            (Some(_), Some(_)) => Err(invalid("name baseHash or baseMarkdown, not both".into())),
+        }
+    }
+
+    fn as_base(&self) -> Option<quillmark_core::document::Base<'_>> {
+        match self {
+            ReadBase::None => None,
+            ReadBase::Hash(hash) => Some(quillmark_core::document::Base::Hash(hash)),
+            ReadBase::Markdown(md) => Some(quillmark_core::document::Base::Read(md)),
+        }
+    }
+}
+
+/// `exportMarkdown` with a receipt: the markdown, and an
+/// `export::lost_construct` warning, with no `path`, per part of `rt` it reads
+/// back as something else. Reads the markdown back to check it, so it costs an
+/// `importMarkdown` beyond `exportMarkdown`. Throws if `rt` is not canonical
+/// content.
+#[wasm_bindgen(js_name = exportMarkdownChecked, unchecked_return_type = "Exported")]
+pub fn export_markdown_checked(
+    #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
+) -> Result<JsValue, JsValue> {
+    let content = js_to_content(rt, "exportMarkdownChecked")?;
+    let exported = quillmark_content::export::to_markdown_checked(&content);
+    let out = ExportedJs {
+        markdown: exported.markdown,
+        warnings: diags(
+            exported
+                .losses
+                .into_iter()
+                .map(quillmark_core::document::lost_construct)
+                .collect::<Vec<_>>(),
+        ),
+    };
+    serialize_or_throw(&out, "exportMarkdownChecked")
+}
+
 /// The canonical form of `rt`: the content `overwrite` stores from it, read
 /// without a document. Normalizing rewrites structure, never the text, so the
 /// answer's `text` is `rt.text`. Throws where `overwrite` would, with the same
@@ -2276,8 +2554,10 @@ pub fn normalize(#[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue) 
 /// Rebase `markdown` onto a `base` content: the document-free twin of `revise`,
 /// returning the new `content`, the text `delta` (offsets are USV indices into
 /// `Content.text`, surviving anchors rebased), and the import's
-/// `parse::dropped_construct` warnings, with no `path`. Throws on an
-/// over-nested markdown input or a non-content `base`.
+/// `parse::dropped_construct` warnings, with no `path`. `opts` names what the
+/// writer read, as on `revise`, its `baseHash` checked against
+/// `hashContent(base)`. Throws on an over-nested markdown input, a non-content
+/// `base`, or a refusal by `opts`.
 #[wasm_bindgen(
     js_name = rebase,
     unchecked_return_type = "{ content: Content; delta: Delta; warnings: Diagnostic[] }"
@@ -2285,16 +2565,28 @@ pub fn normalize(#[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue) 
 pub fn rebase(
     #[wasm_bindgen(unchecked_param_type = "Content")] base: JsValue,
     markdown: &str,
+    #[wasm_bindgen(unchecked_optional_param_type = "BaseOptions")] opts: JsValue,
 ) -> Result<JsValue, JsValue> {
+    let read = ReadBase::from_js(opts, "rebase")?;
     let base = js_to_content(base, "rebase")?;
-    let (content, revised) = quillmark_core::document::revise_import(&base, markdown)
-        .map_err(|e| WasmError::from(format!("rebase: {e}")).to_js_value())?;
+    let (content, revised) = match read.as_base() {
+        None => quillmark_core::document::revise_import(&base, markdown)
+            .map_err(|e| WasmError::from(format!("rebase: {e}")).to_js_value())?,
+        Some(read) => quillmark_core::document::revise_import_against(&base, read, markdown)
+            .map_err(|e| edit_error_to_js(&e, &quillmark_core::path::DocPath::new()))?,
+    };
     let out = RebasedJs {
         content: quillmark_content::serial::to_canonical_value(&content),
         delta: revised.delta,
         warnings: diags(revised.warnings),
     };
     serialize_or_throw(&out, "rebase")
+}
+
+#[derive(serde::Serialize)]
+struct ExportedJs {
+    markdown: String,
+    warnings: Vec<Diagnostic>,
 }
 
 #[derive(serde::Serialize)]
@@ -2344,6 +2636,8 @@ struct AnchorLineJs {
 struct AnchorContextJs {
     id: String,
     path: String,
+    #[serde(rename = "cardId", default, skip_serializing_if = "Option::is_none")]
+    card_id: Option<String>,
     quote: String,
     prefix: String,
     suffix: String,
@@ -2354,6 +2648,7 @@ impl From<quillmark_core::document::AnchorSelector> for AnchorContextJs {
         AnchorContextJs {
             id: s.id,
             path: s.path.to_string(),
+            card_id: s.card_id,
             quote: s.quote,
             prefix: s.prefix,
             suffix: s.suffix,
@@ -2385,12 +2680,80 @@ struct AnnotatedMarkdownJs {
 struct DocumentAnchorJs {
     id: String,
     path: String,
+    #[serde(rename = "cardId", skip_serializing_if = "Option::is_none")]
+    card_id: Option<String>,
     line: String,
+}
+
+#[derive(serde::Serialize)]
+struct OutlineJs {
+    cards: Vec<OutlineCardJs>,
+}
+
+#[derive(serde::Serialize)]
+struct OutlineCardJs {
+    path: String,
+    kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    fields: Vec<OutlineFieldJs>,
+    headings: Vec<OutlineHeadingJs>,
+    anchors: Vec<OutlineAnchorJs>,
+}
+
+#[derive(serde::Serialize)]
+struct OutlineFieldJs {
+    name: String,
+    path: String,
+    state: &'static str,
+}
+
+#[derive(serde::Serialize)]
+struct OutlineHeadingJs {
+    line: usize,
+    level: u8,
+    text: String,
+}
+
+#[derive(serde::Serialize)]
+struct OutlineAnchorJs {
+    id: String,
+    path: String,
+}
+
+impl From<quillmark_core::outline::Outline> for OutlineJs {
+    fn from(outline: quillmark_core::outline::Outline) -> Self {
+        let cards = outline
+            .cards
+            .into_iter()
+            .map(|card| OutlineCardJs {
+                path: card.path.to_string(),
+                kind: card.kind,
+                id: card.id,
+                fields: card
+                    .fields
+                    .into_iter()
+                    .map(|f| OutlineFieldJs { name: f.name, path: f.path.to_string(), state: f.state.as_str() })
+                    .collect(),
+                headings: card
+                    .headings
+                    .into_iter()
+                    .map(|h| OutlineHeadingJs { line: h.line, level: h.level, text: h.text })
+                    .collect(),
+                anchors: card
+                    .anchors
+                    .into_iter()
+                    .map(|a| OutlineAnchorJs { id: a.id, path: a.path.to_string() })
+                    .collect(),
+            })
+            .collect();
+        OutlineJs { cards }
+    }
 }
 
 impl From<quillmark_core::document::DocumentAnchor> for DocumentAnchorJs {
     fn from(a: quillmark_core::document::DocumentAnchor) -> Self {
-        DocumentAnchorJs { id: a.id, path: a.path.to_string(), line: a.line }
+        DocumentAnchorJs { id: a.id, path: a.path.to_string(), card_id: a.card_id, line: a.line }
     }
 }
 
@@ -2962,7 +3325,7 @@ fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue
     // A flat `{ kind, fields }` object fails here rather than yielding an empty
     // card. A payload item is an internally tagged enum, read through
     // `deserialize_any` over every key, so its own deny holds without a walk.
-    const KEYS: &[&str] = &["kind", "quill", "ext", "seed", "payloadItems", "body"];
+    const KEYS: &[&str] = &["kind", "id", "quill", "ext", "seed", "payloadItems", "body"];
     reject_unknown_keys(value, KEYS, "card", |k| {
         format!(
             "card has unknown field `{k}`; expected a CardInput \

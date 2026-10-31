@@ -29,7 +29,6 @@ fn test_structural_violations_are_refused() {
         ("$quill on a card", format!("{root}~~~card-yaml\n$quill: second\n$kind: note\n~~~")),
         ("$seed on a card", format!("{root}~~~card-yaml\n$kind: note\n$seed:\n  a:\n    from: X\n~~~")),
         ("unknown $ key on a card", format!("{root}~~~card-yaml\n$foo: bar\n$kind: note\n~~~")),
-        ("$id on a card", format!("{root}~~~card-yaml\n$kind: note\n$id: a\n~~~")),
         ("$id on the root", "~~~\n$quill: q@0.1\n$id: x\n~~~\n".to_string()),
         ("scalar $ext", "~~~card-yaml\n$quill: q\n$kind: main\n$ext: just-a-string\n~~~".to_string()),
         ("scalar $seed", "~~~card-yaml\n$quill: q\n$kind: main\n$seed: just-a-string\n~~~".to_string()),
@@ -442,7 +441,7 @@ fn test_over_nested_body_surfaces_body_import_error_at_its_body() {
 
 #[test]
 fn test_canonical_root_with_kind_round_trips_byte_equal() {
-    let canonical = "~~~\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.\n\n~~~\n$kind: note\nname: Widget\n~~~\n";
+    let canonical = "~~~\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.\n\n~~~\n$kind: note\n$id: widget\nname: Widget\n~~~\n";
     let doc = decompose(canonical).unwrap();
     assert_eq!(doc.to_markdown(), canonical);
 }
@@ -643,6 +642,8 @@ Card body here.
     assert_eq!(cards[0]["$kind"], "indorsement");
     assert_eq!(cards[0]["for"], "ORG");
     assert_eq!(cards[0]["$body"]["text"], "Card body here.");
+    assert!(doc.cards()[0].id().is_some());
+    assert!(cards[0].get("$id").is_none(), "a card id never reaches the plate");
 }
 
 #[test]

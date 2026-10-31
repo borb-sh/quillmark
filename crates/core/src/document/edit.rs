@@ -14,12 +14,13 @@ use std::collections::{BTreeMap, HashSet};
 use quillmark_content::delta::{carry_anchors, diff_import, Delta};
 use quillmark_content::export::{anchors_where, AnchorRead};
 use quillmark_content::import::ImportError;
-use quillmark_content::model::{Mark, MarkKind, Normalized};
+use quillmark_content::model::Normalized;
 use quillmark_content::ops::{ApplyError, ChangeBundle};
 
 use crate::document::meta::{validate_composable_kind, CardKindError};
 use crate::error::diag_args;
 use crate::document::payload::MetaKey;
+use crate::document::base::{Base, BaseError};
 use crate::document::{Card, Codec, ContentDecodeError, Document, Payload, PayloadItem};
 use crate::error::Diagnostic;
 use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
@@ -100,6 +101,15 @@ pub enum EditError {
     #[error("index {index} is out of range (len = {len})")]
     IndexOutOfRange { index: usize, len: usize },
 
+    /// A card placed with a `$id` outside the card-id grammar
+    /// ([`is_card_id`](super::card_id::is_card_id)).
+    #[error("invalid card id '{0}': must be 1 to 64 of [A-Za-z0-9_-], opening with a letter or digit")]
+    InvalidCardId(String),
+
+    /// A card placed with a `$id` another card of the document holds.
+    #[error("card id '{0}' is already held by another card")]
+    DuplicateCardId(String),
+
     /// A card placed in a document already holding
     /// [`MAX_CARD_COUNT`](crate::error::MAX_CARD_COUNT) composable cards, past
     /// which its markdown fails `parse::too_many_cards`.
@@ -109,7 +119,7 @@ pub enum EditError {
     #[error("value nests deeper than the maximum of {max} levels")]
     ValueTooDeep { max: usize },
 
-    /// Markdown import failed: the content codec rejected the input for a body
+    /// Markdown import failed: the markdown codec rejected the input for a body
     /// *or* a field path (e.g. container nesting past
     /// [`MAX_NESTING_DEPTH`](quillmark_content::MAX_NESTING_DEPTH)). Returned
     /// instead of silently degrading the target to empty on a rejected import.
@@ -194,6 +204,10 @@ pub enum EditError {
     /// caller holding a `(name, value)` pair cannot check for itself.
     #[error("{0}")]
     InvalidPayload(PayloadViolation),
+
+    /// A revise's [`Base`] refused the write.
+    #[error(transparent)]
+    Base(BaseError),
 }
 
 impl EditError {
@@ -215,6 +229,8 @@ impl EditError {
             EditError::ReservedKind => "edit::reserved_kind",
             EditError::RootOnlyEntry { .. } => "edit::root_only_entry",
             EditError::IndexOutOfRange { .. } => "edit::index_out_of_range",
+            EditError::InvalidCardId(_) => "edit::invalid_card_id",
+            EditError::DuplicateCardId(_) => "edit::duplicate_card_id",
             EditError::TooManyCards { .. } => "edit::too_many_cards",
             EditError::ValueTooDeep { .. } => "edit::value_too_deep",
             EditError::Import(_) => "edit::import",
@@ -224,6 +240,7 @@ impl EditError {
             EditError::FieldCoercionFailed { .. } => "edit::field_coercion_failed",
             EditError::ContentApply(_) => "edit::content_apply",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
+            EditError::Base(e) => e.code(),
         }
     }
 
@@ -245,6 +262,7 @@ impl EditError {
                 "index" => index,
                 "len" => len,
             },
+            EditError::InvalidCardId(id) | EditError::DuplicateCardId(id) => diag_args! { "id" => id },
             EditError::TooManyCards { max } => diag_args! { "max" => max },
             EditError::ValueTooDeep { max } => diag_args! { "max" => max },
             EditError::Import(_) => diag_args! {},
@@ -281,6 +299,7 @@ impl EditError {
             // One code, four sentences: the variant that spoke is not on the
             // wire, so a consumer's template falls back to `message`.
             EditError::InvalidPayload(_) => diag_args! {},
+            EditError::Base(e) => e.args(),
         }
     }
 
@@ -305,6 +324,7 @@ impl EditError {
             | EditError::FieldNotSingleLine { field: f, .. }
             | EditError::FieldCoercionFailed { field: f, .. } => Some(base.field(f)),
             EditError::IndexOutOfRange { index, .. } => Some(DocPath::card(None, *index)),
+            EditError::Base(e) if e.field().is_some() => e.field().map(|f| base.field(f)),
             _ => (!base.segs().is_empty()).then(|| base.clone()),
         }
     }
@@ -471,6 +491,7 @@ pub fn validate_payload(payload: &Payload) -> Result<(), PayloadViolation> {
     let mut fields: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut seen_quill = false;
     let mut seen_kind = false;
+    let mut seen_id = false;
     let mut metas: std::collections::HashSet<MetaKey> = std::collections::HashSet::new();
     for item in payload.items() {
         let dup = |key| Err(PayloadViolation::DuplicateMeta { key });
@@ -488,6 +509,11 @@ pub fn validate_payload(payload: &Payload) -> Result<(), PayloadViolation> {
             PayloadItem::Kind { .. } => {
                 if std::mem::replace(&mut seen_kind, true) {
                     return dup("$kind");
+                }
+            }
+            PayloadItem::Id { .. } => {
+                if std::mem::replace(&mut seen_id, true) {
+                    return dup("$id");
                 }
             }
             PayloadItem::Meta { key, .. } => {
@@ -606,9 +632,10 @@ pub(crate) fn resolve_field_write(
 pub struct Revised {
     pub delta: Delta,
     pub warnings: Vec<Diagnostic>,
-    /// Every prose anchor of the stored value whose id the revised value holds
-    /// nowhere, in the order [`anchors_where`] lists them, each with the text
-    /// of the line it stood on.
+    /// Every anchor of the stored value, in its prose or a table cell or
+    /// footnote note, whose id the revised value holds nowhere, in the order
+    /// [`anchors_where`] lists them, each with the text of the line or cell it
+    /// stood in.
     pub dropped_anchors: Vec<AnchorRead>,
 }
 
@@ -645,28 +672,14 @@ fn carry_receipt(base: &Normalized, content: Normalized) -> (Normalized, Revised
     (content, revised)
 }
 
-/// Every prose anchor of `stored` whose id `next` holds nowhere, in prose or a
-/// cell, as [`anchors_where`] reads it off `stored`.
+/// Every anchor of `stored`, in its prose or a cell, whose id `next` holds
+/// nowhere, as [`anchors_where`] reads it off `stored`.
 pub(crate) fn dropped_anchors(stored: &Normalized, next: &Normalized) -> Vec<AnchorRead> {
-    let anchored = |m: &Mark| matches!(m.kind, MarkKind::Anchor { .. });
-    if !stored.marks.iter().any(anchored) {
+    let sites = stored.anchor_sites();
+    if sites.is_empty() {
         return Vec::new();
     }
-    let cells: Vec<Mark> = next
-        .islands
-        .iter()
-        .flat_map(|i| i.island_type.cell_marks(&i.props))
-        .flat_map(|(_, marks)| marks)
-        .collect();
-    let held: HashSet<&str> = next
-        .marks
-        .iter()
-        .chain(&cells)
-        .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } => Some(id.as_str()),
-            _ => None,
-        })
-        .collect();
+    let held: HashSet<String> = next.anchor_sites().into_iter().map(|site| site.id).collect();
     anchors_where(stored, |id| !held.contains(id))
 }
 
@@ -765,6 +778,25 @@ impl<'a> CardMut<'a> {
         self.0.revise_field(name, body)
     }
 
+    /// [`Card::revise_body_against`].
+    pub fn revise_body_against(
+        &mut self,
+        base: Base<'_>,
+        body: impl Into<String>,
+    ) -> Result<Revised, EditError> {
+        self.0.revise_body_against(base, body)
+    }
+
+    /// [`Card::revise_field_against`].
+    pub fn revise_field_against(
+        &mut self,
+        name: &str,
+        base: Base<'_>,
+        body: impl Into<String>,
+    ) -> Result<Revised, EditError> {
+        self.0.revise_field_against(name, base, body)
+    }
+
     /// [`Card::revise_body_content`].
     pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Revised {
         self.0.revise_body_content(content)
@@ -812,6 +844,22 @@ impl<'a> CardMut<'a> {
     ) -> Result<Revised, EditError> {
         self.0.revise_field_checked(name, body, schema)
     }
+
+    #[doc(hidden)]
+    pub fn field_hash_checked(&self, name: &str, schema: &FieldSchema) -> Result<String, EditError> {
+        self.0.field_hash_checked(name, schema)
+    }
+
+    #[doc(hidden)]
+    pub fn revise_field_checked_against(
+        &mut self,
+        name: &str,
+        base: Base<'_>,
+        body: impl Into<String>,
+        schema: &FieldSchema,
+    ) -> Result<Revised, EditError> {
+        self.0.revise_field_checked_against(name, base, body, schema)
+    }
 }
 
 impl std::ops::Deref for CardMut<'_> {
@@ -835,25 +883,37 @@ impl Document {
     /// composable kind ([`EditError::InvalidKindName`] /
     /// [`EditError::ReservedKind`] otherwise), and the document must hold
     /// fewer than [`MAX_CARD_COUNT`](crate::error::MAX_CARD_COUNT) cards
-    /// ([`EditError::TooManyCards`]).
+    /// ([`EditError::TooManyCards`]). A card spelling no `$id` mints one; one
+    /// spelling an id keeps it, refused where it is no card id
+    /// ([`EditError::InvalidCardId`]) or another card holds it
+    /// ([`EditError::DuplicateCardId`]).
     pub fn push_card(&mut self, card: Card) -> Result<(), EditError> {
-        Self::check_composable_placement(&card)?;
-        self.check_card_room()?;
-        self.cards_vec_mut().push(card);
-        Ok(())
+        self.insert_card(self.cards().len(), card)
     }
 
     /// Insert a composable card at `index` (`index > len` →
     /// [`EditError::IndexOutOfRange`]; invalid `$kind` →
     /// [`EditError::InvalidKindName`] / [`EditError::ReservedKind`]; a full
-    /// document → [`EditError::TooManyCards`]).
-    pub fn insert_card(&mut self, index: usize, card: Card) -> Result<(), EditError> {
+    /// document → [`EditError::TooManyCards`]), its `$id` as
+    /// [`push_card`](Self::push_card) takes it.
+    pub fn insert_card(&mut self, index: usize, mut card: Card) -> Result<(), EditError> {
         let len = self.cards().len();
         if index > len {
             return Err(EditError::IndexOutOfRange { index, len });
         }
         Self::check_composable_placement(&card)?;
         self.check_card_room()?;
+        let held: std::collections::HashSet<String> =
+            self.cards().iter().filter_map(Card::id).map(str::to_string).collect();
+        match card.id() {
+            Some(id) if !super::card_id::is_card_id(id) => return Err(EditError::InvalidCardId(id.to_string())),
+            Some(id) if held.contains(id) => return Err(EditError::DuplicateCardId(id.to_string())),
+            Some(_) => {}
+            None => {
+                let id = super::card_id::Mint::new(held).mint();
+                card.payload_mut().set_id(id);
+            }
+        }
         self.cards_vec_mut().insert(index, card);
         Ok(())
     }
@@ -1251,7 +1311,7 @@ impl Card {
     }
 
     /// The field's current content as a diff base: an absent field is empty.
-    fn richtext_base(&self, name: &str) -> Result<Normalized, EditError> {
+    pub(crate) fn richtext_base(&self, name: &str) -> Result<Normalized, EditError> {
         if !is_valid_field_name(name) {
             return Err(EditError::InvalidFieldName(name.to_string()));
         }

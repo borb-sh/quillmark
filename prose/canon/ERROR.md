@@ -100,6 +100,16 @@ peer of the render-path namespaces. Identity is the code, never message text:
 routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 `edit::unknown_field`, read off `diagnostics[0].code`.
 
+A revise guarded by what its writer read (a `Base`) refuses under two more:
+`edit::stale_base` when the value no longer hashes to the writer's
+`baseHash`, and `edit::rebase_conflict` when the writer's edit of its
+`baseMarkdown` and the change made since touch the same lines. Both carry
+`current`, the hash of the value now: a writer reads the value again, checks
+that read against `current`, and writes from it. Retrying the same markdown
+under `current` lands the revert the base refused. A refusal on a field
+anchors at the field. The whole-document lane raises them through
+`BoundParseError::Base`, as it raises a parse failure, before any mutation.
+
 Building a card from a `CardWire` (`insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
 `WireError` carries the `EditError` its addressed twin raises, and
@@ -146,6 +156,16 @@ families:
   (`parse::unsupported_yaml_tag`) anchors at the tagged node's `path`, a
   card's under its stored `$kind` as `pathFor` mints it. One on a `$` key or
   inside `$ext` or `$seed`, which have no document address, carries none.
+  A card whose `$id` the parse replaced, one outside the card-id grammar or
+  one an earlier card holds, adds `parse::card_id_reminted` with the `id` it
+  spelled, anchored at the card (`cards.<kind>[<i>]`) after every card's
+  other warnings. A whole-document revise adds one at the revised card for
+  an inserted card whose `$id` is not a card id or a stored card held.
+  A stored document's load (WASM `fromStored` / `loadStored`, Python
+  `from_stored`; Rust `Document::anchor_collisions`) adds
+  `parse::anchor_id_collision` with the `id`, one per anchor id a body or
+  content value holds more than once with a table cell or footnote note
+  taking part, anchored at the value's path, and no other warning.
   A body's markdown import adds `parse::dropped_construct`, one per construct
   it dropped, with its `count`, anchored at the body (`main.body`,
   `cards.<kind>[<i>].body`) after its card's tag warnings. The `construct` is:
@@ -153,10 +173,15 @@ families:
     grammar such as `qm-a--b`, `qm-anchor` where its block drops
     markdown, or a tag in an HTML table outside the subset, such as
     `caption`;
-  - `qm-<name>` for the open tag of a name outside `qm-span` and
-    `qm-anchor`, which carries nothing, and for a `qm-span` tag that drops:
-    left unclosed, self-closing, setting no family, or on a tag line;
+  - `qm-<name>` for the open tag of a name outside `qm-span`, `qm-anchor`
+    and `qm-island`, which carries nothing, and for a `qm-span` tag that
+    drops: left unclosed, self-closing, setting no family, or on a tag line;
+  - `qm-island` for an island token a cold import drops, or one a revise
+    reads where no island sits;
   - `qm-span[<attr>]` for one `qm-span` attribute that drops;
+  - `qm-anchor[ref]` and `qm-island[ref]` for a revise's anchor tag or island
+    token naming nothing the stored value holds, or an anchor an earlier tag
+    names;
   - `table` for an HTML table its block ends before its `</table>`, at a
     blank line or another `<table>`;
   - `table:row` for an HTML table's row too short for its grid,
@@ -194,6 +219,16 @@ families:
   conform reports a string's drops beside its `conform::*` warnings, and
   `validate` a string's the field still holds. A card inserted with a string
   body drops without it.
+- **`export::lost_construct` off a markdown export.** The receipt of an
+  export: `quillmark_content::export::to_markdown_checked` reads its markdown
+  back and names each part of the content it does not carry, and
+  `quillmark_core::document::lost_construct` mints one warning per part. The
+  `construct` is a mark's wire type (`strong`, `link`, …) with its `start`
+  and `end` in the content's text, an island's type (`table`, `image`, …), or
+  `text` where the text or its blocks read back otherwise. WASM
+  `exportMarkdownChecked` returns them beside the markdown with no `path`. A `*`,
+  `_` or `~~` mark is written over its text without the whitespace at its
+  edges, and names its full range here.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
@@ -514,9 +549,13 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::field_decode` | `field`, `codec` | structured, coarser |
 | `edit::reserved_kind` | — | code-determined |
 | `edit::root_only_entry` | `key` | structured |
+| `edit::invalid_card_id` | `id` | structured |
+| `edit::duplicate_card_id` | `id` | structured |
 | `edit::import` | — | fallback |
 | `edit::content_apply` | — | fallback |
 | `edit::invalid_payload` | — | fallback |
+| `edit::stale_base` | `current` | structured |
+| `edit::rebase_conflict` | `current` | structured |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
 | `conform::field_not_single_line` | `field`, `codec` | structured |
@@ -532,6 +571,9 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::empty_input` | — | code-determined |
 | `parse::unsupported_yaml_tag` | — | code-determined |
 | `parse::dropped_construct` | `construct`, `count` | structured |
+| `parse::card_id_reminted` | `id` | structured |
+| `parse::anchor_id_collision` | `id` | structured |
+| `export::lost_construct` | `construct`, `start`?, `end`? | structured |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |
 | `parse::body_import` | — | fallback |

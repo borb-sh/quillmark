@@ -32,6 +32,10 @@ pub enum BoundParseError {
     /// (`quill::name_mismatch` / `quill::version_mismatch`).
     #[error(transparent)]
     Mismatch(#[from] RenderError),
+    /// A guarded revise's [`Base`](crate::document::Base) refused the write
+    /// (`edit::stale_base` / `edit::rebase_conflict`).
+    #[error(transparent)]
+    Base(#[from] crate::document::BaseError),
 }
 
 impl BoundParseError {
@@ -41,6 +45,7 @@ impl BoundParseError {
         match self {
             BoundParseError::Parse(e) => vec![e.to_diagnostic()],
             BoundParseError::Mismatch(e) => e.diagnostics().to_vec(),
+            BoundParseError::Base(e) => vec![e.to_diagnostic()],
         }
     }
 }

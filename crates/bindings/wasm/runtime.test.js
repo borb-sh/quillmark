@@ -192,6 +192,39 @@ card_kinds:
     expect(ed.card(0).reviseField('prose', 'Keep this.').droppedAnchors).toEqual([{ id: 'p', line: 'Flag this line.' }])
   })
 
+  it('a stale baseHash refuses a revise, and a baseMarkdown lands beside the change since', () => {
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
+    const ed = buildQuill().writer(doc)
+    const read = doc.toAnnotatedMarkdown().markdown
+    const hash = doc.hashAt({})
+    ed.reviseBody('Alpha, edited.\n\nBeta.\n\nGamma.')
+    expectEditCode(() => ed.reviseBody('Other.', { baseHash: hash }), 'edit::stale_base')
+    expect(() => ed.reviseBody('Other.', { baseHash: hash })).toThrow(
+      expect.objectContaining({ diagnostics: [expect.objectContaining({ args: { current: doc.hashAt({}) } })] }),
+    )
+    ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseMarkdown: read })
+    expect(doc.bodyMarkdown()).toBe('Alpha, edited.\n\nBeta.\n\nGamma, rewritten.')
+    expectEditCode(
+      () => ed.reviseBody('Alpha, mine.\n\nBeta.\n\nGamma.', { baseMarkdown: 'Alpha.\n\nBeta.\n\nGamma.' }),
+      'edit::rebase_conflict',
+    )
+    expect(() => ed.reviseBody('x', { baseHash: undefined })).toThrow(/baseHash must be a string/)
+  })
+
+  it('writer.hashAt reads a field through its schema, so a string at rest and its conformed content agree', () => {
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: editor_test\nsubject: Hello *world*\n~~~\n\nBody.')
+    const ed = buildQuill().writer(doc)
+    const hash = ed.hashAt('subject')
+    expect(hash).toBe(doc.hashAt('subject'))
+    expect(ed.hashAt({})).toBe(doc.hashAt({}))
+    const whole = ed.hash()
+    ed.reviseBody('Other body.')
+    expect(ed.hashAt('subject')).toBe(hash)
+    expect(ed.hash()).not.toBe(whole)
+    ed.reviseField('subject', 'Hello _world_, hi', { baseHash: hash })
+    expectEditCode(() => ed.hashAt('nope'), 'edit::unknown_field')
+  })
+
   it('addCard commits fields and body; removeCard returns the card', () => {
     const ed = buildQuill().writer(blankDoc())
     expect(ed.addCard('note', { prose: 'Field **body**.' }, 'Card body text.')).toEqual([])
@@ -250,10 +283,11 @@ card_kinds:
     )
     doc.applyChange({}, { markOps: [{ op: 'add', start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }] })
     doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 6, end: 10, type: 'anchor', attrs: { id: 'n' } }] })
+    const cardId = doc.cards[0].id
     const receipt = quill
       .writer(doc)
       .reviseDocument('~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n')
-    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', id: 'n', line: 'First note.' }])
+    expect(receipt.droppedAnchors).toEqual([{ path: 'cards.note[0].body', cardId, id: 'n', line: 'First note.' }])
     expect(receipt.from).toEqual([])
     expect(receipt.warnings).toEqual([])
     expect(doc.main.body.marks).toEqual([{ start: 0, end: 4, type: 'anchor', attrs: { id: 'm' } }])
@@ -417,6 +451,30 @@ card_kinds:
     const v = quill.reader(Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.'))
     expect(v.get('subject')).toBeUndefined() // absent, not a typo
     expectEditCode(() => v.get('nope'), 'edit::unknown_field') // typo, not absent
+  })
+
+  it('reader.outline names each card, field state, heading and anchor; annotatedAt reads one address', () => {
+    const quill = buildQuill()
+    const doc = seededDoc(quill)
+    doc.storeField({ field: 'qty' }, 'lots')
+    doc.revise({}, '# Plan\n\nMain **body**.')
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 10, end: 14, type: 'anchor', attrs: { id: 'c1' } }] })
+    const outline = quill.reader(doc).outline()
+    const [main, note] = outline.cards
+    expect(main).toMatchObject({ path: 'main', kind: 'main', headings: [{ line: 0, level: 1, text: 'Plan' }] })
+    expect(main.id).toBeUndefined()
+    const states = Object.fromEntries(main.fields.map((f) => [f.name, f.state]))
+    expect(states).toMatchObject({ subject: 'ok', qty: 'invalid', note: 'empty' })
+    expect(main.anchors).toEqual([{ id: 'c1', path: 'main.body' }])
+    expect(note).toMatchObject({ path: 'cards.note[0]', kind: 'note', id: doc.cards[0].id })
+
+    const read = doc.annotatedAt({})
+    expect(read.markdown).toBe('# Plan\n\nMain <qm-anchor ref="c1"></qm-anchor>**body**.')
+    expect(read.anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'Main body.' }])
+    expect(doc.annotatedAt('subject')).toEqual({ markdown: 'Q3 **results**', anchors: [] })
+    const receipt = doc.revise({}, read.markdown.replace('Main', 'The main'), { baseMarkdown: read.markdown })
+    expect(receipt.droppedAnchors).toEqual([])
+    expect(doc.anchorContext('c1')).toMatchObject({ quote: 'body' })
   })
 
   it('an absent field addr reads the body markdown', () => {

@@ -783,6 +783,8 @@ mod args_canon {
                 key: "$quill".into(),
             },
             EditError::IndexOutOfRange { index: 3, len: 1 },
+            EditError::InvalidCardId("-x".into()),
+            EditError::DuplicateCardId("intro".into()),
             EditError::TooManyCards { max: 1 },
             EditError::ValueTooDeep { max: 8 },
             EditError::Import(quillmark_content::import::ImportError::NestingTooDeep {
@@ -816,6 +818,8 @@ mod args_canon {
             EditError::InvalidPayload(crate::document::edit::PayloadViolation::DuplicateField {
                 key: "title".into(),
             }),
+            EditError::Base(crate::document::BaseError::Stale { current: "h".into(), field: None }),
+            EditError::Base(crate::document::BaseError::Conflict { current: "h".into(), field: None }),
         ] {
             add(e.code(), e.args());
         }
@@ -968,6 +972,30 @@ card_kinds:
             .find(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
             .expect("no `parse::dropped_construct` sample from the drop probe");
         add(crate::document::DROPPED_CONSTRUCT, sample.args.clone());
+        let reminted = crate::document::Document::parse(
+            "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~\n$kind: note\n$id: -x\n~~~\n",
+        )
+        .expect("remint probe parses");
+        let sample = reminted
+            .warnings
+            .iter()
+            .find(|d| d.code.as_deref() == Some(crate::document::card_id::CARD_ID_REMINTED))
+            .expect("no `parse::card_id_reminted` sample from the remint probe");
+        add(crate::document::card_id::CARD_ID_REMINTED, sample.args.clone());
+        let mut grid = quillmark_content::import::from_markdown("x\n\n| a |\n|---|\n| b |").unwrap().content.into_content();
+        grid.marks.push(quillmark_content::model::Mark::new(0, 1, quillmark_content::model::MarkKind::Anchor { id: "c1".into() }));
+        grid.islands[0].props["rows"][0][0]["marks"] = serde_json::json!([{ "start": 0, "end": 1, "type": "anchor", "attrs": { "id": "c1" } }]);
+        let mut collided = crate::document::Document::parse("~~~\n$quill: q\n$kind: main\n~~~\n").expect("collision probe parses").document;
+        collided.main_mut().overwrite_body(grid.into_normalized());
+        let sample = collided.anchor_collisions().into_iter().next().expect("no `parse::anchor_id_collision` sample from the collision probe");
+        add(crate::document::ANCHOR_ID_COLLISION, sample.args);
+        let mut wide = quillmark_content::import::from_markdown("a **b** c").unwrap().content.into_content();
+        wide.marks[0].end += 1;
+        let lost = quillmark_content::export::to_markdown_checked(&wide.into_normalized());
+        add(
+            crate::document::LOST_CONSTRUCT,
+            crate::document::lost_construct(lost.losses.into_iter().next().expect("a loss")).args,
+        );
         add(
             "backend::declined_construct",
             crate::backend::declined_construct(

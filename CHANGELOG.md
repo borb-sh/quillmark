@@ -7,6 +7,119 @@ Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Python's
 where they returned a list of `Diagnostic`, so a loop over the result runs
 over its keys: read `receipt["warnings"]`.
 
+### Card identity
+
+- feat(core)!: **every composable card carries a `$id`.** It emits after
+  `$kind`, is minted where none is written (`c` and five base32 letters of a
+  fixed SHA-256 sequence, so equal markdown parses to equal ids), and a parse
+  re-mints a malformed or repeated one with `parse::card_id_reminted`. A
+  null `$id` (`$id:`, `~`) is no `$id`.
+  `insert_card` refuses a bad or held id (`edit::invalid_card_id`,
+  `edit::duplicate_card_id`). Storage moves to `quillmark/document@0.134.0`
+  for a row holding a composable card; a row of the main card alone keeps
+  its older tag, and an older row mints its ids on load. `$id` never reaches
+  the plate JSON.
+- feat(core)!: **a whole-document revise pairs cards by `$id` first.** An
+  incoming card spelling a stored card's id revises it, the most similar of
+  several spelling one keeps it, and the rest align by text as before. A
+  revised card keeps its stored id; an inserted one keeps a fresh id or mints
+  past every stored one. A list field's items align by text, so an item
+  inserted ahead of an anchored one leaves the anchor on its own item.
+- feat(core)!: **a comment selector names its card.** `AnchorSelector` and
+  `DocumentAnchor` gain `card_id`, and `reattach` resolves a selector's card by
+  it wherever the card moved. WASM spells it `cardId` on `AnchorContext`,
+  `DocumentAnchor` and the `Card` / `CardInput` `id`; Python `card_id` and the
+  card dict's `id`.
+
+### Two-way annotated read
+
+- feat(content)!: **a revise reads the annotated read back.** A
+  `qm-anchor` tag the writer kept pins its anchor's start where it stands,
+  one it dropped leaves the anchor to the diff, and one naming nothing stored
+  reports `qm-anchor[ref]`. The read marks a tag it moved off its anchor's
+  start `at="span"` or `at="line"`, which pins nothing.
+- feat(content)!: **an island markdown cannot spell reads as a
+  `qm-island` token**, `<qm-island ref="ID"></qm-island>`, which a revise
+  keeps as stored: a table's unnamed keys, an equation's unwritable TeX, an
+  image's extra props. A token naming no stored island reports
+  `qm-island[ref]`; a cold import drops every token, reported as
+  `qm-island`. A `Base::Read` merge compares the sides as annotated reads,
+  so a token survives it and a moved tag pins through it.
+
+### Anchors on every text surface
+
+- feat(content)!: **a table cell's and a footnote note's anchors join the
+  comment contract.** `Content::anchor_sites` reads every anchor with its
+  `Surface`, prose or a cell, and `anchor_contexts`, the annotated read's
+  `anchors` and every `dropped_anchors` receipt list cell anchors, a cell's
+  text as its `line`. `RemoveAnchor` removes an id from every cell, an anchor
+  `Add` refuses an id a cell holds, and an island op refuses a cell anchor
+  whose id the value already holds (`ApplyError::AnchorIdCollision`). A revise
+  keeps a cell's anchor where its island continues and the cell's text is
+  unchanged. `locate_site` and `reattach` search the cells with the prose.
+- feat(core): **a load reports an anchor id a cell shares.** Validation
+  still checks the prose alone, so such a value loads; `Content::anchor_collisions`
+  and `Document::anchor_collisions` name each id, and WASM `fromStored` /
+  `loadStored` and Python `from_stored` put a `parse::anchor_id_collision`
+  warning per value on `doc.warnings`.
+
+### Scoped reads
+
+- feat(core): **`reader.outline()`.** The schema-bound outline names each
+  card with its path, `$kind` and `$id`, each declared field with its state
+  (`ok`, `empty` or `invalid`), the body's headings by line, and each anchor
+  by id and path, without the document's text. WASM `quill.reader(doc).outline()`.
+- feat(core): **the annotated read of one address.** `Card::body_annotated`
+  and `field_annotated` (WASM `doc.annotatedAt(addr)`) read one body or
+  richtext field as the revise at that address reads it back, and as its
+  `baseMarkdown`.
+
+### Guarded revise
+
+- feat(core)!: **a revise states what its writer read.** `Base::Hash` is the
+  hash of the value read (`Card::body_hash`, `Card::field_hash`,
+  `Document::hash`, `content_hash`, and the typed writer's `hash` /
+  `field_hash` through the schema: SHA-256 over `quillmark/hash@1` and the
+  key-sorted canonical JSON), and a value that now hashes otherwise refuses
+  the write with `edit::stale_base`. `Base::Read` is the markdown read, annotated or not:
+  when the value has changed since, the writer's edit and the change merge by
+  line (`quillmark_content::delta::merge_lines`), so a person's edit made
+  between an LLM's read and its write lands beside the LLM's, and runs of
+  lines both changed refuse with `edit::rebase_conflict`. Both carry `current`,
+  the hash now. The verbs are `revise_body_against`, `revise_field_against`,
+  the writers' `revise_document_against`, and the free
+  `revise_import_against`. `EditError` gains `Base(BaseError)` and
+  `BoundParseError` gains `Base`.
+- feat(wasm): **`BaseOptions` on every revise.** `doc.revise`, `rebase` and the
+  writer's `reviseBody` / `reviseField` / `reviseDocument` take an optional
+  `{ baseHash?, baseMarkdown? }`, read through the writer's `hash()` /
+  `hashAt(addr)`, the quill-free `doc.hashAt(addr)` / `doc.hash()`, and
+  `hashContent(rt)`.
+- feat(python): **`base_hash` and `base_markdown` on the writer's revise
+  verbs**, read through the writer's `hash()` / `hash_at(field=None,
+  card=None)` and the quill-free `doc.hash_at` / `doc.hash()`.
+
+### Markdown export
+
+- feat(content): **an export can name what it does not spell.**
+  `export::to_markdown_checked` returns `Exported { markdown, losses }`, the
+  markdown read back and compared with the content: each `ExportLoss` is a
+  mark written over other text or dropped, an island that reads back
+  otherwise, or `Text` where the text or its blocks do. Core mints one
+  `export::lost_construct` warning per loss (`lost_construct`), its
+  `construct` the mark's wire type, the island's type or `text`, a mark's
+  `start` and `end` beside it.
+- feat(wasm): **`exportMarkdownChecked(rt)`** returns `{ markdown, warnings }`,
+  `exportMarkdown`'s markdown and its `export::lost_construct` warnings.
+- fix(content): **a `*`, `_` or `~~` mark over edge whitespace keeps its
+  text.** `bar ` in bold wrote no bold at all, its delimiter never closing
+  against a space; it now writes `**bar** `, the mark over `bar`.
+- perf(content): **`to_markdown` reads each line's marks alone**, so export is
+  linear in the marks where it scanned every mark per line.
+- feat(content)!: **a markdown import reports the bidi controls it drops**,
+  under `parse::dropped_construct` with `construct: "bidi"`. `Dropped` gains
+  `Bidi`.
+
 ### Comments
 
 - feat(content): **anchor contexts and exact re-attachment.** The `anchor`
@@ -17,7 +130,7 @@ over its keys: read `receipt["warnings"]`.
   over exactly its quote and a point at the one place its context meets. The
   rule never guesses: a quote of `MIN_ANCHOR_QUOTE` (four) scalar values or
   more, or island slots alone, its context agreeing on `ANCHOR_AGREE_USV`
-  (eight) each side or whole where the field's edge cut it, a match overlapping inserted text where a
+  (eight) each side or as far as it reaches where the field's edge cut it, a match overlapping inserted text where a
   delta is given, and exactly one such place. `Delta::inserted_spans` is
   public. (#2349)
 - feat(core): **`Document::reattach` and `Revised.dropped_anchors`.**
@@ -44,7 +157,7 @@ over its keys: read `receipt["warnings"]`.
   `doc.reattach(selectors, deltas=None)` expose the handle. (#2349)
 - docs(canon): **`COMMENTS.md` states the comment-anchor contract**: the
   thread outside the document, the id it shares with its anchor, the matching
-  rule, drift, table cells out of scope, and the hosting rule. (#2349)
+  rule, drift, table cells, and the hosting rule. (#2349)
 
 ## v0.133.0 - 2026-10-29
 

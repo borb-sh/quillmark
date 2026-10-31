@@ -11,8 +11,10 @@ import {
   Document,
   importMarkdown,
   exportMarkdown,
+  exportMarkdownChecked,
   normalize,
   rebase,
+  hashContent,
   mapPos,
   mapMarks,
   isInline,
@@ -112,12 +114,14 @@ describe('Document.toMarkdown', () => {
 
 // The DTO's content rules are core's (`core/src/document/dto.rs`).
 describe('Document JSON DTO: toStored / fromStored', () => {
-  it('toStored emits a plain JSON string carrying the newest schema version only for a font mark', () => {
+  it('toStored emits a plain JSON string carrying the newest schema version only for a composable card', () => {
     const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
     expect(typeof dto).toBe('string')
     expect(JSON.parse(dto).schema).toBe('quillmark/document@0.129.0')
     const fonted = Document.fromMarkdown(`${TEST_MARKDOWN} <qm-span family="Carlito">Set</qm-span>`).toStored()
-    expect(JSON.parse(fonted).schema).toBe(Document.currentStorageVersion())
+    expect(JSON.parse(fonted).schema).toBe('quillmark/document@0.131.0')
+    const carded = Document.fromMarkdown(`${TEST_MARKDOWN}\n\n~~~\n$kind: note\n~~~\n`).toStored()
+    expect(JSON.parse(carded).schema).toBe(Document.currentStorageVersion())
   })
 
   it('round-trips a mutated document with cards back to an equal handle', () => {
@@ -488,7 +492,43 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
   })
 })
 
-describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () => {
+describe('Card ids', () => {
+  const MD = '~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nA note about the orchard rows.\n'
+
+  it('a composable card carries its $id through markdown and placement', () => {
+    const doc = Document.fromMarkdown(MD)
+    const id = doc.cards[0].id
+    expect(id).toMatch(/^c[a-z2-9]{5}$/)
+    expect(doc.main.id).toBeUndefined()
+    expect(doc.toMarkdown()).toContain(`$kind: note\n$id: ${id}\n`)
+    expect(Document.fromMarkdown(doc.toMarkdown()).cards[0].id).toBe(id)
+
+    doc.insertCard(makeCard('note', {}, 'Placed.'))
+    expect(doc.cards[1].id).toMatch(/^c[a-z2-9]{5}$/)
+    expect(doc.cards[1].id).not.toBe(id)
+    doc.insertCard({ ...makeCard('note'), id: 'chosen' })
+    expect(doc.cards[2].id).toBe('chosen')
+    expectEditCode(() => doc.insertCard({ ...makeCard('note'), id }), 'edit::duplicate_card_id')
+    expectEditCode(() => doc.insertCard({ ...makeCard('note'), id: '-x' }), 'edit::invalid_card_id')
+  })
+
+  it('a selector names its card, and reattach follows the card wherever it moved', () => {
+    const doc = Document.fromMarkdown(MD)
+    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 17, end: 29, type: 'anchor', attrs: { id: 'n1' } }] })
+    const [selector] = doc.anchorContexts()
+    expect(selector).toMatchObject({ path: 'cards.note[0].body', cardId: doc.cards[0].id, quote: 'orchard rows' })
+    expect(doc.toAnnotatedMarkdown().anchors[0].cardId).toBe(doc.cards[0].id)
+
+    const reopened = Document.fromMarkdown(doc.toMarkdown())
+    reopened.insertCard(makeCard('note', {}, 'An earlier note.'), 0)
+    const { reattached, orphaned } = reopened.reattach([selector])
+    expect(orphaned).toEqual([])
+    expect(reattached[0].path).toBe('cards.note[1].body')
+    expect(reopened.reattach([{ ...selector, id: 'n2', cardId: 'nobody' }]).orphaned.length).toBe(1)
+  })
+})
+
+describe('Content model: importMarkdown / exportMarkdown / rebase / mapPos', () => {
   it('importMarkdown ∘ exportMarkdown round-trips a body', () => {
     const { content: rt, warnings } = importMarkdown('A **bold** line.')
     expect(typeof rt).toBe('object')
@@ -572,6 +612,12 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
     const past = importMarkdown(table('9007199254740992 1'))
     expect(past.content.islands[0].props.widths).toBeUndefined()
     expect(past.warnings.map((w) => w.args.construct)).toEqual(['table[widths]'])
+  })
+
+  it('rebase checks a baseHash against hashContent of its base', () => {
+    const base = importMarkdown('hello world').content
+    expect(rebase(base, 'hello brave world', { baseHash: hashContent(base) }).content.text).toBe('hello brave world')
+    expectEditCode(() => rebase(base, 'hi', { baseHash: hashContent(importMarkdown('other').content) }), 'edit::stale_base')
   })
 
   it('rebase returns the drops of the markdown it imports, with no path', () => {
@@ -1003,10 +1049,41 @@ Card body.
     expect(read.markdown).toContain('A <qm-anchor ref="n"></qm-anchor>note.')
     expect(read.anchors).toEqual([
       { id: 'b', path: 'main.body', line: 'Main body.' },
-      { id: 'n', path: 'cards.note[0].body', line: 'A note.' },
+      { id: 'n', path: 'cards.note[0].body', cardId: doc.cards[0].id, line: 'A note.' },
     ])
 
     expect(Document.fromMarkdown(read.markdown).equals(Document.fromMarkdown(doc.toMarkdown()))).toBe(true)
+  })
+
+  it('a revise reads the annotated read back: a moved tag moves its anchor, a ref nothing holds reports', () => {
+    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nMain body here.\n')
+    doc.applyChange({}, { markOps: [{ op: 'add', start: 5, end: 9, type: 'anchor', attrs: { id: 'b' } }] })
+    const read = doc.toAnnotatedMarkdown().markdown
+    expect(read).toContain('Main <qm-anchor ref="b"></qm-anchor>body here.')
+    const moved = read.replace('Main <qm-anchor ref="b"></qm-anchor>body here.', 'Main body <qm-anchor ref="b"></qm-anchor>here.')
+    const receipt = doc.revise({}, moved.split('~~~\n\n')[1].trim() + ' <qm-anchor ref="gone"></qm-anchor>')
+    expect(receipt.droppedAnchors).toEqual([])
+    expect(receipt.warnings).toEqual([
+      expect.objectContaining({ code: 'parse::dropped_construct', args: { construct: 'qm-anchor[ref]', count: 1 } }),
+    ])
+    expect(doc.anchorContext('b')).toMatchObject({ quote: 'here' })
+  })
+
+  it('a cell anchor is read, and a load names an id a cell shares', () => {
+    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nLead.\n\n| a |\n|---|\n| cell text |\n')
+    const body = doc.main.body
+    body.islands[0].props.rows[0][0].marks = [{ start: 5, end: 9, type: 'anchor', attrs: { id: 'c1' } }]
+    doc.overwrite({}, body)
+    expect(doc.anchorContext('c1')).toMatchObject({ path: 'main.body', quote: 'text', prefix: 'cell ', suffix: '' })
+    expect(doc.toAnnotatedMarkdown().anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'cell text' }])
+    expect(Document.fromStored(doc.toStored()).warnings).toEqual([])
+
+    body.marks.push({ start: 0, end: 4, type: 'anchor', attrs: { id: 'c1' } })
+    doc.overwrite({}, body)
+    const loaded = Document.fromStored(doc.toStored())
+    expect(loaded.warnings).toEqual([
+      expect.objectContaining({ code: 'parse::anchor_id_collision', path: 'main.body', args: { id: 'c1' } }),
+    ])
   })
 
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
@@ -1340,5 +1417,18 @@ title:
 `
     const result = engine.render(quill, Document.fromMarkdown(md), { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
+  })
+})
+
+describe('exportMarkdownChecked', () => {
+  it('names a mark the markdown writes over other text', () => {
+    const rt = importMarkdown('foo **bar** baz').content
+    expect(exportMarkdownChecked(rt)).toEqual({ markdown: 'foo **bar** baz', warnings: [] })
+    rt.marks[0].end += 1
+    const { markdown, warnings } = exportMarkdownChecked(rt)
+    expect(markdown).toBe(exportMarkdown(rt))
+    expect(warnings.map((w) => [w.code, w.args])).toEqual([
+      ['export::lost_construct', { construct: 'strong', start: 4, end: 8 }],
+    ])
   })
 })

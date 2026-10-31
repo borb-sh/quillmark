@@ -507,9 +507,9 @@ proptest! {
         prop_assert_eq!(&new_rt.text[anchor.start..anchor.end], a.as_str());
     }
 
-    /// The annotated read imports as the plain projection does, lists every
-    /// prose anchor once, in `(start, id)` order, and revises its content to
-    /// itself.
+    /// The annotated read of an imported content spells no island token,
+    /// imports as the plain projection does, lists every prose anchor once,
+    /// in `(start, id)` order, and revises its content to itself.
     #[test]
     fn the_annotated_read_imports_as_the_plain_one(
         md in prop_oneof![document(), delimiter_run()],
@@ -527,6 +527,7 @@ proptest! {
 
         let plain = to_markdown(&rt);
         let read = to_markdown_annotated(&rt);
+        prop_assert!(!read.markdown.contains("<qm-island"), "a generated island has no markdown: {:?}", read.markdown);
         prop_assert_eq!(
             from_markdown(&read.markdown).unwrap().content,
             from_markdown(&plain).unwrap().content,
@@ -954,7 +955,28 @@ proptest! {
         let cs: Vec<char> = stored.chars().collect();
         if !kept.iter().any(|m| m.kind == MarkKind::Code) {
             let commas: String = cs.iter().map(|&c| if c == '\n' { ',' } else { c }).collect();
-            let wire: Vec<Value> = kept.iter().map(quillmark_content::serial::mark_to_value).collect();
+            // The twin carries each mark as the cell's export writes it: off a
+            // break, then off the whitespace that exposes under a delimiter.
+            let delimited = |k: &MarkKind| matches!(k, MarkKind::Strong | MarkKind::Emph | MarkKind::Strike);
+            let wire: Vec<Value> = kept
+                .iter()
+                .filter_map(|m| {
+                    let mut m = m.clone();
+                    let mut trim = |trims: &dyn Fn(char) -> bool| {
+                        while m.start < m.end && trims(cs[m.start]) {
+                            m.start += 1;
+                        }
+                        while m.end > m.start && trims(cs[m.end - 1]) {
+                            m.end -= 1;
+                        }
+                    };
+                    trim(&|c| c == '\n');
+                    if delimited(&m.kind) {
+                        trim(&|c: char| c.is_whitespace());
+                    }
+                    (m.start < m.end).then(|| quillmark_content::serial::mark_to_value(&m))
+                })
+                .collect();
             let twin = table_content(
                 vec!["none"],
                 vec![json!({"text": "h", "marks": []})],
@@ -1093,5 +1115,26 @@ fn fixture_bodies_import_and_are_valid() {
         assert_eq!(rt.validate(), Ok(()), "{name} invariants");
         let rt2 = from_markdown(&to_markdown(&rt)).unwrap().content;
         assert_eq!(rt, rt2, "{name} content not a fixed point");
+    }
+}
+
+// A merge takes three texts it did not write, so it states its algebra over
+// generated line sets: one side unchanged is the other side's text, one side
+// equal to the other is that text, and the two sides commute.
+fn lines() -> impl Strategy<Value = String> {
+    prop::collection::vec(prop::sample::select(vec!["a\n", "b\n", "c\n", "\n", "d"]), 0..7)
+        .prop_map(|v| v.concat())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(2000))]
+
+    #[test]
+    fn merge_lines_algebra(base in lines(), ours in lines(), theirs in lines()) {
+        use quillmark_content::delta::merge_lines;
+        prop_assert_eq!(merge_lines(&base, &base, &theirs), Some(theirs.clone()));
+        prop_assert_eq!(merge_lines(&base, &ours, &base), Some(ours.clone()));
+        prop_assert_eq!(merge_lines(&base, &ours, &ours), Some(ours.clone()));
+        prop_assert_eq!(merge_lines(&base, &ours, &theirs), merge_lines(&base, &theirs, &ours));
     }
 }

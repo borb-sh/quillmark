@@ -3,15 +3,34 @@
 //! dropped. The contract is `prose/canon/COMMENTS.md`.
 
 use std::collections::{HashMap, HashSet};
+use std::ops::ControlFlow;
 
-use quillmark_content::anchor::{anchor_contexts, AnchorContext, Reattached};
+use quillmark_content::anchor::{anchor_context, anchor_contexts, AnchorContext, Reattached};
 use quillmark_content::delta::Delta;
-use quillmark_content::model::{Content, Mark, MarkKind, Normalized};
+use quillmark_content::model::Normalized;
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 
 use super::{Card, Document};
+use crate::error::{diag_args, Diagnostic, Severity};
 use crate::path::{DocPath, DocSeg};
+
+pub const ANCHOR_ID_COLLISION: &str = "parse::anchor_id_collision";
+
+fn anchor_collision(id: &str, at: &DocPath) -> Diagnostic {
+    Diagnostic::new(
+        Severity::Warning,
+        format!("anchor id `{id}` is held more than once in one value, a table cell or footnote taking part"),
+    )
+    .with_code(ANCHOR_ID_COLLISION.to_string())
+    .with_hint(
+        "An anchor id is unique per value. Remove the anchor from all but one place, or give the others new ids; \
+         until then a removal by id removes every copy."
+            .to_string(),
+    )
+    .with_path(at.to_string())
+    .with_args(diag_args! { "id" => id })
+}
 
 /// A prose anchor's context at its address: the selector a host stores beside
 /// a comment thread, flat as [`DocumentAnchor`](super::DocumentAnchor) is.
@@ -21,6 +40,10 @@ pub struct AnchorSelector {
     pub id: String,
     /// The body or content value holding the anchor.
     pub path: DocPath,
+    /// The `$id` of the composable card `path` names, which
+    /// [`reattach`](Document::reattach) resolves the card by; `None` on the
+    /// main card, or for a path alone.
+    pub card_id: Option<String>,
     /// The anchored text as stored, island slots and line breaks included;
     /// empty for a point.
     pub quote: String,
@@ -43,14 +66,22 @@ impl AnchorSelector {
         AnchorSelector {
             id: id.into(),
             path,
+            card_id: None,
             quote: quote.into(),
             prefix: prefix.into(),
             suffix: suffix.into(),
         }
     }
 
-    fn at(ctx: AnchorContext, path: &DocPath) -> Self {
+    /// This selector naming its card by `$id` too.
+    pub fn with_card_id(mut self, card_id: Option<String>) -> Self {
+        self.card_id = card_id;
+        self
+    }
+
+    fn at(ctx: AnchorContext, path: &DocPath, doc: &Document) -> Self {
         AnchorSelector::new(ctx.id, path.clone(), ctx.quote, ctx.prefix, ctx.suffix)
+            .with_card_id(doc.card_id_at(path).map(str::to_string))
     }
 
     fn context(&self) -> AnchorContext {
@@ -59,41 +90,55 @@ impl AnchorSelector {
 }
 
 impl Document {
-    /// Every prose anchor of every body and content value, at any depth of a
-    /// field, with its context: each card's fields, then its body, as
+    /// Every anchor of every body and content value, at any depth of a field,
+    /// with its context: each card's fields, then its body, as
     /// [`to_markdown_annotated`](Self::to_markdown_annotated) lists them. A pure
-    /// read. An anchor in a table cell is outside it.
+    /// read. An anchor in a table cell or a footnote's note reads its context
+    /// off that cell's text, at the value's path.
     pub fn anchor_contexts(&self) -> Vec<AnchorSelector> {
         let mut out = Vec::new();
         self.each_content(&mut |path, content| {
-            out.extend(anchor_contexts(content).into_iter().map(|ctx| AnchorSelector::at(ctx, path)));
+            out.extend(anchor_contexts(content).into_iter().map(|ctx| AnchorSelector::at(ctx, path, self)));
+            ControlFlow::Continue(())
         });
         out
     }
 
-    /// The selector of the prose anchor `id`, or `None` where no body or
+    /// The selector of the anchor `id`, or `None` where no body or
     /// content value holds one. Ids are unique per value, not per document:
     /// the first value holding `id`, in [`anchor_contexts`](Self::anchor_contexts)
     /// order, answers.
     pub fn anchor_context(&self, id: &str) -> Option<AnchorSelector> {
-        self.anchor_contexts().into_iter().find(|s| s.id == id)
+        let mut found = None;
+        self.each_content(&mut |path, content| match anchor_context(content, id) {
+            Some(ctx) => {
+                found = Some(AnchorSelector::at(ctx, path, self));
+                ControlFlow::Break(())
+            }
+            None => ControlFlow::Continue(()),
+        });
+        found
     }
 
     /// Re-add dropped anchors, each at the path its selector names, where the
     /// quote is found under the exact rule of
-    /// [`locate`](quillmark_content::anchor::locate). Answers each selector in
+    /// [`locate_site`](quillmark_content::anchor::locate_site): in the value's
+    /// prose or one of its cells. Answers each selector in
     /// the order given, reattached with its selector as read after the write,
     /// or orphaned as given. Each value a selector names is read and written
     /// once, however many selectors name it.
     ///
     /// - Each id is answered once: of selectors sharing an id, the first is
     ///   answered and the rest are left out of the receipt.
-    /// - Path-strict: a path naming no body or content value orphans its
-    ///   selector, and nothing here remaps a card index. A card path's kind
-    ///   must be the card's.
-    /// - An id live anywhere in the document, a table cell's anchor included,
-    ///   is not written: it is answered as reattached, with the selector the
-    ///   first value holding it reads, or as given for an id only a cell holds.
+    /// - A selector naming a `card_id` resolves its card by that id, wherever
+    ///   the card now sits: its path's card index is moved to that card's, and
+    ///   an id no card holds, or a card of another kind than the path's,
+    ///   orphans it. One naming none is path-strict.
+    /// - A path naming no body or content value orphans its selector. A card
+    ///   path's kind must be the card's.
+    /// - An id live anywhere in the document, a cell's anchor included, is not
+    ///   written: it is answered as reattached, with the selector the first
+    ///   value holding it reads.
     /// - `deltas` holds a write's [`Delta`] per path where the caller has one,
     ///   and a match at that path must then overlap text the write inserted.
     pub fn reattach(
@@ -104,14 +149,14 @@ impl Document {
         let mut answered = HashSet::new();
         let selectors: Vec<&AnchorSelector> =
             selectors.iter().filter(|s| answered.insert(s.id.as_str())).collect();
+        let paths: Vec<Option<DocPath>> = selectors.iter().map(|s| self.resolve_card(s)).collect();
 
         let mut known: HashMap<String, AnchorSelector> = HashMap::new();
-        let mut cells: HashSet<String> = HashSet::new();
         self.each_content(&mut |path, content| {
             for ctx in anchor_contexts(content) {
-                known.entry(ctx.id.clone()).or_insert_with(|| AnchorSelector::at(ctx, path));
+                known.entry(ctx.id.clone()).or_insert_with(|| AnchorSelector::at(ctx, path, self));
             }
-            cells.extend(cell_anchors(content));
+            ControlFlow::Continue(())
         });
 
         let mut answer: Vec<Option<AnchorSelector>> = Vec::with_capacity(selectors.len());
@@ -119,13 +164,14 @@ impl Document {
         for (i, selector) in selectors.iter().enumerate() {
             if let Some(live) = known.get(&selector.id) {
                 answer.push(Some(live.clone()));
-            } else if cells.contains(&selector.id) {
-                answer.push(Some((*selector).clone()));
             } else {
                 answer.push(None);
-                match pending.iter_mut().find(|(path, _)| **path == selector.path) {
+                let Some(path) = &paths[i] else {
+                    continue;
+                };
+                match pending.iter_mut().find(|(at, _)| *at == path) {
                     Some((_, at)) => at.push(i),
-                    None => pending.push((&selector.path, vec![i])),
+                    None => pending.push((path, vec![i])),
                 }
             }
         }
@@ -141,7 +187,7 @@ impl Document {
             let mut placed: HashMap<String, AnchorContext> =
                 placed.into_iter().map(|ctx| (ctx.id.clone(), ctx)).collect();
             for i in at {
-                answer[i] = placed.remove(&selectors[i].id).map(|ctx| AnchorSelector::at(ctx, path));
+                answer[i] = placed.remove(&selectors[i].id).map(|ctx| AnchorSelector::at(ctx, path, self));
             }
         }
 
@@ -153,6 +199,31 @@ impl Document {
             }
         }
         out
+    }
+
+    /// The `$id` of the composable card `path` names, `None` on the main card
+    /// or a path naming no card.
+    pub(crate) fn card_id_at(&self, path: &DocPath) -> Option<&str> {
+        match path.segs().first()? {
+            DocSeg::Card { index, .. } => self.cards.get(*index)?.id(),
+            _ => None,
+        }
+    }
+
+    /// The path `selector` names, its card index moved to the card holding
+    /// its `card_id`; `None` where no card of the path's kind holds it.
+    fn resolve_card(&self, selector: &AnchorSelector) -> Option<DocPath> {
+        let Some(card_id) = &selector.card_id else {
+            return Some(selector.path.clone());
+        };
+        let Some(DocSeg::Card { kind, .. }) = selector.path.segs().first() else {
+            return None;
+        };
+        let index = self.cards.iter().position(|card| card.id() == Some(card_id))?;
+        if self.cards[index].kind() != kind.as_deref() {
+            return None;
+        }
+        selector.path.with_card_index(index)
     }
 
     /// Run `f` on the body or content value `path` names, writing the value
@@ -200,53 +271,60 @@ impl Document {
 
     /// `visit` each body and content value with its path, in the order
     /// [`anchor_contexts`](Self::anchor_contexts) lists them.
-    fn each_content(&self, visit: &mut dyn FnMut(&DocPath, &Normalized)) {
+    /// One `parse::anchor_id_collision` warning per anchor id a body or
+    /// content value holds more than once, a table cell or footnote note
+    /// taking part, at the value's path: the collision a stored value loads
+    /// with, which [`reattach`](Self::reattach) and the ops cannot tell apart.
+    /// Fields in order, then the body, card by card; each value's ids sorted.
+    pub fn anchor_collisions(&self) -> Vec<Diagnostic> {
+        let mut out = Vec::new();
+        self.each_content(&mut |path, content| {
+            out.extend(content.anchor_collisions().into_iter().map(|id| anchor_collision(&id, path)));
+            ControlFlow::Continue(())
+        });
+        out
+    }
+
+    fn each_content(&self, visit: &mut Visit<'_>) {
         let roots = std::iter::once((DocPath::main(), &self.main))
             .chain(self.cards.iter().enumerate().map(|(i, card)| (DocPath::card(card.kind(), i), card)));
         for (at, card) in roots {
-            each_in_card(card, &at, visit);
+            if each_in_card(card, &at, visit).is_break() {
+                return;
+            }
         }
     }
 }
 
-fn each_in_card(card: &Card, at: &DocPath, visit: &mut dyn FnMut(&DocPath, &Normalized)) {
+type Visit<'a> = dyn FnMut(&DocPath, &Normalized) -> ControlFlow<()> + 'a;
+
+fn each_in_card(card: &Card, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow<()> {
     for (name, value) in card.payload().iter() {
-        each_in_value(value.as_json(), &at.field(name), visit);
+        each_in_value(value.as_json(), &at.field(name), visit)?;
     }
-    visit(&at.body(), card.body());
+    visit(&at.body(), card.body())
 }
 
-fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut dyn FnMut(&DocPath, &Normalized)) {
+fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow<()> {
     if let Some(content) = content_of(value) {
         return visit(at, &content);
     }
     match value {
         JsonValue::Object(map) => {
             for (key, value) in map {
-                each_in_value(value, &at.field(key), visit);
+                each_in_value(value, &at.field(key), visit)?;
             }
         }
         JsonValue::Array(items) => {
             for (i, value) in items.iter().enumerate() {
-                each_in_value(value, &at.index(i), visit);
+                each_in_value(value, &at.index(i), visit)?;
             }
         }
         _ => {}
     }
+    ControlFlow::Continue(())
 }
 
 fn content_of(value: &JsonValue) -> Option<Normalized> {
     value.is_object().then(|| from_canonical_value(value).ok()).flatten()
-}
-
-fn cell_anchors(content: &Content) -> impl Iterator<Item = String> + '_ {
-    content
-        .islands
-        .iter()
-        .flat_map(|i| i.island_type.cell_marks(&i.props))
-        .flat_map(|(_, marks)| marks)
-        .filter_map(|m: Mark| match m.kind {
-            MarkKind::Anchor { id } => Some(id),
-            _ => None,
-        })
 }

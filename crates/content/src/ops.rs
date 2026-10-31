@@ -11,6 +11,7 @@ use crate::normalize::admit_char;
 use crate::usv::char_to_byte;
 use serde::Deserialize;
 use std::borrow::Cow;
+use std::collections::HashSet;
 
 /// A mark edit in final-text coordinates (post-delta, post-line-op).
 #[derive(Debug, Clone, PartialEq)]
@@ -18,8 +19,8 @@ pub enum MarkOp {
     /// Add a mark over `[start, end)`. A [keyed](MarkKind::is_keyed) `kind`
     /// sets its value there: every mark of its tag is first subtracted from
     /// the range. An anchor `kind` must carry a non-empty `id` not already live
-    /// in the field ([`ApplyError::AnchorIdCollision`] /
-    /// [`ApplyError::EmptyAnchorId`]).
+    /// in the field, in its prose or any island's cell
+    /// ([`ApplyError::AnchorIdCollision`] / [`ApplyError::EmptyAnchorId`]).
     Add {
         start: Usv,
         end: Usv,
@@ -35,8 +36,23 @@ pub enum MarkOp {
         end: Usv,
         kind: MarkKind,
     },
-    /// Drop one identity anchor by id.
+    /// Drop one identity anchor by id, from the prose and from every island's
+    /// cells.
     RemoveAnchor { id: String },
+}
+
+/// Every anchor id `island`'s cells hold, in cell order with repeats.
+fn cell_anchor_ids(island: &Island) -> Vec<String> {
+    island
+        .island_type
+        .cell_marks(&island.props)
+        .into_iter()
+        .flat_map(|(_, marks)| marks)
+        .filter_map(|m| match m.kind {
+            MarkKind::Anchor { id } => Some(id),
+            _ => None,
+        })
+        .collect()
 }
 
 /// A line/block edit. Split/join splice `\n` in `text`; set ops touch metadata
@@ -339,9 +355,12 @@ pub enum ApplyError {
     /// carrying slots must be split into a slot-stripped delta plus one
     /// [`IslandOp::Insert`] per slot.
     IslandSlotInInsert,
-    /// A [`MarkOp::Add`] of an anchor whose `id` is already live in the field.
-    /// Rejected rather than replaced (which would retarget a live thread) or
-    /// coexisting (which `RemoveAnchor` cannot disambiguate).
+    /// A [`MarkOp::Add`] of an anchor whose `id` is already live in the field,
+    /// or an island op landing a cell anchor whose `id` is: live elsewhere in
+    /// the field, or held by two of the island's own cells. Rejected rather
+    /// than replaced (which would retarget a live thread) or coexisting (which
+    /// `RemoveAnchor` cannot disambiguate). A `Set` keeps an id the island it
+    /// replaces already held.
     AnchorIdCollision { id: String },
     /// A [`MarkOp::Add`] of an anchor with the empty `id`.
     EmptyAnchorId,
@@ -480,11 +499,7 @@ impl Content {
                         if id.is_empty() {
                             return Err(ApplyError::EmptyAnchorId);
                         }
-                        if self
-                            .marks
-                            .iter()
-                            .any(|m| matches!(&m.kind, MarkKind::Anchor { id: aid } if aid == id))
-                        {
+                        if self.holds_anchor(id) {
                             return Err(ApplyError::AnchorIdCollision { id: id.clone() });
                         }
                     }
@@ -510,7 +525,47 @@ impl Content {
                 MarkOp::RemoveAnchor { id } => {
                     self.marks
                         .retain(|m| !matches!(&m.kind, MarkKind::Anchor { id: aid } if aid == id));
+                    self.remove_cell_anchor(id);
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether an anchor `id` is live in the prose or any island's cell.
+    pub(crate) fn holds_anchor(&self, id: &str) -> bool {
+        let is = |m: &Mark| matches!(&m.kind, MarkKind::Anchor { id: held } if held == id);
+        self.marks.iter().any(is)
+            || self.islands.iter().any(|isl| cell_anchor_ids(isl).iter().any(|held| held == id))
+    }
+
+    fn remove_cell_anchor(&mut self, id: &str) {
+        for isl in &mut self.islands {
+            for cell in isl.island_type.cell_values_mut(&mut isl.props) {
+                let (_, mut marks) = crate::serial::parse_cell(cell);
+                let n = marks.len();
+                marks.retain(|m| !matches!(&m.kind, MarkKind::Anchor { id: held } if held == id));
+                if marks.len() < n {
+                    crate::serial::set_cell_marks(cell, &marks);
+                }
+            }
+        }
+    }
+
+    /// Refuse an island whose cells would hold an anchor id twice in the
+    /// field: two of its own cells, or one of them and the prose or another
+    /// island. `replacing` is the index of the island a `Set` replaces, whose
+    /// ids it may keep and whose cells it no longer counts.
+    fn check_cell_anchors(&self, island: &Island, replacing: Option<usize>) -> Result<(), ApplyError> {
+        let kept: HashSet<String> = replacing.map(|idx| cell_anchor_ids(&self.islands[idx]).into_iter().collect()).unwrap_or_default();
+        let mut own = HashSet::new();
+        for id in cell_anchor_ids(island) {
+            let elsewhere = || {
+                self.marks.iter().any(|m| matches!(&m.kind, MarkKind::Anchor { id: held } if *held == id))
+                    || self.islands.iter().enumerate().any(|(i, isl)| Some(i) != replacing && cell_anchor_ids(isl).contains(&id))
+            };
+            if !own.insert(id.clone()) || (!kept.contains(&id) && elsewhere()) {
+                return Err(ApplyError::AnchorIdCollision { id });
             }
         }
         Ok(())
@@ -570,6 +625,7 @@ impl Content {
                             return Err(ApplyError::BlockIslandNotAlone { at });
                         }
                     }
+                    self.check_cell_anchors(island, Some(idx))?;
                     // In place: the slot does not move, so no anchor pays.
                     self.islands[idx] = island.clone();
                 }
@@ -582,6 +638,7 @@ impl Content {
                             id: island.id.clone(),
                         });
                     }
+                    self.check_cell_anchors(island, None)?;
                     let chars: Vec<char> = self.text.chars().collect();
                     if *at > chars.len() {
                         return Err(ApplyError::IslandInsertOutOfRange {

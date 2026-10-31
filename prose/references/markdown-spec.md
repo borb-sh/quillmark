@@ -23,8 +23,8 @@ an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
   (§6.1).
 - **Tables**: a GFM pipe table, or an HTML table in a subset that spells
   layout and merged cells (§6.8).
-- **The `qm-*` carrier**: inline font runs and anchors, spelled as custom
-  HTML elements (§6.4).
+- **The `qm-*` carrier**: inline font runs, anchors and island tokens,
+  spelled as custom HTML elements (§6.4).
 
 A document containing no card-yaml blocks is ordinary CommonMark, parsed as
 such.
@@ -141,18 +141,19 @@ have no `---` form, and half a rule is harder to learn than none.
 ### 3.3 System Metadata (`$`)
 
 A block's YAML payload may contain **`$`-prefixed reserved keys** that carry
-system metadata. The set is **closed**: only `$quill`, `$kind`, `$ext`,
-and `$seed` are accepted. Any other `$`-prefixed key is a parse error. These
+system metadata. The set is **closed**: only `$quill`, `$kind`, `$id`,
+`$ext`, and `$seed` are accepted. Any other `$`-prefixed key is a parse error. These
 keys are ordinary YAML: they are read by the same YAML parser that handles
 the rest of the payload, but they are **extracted** from the user field
 set after parsing; they are not part of the data model's field map (§3.4).
 
 In the typed model, the `$` entries live as typed variants of the
-unified payload-item list (`PayloadItem::Quill`, `PayloadItem::Kind`, and
-`PayloadItem::Meta` keyed by `MetaKey::Ext` / `MetaKey::Seed`), interleaved in
-source order with user fields and YAML comments. They are surfaced through typed
-accessors: `card.quill()`, `card.kind()`, `card.ext()`,
-`card.seed()`: which return `Option<…>`. On a successfully parsed document the root
+unified payload-item list (`PayloadItem::Quill`, `PayloadItem::Kind`,
+`PayloadItem::Id`, and `PayloadItem::Meta` keyed by `MetaKey::Ext` /
+`MetaKey::Seed`), interleaved in source order with user fields and YAML
+comments. They are surfaced through typed accessors: `card.quill()`,
+`card.kind()`, `card.id()`, `card.ext()`, `card.seed()`: which return
+`Option<…>`. On a successfully parsed document the root
 card always returns `Some(_)` for both `quill()` and `kind()` (with
 `kind() == "main"`); composable cards return `None` for `quill()`, and
 `kind()` returns the declared kind (any value other than `"main"`). The root's
@@ -174,6 +175,16 @@ author wrote the line.
   must declare `$kind`: one that names none is a parse error (§10). Whether a
   kind names anything a quill declares is the schema's question, not the
   parser's.
+- **`$id: <card-id>`**: names a composable card across writes. A card id is 1
+  to 64 of `[A-Za-z0-9_-]`, opening with a letter or digit, and unique in the
+  document. The root block may not declare it: the root is `main`. A value
+  that is not a string is read as its JSON text, so `$id: 7` is the id `7` and `$id: 0x1F` the id `31`:
+  quote an id YAML reads as a number. A null `$id` (`$id:`, `~`) is no `$id`. A card that omits `$id` is
+  minted one: `c` and five base32 letters, the first of a fixed sequence that
+  no card holds, so equal markdown parses to equal ids. A card spelling an id
+  outside the grammar, or one an earlier card holds, is minted one in its place,
+  with a `parse::card_id_reminted` warning at the card. Like `$ext` it never
+  appears in the plate JSON.
 - **`$ext: <mapping>`**: an opaque, optional **mapping** reserved for
   out-of-band extension data (UI editor state, agent annotations, …).
   Required to be a YAML mapping (object); scalars and sequences are
@@ -198,12 +209,12 @@ author wrote the line.
 - `$` metadata entries may appear at any position within the payload, and
   may be interleaved with data fields. The emitter preserves source order
   (see §9); newly constructed metadata that does not have a source-order
-  is emitted in the canonical key order `$quill`, `$kind`, `$ext`, `$seed`.
+  is emitted in the canonical key order `$quill`, `$kind`, `$id`, `$ext`,
+  `$seed`.
 - A duplicate `$key` within a single block is a parse error (a YAML mapping
   cannot carry two entries under the same key).
-- An unknown `$key` (anything outside `{quill, kind, ext, seed}`) is a parse
-  error. A consumer needing a per-card key of its own carries it in `$ext` under
-  its own namespace, uninterpreted and unguaranteed.
+- An unknown `$key` (anything outside `{quill, kind, id, ext, seed}`) is a
+  parse error.
 - An invalid `$quill` reference is a parse error.
 - A `$`-prefixed key whose value type is wrong for the key (e.g. a sequence
   under `$quill`, a scalar under `$ext`) is a parse error.
@@ -426,7 +437,7 @@ open around the tag. An import reports each dropped opening tag by its lowercase
 `parse::dropped_construct`, and a block holding no other opening tag under its
 first where it drops text with it, `qm-anchor` included; any other closing
 tag, a comment, the content of a type 1–5 block and any other `qm-anchor`
-report nothing.
+report nothing. A `qm-island` token reports as §6.4 sets out.
 
 Rationale: Typst has no HTML renderer, and arbitrary passthrough would create
 an injection vector for downstream HTML-producing tooling; `<u>` is an
@@ -471,8 +482,9 @@ handles them, but produce limited or no Quillmark-specific output:
 ### 6.4 The `qm-*` Carrier
 
 A `qm-*` tag spells what CommonMark has no syntax for: a run's font family
-(`qm-span`) and an anchor (`qm-anchor`). Each is a CommonMark raw-HTML tag and
-a valid custom-element name, which an HTML renderer draws as its children.
+(`qm-span`), an anchor (`qm-anchor`) and an island markdown cannot spell
+(`qm-island`). Each is a CommonMark raw-HTML tag and a valid custom-element
+name, which an HTML renderer draws as its children.
 
 **Names.** A carrier tag's name is `qm-` and a name matching
 `[a-z][a-z0-9]*(-[a-z0-9]+)*`: `qm-span`, `qm-sig`, `qm-a1-b`. CommonMark tag
@@ -494,7 +506,8 @@ CommonMark reads it; any other `&` is text.
 self-closing, is a tag line wherever it stands (§6.2), set apart from the
 markdown beside it (§7). Inside a line of text, a table cell's included, or
 beside a tag outside the carrier in a block tight against markdown, a carrier
-tag drops like any raw tag; `qm-anchor` drops inside a line without a report.
+tag drops like any raw tag; `qm-anchor` and `qm-island` read inside a line as
+their own entries below set out.
 
 **Canonical spelling.** A carrier tag is written with its attributes sorted by
 name, each value double-quoted, with `&`, `<`, `>` and `"` as `&amp;`, `&lt;`,
@@ -502,8 +515,8 @@ name, each value double-quoted, with `&`, `<`, `>` and `"` as `&amp;`, `&lt;`,
 separator in a value as a hexadecimal reference (`&#x7C;`): a `|` ends a table
 cell, a line ending ends the tag's line, and §7 rewrites the rest.
 
-**Any other name.** A `qm-<name>` tag other than `qm-span` and `qm-anchor`
-carries nothing. An open tag drops, reported under `parse::dropped_construct`
+**Any other name.** A `qm-<name>` tag other than `qm-span`, `qm-anchor` and
+`qm-island` carries nothing. An open tag drops, reported under `parse::dropped_construct`
 by its tag name (`qm-keep`), its attributes with it; a close tag drops without a
 report; and what lies between imports as written. A pair of such tag lines
 around a paragraph, `<qm-keep>` tight above it included, leaves the paragraph
@@ -543,22 +556,64 @@ Pay <qm-span family="Carlito">**today**, as <qm-span family="Arimo">§4</qm-span
   `qm-span`, and the blocks between them stay. A family is a run's, never a
   block's.
 
-**`qm-anchor`** is reserved for an anchor's read-only spelling,
-`<qm-anchor ref="…"></qm-anchor>`, which the annotated export writes and
-no plain export does. Import drops it without a report, inline or alone on its
-line, unless its line drops markdown with it (§6.2), and mints no anchor from
-it. The annotated export writes one inline at
-each anchor's start:
+**The annotated read** is the markdown an LLM or another writer reads and
+writes back: the plain export with an anchor tag at each anchor's start and
+an island token for each island whose markup does not read back as itself.
+Both tags are reserved: no stored element carries their names. A cold import
+drops both and mints nothing from them. A revise, which imports the markdown
+as an edit of the value stored at its address, reads them against that value:
+the stored value is the side map, and the markdown stays the one carrier.
+
+**`qm-anchor`**, `<qm-anchor ref="ID"></qm-anchor>`, stands where the anchor
+`ID` starts. A cold import drops it without a report, inline or alone on its
+line, unless its line drops markdown with it (§6.2). A revise reads each inline
+tag in prose:
+
+- A tag the writer kept pins: the anchor starts where the tag stands. Where
+  its start was elsewhere, it ends where the diff carries its stored end, when
+  that lands on the tag's line after the tag, and otherwise spans its stored
+  length, cut at the line's end.
+- A tag the writer dropped leaves the anchor to the diff, which carries it
+  with its text or drops it with its text.
+- A tag whose `ref` names no anchor the stored value holds in prose, and a
+  second tag naming one anchor, drops reported as `qm-anchor[ref]`.
+- A tag carrying `at` pins nothing. The read writes `at="span"` where an
+  anchor's start sits inside a code span or a link, whose start the tag moves
+  to, and `at="line"` where the line's tags move to its end.
+- A tag in a table cell, a footnote's note, an image's alt text or a code
+  block pins nothing.
+
+The annotated read writes one inline at each anchor's start:
 
 - after the delimiters of the marks closing there and before those opening
   there;
-- at a code span's or link's start, for an anchor inside one;
-- in no code block, block island's line, table cell or empty line;
+- at a code span's or link's start, for an anchor inside one, with
+  `at="span"`;
+- in no code block, block island's line, table cell, note or empty line, an
+  anchor in a cell or a note listed with no tag;
 - at the end of a line whose tags in place would change what it imports to,
-  and nowhere on a line where the end changes it too.
+  each with `at="line"`, and nowhere on a line where the end changes it too.
 
 ```markdown
 A <qm-anchor ref="c1"></qm-anchor>**flagged** phrase.
+```
+
+**`qm-island`**, `<qm-island ref="ID"></qm-island>`, stands for the stored
+island `ID` with its type and props as stored: a table's spans, widths and
+keys Quillmark does not name, an equation's TeX its dollars cannot write, an
+image's props beyond `url` and `alt`. The annotated read writes it in place of
+the markup of each island that does not read back as itself, an anchor in a
+cell aside, and writes every other island as markup. A revise reads each
+inline token in prose as that island, a table's taking a line of its own; a
+writer moves an island by moving its token, and copies one by writing it
+twice, its cells' anchors staying on the copy that continues the stored
+island alone. A token whose `ref` names no island the stored value holds drops
+reported as `qm-island[ref]`, and one in a table cell, a footnote's note or an
+image's alt text, where no island sits, drops reported as `qm-island`. A cold
+import drops every token, reported as `qm-island`.
+
+```markdown
+See <qm-island ref="isl-2"></qm-island> for the merged cells.
 ```
 
 ### 6.5 Footnotes
@@ -834,7 +889,7 @@ metadata, user data fields, and YAML comments interleaved in source
 order), and a `~~~` closer. The root block must declare `$quill`;
 canonical emission also writes `$kind: main` on the root, synthesising
 it when the input omitted the line (see §3.3). A composable card emits
-`$kind: <kind>` when it declares one. A document round-trips to this canonical
+`$kind: <kind>` when it declares one, then its `$id`. A document round-trips to this canonical
 shape: fence markers and YAML quoting are normalised, and an opener's info
 string re-emits as bare `~~~`.
 YAML comments (own-line and inline, including those adjacent to `$` lines)
@@ -852,9 +907,9 @@ line opening on whitespace, whitespace ending a line, more than one trailing
 newline, or a `\r`, control character, U+2028, U+2029 or U+FEFF.
 
 Programmatically constructed metadata that does not have a source-order
-emits in the canonical key order `$quill`, `$kind`, `$ext`, `$seed`: the
-typed mutators (`set_quill` / `set_kind` / `set_ext` / `set_seed`)
-insert at these positions.
+emits in the canonical key order `$quill`, `$kind`, `$id`, `$ext`, `$seed`:
+the typed mutators (`set_quill` / `set_kind` / `set_id` / `set_ext` /
+`set_seed`) insert at these positions.
 
 ### 9.1 Canonical Idempotence
 
@@ -901,13 +956,14 @@ Parse errors include:
   value is rejected).
 - A composable (non-root) block declaring `$quill`, or declaring
   `$kind: main` (which is reserved for the document root).
+- The root block declaring `$id`.
 - A composable block whose mapping payload names no `$kind`
   (`MissingKind`), located at the opener's line. Its hint names the
   `$kind:` line and the backtick fence (§6.2), since tilde-fenced code whose
   text reads as a mapping is the other usual source.
 - A duplicate `$key` within a single block (caught by the YAML parser as a
   duplicate mapping key).
-- An unknown `$key` outside the closed set `{quill, kind, ext, seed}`.
+- An unknown `$key` outside the closed set `{quill, kind, id, ext, seed}`.
 - An invalid `$quill` reference.
 - A `$` metadata key whose value type is incompatible with the key.
 - A data-field name failing `/^[A-Za-z_][A-Za-z0-9_]*$/`.

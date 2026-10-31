@@ -1,15 +1,16 @@
 //! Card alignment for a whole-document revise: which stored card each incoming
-//! composable card revises, when cards carry no id.
+//! composable card revises, by the `$id` it spells and then by text.
 
 use std::collections::HashMap;
 
 use quillmark_content::delta::{word_similarity, MIN_WORD_SIMILARITY};
 
-/// One composable card as alignment reads it: its `$kind` and a text to
-/// measure similarity over.
+/// One composable card as alignment reads it: its `$kind`, the `$id` it
+/// spells, and a text to measure similarity over.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Slot<'a> {
     pub kind: &'a str,
+    pub id: Option<&'a str>,
     pub text: &'a str,
 }
 
@@ -21,10 +22,6 @@ const MAX_DIFF_WORK: usize = 50_000_000;
 /// its common leading and trailing words rather than a word diff.
 const MAX_DIFFED_WORDS: usize = 2_000;
 
-/// Above this many unpaired cards on one side times the other, the cards that
-/// are not twins pair by position alone.
-const MAX_TABLE_CELLS: usize = 4_000_000;
-
 /// The similarity, in thousandths, a pair needs to align by text. Below it two
 /// cards pair only by position, between the cards that aligned by text.
 const MIN_PAIR_PERMILLE: u64 = (MIN_WORD_SIMILARITY * 1000.0) as u64;
@@ -32,6 +29,8 @@ const MIN_PAIR_PERMILLE: u64 = (MIN_WORD_SIMILARITY * 1000.0) as u64;
 /// How an incoming card came to revise a stored one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Pairing {
+    /// The incoming card spells the stored card's `$id`, and is of its kind.
+    Id,
     /// Their texts match, or resemble each other more than any rival pairing.
     Text,
     /// Same kind and unlike texts, both in one gap the text pairs leave, taken
@@ -42,15 +41,67 @@ pub(crate) enum Pairing {
 /// For each incoming card, the stored card it revises and how they paired, or
 /// `None` for an inserted card. Stored cards no entry names are removed.
 ///
-/// Only cards of one `$kind` pair. A card whose `(kind, text)` occurs exactly
-/// once on each side pairs with its twin wherever either sits, so a reorder of
-/// unchanged cards keeps every pairing. The rest align as a diff over the kind
+/// Only cards of one `$kind` pair. An incoming card spelling a stored card's
+/// `$id` pairs with it; of several spelling one, the one whose text most
+/// resembles the stored card's, the first at a tie. The rest align by text,
+/// as [`align_by_text`] does. Where the incoming cards spell any stored id,
+/// the writer read the ids, so a stored card holding an id no incoming card
+/// spells was removed, and pairs with none.
+pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(usize, Pairing)>> {
+    let mut out = vec![None; incoming.len()];
+    let by_id: HashMap<&str, usize> = stored
+        .iter()
+        .enumerate()
+        .filter_map(|(i, slot)| Some((slot.id?, i)))
+        .collect();
+    let mut best: HashMap<usize, (usize, u64)> = HashMap::new();
+    for (j, slot) in incoming.iter().enumerate() {
+        let Some(&i) = slot.id.and_then(|id| by_id.get(id)) else {
+            continue;
+        };
+        if stored[i].kind != slot.kind {
+            continue;
+        }
+        let sim = if stored[i].text == slot.text {
+            1000
+        } else {
+            let words = |text| str::split_whitespace(text).collect::<Vec<_>>();
+            similarity_permille(&words(stored[i].text), &words(slot.text))
+        };
+        match best.get(&i) {
+            Some(&(_, held)) if held >= sim => {}
+            _ => {
+                best.insert(i, (j, sim));
+            }
+        }
+    }
+    for (&i, &(j, _)) in &best {
+        out[j] = Some((i, Pairing::Id));
+    }
+
+    let spelled: Vec<&str> = incoming.iter().filter_map(|slot| slot.id).collect();
+    let reads_ids = spelled.iter().any(|id| by_id.contains_key(id));
+    let removed = |i: usize| reads_ids && stored[i].id.is_some_and(|id| !spelled.contains(&id));
+    let rest_stored: Vec<usize> = (0..stored.len()).filter(|&i| !best.contains_key(&i) && !removed(i)).collect();
+    let rest_incoming: Vec<usize> = (0..incoming.len()).filter(|&j| out[j].is_none()).collect();
+    let stored_rest: Vec<Slot<'_>> = rest_stored.iter().map(|&k| stored[k]).collect();
+    let incoming_rest: Vec<Slot<'_>> = rest_incoming.iter().map(|&k| incoming[k]).collect();
+    let by_text = align_by_text(&stored_rest, &incoming_rest);
+    for (b, pair) in by_text.into_iter().enumerate() {
+        out[rest_incoming[b]] = pair.map(|(a, how)| (rest_stored[a], how));
+    }
+    out
+}
+
+/// [`align`] for cards that pair by no `$id`. A card whose `(kind, text)`
+/// occurs exactly once on each side pairs with its twin wherever either sits,
+/// so a reorder of unchanged cards keeps every pairing. The rest align as a diff over the kind
 /// sequence that maximizes how far each pair's similarity clears
 /// [`MIN_PAIR_PERMILLE`], so a deleted card and an inserted one never outweigh
 /// one edited card. Cards left unpaired in each gap, between two consecutive
 /// text pairs or before the first or after the last, then pair in order by
 /// kind.
-pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(usize, Pairing)>> {
+fn align_by_text(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(usize, Pairing)>> {
     let mut out = vec![None; incoming.len()];
     let mut taken = vec![false; stored.len()];
     for (j, i) in unique_twins(stored, incoming) {
@@ -64,11 +115,6 @@ pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(u
     let incoming_words = words(incoming, &rest_incoming);
     let (n, m) = (rest_stored.len(), rest_incoming.len());
     let same_kind = |a: usize, b: usize| stored[rest_stored[a]].kind == incoming[rest_incoming[b]].kind;
-
-    if n.saturating_mul(m) > MAX_TABLE_CELLS {
-        pair_by_position((0, 0), (n, m), &same_kind, &rest_stored, &rest_incoming, &mut out);
-        return out;
-    }
 
     let mut work = 0usize;
     for a in 0..n {
@@ -201,7 +247,7 @@ mod tests {
     use super::*;
 
     fn slots<'a>(cards: &[(&'a str, &'a str)]) -> Vec<Slot<'a>> {
-        cards.iter().map(|&(kind, text)| Slot { kind, text }).collect()
+        cards.iter().map(|&(kind, text)| Slot { kind, id: None, text }).collect()
     }
 
     fn run(stored: &[(&str, &str)], incoming: &[(&str, &str)]) -> Vec<Option<usize>> {
@@ -268,6 +314,54 @@ mod tests {
         let incoming = [("a", "head"), ("note", "four five six"), ("b", "tail")];
         let aligned = align(&slots(&stored), &slots(&incoming));
         assert_eq!(aligned[1], Some((1, Pairing::Position)));
+    }
+
+    fn with_ids<'a>(cards: &[(&'a str, &'a str, &'a str)]) -> Vec<Slot<'a>> {
+        cards.iter().map(|&(kind, id, text)| Slot { kind, id: Some(id), text }).collect()
+    }
+
+    #[test]
+    fn an_id_pairs_whatever_the_text_and_the_order() {
+        let stored = with_ids(&[("note", "a", "alpha"), ("note", "b", "beta")]);
+        let incoming = with_ids(&[("note", "b", "rewritten whole"), ("note", "a", "alpha")]);
+        assert_eq!(
+            align(&stored, &incoming),
+            vec![Some((1, Pairing::Id)), Some((0, Pairing::Id))]
+        );
+    }
+
+    #[test]
+    fn of_two_cards_spelling_one_id_the_more_similar_keeps_it() {
+        let stored = with_ids(&[("note", "a", "the original text")]);
+        let incoming = with_ids(&[("note", "a", "a pasted copy"), ("note", "a", "the original text")]);
+        assert_eq!(align(&stored, &incoming), vec![None, Some((0, Pairing::Id))]);
+    }
+
+    /// A writer that keeps the ids it read and leaves one card out removed
+    /// it, so a new card in its place does not take its id.
+    #[test]
+    fn a_stored_id_no_card_spells_is_removed_where_the_writer_spells_ids() {
+        let stored = with_ids(&[("note", "a", "first"), ("note", "d", "dropped"), ("note", "b", "last")]);
+        let incoming = slots(&[("note", "first"), ("note", "something new"), ("note", "last")]);
+        let incoming = [
+            Slot { id: Some("a"), ..incoming[0] },
+            incoming[1],
+            Slot { id: Some("b"), ..incoming[2] },
+        ];
+        assert_eq!(
+            align(&stored, &incoming),
+            vec![Some((0, Pairing::Id)), None, Some((2, Pairing::Id))]
+        );
+        let unspelled = slots(&[("note", "first"), ("note", "something new"), ("note", "last")]);
+        assert_eq!(align(&stored, &unspelled)[1], Some((1, Pairing::Position)), "a writer spelling no id pairs by text");
+    }
+
+    #[test]
+    fn an_id_of_another_kind_pairs_by_text_instead() {
+        let stored = with_ids(&[("note", "a", "same words")]);
+        let mut incoming = with_ids(&[("memo", "a", "same words"), ("note", "z", "same words")]);
+        incoming[1].id = None;
+        assert_eq!(align(&stored, &incoming), vec![None, Some((0, Pairing::Text))]);
     }
 
     #[test]

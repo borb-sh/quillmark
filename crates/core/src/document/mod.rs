@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use quillmark_content::export::ExportLoss;
 use quillmark_content::import::{from_markdown as import_markdown, Imported};
 use quillmark_content::model::Normalized;
 
@@ -63,6 +64,57 @@ pub fn dropped_constructs(
         .collect()
 }
 
+/// The diagnostic code a markdown export's loss rides.
+pub const LOST_CONSTRUCT: &str = "export::lost_construct";
+
+/// The warning a markdown export owes what it does not spell: one
+/// [`ExportLoss`] of a content, read by
+/// [`to_markdown_checked`](quillmark_content::export::to_markdown_checked).
+/// `construct` is the mark's wire type, the island's, or `text`; a mark's
+/// `start` and `end` are its range in the content's text.
+pub fn lost_construct(loss: ExportLoss) -> Diagnostic {
+    let mut args = std::collections::BTreeMap::new();
+    let (message, hint) = match loss {
+        ExportLoss::Mark { kind, start, end, now } => {
+            args.insert("construct".to_string(), kind.tag().into());
+            args.insert("start".to_string(), start.into());
+            args.insert("end".to_string(), end.into());
+            let message = match now {
+                Some(_) => format!("markdown export writes a `{}` mark over other text than it holds", kind.tag()),
+                None => format!("markdown export drops a `{}` mark", kind.tag()),
+            };
+            (
+                message,
+                "A `*`, `_` or `~~` delimiter never sits against whitespace, so such a mark is written over \
+                 its text without the whitespace at its edges; a mark markdown cannot nest is dropped."
+                    .to_string(),
+            )
+        }
+        ExportLoss::Island { island_type, .. } => {
+            args.insert("construct".to_string(), island_type.as_str().into());
+            (
+                format!("markdown export writes a `{}` that reads back otherwise", island_type.as_str()),
+                "The island holds a prop its markdown spelling cannot carry, such as edge whitespace in an \
+                 image's alt text."
+                    .to_string(),
+            )
+        }
+        ExportLoss::Text => {
+            args.insert("construct".to_string(), "text".into());
+            (
+                "markdown export writes text or blocks that read back otherwise".to_string(),
+                "Markdown spells no empty line beside other content, and writes a table only as a block of \
+                 its own."
+                    .to_string(),
+            )
+        }
+    };
+    Diagnostic::new(Severity::Warning, message)
+        .with_code(LOST_CONSTRUCT.to_string())
+        .with_hint(hint)
+        .with_args(args)
+}
+
 /// `words` each in backticks, joined by commas and `last` before the final one.
 fn listed(words: &[&str], last: &str) -> String {
     let ticked: Vec<String> = words.iter().map(|w| format!("`{w}`")).collect();
@@ -114,6 +166,15 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
             ),
             "A footnote's note is inline text: each paragraph, list item or other block in it becomes a line \
              of that text."
+                .to_string(),
+        ),
+        Dropped::Bidi => (
+            format!(
+                "markdown import dropped {} from this field",
+                some("bidi control", "bidi controls")
+            ),
+            "Content text admits no bidi formatting control (U+061C, U+200E, U+200F, U+202A–U+202E, \
+             U+2066–U+2069); the renderer orders mixed-direction text by the Unicode bidi algorithm."
                 .to_string(),
         ),
         Dropped::Math => (
@@ -179,6 +240,27 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 _ => format!("`<{element}>` takes no attributes."),
             },
         ),
+        Dropped::ElementAttr { element, attr }
+            if attr == "ref" && quillmark_content::carrier::RESERVED.contains(&element.as_str()) =>
+        {
+            let (what, spelling) = match element == quillmark_content::carrier::ANCHOR {
+                true => ("anchor", ("tag", "tags")),
+                false => ("island", ("token", "tokens")),
+            };
+            let element = Dropped::Element(element.clone());
+            (
+                format!(
+                    "markdown revise dropped {} naming no {what} the stored value holds, or one an earlier \
+                     tag names, in this field",
+                    some(&format!("`<{element}>` {}", spelling.0), &format!("`<{element}>` {}", spelling.1))
+                ),
+                format!(
+                    "A `ref` names a {what} of the value the annotated read was taken from, once per {what}: \
+                     copy the tag from the read, or remove it. An anchor without its tag keeps its place by \
+                     the text around it."
+                ),
+            )
+        }
         Dropped::ElementAttr { element, attr } => attr_dropped(
             &Dropped::Element(element.clone()).to_string(),
             attr,
@@ -206,6 +288,17 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
             format!(
                 "A `<{tag}>` pair sets a `family` inside one line of text and closes with `</{tag}>` there; \
                  HTML reads `<{tag}/>` as an open tag. A family is a run's, never a block's. {BESIDE}"
+            ),
+        ),
+        Dropped::Element(name) if name == quillmark_content::carrier::ISLAND => (
+            format!(
+                "markdown import dropped {} in this field",
+                some(&format!("`<{tag}>` token"), &format!("`<{tag}>` tokens"))
+            ),
+            format!(
+                "A `<{tag}>` token stands for an island of the stored value an annotated read was taken from, \
+                 in prose: only a revise of that value reads it. A plain import, a table cell, a footnote and \
+                 an image's alt text drop it."
             ),
         ),
         Dropped::Element(_) => (
@@ -418,6 +511,8 @@ pub(crate) fn fold_line_breaks(
 pub(crate) mod align;
 pub mod anchors;
 pub mod assemble;
+pub mod base;
+pub mod card_id;
 pub mod dto;
 pub mod edit;
 pub mod emit;
@@ -431,12 +526,13 @@ pub(crate) mod yaml_hints;
 
 pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_124_0, STORAGE_V0_129_0,
-    STORAGE_V0_131_0,
+    STORAGE_V0_131_0, STORAGE_V0_134_0,
 };
-pub use anchors::AnchorSelector;
+pub use anchors::{AnchorSelector, ANCHOR_ID_COLLISION};
+pub use base::{content_hash, revise_import_against, value_hash, Base, BaseError, HASH_TAG};
 pub use edit::{revise_import, CardMut, EditError, Revised};
 /// Carried by [`Revised::dropped_anchors`], so nameable from here.
-pub use quillmark_content::export::AnchorRead;
+pub use quillmark_content::export::{AnchorRead, Annotated};
 /// Returned by [`Document::reattach`], so nameable from here.
 pub use quillmark_content::anchor::Reattached;
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
@@ -458,11 +554,13 @@ pub const MARKDOWN_RULES: &str = "Quillmark Markdown rules:
 \u{2022} Block opener and closer are EXACTLY `~~~` (three tildes). The opener's info string is ignored \u{2014} `~~~card-yaml` is accepted and re-emits as a bare `~~~`.
 \u{2022} A blank line must precede every `~~~` block opener (unless it is line 1), and the opener must be at column zero (no leading spaces). An indented `~~~` is an ordinary code block, not a card.
 \u{2022} The first block is the root and MUST contain `$quill: <name>` or `$quill: <name>@<selector>`. Its `$kind` is `main` by position \u{2014} an explicit `$kind: main` is accepted but not required. Every later block is a composable card and MUST declare `$kind: <card_kind>`.
-\u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$ext`, `$seed`. User fields use lowercase snake_case.
+\u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$id`, `$ext`, `$seed`. User fields use lowercase snake_case.
+\u{2022} A composable card's `$id` line names it across edits: keep it when you edit or move the card, leave it out of a new card (one is minted), and never copy it onto a second card.
 \u{2022} Prose body is the text after a block's closing `~~~`, up to the next opener or EOF. To include a literal fenced code block in prose, use a backtick fence (```); any column-zero `~~~` block is parsed as card metadata.
 \u{2022} A blank or null value (`field:`, `field: null`, `field: ~`) is the same as omitting the field: it falls back to the field's default, else its blank. `field: \"\"` is kept as written, an explicit empty value.
 \u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.
-\u{2022} In a body or richtext value, `<qm-span family=\"<family>\">text</qm-span>` sets a run's font family. Pairs nest, the innermost winning and the outer resuming past it. Name only a family the host's font library supplies: any other keeps the surrounding font and warns.";
+\u{2022} In a body or richtext value, `<qm-span family=\"<family>\">text</qm-span>` sets a run's font family. Pairs nest, the innermost winning and the outer resuming past it. Name only a family the host's font library supplies: any other keeps the surrounding font and warns.
+\u{2022} Markdown read from an annotated read carries `<qm-anchor ref=\"\u{2026}\"></qm-anchor>` tags and `<qm-island ref=\"\u{2026}\"></qm-island>` tokens. Keep each tag before the text it marks, moving it with that text; drop a tag only with its text. Keep each token where its island belongs: it stands for a table, image or equation kept as stored. Never write a `ref` the read did not hold.";
 
 #[cfg(test)]
 mod tests;
@@ -477,6 +575,14 @@ mod tests;
 pub struct Parsed {
     pub document: Document,
     pub warnings: Vec<Diagnostic>,
+}
+
+/// A parse ahead of a revise: the [`Parsed`] document, its cards unsettled,
+/// and each body's markdown, the main card's first.
+#[derive(Debug)]
+pub(crate) struct Revising {
+    pub parsed: Parsed,
+    pub bodies: Vec<String>,
 }
 
 /// A single card-yaml block (root or composable). `body` is the content
@@ -501,6 +607,13 @@ impl Card {
 
     pub fn kind(&self) -> Option<&str> {
         self.payload.kind()
+    }
+
+    /// A composable card's `$id`: a [card id](card_id::is_card_id) no other
+    /// card of its document holds, minted where none was given. `None` on the
+    /// main card, and on a card not yet placed that spells none.
+    pub fn id(&self) -> Option<&str> {
+        self.payload.id()
     }
 
     /// Opaque `$ext` map for out-of-band extension data (UI editor state,
@@ -687,6 +800,17 @@ impl Document {
             cards.iter().all(|c| c.seed().is_none()),
             "composable cards must not carry `$seed`"
         );
+        Self::with_card_ids(main, cards, &std::collections::HashSet::new())
+    }
+
+    /// [`from_main_and_cards`](Self::from_main_and_cards), each card that
+    /// carries no card id of its own minting past `reserved` too.
+    pub(crate) fn with_card_ids(
+        main: Card,
+        mut cards: Vec<Card>,
+        reserved: &std::collections::HashSet<String>,
+    ) -> Self {
+        card_id::settle(&mut cards, reserved);
         Self { main, cards }
     }
 
@@ -697,8 +821,30 @@ impl Document {
     /// [`ParseError`] variants.
     #[doc(alias = "from_markdown")]
     pub fn parse(markdown: &str) -> Result<Parsed, ParseError> {
-        assemble::decompose_with_warnings(markdown)
-            .map(|(document, warnings)| Parsed { document, warnings })
+        let mut parsed = Self::parse_unsettled(markdown)?;
+        let reserved = std::collections::HashSet::new();
+        card_id::settle_reporting(&mut parsed.document.cards, &reserved, &mut parsed.warnings);
+        Ok(parsed)
+    }
+
+    /// [`parse`](Self::parse) with each card holding the `$id` it spells, or
+    /// none, for a revise to settle against the ids it started from.
+    pub(crate) fn parse_unsettled(markdown: &str) -> Result<Parsed, ParseError> {
+        assemble::decompose_with_warnings(markdown, import_markdown)
+            .map(|(document, warnings, _)| Parsed { document, warnings })
+    }
+
+    /// [`parse_unsettled`](Self::parse_unsettled) for a revise: each body's
+    /// `qm-island` tokens drop silently, the revise resolving them against the
+    /// stored card it aligns the body's card to, and each body's markdown is
+    /// kept for it.
+    pub(crate) fn parse_revising(markdown: &str) -> Result<Revising, ParseError> {
+        let (document, warnings, bodies) =
+            assemble::decompose_with_warnings(markdown, quillmark_content::import::from_markdown_unresolved)?;
+        Ok(Revising {
+            parsed: Parsed { document, warnings },
+            bodies,
+        })
     }
 
     pub fn main(&self) -> &Card {

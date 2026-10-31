@@ -852,13 +852,49 @@ pub(crate) fn table_cell_values(props: &Value) -> impl Iterator<Item = &Value> {
     header.chain(rows)
 }
 
+/// [`table_cell_values`], mutable.
+pub(crate) fn table_cell_values_mut(props: &mut Value) -> Vec<&mut Value> {
+    let Some(o) = props.as_object_mut() else {
+        return Vec::new();
+    };
+    let mut cells = Vec::new();
+    let (mut header, mut rows) = (None, None);
+    for (key, value) in o.iter_mut() {
+        match key.as_str() {
+            "header" => header = Some(value),
+            "rows" => rows = Some(value),
+            _ => {}
+        }
+    }
+    if let Some(Value::Array(header)) = header {
+        cells.extend(header.iter_mut());
+    }
+    if let Some(Value::Array(rows)) = rows {
+        for row in rows.iter_mut() {
+            if let Value::Array(row) = row {
+                cells.extend(row.iter_mut());
+            }
+        }
+    }
+    cells
+}
+
+/// Set a cell object's marks, its text and every other key kept.
+pub(crate) fn set_cell_marks(cell: &mut Value, marks: &[Mark]) {
+    let (text, _) = parse_cell(cell);
+    match (cell.as_object_mut(), cell_to_value(&text, marks)) {
+        (Some(o), Value::Object(fields)) => o.extend(fields),
+        (_, canon) => *cell = canon,
+    }
+}
+
 /// Every cell's `(text, marks)` in a table island's props: header then each
 /// body row, in order. For [`Content::validate`]'s cell-mark invariant checks.
 pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
     table_cell_values(props).map(parse_cell).collect()
 }
 
-// The `table` codec below is the primitive `crate::island` dispatches into for
+// The `table` serializer below is the primitive `crate::island` dispatches into for
 // `IslandType::Table`; island-type dispatch itself lives there.
 
 /// Repair a table island's props in place to the canonical shape:
