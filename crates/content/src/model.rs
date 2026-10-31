@@ -1633,25 +1633,19 @@ mod tests {
     }
 
     #[test]
-    fn is_inline_accepts_empty_and_single_para() {
+    fn is_inline_only_for_empty_or_a_single_plain_para() {
+        for (md, inline) in [
+            ("", true),
+            ("just one line", true),
+            ("a *bold* run", true),
+            ("one\n\ntwo", false),
+            ("# heading", false),
+            ("- item", false),
+        ] {
+            let content = crate::import::from_markdown(md).unwrap().content;
+            assert_eq!(content.is_inline(), inline, "{md:?}");
+        }
         assert!(Content::empty().is_inline());
-        assert!(crate::import::from_markdown("just one line")
-            .unwrap().content
-            .is_inline());
-        assert!(crate::import::from_markdown("a *bold* run")
-            .unwrap().content
-            .is_inline());
-    }
-
-    #[test]
-    fn is_inline_rejects_blocks_containers_and_islands() {
-        assert!(!crate::import::from_markdown("one\n\ntwo")
-            .unwrap().content
-            .is_inline());
-        assert!(!crate::import::from_markdown("# heading")
-            .unwrap().content
-            .is_inline());
-        assert!(!crate::import::from_markdown("- item").unwrap().content.is_inline());
     }
 
     #[test]

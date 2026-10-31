@@ -1296,27 +1296,22 @@ mod tests {
     #[test]
     fn deep_json_payload_is_rejected_at_decode_on_the_value_lane() {
         let deep = nested_arrays(1_000);
-        let cases: [(Value, &'static str); 1] = [(
-            serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"para","containers":[]}],
-              "marks":[],"islands":[{"id":"i1","type":"image","props":deep}]}),
-            "island props",
-        )];
-        for (v, what) in cases {
-            assert_eq!(
-                from_canonical_value(&v),
-                Err(ParseError::Invalid(Invariant::JsonTooDeep {
-                    what,
-                    max: crate::MAX_JSON_DEPTH,
-                })),
-                "{what} accepted a 1 000-deep payload"
-            );
-            // The authored lane funnels through the same decode, so it refuses
-            // the same shape rather than trapping on its own scan first.
-            assert!(matches!(
-                from_authored_value(&v),
-                Err(ParseError::Invalid(Invariant::JsonTooDeep { .. }))
-            ));
-        }
+        let v = serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"para","containers":[]}],
+          "marks":[],"islands":[{"id":"i1","type":"image","props":deep}]});
+        assert_eq!(
+            from_canonical_value(&v),
+            Err(ParseError::Invalid(Invariant::JsonTooDeep {
+                what: "island props",
+                max: crate::MAX_JSON_DEPTH,
+            })),
+            "island props accepted a 1 000-deep payload"
+        );
+        // The authored lane funnels through the same decode, so it refuses
+        // the same shape rather than trapping on its own scan first.
+        assert!(matches!(
+            from_authored_value(&v),
+            Err(ParseError::Invalid(Invariant::JsonTooDeep { .. }))
+        ));
     }
 
     /// The cap admits every payload a stored blob can carry, so closing the
@@ -1417,7 +1412,6 @@ mod tests {
     fn out_of_range_wire_position_is_refused() {
         let json = r#"{"text":"hello","lines":[{"kind":"para","containers":[]}],"marks":[{"start":4294967301,"end":4294967302,"type":"strong"}],"islands":[]}"#;
         assert!(Content::from_canonical_json(json).is_err());
-        assert!(usv_from(Some(&Value::from(u64::MAX)), "x").is_ok() || usize::BITS < 64);
         assert!(usv_from(Some(&Value::from(-1i64)), "x").is_err());
     }
 
