@@ -2300,12 +2300,29 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn plain_paragraph() {
-        let rt = imp("Hello world");
-        assert_eq!(rt.text, "Hello world");
-        assert_eq!(rt.lines.len(), 1);
-        assert_eq!(rt.lines[0].kind, LineKind::Para);
-        assert!(rt.marks.is_empty());
+    fn basic_blocks_import_as_text_line_kinds_and_containers() {
+        let quote = || vec![Container::Quote { instance: 0 }];
+        let para = |containers| (LineKind::Para, containers);
+        let cases: Vec<(&str, &str, Vec<(LineKind, Vec<Container>)>)> = vec![
+            ("Hello world", "Hello world", vec![para(vec![])]),
+            ("one\n\ntwo", "one\ntwo", vec![para(vec![]), para(vec![])]),
+            ("## Title", "Title", vec![(LineKind::Heading { level: 2 }, vec![])]),
+            ("> quoted", "quoted", vec![para(quote())]),
+            ("> ", "", vec![para(quote())]),
+            ("", "", vec![para(vec![])]),
+        ];
+        for (md, text, lines) in cases {
+            let rt = imp(md);
+            assert_eq!(rt.text, text, "{md:?}");
+            assert!(rt.marks.is_empty(), "{md:?}");
+            let got: Vec<_> = rt
+                .lines
+                .iter()
+                .map(|l| (l.kind.clone(), l.containers.clone()))
+                .collect();
+            assert_eq!(got, lines, "{md:?}");
+        }
+        assert_eq!(imp("- a\n-\n- b").lines.len(), 3, "empty middle list item preserved");
     }
 
     #[test]
@@ -2486,21 +2503,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn two_paragraphs_two_lines() {
-        let rt = imp("one\n\ntwo");
-        assert_eq!(rt.text, "one\ntwo");
-        assert_eq!(rt.lines.len(), 2);
-        assert!(rt.lines.iter().all(|l| l.kind == LineKind::Para));
-    }
-
-    #[test]
-    fn heading_line_kind() {
-        let rt = imp("## Title");
-        assert_eq!(rt.text, "Title");
-        assert_eq!(rt.lines[0].kind, LineKind::Heading { level: 2 });
-    }
-
-    #[test]
     fn code_block_lines() {
         let rt = imp("```rust\nfn a() {}\nfn b() {}\n```");
         assert_eq!(rt.text, "fn a() {}\nfn b() {}");
@@ -2610,13 +2612,6 @@ pub(crate) mod tests {
                 instance: 0,
             }]
         );
-    }
-
-    #[test]
-    fn blockquote_container() {
-        let rt = imp("> quoted");
-        assert_eq!(rt.text, "quoted");
-        assert_eq!(rt.lines[0].containers, vec![Container::Quote { instance: 0 }]);
     }
 
     #[test]
@@ -2817,12 +2812,6 @@ pub(crate) mod tests {
         assert_eq!(rt.islands[0].props["text"], "$a$");
     }
 
-    #[test]
-    fn empty_list_item_keeps_its_line() {
-        let rt = imp("- a\n-\n- b");
-        assert_eq!(rt.lines.len(), 3, "empty middle item preserved");
-    }
-
     /// A paragraph whose inline content is entirely stripped HTML leaves no
     /// line, markdown having no syntax to write one back; an empty heading or
     /// container keeps the line `# `, `- ` and `>` can write. Either way the
@@ -2845,20 +2834,6 @@ pub(crate) mod tests {
             assert_eq!(rt2, rt, "{md:?} is not a fixed point");
         }
         assert_eq!(imp("a\n\n<span></span>\n\nb").text, "a\nb");
-    }
-
-    #[test]
-    fn empty_blockquote_keeps_its_line() {
-        let rt = imp("> ");
-        assert_eq!(rt.lines.len(), 1);
-        assert_eq!(rt.lines[0].containers, vec![Container::Quote { instance: 0 }]);
-    }
-
-    #[test]
-    fn empty_input_one_empty_line() {
-        let rt = imp("");
-        assert_eq!(rt.text, "");
-        assert_eq!(rt.lines.len(), 1);
     }
 
     #[test]
