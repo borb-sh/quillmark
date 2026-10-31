@@ -42,8 +42,8 @@ over its keys: read `receipt["warnings"]`.
   keeps as stored: a table's unnamed keys, an equation's unwritable TeX, an
   image's extra props. A token naming no stored island reports
   `qm-island[ref]`; a cold import drops every token, reported as
-  `qm-island`. A `Base::Read` merge compares the sides with their tokens, so
-  a token survives it.
+  `qm-island`. A `Base::Read` merge compares the sides as annotated reads,
+  so a token survives it and a moved tag pins through it.
 
 ### Anchors on every text surface
 

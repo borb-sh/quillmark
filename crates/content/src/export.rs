@@ -243,25 +243,6 @@ pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
     Annotated { markdown, anchors }
 }
 
-/// [`to_markdown`] with each island [`to_markdown_annotated`] spells as its
-/// token so spelled, and no anchor tag: the form a revise merge compares, so
-/// an island that has no markdown survives the merge.
-pub fn to_markdown_tokened(rt: &Normalized) -> String {
-    let rt = &*block_islands_alone(rt);
-    let segments = line_segments(rt);
-    let line_marks = line_marks(rt, &segments);
-    let labels = note_labels(rt);
-    let tokens = island_tokens(rt);
-    project(&Ctx {
-        rt,
-        segments: &segments,
-        line_marks: &line_marks,
-        labels: &labels,
-        tags: &[],
-        tokens: &tokens,
-    })
-}
-
 /// The anchors [`to_markdown_annotated`] lists for `rt` whose id `keep`
 /// holds, in its order, read without projecting `rt`.
 pub fn anchors_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead> {

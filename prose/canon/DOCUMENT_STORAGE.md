@@ -650,8 +650,8 @@ and props as stored, so a table's spans, keys Quillmark does not name and an
 equation's TeX survive a rewrite of the text around them; the island's id
 carries as any revise carries it. A merge under a base read
 ([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive))
-compares the sides with tokens and without anchor tags, so a token survives
-it and an anchor rides the diff. Non-rendering is a property of
+compares the sides as annotated reads, so a token survives it and a tag the
+writer moved pins wherever the merge keeps the writer's line. Non-rendering is a property of
 review-time metadata, not a gap; a future render projection (proof annotations,
 PDF destinations) would render the referent or a position, never the id, so
 this policy holds either way.

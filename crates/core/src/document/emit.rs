@@ -14,7 +14,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
-use quillmark_content::export::{to_markdown_annotated, to_markdown_tokened};
+use quillmark_content::export::to_markdown_annotated;
 use quillmark_content::model::Normalized;
 use serde_json::Value as JsonValue;
 use serde_saphyr::SerializerOptions;
@@ -48,13 +48,10 @@ pub struct DocumentAnchor {
     pub line: String,
 }
 
-/// How an annotated emission spells each content value, and where it collects
-/// the anchors.
+/// Where an annotated emission collects the anchors.
 #[derive(Default)]
 struct Anchors {
     found: RefCell<Vec<DocumentAnchor>>,
-    /// Whether it spells anchor tags, or island tokens alone.
-    tags: bool,
 }
 
 impl Document {
@@ -95,23 +92,13 @@ impl Document {
     /// stored, and a dropped tag leaves its anchor to the diff. A cold import
     /// drops both.
     pub fn to_markdown_annotated(&self) -> AnnotatedMarkdown {
-        let anchors = Anchors {
-            tags: true,
-            ..Anchors::default()
-        };
+        let anchors = Anchors::default();
         let markdown = self.emit(Some(&anchors));
         let mut anchors = anchors.found.into_inner();
         for anchor in &mut anchors {
             anchor.card_id = self.card_id_at(&anchor.path).map(str::to_string);
         }
         AnnotatedMarkdown { markdown, anchors }
-    }
-
-    /// [`to_markdown`](Self::to_markdown) with each island that has no
-    /// markdown spelled as its `qm-island` token, as the annotated read spells
-    /// it, and no anchor tag: the form a revise merge compares.
-    pub(crate) fn to_markdown_tokened(&self) -> String {
-        self.emit(Some(&Anchors::default()))
     }
 
     fn emit(&self, anchors: Option<&Anchors>) -> String {
@@ -150,9 +137,6 @@ fn emit_card(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Ancho
 
 /// `content`'s annotated markdown, its anchors pushed at `path`.
 fn annotated(content: &Normalized, path: &DocPath, anchors: &Anchors) -> String {
-    if !anchors.tags {
-        return to_markdown_tokened(content);
-    }
     let read = to_markdown_annotated(content);
     anchors
         .found

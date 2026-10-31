@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use quillmark_content::delta::{merge_lines, rebase_marks_pinned};
-use quillmark_content::export::{to_markdown, to_markdown_annotated, to_markdown_tokened, Annotated};
+use quillmark_content::export::{to_markdown, to_markdown_annotated, Annotated};
 use quillmark_content::import::{from_markdown_against, ImportWarning};
 use quillmark_content::model::Normalized;
 use quillmark_content::serial::to_canonical_value;
@@ -167,10 +167,10 @@ fn check(current: String, read: &str) -> Result<(), BaseError> {
 }
 
 /// The [`Write`] for a richtext revise of `stored`. Each markdown is read as a
-/// revise of `stored` and exported with its islands that have no markdown as
-/// their tokens and no anchor tag, so the three sides of a merge are spelled
-/// alike, a token survives the merge, and a read of the stored value,
-/// annotated or not, matches it: a read equal to the stored value's plain or
+/// revise of `stored` and spelled as its annotated read, so the three sides of
+/// a merge are spelled alike, a token survives the merge, a tag the writer
+/// moved on a line the merge takes from it pins there, and a read of the
+/// stored value, annotated or not, matches it: a read equal to the stored value's plain or
 /// annotated markdown writes the writer's own, though its markup lost an
 /// island its spelling cannot match.
 fn richtext_write(
@@ -190,11 +190,11 @@ fn richtext_write(
         from_markdown_against(md, stored)
             .map(|against| {
                 let content = rebase_marks_pinned(stored, against.content, &against.pins);
-                (to_markdown_tokened(&content), against.warnings)
+                (to_markdown_annotated(&content).markdown, against.warnings)
             })
             .map_err(EditError::Import)
     };
-    let now = to_markdown_tokened(stored);
+    let now = to_markdown_annotated(stored).markdown;
     let (read, _) = spelled(read)?;
     if read == now {
         return Ok(Write::Own);
@@ -391,9 +391,9 @@ pub(crate) fn conformed(config: &QuillConfig, doc: &Document) -> Result<Document
 /// Parse `markdown` as a revise of `doc` under `base`: the writer's markdown,
 /// or the line merge of its edit onto what changed since its read, carrying
 /// the writer's own parse warnings at their cards' places in the merge. Each
-/// side is spelled as `doc` revised by it and conformed, its islands that
-/// have no markdown as their tokens and no anchor tag, so a token survives
-/// the merge and the three sides are spelled alike. A merge that does not
+/// side is spelled as the annotated read of `doc` revised by it and
+/// conformed, so the three sides are spelled alike, a token survives the
+/// merge, and a tag the writer moved pins where the merge keeps its line. A merge that does not
 /// parse as a document, or names another quill, is a [`BaseError::Conflict`],
 /// since the writer's own markdown parsed. A read equal to the document's
 /// plain or annotated markdown, as stored or conformed, takes the writer's own.
@@ -420,9 +420,9 @@ pub(crate) fn parse_against(
     let spell = |side: Revising| -> Result<String, BoundParseError> {
         let mut revised = doc.clone();
         let _ = revised.revise_parsed(side);
-        Ok(conformed(config, &revised)?.to_markdown_tokened())
+        Ok(conformed(config, &revised)?.to_markdown_annotated().markdown)
     };
-    let now = conformed(config, doc)?.to_markdown_tokened();
+    let now = conformed(config, doc)?.to_markdown_annotated().markdown;
     let read = spell(Document::parse_revising(read)?)?;
     if read == now {
         return Ok(revising);
