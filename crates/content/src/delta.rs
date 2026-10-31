@@ -479,7 +479,7 @@ pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
     let mut new_rt = new.into_content();
     let delta = diff(&base.text, &new_rt.text);
     carry_marks(base, &mut new_rt, &delta, |_| true);
-    carry_island_ids(&base.islands, &mut new_rt.islands);
+    carry_island_ids(&base.islands, &mut new_rt);
     (new_rt.into_normalized(), delta)
 }
 
@@ -519,7 +519,7 @@ pub fn carry_anchors(base: &Content, next: Normalized) -> (Normalized, Delta) {
 pub fn rebase_marks(base: &Content, new: Normalized) -> Normalized {
     if base.marks.iter().all(|m| m.kind.is_formatting()) {
         let mut new_rt = new.into_content();
-        carry_island_ids(&base.islands, &mut new_rt.islands);
+        carry_island_ids(&base.islands, &mut new_rt);
         return new_rt.into_normalized();
     }
     rebase_onto(base, new).0
@@ -548,15 +548,23 @@ fn carry_marks(base: &Content, new_rt: &mut Content, delta: &Delta, carry: impl 
 /// Give each island of `new` the id of the `base` island it continues, and
 /// every other island the next `isl-{n}` past the highest in `base`, so a
 /// revise rewrites no island's id and gives none a dropped island's. An
-/// island continues one equal to it in the longest run of equal islands the
-/// two sequences share, or, in a stretch between two of those where both
-/// sides hold as many islands of the same types in order, the one at its
-/// place: an edited table.
-fn carry_island_ids(base: &[Island], new: &mut [Island]) {
-    let key = |island: &Island| (island.island_type.as_str(), island.props.to_string());
+/// island continues one equal to it, anchor marks aside, in the longest run of
+/// equal islands the two sequences share, or, in a stretch between two of
+/// those where both sides hold as many islands of the same types in order,
+/// the one at its place: an edited table.
+///
+/// An island that continues one also takes each anchor of the cell at the
+/// same place in it whose text is unchanged, unless `new` already holds the
+/// id, in its prose or a cell.
+fn carry_island_ids(base: &[Island], new: &mut Content) {
+    let key = |island: &Island| {
+        let mut props = island.props.clone();
+        crate::export::drop_anchor_marks(&mut props);
+        (island.island_type.as_str(), props.to_string())
+    };
     let old: Vec<_> = base.iter().map(key).collect();
-    let fresh: Vec<_> = new.iter().map(key).collect();
-    let mut carried: Vec<Option<&str>> = vec![None; new.len()];
+    let fresh: Vec<_> = new.islands.iter().map(key).collect();
+    let mut carried: Vec<Option<usize>> = vec![None; new.islands.len()];
     for op in capture_diff_slices(Algorithm::Myers, &old, &fresh) {
         let (from, to, len) = match op {
             DiffOp::Equal { old_index, new_index, len } => (old_index, new_index, len),
@@ -569,9 +577,10 @@ fn carry_island_ids(base: &[Island], new: &mut [Island]) {
             _ => continue,
         };
         for k in 0..len {
-            carried[to + k] = Some(&base[from + k].id);
+            carried[to + k] = Some(from + k);
         }
     }
+    carry_cell_anchors(base, new, &carried);
     let taken: HashSet<&str> = base.iter().map(|i| i.id.as_str()).collect();
     // `u128` counts past `isl-{u64::MAX}`; `taken` steps over an id past that,
     // which the count does not parse.
@@ -580,8 +589,8 @@ fn carry_island_ids(base: &[Island], new: &mut [Island]) {
         .filter_map(|island| island.id.strip_prefix("isl-")?.parse::<u64>().ok())
         .max()
         .map_or(0, |n| u128::from(n) + 1);
-    for (island, id) in new.iter_mut().zip(carried) {
-        island.id = id.map(str::to_string).unwrap_or_else(|| {
+    for (island, from) in new.islands.iter_mut().zip(carried) {
+        island.id = from.map(|k| base[k].id.clone()).unwrap_or_else(|| {
             while taken.contains(format!("isl-{next}").as_str()) {
                 next += 1;
             }
@@ -589,6 +598,36 @@ fn carry_island_ids(base: &[Island], new: &mut [Island]) {
             next += 1;
             id
         });
+    }
+}
+
+fn carry_cell_anchors(base: &[Island], new: &mut Content, carried: &[Option<usize>]) {
+    let anchors = |marks: &[Mark]| -> Vec<Mark> {
+        marks.iter().filter(|m| matches!(m.kind, MarkKind::Anchor { .. })).cloned().collect()
+    };
+    let mut held: HashSet<String> = new.anchor_sites().into_iter().map(|site| site.id).collect();
+    for (island, from) in new.islands.iter_mut().zip(carried) {
+        let Some(from) = *from else { continue };
+        let stored = base[from].island_type.cell_marks(&base[from].props);
+        if stored.iter().all(|(_, marks)| anchors(marks).is_empty()) {
+            continue;
+        }
+        let cells = island.island_type.cell_values_mut(&mut island.props);
+        for (cell, (text, marks)) in cells.into_iter().zip(stored) {
+            let (now, mut now_marks) = crate::serial::parse_cell(cell);
+            if now != text {
+                continue;
+            }
+            let fresh: Vec<Mark> = anchors(&marks)
+                .into_iter()
+                .filter(|m| matches!(&m.kind, MarkKind::Anchor { id } if held.insert(id.clone())))
+                .collect();
+            if fresh.is_empty() {
+                continue;
+            }
+            now_marks.extend(fresh);
+            crate::serial::set_cell_marks(cell, &now_marks);
+        }
     }
 }
 

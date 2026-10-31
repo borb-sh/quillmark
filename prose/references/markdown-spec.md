@@ -588,7 +588,8 @@ The annotated read writes one inline at each anchor's start:
   there;
 - at a code span's or link's start, for an anchor inside one, with
   `at="span"`;
-- in no code block, block island's line, table cell or empty line;
+- in no code block, block island's line, table cell, note or empty line, an
+  anchor in a cell or a note listed with no tag;
 - at the end of a line whose tags in place would change what it imports to,
   each with `at="line"`, and nowhere on a line where the end changes it too.
 

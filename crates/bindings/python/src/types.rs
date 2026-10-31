@@ -461,7 +461,9 @@ impl PyDocument {
         })
     }
 
-    /// Reconstruct a `Document` from its versioned storage DTO string.
+    /// Reconstruct a `Document` from its versioned storage DTO string. Its
+    /// `warnings` hold one `parse::anchor_id_collision` per anchor id a value
+    /// holds more than once, a table cell or footnote taking part.
     /// Raises `QuillmarkError` on malformed JSON, unknown `schema`, missing fields,
     /// or unparseable quill reference.
     #[staticmethod]
@@ -476,9 +478,10 @@ impl PyDocument {
                 msg,
             )
         })?;
+        let parse_warnings = inner.anchor_collisions();
         Ok(PyDocument {
             inner,
-            parse_warnings: Vec::new(),
+            parse_warnings,
         })
     }
 
@@ -773,21 +776,21 @@ impl PyDocument {
             .map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))
     }
 
-    /// Every prose anchor of every body and content value with its context, as
+    /// Every anchor of every body and content value with its context, as
     /// dicts `{id, path, card_id, quote, prefix, suffix}`: the selector a host
     /// stores beside a comment thread and hands back to `reattach`. `path` is
     /// the value's `DocPath` string; `card_id` the `$id` of the card it names,
     /// `None` on the main card; `quote` the anchored text as stored, an inline
     /// island its `U+FFFC` slot, empty for a point; `prefix` and `suffix` up to
     /// 32 characters either side.
-    /// Each card's fields come before its body. A table cell's anchors are
-    /// outside the read.
+    /// Each card's fields come before its body. A table cell's or a note's
+    /// anchor is read too, its context cut at the cell's edges.
     fn anchor_contexts<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let selectors = self.inner.anchor_contexts().into_iter().map(selector_json).collect();
         json_to_py(py, &serde_json::Value::Array(selectors))
     }
 
-    /// The context of the prose anchor `id`, as `anchor_contexts` reads it, or
+    /// The context of the anchor `id`, as `anchor_contexts` reads it, or
     /// `None` where no body or content value holds one.
     fn anchor_context<'py>(&self, py: Python<'py>, id: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
         self.inner

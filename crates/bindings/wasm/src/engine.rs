@@ -433,9 +433,9 @@ export interface Delta {
  * The receipt of a revise (`revise`, `reviseContent`, `writer.reviseBody`,
  * `writer.reviseField`): the text `delta`, one `parse::dropped_construct`
  * warning per construct a markdown import dropped, anchored at the revised
- * address, and `droppedAnchors`, every prose anchor of the stored value whose
- * id the revised value holds nowhere, each with the text of the line it stood
- * on. `reviseContent` imports nothing, so its `warnings` is empty. The revised
+ * address, and `droppedAnchors`, every anchor of the stored value, in its
+ * prose or a cell, whose id the revised value holds nowhere, each with the
+ * text of the line or cell it stood in. `reviseContent` imports nothing, so its `warnings` is empty. The revised
  * address is the dropped anchors' path, so they carry none.
  */
 export interface Revised {
@@ -484,10 +484,10 @@ export interface DocumentRevised {
  * `<qm-anchor ref="…"></qm-anchor>` at each prose anchor's start its line
  * can hold, and a `<qm-island ref="…"></qm-island>` token for each island
  * whose markdown does not read back, which every revise reads back; and every
- * prose anchor of every body and content field, spelled or not; a table
- * cell's anchors are neither. Each names the
- * `path` of its body or field and the text of the `line` its start sits on,
- * island slots removed.
+ * anchor of every body and content field, spelled or not, a table cell's or
+ * a note's listed unspelled. Each names the `path` of its body or field and
+ * the text of the `line` its start sits on, island slots removed, or of its
+ * cell.
  */
 export interface AnnotatedMarkdown {
     markdown: string;
@@ -503,12 +503,12 @@ export interface DocumentAnchor {
 }
 
 /**
- * A prose anchor's context at its address (`anchorContexts`, `anchorContext`,
+ * An anchor's context at its address (`anchorContexts`, `anchorContext`,
  * `reattach`): the text-quote selector a host stores beside a comment thread.
  * `path` is the body or content value's `DocPath` string. `quote` is the
  * anchored text as stored, an inline island its `U+FFFC` slot and a line break
  * its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
- * of stored text on each side, cut at the value's edges. `cardId` is the `$id`
+ * of stored text on each side, cut at the value's edges or a cell's. `cardId` is the `$id`
  * of the card `path` names, absent on the main card: `reattach` finds the card
  * by it wherever the card now sits, and orphans the selector where no card of
  * the path's kind holds it.
@@ -1150,7 +1150,9 @@ impl Document {
     }
 
     /// Reconstruct a `Document` from a versioned storage DTO string produced by
-    /// [`toStored`](Document::to_stored). The result carries no parse-time warnings.
+    /// [`toStored`](Document::to_stored). Its `warnings` hold one
+    /// `parse::anchor_id_collision` per anchor id a value holds more than once,
+    /// a table cell or footnote taking part, and nothing else.
     /// Throws if `json` is not a valid storage DTO (malformed JSON, unknown
     /// `schema`, missing fields, or unparseable quill reference).
     #[wasm_bindgen(js_name = fromStored)]
@@ -1158,9 +1160,10 @@ impl Document {
         let inner: quillmark_core::document::Document = serde_json::from_str(json).map_err(|e| {
             WasmError::from(format!("fromStored: invalid storage DTO: {e}")).to_js_value()
         })?;
+        let parse_warnings = inner.anchor_collisions();
         Ok(Document {
             inner,
-            parse_warnings: Vec::new(),
+            parse_warnings,
         })
     }
 
@@ -1239,8 +1242,8 @@ impl Document {
     }
 
     /// `toMarkdown` with each prose anchor of every body and content field
-    /// spelled at its start where its line can hold the tag, and listed with
-    /// its field's path and line either way, and each island whose markdown
+    /// spelled at its start where its line can hold the tag, every anchor,
+    /// a cell's too, listed with its field's path and line, and each island whose markdown
     /// does not read back spelled as its token. `writer.reviseDocument` reads
     /// both back: a kept tag pins its anchor, and a token keeps its island as
     /// stored.
@@ -1254,10 +1257,10 @@ impl Document {
         serialize_or_throw(&js, "toAnnotatedMarkdown")
     }
 
-    /// Every prose anchor of every body and content value with its context, in
-    /// the order `toAnnotatedMarkdown` lists anchors: the selector a host
-    /// stores beside a comment thread and hands back to `reattach`. A table
-    /// cell's anchors are outside it.
+    /// Every anchor of every body and content value with its context, a table
+    /// cell's or a note's included, in the order `toAnnotatedMarkdown` lists
+    /// anchors: the selector a host stores beside a comment thread and hands
+    /// back to `reattach`.
     #[wasm_bindgen(js_name = anchorContexts, unchecked_return_type = "AnchorContext[]")]
     pub fn anchor_contexts(&self) -> Result<JsValue, JsValue> {
         let js: Vec<AnchorContextJs> =
@@ -1265,7 +1268,7 @@ impl Document {
         serialize_or_throw(&js, "anchorContexts")
     }
 
-    /// The context of the prose anchor `id`, or `undefined` where no body or
+    /// The context of the anchor `id`, or `undefined` where no body or
     /// content value holds one.
     #[wasm_bindgen(js_name = anchorContext, unchecked_return_type = "AnchorContext | undefined")]
     pub fn anchor_context(&self, id: &str) -> Result<JsValue, JsValue> {
@@ -1350,7 +1353,7 @@ impl Document {
 
     /// Replace this document's contents **in place** from a versioned storage DTO
     /// string: the mutating twin of [`fromStored`](Document::from_stored).
-    /// Parse-time `warnings` are cleared. Throws on an invalid DTO, leaving the
+    /// Its `warnings` are replaced as `fromStored` reads them. Throws on an invalid DTO, leaving the
     /// document unchanged. A caller holding the document need not re-bind its
     /// variable.
     #[wasm_bindgen(js_name = loadStored)]
@@ -1358,8 +1361,8 @@ impl Document {
         let inner: quillmark_core::document::Document = serde_json::from_str(json).map_err(|e| {
             WasmError::from(format!("loadStored: invalid storage DTO: {e}")).to_js_value()
         })?;
+        self.parse_warnings = inner.anchor_collisions();
         self.inner = inner;
-        self.parse_warnings.clear();
         Ok(())
     }
 
@@ -1680,7 +1683,8 @@ impl Document {
     /// The non-fatal diagnostics of the load that produced this document: parse
     /// warnings, plus `conform::*` warnings when it came through `quill.parse`.
     /// Session state, not document value: `equals` and the storage DTO exclude
-    /// it, and `fromStored` / `loadStored` / `writer.reviseDocument` clear it.
+    /// it. `fromStored` / `loadStored` set it to the stored value's anchor id
+    /// collisions, and `writer.reviseDocument` clears it.
     #[wasm_bindgen(getter, js_name = warnings, unchecked_return_type = "Diagnostic[]")]
     pub fn warnings(&self) -> Result<JsValue, JsValue> {
         let diags: Vec<Diagnostic> = self

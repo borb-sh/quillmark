@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, HashSet};
 use quillmark_content::delta::{carry_anchors, diff_import, Delta};
 use quillmark_content::export::{anchors_where, AnchorRead};
 use quillmark_content::import::ImportError;
-use quillmark_content::model::{Mark, MarkKind, Normalized};
+use quillmark_content::model::Normalized;
 use quillmark_content::ops::{ApplyError, ChangeBundle};
 
 use crate::document::meta::{validate_composable_kind, CardKindError};
@@ -632,9 +632,10 @@ pub(crate) fn resolve_field_write(
 pub struct Revised {
     pub delta: Delta,
     pub warnings: Vec<Diagnostic>,
-    /// Every prose anchor of the stored value whose id the revised value holds
-    /// nowhere, in the order [`anchors_where`] lists them, each with the text
-    /// of the line it stood on.
+    /// Every anchor of the stored value, in its prose or a table cell or
+    /// footnote note, whose id the revised value holds nowhere, in the order
+    /// [`anchors_where`] lists them, each with the text of the line or cell it
+    /// stood in.
     pub dropped_anchors: Vec<AnchorRead>,
 }
 
@@ -671,28 +672,14 @@ fn carry_receipt(base: &Normalized, content: Normalized) -> (Normalized, Revised
     (content, revised)
 }
 
-/// Every prose anchor of `stored` whose id `next` holds nowhere, in prose or a
-/// cell, as [`anchors_where`] reads it off `stored`.
+/// Every anchor of `stored`, in its prose or a cell, whose id `next` holds
+/// nowhere, as [`anchors_where`] reads it off `stored`.
 pub(crate) fn dropped_anchors(stored: &Normalized, next: &Normalized) -> Vec<AnchorRead> {
-    let anchored = |m: &Mark| matches!(m.kind, MarkKind::Anchor { .. });
-    if !stored.marks.iter().any(anchored) {
+    let sites = stored.anchor_sites();
+    if sites.is_empty() {
         return Vec::new();
     }
-    let cells: Vec<Mark> = next
-        .islands
-        .iter()
-        .flat_map(|i| i.island_type.cell_marks(&i.props))
-        .flat_map(|(_, marks)| marks)
-        .collect();
-    let held: HashSet<&str> = next
-        .marks
-        .iter()
-        .chain(&cells)
-        .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } => Some(id.as_str()),
-            _ => None,
-        })
-        .collect();
+    let held: HashSet<String> = next.anchor_sites().into_iter().map(|site| site.id).collect();
     anchors_where(stored, |id| !held.contains(id))
 }
 

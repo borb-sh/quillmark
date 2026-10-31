@@ -6,6 +6,7 @@ Every `code` a `Diagnostic` can carry, by namespace. Route on these, not on `mes
 
 Reading a document: card-yaml, limits, body import.
 
+- `parse::anchor_id_collision`
 - `parse::body_import`
 - `parse::card_fence_missing_blank`
 - `parse::card_id_reminted`

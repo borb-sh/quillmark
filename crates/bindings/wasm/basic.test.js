@@ -1069,6 +1069,23 @@ Card body.
     expect(doc.anchorContext('b')).toMatchObject({ quote: 'here' })
   })
 
+  it('a cell anchor is read, and a load names an id a cell shares', () => {
+    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nLead.\n\n| a |\n|---|\n| cell text |\n')
+    const body = doc.main.body
+    body.islands[0].props.rows[0][0].marks = [{ start: 5, end: 9, type: 'anchor', attrs: { id: 'c1' } }]
+    doc.overwrite({}, body)
+    expect(doc.anchorContext('c1')).toMatchObject({ path: 'main.body', quote: 'text', prefix: 'cell ', suffix: '' })
+    expect(doc.toAnnotatedMarkdown().anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'cell text' }])
+    expect(Document.fromStored(doc.toStored()).warnings).toEqual([])
+
+    body.marks.push({ start: 0, end: 4, type: 'anchor', attrs: { id: 'c1' } })
+    doc.overwrite({}, body)
+    const loaded = Document.fromStored(doc.toStored())
+    expect(loaded.warnings).toEqual([
+      expect.objectContaining({ code: 'parse::anchor_id_collision', path: 'main.body', args: { id: 'c1' } }),
+    ])
+  })
+
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     const addr = { card: 0, field: 'foo' }

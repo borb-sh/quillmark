@@ -161,6 +161,11 @@ families:
   spelled, anchored at the card (`cards.<kind>[<i>]`) after every card's
   other warnings. A whole-document revise adds one at the revised card for
   an inserted card whose `$id` is not a card id or a stored card held.
+  A stored document's load (WASM `fromStored` / `loadStored`, Python
+  `from_stored`; Rust `Document::anchor_collisions`) adds
+  `parse::anchor_id_collision` with the `id`, one per anchor id a body or
+  content value holds more than once with a table cell or footnote note
+  taking part, anchored at the value's path, and no other warning.
   A body's markdown import adds `parse::dropped_construct`, one per construct
   it dropped, with its `count`, anchored at the body (`main.body`,
   `cards.<kind>[<i>].body`) after its card's tag warnings. The `construct` is:
@@ -567,6 +572,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::unsupported_yaml_tag` | — | code-determined |
 | `parse::dropped_construct` | `construct`, `count` | structured |
 | `parse::card_id_reminted` | `id` | structured |
+| `parse::anchor_id_collision` | `id` | structured |
 | `export::lost_construct` | `construct`, `start`?, `end`? | structured |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |

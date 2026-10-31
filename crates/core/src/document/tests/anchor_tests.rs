@@ -142,9 +142,11 @@ fn an_id_live_anywhere_is_answered_and_not_written() {
 
     let cell = AnchorSelector::new("cell1", DocPath::main_body(), "met on Monday", "The committee ", " to plan the roads");
     let elsewhere = AnchorSelector { path: DocPath::main_body(), ..doc.anchor_context("n1").unwrap() };
-    let out = doc.reattach(&[cell.clone(), elsewhere], &HashMap::new());
+    let out = doc.reattach(&[cell, elsewhere], &HashMap::new());
     assert_eq!(doc, held);
-    assert_eq!(out.reattached, [cell, doc.anchor_context("n1").unwrap()]);
+    let live = AnchorSelector::new("cell1", "main.grid".parse().unwrap(), "1", "", "");
+    assert_eq!(doc.anchor_context("cell1"), Some(live.clone()));
+    assert_eq!(out.reattached, [live, doc.anchor_context("n1").unwrap()]);
 }
 
 #[test]
@@ -253,4 +255,40 @@ fn a_selector_resolves_its_card_by_id() {
         let out = without_anchors(&doc).reattach(&[selector.clone()], &HashMap::new());
         assert_eq!(out.orphaned, [selector]);
     }
+}
+
+fn table_body(cell_id: &str) -> Normalized {
+    let table = crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| one cell | 2 |").unwrap();
+    let mut table = table.into_content();
+    table.islands[0].props["rows"][0][0]["marks"] =
+        json!([{ "start": 4, "end": 8, "type": "anchor", "attrs": { "id": cell_id } }]);
+    Normalized::from(table)
+}
+
+#[test]
+fn a_revise_names_a_cell_anchor_it_drops() {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
+    doc.main_mut().overwrite_body(table_body("t1"));
+    let read = doc.to_markdown_annotated();
+    let line = read.anchors.iter().find(|a| a.id == "t1").map(|a| a.line.clone());
+    assert_eq!(line.as_deref(), Some("one cell"));
+
+    let markdown = doc.main().body_markdown();
+    let kept = doc.main_mut().revise_body(&markdown).unwrap();
+    assert!(kept.dropped_anchors.is_empty(), "{:?}", kept.dropped_anchors);
+    let revised = doc.main_mut().revise_body("Lead line.\n\n| a | b |\n|---|---|\n| one row | 2 |").unwrap();
+    let dropped: Vec<(&str, &str)> = revised.dropped_anchors.iter().map(|a| (a.id.as_str(), a.line.as_str())).collect();
+    assert_eq!(dropped, [("t1", "one cell")]);
+}
+
+#[test]
+fn a_collision_a_cell_takes_part_in_loads_reported() {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
+    doc.main_mut().overwrite_body(anchored(&table_body("t1"), "Lead", "t1"));
+    let stored = serde_json::to_string(&doc).unwrap();
+    let loaded: Document = serde_json::from_str(&stored).expect("a collision loads");
+    let warnings = loaded.anchor_collisions();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].code.as_deref(), Some(crate::document::ANCHOR_ID_COLLISION));
+    assert_eq!(warnings[0].path.as_deref(), Some("main.body"));
 }

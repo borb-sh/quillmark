@@ -4,7 +4,7 @@
 use quillmark_content::delta::{rebase_marks, rebase_marks_pinned};
 use quillmark_content::export::to_markdown;
 use quillmark_content::import::{from_markdown_against, Against};
-use quillmark_content::model::{MarkKind, Normalized};
+use quillmark_content::model::Normalized;
 use quillmark_content::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
@@ -364,8 +364,7 @@ fn drop_value(
     let content_of =
         |value: &JsonValue| value.is_object().then(|| from_canonical_value(value).ok()).flatten();
     if let Some(content) = content_of(stored) {
-        let anchored = content.marks.iter().any(|m| matches!(m.kind, MarkKind::Anchor { .. }));
-        if anchored {
+        if !content.anchor_sites().is_empty() {
             let revised = revised.and_then(content_of);
             drop_content(&content, revised.as_ref(), at, out);
         }

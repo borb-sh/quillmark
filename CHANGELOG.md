@@ -45,6 +45,23 @@ over its keys: read `receipt["warnings"]`.
   `qm-island`. A `Base::Read` merge compares the sides with their tokens, so
   a token survives it.
 
+### Anchors on every text surface
+
+- feat(content)!: **a table cell's and a footnote note's anchors join the
+  comment contract.** `Content::anchor_sites` reads every anchor with its
+  `Surface`, prose or a cell, and `anchor_contexts`, the annotated read's
+  `anchors` and every `dropped_anchors` receipt list cell anchors, a cell's
+  text as its `line`. `RemoveAnchor` removes an id from every cell, an anchor
+  `Add` refuses an id a cell holds, and an island op refuses a cell anchor
+  whose id the value already holds (`ApplyError::AnchorIdCollision`). A revise
+  keeps a cell's anchor where its island continues and the cell's text is
+  unchanged. `locate_site` and `reattach` search the cells with the prose.
+- feat(core): **a load reports an anchor id a cell shares.** Validation
+  still checks the prose alone, so such a value loads; `Content::anchor_collisions`
+  and `Document::anchor_collisions` name each id, and WASM `fromStored` /
+  `loadStored` and Python `from_stored` put a `parse::anchor_id_collision`
+  warning per value on `doc.warnings`.
+
 ### Guarded revise
 
 - feat(core)!: **a revise states what its writer read.** `Base::Hash` is the
@@ -128,7 +145,7 @@ over its keys: read `receipt["warnings"]`.
   `doc.reattach(selectors, deltas=None)` expose the handle. (#2349)
 - docs(canon): **`COMMENTS.md` states the comment-anchor contract**: the
   thread outside the document, the id it shares with its anchor, the matching
-  rule, drift, table cells out of scope, and the hosting rule. (#2349)
+  rule, drift, table cells, and the hosting rule. (#2349)
 
 ## v0.133.0 - 2026-10-29
 

@@ -42,6 +42,7 @@
 
 use std::borrow::Cow;
 
+use crate::anchor::{AnchorSite, Surface};
 use crate::island::IslandType;
 use crate::model::{
     Container, Island, LineKind, Mark, MarkKind, Content, Normalized, Usv, ISLAND_SLOT,
@@ -164,16 +165,19 @@ pub fn to_markdown_checked(rt: &Normalized) -> Exported {
 pub struct Annotated {
     /// [`to_markdown`]'s markdown with the anchor tags it can hold.
     pub markdown: String,
-    /// Every prose anchor, spelled or not, in `(start, id)` order.
+    /// Every anchor, spelled or not, in the prose and in each island's cells,
+    /// in the order [`Content::anchor_sites`](crate::model::Content::anchor_sites)
+    /// reads them.
     pub anchors: Vec<AnchorRead>,
 }
 
-/// One prose anchor of an [`Annotated`] read.
+/// One anchor of an [`Annotated`] read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnchorRead {
     pub id: String,
     /// The text of the content line the anchor's start sits on, island slots
-    /// removed: what locates the anchor where a writer lost its tag.
+    /// removed, or of the table cell or footnote note that holds it: what
+    /// locates the anchor where a writer lost its tag.
     pub line: String,
 }
 
@@ -190,7 +194,7 @@ pub struct AnchorRead {
 /// before those opening there. Inside a code span or a link it moves to the
 /// span's start, with `at="span"`. A code-block line, a block island's line and an empty line
 /// hold none, and neither does a table cell or a footnote's note, whose
-/// anchors are not listed.
+/// anchors are listed unspelled.
 /// Where a line's tags change what it imports to, they move to its end, each
 /// with `at="line"` so a revise pins nothing by it, and where that changes it
 /// too, the line holds none.
@@ -207,20 +211,14 @@ pub fn to_markdown_annotated(rt: &Normalized) -> Annotated {
         tags: &[],
         tokens: &[],
     };
-    let mut found: Vec<(Usv, &str)> = rt
-        .marks
-        .iter()
-        .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } => Some((m.start, id.as_str())),
-            _ => None,
-        })
-        .collect();
-    found.sort_unstable();
+    let sites = rt.anchor_sites();
     let mut tags: Vec<Vec<(Usv, &str)>> = vec![Vec::new(); segments.len()];
-    let mut anchors = Vec::with_capacity(found.len());
-    for (start, id) in found {
-        let (i, read) = anchor_read(&plain, start, id);
+    let mut anchors = Vec::with_capacity(sites.len());
+    for site in &sites {
+        let (at, read) = anchor_read(&plain, site);
         anchors.push(read);
+        let Some(i) = at else { continue };
+        let (start, id) = (site.start, site.id.as_str());
         let seg = &segments[i];
         let holds_tags = rt
             .lines
@@ -268,18 +266,10 @@ pub fn to_markdown_tokened(rt: &Normalized) -> String {
 /// holds, in its order, read without projecting `rt`.
 pub fn anchors_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead> {
     let rt = &*block_islands_alone(rt);
-    let mut found: Vec<(Usv, &str)> = rt
-        .marks
-        .iter()
-        .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } if keep(id) => Some((m.start, id.as_str())),
-            _ => None,
-        })
-        .collect();
+    let found: Vec<AnchorSite> = rt.anchor_sites().into_iter().filter(|site| keep(&site.id)).collect();
     if found.is_empty() {
         return Vec::new();
     }
-    found.sort_unstable();
     let segments = line_segments(rt);
     let labels = note_labels(rt);
     let ctx = Ctx {
@@ -290,7 +280,7 @@ pub fn anchors_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<Anchor
         tags: &[],
         tokens: &[],
     };
-    found.into_iter().map(|(start, id)| anchor_read(&ctx, start, id).1).collect()
+    found.iter().map(|site| anchor_read(&ctx, site).1).collect()
 }
 
 /// `rt` as the projection writes it: each block-only island's slot that shares
@@ -309,15 +299,18 @@ fn block_islands_alone(rt: &Normalized) -> Cow<'_, Normalized> {
     Cow::Owned(broken.into_normalized())
 }
 
-/// The anchor `id` starting at `start`, and the index of the line it sits on.
-fn anchor_read(ctx: &Ctx, start: Usv, id: &str) -> (usize, AnchorRead) {
+/// The read of `site`, and the index of the line it sits on where that is in
+/// the prose.
+fn anchor_read(ctx: &Ctx, site: &AnchorSite) -> (Option<usize>, AnchorRead) {
+    let id = site.id.clone();
+    if site.surface != Surface::Prose {
+        let line = ctx.rt.surface_text(site.surface).unwrap_or_default();
+        return (None, AnchorRead { id, line });
+    }
     let segments = ctx.segments;
-    let i = segments.partition_point(|s| s.end < start).min(segments.len() - 1);
-    let read = AnchorRead {
-        id: id.to_string(),
-        line: seg_str(ctx, i).chars().filter(|&c| c != ISLAND_SLOT).collect(),
-    };
-    (i, read)
+    let i = segments.partition_point(|s| s.end < site.start).min(segments.len() - 1);
+    let line = seg_str(ctx, i).chars().filter(|&c| c != ISLAND_SLOT).collect();
+    (Some(i), AnchorRead { id, line })
 }
 
 fn project(ctx: &Ctx) -> String {
@@ -837,7 +830,7 @@ pub fn island_reads_back(isl: &Island) -> bool {
 }
 
 /// `props` with every anchor mark of each `{text, marks}` it holds gone.
-fn drop_anchor_marks(props: &mut serde_json::Value) {
+pub(crate) fn drop_anchor_marks(props: &mut serde_json::Value) {
     match props {
         serde_json::Value::Object(map) => {
             if let Some(serde_json::Value::Array(marks)) = map.get_mut("marks") {
@@ -3000,8 +2993,8 @@ mod tests {
 
     /// A code-block line, a block island's line and an empty line have no
     /// inline slot that keeps their structure, so they hold no tag; their
-    /// anchors are still listed. An anchor in a table cell is outside the
-    /// anchor op surface and is neither.
+    /// anchors are still listed, and so is a table cell's, after the table's
+    /// own and with its cell's text.
     #[test]
     fn a_line_with_no_inline_slot_holds_no_tag() {
         let mut rt = from_markdown("```\nfn a() {}\n```\n\n| h |\n| --- |\n| c |\n\n- a\n-\n- b")
@@ -3020,7 +3013,7 @@ mod tests {
         assert_eq!(read.markdown, to_markdown(&rt));
         let lines: Vec<(&str, &str)> =
             read.anchors.iter().map(|a| (a.id.as_str(), a.line.as_str())).collect();
-        assert_eq!(lines, [("code", "fn a() {}"), ("table", ""), ("empty", "")]);
+        assert_eq!(lines, [("code", "fn a() {}"), ("table", ""), ("cell", "c"), ("empty", "")]);
     }
 
     /// A heading's trailing `#` keeps the escape that holds it out of an ATX
