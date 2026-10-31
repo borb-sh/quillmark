@@ -132,29 +132,3 @@ fn ts_unions_name_every_built_in() {
         }
     }
 }
-
-/// `weldsWith` in `runtime.js` reads `WELD_KEYS` by tag and welds nothing under
-/// a tag the table omits, so a container added without an entry under-stamps at
-/// every JS consumer — a boundary that silently disappears, not an error. Only
-/// the coverage is checked here; *which* keys an entry names is
-/// `runtime.test.js` § "container run boundaries", which stamps a pair and
-/// re-imports it, where `Content::normalize` re-mints against
-/// `Container::same_weld` itself.
-#[test]
-fn js_weld_keys_cover_every_container() {
-    const DECL: &str = "const WELD_KEYS = {";
-    let start = RUNTIME_JS
-        .find(DECL)
-        .expect("runtime.js has no `const WELD_KEYS = {…`")
-        + DECL.len();
-    let rest = &RUNTIME_JS[start..];
-    let body = &rest[..rest.find('}').expect("unterminated WELD_KEYS literal")];
-
-    let tags: Vec<String> = body
-        .split(']')
-        .filter_map(|chunk| chunk.split_once(':'))
-        .map(|(tag, _)| tag.trim().trim_start_matches(',').trim().to_string())
-        .filter(|t| !t.is_empty())
-        .collect();
-    assert_eq!(tags, container_tags());
-}

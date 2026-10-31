@@ -302,7 +302,6 @@ describe('LiveSession canvas preview (acroform backend)', () => {
       Quill.fromTree(makeSampleFormQuill()),
       Document.fromMarkdown(SAMPLE_FORM_MARKDOWN),
     )
-    expect(session.backendId).toBe('acroform')
     const { widthPt, heightPt } = session.pageSize(0)
     const scale = 1.5
 

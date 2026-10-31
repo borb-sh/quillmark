@@ -64,9 +64,7 @@ warnings not counted.
 
 Notable codes: `quill::name_mismatch` / `quill::version_mismatch`, the
 document is well-formed but paired with the wrong quill (see
-[VERSIONING.md](VERSIONING.md)); `backend::update_unsupported`: the default
-for a backend session that does not override the incremental-`update` seam
-(both built-in backends override it); `backend::format_not_supported`: the
+[VERSIONING.md](VERSIONING.md)); `backend::format_not_supported`: the
 requested format is outside the backend's `supported_formats`, one code on
 every backend so a caller matches the condition once;
 `backend::invalid_raster_scale`: a `RenderOptions.ppi` or a canvas scale
@@ -161,7 +159,7 @@ families:
   spelled, anchored at the card (`cards.<kind>[<i>]`) after every card's
   other warnings. A whole-document revise adds one at the revised card for
   an inserted card whose `$id` is not a card id or a stored card held.
-  A stored document's load (WASM `fromStored` / `loadStored`, Python
+  A stored document's load (WASM `fromStored`, Python
   `from_stored`; Rust `Document::anchor_collisions`) adds
   `parse::anchor_id_collision` with the `id`, one per anchor id a body or
   content value holds more than once with a table cell or footnote note
@@ -225,8 +223,7 @@ families:
   `quillmark_core::document::lost_construct` mints one warning per part. The
   `construct` is a mark's wire type (`strong`, `link`, …) with its `start`
   and `end` in the content's text, an island's type (`table`, `image`, …), or
-  `text` where the text or its blocks read back otherwise. WASM
-  `exportMarkdownChecked` returns them beside the markdown with no `path`. A `*`,
+  `text` where the text or its blocks read back otherwise. A `*`,
   `_` or `~~` mark is written over its text without the whitespace at its
   edges, and names its full range here.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per

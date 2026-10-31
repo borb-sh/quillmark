@@ -219,7 +219,7 @@ document path.
 
 `quill.seedDocument()` returns a starter document: one card per kind, each
 carrying the kind's `seed` from `Quill.yaml` and no other field;
-`quill.seedMain()` and `quill.seedCard(kind)` seed one card. All
+`quill.seedCard(kind)` seeds one composable card. Both
 return the read `Card` shape of `doc.main` / `doc.cards`, which `doc.insertCard`
 accepts directly:
 
@@ -256,16 +256,10 @@ the content object, a `text` field as its literal string), and as authored
 through the transport door. For the `Content` either way read
 `quill.reader(doc).getContent(addr)`, which decodes through the codec the
 field's declared type names. Card-scoped verbs take a
-`CardAddr` (`{ card? }`) first: `doc.getExt({ card: 2 })`, and the batch below.
-
-Batch mutation: `doc.storeFields({}, {...})` / `doc.storeFields({ card: index }, {...})`
-apply a whole object atomically: on any invalid field nothing is applied and
-the thrown error carries one diagnostic per offending field (`path` = field
-name). The address is first (never shape-overloaded, since `card` is a legal
-field name), and parses strictly: a stray key throws rather than silently
-reading as `{}`. The main card is `{}`, or **`MAIN_CARD_ADDR`** (from
-`@quillmark/wasm`), a frozen alias that spells the intent:
-`doc.storeFields(MAIN_CARD_ADDR, {...})`.
+`CardAddr` (`{ card? }`) first: `doc.getExt({ card: 2 })`. An address parses
+strictly: a stray key throws rather than silently reading as `{}`. The main
+card is `{}`, or **`MAIN_CARD_ADDR`** (from `@quillmark/wasm`), a frozen alias
+that spells the intent: `doc.getExt(MAIN_CARD_ADDR)`.
 
 ### Typed writes: `commit*` is the default, `store*` is the quill-free primitive
 
@@ -282,13 +276,12 @@ on `Document` itself (**store** = verbatim, **set** = typed):
   on the typed path an undeclared name is a typo, not a fallback. The batch form
   (`setAll`) is all-or-nothing: an undeclared name aborts the whole write and its
   per-field diagnostics name every offending field, so a whole-form submit
-  surfaces every typo `storeFields` would silently absorb. (The raw wasm class
-  carries the quill-taking `_commitField` / `_commitFields` / `_addCard` /
+  surfaces every typo the opaque store would silently absorb. (The raw wasm
+  class carries the `_commitField` / `_commitFields` / `_addCard` / `_revise` /
   `_reviseField` ABI the writer delegates to, hidden from the `.d.ts`.)
 
 - **`store*`: the deliberate quill-free primitive.** `doc.storeField(addr, value)`
-  / `doc.storeFields(cardAddr, {...})` validate only the field
-  name/depth/kind and store the value verbatim, no quill required. Reach for it
+  validates only the field name/depth/kind and stores the value verbatim, no quill required. Reach for it
   on purpose when you *want* the opaque store: quill-agnostic storage/migration
   infra that has no bundle and must write regardless of a drifted schema;
   store-now-validate-later editors holding in-progress input that `commit`
@@ -320,7 +313,7 @@ ed.card(2).reviseBody("**note**");                  // a composable card's body;
 is lazy: it never throws; an out-of-range index throws `IndexOutOfRange` at the
 write.
 
-#### `DocumentReader` / `CardReader`: the read twin
+#### `DocumentReader`: the read twin
 
 `quill.reader(doc)` carries the writer's ephemerality and schema authority:
 
@@ -329,7 +322,7 @@ const v = quill.reader(doc);
 v.get("subject");                                   // the values form: every content leaf as its codec's text, else as stored
 v.getContent("subject");                            // the same read as a `Content`, whichever lane stored it
 v.bodyMarkdown();                                   // the main body markdown (quill-free)
-v.card(0).bodyMarkdown();                           // a card's body markdown; its fields read through get
+v.get({ card: 0 });                                 // a card's body markdown; its fields read through get
 v.resolve();                                        // the render view: blank-filled, coerced, each field tagged with its rung
 ```
 
@@ -470,8 +463,8 @@ from any build or WASM instance in the page.
   key counts, a non-enumerable one and one holding `undefined` included. The
   argument must be a plain object, its prototype `null`, `Object.prototype`
   of any realm, or a null-prototype object whose keys count too, so a `Map`, a
-  class instance or `Object.create({ … })` throws. A payload item, the fields
-  object `storeFields` takes, and a `$ext` or `$seed` value read their own
+  class instance or `Object.create({ … })` throws. A payload item and a
+  `$ext` or `$seed` value read their own
   enumerable keys alone: a non-enumerable or inherited key there is neither
   read nor refused.
   The diagnostic names the key or what was passed, and carries no `code`: it

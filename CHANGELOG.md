@@ -86,11 +86,10 @@ over its keys: read `receipt["warnings"]`.
   the writers' `revise_document_against`, and the free
   `revise_import_against`. `EditError` gains `Base(BaseError)` and
   `BoundParseError` gains `Base`.
-- feat(wasm): **`BaseOptions` on every revise.** `doc.revise`, `rebase` and the
-  writer's `reviseBody` / `reviseField` / `reviseDocument` take an optional
+- feat(wasm): **`BaseOptions` on every revise.** The writer's `reviseBody` /
+  `reviseField` / `reviseDocument` take an optional
   `{ baseHash?, baseMarkdown? }`, read through the writer's `hash()` /
-  `hashAt(addr)`, the quill-free `doc.hashAt(addr)` / `doc.hash()`, and
-  `hashContent(rt)`.
+  `hashAt(addr)` or the quill-free `doc.hashAt(addr)` / `doc.hash()`.
 - feat(python): **`base_hash` and `base_markdown` on the writer's revise
   verbs**, read through the writer's `hash()` / `hash_at(field=None,
   card=None)` and the quill-free `doc.hash_at` / `doc.hash()`.
@@ -105,8 +104,6 @@ over its keys: read `receipt["warnings"]`.
   `export::lost_construct` warning per loss (`lost_construct`), its
   `construct` the mark's wire type, the island's type or `text`, a mark's
   `start` and `end` beside it.
-- feat(wasm): **`exportMarkdownChecked(rt)`** returns `{ markdown, warnings }`,
-  `exportMarkdown`'s markdown and its `export::lost_construct` warnings.
 - fix(content): **a `*`, `_` or `~~` mark over edge whitespace keeps its
   text.** `bar ` in bold wrote no bold at all, its delimiter never closing
   against a space; it now writes `**bar** `, the mark over `bar`.

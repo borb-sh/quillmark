@@ -132,7 +132,7 @@ surface: `quill.writer(doc)` in WASM and Python alike (the schema-bound
 `DocumentWriter` / `Writer` with `set` / `set_all` / `revise_body` / `revise_field` /
 `add_card` / `remove_card` / `card(i)`); the quill owns the schema, so it is the factory. The
 `_commitField` / `_commitFields` / `_reviseField` verbs (addressed by `Addr`) are
-the stable ABI underneath it, and `storeField` / `storeFields` remain the
+the stable ABI underneath it, and `storeField` remains the
 quill-free opaque store. See [BINDINGS.md](BINDINGS.md) for the write surface, the
 `store` / `set` / `overwrite·revise·apply` vocabulary rule (a ladder by anchor
 fate, governing user-field writes), and the core-vs-bindings parity table.

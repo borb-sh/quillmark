@@ -14,13 +14,11 @@ import {
   DocumentWriter,
   CardWriter,
   DocumentReader,
-  CardReader,
   isQuillmarkError,
-  assignInstances,
   init,
 } from '@quillmark-wasm/runtime'
 // The namespace too: the bind set below is derived from the exports rather than
-// listed, so a fifth writer/reader class joins it by existing.
+// listed, so a fourth writer/reader class joins it by existing.
 import * as runtime from '@quillmark-wasm/runtime'
 import {
   makeQuill,
@@ -132,12 +130,13 @@ card_kinds:
   })
 
   it('set / setAll bind the quill once and strict-commit main-card fields', () => {
-    const ed = buildQuill().writer(blankDoc())
+    const doc = blankDoc()
+    const ed = buildQuill().writer(doc)
     expect(ed.set('qty', '3')).toEqual([]) // schema field → strict coerce
-    expect(fieldOf(ed.document.main, 'qty')).toBe(3)
+    expect(fieldOf(doc.main, 'qty')).toBe(3)
 
     expect(ed.setAll({ subject: 'Q3 **results**', qty: '5' })).toEqual([])
-    expect(fieldOf(ed.document.main, 'qty')).toBe(5)
+    expect(fieldOf(doc.main, 'qty')).toBe(5)
   })
 
   it('set / setAll return what a richtext string drops, at its path', () => {
@@ -152,15 +151,16 @@ card_kinds:
 
   it('reviseBody / reviseField write from markdown and return the receipt', () => {
     const quill = buildQuill()
-    const ed = quill.writer(blankDoc())
+    const doc = blankDoc()
+    const ed = quill.writer(doc)
     expect(Array.isArray(ed.reviseBody('New **body**.').delta.ops)).toBe(true)
-    expect(ed.document.bodyMarkdown()).toBe('New **body**.')
+    expect(doc.bodyMarkdown()).toBe('New **body**.')
     const { delta, warnings } = ed.reviseField('subject', 'Q3 <kbd>**results**</kbd>')
     expect(Array.isArray(delta.ops)).toBe(true)
     expect(warnings.map((w) => [w.code, w.path])).toEqual([
       ['parse::dropped_construct', 'main.subject'],
     ])
-    expect(quill.reader(ed.document).get('subject')).toBe('Q3 **results**')
+    expect(quill.reader(doc).get('subject')).toBe('Q3 **results**')
   })
 
   it('reviseBody / reviseField name the anchors they drop', () => {
@@ -209,19 +209,20 @@ card_kinds:
   })
 
   it('addCard commits fields and body; removeCard returns the card', () => {
-    const ed = buildQuill().writer(blankDoc())
+    const doc = blankDoc()
+    const ed = buildQuill().writer(doc)
     expect(ed.addCard('note', { prose: 'Field **body**.' }, 'Card body text.')).toEqual([])
-    expect(ed.document.cards[0].kind).toBe('note')
-    expect(exportMarkdown(fieldOf(ed.document.cards[0], 'prose'))).toBe('Field **body**.')
-    expect(exportMarkdown(ed.document.cards[0].body)).toBe('Card body text.')
+    expect(doc.cards[0].kind).toBe('note')
+    expect(exportMarkdown(fieldOf(doc.cards[0], 'prose'))).toBe('Field **body**.')
+    expect(exportMarkdown(doc.cards[0].body)).toBe('Card body text.')
     expect(ed.removeCard(0).kind).toBe('note')
-    expect(ed.document.cards).toHaveLength(0)
+    expect(doc.cards).toHaveLength(0)
 
     ed.addCard('note', {}, 'First.')
     expect(ed.addCard('note', {}, 'x <span>y</span>', 0).map((w) => [w.code, w.path])).toEqual([
       ['parse::dropped_construct', 'cards.note[0].body'],
     ])
-    expect(exportMarkdown(ed.document.cards[0].body)).toBe('x y')
+    expect(exportMarkdown(doc.cards[0].body)).toBe('x y')
   })
 
   it('card(i).set / reviseBody / reviseField address the composable card', () => {
@@ -285,9 +286,10 @@ card_kinds:
   })
 
   it('set refuses an unknown name, a strict type mismatch and an inline violation', () => {
-    const ed = buildQuill().writer(blankDoc())
+    const doc = blankDoc()
+    const ed = buildQuill().writer(doc)
     expectEditCode(() => ed.set('stray', 'x'), 'edit::unknown_field')
-    expect(fieldOf(ed.document.main, 'stray')).toBeUndefined()
+    expect(fieldOf(doc.main, 'stray')).toBeUndefined()
     expectEditCode(() => ed.set('qty', 'not-a-number'), 'edit::field_coercion_failed')
     expectEditCode(() => ed.set('subject', 'line one\n\nline two'), 'edit::field_not_single_line')
   })
@@ -320,9 +322,10 @@ card_kinds:
   })
 
   it('setAll applies nothing when one entry is refused', () => {
-    const ed = buildQuill().writer(blankDoc())
+    const doc = blankDoc()
+    const ed = buildQuill().writer(doc)
     expectEditCode(() => ed.setAll({ qty: '5', titel: 'oops' }), 'edit::unknown_field')
-    expect(fieldOf(ed.document.main, 'qty')).toBeUndefined()
+    expect(fieldOf(doc.main, 'qty')).toBeUndefined()
   })
 
   it('card(i).setAll typed-commits a batch and refuses an unknown name or index', () => {
@@ -341,7 +344,7 @@ card_kinds:
 // once and read each field by its declared type (a richtext field to markdown,
 // every other type verbatim) with schema authority, so an unknown field name
 // throws rather than reading back `undefined` off the quill-free `Document`.
-describe('@quillmark/wasm: DocumentReader / CardReader (the schema-plane read)', () => {
+describe('@quillmark/wasm: DocumentReader (the schema-plane read)', () => {
   const VIEW_QUILL_YAML = `quill:
   name: view_test
   version: "1.0.0"
@@ -439,14 +442,14 @@ card_kinds:
   it('annotatedAt reads one address', () => {
     const quill = buildQuill()
     const doc = seededDoc(quill)
-    doc.revise({}, '# Plan\n\nMain **body**.')
+    quill.writer(doc).reviseBody('# Plan\n\nMain **body**.')
     doc.applyChange({}, { markOps: [{ op: 'add', start: 10, end: 14, type: 'anchor', attrs: { id: 'c1' } }] })
 
     const read = doc.annotatedAt({})
     expect(read.markdown).toBe('# Plan\n\nMain <qm-anchor ref="c1"></qm-anchor>**body**.')
     expect(read.anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'Main body.' }])
     expect(doc.annotatedAt('subject')).toEqual({ markdown: 'Q3 **results**', anchors: [] })
-    const receipt = doc.revise({}, read.markdown.replace('Main', 'The main'), { baseMarkdown: read.markdown })
+    const receipt = quill.writer(doc).reviseBody(read.markdown.replace('Main', 'The main'), { baseMarkdown: read.markdown })
     expect(receipt.droppedAnchors).toEqual([])
     expect(doc.anchorContext('c1')).toMatchObject({ quote: 'body' })
   })
@@ -458,20 +461,13 @@ card_kinds:
     expect(v.get({})).toBe('Main **body**.')
   })
 
-  it('card(i).get reads a card field through its $kind schema', () => {
+  it('get reads a card field through its $kind schema', () => {
     const quill = buildQuill()
     const v = quill.reader(seededDoc(quill))
-    expect(v.card(0).kind).toBe('note')
-    expect(v.card(0).get('prose')).toBe('A *card* field.')
-    expect(v.card(0).bodyMarkdown()).toBe('Card body.')
-    expectEditCode(() => v.card(0).get('nope'), 'edit::unknown_field')
-  })
-
-  it('a bad card index throws at read time, not at card()', () => {
-    const quill = buildQuill()
-    const cardReader = quill.reader(seededDoc(quill)).card(9)
-    expect(cardReader).toBeInstanceOf(CardReader)
-    expectEditCode(() => cardReader.get('prose'), 'edit::index_out_of_range')
+    expect(v.get({ card: 0, field: 'prose' })).toBe('A *card* field.')
+    expect(v.get({ card: 0 })).toBe('Card body.')
+    expectEditCode(() => v.get({ card: 0, field: 'nope' }), 'edit::unknown_field')
+    expectEditCode(() => v.get({ card: 9, field: 'prose' }), 'edit::index_out_of_range')
   })
 
   // The bound door is what makes a stored form a property of the codec rather
@@ -512,9 +508,9 @@ card_kinds:
     const v = quill.reader(seededDoc(quill))
     expect(v.getContent('subject').text).toBe('Q3 results')
     expect(v.getContent({}).text).toBe('Main body.')
-    expect(v.card(0).getContent('prose').text).toBe('A card field.')
+    expect(v.getContent({ card: 0, field: 'prose' }).text).toBe('A card field.')
     expectEditCode(() => v.getContent('qty'), 'edit::field_not_content')
-    expectEditCode(() => v.card(9).getContent('prose'), 'edit::index_out_of_range')
+    expectEditCode(() => v.getContent({ card: 9, field: 'prose' }), 'edit::index_out_of_range')
   })
 
   // A read is also a write input, so what it hands back has to be legal to hand
@@ -539,8 +535,8 @@ card_kinds:
     const v = quill.reader(doc)
     expect(v.getContentAt('rows', [1, 'notes']).text).toBe('a note')
     expect(v.getContentAt('rows', [0, 'notes'])).toBeUndefined()
-    expect(v.card(0).getContentAt('lines', [0]).text).toBe('a *b*')
-    expectEditCode(() => v.card(9).getContentAt('lines', [0]), 'edit::index_out_of_range')
+    expect(v.getContentAt({ card: 0, field: 'lines' }, [0]).text).toBe('a *b*')
+    expectEditCode(() => v.getContentAt({ card: 9, field: 'lines' }, [0]), 'edit::index_out_of_range')
     expect(() => v.getContentAt('rows', [null])).toThrow(/path\[0\]/)
     expect(() => v.getContentAt('rows', 0)).toThrow(/`path` must be an array/)
   })
@@ -618,56 +614,6 @@ Note body.
     expect(card.kind).toBe('note')
     expect(card.index).toBe(0)
     expect(byName(card.fields, 'label')).toMatchObject({ value: { text: 'L' }, source: 'authored' })
-  })
-})
-
-describe('@quillmark/wasm: container run boundaries', () => {
-  const LIST = { container: 'list_item', attrs: { ordered: false, start: 1, ordinal: 0 } }
-  const QUOTE = { container: 'quote' }
-  const content = (a, b) => ({
-    text: 'a\nb',
-    lines: [
-      { kind: 'para', containers: [a] },
-      { kind: 'para', containers: [b] },
-    ],
-    marks: [],
-    islands: [],
-  })
-
-  /**
-   * One pair, both halves of the weld rule: `assignInstances` stamps
-   * `expected`, and a round trip re-mints exactly that. Import runs
-   * `Content::normalize`, which mints the minimum against
-   * `Container::same_weld`, so a JS stamp too coarse comes back welded and one
-   * too eager comes back dropped — the Rust predicate read by running it rather
-   * than re-spelled. A read omits a zero, hence the `undefined`.
-   */
-  const remints = (a, b, expected) => {
-    const [x, y] = assignInstances([a, b])
-    expect([x, y].map((c) => c.instance)).toEqual(expected)
-    const back = importMarkdown(exportMarkdown(content(x, y))).content
-    expect(back.lines.map((l) => l.containers[0].instance)).toEqual(
-      expected.map((n) => n || undefined)
-    )
-  }
-
-  it('stamps on what the markdown projection can carry, not on equality', () => {
-    // `start` and `ordinal` differ and the runs still weld: CommonMark reads
-    // only a list's first number, and an ordinal is positional.
-    const list = (over) => ({ ...LIST, attrs: { ...LIST.attrs, ...over } })
-    remints(LIST, list({ start: 3 }), [0, 1])
-    remints(LIST, list({ ordinal: 4 }), [0, 1])
-    remints(QUOTE, QUOTE, [0, 1])
-    // A shape the projection can tell apart needs no discriminator.
-    remints(LIST, list({ ordered: true }), [0, 0])
-  })
-
-  it('alternates only across runs that would weld', () => {
-    expect(assignInstances([LIST, LIST, LIST]).map((c) => c.instance)).toEqual([0, 1, 0])
-    expect(assignInstances([LIST, QUOTE, LIST]).map((c) => c.instance)).toEqual([0, 0, 0])
-    // A block carrying no container at this depth parts the runs on its own.
-    expect(assignInstances([LIST, null, LIST]).map((c) => c && c.instance)).toEqual([0, null, 0])
-    expect(assignInstances([]).length).toBe(0)
   })
 })
 
@@ -961,7 +907,6 @@ A single line of body ink.`
     try {
       // Getters.
       expect(session.pageCount).toBeGreaterThan(0)
-      expect(session.backendId).toBe('typst')
       expect(Array.isArray(session.warnings)).toBe(true)
 
       // render.
@@ -1339,12 +1284,11 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
   // construction refuses for want of a `Quill` takes handles, so it is a bind.
   // `Engine` and `LiveSession` construct bare, so the filter drops them without
   // naming them. Cross-checked against the method name each bind reports, so a
-  // fifth bind fails here until it is named.
+  // fourth bind fails here until it is named.
   const BIND_METHOD = new Map([
     [DocumentWriter, 'quill.writer(doc)'],
     [CardWriter, 'writer.card(index)'],
     [DocumentReader, 'quill.reader(doc)'],
-    [CardReader, 'reader.card(index)'],
   ])
 
   it('refuses a foreign handle in either position at every writer and reader bind', () => {

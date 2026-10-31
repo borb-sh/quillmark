@@ -143,7 +143,6 @@ import type {
 	AnchorContext,
 	Reattached,
 	Imported,
-	Exported,
 	Assoc,
 	LineOp,
 	MarkOp,
@@ -178,7 +177,6 @@ export type ContentExportsPresent = [
 	AnchorContext,
 	Reattached,
 	Imported,
-	Exported,
 	Assoc,
 	LineOp,
 	MarkOp,
@@ -320,8 +318,6 @@ void annotated;
 // and a read is a write input; the value it decodes to is the same either way,
 // so both spellings type-check on the op lane and on the whole-`Content` lane a
 // document-shaped editor converter writes through.
-import type { assignInstances } from '../../../pkg/runtime/runtime.d.ts';
-
 const bareOp: Extract<LineOp, { op: 'setContainers' }> = {
 	op: 'setContainers',
 	line: 0,
@@ -350,9 +346,3 @@ const stampedBody: CardInput = {
 	}
 };
 void stampedBody;
-
-// What `assignInstances` returns is what the op takes, nulls dropped.
-const stampedFeedsTheOp: Extract<LineOp, { op: 'setContainers' }>['containers'] = [] as NonNullable<
-	ReturnType<typeof assignInstances>[number]
->[];
-void stampedFeedsTheOp;

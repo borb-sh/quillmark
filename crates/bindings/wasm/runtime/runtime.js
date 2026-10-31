@@ -19,7 +19,7 @@ import initCore, { Quill, Document } from '../core/wasm.js';
 // itself), a `node:fs` read under Node, whose `fetch` rejects `file:` URLs.
 // Resolution-time, so `node:fs` never enters a browser graph.
 import { toModuleSource } from '#quillmark-env';
-import { importMarkdown, exportMarkdown, exportMarkdownChecked, normalize, rebase, hashContent, mapPos, mapMarks } from '../core/wasm.js';
+import { importMarkdown, exportMarkdown, normalize, mapPos, mapMarks } from '../core/wasm.js';
 import { isInline, isPlain } from '../core/wasm.js';
 import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 
@@ -47,10 +47,7 @@ const CORE_SURFACE = Object.freeze({
 	Document,
 	importMarkdown,
 	exportMarkdown,
-	exportMarkdownChecked,
 	normalize,
-	rebase,
-	hashContent,
 	mapPos,
 	mapMarks,
 	isInline,
@@ -333,52 +330,6 @@ function requireLocalQuill(quill, method) {
 function requireLocalBind(quill, doc, method) {
 	requireLocalQuill(quill, method);
 	requireLocalDoc(doc, method);
-}
-
-// WELD_KEYS is the rule `Container::same_weld` owns upstream: which `attrs`
-// entries two adjacent runs must share for the markdown projection to read them
-// as one. `start` is not among them, since CommonMark reads only a list's first
-// number — a subset, which is why every container needs its own entry.
-//
-// Re-spelled here rather than called, because `assignInstances` answers before
-// wasm initializes (`prose/canon/BINDINGS.md` § "WebAssembly"). What holds the
-// two spellings equal is running the rule, not comparing their sources:
-// `runtime.test.js` § "container run boundaries" stamps a pair and re-imports
-// it, where `Content::normalize` re-mints against the Rust predicate. A tag the
-// table omits welds with nothing, so `tests/known_names_drift.rs` pins that
-// every container has an entry.
-
-const WELD_KEYS = { list_item: ['ordered'], quote: [] };
-
-/**
- * @param {import('../core/wasm.js').ContentContainer} a
- * @param {import('../core/wasm.js').ContentContainer} b
- * @returns {boolean}
- */
-function weldsWith(a, b) {
-	// A malformed value welds with nothing: answer rather than throw.
-	if (typeof a?.container !== 'string' || a.container !== b?.container) return false;
-	// `hasOwn`, so a tag colliding with an `Object.prototype` member answers
-	// `false` rather than reaching a function.
-	if (!Object.hasOwn(WELD_KEYS, a.container)) return false;
-	return WELD_KEYS[a.container].every((k) => a.attrs?.[k] === b.attrs?.[k]);
-}
-
-/**
- * @param {(import('../core/wasm.js').ContentContainer | null)[]} runs
- * @returns {(import('../core/wasm.js').ContentContainer | null)[]}
- */
-export function assignInstances(runs) {
-	let prev = null;
-	return runs.map((run) => {
-		if (run == null) {
-			prev = null;
-			return null;
-		}
-		const instance = prev && weldsWith(prev, run) ? 1 - prev.instance : 0;
-		prev = { ...run, instance };
-		return prev;
-	});
 }
 
 /**
@@ -765,9 +716,6 @@ export class LiveSession {
 	get pageCount() {
 		return this.#inner.pageCount;
 	}
-	get backendId() {
-		return this.#inner.backendId;
-	}
 	get warnings() {
 		return this.#inner.warnings;
 	}
@@ -874,9 +822,6 @@ export class DocumentWriter {
 		this.#quill = quill;
 		this.#doc = doc;
 	}
-	get document() {
-		return this.#doc;
-	}
 	/**
 	 * @returns {string}
 	 */
@@ -911,7 +856,7 @@ export class DocumentWriter {
 	 * @returns {import('../core/wasm.js').Revised}
 	 */
 	reviseBody(markdown, opts) {
-		return this.#doc.revise({}, markdown, opts);
+		return this.#doc._revise({}, markdown, opts);
 	}
 	/**
 	 * @param {string} name
@@ -971,15 +916,6 @@ export class CardWriter {
 		this.#doc = doc;
 		this.#index = index;
 	}
-	get index() {
-		return this.#index;
-	}
-	/**
-	 * @returns {string}
-	 */
-	get kind() {
-		return this.#doc.card(this.#index).kind;
-	}
 	/**
 	 * @param {string} [field]
 	 * @returns {string}
@@ -1008,7 +944,7 @@ export class CardWriter {
 	 * @returns {import('../core/wasm.js').Revised}
 	 */
 	reviseBody(markdown, opts) {
-		return this.#doc.revise({ card: this.#index }, markdown, opts);
+		return this.#doc._revise({ card: this.#index }, markdown, opts);
 	}
 	/**
 	 * @param {string} name
@@ -1049,9 +985,6 @@ export class DocumentReader {
 		this.#quill = quill;
 		this.#doc = doc;
 	}
-	get document() {
-		return this.#doc;
-	}
 	/**
 	 * @param {import('../core/wasm.js').Addr | string} addr
 	 * @returns {unknown}
@@ -1086,67 +1019,6 @@ export class DocumentReader {
 	 */
 	resolve(today) {
 		return this.#quill._resolve(this.#doc, today);
-	}
-	/**
-	 * @param {number} index
-	 * @returns {CardReader}
-	 */
-	card(index) {
-		return new CardReader(this.#quill, this.#doc, index);
-	}
-}
-
-export class CardReader {
-	#quill;
-	#doc;
-	#index;
-	/**
-	 * @param {Quill} quill the schema source
-	 * @param {Document} doc the document to read, held by reference (not owned)
-	 * @param {number} index the composable card's index
-	 */
-	constructor(quill, doc, index) {
-		requireLocalBind(quill, doc, 'reader.card(index)');
-		this.#quill = quill;
-		this.#doc = doc;
-		this.#index = index;
-	}
-	get index() {
-		return this.#index;
-	}
-	/**
-	 * @returns {string}
-	 */
-	get kind() {
-		return this.#doc.card(this.#index).kind;
-	}
-	/**
-	 * @param {string} name
-	 * @returns {unknown}
-	 */
-	get(name) {
-		return this.#doc._readerGet(this.#quill, { card: this.#index, field: name });
-	}
-	/**
-	 * @param {string} name
-	 * @returns {import('../core/wasm.js').Content | undefined}
-	 */
-	getContent(name) {
-		return this.#doc._readerGetContent(this.#quill, { card: this.#index, field: name });
-	}
-	/**
-	 * @param {string} name
-	 * @param {import('../core/wasm.js').PathStep[]} path
-	 * @returns {import('../core/wasm.js').Content | undefined}
-	 */
-	getContentAt(name, path) {
-		return this.#doc._readerGetContentAt(this.#quill, { card: this.#index, field: name }, path);
-	}
-	/**
-	 * @returns {string}
-	 */
-	bodyMarkdown() {
-		return this.#doc._readerGet(this.#quill, { card: this.#index });
 	}
 }
 
