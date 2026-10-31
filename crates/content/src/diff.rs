@@ -8,7 +8,7 @@ use crate::change::{
     AnchorStep, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, fixups, run,
 };
 use crate::ids::{Minter, prefix};
-use crate::lines::delta::{Op, diff as text_diff, diff_import, without_sentinel};
+use crate::lines::delta::{Op, diff_import, diff_words as text_diff, without_sentinel};
 use crate::lines::import::{ImportError, ImportWarning};
 use crate::migrate::{from_lines, to_lines};
 use crate::model::{Content, ISLAND_SLOT, Island, Mark};

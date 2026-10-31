@@ -240,6 +240,23 @@ const CHAR_DIFF_LIMIT: usize = 5_000;
 /// leaves the rest of it retained. Above `CHAR_DIFF_LIMIT` chars, a char
 /// diff skips Myers entirely and uses `coarse_replace` instead.
 pub fn diff(base: &str, new: &str) -> Delta {
+    diff_at(base, new, Grain::Char)
+}
+
+/// [`diff`] with a rewritten line, or a text of one line, diffed by word
+/// rather than by char: a word either side keeps whole or changes whole, so a
+/// range over a rewritten word does not ride its scattered letters.
+pub fn diff_words(base: &str, new: &str) -> Delta {
+    diff_at(base, new, Grain::Word)
+}
+
+#[derive(Clone, Copy)]
+enum Grain {
+    Char,
+    Word,
+}
+
+fn diff_at(base: &str, new: &str, grain: Grain) -> Delta {
     let mut ops = Vec::new();
     if base.contains('\n') || new.contains('\n') {
         let old_lines: Vec<&str> = base.split_inclusive('\n').collect();
@@ -252,11 +269,11 @@ pub fn diff(base: &str, new: &str) -> Delta {
                 DiffOp::Equal { .. } => {
                     push_retain(&mut ops, old_lines[old].iter().map(|l| l.chars().count()).sum())
                 }
-                _ => refine_replace(&mut ops, &old_lines[old], &new_lines[new], &old_set, &new_set),
+                _ => refine_replace(&mut ops, &old_lines[old], &new_lines[new], &old_set, &new_set, grain),
             }
         }
     } else {
-        push_char_diff(&mut ops, base, new);
+        push_grain_diff(&mut ops, base, new, grain);
     }
     Delta { ops }
 }
@@ -272,6 +289,7 @@ fn refine_replace(
     new: &[&str],
     old_set: &HashSet<&str>,
     new_set: &HashSet<&str>,
+    grain: Grain,
 ) {
     let rewrite = |o: &str, n: &str| {
         o.chars().count() <= CHAR_DIFF_LIMIT
@@ -291,7 +309,7 @@ fn refine_replace(
         tail += 1;
     }
     for k in 0..head {
-        push_char_diff(ops, old[k], new[k]);
+        push_grain_diff(ops, old[k], new[k], grain);
     }
     for line in &old[head..old.len() - tail] {
         push_delete(ops, line.chars().count());
@@ -300,7 +318,7 @@ fn refine_replace(
         push_insert(ops, line);
     }
     for k in 0..tail {
-        push_char_diff(ops, old[old.len() - tail + k], new[new.len() - tail + k]);
+        push_grain_diff(ops, old[old.len() - tail + k], new[new.len() - tail + k], grain);
     }
 }
 
@@ -333,11 +351,15 @@ pub fn word_similarity(a: &[&str], b: &[&str]) -> f32 {
     (2 * common) as f32 / (a.len() + b.len()) as f32
 }
 
-fn push_char_diff(ops: &mut Vec<Op>, base: &str, new: &str) {
+fn push_grain_diff(ops: &mut Vec<Op>, base: &str, new: &str, grain: Grain) {
     if base.chars().count() > CHAR_DIFF_LIMIT || new.chars().count() > CHAR_DIFF_LIMIT {
         return coarse_replace(ops, base, new);
     }
-    for change in TextDiff::from_chars(base, new).iter_all_changes() {
+    let diff = match grain {
+        Grain::Char => TextDiff::from_chars(base, new),
+        Grain::Word => TextDiff::from_words(base, new),
+    };
+    for change in diff.iter_all_changes() {
         match change.tag() {
             ChangeTag::Equal => push_retain(ops, change.value().chars().count()),
             ChangeTag::Delete => push_delete(ops, change.value().chars().count()),

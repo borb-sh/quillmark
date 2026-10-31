@@ -26,6 +26,10 @@ __all__ = [
     "RenderResult",
     "Severity",
     "Writer",
+    "compose",
+    "diff",
+    "invert",
+    "map_pos",
 ]
 
 @final
@@ -159,6 +163,52 @@ class Document:
         selectors: Sequence[AnchorContext],
         deltas: dict[str, dict[str, Any]] | None = None,
     ) -> Reattached: ...
+    def read(self, field: str | None = None, card: int | None = None) -> Content: ...
+    def annotated(self, field: str | None = None, card: int | None = None) -> str: ...
+    def apply(
+        self, change: Change, field: str | None = None, card: int | None = None, base: str | None = None
+    ) -> Receipt: ...
+    def apply_all(self, writes: Sequence[Write]) -> list[Receipt]: ...
+    def revise(
+        self, markdown: str, field: str | None = None, card: int | None = None, base: str | None = None
+    ) -> Receipt: ...
+    def replace(
+        self, content: Content, field: str | None = None, card: int | None = None, base: str | None = None
+    ) -> Receipt: ...
+
+# A content value: `text` (a `\n` ends a block, U+2028 is a hard break, U+FFFC
+# an island's slot), `blocks`, and the optional `containers`, `marks`,
+# `anchors` and `islands`. Offsets count code points.
+Content = dict[str, Any]
+
+# An edit: `{"steps": [...]}`, each step a dict of one key naming it.
+Change = dict[str, Any]
+
+# A position: an offset, or `{"island", "slot", "at"}` into an island's slot.
+Pos = int | dict[str, Any]
+
+class Write(TypedDict, total=False):
+    change: Change
+    field: str | None
+    card: int | None
+    base: str | None
+
+class MovedAnchor(TypedDict):
+    id: str
+    before: str
+    after: str
+
+class Receipt(TypedDict):
+    applied: Change
+    hash: str
+    dropped_anchors: list[AnchorContext]
+    moved_anchors: list[MovedAnchor]
+    warnings: list[Diagnostic]
+
+def invert(change: Change, before: Content) -> Change: ...
+def compose(a: Change, b: Change) -> Change: ...
+def map_pos(change: Change, pos: Pos, assoc: Literal["before", "after"]) -> Pos | None: ...
+def diff(before: Content, after: Content) -> Change: ...
 
 class AnchorContext(TypedDict):
     id: str
