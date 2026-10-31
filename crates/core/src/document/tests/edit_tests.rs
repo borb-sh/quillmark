@@ -266,7 +266,7 @@ fn test_overwrite_body_sets_directly() {
 
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(content.clone());
-    assert_eq!(card.body(), &content);
+    assert_eq!(card.body_lines(), &content);
 }
 
 #[test]
@@ -622,7 +622,7 @@ fn test_revise_body_returns_delta_and_updates_body() {
     let mut card = Card::new("note").unwrap();
     let _ = card.revise_body("hello world").unwrap();
     let delta: Delta = card.revise_body("hello brave world").unwrap().delta;
-    assert_eq!(card.body().text, "hello brave world");
+    assert_eq!(card.body_lines().text, "hello brave world");
     // The delta maps a stale position at the end of "hello " forward across
     // the inserted "brave ".
     assert_eq!(delta.map_pos(6, Assoc::Before), 6);
@@ -646,12 +646,12 @@ fn test_revise_body_rebases_anchor() {
 
     let _ = card.revise_body("why keep the target word").unwrap();
     let anchor = card
-        .body()
+        .body_lines()
         .marks
         .iter()
         .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
         .expect("identity anchor survives the whole-document replace");
-    let text = &card.body().text;
+    let text = &card.body_lines().text;
     let s = quillmark_content::usv::char_to_byte(text, anchor.start);
     let e = quillmark_content::usv::char_to_byte(text, anchor.end);
     assert_eq!(&text[s..e], "target");
@@ -675,9 +675,9 @@ fn test_apply_body_change_applies_bundle() {
         ..Default::default()
     })
     .unwrap();
-    assert_eq!(card.body().text, "abXc");
+    assert_eq!(card.body_lines().text, "abXc");
     let strong = card
-        .body()
+        .body_lines()
         .marks
         .iter()
         .find(|m| matches!(m.kind, MarkKind::Strong))

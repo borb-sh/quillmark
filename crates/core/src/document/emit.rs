@@ -129,8 +129,8 @@ impl Document {
 fn emit_card(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Anchors>) {
     emit_block(out, card, at, anchors);
     let body = match anchors {
-        None => quillmark_content::lines::export::to_markdown(card.body()),
-        Some(anchors) => annotated(card.body(), &at.body(), anchors),
+        None => quillmark_content::lines::export::to_markdown(card.body_lines()),
+        Some(anchors) => annotated(card.body_lines(), &at.body(), anchors),
     };
     append_body(out, &body);
 }
@@ -423,15 +423,17 @@ pub(super) fn canonical_content(value: &JsonValue) -> Option<Normalized> {
     if !value.is_object() {
         return None;
     }
-    let rt = quillmark_content::lines::serial::from_canonical_value(value).ok()?;
-    let as_written =
-        serde_json::to_string(&quillmark_content::lines::serial::respell_retired(value)).ok()?;
-    let canonical =
-        serde_json::to_string(&quillmark_content::lines::serial::to_canonical_value(&rt)).ok()?;
-    if as_written != canonical {
-        return None;
+    if quillmark_content::wire::is_v1(value) {
+        let rt = quillmark_content::lines::serial::from_canonical_value(value).ok()?;
+        let as_written =
+            serde_json::to_string(&quillmark_content::lines::serial::respell_retired(value)).ok()?;
+        let canonical =
+            serde_json::to_string(&quillmark_content::lines::serial::to_canonical_value(&rt)).ok()?;
+        return (as_written == canonical).then_some(rt);
     }
-    Some(rt)
+    let content = quillmark_content::model::Content::from_value(value).ok()?;
+    let as_written = serde_json::to_string(value).ok()?;
+    (as_written == content.to_json()).then(|| quillmark_content::migrate::to_lines(&content))
 }
 
 /// Ensure `out` ends with `\n\n` so the next fence has a blank line above it.

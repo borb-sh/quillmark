@@ -11,7 +11,7 @@ use quillmark_content::lines::delta::{merge_lines, rebase_marks_pinned};
 use quillmark_content::lines::export::{Annotated, to_markdown, to_markdown_annotated};
 use quillmark_content::lines::import::{ImportWarning, from_markdown_against};
 use quillmark_content::lines::model::Normalized;
-use quillmark_content::lines::serial::to_canonical_value;
+use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
@@ -131,18 +131,19 @@ fn sorted(value: &JsonValue) -> JsonValue {
 /// The hash of a content's canonical form: what [`Card::body_hash`] answers for
 /// a body, and [`Card::field_hash`] for a richtext field, however the field
 /// rests.
-pub fn content_hash(content: &Normalized) -> String {
-    value_hash(&to_canonical_value(content))
+pub fn content_hash(content: &Content) -> String {
+    value_hash(&content.to_value())
 }
 
 /// [`revise_import`] under `base`: refused when `base` is stale, a merge when
 /// `base` is a read the stored value has moved on from.
 pub fn revise_import_against(
+    held: &Content,
     stored: &Normalized,
     base: Base<'_>,
     body: &str,
 ) -> Result<(Normalized, Revised), EditError> {
-    let write = richtext_write(stored, || content_hash(stored), base, body)?;
+    let write = richtext_write(stored, || content_hash(held), base, body)?;
     let revise = |md: &str| revise_import(stored, md).map_err(EditError::Import);
     match write {
         Write::Own => revise(body),
@@ -244,7 +245,7 @@ impl Card {
     /// a body revise reads back, and the markdown a [`Base::Read`] merge of one
     /// takes. Its anchors carry no path; the body is theirs.
     pub fn body_annotated(&self) -> Annotated {
-        to_markdown_annotated(self.body())
+        to_markdown_annotated(self.body_lines())
     }
 
     /// The richtext field's annotated read, decoded as
@@ -263,7 +264,7 @@ impl Card {
     /// [`revise_field`](Self::revise_field)'s terms: the typed writer's
     /// `field_hash` is the door for a field of another type.
     pub fn field_hash(&self, name: &str) -> Result<String, EditError> {
-        Ok(content_hash(&self.richtext_base(name)?))
+        Ok(content_hash(&self.richtext_value(name)?))
     }
 
     /// [`field_hash`](Self::field_hash) through the field's schema: a
@@ -313,7 +314,7 @@ impl Card {
         base: Base<'_>,
         body: impl Into<String>,
     ) -> Result<Revised, EditError> {
-        let (content, revised) = revise_import_against(self.body(), base, &body.into())?;
+        let (content, revised) = revise_import_against(self.body(), self.body_lines(), base, &body.into())?;
         self.overwrite_body(content);
         Ok(revised)
     }
@@ -328,7 +329,8 @@ impl Card {
     ) -> Result<Revised, EditError> {
         let body = body.into();
         let stored = self.richtext_base(name)?;
-        let write = richtext_write(&stored, || content_hash(&stored), base, &body)
+        let held = self.richtext_value(name)?;
+        let write = richtext_write(&stored, || content_hash(&held), base, &body)
             .map_err(|e| at_field(e, name))?;
         match write {
             Write::Own => self.revise_field(name, body),
@@ -357,7 +359,8 @@ impl Card {
         }
         if matches!(schema.r#type, FieldType::RichText { .. }) {
             let stored = self.richtext_base(name)?;
-            let write = richtext_write(&stored, || content_hash(&stored), base, &body)
+            let held = self.richtext_value(name)?;
+            let write = richtext_write(&stored, || content_hash(&held), base, &body)
                 .map_err(|e| at_field(e, name))?;
             return match write {
                 Write::Own => self.revise_field_checked(name, body, schema),

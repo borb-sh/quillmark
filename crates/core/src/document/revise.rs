@@ -5,7 +5,6 @@ use quillmark_content::lines::delta::{rebase_marks, rebase_marks_pinned};
 use quillmark_content::lines::export::to_markdown;
 use quillmark_content::lines::import::{Against, from_markdown_against};
 use quillmark_content::lines::model::Normalized;
-use quillmark_content::lines::serial::{from_canonical_value, to_canonical_value};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
@@ -234,12 +233,12 @@ fn revise_card(
     warnings: &mut Vec<Diagnostic>,
     moves: &mut Moves,
 ) -> Card {
-    let body = std::mem::replace(incoming.body_mut(), Normalized::empty());
-    *incoming.body_mut() =
-        match source.and_then(|md| revise_body(stored.body(), md, &at.body(), warnings)) {
-            Some(revised) => revised,
-            None => rebase_marks(stored.body(), body),
-        };
+    let body = incoming.body_lines().clone();
+    let lines = match source.and_then(|md| revise_body(stored.body_lines(), md, &at.body(), warnings)) {
+        Some(revised) => revised,
+        None => rebase_marks(stored.body_lines(), body),
+    };
+    incoming.set_body(quillmark_content::diff::lift(stored.body(), &lines));
 
     for (name, value) in incoming.payload_mut().fields_mut() {
         if let Some(stored) = stored.payload().get(name) {
@@ -308,7 +307,7 @@ fn revise_value(
             return;
         };
         warnings.extend(dropped_constructs(reported, Some(at)));
-        *incoming = to_canonical_value(&rebase_marks_pinned(&base, content, &pins));
+        *incoming = super::stored_over(Some(stored), &rebase_marks_pinned(&base, content, &pins));
         return;
     }
     match (stored, incoming) {
@@ -417,7 +416,7 @@ fn drop_report(
             .map(QuillValue::as_json);
         drop_value(value.as_json(), revised, &at.field(name), moves, out);
     }
-    drop_content(stored.body(), revised.map(Card::body), &at.body(), out);
+    drop_content(stored.body_lines(), revised.map(Card::body_lines), &at.body(), out);
 }
 
 /// [`drop_report`] over a field's value: each content object in `stored`, at
@@ -435,7 +434,7 @@ fn drop_value(
     let content_of = |value: &JsonValue| {
         value
             .is_object()
-            .then(|| from_canonical_value(value).ok())
+            .then(|| super::lines_of(value).ok())
             .flatten()
     };
     if let Some(content) = content_of(stored) {

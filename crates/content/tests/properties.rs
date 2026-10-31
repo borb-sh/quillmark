@@ -1200,6 +1200,23 @@ mod model {
         }
     }
 
+    /// Line-form shapes the model refuses migrate to the nearest it holds: a
+    /// table sharing its line takes a block of its own, and an anchor id held
+    /// twice keeps its first holder.
+    #[test]
+    fn a_shape_the_model_refuses_migrates_valid() {
+        let mut rt = from_markdown("before\n\n| a |\n|---|\n| b |\n\nafter").unwrap().content.into_content();
+        rt.text = "before\u{FFFC}after".into();
+        rt.lines.truncate(1);
+        rt.marks.push(Mark::new(0, 6, MarkKind::Anchor { id: "c1".into() }));
+        rt.marks.push(Mark::new(7, 12, MarkKind::Anchor { id: "c1".into() }));
+        let v2 = from_lines(&rt.into_normalized());
+        assert_eq!(v2.validate(), Ok(()));
+        assert_eq!(v2.text, "before\n\u{FFFC}\nafter");
+        assert_eq!(v2.anchors.len(), 1);
+        assert_eq!((v2.anchors[0].start, v2.anchors[0].end), (0, 6));
+    }
+
     #[test]
     fn fixture_bodies_migrate_and_lower_back() {
         for name in ["sample.md", "card_yaml_demo.md", "extended_metadata_demo.md"] {

@@ -471,9 +471,8 @@ impl PyDocument {
         })
     }
 
-    /// Reconstruct a `Document` from its versioned storage DTO string. Its
-    /// `warnings` hold one `parse::anchor_id_collision` per anchor id a value
-    /// holds more than once, a table cell or footnote taking part.
+    /// Reconstruct a `Document` from its versioned storage DTO string, with no
+    /// `warnings`.
     /// Raises `QuillmarkError` on malformed JSON, unknown `schema`, missing fields,
     /// or unparseable quill reference.
     #[staticmethod]
@@ -488,10 +487,9 @@ impl PyDocument {
                 msg,
             )
         })?;
-        let parse_warnings = inner.anchor_collisions();
         Ok(PyDocument {
             inner,
-            parse_warnings,
+            parse_warnings: Vec::new(),
         })
     }
 

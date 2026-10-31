@@ -40,7 +40,7 @@ fn normalize_card(card: &Card) -> Card {
     for (from, to) in renames {
         payload.rename_field(&from, to);
     }
-    Card::from_parts(payload, card.body().clone())
+    Card::from_parts(payload, card.body_lines().clone())
 }
 
 #[cfg(test)]

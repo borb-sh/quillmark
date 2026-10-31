@@ -9,10 +9,29 @@ use serde::{Deserialize, Serialize};
 use quillmark_content::lines::export::ExportLoss;
 use quillmark_content::lines::import::{Imported, from_markdown as import_markdown};
 use quillmark_content::lines::model::Normalized;
+use quillmark_content::model::Content;
 
 use crate::error::ParseError;
 use crate::error::{Diagnostic, Severity};
 use crate::version::QuillReference;
+
+/// A stored content value, in either spelling, lowered to the line form.
+pub(crate) fn lines_of(
+    value: &serde_json::Value,
+) -> Result<Normalized, quillmark_content::wire::ParseError> {
+    Content::from_value(value).map(|c| quillmark_content::migrate::to_lines(&c))
+}
+
+/// The stored spelling of a line-form value: under the ids of what it kept
+/// from `old`, the value it is written over, or minted fresh where there is
+/// none.
+pub(crate) fn stored_over(old: Option<&serde_json::Value>, lines: &Normalized) -> serde_json::Value {
+    let held = old.filter(|v| v.is_object()).and_then(|v| Content::from_value(v).ok());
+    match held {
+        Some(held) => quillmark_content::diff::lift(&held, lines).to_value(),
+        None => quillmark_content::migrate::from_lines(lines).to_value(),
+    }
+}
 
 pub(crate) fn import_body(md: &str) -> Result<Normalized, ImportError> {
     import_markdown(md).map(|imported| imported.content)
@@ -420,7 +439,7 @@ impl Codec {
         };
         match value {
             serde_json::Value::Object(_) => Some(
-                quillmark_content::lines::serial::from_canonical_value(value)
+                lines_of(value)
                     .map(whole)
                     .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             ),
@@ -465,6 +484,24 @@ impl Codec {
         }
     }
 
+    /// [`decode_field`](Self::decode_field) as a content value: an object
+    /// keeps its ids, and a string imports with fresh ones.
+    pub(crate) fn decode_content(self, value: &serde_json::Value) -> Result<Content, ContentDecodeError> {
+        match value {
+            serde_json::Value::Object(_) => {
+                Content::from_value(value).map_err(|e| ContentDecodeError::NotContent(e.to_string()))
+            }
+            serde_json::Value::String(s) => match self {
+                Codec::Richtext => quillmark_content::markdown::from_markdown(s)
+                    .map(|i| i.content)
+                    .map_err(|e| ContentDecodeError::BadMarkdown(e.to_string())),
+                Codec::Text => Ok(quillmark_content::markdown::from_plaintext(s)),
+            },
+            serde_json::Value::Null => Ok(Content::empty()),
+            _ => Err(ContentDecodeError::NotContent(self.unshaped_message(value))),
+        }
+    }
+
     /// Project a content back to this codec's text: the inverse of its string
     /// encoding.
     pub(crate) fn project(self, content: &Normalized) -> String {
@@ -495,17 +532,23 @@ pub(crate) fn canonical_richtext_value(
     value: &serde_json::Value,
     inline: bool,
 ) -> Result<(serde_json::Value, Vec<ImportWarning>), RichtextValueError> {
-    let Imported { content, warnings } = match Codec::Richtext.decode_value(value) {
-        Some(result) => result.map_err(RichtextValueError::Decode)?,
-        None => return Err(RichtextValueError::Unshaped),
+    let (content, warnings) = match value {
+        serde_json::Value::Object(_) => (
+            Content::from_value(value)
+                .map_err(|e| RichtextValueError::Decode(ContentDecodeError::NotContent(e.to_string())))?,
+            Vec::new(),
+        ),
+        serde_json::Value::String(s) => {
+            let imported = quillmark_content::markdown::from_markdown(s)
+                .map_err(|e| RichtextValueError::Decode(ContentDecodeError::BadMarkdown(e.to_string())))?;
+            (imported.content, imported.warnings)
+        }
+        _ => return Err(RichtextValueError::Unshaped),
     };
     if inline && !content.is_inline() {
         return Err(RichtextValueError::NotSingleLine);
     }
-    Ok((
-        quillmark_content::lines::serial::to_canonical_value(&content),
-        warnings,
-    ))
+    Ok((content.to_value(), warnings))
 }
 
 /// Plain content less its trailing whitespace: a one-line `text` value's form
@@ -548,10 +591,10 @@ pub mod revise;
 pub mod wire;
 pub(crate) mod yaml_hints;
 
-pub use anchors::{ANCHOR_ID_COLLISION, AnchorSelector};
+pub use anchors::AnchorSelector;
 pub use base::{Base, BaseError, HASH_TAG, content_hash, revise_import_against, value_hash};
 pub use dto::{
-    STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, StorageError,
+    STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, STORAGE_V0_135_0, StorageError,
     StoredDocument, peek_storage_version,
 };
 pub use edit::{CardMut, EditError, Revised, revise_import};
@@ -611,18 +654,40 @@ pub(crate) struct Revising {
 
 /// A single card-yaml block (root or composable). `body` is the content
 /// ([`Content`](quillmark_content::lines::model::Content)) form of the prose after the closing fence: the empty content
-/// when none follows; check `card.body().is_blank()`. Markdown is a projection:
+/// when none follows; check `card.body_lines().is_blank()`. Markdown is a projection:
 /// [`Card::body_markdown`] re-emits it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Card {
     payload: Payload,
-    body: Normalized,
+    body: Content,
+    /// `body` lowered to the line form the codecs and renderers read.
+    lines: Normalized,
+}
+
+/// What a card body is built from: a line-form value migrates, minting its
+/// ids, and a content value lands as it is.
+pub(crate) trait IntoBody {
+    fn into_body(self) -> Content;
+}
+
+impl IntoBody for Normalized {
+    fn into_body(self) -> Content {
+        quillmark_content::migrate::from_lines(&self)
+    }
+}
+
+impl IntoBody for Content {
+    fn into_body(self) -> Content {
+        self
+    }
 }
 
 impl Card {
     /// Create a `Card` from its parts without validation.
-    pub(crate) fn from_parts(payload: Payload, body: Normalized) -> Self {
-        Self { payload, body }
+    pub(crate) fn from_parts(payload: Payload, body: impl IntoBody) -> Self {
+        let body = body.into_body();
+        let lines = quillmark_content::migrate::to_lines(&body);
+        Self { payload, body, lines }
     }
 
     pub fn quill(&self) -> Option<&QuillReference> {
@@ -657,21 +722,35 @@ impl Card {
         &mut self.payload
     }
 
-    /// The card body as a [`Content`](quillmark_content::lines::model::Content): the canonical content model. For the
-    /// markdown projection use [`Card::body_markdown`].
-    pub fn body(&self) -> &Normalized {
+    /// The card body: the stored content value. For the markdown projection
+    /// use [`Card::body_markdown`].
+    pub fn body(&self) -> &Content {
         &self.body
+    }
+
+    /// The body lowered to the line form the markdown codecs and the renderers
+    /// read.
+    pub fn body_lines(&self) -> &Normalized {
+        &self.lines
     }
 
     /// The card body rendered back to its markdown projection. This is a
     /// derived view (`export ∘ body`), not stored state; a `Document` round-trip
     /// therefore canonicalizes the body (e.g. `__b__` → `**b**`).
     pub fn body_markdown(&self) -> String {
-        quillmark_content::lines::export::to_markdown(&self.body)
+        quillmark_content::lines::export::to_markdown(&self.lines)
     }
 
-    pub(crate) fn body_mut(&mut self) -> &mut Normalized {
-        &mut self.body
+    pub(crate) fn set_body(&mut self, body: Content) {
+        self.lines = quillmark_content::migrate::to_lines(&body);
+        self.body = body;
+    }
+
+    /// Writes a line-form body over the stored one, keeping the ids of what it
+    /// kept.
+    pub(crate) fn set_body_lines(&mut self, lines: Normalized) {
+        let body = quillmark_content::diff::lift(&self.body, &lines);
+        self.set_body(body);
     }
 
     /// Read a content-valued user field back through `codec`: the field-level
@@ -943,7 +1022,7 @@ impl Document {
         if main_body {
             map.insert(
                 "$body".to_string(),
-                quillmark_content::lines::serial::to_canonical_value(self.main.body()),
+                self.main.body().to_value(),
             );
         }
 
@@ -963,7 +1042,7 @@ impl Document {
                 if card_bodies.map_or(true, |f| f.get(i).copied().unwrap_or(true)) {
                     card_map.insert(
                         "$body".to_string(),
-                        quillmark_content::lines::serial::to_canonical_value(card.body()),
+                        card.body().to_value(),
                     );
                 }
                 for (key, value) in card.payload.iter() {

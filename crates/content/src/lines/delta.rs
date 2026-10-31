@@ -373,6 +373,69 @@ fn coarse_replace(ops: &mut Vec<Op>, base: &str, new: &str) {
     push_retain(ops, suffix);
 }
 
+/// `ops` from a base to `new`, each text ending in a newline the caller
+/// appended, as the ops between the texts without it: the appended newlines
+/// drop, and a char either kept against one is inserted or deleted.
+pub(crate) fn without_sentinel(ops: Vec<Op>, new: &str) -> Vec<Op> {
+    enum Ev {
+        Keep,
+        Del,
+        Ins(char),
+    }
+    let new: Vec<char> = new.chars().collect();
+    let old_len: usize = ops
+        .iter()
+        .map(|op| match op {
+            Op::Retain(n) | Op::Delete(n) => *n,
+            Op::Insert(_) => 0,
+        })
+        .sum();
+    let (mut i, mut j) = (0usize, 0usize);
+    let mut evs = Vec::new();
+    for op in ops {
+        match op {
+            Op::Retain(n) => {
+                for _ in 0..n {
+                    let ev = match (i + 1 == old_len, j + 1 == new.len()) {
+                        (true, true) => None,
+                        (true, false) => Some(Ev::Ins(new[j])),
+                        (false, true) => Some(Ev::Del),
+                        (false, false) => Some(Ev::Keep),
+                    };
+                    evs.extend(ev);
+                    i += 1;
+                    j += 1;
+                }
+            }
+            Op::Delete(n) => {
+                for _ in 0..n {
+                    if i + 1 != old_len {
+                        evs.push(Ev::Del);
+                    }
+                    i += 1;
+                }
+            }
+            Op::Insert(text) => {
+                for ch in text.chars() {
+                    if j + 1 != new.len() {
+                        evs.push(Ev::Ins(ch));
+                    }
+                    j += 1;
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for ev in evs {
+        match ev {
+            Ev::Keep => push_retain(&mut out, 1),
+            Ev::Del => push_delete(&mut out, 1),
+            Ev::Ins(ch) => push_insert(&mut out, ch.encode_utf8(&mut [0; 4])),
+        }
+    }
+    out
+}
+
 fn push_retain(ops: &mut Vec<Op>, n: usize) {
     if n == 0 {
         return;

@@ -1146,7 +1146,7 @@ main:
         let rt = quillmark_content::lines::import::from_markdown("one\n\ntwo")
             .unwrap()
             .content;
-        let content = quillmark_content::lines::serial::to_canonical_value(&rt);
+        let content = crate::document::stored_over(None, &rt);
         let doc = doc_from_fm(&[("tag", content)]);
         let errors = config.validate_document(&doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(
@@ -1186,7 +1186,7 @@ main:
         let rt = quillmark_content::lines::import::from_markdown("one line only")
             .unwrap()
             .content;
-        let content = quillmark_content::lines::serial::to_canonical_value(&rt);
+        let content = crate::document::stored_over(None, &rt);
         let doc = doc_from_fm(&[("tag", content)]);
         assert!(config.validate_document(&doc).is_ok());
     }

@@ -600,28 +600,24 @@ impl QuillConfig {
                     }
                     Ok(rt)
                 };
-                let commit = |rt: &quillmark_content::lines::model::Normalized| -> QuillValue {
+                let commit = |old: Option<&serde_json::Value>, rt: &quillmark_content::lines::model::Normalized| -> QuillValue {
                     match mode {
-                        Leniency::Render => {
-                            QuillValue::from_json(quillmark_content::lines::serial::to_canonical_value(rt))
-                        }
+                        Leniency::Render => QuillValue::from_json(crate::document::stored_over(old, rt)),
                         Leniency::Write => QuillValue::from_json(serde_json::Value::String(
                             quillmark_content::lines::export::to_plaintext(rt),
                         )),
                     }
                 };
                 if json_value.is_object() {
-                    let rt = quillmark_content::lines::serial::from_canonical_value(json_value).map_err(
-                        |e| {
-                            CoercionError::uncoercible(
-                                path,
-                                "<object>",
-                                "text",
-                                format!("not a valid content object: {e}"),
-                            )
-                        },
-                    )?;
-                    return Ok(commit(&plain_check(rt)?));
+                    let rt = crate::document::lines_of(json_value).map_err(|e| {
+                        CoercionError::uncoercible(
+                            path,
+                            "<object>",
+                            "text",
+                            format!("not a valid content object: {e}"),
+                        )
+                    })?;
+                    return Ok(commit(Some(json_value), &plain_check(rt)?));
                 }
                 let Some(text) = lenient_string(json_value) else {
                     return match mode {
@@ -635,7 +631,7 @@ impl QuillConfig {
                     };
                 };
                 let rt = quillmark_content::lines::import::from_plaintext(&text);
-                Ok(commit(&plain_check(rt)?))
+                Ok(commit(None, &plain_check(rt)?))
             }
             FieldType::RichText { multiline } => {
                 // The deliberately-lenient sibling of the strict decoders
@@ -653,13 +649,12 @@ impl QuillConfig {
                              container and no islands; declare multiline: true to admit blocks",
                     )
                 };
-                let inline_check =
-                    |rt: &quillmark_content::lines::model::Content| -> Result<(), CoercionError> {
-                        if !multiline && !rt.is_inline() {
-                            return Err(inline_err());
-                        }
-                        Ok(())
-                    };
+                let inline_check = |rt: &quillmark_content::model::Content| -> Result<(), CoercionError> {
+                    if !multiline && !rt.is_inline() {
+                        return Err(inline_err());
+                    }
+                    Ok(())
+                };
                 // The messages mirror `Card::commit_field`'s richtext error
                 // variants, which the bindings key on.
                 if mode == Leniency::Write {
@@ -686,20 +681,16 @@ impl QuillConfig {
                         });
                 }
                 if json_value.is_object() {
-                    let rt = quillmark_content::lines::serial::from_canonical_value(json_value).map_err(
-                        |e| {
-                            CoercionError::uncoercible(
-                                path,
-                                "<object>",
-                                "richtext",
-                                format!("not a valid richtext content: {e}"),
-                            )
-                        },
-                    )?;
+                    let rt = quillmark_content::model::Content::from_value(json_value).map_err(|e| {
+                        CoercionError::uncoercible(
+                            path,
+                            "<object>",
+                            "richtext",
+                            format!("not a valid richtext content: {e}"),
+                        )
+                    })?;
                     inline_check(&rt)?;
-                    return Ok(QuillValue::from_json(
-                        quillmark_content::lines::serial::to_canonical_value(&rt),
-                    ));
+                    return Ok(QuillValue::from_json(rt.to_value()));
                 }
                 let Some(markdown) = lenient_string(json_value) else {
                     // Neither content nor stringifiable: left for the validation
@@ -707,7 +698,7 @@ impl QuillConfig {
                     return Ok(value.clone());
                 };
                 let imported =
-                    quillmark_content::lines::import::from_markdown(&markdown).map_err(|e| {
+                    quillmark_content::markdown::from_markdown(&markdown).map_err(|e| {
                         CoercionError::uncoercible(
                             path,
                             &markdown,
@@ -721,9 +712,7 @@ impl QuillConfig {
                 ));
                 let rt = imported.content;
                 inline_check(&rt)?;
-                Ok(QuillValue::from_json(
-                    quillmark_content::lines::serial::to_canonical_value(&rt),
-                ))
+                Ok(QuillValue::from_json(rt.to_value()))
             }
             FieldType::Date | FieldType::DateTime => {
                 let text = if let Some(s) = json_value.as_str() {
@@ -3210,9 +3199,7 @@ fn literal_content(
             if !*multiline && !rt.is_inline() {
                 return Err(single_line_error(label, "text"));
             }
-            Ok(Some(QuillValue::from_json(
-                quillmark_content::lines::serial::to_canonical_value(&rt),
-            )))
+            Ok(Some(QuillValue::from_json(crate::document::stored_over(None, &rt))))
         }
         FieldType::Array => {
             let Some(items) = field.items.as_deref() else {

@@ -1124,9 +1124,7 @@ impl Document {
     }
 
     /// Reconstruct a `Document` from a versioned storage DTO string produced by
-    /// [`toStored`](Document::to_stored). Its `warnings` hold one
-    /// `parse::anchor_id_collision` per anchor id a value holds more than once,
-    /// a table cell or footnote taking part, and nothing else.
+    /// [`toStored`](Document::to_stored), with no `warnings`.
     /// Throws if `json` is not a valid storage DTO (malformed JSON, unknown
     /// `schema`, missing fields, or unparseable quill reference).
     #[wasm_bindgen(js_name = fromStored)]
@@ -1135,10 +1133,9 @@ impl Document {
             serde_json::from_str(json).map_err(|e| {
                 WasmError::from(format!("fromStored: invalid storage DTO: {e}")).to_js_value()
             })?;
-        let parse_warnings = inner.anchor_collisions();
         Ok(Document {
             inner,
-            parse_warnings,
+            parse_warnings: Vec::new(),
         })
     }
 
@@ -1406,7 +1403,7 @@ impl Document {
         let card = self.addr_card_ref(&addr)?;
         match &addr.field {
             None => serialize_or_throw(
-                &quillmark_content::lines::serial::to_canonical_value(card.body()),
+                &quillmark_content::lines::serial::to_canonical_value(card.body_lines()),
                 "getStored",
             ),
             Some(field) => match card.payload().get(field) {
@@ -1514,7 +1511,7 @@ impl Document {
         let base = self.addr_base(&addr);
         match &addr.field {
             None => serialize_or_throw(
-                &quillmark_content::lines::serial::to_canonical_value(self.addr_card_ref(&addr)?.body()),
+                &quillmark_content::lines::serial::to_canonical_value(self.addr_card_ref(&addr)?.body_lines()),
                 "reader.getContent",
             ),
             Some(field) => {

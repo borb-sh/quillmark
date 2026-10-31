@@ -204,10 +204,10 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
                 Ok(p) => p,
                 Err(e) => return [failures, vec![format!("a body does not parse: {e}")]].concat(),
             };
-            if parsed.document.main().body() != &content {
+            if parsed.document.main().body_lines() != &content {
                 failures.push(format!(
                     "a body imports as {}",
-                    canonical(parsed.document.main().body())
+                    canonical(parsed.document.main().body_lines())
                 ));
             }
             let dropped = dropped_constructs(&parsed.warnings);
@@ -403,10 +403,10 @@ fn check_revise(content: &Normalized, reimports: &Normalized, markdown: &str) ->
         .document;
     doc.main_mut().overwrite_body(content.clone());
     match doc.main_mut().revise_body(markdown) {
-        Ok(revised) if doc.main().body() == &expected && revised.warnings.is_empty() => vec![],
+        Ok(revised) if doc.main().body_lines() == &expected && revised.warnings.is_empty() => vec![],
         Ok(revised) => vec![format!(
             "a revise lands {}, warning {:?}",
-            canonical(doc.main().body()),
+            canonical(doc.main().body_lines()),
             revised.warnings
         )],
         Err(e) => vec![format!("a revise fails: {e:?}")],
@@ -483,20 +483,20 @@ fn check_document(
     doc.main_mut().overwrite_body(content.clone());
     let read = doc.to_markdown_annotated();
     let mut failures: Vec<String> = match Document::parse(&doc.to_markdown()) {
-        Ok(p) if p.document.main().body() == reimports && p.warnings.is_empty() => vec![],
+        Ok(p) if p.document.main().body_lines() == reimports && p.warnings.is_empty() => vec![],
         Ok(p) => vec![format!(
             "the document parses to a body {}, warning {:?}",
-            canonical(p.document.main().body()),
+            canonical(p.document.main().body_lines()),
             p.warnings
         )],
         Err(e) => vec![format!("the document does not parse: {e}")],
     };
     let mut revised = doc.clone();
     match revised.revise(&read.markdown) {
-        Ok(r) if revised.main().body() == content && r.warnings.is_empty() => {}
+        Ok(r) if revised.main().body_lines() == content && r.warnings.is_empty() => {}
         Ok(r) => failures.push(format!(
             "the annotated read revises to a body {}, warning {:?}",
-            canonical(revised.main().body()),
+            canonical(revised.main().body_lines()),
             r.warnings
         )),
         Err(e) => failures.push(format!("the annotated read does not parse: {e}")),
