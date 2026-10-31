@@ -318,14 +318,9 @@ fn insert_attrs(m: &mut Map<String, Value>, attrs: Cow<'_, Value>) {
     }
 }
 
-/// Encode a [`LineKind`] into its canonical `kind` object (`{"kind":"para"}`,
-/// `{"attrs":{"level":n},"kind":"heading"}`, …).
-pub fn line_kind_to_value(kind: &LineKind) -> Value {
-    Value::Object(line_kind_fields(kind))
-}
-
-/// The same fields unwrapped, for [`line_to_value`], which flattens them beside
-/// a line's own keys.
+/// A [`LineKind`]'s canonical fields (`"kind":"para"`,
+/// `"attrs":{"level":n},"kind":"heading"`, …), which [`line_to_value`] flattens
+/// beside a line's own keys.
 fn line_kind_fields(kind: &LineKind) -> Map<String, Value> {
     // One arm for the whole vocabulary: the tag *is* the discriminator and the
     // payload rides the `attrs` bag whether or not this build knows the role, so
@@ -338,7 +333,7 @@ fn line_kind_fields(kind: &LineKind) -> Map<String, Value> {
 }
 
 /// Decode a [`LineKind`] from an object carrying the canonical `kind` fields.
-pub fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
+pub(crate) fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
     let o = v.as_object().ok_or(ParseError::Shape("line"))?;
     // A missing/non-string `kind` is a shape error; a string outside the
     // vocabulary is `UnknownName`. A non-string is not a name.
@@ -438,7 +433,7 @@ fn fold_run(run: u64, instance: u64) -> u64 {
 
 /// Encode a [`Container`] into its canonical wire object. A zero `instance` is
 /// omitted, so a row written before the field existed re-encodes byte for byte;
-/// [`container_from_value`] reads an absent key as zero.
+/// the decoder reads an absent key as zero.
 pub fn container_to_value(c: &Container) -> Value {
     let mut m = Map::new();
     insert_attrs(&mut m, c.attrs());
@@ -455,7 +450,7 @@ pub fn container_to_value(c: &Container) -> Value {
 /// container, a definition list's `description` or a `qm-*` `element`, whose
 /// lines read as the blocks it wrapped, for the reason a `term` line reads as
 /// a paragraph.
-pub fn container_from_value(v: &Value) -> Result<Option<Container>, ParseError> {
+pub(crate) fn container_from_value(v: &Value) -> Result<Option<Container>, ParseError> {
     let o = v.as_object().ok_or(ParseError::Shape("container"))?;
     let tag = o
         .get("container")
@@ -523,7 +518,7 @@ fn mark_shape(v: &Value) -> Result<MarkShape<'_>, ParseError> {
 }
 
 /// Decode a [`Mark`] from its canonical wire object.
-pub fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
+pub(crate) fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
     let MarkShape {
         fields: o,
         start,
