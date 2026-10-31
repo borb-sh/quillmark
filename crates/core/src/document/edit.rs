@@ -119,7 +119,7 @@ pub enum EditError {
     #[error("value nests deeper than the maximum of {max} levels")]
     ValueTooDeep { max: usize },
 
-    /// Markdown import failed: the content codec rejected the input for a body
+    /// Markdown import failed: the markdown codec rejected the input for a body
     /// *or* a field path (e.g. container nesting past
     /// [`MAX_NESTING_DEPTH`](quillmark_content::MAX_NESTING_DEPTH)). Returned
     /// instead of silently degrading the target to empty on a rejected import.

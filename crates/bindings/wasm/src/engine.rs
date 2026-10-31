@@ -418,7 +418,7 @@ export interface CardAddr {
 
 /**
  * A text-splice change set over the USV content (CodeMirror `ChangeSet`
- * semantics), returned by `revise` and by the `rebase` codec. Map a stored
+ * semantics), returned by `revise` and by `rebase`. Map a stored
  * position through it with `mapPos`.
  *
  * Applying one admits an `insert` string rather than storing it verbatim: `\r`

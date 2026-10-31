@@ -87,7 +87,7 @@ over its keys: read `receipt["warnings"]`.
   between an LLM's read and its write lands beside the LLM's, and runs of
   lines both changed refuse with `edit::rebase_conflict`. Both carry `current`,
   the hash now. The verbs are `revise_body_against`, `revise_field_against`,
-  the writers' `revise_document_against`, and the codec's
+  the writers' `revise_document_against`, and the free
   `revise_import_against`. `EditError` gains `Base(BaseError)` and
   `BoundParseError` gains `Base`.
 - feat(wasm): **`BaseOptions` on every revise.** `doc.revise`, `rebase` and the

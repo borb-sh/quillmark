@@ -40,7 +40,7 @@ use similar::{capture_diff_slices, Algorithm, ChangeTag, DiffOp, TextDiff};
 /// text. USV throughout.
 ///
 /// Serializes as `{ "ops": [ {"retain": n} | {"insert": s} | {"delete": n} ] }`:
-/// the wire the `rebase` codec and `applyChange` bundle carry across the
+/// the wire `rebase` and the `applyChange` bundle carry across the
 /// language bindings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Delta {

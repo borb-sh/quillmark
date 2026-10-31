@@ -528,7 +528,7 @@ describe('Card ids', () => {
   })
 })
 
-describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () => {
+describe('Content model: importMarkdown / exportMarkdown / rebase / mapPos', () => {
   it('importMarkdown ∘ exportMarkdown round-trips a body', () => {
     const { content: rt, warnings } = importMarkdown('A **bold** line.')
     expect(typeof rt).toBe('object')
