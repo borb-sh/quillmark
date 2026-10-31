@@ -12,7 +12,8 @@ over its keys: read `receipt["warnings"]`.
 - feat(core)!: **every composable card carries a `$id`.** It emits after
   `$kind`, is minted where none is written (`c` and five base32 letters of a
   fixed SHA-256 sequence, so equal markdown parses to equal ids), and a parse
-  re-mints a malformed or repeated one with `parse::card_id_reminted`.
+  re-mints a malformed or repeated one with `parse::card_id_reminted`. A
+  null `$id` (`$id:`, `~`) is no `$id`.
   `insert_card` refuses a bad or held id (`edit::invalid_card_id`,
   `edit::duplicate_card_id`). Storage moves to `quillmark/document@0.134.0`
   for a row holding a composable card; a row of the main card alone keeps
