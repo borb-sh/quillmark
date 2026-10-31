@@ -108,6 +108,11 @@ under `current` lands the revert the base refused. A refusal on a field
 anchors at the field. The whole-document lane raises them through
 `BoundParseError::Base`, as it raises a parse failure, before any mutation.
 
+The content lane's writes (`apply`, `applyAll`, `revise`, `replace`) take a
+`base` hash and refuse a stale one under the same `edit::stale_base`, carrying
+`current`. A change that does not apply to the value, or would leave it
+invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)).
+
 Building a card from a `CardWire` (`insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
 `WireError` carries the `EditError` its addressed twin raises, and

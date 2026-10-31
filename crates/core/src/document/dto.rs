@@ -349,9 +349,8 @@ impl From<&Card> for CardV0_135_0 {
     }
 }
 
-/// The hop from the line form: each body migrates, minting its ids; a field
-/// value is read in either spelling wherever it is decoded, so it stays as
-/// stored.
+/// The hop from the line form: each body, and each field value that decodes
+/// as line-form content at any depth, migrates, minting its ids.
 impl From<DocumentV0_129_0> for DocumentV0_135_0 {
     fn from(d: DocumentV0_129_0) -> Self {
         let card = |mut c: CardV0_129_0| {
