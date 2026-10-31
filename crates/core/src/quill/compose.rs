@@ -78,7 +78,7 @@ impl QuillConfig {
                     today,
                 )),
             ),
-            normalized.main().body().clone(),
+            normalized.main().body_lines().clone(),
         );
         // A card's `$body` is defined for the plate iff its kind resolves to a
         // body-enabled schema. Captured here, where the schema is already in
@@ -100,7 +100,7 @@ impl QuillConfig {
                     // No ladder, as `resolved::card_states` leaves it.
                     None => card.payload().to_index_map(),
                 };
-                Card::from_parts(rebuild_payload_with_meta(card, fields), card.body().clone())
+                Card::from_parts(rebuild_payload_with_meta(card, fields), card.body_lines().clone())
             })
             .collect();
 
@@ -143,13 +143,13 @@ impl QuillConfig {
                 .map_err(coercion_error)?;
             coerced_cards.push(Card::from_parts(
                 rebuild_payload_with_meta(card, coerced_fields),
-                card.body().clone(),
+                card.body_lines().clone(),
             ));
         }
 
         let coerced_main = Card::from_parts(
             rebuild_payload_with_meta(doc.main(), coerced_payload),
-            doc.main().body().clone(),
+            doc.main().body_lines().clone(),
         );
         let coerced_doc = Document::from_main_and_cards(coerced_main, coerced_cards);
 
@@ -863,7 +863,7 @@ fn validate_unclaimed(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
             continue;
         };
         // A whitespace-only body is empty: only meaningful prose warns.
-        if !schema.body_enabled() && !card.body().is_blank() {
+        if !schema.body_enabled() && !card.body_lines().is_blank() {
             diags.push(body_disabled_warning(&path.body(), &schema.name));
         }
         let declared: Declared = schema.fields.iter().map(|(n, f)| (n.as_str(), f)).collect();
@@ -1263,7 +1263,7 @@ impl QuillConfig {
                         path: DocPath| {
             for (key, value) in obj {
                 if key == "$body" {
-                    if let Ok(content) = quillmark_content::serial::from_canonical_value(value) {
+                    if let Ok(content) = crate::document::lines_of(value) {
                         each(&path.body(), &content);
                     }
                 } else if let Some(field) = schema.fields.get(key.as_str()) {

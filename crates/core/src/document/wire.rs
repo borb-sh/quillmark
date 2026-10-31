@@ -21,7 +21,6 @@ use crate::error::diag_args;
 use crate::error::{Diagnostic, Severity};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
-use quillmark_content::model::Normalized;
 
 /// One entry in a [`CardWire`]'s `payload_items`: a user field or a comment.
 /// The `$` system entries are hoisted onto [`CardWire`] itself, never here.
@@ -145,10 +144,7 @@ impl WireError {
 
 impl From<&Card> for CardWire {
     fn from(card: &Card) -> Self {
-        let mut wire = CardWire::new(
-            String::new(),
-            quillmark_content::serial::to_canonical_value(card.body()),
-        );
+        let mut wire = CardWire::new(String::new(), card.body().to_value());
         for item in card.payload().items() {
             match item {
                 PayloadItem::Quill { reference } => wire.quill = Some(reference.to_string()),
@@ -237,11 +233,11 @@ impl TryFrom<CardWire> for Card {
     }
 }
 
-/// Read a [`CardWire::body`] into a [`Content`](quillmark_content::model::Content) content. The body is the source
+/// Read a [`CardWire::body`] into a [`Content`](quillmark_content::lines::model::Content) content. The body is the source
 /// of truth and reads through the richtext codec whatever the schema declares,
 /// so its accepted encodings are [`super::Codec::decode_field`]'s.
-fn body_from_wire(body: &JsonValue) -> Result<Normalized, WireError> {
-    super::Codec::Richtext.decode_field(body).map_err(|e| {
+fn body_from_wire(body: &JsonValue) -> Result<quillmark_content::model::Content, WireError> {
+    super::Codec::Richtext.decode_content(body).map_err(|e| {
         WireError::Edit(super::edit::field_decode(
             "$body",
             &[],
@@ -261,16 +257,16 @@ mod tests {
     /// `underline` with no markdown projection survives Card → wire → Card.
     #[test]
     fn card_wire_round_trips_content_field_losslessly() {
-        use quillmark_content::model::{Mark, MarkKind};
+        use quillmark_content::lines::model::{Mark, MarkKind};
 
         let mut card = Card::new("note").unwrap();
-        let mut content = quillmark_content::import::from_markdown("underlined intro")
+        let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
             .unwrap()
             .content
             .into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
         let content = content.into_normalized();
-        let json = quillmark_content::serial::to_canonical_value(&content);
+        let json = quillmark_content::lines::serial::to_canonical_value(&content);
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
             crate::quill::FieldType::RichText { multiline: true },
@@ -319,7 +315,7 @@ mod tests {
         let mut payload = Payload::from_index_map(Default::default());
         payload.set_quill("memo@1.2.3".parse().unwrap());
         payload.set_kind("main");
-        let card = Card::from_parts(payload, quillmark_content::model::Normalized::empty());
+        let card = Card::from_parts(payload, quillmark_content::lines::model::Normalized::empty());
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.quill.as_deref(), Some("memo@1.2.3"));
@@ -422,11 +418,11 @@ mod tests {
         let with_body = |body: JsonValue| Card::try_from(CardWire::new("note".to_string(), body));
 
         assert_eq!(
-            with_body(JsonValue::Null).unwrap().body(),
-            &quillmark_content::model::Normalized::empty()
+            with_body(JsonValue::Null).unwrap().body_lines(),
+            &quillmark_content::lines::model::Normalized::empty()
         );
         assert_eq!(
-            Codec::Richtext.project(with_body(json!("hi *there*")).unwrap().body()),
+            Codec::Richtext.project(with_body(json!("hi *there*")).unwrap().body_lines()),
             "hi *there*"
         );
 
@@ -476,14 +472,14 @@ mod tests {
             "marks": [],
             "text": "hi",
         });
-        assert!(quillmark_content::serial::from_authored_value(&legacy).is_err());
+        assert!(quillmark_content::lines::serial::from_authored_value(&legacy).is_err());
 
         let card = Card::try_from(CardWire::new(String::new(), legacy.clone()))
             .expect("the card wire decodes storage-lane");
-        let storage = quillmark_content::serial::from_canonical_value(&legacy).unwrap();
+        let storage = crate::document::lines_of(&legacy).unwrap();
         assert_eq!(
-            quillmark_content::serial::to_canonical_value(card.body()),
-            quillmark_content::serial::to_canonical_value(&storage)
+            quillmark_content::lines::serial::to_canonical_value(card.body_lines()),
+            quillmark_content::lines::serial::to_canonical_value(&storage)
         );
     }
 }

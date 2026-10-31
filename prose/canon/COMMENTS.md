@@ -1,11 +1,11 @@
 # Comment Anchors
 
-> **Implementation**: `crates/content/src/` (the `anchor` module), `crates/core/src/document/` (the `anchors` module)
-> **Related**: [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md), [BINDINGS.md](BINDINGS.md)
+> **Implementation**: `crates/content/src/` (the `lines::anchor` module), `crates/core/src/document/` (the `anchors` module)
+> **Related**: [CONTENT.md](CONTENT.md), [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md), [BINDINGS.md](BINDINGS.md)
 
 ## TL;DR
 
-A comment is a thread the host stores, joined to the document by one `anchor{id}` mark over the text it discusses.
+A comment is a thread the host stores, joined to the document by one anchor, `{id, start, end}` in a value's `anchors`, over the text it discusses.
 The document carries the anchor and nothing else, so a reply never moves its bytes.
 Core makes the anchor a reliable handle: it reads what each anchor is attached to, names every anchor a write drops, and places a dropped anchor again where its text is found exactly once.
 
@@ -13,12 +13,11 @@ Core makes the anchor a reliable handle: it reads what each anchor is attached t
 
 - **The thread lives outside the document.** No body, author or status enters `Content`. The host keeps the thread, keyed by the anchor's id.
 - **The thread's id is the anchor's id.** The client mints it, as it mints every anchor id ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)). Quillmark mints none.
-- **The host mints ids unique per document.** The ops refuse an anchor id a `Content` already holds, in its prose or a cell, but the model guarantees no more than that, so the contract requires the host's mint to be unique across the document, as a UUID is. `anchor_context(id)` and the live-id check take the first value holding an id.
-- **A write carrying anchors goes through a rung that keeps them.** `applyChange` carries them through a splice, and `revise` / `reviseContent` / `reviseDocument` through a diff.
-  `overwrite` destroys them and is never the write for a document holding threads ([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive)).
-- **A write states what its writer read.** A revise diffs against the value stored now, so a person's edit made between a writer's read and its write reads as text the writer deleted, and the anchors on it drop. A host whose writer reads, thinks and then writes (an LLM) passes the read: `baseHash` refuses the write once the value has changed (`edit::stale_base`), and `baseMarkdown`, the annotated markdown the writer read, merges its edit onto the change by line, so both land and the anchors on the person's text stay ([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive)).
+- **The host mints ids unique per document.** A value holds each anchor id once over its text and every slot, and a step placing a held id is refused, but the model guarantees no more than that, so the contract requires the host's mint to be unique across the document, as a UUID is. `anchor_context(id)` and the live-id check take the first value holding an id.
+- **Every write keeps the anchors it can.** `apply` moves them exactly as its steps move text, and `revise` / `replace` / the writer's `reviseDocument` carry them through a diff ([CONTENT.md](CONTENT.md) § "Writing a value"). A writer removes an anchor only with an `anchor` step that names it.
+- **A write states what its writer read.** A revise diffs against the value stored now, so a person's edit made between a writer's read and its write reads as text the writer deleted, and the anchors on it drop. A host whose writer reads, thinks and then writes (an LLM) passes the read: the `base` of `apply`, `revise` and `replace`, and the writer's `baseHash`, refuse the write once the value has changed (`edit::stale_base`), and the writer's `baseMarkdown`, the annotated markdown the writer read, merges its edit onto the change by line, so both land and the anchors on the person's text stay ([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive)).
 - **A kept tag pins.** The annotated read spells each prose anchor as a `qm-anchor` tag, and a revise reads it back: a writer that moves a tag moves its anchor's start there, one that drops a tag leaves the anchor to the diff, and a tag naming no anchor the stored value holds drops with a `parse::dropped_construct` (`qm-anchor[ref]`), never minting one ([markdown-spec.md](../references/markdown-spec.md) §6.4).
-- **A write never deletes a thread.** Every revise receipt names the anchors it dropped. A dropped anchor is either placed again by `reattach` or reported orphaned, and the thread stays in the host's store either way.
+- **A write never deletes a thread.** Every write's receipt names the anchors it dropped, in `droppedAnchors`. A dropped anchor is either placed again by `reattach` or reported orphaned, and the thread stays in the host's store either way.
 
 ## Reading a selector
 
@@ -59,16 +58,14 @@ A caller compares each surviving anchor's selector after the write to the one it
 
 ## Table cells and notes
 
-A table cell and a footnote's note are text surfaces of their own, and an anchor in one is a mark in that cell's `marks`. The contract holds there as in the prose:
+A table cell and a footnote's note are slots, each a `Content` of its own, and an anchor in one sits in that slot's `anchors`. It moves with the slot wherever its row moves. The contract holds there as in the prose:
 
 - `anchor_contexts` reads it, at the value's path, its context cut at the cell's edges, and the annotated read lists it after the anchors before its island, with the cell's text as its `line`. No tag spells it: a cell holds none.
-- The ops reach it. `RemoveAnchor` removes it, an anchor `Add` refuses its id, and an island op refuses a cell anchor whose id the value already holds ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)).
+- The steps reach it: a `nested` step places, moves or removes it, and a step placing an id the value holds anywhere is refused ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)).
 - A revise keeps it where the island continues and the cell at its place keeps its text, and drops it, named in the receipt, where the cell's text changed.
 - `reattach` searches every cell with the prose and places it in the one cell its quote counts in.
 
-A stored value can still hold an id twice with a cell taking part, since validation checks the prose alone. It loads, and the load reports `parse::anchor_id_collision` at the value's path ([ERROR.md](ERROR.md)), which the host resolves by removing or re-minting the copies.
-
-A comment on a table as a whole anchors the table's slot: a one-character range over its `U+FFFC`, a prose mark that the receipts list and the rebase rule moves with the table.
+A comment on a table as a whole anchors the table's slot: a one-character range over its `U+FFFC`, which the receipts list and the steps move with the table.
 Its quote is the slot alone, so `reattach` places it on its context like a point, and only where one slot sits between the agreeing sides.
 
 ## Hosting
@@ -79,6 +76,6 @@ A host that stores markdown recovers by running `reattach` over every stored sel
 
 ## Links
 
-- Per-field rule and constants: the `anchor` module of `quillmark-content` (`Content::anchor_sites`, `anchor_collisions`, `anchor_contexts`, `locate_site`, `Content::reattach`).
-- Document walk and the path writer: `Document::anchor_contexts`, `anchor_context`, `reattach`, `anchor_collisions`.
-- Receipts: `Revised.dropped_anchors` and `DocumentRevised.dropped_anchors`.
+- Per-field rule and constants: the `lines::anchor` module of `quillmark-content` (`Content::anchor_sites`, `anchor_contexts`, `locate_site`, `Content::reattach`).
+- Document walk and the path writer: `Document::anchor_contexts`, `anchor_context`, `reattach`.
+- Receipts: `Receipt.dropped_anchors`, `Revised.dropped_anchors` and `DocumentRevised.dropped_anchors`.

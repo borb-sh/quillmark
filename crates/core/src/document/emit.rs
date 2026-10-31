@@ -14,8 +14,8 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 
-use quillmark_content::export::to_markdown_annotated;
-use quillmark_content::model::Normalized;
+use quillmark_content::lines::export::to_markdown_annotated;
+use quillmark_content::lines::model::Normalized;
 use serde_json::Value as JsonValue;
 use serde_saphyr::SerializerOptions;
 
@@ -129,8 +129,8 @@ impl Document {
 fn emit_card(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Anchors>) {
     emit_block(out, card, at, anchors);
     let body = match anchors {
-        None => quillmark_content::export::to_markdown(card.body()),
-        Some(anchors) => annotated(card.body(), &at.body(), anchors),
+        None => quillmark_content::lines::export::to_markdown(card.body_lines()),
+        Some(anchors) => annotated(card.body_lines(), &at.body(), anchors),
     };
     append_body(out, &body);
 }
@@ -408,14 +408,14 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
 /// carrier.
 ///
 /// The guard requires the object, its retired spellings respelled
-/// ([`respell_retired`](quillmark_content::serial::respell_retired)), to
+/// ([`respell_retired`](quillmark_content::lines::serial::respell_retired)), to
 /// serialize back to a **byte-identical** canonical content, so a user object
 /// that merely resembles one stays structural. The comparison is on the
 /// serialized *strings*: under `serde_json/preserve_order`, `Value`'s
 /// `PartialEq` is order-independent, so a `Value` guard would also project a
 /// content-canonical object whose keys are in non-canonical order.
 pub(super) fn project_content_field(value: &JsonValue) -> Option<String> {
-    canonical_content(value).map(|rt| quillmark_content::export::to_markdown(&rt))
+    canonical_content(value).map(|rt| quillmark_content::lines::export::to_markdown(&rt))
 }
 
 /// The content `value` is, when [`project_content_field`] projects it.
@@ -423,15 +423,17 @@ pub(super) fn canonical_content(value: &JsonValue) -> Option<Normalized> {
     if !value.is_object() {
         return None;
     }
-    let rt = quillmark_content::serial::from_canonical_value(value).ok()?;
-    let as_written =
-        serde_json::to_string(&quillmark_content::serial::respell_retired(value)).ok()?;
-    let canonical =
-        serde_json::to_string(&quillmark_content::serial::to_canonical_value(&rt)).ok()?;
-    if as_written != canonical {
-        return None;
+    if quillmark_content::wire::is_v1(value) {
+        let rt = quillmark_content::lines::serial::from_canonical_value(value).ok()?;
+        let as_written =
+            serde_json::to_string(&quillmark_content::lines::serial::respell_retired(value)).ok()?;
+        let canonical =
+            serde_json::to_string(&quillmark_content::lines::serial::to_canonical_value(&rt)).ok()?;
+        return (as_written == canonical).then_some(rt);
     }
-    Some(rt)
+    let content = quillmark_content::model::Content::from_value(value).ok()?;
+    let as_written = serde_json::to_string(value).ok()?;
+    (as_written == content.to_json()).then(|| quillmark_content::migrate::to_lines(&content))
 }
 
 /// Ensure `out` ends with `\n\n` so the next fence has a blank line above it.

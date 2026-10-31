@@ -18,3 +18,4 @@ cc e8e7f7b4f04d8b3a756ab61531f0168e49bd8a3fc3d48c1fb1400691706e42a7 # shrinks to
 cc 7dfc4f569c2e8c9d9f4f8bdb3237d44d9b5815543b9a038b1774d77e55f2d0fa # shrinks to chars = ['a', 'a', 'a', 'a', ' ', '\n', ' ', 'a'], specs = [(18, 43, 0)]
 cc 7fb4532e35adfaa9bd669f71cac41f358a076029f302b81b2f8a3ce0d961c0da # shrinks to chars = ['a', ' ', '\n', 'a', 'a', 'a', 'a', 'a', 'a'], specs = [(31, 44, 0), (52, 5, 1)]
 cc 06f447ba0a901bcd1f8203e886541e33f54bf747a909f2a3fc5a078b2b78b733 # shrinks to chars = ['a', '\n', '\n', ' ', 'a', 'a', 'a'], specs = [(6, 4, 2), (30, 41, 0)]
+cc 56b7e1795e8fcf3b5bb2dc23ed2de3278c437f8e1d417383f5bd17e0c06cf01a # shrinks to md = "a\n: [^B]\n  : a\n\n[^a]: 0\n\n[^b]: `a`\n    - `0`"

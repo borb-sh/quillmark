@@ -13,6 +13,11 @@ from ._quillmark import (
     RenderResult,
     Severity,
     Writer,
+    compose,
+    diff,
+    invert,
+    map_pos,
+    repair,
 )
 
 __all__ = [
@@ -28,6 +33,11 @@ __all__ = [
     "RenderResult",
     "Severity",
     "Writer",
+    "compose",
+    "diff",
+    "invert",
+    "map_pos",
+    "repair",
 ]
 
 try:

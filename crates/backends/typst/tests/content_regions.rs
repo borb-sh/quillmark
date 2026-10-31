@@ -521,7 +521,7 @@ fn adversarial_codegen_inputs_still_compile() {
     //   - `strong[0,4)` partially overlapping `code[2,6)`, a content an editor
     //     can build but markdown import never produces;
     //   - `i64::MIN` cannot be a Typst int literal (its magnitude overflows).
-    use quillmark_content::model::{Content, Line, LineKind, Mark, MarkKind};
+    use quillmark_content::lines::model::{Content, Line, LineKind, Mark, MarkKind};
     // The plate's assert proves the int round-tripped.
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -543,7 +543,7 @@ fn adversarial_codegen_inputs_still_compile() {
             ),
             &serde_json::json!({
                 "prose": content("Please <u>sign here"),
-                "overlap": quillmark_content::serial::to_canonical_value(&overlap.into_normalized()),
+                "overlap": quillmark_content::lines::serial::to_canonical_value(&overlap.into_normalized()),
                 "n": i64::MIN,
             }),
             common::test_date(),
@@ -692,7 +692,7 @@ fn locate_past_a_trailing_hard_break_holds_the_preceding_run() {
     // Shift+enter at the end of a paragraph: the segment's last content
     // character is the hard break, which lowers to `#linebreak()` and closes no
     // run, so the caret past it has only a preceding run to hold.
-    use quillmark_content::model::{Content, Line, LineKind};
+    use quillmark_content::lines::model::{Content, Line, LineKind};
     let rt = Content::new(
         "Alpha beta\n".to_string(),
         vec![
@@ -702,7 +702,7 @@ fn locate_past_a_trailing_hard_break_holds_the_preceding_run() {
     )
     .into_normalized();
     assert_eq!(rt.validate(), Ok(()));
-    let session = body_session(quillmark_content::serial::to_canonical_value(&rt));
+    let session = body_session(quillmark_content::lines::serial::to_canonical_value(&rt));
 
     let first = session.locate("prose", 0).expect("first-glyph caret");
     let last = session.locate("prose", 10).expect("last-glyph caret");

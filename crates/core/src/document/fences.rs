@@ -12,7 +12,7 @@ use std::borrow::Cow;
 
 use crate::error::ParseError;
 use crate::error::{Diagnostic, Severity};
-use quillmark_content::normalize::fence_opener;
+use quillmark_content::lines::normalize::fence_opener;
 
 use super::assemble::MetadataBlock;
 

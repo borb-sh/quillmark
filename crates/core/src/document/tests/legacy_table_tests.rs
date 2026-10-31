@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::document::{Document, STORAGE_V0_129_0, peek_storage_version};
+use crate::document::{Document, STORAGE_V0_129_0, STORAGE_V0_135_0, peek_storage_version};
 
 use super::parse;
 
@@ -33,7 +33,8 @@ fn saved_by_0_130() -> Value {
     let doc =
         parse("~~~card-yaml\n$quill: q@1.0\n$kind: main\nsummary: x\n~~~\n\n| h |\n|---|\n| c |\n");
     let mut row = serde_json::to_value(&doc).expect("the document serializes");
-    let mut body = row["main"]["body"].take();
+    row["schema"] = json!(STORAGE_V0_129_0);
+    let mut body = quillmark_content::lines::serial::to_canonical_value(doc.main().body_lines());
     body["islands"][0]["props"]["headless"] = json!(true);
     let body = sorted(body);
     *summary(&mut row) = body.clone();
@@ -63,23 +64,19 @@ fn a_fields_headless_table_from_0_130_reads_as_content() {
     assert_eq!(table_props(field)["head"], json!(0));
 }
 
-/// A 0.131 save of a 0.130 `headless: true` table keeps that key beside
-/// `head: 0`, so a 0.130 reader still draws no header row, and stays under
-/// the tag 0.130 reads; the rewrite happens once.
+/// A 0.130 `headless: true` table resaves under the newest tag as `head: 0`,
+/// and the resave is a fixed point.
 #[test]
-fn a_headless_table_resaves_readable_by_0_130() {
+fn a_headless_table_resaves_as_head_0() {
     let doc: Document = serde_json::from_value(saved_by_0_130()).expect("the row loads");
     let saved = serde_json::to_string(&doc).expect("the document serializes");
     assert_eq!(
         peek_storage_version(&saved).as_deref(),
-        Some(STORAGE_V0_129_0)
+        Some(STORAGE_V0_135_0)
     );
     let row: Value = serde_json::from_str(&saved).unwrap();
     let props = table_props(&row["main"]["body"]);
-    assert_eq!(
-        (&props["head"], &props["headless"]),
-        (&json!(0), &json!(true))
-    );
+    assert_eq!((&props["head"], &props["headless"]), (&json!(0), &Value::Null));
 
     let again: Document = serde_json::from_str(&saved).expect("the resave loads");
     assert_eq!(serde_json::to_string(&again).unwrap(), saved);

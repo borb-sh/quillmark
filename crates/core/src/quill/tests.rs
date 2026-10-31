@@ -1507,7 +1507,7 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
     // verbatim: the asterisks are text, not emphasis.
     let literal = &plate["literal"][0];
     assert_eq!(literal["text"].as_str(), Some("A *literal* line"));
-    assert_eq!(literal["marks"], serde_json::json!([]));
+    assert!(literal.get("marks").is_none(), "{literal}");
 }
 
 /// The sibling position: a `default:` reached *through* an absent container. A
@@ -1645,9 +1645,9 @@ fn single_line_coercion_takes_one_block_and_folds_or_refuses_more() {
     let folded = |value: &str| {
         let coerced =
             coerce("    f:\n      type: text\n", serde_json::json!(value)).expect("folds");
-        let content = quillmark_content::serial::from_canonical_value(&coerced).expect("content");
+        let content = crate::document::lines_of(&coerced).expect("content");
         assert!(content.is_inline(), "{value:?}");
-        quillmark_content::export::to_plaintext(&content)
+        quillmark_content::lines::export::to_plaintext(&content)
     };
     assert_eq!(folded("one\n\ntwo"), "one  two");
     assert_eq!(folded("\none \ntwo\n"), " one  two");
@@ -1680,10 +1680,10 @@ fn text_field_caches_literal_content() {
         .default_content
         .as_ref()
         .expect("default_content cached");
-    let rt = quillmark_content::serial::from_canonical_value(content.as_json()).unwrap();
+    let rt = crate::document::lines_of(content.as_json()).unwrap();
     assert!(rt.is_plain(), "cached text content is plain");
     assert_eq!(
-        quillmark_content::export::to_plaintext(&rt),
+        quillmark_content::lines::export::to_plaintext(&rt),
         "a *literal* subject",
         "the asterisks are literal, not emphasis"
     );
@@ -1695,14 +1695,14 @@ fn text_field_caches_literal_content() {
 fn text_coercion_imports_verbatim_and_refuses_marks() {
     const FIELD: &str = "    f:\n      type: text\n      multiline: true\n";
     let value = coerce(FIELD, serde_json::json!("*not bold* text")).expect("text coerces");
-    let rt = quillmark_content::serial::from_canonical_value(&value).unwrap();
+    let rt = crate::document::lines_of(&value).unwrap();
     assert!(rt.marks.is_empty(), "no marks: delimiters stayed literal");
     assert_eq!(
-        quillmark_content::export::to_plaintext(&rt),
+        quillmark_content::lines::export::to_plaintext(&rt),
         "*not bold* text"
     );
 
-    let marked = quillmark_content::import::from_markdown("a **bold** word")
+    let marked = quillmark_content::lines::import::from_markdown("a **bold** word")
         .unwrap()
         .content
         .into_content()
@@ -1710,7 +1710,7 @@ fn text_coercion_imports_verbatim_and_refuses_marks() {
     assert_eq!(
         coerce(
             FIELD,
-            quillmark_content::serial::to_canonical_value(&marked)
+            quillmark_content::lines::serial::to_canonical_value(&marked)
         ),
         Err(("f".to_string(), "text".to_string()))
     );

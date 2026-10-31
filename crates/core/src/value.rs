@@ -32,7 +32,7 @@ pub enum PathSegment {
 /// (emit, plate-JSON serialization, DTO conversion) are bounded by
 /// construction. The Python binding's `py_to_json_at` charges levels the same
 /// way.
-pub use quillmark_content::model::json_depth_exceeds;
+pub use quillmark_content::lines::model::json_depth_exceeds;
 
 /// Depth-bound an owned `$ext` / `$seed` map against
 /// [`MAX_JSON_DEPTH`](quillmark_content::MAX_JSON_DEPTH), returning it

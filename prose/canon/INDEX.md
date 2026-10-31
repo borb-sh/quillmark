@@ -9,6 +9,7 @@
 
 - **[../references/markdown-spec.md](../references/markdown-spec.md)** - Quillmark Markdown specification (superset of CommonMark)
 - **[../references/quill-bundle.md](../references/quill-bundle.md)** - The `.quill` bundle: one quill's file tree as one ZIP archive
+- **[CONTENT.md](CONTENT.md)** - The content model: one rich-text value per field, the `Change` that edits it, its laws, and merge repair
 - **[DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)** - Versioned JSON serialization of `Document` for database persistence
 - **[COMMENTS.md](COMMENTS.md)** - Comment anchors: the thread outside the document, the selector, and the exact re-attachment rule
 - **[PARITY.md](PARITY.md)** - What each surface does with each content construct, the invariants they keep, and the corpus that pins them

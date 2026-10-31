@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+Upgrade path for Content v2: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
+Every content value is the content model, and offsets in content values and
+changes cross WASM in UTF-16 code units, where they counted scalar values.
+
+### Content v2
+
+- feat(content)!: **the content model.** One value per body or `richtext`
+  field: flat text, blocks and containers with ids, marks, anchors apart from
+  marks, and islands whose cells and notes are slots of nested content.
+  Nothing derived is stored: an item's number is computed, and runs are told
+  apart by container id. The line form moves under `quillmark_content::lines`
+  and stays what the renderers and markdown codecs read; `migrate` moves
+  values between the two, minting ids deterministically.
+- feat(content): **`Change`, the one way a value is edited.** Splice,
+  `setBlock`, `container`, `mark`, `anchor`, `island` and `nested` steps,
+  with `invert`, `compose`, `map_pos` and a word-aligned `diff`, each a
+  property-tested law. A change yields a valid value or fails and changes
+  nothing.
+- feat(content): **`repair` makes a merged state valid.** A missing
+  container leaves a path, a container under two paths takes its first
+  block's, a later run gets a derived container, an orphan slot or record
+  goes, text beside a table splits off, and a collapsed range anchor is
+  dropped. Total and deterministic.
+- feat(core)!: **storage moves to `quillmark/document@0.135.0`**, each body
+  and richtext field the content model. An older row loads migrated, with the
+  same ids on every load. `parse::anchor_id_collision` is retired.
+- feat(core)!: **`Card::apply`, `revise` and `replace`** write a body or
+  richtext field and answer a `Receipt`: the applied change, the new hash,
+  and the dropped and moved anchors. Each takes the hash its writer read and
+  refuses a stale one with `edit::stale_base`. `Document::apply_all` is all
+  or nothing.
+- feat(wasm)!: **`doc.read`, `apply`, `applyAll`, `revise`, `replace`,
+  `annotated` and `hash(addr)`, and `invert`, `compose`, `mapPos`, `diff` and
+  `repair`**, offsets in UTF-16 code units. Every content payload crossing
+  the binding is the model. `overwrite`, `reviseContent` and `applyChange`
+  stay one release as names for `replace` and `apply`; `mapMarks` is removed.
+- feat(python)!: **the same surface in snake case**, offsets in code points.
+
 Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Python's
 `revise_body`, `revise_field` and `revise_document` return a dict receipt,
 where they returned a list of `Diagnostic`, so a loop over the result runs

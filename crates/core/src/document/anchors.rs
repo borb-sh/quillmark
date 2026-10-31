@@ -5,32 +5,13 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
-use quillmark_content::anchor::{AnchorContext, Reattached, anchor_context, anchor_contexts};
-use quillmark_content::delta::Delta;
-use quillmark_content::model::Normalized;
-use quillmark_content::serial::{from_canonical_value, to_canonical_value};
+use quillmark_content::lines::anchor::{AnchorContext, Reattached, anchor_context, anchor_contexts};
+use quillmark_content::lines::delta::Delta;
+use quillmark_content::lines::model::Normalized;
 use serde_json::Value as JsonValue;
 
 use super::{Card, Document};
-use crate::error::{Diagnostic, Severity, diag_args};
 use crate::path::{DocPath, DocSeg};
-
-pub const ANCHOR_ID_COLLISION: &str = "parse::anchor_id_collision";
-
-fn anchor_collision(id: &str, at: &DocPath) -> Diagnostic {
-    Diagnostic::new(
-        Severity::Warning,
-        format!("anchor id `{id}` is held more than once in one value, a table cell or footnote taking part"),
-    )
-    .with_code(ANCHOR_ID_COLLISION.to_string())
-    .with_hint(
-        "An anchor id is unique per value. Remove the anchor from all but one place, or give the others new ids; \
-         until then a removal by id removes every copy."
-            .to_string(),
-    )
-    .with_path(at.to_string())
-    .with_args(diag_args! { "id" => id })
-}
 
 /// A prose anchor's context at its address: the selector a host stores beside
 /// a comment thread, flat as [`DocumentAnchor`](super::DocumentAnchor) is.
@@ -47,10 +28,10 @@ pub struct AnchorSelector {
     /// The anchored text as stored, island slots and line breaks included;
     /// empty for a point.
     pub quote: String,
-    /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::anchor::ANCHOR_CONTEXT_USV)
+    /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_USV)
     /// scalar values before the anchor, cut at the value's start.
     pub prefix: String,
-    /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::anchor::ANCHOR_CONTEXT_USV)
+    /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_USV)
     /// scalar values after the anchor, cut at the value's end.
     pub suffix: String,
 }
@@ -126,7 +107,7 @@ impl Document {
 
     /// Re-add dropped anchors, each at the path its selector names, where the
     /// quote is found under the exact rule of
-    /// [`locate_site`](quillmark_content::anchor::locate_site): in the value's
+    /// [`locate_site`](quillmark_content::lines::anchor::locate_site): in the value's
     /// prose or one of its cells. Answers each selector in
     /// the order given, reattached with its selector as read after the write,
     /// or orphaned as given. Each value a selector names is read and written
@@ -246,7 +227,7 @@ impl Document {
     /// Run `f` on the body or content value `path` names, writing the value
     /// back where `f` changed it, or `None` where `path` names neither. A field
     /// value counts where it is an object
-    /// [`from_canonical_value`] accepts, the test the revise's drop report
+    /// [`Content::from_value`](quillmark_content::model::Content::from_value) accepts, the test the revise's drop report
     /// applies, and lands back in canonical form in place, so the comments
     /// around it stay.
     pub(crate) fn edit_content_at<R>(
@@ -266,7 +247,14 @@ impl Document {
             _ => return None,
         };
         match rest {
-            [DocSeg::Body] => Some(f(card.body_mut())),
+            [DocSeg::Body] => {
+                let mut lines = card.body_lines().clone();
+                let out = f(&mut lines);
+                if &lines != card.body_lines() {
+                    card.set_body_lines(lines);
+                }
+                Some(out)
+            }
             [DocSeg::Field { name }, tail @ ..] => {
                 let (_, value) = card
                     .payload_mut()
@@ -283,7 +271,7 @@ impl Document {
                 let before = content.clone();
                 let out = f(&mut content);
                 if content != before {
-                    *leaf = to_canonical_value(&content);
+                    *leaf = super::stored_over(Some(leaf), &content);
                 }
                 Some(out)
             }
@@ -293,25 +281,6 @@ impl Document {
 
     /// `visit` each body and content value with its path, in the order
     /// [`anchor_contexts`](Self::anchor_contexts) lists them.
-    /// One `parse::anchor_id_collision` warning per anchor id a body or
-    /// content value holds more than once, a table cell or footnote note
-    /// taking part, at the value's path: the collision a stored value loads
-    /// with, which [`reattach`](Self::reattach) and the ops cannot tell apart.
-    /// Fields in order, then the body, card by card; each value's ids sorted.
-    pub fn anchor_collisions(&self) -> Vec<Diagnostic> {
-        let mut out = Vec::new();
-        self.each_content(&mut |path, content| {
-            out.extend(
-                content
-                    .anchor_collisions()
-                    .into_iter()
-                    .map(|id| anchor_collision(&id, path)),
-            );
-            ControlFlow::Continue(())
-        });
-        out
-    }
-
     fn each_content(&self, visit: &mut Visit<'_>) {
         let roots = std::iter::once((DocPath::main(), &self.main)).chain(
             self.cards
@@ -333,7 +302,7 @@ fn each_in_card(card: &Card, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow
     for (name, value) in card.payload().iter() {
         each_in_value(value.as_json(), &at.field(name), visit)?;
     }
-    visit(&at.body(), card.body())
+    visit(&at.body(), card.body_lines())
 }
 
 fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow<()> {
@@ -359,6 +328,6 @@ fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> Cont
 fn content_of(value: &JsonValue) -> Option<Normalized> {
     value
         .is_object()
-        .then(|| from_canonical_value(value).ok())
+        .then(|| super::lines_of(value).ok())
         .flatten()
 }

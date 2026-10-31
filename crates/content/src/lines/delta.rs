@@ -1,0 +1,1525 @@
+//! The per-field edit surface: a [`Delta`] of text splices over the USV content,
+//! plus the **stale-text writer** path, cold-parse a full new markdown document,
+//! char-diff it against the base, and rebase the base's non-formatting marks
+//! (anchors/comments) through the diff so annotations survive an LLM
+//! full-document rewrite with no preservation contract on the LLM.
+//!
+//! ## Text splices, not attributed ops
+//!
+//! [`Delta`] is `retain` / `insert` / `delete` over the character sequence:
+//! CodeMirror `ChangeSet` / OT text semantics, **not** Quill-Delta. It carries
+//! no formatting attributes: marks and islands are separate `(range, kind)` data
+//! that *rebase through* a delta ([`Delta::map_pos`]). An attribute map is a
+//! per-character property map and cannot represent overlapping same-kind marks
+//! or two distinct identity anchors over one range, the algebra the content
+//! model keeps.
+//!
+//! [`diff`] computes a Myers/LCS minimal edit script and pairs it with a
+//! **move detector** that re-homes an anchor across a verbatim block move.
+//! Position mapping follows CodeMirror's `ChangeDesc.mapPos` semantics.
+//! Anchoring a captured position across edits is the editor's job; the content
+//! carries no session-side change log.
+//!
+//! ## The move weak spot
+//!
+//! A paragraph reorder is delete-here + insert-there to any char differ, so a
+//! naive rebase collapses an anchor in the moved text to the deletion point. The
+//! detector re-homes an anchor onto a **single, verbatim block move** by
+//! locating the moved text in the new content. Text both *moved and rewritten*
+//! in one round loses the match, and the anchor with it: the accepted
+//! residual.
+
+use crate::lines::import::{Against, ImportWarning, Pin};
+use crate::lines::model::{Island, Mark, MarkKind, Content, Normalized};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use similar::{capture_diff_slices, Algorithm, ChangeTag, DiffOp, TextDiff};
+
+/// A per-field edit against a base content. Ops apply left-to-right, consuming
+/// base positions; `Retain`/`Delete` advance the base cursor, `Insert` adds new
+/// text. USV throughout.
+///
+/// Serializes as `{ "ops": [ {"retain": n} | {"insert": s} | {"delete": n} ] }`:
+/// the wire `rebase` and the `applyChange` bundle carry across the
+/// language bindings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Delta {
+    pub ops: Vec<Op>,
+}
+
+/// One delta operation. Serializes externally-tagged with a lowercase key
+/// (`{"retain": 5}`, `{"insert": "x"}`, `{"delete": 2}`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Op {
+    /// Keep `n` chars of the base unchanged.
+    Retain(usize),
+    /// Insert this text at the cursor.
+    Insert(String),
+    /// Drop `n` chars of the base.
+    Delete(usize),
+}
+
+/// Which side of a same-position insertion a mapped point lands on. Serializes
+/// as `"before"` / `"after"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Assoc {
+    /// Stay before inserted text.
+    Before,
+    /// Move after inserted text.
+    After,
+}
+
+/// A delta's expected base length disagreed with the text it was applied to:
+/// the delta was built against a different revision of the base.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BaseLengthMismatch {
+    pub expected: usize,
+    pub actual: usize,
+}
+
+impl Delta {
+    /// Chars of base the `Retain`/`Delete` ops together consume: the base
+    /// length this delta was built against. Saturating, so a wire delta whose
+    /// counts exceed `usize` reports a length no base has and
+    /// [`try_apply`](Self::try_apply) rejects it as a mismatch.
+    pub fn expected_base_len(&self) -> usize {
+        self.ops.iter().fold(0usize, |acc, op| match op {
+            Op::Retain(n) | Op::Delete(n) => acc.saturating_add(*n),
+            Op::Insert(_) => acc,
+        })
+    }
+
+    /// Apply to `base`, producing the new text, or [`BaseLengthMismatch`] when
+    /// the ops consume *more* base than `base` has: a delta built against a
+    /// longer revision. Base beyond what the ops consume is retained
+    /// implicitly, matching [`map_pos`](Self::map_pos), so a producer naming
+    /// only the region it changes need not pad a trailing [`Op::Retain`].
+    ///
+    /// Cost of the leniency: a short delta carries no full-base-length check, so
+    /// one replayed against a wrong but *longer* base applies silently.
+    pub fn try_apply(&self, base: &str) -> Result<String, BaseLengthMismatch> {
+        let expected = self.expected_base_len();
+        let actual = base.chars().count();
+        if expected > actual {
+            return Err(BaseLengthMismatch { expected, actual });
+        }
+        let chars: Vec<char> = base.chars().collect();
+        let mut out = String::new();
+        let mut i = 0usize;
+        for op in &self.ops {
+            match op {
+                Op::Retain(n) => {
+                    out.extend(&chars[i..i + n]);
+                    i += n;
+                }
+                Op::Delete(n) => i += n,
+                Op::Insert(s) => out.push_str(s),
+            }
+        }
+        out.extend(&chars[i..]);
+        Ok(out)
+    }
+
+    /// Map a base char position to its new position. `assoc` decides the side of
+    /// a same-position insertion (`After` moves past it).
+    ///
+    /// The base cursor saturates, as [`expected_base_len`](Self::expected_base_len)
+    /// does: this is the one door a wire delta reaches without `try_apply`
+    /// having bounded it, and an op run summing past `usize` describes a base
+    /// longer than any content, so a position lands inside it as it would in a
+    /// bounded one.
+    pub fn map_pos(&self, pos: usize, assoc: Assoc) -> usize {
+        let mut old = 0usize;
+        let mut new = 0usize;
+        for op in &self.ops {
+            match op {
+                Op::Retain(n) => {
+                    // Strictly inside the retain resolves here; the right
+                    // boundary (pos == old + n) falls through, so a following
+                    // Insert can apply its `assoc`.
+                    if pos < old.saturating_add(*n) {
+                        return new.saturating_add(pos - old);
+                    }
+                    old = old.saturating_add(*n);
+                    new = new.saturating_add(*n);
+                }
+                Op::Delete(n) => {
+                    if pos < old.saturating_add(*n) {
+                        // Inside (or at the start of) the deletion: collapse to
+                        // the deletion point.
+                        return new;
+                    }
+                    old = old.saturating_add(*n);
+                }
+                Op::Insert(s) => {
+                    let len = s.chars().count();
+                    if pos == old {
+                        match assoc {
+                            Assoc::Before => return new,
+                            Assoc::After => new = new.saturating_add(len), // fall through past insert
+                        }
+                    } else {
+                        new = new.saturating_add(len);
+                    }
+                }
+            }
+        }
+        new.saturating_add(pos.saturating_sub(old))
+    }
+
+    /// Whether base position `pos` sits strictly inside a deleted span. The
+    /// deletion's left edge (`pos == old`) survives (a point anchor there stays
+    /// put) so only `old < pos < old + n` counts as deleted.
+    fn is_deleted(&self, pos: usize) -> bool {
+        let mut old = 0usize;
+        for op in &self.ops {
+            match op {
+                Op::Retain(n) => old = old.saturating_add(*n),
+                Op::Delete(n) => {
+                    if pos > old && pos < old.saturating_add(*n) {
+                        return true;
+                    }
+                    old = old.saturating_add(*n);
+                }
+                Op::Insert(_) => {}
+            }
+        }
+        false
+    }
+
+    /// New-text char ranges covered by `Insert` ops: the only regions an anchor
+    /// may be re-homed into (moved text must have been *inserted*, not merely
+    /// present in surviving text elsewhere), and the hint
+    /// [`locate`](crate::lines::anchor::locate) takes for the same discipline.
+    pub fn inserted_spans(&self) -> Vec<(usize, usize)> {
+        let mut spans = Vec::new();
+        let mut new = 0usize;
+        for op in &self.ops {
+            match op {
+                Op::Retain(n) => new = new.saturating_add(*n),
+                Op::Insert(s) => {
+                    let len = s.chars().count();
+                    if len > 0 {
+                        spans.push((new, new.saturating_add(len)));
+                    }
+                    new = new.saturating_add(len);
+                }
+                Op::Delete(_) => {}
+            }
+        }
+        spans
+    }
+}
+
+/// A relocation match shorter than this many chars is too weak to trust: the
+/// verbatim-move detector's length floor.
+pub(crate) const MIN_MOVE: usize = 4;
+
+/// Above this many USV chars, a char diff skips `similar`'s
+/// char-level Myers diff and falls back to [`coarse_replace`].
+/// `TextDiff::from_chars` is O(N·D) with no deadline; on two long, unrelated
+/// single-line strings D grows with N, so cost is effectively quadratic (two
+/// unrelated 30,000-char lines measured 86s in a debug build). This threshold
+/// keeps 6x headroom under that while still covering a real single-paragraph
+/// field. A fixed char budget rather than `TextDiffConfig::timeout`, so the
+/// cutoff is deterministic in CI.
+const CHAR_DIFF_LIMIT: usize = 5_000;
+
+/// Char-level Myers/LCS diff over USV: a minimal `Retain` / `Delete` / `Insert`
+/// script. Disjoint edits stay separate ops rather than collapsing the span
+/// between them into one delete+insert, so anchors sitting in unchanged middle
+/// text survive rebase without relying on the move detector.
+///
+/// Single-line text diffs at char granularity; multi-line text diffs at line
+/// granularity so a paragraph reorder surfaces as whole-line insert spans the
+/// move detector can match (char Myers fragments reordered blocks). Within a
+/// run of replaced lines, a line paired with a rewrite of itself
+/// diffs by char, so an edit to one word of a paragraph
+/// leaves the rest of it retained. Above `CHAR_DIFF_LIMIT` chars, a char
+/// diff skips Myers entirely and uses `coarse_replace` instead.
+pub fn diff(base: &str, new: &str) -> Delta {
+    diff_at(base, new, Grain::Char)
+}
+
+/// [`diff`] with a rewritten line, or a text of one line, diffed by word
+/// rather than by char: a word either side keeps whole or changes whole, so a
+/// range over a rewritten word does not ride its scattered letters.
+pub fn diff_words(base: &str, new: &str) -> Delta {
+    diff_at(base, new, Grain::Word)
+}
+
+#[derive(Clone, Copy)]
+enum Grain {
+    Char,
+    Word,
+}
+
+fn diff_at(base: &str, new: &str, grain: Grain) -> Delta {
+    let mut ops = Vec::new();
+    if base.contains('\n') || new.contains('\n') {
+        let old_lines: Vec<&str> = base.split_inclusive('\n').collect();
+        let new_lines: Vec<&str> = new.split_inclusive('\n').collect();
+        let old_set: HashSet<&str> = old_lines.iter().map(|l| line_text(l)).collect();
+        let new_set: HashSet<&str> = new_lines.iter().map(|l| line_text(l)).collect();
+        for op in capture_diff_slices(Algorithm::Myers, &old_lines, &new_lines) {
+            let (old, new) = (op.old_range(), op.new_range());
+            match op {
+                DiffOp::Equal { .. } => {
+                    push_retain(&mut ops, old_lines[old].iter().map(|l| l.chars().count()).sum())
+                }
+                _ => refine_replace(&mut ops, &old_lines[old], &new_lines[new], &old_set, &new_set, grain),
+            }
+        }
+    } else {
+        push_grain_diff(&mut ops, base, new, grain);
+    }
+    Delta { ops }
+}
+
+/// Emit one run of replaced lines. Lines pair from the front, then from the
+/// back, while each pair is a rewrite: neither is longer than
+/// [`CHAR_DIFF_LIMIT`] chars, the two clear [`MIN_WORD_SIMILARITY`], and
+/// neither occurs whole on the other side, as a moved line does. A paired line
+/// diffs by char, and the unpaired middle is deleted and inserted whole.
+fn refine_replace(
+    ops: &mut Vec<Op>,
+    old: &[&str],
+    new: &[&str],
+    old_set: &HashSet<&str>,
+    new_set: &HashSet<&str>,
+    grain: Grain,
+) {
+    let rewrite = |o: &str, n: &str| {
+        o.chars().count() <= CHAR_DIFF_LIMIT
+            && n.chars().count() <= CHAR_DIFF_LIMIT
+            && !new_set.contains(line_text(o))
+            && !old_set.contains(line_text(n))
+            && word_similarity(&words(o), &words(n)) >= MIN_WORD_SIMILARITY
+    };
+    let mut head = 0;
+    while head < old.len().min(new.len()) && rewrite(old[head], new[head]) {
+        head += 1;
+    }
+    let mut tail = 0;
+    while tail < (old.len() - head).min(new.len() - head)
+        && rewrite(old[old.len() - 1 - tail], new[new.len() - 1 - tail])
+    {
+        tail += 1;
+    }
+    for k in 0..head {
+        push_grain_diff(ops, old[k], new[k], grain);
+    }
+    for line in &old[head..old.len() - tail] {
+        push_delete(ops, line.chars().count());
+    }
+    for line in &new[head..new.len() - tail] {
+        push_insert(ops, line);
+    }
+    for k in 0..tail {
+        push_grain_diff(ops, old[old.len() - tail + k], new[new.len() - tail + k], grain);
+    }
+}
+
+fn line_text(line: &str) -> &str {
+    line.strip_suffix('\n').unwrap_or(line)
+}
+
+fn words(text: &str) -> Vec<&str> {
+    text.split_whitespace().collect()
+}
+
+/// Below this [`word_similarity`], two texts are not a rewrite of one another
+/// but different text.
+pub const MIN_WORD_SIMILARITY: f32 = 0.5;
+
+/// The share of `a`'s and `b`'s words the two hold in common, in order: twice
+/// the common words over both lengths, 1 for two empty texts. A word diff,
+/// quadratic in the words at worst.
+pub fn word_similarity(a: &[&str], b: &[&str]) -> f32 {
+    if a.is_empty() && b.is_empty() {
+        return 1.0;
+    }
+    let common: usize = capture_diff_slices(Algorithm::Myers, a, b)
+        .iter()
+        .map(|op| match op {
+            DiffOp::Equal { len, .. } => *len,
+            _ => 0,
+        })
+        .sum();
+    (2 * common) as f32 / (a.len() + b.len()) as f32
+}
+
+fn push_grain_diff(ops: &mut Vec<Op>, base: &str, new: &str, grain: Grain) {
+    if base.chars().count() > CHAR_DIFF_LIMIT || new.chars().count() > CHAR_DIFF_LIMIT {
+        return coarse_replace(ops, base, new);
+    }
+    let diff = match grain {
+        Grain::Char => TextDiff::from_chars(base, new),
+        Grain::Word => TextDiff::from_words(base, new),
+    };
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Equal => push_retain(ops, change.value().chars().count()),
+            ChangeTag::Delete => push_delete(ops, change.value().chars().count()),
+            ChangeTag::Insert => push_insert(ops, change.value()),
+        }
+    }
+}
+
+/// Linear-time fallback for a char diff above [`CHAR_DIFF_LIMIT`]: trims the
+/// longest common prefix and suffix and replaces only the middle. Not minimal,
+/// but an anchor in the untouched prefix or suffix still maps through a real
+/// `Retain`; only one inside the replaced middle depends on the move detector.
+fn coarse_replace(ops: &mut Vec<Op>, base: &str, new: &str) {
+    let base_chars: Vec<char> = base.chars().collect();
+    let new_chars: Vec<char> = new.chars().collect();
+    let max_common = base_chars.len().min(new_chars.len());
+
+    let mut prefix = 0;
+    while prefix < max_common && base_chars[prefix] == new_chars[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < max_common - prefix
+        && base_chars[base_chars.len() - 1 - suffix] == new_chars[new_chars.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+
+    push_retain(ops, prefix);
+    push_delete(ops, base_chars.len() - prefix - suffix);
+    let inserted: String = new_chars[prefix..new_chars.len() - suffix].iter().collect();
+    push_insert(ops, &inserted);
+    push_retain(ops, suffix);
+}
+
+/// `ops` from a base to `new`, each text ending in a newline the caller
+/// appended, as the ops between the texts without it: the appended newlines
+/// drop, and a char either kept against one is inserted or deleted.
+pub(crate) fn without_sentinel(ops: Vec<Op>, new: &str) -> Vec<Op> {
+    enum Ev {
+        Keep,
+        Del,
+        Ins(char),
+    }
+    let new: Vec<char> = new.chars().collect();
+    let old_len: usize = ops
+        .iter()
+        .map(|op| match op {
+            Op::Retain(n) | Op::Delete(n) => *n,
+            Op::Insert(_) => 0,
+        })
+        .sum();
+    let (mut i, mut j) = (0usize, 0usize);
+    let mut evs = Vec::new();
+    for op in ops {
+        match op {
+            Op::Retain(n) => {
+                for _ in 0..n {
+                    let ev = match (i + 1 == old_len, j + 1 == new.len()) {
+                        (true, true) => None,
+                        (true, false) => Some(Ev::Ins(new[j])),
+                        (false, true) => Some(Ev::Del),
+                        (false, false) => Some(Ev::Keep),
+                    };
+                    evs.extend(ev);
+                    i += 1;
+                    j += 1;
+                }
+            }
+            Op::Delete(n) => {
+                for _ in 0..n {
+                    if i + 1 != old_len {
+                        evs.push(Ev::Del);
+                    }
+                    i += 1;
+                }
+            }
+            Op::Insert(text) => {
+                for ch in text.chars() {
+                    if j + 1 != new.len() {
+                        evs.push(Ev::Ins(ch));
+                    }
+                    j += 1;
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for ev in evs {
+        match ev {
+            Ev::Keep => push_retain(&mut out, 1),
+            Ev::Del => push_delete(&mut out, 1),
+            Ev::Ins(ch) => push_insert(&mut out, ch.encode_utf8(&mut [0; 4])),
+        }
+    }
+    out
+}
+
+fn push_retain(ops: &mut Vec<Op>, n: usize) {
+    if n == 0 {
+        return;
+    }
+    if let Some(Op::Retain(last)) = ops.last_mut() {
+        *last += n;
+    } else {
+        ops.push(Op::Retain(n));
+    }
+}
+
+fn push_delete(ops: &mut Vec<Op>, n: usize) {
+    if n == 0 {
+        return;
+    }
+    if let Some(Op::Delete(last)) = ops.last_mut() {
+        *last += n;
+    } else {
+        ops.push(Op::Delete(n));
+    }
+}
+
+fn push_insert(ops: &mut Vec<Op>, s: &str) {
+    if s.is_empty() {
+        return;
+    }
+    if let Some(Op::Insert(last)) = ops.last_mut() {
+        last.push_str(s);
+    } else {
+        ops.push(Op::Insert(s.to_owned()));
+    }
+}
+
+/// The revise lane: import `new_markdown` as a revise of `base`
+/// ([`from_markdown_against`](crate::lines::import::from_markdown_against)), so its
+/// island tokens are `base`'s islands, char-diff it against `base`, and carry
+/// `base`'s non-formatting marks (anchors) forward, rebased through the diff
+/// (re-homing verbatim block moves) or placed where a tag pins them
+/// ([`rebase_pinned`]). The returned content is the fresh import's
+/// structure, marks and islands plus the surviving handles.
+///
+/// Returns the new content, the [`Delta`] used (the text change an editor
+/// bridge can map its own positions through), and the import's
+/// [`ImportWarning`]s.
+pub fn diff_import(
+    base: &Content,
+    new_markdown: &str,
+) -> Result<(Normalized, Delta, Vec<ImportWarning>), crate::lines::import::ImportError> {
+    let Against { content, warnings, pins } = crate::lines::import::from_markdown_against(new_markdown, base)?;
+    let (content, delta) = rebase_pinned(base, content, &pins);
+    Ok((content, delta, warnings))
+}
+
+/// [`rebase_onto`], then each anchor a pin names placed to start at the pin.
+/// One whose rebased start the pin already is keeps its range. Any other
+/// ends where the diff carries its stored end, when that lands from the pin to
+/// the end of the pin's line, and otherwise spans its stored length, cut at
+/// the line's end. A pin naming no prose anchor of `base` pins nothing.
+pub fn rebase_pinned(base: &Content, new: Normalized, pins: &[Pin]) -> (Normalized, Delta) {
+    let (rebased, delta) = rebase_onto(base, new);
+    if pins.is_empty() {
+        return (rebased, delta);
+    }
+    let mut next = rebased.into_content();
+    let chars: Vec<char> = next.text.chars().collect();
+    let anchor = |marks: &[Mark], id: &str| {
+        marks.iter().position(|m| matches!(&m.kind, MarkKind::Anchor { id: held } if held == id))
+    };
+    for pin in pins {
+        let Some(stored) = anchor(&base.marks, &pin.id).map(|k| &base.marks[k]) else {
+            continue;
+        };
+        let carried = anchor(&next.marks, &pin.id);
+        if carried.is_some_and(|k| next.marks[k].start == pin.at) {
+            continue;
+        }
+        let line_end = chars[pin.at..].iter().position(|&c| c == '\n').map_or(chars.len(), |n| pin.at + n);
+        let mapped = delta.map_pos(stored.end, Assoc::Before);
+        let end = if (pin.at..=line_end).contains(&mapped) {
+            mapped
+        } else {
+            pin.at + (stored.end - stored.start).min(line_end - pin.at)
+        };
+        if let Some(k) = carried {
+            next.marks.remove(k);
+        }
+        next.marks.push(Mark::new(pin.at, end, stored.kind.clone()));
+    }
+    (next.into_normalized(), delta)
+}
+
+/// [`rebase_marks`] with each pin placed as [`rebase_pinned`] places it.
+pub fn rebase_marks_pinned(base: &Content, new: Normalized, pins: &[Pin]) -> Normalized {
+    match pins.is_empty() {
+        true => rebase_marks(base, new),
+        false => rebase_pinned(base, new, pins).0,
+    }
+}
+
+/// [`diff_import`] over a content already imported: diff `new` against `base`
+/// and carry `base`'s surviving non-formatting marks onto it. `new` carries no
+/// anchor of its own, as an import's output does not.
+pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
+    let mut new_rt = new.into_content();
+    let delta = diff(&base.text, &new_rt.text);
+    carry_marks(base, &mut new_rt, &delta, |_| true);
+    carry_island_ids(&base.islands, &mut new_rt);
+    (new_rt.into_normalized(), delta)
+}
+
+/// Diff `next` against `base` and carry each prose anchor of `base` whose id
+/// `next` holds nowhere, in prose or a cell, onto it, rebased through the diff:
+/// [`rebase_onto`] for a content built elsewhere, such as a merge's projection.
+/// Everything `next` carries stays as it is, its own anchors, island ids and
+/// island props (cell anchors among them) included. An omitted anchor drops
+/// only where the diff deletes its text, so a splice or an overwrite is the
+/// door that removes one whose text stays.
+pub fn carry_anchors(base: &Content, next: Normalized) -> (Normalized, Delta) {
+    let mut next = next.into_content();
+    let delta = diff(&base.text, &next.text);
+    let cells: Vec<Mark> = next
+        .islands
+        .iter()
+        .flat_map(|i| i.island_type.cell_marks(&i.props))
+        .flat_map(|(_, marks)| marks)
+        .collect();
+    let held: HashSet<String> = next
+        .marks
+        .iter()
+        .chain(&cells)
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some(id.clone()),
+            _ => None,
+        })
+        .collect();
+    carry_marks(base, &mut next, &delta, |m| {
+        !matches!(&m.kind, MarkKind::Anchor { id } if held.contains(id))
+    });
+    (next.into_normalized(), delta)
+}
+
+/// [`rebase_onto`] without the delta, diffing only when `base` holds a mark
+/// to carry.
+pub fn rebase_marks(base: &Content, new: Normalized) -> Normalized {
+    if base.marks.iter().all(|m| m.kind.is_formatting()) {
+        let mut new_rt = new.into_content();
+        carry_island_ids(&base.islands, &mut new_rt);
+        return new_rt.into_normalized();
+    }
+    rebase_onto(base, new).0
+}
+
+fn carry_marks(base: &Content, new_rt: &mut Content, delta: &Delta, carry: impl Fn(&Mark) -> bool) {
+    let base_chars: Vec<char> = base.text.chars().collect();
+    let new_chars: Vec<char> = new_rt.text.chars().collect();
+    let inserted = delta.inserted_spans();
+    for m in &base.marks {
+        // `new_rt` already holds its own formatting marks.
+        if m.kind.is_formatting() || !carry(m) {
+            continue;
+        }
+        if let Some((ns, ne)) = rebase_mark(delta, &base_chars, &new_chars, &inserted, m) {
+            new_rt.marks.push(Mark {
+                start: ns,
+                end: ne,
+                kind: m.kind.clone(),
+            });
+        }
+        // else: detached: the accepted residual drop.
+    }
+}
+
+/// Give each island of `new` the id of the `base` island it continues, and
+/// every other island the next `isl-{n}` past the highest in `base`, so a
+/// revise rewrites no island's id and gives none a dropped island's. An
+/// island continues one equal to it, anchor marks aside, in the longest run of
+/// equal islands the two sequences share, or, in a stretch between two of
+/// those where both sides hold as many islands of the same types in order,
+/// the one at its place: an edited table.
+///
+/// An island that continues one also takes each anchor of the cell at the
+/// same place in it whose text is unchanged, unless `new` already holds the
+/// id, in its prose or a cell.
+fn carry_island_ids(base: &[Island], new: &mut Content) {
+    let key = |island: &Island| {
+        let mut props = island.props.clone();
+        crate::lines::export::drop_anchor_marks(&mut props);
+        (island.island_type.as_str(), props.to_string())
+    };
+    let old: Vec<_> = base.iter().map(key).collect();
+    let fresh: Vec<_> = new.islands.iter().map(key).collect();
+    let mut carried: Vec<Option<usize>> = vec![None; new.islands.len()];
+    for op in capture_diff_slices(Algorithm::Myers, &old, &fresh) {
+        let (from, to, len) = match op {
+            DiffOp::Equal { old_index, new_index, len } => (old_index, new_index, len),
+            DiffOp::Replace { old_index, old_len, new_index, new_len }
+                if old_len == new_len
+                    && (0..old_len).all(|k| old[old_index + k].0 == fresh[new_index + k].0) =>
+            {
+                (old_index, new_index, old_len)
+            }
+            _ => continue,
+        };
+        for k in 0..len {
+            carried[to + k] = Some(from + k);
+        }
+    }
+    carry_cell_anchors(base, new, &carried);
+    let taken: HashSet<&str> = base.iter().map(|i| i.id.as_str()).collect();
+    // `u128` counts past `isl-{u64::MAX}`; `taken` steps over an id past that,
+    // which the count does not parse.
+    let mut next = base
+        .iter()
+        .filter_map(|island| island.id.strip_prefix("isl-")?.parse::<u64>().ok())
+        .max()
+        .map_or(0, |n| u128::from(n) + 1);
+    for (island, from) in new.islands.iter_mut().zip(carried) {
+        island.id = from.map(|k| base[k].id.clone()).unwrap_or_else(|| {
+            while taken.contains(format!("isl-{next}").as_str()) {
+                next += 1;
+            }
+            let id = format!("isl-{next}");
+            next += 1;
+            id
+        });
+    }
+}
+
+fn carry_cell_anchors(base: &[Island], new: &mut Content, carried: &[Option<usize>]) {
+    let anchors = |marks: &[Mark]| -> Vec<Mark> {
+        marks.iter().filter(|m| matches!(m.kind, MarkKind::Anchor { .. })).cloned().collect()
+    };
+    let mut held: HashSet<String> = new.anchor_sites().into_iter().map(|site| site.id).collect();
+    for (island, from) in new.islands.iter_mut().zip(carried) {
+        let Some(from) = *from else { continue };
+        let stored = base[from].island_type.cell_marks(&base[from].props);
+        if stored.iter().all(|(_, marks)| anchors(marks).is_empty()) {
+            continue;
+        }
+        let cells = island.island_type.cell_values_mut(&mut island.props);
+        for (cell, (text, marks)) in cells.into_iter().zip(stored) {
+            let (now, mut now_marks) = crate::lines::serial::parse_cell(cell);
+            if now != text {
+                continue;
+            }
+            let fresh: Vec<Mark> = anchors(&marks)
+                .into_iter()
+                .filter(|m| matches!(&m.kind, MarkKind::Anchor { id } if held.insert(id.clone())))
+                .collect();
+            if fresh.is_empty() {
+                continue;
+            }
+            now_marks.extend(fresh);
+            crate::lines::serial::set_cell_marks(cell, &now_marks);
+        }
+    }
+}
+
+/// Rebase one non-formatting mark through the delta. Returns its new range, or
+/// `None` if it detaches (its text was deleted and no verbatim move re-homes
+/// it).
+fn rebase_mark(
+    delta: &Delta,
+    base_chars: &[char],
+    new_chars: &[char],
+    inserted: &[(usize, usize)],
+    m: &Mark,
+) -> Option<(usize, usize)> {
+    if m.start == m.end {
+        // Zero-width point mark.
+        if !delta.is_deleted(m.start) {
+            let p = delta.map_pos(m.start, Assoc::Before);
+            return Some((p, p));
+        }
+        // Its surrounding text was deleted: relocate only if that text was
+        // re-inserted verbatim elsewhere (a move).
+        return relocate_point(base_chars, new_chars, inserted, m.start);
+    }
+
+    let ns = delta.map_pos(m.start, Assoc::After);
+    let ne = delta.map_pos(m.end, Assoc::Before);
+    if ns < ne {
+        return Some((ns, ne)); // survived a surrounding edit
+    }
+    // Collapsed, try a verbatim block move: the annotated span must reappear
+    // inside inserted text (not merely somewhere in the surviving content).
+    relocate_span(base_chars, new_chars, inserted, m.start, m.end)
+}
+
+/// Find the annotated span `base[start..end]` inside an inserted region of the
+/// new text. Requires a length floor and containment in inserted text, so an
+/// unrelated surviving occurrence of the same words cannot capture the anchor.
+fn relocate_span(
+    base_chars: &[char],
+    new_chars: &[char],
+    inserted: &[(usize, usize)],
+    start: usize,
+    end: usize,
+) -> Option<(usize, usize)> {
+    if end > base_chars.len() {
+        return None;
+    }
+    let needle = &base_chars[start..end];
+    find_in_spans(new_chars, needle, inserted).map(|pos| (pos, pos + needle.len()))
+}
+
+/// Relocate a point anchor by its left context (text immediately before it),
+/// but only if that context reappears inside inserted text: the same
+/// move-only, length-floored discipline as [`relocate_span`].
+fn relocate_point(
+    base_chars: &[char],
+    new_chars: &[char],
+    inserted: &[(usize, usize)],
+    pos: usize,
+) -> Option<(usize, usize)> {
+    const K: usize = 24;
+    let l0 = pos.saturating_sub(K);
+    let left = &base_chars[l0..pos];
+    if let Some(p) = find_in_spans(new_chars, left, inserted) {
+        return Some((p + left.len(), p + left.len()));
+    }
+    let r1 = (pos + K).min(base_chars.len());
+    let right = &base_chars[pos..r1];
+    if let Some(p) = find_in_spans(new_chars, right, inserted) {
+        return Some((p, p));
+    }
+    None
+}
+
+/// First index where `needle` occurs in `hay` while *overlapping* an inserted
+/// span, so the match touches text the rewrite actually inserted. Overlap
+/// rather than containment, because a diff can split a moved block across an
+/// inserted region and the retained suffix; overlap still rejects an unrelated
+/// occurrence sitting entirely in retained text. Enforces [`MIN_MOVE`].
+/// O(hay × needle) naive scan.
+fn find_in_spans(hay: &[char], needle: &[char], spans: &[(usize, usize)]) -> Option<usize> {
+    if needle.len() < MIN_MOVE || needle.len() > hay.len() {
+        return None;
+    }
+    (0..=hay.len() - needle.len()).find(|&i| {
+        &hay[i..i + needle.len()] == needle
+            && spans.iter().any(|&(s, e)| i < e && i + needle.len() > s)
+    })
+}
+
+/// Three-way merge of `current` and `new`, two edits of `base`, by line: each
+/// side's changed runs of base lines apply together. `None` when a run of one
+/// side overlaps or touches a run of the other and the two do not make the same
+/// change, so edits to adjacent lines conflict, and two inserts at one place
+/// conflict.
+pub fn merge_lines(base: &str, current: &str, new: &str) -> Option<String> {
+    let base: Vec<&str> = base.split_inclusive('\n').collect();
+    let current: Vec<&str> = current.split_inclusive('\n').collect();
+    let new: Vec<&str> = new.split_inclusive('\n').collect();
+    let ours = line_hunks(&base, &current);
+    let theirs = line_hunks(&base, &new);
+    let (mut ours, mut theirs) = (ours.iter().peekable(), theirs.iter().peekable());
+    let mut out = String::new();
+    let mut at = 0;
+    loop {
+        let hunk = match (ours.peek(), theirs.peek()) {
+            (None, None) => break,
+            (Some(a), Some(b)) if a.0.start <= b.0.end && b.0.start <= a.0.end => {
+                if a != b {
+                    return None;
+                }
+                theirs.next();
+                ours.next().unwrap()
+            }
+            (Some(a), Some(b)) if b.0.start < a.0.start => theirs.next().unwrap(),
+            (Some(_), _) => ours.next().unwrap(),
+            (None, Some(_)) => theirs.next().unwrap(),
+        };
+        out.extend(base[at..hunk.0.start].iter().copied());
+        out.extend(hunk.1.iter().copied());
+        at = hunk.0.end;
+    }
+    out.extend(base[at..].iter().copied());
+    Some(out)
+}
+
+/// The runs of `base` lines `side` changes, each with the lines it puts in their
+/// place, adjacent runs coalesced so one change reads as one run however the
+/// diff spelled it.
+fn line_hunks<'a>(base: &[&'a str], side: &[&'a str]) -> Vec<(std::ops::Range<usize>, Vec<&'a str>)> {
+    let mut hunks: Vec<(std::ops::Range<usize>, Vec<&'a str>)> = Vec::new();
+    for op in capture_diff_slices(Algorithm::Myers, base, side) {
+        if let DiffOp::Equal { .. } = op {
+            continue;
+        }
+        let (old, new) = (op.old_range(), op.new_range());
+        match hunks.last_mut() {
+            Some((range, lines)) if range.end == old.start => {
+                range.end = old.end;
+                lines.extend(&side[new]);
+            }
+            _ => hunks.push((old, side[new].to_vec())),
+        }
+    }
+    hunks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lines::import::from_markdown;
+    use crate::lines::model::MarkKind;
+
+    #[test]
+    fn a_line_within_the_char_limit_pairs_by_its_word_diff_at_any_word_count() {
+        let middle = vec!["w"; 2_400].join(" ");
+        let base = format!("s {middle} e\nend");
+        let new = format!("t {middle} f\nend");
+        let retained: usize = diff(&base, &new)
+            .ops
+            .iter()
+            .map(|op| match op {
+                Op::Retain(n) => *n,
+                _ => 0,
+            })
+            .sum();
+        assert!(retained > middle.len(), "the shared middle is kept, not rewritten");
+    }
+
+    #[test]
+    fn map_pos_across_an_insertion() {
+        let d = diff("abcdef", "abcXYdef");
+        assert_eq!(d.try_apply("abcdef").unwrap(), "abcXYdef");
+        assert_eq!(d.map_pos(2, Assoc::After), 2);
+        assert_eq!(d.map_pos(4, Assoc::Before), 6);
+        assert_eq!(d.map_pos(3, Assoc::After), 5);
+        assert_eq!(d.map_pos(3, Assoc::Before), 3);
+    }
+
+    #[test]
+    fn try_apply_accepts_short_delta_with_implicit_trailing_retain() {
+        let short = Delta {
+            ops: vec![Op::Insert("NEW ".into())],
+        };
+        assert_eq!(short.expected_base_len(), 0);
+        assert_eq!(short.try_apply("hello").unwrap(), "NEW hello");
+
+        let partial = Delta {
+            ops: vec![Op::Retain(1), Op::Insert("X".into())],
+        };
+        assert_eq!(partial.try_apply("hello").unwrap(), "hXello");
+    }
+
+    #[test]
+    fn try_apply_rejects_over_long_delta() {
+        let over = Delta {
+            ops: vec![Op::Retain(9)],
+        };
+        assert_eq!(
+            over.try_apply("hello"),
+            Err(BaseLengthMismatch {
+                expected: 9,
+                actual: 5,
+            })
+        );
+
+        // Over-consumption via Delete fails the same way.
+        let over_del = Delta {
+            ops: vec![Op::Delete(9)],
+        };
+        assert!(over_del.try_apply("hello").is_err());
+    }
+
+    #[test]
+    fn try_apply_rejects_delta_whose_counts_overflow() {
+        // Counts arrive off the wire, where any u64 deserializes.
+        let over = Delta {
+            ops: vec![Op::Retain(usize::MAX), Op::Retain(2)],
+        };
+        assert_eq!(over.expected_base_len(), usize::MAX);
+        assert_eq!(
+            over.try_apply("hello"),
+            Err(BaseLengthMismatch {
+                expected: usize::MAX,
+                actual: 5,
+            })
+        );
+    }
+
+    /// `mapPos` hands a wire delta here with no length check ahead of it, and
+    /// `usize` is 32-bit on wasm32, where a release build wraps and a checked
+    /// one aborts the instance. Spelled against `usize::MAX` so the same run
+    /// overflows on every width.
+    #[test]
+    fn map_pos_saturates_on_counts_past_usize() {
+        let over = Delta {
+            ops: vec![
+                Op::Retain(usize::MAX),
+                Op::Retain(2),
+                Op::Insert("x".into()),
+                Op::Delete(3),
+            ],
+        };
+        // A position the first retain covers maps through it.
+        assert_eq!(over.map_pos(5, Assoc::After), 5);
+        // One at the saturated cursor walks the rest of the run without
+        // overflowing, on either side of the insertion.
+        assert_eq!(over.map_pos(usize::MAX, Assoc::Before), usize::MAX);
+        assert_eq!(over.map_pos(usize::MAX, Assoc::After), usize::MAX);
+        assert!(!over.is_deleted(usize::MAX));
+        assert_eq!(over.inserted_spans(), vec![(usize::MAX, usize::MAX)]);
+    }
+
+    #[test]
+    fn anchor_rehomed_on_block_move() {
+        // Two paragraphs; anchor on the first; the rewrite swaps their order.
+        let mut base = from_markdown("first para here\n\nsecond para here").unwrap().content.into_content();
+        // "first para here" is chars 0..15
+        base.marks.push(Mark {
+            start: 0,
+            end: 15,
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        let base = base.into_normalized();
+        let (new_rt, _, _) = diff_import(&base, "second para here\n\nfirst para here").unwrap();
+        let anchor = new_rt
+            .marks
+            .iter()
+            .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
+            .expect("anchor re-homed onto moved block");
+        assert_eq!(
+            new_rt.text[byte(&new_rt.text, anchor.start)..byte(&new_rt.text, anchor.end)]
+                .to_string(),
+            "first para here"
+        );
+    }
+
+    #[test]
+    fn carry_anchors_keeps_what_next_holds_and_carries_the_rest() {
+        let anchor = |start, end, id: &str| Mark {
+            start,
+            end,
+            kind: MarkKind::Anchor { id: id.into() },
+        };
+        let held = |rt: &Content, id: &str| {
+            let m = rt
+                .marks
+                .iter()
+                .find(|m| matches!(&m.kind, MarkKind::Anchor { id: i } if i == id))
+                .unwrap();
+            rt.text[byte(&rt.text, m.start)..byte(&rt.text, m.end)].to_string()
+        };
+        let mut base = from_markdown("one two three\n\n| a |\n|---|\n| b |")
+            .unwrap()
+            .content
+            .into_content();
+        base.marks.push(anchor(0, 3, "c1"));
+        base.marks.push(anchor(8, 13, "c2"));
+        let base = base.into_normalized();
+
+        let mut next = from_markdown("zero one two three\n\n| a |\n|---|\n| b |")
+            .unwrap()
+            .content
+            .into_content();
+        next.marks.push(anchor(9, 12, "c2"));
+        next.islands[0].id = "peer-0".into();
+        let (out, delta) = carry_anchors(&base, next.into_normalized());
+
+        assert_eq!(delta.try_apply(&base.text).unwrap(), out.text);
+        assert_eq!(held(&out, "c1"), "one");
+        assert_eq!(held(&out, "c2"), "two");
+        let anchors = out.marks.iter().filter(|m| !m.kind.is_formatting()).count();
+        assert_eq!(anchors, 2, "an id next holds is not carried a second time");
+        assert_eq!(out.islands[0].id, "peer-0");
+    }
+
+    #[test]
+    fn carry_anchors_reads_an_id_a_cell_of_next_holds_as_held() {
+        let mut base = from_markdown("see[^1] here\n\n[^1]: note").unwrap().content.into_content();
+        base.marks.push(Mark {
+            start: 0,
+            end: 3,
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        let base = base.into_normalized();
+        let mut next = from_markdown("see[^1] there\n\n[^1]: note").unwrap().content.into_content();
+        next.islands[0].props["marks"] =
+            serde_json::json!([{"start": 0, "end": 4, "type": "anchor", "id": "c1"}]);
+        let (out, _) = carry_anchors(&base, next.into_normalized());
+        assert!(out.marks.iter().all(|m| m.kind.is_formatting()));
+    }
+
+    #[test]
+    fn anchor_dropped_when_text_deleted() {
+        let mut base = from_markdown("keep this and drop that").unwrap().content.into_content();
+        // Anchor on "drop that" (14..23).
+        base.marks.push(Mark {
+            start: 14,
+            end: 23,
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        let base = base.into_normalized();
+        let (new_rt, _, _) = diff_import(&base, "keep this").unwrap();
+        assert!(
+            !new_rt
+                .marks
+                .iter()
+                .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")),
+            "anchor on deleted text detaches (accepted residual)"
+        );
+    }
+
+    #[test]
+    fn anchor_not_rehomed_onto_unrelated_survivor() {
+        let mut base = from_markdown("target one to drop\n\nkeep the target two").unwrap().content.into_content();
+        base.marks.push(Mark {
+            start: 0,
+            end: 6, // "target" in the first (deleted) paragraph
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        let base = base.into_normalized();
+        // First paragraph deleted; the second (with its own "target") survives
+        // as retained text: the anchor must drop, not jump to it.
+        let (new_rt, _, _) = diff_import(&base, "keep the target two").unwrap();
+        assert!(
+            !new_rt
+                .marks
+                .iter()
+                .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")),
+            "anchor wrongly re-homed onto surviving unrelated text"
+        );
+    }
+
+    #[test]
+    fn point_anchor_at_deletion_left_edge_survives() {
+        let d = diff("abcdef", "abef"); // delete "cd" (span [2,4))
+        assert!(!d.is_deleted(2), "left edge of deletion survives");
+        assert!(d.is_deleted(3), "interior of deletion is deleted");
+    }
+
+    #[test]
+    fn disjoint_edits_are_separate_ops() {
+        let d = diff("aaaMIDDLEbbb", "AAAMIDDLEZZZ");
+        assert_eq!(d.try_apply("aaaMIDDLEbbb").unwrap(), "AAAMIDDLEZZZ");
+        let retained: usize = d
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Retain(n) => Some(*n),
+                _ => None,
+            })
+            .sum();
+        assert!(
+            retained >= 6,
+            "unchanged middle span retained ({retained} USV): {ops:?}",
+            ops = d.ops
+        );
+        assert!(
+            !matches!(d.ops.as_slice(), [Op::Delete(_), Op::Insert(_)]),
+            "coarse single replace: {ops:?}",
+            ops = d.ops
+        );
+    }
+
+    #[test]
+    fn anchor_survives_between_disjoint_edits() {
+        let mut base = from_markdown("aaaMIDDLEbbb").unwrap().content.into_content();
+        base.marks.push(Mark {
+            start: 3,
+            end: 9,
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        let base = base.into_normalized();
+        let (new_rt, _, _) = diff_import(&base, "AAAMIDDLEZZZ").unwrap();
+        let anchor = new_rt
+            .marks
+            .iter()
+            .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
+            .expect("anchor between disjoint edits survives without move detector");
+        assert_eq!(
+            new_rt.text[byte(&new_rt.text, anchor.start)..byte(&new_rt.text, anchor.end)]
+                .to_string(),
+            "MIDDLE"
+        );
+    }
+
+    fn anchored(markdown: &str, start: usize, end: usize) -> Normalized {
+        let mut base = from_markdown(markdown).unwrap().content.into_content();
+        base.marks.push(Mark {
+            start,
+            end,
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        base.into_normalized()
+    }
+
+    fn anchored_text(content: &Content) -> Option<(usize, String)> {
+        let m = content
+            .marks
+            .iter()
+            .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))?;
+        let text = &content.text[byte(&content.text, m.start)..byte(&content.text, m.end)];
+        Some((m.start, text.to_string()))
+    }
+
+    /// An edit to one word of a paragraph in a multi-paragraph body leaves an
+    /// anchor elsewhere in that paragraph where it was, however short its text
+    /// and wherever else that text recurs.
+    #[test]
+    fn an_edited_paragraph_keeps_its_anchors_in_place() {
+        let base_md = "Intro paragraph.\n\nThe tax rate and the tax base rose in Q3.";
+        let new_md = "Intro paragraph.\n\nThe tax rate and the tax base fell in Q3.";
+        let para = "Intro paragraph.\n".chars().count();
+        let second_tax = para + "The tax rate and the ".chars().count();
+        let q3 = para + "The tax rate and the tax base rose in ".chars().count();
+
+        let base = anchored(base_md, second_tax, second_tax + 3);
+        let (new_rt, _, _) = diff_import(&base, new_md).unwrap();
+        assert_eq!(anchored_text(&new_rt), Some((second_tax, "tax".into())));
+
+        let base = anchored(base_md, q3, q3 + 2);
+        let (new_rt, _, _) = diff_import(&base, new_md).unwrap();
+        assert_eq!(anchored_text(&new_rt), Some((q3, "Q3".into())));
+    }
+
+    /// An edited paragraph and a paragraph inserted beside it: the edit still
+    /// pairs with the paragraph it rewrites.
+    #[test]
+    fn an_edited_paragraph_beside_an_inserted_one_keeps_its_anchor() {
+        let base = anchored("Lead.\n\nPay the fee by Friday.", 6, 6 + "Pay the fee".len());
+        let (new_rt, _, _) =
+            diff_import(&base, "Lead.\n\nNew paragraph here.\n\nPay the fee by Monday.").unwrap();
+        assert_eq!(anchored_text(&new_rt).map(|(_, t)| t), Some("Pay the fee".into()));
+    }
+
+    /// Two different paragraphs swapping places is a move, not a rewrite: the
+    /// anchor follows its text rather than mapping into the other paragraph.
+    #[test]
+    fn swapped_paragraphs_are_moved_not_rewritten() {
+        let base = anchored("alpha beta gamma\n\ndelta epsilon zeta", 0, 16);
+        let (new_rt, _, _) = diff_import(&base, "delta epsilon zeta\n\nalpha beta gamma").unwrap();
+        assert_eq!(anchored_text(&new_rt).map(|(_, t)| t), Some("alpha beta gamma".into()));
+    }
+
+    #[test]
+    fn a_long_multi_paragraph_rewrite_stays_fast() {
+        let para = |offset: u8| {
+            (0..40).map(|k| filler(120, offset.wrapping_add(k))).collect::<Vec<_>>().join(" ")
+        };
+        let base: String = (0..20).map(|i| para(i)).collect::<Vec<_>>().join("\n");
+        let new: String = (0..20).map(|i| para(i + 3)).collect::<Vec<_>>().join("\n");
+        let start = std::time::Instant::now();
+        let d = diff(&base, &new);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "took {:?}",
+            start.elapsed()
+        );
+        assert_eq!(d.try_apply(&base).unwrap(), new);
+    }
+
+    #[test]
+    fn a_long_paragraph_of_shared_words_stays_fast() {
+        let words = |seed: usize| {
+            (0..160_000)
+                .map(|k| format!("w{}", (k * 7919 + seed * 104_729) % 1000))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let base = format!("h\n{}\n", words(1));
+        let new = format!("h\n{}\n", words(2));
+        let start = std::time::Instant::now();
+        let d = diff(&base, &new);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "took {:?}",
+            start.elapsed()
+        );
+        assert_eq!(d.try_apply(&base).unwrap(), new);
+    }
+
+    fn byte(s: &str, char_idx: usize) -> usize {
+        crate::usv::char_to_byte(s, char_idx)
+    }
+
+    /// Deterministic filler with no long common substring between the two
+    /// variants: worst case for a char-level Myers diff.
+    fn filler(n: usize, offset: u8) -> String {
+        (0..n)
+            .map(|i| char::from(b'a' + ((i as u8).wrapping_mul(7).wrapping_add(offset)) % 26))
+            .collect()
+    }
+
+    #[test]
+    fn large_single_line_diff_stays_fast() {
+        // The shape `similar::TextDiff::from_chars` chokes on with no cutoff.
+        let base = format!("PREFIX-{}-BASE-SUFFIX", filler(25_000, 0));
+        let new = format!("PREFIX-{}-NEW-SUFFIX", filler(25_000, 13));
+
+        let start = std::time::Instant::now();
+        let d = diff(&base, &new);
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "large single-line diff took {elapsed:?}, expected well under the 2s budget"
+        );
+
+        assert_eq!(d.try_apply(&base).unwrap(), new);
+    }
+
+    #[test]
+    fn large_single_line_diff_retains_common_prefix_and_suffix() {
+        // A shared prefix/suffix around a large rewritten middle must come back
+        // as real Retain ops, not one whole-field Delete+Insert.
+        let base = format!("shared-prefix-{}-shared-suffix", filler(20_000, 0));
+        let new = format!("shared-prefix-{}-shared-suffix", filler(20_000, 5));
+        let d = diff(&base, &new);
+        assert_eq!(d.try_apply(&base).unwrap(), new);
+
+        let Some(Op::Retain(prefix_len)) = d.ops.first() else {
+            panic!("expected a leading Retain for the shared prefix: {:?}", d.ops);
+        };
+        assert!(
+            *prefix_len >= "shared-prefix-".len(),
+            "shared prefix should be retained, got Retain({prefix_len})"
+        );
+        let Some(Op::Retain(suffix_len)) = d.ops.last() else {
+            panic!("expected a trailing Retain for the shared suffix: {:?}", d.ops);
+        };
+        assert!(
+            *suffix_len >= "shared-suffix".len(),
+            "shared suffix should be retained, got Retain({suffix_len})"
+        );
+    }
+
+    #[test]
+    fn diff_import_large_single_line_rewrite_keeps_prefix_anchor() {
+        // `diff_import` is what a full-document LLM rewrite hits: it must stay
+        // fast and still rebase an anchor sitting in shared text.
+        let base_text = format!("hello target world-{}-end", filler(30_000, 0));
+        let mut base = from_markdown(&base_text).unwrap().content.into_content();
+        base.marks.push(Mark {
+            start: 6,
+            end: 12, // "target"
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        let base = base.into_normalized();
+
+        let new_markdown = format!("hello target world-{}-end", filler(30_000, 11));
+        let start = std::time::Instant::now();
+        let (new_rt, _delta, _) = diff_import(&base, &new_markdown).unwrap();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "diff_import took {elapsed:?}, expected well under the 2s budget"
+        );
+
+        let anchor = new_rt
+            .marks
+            .iter()
+            .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
+            .expect("anchor in shared prefix survives the coarse fallback diff");
+        assert_eq!(
+            new_rt.text[byte(&new_rt.text, anchor.start)..byte(&new_rt.text, anchor.end)]
+                .to_string(),
+            "target"
+        );
+    }
+
+    /// A revise rewrites no island id: an island inserted above keeps the rest
+    /// theirs and takes the next past them, a table edited in place keeps its
+    /// own, a deletion leaves the survivors theirs, and a rewrite mints past
+    /// every id the field held.
+    #[test]
+    fn a_revise_rewrites_no_island_id() {
+        let tables = |heads: &[&str]| {
+            heads
+                .iter()
+                .map(|h| format!("| {h} |\n|---|\n| 1 |"))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        };
+        let ids = |c: &Content| c.islands.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
+        let base = from_markdown(&tables(&["a", "b"])).unwrap().content;
+        assert_eq!(ids(&base), ["isl-0", "isl-1"]);
+
+        let (inserted, _, _) = diff_import(&base, &tables(&["z", "a", "b"])).unwrap();
+        assert_eq!(ids(&inserted), ["isl-2", "isl-0", "isl-1"]);
+        let (edited, _, _) = diff_import(&inserted, &tables(&["z", "A", "b"])).unwrap();
+        assert_eq!(ids(&edited), ["isl-2", "isl-0", "isl-1"]);
+        let (deleted, _, _) = diff_import(&edited, &tables(&["A", "b"])).unwrap();
+        assert_eq!(ids(&deleted), ["isl-0", "isl-1"]);
+        let (rewritten, _, _) = diff_import(&deleted, &tables(&["x", "y", "w"])).unwrap();
+        assert_eq!(ids(&rewritten), ["isl-2", "isl-3", "isl-4"]);
+
+        let mut top = from_markdown(&tables(&["a"])).unwrap().content.into_content();
+        top.islands[0].id = format!("isl-{}", u64::MAX);
+        let (grown, _, _) = diff_import(&top, &tables(&["a", "b", "c"])).unwrap();
+        assert_eq!(
+            ids(&grown),
+            [
+                format!("isl-{}", u64::MAX),
+                format!("isl-{}", u128::from(u64::MAX) + 1),
+                format!("isl-{}", u128::from(u64::MAX) + 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_lines_lands_both_sides_and_refuses_touching_runs() {
+        let base = "one\n\ntwo\n\nthree\n";
+        let person = "one, edited\n\ntwo\n\nthree\n";
+        let writer = "one\n\ntwo\n\nthree, rewritten\n\nfour\n";
+        assert_eq!(
+            merge_lines(base, person, writer).as_deref(),
+            Some("one, edited\n\ntwo\n\nthree, rewritten\n\nfour\n")
+        );
+        assert_eq!(merge_lines(base, person, person).as_deref(), Some(person));
+        assert_eq!(merge_lines(base, person, "one, other\n\ntwo\n\nthree\n"), None);
+        assert_eq!(merge_lines(base, person, "one\nzero\n\ntwo\n\nthree\n"), None);
+        assert_eq!(merge_lines(base, base, writer).as_deref(), Some(writer));
+    }
+
+    fn with_anchor(markdown: &str, (start, end): (usize, usize), id: &str) -> Normalized {
+        let mut rt = from_markdown(markdown).unwrap().content.into_content();
+        rt.marks.push(Mark::new(start, end, MarkKind::Anchor { id: id.into() }));
+        rt.into_normalized()
+    }
+
+    fn anchor_of(rt: &Content, id: &str) -> Option<(usize, usize)> {
+        rt.marks.iter().find_map(|m| match &m.kind {
+            MarkKind::Anchor { id: held } if held == id => Some((m.start, m.end)),
+            _ => None,
+        })
+    }
+
+    fn reported(warnings: &[ImportWarning]) -> Vec<(String, usize)> {
+        warnings.iter().map(|w| (w.construct.to_string(), w.count)).collect()
+    }
+
+    /// A kept tag pins: the anchor starts where the writer moved its tag and
+    /// ends where its text still ends on that line. A tag dropped falls back to
+    /// the diff, and a moved tag's anchor drops nothing where its text went.
+    #[test]
+    fn a_kept_tag_pins_and_a_dropped_tag_falls_back_to_the_diff() {
+        let stored = with_anchor("Hello world, again.", (6, 11), "w");
+        let read = crate::lines::export::to_markdown_annotated(&stored).markdown;
+        assert_eq!(read, "Hello <qm-anchor ref=\"w\"></qm-anchor>world, again.");
+
+        let (moved, _, warnings) = diff_import(&stored, "<qm-anchor ref=\"w\"></qm-anchor>Hello world, again.").unwrap();
+        assert_eq!(anchor_of(&moved, "w"), Some((0, 11)));
+        assert!(warnings.is_empty());
+
+        let (later, _, _) = diff_import(&stored, "Hello world, <qm-anchor ref=\"w\"></qm-anchor>again.").unwrap();
+        assert_eq!(anchor_of(&later, "w"), Some((13, 18)), "the stored length, cut at the line's end");
+
+        let (dropped, _, _) = diff_import(&stored, "Hello brave world, again.").unwrap();
+        assert_eq!(anchor_of(&dropped, "w"), Some((12, 17)));
+
+        let (kept, _, _) = diff_import(&stored, &read).unwrap();
+        assert_eq!(kept, stored, "the read revises to itself");
+    }
+
+    /// A tag the read moved off its anchor's start, to a code span's start or
+    /// the line's end, pins nothing.
+    #[test]
+    fn a_tag_marked_at_pins_nothing() {
+        let stored = with_anchor("Hello world.", (6, 11), "w");
+        for at in ["line", "span"] {
+            let md = format!("<qm-anchor at=\"{at}\" ref=\"w\"></qm-anchor>Hello world.");
+            let (revised, _, warnings) = diff_import(&stored, &md).unwrap();
+            assert_eq!(anchor_of(&revised, "w"), Some((6, 11)), "{at}");
+            assert!(warnings.is_empty());
+        }
+    }
+
+    /// A tag naming no anchor the stored value holds, and a second tag naming
+    /// one, report its `ref`; a cold import drops either silently.
+    #[test]
+    fn a_ref_the_stored_value_does_not_hold_drops_reported() {
+        let stored = with_anchor("Hello world.", (6, 11), "w");
+        let md = "Hello <qm-anchor ref=\"w\"></qm-anchor>world<qm-anchor ref=\"w\"></qm-anchor>. \
+                  <qm-anchor ref=\"gone\"></qm-anchor><qm-anchor></qm-anchor>";
+        let (revised, _, warnings) = diff_import(&stored, md).unwrap();
+        assert_eq!(anchor_of(&revised, "w"), Some((6, 11)));
+        assert_eq!(anchor_of(&revised, "gone"), None);
+        assert_eq!(reported(&warnings), [("qm-anchor[ref]".to_string(), 3)]);
+        assert!(from_markdown(md).unwrap().warnings.is_empty());
+    }
+
+    /// An island markdown cannot spell reads as its token, and a revise keeps
+    /// it as stored wherever the writer leaves the token; a cold import drops
+    /// the token, reported.
+    #[test]
+    fn a_token_keeps_its_island_as_stored() {
+        let mut stored = from_markdown("See ![a](u.png) here.").unwrap().content.into_content();
+        stored.islands[0].props["title"] = "kept".into();
+        let stored = stored.into_normalized();
+        let read = crate::lines::export::to_markdown_annotated(&stored).markdown;
+        assert_eq!(read, "See <qm-island ref=\"isl-0\"></qm-island> here.");
+
+        let (revised, _, warnings) = diff_import(&stored, "Now <qm-island ref=\"isl-0\"></qm-island> there.").unwrap();
+        assert!(warnings.is_empty());
+        assert_eq!(revised.text, format!("Now {} there.", crate::lines::model::ISLAND_SLOT));
+        assert_eq!(revised.islands, stored.islands);
+
+        let cold = from_markdown(&read).unwrap();
+        assert!(cold.content.islands.is_empty());
+        assert_eq!(reported(&cold.warnings), [("qm-island".to_string(), 1)]);
+    }
+
+    /// A token naming no island the stored value holds reports its `ref`, and
+    /// one where no island sits reports itself. A table's token on a line of
+    /// prose takes a line of its own.
+    #[test]
+    fn a_token_drops_reported_where_it_cannot_be_kept() {
+        let mut stored = from_markdown("| h |\n| --- |\n| c |").unwrap().content.into_content();
+        stored.islands[0].props["note"] = "kept".into();
+        let stored = stored.into_normalized();
+        assert_eq!(crate::lines::export::to_markdown_annotated(&stored).markdown, "<qm-island ref=\"isl-0\"></qm-island>");
+
+        let md = "a <qm-island ref=\"isl-0\"></qm-island> b <qm-island ref=\"isl-9\"></qm-island>\n\n\
+                  | x |\n| --- |\n| <qm-island ref=\"isl-0\"></qm-island> |";
+        let (revised, _, warnings) = diff_import(&stored, md).unwrap();
+        assert_eq!(revised.text, "a \n\u{FFFC}\n b \n\u{FFFC}");
+        assert_eq!(revised.islands[0].props, stored.islands[0].props);
+        assert_eq!(revised.islands[0].id, "isl-0");
+        assert_eq!(
+            reported(&warnings),
+            [("qm-island[ref]".to_string(), 1), ("qm-island".to_string(), 1)]
+        );
+    }
+
+    /// A token written twice copies its table, and its cell's anchor stays on
+    /// the copy that continues the stored island alone.
+    #[test]
+    fn a_token_written_twice_copies_no_cell_anchor() {
+        let mut stored = from_markdown("| h |\n| --- |\n| cell |").unwrap().content.into_content();
+        stored.islands[0].props["note"] = "kept".into();
+        stored.islands[0].props["rows"][0][0]["marks"] =
+            serde_json::json!([{ "start": 0, "end": 4, "type": "anchor", "attrs": { "id": "c1" } }]);
+        let stored = stored.into_normalized();
+        let token = "<qm-island ref=\"isl-0\"></qm-island>";
+        assert_eq!(crate::lines::export::to_markdown_annotated(&stored).markdown, token);
+
+        let (once, _, _) = diff_import(&stored, token).unwrap();
+        assert_eq!(once.islands, stored.islands);
+        let (twice, _, _) = diff_import(&stored, &format!("{token}\n\n{token}")).unwrap();
+        assert_eq!(twice.islands.len(), 2);
+        let ids: Vec<String> = twice.anchor_sites().into_iter().map(|s| s.id).collect();
+        assert_eq!(ids, ["c1"]);
+        assert!(twice.anchor_collisions().is_empty());
+    }
+
+    /// A tag right after a table's token pins the line the split gives the
+    /// prose after it, not the table's.
+    #[test]
+    fn a_tag_after_a_tables_token_pins_the_prose_after_it() {
+        let mut stored = from_markdown("Hello world.\n\n| h |\n| --- |\n| c |").unwrap().content.into_content();
+        stored.marks.push(Mark::new(6, 11, MarkKind::Anchor { id: "w".into() }));
+        stored.islands[0].props["note"] = "kept".into();
+        let stored = stored.into_normalized();
+        let read = crate::lines::export::to_markdown_annotated(&stored).markdown;
+        let token = &read[read.find("<qm-island").unwrap()..];
+        let (next, _, _) = diff_import(&stored, &format!("Hello {token}<qm-anchor ref=\"w\"></qm-anchor>world.")).unwrap();
+        assert_eq!(next.text, "Hello \n\u{FFFC}\nworld.");
+        let sites: Vec<(String, usize, usize)> = next.anchor_sites().into_iter().map(|s| (s.id, s.start, s.end)).collect();
+        assert_eq!(sites, [("w".to_string(), 9, 14)]);
+    }
+}

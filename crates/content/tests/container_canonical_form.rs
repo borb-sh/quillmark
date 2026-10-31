@@ -13,9 +13,9 @@
 //!    normalized contents project to one markdown, so the model holds a
 //!    distinction it cannot write down.
 
-use quillmark_content::export::to_markdown;
-use quillmark_content::import::from_markdown;
-use quillmark_content::model::{Container, Content, Line, LineKind, Normalized};
+use quillmark_content::lines::export::to_markdown;
+use quillmark_content::lines::import::from_markdown;
+use quillmark_content::lines::model::{Container, Content, Line, LineKind, Normalized};
 
 /// Containers a hand-built path can hold: lists, quotes and elements.
 fn alphabet() -> Vec<Container> {

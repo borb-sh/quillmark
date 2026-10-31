@@ -40,7 +40,7 @@ fn normalize_card(card: &Card) -> Card {
     for (from, to) in renames {
         payload.rename_field(&from, to);
     }
-    Card::from_parts(payload, card.body().clone())
+    Card::from_parts(payload, card.body_lines().clone())
 }
 
 #[cfg(test)]
@@ -63,7 +63,7 @@ mod tests {
             if kind == "main" {
                 payload.set_quill("q@1.0".parse().unwrap());
             }
-            Card::from_parts(payload, quillmark_content::model::Normalized::empty())
+            Card::from_parts(payload, quillmark_content::lines::model::Normalized::empty())
         };
         let doc = Document::from_main_and_cards(card("main"), vec![card("note")]);
         let normalized = super::normalize_document(doc);

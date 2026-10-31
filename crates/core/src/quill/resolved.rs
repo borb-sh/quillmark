@@ -221,8 +221,8 @@ fn card_states(
 /// rung, so its source is only ever [`Authored`](FieldSource::Authored)
 /// (non-blank) or [`Blank`](FieldSource::Blank) (blank).
 fn body_state(card: &Card) -> ResolvedField {
-    let value = QuillValue::from_json(quillmark_content::serial::to_canonical_value(card.body()));
-    let source = if card.body().is_blank() {
+    let value = QuillValue::from_json(card.body().to_value());
+    let source = if card.body_lines().is_blank() {
         FieldSource::Blank
     } else {
         FieldSource::Authored
@@ -457,7 +457,7 @@ main:
         let mut payload = Payload::from_index_map(map);
         payload.set_quill("fs_test@1.0".parse().unwrap());
         payload.set_kind("main");
-        let main = Card::from_parts(payload, quillmark_content::model::Normalized::empty());
+        let main = Card::from_parts(payload, quillmark_content::lines::model::Normalized::empty());
         let doc = Document::from_main_and_cards(main, Vec::new());
         let states = quill.resolve(&doc, test_date());
 

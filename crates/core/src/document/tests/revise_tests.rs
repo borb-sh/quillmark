@@ -1,5 +1,5 @@
-use quillmark_content::model::{Mark, MarkKind, Normalized};
-use quillmark_content::serial::to_canonical_value;
+use quillmark_content::lines::model::{Mark, MarkKind, Normalized};
+use quillmark_content::lines::serial::to_canonical_value;
 
 use crate::document::{Codec, Document};
 use crate::value::QuillValue;
@@ -31,7 +31,7 @@ pub(super) fn anchor_ids(content: &Normalized) -> Vec<String> {
 
 fn anchor_card_body(doc: &mut Document, index: usize, word: &str, id: &str) {
     let mut card = doc.card_mut(index).unwrap();
-    let body = anchored(card.body(), word, id);
+    let body = anchored(card.body_lines(), word, id);
     card.overwrite_body(body);
 }
 
@@ -46,7 +46,7 @@ fn stored() -> Document {
     doc.main_mut()
         .overwrite_field("subject", anchored(&subject, "subject", "s1"))
         .unwrap();
-    let body = anchored(doc.main().body(), "prose", "m1");
+    let body = anchored(doc.main().body_lines(), "prose", "m1");
     doc.main_mut().overwrite_body(body);
     anchor_card_body(&mut doc, 0, "apples", "a1");
     anchor_card_body(&mut doc, 1, "pears", "p1");
@@ -93,15 +93,15 @@ fn aligned_cards_keep_their_anchors_and_the_receipt_names_the_rest() {
             Some(serde_json::json!("n1"))
         ]
     );
-    assert_eq!(anchor_ids(doc.main().body()), ["m1"]);
+    assert_eq!(anchor_ids(doc.main().body_lines()), ["m1"]);
     let subject = doc
         .main()
         .field_content("subject", Codec::Richtext)
         .unwrap()
         .unwrap();
     assert_eq!(anchor_ids(&subject), ["s1"]);
-    assert_eq!(anchor_ids(doc.cards()[1].body()), ["p1"]);
-    assert!(anchor_ids(doc.cards()[2].body()).is_empty());
+    assert_eq!(anchor_ids(doc.cards()[1].body_lines()), ["p1"]);
+    assert!(anchor_ids(doc.cards()[2].body_lines()).is_empty());
 
     let dropped: Vec<(String, &str)> = receipt
         .dropped_anchors
@@ -284,7 +284,7 @@ fn an_anchor_in_a_fields_list_item_survives_an_edit_to_its_item() {
         .unwrap()
         .as_json()
         .clone();
-    let item = quillmark_content::serial::from_canonical_value(&items[1]).unwrap();
+    let item = crate::document::lines_of(&items[1]).unwrap();
     assert_eq!(item.text, "an edited item to flag");
     assert_eq!(anchor_ids(&item), ["i1"]);
     assert!(
@@ -407,7 +407,7 @@ fn a_card_spelling_its_id_revises_its_stored_card() {
     assert_eq!(receipt.from, [Some(1), Some(0)]);
     assert_eq!(doc.cards()[0].id(), Some(second.as_str()));
     assert_eq!(doc.cards()[0].ext().unwrap()["app"]["key"], "n2");
-    assert_eq!(anchor_ids(doc.cards()[0].body()), ["p1"]);
+    assert_eq!(anchor_ids(doc.cards()[0].body_lines()), ["p1"]);
     assert_eq!(doc.cards()[1].ext().unwrap()["app"]["key"], "n1");
 }
 
@@ -502,7 +502,7 @@ fn an_item_inserted_ahead_keeps_each_anchor_on_its_own_item() {
         .as_json()
         .clone();
     assert_eq!(items[0], "a new first item");
-    let item = quillmark_content::serial::from_canonical_value(&items[2]).unwrap();
+    let item = crate::document::lines_of(&items[2]).unwrap();
     assert_eq!(item.text, "an item to flag");
     assert_eq!(anchor_ids(&item), ["i1"]);
 
@@ -527,7 +527,7 @@ fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
     let mut doc = parse(
         "~~~\n$quill: memo@1.0.0\n~~~\n\nSee ![a](u.png) and the plan.\n\n~~~\n$kind: note\n~~~\n\nA note.\n",
     );
-    let body = titled(&anchored(doc.main().body(), "plan", "p1"));
+    let body = titled(&anchored(doc.main().body_lines(), "plan", "p1"));
     doc.main_mut().overwrite_body(body.clone());
     let read = doc.to_markdown_annotated().markdown;
     assert!(read.contains("See <qm-island ref=\"isl-0\"></qm-island> and the <qm-anchor ref=\"p1\"></qm-anchor>plan."), "{read}");
@@ -543,7 +543,7 @@ fn an_annotated_read_revises_back_through_its_tags_and_tokens() {
         "{:?}",
         receipt.dropped_anchors
     );
-    let revised = doc.main().body();
+    let revised = doc.main().body_lines();
     assert_eq!(revised.text, "Now the plan, beside \u{FFFC}.");
     assert_eq!(revised.islands, body.islands);
     let p1 = revised
@@ -580,7 +580,7 @@ fn a_tag_naming_nothing_stored_drops_reported_at_its_card() {
             ("cards.note[0].body", "qm-island[ref]")
         ]
     );
-    assert_eq!(doc.cards()[0].body().text, "New .");
+    assert_eq!(doc.cards()[0].body_lines().text, "New .");
 
     let cold = Document::parse(written).unwrap();
     let constructs: Vec<_> = cold

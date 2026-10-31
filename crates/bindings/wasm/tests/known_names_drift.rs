@@ -1,48 +1,43 @@
-//! Drift guard for the names `runtime/runtime.js` and the `engine.rs` TS unions
+//! Drift guard for the names `runtime/runtime.js` and the `engine/content.rs` TS unions
 //! spell for themselves instead of reading off a type. Each is checked against
 //! the Rust vocabulary it mirrors, read through an exhaustive match so a new
 //! member is a compile error here, where the mirror gets read.
 
-use quillmark_content::island::IslandType;
-use quillmark_content::model::{Container, LineKind, MarkKind};
+use quillmark_content::lines::island::IslandType;
+use quillmark_content::model::{BlockKind, ContainerKind, MarkKind};
 use quillmark_core::quill::VARIANT_DISCRIMINANT_KEY;
 
 const RUNTIME_JS: &str = include_str!("../runtime/runtime.js");
 
-/// The wire `kind` of every line vocabulary member. Exhaustive on purpose.
-fn line_kind_tags() -> Vec<&'static str> {
+/// The wire `kind` of every block vocabulary member. Exhaustive on purpose.
+fn block_kind_tags() -> Vec<&'static str> {
     let all = [
-        LineKind::Para,
-        LineKind::Heading { level: 1 },
-        LineKind::Code { lang: None },
-        LineKind::Rule,
+        BlockKind::Para,
+        BlockKind::Heading { level: 1 },
+        BlockKind::Code { lang: None },
+        BlockKind::Rule,
     ];
     for k in &all {
         match k {
-            LineKind::Para | LineKind::Heading { .. } | LineKind::Code { .. } | LineKind::Rule => {}
+            BlockKind::Para | BlockKind::Heading { .. } | BlockKind::Code { .. } | BlockKind::Rule => {}
         }
     }
-    all.iter().map(LineKind::tag).collect()
+    all.iter().map(BlockKind::tag).collect()
 }
 
-/// The wire `container` of every container vocabulary member.
+/// The wire `kind` of every container vocabulary member.
 fn container_tags() -> Vec<&'static str> {
     let all = [
-        Container::ListItem {
-            ordered: false,
-            start: 1,
-            ordinal: 0,
-            checked: None,
-            instance: 0,
-        },
-        Container::Quote { instance: 0 },
+        ContainerKind::List { ordered: false, start: 1 },
+        ContainerKind::Item { checked: None },
+        ContainerKind::Quote,
     ];
     for c in &all {
         match c {
-            Container::ListItem { .. } | Container::Quote { .. } => {}
+            ContainerKind::List { .. } | ContainerKind::Item { .. } | ContainerKind::Quote => {}
         }
     }
-    all.iter().map(Container::tag).collect()
+    all.iter().map(ContainerKind::tag).collect()
 }
 
 /// The wire `type` of every mark vocabulary member.
@@ -54,7 +49,6 @@ fn mark_type_tags() -> Vec<&'static str> {
         MarkKind::Strike,
         MarkKind::Code,
         MarkKind::Link { url: String::new() },
-        MarkKind::Anchor { id: String::new() },
         MarkKind::FontFamily {
             name: String::new(),
         },
@@ -67,7 +61,6 @@ fn mark_type_tags() -> Vec<&'static str> {
             | MarkKind::Strike
             | MarkKind::Code
             | MarkKind::Link { .. }
-            | MarkKind::Anchor { .. }
             | MarkKind::FontFamily { .. } => {}
         }
     }
@@ -96,12 +89,12 @@ fn js_variant_discriminant_matches_the_rust_key() {
 }
 
 /// The same names are spelled a third time as TypeScript unions in
-/// `src/engine.rs`; a union that lags a new built-in is a consumer that cannot
+/// `src/engine/content.rs`; a union that lags a new built-in is a consumer that cannot
 /// narrow the new arm. Arm *shape* varies, so this asserts only that the name
 /// appears in the union.
 #[test]
 fn ts_unions_name_every_built_in() {
-    const ENGINE_RS: &str = include_str!("../src/engine.rs");
+    const ENGINE_RS: &str = include_str!("../src/engine/content.rs");
 
     /// Bounded by the blank line before the next declaration, since an arm's own
     /// `;` separates its members and cannot terminate the search.
@@ -119,7 +112,7 @@ fn ts_unions_name_every_built_in() {
     let island_types: Vec<_> = IslandType::ALL.iter().map(|k| k.as_str()).collect();
 
     for (union, names) in [
-        (ts_union("ContentLineKind"), line_kind_tags()),
+        (ts_union("ContentBlockKind"), block_kind_tags()),
         (ts_union("ContentContainer"), container_tags()),
         (ts_union("ContentMarkKind"), mark_type_tags()),
         (ts_union("ContentIsland"), island_types),
@@ -127,7 +120,7 @@ fn ts_unions_name_every_built_in() {
         for name in names {
             assert!(
                 union.contains(&format!("\"{name}\"")),
-                "a TS union in engine.rs is missing the `{name}` arm"
+                "a TS union in engine/content.rs is missing the `{name}` arm"
             );
         }
     }

@@ -20,7 +20,6 @@ use crate::emit::{
     Emission, EmitError, SegmentMap, emit_content, emit_content_inline, escape_string,
 };
 use crate::families::Families;
-use quillmark_content::serial::from_canonical_value;
 use quillmark_core::quill::{
     CONTENT_MEDIA_TYPE, PLATE_PATH_KEY as PATH_KEY, QUILLMARK_MULTILINE_KEY, QUILLMARK_ROSTER_KEY,
 };
@@ -244,7 +243,7 @@ impl<'m> Codegen<'m> {
         } else {
             emit_content
         };
-        match from_canonical_value(value) {
+        match quillmark_content::model::Content::lines_from_value(value) {
             Ok(rt) if !rt.is_blank() => match emit(&rt) {
                 Ok(ec) => {
                     let id = self.content_block(path, ec, inline && rt.is_inline());
@@ -800,10 +799,10 @@ mod tests {
     }
 
     fn content(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown)
+        let rt = quillmark_content::lines::import::from_markdown(markdown)
             .expect("import")
             .content;
-        quillmark_content::serial::to_canonical_value(&rt)
+        quillmark_content::lines::serial::to_canonical_value(&rt)
     }
 
     fn richtext_field() -> serde_json::Value {
@@ -871,11 +870,11 @@ mod tests {
     #[test]
     fn segment_maps_index_the_generated_lib_typ() {
         let meta = meta_from(serde_json::json!({ "properties": { "intro": richtext_field() } }));
-        let rt = quillmark_content::import::from_markdown("Hello **bold**.\n\nSecond para.")
+        let rt = quillmark_content::lines::import::from_markdown("Hello **bold**.\n\nSecond para.")
             .expect("import")
             .content;
         let data =
-            serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
+            serde_json::json!({ "intro": quillmark_content::lines::serial::to_canonical_value(&rt) });
         let (lib, windows) = generate_lib_typ(&data, &meta, &Families::default()).unwrap();
 
         assert_eq!(windows.len(), 1);

@@ -5,11 +5,12 @@
 ## TL;DR
 
 The Typst backend lowers a `Content` value to Typst markup with
-`emit_content`, which walks the content: lines, anchored marks, embedded
+`emit_content`, which walks its line form (`migrate::to_lines`,
+[CONTENT.md](CONTENT.md) § "The line form"): lines, anchored marks, embedded
 islands, and never re-parses markdown. Alongside the markup it records a
 per-segment source map (`content ↔ generated` byte windows). This is the render
 path's only markup producer. Markdown reaches the content once, at
-ingest, in `quillmark-content::import`; the normative rules for *which* markdown
+ingest, in `quillmark-content::markdown`; the normative rules for *which* markdown
 a content can hold live in [markdown-spec.md §6](../references/markdown-spec.md);
 this page documents how the backend lowers the content it produces.
 
@@ -330,7 +331,7 @@ loud.
 ## Where markdown is parsed
 
 The Markdown parser (`pulldown-cmark`) appears exactly once in the workspace, in
-`quillmark-content::import`, run at ingest. `import` normalizes, parses, and
+`quillmark-content::lines::import`, run at ingest. `import` normalizes, parses, and
 lowers markdown into the content (markdown-spec §6 is its normative acceptance
 surface); every downstream render walks the content. No render path parses
 markdown.

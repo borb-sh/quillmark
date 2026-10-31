@@ -1,5 +1,5 @@
-use quillmark_content::export::to_markdown_annotated;
-use quillmark_content::import::from_markdown;
+use quillmark_content::lines::export::to_markdown_annotated;
+use quillmark_content::lines::import::from_markdown;
 
 use crate::document::{Base, BaseError, Card, Document, EditError, content_hash, value_hash};
 use crate::quill::{BoundParseError, QuillConfig};
@@ -56,13 +56,13 @@ fn a_stale_hash_refuses_the_revise_and_names_the_hash_now() {
     let mut card = card_with_body("Alpha one.\n\nBeta two.");
     let read = card.body_hash();
     let _ = card.revise_body("Alpha one, edited.\n\nBeta two.").unwrap();
-    let stored = card.body().clone();
+    let stored = card.body_lines().clone();
 
     let err = card
         .revise_body_against(Base::Hash(&read), "Alpha one.\n\nBeta two, rewritten.")
         .unwrap_err();
     assert_eq!(current_of(err), ("stale", card.body_hash()));
-    assert_eq!(card.body(), &stored);
+    assert_eq!(card.body_lines(), &stored);
 
     let fresh = card.body_hash();
     let _ = card
@@ -71,7 +71,7 @@ fn a_stale_hash_refuses_the_revise_and_names_the_hash_now() {
             "Alpha one, edited.\n\nBeta two, rewritten.",
         )
         .unwrap();
-    assert_eq!(card.body().text, "Alpha one, edited.\nBeta two, rewritten.");
+    assert_eq!(card.body_lines().text, "Alpha one, edited.\nBeta two, rewritten.");
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn a_read_lands_the_writer_edit_beside_the_change_since_and_keeps_anchors() {
         .content;
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(anchored(&content, "Beta", "c1"));
-    let read = to_markdown_annotated(card.body()).markdown;
+    let read = to_markdown_annotated(card.body_lines()).markdown;
     assert!(read.contains("<qm-anchor"), "{read}");
 
     let _ = card
@@ -94,13 +94,13 @@ fn a_read_lands_the_writer_edit_beside_the_change_since_and_keeps_anchors() {
         )
         .unwrap();
     assert_eq!(
-        card.body().text,
+        card.body_lines().text,
         "Alpha one, edited.\nBeta two.\nGamma three, rewritten."
     );
-    assert_eq!(anchor_ids(card.body()), ["c1"]);
+    assert_eq!(anchor_ids(card.body_lines()), ["c1"]);
     assert!(revised.dropped_anchors.is_empty());
 
-    let stored = card.body().clone();
+    let stored = card.body_lines().clone();
     let err = card
         .revise_body_against(
             Base::Read(&read),
@@ -108,13 +108,13 @@ fn a_read_lands_the_writer_edit_beside_the_change_since_and_keeps_anchors() {
         )
         .unwrap_err();
     assert_eq!(current_of(err), ("conflict", card.body_hash()));
-    assert_eq!(card.body(), &stored);
+    assert_eq!(card.body_lines(), &stored);
 }
 
 #[test]
 fn a_read_of_the_value_now_is_a_plain_revise() {
     let mut card = card_with_body("Alpha *one*.");
-    let read = to_markdown_annotated(card.body()).markdown;
+    let read = to_markdown_annotated(card.body_lines()).markdown;
     let mut plain = card.clone();
     let _ = plain
         .revise_body("Alpha _one_, then <span>two</span>.")
@@ -122,7 +122,7 @@ fn a_read_of_the_value_now_is_a_plain_revise() {
     let revised = card
         .revise_body_against(Base::Read(&read), "Alpha _one_, then <span>two</span>.")
         .unwrap();
-    assert_eq!(card.body(), plain.body());
+    assert_eq!(card.body_lines(), plain.body_lines());
     assert_eq!(revised.warnings.len(), 1);
 }
 
@@ -180,7 +180,7 @@ fn a_richtext_field_hashes_its_content_however_it_rests() {
     let as_string = doc.main().field_hash("subject").unwrap();
     assert_eq!(
         as_string,
-        content_hash(&from_markdown("Hello *world*").unwrap().content)
+        content_hash(&quillmark_content::markdown::from_markdown("Hello *world*").unwrap().content)
     );
     let mut w = TypedWriter::new(&config, &mut doc);
     assert_eq!(w.field_hash("subject").unwrap(), as_string);
@@ -295,7 +295,7 @@ fn a_merge_that_does_not_parse_is_a_conflict_and_warnings_follow_their_card() {
             .collect::<Vec<_>>(),
         [Some("cards.item[2].body")]
     );
-    assert_eq!(doc.card(2).unwrap().body().text, "Two x.");
+    assert_eq!(doc.card(2).unwrap().body_lines().text, "Two x.");
 }
 
 #[test]
@@ -340,9 +340,9 @@ fn a_document_revise_merges_a_read_and_refuses_a_stale_hash() {
 #[test]
 fn a_moved_tag_pins_through_a_merge() {
     let mut card = card_with_body("Alpha beta gamma delta.\n\nSecond.\n\nThird.");
-    let body = anchored(card.body(), "delta", "c1");
+    let body = anchored(card.body_lines(), "delta", "c1");
     card.overwrite_body(body);
-    let read = to_markdown_annotated(card.body()).markdown;
+    let read = to_markdown_annotated(card.body_lines()).markdown;
     assert!(
         read.contains("<qm-anchor ref=\"c1\"></qm-anchor>delta"),
         "{read}"
@@ -356,7 +356,7 @@ fn a_moved_tag_pins_through_a_merge() {
         .unwrap();
     let revised = card.revise_body_against(Base::Read(&read), &moved).unwrap();
     assert!(revised.dropped_anchors.is_empty());
-    let ctx = quillmark_content::anchor::anchor_context(card.body(), "c1").unwrap();
+    let ctx = quillmark_content::lines::anchor::anchor_context(card.body_lines(), "c1").unwrap();
     assert!(ctx.quote.starts_with("beta"), "{ctx:?}");
     assert!(card.body_markdown().contains("Third, theirs."));
 }
@@ -383,7 +383,7 @@ fn a_plain_read_of_an_unchanged_value_writes_the_writers_own() {
 
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nLead.\n");
-    doc.main_mut().overwrite_body(card.body().clone());
+    doc.main_mut().overwrite_body(card.body_lines().clone());
     let read = doc.to_markdown();
     let mut w = TypedWriter::new(&config, &mut doc);
     let _ = w
@@ -401,7 +401,7 @@ fn a_token_survives_a_merge() {
             .content,
     );
     card.overwrite_body(body.clone());
-    let read = to_markdown_annotated(card.body()).markdown;
+    let read = to_markdown_annotated(card.body_lines()).markdown;
     assert_eq!(
         read,
         "Alpha <qm-island ref=\"isl-0\"></qm-island>.\n\nBeta two."
@@ -415,10 +415,10 @@ fn a_token_survives_a_merge() {
         .unwrap();
     assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(
-        card.body().text,
+        card.body_lines().text,
         "Alpha, mine, \u{FFFC}.\nBeta two, theirs."
     );
-    assert_eq!(card.body().islands, body.islands);
+    assert_eq!(card.body_lines().islands, body.islands);
 
     let config = config();
     let mut doc = parse("~~~\n$quill: memo@1.0.0\n~~~\n\nAlpha ![a](u.png).\n\nBeta two.\n");
@@ -433,8 +433,8 @@ fn a_token_survives_a_merge() {
         .unwrap();
     assert!(revised.warnings.is_empty(), "{:?}", revised.warnings);
     assert_eq!(
-        doc.main().body().text,
+        doc.main().body_lines().text,
         "Alpha, mine, \u{FFFC}.\nBeta two, theirs."
     );
-    assert_eq!(doc.main().body().islands, body.islands);
+    assert_eq!(doc.main().body_lines().islands, body.islands);
 }

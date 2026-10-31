@@ -108,6 +108,11 @@ under `current` lands the revert the base refused. A refusal on a field
 anchors at the field. The whole-document lane raises them through
 `BoundParseError::Base`, as it raises a parse failure, before any mutation.
 
+The content lane's writes (`apply`, `applyAll`, `revise`, `replace`) take a
+`base` hash and refuse a stale one under the same `edit::stale_base`, carrying
+`current`. A change that does not apply to the value, or would leave it
+invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)).
+
 Building a card from a `CardWire` (`insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
 `WireError` carries the `EditError` its addressed twin raises, and
@@ -159,11 +164,6 @@ families:
   spelled, anchored at the card (`cards.<kind>[<i>]`) after every card's
   other warnings. A whole-document revise adds one at the revised card for
   an inserted card whose `$id` is not a card id or a stored card held.
-  A stored document's load (WASM `fromStored`, Python
-  `from_stored`; Rust `Document::anchor_collisions`) adds
-  `parse::anchor_id_collision` with the `id`, one per anchor id a body or
-  content value holds more than once with a table cell or footnote note
-  taking part, anchored at the value's path, and no other warning.
   A body's markdown import adds `parse::dropped_construct`, one per construct
   it dropped, with its `count`, anchored at the body (`main.body`,
   `cards.<kind>[<i>].body`) after its card's tag warnings. The `construct` is:
@@ -569,7 +569,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::unsupported_yaml_tag` | — | code-determined |
 | `parse::dropped_construct` | `construct`, `count` | structured |
 | `parse::card_id_reminted` | `id` | structured |
-| `parse::anchor_id_collision` | `id` | structured |
 | `export::lost_construct` | `construct`, `start`?, `end`? | structured |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |

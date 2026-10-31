@@ -371,8 +371,8 @@ fn the_plate_shape_for_text_is_unchanged() {
     };
 
     let from_string = plate_note(json!("a *literal* line"));
-    let from_object = plate_note(json!(quillmark_content::serial::to_canonical_value(
-        &quillmark_content::import::from_plaintext("a *literal* line")
+    let from_object = plate_note(json!(quillmark_content::lines::serial::to_canonical_value(
+        &quillmark_content::lines::import::from_plaintext("a *literal* line")
     )));
     assert!(from_string.is_object(), "plate keeps the content object");
     assert_eq!(from_string, from_object, "both commit inputs, one plate");
@@ -411,7 +411,7 @@ Body.
         delta
             .ops
             .iter()
-            .all(|op| matches!(op, quillmark_content::delta::Op::Retain(_))),
+            .all(|op| matches!(op, quillmark_content::lines::delta::Op::Retain(_))),
         "a no-change revise is all-retain: {delta:?}"
     );
     assert_eq!(bytes(&doc), before, "a no-change revise moves no bytes");
@@ -431,7 +431,7 @@ Body.
 fn a_0_124_0_row_migrates_then_converges() {
     let quill = quill();
     let body = |md: &str| {
-        quillmark_content::serial::to_canonical_value(&crate::document::import_body(md).unwrap())
+        quillmark_content::lines::serial::to_canonical_value(&crate::document::import_body(md).unwrap())
     };
     let legacy = json!({
         "schema": "quillmark/document@0.124.0",
@@ -441,8 +441,8 @@ fn a_0_124_0_row_migrates_then_converges() {
                 { "type": "kind", "value": "main" },
                 { "type": "field", "key": "subject", "value": "Q3 **results**" },
                 { "type": "field", "key": "note", "value":
-                    quillmark_content::serial::to_canonical_value(
-                        &quillmark_content::import::from_plaintext("a *literal* line")) },
+                    quillmark_content::lines::serial::to_canonical_value(
+                        &quillmark_content::lines::import::from_plaintext("a *literal* line")) },
                 { "type": "field", "key": "qty", "value": 3 },
             ]},
             "body": body("Main **body**.")
@@ -505,7 +505,7 @@ Entry body.
 
 #[test]
 fn revise_document_revises_then_conforms() {
-    use quillmark_content::model::{Mark, MarkKind};
+    use quillmark_content::lines::model::{Mark, MarkKind};
 
     let quill = quill();
     let (mut doc, _) = parse_bound(&quill, MD);

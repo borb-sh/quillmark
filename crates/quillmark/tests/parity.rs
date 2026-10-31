@@ -7,11 +7,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use quillmark::{Diagnostic, Document, Engine, Normalized, OutputFormat, Quill, RenderOptions};
 use quillmark_content::{
-    export::{to_markdown, to_markdown_annotated},
-    import::{ImportWarning, from_markdown},
-    model::{ISLAND_SLOT, MarkKind},
-    ops::change_bundle_from_value,
-    serial,
+    lines::export::{to_markdown, to_markdown_annotated},
+    migrate::from_lines,
+    model::Content,
+    lines::import::{ImportWarning, from_markdown},
+    lines::model::{ISLAND_SLOT, MarkKind},
+    lines::ops::change_bundle_from_value,
+    lines::serial,
 };
 use quillmark_fixtures::{quills_path, resource_path};
 use serde_json::{Value, json};
@@ -145,13 +147,23 @@ fn the_matrix_has_a_row_per_entry_naming_its_signals() {
 
 fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
     let mut failures = Vec::new();
-    let stored = &entry["content"];
+    let stored = &entry["lines"];
     let content = match serial::from_canonical_value(stored) {
         Ok(c) => c,
-        Err(e) => return vec![format!("content does not decode: {e}")],
+        Err(e) => return vec![format!("lines does not decode: {e}")],
     };
     if serial::to_canonical_value(&content) != *stored {
-        failures.push(format!("content is not canonical: {}", canonical(&content)));
+        failures.push(format!("lines is not canonical: {}", canonical(&content)));
+    }
+    let value = &entry["content"];
+    let migrated = from_lines(&content).to_value();
+    if migrated != *value {
+        failures.push(format!("lines migrates to {migrated}"));
+    }
+    match Content::from_value(value) {
+        Ok(c) if c.to_value() == *value => {}
+        Ok(c) => failures.push(format!("content is not canonical: {}", c.to_value())),
+        Err(e) => failures.push(format!("content does not decode: {e}")),
     }
     failures.extend(check_op_wire(stored, &content));
     let reimports = match entry.get("reimports").map(serial::from_canonical_value) {
@@ -204,10 +216,13 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
                 Ok(p) => p,
                 Err(e) => return [failures, vec![format!("a body does not parse: {e}")]].concat(),
             };
-            if parsed.document.main().body() != &content {
+            if parsed.document.main().body().to_value() != *value {
+                failures.push(format!("a body stores {}", parsed.document.main().body().to_value()));
+            }
+            if parsed.document.main().body_lines() != &content {
                 failures.push(format!(
                     "a body imports as {}",
-                    canonical(parsed.document.main().body())
+                    canonical(parsed.document.main().body_lines())
                 ));
             }
             let dropped = dropped_constructs(&parsed.warnings);
@@ -403,10 +418,10 @@ fn check_revise(content: &Normalized, reimports: &Normalized, markdown: &str) ->
         .document;
     doc.main_mut().overwrite_body(content.clone());
     match doc.main_mut().revise_body(markdown) {
-        Ok(revised) if doc.main().body() == &expected && revised.warnings.is_empty() => vec![],
+        Ok(revised) if doc.main().body_lines() == &expected && revised.warnings.is_empty() => vec![],
         Ok(revised) => vec![format!(
             "a revise lands {}, warning {:?}",
-            canonical(doc.main().body()),
+            canonical(doc.main().body_lines()),
             revised.warnings
         )],
         Err(e) => vec![format!("a revise fails: {e:?}")],
@@ -483,20 +498,20 @@ fn check_document(
     doc.main_mut().overwrite_body(content.clone());
     let read = doc.to_markdown_annotated();
     let mut failures: Vec<String> = match Document::parse(&doc.to_markdown()) {
-        Ok(p) if p.document.main().body() == reimports && p.warnings.is_empty() => vec![],
+        Ok(p) if p.document.main().body_lines() == reimports && p.warnings.is_empty() => vec![],
         Ok(p) => vec![format!(
             "the document parses to a body {}, warning {:?}",
-            canonical(p.document.main().body()),
+            canonical(p.document.main().body_lines()),
             p.warnings
         )],
         Err(e) => vec![format!("the document does not parse: {e}")],
     };
     let mut revised = doc.clone();
     match revised.revise(&read.markdown) {
-        Ok(r) if revised.main().body() == content && r.warnings.is_empty() => {}
+        Ok(r) if revised.main().body_lines() == content && r.warnings.is_empty() => {}
         Ok(r) => failures.push(format!(
             "the annotated read revises to a body {}, warning {:?}",
-            canonical(revised.main().body()),
+            canonical(revised.main().body_lines()),
             r.warnings
         )),
         Err(e) => failures.push(format!("the annotated read does not parse: {e}")),

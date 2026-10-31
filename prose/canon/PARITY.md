@@ -51,7 +51,7 @@ import meets. The columns:
 |---|---|
 | Markdown | `from_markdown` and `to_markdown` ([markdown-spec.md](../references/markdown-spec.md) §6) |
 | Stored JSON | the canonical content, `serial::to_canonical_value` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") |
-| Op wire | the authored lane: `overwrite` (`serial::from_authored_value`) and a `ChangeBundle`'s ops |
+| Op wire | the line form's authored lane: `serial::from_authored_value` and a `ChangeBundle`'s ops |
 | Typst lowering | `emit_content`, as [CONVERT.md](CONVERT.md) § "Element mapping" maps it |
 | Validate | `Quill::validate`'s verdict on the stored construct |
 | Signal | the code a cell reports under, with its `construct` arg |
@@ -251,9 +251,10 @@ matrix row:
 |---|---|
 | `name` | the row's name |
 | `markdown` | the row's spelling, or `null` where markdown spells none (`mark.anchor`, the unnamed keys) |
-| `annotated` | `to_markdown_annotated(content)`'s markdown, on a row whose construct only the annotated read spells: an anchor's tag (`mark.anchor`) or an island's token (the unnamed keys); absent elsewhere |
-| `content` | the canonical stored content, `serial::to_canonical_value`, pretty-printed so a change diffs by line |
-| `reimports` | what `from_markdown(to_markdown(content))` lands on, on a row markdown cannot spell (`mark.anchor`, the unnamed keys); absent where it is `content` |
+| `annotated` | `to_markdown_annotated(lines)`'s markdown, on a row whose construct only the annotated read spells: an anchor's tag (`mark.anchor`) or an island's token (the unnamed keys); absent elsewhere |
+| `lines` | the line form the renderers read, `serial::to_canonical_value`, pretty-printed so a change diffs by line |
+| `content` | the canonical stored content, `migrate::from_lines(lines)` as `Content::to_value` writes it |
+| `reimports` | what `from_markdown(to_markdown(lines))` lands on, on a row markdown cannot spell (`mark.anchor`, the unnamed keys); absent where it is `lines` |
 | `typst` | substrings the body's lowering contains, never a whole emission |
 | `signals.import` | `{construct, count}` per `parse::dropped_construct` the import raises, in order |
 | `signals.render` | the codes a one-shot render's warnings carry, in order |
@@ -262,29 +263,30 @@ matrix row:
 `crates/quillmark/tests/parity.rs` asserts each entry and names every one that
 fails:
 
-- `content` decodes through `serial::from_canonical_value` and re-encodes to
-  itself.
-- A spelled entry imports to `content`, warning `signals.import`, and so does
-  a body holding it through `Document::parse`.
-- `content` lands through `serial::from_authored_value`, and through one
+- `lines` decodes through `serial::from_canonical_value` and re-encodes to
+  itself, and migrates to `content`, which decodes through
+  `Content::from_value` and re-encodes to itself.
+- A spelled entry imports to `lines`, warning `signals.import`, and a body
+  holding it through `Document::parse` stores `content`.
+- `lines` lands through `serial::from_authored_value`, and through one
   `ChangeBundle` read by `change_bundle_from_value` and applied to an empty
   field: the text by `delta`, each island by an `insert` at its slot, each
   line's kind, containers and `continues` by line ops, and every mark by an
   `add`.
-- `to_markdown(content)` re-imports, warning nothing, to `reimports`: the fixed
+- `to_markdown(lines)` re-imports, warning nothing, to `reimports`: the fixed
   point where the entry has none.
-- A body holding `content`, revised with `to_markdown(content)`, lands on
-  `reimports` plus every anchor `content` holds, warning nothing.
-- An entry's `annotated` is `to_markdown_annotated(content)`'s markdown and
-  revises a body holding `content` to `content`, warning nothing. Imported
-  cold, it lands on `content` without its anchors, warning nothing, where it
+- A body holding `lines`, revised with `to_markdown(lines)`, lands on
+  `reimports` plus every anchor `lines` holds, warning nothing.
+- An entry's `annotated` is `to_markdown_annotated(lines)`'s markdown and
+  revises a body holding `lines` to `lines`, warning nothing. Imported
+  cold, it lands on `lines` without its anchors, warning nothing, where it
   holds no token, and on `reimports` without its islands, warning one
   `qm-island` per token, where it holds one.
-- A document whose body holds `content` emits markdown that parses through
+- A document whose body holds `lines` emits markdown that parses through
   `Document::parse`, warning nothing, to a body holding `reimports`, and an
   annotated read that revises the document through `Document::revise`,
-  warning nothing, to a body holding `content`; the read lists each anchor of
-  `content` at `main.body` and spells `annotated`.
+  warning nothing, to a body holding `lines`; the read lists each anchor of
+  `lines` at `main.body` and spells `annotated`.
 - The rest runs through the fixture quill `table_demo`, against `typst` and
   `signals`.
 - The body's block in the generated helper, which is `emit_content`'s markup,
@@ -303,7 +305,7 @@ markup wrapped reaches the page.
 Each binding holds what only it can break, the crossing: every entry's
 `content` and import warnings cross out of a markdown import and a parse, and
 `content` crosses back in through a write and storage. The WASM binding's
-`parity.test.js` goes through `importMarkdown`, `fromMarkdown`, `overwrite` and
+`parity.test.js` goes through `importMarkdown`, `fromMarkdown`, `replace` and
 `fromStored`; Python's `tests/test_parity.py` through `Document.from_markdown`
 and a stored load.
 
