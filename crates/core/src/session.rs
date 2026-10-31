@@ -40,19 +40,14 @@ pub trait SessionHandle: Send + Sync + 'static {
     ///
     /// Transactional: on `Err` the previous compile stays live and every read
     /// keeps serving it. The returned [`ChangeSet`] reports the pages the edit
-    /// visibly changed. Default: update is unsupported.
+    /// visibly changed.
     ///
     /// `config` is the schema the session was opened against.
     fn update(
         &mut self,
-        _config: &QuillConfig,
-        _json_data: &serde_json::Value,
-    ) -> Result<ChangeSet, RenderError> {
-        Err(RenderError::coded(
-            "backend::update_unsupported",
-            "this backend's session does not support update",
-        ))
-    }
+        config: &QuillConfig,
+        json_data: &serde_json::Value,
+    ) -> Result<ChangeSet, RenderError>;
 
     /// Page dimensions in points (1 pt = 1/72"). `Some` for every `page` below
     /// [`page_count`](Self::page_count); a `None` is an out-of-range page.
@@ -475,6 +470,13 @@ main:
         fn page_count(&self) -> usize {
             1
         }
+        fn update(
+            &mut self,
+            _: &QuillConfig,
+            _: &serde_json::Value,
+        ) -> Result<ChangeSet, RenderError> {
+            unimplemented!("update is not exercised by geometry tests")
+        }
         fn regions(&self) -> Vec<RenderedRegion> {
             vec![RenderedRegion {
                 field: "subject".to_string(),
@@ -503,6 +505,13 @@ main:
         }
         fn page_count(&self) -> usize {
             1
+        }
+        fn update(
+            &mut self,
+            _: &QuillConfig,
+            _: &serde_json::Value,
+        ) -> Result<ChangeSet, RenderError> {
+            unimplemented!("update is not exercised by geometry tests")
         }
         fn regions(&self) -> Vec<RenderedRegion> {
             ["under", "over"]

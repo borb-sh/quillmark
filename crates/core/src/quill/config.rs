@@ -2226,7 +2226,7 @@ impl QuillConfig {
     /// Whether `name` is a snake_case identifier: a lowercase ASCII letter, then
     /// lowercase letters, digits and underscores. A field name and a matrix
     /// member id are spelled this way, an added item's key included.
-    pub fn is_snake_case_identifier(name: &str) -> bool {
+    pub(crate) fn is_snake_case_identifier(name: &str) -> bool {
         let mut chars = name.chars();
         match chars.next() {
             Some(c) if c.is_ascii_lowercase() => {}

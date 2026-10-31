@@ -20,10 +20,7 @@ mod types;
 pub(crate) mod validation;
 
 pub use authoring::AUTHORING_INVALID_SHAPE;
-pub use bundle::{
-    BUNDLE_EXTENSION, BUNDLE_MEDIA_TYPE, MAX_BUNDLE_BYTES, MAX_BUNDLE_ENTRIES,
-    MAX_BUNDLE_FILE_BYTES,
-};
+pub use bundle::{BUNDLE_EXTENSION, MAX_BUNDLE_BYTES, MAX_BUNDLE_ENTRIES, MAX_BUNDLE_FILE_BYTES};
 pub use compose::PLATE_PATH_KEY;
 pub use config::{CoercionError, QuillConfig};
 pub(crate) use config::{Leniency, RICHTEXT_SINGLE_LINE_TARGET, TEXT_SINGLE_LINE_TARGET};

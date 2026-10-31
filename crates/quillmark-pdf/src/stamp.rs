@@ -46,7 +46,7 @@ pub const CHECK_FONT_RESOURCE: &str = "ZaDb";
 
 /// The [`CHECK_FONT`] glyph a checked box shows, 0x34, the filled check mark:
 /// the widget's `/MK /CA` caption, and what a drawn raster shows in its place.
-pub const CHECK_GLYPH: &[u8] = b"4";
+pub(crate) const CHECK_GLYPH: &[u8] = b"4";
 
 /// House-style default appearance: Helvetica, `0 Tf` (auto-size), black fill.
 /// `Helv` is registered in the form `/DR` `/Font`.

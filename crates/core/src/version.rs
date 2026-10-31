@@ -162,11 +162,8 @@ pub const MAX_QUILL_NAME_LEN: usize = 64;
 
 /// Whether `name` is a quill name: `[a-z][a-z0-9_]*`, at most
 /// [`MAX_QUILL_NAME_LEN`] bytes. A collection name is held to the same rule.
-pub fn is_quill_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    name.len() <= MAX_QUILL_NAME_LEN
-        && chars.next().is_some_and(|c| c.is_ascii_lowercase())
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+pub(crate) fn is_quill_name(name: &str) -> bool {
+    name.len() <= MAX_QUILL_NAME_LEN && crate::quill::QuillConfig::is_snake_case_identifier(name)
 }
 
 /// A `$quill` reference: `[<collection>.]<name>[@<selector>]`.

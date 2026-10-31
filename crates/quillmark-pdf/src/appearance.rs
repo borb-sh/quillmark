@@ -14,8 +14,9 @@ use pdf_writer::{Chunk, Finish, Name, Rect};
 
 use crate::error::PdfError;
 use crate::reader::UpdatedObject;
+use crate::stamp::CHECK_GLYPH;
 use crate::writer::{pdf_escape, to_ref, winansi_encode};
-use crate::{CHECK_FONT_RESOURCE, CHECK_GLYPH, FieldSpec, FieldType, FormFont};
+use crate::{CHECK_FONT_RESOURCE, FieldSpec, FieldType, FormFont};
 
 const MIN_SIZE: f32 = 4.0;
 const MAX_SIZE: f32 = 12.0;

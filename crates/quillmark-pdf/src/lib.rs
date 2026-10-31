@@ -23,8 +23,8 @@ pub mod testkit;
 pub use appearance::overflows;
 pub use error::PdfError;
 pub use stamp::{
-    AppearanceStates, CHECK_FONT, CHECK_FONT_RESOURCE, CHECK_GLYPH, CHECKBOX_ON_STATE,
-    StampOptions, regions_of, stamp,
+    AppearanceStates, CHECK_FONT, CHECK_FONT_RESOURCE, CHECKBOX_ON_STATE, StampOptions, regions_of,
+    stamp,
 };
 pub use writer::unencodable_chars;
 
@@ -112,7 +112,7 @@ impl FieldSpec {
     /// coordinate is finite. `rect` is public and every writer here prints a
     /// float verbatim, so an unchecked one reaches a widget `/Rect` or a drawn
     /// content stream as `NaN`/`inf`, a token no PDF number grammar admits.
-    pub fn assert_finite_rect(&self) -> Result<(), PdfError> {
+    pub(crate) fn assert_finite_rect(&self) -> Result<(), PdfError> {
         if self.rect.iter().all(|v| v.is_finite()) {
             return Ok(());
         }

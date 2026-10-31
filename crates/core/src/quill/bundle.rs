@@ -7,8 +7,6 @@ use super::{FileTreeNode, Quill};
 
 /// The extension a bundle's file name ends in, without its dot.
 pub const BUNDLE_EXTENSION: &str = "quill";
-/// The media type a bundle is served as.
-pub const BUNDLE_MEDIA_TYPE: &str = "application/vnd.quillmark.quill+zip";
 /// The most entries a bundle's central directory may list.
 pub const MAX_BUNDLE_ENTRIES: usize = 2048;
 /// The most bytes one file in a bundle may unpack to.
