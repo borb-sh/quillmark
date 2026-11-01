@@ -969,8 +969,7 @@ impl PyDocument {
     /// dicts `{change, field?, card?, base?}`. The first refused write raises,
     /// the document as it was.
     fn apply_all<'py>(&mut self, py: Python<'py>, writes: &Bound<'_, PyAny>) -> PyResult<Vec<Bound<'py, PyDict>>> {
-        let mut next = self.inner.clone();
-        let mut receipts = Vec::new();
+        let mut parsed = Vec::new();
         for w in writes.try_iter()? {
             let w = w?;
             let w = w.cast::<PyDict>().map_err(|_| PyValueError::new_err("apply_all: a write is a dict"))?;
@@ -989,7 +988,11 @@ impl PyDocument {
             let base: Option<String> = get("base").map(|v| v.extract()).transpose()?;
             let change = get("change").ok_or_else(|| PyValueError::new_err("apply_all: a write names a change"))?;
             let change = crate::content::change_from_py(&change, "apply_all")?;
-            let target = Target::resolve(&next, card)?;
+            parsed.push((Target::resolve(&self.inner, card)?, field, change, base));
+        }
+        let mut next = self.inner.clone();
+        let mut receipts = Vec::new();
+        for (target, field, change, base) in parsed {
             receipts.push(crate::content::write(
                 py,
                 &mut next,
