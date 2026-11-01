@@ -89,7 +89,7 @@ A `Change` is a list of steps. Each step reads the value the step before it left
 
 `apply` runs the steps in one pass. Each step holds what it touched to what `validate` asks of it, its inserted text, records, marks and islands, and the value the last step leaves is validated once, whole. Block and island ids are unique only there: between steps a change may hold one twice, as a move does when it inserts the copy before it deletes the original, and a step that names an id held twice is `ApplyError::BadStep`, since it cannot say which it means.
 
-Every step can tell whether it still fits the value it reads, so a writer outside the live session that passes no base is refused rather than landing on whatever text now sits at its offsets. A step whose precondition fails is `ApplyError::Stale`:
+Each step holds to what its writer read as far as its precondition reaches. A step whose precondition fails is `ApplyError::Stale`:
 
 - a splice holds its `delete` to the text at `at`;
 - a `mark` step and an `anchor` placement hold their range to `quote`, the text it covered when the writer read it;
@@ -97,6 +97,10 @@ Every step can tell whether it still fits the value it reads, so a writer outsid
 - the id-addressed steps fail on a missing id.
 
 `quote` and `block` are optional on input. The normalized change, `Applied.applied`, fills both in, as it fills a splice's `removed`, so a change rebased over another holds every step to what its writer read. `invert` fills them in its own steps, from the value each undoes: each step answers its inverse as it applies, and `invert` is those inverses read back last first.
+
+With no base, a step is refused rather than landing on whatever now sits at its offsets only where its precondition reads the value: a splice, a `mark` step or anchor placement that carries `quote`, and an island insert that names its `block`. A step by id, a `setBlock`, a `container` step or an island props step, lands over whatever the value now holds, so a stale props step that adds a column deletes a row added since.
+
+A writer outside the live session therefore passes the base. A stale write then rebases, and conflicts wherever a step by id would overwrite what changed since (§ "Rebasing a change").
 
 A split inserts a `\n` whose record names the right half; the left half keeps its id, since the record that opens it does not move. A join deletes the right block's `\n` and record, and the joined block keeps the left's id and kind. Splits and joins therefore never rewrite a record a concurrent `setBlock` could be aimed at. Collab's Y form keeps the same boundary, so a split or a join lowers into Y as an insertion or a deletion alone.
 
