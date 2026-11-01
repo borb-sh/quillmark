@@ -186,6 +186,24 @@ describe('LiveSession canvas preview', () => {
     expect(session.positionAt(bodyRegion.page, 2, 2)).toBeFalsy()
   })
 
+  it('spans and content positions count in UTF-16, as the content value does', () => {
+    const { engine, quill } = openQuill()
+    const doc = Document.fromMarkdown(TEST_MARKDOWN.replace('# Hello canvas', 'Alpha 😀😀 beta gamma.'))
+    const text = doc.read({}).text
+    const session = engine.open(quill, doc)
+    const region = session.regions().find((r) => r.field === 'main.body' && r.span)
+    expect(region.span).toEqual([0, text.length])
+    const rendered = engine.render(quill, doc, { format: 'svg', regions: true })
+    expect(rendered.regions.find((r) => r.field === 'main.body' && r.span).span).toEqual(region.span)
+
+    const at = text.indexOf('beta')
+    const caret = session.locate('main.body', at)
+    expect(caret.span).toEqual([at, at])
+    expect(session.locate('main.body', text.indexOf('😀') + 1)).toBeUndefined()
+    const [x0, y0, x1, y1] = caret.rect
+    expect(session.positionAt(caret.page, (x0 + x1) / 2, (y0 + y1) / 2).pos).toBe(at)
+  })
+
   it('addresses an array element as a bracketed DocPath index, both directions', () => {
     // The backend keys each `array<richtext>` element `references.<i>` in plate
     // space. The boundary translates that segment-wise, so a consumer sees the

@@ -278,7 +278,7 @@ export interface RenderOptions {
  */
 export type HitGranularity = 'cluster' | 'segment';
 
-/** A click resolved to a field and USV offset into its Content. */
+/** A click resolved to a field and a UTF-16 offset into its Content. */
 export interface ContentHit {
 	/**
 	 * The field's canonical `DocPath` address (`parseDocPath`-routable): the same
@@ -331,7 +331,7 @@ export interface FieldRegion {
 	/** `[x0, y0, x1, y1]` in PDF points (1/72″), bottom-left origin. */
 	rect: [number, number, number, number];
 	/**
-	 * The content slice this box covers: USV `[start, end)` into the field's
+	 * The content slice this box covers: UTF-16 `[start, end)` into the field's
 	 * `Content` for content ink (one segment), absent for a scalar's or a
 	 * date's ink, a claim or a widget. Consumers key segment highlights on it;
 	 * {@link LiveSession.fieldBoxes} unions same-page segments for the
@@ -603,7 +603,8 @@ export declare class LiveSession {
 	positionAt(page: number, x: number, y: number, tolPt?: number): ContentHit | undefined;
 	/**
 	 * Content position → caret rect: reverse of {@link positionAt}. `field` is a
-	 * canonical `DocPath` address (`parseDocPath`-routable), as {@link regions} keys.
+	 * canonical `DocPath` address (`parseDocPath`-routable), as {@link regions} keys;
+	 * `pos` a UTF-16 offset into its `Content`, `undefined` inside a character.
 	 */
 	locate(field: string, pos: number): FieldRegion | undefined;
 	/** Page geometry in points (1/72″). */

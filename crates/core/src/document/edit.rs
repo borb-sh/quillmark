@@ -12,6 +12,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use quillmark_content::lines::delta::{Delta, carry_anchors, diff_import};
+use quillmark_content::units::Units;
 use quillmark_content::lines::export::{AnchorRead, anchors_where};
 use quillmark_content::lines::import::ImportError;
 use quillmark_content::lines::model::Normalized;
@@ -675,9 +676,16 @@ pub struct Revised {
     /// [`anchors_where`] lists them, each with the text of the line or cell it
     /// stood in.
     pub dropped_anchors: Vec<AnchorRead>,
+    /// The text `delta` applies to.
+    base: String,
 }
 
 impl Revised {
+    /// [`delta`](Self::delta) with each count in `u`, a host's units.
+    pub fn delta_in(&self, u: impl Units) -> Delta {
+        self.delta.to_units(&self.base, u)
+    }
+
     /// Anchor every warning at `path`, the revised body or field.
     pub fn with_path(mut self, path: &crate::path::DocPath) -> Self {
         let at = path.to_string();
@@ -705,6 +713,7 @@ pub fn revise_import(
             delta,
             warnings,
             dropped_anchors,
+            base: base.text.clone(),
         },
     ))
 }
@@ -717,6 +726,7 @@ fn carry_receipt(base: &Normalized, content: Normalized) -> (Normalized, Revised
         delta,
         warnings: Vec::new(),
         dropped_anchors,
+        base: base.text.clone(),
     };
     (content, revised)
 }
@@ -1523,10 +1533,11 @@ impl Card {
         if matches!(schema.r#type, FieldType::Text { .. }) {
             return self
                 .revise_field_text(name, body, schema)
-                .map(|delta| Revised {
+                .map(|(delta, base)| Revised {
                     delta,
                     warnings: Vec::new(),
                     dropped_anchors: Vec::new(),
+                    base,
                 });
         }
         let (content, revised) = self.diff_field(name, body)?;
@@ -1554,7 +1565,7 @@ impl Card {
         name: &str,
         text: impl Into<String>,
         schema: &FieldSchema,
-    ) -> Result<Delta, EditError> {
+    ) -> Result<(Delta, String), EditError> {
         // Ahead of the read: a directly-constructed payload can hold an ill-named
         // field, whose decode error would otherwise mask the bad name.
         check_field_name(name)?;
@@ -1581,7 +1592,7 @@ impl Card {
         self.payload_mut()
             .insert(name.to_string(), stored)
             .map_err(EditError::InvalidPayload)?;
-        Ok(delta)
+        Ok((delta, base))
     }
 
     /// Apply a committed field-change bundle to the body content. Order is text

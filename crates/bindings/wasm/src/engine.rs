@@ -7,6 +7,8 @@ use js_sys::{Array, Uint8Array};
 use serde::Serialize;
 use std::collections::HashMap;
 #[cfg(feature = "render")]
+use quillmark_content::units::Utf16;
+#[cfg(feature = "render")]
 use tsify::Ts;
 use wasm_bindgen::prelude::*;
 
@@ -283,9 +285,9 @@ export interface CardAddr {
 }
 
 /**
- * A text-splice change set over the USV content (CodeMirror `ChangeSet`
- * semantics), returned in a revise's `Revised` receipt. Map a stored
- * position through it with `mapPos`.
+ * A text-splice change set over the revised value's text, counted in UTF-16
+ * code units (CodeMirror `ChangeSet` semantics), returned in a revise's
+ * `Revised` receipt and taken back by `reattach`.
  *
  * Applying one admits an `insert` string rather than storing it verbatim: `\r`
  * and the Unicode bidi controls drop, and a line separator — VT, FF, NEL,
@@ -576,7 +578,7 @@ impl Engine {
         let today = render_date(today)?;
         let result = self
             .inner
-            .render(&quill.inner, &doc.inner, today, &rust_opts)
+            .render_in(&quill.inner, &doc.inner, today, &rust_opts, Utf16)
             .map_err(js_err)?;
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
         render_result_to_ts(result, &kinds)
@@ -1114,7 +1116,7 @@ impl Document {
                 by_path.insert(parse_path(&path)?, delta);
             }
         }
-        let out = self.inner.reattach(&selectors, &by_path);
+        let out = self.inner.reattach_in(&selectors, &by_path, quillmark_content::units::Utf16);
         let js = ReattachedJs {
             reattached: out.reattached.into_iter().map(Into::into).collect(),
             orphaned: out.orphaned.into_iter().map(Into::into).collect(),
@@ -2141,7 +2143,7 @@ struct RevisedJs {
 impl From<quillmark_core::document::Revised> for RevisedJs {
     fn from(revised: quillmark_core::document::Revised) -> Self {
         RevisedJs {
-            delta: revised.delta,
+            delta: revised.delta_in(quillmark_content::units::Utf16),
             warnings: diags(revised.warnings),
             dropped_anchors: revised
                 .dropped_anchors
@@ -2925,7 +2927,7 @@ impl LiveSession {
             "a session renders on the date it opened with: engine.open(quill, doc, today)",
         )?;
 
-        let result = self.inner.render(&rust_opts).map_err(js_err)?;
+        let result = self.inner.render_in(&rust_opts, Utf16).map_err(js_err)?;
         render_result_to_ts(result, &self.kinds())
     }
 
@@ -2938,7 +2940,7 @@ impl LiveSession {
     #[wasm_bindgen(js_name = regions, unchecked_return_type = "FieldRegion[]")]
     pub fn regions(&self) -> Result<JsValue, JsValue> {
         let regions: Vec<FieldRegion> =
-            quillmark_core::region::regions_to_doc_path(self.inner.regions(), &self.kinds())
+            quillmark_core::region::regions_to_doc_path(self.inner.regions_in(Utf16), &self.kinds())
                 .into_iter()
                 .map(Into::into)
                 .collect();
@@ -2955,7 +2957,7 @@ impl LiveSession {
         let kinds = self.kinds();
         let plate = docpath_to_plate(field, &kinds);
         let boxes: Vec<FieldRegion> =
-            quillmark_core::region::regions_to_doc_path(self.inner.field_boxes(&plate), &kinds)
+            quillmark_core::region::regions_to_doc_path(self.inner.field_boxes_in(&plate, Utf16), &kinds)
                 .into_iter()
                 .map(Into::into)
                 .collect();
@@ -3006,8 +3008,8 @@ impl LiveSession {
             .map(|f| plate_to_docpath(&f, &self.kinds()))
     }
 
-    /// A point → **content position**: the field *and* a USV offset into its
-    /// `Content`, for placing a caret or mapping a selection into the content
+    /// A point → **content position**: the field *and* a UTF-16 offset into
+    /// its `Content`, for placing a caret or mapping a selection into the content
     /// model, or `undefined` off all content ink. `x`/`y`/`tolPt` are PDF
     /// points, bottom-left origin, as in `fieldAt`. The offset is cluster-exact
     /// and degrades to the containing segment's start on origin-less ink.
@@ -3024,7 +3026,7 @@ impl LiveSession {
         tol_pt: Option<f32>,
     ) -> Result<Option<Ts<ContentHit>>, JsValue> {
         self.inner
-            .position_at(page, x, y, tol_pt.unwrap_or(0.0))
+            .position_at_in(page, x, y, tol_pt.unwrap_or(0.0), Utf16)
             .map(|mut hit| {
                 hit.field = plate_to_docpath(&hit.field, &self.kinds());
                 to_ts_or_throw(&ContentHit::from(hit))
@@ -3034,14 +3036,16 @@ impl LiveSession {
 
     /// A content position → **caret rect**, the reverse of `positionAt`: the box
     /// to draw a caret at, in the same bottom-left PDF-point space as
-    /// `FieldRegion.rect`, its `span` collapsed to `[pos, pos]`. `undefined` when
-    /// the field places no tracked content or the offset maps to no drawn glyph.
+    /// `FieldRegion.rect`, its `span` collapsed to `[pos, pos]`. `pos` is a
+    /// UTF-16 offset into the field's `Content`. `undefined` when the field
+    /// places no tracked content, the offset falls inside a character, or it
+    /// maps to no drawn glyph.
     #[wasm_bindgen(js_name = locate)]
     pub fn locate(&self, field: &str, pos: usize) -> Result<Option<Ts<FieldRegion>>, JsValue> {
         let kinds = self.kinds();
         let plate = docpath_to_plate(field, &kinds);
         self.inner
-            .locate(&plate, pos)
+            .locate_in(&plate, pos, Utf16)
             .map(|mut r| {
                 r.field = plate_to_docpath(&r.field, &kinds);
                 to_ts_or_throw(&FieldRegion::from(r))

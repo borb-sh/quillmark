@@ -7,6 +7,7 @@ use crate::{
 };
 pub use quillmark_content::lines::delta::{Assoc, Delta, Op};
 pub use quillmark_content::lines::ops::{ApplyError, ChangeBundle, IslandOp, LineOp, MarkOp};
+use quillmark_content::units::{self, Units};
 use std::sync::OnceLock;
 
 /// What a committed [`LiveSession::update`] changed.
@@ -310,6 +311,75 @@ impl LiveSession {
         self.inner.locate(field, pos)
     }
 
+    /// [`regions`](Self::regions) with each `span` in `u`, counted into the
+    /// text of the content value the current compile read at its field.
+    pub fn regions_in(&self, u: impl Units) -> Vec<RenderedRegion> {
+        self.spans_in(self.regions(), u)
+    }
+
+    /// [`field_boxes`](Self::field_boxes) with each `span` in `u`.
+    pub fn field_boxes_in(&self, field: &str, u: impl Units) -> Vec<RenderedRegion> {
+        self.spans_in(self.field_boxes(field), u)
+    }
+
+    /// [`position_at`](Self::position_at) with `pos` in `u`.
+    pub fn position_at_in(&self, page: usize, x: f32, y: f32, tol: f32, u: impl Units) -> Option<ContentHit> {
+        let mut hit = self.position_at(page, x, y, tol)?;
+        if let Some(text) = self.content_text(&hit.field) {
+            hit.pos = units::from_scalars(u, text, hit.pos);
+        }
+        Some(hit)
+    }
+
+    /// [`locate`](Self::locate) with `pos` in `u`: `None` also where `pos`
+    /// falls inside a character or past the field's text.
+    pub fn locate_in(&self, field: &str, pos: usize, u: impl Units) -> Option<RenderedRegion> {
+        let at = units::to_scalars(u, self.content_text(field)?, pos)?;
+        let mut region = self.locate(field, at)?;
+        region.span = region.span.map(|_| [pos, pos]);
+        Some(region)
+    }
+
+    /// [`render`](Self::render) with each region's `span` in `u`.
+    pub fn render_in(&self, opts: &RenderOptions, u: impl Units) -> Result<RenderResult, RenderError> {
+        let mut result = self.render(opts)?;
+        result.regions = self.spans_in(std::mem::take(&mut result.regions), u);
+        Ok(result)
+    }
+
+    fn spans_in(&self, mut regions: Vec<RenderedRegion>, u: impl Units) -> Vec<RenderedRegion> {
+        for region in &mut regions {
+            if let (Some(span), Some(text)) = (region.span.as_mut(), self.content_text(&region.field)) {
+                *span = span.map(|n| units::from_scalars(u, text, n));
+            }
+        }
+        regions
+    }
+
+    /// The text of the content value the current compile read at `field`, a
+    /// plate-space address: what a `span` and a content position count into.
+    fn content_text(&self, field: &str) -> Option<&str> {
+        let (mut value, tail) = match field.strip_prefix("$cards.") {
+            Some(rest) => {
+                let mut it = rest.splitn(3, '.');
+                let (kind, ord) = (it.next()?, it.next()?.parse::<usize>().ok()?);
+                let card = self.data.get("$cards")?.as_array()?.iter()
+                    .filter(|c| c.get("$kind").and_then(|k| k.as_str()) == Some(kind))
+                    .nth(ord)?;
+                (card, it.next()?)
+            }
+            None => (&self.data, field),
+        };
+        for piece in tail.split('.') {
+            value = match value {
+                serde_json::Value::Array(items) => items.get(piece.parse::<usize>().ok()?)?,
+                serde_json::Value::Object(map) => map.get(piece)?,
+                _ => return None,
+            };
+        }
+        value.get("text")?.as_str()
+    }
+
     /// Non-fatal diagnostics of the session's **current compile**, refreshed by
     /// each committed [`update`](Self::update); a failed update keeps the
     /// last-good compile *and* its warnings. Also appended to
@@ -495,6 +565,63 @@ main:
         ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
             blank_raster(page, self.page_count(), scale)
         }
+    }
+
+    /// A span at the end of each of three fields, a card's body among them.
+    struct SpanHandle;
+    impl SessionHandle for SpanHandle {
+        fn render(&self, _: &RenderOptions) -> Result<RenderResult, RenderError> {
+            unimplemented!("render is not exercised by geometry tests")
+        }
+        fn page_count(&self) -> usize {
+            1
+        }
+        fn update(
+            &mut self,
+            _: &QuillConfig,
+            _: &serde_json::Value,
+        ) -> Result<ChangeSet, RenderError> {
+            unimplemented!("update is not exercised by geometry tests")
+        }
+        fn regions(&self) -> Vec<RenderedRegion> {
+            ["refs.1", "$cards.note.1.$body", "$body", "subject"]
+                .into_iter()
+                .map(|field| RenderedRegion::new(field.to_string(), 0, [0.0; 4]).with_span([0, 2]))
+                .collect()
+        }
+        fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
+            letter_page(page, self.page_count())
+        }
+        fn render_rgba(
+            &self,
+            page: usize,
+            scale: f32,
+        ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
+            blank_raster(page, self.page_count(), scale)
+        }
+    }
+
+    #[test]
+    fn a_span_counts_in_the_hosts_units_into_its_fields_text() {
+        let text = |t: &str| serde_json::json!({ "text": t, "lines": [] });
+        let data = serde_json::json!({
+            "refs": [text("ab"), text("😀b")],
+            "$body": text("é😀"),
+            "subject": "😀😀",
+            "$cards": [
+                { "$kind": "note", "$body": text("ab") },
+                { "$kind": "other", "$body": text("ab") },
+                { "$kind": "note", "$body": text("😀😀") },
+            ],
+        });
+        let session = LiveSession::new(Box::new(SpanHandle), config(), test_date(), &data);
+        let spans: Vec<_> = session
+            .regions_in(quillmark_content::units::Utf16)
+            .into_iter()
+            .map(|r| (r.field, r.span))
+            .collect();
+        let want = [("refs.1", [0, 3]), ("$cards.note.1.$body", [0, 4]), ("$body", [0, 3]), ("subject", [0, 2])];
+        assert_eq!(spans, want.map(|(f, s)| (f.to_string(), Some(s))));
     }
 
     /// Two regions on one rect, so every hit inside it is a tie.

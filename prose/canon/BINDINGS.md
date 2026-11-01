@@ -80,7 +80,7 @@ The receipt's `from` is the alignment itself: for each revised composable card, 
 
 ### Content offsets
 
-Storage counts Unicode scalar values; each binding speaks its host's units at the boundary and converts inside (`units` module of `quillmark-content`). WASM speaks UTF-16 code units, JavaScript string indices; Python speaks code points, which are storage's own.
+Storage is scalars, and every host speaks its own: storage and core count Unicode scalar values, and each binding speaks its host's units at every surface that takes or answers an offset, converting inside (`units` module of `quillmark-content`). WASM speaks UTF-16 code units, JavaScript string indices; Python speaks code points, which are storage's own, so it converts nothing.
 
 - A `Content` converts on its own text, and a slot on its own.
 - A `Change` converts against the value it applies to, each step on the text the steps before it left, so a step's offsets read as the writer saw them. An offset inside a surrogate pair refuses the change (`edit::content_apply`).
@@ -88,10 +88,11 @@ Storage counts Unicode scalar values; each binding speaks its host's units at th
 - `rebase` converts both changes on `base`, and answers in the units of the value `over` left.
 - A content write's change converts on the value its `base` names, which a stale base makes an earlier value than the one it writes over; its receipt's `applied` converts on the value it wrote over.
 - `repair` takes an offset inside a surrogate pair to the pair's start, since a merged state can hold one.
+- The render seam ([PREVIEW.md](PREVIEW.md)) converts on the text of the content value the compile read at each field: a region's `span`, `positionAt`'s `pos`, and `locate`'s `pos`, which answers nothing inside a surrogate pair. Core's `LiveSession::*_in` and `Engine::render_in` take the units.
+- A typed revise's `Revised.delta` converts on the text it revised, and `reattach` reads each delta it takes on the value's text now, the text that revise left.
+- A diagnostic's `location` is a line and column in a source file, not a content offset, and crosses as the parser counts it.
 
 A content value inside a payload, a richtext field's value or one nested in a list or object field, converts wherever it crosses: any object holding a `text` string and a `blocks` array is read as content.
-
-Positions in an editor session and in the render seam ([PREVIEW.md](PREVIEW.md)) stay in scalar values.
 
 **The rule governs user-field writes.** System metadata (`store_ext` / `store_seed_*`), structural operations (`insertCard` / `moveCard`), and the `remove_*` family sit outside it: `remove_*` has no lane because one verb serves every write path, and a structural op moves cards rather than writing into one. So `store_field` / `store_fields` are the opaque store, `set` / `set_all` the typed writer, and a name never needs per-verb disambiguation against its neighbor (the opaque batch `store_fields` and the typed batch `set_all` are not near-homographs).
 

@@ -31,6 +31,7 @@
 
 use crate::lines::import::{Against, ImportWarning, Pin};
 use crate::lines::model::{Island, Mark, MarkKind, Content, Normalized};
+use crate::units::{self, Units};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use similar::{capture_diff_slices, Algorithm, ChangeTag, DiffOp, TextDiff};
@@ -203,6 +204,47 @@ impl Delta {
                     let len = s.chars().count();
                     if len > 0 {
                         spans.push((new, new.saturating_add(len)));
+                    }
+                    new = new.saturating_add(len);
+                }
+                Op::Delete(_) => {}
+            }
+        }
+        spans
+    }
+
+    /// This delta with each count in `u`, read on `base`, the text it applies
+    /// to; counts past `base` keep their length per character.
+    pub fn to_units(&self, base: &str, u: impl Units) -> Delta {
+        let mut chars = base.chars();
+        let mut take = |n: usize| (0..n).map(|_| chars.next().map_or(1, |c| u.char_len(c))).sum();
+        let ops = self
+            .ops
+            .iter()
+            .map(|op| match op {
+                Op::Retain(n) => Op::Retain(take(*n)),
+                Op::Delete(n) => Op::Delete(take(*n)),
+                Op::Insert(s) => Op::Insert(s.clone()),
+            })
+            .collect();
+        Delta { ops }
+    }
+
+    /// [`inserted_spans`](Self::inserted_spans) of a delta counted in `u`,
+    /// as scalar ranges into `after`, the text it produced; a span whose edge
+    /// falls inside a character or past `after` is left out.
+    pub fn inserted_spans_in(&self, after: &str, u: impl Units) -> Vec<(usize, usize)> {
+        let mut spans = Vec::new();
+        let mut new = 0usize;
+        for op in &self.ops {
+            match op {
+                Op::Retain(n) => new = new.saturating_add(*n),
+                Op::Insert(s) => {
+                    let len = u.len(s);
+                    if let (true, Some(start), Some(end)) =
+                        (len > 0, units::to_scalars(u, after, new), units::to_scalars(u, after, new + len))
+                    {
+                        spans.push((start, end));
                     }
                     new = new.saturating_add(len);
                 }
@@ -865,6 +907,28 @@ mod tests {
     use super::*;
     use crate::lines::import::from_markdown;
     use crate::lines::model::MarkKind;
+
+    #[test]
+    fn a_delta_in_utf16_applies_as_js_slices_and_inserts_where_it_did() {
+        let (base, new) = ("😀a b😀", "😀a 😀x b😀!");
+        let d = diff(base, new);
+        let wide = d.to_units(base, crate::units::Utf16);
+        let units: Vec<u16> = base.encode_utf16().collect();
+        let (mut out, mut i) = (Vec::new(), 0);
+        for op in &wide.ops {
+            match op {
+                Op::Retain(n) => {
+                    out.extend(&units[i..i + n]);
+                    i += n;
+                }
+                Op::Delete(n) => i += n,
+                Op::Insert(s) => out.extend(s.encode_utf16()),
+            }
+        }
+        out.extend(&units[i..]);
+        assert_eq!(String::from_utf16(&out).unwrap(), new);
+        assert_eq!(wide.inserted_spans_in(new, crate::units::Utf16), d.inserted_spans());
+    }
 
     #[test]
     fn a_line_within_the_char_limit_pairs_by_its_word_diff_at_any_word_count() {

@@ -420,6 +420,21 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
     expect(strict.reattach(before, { 'main.body': delta }).orphaned).toEqual(before)
   })
 
+  it('a typed revise answers its delta in UTF-16, over the text it revised', () => {
+    const doc = anchoredDoc()
+    doc._revise({}, '😀😀 alpha gamma')
+    const old = doc.read({}).text
+    const { delta } = doc._revise({}, '😀😀 alpha 😀 beta gamma')
+    let out = ''
+    let i = 0
+    for (const op of delta.ops) {
+      if ('retain' in op) out += old.slice(i, (i += op.retain))
+      else if ('delete' in op) i += op.delete
+      else out += op.insert
+    }
+    expect(out + old.slice(i)).toBe(doc.read({}).text)
+  })
+
   it('reattach answers a live id without writing and refuses a malformed selector', () => {
     const doc = anchoredDoc()
     const held = doc.clone()

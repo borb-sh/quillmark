@@ -7,6 +7,7 @@ use std::ops::ControlFlow;
 
 use quillmark_content::lines::anchor::{AnchorContext, Reattached, anchor_context, anchor_contexts};
 use quillmark_content::lines::delta::Delta;
+use quillmark_content::units::{Scalars, Units};
 use quillmark_content::lines::model::Normalized;
 use serde_json::Value as JsonValue;
 
@@ -131,6 +132,17 @@ impl Document {
         selectors: &[AnchorSelector],
         deltas: &HashMap<DocPath, Delta>,
     ) -> Reattached<AnchorSelector> {
+        self.reattach_in(selectors, deltas, Scalars)
+    }
+
+    /// [`reattach`](Self::reattach) with each delta counted in `u`, as
+    /// [`Revised::delta_in`](super::Revised::delta_in) answers it.
+    pub fn reattach_in(
+        &mut self,
+        selectors: &[AnchorSelector],
+        deltas: &HashMap<DocPath, Delta>,
+        u: impl Units,
+    ) -> Reattached<AnchorSelector> {
         let mut answered = HashSet::new();
         let selectors: Vec<&AnchorSelector> = selectors
             .iter()
@@ -167,8 +179,9 @@ impl Document {
 
         for (path, at) in pending {
             let ctxs: Vec<AnchorContext> = at.iter().map(|&i| selectors[i].context()).collect();
-            let inserted = deltas.get(path).map(Delta::inserted_spans);
+            let delta = deltas.get(path);
             let Some(placed) = self.edit_content_at(path, |content| {
+                let inserted = delta.map(|d| d.inserted_spans_in(&content.text, u));
                 content
                     .reattach(&ctxs, inserted.as_deref(), &HashSet::new())
                     .reattached

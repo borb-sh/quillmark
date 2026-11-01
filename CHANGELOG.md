@@ -37,6 +37,11 @@ over its keys: read `receipt["warnings"]`.
   marks typed text carries: `strong`, `emph`, `underline` and `strike` grow
   at their end, `code`, `link` and an `x-` mark at neither edge,
   `font_family` at both. WASM `inheritedMarks`, Python `inherited_marks`.
+- feat(bindings)!: **every WASM offset is UTF-16.** A region's `span`,
+  `positionAt`'s and `locate`'s `pos`, a typed revise's `Revised.delta` and
+  the deltas `reattach` takes count in UTF-16 code units, as content values
+  and changes do; core takes a host's units through `LiveSession::*_in`,
+  `Engine::render_in`, `Revised::delta_in` and `Document::reattach_in`.
 - feat(content): **`repair` makes a merged state valid.** A missing
   container leaves a path, a container under two paths takes its first
   block's, a later run gets a derived container, an orphan slot or record
