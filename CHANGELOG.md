@@ -47,6 +47,13 @@ over its keys: read `receipt["warnings"]`.
   block's, a later run gets a derived container, an orphan slot or record
   goes, text beside a table splits off, and a collapsed range anchor is
   dropped. Total and deterministic.
+- feat(content): **repair is how a merged state reads, and a write-back is
+  optional.** Peers holding one merged state compute one value without
+  writing. Any peer may write back a repair that only deletes or sets; one
+  that inserts (a block split beside an island, a heading's hard break, a
+  missing cell) is written back by a single writer, since two peers would
+  each insert their own. `Repair::inserts` says which, `inserts: true` on
+  the wire, and a missing cell reports `Repair::EmptyCell`.
 - feat(core)!: **storage moves to `quillmark/document@0.134.0`**, each body
   and richtext field the content model. An older row loads migrated, with the
   same ids on every load. A value holds each anchor id once over its text

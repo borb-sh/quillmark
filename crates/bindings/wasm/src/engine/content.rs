@@ -240,8 +240,11 @@ export type RawContent = Omit<Content, "islands" | "anchors" | "blocks"> & {
     slot_ids?: (string | null)[];
 };
 
-/** One change `repair` made. */
-export type Repair =
+/**
+ * One change `repair` made. `inserts: true` marks one whose write-back
+ * inserts text or a slot, which only a single writer writes back.
+ */
+export type Repair = (
     | { repair: "missing_container"; block: string; container: string }
     | { repair: "two_parents"; container: string }
     | { repair: "split_run"; container: string; fresh: string }
@@ -249,9 +252,11 @@ export type Repair =
     | { repair: "orphan_island"; island: string }
     | { repair: "shared_island"; island: string; fresh: string }
     | { repair: "split_block"; island: string; block: string }
+    | { repair: "empty_cell"; island: string; slot: string }
     | { repair: "collapsed_anchor"; id: string }
     | { repair: "invalid"; reason: string }
-    | { repair: "in_slot"; island: string; slot: string; inner: Repair };
+    | { repair: "in_slot"; island: string; slot: string; inner: Repair }
+) & { inserts?: true };
 
 /** A repaired value and what changed to make it valid. */
 export interface Repaired {

@@ -138,7 +138,7 @@ Each law is a property test over generated values and generated changes (`tests/
 3. `mapPos(c, p)` agrees with `apply`: the two edges of a character both say it was deleted, or land around it afterwards in the same order, a character inside a nested slot included. A change's maps followed by their mirrored inverses take every position home.
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes.
 5. Every `Change` yields a valid value or fails and changes nothing.
-6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported.
+6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back reads as the merged state it repaired: by any number of peers where no repair inserts, since the value then holds no character or slot the state does not, and by one writer otherwise.
 7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly. `rebase(d, c, ∅) == c`. Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote.
 
 ## Writing a value
@@ -170,7 +170,10 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 
 ## Merge repair
 
-A single step cannot break the model, but two valid concurrent edits can merge into a state no step allows. `repair(raw) -> (Content, Repair[])` makes any such state valid (`src/repair.rs`). A peer that sees a repair writes it back into the shared state, so peers converge on the repaired value instead of each repairing on read.
+A single step cannot break the model, but two valid concurrent edits can merge into a state no step allows. `repair(raw) -> (Content, Repair[])` makes any such state valid (`src/repair.rs`). Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Writing a repair back into the shared state is optional, and who may write it back depends on what it writes:
+
+- A repair whose rules only delete or set an attribute may be written back by any peer. Two peers writing back one repair delete the same characters and records and set the same values, so their merge is one write-back, and it reads as the merged state did. A record minted for a `\n` that holds none, a split run's container and a re-minted id are sets too, each under an id derived from the ids involved.
+- A rule that inserts, `Repair::inserts` (`inserts: true` on the wire), is written back only by the session's single writer, a server or an elected leader: a split block's `\n` and record, the space a heading's hard break becomes, and a missing cell's empty slot. Two peers inserting at once each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one peer's slot under its id. Until the single writer writes it back, every peer reads it through repair, and any other peer writes back a report only when none of its repairs inserts.
 
 | Merged state | How it arises | Repair |
 |---|---|---|
@@ -181,10 +184,11 @@ A single step cannot break the model, but two valid concurrent edits can merge i
 | Two slots name one island | A concurrent copy of a slot | The first keeps it; the second holds a copy under a derived id |
 | Text beside a block island | Two peers type on either side of a table's slot | The block splits at the island's edges; the first piece keeps the record, as a split's left half does, and each later piece takes a fresh id |
 | A range anchor at zero width | Its text was deleted while another peer moved it | Dropped and reported |
+| A table cell naming no slot of its own | A concurrent row insert and column insert | The cell gets an empty slot, its id the row and column ids joined |
 
 The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` carries in slot order, `null` where it carries none; an `islands` array pairs with the slots in order. And an anchor placed as a range carries `range: true`, since a range collapsed to zero width cannot otherwise be told from a point.
 
-Beyond the table, repair is total over any value shaped as content: it removes forbidden characters, mints a missing block record and drops an extra one, re-mints a bad or duplicate id, mends a table grid a concurrent row and column edit broke (a missing cell gets an empty slot), clips marks and anchors to the text, and turns a rule holding text or a code block holding an island into a paragraph. A fresh id is the ids involved joined by `-`, with a numeric suffix where that id is taken, so two peers repairing one state at once write the same bytes.
+Beyond the table, repair is total over any value shaped as content: it removes forbidden characters, mints a missing block record and drops an extra one, re-mints a bad or duplicate id, mends a table grid a concurrent row and column edit broke, clips marks and anchors to the text, and turns a rule holding text or a code block holding an island into a paragraph. A fresh id is the ids involved joined by `-`, with a numeric suffix where that id is taken, so two peers writing back one repair write the same bytes.
 
 ## The line form
 

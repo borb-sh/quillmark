@@ -2,7 +2,8 @@
 //! concurrent edits can merge into a state no step allows. [`repair`] makes any
 //! such state valid by fixed rules: it is total, the same raw value always
 //! repairs to the same content, and every id it mints is derived from the ids
-//! involved, so two peers repairing one state at once write the same value.
+//! involved, so peers holding one merged state read one value. A rule that
+//! [inserts](Repair::inserts) is written back by a single writer only.
 
 use crate::ids::{MAX_ID_LEN, is_id};
 use crate::lines::island::IslandType;
@@ -68,6 +69,8 @@ pub enum Repair {
     /// A block holding a block island and text beside it split at the
     /// island's edges; `block` is the fresh id of one later piece.
     SplitBlock { island: String, block: String },
+    /// A table cell named no slot of its own; it holds the empty `slot`.
+    EmptyCell { island: String, slot: String },
     /// A range anchor collapsed to zero width and was dropped.
     CollapsedAnchor { id: String },
     /// Anything else that broke the invariant, fixed by the nearest valid value.
@@ -82,6 +85,14 @@ pub enum Repair {
 
 impl Repair {
     pub fn to_value(&self) -> Value {
+        let mut v = self.wire();
+        if self.inserts() {
+            v["inserts"] = Value::Bool(true);
+        }
+        v
+    }
+
+    fn wire(&self) -> Value {
         match self {
             Repair::MissingContainer { block, container } => {
                 json!({"repair": "missing_container", "block": block, "container": container})
@@ -100,6 +111,9 @@ impl Repair {
             Repair::SplitBlock { island, block } => {
                 json!({"repair": "split_block", "island": island, "block": block})
             }
+            Repair::EmptyCell { island, slot } => {
+                json!({"repair": "empty_cell", "island": island, "slot": slot})
+            }
             Repair::CollapsedAnchor { id } => json!({"repair": "collapsed_anchor", "id": id}),
             Repair::Invalid(inv) => json!({"repair": "invalid", "reason": inv.to_string()}),
             Repair::InSlot {
@@ -109,6 +123,20 @@ impl Repair {
             } => {
                 json!({"repair": "in_slot", "island": island, "slot": slot, "inner": repair.to_value()})
             }
+        }
+    }
+
+    /// Whether writing this repair back inserts text or a slot. Two peers
+    /// writing one back at once each insert their own: text lands twice and
+    /// stays valid, and a slot minted twice keeps one peer's under its id. So
+    /// only a single writer writes back a report holding one; any peer may
+    /// write back a report whose repairs only delete or set.
+    pub fn inserts(&self) -> bool {
+        match self {
+            Repair::SplitBlock { .. } | Repair::EmptyCell { .. } => true,
+            Repair::Invalid(Invariant::BreakInHeading { .. }) => true,
+            Repair::InSlot { repair, .. } => repair.inserts(),
+            _ => false,
         }
     }
 
@@ -721,6 +749,7 @@ fn table(
     let mut row_ids = HashSet::new();
     let mut named = HashSet::new();
     let mut rows = Vec::new();
+    let mut minted = Vec::new();
     for r in &raw_rows {
         let Some(cells) = r.get("cells").and_then(Value::as_object) else {
             continue;
@@ -740,6 +769,7 @@ fn table(
                 }
                 _ => {
                     let fresh = ids.derive(&[&id, col]);
+                    minted.push(fresh.clone());
                     slots.insert(fresh.clone(), Content::empty());
                     named.insert(fresh.clone());
                     fresh
@@ -760,6 +790,10 @@ fn table(
         }));
         return false;
     }
+    out.extend(minted.into_iter().map(|slot| Repair::EmptyCell {
+        island: island.to_string(),
+        slot,
+    }));
     let before = (
         obj.get("columns").cloned(),
         obj.get("rows").cloned(),

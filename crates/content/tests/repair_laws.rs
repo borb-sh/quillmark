@@ -1,6 +1,8 @@
 //! The repair law over generated merge states: repair is total, it repairs
-//! the same state to the same value, and a valid value repairs to itself. Each
-//! rule of the merge-repair table has its own case.
+//! the same state to the same value, and a valid value repairs to itself. A
+//! write-back reads as the state it repaired, by any number of peers where no
+//! rule inserts and by one writer otherwise. Each rule of the merge-repair
+//! table has its own case.
 
 use proptest::prelude::*;
 use quillmark_content::lines::island::IslandType;
@@ -206,6 +208,151 @@ fn damages() -> impl Strategy<Value = Vec<Damage>> {
     prop::collection::vec((any::<u8>(), any::<usize>(), any::<usize>()), 1..6)
 }
 
+/// For each character of `b`, the character of `a` a longest common
+/// subsequence pairs it with; `None` for one `b` adds.
+fn align(a: &str, b: &str) -> Vec<Option<usize>> {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut l = vec![vec![0u32; b.len() + 1]; a.len() + 1];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            l[i][j] = if a[i] == b[j] {
+                l[i + 1][j + 1] + 1
+            } else {
+                l[i + 1][j].max(l[i][j + 1])
+            };
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    let mut kept = vec![None; b.len()];
+    while i < a.len() && j < b.len() {
+        if a[i] == b[j] {
+            kept[j] = Some(i);
+            (i, j) = (i + 1, j + 1);
+        } else if l[i + 1][j] >= l[i][j + 1] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    kept
+}
+
+/// Whether `c` holds a character or a slot the merged state `m` does not.
+fn adds(m: &Raw, c: &Content) -> bool {
+    let kept = align(&m.text, &c.text);
+    if kept.contains(&None) {
+        return true;
+    }
+    let m_slots: Vec<usize> = m
+        .text
+        .chars()
+        .enumerate()
+        .filter(|(_, ch)| *ch == ISLAND_SLOT)
+        .map(|(k, _)| k)
+        .collect();
+    let c_slots = c
+        .text
+        .chars()
+        .enumerate()
+        .filter(|(_, ch)| *ch == ISLAND_SLOT);
+    c.islands.iter().zip(c_slots).any(|(island, (j, _))| {
+        let k = m_slots.iter().position(|&p| Some(p) == kept[j]).unwrap();
+        let Some(record) = m
+            .slot_ids
+            .get(k)
+            .cloned()
+            .flatten()
+            .and_then(|id| m.islands.get(&id))
+        else {
+            return true;
+        };
+        island
+            .slots
+            .iter()
+            .any(|(key, slot)| record.slots.get(key).is_none_or(|r| adds(r, slot)))
+    })
+}
+
+/// A peer's write-back of `repair(m)`: the repaired value, and for each of its
+/// characters the character of `m` it keeps, `None` where the repair inserted
+/// it.
+struct WriteBack {
+    value: Content,
+    kept: Vec<Option<usize>>,
+}
+
+fn write_back(m: &Raw) -> (WriteBack, Vec<Repair>) {
+    let (value, repairs) = repair(m.clone());
+    let kept = align(&m.text, &value.text);
+    (WriteBack { value, kept }, repairs)
+}
+
+/// The shared state after `writers` peers each wrote `w` back over the merged
+/// state it repaired. A character deleted goes once however many delete it, a
+/// part keyed by id takes the one value every writer sets, a block's record
+/// rides the `\n` that opens it, and each writer's inserted text lands, as
+/// concurrent inserts do in a sequence CRDT.
+fn merge(w: &WriteBack, writers: usize) -> Raw {
+    let c = &w.value;
+    let chars: Vec<char> = c.text.chars().collect();
+    let n = chars.len();
+    let (mut records, mut islands) = (c.blocks[1..].iter(), c.islands.iter());
+    let mut text = Vec::new();
+    let mut blocks = vec![c.blocks[0].clone()];
+    let mut slot_ids = Vec::new();
+    let (mut first, mut last) = (vec![0; n + 1], vec![0; n + 1]);
+    let mut j = 0;
+    while j < n {
+        let (k, copies) = match w.kept[j] {
+            Some(_) => (j + 1, 1),
+            None => ((j..n).find(|&k| w.kept[k].is_some()).unwrap_or(n), writers),
+        };
+        let (run_records, run_islands) = (records.clone(), islands.clone());
+        for copy in 0..copies {
+            (records, islands) = (run_records.clone(), run_islands.clone());
+            for i in j..k {
+                if copy == 0 {
+                    first[i] = text.len();
+                }
+                text.push(chars[i]);
+                last[i] = text.len();
+                match chars[i] {
+                    '\n' => blocks.push(records.next().unwrap().clone()),
+                    ISLAND_SLOT => slot_ids.push(Some(islands.next().unwrap().id.clone())),
+                    _ => {}
+                }
+            }
+        }
+        j = k;
+    }
+    first[n] = text.len();
+    let end = |e: usize| if e == 0 { 0 } else { last[e - 1] };
+    Raw {
+        text: text.into_iter().collect(),
+        blocks,
+        containers: c.containers.clone(),
+        marks: c
+            .marks
+            .iter()
+            .map(|m| Mark::new(first[m.start], end(m.end), m.kind.clone()))
+            .collect(),
+        anchors: c
+            .anchors
+            .iter()
+            .map(|a| RawAnchor {
+                anchor: if a.is_point() {
+                    Anchor::new(a.id.clone(), first[a.start], first[a.start])
+                } else {
+                    Anchor::new(a.id.clone(), first[a.start], end(a.end))
+                },
+                range: !a.is_point(),
+            })
+            .collect(),
+        slot_ids,
+        islands: Raw::from(c).islands,
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
@@ -220,6 +367,23 @@ proptest! {
         prop_assert_eq!(Content::from_value(&c.to_value()), Ok(c.clone()));
         prop_assert_eq!(repair(raw).0, c.clone());
         prop_assert_eq!(repair(Raw::from(&c)), (c, Vec::new()));
+    }
+
+    /// A rule that inserts nothing reaches its value from the merged state by
+    /// deletions and sets alone, which two peers writing it back both write
+    /// once.
+    #[test]
+    fn a_write_back_reads_as_the_state_it_repaired(d in document(), ds in damages()) {
+        let mut m = Raw::from(&d);
+        for x in &ds {
+            damage(&mut m, *x);
+        }
+        let (w, repairs) = write_back(&m);
+        prop_assert_eq!(&repair(merge(&w, 1)).0, &w.value);
+        if !repairs.iter().any(Repair::inserts) {
+            prop_assert!(!adds(&m, &w.value));
+            prop_assert_eq!(&repair(merge(&w, 2)).0, &w.value);
+        }
     }
 
     #[test]
@@ -423,7 +587,7 @@ fn a_collapsed_range_anchor_is_dropped_and_a_point_kept() {
 #[test]
 fn a_table_row_missing_a_cell_gets_an_empty_slot() {
     let cell = |t: &str| json!({"text": t, "blocks": [{"id": "b0", "kind": "para"}]});
-    let (c, _) = repair(raw(json!({
+    let (c, repairs) = repair(raw(json!({
         "text": "\u{FFFC}",
         "blocks": [{"id": "b0", "kind": "para"}],
         "islands": [{
@@ -441,6 +605,12 @@ fn a_table_row_missing_a_cell_gets_an_empty_slot() {
         json!({"k0": "s2", "k1": "r1-k1"})
     );
     assert_eq!(t.slots["r1-k1"], Content::empty());
+    let minted = Repair::EmptyCell {
+        island: "t0".into(),
+        slot: "r1-k1".into(),
+    };
+    assert!(repairs.contains(&minted));
+    assert_eq!(minted.to_value()["inserts"], json!(true));
 }
 
 #[test]
@@ -452,4 +622,32 @@ fn a_missing_block_record_is_minted_from_its_neighbour() {
     });
     let ids: Vec<_> = c.blocks.iter().map(|b| b.id.as_str()).collect();
     assert_eq!(ids, ["b0", "b0-2"]);
+}
+
+#[test]
+fn two_peers_writing_back_an_inserting_repair_leave_a_valid_second_copy() {
+    let cell = json!({"text": "", "blocks": [{"id": "b0", "kind": "para"}]});
+    let beside_a_table = raw(json!({
+        "text": "ab\u{FFFC}cd",
+        "blocks": [{"id": "b0", "kind": "para"}],
+        "slot_ids": ["t0"],
+        "islands": {"t0": {
+            "type": "table",
+            "props": {"columns": ["k0"], "rows": [{"id": "r0", "cells": {"k0": "s0"}}]},
+            "slots": {"s0": cell}
+        }}
+    }));
+    let broken_heading = raw(json!({
+        "text": "a\u{2028}b",
+        "blocks": [{"id": "b0", "kind": "heading", "attrs": {"level": 1}}]
+    }));
+    for (m, twice) in [
+        (beside_a_table, "ab\n\n\u{FFFC}\n\ncd"),
+        (broken_heading, "a  b"),
+    ] {
+        let (w, repairs) = write_back(&m);
+        assert!(repairs.iter().all(Repair::inserts));
+        assert_eq!(repair(merge(&w, 1)).0, w.value);
+        assert_eq!(repair(merge(&w, 2)).0.text, twice);
+    }
 }
