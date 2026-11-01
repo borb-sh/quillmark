@@ -17,6 +17,8 @@ import {
   compose,
   diff,
   repair,
+  splitBlock,
+  joinBlocks,
   isInline,
   isPlain,
   parseDocPath,
@@ -794,6 +796,22 @@ describe('Document apply: the write primitive', () => {
     doc.apply({}, { steps: [{ splice: { at: 3, delete: ' ', insert: '\n', blocks: [{ id: 'b9', kind: 'para' }] } }] })
     expect(doc.read({}).blocks.map((b) => b.id)).toEqual([doc.read({}).blocks[0].id, 'b9'])
     expect(exportMarkdown(doc.read({}))).toBe('one\n\ntwo')
+  })
+
+  it('splitBlock and joinBlocks keep the text on its id, in UTF-16 offsets', () => {
+    const before = importMarkdown('# 😀 Title\n\nbody').content
+    const [title, body] = before.blocks.map((b) => b.id)
+    const split = splitBlock(before, 3, 'b9')
+    expect(split).toEqual({ steps: [{ splice: { at: 3, delete: '', insert: '\n', blocks: [{ id: 'b9', kind: 'heading', attrs: { level: 1 } }] } }] })
+    expect(splitBlock(before, 9, 'b9').steps[0].splice.at).toBe(8)
+    expect(() => splitBlock(before, 1, 'b9')).toThrow()
+
+    const doc = blankDoc()
+    doc.replace({}, before)
+    doc.apply({}, joinBlocks(doc.read({}), body))
+    expect(doc.read({}).text).toBe('😀 Titlebody')
+    expect(doc.read({}).blocks).toEqual([{ id: title, kind: 'heading', attrs: { level: 1 } }])
+    expect(() => joinBlocks(before, title)).toThrow()
   })
 
   it('a nested step edits a table cell without costing the field its anchors', () => {

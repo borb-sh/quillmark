@@ -20,12 +20,13 @@ use wasm_bindgen::prelude::*;
 const CONTENT_TS: &'static str = r#"
 /**
  * One rich-text value: a card body or a `richtext` field. Flat `text` where a
- * `\n` ends a block, `U+2028` is a hard break and `U+FFFC` is an island's slot;
- * one block record per `\n`-separated segment; containers the blocks' paths
- * name; formatting marks; comment anchors; and islands, a table's cells and a
- * footnote's note each a nested `Content` in its `slots`. Every part carries an
- * id. Offsets are UTF-16 code units, JavaScript string indices, into the
- * `text` of the value holding them.
+ * `\n` opens a block, `U+2028` is a hard break and `U+FFFC` is an island's
+ * slot; one block record per `\n`-separated segment, each `\n` carrying the
+ * record of the block it opens and `blocks[0]` the first block's; containers
+ * the blocks' paths name; formatting marks; comment anchors; and islands, a
+ * table's cells and a footnote's note each a nested `Content` in its `slots`.
+ * Every part carries an id. Offsets are UTF-16 code units, JavaScript string
+ * indices, into the `text` of the value holding them.
  */
 export interface Content {
     text: string;
@@ -118,7 +119,7 @@ export interface Change {
  * - `splice` replaces `delete`, which must be the text at `at`, with `insert`.
  *   `marks` is the formatting the inserted text carries, offsets into
  *   `insert`, a mark without `start`/`end` covering all of it; `blocks` the
- *   record of each segment an inserted `\n` ends; `islands` the island of each
+ *   record of each block an inserted `\n` opens; `islands` the island of each
  *   inserted `U+FFFC`. `removed` is what the deleted text held, filled in on
  *   the receipt's `applied`.
  * - `setBlock` changes a block's kind, attributes or path.
@@ -620,6 +621,37 @@ pub fn diff(
     let change = quillmark_content::diff::diff(&before, &after);
     let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
     serialize_or_throw(&change.to_value(), "diff")
+}
+
+/// Enter at `at`: the change that splits the block holding `at`, the new
+/// block `newId` taking its kind and path while the text keeps its id. Throws
+/// `edit::content_apply` where `at` is past the text, and where it falls
+/// inside a character.
+#[wasm_bindgen(js_name = splitBlock, unchecked_return_type = "Change")]
+pub fn split_block(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+    at: usize,
+    #[wasm_bindgen(js_name = newId)] new_id: String,
+) -> Result<JsValue, JsValue> {
+    let content = content_in(content, "splitBlock")?;
+    let at = units::to_scalars(Utf16, &content.text, at).ok_or_else(|| apply_error(change::ApplyError::Stale { step: 0 }))?;
+    let change = quillmark_content::gestures::split_block(&content, at, &new_id).map_err(apply_error)?;
+    let change = units::change_from_scalars(&change, &content, Utf16).map_err(apply_error)?;
+    serialize_or_throw(&change.to_value(), "splitBlock")
+}
+
+/// Backspace at the start of block `id`: the change that joins it into the
+/// block before it, which keeps its id and kind. Throws `edit::content_apply`
+/// where no block holds `id`, and for the first block.
+#[wasm_bindgen(js_name = joinBlocks, unchecked_return_type = "Change")]
+pub fn join_blocks(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+    id: String,
+) -> Result<JsValue, JsValue> {
+    let content = content_in(content, "joinBlocks")?;
+    let change = quillmark_content::gestures::join_blocks(&content, &id).map_err(apply_error)?;
+    let change = units::change_from_scalars(&change, &content, Utf16).map_err(apply_error)?;
+    serialize_or_throw(&change.to_value(), "joinBlocks")
 }
 
 /// `raw` made valid by the merge-repair rules, and what changed. Total over

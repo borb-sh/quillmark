@@ -29,6 +29,10 @@ over its keys: read `receipt["warnings"]`.
   the left block's id and kind. `blocks[0]` is the record no splice reaches,
   so `diff` and `replace` keep the stored first id, and `repair` gives the
   first piece of a block it splits beside an island the block's record.
+- feat(content): **`gestures::split_block` and `join_blocks`** build Enter
+  and Backspace as one splice each, inserting ahead of a block's opening
+  `\n` at its start so the text keeps its id. WASM `splitBlock` /
+  `joinBlocks`, Python `split_block` / `join_blocks`.
 - feat(content): **`repair` makes a merged state valid.** A missing
   container leaves a path, a container under two paths takes its first
   block's, a later run gets a derived container, an orphan slot or record

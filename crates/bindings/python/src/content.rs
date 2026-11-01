@@ -155,6 +155,26 @@ pub fn diff<'py>(py: Python<'py>, before: &Bound<'_, PyAny>, after: &Bound<'_, P
     json_to_py(py, &quillmark_content::diff::diff(&before, &after).to_value())
 }
 
+/// Enter at `at`: the change that splits the block holding `at`, the new
+/// block `new_id` taking its kind and path while the text keeps its id. Raises
+/// `QuillmarkError` (`edit::content_apply`) where `at` is past the text.
+#[pyfunction]
+pub fn split_block<'py>(py: Python<'py>, content: &Bound<'_, PyAny>, at: usize, new_id: &str) -> PyResult<Bound<'py, PyAny>> {
+    let content = content_from_py(content, "split_block")?;
+    let change = quillmark_content::gestures::split_block(&content, at, new_id).map_err(change_error)?;
+    json_to_py(py, &change.to_value())
+}
+
+/// Backspace at the start of block `id`: the change that joins it into the
+/// block before it, which keeps its id and kind. Raises `QuillmarkError`
+/// (`edit::content_apply`) where no block holds `id`, and for the first block.
+#[pyfunction]
+pub fn join_blocks<'py>(py: Python<'py>, content: &Bound<'_, PyAny>, id: &str) -> PyResult<Bound<'py, PyAny>> {
+    let content = content_from_py(content, "join_blocks")?;
+    let change = quillmark_content::gestures::join_blocks(&content, id).map_err(change_error)?;
+    json_to_py(py, &change.to_value())
+}
+
 /// `raw` made valid by the merge-repair rules, as `{"content", "repairs"}`.
 /// Total over any value shaped as content, and deterministic: the same raw
 /// value always repairs to the same content.

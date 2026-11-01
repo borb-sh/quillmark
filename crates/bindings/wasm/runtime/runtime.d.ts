@@ -24,6 +24,8 @@ import type {
 	compose,
 	diff,
 	repair,
+	splitBlock,
+	joinBlocks,
 	isInline,
 	isPlain,
 	parseDocPath,
@@ -49,6 +51,8 @@ export interface CoreSurface {
 	compose: typeof compose;
 	diff: typeof diff;
 	repair: typeof repair;
+	splitBlock: typeof splitBlock;
+	joinBlocks: typeof joinBlocks;
 	isInline: typeof isInline;
 	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;

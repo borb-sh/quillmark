@@ -32,6 +32,8 @@ fn _quillmark(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(content::map_pos, m)?)?;
     m.add_function(wrap_pyfunction!(content::diff, m)?)?;
     m.add_function(wrap_pyfunction!(content::repair, m)?)?;
+    m.add_function(wrap_pyfunction!(content::split_block, m)?)?;
+    m.add_function(wrap_pyfunction!(content::join_blocks, m)?)?;
 
     m.add("QuillmarkError", m.py().get_type::<QuillmarkError>())?;
 

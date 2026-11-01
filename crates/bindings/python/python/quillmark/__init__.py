@@ -16,8 +16,10 @@ from ._quillmark import (
     compose,
     diff,
     invert,
+    join_blocks,
     map_pos,
     repair,
+    split_block,
 )
 
 __all__ = [
@@ -36,8 +38,10 @@ __all__ = [
     "compose",
     "diff",
     "invert",
+    "join_blocks",
     "map_pos",
     "repair",
+    "split_block",
 ]
 
 try:

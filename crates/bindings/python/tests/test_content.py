@@ -3,7 +3,7 @@ its producers `revise` and `replace`, the reads, and the pure helpers over
 changes. Offsets count code points."""
 
 import pytest
-from quillmark import Document, compose, diff, invert, map_pos, repair
+from quillmark import Document, compose, diff, invert, join_blocks, map_pos, repair, split_block
 
 from conftest import raises_edit_code
 
@@ -84,6 +84,22 @@ def test_compose_map_pos_and_diff_answer_without_a_document():
     doc2 = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\nhello brave world\n")
     doc.apply(diff(before, doc2.read()))
     assert doc.read()["text"] == "hello brave world"
+
+
+def test_split_block_and_join_blocks_keep_the_text_on_its_id():
+    doc = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\n# Title\n\nbody\n")
+    before = doc.read()
+    title, body = (b["id"] for b in before["blocks"])
+    split = split_block(before, 6, "b9")
+    assert split == {"steps": [{"splice": {"at": 5, "delete": "", "insert": "\n", "blocks": [{"id": "b9", "kind": "para"}]}}]}
+    doc.apply(split)
+    assert [b["id"] for b in doc.read()["blocks"]] == [title, "b9", body]
+
+    doc = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\n# Title\n\nbody\n")
+    doc.apply(join_blocks(doc.read(), body))
+    assert doc.read()["blocks"] == [{"id": title, "kind": "heading", "attrs": {"level": 1}}]
+    with raises_edit_code("edit::content_apply"):
+        join_blocks(before, title)
 
 
 def test_repair_makes_a_merged_state_valid_in_code_points():
