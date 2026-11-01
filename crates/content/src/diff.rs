@@ -8,6 +8,7 @@ use crate::change::{AnchorStep, Change, ContainerStep, IslandStep, SetBlock, Spl
 use crate::ids::{Minter, prefix};
 use crate::lines::delta::{Op, diff_import, diff_words as text_diff, without_sentinel};
 use crate::lines::import::{ImportError, ImportWarning};
+use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
 use crate::model::{BlockKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
 use crate::table::{self, Table};
@@ -42,8 +43,30 @@ pub fn diff_carrying(before: &Content, after: &Content) -> Result<Diff, Invarian
 
 fn diff_with(before: &Content, after: &Content, carry: Option<&HashSet<String>>) -> Diff {
     let mut whole_text = false;
-    let steps = diff_level(before, after, carry, true, &mut whole_text);
+    let mut steps = diff_level(before, after, carry, true, &mut whole_text);
+    let want = reachable(before, after, true);
+    if !whole_text && !reaches(before, &steps, &want) {
+        whole_text = true;
+        steps = replace_all(before, &want, carry);
+    }
     Diff { change: Change::new(steps), whole_text }
+}
+
+/// Whether `steps` take `before` to `want` in everything but the anchors,
+/// which a carrying diff leaves where their text is.
+fn reaches(before: &Content, steps: &[Step], want: &Content) -> bool {
+    fn bare(mut c: Content) -> Content {
+        c.normalize();
+        c.anchors.clear();
+        for island in &mut c.islands {
+            for slot in island.slots.values_mut() {
+                *slot = bare(std::mem::take(slot));
+            }
+        }
+        c
+    }
+    let mut cur = before.clone();
+    run(&mut cur, steps).is_ok() && bare(cur) == bare(want.clone())
 }
 
 fn anchor_ids(c: &Content, out: &mut HashSet<String>) {
@@ -239,7 +262,8 @@ fn splices(before: &Content, want: &Content) -> Vec<Step> {
         ('\n', Some(x), Some(y)) => before.blocks[x].id == want.blocks[y].id,
         (ISLAND_SLOT, Some(x), Some(y)) => {
             let (p, q) = (&before.islands[x], &want.islands[y]);
-            p.id == q.id && p.island_type == q.island_type
+            let slots_follow_props = !matches!(p.island_type, IslandType::Ext(_));
+            p.id == q.id && p.island_type == q.island_type && (slots_follow_props || p.slots.keys().eq(q.slots.keys()))
         }
         _ => true,
     };

@@ -1123,6 +1123,26 @@ mod diffs {
         }
     }
 
+    /// An `x-` island's slots are its own rather than its props', so a slot
+    /// it gains or loses reaches the target, through `diff` and `replace`.
+    #[test]
+    fn a_diff_reaches_an_x_island_whose_slots_changed() {
+        let holding = |slots: &[&str]| {
+            let island = Island::new("isl-x", IslandType::Ext("x-chart".into()))
+                .with_props(json!({"series": [1, 2]}))
+                .with_slots(slots.iter().map(|s| (s.to_string(), quillmark_content::markdown::from_plaintext("caption"))).collect());
+            let insert = Change::new(vec![Step::Island(IslandStep::Insert { at: 5, island, block: None })]);
+            apply(&quillmark_content::markdown::from_plaintext("hello world"), &insert).unwrap().content
+        };
+        let (one, two) = (holding(&["cap"]), holding(&["cap", "cap2"]));
+        for (from, to) in [(&one, &two), (&two, &one)] {
+            for d in [diff(from, to).unwrap(), replace(from, to).unwrap()] {
+                assert!(!d.whole_text, "{:?}", d.change);
+                assert_eq!(&apply(from, &d.change).unwrap().content, to);
+            }
+        }
+    }
+
     /// A target that is no valid value is refused, never diffed to nothing.
     #[test]
     fn a_diff_refuses_an_invalid_target() {
