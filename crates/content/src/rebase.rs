@@ -8,7 +8,7 @@
 use crate::change::{AnchorStep, ApplyError, Assoc, Change, IslandStep, MarkStep, Run, Splice, Step, apply};
 use crate::draft::Draft;
 use crate::mapping::{MapResult, Mapping, StepMap};
-use crate::model::{Anchor, Content, Mark, Pos, Usv};
+use crate::model::{Anchor, Block, Content, Mark, Pos, Usv};
 use crate::units::Scalars;
 
 /// A step of the change that does not fit the value `over` left.
@@ -25,8 +25,10 @@ pub enum Reason {
     /// the whole range of a mark step or a range anchor, or the text on both
     /// sides of an insert.
     Deleted,
-    /// The text a splice deletes or a step quotes, or the block an island
-    /// insert names, now reads otherwise.
+    /// The text a splice deletes or a step quotes, the block an island insert
+    /// names, what a step by id overwrites, an island a splice deletes, or
+    /// the slot a nested step edits where `over` removed it, now reads
+    /// otherwise.
     Changed,
     /// The step names a block, container, anchor, island or slot that is no
     /// longer there.
@@ -65,7 +67,7 @@ impl std::fmt::Display for Conflict {
         let step = self.step;
         match &self.reason {
             Reason::Deleted => write!(f, "step {step} reads text the change it rebases over deleted"),
-            Reason::Changed => write!(f, "step {step} reads text that now reads otherwise"),
+            Reason::Changed => write!(f, "step {step} reads what the change it rebases over changed"),
             Reason::Missing(e) | Reason::Refused(e) => write!(f, "step {step}: {e}"),
         }
     }
@@ -107,14 +109,21 @@ impl std::error::Error for RebaseError {}
 ///   step with nothing to land on is part of what its writer asked for. A
 ///   `quote` the range no longer covers conflicts.
 /// - `setBlock`, `container`, an island's props and anchor removal are by id
-///   and pass unchanged, and conflict where the id is gone. `nested` rebases
-///   its change over what `over` did inside that slot.
+///   and pass unchanged, and conflict where the id is gone. One that
+///   overwrites what `over` changed conflicts: the fields of a block's record
+///   a `setBlock` names, a container's attributes, an island's props and the
+///   slots they drop.
+/// - A splice that deletes an island `over` changed conflicts, as does one
+///   that writes back the record of a block `over` changed.
+/// - `nested` rebases its change over what `over` did inside that slot. Where
+///   `over` removed the island or the slot and the slot now reads otherwise,
+///   its edits are not in the mapping, and the step conflicts.
 pub fn rebase(base: &Content, change: &Change, over: &Change) -> Result<Change, RebaseError> {
     let own = apply(base, change).map_err(RebaseError::Apply)?;
     let theirs = apply(base, over).map_err(RebaseError::Apply)?;
     let maps = Mapping::from_change(&theirs.applied).map_err(RebaseError::Apply)?;
-    let mut now = Draft::new(theirs.content.clone());
-    let steps = level(&change.steps, &own.applied.steps, &maps, &mut now, &mut Run::new(false))
+    let (mut was, mut now) = (Draft::new(base.clone()), Draft::new(theirs.content.clone()));
+    let steps = level(&change.steps, &own.applied.steps, &maps, &mut was, &mut now)
         .map_err(|(step, reason)| RebaseError::Conflict(Conflict { step, reason }))?;
     let last = steps.len().saturating_sub(1);
     let rebased = Change { steps };
@@ -124,9 +133,10 @@ pub fn rebase(base: &Content, change: &Change, over: &Change) -> Result<Change, 
 }
 
 /// The steps of one level, a field or a slot, rebased over `over` and applied
-/// in turn to `now`. `norm` is `orig` as `apply` normalized it on the value
-/// they were made from, whose maps take a step back across its predecessors.
-fn level(orig: &[Step], norm: &[Step], over: &Mapping, now: &mut Draft, run: &mut Run) -> Result<Vec<Step>, (usize, Reason)> {
+/// in turn to `now`, as `orig` applies in turn to `was`, the value they were
+/// made from. `norm` is `orig` as `apply` normalized it there, whose maps
+/// take a step back across its predecessors.
+fn level(orig: &[Step], norm: &[Step], over: &Mapping, was: &mut Draft, now: &mut Draft) -> Result<Vec<Step>, (usize, Reason)> {
     let n = orig.len();
     let mut maps = Mapping::new();
     for (i, step) in norm[..n].iter().enumerate().rev() {
@@ -140,19 +150,58 @@ fn level(orig: &[Step], norm: &[Step], over: &Mapping, now: &mut Draft, run: &mu
         let mapped = match (step, &norm[i]) {
             (Step::Nested { island, slot, change }, Step::Nested { change: made, .. }) => {
                 let missing = || (i, Reason::Missing(ApplyError::UnknownSlot { island: island.clone(), slot: slot.clone() }));
-                let mut inner = Draft::new(now.c.slot(island, slot).cloned().ok_or_else(missing)?);
-                let steps = level(&change.steps, &made.steps, &maps.slice(n - i, maps.len()).project(island, slot), &mut inner, run)
+                let theirs = now.c.slot(island, slot).cloned().ok_or_else(missing)?;
+                let read = was.c.slot(island, slot).cloned().ok_or_else(missing)?;
+                if rehomed(over, island, slot) && read != theirs {
+                    return Err((i, Reason::Changed));
+                }
+                let inner = maps.slice(n - i, maps.len()).project(island, slot);
+                let steps = level(&change.steps, &made.steps, &inner, &mut Draft::new(read), &mut Draft::new(theirs))
                     .map_err(|(_, reason)| (i, reason))?;
                 Step::Nested { island: island.clone(), slot: slot.clone(), change: Change { steps } }
             }
             (step, _) => map_step(step, &through).map_err(|reason| (i, reason))?,
         };
-        let (done, _) = run.step(now, &mapped, i).map_err(|e| (i, Reason::of(e)))?;
-        let map = StepMap::of(&done, Scalars).map_err(|e| (i, Reason::Refused(e)))?;
+        let read = Run::new(false).step(was, step, i).map_err(|e| (i, Reason::Refused(e)))?;
+        let wrote = Run::new(false).step(now, &mapped, i).map_err(|e| (i, Reason::of(e)))?;
+        if overwrites(step, &read, &wrote) {
+            return Err((i, Reason::Changed));
+        }
+        let map = StepMap::of(&wrote.0, Scalars).map_err(|e| (i, Reason::Refused(e)))?;
         maps.append_map(map, Some(n - 1 - i));
         out.push(mapped);
     }
     Ok(out)
+}
+
+/// Whether `over` removed the island, or that slot of it, so that what the
+/// slot holds is not reached by mapping its edits.
+fn rehomed(over: &Mapping, island: &str, slot: &str) -> bool {
+    over.maps().iter().any(|map| match map {
+        StepMap::Replace { removed, .. } => removed.iter().any(|id| id == island),
+        StepMap::Slots { island: id, removed, .. } => id == island && removed.contains(slot),
+        _ => false,
+    })
+}
+
+/// Whether `step`, run where it was made (`read`) and where it now lands
+/// (`wrote`), overwrites something that reads otherwise: what its inverse
+/// puts back, for the fields it sets, or the islands and rewritten records
+/// a splice deletes.
+fn overwrites(step: &Step, (read, put): &(Step, Vec<Step>), (wrote, puts): &(Step, Vec<Step>)) -> bool {
+    match (step, read, wrote, put.as_slice(), puts.as_slice()) {
+        (Step::Splice(s), Step::Splice(a), Step::Splice(b), ..) => {
+            let (a, b) = (a.removed.clone().unwrap_or_default(), b.removed.clone().unwrap_or_default());
+            let rewritten = |x: &Block| s.blocks.iter().any(|ins| ins.id == x.id);
+            a.islands != b.islands || a.blocks.iter().zip(&b.blocks).any(|(x, y)| x != y && rewritten(x))
+        }
+        (Step::SetBlock(s), _, _, [Step::SetBlock(x)], [Step::SetBlock(y)]) => {
+            ((s.kind.is_some() || s.attrs.is_some()) && (&x.kind, &x.attrs) != (&y.kind, &y.attrs))
+                || (s.path.is_some() && x.path != y.path)
+        }
+        (Step::Container(_) | Step::Island(IslandStep::Props { .. }), ..) => put != puts,
+        _ => false,
+    }
 }
 
 /// A mapping's maps from one on.

@@ -945,8 +945,8 @@ impl PyDocument {
     /// `dropped_anchors`, `moved_anchors`, `warnings` and `rebased`. `base`
     /// is the hash the writer read (`hash_at`); pass it. One the value has
     /// moved on from rebases the change over the change since, raising
-    /// `edit::rebase_conflict` where they touch the same text and
-    /// `edit::stale_base` where the document no longer holds the change
+    /// `edit::rebase_conflict` where they touch the same text or
+    /// record and `edit::stale_base` where the document no longer holds the change
     /// since. A refused change raises `edit::content_apply` and writes
     /// nothing.
     #[pyo3(signature = (change, field=None, card=None, base=None))]

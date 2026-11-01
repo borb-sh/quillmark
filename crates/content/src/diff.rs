@@ -10,7 +10,7 @@ use crate::lines::delta::{Op, diff_import, diff_words as text_diff, without_sent
 use crate::lines::import::{ImportError, ImportWarning};
 use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{BlockKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
+use crate::model::{Block, BlockKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
 use crate::table::{self, Table};
 use std::collections::{HashMap, HashSet};
 
@@ -129,16 +129,7 @@ fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>
         return replace_all(before, &want, carry);
     }
     let mut rest = Vec::new();
-    for (have, need) in cur.blocks.iter().zip(&want.blocks) {
-        if have.kind != need.kind || have.path != need.path {
-            rest.push(Step::SetBlock(SetBlock {
-                id: have.id.clone(),
-                kind: Some(need.kind.tag().to_string()),
-                attrs: crate::wire::block_attrs(&need.kind).and_then(|v| v.as_object().cloned()),
-                path: Some(need.path.clone()),
-            }));
-        }
-    }
+    rest.extend(cur.blocks.iter().zip(&want.blocks).filter_map(|(have, need)| record_step(have, need)));
     for (have, need) in cur.islands.iter().zip(&want.islands) {
         if have.props != need.props {
             let slots = need.slots.iter().filter(|(k, _)| !have.slots.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -180,18 +171,26 @@ fn replace_all(before: &Content, want: &Content, carry: Option<&HashSet<String>>
         ..Splice::new(0, before.text.clone(), want.text.clone())
     };
     steps.push(Step::Splice(splice));
-    let first = &want.blocks[0];
-    steps.push(Step::SetBlock(SetBlock {
-        id: first.id.clone(),
-        kind: Some(first.kind.tag().to_string()),
-        attrs: crate::wire::block_attrs(&first.kind).and_then(|v| v.as_object().cloned()),
-        path: Some(first.path.clone()),
-    }));
+    steps.extend(record_step(&before.blocks[0], &want.blocks[0]));
     let mut cur = before.clone();
     if run(&mut cur, &steps).is_ok() {
         steps.extend(fixups_carrying(&cur, want, carry));
     }
     steps
+}
+
+/// The `setBlock` that takes `have`'s record to `need`'s, naming only the
+/// fields that differ: a rebase holds each field it names to what it read.
+fn record_step(have: &Block, need: &Block) -> Option<Step> {
+    let (kind, path) = (have.kind != need.kind, have.path != need.path);
+    (kind || path).then(|| {
+        Step::SetBlock(SetBlock {
+            id: have.id.clone(),
+            kind: kind.then(|| need.kind.tag().to_string()),
+            attrs: crate::wire::block_attrs(&need.kind).and_then(|v| v.as_object().cloned()).filter(|_| kind),
+            path: path.then(|| need.path.clone()),
+        })
+    })
 }
 
 /// `after` under the ids a change from `before` can give it.

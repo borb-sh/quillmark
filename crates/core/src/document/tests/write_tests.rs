@@ -131,6 +131,38 @@ fn overlapping_edits_refuse_with_a_rebase_conflict() {
     assert_eq!(doc, held);
 }
 
+/// A stale revise that quotes a block keeps the heading another writer made
+/// of it since, and a stale restyle of a block another writer re-kinded
+/// since refuses rather than undoing it.
+#[test]
+fn a_stale_write_keeps_a_record_changed_since_or_refuses() {
+    let mut doc = parse(SOURCE);
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    let heading = Change::new(vec![Step::SetBlock(quillmark_content::change::SetBlock {
+        id: "b1".into(),
+        kind: Some("heading".into()),
+        attrs: serde_json::json!({"level": 2}).as_object().cloned(),
+        path: None,
+    })]);
+    doc.main_mut().apply(Target::Body, &heading, Some(&base)).unwrap();
+    let receipt = doc
+        .main_mut()
+        .revise(Target::Body, "Revenue grew 12%.\n\n> Ship v2", Some(&base))
+        .unwrap();
+    assert!(receipt.rebased);
+    let b1 = doc.main().body().blocks[1].clone();
+    assert_eq!((b1.kind, b1.path.len()), (BlockKind::Heading { level: 2 }, 1));
+
+    let held = doc.clone();
+    let err = doc
+        .main_mut()
+        .revise(Target::Body, "Revenue grew 12%.\n\n### Ship v2", Some(&base))
+        .unwrap_err();
+    assert_eq!(err.code(), "edit::rebase_conflict");
+    assert_eq!(err.args()["reason"], serde_json::json!("changed"));
+    assert_eq!(doc, held);
+}
+
 /// A revise keeps the ids of the blocks it kept and rides an anchor on the
 /// text it kept.
 #[test]

@@ -115,7 +115,9 @@ over its keys: read `receipt["warnings"]`.
   still refuses. Validation is structural only. An `x-` block reads as a
   paragraph, an `x-` mark formats nothing, and an `x-` island renders and
   exports to markdown as nothing, which the annotated read spells as its
-  token so a revise keeps it. Steps set and remove them. `MarkStep::Remove`'s
+  token so a revise keeps it; a revise or replace that removes one refuses
+  with `edit::drops_ext_island`, and `apply` removes it. Steps set and remove
+  them. `MarkStep::Remove`'s
   `tag` is a `String`, `BlockKind::tag` and `MarkKind::tag` return `&str`, and
   `IslandType` is no longer `Copy`.
 - feat(content): **`rebase(base, change, over)` moves a change past another
@@ -123,7 +125,11 @@ over its keys: read `receipt["warnings"]`.
   maps through the inverse of its change's earlier steps, then `over`, then
   those steps rebased, and holds to its `delete`, `quote` or `block` on the
   value it now reads; a step `over` deleted the text of, or whose id is gone,
-  is a `rebase::Conflict` naming it. `Mapping::map_point` and `project` map
+  is a `rebase::Conflict` naming it. A step by id that would overwrite what
+  `over` changed (a block's kind or path, a container, an island's props)
+  conflicts rather than undoing it, as does a splice that deletes an island
+  `over` changed, so a diff's `setBlock` names only the fields it changes.
+  `Mapping::map_point` and `project` map
   as `apply` moves a point anchor and inside one slot. WASM `rebase`,
   Python `rebase`.
 - feat(core)!: **a stale `base` rebases the write instead of refusing it.**

@@ -211,7 +211,7 @@ export interface Diffed {
 
 /** The hash a writer read. A value that has changed since rebases the write
  *  over the change, refusing it with `edit::rebase_conflict` where the two
- *  touch the same text, and with `edit::stale_base` where the document no
+ *  touch the same text or record, and with `edit::stale_base` where the document no
  *  longer holds the change since. Pass it: a write without one lands over
  *  whatever the value now holds. */
 export interface WriteOptions {
@@ -529,8 +529,8 @@ impl Document {
     /// answer the `Receipt`. `opts.base` is the hash the writer read
     /// (`hash(addr)`), and the change's offsets are into the value it names:
     /// one the value has moved on from rebases the change over the change
-    /// since, throwing `edit::rebase_conflict` where they touch the same text
-    /// and `edit::stale_base` where the document no longer holds the change
+    /// since, throwing `edit::rebase_conflict` where they touch the same text or
+    /// record and `edit::stale_base` where the document no longer holds the change
     /// since. A refused change throws `edit::content_apply` and writes
     /// nothing.
     #[wasm_bindgen(js_name = apply, unchecked_return_type = "Receipt")]
