@@ -252,6 +252,19 @@ fn a_stale_write_keeps_a_record_changed_since_or_refuses() {
     assert_eq!(doc, held);
 }
 
+/// A stale revise that moves a block another writer re-kinded since refuses
+/// rather than writing it back as it read it.
+#[test]
+fn a_stale_move_of_a_block_re_kinded_since_refuses() {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nAlpha\n\nBeta\n\nGamma\n");
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\n## Gamma", Some(&base)).unwrap();
+    let held = doc.clone();
+    let err = doc.main_mut().revise(Target::Body, "Alpha\n\nGamma\n\nBeta", Some(&base)).unwrap_err();
+    assert_eq!(err.code(), "edit::rebase_conflict");
+    assert_eq!(doc, held);
+}
+
 /// A revise keeps the ids of the blocks it kept and rides an anchor on the
 /// text it kept.
 #[test]

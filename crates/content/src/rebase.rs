@@ -8,7 +8,7 @@
 use crate::change::{AnchorStep, ApplyError, Assoc, Change, IslandStep, MarkStep, Run, Splice, Step, apply};
 use crate::draft::Draft;
 use crate::mapping::{MapResult, Mapping, StepMap};
-use crate::model::{Anchor, Block, Content, Mark, Pos, Usv};
+use crate::model::{Anchor, Content, Mark, Pos, Usv};
 use crate::units::Scalars;
 
 /// A step of the change that does not fit the value `over` left.
@@ -113,8 +113,8 @@ impl std::error::Error for RebaseError {}
 ///   overwrites what `over` changed conflicts: the fields of a block's record
 ///   a `setBlock` names, a container's attributes, an island's props and the
 ///   slots they drop.
-/// - A splice conflicts where an island it deletes, or the record of a block
-///   it deletes and writes back, reads otherwise than its writer read it.
+/// - A splice conflicts where an island or block record it deletes reads
+///   otherwise than its writer read it.
 /// - `nested` rebases its change over what `over` did inside that slot. Where
 ///   `over` removed the island or the slot and the slot now reads otherwise,
 ///   its edits are not in the mapping, and the step conflicts.
@@ -186,14 +186,13 @@ fn rehomed(over: &Mapping, island: &str, slot: &str) -> bool {
 
 /// Whether `step`, run where it was made (`read`) and where it now lands
 /// (`wrote`), overwrites something that reads otherwise: what its inverse
-/// puts back, for the fields it sets, or the islands and rewritten records
-/// a splice deletes.
+/// puts back, for the fields it sets, or the islands and block records a
+/// splice deletes.
 fn overwrites(step: &Step, (read, put): &(Step, Vec<Step>), (wrote, puts): &(Step, Vec<Step>)) -> bool {
     match (step, read, wrote, put.as_slice(), puts.as_slice()) {
-        (Step::Splice(s), Step::Splice(a), Step::Splice(b), ..) => {
-            let (a, b) = (a.removed.clone().unwrap_or_default(), b.removed.clone().unwrap_or_default());
-            let rewritten = |x: &Block| s.blocks.iter().any(|ins| ins.id == x.id);
-            a.islands != b.islands || a.blocks.iter().zip(&b.blocks).any(|(x, y)| x != y && rewritten(x))
+        (Step::Splice(_), Step::Splice(a), Step::Splice(b), ..) => {
+            let (a, b) = (a.removed.as_ref(), b.removed.as_ref());
+            a.map(|r| (&r.islands, &r.blocks)) != b.map(|r| (&r.islands, &r.blocks))
         }
         (Step::SetBlock(s), _, _, [Step::SetBlock(x)], [Step::SetBlock(y)]) => {
             ((s.kind.is_some() || s.attrs.is_some()) && (&x.kind, &x.attrs) != (&y.kind, &y.attrs))

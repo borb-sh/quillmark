@@ -1387,15 +1387,22 @@ proptest! {
 
 /// What `over` took `base` to in `theirs` that `done` holds otherwise, by
 /// id, on one level and in each slot all three hold: a block's kind or path,
-/// a container, an island's props, or an island or slot `over` changed that
-/// `done` lost where the change only ever read it as `base` holds it. `read`
-/// is every island the change's steps passed through; one the change edited
-/// before it dropped it holds to what the change read, which the rebase
-/// checks step by step.
+/// a container, an island's props, a block `over` changed that `done` lost,
+/// or an island or slot `over` changed that `done` lost where the change
+/// never edited what `over` changed in it. `read` is every island the
+/// change's steps passed through; the props or a slot the change edited
+/// before it dropped the island hold to what the change read, which the
+/// rebase checks step by step.
 fn overwritten(base: &Content, theirs: &Content, done: &Content, read: &[Island]) -> Option<String> {
     let block = |c: &Content, id: &str| c.blocks.iter().find(|b| b.id == id).cloned();
     for b in &theirs.blocks {
-        let (Some(was), Some(now)) = (block(base, &b.id), block(done, &b.id)) else { continue };
+        let Some(was) = block(base, &b.id) else { continue };
+        let Some(now) = block(done, &b.id) else {
+            if was != *b {
+                return Some(format!("block {}", b.id));
+            }
+            continue;
+        };
         if was.kind != b.kind && now.kind != b.kind {
             return Some(format!("the kind of {}", b.id));
         }
@@ -1412,7 +1419,10 @@ fn overwritten(base: &Content, theirs: &Content, done: &Content, read: &[Island]
     for i in &theirs.islands {
         let Some(was) = island(base, &i.id).filter(|was| was != i) else { continue };
         let Some(now) = island(done, &i.id) else {
-            if read.iter().any(|r| r.id == i.id && *r != was) {
+            let edited = |differs: &dyn Fn(&Island) -> bool| read.iter().any(|r| r.id == i.id && differs(r));
+            let props = was.props == i.props || edited(&|r| r.props != was.props);
+            let slots = i.slots.iter().all(|(slot, inner)| was.slots.get(slot) == Some(inner) || edited(&|r| r.slots.get(slot) != was.slots.get(slot)));
+            if props && slots {
                 continue;
             }
             return Some(format!("island {}", i.id));

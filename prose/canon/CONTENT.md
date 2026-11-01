@@ -137,7 +137,7 @@ A step holds to what it overwrites as its writer read it, its own earlier steps 
 
 - a `setBlock` holds the fields of the block's record it names, so a `setBlock` names only the fields it changes, as a diff's do;
 - a `container` step holds the container it sets or removes, and an island props step the props and the slots it drops;
-- a splice holds each island it deletes, and the record of a block it deletes and writes back; one that only deletes a block `over` re-kinded deletes it, as a deletion in ProseMirror does.
+- a splice holds each island and block record it deletes, so a stale delete or move of a block `over` re-kinded conflicts where ProseMirror's would delete it.
 
 Where `over` removed an island or slot, the edits in it are not in the mapping, so a `nested` step lands only where the slot reads as it did.
 

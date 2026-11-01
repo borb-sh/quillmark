@@ -128,7 +128,8 @@ over its keys: read `receipt["warnings"]`.
   is a `rebase::Conflict` naming it. A step by id that would overwrite what
   `over` changed (a block's kind or path, a container, an island's props)
   conflicts rather than undoing it, as does a splice that deletes an island
-  `over` changed, so a diff's `setBlock` names only the fields it changes.
+  or block `over` changed, so a diff's `setBlock` names only the fields it
+  changes.
   `Mapping::map_point` and `project` map
   as `apply` moves a point anchor and inside one slot. WASM `rebase`,
   Python `rebase`.
