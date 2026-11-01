@@ -15,6 +15,7 @@ import {
   mapPos,
   invert,
   compose,
+  rebase,
   diff,
   repair,
   splitBlock,
@@ -703,11 +704,29 @@ describe('Document apply: the write primitive', () => {
     const receipt = doc.apply({}, { steps: [{ splice: { at: 0, delete: 'Body', insert: 'Text' } }] }, { base })
     expect(receipt.hash).toBe(doc.hash({}))
     expect(receipt.applied.steps).toHaveLength(1)
-    expectEditCode(() => doc.apply({}, { steps: [] }, { base }), 'edit::stale_base')
+    expect(doc.apply({}, { steps: [] }, { base }).rebased).toBe(true)
+    expectEditCode(() => doc.apply({}, { steps: [] }, { base: 'never-read' }), 'edit::stale_base')
     expect(() => doc.apply({}, { steps: [] }, { baseMarkdown: 'Body.' })).toThrow(/base/)
 
     doc.apply({}, invert(receipt.applied, before), { base: receipt.hash })
     expect(doc.read({})).toEqual(before)
+  })
+
+  it('a stale base rebases a write over the change since, offsets in UTF-16 as the writer read them', () => {
+    const doc = blankDoc()
+    doc.replace({}, importMarkdown('😀 hello world').content)
+    const base = doc.hash({})
+    doc.apply({}, { steps: [{ splice: { at: 0, delete: '', insert: '🎉 ' } }] })
+    const anchor = { steps: [{ anchor: { id: 'a1', start: 9, end: 14, quote: 'world' } }] }
+    const receipt = doc.apply({}, anchor, { base })
+    expect(receipt.rebased).toBe(true)
+    expect(receipt.applied.steps[0].anchor).toMatchObject({ start: 12, end: 17 })
+    expect(doc.read({}).anchors).toEqual([{ id: 'a1', start: 12, end: 17 }])
+
+    const reworded = { steps: [{ splice: { at: 9, delete: 'world', insert: 'there' } }] }
+    doc.apply({}, { steps: [{ splice: { at: 14, delete: 'r', insert: 'R' } }] })
+    const err = expectEditCode(() => doc.apply({}, reworded, { base }), 'edit::rebase_conflict')
+    expect(err.diagnostics[0].args).toMatchObject({ current: doc.hash({}), step: 0, reason: 'changed' })
   })
 
   it('a quoted step refuses text its writer did not read, offsets in UTF-16', () => {
@@ -740,6 +759,17 @@ describe('Document apply: the write primitive', () => {
     expect(receipts.map((r) => r.hash)).toEqual([doc.hash('intro'), doc.hash({})])
     expect(doc.read('intro').text).toBe('Hi')
     expect(doc.read({}).text).toBe('Body!')
+  })
+
+  it('rebase maps a change past another made from the same value, offsets in UTF-16', () => {
+    const base = importMarkdown('😀 hello world').content
+    const typed = { steps: [{ splice: { at: 0, delete: '', insert: '🎉 ' } }] }
+    const mark = { steps: [{ mark: { start: 9, end: 14, type: 'strong', add: true, quote: 'world' } }] }
+    expect(rebase(base, mark, typed).steps[0].mark).toMatchObject({ start: 12, end: 17, quote: 'world' })
+    const cut = { steps: [{ splice: { at: 8, delete: ' world', insert: '' } }] }
+    const err = expectEditCode(() => rebase(base, mark, cut), 'edit::rebase_conflict')
+    expect(err.diagnostics[0].args).toMatchObject({ step: 0, reason: 'deleted' })
+    expectEditCode(() => rebase(base, { steps: [{ splice: { at: 99, delete: 'x', insert: '' } }] }, typed), 'edit::content_apply')
   })
 
   it('compose, mapPos and diff answer without a document', () => {

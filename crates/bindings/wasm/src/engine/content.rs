@@ -11,7 +11,7 @@ use crate::types::Diagnostic;
 use quillmark_content::change::{self, Assoc, Change};
 use quillmark_content::model::Content;
 use quillmark_content::units::{self, Utf16};
-use quillmark_core::document::{Card, CardMut, EditError, Receipt, Target};
+use quillmark_core::document::{BaseError, Card, CardMut, EditError, Receipt, Target};
 use quillmark_core::path::DocPath;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
@@ -180,6 +180,8 @@ export type Step =
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
  * markdown dropped, and an `edit::whole_text_diff` where the diff found no
  * step-wise change and rewrote the whole text of the value or a slot.
+ * `rebased` says the write's `base` was a value the field had moved on from,
+ * and the write was rebased over what changed since.
  */
 export interface Receipt {
     applied: Change;
@@ -187,6 +189,7 @@ export interface Receipt {
     droppedAnchors: DroppedAnchor[];
     movedAnchors: { id: string; before: string; after: string }[];
     warnings: Diagnostic[];
+    rebased: boolean;
 }
 
 /**
@@ -206,8 +209,10 @@ export interface Diffed {
     warnings: Diagnostic[];
 }
 
-/** The hash a writer read, which a write refuses with `edit::stale_base` when
- *  the value has changed since. Pass it: a write without one lands over
+/** The hash a writer read. A value that has changed since rebases the write
+ *  over the change, refusing it with `edit::rebase_conflict` where the two
+ *  touch the same text, and with `edit::stale_base` where the document no
+ *  longer holds the change since. Pass it: a write without one lands over
  *  whatever the value now holds. */
 export interface WriteOptions {
     base?: string;
@@ -263,6 +268,7 @@ struct ReceiptJs {
     dropped_anchors: Vec<DroppedAnchorJs>,
     moved_anchors: Vec<MovedJs>,
     warnings: Vec<Diagnostic>,
+    rebased: bool,
 }
 
 /// A receipt's dropped anchor: its selector, and the island and slot that
@@ -430,11 +436,13 @@ fn write(
     let path = value_path(&card_base, addr);
     let to_js = |e: EditError| edit_error_to_js(&e, &card_base);
     let target = target(addr);
-    let before = card_of(doc, addr)?.read_at(target, base).map_err(to_js)?;
+    let held = card_of(doc, addr)?;
+    let read = held.read_at(target, base).map_err(to_js)?;
+    let before = held.read(target).map_err(to_js)?;
     let mut card = card_mut_of(doc, addr)?;
     let receipt: Receipt = match edit {
         Edit::Apply(change) => {
-            let change = units::change_to_scalars(&change, &before, Utf16).map_err(|e| to_js(EditError::Change(e)))?;
+            let change = units::change_to_scalars(&change, &read, Utf16).map_err(|e| to_js(EditError::Change(e)))?;
             card.apply(target, &change, base)
         }
         Edit::Revise(markdown) => card.revise(target, markdown, base),
@@ -472,6 +480,7 @@ fn write(
             .map(|m| MovedJs { id: m.id, before: m.before, after: m.after })
             .collect(),
         warnings,
+        rebased: receipt.rebased,
     })
 }
 
@@ -513,8 +522,12 @@ impl Document {
 
     /// **Apply** `change` to the value at `addr`, all its steps or none, and
     /// answer the `Receipt`. `opts.base` is the hash the writer read
-    /// (`hash(addr)`), a stale one refused with `edit::stale_base`; a refused
-    /// change throws `edit::content_apply` and writes nothing.
+    /// (`hash(addr)`), and the change's offsets are into the value it names:
+    /// one the value has moved on from rebases the change over the change
+    /// since, throwing `edit::rebase_conflict` where they touch the same text
+    /// and `edit::stale_base` where the document no longer holds the change
+    /// since. A refused change throws `edit::content_apply` and writes
+    /// nothing.
     #[wasm_bindgen(js_name = apply, unchecked_return_type = "Receipt")]
     pub fn apply(
         &mut self,
@@ -657,6 +670,32 @@ pub fn compose(
 ) -> Result<JsValue, JsValue> {
     let (a, b) = (change_in(a, "compose")?, change_in(b, "compose")?);
     serialize_or_throw(&change::compose_in(&a, &b, Utf16).to_value(), "compose")
+}
+
+/// `change`, made from `base`, rebased to apply after `over`, also made from
+/// `base`: each step at its mapped offsets, holding to what it read. Throws
+/// `edit::rebase_conflict`, carrying the `step` and `reason`, where a step no
+/// longer fits, and `edit::content_apply` where either change does not apply
+/// to `base`.
+#[wasm_bindgen(js_name = rebase, unchecked_return_type = "Change")]
+pub fn rebase(
+    #[wasm_bindgen(unchecked_param_type = "Content")] base: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Change")] over: JsValue,
+) -> Result<JsValue, JsValue> {
+    let base = content_in(base, "rebase")?;
+    let change = units::change_to_scalars(&change_in(change, "rebase")?, &base, Utf16).map_err(apply_error)?;
+    let over = units::change_to_scalars(&change_in(over, "rebase")?, &base, Utf16).map_err(apply_error)?;
+    let now = change::apply(&base, &over).map_err(apply_error)?.content;
+    let rebased = change::rebase(&base, &change, &over).map_err(|e| match e {
+        change::RebaseError::Apply(e) => apply_error(e),
+        change::RebaseError::Conflict(c) => {
+            let err = EditError::Base(BaseError::rebase_conflict(quillmark_core::document::content_hash(&now), None, &c));
+            WasmError { diagnostics: vec![err.to_diagnostic(None)] }.to_js_value()
+        }
+    })?;
+    let rebased = units::change_from_scalars(&rebased, &now, Utf16).map_err(apply_error)?;
+    serialize_or_throw(&rebased.to_value(), "rebase")
 }
 
 /// Where `pos` lands after `change`, and what around it the change deleted.

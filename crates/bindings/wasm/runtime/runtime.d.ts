@@ -22,6 +22,7 @@ import type {
 	mapPos,
 	invert,
 	compose,
+	rebase,
 	diff,
 	repair,
 	splitBlock,
@@ -49,6 +50,7 @@ export interface CoreSurface {
 	mapPos: typeof mapPos;
 	invert: typeof invert;
 	compose: typeof compose;
+	rebase: typeof rebase;
 	diff: typeof diff;
 	repair: typeof repair;
 	splitBlock: typeof splitBlock;

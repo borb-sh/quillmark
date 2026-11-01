@@ -51,14 +51,36 @@ pub enum BaseError {
         /// or a document.
         field: Option<String>,
     },
-    #[error("the writer's edit and a change made since its read touch the same lines")]
+    #[error("the writer's edit and a change made since its read touch the same text")]
     Conflict {
         current: String,
         field: Option<String>,
+        /// The step of the writer's change that conflicts, and why
+        /// ([`Reason::name`](quillmark_content::rebase::Reason::name)), for a
+        /// content write rebased over the change since; `None` for a merge
+        /// by line.
+        step: Option<usize>,
+        reason: Option<&'static str>,
     },
 }
 
 impl BaseError {
+    /// The refusal of a content write whose change, rebased over the change
+    /// since its base, conflicts with it; `current` is the hash of the value
+    /// now.
+    pub fn rebase_conflict(
+        current: String,
+        field: Option<String>,
+        conflict: &quillmark_content::rebase::Conflict,
+    ) -> Self {
+        BaseError::Conflict {
+            current,
+            field,
+            step: Some(conflict.step),
+            reason: Some(conflict.reason.name()),
+        }
+    }
+
     pub fn code(&self) -> &'static str {
         match self {
             BaseError::Stale { .. } => "edit::stale_base",
@@ -68,8 +90,16 @@ impl BaseError {
 
     pub fn args(&self) -> BTreeMap<String, JsonValue> {
         match self {
-            BaseError::Stale { current, .. } | BaseError::Conflict { current, .. } => {
-                diag_args! { "current" => current }
+            BaseError::Stale { current, .. } => diag_args! { "current" => current },
+            BaseError::Conflict { current, step, reason, .. } => {
+                let mut args = diag_args! { "current" => current };
+                if let Some(step) = step {
+                    args.insert("step".into(), (*step).into());
+                }
+                if let Some(reason) = reason {
+                    args.insert("reason".into(), (*reason).into());
+                }
+                args
             }
         }
     }
@@ -216,6 +246,8 @@ fn richtext_write(
         None => Err(EditError::Base(BaseError::Conflict {
             current: current(),
             field: None,
+            step: None,
+            reason: None,
         })),
     }
 }
@@ -386,6 +418,8 @@ impl Card {
                             return Err(EditError::Base(BaseError::Conflict {
                                 current: current()?,
                                 field: Some(name.to_string()),
+                                step: None,
+                                reason: None,
                             }));
                         }
                     }
@@ -466,6 +500,8 @@ pub(crate) fn parse_against(
     let conflict = || BaseError::Conflict {
         current: hash().unwrap_or_default(),
         field: None,
+        step: None,
+        reason: None,
     };
     let merged = merge_lines(&read, &now, &new).ok_or_else(conflict)?;
     let merged = Document::parse_revising(&merged).map_err(|_| conflict())?;

@@ -137,12 +137,19 @@ impl StepMap {
     }
 
     pub fn map(&self, pos: &Pos, assoc: Assoc) -> MapResult {
+        self.map_as(pos, Bias::Side(assoc))
+    }
+
+    fn map_as(&self, pos: &Pos, bias: Bias) -> MapResult {
         match (self, pos) {
-            (StepMap::Replace { at, deleted, inserted, .. }, Pos::At(p)) => replace(*p, *at, *deleted, *inserted, assoc),
+            (StepMap::Replace { at, deleted, inserted, .. }, Pos::At(p)) => match bias {
+                Bias::Side(assoc) => replace(*p, *at, *deleted, *inserted, assoc),
+                Bias::Point => point(*p, *at, *deleted, *inserted),
+            },
             (StepMap::Replace { at, inserted, removed, .. }, Pos::In { island, .. }) if removed.contains(island) => {
-                let edge = match assoc {
-                    Assoc::Before => *at,
-                    Assoc::After => at.saturating_add(*inserted),
+                let edge = match bias {
+                    Bias::Side(Assoc::After) => at.saturating_add(*inserted),
+                    _ => *at,
                 };
                 gone(Pos::At(edge), pos)
             }
@@ -152,7 +159,7 @@ impl StepMap {
                 gone(pos.clone(), pos)
             }
             (StepMap::Nested { island: i, slot: s, mapping }, Pos::In { island, slot, at }) if i == island && s == slot => {
-                let (r, recover) = mapping.map_range(0, mapping.maps.len(), at, assoc);
+                let (r, recover) = mapping.map_range(0, mapping.maps.len(), at, bias);
                 MapResult {
                     pos: Pos::In { island: island.clone(), slot: slot.clone(), at: Box::new(r.pos) },
                     recover: recover.map(|(index, inner)| Recover::Nested { index, inner: Box::new(inner) }),
@@ -165,15 +172,15 @@ impl StepMap {
 
     /// Where `recover`, read off the map this one mirrors, puts a position
     /// back; `None` where the two do not pair.
-    fn recover(&self, recover: &Recover, assoc: Assoc) -> Option<Pos> {
+    fn recover(&self, recover: &Recover, bias: Bias) -> Option<Pos> {
         match (self, recover) {
             (_, Recover::Pos(p)) => Some(p.clone()),
             (StepMap::Replace { at, .. }, Recover::Offset(off)) => Some(Pos::At(at + off)),
             (StepMap::Nested { island, slot, mapping }, Recover::Nested { index, inner }) => {
                 let n = mapping.maps.len();
                 let k = n.checked_sub(index + 1)?;
-                let at = mapping.maps[k].recover(inner, assoc)?;
-                let (r, _) = mapping.map_range(k + 1, n, &at, assoc);
+                let at = mapping.maps[k].recover(inner, bias)?;
+                let (r, _) = mapping.map_range(k + 1, n, &at, bias);
                 Some(Pos::In { island: island.clone(), slot: slot.clone(), at: Box::new(r.pos) })
             }
             _ => None,
@@ -194,6 +201,25 @@ fn gone(pos: Pos, was: &Pos) -> MapResult {
         deleted_across: true,
         recover: Some(Recover::Pos(was.clone())),
     }
+}
+
+/// How a position keeps to the text around it: to one side, or as a point
+/// anchor does in `apply`.
+#[derive(Debug, Clone, Copy)]
+enum Bias {
+    Side(Assoc),
+    Point,
+}
+
+/// Offset `p` as `apply` moves a point anchor: left of text inserted at it,
+/// and at the end of a deletion right of what replaced it. The recovery is
+/// kept at a deletion's end, so a mirror puts the point back after the text
+/// it followed.
+fn point(p: Usv, at: Usv, d: usize, m: usize) -> MapResult {
+    if d > 0 && p == at.saturating_add(d) {
+        return MapResult { recover: Some(Recover::Offset(d)), ..replace(p, at, d, m, Assoc::After) };
+    }
+    replace(p, at, d, m, Assoc::Before)
 }
 
 /// Offset `p` across `d` units at `at` replaced by `m`. A position at either
@@ -338,19 +364,52 @@ impl Mapping {
 
     /// `pos` through every map, the deletion flags of each map it passed.
     pub fn map(&self, pos: &Pos, assoc: Assoc) -> MapResult {
-        self.map_range(0, self.maps.len(), pos, assoc).0
+        self.map_range(0, self.maps.len(), pos, Bias::Side(assoc)).0
+    }
+
+    /// `pos` through every map as `apply` moves a point anchor: left of text
+    /// inserted at it, onto the start of a deletion that takes the text
+    /// around it, and right of what replaced a deletion it ends.
+    pub fn map_point(&self, pos: &Pos) -> MapResult {
+        self.map_range(0, self.maps.len(), pos, Bias::Point).0
+    }
+
+    /// The maps of the changes inside one slot, in order, each pair of
+    /// mirrored nested maps linking their inner maps from the two ends.
+    pub fn project(&self, island: &str, slot: &str) -> Mapping {
+        let mut out = Mapping::new();
+        let mut spans = vec![None; self.maps.len()];
+        for (k, map) in self.maps.iter().enumerate() {
+            if let StepMap::Nested { island: i, slot: s, mapping } = map
+                && i == island
+                && s == slot
+            {
+                spans[k] = Some((out.maps.len(), mapping.maps.len()));
+                out.append_mapping(mapping);
+            }
+        }
+        for &(a, b) in &self.mirror {
+            if let (Some(Some((sa, la))), Some(Some((sb, lb)))) = (spans.get(a), spans.get(b))
+                && la == lb
+            {
+                for t in 0..*la {
+                    out.set_mirror(sa + t, sb + la - 1 - t);
+                }
+            }
+        }
+        out
     }
 
     /// `pos` through maps `from..to`, and the first recovery no link in the
     /// range took, with the index of its map.
-    fn map_range(&self, from: usize, to: usize, pos: &Pos, assoc: Assoc) -> (MapResult, Option<(usize, Recover)>) {
+    fn map_range(&self, from: usize, to: usize, pos: &Pos, bias: Bias) -> (MapResult, Option<(usize, Recover)>) {
         let mut out = kept(pos.clone());
         let mut open = None;
         let mut i = from;
         while i < to {
-            let r = self.maps[i].map(&out.pos, assoc);
+            let r = self.maps[i].map_as(&out.pos, bias);
             if let Some(recover) = &r.recover {
-                let back = self.get_mirror(i).filter(|&j| j > i && j < to).and_then(|j| Some((j, self.maps[j].recover(recover, assoc)?)));
+                let back = self.get_mirror(i).filter(|&j| j > i && j < to).and_then(|j| Some((j, self.maps[j].recover(recover, bias)?)));
                 if let Some((j, p)) = back {
                     out.pos = p;
                     i = j + 1;

@@ -942,10 +942,13 @@ impl PyDocument {
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
     /// none, and return the receipt: `applied` (the change in its normalized
     /// form, which `invert` undoes), `hash` (the next write's `base`),
-    /// `dropped_anchors`, `moved_anchors` and `warnings`. `base` is the hash
-    /// the writer read (`hash_at`); pass it, since a stale one is refused with
-    /// `edit::stale_base`. A refused change raises `edit::content_apply` and
-    /// writes nothing.
+    /// `dropped_anchors`, `moved_anchors`, `warnings` and `rebased`. `base`
+    /// is the hash the writer read (`hash_at`); pass it. One the value has
+    /// moved on from rebases the change over the change since, raising
+    /// `edit::rebase_conflict` where they touch the same text and
+    /// `edit::stale_base` where the document no longer holds the change
+    /// since. A refused change raises `edit::content_apply` and writes
+    /// nothing.
     #[pyo3(signature = (change, field=None, card=None, base=None))]
     fn apply<'py>(
         &mut self,

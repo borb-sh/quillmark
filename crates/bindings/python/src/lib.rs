@@ -29,6 +29,7 @@ fn _quillmark(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(content::invert, m)?)?;
     m.add_function(wrap_pyfunction!(content::compose, m)?)?;
+    m.add_function(wrap_pyfunction!(content::rebase, m)?)?;
     m.add_function(wrap_pyfunction!(content::map_pos, m)?)?;
     m.add_function(wrap_pyfunction!(content::diff, m)?)?;
     m.add_function(wrap_pyfunction!(content::repair, m)?)?;

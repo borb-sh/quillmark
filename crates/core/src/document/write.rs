@@ -4,10 +4,16 @@
 //! answers a [`Receipt`]. [`Card::revise`] and [`Card::replace`] build the
 //! change from a writer's markdown or a whole value and apply it.
 //! [`Document::apply_all`] applies several writes, all or nothing, each naming
-//! its card by `$id`. Each takes the hash its writer read as `base` and
-//! refuses the write with `edit::stale_base` when the value has changed since.
+//! its card by `$id`. Each takes the hash its writer read as `base`. A base
+//! the value has moved on from rebases the write over what changed since,
+//! which the card's change log holds; a write that conflicts with it is
+//! refused with `edit::rebase_conflict`, and a base the log no longer reaches
+//! with `edit::stale_base`.
 
-use quillmark_content::change::{self, Change, Dropped, Moved};
+use std::collections::VecDeque;
+use std::sync::Arc;
+
+use quillmark_content::change::{self, Change, Dropped, Moved, RebaseError, Step};
 use quillmark_content::diff;
 use quillmark_content::lines::import::ImportWarning;
 use quillmark_content::model::Content;
@@ -52,6 +58,9 @@ pub struct Receipt {
     /// of a slot as one splice, since no step-wise change reached it
     /// ([`diff::Diff::whole_text`]).
     pub whole_text: bool,
+    /// The base was a value the field had moved on from, and the write was
+    /// rebased over what changed since.
+    pub rebased: bool,
 }
 
 impl Receipt {
@@ -95,61 +104,87 @@ impl Card {
         Ok(content_hash(&self.read(target)?))
     }
 
-    /// Apply `change` to the value at `target`, refused when `base` is not
-    /// the value's hash. A refused change writes nothing.
+    /// Apply `change` to the value at `target`. A `base` the value has moved
+    /// on from rebases `change` over what changed since; a refused change
+    /// writes nothing.
     pub fn apply(&mut self, target: Target<'_>, change: &Change, base: Option<&str>) -> Result<Receipt, EditError> {
-        let before = self.read_at(target, base)?;
-        let applied = change::apply(&before, change).map_err(EditError::Change)?;
-        self.land(target, before, applied, Vec::new(), None)
+        let read = self.reading(target, base)?;
+        let change = match &read.since {
+            None => change.clone(),
+            Some(since) => read.rebase(target, since, change)?,
+        };
+        let applied = change::apply(&read.now, &change).map_err(EditError::Change)?;
+        self.land(target, read, applied, Vec::new(), None)
     }
 
     /// Rewrite the value at `target` as `markdown`: the anchors and islands
     /// whose `qm-*` tags it keeps stay put, and the rest of the value keeps
-    /// what a word-aligned diff keeps.
+    /// what a word-aligned diff keeps. The diff is from the value `base`
+    /// names, so what changed since is rebased over rather than undone.
     pub fn revise(&mut self, target: Target<'_>, markdown: &str, base: Option<&str>) -> Result<Receipt, EditError> {
-        let before = self.read_at(target, base)?;
-        let revision = diff::revise(&before, markdown).map_err(EditError::Import)?;
-        let applied = change::apply(&before, &revision.change).map_err(EditError::Change)?;
-        self.land(target, before, applied, revision.warnings, Some(revision.whole_text))
+        let read = self.reading(target, base)?;
+        let revision = diff::revise(read.read(), markdown).map_err(EditError::Import)?;
+        let change = match &read.since {
+            None => revision.change,
+            Some(since) => read.rebase(target, since, &revision.change)?,
+        };
+        let applied = change::apply(&read.now, &change).map_err(EditError::Change)?;
+        self.land(target, read, applied, revision.warnings, Some(revision.whole_text))
     }
 
     /// Write `content` over the value at `target`, each anchor `content`
     /// names nowhere carried where the diff keeps its text. A `content` that
-    /// is no valid value is refused.
+    /// is no valid value is refused. The diff is from the value `base` names,
+    /// as a revise's is.
     pub fn replace(&mut self, target: Target<'_>, content: &Content, base: Option<&str>) -> Result<Receipt, EditError> {
-        let before = self.read_at(target, base)?;
-        let diffed = diff::replace(&before, content).map_err(|e| EditError::Change(e.into()))?;
-        let applied = change::apply(&before, &diffed.change).map_err(EditError::Change)?;
-        self.land(target, before, applied, Vec::new(), Some(diffed.whole_text))
+        let read = self.reading(target, base)?;
+        let diffed = diff::replace(read.read(), content).map_err(|e| EditError::Change(e.into()))?;
+        let change = match &read.since {
+            None => diffed.change,
+            Some(since) => read.rebase(target, since, &diffed.change)?,
+        };
+        let applied = change::apply(&read.now, &change).map_err(EditError::Change)?;
+        self.land(target, read, applied, Vec::new(), Some(diffed.whole_text))
     }
 
-    /// The value at `target`, refused with `edit::stale_base` when `base` is
-    /// not its hash.
+    /// The value `base` names at `target`: the value now, where `base` is
+    /// absent or its hash, or the value the card's log holds for an earlier
+    /// hash. Refused with `edit::stale_base` where the log reaches no value
+    /// that hashes to `base`.
     pub fn read_at(&self, target: Target<'_>, base: Option<&str>) -> Result<Content, EditError> {
-        let before = self.read(target)?;
-        if let Some(base) = base {
-            let current = content_hash(&before);
-            if current != base {
-                let field = match target {
-                    Target::Body => None,
-                    Target::Field(name) => Some(name.to_string()),
-                };
-                return Err(EditError::Base(BaseError::Stale { current, field }));
-            }
-        }
-        Ok(before)
+        let read = self.reading(target, base)?;
+        Ok(match read.since {
+            Some(since) => since.base,
+            None => read.now,
+        })
     }
 
-    /// Store `applied` at `target`. `diffed` is a diff's `whole_text`, `None`
-    /// for a caller's change; a diff's receipt names every anchor it lost.
+    fn reading(&self, target: Target<'_>, base: Option<&str>) -> Result<Reading, EditError> {
+        let now = self.read(target)?;
+        let hash = content_hash(&now);
+        let since = match base {
+            Some(base) if base != hash => {
+                let since = self.log.since(target, base, &hash);
+                let stale = || BaseError::Stale { current: hash.clone(), field: field_of(target) };
+                Some(since.ok_or_else(|| EditError::Base(stale()))?)
+            }
+            _ => None,
+        };
+        Ok(Reading { now, hash, since })
+    }
+
+    /// Store `applied` at `target` and log it. `diffed` is a diff's
+    /// `whole_text`, `None` for a caller's change; a diff's receipt names
+    /// every anchor it lost.
     fn land(
         &mut self,
         target: Target<'_>,
-        before: Content,
+        read: Reading,
         mut applied: change::Applied,
         warnings: Vec<ImportWarning>,
         diffed: Option<bool>,
     ) -> Result<Receipt, EditError> {
+        let Reading { now: before, hash: before_hash, since } = read;
         if diffed.is_some() {
             applied.dropped = change::lost_anchors(&before, &applied.content, |_| true);
         }
@@ -163,6 +198,7 @@ impl Card {
                         .map_err(EditError::InvalidPayload)?;
                 }
             }
+            self.log.record(target, Entry { before_hash, before, applied: applied.applied.clone(), after_hash: hash.clone() });
         }
         Ok(Receipt {
             applied: applied.applied,
@@ -171,7 +207,143 @@ impl Card {
             moved_anchors: applied.moved,
             warnings,
             whole_text: diffed.unwrap_or(false),
+            rebased: since.is_some(),
         })
+    }
+}
+
+fn field_of(target: Target<'_>) -> Option<String> {
+    match target {
+        Target::Body => None,
+        Target::Field(name) => Some(name.to_string()),
+    }
+}
+
+/// The value a write reads now and its hash, and where its base is an earlier
+/// hash the log reaches, what changed since.
+struct Reading {
+    now: Content,
+    hash: String,
+    since: Option<Since>,
+}
+
+/// The value a base names, and the change from it to the value now.
+struct Since {
+    base: Content,
+    over: Change,
+}
+
+impl Reading {
+    /// The value the writer read.
+    fn read(&self) -> &Content {
+        self.since.as_ref().map_or(&self.now, |since| &since.base)
+    }
+
+    /// `change`, made from the value `since` names, rebased over the change
+    /// since: a conflict refused with `edit::rebase_conflict`.
+    fn rebase(&self, target: Target<'_>, since: &Since, change: &Change) -> Result<Change, EditError> {
+        change::rebase(&since.base, change, &since.over).map_err(|e| match e {
+            RebaseError::Apply(e) => EditError::Change(e),
+            RebaseError::Conflict(c) => EditError::Base(BaseError::rebase_conflict(self.hash.clone(), field_of(target), &c)),
+        })
+    }
+}
+
+/// The most writes a card's log holds for one value.
+pub const LOG_WRITES: usize = 32;
+
+/// The most steps, nested ones counted, a card's log holds for one value
+/// across its writes. The newest write stays however many it holds.
+pub const LOG_STEPS: usize = 4096;
+
+/// A card's recent writes, per value it holds, in memory only: no store,
+/// hash or comparison sees it. Each write it holds names the hash it read
+/// and the one it left, the value it wrote over, and the change in its
+/// normalized form, so a write whose base is one of those hashes rebases over
+/// the changes since. A write the log did not see breaks the chain, and the
+/// log forgets what came before it. It holds at most [`LOG_WRITES`] writes
+/// and [`LOG_STEPS`] steps per value, the oldest leaving first.
+#[derive(Clone, Default)]
+pub(crate) struct ChangeLog {
+    targets: Vec<(Option<String>, VecDeque<Arc<Entry>>)>,
+}
+
+struct Entry {
+    before_hash: String,
+    before: Content,
+    applied: Change,
+    after_hash: String,
+}
+
+impl PartialEq for ChangeLog {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for ChangeLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ChangeLog")
+    }
+}
+
+fn steps_in(change: &Change) -> usize {
+    change
+        .steps
+        .iter()
+        .map(|s| match s {
+            Step::Nested { change, .. } => 1 + steps_in(change),
+            _ => 1,
+        })
+        .sum()
+}
+
+impl ChangeLog {
+    fn key(target: Target<'_>) -> Option<&str> {
+        match target {
+            Target::Body => None,
+            Target::Field(name) => Some(name),
+        }
+    }
+
+    fn entries(&self, target: Target<'_>) -> Option<&VecDeque<Arc<Entry>>> {
+        let key = Self::key(target);
+        self.targets.iter().find(|(k, _)| k.as_deref() == key).map(|(_, e)| e)
+    }
+
+    fn record(&mut self, target: Target<'_>, entry: Entry) {
+        let key = Self::key(target);
+        let at = match self.targets.iter().position(|(k, _)| k.as_deref() == key) {
+            Some(at) => at,
+            None => {
+                self.targets.push((key.map(str::to_string), VecDeque::new()));
+                self.targets.len() - 1
+            }
+        };
+        let entries = &mut self.targets[at].1;
+        if entries.back().is_some_and(|last| last.after_hash != entry.before_hash) {
+            entries.clear();
+        }
+        entries.push_back(Arc::new(entry));
+        let mut steps: usize = entries.iter().map(|e| steps_in(&e.applied)).sum();
+        while entries.len() > LOG_WRITES || (steps > LOG_STEPS && entries.len() > 1) {
+            if let Some(gone) = entries.pop_front() {
+                steps -= steps_in(&gone.applied);
+            }
+        }
+    }
+
+    /// The value `base` named at `target` and the change from it to the
+    /// value now, which hashes to `current`: from the latest write that read
+    /// `base` through the newest, when the newest left `current`.
+    fn since(&self, target: Target<'_>, base: &str, current: &str) -> Option<Since> {
+        let entries = self.entries(target)?;
+        if entries.back()?.after_hash != current {
+            return None;
+        }
+        let from = entries.iter().rposition(|e| e.before_hash == base)?;
+        let over = entries.range(from..).fold(Change::default(), |over, e| change::compose(&over, &e.applied));
+        Some(Since { base: entries[from].before.clone(), over })
     }
 }
 

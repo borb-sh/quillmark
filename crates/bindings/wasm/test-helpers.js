@@ -86,7 +86,8 @@ export const caughtFrom = (call) => {
 /**
  * Invoke `fn`, expect it to throw, and assert the thrown error's primary
  * diagnostic carries the namespaced `edit::*` `code`. Mutator identity rides on
- * `diagnostics[0].code`, not on message text; see prose/canon/ERROR.md.
+ * `diagnostics[0].code`, not on message text; see prose/canon/ERROR.md. Answers
+ * the error.
  */
 export function expectEditCode(fn, code) {
   let thrown
@@ -97,6 +98,7 @@ export function expectEditCode(fn, code) {
   }
   expect(thrown, 'expected a throw, got none').toBeDefined()
   expect(thrown.diagnostics[0].code).toBe(code)
+  return thrown
 }
 
 // Minimal font shipped with quillmark fixtures, loaded once. The Typst world

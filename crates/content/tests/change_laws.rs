@@ -6,8 +6,9 @@
 use proptest::prelude::*;
 use quillmark_content::change::{
     AnchorStep, ApplyError, Assoc, Change, ContainerStep, IslandStep, MapResult, Mapping, MarkStep, SetBlock, Splice, Step,
-    apply, compose, compose_in, invert, map_pos, map_pos_in,
+    apply, compose, compose_in, invert, map_pos, map_pos_in, rebase,
 };
+use quillmark_content::rebase::{Conflict, RebaseError, Reason};
 use quillmark_content::gestures::{join_blocks, split_block};
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
@@ -258,10 +259,15 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
 /// A change built against `d`, each step kept only where the value it reads
 /// takes it.
 fn change_for(d: &Content, ops: &[Op]) -> Change {
+    change_from(d, ops, 0)
+}
+
+/// [`change_for`], the ids it mints numbered from `k0`.
+fn change_from(d: &Content, ops: &[Op], k0: usize) -> Change {
     let mut sim = d.clone();
     let mut steps = Vec::new();
     for (k, op) in ops.iter().enumerate() {
-        let Some(step) = step_for(&sim, *op, k) else { continue };
+        let Some(step) = step_for(&sim, *op, k0 + k) else { continue };
         let group = match step {
             Step::Nested { island, change, .. } if island.is_empty() => change.steps,
             step => vec![step],
@@ -1079,4 +1085,143 @@ fn an_offset_inside_a_surrogate_pair_is_refused() {
     let at3 = serde_json::json!({"steps": [{"splice": {"at": 3, "delete": "", "insert": "x"}}]});
     let c = change_to_scalars(&Change::from_value_in(&at3, Utf16).unwrap(), &d, Utf16).unwrap();
     assert_eq!(apply(&d, &c).unwrap().content.text, "a😀xb");
+}
+
+/// A change on `d` that touches only the text in `[lo, hi]`, the window
+/// following what its own splices do, deleting no `\n`, so it joins no
+/// block another change edits, its anchors named `{side}-*`.
+fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str, k0: usize) -> Change {
+    let mut sim = d.clone();
+    let mut steps = Vec::new();
+    for (k, &(op, x, y, z)) in ops.iter().enumerate() {
+        let (a, b) = (lo + x % (hi - lo + 1), lo + y % (hi - lo + 1));
+        let (start, end) = (a.min(b), a.max(b));
+        let step = match op % 3 {
+            0 => {
+                let mut s = splice_on(&sim, start, 0, z, k0 + k);
+                let cs = chars(&sim);
+                let dn = cs[start..end].iter().take(3).take_while(|&&ch| ch != '\n').count();
+                s.delete = cs[start..start + dn].iter().collect();
+                Step::Splice(s)
+            }
+            1 if start < end => Step::Mark(MarkStep::Add { mark: Mark::new(start, end, kind_of(TAGS[z as usize % TAGS.len()])), quote: quote_of(&sim, start, end, y) }),
+            _ => Step::Anchor(AnchorStep::Set { anchor: Anchor::new(format!("{side}-{}", z % 3), start, end), quote: quote_of(&sim, start, end, x) }),
+        };
+        let mut trial = steps.clone();
+        trial.push(step.clone());
+        if let Ok(done) = apply(d, &Change::new(trial.clone())) {
+            if let Step::Splice(s) = &step {
+                hi = hi + s.insert.chars().count() - s.delete.chars().count();
+            }
+            steps = trial;
+            sim = done.content;
+        }
+    }
+    Change::new(steps)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
+
+    /// A change rebased over another applies after it and leaves a valid
+    /// value, which the rebased change's inverse takes back exactly.
+    #[test]
+    fn a_rebased_change_applies_after_the_other_and_inverts_there(d in document(), mine in ops(), theirs in ops()) {
+        let c = change_for(&d, &mine);
+        let o = change_from(&d, &theirs, 50);
+        let now = apply(&d, &o).unwrap().content;
+        let Ok(r) = rebase(&d, &c, &o) else { return Ok(()) };
+        let done = apply(&now, &r);
+        prop_assert!(done.is_ok(), "{:?}\nchange {:?}\nover {:?}\nrebased {:?}", done, c, o, r);
+        let done = done.unwrap().content;
+        prop_assert_eq!(done.validate(), Ok(()));
+        let undo = invert(&r, &now).unwrap();
+        prop_assert_eq!(apply(&done, &undo).unwrap().content, now);
+    }
+
+    #[test]
+    fn a_change_rebased_over_nothing_is_itself(d in document(), ops in ops()) {
+        let c = change_for(&d, &ops);
+        prop_assert_eq!(rebase(&d, &c, &Change::default()), Ok(c));
+    }
+
+    /// Two changes to text either side of a character neither touches, and
+    /// joining no blocks, rebase over each other, and either way round reach
+    /// the value holding both:
+    /// the text left of it as the one wrote it, the text right of it as the
+    /// other did.
+    #[test]
+    fn changes_to_disjoint_text_rebase_into_both(d in document(), cut in any::<usize>(), mine in ops(), theirs in ops()) {
+        let len = d.len_usv();
+        let cut = cut % len;
+        let c = windowed(&d, &mine, (0, cut), "l", 0);
+        let o = windowed(&d, &theirs, (cut + 1, len), "r", 50);
+        let (left, right) = (apply(&d, &c).unwrap().content, apply(&d, &o).unwrap().content);
+        let r = rebase(&d, &c, &o);
+        prop_assert!(r.is_ok(), "{:?}\nchange {:?}\nover {:?}", r, c, o);
+        let r = r.unwrap();
+        let both = apply(&right, &r).unwrap().content;
+        let mine: String = chars(&left)[..left.len_usv() - (len - cut)].iter().collect();
+        let theirs: String = chars(&right)[cut..].iter().collect();
+        prop_assert_eq!(&both.text, &format!("{mine}{theirs}"));
+        let back = rebase(&d, &o, &c).unwrap();
+        prop_assert_eq!(apply(&left, &back).unwrap().content, both);
+    }
+}
+
+#[test]
+fn a_slow_anchor_lands_on_its_text_over_live_typing() {
+    let d = from_markdown("Hello world").unwrap().content;
+    let typed = Change::new(vec![Step::Splice(Splice::new(0, "", "XX ")), Step::Splice(Splice::new(8, "", "!"))]);
+    let place = Change::new(vec![
+        Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }),
+        Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-2", 5, 5), quote: None }),
+        Step::Mark(MarkStep::Add { mark: Mark::new(0, 5, MarkKind::Strong), quote: Some("Hello".into()) }),
+    ]);
+    let now = apply(&d, &typed).unwrap().content;
+    assert_eq!(now.text, "XX Hello! world");
+    let done = apply(&now, &rebase(&d, &place, &typed).unwrap()).unwrap().content;
+    assert_eq!(done.anchor("c-1"), Some(&Anchor::new("c-1", 10, 15)));
+    assert_eq!(done.anchor("c-2"), Some(&Anchor::new("c-2", 8, 8)));
+    assert_eq!(done.marks, [Mark::new(3, 8, MarkKind::Strong)]);
+}
+
+#[test]
+fn a_step_that_no_longer_fits_conflicts_by_name() {
+    let d = from_markdown("Hello world\n\nsecond").unwrap().content;
+    let one = |s: Step| Change::new(vec![s]);
+    let conflict = |c: &Change, o: &Change| match rebase(&d, c, o) {
+        Err(RebaseError::Conflict(Conflict { step, reason })) => Some((step, reason.name())),
+        _ => None,
+    };
+    let edit = Change::new(vec![Step::Splice(Splice::new(0, "", "> ")), Step::Splice(Splice::new(8, "world", "there"))]);
+    let reworded = one(Step::Splice(Splice::new(8, "r", "R")));
+    assert_eq!(conflict(&edit, &reworded), Some((1, "changed")));
+    let cut = one(Step::Splice(Splice::new(9, "ld", "")));
+    assert_eq!(conflict(&edit, &cut), Some((1, "deleted")));
+    let quoted = one(Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Emph), quote: Some("world".into()) }));
+    assert_eq!(conflict(&quoted, &one(Step::Splice(Splice::new(8, "", "XX")))), Some((0, "changed")));
+    let unquoted = one(Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Emph), quote: None }));
+    assert!(rebase(&d, &unquoted, &one(Step::Splice(Splice::new(8, "", "XX")))).is_ok());
+    assert_eq!(conflict(&unquoted, &one(Step::Splice(Splice::new(5, " world", "")))), Some((0, "deleted")));
+    let gone = one(Step::Splice(Splice::new(11, "\nsecond", "")));
+    let heading = one(Step::SetBlock(SetBlock { id: d.blocks[1].id.clone(), kind: Some("heading".into()), attrs: json!({"level": 2}).as_object().cloned(), path: None }));
+    assert_eq!(conflict(&heading, &gone), Some((0, "missing")));
+    assert!(rebase(&d, &heading, &reworded).is_ok());
+}
+
+#[test]
+fn a_nested_step_rebases_over_the_edits_inside_its_slot() {
+    let d = from_markdown("| aa | bb |\n| - | - |\n| cc | dd |").unwrap().content;
+    let island = d.islands[0].clone();
+    let slots = island.slot_order();
+    let cell = |slot: &str, s: Splice| Step::Nested { island: island.id.clone(), slot: slot.to_string(), change: Change::new(vec![Step::Splice(s)]) };
+    let theirs = Change::new(vec![cell(&slots[2], Splice::new(0, "", "XY")), cell(&slots[3], Splice::new(0, "dd", "ee"))]);
+    let mine = Change::new(vec![cell(&slots[2], Splice::new(2, "", "!")), cell(&slots[2], Splice::new(0, "c", "C"))]);
+    let now = apply(&d, &theirs).unwrap().content;
+    let done = apply(&now, &rebase(&d, &mine, &theirs).unwrap()).unwrap().content;
+    assert_eq!(done.slot(&island.id, &slots[2]).unwrap().text, "XYCc!");
+    assert_eq!(done.slot(&island.id, &slots[3]).unwrap().text, "ee");
+    let clash = Change::new(vec![cell(&slots[3], Splice::new(1, "d", "D"))]);
+    assert!(matches!(rebase(&d, &clash, &theirs), Err(RebaseError::Conflict(Conflict { step: 0, reason: Reason::Deleted }))));
 }

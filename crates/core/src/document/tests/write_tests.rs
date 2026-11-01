@@ -1,7 +1,7 @@
-use quillmark_content::change::{Change, Splice, Step, apply, invert};
+use quillmark_content::change::{AnchorStep, Change, Splice, Step, apply, invert};
 use quillmark_content::model::{Anchor, Block, BlockKind};
 
-use crate::document::{Card, CardRef, EditError, Target, Write};
+use crate::document::{Card, CardRef, EditError, LOG_WRITES, Target, Write};
 
 use super::parse;
 
@@ -35,13 +35,16 @@ fn apply_lands_a_change_and_answers_its_inverse() {
     assert_eq!(apply(body, &undo).unwrap().content, before);
 }
 
-/// A base the value has moved on from refuses the write, which changes
+/// A base the card's log no longer reaches refuses the write, which changes
 /// nothing; a refused change does the same.
 #[test]
-fn a_stale_base_or_a_refused_change_writes_nothing() {
+fn a_base_older_than_the_log_or_a_refused_change_writes_nothing() {
     let mut doc = parse(SOURCE);
     let base = doc.main().hash_of(Target::Body).unwrap();
-    doc.main_mut().apply(Target::Body, &split_at(12, "b9"), None).unwrap();
+    for n in 0..=LOG_WRITES {
+        let typed = Change::new(vec![Step::Splice(Splice::new(n, String::new(), "x".to_string()))]);
+        doc.main_mut().apply(Target::Body, &typed, None).unwrap();
+    }
     let held = doc.clone();
     let err = doc
         .main_mut()
@@ -50,6 +53,81 @@ fn a_stale_base_or_a_refused_change_writes_nothing() {
     assert_eq!(err.code(), "edit::stale_base");
     let err = doc.main_mut().apply(Target::Body, &split_at(2, "b8"), None).unwrap_err();
     assert!(matches!(err, EditError::Change(_)), "{err:?}");
+    assert_eq!(doc, held);
+}
+
+/// A base the value has moved on from rebases the write over what changed
+/// since, and the receipt says so; the log it rebases from is no part of the
+/// document's value.
+#[test]
+fn a_stale_base_rebases_over_what_changed_since() {
+    let mut doc = parse(SOURCE);
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().apply(Target::Body, &split_at(12, "b9"), None).unwrap();
+    let receipt = doc
+        .main_mut()
+        .apply(Target::Body, &split_at(7, "b8"), Some(&base))
+        .unwrap();
+    assert!(receipt.rebased);
+    assert_eq!(doc.main().body().text, "Revenue\ngrew\n12%.\nShip v2");
+    let stored = serde_json::to_value(&doc).unwrap();
+    assert_eq!(doc, serde_json::from_value(stored).unwrap(), "the log is no part of the value");
+}
+
+/// A writer that read, thought, and placed a comment lands it on the text it
+/// read, however much was typed ahead of it since.
+#[test]
+fn a_slow_anchor_lands_on_its_text_over_live_typing() {
+    let mut doc = parse(SOURCE);
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    for (at, typed) in [(0, "Q3: "), (4, "net "), (25, " fast")] {
+        let key = Change::new(vec![Step::Splice(Splice::new(at, String::new(), typed.to_string()))]);
+        doc.main_mut().apply(Target::Body, &key, None).unwrap();
+    }
+    assert_eq!(doc.main().body().text, "Q3: net Revenue grew 12%. fast\nShip v2");
+    let place = Change::new(vec![Step::Anchor(AnchorStep::Set {
+        anchor: Anchor::new("c1".to_string(), 13, 16),
+        quote: Some("12%".to_string()),
+    })]);
+    let receipt = doc.main_mut().apply(Target::Body, &place, Some(&base)).unwrap();
+    assert!(receipt.rebased);
+    assert_eq!(doc.main().body().anchors, [Anchor::new("c1".to_string(), 21, 24)]);
+}
+
+/// A revise from a stale read diffs against what its writer read, so an edit
+/// made since to another paragraph stays.
+#[test]
+fn a_slow_revise_keeps_a_concurrent_edit_elsewhere() {
+    let mut doc = parse(SOURCE);
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().revise(Target::Body, "Revenue grew 12%.\n\nShip v2 on Friday", None).unwrap();
+    let receipt = doc
+        .main_mut()
+        .revise(Target::Body, "Revenue grew 14%.\n\nShip v2", Some(&base))
+        .unwrap();
+    assert!(receipt.rebased);
+    assert_eq!(doc.main().body().text, "Revenue grew 14%.\nShip v2 on Friday");
+    let ids: Vec<&str> = doc.main().body().blocks.iter().map(|b| b.id.as_str()).collect();
+    assert_eq!(ids, ["b0", "b1"]);
+}
+
+/// Two writers who rewrote the same text conflict, and the later one is
+/// refused with the step that conflicts and why, writing nothing.
+#[test]
+fn overlapping_edits_refuse_with_a_rebase_conflict() {
+    let mut doc = parse(SOURCE);
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().revise(Target::Body, "Revenue grew 15%.\n\nShip v2", None).unwrap();
+    let held = doc.clone();
+    let err = doc
+        .main_mut()
+        .revise(Target::Body, "Revenue grew 14%.\n\nShip v2", Some(&base))
+        .unwrap_err();
+    assert_eq!(err.code(), "edit::rebase_conflict");
+    let args = err.args();
+    assert_eq!(args["current"], serde_json::json!(doc.main().hash_of(Target::Body).unwrap()));
+    assert_eq!(args["step"], serde_json::json!(0));
+    assert!(args.contains_key("reason"), "{args:?}");
     assert_eq!(doc, held);
 }
 

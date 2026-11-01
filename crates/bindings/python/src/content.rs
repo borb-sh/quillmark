@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use quillmark_content::change::{self, Assoc, Change};
 use quillmark_content::model::Content;
-use quillmark_core::document::{Document, EditError, Receipt, Target};
+use quillmark_core::document::{BaseError, Document, EditError, Receipt, Target};
 use quillmark_core::path::DocPath;
 
 use crate::errors::convert_edit_error;
@@ -106,6 +106,7 @@ pub(crate) fn write<'py>(
     out.set_item("dropped_anchors", json_to_py(py, &serde_json::Value::Array(dropped))?)?;
     out.set_item("moved_anchors", json_to_py(py, &serde_json::Value::Array(moved))?)?;
     out.set_item("warnings", warnings)?;
+    out.set_item("rebased", receipt.rebased)?;
     Ok(out)
 }
 
@@ -125,6 +126,31 @@ pub fn invert<'py>(py: Python<'py>, change: &Bound<'_, PyAny>, before: &Bound<'_
 pub fn compose<'py>(py: Python<'py>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     let (a, b) = (change_from_py(a, "compose")?, change_from_py(b, "compose")?);
     json_to_py(py, &change::compose(&a, &b).to_value())
+}
+
+/// `change`, made from `base`, rebased to apply after `over`, also made from
+/// `base`: each step at its mapped offsets, holding to what it read. Raises
+/// `QuillmarkError` (`edit::rebase_conflict`, carrying the `step` and
+/// `reason`) where a step no longer fits, and (`edit::content_apply`) where
+/// either change does not apply to `base`.
+#[pyfunction]
+pub fn rebase<'py>(
+    py: Python<'py>,
+    base: &Bound<'_, PyAny>,
+    change: &Bound<'_, PyAny>,
+    over: &Bound<'_, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let base = content_from_py(base, "rebase")?;
+    let (change, over) = (change_from_py(change, "rebase")?, change_from_py(over, "rebase")?);
+    let rebased = change::rebase(&base, &change, &over).map_err(|e| match e {
+        change::RebaseError::Apply(e) => change_error(e),
+        change::RebaseError::Conflict(c) => {
+            let now = change::apply(&base, &over).map(|a| a.content).unwrap_or_default();
+            let current = quillmark_core::document::content_hash(&now);
+            convert_edit_error(EditError::Base(BaseError::rebase_conflict(current, None, &c)), &DocPath::new())
+        }
+    })?;
+    json_to_py(py, &rebased.to_value())
 }
 
 /// Where `pos` lands after `change`, and what around it the change deleted,

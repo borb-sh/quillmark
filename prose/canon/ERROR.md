@@ -109,8 +109,13 @@ anchors at the field. The whole-document lane raises them through
 `BoundParseError::Base`, as it raises a parse failure, before any mutation.
 
 The content lane's writes (`apply`, `applyAll`, `revise`, `replace`) take a
-`base` hash and refuse a stale one under the same `edit::stale_base`, carrying
-`current`. A change that does not apply to the value, or would leave it
+`base` hash. A base the value has moved on from rebases the write over the
+change since, and a write that conflicts with it refuses under
+`edit::rebase_conflict`, carrying `current`, the `step` of the writer's change
+that conflicts, and the `reason` (`deleted`, `changed`, `missing`, `refused`).
+A base the document no longer holds the change since for refuses under
+`edit::stale_base`, carrying `current`. The pure `rebase` raises the same
+conflict, its `current` the hash of the value `over` left. A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)).
 A write names its card by `$id`, and an id no card holds is
 `edit::unknown_card_id`, carrying `id`; an address naming a card by `$id` on
@@ -564,7 +569,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::content_apply` | — | fallback |
 | `edit::invalid_payload` | — | fallback |
 | `edit::stale_base` | `current` | structured |
-| `edit::rebase_conflict` | `current` | structured |
+| `edit::rebase_conflict` | `current`, `step`?, `reason`? | structured |
 | `edit::whole_text_diff` | — | code-determined |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |

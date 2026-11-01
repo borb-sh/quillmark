@@ -107,9 +107,25 @@ Enter at the start of a block keeps the text on its id when the producer inserts
 - one inside an island a splice deleted on the island's slot in the text that held it;
 - one in a slot a props step removed at its own address, since the step does not say where its island sits.
 
-A splice says which islands it deleted only in `removed`. A change mapped holds it on each splice that deletes a slot, as the normalized change does, and one without it is refused. A `Mapping` is a list of step maps with mirror links, each pairing a map with its inverse, so a position one map deleted and its mirror put back maps to where it was. A rebase maps a step through the inverse of its change's earlier steps, then the change it rebases over, then those steps rebased.
+A splice says which islands it deleted only in `removed`. A change mapped holds it on each splice that deletes a slot, as the normalized change does, and one without it is refused. A `Mapping` is a list of step maps with mirror links, each pairing a map with its inverse, so a position one map deleted and its mirror put back maps to where it was. A rebase maps a step through the inverse of its change's earlier steps, then the change it rebases over, then those steps rebased. `Mapping::map_point` maps a position as `apply` moves a point anchor, and `project` takes a mapping's maps inside one slot.
 
 Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a surviving anchor whose text a write rewrote is named in `movedAnchors`. An island removed by a splice, or a slot a props step no longer names, takes the anchors of its slots with it, and each is named in `droppedAnchors` with the island and slot that held it. Every anchor a change takes out of the value is named there, except one its own `anchor` step removed, which the writer asked for.
+
+## Rebasing a change
+
+`rebase(base, change, over)` moves `change` past `over`, both made from `base`, after ProseMirror's `rebaseSteps` (`src/rebase.rs`). It takes the value because each step re-checks itself on the value it now reads, and because a change's maps read off its normalized form.
+
+Each step maps through the inverse of its change's earlier steps, then `over`, then those steps rebased, each linked to its inverse as its mirror. It then applies to what `over` and the rebased steps before it left. The answer is the writer's own steps at their mapped offsets, with the quotes and blocks it gave.
+
+| Step | Maps | Conflicts where |
+|---|---|---|
+| `splice` | the edges of its deletion inward; an insert as a point anchor | `over` deleted any of its deletion, or the text there no longer reads `delete`; an insert where `over` deleted the text on both sides |
+| `mark`, range `anchor` | its edges inward, as `apply` moves a range anchor | `over` deleted the whole range, or the range no longer reads its `quote` |
+| point `anchor`, island insert | as `apply` moves a point anchor | an insert where `over` deleted the text on both sides, or `block` no longer holds `at` |
+| `setBlock`, `container`, island props, anchor removal | unchanged | the id is gone |
+| `nested` | its change rebased over what `over` did in that slot | the slot is gone, or a step inside conflicts |
+
+A range `over` deleted entirely conflicts rather than dropping its step: a write is whole or refused, and a step with nothing left to land on is still part of what its writer asked for. A `Conflict` names the step, a `nested` step's index for one inside it, and its `Reason`: `deleted`, `changed`, `missing`, or `refused` where the mapped step fails otherwise or the change leaves an invalid value.
 
 ## The laws
 
@@ -121,6 +137,7 @@ Each law is a property test over generated values and generated changes (`tests/
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes.
 5. Every `Change` yields a valid value or fails and changes nothing.
 6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported.
+7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly. `rebase(d, c, ∅) == c`. Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote.
 
 ## Writing a value
 
@@ -132,9 +149,17 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 | `revise(target, markdown, base)` | a writer's markdown: the `qm-*` tags of `annotated(target)` it keeps, then a word-aligned diff | kept by the tags kept, otherwise by the diff; drift reported |
 | `replace(target, content, base)` | a whole value, through the same diff | each anchor the value does not name carried where the diff keeps its text; the rest reported |
 
-A write names its card by `$id` (`CardRef::Id`, or the main card), never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, the base cannot tell. `Document::apply_all` runs several writes, a base each, all or none, and resolves every card id before it applies any; an id no card holds refuses with `edit::unknown_card_id`. Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `droppedAnchors`; `movedAnchors`; a revise's import warnings; and `whole_text`.
+A write names its card by `$id` (`CardRef::Id`, or the main card), never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, the base cannot tell. `Document::apply_all` runs several writes, a base each, all or none, and resolves every card id before it applies any; an id no card holds refuses with `edit::unknown_card_id`.
 
-**Pass the base.** `base` is the hash the writer read (`hash(addr)`), and a value that no longer hashes to it refuses the write with `edit::stale_base`, carrying `current`. Without one, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A stale writer reads again and rewrites, which for a script is one more `revise`.
+Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `droppedAnchors`; `movedAnchors`; a revise's import warnings; `whole_text`; and `rebased`, true where the write rebased over a change since its base.
+
+**Pass the base.** `base` is the hash the writer read (`hash(addr)`). Without one, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A value that no longer hashes to the base rebases the write over what changed since:
+
+- Each card keeps a `ChangeLog` per value it holds, in memory only: its recent writes, each with the hash it read, the hash it left, the value it wrote over and its normalized change. No hash, comparison or stored form sees it.
+- A base the log holds composes the changes from it to now, and the write rebases over them and applies. A revise or replace diffs from the value the base names, so an edit made since is not read as text the writer deleted.
+- A write that conflicts refuses with `edit::rebase_conflict`, carrying `current`, `step` and `reason`.
+- A base the log does not reach refuses with `edit::stale_base`, carrying `current`, and the writer reads again.
+- The log holds at most `LOG_WRITES` (32) writes and `LOG_STEPS` (4096) steps per value, the newest write whatever its size, the oldest leaving first. A write it did not see, such as a typed writer's revise, breaks the chain, and the log forgets what came before it.
 
 `diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line, pairs rewritten lines by word similarity, and diffs a paired line by word, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters. An inserted or deleted block brings the `\n` that opens it, so its neighbours keep their records. Block records, containers, marks, anchors and islands follow as their own steps; an anchor `after` holds in another place, the prose or a cell, moves there.
 

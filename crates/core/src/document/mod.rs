@@ -630,7 +630,7 @@ pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
-pub use write::{CardRef, Receipt, Target, Write};
+pub use write::{CardRef, LOG_STEPS, LOG_WRITES, Receipt, Target, Write};
 
 /// Where Quillmark Markdown departs from plain Markdown and YAML, as rules
 /// surfaced verbatim to LLM/MCP consumers and to the bindings. The single
@@ -680,6 +680,7 @@ pub struct Card {
     body: Content,
     /// `body` lowered to the line form the codecs and renderers read.
     lines: Normalized,
+    log: write::ChangeLog,
 }
 
 /// What a card body is built from: a line-form value migrates, minting its
@@ -705,7 +706,7 @@ impl Card {
     pub(crate) fn from_parts(payload: Payload, body: impl IntoBody) -> Self {
         let body = body.into_body();
         let lines = quillmark_content::migrate::to_lines(&body);
-        Self { payload, body, lines }
+        Self { payload, body, lines, log: write::ChangeLog::default() }
     }
 
     pub fn quill(&self) -> Option<&QuillReference> {

@@ -7,8 +7,9 @@
 //! [`markdown`] is the projection at the edges, read and written through the
 //! line form in [`lines`], which the renderers also read; [`migrate`] moves
 //! values between the two. [`change`] is the one way a value is edited,
-//! [`mapping`] carries positions across changes, [`gestures`] is the change of
-//! each editing gesture, and [`repair`] makes valid a state two concurrent
+//! [`mapping`] carries positions across changes, [`rebase`] moves a change
+//! made from one value past another made from it, [`gestures`] is the change
+//! of each editing gesture, and [`repair`] makes valid a state two concurrent
 //! edits merged into.
 
 pub mod change;
@@ -20,6 +21,7 @@ pub mod mapping;
 pub mod markdown;
 pub mod migrate;
 pub mod model;
+pub mod rebase;
 pub mod repair;
 pub mod table;
 pub mod units;

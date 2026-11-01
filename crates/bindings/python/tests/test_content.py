@@ -3,7 +3,7 @@ its producers `revise` and `replace`, the reads, and the pure helpers over
 changes. Offsets count code points."""
 
 import pytest
-from quillmark import Document, compose, diff, invert, join_blocks, map_pos, repair, split_block
+from quillmark import Document, compose, diff, invert, join_blocks, map_pos, rebase, repair, split_block
 
 from conftest import raises_edit_code
 
@@ -18,8 +18,10 @@ def test_a_receipt_carries_the_normalized_change_which_invert_undoes():
     assert doc.read()["text"] == "hi world"
     assert receipt["hash"] == doc.hash_at()
     assert receipt["dropped_anchors"] == [] and receipt["warnings"] == []
+    assert receipt["rebased"] is False
+    assert doc.apply({"steps": []}, base=base)["rebased"] is True
     with raises_edit_code("edit::stale_base"):
-        doc.apply({"steps": []}, base=base)
+        doc.apply({"steps": []}, base="never-read")
     doc.apply(invert(receipt["applied"], before), base=receipt["hash"])
     assert doc.read() == before
 
@@ -42,6 +44,29 @@ def test_a_quoted_step_refuses_text_its_writer_did_not_read():
         doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]})
     receipt = doc.apply({"steps": [{"mark": {"start": 9, "end": 14, "type": "strong", "add": True}}]})
     assert receipt["applied"]["steps"][0]["mark"]["quote"] == "world"
+
+
+def test_a_stale_base_rebases_over_the_change_since():
+    doc = Document.from_markdown(MD)
+    base = doc.hash_at()
+    doc.apply({"steps": [{"splice": {"at": 0, "insert": "XX "}}]})
+    receipt = doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]}, base=base)
+    assert receipt["rebased"] is True
+    assert doc.read()["anchors"] == [{"id": "a1", "start": 9, "end": 14}]
+    doc.apply({"steps": [{"splice": {"at": 9, "delete": "w", "insert": "W"}}]})
+    with raises_edit_code("edit::rebase_conflict") as err:
+        doc.apply({"steps": [{"splice": {"at": 6, "delete": "world", "insert": "there"}}]}, base=base)
+    assert err.value.diagnostics[0].args == {"current": doc.hash_at(), "step": 0, "reason": "deleted"}
+
+
+def test_rebase_maps_a_change_past_another():
+    base = {"text": "hello world", "blocks": [{"id": "b0", "kind": "para"}]}
+    typed = {"steps": [{"splice": {"at": 0, "delete": "", "insert": "XX "}}]}
+    mark = {"steps": [{"mark": {"start": 6, "end": 11, "type": "strong", "add": True, "quote": "world"}}]}
+    assert rebase(base, mark, typed)["steps"][0]["mark"] == {"start": 9, "end": 14, "type": "strong", "add": True, "quote": "world"}
+    with raises_edit_code("edit::rebase_conflict") as err:
+        rebase(base, mark, {"steps": [{"splice": {"at": 5, "delete": " world", "insert": ""}}]})
+    assert (err.value.diagnostics[0].args["step"], err.value.diagnostics[0].args["reason"]) == (0, "deleted")
 
 
 def test_a_reserved_x_name_rides_as_written():

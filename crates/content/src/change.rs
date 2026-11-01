@@ -10,6 +10,7 @@ use crate::model::{
     Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Usv,
 };
 pub use crate::mapping::{MapResult, Mapping};
+pub use crate::rebase::{Conflict, RebaseError, rebase};
 use crate::table::{self, Table};
 use crate::units::{Scalars, Units, split_at};
 use serde_json::{Map, Value};
@@ -273,7 +274,7 @@ pub(crate) fn run(c: &mut Content, steps: &[Step], applied: &mut Vec<Step>, remo
     Ok(())
 }
 
-fn apply_step(c: &mut Content, step: &Step, n: usize, removed: &mut Vec<String>) -> Result<Step, ApplyError> {
+pub(crate) fn apply_step(c: &mut Content, step: &Step, n: usize, removed: &mut Vec<String>) -> Result<Step, ApplyError> {
     Ok(match step {
         Step::Splice(s) => Step::Splice(splice(c, s, n)?),
         Step::SetBlock(s) => Step::SetBlock(set_block(c, s, n)?),

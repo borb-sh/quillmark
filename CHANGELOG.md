@@ -102,6 +102,23 @@ over its keys: read `receipt["warnings"]`.
   token so a revise keeps it. Steps set and remove them. `MarkStep::Remove`'s
   `tag` is a `String`, `BlockKind::tag` and `MarkKind::tag` return `&str`, and
   `IslandType` is no longer `Copy`.
+- feat(content): **`rebase(base, change, over)` moves a change past another
+  made from the same value**, after ProseMirror's `rebaseSteps`. Each step
+  maps through the inverse of its change's earlier steps, then `over`, then
+  those steps rebased, and holds to its `delete`, `quote` or `block` on the
+  value it now reads; a step `over` deleted the text of, or whose id is gone,
+  is a `rebase::Conflict` naming it. `Mapping::map_point` and `project` map
+  as `apply` moves a point anchor and inside one slot. WASM `rebase`,
+  Python `rebase`.
+- feat(core)!: **a stale `base` rebases the write instead of refusing it.**
+  Each card keeps, in memory only, a log of its recent writes per value
+  (`LOG_WRITES`, `LOG_STEPS`); `apply`, `revise` and `replace` with a base the
+  log holds rebase over the changes since, and a revise or replace diffs from
+  the value the base names. The receipt's new `rebased` says so. A conflict
+  refuses with `edit::rebase_conflict`, carrying `step` and `reason`; a base
+  the log does not reach is `edit::stale_base` as before. `Card::read_at`
+  answers the value a base names, and `BaseError::Conflict` carries `step`
+  and `reason`.
 - fix(content): **`replace` moves an anchor between the prose and a cell**,
   where it refused with `DuplicateId`: it carries only an anchor the new
   value names nowhere. A props step naming a slot in `slots` that the props

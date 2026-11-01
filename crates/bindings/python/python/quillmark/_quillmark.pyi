@@ -30,6 +30,7 @@ __all__ = [
     "diff",
     "invert",
     "map_pos",
+    "rebase",
     "repair",
 ]
 
@@ -209,9 +210,13 @@ class Receipt(TypedDict):
     dropped_anchors: list[ReceiptDroppedAnchor]
     moved_anchors: list[MovedAnchor]
     warnings: list[Diagnostic]
+    # The base was a value the field had moved on from, and the write was
+    # rebased over what changed since.
+    rebased: bool
 
 def invert(change: Change, before: Content) -> Change: ...
 def compose(a: Change, b: Change) -> Change: ...
+def rebase(base: Content, change: Change, over: Change) -> Change: ...
 class MapResult(TypedDict):
     pos: Pos
     deleted: bool

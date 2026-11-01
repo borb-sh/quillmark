@@ -820,6 +820,8 @@ mod args_canon {
             EditError::Base(crate::document::BaseError::Conflict {
                 current: "h".into(),
                 field: None,
+                step: Some(1),
+                reason: Some("deleted"),
             }),
         ] {
             add(e.code(), e.args());
