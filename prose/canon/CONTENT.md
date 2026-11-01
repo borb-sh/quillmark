@@ -133,7 +133,13 @@ Each step maps through the inverse of its change's earlier steps, then `over`, t
 | anchor removal | unchanged | the id is gone |
 | `nested` | its change rebased over what `over` did in that slot | the slot is gone, a step inside conflicts, or `over` removed the island or the slot and the slot now reads otherwise |
 
-A step by id holds to what it overwrites as its writer read it: the fields of the block's record a `setBlock` names, the container a `container` step sets or removes, and an island's props with the slots a props step drops. Where `over` changed any of them, the step conflicts as `changed` rather than undoing `over`, so a `setBlock` names only the fields it changes, as a diff's do. A splice that deletes an island `over` changed conflicts the same way; one that deletes a block `over` re-kinded deletes it, as a deletion in ProseMirror does. Where `over` removed an island or slot, the edits in it are not in the mapping, so a `nested` step lands only where the slot reads as it did.
+A step holds to what it overwrites as its writer read it, its own earlier steps included, and conflicts as `changed` where `over` changed that, rather than undoing `over`:
+
+- a `setBlock` holds the fields of the block's record it names, so a `setBlock` names only the fields it changes, as a diff's do;
+- a `container` step holds the container it sets or removes, and an island props step the props and the slots it drops;
+- a splice holds each island it deletes, and the record of a block it deletes and writes back; one that only deletes a block `over` re-kinded deletes it, as a deletion in ProseMirror does.
+
+Where `over` removed an island or slot, the edits in it are not in the mapping, so a `nested` step lands only where the slot reads as it did.
 
 A range `over` deleted entirely conflicts rather than dropping its step: a write is whole or refused, and a step with nothing left to land on is still part of what its writer asked for. A `Conflict` names the step, a `nested` step's index for one inside it, and its `Reason`: `deleted`, `changed`, `missing`, or `refused` where the mapped step fails otherwise or the change leaves an invalid value.
 
@@ -147,7 +153,7 @@ Each law is a property test over generated values and generated changes (`tests/
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes.
 5. Every `Change` yields a valid value or fails and changes nothing.
 6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back reads as the merged state it repaired: by any number of peers where no repair inserts, since the value then holds no character or slot the state does not, and by one writer otherwise.
-7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly, and which keeps what `o` did by id: each block kind and path, container, and island's props `o` changed, and each island or slot it changed. `rebase(d, c, ∅) == c`. Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote.
+7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly, and which keeps what `o` did by id: each block kind and path, container, and island's props `o` changed, and each island or slot it changed that `c` drops without editing it first. `rebase(d, c, ∅) == c`. Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote.
 
 ## Writing a value
 

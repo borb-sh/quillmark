@@ -1388,8 +1388,11 @@ proptest! {
 /// What `over` took `base` to in `theirs` that `done` holds otherwise, by
 /// id, on one level and in each slot all three hold: a block's kind or path,
 /// a container, an island's props, or an island or slot `over` changed that
-/// `done` lost.
-fn overwritten(base: &Content, theirs: &Content, done: &Content) -> Option<String> {
+/// `done` lost where the change only ever read it as `base` holds it. `read`
+/// is every island the change's steps passed through; one the change edited
+/// before it dropped it holds to what the change read, which the rebase
+/// checks step by step.
+fn overwritten(base: &Content, theirs: &Content, done: &Content, read: &[Island]) -> Option<String> {
     let block = |c: &Content, id: &str| c.blocks.iter().find(|b| b.id == id).cloned();
     for b in &theirs.blocks {
         let (Some(was), Some(now)) = (block(base, &b.id), block(done, &b.id)) else { continue };
@@ -1408,23 +1411,37 @@ fn overwritten(base: &Content, theirs: &Content, done: &Content) -> Option<Strin
     let island = |c: &Content, id: &str| c.islands.iter().find(|i| i.id == id).cloned();
     for i in &theirs.islands {
         let Some(was) = island(base, &i.id).filter(|was| was != i) else { continue };
-        let Some(now) = island(done, &i.id) else { return Some(format!("island {}", i.id)) };
+        let Some(now) = island(done, &i.id) else {
+            if read.iter().any(|r| r.id == i.id && *r != was) {
+                continue;
+            }
+            return Some(format!("island {}", i.id));
+        };
         if was.props != i.props && now.props != i.props {
             return Some(format!("the props of {}", i.id));
         }
         for (slot, inner) in &i.slots {
             match (was.slots.get(slot), now.slots.get(slot)) {
                 (Some(w), Some(n)) => {
-                    if let Some(lost) = overwritten(w, inner, n) {
+                    if let Some(lost) = overwritten(w, inner, n, read) {
                         return Some(lost);
                     }
                 }
-                (Some(w), None) if w != inner => return Some(format!("slot {slot} of {}", i.id)),
+                (Some(w), None) if w != inner && !read.iter().any(|r| r.id == i.id && r.slots.get(slot) != Some(w)) => {
+                    return Some(format!("slot {slot} of {}", i.id));
+                }
                 _ => {}
             }
         }
     }
     None
+}
+
+fn every_island(c: &Content, out: &mut Vec<Island>) {
+    for island in &c.islands {
+        out.push(island.clone());
+        island.slots.values().for_each(|slot| every_island(slot, out));
+    }
 }
 
 proptest! {
@@ -1439,7 +1456,13 @@ proptest! {
         let now = apply(&d, &o).unwrap().content;
         let Ok(r) = rebase(&d, &c, &o) else { return Ok(()) };
         let done = apply(&now, &r).unwrap().content;
-        prop_assert_eq!(overwritten(&d, &now, &done), None, "change {:?}\nover {:?}\nrebased {:?}", c, o, r);
+        let mut read = Vec::new();
+        for k in 0..=c.steps.len() {
+            if let Ok(at) = apply(&d, &Change::new(c.steps[..k].to_vec())) {
+                every_island(&at.content, &mut read);
+            }
+        }
+        prop_assert_eq!(overwritten(&d, &now, &done, &read), None, "change {:?}\nover {:?}\nrebased {:?}", c, o, r);
     }
 }
 

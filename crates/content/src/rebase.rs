@@ -113,8 +113,8 @@ impl std::error::Error for RebaseError {}
 ///   overwrites what `over` changed conflicts: the fields of a block's record
 ///   a `setBlock` names, a container's attributes, an island's props and the
 ///   slots they drop.
-/// - A splice that deletes an island `over` changed conflicts, as does one
-///   that writes back the record of a block `over` changed.
+/// - A splice conflicts where an island it deletes, or the record of a block
+///   it deletes and writes back, reads otherwise than its writer read it.
 /// - `nested` rebases its change over what `over` did inside that slot. Where
 ///   `over` removed the island or the slot and the slot now reads otherwise,
 ///   its edits are not in the mapping, and the step conflicts.
