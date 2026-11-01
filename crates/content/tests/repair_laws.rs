@@ -8,7 +8,7 @@ use proptest::prelude::*;
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{
-    Anchor, Block, BlockKind, ContainerKind, Content, ISLAND_SLOT, Mark, MarkKind,
+    Anchor, Block, BlockKind, ContainerKind, Content, ISLAND_SLOT, Invariant, Mark, MarkKind,
 };
 use quillmark_content::repair::{Raw, RawAnchor, RawIsland, Repair, repair};
 use serde_json::json;
@@ -576,6 +576,28 @@ fn an_x_block_holding_a_table_alone_repairs_to_itself() {
     c.normalize();
     assert_eq!(c.validate(), Ok(()));
     assert_eq!(repair(Raw::from(&c)), (c, Vec::new()));
+}
+
+#[test]
+fn a_slot_under_a_bad_key_goes_and_the_rest_stays() {
+    let (c, repairs) = repair(raw(json!({
+        "text": "Title\nbody \u{FFFC}",
+        "blocks": [{"id": "b0", "kind": "heading", "attrs": {"level": 1}}, {"id": "b1", "kind": "para", "path": ["l0", "i0"]}],
+        "containers": [{"id": "l0", "kind": "list"}, {"id": "i0", "kind": "item"}],
+        "islands": [{"id": "isl-0", "type": "x-chart", "props": {}, "slots": {
+            "bad key": {"text": "c", "blocks": [{"id": "b0", "kind": "para"}]},
+            "cap": {"text": "d", "blocks": [{"id": "b0", "kind": "para"}]}
+        }}]
+    })));
+    assert_eq!(c.blocks[0].kind, BlockKind::Heading { level: 1 });
+    assert_eq!(paths(&c), [vec![], vec!["l0", "i0"]]);
+    assert_eq!(c.islands[0].slots.keys().collect::<Vec<_>>(), ["cap"]);
+    assert_eq!(
+        repairs,
+        [Repair::Invalid(Invariant::BadId {
+            id: "bad key".into()
+        })]
+    );
 }
 
 #[test]

@@ -630,6 +630,10 @@ fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>) -> Option<Island
     };
     let mut slots: BTreeMap<String, Content> = BTreeMap::new();
     for (key, slot) in raw.slots {
+        if !is_id(&key) {
+            out.push(Repair::Invalid(Invariant::BadId { id: key }));
+            continue;
+        }
         let mut inner = Vec::new();
         let mut c = field(slot, &mut inner);
         if !c.is_slot_shape() {
