@@ -38,7 +38,7 @@ pub struct Splice {
     pub insert: String,
     /// The formatting the inserted text carries, offsets into `insert`.
     pub marks: Vec<Mark>,
-    /// The record of each segment an inserted `\n` ends, in order.
+    /// The record of each block an inserted `\n` opens, in order.
     pub blocks: Vec<Block>,
     /// The island of each inserted [`ISLAND_SLOT`], in order.
     pub islands: Vec<Island>,
@@ -46,9 +46,9 @@ pub struct Splice {
     pub removed: Option<Removed>,
 }
 
-/// What a splice's deleted text held: the record of each deleted `\n`, the
-/// marks over it as offsets into `delete`, and the island of each deleted
-/// slot.
+/// What a splice's deleted text held: the record of the block each deleted
+/// `\n` opened, the marks over it as offsets into `delete`, and the island of
+/// each deleted slot.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Removed {
     pub blocks: Vec<Block>,
@@ -274,13 +274,13 @@ fn splice(c: &mut Content, s: &Splice, n: usize, dropped: &mut Vec<String>) -> R
             return Err(ApplyError::BadStep { step: n, reason: "a mark of the insert is outside it" });
         }
     }
-    let first_block = chars[..at].iter().filter(|&&ch| ch == '\n').count();
+    let first_record = chars[..at].iter().filter(|&&ch| ch == '\n').count() + 1;
     let first_island = chars[..at].iter().filter(|&&ch| ch == ISLAND_SLOT).count();
     let lost_blocks = del.iter().filter(|&&ch| ch == '\n').count();
     let lost_islands = del.iter().filter(|&&ch| ch == ISLAND_SLOT).count();
 
     let removed = Removed {
-        blocks: c.blocks[first_block..first_block + lost_blocks].to_vec(),
+        blocks: c.blocks[first_record..first_record + lost_blocks].to_vec(),
         marks: c
             .marks
             .iter()
@@ -297,7 +297,7 @@ fn splice(c: &mut Content, s: &Splice, n: usize, dropped: &mut Vec<String>) -> R
     text.push_str(&s.insert);
     text.extend(&chars[at + dn..]);
     c.text = text;
-    c.blocks.splice(first_block..first_block + lost_blocks, s.blocks.iter().cloned());
+    c.blocks.splice(first_record..first_record + lost_blocks, s.blocks.iter().cloned());
     let mut islands = s.islands.clone();
     for island in &mut islands {
         table::normalize_island(island);

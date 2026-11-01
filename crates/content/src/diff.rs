@@ -16,7 +16,7 @@ use crate::table::{self, Table};
 use std::collections::{HashMap, HashSet};
 
 /// The change that takes `before` to `after`. What no change can reach comes
-/// out under `before`'s ids instead: the last block's record, which no `\n`
+/// out under `before`'s ids instead: the first block's record, which no `\n`
 /// carries, and a container whose id `before` holds with another kind.
 pub fn diff(before: &Content, after: &Content) -> Change {
     Change::new(diff_level(before, after, false, true))
@@ -130,20 +130,19 @@ fn replace_all(before: &Content, want: &Content, carry: bool) -> Vec<Step> {
         .filter(|k| before.container(&k.id) != Some(*k))
         .map(|k| Step::Container(ContainerStep::Set(k.clone())))
         .collect();
-    let n = want.blocks.len();
     let splice = Splice {
         marks: want.marks.clone(),
-        blocks: want.blocks[..n - 1].to_vec(),
+        blocks: want.blocks[1..].to_vec(),
         islands: want.islands.clone(),
         ..Splice::new(0, before.text.clone(), want.text.clone())
     };
     steps.push(Step::Splice(splice));
-    let last = &want.blocks[n - 1];
+    let first = &want.blocks[0];
     steps.push(Step::SetBlock(SetBlock {
-        id: last.id.clone(),
-        kind: Some(last.kind.tag().to_string()),
-        attrs: crate::wire::block_attrs(&last.kind).and_then(|v| v.as_object().cloned()),
-        path: Some(last.path.clone()),
+        id: first.id.clone(),
+        kind: Some(first.kind.tag().to_string()),
+        attrs: crate::wire::block_attrs(&first.kind).and_then(|v| v.as_object().cloned()),
+        path: Some(first.path.clone()),
     }));
     let mut cur = before.clone();
     if run(&mut cur, &steps, &mut Vec::new(), &mut Vec::new()).is_ok() {
@@ -159,14 +158,13 @@ fn reachable(before: &Content, after: &Content, top: bool) -> Content {
     for b in before.blocks.iter().chain(&want.blocks) {
         ids.hold(&b.id);
     }
-    let last = before.blocks.last().map(|b| b.id.clone()).unwrap_or_default();
-    let n = want.blocks.len();
-    for b in &mut want.blocks[..n - 1] {
-        if b.id == last {
+    let first = before.blocks.first().map(|b| b.id.clone()).unwrap_or_default();
+    for b in &mut want.blocks[1..] {
+        if b.id == first {
             b.id = ids.mint(prefix::BLOCK);
         }
     }
-    want.blocks[n - 1].id = last;
+    want.blocks[0].id = first;
     if top {
         let mut renamed = HashMap::new();
         for k in &mut want.containers {
@@ -206,7 +204,7 @@ fn splices(before: &Content, want: &Content) -> Vec<Step> {
             .map(|&ch| match ch {
                 '\n' => {
                     nl += 1;
-                    Some(nl - 1)
+                    Some(nl)
                 }
                 ISLAND_SLOT => {
                     sl += 1;
@@ -295,27 +293,83 @@ fn splice_of(want: &Content, del: &[char], ins: &[char], from: usize, records: &
 }
 
 /// The word-aligned text diff, a last block compared whole with its newline as
-/// every other block is, so text appended after it keeps it.
+/// every other block is, and each inserted or deleted block bringing the `\n`
+/// that opens it.
 fn text_ops(a: &str, b: &str) -> Vec<Op> {
     if !a.contains('\n') && !b.contains('\n') {
         return text_diff(a, b).ops;
     }
-    let b = format!("{b}\n");
-    without_sentinel(text_diff(&format!("{a}\n"), &b).ops, &b)
+    let sentinel = format!("{b}\n");
+    let ops = without_sentinel(text_diff(&format!("{a}\n"), &sentinel).ops, &sentinel);
+    opening(ops, &a.chars().collect::<Vec<_>>())
 }
 
-/// `after` under the ids of what it kept from `before`: each block whose
-/// `\n` the text diff keeps, the last block, each island whose slot it keeps
-/// with its type or that an island it drops further back held under the same
-/// id and type, a kept table's columns, rows and cells by position, and each
-/// container a kept block's path names at the same depth with the same kind.
-/// Every other id is kept where `before` does not hold it, and minted
+/// `ops` with each run of edits that follows a kept `\n` and ends in a `\n` on
+/// both sides moved one character back: the same texts, with the kept `\n`
+/// now the one after the run, so it still opens the block it opened.
+fn opening(ops: Vec<Op>, a: &[char]) -> Vec<Op> {
+    let mut out: Vec<Op> = Vec::with_capacity(ops.len());
+    let (mut i, mut k) = (0usize, 0usize);
+    while k < ops.len() {
+        if let Op::Retain(n) = ops[k] {
+            push(&mut out, Op::Retain(n));
+            i += n;
+            k += 1;
+            continue;
+        }
+        let end = (k..ops.len()).find(|&e| matches!(ops[e], Op::Retain(_))).unwrap_or(ops.len());
+        let run = &ops[k..end];
+        let dn: usize = run.iter().map(|op| if let Op::Delete(n) = op { *n } else { 0 }).sum();
+        let ins: String = run.iter().filter_map(|op| if let Op::Insert(s) = op { Some(s.as_str()) } else { None }).collect();
+        let slides = matches!(out.last(), Some(Op::Retain(_)))
+            && a[i - 1] == '\n'
+            && (dn == 0 || a[i + dn - 1] == '\n')
+            && (ins.is_empty() || ins.ends_with('\n'));
+        if !slides {
+            out.extend(run.iter().cloned());
+        } else {
+            if let Some(Op::Retain(r)) = out.last_mut() {
+                *r -= 1;
+                if *r == 0 {
+                    out.pop();
+                }
+            }
+            let mut moved = std::iter::once('\n').chain(ins.chars()).take(ins.chars().count());
+            for op in run {
+                match op {
+                    Op::Insert(s) => push(&mut out, Op::Insert(moved.by_ref().take(s.chars().count()).collect())),
+                    op => push(&mut out, op.clone()),
+                }
+            }
+            push(&mut out, Op::Retain(1));
+        }
+        i += dn;
+        k = end;
+    }
+    out
+}
+
+fn push(out: &mut Vec<Op>, op: Op) {
+    match (out.last_mut(), op) {
+        (Some(Op::Retain(a)), Op::Retain(b)) => *a += b,
+        (Some(Op::Delete(a)), Op::Delete(b)) => *a += b,
+        (Some(Op::Insert(a)), Op::Insert(b)) => a.push_str(&b),
+        (_, op) => out.push(op),
+    }
+}
+
+/// `after` under the ids of what it kept from `before`: the first block, each
+/// block whose opening `\n` the text diff keeps, each island whose slot it
+/// keeps with its type or that an island it drops further back held under the
+/// same id and type, a kept table's columns, rows and cells by position, and
+/// each container a kept block's path names at the same depth with the same
+/// kind. Every other id is kept where `before` does not hold it, and minted
 /// otherwise.
 pub fn align(before: &Content, after: Content) -> Content {
     let mut after = after;
     let a: Vec<char> = before.text.chars().collect();
     let b: Vec<char> = after.text.chars().collect();
-    let mut blocks: Vec<(usize, usize)> = Vec::new();
+    let mut blocks: Vec<(usize, usize)> = vec![(0, 0)];
     let mut islands: Vec<(usize, usize)> = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     let (mut nl_a, mut nl_b, mut sl_a, mut sl_b) = (0usize, 0usize, 0usize, 0usize);
@@ -326,7 +380,7 @@ pub fn align(before: &Content, after: Content) -> Content {
         let cb = jb.map(|k| b[k]);
         event += 1;
         if ca == Some('\n') && cb == Some('\n') {
-            blocks.push((nl_a, nl_b));
+            blocks.push((nl_a + 1, nl_b + 1));
         }
         if ca == Some(ISLAND_SLOT) && cb == Some(ISLAND_SLOT) {
             islands.push((sl_a, sl_b));
@@ -371,7 +425,6 @@ pub fn align(before: &Content, after: Content) -> Content {
             }
         }
     }
-    blocks.push((before.blocks.len() - 1, after.blocks.len() - 1));
 
     let mut block_to: HashMap<usize, String> = HashMap::new();
     let mut containers: HashMap<String, String> = HashMap::new();

@@ -379,7 +379,7 @@ fn text_beside_a_block_island_splits_into_its_own_blocks() {
     })));
     assert_eq!(c.text, "ab\n\u{FFFC}\ncd");
     let ids: Vec<_> = c.blocks.iter().map(|b| b.id.as_str()).collect();
-    assert_eq!(ids, ["b0-t0", "b0", "b0-t0-2"]);
+    assert_eq!(ids, ["b0", "b0-t0", "b0-t0-2"]);
     assert_eq!(
         c.anchors,
         [Anchor::new("c-1", 0, 2), Anchor::new("c-2", 3, 7)]

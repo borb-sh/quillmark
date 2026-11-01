@@ -9,7 +9,7 @@ One rich-text value per card body or `richtext` field: flat text, explicit block
 
 ## The value
 
-A short field as it is stored. A `\n` ends a block, `U+2028` is a hard break inside a block, and `U+FFFC` is the slot an island occupies.
+A short field as it is stored. A `\n` opens a block, `U+2028` is a hard break inside a block, and `U+FFFC` is the slot an island occupies.
 
 ```json
 {
@@ -32,7 +32,7 @@ A short field as it is stored. A `\n` ends a block, `U+2028` is a hard break ins
 }
 ```
 
-- **Blocks** are one record per `\n`-separated segment, in order. A record names its kind, its attributes and its container path, outermost first.
+- **Blocks** are one record per `\n`-separated segment, in order. A record names its kind, its attributes and its container path, outermost first. Each `\n` carries the record of the block it opens, and `blocks[0]`, the first block's, rides no character.
 - **Containers** are lists, list items and quotes. Nesting lives only in the blocks' paths, so a container can never dangle from a missing parent or sit in a cycle. A list holds `ordered` and `start` and an item holds `checked`; an item's number is computed when read.
 - **Marks** are formatting over `[start, end)`. Same-kind marks union. `link` and `font_family` are keyed: a character holds at most one url and one family.
 - **Anchors** are comment handles with a host-minted id, kept apart from marks. A point is an anchor with `start == end`.
@@ -73,7 +73,7 @@ A `Change` is a list of steps. Each step reads the value the step before it left
 
 | Step | Shape | What it does |
 |---|---|---|
-| `splice` | `{at, delete, insert, marks?, blocks?, islands?}` | Replaces text. `delete` is the removed text itself, and the step fails if the value holds anything else there. `marks` is the formatting the inserted text carries; omitted, it carries none. Each `\n` in `insert` brings the record of the segment it ends, and each `U+FFFC` its island. The removed records, marks and islands travel with the step as `removed`, for inversion. |
+| `splice` | `{at, delete, insert, marks?, blocks?, islands?}` | Replaces text. `delete` is the removed text itself, and the step fails if the value holds anything else there. `marks` is the formatting the inserted text carries; omitted, it carries none. Each `\n` in `insert` brings the record of the block it opens, and each `U+FFFC` its island. The removed records, marks and islands travel with the step as `removed`, for inversion. |
 | `setBlock` | `{id, kind?, attrs?, path?}` | Changes a block's kind, attributes or path. Indenting and outdenting are path changes. |
 | `container` | `{id, kind, attrs?}` or `{id, remove: true}` | Adds a container or sets an existing one's attributes, or removes one no path names. |
 | `mark` | `{start, end, type, attrs?, add}` | Adds or removes formatting over a range. |
@@ -81,7 +81,9 @@ A `Change` is a list of steps. Each step reads the value the step before it left
 | `island` | `{id, props}` or `{at, island}` | Replaces an island's props, or inserts an island with its slot. Deleting the slot in a splice removes the island. |
 | `nested` | `{island, slot, change}` | Applies a change inside one slot: a table cell or a footnote. |
 
-A split inserts a `\n` whose record names the left half; the right half keeps the original id, because the original `\n` still ends it. A join deletes a `\n` and its record, and the joined block keeps the right segment's record. Splits and joins therefore never rewrite a record a concurrent `setBlock` could be aimed at. No `\n` carries the last block's record, so no splice reaches its id: `replace` keeps the stored one there.
+A split inserts a `\n` whose record names the right half; the left half keeps its id, since the record that opens it does not move. A join deletes the right block's `\n` and record, and the joined block keeps the left's id and kind. Splits and joins therefore never rewrite a record a concurrent `setBlock` could be aimed at. Collab's Y form keeps the same boundary, so a split or a join lowers into Y as an insertion or a deletion alone.
+
+Enter at the start of a block keeps the text on its id when the producer inserts the `\n` ahead of the one that opens the block, so the new record names the empty block before it. No `\n` carries the first block's record, so no splice reaches its id: Enter at the start of the first block moves its text to the new record, and `diff` and `replace` keep the stored first id. `gestures::split_block` and `join_blocks` build these changes, the one implementation every editor binding lowers Enter and Backspace through.
 
 `apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The editor defaults are for producers: `strong`, `emph`, `underline` and `strike` grow at their end, `code` and `link` at neither edge, `font_family` at both. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
 
@@ -112,7 +114,7 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 
 **Pass the base.** `base` is the hash the writer read (`hash(addr)`), and a value that no longer hashes to it refuses the write with `edit::stale_base`, carrying `current`. Without one, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A stale writer reads again and rewrites, which for a script is one more `revise`.
 
-`diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line, pairs rewritten lines by word similarity, and diffs a paired line by word, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters. Block records, containers, marks, anchors and islands follow as their own steps.
+`diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line, pairs rewritten lines by word similarity, and diffs a paired line by word, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters. An inserted or deleted block brings the `\n` that opens it, so its neighbours keep their records. Block records, containers, marks, anchors and islands follow as their own steps.
 
 ## Merge repair
 
@@ -125,7 +127,7 @@ A single step cannot break the model, but two valid concurrent edits can merge i
 | One container over two runs | A block lands between items of one list, in no container | The later run gets a fresh container, its id derived from the original id and the run's first block id |
 | A slot names no island record, or a record no slot names | Concurrent deletion and edit of a table | The slot's character is removed; the orphan record is removed |
 | Two slots name one island | A concurrent copy of a slot | The first keeps it; the second holds a copy under a derived id |
-| Text beside a block island | Two peers type on either side of a table's slot | The text splits into blocks of its own, each with a fresh id; the island keeps the record |
+| Text beside a block island | Two peers type on either side of a table's slot | The block splits at the island's edges; the first piece keeps the record, as a split's left half does, and each later piece takes a fresh id |
 | A range anchor at zero width | Its text was deleted while another peer moved it | Dropped and reported |
 
 The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` carries in slot order, `null` where it carries none; an `islands` array pairs with the slots in order. And an anchor placed as a range carries `range: true`, since a range collapsed to zero width cannot otherwise be told from a point.

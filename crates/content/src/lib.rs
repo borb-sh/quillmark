@@ -1,16 +1,18 @@
 //! `Content`: the canonical content model for Quillmark.
 //!
-//! One [`model::Content`] per content field: flat text whose `\n` ends a
-//! block, blocks carrying their kind and container path, marks, anchors, and
+//! One [`model::Content`] per content field: flat text a `\n` breaks into
+//! blocks, blocks carrying their kind and container path, marks, anchors, and
 //! islands, all over one coordinate space of Unicode scalar values. [`wire`] is
 //! the canonical, byte-deterministic JSON storage and the bindings carry.
 //! [`markdown`] is the projection at the edges, read and written through the
 //! line form in [`lines`], which the renderers also read; [`migrate`] moves
-//! values between the two. [`change`] is the one way a value is edited, and
-//! [`repair`] makes valid a state two concurrent edits merged into.
+//! values between the two. [`change`] is the one way a value is edited,
+//! [`gestures`] the change of each editing gesture, and [`repair`] makes valid
+//! a state two concurrent edits merged into.
 
 pub mod change;
 pub mod diff;
+pub mod gestures;
 pub mod ids;
 pub mod lines;
 pub mod markdown;

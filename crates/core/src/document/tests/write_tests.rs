@@ -14,7 +14,7 @@ fn split_at(at: usize, id: &str) -> Change {
     })])
 }
 
-/// A split names the left half and the right keeps its record; the receipt's
+/// A split names the right half and the left keeps its record; the receipt's
 /// hash is the next write's base, and its change undoes the write.
 #[test]
 fn apply_lands_a_change_and_answers_its_inverse() {
@@ -28,7 +28,7 @@ fn apply_lands_a_change_and_answers_its_inverse() {
     let body = doc.main().body();
     assert_eq!(body.text, "Revenue grew\n12%.\nShip v2");
     let ids: Vec<&str> = body.blocks.iter().map(|b| b.id.as_str()).collect();
-    assert_eq!(ids, ["b9", "b0", "b1"]);
+    assert_eq!(ids, ["b0", "b9", "b1"]);
     assert_eq!(receipt.hash, doc.main().hash_of(Target::Body).unwrap());
 
     let undo = invert(&receipt.applied, &before).unwrap();

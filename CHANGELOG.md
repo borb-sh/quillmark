@@ -23,6 +23,12 @@ over its keys: read `receipt["warnings"]`.
   with `invert`, `compose`, `map_pos` and a word-aligned `diff`, each a
   property-tested law. A change yields a valid value or fails and changes
   nothing.
+- feat(content)!: **a block's record rides the `\n` that opens it.** A
+  split names the right half and the left keeps its id, so Enter at the end
+  of any block, the last included, leaves the text on its id; a join keeps
+  the left block's id and kind. `blocks[0]` is the record no splice reaches,
+  so `diff` and `replace` keep the stored first id, and `repair` gives the
+  first piece of a block it splits beside an island the block's record.
 - feat(content): **`repair` makes a merged state valid.** A missing
   container leaves a path, a container under two paths takes its first
   block's, a later run gets a derived container, an orphan slot or record

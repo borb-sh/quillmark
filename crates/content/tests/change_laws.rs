@@ -8,6 +8,7 @@ use quillmark_content::change::{
     AnchorStep, Assoc, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply, compose, compose_in,
     invert, map_pos, map_pos_in,
 };
+use quillmark_content::gestures::{join_blocks, split_block};
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{
@@ -335,15 +336,43 @@ fn a_typed_run_composes_into_one_splice() {
     assert!(matches!(&total.steps[..], [Step::Splice(s)] if s.insert == "xy"), "{total:?}");
 }
 
+/// Each block's text and id, in order, a heading marked `#`.
+fn segments(c: &Content) -> Vec<String> {
+    c.text
+        .split('\n')
+        .zip(&c.blocks)
+        .map(|(t, b)| format!("{}{}={t}", b.id, if matches!(b.kind, BlockKind::Heading { .. }) { "#" } else { "" }))
+        .collect()
+}
+
 #[test]
-fn a_split_names_the_left_half_and_a_join_keeps_the_right() {
-    let d = from_markdown("one two\n\nthree").unwrap().content;
-    let (left, right) = (d.blocks[0].id.clone(), d.blocks[1].id.clone());
-    let split = Splice { blocks: vec![Block::new("b9", BlockKind::Para)], ..Splice::new(3, " ", "\n") };
-    let done = apply(&d, &Change::new(vec![Step::Splice(split)])).unwrap().content;
-    assert_eq!(done.blocks.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["b9", left.as_str(), right.as_str()]);
-    let join = apply(&d, &Change::new(vec![Step::Splice(Splice::new(7, "\n", ""))])).unwrap().content;
-    assert_eq!(join.blocks.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), [right.as_str()]);
+fn a_split_keeps_the_text_on_its_id_and_a_join_keeps_the_left_block() {
+    let d = from_markdown("# Title\n\nalpha\n\nbody").unwrap().content;
+    let split = |at| segments(&apply(&d, &split_block(&d, at, "n").unwrap()).unwrap().content);
+    assert_eq!(split(8), ["b0#=Title", "b1=al", "n=pha", "b2=body"]);
+    assert_eq!(split(5), ["b0#=Title", "n#=", "b1=alpha", "b2=body"]);
+    assert_eq!(split(11), ["b0#=Title", "b1=alpha", "n=", "b2=body"]);
+    assert_eq!(split(16), ["b0#=Title", "b1=alpha", "b2=body", "n="]);
+    assert_eq!(split(6), ["b0#=Title", "n=", "b1=alpha", "b2=body"]);
+    assert_eq!(split(0), ["b0#=", "n#=Title", "b1=alpha", "b2=body"]);
+    let join = |c: &Content, id| segments(&apply(c, &join_blocks(c, id).unwrap()).unwrap().content);
+    assert_eq!(join(&d, "b1"), ["b0#=Titlealpha", "b2=body"]);
+    assert_eq!(join(&d, "b2"), ["b0#=Title", "b1=alphabody"]);
+    assert!(join_blocks(&d, "b0").is_err());
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
+
+    #[test]
+    fn a_split_keeps_every_id_and_its_join_undoes_it(d in document(), at in any::<usize>()) {
+        let at = at % (d.len_usv() + 1);
+        let split = apply(&d, &split_block(&d, at, "n").unwrap()).unwrap().content;
+        let kept: Vec<&str> = split.blocks.iter().map(|b| b.id.as_str()).filter(|id| *id != "n").collect();
+        prop_assert_eq!(kept, d.blocks.iter().map(|b| b.id.as_str()).collect::<Vec<_>>());
+        let joined = apply(&split, &join_blocks(&split, "n").unwrap()).unwrap().content;
+        prop_assert_eq!(joined, d);
+    }
 }
 
 #[test]
@@ -430,7 +459,7 @@ fn the_worked_edits_apply() {
         results.push(done.content);
     }
     assert_eq!(results[0].marks[0], Mark::new(28, 32, MarkKind::Strong));
-    assert_eq!(results[1].blocks.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["b0", "b5", "b1", "b2", "b3", "b4"]);
+    assert_eq!(results[1].blocks.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["b0", "b1", "b5", "b2", "b3", "b4"]);
     assert_eq!(results[3].blocks[3].path, ["l0", "i0", "l1", "i1"]);
     assert_eq!(results[4].slot("t0", "s3").unwrap().text, "4.3M");
     assert_eq!(results[5].anchor("c-91be").map(|a| (a.start, a.end)), Some((33, 40)));
@@ -440,7 +469,7 @@ fn the_worked_edits_apply() {
 fn deleting_the_last_block_of_an_item_drops_its_containers() {
     let d = memo();
     let c = Change::new(vec![
-        Step::Splice(Splice::new(41, "Draft spec\n", "")),
+        Step::Splice(Splice::new(40, "\nDraft spec", "")),
     ]);
     let done = apply(&d, &c).unwrap();
     assert!(done.content.container("i1").is_none());
@@ -575,6 +604,27 @@ mod diffs {
             kept.anchors.clear();
             prop_assert!(ids_reached(&d, &edited, &kept));
         }
+    }
+
+    #[test]
+    fn a_diff_reaches_the_last_record_and_none_the_first() {
+        let d = from_markdown("one\n\ntwo").unwrap().content;
+        let mut want = from_markdown("one\n\ntwo\n\nthree").unwrap().content;
+        want.blocks[0].id = "x0".into();
+        want.blocks[1].id = "x1".into();
+        want.blocks[2].id = "b1".into();
+        let done = apply(&d, &diff(&d, &want)).unwrap().content;
+        assert_eq!(segments(&done), ["b0=one", "x1=two", "b1=three"]);
+    }
+
+    #[test]
+    fn a_block_inserted_or_deleted_brings_its_own_opening_break() {
+        let d = from_markdown("alpha\n\nbeta").unwrap().content;
+        let r = revise(&d, "alpha\n\ngamma\n\nbeta").unwrap();
+        assert_eq!(segments(&r.content), ["b0=alpha", "b2=gamma", "b1=beta"]);
+        assert!(matches!(&r.change.steps[..], [Step::Splice(s)] if s.at == 5 && s.delete.is_empty() && s.insert == "\ngamma"), "{:?}", r.change);
+        let back = revise(&r.content, "alpha\n\nbeta").unwrap();
+        assert!(matches!(&back.change.steps[..], [Step::Splice(s)] if s.at == 5 && s.delete == "\ngamma" && s.insert.is_empty()), "{:?}", back.change);
     }
 
     #[test]

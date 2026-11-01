@@ -65,7 +65,8 @@ pub enum Repair {
     /// A second slot named an island the first already held; it holds a copy
     /// under `fresh`.
     SharedIsland { island: String, fresh: String },
-    /// Text beside a block island split into its own block, `block`.
+    /// A block holding a block island and text beside it split at the
+    /// island's edges; `block` is the fresh id of one later piece.
     SplitBlock { island: String, block: String },
     /// A range anchor collapsed to zero width and was dropped.
     CollapsedAnchor { id: String },
@@ -894,8 +895,9 @@ fn relate(
     false
 }
 
-/// Every block island alone in a paragraph: the text beside one splits into
-/// blocks of its own, each with a fresh id, and the island keeps the record.
+/// Every block island alone in a paragraph: a block holding one and text
+/// beside it splits at each edge of the island, the first piece keeping the
+/// record, as a split keeps the left half's, and each later piece a fresh id.
 fn split_block_islands(
     text: Vec<char>,
     blocks: Vec<Block>,
@@ -955,22 +957,16 @@ fn split_block_islands(
                     .or_else(|| pieces.get(n + 1).and_then(|p| p.2))
                     .or_else(|| pieces[..n].iter().rev().find_map(|p| p.2));
                 let near = near.map_or("isl", |i| i.id.as_str());
-                match (island, record.take()) {
-                    (Some(_), Some(mut keep)) => {
-                        keep.kind = BlockKind::Para;
+                let kind = match island {
+                    Some(_) => BlockKind::Para,
+                    None => b.kind.clone(),
+                };
+                match record.take() {
+                    Some(mut keep) => {
+                        keep.kind = kind;
                         new_blocks.push(keep);
                     }
-                    (Some(_), None) => {
-                        let fresh = ids.derive(&[&b.id, near]);
-                        out.push(Repair::SplitBlock {
-                            island: near.to_string(),
-                            block: fresh.clone(),
-                        });
-                        new_blocks
-                            .push(Block::new(fresh, BlockKind::Para).with_path(b.path.clone()));
-                    }
-                    (None, keep) => {
-                        record = keep;
+                    None => {
                         let fresh = ids.derive(&[&b.id, near]);
                         out.push(Repair::SplitBlock {
                             island: near.to_string(),
@@ -978,7 +974,7 @@ fn split_block_islands(
                         });
                         new_blocks.push(Block {
                             id: fresh,
-                            kind: b.kind.clone(),
+                            kind,
                             path: b.path.clone(),
                         });
                     }

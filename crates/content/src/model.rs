@@ -25,10 +25,11 @@ pub const NOTE_SLOT: &str = "note";
 /// One content field.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Content {
-    /// `\n` ends a block, [`ISLAND_SLOT`] is an island's slot and
+    /// `\n` opens a block, [`ISLAND_SLOT`] is an island's slot and
     /// [`HARD_BREAK`] a break inside a block.
     pub text: String,
-    /// One record per `\n`-separated segment, in order.
+    /// One record per `\n`-separated segment, in order. Each `\n` carries the
+    /// record of the block it opens; the first block's rides no character.
     pub blocks: Vec<Block>,
     /// In the order a block's path first names each.
     pub containers: Vec<Container>,
@@ -353,8 +354,8 @@ impl Content {
         out
     }
 
-    /// The index of the block holding `pos`; a `\n` belongs to the block it
-    /// ends.
+    /// The index of the block whose text holds offset `pos`, its end
+    /// included.
     pub fn block_at(&self, pos: Usv) -> usize {
         self.text.chars().take(pos).filter(|&c| c == '\n').count()
     }

@@ -792,7 +792,7 @@ describe('Document apply: the write primitive', () => {
     expect(exportMarkdown(doc.read({}))).toBe('one\\\ntwo')
 
     doc.apply({}, { steps: [{ splice: { at: 3, delete: ' ', insert: '\n', blocks: [{ id: 'b9', kind: 'para' }] } }] })
-    expect(doc.read({}).blocks.map((b) => b.id)).toEqual(['b9', doc.read({}).blocks[1].id])
+    expect(doc.read({}).blocks.map((b) => b.id)).toEqual([doc.read({}).blocks[0].id, 'b9'])
     expect(exportMarkdown(doc.read({}))).toBe('one\n\ntwo')
   })
 
