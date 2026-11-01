@@ -111,6 +111,37 @@ fn a_slow_revise_keeps_a_concurrent_edit_elsewhere() {
     assert_eq!(ids, ["b0", "b1"]);
 }
 
+/// Two stale revises that each add a paragraph elsewhere both land: the
+/// second mints its block past the ids the value now holds, not only those
+/// its base held.
+#[test]
+fn two_stale_revises_that_each_add_a_paragraph_elsewhere_both_land() {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nAlpha\n\nBeta\n\nGamma\n");
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().revise(Target::Body, "Alpha\n\nInserted one\n\nBeta\n\nGamma\n", Some(&base)).unwrap();
+    let receipt = doc
+        .main_mut()
+        .revise(Target::Body, "Alpha\n\nBeta\n\nGamma\n\nInserted two\n", Some(&base))
+        .unwrap();
+    assert!(receipt.rebased);
+    assert_eq!(doc.main().body().text, "Alpha\nInserted one\nBeta\nGamma\nInserted two");
+}
+
+/// A stale replace whose content carries the list, item and footnote ids a
+/// revise since introduced lands beside it under ids of its own.
+#[test]
+fn a_stale_replace_reusing_ids_introduced_since_lands_beside_them() {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nAlpha\n\nGamma\n");
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().revise(Target::Body, "Alpha[^a]\n\n- one\n\nGamma\n\n[^a]: first", Some(&base)).unwrap();
+    let mine = quillmark_content::markdown::from_markdown("Alpha\n\nGamma[^b]\n\n- two\n\n[^b]: second").unwrap().content;
+    let receipt = doc.main_mut().replace(Target::Body, &mine, Some(&base)).unwrap();
+    assert!(receipt.rebased);
+    let body = doc.main().body();
+    assert_eq!((body.containers.len(), body.islands.len()), (4, 2));
+    assert_eq!(quillmark_content::markdown::to_markdown(body), "Alpha[^1]\n\n- one\n\nGamma[^2]\n\n- two\n\n[^1]: first\n\n[^2]: second");
+}
+
 /// Two writers who rewrote the same text conflict, and the later one is
 /// refused with the step that conflicts and why, writing nothing.
 #[test]

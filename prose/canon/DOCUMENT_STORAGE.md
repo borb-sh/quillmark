@@ -404,7 +404,9 @@ A markdown revise keeps the ids: `diff::align` gives the value read from the
 markdown the ids of what it kept, an island equal to a stored one keeping that
 island's id and a `qm-island` tag naming one keeping it outright, and every
 other part mints past the highest id the value held before it, so none takes a
-dropped part's id.
+dropped part's id. A revise or replace diffed from an earlier base also mints
+past the value it lands on, and re-mints a part it introduces under an id that
+value holds, so two stale writes that each add a part never mint one id twice.
 
 Re-landing a dropped part is not a mint: the delete freed the id and it travels
 back with its part in the inverse, so restoring a deletion restores the bytes.

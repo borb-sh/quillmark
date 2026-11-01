@@ -667,8 +667,15 @@ pub struct Revision {
 }
 
 pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ImportError> {
+    revise_holding(before, markdown, before)
+}
+
+/// [`revise`] for a write that lands on `now` rather than on `before`: each
+/// block, container and island id the revision introduces that `now` holds
+/// is minted afresh, past the ids of `before`, `now` and the revision.
+pub fn revise_holding(before: &Content, markdown: &str, now: &Content) -> Result<Revision, ImportError> {
     let (lines, _, warnings) = diff_import(&to_lines(before), markdown)?;
-    let content = align(before, from_lines(&lines));
+    let content = holding(before, &align(before, from_lines(&lines)), now, true);
     let Diff { change, whole_text } = diff_with(before, &content, None);
     Ok(Revision { change, content, warnings, whole_text })
 }
@@ -677,6 +684,60 @@ pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ImportError>
 /// that `content` names nowhere carried where the diff keeps its text.
 pub fn replace(before: &Content, content: &Content) -> Result<Diff, Invariant> {
     diff_carrying(before, content)
+}
+
+/// [`replace`] for a write that lands on `now` rather than on `before`: each
+/// block, container and island id `content` introduces that `now` holds is
+/// minted afresh, past the ids of `before`, `now` and `content`.
+pub fn replace_holding(before: &Content, content: &Content, now: &Content) -> Result<Diff, Invariant> {
+    content.validate()?;
+    diff_carrying(before, &holding(before, content, now, true))
+}
+
+/// `want` under the ids a change from `before` can give it, each block,
+/// container and island id it holds and `before` does not that `now` holds
+/// minted past the ids of all three, and so in each slot of an island all
+/// three hold.
+fn holding(before: &Content, want: &Content, now: &Content, top: bool) -> Content {
+    let mut want = reachable(before, want, top);
+    let mut ids = Minter::default();
+    let mut island_ids = Minter::default();
+    for c in [before, now, &want] {
+        c.blocks.iter().map(|b| &b.id).chain(c.containers.iter().map(|k| &k.id)).for_each(|id| ids.hold(id));
+        c.islands.iter().for_each(|i| island_ids.hold(&i.id));
+    }
+    let mut renamed = HashMap::new();
+    for k in &mut want.containers {
+        if before.container(&k.id).is_none() && now.container(&k.id).is_some() {
+            let fresh = ids.mint(container_prefix(k));
+            renamed.insert(std::mem::replace(&mut k.id, fresh.clone()), fresh);
+        }
+    }
+    let has_block = |c: &Content, id: &str| c.blocks.iter().any(|b| b.id == id);
+    for b in &mut want.blocks {
+        if !has_block(before, &b.id) && has_block(now, &b.id) {
+            b.id = ids.mint(prefix::BLOCK);
+        }
+        for id in &mut b.path {
+            if let Some(to) = renamed.get(id) {
+                *id = to.clone();
+            }
+        }
+    }
+    for i in &mut want.islands {
+        match (before.islands.iter().find(|x| x.id == i.id), now.islands.iter().find(|x| x.id == i.id)) {
+            (Some(was), Some(held)) => {
+                for (slot, inner) in &mut i.slots {
+                    if let (Some(w), Some(n)) = (was.slots.get(slot), held.slots.get(slot)) {
+                        *inner = holding(w, inner, n, false);
+                    }
+                }
+            }
+            (None, Some(_)) => i.id = island_ids.mint(prefix::ISLAND),
+            _ => {}
+        }
+    }
+    want
 }
 
 /// A line-form value written over `before`, under the ids of what it kept.

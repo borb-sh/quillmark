@@ -71,7 +71,7 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 
 ## Ids
 
-Blocks, containers, islands, slots, table rows and table columns carry structural ids. Import, migration and a revise mint them deterministically, `{prefix}{n}` past the highest number a value already holds under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A live client mints its own. Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
+Blocks, containers, islands, slots, table rows and table columns carry structural ids. Import, migration and a revise mint them deterministically, `{prefix}{n}` past the highest number a value already holds under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise or replace from a stale base mints past the value it lands on as well (§ "Writing a value"). A live client mints its own. Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
 
 ## Changes
 
@@ -166,7 +166,7 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 **Pass the base.** `base` is the hash the writer read (`hash(addr)`). Without one, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A value that no longer hashes to the base rebases the write over what changed since:
 
 - Each card keeps a `ChangeLog` per value it holds, in memory only: its recent writes, each with the hash it read, the hash it left, the value it wrote over and its normalized change. No hash, comparison or stored form sees it.
-- A base the log holds composes the changes from it to now, and the write rebases over them and applies. A revise or replace diffs from the value the base names, so an edit made since is not read as text the writer deleted.
+- A base the log holds composes the changes from it to now, and the write rebases over them and applies. A revise or replace diffs from the value the base names, so an edit made since is not read as text the writer deleted. Each block, container and island id the diff introduces that the value now holds is minted afresh past the ids of both (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them, so two stale writes that each add a paragraph both land; `rebase` itself re-mints nothing.
 - A write that conflicts refuses with `edit::rebase_conflict`, carrying `current`, `step` and `reason`.
 - A base the log does not reach refuses with `edit::stale_base`, carrying `current`, and the writer reads again.
 - The log holds at most `LOG_WRITES` (32) writes and `LOG_STEPS` (4096) steps per value, the newest write whatever its size, the oldest leaving first. A write it did not see, such as a typed writer's revise, breaks the chain, and the log forgets what came before it.

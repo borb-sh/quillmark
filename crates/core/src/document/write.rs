@@ -124,7 +124,7 @@ impl Card {
     /// names, so what changed since is rebased over rather than undone.
     pub fn revise(&mut self, target: Target<'_>, markdown: &str, base: Option<&str>) -> Result<Receipt, EditError> {
         let read = self.reading(target, base)?;
-        let revision = diff::revise(read.read(), markdown).map_err(EditError::Import)?;
+        let revision = diff::revise_holding(read.read(), markdown, &read.now).map_err(EditError::Import)?;
         let change = match &read.since {
             None => revision.change,
             Some(since) => read.rebase(target, since, &revision.change)?,
@@ -140,7 +140,7 @@ impl Card {
     /// as a revise's is.
     pub fn replace(&mut self, target: Target<'_>, content: &Content, base: Option<&str>) -> Result<Receipt, EditError> {
         let read = self.reading(target, base)?;
-        let diffed = diff::replace(read.read(), content).map_err(|e| EditError::Change(e.into()))?;
+        let diffed = diff::replace_holding(read.read(), content, &read.now).map_err(|e| EditError::Change(e.into()))?;
         let change = match &read.since {
             None => diffed.change,
             Some(since) => read.rebase(target, since, &diffed.change)?,
