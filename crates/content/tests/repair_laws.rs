@@ -564,6 +564,21 @@ fn text_beside_a_block_island_splits_into_its_own_blocks() {
 }
 
 #[test]
+fn an_x_block_holding_a_table_alone_repairs_to_itself() {
+    let mut c = from_markdown("intro\n\n| a | b |\n| - | - |\n| c | d |\n\nafter")
+        .unwrap()
+        .content;
+    let k = c.text.split('\n').position(|s| s == "\u{FFFC}").unwrap();
+    c.blocks[k].kind = BlockKind::Ext {
+        name: "x-callout".into(),
+        attrs: Default::default(),
+    };
+    c.normalize();
+    assert_eq!(c.validate(), Ok(()));
+    assert_eq!(repair(Raw::from(&c)), (c, Vec::new()));
+}
+
+#[test]
 fn a_collapsed_range_anchor_is_dropped_and_a_point_kept() {
     let (c, repairs) = repair(raw(json!({
         "text": "abc",
