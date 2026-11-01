@@ -96,6 +96,14 @@ Enter at the start of a block keeps the text on its id when the producer inserts
 
 `apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The editor defaults are for producers: `strong`, `emph`, `underline` and `strike` grow at their end, `code` and `link` at neither edge, `font_family` at both. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
 
+`mapping` carries a position across a change, after ProseMirror's maps. A `StepMap` reads off one step what it does to positions, and `map_pos` answers a `MapResult`: where the position lands, and whether the characters before it, after it, on its `assoc` side, or across it were deleted. A position always lands:
+
+- one inside deleted text on the deletion's `assoc` edge;
+- one inside an island a splice deleted on the island's slot in the text that held it;
+- one in a slot a props step removed at its own address, since the step does not say where its island sits.
+
+A splice says which islands it deleted only in `removed`. A change mapped holds it on each splice that deletes a slot, as the normalized change does, and one without it is refused. A `Mapping` is a list of step maps with mirror links, each pairing a map with its inverse, so a position one map deleted and its mirror put back maps to where it was. A rebase maps a step through the inverse of its change's earlier steps, then the change it rebases over, then those steps rebased.
+
 Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a surviving anchor whose text a write rewrote is named in `movedAnchors`. An island removed by a splice, or a slot a props step no longer names, takes the anchors of its slots with it, and each is named in `droppedAnchors` with the island and slot that held it. Every anchor a change takes out of the value is named there, except one its own `anchor` step removed, which the writer asked for.
 
 ## The laws
@@ -104,7 +112,7 @@ Each law is a property test over generated values and generated changes (`tests/
 
 1. `apply(apply(d, c), invert(c, d)) == d`. Every change undoes exactly, deleted islands, anchors and block records included.
 2. `apply(d, compose(a, b)) == apply(apply(d, a), b)`. Compose concatenates the steps and merges adjacent splices that touch.
-3. `mapPos(c, p)` agrees with `apply`: a position in untouched text lands on the same character afterwards, a position inside a nested slot included.
+3. `mapPos(c, p)` agrees with `apply`: the two edges of a character both say it was deleted, or land around it afterwards in the same order, a character inside a nested slot included. A change's maps followed by their mirrored inverses take every position home.
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes.
 5. Every `Change` yields a valid value or fails and changes nothing.
 6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported.

@@ -102,8 +102,24 @@ export type ContentIsland = { id: string; slots?: Record<string, Content> } & (
 /** A position: an offset into a value's text, or a path into an island's slot. */
 export type Pos = number | { island: string; slot: string; at: Pos };
 
-/** Which side of an insertion at a position `mapPos` keeps it to. */
+/** Which side of an insertion at a position, or of a deletion around it,
+ *  `mapPos` keeps it to. */
 export type Assoc = "before" | "after";
+
+/**
+ * Where `mapPos` lands a position. It always lands: inside deleted text on
+ * the deletion's `assoc` edge, and inside an island a splice deleted on the
+ * island's slot in the text that held it. `deleted` says the character on
+ * the `assoc` side went, `deletedBefore` and `deletedAfter` the one on each
+ * side, and `deletedAcross` that one deletion took both.
+ */
+export interface MapResult {
+    pos: Pos;
+    deleted: boolean;
+    deletedBefore: boolean;
+    deletedAfter: boolean;
+    deletedAcross: boolean;
+}
 
 /**
  * An edit: a list of steps, each reading the value the step before it left.
@@ -638,9 +654,9 @@ pub fn compose(
     serialize_or_throw(&change::compose_in(&a, &b, Utf16).to_value(), "compose")
 }
 
-/// Where `pos` lands after `change`, `null` where the change deleted it.
-/// `assoc` is the side of an insertion at `pos` it keeps to.
-#[wasm_bindgen(js_name = mapPos, unchecked_return_type = "Pos | null")]
+/// Where `pos` lands after `change`, and what around it the change deleted.
+/// `assoc` is the side of an insertion or a deletion at `pos` it keeps to.
+#[wasm_bindgen(js_name = mapPos, unchecked_return_type = "MapResult")]
 pub fn map_pos(
     #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
     #[wasm_bindgen(unchecked_param_type = "Pos")] pos: JsValue,
@@ -654,10 +670,15 @@ pub fn map_pos(
         Some("after") => Assoc::After,
         _ => return Err(WasmError::from("mapPos: assoc must be \"before\" or \"after\"").to_js_value()),
     };
-    match change::map_pos_in(&change, &pos, assoc, Utf16) {
-        Some(p) => serialize_or_throw(&quillmark_content::wire::pos_value(&p), "mapPos"),
-        None => Ok(JsValue::NULL),
-    }
+    let r = change::map_pos_in(&change, &pos, assoc, Utf16).map_err(apply_error)?;
+    let out = serde_json::json!({
+        "pos": quillmark_content::wire::pos_value(&r.pos),
+        "deleted": r.deleted,
+        "deletedBefore": r.deleted_before,
+        "deletedAfter": r.deleted_after,
+        "deletedAcross": r.deleted_across,
+    });
+    serialize_or_throw(&out, "mapPos")
 }
 
 /// A change taking `before` to `after`, word-aligned, for a writer with no

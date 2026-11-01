@@ -5,8 +5,8 @@
 
 use proptest::prelude::*;
 use quillmark_content::change::{
-    AnchorStep, ApplyError, Assoc, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply, compose, compose_in,
-    invert, map_pos, map_pos_in,
+    AnchorStep, ApplyError, Assoc, Change, ContainerStep, IslandStep, MapResult, Mapping, MarkStep, SetBlock, Splice, Step,
+    apply, compose, compose_in, invert, map_pos, map_pos_in,
 };
 use quillmark_content::gestures::{join_blocks, split_block};
 use quillmark_content::lines::island::IslandType;
@@ -345,19 +345,75 @@ proptest! {
         prop_assert_eq!(apply(&d, &total).unwrap().content, doc);
     }
 
+    /// Each character either goes, which the two edges around it both say,
+    /// or keeps its place: the edges land around it, and the survivors keep
+    /// their order.
     #[test]
     fn a_mapped_position_lands_on_its_character(d in document(), ops in ops()) {
         let c = change_for(&d, &ops);
         let after = apply(&d, &c).unwrap();
+        let mut last: Option<usize> = None;
         for (p, ch) in positions(&d) {
-            let (Some(q), Some(r)) = (map_pos(&after.applied, &p, Assoc::After), map_pos(&after.applied, &next(&p), Assoc::Before)) else {
+            let q = map_pos(&after.applied, &p, Assoc::After).unwrap();
+            let r = map_pos(&after.applied, &next(&p), Assoc::Before).unwrap();
+            prop_assert_eq!(q.deleted, r.deleted, "{:?} under {:?}", p, c);
+            if q.deleted {
+                prop_assert!(q.deleted_after && r.deleted_before);
                 continue;
-            };
-            if next(&q) == r {
-                prop_assert_eq!(char_at(&after.content, &q), Some(ch), "{:?} → {:?} under {:?}", p, q, c);
+            }
+            prop_assert_eq!(next(&q.pos), r.pos.clone());
+            prop_assert_eq!(char_at(&after.content, &q.pos), Some(ch), "{:?} → {:?} under {:?}", p, q, c);
+            if let Pos::At(n) = q.pos {
+                prop_assert!(last.is_none_or(|l| l < n));
+                last = Some(n);
             }
         }
     }
+
+    /// A change's maps, then their inverses each linked to its mirror, take
+    /// every position home: one the change deleted is put back where it was.
+    #[test]
+    fn a_change_and_its_mirrored_inverse_map_every_position_home(d in document(), ops in ops()) {
+        let after = apply(&d, &change_for(&d, &ops)).unwrap();
+        let forward = Mapping::from_change(&after.applied).unwrap();
+        let n = forward.len();
+        let mut both = forward.clone();
+        both.append_mapping_inverted(&forward);
+        for i in 0..n {
+            both.set_mirror(i, 2 * n - 1 - i);
+        }
+        let edges = (0..=d.len_usv()).map(Pos::At);
+        for p in positions(&d).into_iter().map(|(p, _)| p).chain(edges) {
+            for assoc in [Assoc::Before, Assoc::After] {
+                prop_assert_eq!(&both.map(&p, assoc).pos, &p, "{:?} under {:?}", assoc, after.applied);
+            }
+        }
+        prop_assert_eq!(forward.invert().invert(), forward);
+    }
+}
+
+#[test]
+fn a_deleted_position_lands_on_the_deletions_edge_and_says_so() {
+    let c = Change::new(vec![Step::Splice(Splice::new(2, "cdef", "XY"))]);
+    let at = |p, assoc| {
+        let r = map_pos(&c, &Pos::At(p), assoc).unwrap();
+        (r.pos.clone(), flags(&r))
+    };
+    assert_eq!(at(4, Assoc::Before), (Pos::At(2), (true, true, true, true)));
+    assert_eq!(at(4, Assoc::After), (Pos::At(4), (true, true, true, true)));
+    assert_eq!(at(2, Assoc::After), (Pos::At(4), (true, false, true, false)));
+    assert_eq!(at(2, Assoc::Before), (Pos::At(2), (false, false, true, false)));
+    assert_eq!(at(6, Assoc::Before), (Pos::At(2), (true, true, false, false)));
+    assert_eq!(at(7, Assoc::Before), (Pos::At(5), (false, false, false, false)));
+
+    let d = from_markdown("a\n\n| x | y |\n| - | - |\n| p | q |").unwrap().content;
+    let slot = d.text.chars().position(|ch| ch == ISLAND_SLOT).unwrap();
+    let island = &d.islands[0];
+    let cell = Pos::In { island: island.id.clone(), slot: island.slot_order()[0].clone(), at: Box::new(Pos::At(1)) };
+    let gone = Change::new(vec![Step::Splice(Splice::new(slot, ISLAND_SLOT.to_string(), ""))]);
+    assert!(matches!(map_pos(&gone, &cell, Assoc::After), Err(ApplyError::BadStep { step: 0, .. })));
+    let r = map_pos(&apply(&d, &gone).unwrap().applied, &cell, Assoc::After).unwrap();
+    assert_eq!((r.pos.clone(), flags(&r)), (Pos::At(slot), (true, true, true, true)));
 }
 
 #[test]
@@ -902,6 +958,18 @@ mod diffs {
 }
 
 /// `p` with its offsets in UTF-16 code units, each level on its own text.
+fn flags(r: &MapResult) -> (bool, bool, bool, bool) {
+    (r.deleted, r.deleted_before, r.deleted_after, r.deleted_across)
+}
+
+/// Whether `c` holds the slot `p` names.
+fn holds(c: &Content, p: &Pos) -> bool {
+    match p {
+        Pos::At(_) => true,
+        Pos::In { island, slot, at } => c.slot(island, slot).is_some_and(|s| holds(s, at)),
+    }
+}
+
 fn pos_utf16(c: &Content, p: &Pos) -> Pos {
     match p {
         Pos::At(n) => Pos::At(from_scalars(Utf16, &c.text, *n)),
@@ -946,8 +1014,12 @@ proptest! {
         let c16 = change_from_scalars(&after.applied, &d, Utf16).unwrap();
         for (p, _) in positions(&d) {
             for assoc in [Assoc::Before, Assoc::After] {
-                let want = map_pos(&after.applied, &p, assoc).map(|q| pos_utf16(&after.content, &q));
-                prop_assert_eq!(map_pos_in(&c16, &pos_utf16(&d, &p), assoc, Utf16), want);
+                let want = map_pos(&after.applied, &p, assoc).unwrap();
+                let got = map_pos_in(&c16, &pos_utf16(&d, &p), assoc, Utf16).unwrap();
+                prop_assert_eq!(flags(&got), flags(&want));
+                if holds(&after.content, &want.pos) {
+                    prop_assert_eq!(got.pos, pos_utf16(&after.content, &want.pos));
+                }
             }
         }
     }

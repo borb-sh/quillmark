@@ -127,16 +127,19 @@ pub fn compose<'py>(py: Python<'py>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>)
     json_to_py(py, &change::compose(&a, &b).to_value())
 }
 
-/// Where `pos` lands after `change`, `None` where the change deleted it.
-/// `assoc`, `"before"` or `"after"`, is the side of an insertion at `pos` it
-/// keeps to.
+/// Where `pos` lands after `change`, and what around it the change deleted,
+/// as `{"pos", "deleted", "deleted_before", "deleted_after",
+/// "deleted_across"}`. `assoc`, `"before"` or `"after"`, is the side of an
+/// insertion or a deletion at `pos` it keeps to. Raises `QuillmarkError`
+/// (`edit::content_apply`) for a splice that deletes an island and names none
+/// in `removed`: map the receipt's `applied`.
 #[pyfunction]
 pub fn map_pos<'py>(
     py: Python<'py>,
     change: &Bound<'_, PyAny>,
     pos: &Bound<'_, PyAny>,
     assoc: &str,
-) -> PyResult<Option<Bound<'py, PyAny>>> {
+) -> PyResult<Bound<'py, PyDict>> {
     let change = change_from_py(change, "map_pos")?;
     let pos = quillmark_content::wire::pos_from_value(&py_to_json(pos)?)
         .map_err(|e| PyValueError::new_err(format!("map_pos: not a Pos: {e}")))?;
@@ -145,9 +148,14 @@ pub fn map_pos<'py>(
         "after" => Assoc::After,
         _ => return Err(PyValueError::new_err("map_pos: assoc must be \"before\" or \"after\"")),
     };
-    change::map_pos(&change, &pos, assoc)
-        .map(|p| json_to_py(py, &quillmark_content::wire::pos_value(&p)))
-        .transpose()
+    let r = change::map_pos(&change, &pos, assoc).map_err(change_error)?;
+    let out = PyDict::new(py);
+    out.set_item("pos", json_to_py(py, &quillmark_content::wire::pos_value(&r.pos))?)?;
+    out.set_item("deleted", r.deleted)?;
+    out.set_item("deleted_before", r.deleted_before)?;
+    out.set_item("deleted_after", r.deleted_after)?;
+    out.set_item("deleted_across", r.deleted_across)?;
+    Ok(out)
 }
 
 /// A change taking `before` to `after`, word-aligned, for a writer with no

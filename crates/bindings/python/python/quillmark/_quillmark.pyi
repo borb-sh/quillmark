@@ -212,7 +212,14 @@ class Receipt(TypedDict):
 
 def invert(change: Change, before: Content) -> Change: ...
 def compose(a: Change, b: Change) -> Change: ...
-def map_pos(change: Change, pos: Pos, assoc: Literal["before", "after"]) -> Pos | None: ...
+class MapResult(TypedDict):
+    pos: Pos
+    deleted: bool
+    deleted_before: bool
+    deleted_after: bool
+    deleted_across: bool
+
+def map_pos(change: Change, pos: Pos, assoc: Literal["before", "after"]) -> MapResult: ...
 class Diffed(TypedDict):
     change: Change
     warnings: list[Diagnostic]

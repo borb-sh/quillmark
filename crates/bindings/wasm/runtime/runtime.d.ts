@@ -146,6 +146,7 @@ export type {
 	TableProps,
 	Pos,
 	Assoc,
+	MapResult,
 	Change,
 	Step,
 	Receipt,

@@ -7,14 +7,16 @@
 //! [`markdown`] is the projection at the edges, read and written through the
 //! line form in [`lines`], which the renderers also read; [`migrate`] moves
 //! values between the two. [`change`] is the one way a value is edited,
-//! [`gestures`] the change of each editing gesture, and [`repair`] makes valid
-//! a state two concurrent edits merged into.
+//! [`mapping`] carries positions across changes, [`gestures`] is the change of
+//! each editing gesture, and [`repair`] makes valid a state two concurrent
+//! edits merged into.
 
 pub mod change;
 pub mod diff;
 pub mod gestures;
 pub mod ids;
 pub mod lines;
+pub mod mapping;
 pub mod markdown;
 pub mod migrate;
 pub mod model;

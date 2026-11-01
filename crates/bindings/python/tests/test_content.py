@@ -83,8 +83,11 @@ def test_compose_map_pos_and_diff_answer_without_a_document():
     a = {"steps": [{"splice": {"at": 5, "delete": "", "insert": "a"}}]}
     b = {"steps": [{"splice": {"at": 6, "delete": "", "insert": "b"}}]}
     assert compose(a, b) == {"steps": [{"splice": {"at": 5, "delete": "", "insert": "ab"}}]}
-    assert (map_pos(a, 5, "before"), map_pos(a, 5, "after")) == (5, 6)
-    assert map_pos({"steps": [{"splice": {"at": 0, "delete": "he", "insert": ""}}]}, 1, "after") is None
+    assert (map_pos(a, 5, "before")["pos"], map_pos(a, 5, "after")["pos"]) == (5, 6)
+    gone = map_pos({"steps": [{"splice": {"at": 0, "delete": "he", "insert": ""}}]}, 1, "after")
+    assert gone == {"pos": 0, "deleted": True, "deleted_before": True, "deleted_after": True, "deleted_across": True}
+    with raises_edit_code("edit::content_apply"):
+        map_pos({"steps": [{"splice": {"at": 0, "delete": "\ufffc", "insert": ""}}]}, {"island": "isl-0", "slot": "s0", "at": 0}, "after")
     with pytest.raises(ValueError):
         map_pos(a, 5, "left")
 

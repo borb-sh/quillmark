@@ -83,6 +83,15 @@ over its keys: read `receipt["warnings"]`.
   splice's `delete` is. `Applied.applied` and `invert` fill both in.
   `MarkStep::Add`, `MarkStep::Remove`, `AnchorStep::Set` and
   `IslandStep::Insert` carry the new fields.
+- feat(content)!: **`map_pos` answers a `MapResult`.** A position always
+  lands, inside deleted text on the deletion's `assoc` edge and inside an
+  island a splice deleted on the island's slot, with `deleted`,
+  `deleted_before`, `deleted_after` and `deleted_across` saying what went
+  around it. A splice that deletes an island and names none in `removed` is
+  refused, where it mapped a position inside that island as kept. New
+  `mapping::StepMap` and `Mapping`, a list of step maps with mirror links, so
+  a position a step deleted and its rebased mirror put back maps home. WASM
+  `mapPos` answers `MapResult`, Python `map_pos` its dict.
 - fix(content): **`replace` moves an anchor between the prose and a cell**,
   where it refused with `DuplicateId`: it carries only an anchor the new
   value names nowhere. A props step naming a slot in `slots` that the props

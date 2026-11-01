@@ -318,7 +318,7 @@ describe('Document editor surface: setQuillRef / overwrite / revise / reviseCont
     const { applied, warnings } = doc.replace({}, importMarkdown('hello brave **world**').content)
     expect(exportMarkdown(doc.main.body)).toBe('hello brave **world**')
     expect(doc.main.body.anchors).toEqual([{ id: 'c1', start: 12, end: 17 }])
-    expect(mapPos(applied, 11, 'after')).toBe(17)
+    expect(mapPos(applied, 11, 'after').pos).toBe(17)
     expect(warnings).toEqual([])
   })
 
@@ -508,8 +508,8 @@ describe('Content model: importMarkdown / exportMarkdown / mapPos', () => {
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n\nhello world\n')
     const { applied } = doc.revise({}, 'hello brave world')
     // A caret at the end of "hello " stays; one after "world" shifts past "brave ".
-    expect(mapPos(applied, 6, 'before')).toBe(6)
-    expect(mapPos(applied, 11, 'after')).toBe(17)
+    expect(mapPos(applied, 6, 'before').pos).toBe(6)
+    expect(mapPos(applied, 11, 'after').pos).toBe(17)
   })
 
   it('offsets cross in UTF-16 code units', () => {
@@ -521,7 +521,7 @@ describe('Content model: importMarkdown / exportMarkdown / mapPos', () => {
     const { applied } = doc.apply({}, { steps: [{ splice: { at: 2, delete: '', insert: '!' } }] })
     expect(doc.read({}).text).toBe('😀! bold')
     expect(applied.steps[0].splice.at).toBe(2)
-    expect(mapPos(applied, 3, 'after')).toBe(4)
+    expect(mapPos(applied, 3, 'after').pos).toBe(4)
     expectEditCode(() => doc.apply({}, { steps: [{ splice: { at: 1, delete: '', insert: 'x' } }] }), 'edit::content_apply')
     expect(() => doc.replace({}, { text: '😀', blocks: [{ id: 'b0', kind: 'para' }], marks: [{ start: 1, end: 2, type: 'strong' }] })).toThrow(/inside a character/)
   })
@@ -737,9 +737,10 @@ describe('Document apply: the write primitive', () => {
     const a = { steps: [{ splice: { at: 5, delete: '', insert: 'a' } }] }
     const b = { steps: [{ splice: { at: 6, delete: '', insert: 'b' } }] }
     expect(compose(a, b)).toEqual({ steps: [{ splice: { at: 5, delete: '', insert: 'ab' } }] })
-    expect(mapPos(a, 5, 'before')).toBe(5)
-    expect(mapPos(a, 5, 'after')).toBe(6)
-    expect(mapPos({ steps: [{ splice: { at: 0, delete: 'Bo', insert: '' } }] }, 1, 'after')).toBeNull()
+    expect(mapPos(a, 5, 'before').pos).toBe(5)
+    expect(mapPos(a, 5, 'after')).toEqual({ pos: 6, deleted: false, deletedBefore: false, deletedAfter: false, deletedAcross: false })
+    expect(mapPos({ steps: [{ splice: { at: 0, delete: 'Bo', insert: '' } }] }, 1, 'after')).toEqual({ pos: 0, deleted: true, deletedBefore: true, deletedAfter: true, deletedAcross: true })
+    expectEditCode(() => mapPos({ steps: [{ splice: { at: 0, delete: '\uFFFC', insert: '' } }] }, { island: 'isl-0', slot: 's0', at: 0 }, 'after'), 'edit::content_apply')
     expect(() => mapPos(a, 5, 'left')).toThrow(/assoc/)
 
     const before = importMarkdown('hello world').content
@@ -837,7 +838,7 @@ describe('Document apply: the write primitive', () => {
     doc.apply({}, { steps: [{ nested: { island: island.id, slot: cell, change: edit } }] })
     expect(doc.read({}).islands[0].slots[cell].text).toBe('b')
     expect(doc.read({}).anchors).toEqual([{ id: 'c1', start: 0, end: 5 }])
-    expect(mapPos({ steps: [{ nested: { island: island.id, slot: cell, change: edit } }] }, { island: island.id, slot: cell, at: 1 }, 'after')).toEqual({ island: island.id, slot: cell, at: 1 })
+    expect(mapPos({ steps: [{ nested: { island: island.id, slot: cell, change: edit } }] }, { island: island.id, slot: cell, at: 1 }, 'after').pos).toEqual({ island: island.id, slot: cell, at: 1 })
 
     expectEditCode(() => doc.apply({}, { steps: [{ island: { id: 'nope', props: {} } }] }), 'edit::content_apply')
   })

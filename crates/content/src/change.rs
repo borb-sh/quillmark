@@ -9,6 +9,7 @@ use crate::migrate::to_lines;
 use crate::model::{
     Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Usv,
 };
+pub use crate::mapping::{MapResult, Mapping};
 use crate::table::{self, Table};
 use crate::units::{Scalars, Units, split_at};
 use serde_json::{Map, Value};
@@ -873,61 +874,17 @@ fn merge_splices(x: &Splice, y: &Splice, u: impl Units) -> Option<Splice> {
     Some(Splice { at, delete: format!("{}{}", first.delete, second.delete), removed, ..Splice::default() })
 }
 
-/// Where `pos` lands after `change`, or `None` when the change deleted it. A
-/// position at the edge of an insertion keeps to the `assoc` side; one inside
-/// a deleted island reads its island from the splice's `removed`.
-pub fn map_pos(change: &Change, pos: &Pos, assoc: Assoc) -> Option<Pos> {
+/// Where `pos` lands after `change`, and what around it the change deleted:
+/// [`Mapping`] over the change's steps. A splice that deletes an island names
+/// it in `removed`, as the normalized change does; one that names none is
+/// refused, since which island went is not in the step.
+pub fn map_pos(change: &Change, pos: &Pos, assoc: Assoc) -> Result<MapResult, ApplyError> {
     map_pos_in(change, pos, assoc, Scalars)
 }
 
 /// [`map_pos`] over a change and a position whose offsets count `u`.
-pub fn map_pos_in(change: &Change, pos: &Pos, assoc: Assoc, u: impl Units) -> Option<Pos> {
-    let mut pos = pos.clone();
-    for step in &change.steps {
-        pos = map_step(step, pos, assoc, u)?;
-    }
-    Some(pos)
-}
-
-fn map_step(step: &Step, pos: Pos, assoc: Assoc, u: impl Units) -> Option<Pos> {
-    match (step, pos) {
-        (Step::Splice(s), Pos::At(p)) => map_offset(p, s.at, u.len(&s.delete), u.len(&s.insert), assoc).map(Pos::At),
-        (Step::Island(IslandStep::Insert { at, .. }), Pos::At(p)) => {
-            map_offset(p, *at, 0, u.char_len(ISLAND_SLOT), assoc).map(Pos::At)
-        }
-        (Step::Splice(s), pos @ Pos::In { .. }) => {
-            let Pos::In { island, .. } = &pos else { unreachable!() };
-            let gone = s.removed.as_ref().is_some_and(|r| r.islands.iter().any(|i| &i.id == island));
-            (!gone).then_some(pos)
-        }
-        (Step::Island(IslandStep::Props { id, props, .. }), Pos::In { island, slot, at }) if *id == island => {
-            let keeps = match Table::read(props) {
-                Some(t) => t.slot_order().contains(&slot),
-                None => true,
-            };
-            keeps.then_some(Pos::In { island, slot, at })
-        }
-        (Step::Nested { island: i, slot: s, change }, Pos::In { island, slot, at }) if *i == island && *s == slot => {
-            let at = map_pos_in(change, &at, assoc, u)?;
-            Some(Pos::In { island, slot, at: Box::new(at) })
-        }
-        (_, pos) => Some(pos),
-    }
-}
-
-fn map_offset(p: Usv, at: Usv, dn: Usv, m: Usv, assoc: Assoc) -> Option<Usv> {
-    if p < at {
-        Some(p)
-    } else if p > at + dn {
-        Some(p - dn + m)
-    } else if p > at && p < at + dn {
-        None
-    } else {
-        Some(match assoc {
-            Assoc::Before => at,
-            Assoc::After => at + m,
-        })
-    }
+pub fn map_pos_in(change: &Change, pos: &Pos, assoc: Assoc, u: impl Units) -> Result<MapResult, ApplyError> {
+    Ok(Mapping::from_change_in(change, u)?.map(pos, assoc))
 }
 
 mod wire {
