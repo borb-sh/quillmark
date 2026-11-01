@@ -720,6 +720,15 @@ describe('Document apply: the write primitive', () => {
     expect(receipt.applied.steps[0].anchor.quote).toBe('world')
   })
 
+  it('a reserved x- name rides as written, and another unknown one throws', () => {
+    const doc = blankDoc()
+    const value = { text: 'Note', blocks: [{ id: 'b0', kind: 'x-callout', attrs: { tone: 'warm' } }], marks: [{ start: 0, end: 4, type: 'x-glow' }] }
+    doc.replace({}, value)
+    expect(doc.read({})).toEqual(value)
+    expect(exportMarkdown(value)).toBe('Note')
+    expect(() => doc.replace({}, { ...value, blocks: [{ id: 'b0', kind: 'callout' }] })).toThrow(/callout/)
+  })
+
   it('applyAll writes every value or none', () => {
     const doc = blankDoc()
     const held = doc.toStored()

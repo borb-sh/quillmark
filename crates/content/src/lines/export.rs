@@ -153,7 +153,7 @@ pub fn to_markdown_checked(rt: &Normalized) -> Exported {
         if !kept {
             losses.push(ExportLoss::Island {
                 index,
-                island_type: isl.island_type,
+                island_type: isl.island_type.clone(),
             });
         }
     }
@@ -843,6 +843,7 @@ fn emit_island(isl: &Island, label: usize, out: &mut String) {
         IslandType::Image => emit_image(isl, out),
         IslandType::Footnote => out.push_str(&format!("[^{label}]")),
         IslandType::Math => emit_math(isl, out),
+        IslandType::Ext(_) => {}
     }
 }
 

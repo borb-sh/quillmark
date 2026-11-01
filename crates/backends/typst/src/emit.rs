@@ -830,7 +830,7 @@ impl<'a> Emit<'a> {
             // Declined: a content image's url names nothing a document can
             // bind to (CONVERT.md § Declined images), so this backend draws
             // none and `backend::declines` names it for the warning saying so.
-            IslandType::Image => String::new(),
+            IslandType::Image | IslandType::Ext(_) => String::new(),
             IslandType::Table => table_markup(&isl.props),
             IslandType::Footnote => {
                 let (text, marks) = quillmark_content::lines::serial::parse_cell(&isl.props);
@@ -1935,13 +1935,14 @@ mod tests {
         }
 
         // An island this build renders as nothing closes the gap its slot held.
-        // `image` is the type whose slot can sit inside a run at all: a
-        // block-only type's takes a line of its own, so no run closes over it.
-        for ty in [IslandType::Image] {
+        // `image` and an unknown `x-` type are the ones whose slot can sit
+        // inside a run at all: a block-only type's takes a line of its own, so
+        // no run closes over it.
+        for ty in [IslandType::Image, IslandType::Ext("x-chart".into())] {
             for text in ["a/{}/b", "a-{}-b", "a-{}?b", "a-{}5b", "a.{}..b", "a..{}.b"] {
                 let text = text.replace("{}", &ISLAND_SLOT.to_string());
                 let rt = Content::new(text.clone(), vec![Line::new(LineKind::Para)])
-                    .with_islands(vec![Island::new("isl-0".into(), ty)])
+                    .with_islands(vec![Island::new("isl-0".into(), ty.clone())])
                     .into_normalized();
                 assert_eq!(rt.validate(), Ok(()), "content invariants for {text:?}");
                 let markup = emit_content(&rt).unwrap().markup;

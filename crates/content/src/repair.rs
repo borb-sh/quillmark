@@ -150,7 +150,7 @@ impl From<&Content> for Raw {
                     (
                         i.id.clone(),
                         RawIsland {
-                            island_type: i.island_type,
+                            island_type: i.island_type.clone(),
                             props: i.props.clone(),
                             slots,
                         },
@@ -618,7 +618,7 @@ fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>) -> Option<Island
         }));
         slots.insert(key, c);
     }
-    match raw.island_type {
+    match &raw.island_type {
         IslandType::Table => {
             if !table(&id, &mut props, &mut slots, out) {
                 return None;
@@ -650,6 +650,7 @@ fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>) -> Option<Island
                 slots.clear();
             }
         }
+        IslandType::Ext(_) => {}
     }
     Some(Island {
         id,

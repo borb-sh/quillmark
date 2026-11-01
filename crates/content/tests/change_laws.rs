@@ -50,12 +50,12 @@ fn block() -> impl Strategy<Value = String> {
 }
 
 fn document() -> impl Strategy<Value = Content> {
-    prop::collection::vec(block(), 1..6).prop_map(|bs| {
+    (prop::collection::vec(block(), 1..6), any::<u8>()).prop_map(|(bs, ext)| {
         let mut md = bs.join("\n\n");
         if md.contains("[^n]") {
             md.push_str("\n\n[^n]: a note");
         }
-        let mut c = from_markdown(&md).unwrap().content;
+        let mut c = with_ext(from_markdown(&md).unwrap().content, ext);
         let len = c.len_usv();
         if len > 3 {
             c.anchors.push(Anchor::new("c-0", 1, len.min(4)));
@@ -72,6 +72,29 @@ fn document() -> impl Strategy<Value = Content> {
     })
 }
 
+/// On some documents, a reserved `x-` name on each axis: an island holding a
+/// slot at the start, a block's kind and a mark.
+fn with_ext(mut c: Content, seed: u8) -> Content {
+    if seed % 5 == 0 {
+        let island = Island::new("isl-x", IslandType::Ext("x-chart".into()))
+            .with_props(json!({"series": [1, 2], "style": {"tone": "warm"}}))
+            .with_slots([("cap".to_string(), quillmark_content::markdown::from_plaintext("caption"))].into());
+        let insert = Change::new(vec![Step::Island(IslandStep::Insert { at: 0, island, block: None })]);
+        if let Ok(done) = apply(&c, &insert) {
+            c = done.content;
+        }
+    }
+    if seed % 4 == 0 {
+        let k = seed as usize / 4 % c.blocks.len();
+        c.blocks[k].kind = BlockKind::Ext { name: "x-callout".into(), attrs: json!({"tone": "warm"}).as_object().unwrap().clone() };
+    }
+    let len = c.len_usv();
+    if seed % 3 == 0 && len > 1 {
+        c.marks.push(Mark::new(1, len.min(5), MarkKind::Ext { name: "x-glow".into(), attrs: Default::default() }));
+    }
+    c
+}
+
 type Op = (u8, usize, usize, u8);
 
 fn ops() -> impl Strategy<Value = Vec<Op>> {
@@ -79,13 +102,14 @@ fn ops() -> impl Strategy<Value = Vec<Op>> {
 }
 
 const INSERTS: [&str; 7] = ["x", "yz", " ", "\n", "q\nr", "\u{2028}", "😀a"];
-const TAGS: [&str; 4] = ["strong", "emph", "code", "link"];
+const TAGS: [&str; 5] = ["strong", "emph", "code", "link", "x-glow"];
 
 fn kind_of(tag: &str) -> MarkKind {
     match tag {
         "strong" => MarkKind::Strong,
         "emph" => MarkKind::Emph,
         "code" => MarkKind::Code,
+        "x-glow" => MarkKind::Ext { name: tag.into(), attrs: Default::default() },
         _ => MarkKind::Link { url: "https://y.io".into() },
     }
 }
@@ -133,7 +157,7 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
             if z % 2 == 0 {
                 Step::Mark(MarkStep::Add { mark: Mark::new(start, end, kind_of(tag)), quote })
             } else {
-                Step::Mark(MarkStep::Remove { start, end, tag, quote })
+                Step::Mark(MarkStep::Remove { start, end, tag: tag.into(), quote })
             }
         }
         3 => {
@@ -150,9 +174,10 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
         }
         4 => {
             let b = &c.blocks[x % c.blocks.len()];
-            let kind = match z % 3 {
+            let kind = match z % 4 {
                 0 => ("heading", Some(json!({"level": 1 + (y % 6)}))),
                 1 => ("para", None),
+                2 => ("x-callout", Some(json!({"tone": "cool"}))),
                 _ => ("code", None),
             };
             Step::SetBlock(SetBlock {
@@ -417,6 +442,26 @@ fn a_deleted_position_lands_on_the_deletions_edge_and_says_so() {
 }
 
 #[test]
+fn a_step_sets_and_removes_a_reserved_name_and_refuses_another_unknown_one() {
+    let d = from_markdown("hello world").unwrap().content;
+    let c = Change::from_json(
+        r#"{"steps": [{"setBlock": {"id": "b0", "kind": "x-callout", "attrs": {"tone": "warm"}}},
+                      {"mark": {"start": 0, "end": 5, "type": "x-glow", "add": true}},
+                      {"mark": {"start": 0, "end": 2, "type": "x-glow", "add": false}}]}"#,
+    )
+    .unwrap();
+    let done = apply(&d, &c).unwrap().content;
+    assert_eq!(done.blocks[0].kind.tag(), "x-callout");
+    assert_eq!(done.marks, [Mark::new(2, 5, MarkKind::Ext { name: "x-glow".into(), attrs: Default::default() })]);
+    assert_eq!(apply(&done, &invert(&c, &d).unwrap()).unwrap().content, d);
+
+    let unknown = r#"{"steps": [{"mark": {"start": 0, "end": 2, "type": "glow", "add": false}}]}"#;
+    assert!(matches!(Change::from_json(unknown), Err(quillmark_content::wire::ParseError::UnknownName { .. })));
+    let unknown = Change::new(vec![Step::SetBlock(SetBlock { id: "b0".into(), kind: Some("callout".into()), ..SetBlock::default() })]);
+    assert!(matches!(apply(&d, &unknown), Err(ApplyError::BadStep { step: 0, .. })));
+}
+
+#[test]
 fn a_typed_run_composes_into_one_splice() {
     let d = from_markdown("ab").unwrap().content;
     let mut total = Change::default();
@@ -490,7 +535,7 @@ fn a_quoted_step_refuses_the_text_it_did_not_read() {
     let cases = [
         (Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }), &typed),
         (Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Strong), quote: Some("world".into()) }), &typed),
-        (Step::Mark(MarkStep::Remove { start: 6, end: 11, tag: "strong", quote: Some("world".into()) }), &typed),
+        (Step::Mark(MarkStep::Remove { start: 6, end: 11, tag: "strong".into(), quote: Some("world".into()) }), &typed),
         (Step::Island(IslandStep::Insert { at: 8, island: math, block: Some(d.blocks[1].id.clone()) }), &joined),
     ];
     for (step, moved) in cases {
@@ -542,7 +587,7 @@ proptest! {
         let step = |quote: Option<String>| match z % 3 {
             0 => Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-9", start, end), quote }),
             1 => Step::Mark(MarkStep::Add { mark: Mark::new(start, end, MarkKind::Emph), quote }),
-            _ => Step::Mark(MarkStep::Remove { start, end, tag: "strong", quote }),
+            _ => Step::Mark(MarkStep::Remove { start, end, tag: "strong".into(), quote }),
         };
         let Ok(mid) = apply(&d, &Change::new(vec![Step::Splice(splice_on(&d, pre.0, pre.1, pre.2, 0))])) else { return Ok(()) };
         let now: Option<String> = (end <= mid.content.len_usv()).then(|| chars(&mid.content)[start..end].iter().collect());
@@ -782,7 +827,7 @@ fn wild_step() -> impl Strategy<Value = Step> {
         (n(), n(), any::<bool>()).prop_map(|(s, e, add)| Step::Mark(if add {
             MarkStep::Add { mark: Mark::new(s, e, MarkKind::Strong), quote: None }
         } else {
-            MarkStep::Remove { start: s, end: e, tag: "strong", quote: Some("a".into()) }
+            MarkStep::Remove { start: s, end: e, tag: "strong".into(), quote: Some("a".into()) }
         })),
         (id(), n(), n()).prop_map(|(i, s, e)| Step::Anchor(AnchorStep::Set { anchor: Anchor::new(i, s, e), quote: None })),
         id().prop_map(|i| Step::Anchor(AnchorStep::Remove { id: i })),
@@ -816,7 +861,7 @@ proptest! {
 mod diffs {
     use super::*;
     use quillmark_content::diff::{align, diff, replace, revise};
-    use quillmark_content::markdown::to_markdown;
+    use quillmark_content::markdown::{to_markdown, to_markdown_annotated};
 
     /// The two equal once every block, container and island id is renamed by
     /// where it first appears.
@@ -877,7 +922,7 @@ mod diffs {
 
         #[test]
         fn revising_with_the_markdown_read_changes_nothing(d in document()) {
-            let r = revise(&d, &to_markdown(&d)).unwrap();
+            let r = revise(&d, &to_markdown_annotated(&d).markdown).unwrap();
             let done = apply(&d, &r.change).unwrap().content;
             prop_assert_eq!(&done.text, &d.text);
             prop_assert_eq!(done.blocks.iter().map(|b| &b.id).collect::<Vec<_>>(), d.blocks.iter().map(|b| &b.id).collect::<Vec<_>>());

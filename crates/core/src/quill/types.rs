@@ -101,6 +101,7 @@ impl BlockConstruct {
                 IslandType::Image => counts[Self::Image as usize] += 1,
                 IslandType::Footnote => counts[Self::Footnote as usize] += 1,
                 IslandType::Math => counts[Self::Math as usize] += 1,
+                IslandType::Ext(_) => {}
             }
         }
         counts

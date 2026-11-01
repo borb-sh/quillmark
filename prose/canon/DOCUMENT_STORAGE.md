@@ -181,7 +181,8 @@ under the current tag. A population converges once and then holds.
 The envelope's version-and-reject discipline covers the document's **shape**:
 the schema tag, the DTO tree, the keys a `body` object carries. The content's
 four discriminators are covered by their own rule: each is a **closed set**
-([CONTENT.md](CONTENT.md) § "The value" lists them).
+([CONTENT.md](CONTENT.md) § "The value" lists them), and three of them hold
+the reserved `x-` names beside it.
 
 | Axis | Rust type |
 |---|---|
@@ -198,6 +199,18 @@ edit (§ Byte-stability), and dropping the value loses content on a mere open. A
 malformed discriminator is a different failure and stays `ParseError::Shape`:
 the closed set answers for names, and a non-string is not a name.
 
+**A name under the reserved `x-` prefix rides as written.** A block kind, mark
+type or island type that is `x-` and at least one more character, an id as a
+whole (`ids::is_ext_name`), decodes into the axis's `Ext` member with its
+`attrs` or `props` held as they are, and re-encodes to the same bytes, so its
+hash does not move. A reader holds it without knowing it: validation is
+structural only (the name, the ranges, and the JSON depth of its bag), and the
+renderers read an `x-` block as a paragraph, an `x-` mark as no formatting, and
+an `x-` island as a placeholder. Steps may set and remove one. Containers hold
+no `x-` name: a container kind is a nesting rule (an item only after a list),
+and a reader cannot check a path through a container whose rule it does not
+know.
+
 Three names a line-form row may hold sit outside the sets: the `term` line
 kind, and the `description` and `element` containers, which earlier tags
 spelled for a definition list and a `qm-*` element. Each reads as what it
@@ -205,10 +218,14 @@ held, so the row opens and its text stays, and the migration writes the row
 without them. A `term` line reads as a `para`, as the retired `island` line
 kind does.
 
-The consequence, and the point: **adding a member to any of these vocabularies
-is a storage-version event.** An older reader refuses a row carrying a newer
-build's construct, and the schema tag is what lets it say "build too old"
-rather than "corrupt" (§ Schema Versioning).
+The consequence, and the point: **adding a built-in member to any of these
+vocabularies is a storage-version event.** An older reader refuses a row
+carrying a newer build's construct, and the schema tag is what lets it say
+"build too old" rather than "corrupt" (§ Schema Versioning). An `x-` name is
+not a member, so writing one needs no event: every reader of the tag holds it.
+The tag stays an exact match per format, with no rule for reading a newer one:
+a construct that has to open in an older build ships under an `x-` name, and
+promoting it to a built-in is the storage event.
 
 **Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
 `lang`, a `link`'s `url`, a list's `ordered` and `start` and an item's
@@ -252,7 +269,8 @@ silent ones), and core surfaces those of a body's parse and of a revise as
 Unknown *keys* survive in designated carriers only:
 
 - **Opaque carriers keep what they hold.** An island's `props` round-trip
-  untouched, and so does a table cell's own entry under `cell_attrs`.
+  untouched, and so do a table cell's own entry under `cell_attrs` and an
+  `x-` block's or mark's `attrs`.
 - **Envelopes drop what they do not name, by design.** A block, container,
   mark, anchor or island object is decoded into a struct and re-minted from
   its fields, so an unrecognized sibling key does not survive. Growing those
@@ -313,8 +331,9 @@ paragraphs writes as HTML.
 
 Three rules bound the payload:
 
-- **Payload depth is capped at `MAX_JSON_DEPTH` (128).** Island `props` is host
-  JSON of arbitrary shape, but not arbitrary depth: key canonicalization, the
+- **Payload depth is capped at `MAX_JSON_DEPTH` (128).** Island `props` and an
+  `x-` member's `attrs` are host JSON of arbitrary shape, but not arbitrary
+  depth: key canonicalization, the
   content-hash key, and `serde_json::Value`'s own `Drop` each recurse one frame
   per level, so an unbounded bag overflows the stack: on wasm32, a trap that
   takes the module down rather than an error the host can catch. The cap is the

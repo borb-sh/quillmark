@@ -38,14 +38,17 @@ export interface Content {
 }
 
 /** A block's record: its kind and attributes, and its container path,
- *  outermost first. */
+ *  outermost first. A kind, mark type or island type spelled `x-` and more
+ *  is one this build does not know, held as written: a block reads as a
+ *  paragraph, a mark formats nothing, an island renders as nothing. */
 export type ContentBlock = { id: string; path?: string[] } & ContentBlockKind;
 
 export type ContentBlockKind =
     | { kind: "para" }
     | { kind: "heading"; attrs: { level: number } }
     | { kind: "code"; attrs?: { lang?: string } }
-    | { kind: "rule" };
+    | { kind: "rule" }
+    | { kind: `x-${string}`; attrs?: Record<string, unknown> };
 
 /** A list, a list item or a quote. An item's number is computed, never stored. */
 export type ContentContainer = { id: string } & (
@@ -61,7 +64,8 @@ export type ContentMark = { start: number; end: number } & ContentMarkKind;
 export type ContentMarkKind =
     | { type: "strong" | "emph" | "underline" | "strike" | "code" }
     | { type: "link"; attrs: { url: string } }
-    | { type: "font_family"; attrs: { name: string } };
+    | { type: "font_family"; attrs: { name: string } }
+    | { type: `x-${string}`; attrs?: Record<string, unknown> };
 
 /** A comment handle over `[start, end)` with a host-minted id; a point when
  *  the two are equal. */
@@ -97,6 +101,7 @@ export type ContentIsland = { id: string; slots?: Record<string, Content> } & (
     | { type: "image"; props: { url: string; alt: string } }
     | { type: "footnote"; props: Record<string, never> }
     | { type: "math"; props: { tex: string; display?: true } }
+    | { type: `x-${string}`; props: Record<string, unknown> }
 );
 
 /** A position: an offset into a value's text, or a path into an island's slot. */

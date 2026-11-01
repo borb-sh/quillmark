@@ -9,8 +9,9 @@ use quillmark_core::quill::VARIANT_DISCRIMINANT_KEY;
 
 const RUNTIME_JS: &str = include_str!("../runtime/runtime.js");
 
-/// The wire `kind` of every block vocabulary member. Exhaustive on purpose.
-fn block_kind_tags() -> Vec<&'static str> {
+/// The wire `kind` of every block vocabulary member, the reserved `x-` names
+/// aside. Exhaustive on purpose.
+fn block_kind_tags() -> Vec<String> {
     let all = [
         BlockKind::Para,
         BlockKind::Heading { level: 1 },
@@ -20,13 +21,14 @@ fn block_kind_tags() -> Vec<&'static str> {
     for k in &all {
         match k {
             BlockKind::Para | BlockKind::Heading { .. } | BlockKind::Code { .. } | BlockKind::Rule => {}
+            BlockKind::Ext { .. } => {}
         }
     }
-    all.iter().map(BlockKind::tag).collect()
+    all.iter().map(|k| k.tag().to_string()).collect()
 }
 
 /// The wire `kind` of every container vocabulary member.
-fn container_tags() -> Vec<&'static str> {
+fn container_tags() -> Vec<String> {
     let all = [
         ContainerKind::List { ordered: false, start: 1 },
         ContainerKind::Item { checked: None },
@@ -37,11 +39,12 @@ fn container_tags() -> Vec<&'static str> {
             ContainerKind::List { .. } | ContainerKind::Item { .. } | ContainerKind::Quote => {}
         }
     }
-    all.iter().map(ContainerKind::tag).collect()
+    all.iter().map(|k| k.tag().to_string()).collect()
 }
 
-/// The wire `type` of every mark vocabulary member.
-fn mark_type_tags() -> Vec<&'static str> {
+/// The wire `type` of every mark vocabulary member, the reserved `x-` names
+/// aside.
+fn mark_type_tags() -> Vec<String> {
     let all = [
         MarkKind::Strong,
         MarkKind::Emph,
@@ -62,9 +65,10 @@ fn mark_type_tags() -> Vec<&'static str> {
             | MarkKind::Code
             | MarkKind::Link { .. }
             | MarkKind::FontFamily { .. } => {}
+            MarkKind::Ext { .. } => {}
         }
     }
-    all.iter().map(MarkKind::tag).collect()
+    all.iter().map(|k| k.tag().to_string()).collect()
 }
 
 /// The `.d.ts` is pinned as a string *literal* type: widened to `string` it
@@ -109,7 +113,7 @@ fn ts_unions_name_every_built_in() {
     }
 
     // An island type carries no payload, so it is its own tag list.
-    let island_types: Vec<_> = IslandType::ALL.iter().map(|k| k.as_str()).collect();
+    let island_types: Vec<_> = IslandType::ALL.iter().map(|k| k.as_str().to_string()).collect();
 
     for (union, names) in [
         (ts_union("ContentBlockKind"), block_kind_tags()),

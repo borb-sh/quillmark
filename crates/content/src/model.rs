@@ -7,7 +7,7 @@ use crate::ids::is_id;
 use crate::lines::island::IslandType;
 use crate::lines::model::{self as line, is_font_family_name};
 use crate::lines::normalize::{is_bidi_char, is_line_separator};
-use serde_json::Value as JsonValue;
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// A position counted in Unicode scalar values.
@@ -55,6 +55,10 @@ pub enum BlockKind {
     Heading { level: u8 },
     Code { lang: Option<String> },
     Rule,
+    /// A kind this build does not know, by its reserved `x-` name
+    /// ([`is_ext_name`](crate::ids::is_ext_name)), its attributes held as
+    /// written. It reads as a paragraph.
+    Ext { name: String, attrs: JsonMap<String, JsonValue> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,7 +81,7 @@ pub struct Mark {
     pub kind: MarkKind,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MarkKind {
     Strong,
     Emph,
@@ -86,6 +90,10 @@ pub enum MarkKind {
     Code,
     Link { url: String },
     FontFamily { name: String },
+    /// A type this build does not know, by its reserved `x-` name, its
+    /// attributes held as written. It formats nothing, and unions with a mark
+    /// of its name and attributes as formatting does.
+    Ext { name: String, attrs: JsonMap<String, JsonValue> },
 }
 
 /// A comment handle over `[start, end)`; a point when the two are equal.
@@ -112,13 +120,19 @@ pub enum Pos {
 }
 
 impl BlockKind {
-    pub fn tag(&self) -> &'static str {
+    pub fn tag(&self) -> &str {
         match self {
             BlockKind::Para => "para",
             BlockKind::Heading { .. } => "heading",
             BlockKind::Code { .. } => "code",
             BlockKind::Rule => "rule",
+            BlockKind::Ext { name, .. } => name,
         }
+    }
+
+    /// A paragraph, or a kind this build does not know, which reads as one.
+    pub fn reads_as_para(&self) -> bool {
+        matches!(self, BlockKind::Para | BlockKind::Ext { .. })
     }
 }
 
@@ -137,8 +151,11 @@ impl ContainerKind {
 }
 
 impl MarkKind {
-    pub fn tag(&self) -> &'static str {
-        self.to_line().tag()
+    pub fn tag(&self) -> &str {
+        match self {
+            MarkKind::Ext { name, .. } => name,
+            known => known.to_line().map_or("", |k| k.tag()),
+        }
     }
 
     /// One value per character: an add replaces what the range held.
@@ -146,8 +163,10 @@ impl MarkKind {
         matches!(self, MarkKind::Link { .. } | MarkKind::FontFamily { .. })
     }
 
-    pub(crate) fn to_line(&self) -> line::MarkKind {
-        match self {
+    /// The mark the line form spells, `None` for one it does not: a type this
+    /// build does not know formats nothing there.
+    pub(crate) fn to_line(&self) -> Option<line::MarkKind> {
+        Some(match self {
             MarkKind::Strong => line::MarkKind::Strong,
             MarkKind::Emph => line::MarkKind::Emph,
             MarkKind::Underline => line::MarkKind::Underline,
@@ -155,7 +174,8 @@ impl MarkKind {
             MarkKind::Code => line::MarkKind::Code,
             MarkKind::Link { url } => line::MarkKind::Link { url: url.clone() },
             MarkKind::FontFamily { name } => line::MarkKind::FontFamily { name: name.clone() },
-        }
+            MarkKind::Ext { .. } => return None,
+        })
     }
 
     pub(crate) fn from_line(kind: &line::MarkKind) -> Option<MarkKind> {
@@ -173,7 +193,14 @@ impl MarkKind {
 
     /// The `(type, attrs)` pair the wire spells, which orders marks.
     pub fn sort_key(&self) -> (String, String) {
-        self.to_line().sort_key()
+        match (self, self.to_line()) {
+            (_, Some(known)) => known.sort_key(),
+            (MarkKind::Ext { name, attrs }, None) if attrs.is_empty() => (name.clone(), String::new()),
+            (MarkKind::Ext { name, attrs }, None) => {
+                (name.clone(), line::canonical_json_string(&JsonValue::Object(attrs.clone())))
+            }
+            (_, None) => (String::new(), String::new()),
+        }
     }
 }
 
@@ -221,6 +248,7 @@ impl Island {
                 .unwrap_or_default(),
             IslandType::Footnote => vec![NOTE_SLOT.to_string()],
             IslandType::Image | IslandType::Math => Vec::new(),
+            IslandType::Ext(_) => self.slots.keys().cloned().collect(),
         }
     }
 }
@@ -240,6 +268,8 @@ pub enum Invariant {
     BlockCountMismatch { blocks: usize, segments: usize },
     IslandSlotMismatch { slots: usize, islands: usize },
     BadId { id: String },
+    /// A kind or type outside the vocabulary that is not an `x-` name.
+    BadName { name: String },
     DuplicateId { id: String },
     UnknownContainer { block: String, container: String },
     /// A path whose kinds do not nest: an item outside a list, a list holding
@@ -276,6 +306,7 @@ impl std::fmt::Display for Invariant {
             }
             Invariant::IslandSlotMismatch { slots, islands } => write!(f, "{slots} island slots for {islands} islands"),
             Invariant::BadId { id } => write!(f, "`{id}` is not an id"),
+            Invariant::BadName { name } => write!(f, "`{name}` is not an `x-` name"),
             Invariant::DuplicateId { id } => write!(f, "the id `{id}` is held twice"),
             Invariant::UnknownContainer { block, container } => {
                 write!(f, "block `{block}` names container `{container}`, which does not exist")
@@ -454,15 +485,23 @@ impl Content {
 
     pub(crate) fn normalize_marks(&mut self) {
         let chars: Vec<char> = self.text.chars().collect();
-        let marks: Vec<line::Mark> = std::mem::take(&mut self.marks)
-            .into_iter()
-            .map(|m| line::Mark::new(m.start, m.end, m.kind.to_line()))
-            .collect();
+        let mut ext = Vec::new();
+        let mut marks: Vec<line::Mark> = Vec::with_capacity(self.marks.len());
+        for m in std::mem::take(&mut self.marks) {
+            match m.kind.to_line() {
+                Some(kind) => marks.push(line::Mark::new(m.start, m.end, kind)),
+                None => ext.push(m),
+            }
+        }
         let marks = line::normalize_marks(line::split_marks_at_newlines(&chars, line::normalize_marks(marks)));
-        let out: Vec<Mark> = marks
+        let mut out: Vec<Mark> = marks
             .into_iter()
             .filter_map(|m| MarkKind::from_line(&m.kind).map(|k| Mark::new(m.start, m.end, k)))
             .collect();
+        if !ext.is_empty() {
+            out.extend(settle_ext(&chars, ext));
+            out.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
+        }
         self.marks = out;
     }
 
@@ -540,6 +579,7 @@ impl Content {
                 BlockKind::Code { lang: Some(lang) } if !is_lang(lang) => {
                     return Err(Invariant::BadLang(lang.clone()));
                 }
+                BlockKind::Ext { name, attrs } => check_ext(name, attrs, "block attrs")?,
                 _ => {}
             }
             check_path(b, &containers)?;
@@ -550,6 +590,7 @@ impl Content {
             }
             match &m.kind {
                 MarkKind::FontFamily { name } if !is_font_family_name(name) => return Err(Invariant::BadMarkValue),
+                MarkKind::Ext { name, attrs } => check_ext(name, attrs, "mark attrs")?,
                 _ => {}
             }
         }
@@ -617,7 +658,7 @@ impl Content {
             for &c in seg {
                 if c == ISLAND_SLOT {
                     let island = &self.islands[slot];
-                    if island.island_type.block_only() && (seg.len() != 1 || b.kind != BlockKind::Para) {
+                    if island.island_type.block_only() && (seg.len() != 1 || !b.kind.reads_as_para()) {
                         return Err(Invariant::BlockIslandNotAlone { island: island.id.clone() });
                     }
                     slot += 1;
@@ -648,11 +689,12 @@ impl Content {
     }
 
     /// Whether this content may sit in a slot: paragraphs in no container,
-    /// holding no island.
+    /// holding no island. A block of a kind this build does not know reads as
+    /// a paragraph.
     pub fn is_slot_shape(&self) -> bool {
         self.islands.is_empty()
             && self.containers.is_empty()
-            && self.blocks.iter().all(|b| b.kind == BlockKind::Para && b.path.is_empty())
+            && self.blocks.iter().all(|b| b.kind.reads_as_para() && b.path.is_empty())
     }
 
     /// The text of each block, island slots and breaks as stored.
@@ -720,6 +762,55 @@ fn check_path(b: &Block, containers: &HashMap<&str, &ContainerKind>) -> Result<(
     Ok(())
 }
 
+/// A kind or type this build does not know: an `x-` name, its attributes
+/// within the JSON depth.
+fn check_ext(name: &str, attrs: &JsonMap<String, JsonValue>, what: &'static str) -> Result<(), Invariant> {
+    if !crate::ids::is_ext_name(name) {
+        return Err(Invariant::BadName { name: name.to_string() });
+    }
+    if attrs.values().any(|v| line::json_depth_exceeds(v, crate::MAX_JSON_DEPTH - 1)) {
+        return Err(Invariant::JsonTooDeep { what, max: crate::MAX_JSON_DEPTH });
+    }
+    Ok(())
+}
+
+/// Marks of the types this build does not know, settled as formatting is:
+/// cut at each `\n` and [`HARD_BREAK`], one name and attributes unioned where
+/// they touch, an empty one dropped.
+fn settle_ext(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
+    let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| matches!(**c, '\n' | HARD_BREAK)).map(|(i, _)| i).collect();
+    let mut groups: BTreeMap<(String, String), (MarkKind, Vec<(Usv, Usv)>)> = BTreeMap::new();
+    for m in marks {
+        let entry = groups.entry(m.kind.sort_key()).or_insert_with(|| (m.kind.clone(), Vec::new()));
+        let mut start = m.start;
+        for &at in breaks.iter().filter(|&&b| m.start <= b && b < m.end) {
+            entry.1.push((start, at));
+            start = at + 1;
+        }
+        entry.1.push((start, m.end));
+    }
+    let mut out = Vec::new();
+    for (kind, mut ranges) in groups.into_values() {
+        ranges.retain(|(s, e)| s < e);
+        ranges.sort_unstable();
+        let mut held: Option<(Usv, Usv)> = None;
+        for (s, e) in ranges {
+            match &mut held {
+                Some(cur) if s <= cur.1 => cur.1 = cur.1.max(e),
+                _ => {
+                    if let Some((a, b)) = held.replace((s, e)) {
+                        out.push(Mark::new(a, b, kind.clone()));
+                    }
+                }
+            }
+        }
+        if let Some((a, b)) = held {
+            out.push(Mark::new(a, b, kind));
+        }
+    }
+    out
+}
+
 fn check_island(island: &Island) -> Result<(), Invariant> {
     if line::json_depth_exceeds(&island.props, crate::MAX_JSON_DEPTH) {
         return Err(Invariant::JsonTooDeep { what: "island props", max: crate::MAX_JSON_DEPTH });
@@ -728,7 +819,7 @@ fn check_island(island: &Island) -> Result<(), Invariant> {
         return Err(Invariant::BadIsland { id: island.id.clone(), reason: "props is not an object" });
     }
     let bad = |reason| Invariant::BadIsland { id: island.id.clone(), reason };
-    match island.island_type {
+    match &island.island_type {
         IslandType::Table => crate::table::check(island)?,
         IslandType::Footnote => {
             if island.slots.len() != 1 || !island.slots.contains_key(NOTE_SLOT) {
@@ -749,6 +840,11 @@ fn check_island(island: &Island) -> Result<(), Invariant> {
             }
             if !island.props.get("url").is_some_and(JsonValue::is_string) {
                 return Err(bad("an image's `url` is not a string"));
+            }
+        }
+        IslandType::Ext(name) => {
+            if !crate::ids::is_ext_name(name) {
+                return Err(bad("an island type this build does not know is not an `x-` name"));
             }
         }
     }

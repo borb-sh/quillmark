@@ -81,7 +81,7 @@ pub enum MarkStep {
     /// A keyed kind replaces whatever value the range held.
     Add { mark: Mark, quote: Option<String> },
     /// Clears every mark of the type over the range, whatever its value.
-    Remove { start: Usv, end: Usv, tag: &'static str, quote: Option<String> },
+    Remove { start: Usv, end: Usv, tag: String, quote: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -510,7 +510,7 @@ fn mark(c: &mut Content, s: &MarkStep, n: usize) -> Result<MarkStep, ApplyError>
     let len = c.len_usv();
     let (start, end, tag, quote) = match s {
         MarkStep::Add { mark, quote } => (mark.start, mark.end, mark.kind.tag(), quote),
-        MarkStep::Remove { start, end, tag, quote } => (*start, *end, *tag, quote),
+        MarkStep::Remove { start, end, tag, quote } => (*start, *end, tag.as_str(), quote),
     };
     let held = quoted(c, start, end, quote, n)?;
     if start >= end || end > len {
@@ -526,7 +526,7 @@ fn mark(c: &mut Content, s: &MarkStep, n: usize) -> Result<MarkStep, ApplyError>
     c.normalize_marks();
     Ok(match s {
         MarkStep::Add { mark, .. } => MarkStep::Add { mark: mark.clone(), quote: held },
-        MarkStep::Remove { .. } => MarkStep::Remove { start, end, tag, quote: held },
+        MarkStep::Remove { .. } => MarkStep::Remove { start, end, tag: tag.to_string(), quote: held },
     })
 }
 
@@ -752,7 +752,7 @@ fn undo_step(before: &Content, after: &Content, step: &Step) -> Result<Vec<Step>
 /// the two differ in nothing else.
 pub(crate) fn fixups(now: &Content, want: &Content) -> Vec<Step> {
     let mut out = Vec::new();
-    let tags: BTreeSet<&'static str> = now.marks.iter().chain(&want.marks).map(|m| m.kind.tag()).collect();
+    let tags: BTreeSet<&str> = now.marks.iter().chain(&want.marks).map(|m| m.kind.tag()).collect();
     for tag in tags {
         let have: Vec<&Mark> = now.marks.iter().filter(|m| m.kind.tag() == tag).collect();
         let need: Vec<&Mark> = want.marks.iter().filter(|m| m.kind.tag() == tag).collect();
@@ -761,7 +761,7 @@ pub(crate) fn fixups(now: &Content, want: &Content) -> Vec<Step> {
         let (Some(lo), Some(hi)) = (differ.iter().map(|m| m.start).min(), differ.iter().map(|m| m.end).max()) else {
             continue;
         };
-        out.push(Step::Mark(MarkStep::Remove { start: lo, end: hi, tag, quote: None }));
+        out.push(Step::Mark(MarkStep::Remove { start: lo, end: hi, tag: tag.to_string(), quote: None }));
         for m in need {
             let (s, e) = (m.start.max(lo), m.end.min(hi));
             if s < e {
@@ -1002,7 +1002,7 @@ mod wire {
             Step::Mark(MarkStep::Remove { start, end, tag, quote }) => one(
                 "mark",
                 quoting(
-                    obj([("start", (*start).into()), ("end", (*end).into()), ("type", (*tag).into()), ("add", false.into())]),
+                    obj([("start", (*start).into()), ("end", (*end).into()), ("type", tag.as_str().into()), ("add", false.into())]),
                     quote,
                 ),
             ),
@@ -1146,11 +1146,10 @@ mod wire {
                 if add {
                     Step::Mark(MarkStep::Add { mark: mark_from_value(body)?, quote })
                 } else {
-                    let ty = str_key(body, "type")?;
-                    let tag = MARK_TAGS
-                        .into_iter()
-                        .find(|t| *t == ty)
-                        .ok_or(ParseError::UnknownName { axis: "mark type", name: ty })?;
+                    let tag = str_key(body, "type")?;
+                    if !MARK_TAGS.contains(&tag.as_str()) && !crate::ids::is_ext_name(&tag) {
+                        return Err(ParseError::UnknownName { axis: "mark type", name: tag });
+                    }
                     Step::Mark(MarkStep::Remove { start: usize_key(body, "start")?, end: usize_key(body, "end")?, tag, quote })
                 }
             }

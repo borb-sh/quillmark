@@ -44,6 +44,15 @@ def test_a_quoted_step_refuses_text_its_writer_did_not_read():
     assert receipt["applied"]["steps"][0]["mark"]["quote"] == "world"
 
 
+def test_a_reserved_x_name_rides_as_written():
+    doc = Document.from_markdown(MD)
+    value = {"text": "Note", "blocks": [{"id": "b0", "kind": "x-callout", "attrs": {"tone": "warm"}}], "marks": [{"start": 0, "end": 4, "type": "x-glow"}]}
+    doc.replace(value)
+    assert doc.read() == value
+    with pytest.raises(Exception, match="callout"):
+        doc.replace({**value, "blocks": [{"id": "b0", "kind": "callout"}]})
+
+
 def test_offsets_count_code_points():
     doc = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\n😀 **bold**\n")
     assert doc.read()["marks"] == [{"start": 2, "end": 6, "type": "strong"}]

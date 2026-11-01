@@ -757,8 +757,9 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
             // No cells; the one prop the projection writes is the url.
             Some(crate::lines::island::IslandType::Image) => reject_unwritable_image_url(island)?,
             Some(crate::lines::island::IslandType::Math) => reject_unwritable_tex(island)?,
-            // This scan reads raw JSON; an unknown type is the decode's to refuse.
-            None => {}
+            // No cells; this scan reads raw JSON, and an unknown type is the
+            // decode's to refuse.
+            Some(crate::lines::island::IslandType::Ext(_)) | None => {}
         }
     }
     Ok(())
@@ -1500,10 +1501,10 @@ mod tests {
             }
         }
 
-        for &island_type in IslandType::ALL {
+        for island_type in IslandType::ALL {
             let island = Island {
                 id: "i1".into(),
-                island_type,
+                island_type: island_type.clone(),
                 props: bag(),
             };
             assert!(

@@ -645,7 +645,7 @@ fn carry_island_ids(base: &[Island], new: &mut Content) {
     let key = |island: &Island| {
         let mut props = island.props.clone();
         crate::lines::export::drop_anchor_marks(&mut props);
-        (island.island_type.as_str(), props.to_string())
+        (island.island_type.as_str().to_string(), props.to_string())
     };
     let old: Vec<_> = base.iter().map(key).collect();
     let fresh: Vec<_> = new.islands.iter().map(key).collect();

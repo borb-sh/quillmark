@@ -3,7 +3,7 @@
 //! bytes. A value spelling `lines` is a v1 value: it decodes as the line form
 //! and migrates.
 
-use crate::ids::is_id;
+use crate::ids::{is_ext_name, is_id};
 use crate::lines::island::IslandType;
 use crate::lines::model::{is_font_family_name, sort_keys_owned};
 use crate::lines::serial as v1;
@@ -129,6 +129,7 @@ pub fn block_attrs(kind: &BlockKind) -> Option<Value> {
     match kind {
         BlockKind::Heading { level } => Some(obj([("level", (*level).into())])),
         BlockKind::Code { lang: Some(lang) } => Some(obj([("lang", lang.as_str().into())])),
+        BlockKind::Ext { attrs, .. } if !attrs.is_empty() => Some(Value::Object(attrs.clone())),
         _ => None,
     }
 }
@@ -166,6 +167,7 @@ pub fn mark_attrs(kind: &MarkKind) -> Option<Value> {
     match kind {
         MarkKind::Link { url } => Some(obj([("url", url.as_str().into())])),
         MarkKind::FontFamily { name } => Some(obj([("name", name.as_str().into())])),
+        MarkKind::Ext { attrs, .. } if !attrs.is_empty() => Some(Value::Object(attrs.clone())),
         _ => None,
     }
 }
@@ -292,6 +294,7 @@ pub fn block_kind_from(kind: &str, attrs: &Map<String, Value>) -> Result<BlockKi
             },
         },
         "rule" => BlockKind::Rule,
+        other if is_ext_name(other) => BlockKind::Ext { name: other.to_string(), attrs: attrs.clone() },
         other => return Err(ParseError::UnknownName { axis: "block kind", name: other.to_string() }),
     })
 }
@@ -354,6 +357,7 @@ pub fn mark_kind_from(ty: &str, attrs: &Map<String, Value>) -> Result<MarkKind, 
             }
             MarkKind::FontFamily { name }
         }
+        other if is_ext_name(other) => MarkKind::Ext { name: other.to_string(), attrs: attrs.clone() },
         other => return Err(ParseError::UnknownName { axis: "mark type", name: other.to_string() }),
     })
 }
@@ -465,6 +469,59 @@ mod tests {
             edit(&mut v);
             assert!(matches!(Content::from_value(&v), Err(ParseError::Invalid(_))), "{name}");
         }
+    }
+
+    /// A reserved `x-` name on each axis this build reads, as a newer build
+    /// might have written it.
+    fn extended() -> Value {
+        json!({
+            "text": "Note\n\u{FFFC} glows",
+            "blocks": [{"id": "b0", "kind": "x-callout", "attrs": {"tone": "warm", "icon": {"set": "a"}}}, {"id": "b1", "kind": "para"}],
+            "marks": [{"start": 0, "end": 4, "type": "x-glow", "attrs": {"hue": 3}}, {"start": 2, "end": 4, "type": "strong"}],
+            "islands": [{
+                "id": "isl-0", "type": "x-chart", "props": {"series": [1, 2], "z": null},
+                "slots": {"cap": {"text": "Q3", "blocks": [{"id": "b0", "kind": "x-caption"}], "anchors": [{"id": "c-1", "start": 0, "end": 2}]}}
+            }]
+        })
+    }
+
+    #[test]
+    fn a_reserved_name_rides_as_written_and_another_unknown_one_refuses() {
+        let c = Content::from_value(&extended()).unwrap();
+        assert_eq!(c.blocks[0].kind.tag(), "x-callout");
+        assert_eq!(c.islands[0].island_type, IslandType::Ext("x-chart".into()));
+        assert_eq!(c.to_value(), sort_keys_owned(extended()));
+        assert_eq!(Content::from_json(&c.to_json()).unwrap(), c);
+
+        let unknown: Vec<(&str, Box<dyn Fn(&mut Value)>)> = vec![
+            ("block kind", Box::new(|v| v["blocks"][0]["kind"] = json!("callout"))),
+            ("mark type", Box::new(|v| v["marks"][0]["type"] = json!("glow"))),
+            ("island type", Box::new(|v| v["islands"][0]["type"] = json!("chart"))),
+            ("bare prefix", Box::new(|v| v["blocks"][0]["kind"] = json!("x-"))),
+            ("container kind", Box::new(|v| {
+                v["blocks"][1]["path"] = json!(["q0"]);
+                v["containers"] = json!([{"id": "q0", "kind": "x-box"}]);
+            })),
+        ];
+        for (axis, edit) in unknown {
+            let mut v = extended();
+            edit(&mut v);
+            assert!(matches!(Content::from_value(&v), Err(ParseError::UnknownName { .. })), "{axis}");
+        }
+    }
+
+    #[test]
+    fn a_reserved_name_lowers_to_what_this_build_reads() {
+        let c = Content::from_value(&extended()).unwrap();
+        let lines = crate::migrate::to_lines(&c);
+        assert_eq!(lines.lines[0].kind, crate::lines::model::LineKind::Para);
+        assert!(lines.marks.iter().all(|m| m.kind.tag() != "x-glow"));
+        let md = crate::markdown::to_markdown_checked(&c);
+        assert_eq!(md.markdown, "No**te**\n\n glows");
+        assert!(!md.losses.is_empty());
+        let annotated = crate::markdown::to_markdown_annotated(&c).markdown;
+        let r = crate::diff::revise(&c, &annotated).unwrap();
+        assert_eq!(crate::change::apply(&c, &r.change).unwrap().content, c, "{annotated}");
     }
 
     #[test]

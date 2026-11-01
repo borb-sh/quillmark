@@ -26,6 +26,16 @@ pub fn is_id(id: &str) -> bool {
     n > 0
 }
 
+/// The prefix of the reserved extension names.
+pub const EXT_PREFIX: &str = "x-";
+
+/// Whether `name` is a reserved extension name: [`EXT_PREFIX`] and at least
+/// one more scalar value, an [id](is_id) as a whole. A block kind, mark type
+/// or island type spelled so is one this build does not know, held as written.
+pub fn is_ext_name(name: &str) -> bool {
+    name.len() > EXT_PREFIX.len() && name.starts_with(EXT_PREFIX) && is_id(name)
+}
+
 /// Mints `{prefix}{n}` ids no held id takes.
 #[derive(Debug, Clone, Default)]
 pub struct Minter {

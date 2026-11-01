@@ -118,8 +118,8 @@ pub fn from_lines(rt: &line::Content) -> Content {
         .iter()
         .map(|i| {
             let id = island_ids.keep_or_mint(&i.id, prefix::ISLAND);
-            let (props, slots) = crate::table::from_line_props(i.island_type, &i.props, &mut Minter::default());
-            Island { id, island_type: i.island_type, props: object(props), slots }
+            let (props, slots) = crate::table::from_line_props(&i.island_type, &i.props, &mut Minter::default());
+            Island { id, island_type: i.island_type.clone(), props: object(props), slots }
         })
         .collect();
     let mut out = Content { text, blocks, containers, marks, anchors, islands };
@@ -192,6 +192,7 @@ pub fn to_lines(c: &Content) -> line::Normalized {
             BlockKind::Heading { level } => LineKind::Heading { level: *level },
             BlockKind::Code { lang } => LineKind::Code { lang: lang.clone() },
             BlockKind::Rule => LineKind::Rule,
+            BlockKind::Ext { .. } => LineKind::Para,
         };
         lines.push(Line::new(kind.clone()).with_containers(path.clone()));
         for _ in seg.chars().filter(|&ch| ch == HARD_BREAK) {
@@ -199,7 +200,7 @@ pub fn to_lines(c: &Content) -> line::Normalized {
         }
     }
     let mut marks: Vec<line::Mark> =
-        c.marks.iter().map(|m| line::Mark::new(m.start, m.end, m.kind.to_line())).collect();
+        c.marks.iter().filter_map(|m| Some(line::Mark::new(m.start, m.end, m.kind.to_line()?))).collect();
     marks.extend(
         c.anchors
             .iter()
@@ -208,7 +209,7 @@ pub fn to_lines(c: &Content) -> line::Normalized {
     let islands = c
         .islands
         .iter()
-        .map(|i| line::Island::new(i.id.clone(), i.island_type).with_props(crate::table::to_line_props(i)))
+        .map(|i| line::Island::new(i.id.clone(), i.island_type.clone()).with_props(crate::table::to_line_props(i)))
         .collect();
     line::Content::new(text, lines).with_marks(marks).with_islands(islands).into_normalized()
 }

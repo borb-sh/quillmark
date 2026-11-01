@@ -4,12 +4,13 @@
 use crate::lines::model::Mark;
 use serde_json::Value;
 
-/// The island types. Closed: a wire `type` outside this set is
+/// The island types. Closed but for [`Ext`](Self::Ext): a wire `type` outside
+/// this set and not a reserved `x-` name is
 /// [`ParseError::UnknownName`](crate::lines::serial::ParseError::UnknownName).
 ///
 /// Every emitter dispatches over the whole set: an island type wired into some
 /// and not others projects the island away silently.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IslandType {
     /// `{header, rows, aligns}` with inline `{text, marks}` cells, a `\n` in a
     /// cell's text being a line break, and the optional [layout](TableLayout)
@@ -34,6 +35,11 @@ pub enum IslandType {
     /// either edge, which TeX reads as nothing; `display` is absent at
     /// `false`. No cell model.
     Math,
+    /// A type this build does not know, by its reserved `x-` name
+    /// ([`is_ext_name`](crate::ids::is_ext_name)): `{props, slots}`, its props
+    /// as written and each slot a `{text, marks}` cell by slot id, rendered as
+    /// a placeholder and written to markdown as nothing.
+    Ext(String),
 }
 
 /// The values of a table's `align` key, its placement, and of a cell's, its
@@ -187,12 +193,13 @@ impl IslandType {
         &[IslandType::Table, IslandType::Image, IslandType::Footnote, IslandType::Math];
 
     /// The wire discriminator; `parse(k.as_str()) == Some(k)` for every variant.
-    pub fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             Self::Table => "table",
             Self::Image => "image",
             Self::Footnote => "footnote",
             Self::Math => "math",
+            Self::Ext(name) => name,
         }
     }
 
@@ -204,6 +211,7 @@ impl IslandType {
             "image" => Some(Self::Image),
             "footnote" => Some(Self::Footnote),
             "math" => Some(Self::Math),
+            _ if crate::ids::is_ext_name(s) => Some(Self::Ext(s.to_string())),
             _ => None,
         }
     }
@@ -212,30 +220,35 @@ impl IslandType {
     /// paragraph line can hold, so its slot has to sit alone on its line. A
     /// pipe table is one; an image (`![alt](url)`), a footnote reference
     /// (`[^1]`) and an equation (`$x$`, `$$x$$`) are inline.
-    pub fn block_only(self) -> bool {
+    pub fn block_only(&self) -> bool {
         match self {
             Self::Table => true,
-            Self::Image | Self::Footnote | Self::Math => false,
+            Self::Image | Self::Footnote | Self::Math | Self::Ext(_) => false,
         }
     }
 
     /// This type's `(text, marks)` cells: the set that participates in mark
     /// normalization and cell-mark validation. Empty for a type with no cell
     /// model.
-    pub fn cell_marks(self, props: &Value) -> Vec<(String, Vec<Mark>)> {
+    pub fn cell_marks(&self, props: &Value) -> Vec<(String, Vec<Mark>)> {
         match self {
             Self::Table => crate::lines::serial::table_cells(props),
             Self::Footnote => vec![crate::lines::serial::parse_cell(props)],
+            Self::Ext(_) => ext_cells(props).map(crate::lines::serial::parse_cell).collect(),
             Self::Image | Self::Math => Vec::new(),
         }
     }
 
     /// The cell objects [`cell_marks`](Self::cell_marks) reads, in its order,
     /// mutable.
-    pub(crate) fn cell_values_mut(self, props: &mut Value) -> Vec<&mut Value> {
+    pub(crate) fn cell_values_mut<'a>(&self, props: &'a mut Value) -> Vec<&'a mut Value> {
         match self {
             Self::Table => crate::lines::serial::table_cell_values_mut(props),
             Self::Footnote => vec![props],
+            Self::Ext(_) => match props.get_mut("slots") {
+                Some(Value::Object(cells)) => cells.values_mut().collect(),
+                _ => Vec::new(),
+            },
             Self::Image | Self::Math => Vec::new(),
         }
     }
@@ -244,24 +257,30 @@ impl IslandType {
     /// decoder's arm of [`cell_marks`](Self::cell_marks): those read leniently,
     /// so this is the one place the row can be refused rather than silently
     /// re-encoded without the mark.
-    pub fn reject_unknown_cell_mark(self, props: &Value) -> Result<(), crate::lines::serial::ParseError> {
+    pub fn reject_unknown_cell_mark(&self, props: &Value) -> Result<(), crate::lines::serial::ParseError> {
         match self {
             Self::Table => crate::lines::serial::reject_unknown_cell_mark_name(crate::lines::serial::table_cell_values(props)),
             Self::Footnote => crate::lines::serial::reject_unknown_cell_mark_name([props]),
+            Self::Ext(_) => crate::lines::serial::reject_unknown_cell_mark_name(ext_cells(props)),
             Self::Image | Self::Math => Ok(()),
         }
     }
 
     /// Repair this type's props to canonical shape in place; a no-op for a type
     /// with no shape invariants.
-    pub fn normalize_props(self, props: &mut Value) {
+    pub fn normalize_props(&self, props: &mut Value) {
         match self {
             Self::Table => crate::lines::serial::normalize_table_props(props),
             Self::Footnote => crate::lines::serial::normalize_note_props(props),
             Self::Math => crate::lines::serial::normalize_math_props(props),
-            Self::Image => {}
+            Self::Image | Self::Ext(_) => {}
         }
     }
+}
+
+/// An [`Ext`](IslandType::Ext) island's cells, in slot id order.
+fn ext_cells(props: &Value) -> impl Iterator<Item = &Value> {
+    props.get("slots").and_then(Value::as_object).into_iter().flat_map(|cells| cells.values())
 }
 
 #[cfg(test)]
@@ -270,8 +289,8 @@ mod tests {
 
     #[test]
     fn known_types_round_trip() {
-        for &k in IslandType::ALL {
-            assert_eq!(IslandType::parse(k.as_str()), Some(k));
+        for k in IslandType::ALL {
+            assert_eq!(IslandType::parse(k.as_str()).as_ref(), Some(k));
         }
     }
 

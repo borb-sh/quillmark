@@ -166,7 +166,7 @@ pub(crate) fn normalize_island(island: &mut Island) {
     match island.island_type {
         IslandType::Table => normalize_table(island),
         IslandType::Math => IslandType::Math.normalize_props(&mut island.props),
-        IslandType::Footnote | IslandType::Image => {}
+        IslandType::Footnote | IslandType::Image | IslandType::Ext(_) => {}
     }
     canonicalize_keys(&mut island.props);
 }
@@ -231,7 +231,8 @@ fn layout_from_line(lined: &Value, table: &Table, props: &mut Map<String, Value>
 }
 
 /// The island's props as the line form spells them: a table's cells and a
-/// note's text inline, anchors as anchor marks.
+/// note's text inline, anchors as anchor marks, and an `x-` island's props
+/// beside its slots as cells.
 pub(crate) fn to_line_props(island: &Island) -> Value {
     match island.island_type {
         IslandType::Table => {
@@ -289,6 +290,18 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
             out.insert("text".into(), Value::String(text));
             Value::Object(out)
         }
+        IslandType::Ext(_) => {
+            let cells: Map<String, Value> = island
+                .slots
+                .iter()
+                .map(|(id, slot)| {
+                    let (text, marks) = slot_to_cell(slot);
+                    let marks = marks.iter().map(crate::lines::serial::mark_to_value).collect();
+                    (id.clone(), Value::Object(Map::from_iter([("marks".into(), marks), ("text".into(), Value::String(text))])))
+                })
+                .collect();
+            Value::Object(Map::from_iter([("props".into(), island.props.clone()), ("slots".into(), Value::Object(cells))]))
+        }
         IslandType::Image | IslandType::Math => island.props.clone(),
     }
 }
@@ -296,7 +309,7 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
 /// A line-form island's props and the slots they hold, ids minted by
 /// `minter` in reading order.
 pub(crate) fn from_line_props(
-    island_type: IslandType,
+    island_type: &IslandType,
     props: &Value,
     minter: &mut Minter,
 ) -> (Value, BTreeMap<String, Content>) {
@@ -346,6 +359,19 @@ pub(crate) fn from_line_props(
             slots.insert(NOTE_SLOT.to_string(), cell_to_slot(&text, &marks));
             (Value::Object(out), slots)
         }
+        IslandType::Ext(_) => {
+            let slots = match props.get("slots") {
+                Some(Value::Object(cells)) => cells
+                    .iter()
+                    .map(|(id, cell)| {
+                        let (text, marks) = crate::lines::serial::parse_cell(cell);
+                        (id.clone(), cell_to_slot(&text, &marks))
+                    })
+                    .collect(),
+                _ => BTreeMap::new(),
+            };
+            (props.get("props").cloned().unwrap_or_else(|| Value::Object(Map::new())), slots)
+        }
         IslandType::Image | IslandType::Math => (props.clone(), BTreeMap::new()),
     }
 }
@@ -370,7 +396,7 @@ pub(crate) fn slot_to_cell(slot: &Content) -> (String, Vec<line::Mark>) {
     shift.push(extra);
     let at = |p: usize| p + shift[p.min(shift.len() - 1)];
     let mut marks: Vec<line::Mark> =
-        slot.marks.iter().map(|m| line::Mark::new(at(m.start), at(m.end), m.kind.to_line())).collect();
+        slot.marks.iter().filter_map(|m| Some(line::Mark::new(at(m.start), at(m.end), m.kind.to_line()?))).collect();
     marks.extend(
         slot.anchors
             .iter()

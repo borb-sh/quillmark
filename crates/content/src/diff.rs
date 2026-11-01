@@ -11,7 +11,7 @@ use crate::ids::{Minter, prefix};
 use crate::lines::delta::{Op, diff_import, diff_words as text_diff, without_sentinel};
 use crate::lines::import::{ImportError, ImportWarning};
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{Content, ISLAND_SLOT, Invariant, Island, Mark};
+use crate::model::{BlockKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
 use crate::table::{self, Table};
 use std::collections::{HashMap, HashSet};
 
@@ -407,7 +407,9 @@ fn push(out: &mut Vec<Op>, op: Op) {
 /// same id and type, a kept table's columns, rows and cells by position, and
 /// each container a kept block's path names at the same depth with the same
 /// kind. Every other id is kept where `before` does not hold it, and minted
-/// otherwise.
+/// otherwise. What markdown cannot spell rides over from `before`: a kept
+/// block's `x-` kind where it reads back as a paragraph, and an `x-` mark over
+/// the first to the last of its characters the diff keeps.
 pub fn align(before: &Content, after: Content) -> Content {
     let mut after = after;
     let a: Vec<char> = before.text.chars().collect();
@@ -418,6 +420,7 @@ pub fn align(before: &Content, after: Content) -> Content {
     let (mut nl_a, mut nl_b, mut sl_a, mut sl_b) = (0usize, 0usize, 0usize, 0usize);
     let (mut dropped_at, mut added_at): (HashMap<usize, usize>, HashMap<usize, usize>) = (HashMap::new(), HashMap::new());
     let mut event = 0usize;
+    let mut kept: Vec<Option<usize>> = vec![None; a.len()];
     let mut step = |ia: Option<usize>, jb: Option<usize>, blocks: &mut Vec<(usize, usize)>, islands: &mut Vec<(usize, usize)>| {
         let ca = ia.map(|k| a[k]);
         let cb = jb.map(|k| b[k]);
@@ -450,6 +453,7 @@ pub fn align(before: &Content, after: Content) -> Content {
             Op::Retain(n) => {
                 for _ in 0..n {
                     step(Some(i), Some(j), &mut blocks, &mut islands);
+                    kept[i] = Some(j);
                     i += 1;
                     j += 1;
                 }
@@ -474,6 +478,9 @@ pub fn align(before: &Content, after: Content) -> Content {
     let mut taken: HashSet<String> = HashSet::new();
     for &(x, y) in &blocks {
         block_to.insert(y, before.blocks[x].id.clone());
+        if matches!(before.blocks[x].kind, BlockKind::Ext { .. }) && after.blocks[y].kind == BlockKind::Para {
+            after.blocks[y].kind = before.blocks[x].kind.clone();
+        }
         let (pa, pb) = (&before.blocks[x].path, &after.blocks[y].path);
         for (ka, kb) in pa.iter().zip(pb) {
             let same_kind = match (before.container(ka), after.container(kb)) {
@@ -566,6 +573,13 @@ pub fn align(before: &Content, after: Content) -> Content {
                     island_ids.hold(&island.id);
                 }
             }
+        }
+    }
+    for m in before.marks.iter().filter(|m| matches!(m.kind, MarkKind::Ext { .. })) {
+        let mut over = kept[m.start..m.end].iter().flatten();
+        if let Some(&lo) = over.next() {
+            let hi = over.last().copied().unwrap_or(lo);
+            after.marks.push(Mark::new(lo, hi + 1, m.kind.clone()));
         }
     }
     after.normalize();

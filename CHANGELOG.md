@@ -92,6 +92,16 @@ over its keys: read `receipt["warnings"]`.
   `mapping::StepMap` and `Mapping`, a list of step maps with mirror links, so
   a position a step deleted and its rebased mirror put back maps home. WASM
   `mapPos` answers `MapResult`, Python `map_pos` its dict.
+- feat(content)!: **reserved `x-` names on three vocabularies.** A block
+  kind, mark type or island type spelled `x-` and more decodes into
+  `BlockKind::Ext`, `MarkKind::Ext` or `IslandType::Ext`, its attrs or props
+  held as written, and re-encodes to the same bytes; any other unknown name
+  still refuses. Validation is structural only. An `x-` block reads as a
+  paragraph, an `x-` mark formats nothing, and an `x-` island renders and
+  exports to markdown as nothing, which the annotated read spells as its
+  token so a revise keeps it. Steps set and remove them. `MarkStep::Remove`'s
+  `tag` is a `String`, `BlockKind::tag` and `MarkKind::tag` return `&str`, and
+  `IslandType` is no longer `Copy`.
 - fix(content): **`replace` moves an anchor between the prose and a cell**,
   where it refused with `DuplicateId`: it carries only an anchor the new
   value names nowhere. A props step naming a slot in `slots` that the props
