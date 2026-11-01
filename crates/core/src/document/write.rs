@@ -201,7 +201,7 @@ impl Card {
                         .map_err(EditError::InvalidPayload)?;
                 }
             }
-            self.log.record(target, Entry { before_hash, before, applied: applied.applied.clone(), after_hash: hash.clone() });
+            self.log.record(target, before_hash, before, applied.applied.clone(), hash.clone());
         }
         Ok(Receipt {
             applied: applied.applied,
@@ -276,28 +276,35 @@ impl Reading {
     }
 }
 
-/// The most writes a card's log holds for one value.
-pub const LOG_WRITES: usize = 32;
-
-/// The most steps, nested ones counted, a card's log holds for one value
-/// across its writes. The newest write stays however many it holds.
+/// The steps, nested ones counted, a card's log reaches back for one value.
+/// A base rebases while the writes since it hold at most this many steps,
+/// and the base the newest write read rebases however many that write
+/// holds. The log holds at most twice this many steps, or the newest write
+/// alone where it holds more.
 pub const LOG_STEPS: usize = 4096;
 
 /// A card's recent writes, per value it holds, in memory only: no store,
-/// hash or comparison sees it. Each write it holds names the hash it read
-/// and the one it left, the value it wrote over, and the change in its
-/// normalized form, so a write whose base is one of those hashes rebases over
-/// the changes since. A write the log did not see breaks the chain, and the
-/// log forgets what came before it. It holds at most [`LOG_WRITES`] writes
-/// and [`LOG_STEPS`] steps per value, the oldest leaving first.
+/// hash or comparison sees it. Per value it holds one snapshot, the value
+/// its oldest write wrote over, and for each write the change in its
+/// normalized form and the hash it left, so a write whose base is a hash it
+/// holds rebases over the changes since. A write the log did not see breaks
+/// the chain, and the log forgets what came before it. A write that takes
+/// it past twice [`LOG_STEPS`] folds its oldest writes into the snapshot,
+/// never the newest, until it holds at most [`LOG_STEPS`].
 #[derive(Clone, Default)]
 pub(crate) struct ChangeLog {
-    targets: Vec<(Option<String>, VecDeque<Arc<Entry>>)>,
+    targets: Vec<(Option<String>, Track)>,
+}
+
+#[derive(Clone)]
+struct Track {
+    floor: Arc<Content>,
+    floor_hash: String,
+    entries: VecDeque<Arc<Entry>>,
+    steps: usize,
 }
 
 struct Entry {
-    before_hash: String,
-    before: Content,
     applied: Change,
     after_hash: String,
 }
@@ -325,6 +332,71 @@ fn steps_in(change: &Change) -> usize {
         .sum()
 }
 
+/// `changes` as one change, composed by halves so each step is copied once
+/// per level rather than once per change after it.
+fn composed(changes: &[&Change]) -> Change {
+    match changes {
+        [] => Change::default(),
+        [one] => (*one).clone(),
+        _ => {
+            let (head, tail) = changes.split_at(changes.len() / 2);
+            change::compose(&composed(head), &composed(tail))
+        }
+    }
+}
+
+impl Track {
+    fn new(before_hash: String, before: Content) -> Self {
+        Track { floor: Arc::new(before), floor_hash: before_hash, entries: VecDeque::new(), steps: 0 }
+    }
+
+    /// The hash write `k` read.
+    fn read(&self, k: usize) -> &str {
+        match k {
+            0 => &self.floor_hash,
+            _ => &self.entries[k - 1].after_hash,
+        }
+    }
+
+    fn changes(&self, range: impl std::ops::RangeBounds<usize>) -> Change {
+        composed(&self.entries.range(range).map(|e| &e.applied).collect::<Vec<_>>())
+    }
+
+    /// The value write `k` read: the snapshot, with the writes before it
+    /// applied as one change.
+    fn value_read(&self, k: usize) -> Option<Content> {
+        match k {
+            0 => Some(Content::clone(&self.floor)),
+            _ => change::apply(&self.floor, &self.changes(..k)).ok().map(|a| a.content),
+        }
+    }
+
+    /// Fold the oldest writes into the snapshot once the track holds more
+    /// than twice [`LOG_STEPS`], so a fold, one apply over the value, comes
+    /// at most once per [`LOG_STEPS`] steps written, or right after a write
+    /// that alone holds more. `false` where the fold does not apply, and the
+    /// track is to be forgotten.
+    fn fold(&mut self) -> bool {
+        if self.steps <= 2 * LOG_STEPS {
+            return true;
+        }
+        let (mut k, mut steps) = (0, self.steps);
+        while k + 1 < self.entries.len() && steps > LOG_STEPS {
+            steps -= steps_in(&self.entries[k].applied);
+            k += 1;
+        }
+        if k == 0 {
+            return true;
+        }
+        let Ok(folded) = change::apply(&self.floor, &self.changes(..k)) else { return false };
+        self.floor = Arc::new(folded.content);
+        self.floor_hash = self.read(k).to_string();
+        self.entries.drain(..k);
+        self.steps = steps;
+        true
+    }
+}
+
 impl ChangeLog {
     fn key(target: Target<'_>) -> Option<&str> {
         match target {
@@ -333,44 +405,58 @@ impl ChangeLog {
         }
     }
 
-    fn entries(&self, target: Target<'_>) -> Option<&VecDeque<Arc<Entry>>> {
+    fn track(&self, target: Target<'_>) -> Option<&Track> {
         let key = Self::key(target);
-        self.targets.iter().find(|(k, _)| k.as_deref() == key).map(|(_, e)| e)
+        self.targets.iter().find(|(k, _)| k.as_deref() == key).map(|(_, t)| t)
     }
 
-    fn record(&mut self, target: Target<'_>, entry: Entry) {
+    /// Log a write that read `before`, which hashes to `before_hash`, applied
+    /// `applied` and left `after_hash`.
+    fn record(
+        &mut self,
+        target: Target<'_>,
+        before_hash: String,
+        before: Content,
+        applied: Change,
+        after_hash: String,
+    ) {
         let key = Self::key(target);
         let at = match self.targets.iter().position(|(k, _)| k.as_deref() == key) {
-            Some(at) => at,
+            Some(at) => {
+                let track = &mut self.targets[at].1;
+                if track.read(track.entries.len()) != before_hash {
+                    *track = Track::new(before_hash, before);
+                }
+                at
+            }
             None => {
-                self.targets.push((key.map(str::to_string), VecDeque::new()));
+                self.targets.push((key.map(str::to_string), Track::new(before_hash, before)));
                 self.targets.len() - 1
             }
         };
-        let entries = &mut self.targets[at].1;
-        if entries.back().is_some_and(|last| last.after_hash != entry.before_hash) {
-            entries.clear();
-        }
-        entries.push_back(Arc::new(entry));
-        let mut steps: usize = entries.iter().map(|e| steps_in(&e.applied)).sum();
-        while entries.len() > LOG_WRITES || (steps > LOG_STEPS && entries.len() > 1) {
-            if let Some(gone) = entries.pop_front() {
-                steps -= steps_in(&gone.applied);
-            }
+        let track = &mut self.targets[at].1;
+        track.steps += steps_in(&applied);
+        track.entries.push_back(Arc::new(Entry { applied, after_hash }));
+        if !track.fold() {
+            self.targets.remove(at);
         }
     }
 
     /// The value `base` named at `target` and the change from it to the
     /// value now, which hashes to `current`: from the latest write that read
-    /// `base` through the newest, when the newest left `current`.
+    /// `base` through the newest, when the newest left `current`. A value
+    /// rebuilt from the snapshot that does not hash to `base` reaches none.
     fn since(&self, target: Target<'_>, base: &str, current: &str) -> Option<Since> {
-        let entries = self.entries(target)?;
-        if entries.back()?.after_hash != current {
+        let track = self.track(target)?;
+        if track.entries.back()?.after_hash != current {
             return None;
         }
-        let from = entries.iter().rposition(|e| e.before_hash == base)?;
-        let over = entries.range(from..).fold(Change::default(), |over, e| change::compose(&over, &e.applied));
-        Some(Since { base: entries[from].before.clone(), over })
+        let from = (0..track.entries.len()).rposition(|k| track.read(k) == base)?;
+        let read = track.value_read(from)?;
+        if content_hash(&read) != base {
+            return None;
+        }
+        Some(Since { base: read, over: track.changes(from..) })
     }
 }
 

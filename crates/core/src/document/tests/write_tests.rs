@@ -1,7 +1,7 @@
 use quillmark_content::change::{AnchorStep, Change, Splice, Step, apply, invert};
 use quillmark_content::model::{Anchor, Block, BlockKind};
 
-use crate::document::{Card, CardRef, EditError, LOG_WRITES, Target, Write};
+use crate::document::{Card, CardRef, EditError, LOG_STEPS, Target, Write};
 
 use super::parse;
 
@@ -35,25 +35,83 @@ fn apply_lands_a_change_and_answers_its_inverse() {
     assert_eq!(apply(body, &undo).unwrap().content, before);
 }
 
-/// A base the card's log no longer reaches refuses the write, which changes
-/// nothing; a refused change does the same.
+/// Writes, with no base, each `(at, keys)` as `keys` steps that each type
+/// one character at `at`, answering the hash each write left.
+fn type_keys(doc: &mut crate::document::Document, writes: impl IntoIterator<Item = (usize, usize)>) -> Vec<String> {
+    writes
+        .into_iter()
+        .map(|(at, keys)| {
+            let key = || Step::Splice(Splice::new(at, String::new(), "x".to_string()));
+            doc.main_mut().apply(Target::Body, &Change::new((0..keys).map(|_| key()).collect()), None).unwrap().hash
+        })
+        .collect()
+}
+
+/// A base read before a thousand keystrokes at two places rebases a write
+/// onto the text it read, and `read_at` answers the value it named, as does
+/// a base read halfway through.
 #[test]
-fn a_base_older_than_the_log_or_a_refused_change_writes_nothing() {
+fn a_base_from_before_a_thousand_keystrokes_rebases() {
     let mut doc = parse(SOURCE);
     let base = doc.main().hash_of(Target::Body).unwrap();
-    for n in 0..=LOG_WRITES {
-        let typed = Change::new(vec![Step::Splice(Splice::new(n, String::new(), "x".to_string()))]);
-        doc.main_mut().apply(Target::Body, &typed, None).unwrap();
-    }
+    let hashes = type_keys(&mut doc, (0..500).chain(525..1025).map(|at| (at, 1)));
+    let typed = "x".repeat(500);
+    assert_eq!(doc.main().read_at(Target::Body, Some(&base)).unwrap(), parse(SOURCE).main().read(Target::Body).unwrap());
+    assert_eq!(doc.main().read_at(Target::Body, Some(&hashes[499])).unwrap().text, format!("{typed}Revenue grew 12%.\nShip v2"));
+    let receipt = doc
+        .main_mut()
+        .apply(Target::Body, &split_at(7, "b8"), Some(&base))
+        .unwrap();
+    assert!(receipt.rebased);
+    assert_eq!(doc.main().body().text, format!("{typed}Revenue\ngrew 12%.\nShip v2{typed}"));
+}
+
+/// A write past twice `LOG_STEPS` folds the oldest writes into the log's
+/// snapshot: a base read before the latest `LOG_STEPS` steps refuses the
+/// write, which changes nothing, and one read at that bound still rebases
+/// from the folded snapshot. A refused change writes nothing.
+#[test]
+fn a_base_past_the_step_bound_or_a_refused_change_writes_nothing() {
+    const EACH: usize = 64;
+    let mut doc = parse(SOURCE);
+    let hashes = type_keys(&mut doc, (0..=2 * LOG_STEPS / EACH).map(|_| (0, EACH)));
+    let read_at = hashes.len() - 1 - LOG_STEPS / EACH;
+    let (folded, reach) = (&hashes[read_at - 1], &hashes[read_at]);
+    let typed = (read_at + 1) * EACH;
+    let read = doc.main().read_at(Target::Body, Some(reach)).unwrap();
+    assert_eq!(read.text, format!("{}Revenue grew 12%.\nShip v2", "x".repeat(typed)));
     let held = doc.clone();
     let err = doc
         .main_mut()
-        .apply(Target::Body, &split_at(7, "b8"), Some(&base))
+        .apply(Target::Body, &split_at(7, "b8"), Some(folded))
         .unwrap_err();
     assert_eq!(err.code(), "edit::stale_base");
     let err = doc.main_mut().apply(Target::Body, &split_at(2, "b8"), None).unwrap_err();
     assert!(matches!(err, EditError::Change(_)), "{err:?}");
     assert_eq!(doc, held);
+    let receipt = doc
+        .main_mut()
+        .apply(Target::Body, &split_at(typed + 7, "b8"), Some(reach))
+        .unwrap();
+    assert!(receipt.rebased);
+    assert_eq!(doc.main().body().text, format!("{}Revenue\ngrew 12%.\nShip v2", "x".repeat(hashes.len() * EACH)));
+}
+
+/// The newest write stays however many steps it holds, the writes before it
+/// folded into the snapshot, so a write from the base it read rebases over
+/// it.
+#[test]
+fn the_newest_write_stays_past_the_step_bound() {
+    let mut doc = parse(SOURCE);
+    type_keys(&mut doc, (0..3).map(|at| (at, 1)));
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    type_keys(&mut doc, [(0, 2 * LOG_STEPS + 1)]);
+    let receipt = doc
+        .main_mut()
+        .apply(Target::Body, &split_at(10, "b8"), Some(&base))
+        .unwrap();
+    assert!(receipt.rebased);
+    assert_eq!(doc.main().body().text, format!("{}Revenue\ngrew 12%.\nShip v2", "x".repeat(2 * LOG_STEPS + 4)));
 }
 
 /// A base the value has moved on from rebases the write over what changed

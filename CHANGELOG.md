@@ -133,14 +133,19 @@ over its keys: read `receipt["warnings"]`.
   as `apply` moves a point anchor and inside one slot. WASM `rebase`,
   Python `rebase`.
 - feat(core)!: **a stale `base` rebases the write instead of refusing it.**
-  Each card keeps, in memory only, a log of its recent writes per value
-  (`LOG_WRITES`, `LOG_STEPS`); `apply`, `revise` and `replace` with a base the
-  log holds rebase over the changes since, and a revise or replace diffs from
-  the value the base names. The receipt's new `rebased` says so. A conflict
-  refuses with `edit::rebase_conflict`, carrying `step` and `reason`; a base
-  the log does not reach is `edit::stale_base` as before. `Card::read_at`
-  answers the value a base names, and `BaseError::Conflict` carries `step`
-  and `reason`.
+  Each card keeps, in memory only, a log of its recent writes per value: one
+  snapshot of the value, and each write's normalized change and the hash it
+  left. A base rebases while the writes since it hold at most `LOG_STEPS`
+  (4096) steps, thousands of keystrokes, and the base the newest write read
+  whatever its size; past twice that, the oldest writes fold into the
+  snapshot, so the log holds one copy of the value however large.
+  `apply`, `revise` and `replace` with a base the log holds rebase over the
+  changes since, and a revise or replace diffs from the value the base
+  names. The receipt's new `rebased` says so. A conflict refuses with
+  `edit::rebase_conflict`, carrying `step` and `reason`; a base the log does
+  not reach is `edit::stale_base` as before. `Card::read_at` answers the
+  value a base names, and `BaseError::Conflict` carries `step` and
+  `reason`.
 - fix(content): **`replace` moves an anchor between the prose and a cell**,
   where it refused with `DuplicateId`: it carries only an anchor the new
   value names nowhere. A props step naming a slot in `slots` that the props
