@@ -367,7 +367,7 @@ and markdown round-trip all follow from that.
 | Minted by           | Quillmark at import, migration and revise; the caller in a step | the caller                            | the author or caller, else Quillmark where the card is placed |
 | Because             | content determines it: the nth part minted         | the referent is external; no content determines it | the card is the referent, and markdown can spell its id |
 | Unique across       | its kind within the `Content`; slots, rows and columns within their island | the `Content`, its slots included | the document's composable cards |
-| On collision        | the step refuses; `validate` refuses              | the step refuses; `validate` refuses               | a parse re-mints and warns; a placing edit rejects; a load refuses |
+| On collision        | a change that leaves one held twice refuses, and a step naming one held twice; `validate` refuses | the step refuses; `validate` refuses               | a parse re-mints and warns; a placing edit rejects; a load refuses |
 | Markdown round-trip | re-minted identically by a cold import; kept by a revise | spelled by the annotated read, which a revise reads back | spelled as `$id`, read back as written |
 
 The main card is addressed as `main` and carries no `$id`.

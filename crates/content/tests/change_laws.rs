@@ -13,7 +13,8 @@ use quillmark_content::gestures::{join_blocks, split_block};
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{
-    Anchor, Block, BlockKind, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT, Island, Mark, MarkKind, Pos,
+    Anchor, Block, BlockKind, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT, Invariant, Island, Mark, MarkKind,
+    Pos,
 };
 use quillmark_content::table::Table;
 use quillmark_content::units::{Utf16, change_from_scalars, change_to_scalars, from_scalars};
@@ -507,6 +508,30 @@ fn a_split_keeps_the_text_on_its_id_and_a_join_keeps_the_left_block() {
     assert!(join_blocks(&d, "b0").is_err());
 }
 
+/// A block or island id may be held twice between two steps, so a change
+/// can insert a record before it deletes the one it moves; a step naming the
+/// id then is refused, and an id still held twice at the end fails the change.
+#[test]
+fn an_id_held_twice_between_steps_is_refused_by_name_and_fails_at_the_end() {
+    let d = from_markdown("alpha[^n]\n\nbeta\n\n[^n]: note").unwrap().content;
+    let len = d.len_usv();
+    let (block, island) = (d.blocks[1].id.clone(), d.islands[0].clone());
+    let copy = Step::Splice(Splice { blocks: vec![d.blocks[1].clone()], ..Splice::new(len, "", "\ncopy") });
+    let twin = Step::Island(IslandStep::Insert { at: len, island: island.clone(), block: None });
+    let level = json!({"level": 2}).as_object().cloned();
+    let heading = Step::SetBlock(SetBlock { id: block.clone(), kind: Some("heading".into()), attrs: level, path: None });
+    let props = Step::Island(IslandStep::Props { id: island.id.clone(), props: island.props.clone(), slots: Default::default() });
+    let into = Step::Nested { island: island.id.clone(), slot: "note".into(), change: Change::default() };
+    for (held, named) in [(&copy, &heading), (&twin, &props), (&twin, &into)] {
+        assert!(apply(&d, &Change::new(vec![named.clone()])).is_ok(), "{named:?}");
+        let refused = apply(&d, &Change::new(vec![held.clone(), named.clone()]));
+        assert!(matches!(refused, Err(ApplyError::BadStep { step: 1, .. })), "{named:?}: {refused:?}");
+    }
+    assert_eq!(apply(&d, &Change::new(vec![copy.clone()])).map(|_| ()), Err(ApplyError::Invalid(Invariant::DuplicateId { id: block.clone() })));
+    let moved = Change::new(vec![copy, Step::Splice(Splice::new(len - 5, "\nbeta", "")), heading]);
+    assert_eq!(segments(&apply(&d, &moved).unwrap().content), ["b0=alpha\u{FFFC}".to_string(), format!("{block}#=copy")]);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(300))]
 
@@ -653,6 +678,40 @@ proptest! {
             };
             prop_assert!(home.anchor(&a.context.id).is_some(), "{:?}", a);
         }
+    }
+}
+
+/// The text each anchor covers, in the text or a slot.
+fn quotes(c: &Content, out: &mut std::collections::BTreeMap<String, String>) {
+    for a in &c.anchors {
+        out.insert(a.id.clone(), chars(c)[a.start..a.end].iter().collect());
+    }
+    for island in &c.islands {
+        island.slots.values().for_each(|slot| quotes(slot, out));
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
+
+    /// Every range anchor a change keeps and whose text it rewrites is named
+    /// in `moved` once, with the text it covered before and after.
+    #[test]
+    fn every_anchor_whose_text_a_change_rewrites_is_moved(d in document(), ops in ops()) {
+        let c = change_for(&d, &ops);
+        let done = apply(&d, &c).unwrap();
+        let (mut before, mut after) = (Default::default(), Default::default());
+        quotes(&d, &mut before);
+        quotes(&done.content, &mut after);
+        let want: Vec<(String, String, String)> = after
+            .into_iter()
+            .filter_map(|(id, now)| {
+                let was = before.get(&id)?;
+                (!was.is_empty() && *was != now).then(|| (id, was.clone(), now))
+            })
+            .collect();
+        let got: Vec<(String, String, String)> = done.moved.into_iter().map(|m| (m.id, m.before, m.after)).collect();
+        prop_assert_eq!(got, want, "{:?}", c);
     }
 }
 
@@ -981,6 +1040,30 @@ mod diffs {
                 assert_eq!(&done.content, to);
                 assert!(done.dropped.is_empty(), "{:?}", done.dropped);
             }
+        }
+    }
+
+    /// A block or island the target holds elsewhere keeps its id, whether it
+    /// moves toward the front or the back.
+    #[test]
+    fn a_block_or_island_a_diff_moves_keeps_its_id_either_way() {
+        let d = from_markdown("one\n\ntwo $a$\n\nthree $b$\n\nfour\n\nfive").unwrap().content;
+        let moved = |order: [usize; 5]| {
+            let texts = d.block_texts();
+            let blocks: Vec<Block> = order.iter().map(|&k| d.blocks[k].clone()).collect();
+            let text = order.iter().map(|&k| texts[k].as_str()).collect::<Vec<_>>().join("\n");
+            let mut islands = d.islands.clone();
+            if order[1] == 2 {
+                islands.reverse();
+            }
+            let c = Content { text, blocks, islands, ..d.clone() };
+            c.validate().unwrap();
+            c
+        };
+        for order in [[0, 3, 1, 2, 4], [0, 2, 3, 1, 4], [0, 2, 1, 3, 4]] {
+            let after = moved(order);
+            let done = apply(&d, &diff(&d, &after).unwrap().change).unwrap().content;
+            assert_eq!(done, after, "{order:?}");
         }
     }
 

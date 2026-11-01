@@ -4,7 +4,8 @@
 //! against the value it applies to, each step on the text the steps before it
 //! left.
 
-use crate::change::{self, AnchorStep, ApplyError, Change, IslandStep, MarkStep, Splice, Step};
+use crate::change::{AnchorStep, ApplyError, Change, IslandStep, MarkStep, Run, Splice, Step};
+use crate::draft::Draft;
 use crate::model::{Content, Island, Mark, Usv};
 use crate::wire::{ParseError, shape};
 use serde_json::Value;
@@ -71,22 +72,6 @@ pub(crate) fn split_at(u: impl Units, s: &str, n: usize) -> Option<(&str, &str)>
     Some(s.split_at(crate::usv::char_to_byte(s, k)))
 }
 
-/// The scalar offset `n` units into `text`, inside a character taken to its
-/// start, and past the end kept as far past it.
-fn floor_scalars(u: impl Units, text: &str, n: usize) -> Usv {
-    let mut at = 0;
-    let mut count = 0;
-    for (k, c) in text.chars().enumerate() {
-        let next = at + u.char_len(c);
-        if next > n {
-            return k;
-        }
-        at = next;
-        count = k + 1;
-    }
-    count + (n - at)
-}
-
 #[derive(Clone, Copy)]
 enum Dir {
     In,
@@ -94,18 +79,130 @@ enum Dir {
     Raw,
 }
 
-fn offset(u: impl Units, dir: Dir, text: &str, n: usize) -> Option<usize> {
-    match dir {
-        Dir::In => to_scalars(u, text, n),
-        Dir::Out => Some(from_scalars(u, text, n)),
-        Dir::Raw => Some(floor_scalars(u, text, n)),
+/// Where a text's characters of other than one unit sit, so an offset
+/// converts by binary search rather than a walk from the text's start.
+struct Index {
+    /// Each such character's scalar offset, the unit offset it starts at, and
+    /// its units, in order.
+    wide: Vec<(Usv, usize, usize)>,
+    len: Usv,
+    units: usize,
+}
+
+impl Index {
+    fn new(u: impl Units, text: &str) -> Index {
+        Index { wide: Index::read(u, text, 0, 0), len: text.chars().count(), units: u.len(text) }
+    }
+
+    /// The characters of `text` of other than one unit, as `wide` holds them,
+    /// for `text` starting at scalar offset `at` and unit offset `units`.
+    fn read(u: impl Units, text: &str, at: Usv, units: usize) -> Vec<(Usv, usize, usize)> {
+        let mut out = Vec::new();
+        let mut units = units;
+        for (k, c) in text.chars().enumerate() {
+            let n = u.char_len(c);
+            if n != 1 {
+                out.push((at + k, units, n));
+            }
+            units += n;
+        }
+        out
+    }
+
+    fn offset(&self, dir: Dir, n: usize) -> Option<usize> {
+        match dir {
+            Dir::In => self.to_scalars(n),
+            Dir::Out => Some(self.to_units(n)),
+            Dir::Raw => Some(self.floor(n)),
+        }
+    }
+
+    /// [`from_scalars`].
+    fn to_units(&self, p: Usv) -> usize {
+        if p >= self.len {
+            return self.units;
+        }
+        match self.wide.partition_point(|w| w.0 < p) {
+            0 => p,
+            k => {
+                let (at, start, n) = self.wide[k - 1];
+                start + n + (p - at - 1)
+            }
+        }
+    }
+
+    /// The scalar offset unit offset `n` reaches, and the scalar offset of the
+    /// character `n` falls inside, if any.
+    fn locate(&self, n: usize) -> (Usv, Option<Usv>) {
+        let k = self.wide.partition_point(|w| w.1 + w.2 <= n);
+        let inside = self.wide.get(k).filter(|w| w.1 < n).map(|w| w.0);
+        let p = match k {
+            0 => n,
+            k => {
+                let (at, start, len) = self.wide[k - 1];
+                at + 1 + (n - start - len)
+            }
+        };
+        (p, inside)
+    }
+
+    /// [`to_scalars`].
+    fn to_scalars(&self, n: usize) -> Option<Usv> {
+        match self.locate(n) {
+            (_, Some(_)) => None,
+            (p, None) => (p <= self.len).then_some(p),
+        }
+    }
+
+    /// The scalar offset `n` units in, inside a character taken to its start,
+    /// and past the end kept as far past it.
+    fn floor(&self, n: usize) -> Usv {
+        if n >= self.units {
+            return self.len + (n - self.units);
+        }
+        match self.locate(n) {
+            (_, Some(at)) => at,
+            (p, None) => p,
+        }
+    }
+
+    /// The text with `delete`, at scalar offset `at`, replaced by `insert`.
+    fn splice(&mut self, u: impl Units, at: Usv, delete: &str, insert: &str) {
+        let (dn, du) = (delete.chars().count(), u.len(delete));
+        let (m, mu) = (insert.chars().count(), u.len(insert));
+        let from = self.to_units(at);
+        let (i0, i1) = (self.wide.partition_point(|w| w.0 < at), self.wide.partition_point(|w| w.0 < at + dn));
+        for w in &mut self.wide[i1..] {
+            w.0 = w.0 - dn + m;
+            w.1 = w.1 - du + mu;
+        }
+        let fresh = Index::read(u, insert, at, from);
+        self.wide.splice(i0..i1, fresh);
+        self.len = self.len - dn + m;
+        self.units = self.units - du + mu;
+    }
+
+    /// The text as `step`, a step in scalar values, leaves it.
+    fn follow(&mut self, u: impl Units, step: &Step) {
+        match step {
+            Step::Splice(s) => self.splice(u, s.at, &s.delete, &s.insert),
+            Step::Island(IslandStep::Insert { at, .. }) => self.splice(u, *at, "", "\u{FFFC}"),
+            _ => {}
+        }
     }
 }
 
 fn marks(u: impl Units, dir: Dir, text: &str, marks: &mut [Mark]) -> Option<()> {
+    if marks.is_empty() {
+        return Some(());
+    }
+    marks_on(&Index::new(u, text), dir, marks)
+}
+
+fn marks_on(index: &Index, dir: Dir, marks: &mut [Mark]) -> Option<()> {
     for m in marks {
-        m.start = offset(u, dir, text, m.start)?;
-        m.end = offset(u, dir, text, m.end)?;
+        m.start = index.offset(dir, m.start)?;
+        m.end = index.offset(dir, m.end)?;
     }
     Some(())
 }
@@ -120,10 +217,11 @@ fn islands(u: impl Units, dir: Dir, islands: &mut [Island]) -> Option<()> {
 }
 
 fn content(u: impl Units, dir: Dir, c: &mut Content) -> Option<()> {
-    marks(u, dir, &c.text, &mut c.marks)?;
+    let index = Index::new(u, &c.text);
+    marks_on(&index, dir, &mut c.marks)?;
     for a in &mut c.anchors {
-        a.start = offset(u, dir, &c.text, a.start)?;
-        a.end = offset(u, dir, &c.text, a.end)?;
+        a.start = index.offset(dir, a.start)?;
+        a.end = index.offset(dir, a.end)?;
     }
     islands(u, dir, &mut c.islands)
 }
@@ -182,13 +280,13 @@ fn value_offsets(v: &mut Value, u: impl Units, dir: Dir) -> Option<()> {
     if !raw && !is_content_value(v) {
         return Some(());
     }
-    let text = v["text"].as_str().unwrap_or_default().to_string();
+    let index = Index::new(u, v["text"].as_str().unwrap_or_default());
     for key in ["marks", "anchors"] {
         let Some(Value::Array(items)) = v.get_mut(key) else { continue };
         for item in items {
             for edge in ["start", "end"] {
                 let Some(n) = item.get(edge).and_then(Value::as_u64) else { continue };
-                let n = offset(u, dir, &text, usize::try_from(n).ok()?)?;
+                let n = index.offset(dir, usize::try_from(n).ok()?)?;
                 item[edge] = n.into();
             }
         }
@@ -209,8 +307,8 @@ fn value_offsets(v: &mut Value, u: impl Units, dir: Dir) -> Option<()> {
 }
 
 /// `change`, its offsets in `u`, in scalar values, read against `before`.
-/// Refused as [`change::apply`] refuses it, and a step whose offset falls
-/// inside a character is stale.
+/// Refused as [`apply`](crate::change::apply) refuses it, and a step whose
+/// offset falls inside a character is stale.
 pub fn change_to_scalars(change: &Change, before: &Content, u: impl Units) -> Result<Change, ApplyError> {
     convert(change, before, u, Dir::In)
 }
@@ -221,20 +319,24 @@ pub fn change_from_scalars(change: &Change, before: &Content, u: impl Units) -> 
 }
 
 fn convert(change: &Change, before: &Content, u: impl Units, dir: Dir) -> Result<Change, ApplyError> {
-    let mut c = before.clone();
-    steps(&mut c, &change.steps, u, dir)
+    steps(before.clone(), &change.steps, u, dir)
 }
 
-fn steps(c: &mut Content, steps_: &[Step], u: impl Units, dir: Dir) -> Result<Change, ApplyError> {
+/// `steps` converted, each on the text the steps before it left, as one run
+/// applies them.
+fn steps(c: Content, steps_: &[Step], u: impl Units, dir: Dir) -> Result<Change, ApplyError> {
+    let mut index = Index::new(u, &c.text);
+    let mut draft = Draft::new(c);
+    let mut run = Run::new(false);
     let mut out = Vec::with_capacity(steps_.len());
     for (n, step) in steps_.iter().enumerate() {
-        let conv = step_in(c, step, n, u, dir)?;
+        let conv = step_in(&draft, &index, step, n, u, dir)?;
         let scalar = match dir {
             Dir::In | Dir::Raw => &conv,
             Dir::Out => step,
         };
-        change::run(c, std::slice::from_ref(scalar), &mut Vec::new(), &mut Vec::new())
-            .map_err(|e| renumber(e, n))?;
+        run.step(&mut draft, scalar, n).map_err(|e| renumber(e, n))?;
+        index.follow(u, scalar);
         out.push(conv);
     }
     Ok(Change { steps: out })
@@ -248,10 +350,10 @@ fn renumber(e: ApplyError, n: usize) -> ApplyError {
     }
 }
 
-fn step_in(c: &Content, step: &Step, n: usize, u: impl Units, dir: Dir) -> Result<Step, ApplyError> {
+fn step_in(d: &Draft, index: &Index, step: &Step, n: usize, u: impl Units, dir: Dir) -> Result<Step, ApplyError> {
     let stale = || ApplyError::Stale { step: n };
     let bad = || ApplyError::BadStep { step: n, reason: SPLIT };
-    let at = |p: usize| offset(u, dir, &c.text, p).ok_or_else(stale);
+    let at = |p: usize| index.offset(dir, p).ok_or_else(stale);
     let mut step = step.clone();
     match &mut step {
         Step::Splice(s) => {
@@ -278,11 +380,12 @@ fn step_in(c: &Content, step: &Step, n: usize, u: impl Units, dir: Dir) -> Resul
             islands(u, dir, std::slice::from_mut(island)).ok_or_else(bad)?;
         }
         Step::Nested { island, slot, change } => {
-            let mut inner = c
+            let inner = d
+                .c
                 .slot(island, slot)
                 .cloned()
                 .ok_or_else(|| ApplyError::UnknownSlot { island: island.clone(), slot: slot.clone() })?;
-            *change = steps(&mut inner, &change.steps, u, dir)?;
+            *change = steps(inner, &change.steps, u, dir)?;
         }
     }
     Ok(step)

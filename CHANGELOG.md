@@ -123,6 +123,26 @@ over its keys: read `receipt["warnings"]`.
   where it refused with `DuplicateId`: it carries only an anchor the new
   value names nowhere. A props step naming a slot in `slots` that the props
   do not name says so, apart from one naming a slot the island holds.
+- feat(content)!: **a block or island keeps its id when a change moves
+  it.** Block and island ids are unique at the end of a change, as anchor
+  ids are, so a step may insert a copy before another deletes the original;
+  a step naming an id held twice between steps is `ApplyError::BadStep`.
+  `diff` keeps the id of a block or island moved either way, where it
+  re-minted one moved toward the front.
+- perf(content): **`apply` runs a change in one pass.** Each step works on
+  the blocks it touches, checks only what it touched, and answers its
+  inverse as it applies; the whole value is validated once, at the end.
+  `invert` reads those inverses back, and a receipt lowers the value or
+  compares anchors only where something was dropped or rewritten. A
+  4000-step change to 288k characters applies in 26 ms, where it took 96 s,
+  and inverts in 30 ms, where it took 496 s; a revise of it takes 0.1 s and
+  a rebase 0.2 s, where they took 294 s and 396 s. An inverse's mark steps
+  restore each run of marks that differs, not one range over all of them.
+  `tests/speed.rs` is the gate, run in CI in a release build.
+- perf(content): **converting a change or value to UTF-16 finds each
+  offset by binary search**, where it walked the text from its start: the
+  4000-step change crosses each way in about 20 ms, where it took 12 s out
+  and 19 s in.
 
 ### Card identity
 

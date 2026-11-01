@@ -56,7 +56,7 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 
 ## Validity
 
-`Content::validate` is what every stored value holds to, and what every step keeps. It refuses:
+`Content::validate` is what every stored value holds to, and what every change leaves. It refuses:
 
 - a `\r`, a bidi control, or a line separator other than `U+2028` in the text;
 - a block count other than the segment count, or an island count other than the slot count;
@@ -86,6 +86,8 @@ A `Change` is a list of steps. Each step reads the value the step before it left
 | `island` | `{id, props, slots?}` or `{at, island, block?}` | Replaces an island's props, or inserts an island with its slot. A slot the new props name and the island lacks takes its content from `slots`, which names no other slot; a slot they no longer name leaves. Deleting the slot in a splice removes the island. |
 | `nested` | `{island, slot, change}` | Applies a change inside one slot: a table cell or a footnote. |
 
+`apply` runs the steps in one pass. Each step holds what it touched to what `validate` asks of it, its inserted text, records, marks and islands, and the value the last step leaves is validated once, whole. Block and island ids are unique only there: between steps a change may hold one twice, as a move does when it inserts the copy before it deletes the original, and a step that names an id held twice is `ApplyError::BadStep`, since it cannot say which it means.
+
 Every step can tell whether it still fits the value it reads, so a writer outside the live session that passes no base is refused rather than landing on whatever text now sits at its offsets. A step whose precondition fails is `ApplyError::Stale`:
 
 - a splice holds its `delete` to the text at `at`;
@@ -93,7 +95,7 @@ Every step can tell whether it still fits the value it reads, so a writer outsid
 - an island insert holds `at` to `block`, the id of the block the writer read it in;
 - the id-addressed steps fail on a missing id.
 
-`quote` and `block` are optional on input. The normalized change, `Applied.applied`, fills both in, as it fills a splice's `removed`, so a change rebased over another holds every step to what its writer read. `invert` fills them in its own steps, from the value each undoes.
+`quote` and `block` are optional on input. The normalized change, `Applied.applied`, fills both in, as it fills a splice's `removed`, so a change rebased over another holds every step to what its writer read. `invert` fills them in its own steps, from the value each undoes: each step answers its inverse as it applies, and `invert` is those inverses read back last first.
 
 A split inserts a `\n` whose record names the right half; the left half keeps its id, since the record that opens it does not move. A join deletes the right block's `\n` and record, and the joined block keeps the left's id and kind. Splits and joins therefore never rewrite a record a concurrent `setBlock` could be aimed at. Collab's Y form keeps the same boundary, so a split or a join lowers into Y as an insertion or a deletion alone.
 
@@ -161,7 +163,7 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 - A base the log does not reach refuses with `edit::stale_base`, carrying `current`, and the writer reads again.
 - The log holds at most `LOG_WRITES` (32) writes and `LOG_STEPS` (4096) steps per value, the newest write whatever its size, the oldest leaving first. A write it did not see, such as a typed writer's revise, breaks the chain, and the log forgets what came before it.
 
-`diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line, pairs rewritten lines by word similarity, and diffs a paired line by word, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters. An inserted or deleted block brings the `\n` that opens it, so its neighbours keep their records. Block records, containers, marks, anchors and islands follow as their own steps; an anchor `after` holds in another place, the prose or a cell, moves there.
+`diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line, pairs rewritten lines by word similarity, and diffs a paired line by word, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters. An inserted or deleted block brings the `\n` that opens it, so its neighbours keep their records. Block records, containers, marks, anchors and islands follow as their own steps; an anchor `after` holds in another place, the prose or a cell, moves there. A block or island `after` holds in another place keeps its id, moved up or down.
 
 - It refuses an `after` that is not a valid value.
 - Where no step-wise change reaches `after`, it rewrites the value or slot as one splice over its whole text, and says so in `Diff::whole_text`. A revise's or replace's receipt carries the flag, and the bindings raise it as an `edit::whole_text_diff` warning.

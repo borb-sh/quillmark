@@ -14,6 +14,7 @@
 
 pub mod change;
 pub mod diff;
+mod draft;
 pub mod gestures;
 pub mod ids;
 pub mod lines;

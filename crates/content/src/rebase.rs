@@ -5,7 +5,8 @@
 //! value it now reads and holds to its own precondition there. A step that no
 //! longer fits is a [`Conflict`] naming it, and nothing is rebased.
 
-use crate::change::{self, AnchorStep, ApplyError, Assoc, Change, IslandStep, MarkStep, Splice, Step, apply};
+use crate::change::{AnchorStep, ApplyError, Assoc, Change, IslandStep, MarkStep, Run, Splice, Step, apply};
+use crate::draft::Draft;
 use crate::mapping::{MapResult, Mapping, StepMap};
 use crate::model::{Anchor, Content, Mark, Pos, Usv};
 use crate::units::Scalars;
@@ -112,8 +113,8 @@ pub fn rebase(base: &Content, change: &Change, over: &Change) -> Result<Change, 
     let own = apply(base, change).map_err(RebaseError::Apply)?;
     let theirs = apply(base, over).map_err(RebaseError::Apply)?;
     let maps = Mapping::from_change(&theirs.applied).map_err(RebaseError::Apply)?;
-    let mut now = theirs.content.clone();
-    let steps = level(&change.steps, &own.applied.steps, &maps, &mut now)
+    let mut now = Draft::new(theirs.content.clone());
+    let steps = level(&change.steps, &own.applied.steps, &maps, &mut now, &mut Run::new(false))
         .map_err(|(step, reason)| RebaseError::Conflict(Conflict { step, reason }))?;
     let last = steps.len().saturating_sub(1);
     let rebased = Change { steps };
@@ -125,7 +126,7 @@ pub fn rebase(base: &Content, change: &Change, over: &Change) -> Result<Change, 
 /// The steps of one level, a field or a slot, rebased over `over` and applied
 /// in turn to `now`. `norm` is `orig` as `apply` normalized it on the value
 /// they were made from, whose maps take a step back across its predecessors.
-fn level(orig: &[Step], norm: &[Step], over: &Mapping, now: &mut Content) -> Result<Vec<Step>, (usize, Reason)> {
+fn level(orig: &[Step], norm: &[Step], over: &Mapping, now: &mut Draft, run: &mut Run) -> Result<Vec<Step>, (usize, Reason)> {
     let n = orig.len();
     let mut maps = Mapping::new();
     for (i, step) in norm[..n].iter().enumerate().rev() {
@@ -135,25 +136,36 @@ fn level(orig: &[Step], norm: &[Step], over: &Mapping, now: &mut Content) -> Res
     maps.append_mapping(over);
     let mut out = Vec::with_capacity(n);
     for (i, step) in orig.iter().enumerate() {
-        let through = maps.slice(n - i, maps.len());
+        let through = Tail(&maps, n - i);
         let mapped = match (step, &norm[i]) {
             (Step::Nested { island, slot, change }, Step::Nested { change: made, .. }) => {
                 let missing = || (i, Reason::Missing(ApplyError::UnknownSlot { island: island.clone(), slot: slot.clone() }));
-                let mut inner = now.slot(island, slot).cloned().ok_or_else(missing)?;
-                let steps = level(&change.steps, &made.steps, &through.project(island, slot), &mut inner)
+                let mut inner = Draft::new(now.c.slot(island, slot).cloned().ok_or_else(missing)?);
+                let steps = level(&change.steps, &made.steps, &maps.slice(n - i, maps.len()).project(island, slot), &mut inner, run)
                     .map_err(|(_, reason)| (i, reason))?;
                 Step::Nested { island: island.clone(), slot: slot.clone(), change: Change { steps } }
             }
             (step, _) => map_step(step, &through).map_err(|reason| (i, reason))?,
         };
-        let done = change::apply_step(now, &mapped, i, &mut Vec::new())
-            .and_then(|done| now.check().map(|()| done).map_err(ApplyError::from))
-            .map_err(|e| (i, Reason::of(e)))?;
+        let (done, _) = run.step(now, &mapped, i).map_err(|e| (i, Reason::of(e)))?;
         let map = StepMap::of(&done, Scalars).map_err(|e| (i, Reason::Refused(e)))?;
         maps.append_map(map, Some(n - 1 - i));
         out.push(mapped);
     }
     Ok(out)
+}
+
+/// A mapping's maps from one on.
+struct Tail<'a>(&'a Mapping, usize);
+
+impl Tail<'_> {
+    fn map(&self, pos: &Pos, assoc: Assoc) -> MapResult {
+        self.0.map_from(self.1, pos, assoc)
+    }
+
+    fn map_point(&self, pos: &Pos) -> MapResult {
+        self.0.map_point_from(self.1, pos)
+    }
 }
 
 fn offset(r: &MapResult) -> Usv {
@@ -164,7 +176,7 @@ fn offset(r: &MapResult) -> Usv {
 }
 
 /// An insert at `at`, mapped as a point anchor.
-fn insert_at(at: Usv, maps: &Mapping) -> Result<Usv, Reason> {
+fn insert_at(at: Usv, maps: &Tail) -> Result<Usv, Reason> {
     let r = maps.map_point(&Pos::At(at));
     if r.deleted_across {
         return Err(Reason::Deleted);
@@ -173,7 +185,7 @@ fn insert_at(at: Usv, maps: &Mapping) -> Result<Usv, Reason> {
 }
 
 /// A range's edges mapped inward; a range deleted entirely is gone.
-fn range(start: Usv, end: Usv, maps: &Mapping) -> Result<(Usv, Usv), Reason> {
+fn range(start: Usv, end: Usv, maps: &Tail) -> Result<(Usv, Usv), Reason> {
     let (a, b) = (offset(&maps.map(&Pos::At(start), Assoc::After)), offset(&maps.map(&Pos::At(end), Assoc::Before)));
     if b <= a {
         return Err(Reason::Deleted);
@@ -182,7 +194,7 @@ fn range(start: Usv, end: Usv, maps: &Mapping) -> Result<(Usv, Usv), Reason> {
 }
 
 /// An offset-addressed step at its mapped offsets; a step by id as it is.
-fn map_step(step: &Step, maps: &Mapping) -> Result<Step, Reason> {
+fn map_step(step: &Step, maps: &Tail) -> Result<Step, Reason> {
     Ok(match step {
         Step::Splice(s) => {
             let dn = s.delete.chars().count();

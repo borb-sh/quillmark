@@ -346,6 +346,52 @@ pub fn is_text_char(c: char) -> bool {
     c != '\r' && !is_bidi_char(c) && (c == HARD_BREAK || !is_line_separator(c))
 }
 
+/// `marks` over `chars` in the canonical form: cut at each `\n` and
+/// [`HARD_BREAK`], settled and sorted.
+pub(crate) fn normalized_marks(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
+    let mut ext = Vec::new();
+    let mut known: Vec<line::Mark> = Vec::with_capacity(marks.len());
+    for m in marks {
+        match m.kind.to_line() {
+            Some(kind) => known.push(line::Mark::new(m.start, m.end, kind)),
+            None => ext.push(m),
+        }
+    }
+    let known = line::normalize_marks(line::split_marks_at_newlines(chars, line::normalize_marks(known)));
+    let mut out: Vec<Mark> = known
+        .into_iter()
+        .filter_map(|m| MarkKind::from_line(&m.kind).map(|k| Mark::new(m.start, m.end, k)))
+        .collect();
+    if !ext.is_empty() {
+        out.extend(settle_ext(chars, ext));
+        out.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
+    }
+    out
+}
+
+/// A block record's id, kind and path, its path read against `containers`.
+pub(crate) fn check_block<'a>(b: &Block, containers: impl Fn(&str) -> Option<&'a ContainerKind>) -> Result<(), Invariant> {
+    if !is_id(&b.id) {
+        return Err(Invariant::BadId { id: b.id.clone() });
+    }
+    match &b.kind {
+        BlockKind::Heading { level } if !(1..=6).contains(level) => return Err(Invariant::BadHeadingLevel(*level)),
+        BlockKind::Code { lang: Some(lang) } if !is_lang(lang) => return Err(Invariant::BadLang(lang.clone())),
+        BlockKind::Ext { name, attrs } => check_ext(name, attrs, "block attrs")?,
+        _ => {}
+    }
+    check_path(b, containers)
+}
+
+/// The value a mark carries.
+pub(crate) fn check_mark_kind(kind: &MarkKind) -> Result<(), Invariant> {
+    match kind {
+        MarkKind::FontFamily { name } if !is_font_family_name(name) => Err(Invariant::BadMarkValue),
+        MarkKind::Ext { name, attrs } => check_ext(name, attrs, "mark attrs"),
+        _ => Ok(()),
+    }
+}
+
 impl Default for Content {
     fn default() -> Self {
         Content::empty()
@@ -485,24 +531,7 @@ impl Content {
 
     pub(crate) fn normalize_marks(&mut self) {
         let chars: Vec<char> = self.text.chars().collect();
-        let mut ext = Vec::new();
-        let mut marks: Vec<line::Mark> = Vec::with_capacity(self.marks.len());
-        for m in std::mem::take(&mut self.marks) {
-            match m.kind.to_line() {
-                Some(kind) => marks.push(line::Mark::new(m.start, m.end, kind)),
-                None => ext.push(m),
-            }
-        }
-        let marks = line::normalize_marks(line::split_marks_at_newlines(&chars, line::normalize_marks(marks)));
-        let mut out: Vec<Mark> = marks
-            .into_iter()
-            .filter_map(|m| MarkKind::from_line(&m.kind).map(|k| Mark::new(m.start, m.end, k)))
-            .collect();
-        if !ext.is_empty() {
-            out.extend(settle_ext(&chars, ext));
-            out.sort_by_cached_key(|m| (m.start, m.end, m.kind.sort_key()));
-        }
-        self.marks = out;
+        self.marks = normalized_marks(&chars, std::mem::take(&mut self.marks));
     }
 
     /// Containers in the order paths first name them; with `drop`, the ones no
@@ -566,33 +595,16 @@ impl Content {
         }
         let mut block_ids = HashSet::new();
         for b in &self.blocks {
-            if !is_id(&b.id) {
-                return Err(Invariant::BadId { id: b.id.clone() });
-            }
+            check_block(b, |id| containers.get(id).copied())?;
             if !block_ids.insert(b.id.as_str()) {
                 return Err(Invariant::DuplicateId { id: b.id.clone() });
             }
-            match &b.kind {
-                BlockKind::Heading { level } if !(1..=6).contains(level) => {
-                    return Err(Invariant::BadHeadingLevel(*level));
-                }
-                BlockKind::Code { lang: Some(lang) } if !is_lang(lang) => {
-                    return Err(Invariant::BadLang(lang.clone()));
-                }
-                BlockKind::Ext { name, attrs } => check_ext(name, attrs, "block attrs")?,
-                _ => {}
-            }
-            check_path(b, &containers)?;
         }
         for m in &self.marks {
             if m.start >= m.end || m.end > len {
                 return Err(Invariant::BadMark { start: m.start, end: m.end, len });
             }
-            match &m.kind {
-                MarkKind::FontFamily { name } if !is_font_family_name(name) => return Err(Invariant::BadMarkValue),
-                MarkKind::Ext { name, attrs } => check_ext(name, attrs, "mark attrs")?,
-                _ => {}
-            }
+            check_mark_kind(&m.kind)?;
         }
         for a in &self.anchors {
             if a.id.is_empty() || a.start > a.end || a.end > len {
@@ -733,11 +745,11 @@ pub fn depth(path: &[String], kinds: impl Fn(&str) -> Option<ContainerKind>) -> 
         .count()
 }
 
-fn check_path(b: &Block, containers: &HashMap<&str, &ContainerKind>) -> Result<(), Invariant> {
+fn check_path<'a>(b: &Block, containers: impl Fn(&str) -> Option<&'a ContainerKind>) -> Result<(), Invariant> {
     let mut after_list = false;
     let mut levels = 0usize;
     for id in &b.path {
-        let Some(kind) = containers.get(id.as_str()) else {
+        let Some(kind) = containers(id.as_str()) else {
             return Err(Invariant::UnknownContainer { block: b.id.clone(), container: id.clone() });
         };
         let is_item = matches!(kind, ContainerKind::Item { .. });
@@ -811,7 +823,7 @@ fn settle_ext(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
     out
 }
 
-fn check_island(island: &Island) -> Result<(), Invariant> {
+pub(crate) fn check_island(island: &Island) -> Result<(), Invariant> {
     if line::json_depth_exceeds(&island.props, crate::MAX_JSON_DEPTH) {
         return Err(Invariant::JsonTooDeep { what: "island props", max: crate::MAX_JSON_DEPTH });
     }

@@ -4,9 +4,7 @@
 //! [`replace`] are the producers a markdown rewrite and a whole-value write
 //! use.
 
-use crate::change::{
-    AnchorStep, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, fixups, run,
-};
+use crate::change::{AnchorStep, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, mark_fixups, run};
 use crate::ids::{Minter, prefix};
 use crate::lines::delta::{Op, diff_import, diff_words as text_diff, without_sentinel};
 use crate::lines::import::{ImportError, ImportWarning};
@@ -57,6 +55,25 @@ fn anchor_ids(c: &Content, out: &mut HashSet<String>) {
     }
 }
 
+/// The mark and anchor steps that take `now` to `want` on one level, where
+/// the two differ in nothing else.
+fn fixups(now: &Content, want: &Content) -> Vec<Step> {
+    let mut out = mark_fixups(&now.marks, &want.marks);
+    let held: HashMap<&str, &crate::model::Anchor> = now.anchors.iter().map(|a| (a.id.as_str(), a)).collect();
+    let wanted: HashSet<&str> = want.anchors.iter().map(|a| a.id.as_str()).collect();
+    for a in &want.anchors {
+        if held.get(a.id.as_str()) != Some(&a) {
+            out.push(Step::Anchor(AnchorStep::Set { anchor: a.clone(), quote: None }));
+        }
+    }
+    for a in &now.anchors {
+        if !wanted.contains(a.id.as_str()) {
+            out.push(Step::Anchor(AnchorStep::Remove { id: a.id.clone() }));
+        }
+    }
+    out
+}
+
 /// The fix-ups to `want`, less each anchor removal `carry` leaves to ride
 /// its text: one whose id `after` names nowhere.
 fn fixups_carrying(cur: &Content, want: &Content, carry: Option<&HashSet<String>>) -> Vec<Step> {
@@ -70,27 +87,7 @@ fn fixups_carrying(cur: &Content, want: &Content, carry: Option<&HashSet<String>
 }
 
 fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>, top: bool, whole_text: &mut bool) -> Vec<Step> {
-    let mut want = reachable(before, after, top);
-    let moved = moved_ids(&splices(before, &want));
-    if !moved.is_empty() {
-        let mut ids = Minter::default();
-        for id in before.blocks.iter().chain(&want.blocks).map(|b| &b.id) {
-            ids.hold(id);
-        }
-        for id in before.islands.iter().chain(&want.islands).map(|i| &i.id) {
-            ids.hold(id);
-        }
-        for b in &mut want.blocks {
-            if moved.contains(&b.id) {
-                b.id = ids.mint(prefix::BLOCK);
-            }
-        }
-        for i in &mut want.islands {
-            if moved.contains(&i.id) {
-                i.id = ids.mint(prefix::ISLAND);
-            }
-        }
-    }
+    let want = reachable(before, after, top);
     let mut steps = Vec::new();
     for k in &want.containers {
         if before.container(&k.id) != Some(k) {
@@ -104,7 +101,7 @@ fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>
         s
     }));
     let mut cur = before.clone();
-    if run(&mut cur, &steps, &mut Vec::new(), &mut Vec::new()).is_err() {
+    if run(&mut cur, &steps).is_err() {
         *whole_text = true;
         return replace_all(before, &want, carry);
     }
@@ -135,33 +132,13 @@ fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>
             }
         }
     }
-    if run(&mut cur, &rest, &mut Vec::new(), &mut Vec::new()).is_err() {
+    if run(&mut cur, &rest).is_err() {
         *whole_text = true;
         return replace_all(before, &want, carry);
     }
     steps.extend(rest);
     steps.extend(fixups_carrying(&cur, &want, carry));
     steps
-}
-
-/// The block and island ids one splice inserts and a later one deletes: a
-/// record that moves ahead, which would be held twice between the two, so it
-/// moves under a fresh id.
-fn moved_ids(steps: &[Step]) -> HashSet<String> {
-    let mut inserted: HashMap<String, usize> = HashMap::new();
-    let mut deleted: HashMap<String, usize> = HashMap::new();
-    for (n, step) in steps.iter().enumerate() {
-        let Step::Splice(s) = step else { continue };
-        for id in s.blocks.iter().map(|b| &b.id).chain(s.islands.iter().map(|i| &i.id)) {
-            inserted.insert(id.clone(), n);
-        }
-        if let Some(r) = &s.removed {
-            for id in r.blocks.iter().map(|b| &b.id).chain(r.islands.iter().map(|i| &i.id)) {
-                deleted.insert(id.clone(), n);
-            }
-        }
-    }
-    inserted.into_iter().filter(|(id, n)| deleted.get(id).is_some_and(|m| m > n)).map(|(id, _)| id).collect()
 }
 
 /// One splice over the whole text, for a pair the step-wise diff cannot
@@ -188,7 +165,7 @@ fn replace_all(before: &Content, want: &Content, carry: Option<&HashSet<String>>
         path: Some(first.path.clone()),
     }));
     let mut cur = before.clone();
-    if run(&mut cur, &steps, &mut Vec::new(), &mut Vec::new()).is_ok() {
+    if run(&mut cur, &steps).is_ok() {
         steps.extend(fixups_carrying(&cur, want, carry));
     }
     steps
@@ -266,12 +243,13 @@ fn splices(before: &Content, want: &Content) -> Vec<Step> {
         }
         _ => true,
     };
+    let marks = MarksOver::new(&want.marks);
     let mut steps = Vec::new();
     let (mut i, mut j, mut pos) = (0usize, 0usize, 0usize);
     let (mut i0, mut j0) = (0usize, 0usize);
     let flush = |i: usize, j: usize, i0: &mut usize, j0: &mut usize, pos: &mut usize, steps: &mut Vec<Step>| {
         if i > *i0 || j > *j0 {
-            let mut s = splice_of(want, &a[*i0..i], &b[*j0..j], *j0, &rb[*j0..j], *pos);
+            let mut s = splice_of(want, &marks, &a[*i0..i], &b[*j0..j], *j0, &rb[*j0..j], *pos);
             s.removed = Some(crate::change::Removed {
                 blocks: (*i0..i).filter(|&k| a[k] == '\n').filter_map(|k| ra[k]).map(|x| before.blocks[x].clone()).collect(),
                 islands: (*i0..i).filter(|&k| a[k] == ISLAND_SLOT).filter_map(|k| ra[k]).map(|x| before.islands[x].clone()).collect(),
@@ -308,7 +286,35 @@ fn splices(before: &Content, want: &Content) -> Vec<Step> {
     steps
 }
 
-fn splice_of(want: &Content, del: &[char], ins: &[char], from: usize, records: &[Option<usize>], at: usize) -> Splice {
+/// A value's marks by start, to find those over a range.
+struct MarksOver<'a> {
+    marks: Vec<&'a Mark>,
+    longest: usize,
+}
+
+impl<'a> MarksOver<'a> {
+    fn new(marks: &'a [Mark]) -> Self {
+        let mut marks: Vec<&Mark> = marks.iter().collect();
+        marks.sort_by_key(|m| m.start);
+        let longest = marks.iter().map(|m| m.end.saturating_sub(m.start)).max().unwrap_or(0);
+        MarksOver { marks, longest }
+    }
+
+    /// The marks over `[from, to)`, as offsets into it.
+    fn over(&self, from: usize, to: usize) -> Vec<Mark> {
+        let lo = self.marks.partition_point(|m| m.start + self.longest <= from);
+        let hi = self.marks.partition_point(|m| m.start < to);
+        self.marks[lo..hi.max(lo)]
+            .iter()
+            .filter_map(|m| {
+                let (s, e) = (m.start.max(from), m.end.min(to));
+                (s < e).then(|| Mark::new(s - from, e - from, m.kind.clone()))
+            })
+            .collect()
+    }
+}
+
+fn splice_of(want: &Content, marks: &MarksOver, del: &[char], ins: &[char], from: usize, records: &[Option<usize>], at: usize) -> Splice {
     let mut blocks = Vec::new();
     let mut islands = Vec::new();
     for (&ch, r) in ins.iter().zip(records) {
@@ -318,17 +324,8 @@ fn splice_of(want: &Content, del: &[char], ins: &[char], from: usize, records: &
             _ => {}
         }
     }
-    let to = from + ins.len();
-    let marks = want
-        .marks
-        .iter()
-        .filter_map(|m| {
-            let (lo, hi) = (m.start.max(from), m.end.min(to));
-            (lo < hi).then(|| Mark::new(lo - from, hi - from, m.kind.clone()))
-        })
-        .collect();
     Splice {
-        marks,
+        marks: marks.over(from, from + ins.len()),
         blocks,
         islands,
         ..Splice::new(at, del.iter().collect::<String>(), ins.iter().collect::<String>())

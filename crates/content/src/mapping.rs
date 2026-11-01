@@ -8,7 +8,7 @@ use crate::change::{ApplyError, Assoc, Change, IslandStep, Step};
 use crate::model::{ISLAND_SLOT, Pos, Usv};
 use crate::table::Table;
 use crate::units::{Scalars, Units};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Where a position lands. It always lands: a position inside deleted text
 /// lands on the deletion's `assoc` edge, and one inside an island a splice
@@ -264,7 +264,29 @@ fn replace(p: Usv, at: Usv, d: usize, m: usize, assoc: Assoc) -> MapResult {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Mapping {
     maps: Vec<StepMap>,
-    mirror: Vec<(usize, usize)>,
+    /// What each map does to an offset in the text it maps, read off `maps`.
+    spans: Vec<Span>,
+    /// Each linked map's mirror, both ways.
+    mirror: BTreeMap<usize, usize>,
+}
+
+/// `deleted` units at `at` replaced by `inserted`: a map's effect on an
+/// offset into the text it maps. A map that moves no such offset spans
+/// nothing at the end of every text.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Span {
+    at: Usv,
+    deleted: usize,
+    inserted: usize,
+}
+
+impl Span {
+    fn of(map: &StepMap) -> Span {
+        match map {
+            StepMap::Replace { at, deleted, inserted, .. } => Span { at: *at, deleted: *deleted, inserted: *inserted },
+            _ => Span { at: Usv::MAX, deleted: 0, inserted: 0 },
+        }
+    }
 }
 
 impl Mapping {
@@ -279,7 +301,7 @@ impl Mapping {
 
     /// [`from_change`](Self::from_change), offsets counting `u`.
     pub fn from_change_in(change: &Change, u: impl Units) -> Result<Mapping, ApplyError> {
-        let maps = change
+        let maps: Vec<StepMap> = change
             .steps
             .iter()
             .enumerate()
@@ -290,7 +312,8 @@ impl Mapping {
                 })
             })
             .collect::<Result<_, _>>()?;
-        Ok(Mapping { maps, mirror: Vec::new() })
+        let spans = maps.iter().map(Span::of).collect();
+        Ok(Mapping { maps, spans, mirror: BTreeMap::new() })
     }
 
     pub fn maps(&self) -> &[StepMap] {
@@ -307,6 +330,7 @@ impl Mapping {
 
     /// Adds `map`, linked to the map at `mirror` when given.
     pub fn append_map(&mut self, map: StepMap, mirror: Option<usize>) {
+        self.spans.push(Span::of(&map));
         self.maps.push(map);
         if let Some(m) = mirror {
             self.set_mirror(self.maps.len() - 1, m);
@@ -340,38 +364,45 @@ impl Mapping {
 
     /// Links maps `a` and `b` as each other's mirror.
     pub fn set_mirror(&mut self, a: usize, b: usize) {
-        self.mirror.push((a, b));
+        self.mirror.insert(a, b);
+        self.mirror.insert(b, a);
     }
 
     pub fn get_mirror(&self, n: usize) -> Option<usize> {
-        self.mirror.iter().find_map(|&(a, b)| match () {
-            _ if a == n => Some(b),
-            _ if b == n => Some(a),
-            _ => None,
-        })
+        self.mirror.get(&n).copied()
     }
 
     /// Maps `from..to`, with the links between them.
     pub fn slice(&self, from: usize, to: usize) -> Mapping {
         let to = to.min(self.maps.len());
         let from = from.min(to);
-        let inside = |n: usize| (from..to).contains(&n);
         Mapping {
             maps: self.maps[from..to].to_vec(),
-            mirror: self.mirror.iter().filter(|(a, b)| inside(*a) && inside(*b)).map(|(a, b)| (a - from, b - from)).collect(),
+            spans: self.spans[from..to].to_vec(),
+            mirror: self.mirror.range(from..to).filter(|(_, b)| (from..to).contains(*b)).map(|(a, b)| (a - from, b - from)).collect(),
         }
     }
 
     /// `pos` through every map, the deletion flags of each map it passed.
     pub fn map(&self, pos: &Pos, assoc: Assoc) -> MapResult {
-        self.map_range(0, self.maps.len(), pos, Bias::Side(assoc)).0
+        self.map_from(0, pos, assoc)
     }
 
     /// `pos` through every map as `apply` moves a point anchor: left of text
     /// inserted at it, onto the start of a deletion that takes the text
     /// around it, and right of what replaced a deletion it ends.
     pub fn map_point(&self, pos: &Pos) -> MapResult {
-        self.map_range(0, self.maps.len(), pos, Bias::Point).0
+        self.map_point_from(0, pos)
+    }
+
+    /// [`map`](Self::map) through the maps from `from` on.
+    pub(crate) fn map_from(&self, from: usize, pos: &Pos, assoc: Assoc) -> MapResult {
+        self.map_range(from, self.maps.len(), pos, Bias::Side(assoc)).0
+    }
+
+    /// [`map_point`](Self::map_point) through the maps from `from` on.
+    pub(crate) fn map_point_from(&self, from: usize, pos: &Pos) -> MapResult {
+        self.map_range(from, self.maps.len(), pos, Bias::Point).0
     }
 
     /// The maps of the changes inside one slot, in order, each pair of
@@ -388,7 +419,7 @@ impl Mapping {
                 out.append_mapping(mapping);
             }
         }
-        for &(a, b) in &self.mirror {
+        for (&a, &b) in self.mirror.iter().filter(|(a, b)| a < b) {
             if let (Some(Some((sa, la))), Some(Some((sb, lb)))) = (spans.get(a), spans.get(b))
                 && la == lb
             {
@@ -407,6 +438,21 @@ impl Mapping {
         let mut open = None;
         let mut i = from;
         while i < to {
+            if let Pos::At(p) = &mut out.pos {
+                while let Some(s) = self.spans[i..to].first() {
+                    if *p < s.at {
+                        i += 1;
+                    } else if *p > s.at.saturating_add(s.deleted) {
+                        *p = (*p - s.deleted).saturating_add(s.inserted);
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if i == to {
+                    break;
+                }
+            }
             let r = self.maps[i].map_as(&out.pos, bias);
             if let Some(recover) = &r.recover {
                 let back = self.get_mirror(i).filter(|&j| j > i && j < to).and_then(|j| Some((j, self.maps[j].recover(recover, bias)?)));
