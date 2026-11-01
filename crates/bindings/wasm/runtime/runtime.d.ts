@@ -27,6 +27,7 @@ import type {
 	repair,
 	splitBlock,
 	joinBlocks,
+	inheritedMarks,
 	isInline,
 	isPlain,
 	parseDocPath,
@@ -55,6 +56,7 @@ export interface CoreSurface {
 	repair: typeof repair;
 	splitBlock: typeof splitBlock;
 	joinBlocks: typeof joinBlocks;
+	inheritedMarks: typeof inheritedMarks;
 	isInline: typeof isInline;
 	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;

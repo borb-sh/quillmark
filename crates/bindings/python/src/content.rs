@@ -217,6 +217,28 @@ pub fn join_blocks<'py>(py: Python<'py>, content: &Bound<'_, PyAny>, id: &str) -
     json_to_py(py, &change.to_value())
 }
 
+/// Typing at `at`: the marks the typed text carries, each `{"type", "attrs"?}`
+/// to spread into a splice's `marks` over the text typed, as the canon's
+/// growth defaults grow them at the edges of the marks around `at`. Raises
+/// `QuillmarkError` (`edit::content_apply`) where `at` is past the text.
+#[pyfunction]
+pub fn inherited_marks<'py>(py: Python<'py>, content: &Bound<'_, PyAny>, at: usize) -> PyResult<Bound<'py, PyAny>> {
+    let content = content_from_py(content, "inherited_marks")?;
+    let kinds = quillmark_content::gestures::inherited_marks(&content, at).map_err(change_error)?;
+    let out: Vec<serde_json::Value> = kinds
+        .iter()
+        .map(|kind| {
+            let mut out = serde_json::Map::new();
+            out.insert("type".into(), kind.tag().into());
+            if let Some(attrs) = quillmark_content::wire::mark_attrs(kind) {
+                out.insert("attrs".into(), attrs);
+            }
+            serde_json::Value::Object(out)
+        })
+        .collect();
+    json_to_py(py, &serde_json::Value::Array(out))
+}
+
 /// `raw` made valid by the merge-repair rules, as `{"content", "repairs"}`.
 /// Total over any value shaped as content, and deterministic: the same raw
 /// value always repairs to the same content.

@@ -3,7 +3,7 @@ its producers `revise` and `replace`, the reads, and the pure helpers over
 changes. Offsets count code points."""
 
 import pytest
-from quillmark import Document, compose, diff, invert, join_blocks, map_pos, rebase, repair, split_block
+from quillmark import Document, compose, diff, inherited_marks, invert, join_blocks, map_pos, rebase, repair, split_block
 
 from conftest import raises_edit_code
 
@@ -176,6 +176,15 @@ def test_split_block_and_join_blocks_keep_the_text_on_its_id():
     assert doc.read()["blocks"] == [{"id": title, "kind": "heading", "attrs": {"level": 1}}]
     with raises_edit_code("edit::content_apply"):
         join_blocks(before, title)
+
+
+def test_inherited_marks_grow_strong_at_its_end_in_code_points():
+    doc = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\n😀 **bold** z\n")
+    before = doc.read()
+    assert inherited_marks(before, 6) == [{"type": "strong"}]
+    assert inherited_marks(before, 2) == []
+    with raises_edit_code("edit::content_apply"):
+        inherited_marks(before, 99)
 
 
 def test_repair_makes_a_merged_state_valid_in_code_points():

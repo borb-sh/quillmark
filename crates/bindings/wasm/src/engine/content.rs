@@ -757,6 +757,31 @@ pub fn split_block(
     serialize_or_throw(&change.to_value(), "splitBlock")
 }
 
+/// Typing at `at`: the marks the typed text carries, each to spread into a
+/// splice's `marks` over the text typed, as the canon's growth defaults grow
+/// them at the edges of the marks around `at`. Throws `edit::content_apply`
+/// where `at` is past the text, and where it falls inside a character.
+#[wasm_bindgen(js_name = inheritedMarks, unchecked_return_type = "ContentMarkKind[]")]
+pub fn inherited_marks(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+    at: usize,
+) -> Result<JsValue, JsValue> {
+    let content = content_in(content, "inheritedMarks")?;
+    let at = units::to_scalars(Utf16, &content.text, at).ok_or_else(|| apply_error(change::ApplyError::Stale { step: 0 }))?;
+    let kinds = quillmark_content::gestures::inherited_marks(&content, at).map_err(apply_error)?;
+    let out: Vec<Value> = kinds.iter().map(mark_kind_value).collect();
+    serialize_or_throw(&out, "inheritedMarks")
+}
+
+fn mark_kind_value(kind: &quillmark_content::model::MarkKind) -> Value {
+    let mut out = serde_json::Map::new();
+    out.insert("type".into(), kind.tag().into());
+    if let Some(attrs) = quillmark_content::wire::mark_attrs(kind) {
+        out.insert("attrs".into(), attrs);
+    }
+    Value::Object(out)
+}
+
 /// Backspace at the start of block `id`: the change that joins it into the
 /// block before it, which keeps its id and kind. Throws `edit::content_apply`
 /// where no block holds `id`, and for the first block.

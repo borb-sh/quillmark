@@ -33,6 +33,10 @@ over its keys: read `receipt["warnings"]`.
   and Backspace as one splice each, inserting ahead of a block's opening
   `\n` at its start so the text keeps its id. WASM `splitBlock` /
   `joinBlocks`, Python `split_block` / `join_blocks`.
+- feat(content): **`gestures::inherited_marks(content, at)`** answers the
+  marks typed text carries: `strong`, `emph`, `underline` and `strike` grow
+  at their end, `code`, `link` and an `x-` mark at neither edge,
+  `font_family` at both. WASM `inheritedMarks`, Python `inherited_marks`.
 - feat(content): **`repair` makes a merged state valid.** A missing
   container leaves a path, a container under two paths takes its first
   block's, a later run gets a derived container, an orphan slot or record

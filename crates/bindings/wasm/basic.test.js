@@ -20,6 +20,7 @@ import {
   repair,
   splitBlock,
   joinBlocks,
+  inheritedMarks,
   isInline,
   isPlain,
   parseDocPath,
@@ -863,6 +864,20 @@ describe('Document apply: the write primitive', () => {
     expect(doc.read({}).text).toBe('😀 Titlebody')
     expect(doc.read({}).blocks).toEqual([{ id: title, kind: 'heading', attrs: { level: 1 } }])
     expect(() => joinBlocks(before, title)).toThrow()
+  })
+
+  it('inheritedMarks reads the marks around a UTF-16 offset', () => {
+    const before = importMarkdown('😀 **bold** [x](https://u.io) z').content
+    expect(inheritedMarks(before, 7)).toEqual([{ type: 'strong' }])
+    expect(inheritedMarks(before, 3)).toEqual([])
+    expect(inheritedMarks(before, 9)).toEqual([])
+    expect(() => inheritedMarks(before, 1)).toThrow()
+
+    const doc = blankDoc()
+    doc.replace({}, before)
+    const marks = inheritedMarks(before, 7).map((k) => ({ start: 0, end: 1, ...k }))
+    doc.apply({}, { steps: [{ splice: { at: 7, delete: '', insert: 'X', marks } }] })
+    expect(doc.read({}).marks.find((m) => m.type === 'strong')).toEqual({ start: 3, end: 8, type: 'strong' })
   })
 
   it('a nested step edits a table cell without costing the field its anchors', () => {

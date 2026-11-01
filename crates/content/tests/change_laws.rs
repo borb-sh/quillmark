@@ -9,7 +9,7 @@ use quillmark_content::change::{
     apply, compose, compose_in, invert, map_pos, map_pos_in, rebase,
 };
 use quillmark_content::rebase::{Conflict, RebaseError, Reason};
-use quillmark_content::gestures::{join_blocks, split_block};
+use quillmark_content::gestures::{inherited_marks, join_blocks, split_block};
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{
@@ -543,6 +543,62 @@ proptest! {
         prop_assert_eq!(kept, d.blocks.iter().map(|b| b.id.as_str()).collect::<Vec<_>>());
         let joined = apply(&split, &join_blocks(&split, "n").unwrap()).unwrap().content;
         prop_assert_eq!(joined, d);
+    }
+}
+
+#[test]
+fn typed_text_grows_each_mark_at_the_edges_the_canon_names() {
+    let mut d = from_markdown("a **bold** `code` [link](https://u.io) z\n\nnext").unwrap().content;
+    d.marks.push(Mark::new(0, 1, MarkKind::FontFamily { name: "Inter".into() }));
+    d.marks.push(Mark::new(19, 20, MarkKind::FontFamily { name: "Lora".into() }));
+    d.marks.push(Mark::new(20, 23, MarkKind::Ext { name: "x-glow".into(), attrs: Default::default() }));
+    d.normalize();
+    let tags = |at| inherited_marks(&d, at).unwrap().iter().map(|k| k.tag().to_string()).collect::<Vec<_>>();
+    let none: [&str; 0] = [];
+    assert_eq!(tags(2), none, "strong grows at its end only");
+    assert_eq!(tags(4), ["strong"]);
+    assert_eq!(tags(6), ["strong"]);
+    assert_eq!(tags(7), none, "code grows at neither edge");
+    assert_eq!(tags(9), ["code"]);
+    assert_eq!(tags(11), none);
+    assert_eq!(tags(12), none);
+    assert_eq!(tags(14), ["link"]);
+    assert_eq!(tags(16), none);
+    assert_eq!(tags(20), ["font_family"], "an x- mark grows at neither edge");
+    assert_eq!(tags(21), ["x-glow"]);
+    assert_eq!(tags(23), none);
+    assert_eq!(tags(0), ["font_family"], "a family grows at its start");
+    assert_eq!(tags(1), ["font_family"], "and at its end");
+    assert_eq!(tags(19), ["font_family"], "past the block's opening break, from the text after");
+    assert_eq!(inherited_marks(&d, d.len_usv() + 1), Err(ApplyError::Stale { step: 0 }));
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
+
+    /// Typing carries exactly the marks `inherited_marks` names, and typing
+    /// on after it carries the same, so a typed run holds one formatting.
+    #[test]
+    fn typed_text_carries_its_inherited_marks_and_passes_them_on(
+        mut d in document(), at in any::<usize>(), (x, y, z) in (any::<usize>(), any::<usize>(), any::<usize>()),
+    ) {
+        let len = d.len_usv() + 1;
+        let (x, y, z) = (x % len, y % len, z % len);
+        d.marks.push(Mark::new(x.min(y), x.max(y), MarkKind::FontFamily { name: "Inter".into() }));
+        d.marks.push(Mark::new(y.min(z), y.max(z), MarkKind::Code));
+        d.marks.retain(|m| m.start < m.end);
+        d.normalize();
+        prop_assume!(d.validate().is_ok());
+        let at = at % len;
+        let inherited = inherited_marks(&d, at).unwrap();
+        let marks = inherited.iter().map(|k| Mark::new(0, 1, k.clone())).collect();
+        let typed = Change::new(vec![Step::Splice(Splice { marks, ..Splice::new(at, "", "x") })]);
+        let Ok(done) = apply(&d, &typed) else { return Ok(()) };
+        let mut held: Vec<MarkKind> =
+            done.content.marks.iter().filter(|m| m.start <= at && at < m.end).map(|m| m.kind.clone()).collect();
+        held.sort_by_key(MarkKind::sort_key);
+        prop_assert_eq!(&held, &inherited);
+        prop_assert_eq!(inherited_marks(&done.content, at + 1).unwrap(), inherited);
     }
 }
 
