@@ -237,6 +237,7 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
     match island.island_type {
         IslandType::Table => {
             let Some(table) = Table::read(&island.props) else { return island.props.clone() };
+            let Some((header, body)) = table.rows.split_first() else { return island.props.clone() };
             let mut out = Map::new();
             let obj = island.props.as_object().cloned().unwrap_or_default();
             for (k, v) in &obj {
@@ -257,8 +258,8 @@ pub(crate) fn to_line_props(island: &Island) -> Value {
                 Value::Object(cell)
             };
             let row = |r: &Row| Value::Array(r.cells.iter().map(|s| cell(s)).collect());
-            out.insert("header".into(), row(&table.rows[0]));
-            out.insert("rows".into(), table.rows[1..].iter().map(row).collect());
+            out.insert("header".into(), row(header));
+            out.insert("rows".into(), body.iter().map(row).collect());
             let by_column = |key: &str, default: Value| -> Option<Value> {
                 let map = obj.get(key)?.as_object()?;
                 Some(table.columns.iter().map(|c| map.get(c).cloned().unwrap_or_else(|| default.clone())).collect())

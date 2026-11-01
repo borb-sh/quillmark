@@ -16,7 +16,7 @@ use quillmark_content::model::{
     Anchor, Block, BlockKind, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT, Invariant, Island, Mark, MarkKind,
     Pos,
 };
-use quillmark_content::table::Table;
+use quillmark_content::table::{Row, Table};
 use quillmark_content::units::{Utf16, change_from_scalars, change_to_scalars, from_scalars};
 use serde_json::json;
 use std::collections::BTreeSet;
@@ -100,7 +100,7 @@ fn with_ext(mut c: Content, seed: u8) -> Content {
 type Op = (u8, usize, usize, u8);
 
 fn ops() -> impl Strategy<Value = Vec<Op>> {
-    prop::collection::vec((0u8..10, any::<usize>(), any::<usize>(), any::<u8>()), 1..8)
+    prop::collection::vec((0u8..14, any::<usize>(), any::<usize>(), any::<u8>()), 1..8)
 }
 
 const INSERTS: [&str; 7] = ["x", "yz", " ", "\n", "q\nr", "\u{2028}", "😀a"];
@@ -120,12 +120,14 @@ fn chars(c: &Content) -> Vec<char> {
     c.text.chars().collect()
 }
 
-/// A splice on one level, its new `\n`s shaped like the block it sits in.
+/// A splice on one level, deleting up to 3 characters or, on every third
+/// `y`, up to 15, its new `\n`s shaped like the block it sits in.
 fn splice_on(c: &Content, x: usize, y: usize, z: u8, k: usize) -> Splice {
     let cs = chars(c);
     let len = cs.len();
     let at = x % (len + 1);
-    let dn = y % (len - at + 1).min(4);
+    let reach = if y / 16 % 3 == 0 { 16 } else { 4 };
+    let dn = y % (len - at + 1).min(reach);
     let insert = INSERTS[z as usize % INSERTS.len()];
     let shape = c.blocks[c.block_at(at)].clone();
     let blocks = insert
@@ -145,6 +147,10 @@ fn splice_on(c: &Content, x: usize, y: usize, z: u8, k: usize) -> Splice {
 /// gives, on every other `seed`.
 fn quote_of(c: &Content, start: usize, end: usize, seed: usize) -> Option<String> {
     (seed / 2 % 2 == 0).then(|| chars(c)[start..end].iter().collect())
+}
+
+fn slots_of(c: &Content) -> Vec<(&Island, String)> {
+    c.islands.iter().flat_map(|i| i.slot_order().into_iter().map(move |s| (i, s))).collect()
 }
 
 fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
@@ -176,10 +182,11 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
         }
         4 => {
             let b = &c.blocks[x % c.blocks.len()];
-            let kind = match z % 4 {
+            let kind = match z % 5 {
                 0 => ("heading", Some(json!({"level": 1 + (y % 6)}))),
                 1 => ("para", None),
                 2 => ("x-callout", Some(json!({"tone": "cool"}))),
+                3 => ("x-callout", None),
                 _ => ("code", None),
             };
             Step::SetBlock(SetBlock {
@@ -198,8 +205,7 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
             Step::SetBlock(SetBlock { id: b.id.clone(), path: Some(path), ..SetBlock::default() })
         }
         6 => {
-            let with: Vec<(&Island, String)> =
-                c.islands.iter().flat_map(|i| i.slot_order().into_iter().map(move |s| (i, s))).collect();
+            let with = slots_of(c);
             let (island, slot) = with.get(x % with.len().max(1))?;
             let inner = &island.slots[slot];
             let mut s = splice_on(inner, y, x / 7, z, k);
@@ -223,24 +229,36 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
             let tables: Vec<&Island> = c.islands.iter().filter(|i| i.island_type == IslandType::Table).collect();
             let island = tables.get(x % tables.len().max(1))?;
             let mut grid = Table::read(&island.props)?;
-            match z % 2 {
+            let mut slots = std::collections::BTreeMap::new();
+            match z % 3 {
                 0 if grid.rows.len() > 1 => {
                     grid.rows.remove(y % grid.rows.len());
                 }
-                _ if grid.columns.len() > 1 => {
+                1 if grid.columns.len() > 1 => {
                     let col = y % grid.columns.len();
                     grid.columns.remove(col);
                     grid.rows.iter_mut().for_each(|r| {
                         r.cells.remove(col);
                     });
                 }
+                2 => {
+                    let cells: Vec<String> = (0..grid.columns.len()).map(|j| format!("s-n{k}x{j}")).collect();
+                    for (j, cell) in cells.iter().enumerate() {
+                        let mut inner = quillmark_content::markdown::from_plaintext("new");
+                        if j == 0 {
+                            inner.anchors.push(Anchor::new(format!("ra-{k}"), 0, 2));
+                        }
+                        slots.insert(cell.clone(), inner);
+                    }
+                    grid.rows.insert(y % (grid.rows.len() + 1), Row { id: format!("r-n{k}"), cells });
+                }
                 _ => return None,
             }
             let mut props = island.props.as_object()?.clone();
             grid.write_into(&mut props);
-            Step::Island(IslandStep::Props { id: island.id.clone(), props: props.into(), slots: Default::default() })
+            Step::Island(IslandStep::Props { id: island.id.clone(), props: props.into(), slots })
         }
-        _ => {
+        9 => {
             let id = format!("q-n{k}");
             let b = c.blocks[x % c.blocks.len()].clone();
             let mut path = b.path.clone();
@@ -253,6 +271,45 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
                     Step::SetBlock(SetBlock { id: b.id, path: Some(path), ..SetBlock::default() }),
                 ]),
             });
+        }
+        10 | 11 => {
+            let with = slots_of(c);
+            let (island, slot) = with.get(x % with.len().max(1))?;
+            let inner = &island.slots[slot];
+            let n = inner.len_usv();
+            let (a, b) = (y % (n + 1), y / 3 % (n + 1));
+            let (start, end) = (a.min(b), a.max(b));
+            let quote = quote_of(inner, start, end, z as usize);
+            let tag = TAGS[z as usize % TAGS.len()];
+            let step = match (op, z % 3) {
+                (10, 0) => Step::Mark(MarkStep::Remove { start, end, tag: tag.into(), quote }),
+                (10, _) if start < end => Step::Mark(MarkStep::Add { mark: Mark::new(start, end, kind_of(tag)), quote }),
+                (11, 0) if !inner.anchors.is_empty() => {
+                    Step::Anchor(AnchorStep::Remove { id: inner.anchors[x % inner.anchors.len()].id.clone() })
+                }
+                (11, _) => Step::Anchor(AnchorStep::Set { anchor: Anchor::new(format!("sa-{}", z % 4), start, end), quote }),
+                _ => return None,
+            };
+            Step::Nested { island: island.id.clone(), slot: slot.clone(), change: Change::new(vec![step]) }
+        }
+        12 => {
+            let mut note = quillmark_content::markdown::from_plaintext("nb");
+            note.anchors.push(Anchor::new(format!("fa-{k}"), 0, 1));
+            let mut island = Island::new(format!("isl-f{k}"), IslandType::Footnote);
+            island.slots.insert("note".into(), note);
+            let mut s = splice_on(c, x, y, z, k);
+            s.insert.push(ISLAND_SLOT);
+            s.islands = vec![island];
+            Step::Splice(s)
+        }
+        _ => {
+            let held = c.containers.get(x % c.containers.len().max(1))?;
+            let kind = match held.kind {
+                ContainerKind::List { ordered, start } => ContainerKind::List { ordered: ordered != (z % 2 == 0), start: start + y as u64 % 3 },
+                ContainerKind::Item { .. } => ContainerKind::Item { checked: [None, Some(false), Some(true)][y % 3] },
+                ContainerKind::Quote => return None,
+            };
+            Step::Container(ContainerStep::Set(Container::new(held.id.clone(), kind)))
         }
     })
 }
@@ -1123,6 +1180,26 @@ mod diffs {
         }
     }
 
+    /// An `x-` island's slots are its own rather than its props', so a slot
+    /// it gains or loses reaches the target, through `diff` and `replace`.
+    #[test]
+    fn a_diff_reaches_an_x_island_whose_slots_changed() {
+        let holding = |slots: &[&str]| {
+            let island = Island::new("isl-x", IslandType::Ext("x-chart".into()))
+                .with_props(json!({"series": [1, 2]}))
+                .with_slots(slots.iter().map(|s| (s.to_string(), quillmark_content::markdown::from_plaintext("caption"))).collect());
+            let insert = Change::new(vec![Step::Island(IslandStep::Insert { at: 5, island, block: None })]);
+            apply(&quillmark_content::markdown::from_plaintext("hello world"), &insert).unwrap().content
+        };
+        let (one, two) = (holding(&["cap"]), holding(&["cap", "cap2"]));
+        for (from, to) in [(&one, &two), (&two, &one)] {
+            for d in [diff(from, to).unwrap(), replace(from, to).unwrap()] {
+                assert!(!d.whole_text, "{:?}", d.change);
+                assert_eq!(&apply(from, &d.change).unwrap().content, to);
+            }
+        }
+    }
+
     /// A target that is no valid value is refused, never diffed to nothing.
     #[test]
     fn a_diff_refuses_an_invalid_target() {
@@ -1306,6 +1383,212 @@ proptest! {
         let back = rebase(&d, &o, &c).unwrap();
         prop_assert_eq!(apply(&left, &back).unwrap().content, both);
     }
+}
+
+/// What `over` took `base` to in `theirs` that `done` holds otherwise, by
+/// id, on one level and in each slot all three hold: a block's kind or path,
+/// a container, an island's props, a block `over` changed that `done` lost,
+/// or an island or slot `over` changed that `done` lost where the change
+/// never edited what `over` changed in it. `read` is every island the
+/// change's steps passed through; the props or a slot the change edited
+/// before it dropped the island hold to what the change read, which the
+/// rebase checks step by step.
+fn overwritten(base: &Content, theirs: &Content, done: &Content, read: &[Island]) -> Option<String> {
+    let block = |c: &Content, id: &str| c.blocks.iter().find(|b| b.id == id).cloned();
+    for b in &theirs.blocks {
+        let Some(was) = block(base, &b.id) else { continue };
+        let Some(now) = block(done, &b.id) else {
+            if was != *b {
+                return Some(format!("block {}", b.id));
+            }
+            continue;
+        };
+        if was.kind != b.kind && now.kind != b.kind {
+            return Some(format!("the kind of {}", b.id));
+        }
+        if was.path != b.path && now.path != b.path {
+            return Some(format!("the path of {}", b.id));
+        }
+    }
+    for k in &theirs.containers {
+        if base.container(&k.id).is_some_and(|w| w != k) && done.container(&k.id).is_some_and(|d| d != k) {
+            return Some(format!("container {}", k.id));
+        }
+    }
+    let island = |c: &Content, id: &str| c.islands.iter().find(|i| i.id == id).cloned();
+    for i in &theirs.islands {
+        let Some(was) = island(base, &i.id).filter(|was| was != i) else { continue };
+        let Some(now) = island(done, &i.id) else {
+            let edited = |differs: &dyn Fn(&Island) -> bool| read.iter().any(|r| r.id == i.id && differs(r));
+            let props = was.props == i.props || edited(&|r| r.props != was.props);
+            let slots = i.slots.iter().all(|(slot, inner)| was.slots.get(slot) == Some(inner) || edited(&|r| r.slots.get(slot) != was.slots.get(slot)));
+            if props && slots {
+                continue;
+            }
+            return Some(format!("island {}", i.id));
+        };
+        if was.props != i.props && now.props != i.props {
+            return Some(format!("the props of {}", i.id));
+        }
+        for (slot, inner) in &i.slots {
+            match (was.slots.get(slot), now.slots.get(slot)) {
+                (Some(w), Some(n)) => {
+                    if let Some(lost) = overwritten(w, inner, n, read) {
+                        return Some(lost);
+                    }
+                }
+                (Some(w), None) if w != inner && !read.iter().any(|r| r.id == i.id && r.slots.get(slot) != Some(w)) => {
+                    return Some(format!("slot {slot} of {}", i.id));
+                }
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+fn every_island(c: &Content, out: &mut Vec<Island>) {
+    for island in &c.islands {
+        out.push(island.clone());
+        island.slots.values().for_each(|slot| every_island(slot, out));
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(400))]
+
+    /// A rebased change keeps what the change it rebased over did to each
+    /// record, container and island by id, or conflicts.
+    #[test]
+    fn a_rebased_change_keeps_what_the_other_changed_or_conflicts(d in document(), mine in ops(), theirs in ops()) {
+        let c = change_for(&d, &mine);
+        let o = change_from(&d, &theirs, 50);
+        let now = apply(&d, &o).unwrap().content;
+        let Ok(r) = rebase(&d, &c, &o) else { return Ok(()) };
+        let done = apply(&now, &r).unwrap().content;
+        let mut read = Vec::new();
+        for k in 0..=c.steps.len() {
+            if let Ok(at) = apply(&d, &Change::new(c.steps[..k].to_vec())) {
+                every_island(&at.content, &mut read);
+            }
+        }
+        prop_assert_eq!(overwritten(&d, &now, &done, &read), None, "change {:?}\nover {:?}\nrebased {:?}", c, o, r);
+    }
+}
+
+fn table_change(d: &Content, edit: impl FnOnce(&mut Table), slots: &[(&str, &str)]) -> Change {
+    let island = &d.islands[0];
+    let mut grid = Table::read(&island.props).unwrap();
+    edit(&mut grid);
+    let mut props = island.props.as_object().unwrap().clone();
+    grid.write_into(&mut props);
+    let slots = slots.iter().map(|(k, v)| (k.to_string(), quillmark_content::markdown::from_plaintext(v))).collect();
+    Change::new(vec![Step::Island(IslandStep::Props { id: island.id.clone(), props: props.into(), slots })])
+}
+
+fn conflict_of(d: &Content, change: &Change, over: &Change) -> Option<(usize, &'static str)> {
+    match rebase(d, change, over) {
+        Err(RebaseError::Conflict(Conflict { step, reason })) => Some((step, reason.name())),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_step_by_id_conflicts_where_the_other_changed_what_it_overwrites() {
+    let d = from_markdown("lead\n\n| aa | bb |\n| - | - |\n| cc | dd |\n\ntail").unwrap().content;
+    let island = d.islands[0].clone();
+    let grid = Table::read(&island.props).unwrap();
+    let cell = |slot: &str| Change::new(vec![Step::Nested { island: island.id.clone(), slot: slot.into(), change: Change::new(vec![Step::Splice(Splice::new(2, "", "!"))]) }]);
+    let (last, first) = (grid.rows[1].cells[0].clone(), grid.rows[0].cells[0].clone());
+    let add_row = table_change(&d, |g| g.rows.push(quillmark_content::table::Row { id: "r-n".into(), cells: vec!["s-n0".into(), "s-n1".into()] }), &[("s-n0", "new"), ("s-n1", "row")]);
+    let add_column = table_change(
+        &d,
+        |g| {
+            g.columns.push("k-n".into());
+            g.rows.iter_mut().for_each(|r| r.cells.push(format!("{}k", r.id)));
+        },
+        &[],
+    );
+    let drop_last = table_change(&d, |g| { g.rows.pop(); }, &[]);
+    assert_eq!(conflict_of(&d, &add_column, &add_row), Some((0, "changed")));
+    assert_eq!(conflict_of(&d, &drop_last, &cell(&last)), Some((0, "changed")));
+    assert!(rebase(&d, &drop_last, &cell(&first)).is_ok());
+    assert!(rebase(&d, &add_column, &cell(&last)).is_ok());
+    assert!(rebase(&d, &cell(&last), &add_column).is_ok());
+
+    let at = d.text.chars().position(|ch| ch == ISLAND_SLOT).unwrap();
+    let drop_table = Change::new(vec![Step::Splice(Splice::new(at - 1, "\n\u{FFFC}", ""))]);
+    assert_eq!(conflict_of(&d, &drop_table, &cell(&last)), Some((0, "changed")));
+    assert!(rebase(&d, &drop_table, &Change::new(vec![Step::Splice(Splice::new(0, "", "x"))])).is_ok());
+
+    let tail = d.blocks.last().unwrap().id.clone();
+    let set = |kind: &str, attrs: Option<serde_json::Value>, path: Option<Vec<String>>| {
+        Change::new(vec![Step::SetBlock(SetBlock { id: tail.clone(), kind: Some(kind.into()), attrs: attrs.and_then(|v| v.as_object().cloned()), path })])
+    };
+    let quote = Change::new(vec![
+        Step::Container(ContainerStep::Set(Container::new("q-n", ContainerKind::Quote))),
+        Step::SetBlock(SetBlock { id: tail.clone(), path: Some(vec!["q-n".into()]), ..SetBlock::default() }),
+    ]);
+    let heading = set("heading", Some(json!({"level": 2})), None);
+    assert_eq!(conflict_of(&d, &set("heading", Some(json!({"level": 3})), None), &heading), Some((0, "changed")));
+    assert!(rebase(&d, &heading, &quote).is_ok());
+    assert!(rebase(&d, &quote, &heading).is_ok());
+    let unquote = Change::new(vec![Step::SetBlock(SetBlock { id: tail.clone(), path: Some(Vec::new()), ..SetBlock::default() })]);
+    assert!(rebase(&d, &unquote, &Change::default()).is_ok());
+    assert_eq!(conflict_of(&d, &unquote, &quote), Some((0, "changed")));
+}
+
+#[test]
+fn a_diff_names_only_the_block_fields_it_changes_so_a_quote_and_a_heading_both_land() {
+    let d = from_markdown("first\n\nsecond").unwrap().content;
+    let id = d.blocks[1].id.clone();
+    let mut heading = d.clone();
+    heading.blocks[1].kind = BlockKind::Heading { level: 2 };
+    let mine = quillmark_content::diff::diff(&d, &heading).unwrap().change;
+    assert_eq!(mine.steps, [Step::SetBlock(SetBlock { id: id.clone(), kind: Some("heading".into()), attrs: json!({"level": 2}).as_object().cloned(), path: None })]);
+    let quote = Change::new(vec![
+        Step::Container(ContainerStep::Set(Container::new("q-n", ContainerKind::Quote))),
+        Step::SetBlock(SetBlock { id: id.clone(), path: Some(vec!["q-n".into()]), ..SetBlock::default() }),
+    ]);
+    let now = apply(&d, &quote).unwrap().content;
+    let done = apply(&now, &rebase(&d, &mine, &quote).unwrap()).unwrap().content;
+    assert_eq!((&done.blocks[1].kind, &done.blocks[1].path), (&BlockKind::Heading { level: 2 }, &vec!["q-n".to_string()]));
+}
+
+#[test]
+fn rewording_the_word_beside_a_footnote_rebases_over_an_edit_inside_the_note() {
+    let d = from_markdown("Alpha[^a] beta gamma\n\n[^a]: note text here").unwrap().content;
+    let island = d.islands[0].clone();
+    let note = island.slot_order()[0].clone();
+    let len = island.slots[&note].len_usv();
+    let over = Change::new(vec![Step::Nested { island: island.id.clone(), slot: note.clone(), change: Change::new(vec![Step::Splice(Splice::new(len, "", "!"))]) }]);
+    let mine = quillmark_content::diff::revise(&d, "Omega[^a] beta gamma\n\n[^a]: note text here").unwrap().change;
+    assert!(mine.steps.iter().all(|s| !matches!(s, Step::Splice(sp) if sp.delete.contains(ISLAND_SLOT))), "{mine:?}");
+    let now = apply(&d, &over).unwrap().content;
+    let done = apply(&now, &rebase(&d, &mine, &over).unwrap()).unwrap().content;
+    assert!(done.text.starts_with("Omega"));
+    assert_eq!(done.slot(&island.id, &note).unwrap().text, "note text here!");
+}
+
+#[test]
+fn a_nested_step_conflicts_where_the_other_rewrote_its_island_and_rebases_over_a_move() {
+    let d = from_markdown("intro\n\n| aa | bb |\n| - | - |\n| cc | dd |\n\nend").unwrap().content;
+    let island = d.islands[0].clone();
+    let slot = island.slot_order()[2].clone();
+    let mine = Change::new(vec![Step::Nested { island: island.id.clone(), slot: slot.clone(), change: Change::new(vec![Step::Splice(Splice::new(2, "", "!"))]) }]);
+    let at = d.text.chars().position(|ch| ch == ISLAND_SLOT).unwrap();
+    let rewrite = |copy: Island| Change::new(vec![Step::Splice(Splice { islands: vec![copy], ..Splice::new(at, "\u{FFFC}", "\u{FFFC}") })]);
+    let mut big = island.clone();
+    big.slots.insert(slot.clone(), quillmark_content::markdown::from_plaintext("Big cc"));
+    assert_eq!(conflict_of(&d, &mine, &rewrite(big)), Some((0, "changed")));
+    let same = rewrite(island.clone());
+    let done = apply(&apply(&d, &same).unwrap().content, &rebase(&d, &mine, &same).unwrap()).unwrap().content;
+    assert_eq!(done.slot(&island.id, &slot).unwrap().text, "cc!");
+
+    let target = quillmark_content::diff::align(&d, from_markdown("intro\n\nend\n\n| aa | bb |\n| - | - |\n| Big cc | dd |").unwrap().content);
+    let moved = quillmark_content::diff::diff(&d, &target).unwrap().change;
+    let done = apply(&apply(&d, &moved).unwrap().content, &rebase(&d, &mine, &moved).unwrap()).unwrap().content;
+    assert_eq!(done.slot(&island.id, &slot).unwrap().text, "Big cc!");
 }
 
 #[test]

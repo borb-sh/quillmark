@@ -945,8 +945,8 @@ impl PyDocument {
     /// `dropped_anchors`, `moved_anchors`, `warnings` and `rebased`. `base`
     /// is the hash the writer read (`hash_at`); pass it. One the value has
     /// moved on from rebases the change over the change since, raising
-    /// `edit::rebase_conflict` where they touch the same text and
-    /// `edit::stale_base` where the document no longer holds the change
+    /// `edit::rebase_conflict` where they touch the same text or
+    /// record and `edit::stale_base` where the document no longer holds the change
     /// since. A refused change raises `edit::content_apply` and writes
     /// nothing.
     #[pyo3(signature = (change, field=None, card=None, base=None))]
@@ -969,8 +969,7 @@ impl PyDocument {
     /// dicts `{change, field?, card?, base?}`. The first refused write raises,
     /// the document as it was.
     fn apply_all<'py>(&mut self, py: Python<'py>, writes: &Bound<'_, PyAny>) -> PyResult<Vec<Bound<'py, PyDict>>> {
-        let mut next = self.inner.clone();
-        let mut receipts = Vec::new();
+        let mut parsed = Vec::new();
         for w in writes.try_iter()? {
             let w = w?;
             let w = w.cast::<PyDict>().map_err(|_| PyValueError::new_err("apply_all: a write is a dict"))?;
@@ -989,7 +988,11 @@ impl PyDocument {
             let base: Option<String> = get("base").map(|v| v.extract()).transpose()?;
             let change = get("change").ok_or_else(|| PyValueError::new_err("apply_all: a write names a change"))?;
             let change = crate::content::change_from_py(&change, "apply_all")?;
-            let target = Target::resolve(&next, card)?;
+            parsed.push((Target::resolve(&self.inner, card)?, field, change, base));
+        }
+        let mut next = self.inner.clone();
+        let mut receipts = Vec::new();
+        for (target, field, change, base) in parsed {
             receipts.push(crate::content::write(
                 py,
                 &mut next,

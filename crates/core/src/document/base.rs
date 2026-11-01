@@ -51,7 +51,7 @@ pub enum BaseError {
         /// or a document.
         field: Option<String>,
     },
-    #[error("the writer's edit and a change made since its read touch the same text")]
+    #[error("the writer's edit and a change made since its read touch the same text or record")]
     Conflict {
         current: String,
         field: Option<String>,

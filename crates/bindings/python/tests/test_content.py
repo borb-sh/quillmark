@@ -145,7 +145,7 @@ def test_a_content_write_names_its_card_by_id_wherever_it_moved():
     with pytest.raises(ValueError):
         doc.apply({"steps": []}, card=1, base=base)
     with raises_edit_code("edit::unknown_card_id"):
-        doc.apply_all([{"card": "nobody", "change": {"steps": []}}])
+        doc.apply_all([{"change": {"steps": []}, "base": "stale"}, {"card": "nobody", "change": {"steps": []}}])
     doc.apply({"steps": [{"splice": {"at": 5, "insert": " world"}}]}, card=card, base=base)
     assert [(c["id"] == card, doc.read(card=c["id"])["text"]) for c in doc.cards] == [(True, "Hello world"), (False, "Hello")]
 

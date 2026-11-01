@@ -115,26 +115,38 @@ over its keys: read `receipt["warnings"]`.
   still refuses. Validation is structural only. An `x-` block reads as a
   paragraph, an `x-` mark formats nothing, and an `x-` island renders and
   exports to markdown as nothing, which the annotated read spells as its
-  token so a revise keeps it. Steps set and remove them. `MarkStep::Remove`'s
-  `tag` is a `String`, `BlockKind::tag` and `MarkKind::tag` return `&str`, and
-  `IslandType` is no longer `Copy`.
+  token so a revise keeps it; a content write's revise or replace that
+  removes one refuses with `edit::drops_ext_island`, and `apply` removes it.
+  Steps set and remove them. `MarkStep::Remove`'s `tag` is a `String`,
+  `BlockKind::tag` and `MarkKind::tag` return `&str`, and `IslandType` is no
+  longer `Copy`.
 - feat(content): **`rebase(base, change, over)` moves a change past another
   made from the same value**, after ProseMirror's `rebaseSteps`. Each step
   maps through the inverse of its change's earlier steps, then `over`, then
   those steps rebased, and holds to its `delete`, `quote` or `block` on the
   value it now reads; a step `over` deleted the text of, or whose id is gone,
-  is a `rebase::Conflict` naming it. `Mapping::map_point` and `project` map
+  is a `rebase::Conflict` naming it. A step by id that would overwrite what
+  `over` changed (a block's kind or path, a container, an island's props)
+  conflicts rather than undoing it, as does a splice that deletes an island
+  or block `over` changed, so a diff's `setBlock` names only the fields it
+  changes.
+  `Mapping::map_point` and `project` map
   as `apply` moves a point anchor and inside one slot. WASM `rebase`,
   Python `rebase`.
 - feat(core)!: **a stale `base` rebases the write instead of refusing it.**
-  Each card keeps, in memory only, a log of its recent writes per value
-  (`LOG_WRITES`, `LOG_STEPS`); `apply`, `revise` and `replace` with a base the
-  log holds rebase over the changes since, and a revise or replace diffs from
-  the value the base names. The receipt's new `rebased` says so. A conflict
-  refuses with `edit::rebase_conflict`, carrying `step` and `reason`; a base
-  the log does not reach is `edit::stale_base` as before. `Card::read_at`
-  answers the value a base names, and `BaseError::Conflict` carries `step`
-  and `reason`.
+  Each card keeps, in memory only, a log of its recent writes per value: one
+  snapshot of the value, and each write's normalized change and the hash it
+  left. A base rebases while the writes since it hold at most `LOG_STEPS`
+  (4096) steps, thousands of keystrokes, and the base the newest write read
+  whatever its size; past twice that, the oldest writes fold into the
+  snapshot, so the log holds one copy of the value however large.
+  `apply`, `revise` and `replace` with a base the log holds rebase over the
+  changes since, and a revise or replace diffs from the value the base
+  names. The receipt's new `rebased` says so. A conflict refuses with
+  `edit::rebase_conflict`, carrying `step` and `reason`; a base the log does
+  not reach is `edit::stale_base` as before. `Card::read_at` answers the
+  value a base names, and `BaseError::Conflict` carries `step` and
+  `reason`.
 - fix(content): **`replace` moves an anchor between the prose and a cell**,
   where it refused with `DuplicateId`: it carries only an anchor the new
   value names nowhere. A props step naming a slot in `slots` that the props

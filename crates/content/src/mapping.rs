@@ -46,7 +46,7 @@ pub enum Slots {
 }
 
 impl Slots {
-    fn contains(&self, slot: &str) -> bool {
+    pub(crate) fn contains(&self, slot: &str) -> bool {
         match self {
             Slots::Only(s) => s.contains(slot),
             Slots::AllBut(s) => !s.contains(slot),

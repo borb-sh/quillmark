@@ -8,8 +8,9 @@ use crate::change::{AnchorStep, Change, ContainerStep, IslandStep, SetBlock, Spl
 use crate::ids::{Minter, prefix};
 use crate::lines::delta::{Op, diff_import, diff_words as text_diff, without_sentinel};
 use crate::lines::import::{ImportError, ImportWarning};
+use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{BlockKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
+use crate::model::{Block, BlockKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
 use crate::table::{self, Table};
 use std::collections::{HashMap, HashSet};
 
@@ -106,16 +107,7 @@ fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>
         return replace_all(before, &want, carry);
     }
     let mut rest = Vec::new();
-    for (have, need) in cur.blocks.iter().zip(&want.blocks) {
-        if have.kind != need.kind || have.path != need.path {
-            rest.push(Step::SetBlock(SetBlock {
-                id: have.id.clone(),
-                kind: Some(need.kind.tag().to_string()),
-                attrs: crate::wire::block_attrs(&need.kind).and_then(|v| v.as_object().cloned()),
-                path: Some(need.path.clone()),
-            }));
-        }
-    }
+    rest.extend(cur.blocks.iter().zip(&want.blocks).filter_map(|(have, need)| record_step(have, need)));
     for (have, need) in cur.islands.iter().zip(&want.islands) {
         if have.props != need.props {
             let slots = need.slots.iter().filter(|(k, _)| !have.slots.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -157,18 +149,26 @@ fn replace_all(before: &Content, want: &Content, carry: Option<&HashSet<String>>
         ..Splice::new(0, before.text.clone(), want.text.clone())
     };
     steps.push(Step::Splice(splice));
-    let first = &want.blocks[0];
-    steps.push(Step::SetBlock(SetBlock {
-        id: first.id.clone(),
-        kind: Some(first.kind.tag().to_string()),
-        attrs: crate::wire::block_attrs(&first.kind).and_then(|v| v.as_object().cloned()),
-        path: Some(first.path.clone()),
-    }));
+    steps.extend(record_step(&before.blocks[0], &want.blocks[0]));
     let mut cur = before.clone();
     if run(&mut cur, &steps).is_ok() {
         steps.extend(fixups_carrying(&cur, want, carry));
     }
     steps
+}
+
+/// The `setBlock` that takes `have`'s record to `need`'s, naming only the
+/// fields that differ: a rebase holds each field it names to what it read.
+fn record_step(have: &Block, need: &Block) -> Option<Step> {
+    let (kind, path) = (have.kind != need.kind, have.path != need.path);
+    (kind || path).then(|| {
+        Step::SetBlock(SetBlock {
+            id: have.id.clone(),
+            kind: kind.then(|| need.kind.tag().to_string()),
+            attrs: crate::wire::block_attrs(&need.kind).and_then(|v| v.as_object().cloned()).filter(|_| kind),
+            path: path.then(|| need.path.clone()),
+        })
+    })
 }
 
 /// `after` under the ids a change from `before` can give it.
@@ -239,7 +239,8 @@ fn splices(before: &Content, want: &Content) -> Vec<Step> {
         ('\n', Some(x), Some(y)) => before.blocks[x].id == want.blocks[y].id,
         (ISLAND_SLOT, Some(x), Some(y)) => {
             let (p, q) = (&before.islands[x], &want.islands[y]);
-            p.id == q.id && p.island_type == q.island_type
+            let slots_follow_props = !matches!(p.island_type, IslandType::Ext(_));
+            p.id == q.id && p.island_type == q.island_type && (slots_follow_props || p.slots.keys().eq(q.slots.keys()))
         }
         _ => true,
     };
@@ -644,8 +645,18 @@ pub struct Revision {
 }
 
 pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ImportError> {
+    revise_holding(before, markdown, before, &HashSet::new())
+}
+
+/// [`revise`] for a write that lands on `now` rather than on `before`: each
+/// block, container and island id the revision introduces that `now` holds,
+/// or that `taken` names at the top level, is minted afresh, past the ids of
+/// `before`, `now`, `taken` and the revision. `taken` is the ids a stale
+/// writer may still name, so a step by id never reaches a block minted
+/// after that writer's read.
+pub fn revise_holding(before: &Content, markdown: &str, now: &Content, taken: &HashSet<String>) -> Result<Revision, ImportError> {
     let (lines, _, warnings) = diff_import(&to_lines(before), markdown)?;
-    let content = align(before, from_lines(&lines));
+    let content = holding(before, &align(before, from_lines(&lines)), now, taken, true);
     let Diff { change, whole_text } = diff_with(before, &content, None);
     Ok(Revision { change, content, warnings, whole_text })
 }
@@ -654,6 +665,65 @@ pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ImportError>
 /// that `content` names nowhere carried where the diff keeps its text.
 pub fn replace(before: &Content, content: &Content) -> Result<Diff, Invariant> {
     diff_carrying(before, content)
+}
+
+/// [`replace`] for a write that lands on `now` rather than on `before`, its
+/// ids minted as [`revise_holding`] mints them.
+pub fn replace_holding(before: &Content, content: &Content, now: &Content, taken: &HashSet<String>) -> Result<Diff, Invariant> {
+    content.validate()?;
+    diff_carrying(before, &holding(before, content, now, taken, true))
+}
+
+/// `want` under the ids a change from `before` can give it, each block,
+/// container and island id it holds and `before` does not that `now` or
+/// `taken` holds minted past the ids of all of them, and so in each slot of
+/// an island all three hold.
+fn holding(before: &Content, want: &Content, now: &Content, taken: &HashSet<String>, top: bool) -> Content {
+    let mut want = reachable(before, want, top);
+    let mut ids = Minter::default();
+    let mut island_ids = Minter::default();
+    for c in [before, now, &want] {
+        c.blocks.iter().map(|b| &b.id).chain(c.containers.iter().map(|k| &k.id)).for_each(|id| ids.hold(id));
+        c.islands.iter().for_each(|i| island_ids.hold(&i.id));
+    }
+    for id in taken {
+        ids.hold(id);
+        island_ids.hold(id);
+    }
+    let mut renamed = HashMap::new();
+    for k in &mut want.containers {
+        if before.container(&k.id).is_none() && (now.container(&k.id).is_some() || taken.contains(&k.id)) {
+            let fresh = ids.mint(container_prefix(k));
+            renamed.insert(std::mem::replace(&mut k.id, fresh.clone()), fresh);
+        }
+    }
+    let has_block = |c: &Content, id: &str| c.blocks.iter().any(|b| b.id == id);
+    for b in &mut want.blocks {
+        if !has_block(before, &b.id) && (has_block(now, &b.id) || taken.contains(&b.id)) {
+            b.id = ids.mint(prefix::BLOCK);
+        }
+        for id in &mut b.path {
+            if let Some(to) = renamed.get(id) {
+                *id = to.clone();
+            }
+        }
+    }
+    let none = HashSet::new();
+    for i in &mut want.islands {
+        let (was, held) = (before.islands.iter().find(|x| x.id == i.id), now.islands.iter().find(|x| x.id == i.id));
+        match (was, held) {
+            (Some(was), Some(held)) => {
+                for (slot, inner) in &mut i.slots {
+                    if let (Some(w), Some(n)) = (was.slots.get(slot), held.slots.get(slot)) {
+                        *inner = holding(w, inner, n, &none, false);
+                    }
+                }
+            }
+            (None, held) if held.is_some() || taken.contains(&i.id) => i.id = island_ids.mint(prefix::ISLAND),
+            _ => {}
+        }
+    }
+    want
 }
 
 /// A line-form value written over `before`, under the ids of what it kept.

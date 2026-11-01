@@ -630,6 +630,10 @@ fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>) -> Option<Island
     };
     let mut slots: BTreeMap<String, Content> = BTreeMap::new();
     for (key, slot) in raw.slots {
+        if !is_id(&key) {
+            out.push(Repair::Invalid(Invariant::BadId { id: key }));
+            continue;
+        }
         let mut inner = Vec::new();
         let mut c = field(slot, &mut inner);
         if !c.is_slot_shape() {
@@ -977,7 +981,7 @@ fn split_block_islands(
                 pieces.push((from, seg.len(), None));
             }
             let mut record = Some(b.clone());
-            if pieces.len() == 1 && b.kind != BlockKind::Para {
+            if pieces.len() == 1 && !b.kind.reads_as_para() {
                 out.push(Repair::Invalid(Invariant::BlockIslandNotAlone {
                     island: pieces[0].2.map_or(String::new(), |i| i.id.clone()),
                 }));
@@ -993,8 +997,8 @@ fn split_block_islands(
                     .or_else(|| pieces[..n].iter().rev().find_map(|p| p.2));
                 let near = near.map_or("isl", |i| i.id.as_str());
                 let kind = match island {
-                    Some(_) => BlockKind::Para,
-                    None => b.kind.clone(),
+                    Some(_) if !b.kind.reads_as_para() => BlockKind::Para,
+                    _ => b.kind.clone(),
                 };
                 match record.take() {
                     Some(mut keep) => {
