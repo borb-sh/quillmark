@@ -1119,6 +1119,60 @@ proptest! {
     }
 }
 
+/// A grid as a table's props spell it, either axis possibly empty, a row's
+/// cells possibly short, and the layout keys holding anything.
+fn grid_props() -> impl Strategy<Value = Value> {
+    (
+        prop::collection::vec("k[0-2]", 0..3),
+        prop::collection::vec(("r[0-2]", prop::collection::vec("s[0-3]", 0..3)), 0..3),
+        prop::collection::hash_map(
+            prop::sample::select(&["head", "aligns", "widths", "align", "cell_attrs"][..]),
+            decode_json(),
+            0..3,
+        ),
+    )
+        .prop_map(|(columns, rows, layout)| {
+            let rows: Vec<Value> = rows
+                .into_iter()
+                .map(|(id, slots)| {
+                    let cells: serde_json::Map<String, Value> =
+                        columns.iter().cloned().zip(slots.into_iter().map(Value::from)).collect();
+                    json!({"id": id, "cells": cells})
+                })
+                .collect();
+            let mut props = serde_json::Map::from_iter([("columns".to_string(), json!(columns)), ("rows".to_string(), Value::Array(rows))]);
+            props.extend(layout.into_iter().map(|(k, v)| (k.to_string(), v)));
+            Value::Object(props)
+        })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(400))]
+
+    /// The model's door: a value shaped as content around one island of each
+    /// type, its props generated, decodes or refuses, renders if it decodes,
+    /// and an island insert carrying it applies or refuses.
+    #[test]
+    fn model_decode_never_panics(
+        island_type in prop::sample::select(&["table", "footnote", "image", "math", "x-a"][..]),
+        props in prop_oneof![grid_props(), decode_json()],
+        slots in prop::collection::vec("s[0-3]|note", 0..3),
+    ) {
+        use quillmark_content::model::Content;
+        let slots: serde_json::Map<String, Value> =
+            slots.into_iter().map(|s| (s, json!({"text": "a", "blocks": [{"id": "b0", "kind": "para"}]}))).collect();
+        let island = json!({"id": "t0", "type": island_type, "props": props, "slots": slots});
+        let value = json!({"text": "\u{FFFC}", "blocks": [{"id": "b0", "kind": "para"}], "islands": [island.clone()]});
+        if let Ok(c) = Content::from_value(&value) {
+            let _ = quillmark_content::migrate::to_lines(&c);
+        }
+        let insert = json!({"steps": [{"island": {"at": 0, "island": island}}]});
+        if let Ok(change) = quillmark_content::change::Change::from_value(&insert) {
+            let _ = quillmark_content::change::apply(&Content::empty(), &change);
+        }
+    }
+}
+
 #[test]
 fn fixture_bodies_import_and_are_valid() {
     for name in [
