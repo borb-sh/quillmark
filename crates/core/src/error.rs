@@ -823,6 +823,10 @@ mod args_canon {
                 step: Some(1),
                 reason: Some("deleted"),
             }),
+            EditError::DropsExtIsland {
+                island: "isl-x".into(),
+                kind: "x-chart".into(),
+            },
         ] {
             add(e.code(), e.args());
         }
