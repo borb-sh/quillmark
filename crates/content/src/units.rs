@@ -286,7 +286,7 @@ fn value_offsets(v: &mut Value, u: impl Units, dir: Dir) -> Option<()> {
         for item in items {
             for edge in ["start", "end"] {
                 let Some(n) = item.get(edge).and_then(Value::as_u64) else { continue };
-                let n = index.offset(dir, usize::try_from(n).ok()?)?;
+                let n = index.offset(dir, usize::try_from(n).unwrap_or(usize::MAX))?;
                 item[edge] = n.into();
             }
         }

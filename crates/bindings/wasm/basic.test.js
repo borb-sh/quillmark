@@ -827,6 +827,15 @@ describe('Document apply: the write primitive', () => {
     expect(() => repair({ blocks: [] })).toThrow(/not shaped as content/)
   })
 
+  it('repair converts every offset from UTF-16 after one past 2^32', () => {
+    const { content } = repair({
+      text: '😀ab',
+      blocks: [{ id: 'b0', kind: 'para' }],
+      marks: [{ start: 2 ** 32, end: 2 ** 32 + 1, type: 'strong' }, { start: 3, end: 4, type: 'emph' }],
+    })
+    expect(content.marks).toEqual([{ start: 3, end: 4, type: 'emph' }])
+  })
+
   it('normalize answers what replace stores, and refuses what replace refuses', () => {
     const doc = blankDoc()
     const content = {
