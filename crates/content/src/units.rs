@@ -259,13 +259,13 @@ fn step_in(c: &Content, step: &Step, n: usize, u: impl Units, dir: Dir) -> Resul
             splice(s, u, dir).ok_or_else(bad)?;
         }
         Step::SetBlock(_) | Step::Container(_) | Step::Anchor(AnchorStep::Remove { .. }) => {}
-        Step::Mark(MarkStep::Add(m)) => {
+        Step::Mark(MarkStep::Add { mark: m, .. }) => {
             (m.start, m.end) = (at(m.start)?, at(m.end)?);
         }
         Step::Mark(MarkStep::Remove { start, end, .. }) => {
             (*start, *end) = (at(*start)?, at(*end)?);
         }
-        Step::Anchor(AnchorStep::Set(a)) => {
+        Step::Anchor(AnchorStep::Set { anchor: a, .. }) => {
             (a.start, a.end) = (at(a.start)?, at(a.end)?);
         }
         Step::Island(IslandStep::Props { slots, .. }) => {
@@ -273,7 +273,7 @@ fn step_in(c: &Content, step: &Step, n: usize, u: impl Units, dir: Dir) -> Resul
                 content(u, dir, slot).ok_or_else(bad)?;
             }
         }
-        Step::Island(IslandStep::Insert { at: p, island }) => {
+        Step::Island(IslandStep::Insert { at: p, island, .. }) => {
             *p = at(*p)?;
             islands(u, dir, std::slice::from_mut(island)).ok_or_else(bad)?;
         }

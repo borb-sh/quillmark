@@ -76,6 +76,13 @@ over its keys: read `receipt["warnings"]`.
   value or slot no step-wise change reached, which the bindings raise as an
   `edit::whole_text_diff` warning; WASM and Python `diff` answer
   `{ change, warnings }`.
+- feat(content)!: **every offset-addressed step can hold to what its writer
+  read.** `mark` steps and an `anchor` placement take an optional `quote`,
+  the text their range covered, and an `island` insert an optional `block`,
+  the id of the block it lands in; a mismatch is `ApplyError::Stale`, as a
+  splice's `delete` is. `Applied.applied` and `invert` fill both in.
+  `MarkStep::Add`, `MarkStep::Remove`, `AnchorStep::Set` and
+  `IslandStep::Insert` carry the new fields.
 - fix(content): **`replace` moves an anchor between the prose and a cell**,
   where it refused with `DuplicateId`: it carries only an anchor the new
   value names nowhere. A props step naming a slot in `slots` that the props

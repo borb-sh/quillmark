@@ -115,6 +115,12 @@ fn splice_on(c: &Content, x: usize, y: usize, z: u8, k: usize) -> Splice {
     s
 }
 
+/// The text `c` holds over `[start, end)`, the quote a writer that read it
+/// gives, on every other `seed`.
+fn quote_of(c: &Content, start: usize, end: usize, seed: usize) -> Option<String> {
+    (seed / 2 % 2 == 0).then(|| chars(c)[start..end].iter().collect())
+}
+
 fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
     let len = c.len_usv();
     Some(match op {
@@ -123,10 +129,11 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
             let (a, b) = (x % (len + 1), y % (len + 1));
             let (start, end) = (a.min(b), a.max(b));
             let tag = TAGS[z as usize % TAGS.len()];
+            let quote = quote_of(c, start, end, y);
             if z % 2 == 0 {
-                Step::Mark(MarkStep::Add(Mark::new(start, end, kind_of(tag))))
+                Step::Mark(MarkStep::Add { mark: Mark::new(start, end, kind_of(tag)), quote })
             } else {
-                Step::Mark(MarkStep::Remove { start, end, tag })
+                Step::Mark(MarkStep::Remove { start, end, tag, quote })
             }
         }
         3 => {
@@ -135,7 +142,10 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
                 0 if !c.anchors.is_empty() => {
                     Step::Anchor(AnchorStep::Remove { id: c.anchors[x % c.anchors.len()].id.clone() })
                 }
-                _ => Step::Anchor(AnchorStep::Set(Anchor::new(format!("c-{}", z % 4), a.min(b), a.max(b)))),
+                _ => Step::Anchor(AnchorStep::Set {
+                    anchor: Anchor::new(format!("c-{}", z % 4), a.min(b), a.max(b)),
+                    quote: quote_of(c, a.min(b), a.max(b), x),
+                }),
             }
         }
         4 => {
@@ -179,7 +189,8 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
                     i
                 }
             };
-            Step::Island(IslandStep::Insert { at, island })
+            let block = (y % 2 == 0).then(|| c.blocks[c.block_at(at)].id.clone());
+            Step::Island(IslandStep::Insert { at, island, block })
         }
         8 => {
             let tables: Vec<&Island> = c.islands.iter().filter(|i| i.island_type == IslandType::Table).collect();
@@ -413,6 +424,84 @@ fn a_wholly_deleted_range_anchor_is_dropped_and_a_point_collapses() {
     assert_eq!(done.content.anchor("cut"), Some(&Anchor::new("cut", 3, 5)));
 }
 
+#[test]
+fn a_quoted_step_refuses_the_text_it_did_not_read() {
+    let one = |s: &Step| Change::new(vec![s.clone()]);
+    let d = from_markdown("hello\n\nworld").unwrap().content;
+    let typed = apply(&d, &one(&Step::Splice(Splice::new(0, "", "XX ")))).unwrap().content;
+    let joined = apply(&d, &one(&Step::Splice(Splice::new(5, "\n", "")))).unwrap().content;
+    let math = Island::new("isl-9", IslandType::Math).with_props(json!({"tex": "y"}));
+    let cases = [
+        (Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }), &typed),
+        (Step::Mark(MarkStep::Add { mark: Mark::new(6, 11, MarkKind::Strong), quote: Some("world".into()) }), &typed),
+        (Step::Mark(MarkStep::Remove { start: 6, end: 11, tag: "strong", quote: Some("world".into()) }), &typed),
+        (Step::Island(IslandStep::Insert { at: 8, island: math, block: Some(d.blocks[1].id.clone()) }), &joined),
+    ];
+    for (step, moved) in cases {
+        assert!(apply(&d, &one(&step)).is_ok(), "{step:?}");
+        assert_eq!(apply(moved, &one(&step)).map(|_| ()), Err(ApplyError::Stale { step: 0 }), "{step:?}");
+        let unguarded = match step {
+            Step::Anchor(AnchorStep::Set { anchor, .. }) => Step::Anchor(AnchorStep::Set { anchor, quote: None }),
+            Step::Mark(MarkStep::Add { mark, .. }) => Step::Mark(MarkStep::Add { mark, quote: None }),
+            Step::Mark(MarkStep::Remove { start, end, tag, .. }) => Step::Mark(MarkStep::Remove { start, end, tag, quote: None }),
+            Step::Island(IslandStep::Insert { at, island, .. }) => Step::Island(IslandStep::Insert { at, island, block: None }),
+            step => step,
+        };
+        assert!(apply(moved, &one(&unguarded)).is_ok(), "{unguarded:?}");
+    }
+}
+
+#[test]
+fn the_receipt_and_the_inverse_carry_each_steps_precondition() {
+    let d = from_markdown("hello world").unwrap().content;
+    let c = Change::new(vec![
+        Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-1", 6, 11), quote: None }),
+        Step::Mark(MarkStep::Add { mark: Mark::new(0, 5, MarkKind::Strong), quote: None }),
+        Step::Island(IslandStep::Insert { at: 5, island: Island::new("isl-9", IslandType::Math).with_props(json!({"tex": "y"})), block: None }),
+    ]);
+    let done = apply(&d, &c).unwrap();
+    assert_eq!(done.applied.steps[0], Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-1", 6, 11), quote: Some("world".into()) }));
+    assert_eq!(done.applied.steps[1], Step::Mark(MarkStep::Add { mark: Mark::new(0, 5, MarkKind::Strong), quote: Some("hello".into()) }));
+    assert!(matches!(&done.applied.steps[2], Step::Island(IslandStep::Insert { block: Some(b), .. }) if *b == d.blocks[0].id));
+    let undo = invert(&c, &d).unwrap();
+    let guarded = |s: &Step| match s {
+        Step::Mark(MarkStep::Add { quote, .. } | MarkStep::Remove { quote, .. }) | Step::Anchor(AnchorStep::Set { quote, .. }) => quote.is_some(),
+        _ => true,
+    };
+    assert!(undo.steps.iter().all(guarded), "{undo:?}");
+    assert!(undo.steps.iter().any(|s| matches!(s, Step::Mark(_))));
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
+
+    /// A quoted step lands exactly where its range still covers its quote,
+    /// and the same step unquoted lands wherever its range fits.
+    #[test]
+    fn a_quote_holds_a_step_to_the_text_it_read(d in document(), (x, y, z) in (any::<usize>(), any::<usize>(), any::<u8>()), pre in (any::<usize>(), any::<usize>(), any::<u8>())) {
+        let len = d.len_usv();
+        let (a, b) = (x % (len + 1), y % (len + 1));
+        let (start, end) = (a.min(b), a.max(b));
+        let quote: String = chars(&d)[start..end].iter().collect();
+        let step = |quote: Option<String>| match z % 3 {
+            0 => Step::Anchor(AnchorStep::Set { anchor: Anchor::new("c-9", start, end), quote }),
+            1 => Step::Mark(MarkStep::Add { mark: Mark::new(start, end, MarkKind::Emph), quote }),
+            _ => Step::Mark(MarkStep::Remove { start, end, tag: "strong", quote }),
+        };
+        let Ok(mid) = apply(&d, &Change::new(vec![Step::Splice(splice_on(&d, pre.0, pre.1, pre.2, 0))])) else { return Ok(()) };
+        let now: Option<String> = (end <= mid.content.len_usv()).then(|| chars(&mid.content)[start..end].iter().collect());
+        let unquoted = apply(&mid.content, &Change::new(vec![step(None)]));
+        match apply(&mid.content, &Change::new(vec![step(Some(quote.clone()))])) {
+            Ok(done) => {
+                prop_assert_eq!(now, Some(quote));
+                prop_assert_eq!(Ok(done.content), unquoted.map(|u| u.content));
+            }
+            Err(ApplyError::Stale { step: 0 }) => prop_assert_ne!(now, Some(quote)),
+            Err(e) => prop_assert!(unquoted.is_err(), "{:?}", e),
+        }
+    }
+}
+
 fn anchor_ids(c: &Content, out: &mut BTreeSet<String>) {
     out.extend(c.anchors.iter().map(|a| a.id.clone()));
     for island in &c.islands {
@@ -635,16 +724,16 @@ fn wild_step() -> impl Strategy<Value = Step> {
                 ..Splice::new(at, delete, insert)
             })),
         (n(), n(), any::<bool>()).prop_map(|(s, e, add)| Step::Mark(if add {
-            MarkStep::Add(Mark::new(s, e, MarkKind::Strong))
+            MarkStep::Add { mark: Mark::new(s, e, MarkKind::Strong), quote: None }
         } else {
-            MarkStep::Remove { start: s, end: e, tag: "strong" }
+            MarkStep::Remove { start: s, end: e, tag: "strong", quote: Some("a".into()) }
         })),
-        (id(), n(), n()).prop_map(|(i, s, e)| Step::Anchor(AnchorStep::Set(Anchor::new(i, s, e)))),
+        (id(), n(), n()).prop_map(|(i, s, e)| Step::Anchor(AnchorStep::Set { anchor: Anchor::new(i, s, e), quote: None })),
         id().prop_map(|i| Step::Anchor(AnchorStep::Remove { id: i })),
         (id(), prop::collection::vec(id(), 0..4)).prop_map(|(i, path)| Step::SetBlock(SetBlock { id: i, path: Some(path), ..SetBlock::default() })),
         id().prop_map(|i| Step::Container(ContainerStep::Remove { id: i })),
         id().prop_map(|i| Step::Container(ContainerStep::Set(Container::new(i, ContainerKind::Quote)))),
-        (id(), n()).prop_map(|(i, at)| Step::Island(IslandStep::Insert { at, island: Island::new(i, IslandType::Table) })),
+        (id(), n()).prop_map(|(i, at)| Step::Island(IslandStep::Insert { at, island: Island::new(i, IslandType::Table), block: None })),
         id().prop_map(|i| Step::Island(IslandStep::Props { id: i, props: json!({"columns": ["k"], "rows": [{"id": "r", "cells": {"k": "s"}}]}), slots: Default::default() })),
         (id(), n(), "[a\n]{0,2}").prop_map(|(i, at, insert)| Step::Nested {
             island: i,

@@ -73,17 +73,20 @@ pub enum ContainerStep {
     Remove { id: String },
 }
 
+/// A `quote` is the text the range covered when the writer read it: a step
+/// whose range covers other text now is [`ApplyError::Stale`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum MarkStep {
     /// A keyed kind replaces whatever value the range held.
-    Add(Mark),
+    Add { mark: Mark, quote: Option<String> },
     /// Clears every mark of the type over the range, whatever its value.
-    Remove { start: Usv, end: Usv, tag: &'static str },
+    Remove { start: Usv, end: Usv, tag: &'static str, quote: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnchorStep {
-    Set(Anchor),
+    /// Places or moves an anchor. `quote` is as a mark step's.
+    Set { anchor: Anchor, quote: Option<String> },
     Remove { id: String },
 }
 
@@ -93,8 +96,10 @@ pub enum IslandStep {
     /// lacks takes its content from `slots`, or an empty paragraph; a slot
     /// they no longer name leaves.
     Props { id: String, props: Value, slots: BTreeMap<String, Content> },
-    /// Inserts the island's slot character at `at`.
-    Insert { at: Usv, island: Island },
+    /// Inserts the island's slot character at `at`. `block` is the id of the
+    /// block the writer read `at` in: one that holds `at` no longer is
+    /// [`ApplyError::Stale`].
+    Insert { at: Usv, island: Island, block: Option<String> },
 }
 
 /// Which side of an insertion at a position the position keeps to.
@@ -107,8 +112,9 @@ pub enum Assoc {
 /// Why a change was refused. Nothing changed.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApplyError {
-    /// The step at `step` is past the text, or deletes text the value does
-    /// not hold there.
+    /// The step at `step` is past the text, deletes text the value does not
+    /// hold there, quotes text its range no longer covers, or inserts an
+    /// island into a block other than the one it names.
     Stale { step: usize },
     UnknownBlock { id: String },
     UnknownContainer { id: String },
@@ -154,6 +160,7 @@ impl From<Invariant> for ApplyError {
 pub struct Applied {
     pub content: Content,
     /// The change in its normalized form: each splice's `removed` filled in,
+    /// each mark and anchor step's `quote` and each island insert's `block`,
     /// each `setBlock` naming its kind and attributes, and a container step
     /// removing each container the change left unused.
     pub applied: Change,
@@ -273,27 +280,28 @@ fn apply_step(c: &mut Content, step: &Step, n: usize, removed: &mut Vec<String>)
             container(c, s)?;
             step.clone()
         }
-        Step::Mark(m) => {
-            mark(c, m, n)?;
-            step.clone()
-        }
+        Step::Mark(m) => Step::Mark(mark(c, m, n)?),
         Step::Anchor(a) => {
-            anchor(c, a, n)?;
+            let done = anchor(c, a, n)?;
             if let AnchorStep::Remove { id } = a {
                 removed.push(id.clone());
             }
-            step.clone()
+            Step::Anchor(done)
         }
         Step::Island(IslandStep::Props { id, props, slots }) => {
             let slots = island_props(c, id, props, slots, n)?;
             let props = c.island(id).map(|i| i.props.clone()).unwrap_or_default();
             Step::Island(IslandStep::Props { id: id.clone(), props, slots })
         }
-        Step::Island(IslandStep::Insert { at, island }) => {
+        Step::Island(IslandStep::Insert { at, island, block }) => {
+            let held = (*at <= c.len_usv()).then(|| c.blocks[c.block_at(*at)].id.clone());
+            if block.is_some() && *block != held {
+                return Err(ApplyError::Stale { step: n });
+            }
             let s = Splice { islands: vec![island.clone()], ..Splice::new(*at, "", ISLAND_SLOT.to_string()) };
             let done = splice(c, &s, n)?;
             let island = done.islands.into_iter().next().unwrap_or_else(|| island.clone());
-            Step::Island(IslandStep::Insert { at: *at, island })
+            Step::Island(IslandStep::Insert { at: *at, island, block: held })
         }
         Step::Nested { island, slot, change } => {
             let unknown = || ApplyError::UnknownSlot { island: island.clone(), slot: slot.clone() };
@@ -487,24 +495,38 @@ fn container(c: &mut Content, s: &ContainerStep) -> Result<(), ApplyError> {
     Ok(())
 }
 
-fn mark(c: &mut Content, s: &MarkStep, n: usize) -> Result<(), ApplyError> {
+/// The text over `[start, end)`, held to `quote` where the step gives one:
+/// `None` where the range is past the text and no quote is given.
+fn quoted(c: &Content, start: Usv, end: Usv, quote: &Option<String>, n: usize) -> Result<Option<String>, ApplyError> {
+    let held = (start <= end && end <= c.len_usv()).then(|| c.text.chars().skip(start).take(end - start).collect::<String>());
+    match quote {
+        Some(q) if held.as_ref() != Some(q) => Err(ApplyError::Stale { step: n }),
+        _ => Ok(held),
+    }
+}
+
+fn mark(c: &mut Content, s: &MarkStep, n: usize) -> Result<MarkStep, ApplyError> {
     let len = c.len_usv();
-    let (start, end, tag) = match s {
-        MarkStep::Add(mk) => (mk.start, mk.end, mk.kind.tag()),
-        MarkStep::Remove { start, end, tag } => (*start, *end, *tag),
+    let (start, end, tag, quote) = match s {
+        MarkStep::Add { mark, quote } => (mark.start, mark.end, mark.kind.tag(), quote),
+        MarkStep::Remove { start, end, tag, quote } => (*start, *end, *tag, quote),
     };
+    let held = quoted(c, start, end, quote, n)?;
     if start >= end || end > len {
         return Err(ApplyError::BadStep { step: n, reason: "a mark step's range is empty or past the text" });
     }
-    let remove = matches!(s, MarkStep::Remove { .. }) || matches!(s, MarkStep::Add(mk) if mk.kind.is_keyed());
+    let remove = matches!(s, MarkStep::Remove { .. }) || matches!(s, MarkStep::Add { mark, .. } if mark.kind.is_keyed());
     if remove {
         clear(&mut c.marks, start, end, tag);
     }
-    if let MarkStep::Add(mk) = s {
-        c.marks.push(mk.clone());
+    if let MarkStep::Add { mark, .. } = s {
+        c.marks.push(mark.clone());
     }
     c.normalize_marks();
-    Ok(())
+    Ok(match s {
+        MarkStep::Add { mark, .. } => MarkStep::Add { mark: mark.clone(), quote: held },
+        MarkStep::Remove { .. } => MarkStep::Remove { start, end, tag, quote: held },
+    })
 }
 
 fn clear(marks: &mut Vec<Mark>, start: Usv, end: Usv, tag: &str) {
@@ -524,22 +546,24 @@ fn clear(marks: &mut Vec<Mark>, start: Usv, end: Usv, tag: &str) {
     *marks = out;
 }
 
-fn anchor(c: &mut Content, s: &AnchorStep, n: usize) -> Result<(), ApplyError> {
+fn anchor(c: &mut Content, s: &AnchorStep, n: usize) -> Result<AnchorStep, ApplyError> {
     match s {
-        AnchorStep::Set(a) => {
+        AnchorStep::Set { anchor: a, quote } => {
+            let held = quoted(c, a.start, a.end, quote, n)?;
             if a.id.is_empty() || a.start > a.end || a.end > c.len_usv() {
                 return Err(ApplyError::BadStep { step: n, reason: "an anchor step's range is past the text" });
             }
             c.anchors.retain(|h| h.id != a.id);
             c.anchors.push(a.clone());
             c.sort_anchors();
+            Ok(AnchorStep::Set { anchor: a.clone(), quote: held })
         }
         AnchorStep::Remove { id } => {
             let at = c.anchors.iter().position(|h| &h.id == id).ok_or_else(|| ApplyError::UnknownAnchor { id: id.clone() })?;
             c.anchors.remove(at);
+            Ok(s.clone())
         }
     }
-    Ok(())
 }
 
 /// Sets an island's props, and returns the content of each slot it gained.
@@ -633,10 +657,31 @@ fn invert_level(before: &Content, steps: &[Step], groups: &mut Vec<Vec<Step>>) -
             apply_step(&mut back, s, k, &mut Vec::new())?;
         }
         undo.extend(fixups(&back, &doc));
-        groups.push(undo);
+        let text: Vec<char> = doc.text.chars().collect();
+        groups.push(undo.into_iter().map(|s| quoting(s, &text)).collect());
         doc = next;
     }
     Ok(())
+}
+
+/// `step` with its quote filled in from `text`, the text it reads: every mark
+/// and anchor step of an undo group reads the text the step it undoes read.
+fn quoting(step: Step, text: &[char]) -> Step {
+    let over = |start: Usv, end: Usv| text.get(start..end).map(|s| s.iter().collect::<String>());
+    match step {
+        Step::Mark(MarkStep::Add { mark, quote: None }) => {
+            let quote = over(mark.start, mark.end);
+            Step::Mark(MarkStep::Add { mark, quote })
+        }
+        Step::Mark(MarkStep::Remove { start, end, tag, quote: None }) => {
+            Step::Mark(MarkStep::Remove { start, end, tag, quote: over(start, end) })
+        }
+        Step::Anchor(AnchorStep::Set { anchor, quote: None }) => {
+            let quote = over(anchor.start, anchor.end);
+            Step::Anchor(AnchorStep::Set { anchor, quote })
+        }
+        step => step,
+    }
 }
 
 /// The steps that take `after` back to `before` across one `step`, before
@@ -673,13 +718,13 @@ fn undo_step(before: &Content, after: &Content, step: &Step) -> Result<Vec<Step>
             vec![Step::Container(ContainerStep::Set(held.clone()))]
         }
         Step::Mark(_) => Vec::new(),
-        Step::Anchor(AnchorStep::Set(a)) => match before.anchor(&a.id) {
-            Some(held) => vec![Step::Anchor(AnchorStep::Set(held.clone()))],
+        Step::Anchor(AnchorStep::Set { anchor: a, .. }) => match before.anchor(&a.id) {
+            Some(held) => vec![Step::Anchor(AnchorStep::Set { anchor: held.clone(), quote: None })],
             None => vec![Step::Anchor(AnchorStep::Remove { id: a.id.clone() })],
         },
         Step::Anchor(AnchorStep::Remove { id }) => {
             let held = before.anchor(id).ok_or_else(|| ApplyError::UnknownAnchor { id: id.clone() })?;
-            vec![Step::Anchor(AnchorStep::Set(held.clone()))]
+            vec![Step::Anchor(AnchorStep::Set { anchor: held.clone(), quote: None })]
         }
         Step::Island(IslandStep::Props { id, .. }) => {
             let held = before.island(id).ok_or_else(|| ApplyError::UnknownIsland { id: id.clone() })?;
@@ -715,17 +760,17 @@ pub(crate) fn fixups(now: &Content, want: &Content) -> Vec<Step> {
         let (Some(lo), Some(hi)) = (differ.iter().map(|m| m.start).min(), differ.iter().map(|m| m.end).max()) else {
             continue;
         };
-        out.push(Step::Mark(MarkStep::Remove { start: lo, end: hi, tag }));
+        out.push(Step::Mark(MarkStep::Remove { start: lo, end: hi, tag, quote: None }));
         for m in need {
             let (s, e) = (m.start.max(lo), m.end.min(hi));
             if s < e {
-                out.push(Step::Mark(MarkStep::Add(Mark::new(s, e, m.kind.clone()))));
+                out.push(Step::Mark(MarkStep::Add { mark: Mark::new(s, e, m.kind.clone()), quote: None }));
             }
         }
     }
     for a in &want.anchors {
         if now.anchor(&a.id) != Some(a) {
-            out.push(Step::Anchor(AnchorStep::Set(a.clone())));
+            out.push(Step::Anchor(AnchorStep::Set { anchor: a.clone(), quote: None }));
         }
     }
     for a in &now.anchors {
@@ -992,16 +1037,19 @@ mod wire {
             Step::Container(ContainerStep::Remove { id }) => {
                 one("container", obj([("id", id.as_str().into()), ("remove", true.into())]))
             }
-            Step::Mark(MarkStep::Add(mk)) => {
-                let mut v = mark_value(mk);
+            Step::Mark(MarkStep::Add { mark, quote }) => {
+                let mut v = mark_value(mark);
                 v["add"] = true.into();
-                one("mark", v)
+                one("mark", quoting(v, quote))
             }
-            Step::Mark(MarkStep::Remove { start, end, tag }) => one(
+            Step::Mark(MarkStep::Remove { start, end, tag, quote }) => one(
                 "mark",
-                obj([("start", (*start).into()), ("end", (*end).into()), ("type", (*tag).into()), ("add", false.into())]),
+                quoting(
+                    obj([("start", (*start).into()), ("end", (*end).into()), ("type", (*tag).into()), ("add", false.into())]),
+                    quote,
+                ),
             ),
-            Step::Anchor(AnchorStep::Set(a)) => one("anchor", anchor_value(a)),
+            Step::Anchor(AnchorStep::Set { anchor, quote }) => one("anchor", quoting(anchor_value(anchor), quote)),
             Step::Anchor(AnchorStep::Remove { id }) => {
                 one("anchor", obj([("id", id.as_str().into()), ("remove", true.into())]))
             }
@@ -1014,8 +1062,12 @@ mod wire {
                 }
                 one("island", Value::Object(m))
             }
-            Step::Island(IslandStep::Insert { at, island }) => {
-                one("island", obj([("at", (*at).into()), ("island", island_value(island))]))
+            Step::Island(IslandStep::Insert { at, island, block }) => {
+                let mut v = obj([("at", (*at).into()), ("island", island_value(island))]);
+                if let Some(b) = block {
+                    v["block"] = b.as_str().into();
+                }
+                one("island", v)
             }
             Step::Nested { island, slot, change } => one(
                 "nested",
@@ -1025,6 +1077,20 @@ mod wire {
                     ("change", obj([("steps", change.steps.iter().map(step_value).collect())])),
                 ]),
             ),
+        }
+    }
+
+    fn quoting(mut v: Value, quote: &Option<String>) -> Value {
+        if let Some(q) = quote {
+            v["quote"] = q.as_str().into();
+        }
+        v
+    }
+
+    fn opt_str(v: &Value, key: &str) -> Result<Option<String>, ParseError> {
+        match v.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            _ => str_key(v, key).map(Some),
         }
     }
 
@@ -1119,28 +1185,31 @@ mod wire {
             }
             "mark" => {
                 let add = body.get("add").and_then(Value::as_bool).ok_or_else(|| shape("`add` is not a boolean"))?;
+                let quote = opt_str(body, "quote")?;
                 if add {
-                    Step::Mark(MarkStep::Add(mark_from_value(body)?))
+                    Step::Mark(MarkStep::Add { mark: mark_from_value(body)?, quote })
                 } else {
                     let ty = str_key(body, "type")?;
                     let tag = MARK_TAGS
                         .into_iter()
                         .find(|t| *t == ty)
                         .ok_or(ParseError::UnknownName { axis: "mark type", name: ty })?;
-                    Step::Mark(MarkStep::Remove { start: usize_key(body, "start")?, end: usize_key(body, "end")?, tag })
+                    Step::Mark(MarkStep::Remove { start: usize_key(body, "start")?, end: usize_key(body, "end")?, tag, quote })
                 }
             }
             "anchor" => {
                 if removing(body)? {
                     Step::Anchor(AnchorStep::Remove { id: str_key(body, "id")? })
                 } else {
-                    Step::Anchor(AnchorStep::Set(anchor_from_value(body)?))
+                    Step::Anchor(AnchorStep::Set { anchor: anchor_from_value(body)?, quote: opt_str(body, "quote")? })
                 }
             }
             "island" => match body.get("island") {
-                Some(island) => {
-                    Step::Island(IslandStep::Insert { at: usize_key(body, "at")?, island: island_from_value(island)? })
-                }
+                Some(island) => Step::Island(IslandStep::Insert {
+                    at: usize_key(body, "at")?,
+                    island: island_from_value(island)?,
+                    block: opt_str(body, "block")?,
+                }),
                 None => Step::Island(IslandStep::Props {
                     id: str_key(body, "id")?,
                     props: body.get("props").cloned().ok_or_else(|| shape("an island step names `props`"))?,

@@ -76,10 +76,19 @@ A `Change` is a list of steps. Each step reads the value the step before it left
 | `splice` | `{at, delete, insert, marks?, blocks?, islands?}` | Replaces text. `delete` is the removed text itself, and the step fails if the value holds anything else there. `marks` is the formatting the inserted text carries; omitted, it carries none. Each `\n` in `insert` brings the record of the block it opens, and each `U+FFFC` its island. The removed records, marks and islands travel with the step as `removed`, for inversion. |
 | `setBlock` | `{id, kind?, attrs?, path?}` | Changes a block's kind, attributes or path. Indenting and outdenting are path changes. |
 | `container` | `{id, kind, attrs?}` or `{id, remove: true}` | Adds a container or sets an existing one's attributes, or removes one no path names. |
-| `mark` | `{start, end, type, attrs?, add}` | Adds or removes formatting over a range. |
-| `anchor` | `{id, start, end}` or `{id, remove: true}` | Places, moves or removes a comment anchor. |
-| `island` | `{id, props, slots?}` or `{at, island}` | Replaces an island's props, or inserts an island with its slot. A slot the new props name and the island lacks takes its content from `slots`, which names no other slot; a slot they no longer name leaves. Deleting the slot in a splice removes the island. |
+| `mark` | `{start, end, type, attrs?, add, quote?}` | Adds or removes formatting over a range. |
+| `anchor` | `{id, start, end, quote?}` or `{id, remove: true}` | Places, moves or removes a comment anchor. |
+| `island` | `{id, props, slots?}` or `{at, island, block?}` | Replaces an island's props, or inserts an island with its slot. A slot the new props name and the island lacks takes its content from `slots`, which names no other slot; a slot they no longer name leaves. Deleting the slot in a splice removes the island. |
 | `nested` | `{island, slot, change}` | Applies a change inside one slot: a table cell or a footnote. |
+
+Every step can tell whether it still fits the value it reads, so a writer outside the live session that passes no base is refused rather than landing on whatever text now sits at its offsets. A step whose precondition fails is `ApplyError::Stale`:
+
+- a splice holds its `delete` to the text at `at`;
+- a `mark` step and an `anchor` placement hold their range to `quote`, the text it covered when the writer read it;
+- an island insert holds `at` to `block`, the id of the block the writer read it in;
+- the id-addressed steps fail on a missing id.
+
+`quote` and `block` are optional on input. The normalized change, `Applied.applied`, fills both in, as it fills a splice's `removed`, so a change rebased over another holds every step to what its writer read. `invert` fills them in its own steps, from the value each undoes.
 
 A split inserts a `\n` whose record names the right half; the left half keeps its id, since the record that opens it does not move. A join deletes the right block's `\n` and record, and the joined block keeps the left's id and kind. Splits and joins therefore never rewrite a record a concurrent `setBlock` could be aimed at. Collab's Y form keeps the same boundary, so a split or a join lowers into Y as an insertion or a deletion alone.
 

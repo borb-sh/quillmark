@@ -35,6 +35,15 @@ def test_a_refused_change_writes_nothing():
         doc.apply({"steps": "nope"})
 
 
+def test_a_quoted_step_refuses_text_its_writer_did_not_read():
+    doc = Document.from_markdown(MD)
+    doc.apply({"steps": [{"splice": {"at": 0, "insert": "XX "}}]})
+    with raises_edit_code("edit::content_apply"):
+        doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]})
+    receipt = doc.apply({"steps": [{"mark": {"start": 9, "end": 14, "type": "strong", "add": True}}]})
+    assert receipt["applied"]["steps"][0]["mark"]["quote"] == "world"
+
+
 def test_offsets_count_code_points():
     doc = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\n😀 **bold**\n")
     assert doc.read()["marks"] == [{"start": 2, "end": 6, "type": "strong"}]

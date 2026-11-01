@@ -710,6 +710,16 @@ describe('Document apply: the write primitive', () => {
     expect(doc.read({})).toEqual(before)
   })
 
+  it('a quoted step refuses text its writer did not read, offsets in UTF-16', () => {
+    const doc = blankDoc()
+    doc.replace({}, importMarkdown('😀 hello world').content)
+    const anchor = { steps: [{ anchor: { id: 'a1', start: 9, end: 14, quote: 'world' } }] }
+    doc.apply({}, { steps: [{ splice: { at: 0, delete: '', insert: 'XX ' } }] })
+    expectEditCode(() => doc.apply({}, anchor), 'edit::content_apply')
+    const receipt = doc.apply({}, { steps: [{ anchor: { id: 'a1', start: 12, end: 17, quote: 'world' } }] })
+    expect(receipt.applied.steps[0].anchor.quote).toBe('world')
+  })
+
   it('applyAll writes every value or none', () => {
     const doc = blankDoc()
     const held = doc.toStored()

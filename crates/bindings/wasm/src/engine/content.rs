@@ -129,6 +129,13 @@ export interface Change {
  * - `anchor` places, moves or removes a comment anchor.
  * - `island` replaces an island's props, or inserts an island's slot at `at`.
  * - `nested` applies a change inside one slot of an island.
+ *
+ * A `mark` step and an `anchor` placement take `quote`, the text their range
+ * covered when the writer read it, and an island insert takes `block`, the id
+ * of the block the writer read `at` in. A step whose `quote` or `block` the
+ * value no longer holds is refused as stale (`edit::content_apply`), as a
+ * splice is whose `delete` the value no longer holds. The receipt's `applied`
+ * fills both in.
  */
 export type Step =
     | { splice: { at: number; delete?: string; insert: string;
@@ -137,9 +144,9 @@ export type Step =
           removed?: { blocks?: ContentBlock[]; marks?: ContentMark[]; islands?: ContentIsland[] } } }
     | { setBlock: { id: string; kind?: ContentBlockKind["kind"]; attrs?: Record<string, unknown>; path?: string[] } }
     | { container: ContentContainer | { id: string; remove: true } }
-    | { mark: { start: number; end: number; add: boolean } & ContentMarkKind }
-    | { anchor: ContentAnchor | { id: string; remove: true } }
-    | { island: { id: string; props: Record<string, unknown>; slots?: Record<string, Content> } | { at: number; island: ContentIsland } }
+    | { mark: { start: number; end: number; add: boolean; quote?: string } & ContentMarkKind }
+    | { anchor: (ContentAnchor & { quote?: string }) | { id: string; remove: true } }
+    | { island: { id: string; props: Record<string, unknown>; slots?: Record<string, Content> } | { at: number; island: ContentIsland; block?: string } }
     | { nested: { island: string; slot: string; change: Change } };
 
 /**
