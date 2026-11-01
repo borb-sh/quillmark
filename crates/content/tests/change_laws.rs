@@ -1546,6 +1546,21 @@ fn a_diff_names_only_the_block_fields_it_changes_so_a_quote_and_a_heading_both_l
 }
 
 #[test]
+fn rewording_the_word_beside_a_footnote_rebases_over_an_edit_inside_the_note() {
+    let d = from_markdown("Alpha[^a] beta gamma\n\n[^a]: note text here").unwrap().content;
+    let island = d.islands[0].clone();
+    let note = island.slot_order()[0].clone();
+    let len = island.slots[&note].len_usv();
+    let over = Change::new(vec![Step::Nested { island: island.id.clone(), slot: note.clone(), change: Change::new(vec![Step::Splice(Splice::new(len, "", "!"))]) }]);
+    let mine = quillmark_content::diff::revise(&d, "Omega[^a] beta gamma\n\n[^a]: note text here").unwrap().change;
+    assert!(mine.steps.iter().all(|s| !matches!(s, Step::Splice(sp) if sp.delete.contains(ISLAND_SLOT))), "{mine:?}");
+    let now = apply(&d, &over).unwrap().content;
+    let done = apply(&now, &rebase(&d, &mine, &over).unwrap()).unwrap().content;
+    assert!(done.text.starts_with("Omega"));
+    assert_eq!(done.slot(&island.id, &note).unwrap().text, "note text here!");
+}
+
+#[test]
 fn a_nested_step_conflicts_where_the_other_rewrote_its_island_and_rebases_over_a_move() {
     let d = from_markdown("intro\n\n| aa | bb |\n| - | - |\n| cc | dd |\n\nend").unwrap().content;
     let island = d.islands[0].clone();

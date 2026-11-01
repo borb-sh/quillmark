@@ -397,9 +397,13 @@ fn push_grain_diff(ops: &mut Vec<Op>, base: &str, new: &str, grain: Grain) {
     if base.chars().count() > CHAR_DIFF_LIMIT || new.chars().count() > CHAR_DIFF_LIMIT {
         return coarse_replace(ops, base, new);
     }
+    let tokens;
     let diff = match grain {
         Grain::Char => TextDiff::from_chars(base, new),
-        Grain::Word => TextDiff::from_words(base, new),
+        Grain::Word => {
+            tokens = (word_tokens(base), word_tokens(new));
+            TextDiff::configure().diff_slices(&tokens.0, &tokens.1)
+        }
     };
     for change in diff.iter_all_changes() {
         match change.tag() {
@@ -408,6 +412,27 @@ fn push_grain_diff(ops: &mut Vec<Op>, base: &str, new: &str, grain: Grain) {
             ChangeTag::Insert => push_insert(ops, change.value()),
         }
     }
+}
+
+/// `text` as the word diff's tokens: runs of whitespace, runs of anything
+/// else, and each island slot alone, so a word beside an island changes
+/// without taking the island with it.
+fn word_tokens(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut last: Option<(bool, bool)> = None;
+    for (at, ch) in text.char_indices() {
+        let kind = (ch.is_whitespace(), ch == crate::lines::model::ISLAND_SLOT);
+        if last.is_some_and(|k| k != kind || kind.1) {
+            out.push(&text[start..at]);
+            start = at;
+        }
+        last = Some(kind);
+    }
+    if start < text.len() {
+        out.push(&text[start..]);
+    }
+    out
 }
 
 /// Linear-time fallback for a char diff above [`CHAR_DIFF_LIMIT`]: trims the
