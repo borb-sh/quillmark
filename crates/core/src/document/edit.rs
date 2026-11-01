@@ -218,6 +218,13 @@ pub enum EditError {
     #[error("{0}")]
     InvalidPayload(PayloadViolation),
 
+    /// A revise or replace whose change removes an `x-` island. Markdown
+    /// cannot spell one, and a host's own model may hold none, so the writer
+    /// may never have seen it; removing one takes a change of its own through
+    /// [`Card::apply`].
+    #[error("the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply")]
+    DropsExtIsland { island: String, kind: String },
+
     /// A revise's [`Base`] refused the write.
     #[error(transparent)]
     Base(BaseError),
@@ -254,6 +261,7 @@ impl EditError {
             EditError::FieldCoercionFailed { .. } => "edit::field_coercion_failed",
             EditError::ContentApply(_) | EditError::Change(_) => "edit::content_apply",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
+            EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
             EditError::Base(e) => e.code(),
         }
     }
@@ -315,6 +323,10 @@ impl EditError {
             // One code, four sentences: the variant that spoke is not on the
             // wire, so a consumer's template falls back to `message`.
             EditError::InvalidPayload(_) => diag_args! {},
+            EditError::DropsExtIsland { island, kind } => diag_args! {
+                "island" => island,
+                "type" => kind,
+            },
             EditError::Base(e) => e.args(),
         }
     }

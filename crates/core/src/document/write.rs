@@ -10,12 +10,13 @@
 //! refused with `edit::rebase_conflict`, and a base the log no longer reaches
 //! with `edit::stale_base`.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 use quillmark_content::change::{self, Change, Dropped, Moved, RebaseError, Step};
 use quillmark_content::diff;
 use quillmark_content::lines::import::ImportWarning;
+use quillmark_content::lines::island::IslandType;
 use quillmark_content::model::Content;
 
 use super::base::{BaseError, content_hash};
@@ -129,6 +130,7 @@ impl Card {
             Some(since) => read.rebase(target, since, &revision.change)?,
         };
         let applied = change::apply(&read.now, &change).map_err(EditError::Change)?;
+        keeps_ext_islands(&read.now, &applied.content)?;
         self.land(target, read, applied, revision.warnings, Some(revision.whole_text))
     }
 
@@ -144,6 +146,7 @@ impl Card {
             Some(since) => read.rebase(target, since, &diffed.change)?,
         };
         let applied = change::apply(&read.now, &change).map_err(EditError::Change)?;
+        keeps_ext_islands(&read.now, &applied.content)?;
         self.land(target, read, applied, Vec::new(), Some(diffed.whole_text))
     }
 
@@ -209,6 +212,30 @@ impl Card {
             whole_text: diffed.unwrap_or(false),
             rebased: since.is_some(),
         })
+    }
+}
+
+/// Refuses a revise or replace whose result no longer holds an `x-` island
+/// `before` holds, at any depth.
+fn keeps_ext_islands(before: &Content, after: &Content) -> Result<(), EditError> {
+    fn ext(c: &Content, at: &str, out: &mut Vec<(String, String, String)>) {
+        for island in &c.islands {
+            let here = format!("{at}/{}", island.id);
+            if let IslandType::Ext(name) = &island.island_type {
+                out.push((here.clone(), island.id.clone(), name.clone()));
+            }
+            for (slot, inner) in &island.slots {
+                ext(inner, &format!("{here}/{slot}"), out);
+            }
+        }
+    }
+    let (mut held, mut kept) = (Vec::new(), Vec::new());
+    ext(before, "", &mut held);
+    ext(after, "", &mut kept);
+    let kept: HashSet<&str> = kept.iter().map(|(at, _, _)| at.as_str()).collect();
+    match held.into_iter().find(|(at, _, _)| !kept.contains(at.as_str())) {
+        Some((_, island, kind)) => Err(EditError::DropsExtIsland { island, kind }),
+        None => Ok(()),
     }
 }
 

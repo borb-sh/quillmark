@@ -234,3 +234,30 @@ fn a_write_lands_on_the_card_its_writer_read() {
         assert_eq!(doc.card_by_id("bbb").unwrap().body().text, "Hello world");
     }
 }
+
+/// Markdown cannot spell an `x-` island, so a revise from a plain read, or a
+/// replace from a model that holds none, refuses to remove one; a change of
+/// its own through `apply` removes it.
+#[test]
+fn a_revise_or_replace_refuses_to_remove_an_x_island() {
+    use quillmark_content::change::IslandStep;
+    use quillmark_content::lines::island::IslandType;
+    use quillmark_content::model::Island;
+
+    let mut doc = parse(SOURCE);
+    let island = Island::new("isl-x", IslandType::Ext("x-chart".into())).with_props(serde_json::json!({"series": [1]}));
+    let insert = Change::new(vec![Step::Island(IslandStep::Insert { at: 7, island, block: None })]);
+    doc.main_mut().apply(Target::Body, &insert, None).unwrap();
+    let held = doc.clone();
+    let plain = quillmark_content::markdown::to_markdown(doc.main().body());
+    let err = doc.main_mut().revise(Target::Body, &plain, None).unwrap_err();
+    assert_eq!(err.code(), "edit::drops_ext_island");
+    let without = quillmark_content::markdown::from_markdown(&plain).unwrap().content;
+    let err = doc.main_mut().replace(Target::Body, &without, None).unwrap_err();
+    assert_eq!((err.code(), err.args()["island"].as_str()), ("edit::drops_ext_island", Some("isl-x")));
+    assert_eq!(doc, held);
+
+    let removed = invert(&insert, &parse(SOURCE).main().read(Target::Body).unwrap()).unwrap();
+    doc.main_mut().apply(Target::Body, &removed, None).unwrap();
+    assert!(doc.main().body().islands.is_empty());
+}
