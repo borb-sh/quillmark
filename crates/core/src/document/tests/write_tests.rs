@@ -252,6 +252,23 @@ fn a_stale_write_keeps_a_record_changed_since_or_refuses() {
     assert_eq!(doc, held);
 }
 
+/// A block id a write freed is not minted again while a base that names it
+/// still rebases, so a stale writer's step on the block it read refuses
+/// rather than landing on a different paragraph.
+#[test]
+fn a_freed_block_id_is_not_minted_again_while_a_stale_base_names_it() {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nAlpha\n\nBeta\n\nGamma\n");
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().revise(Target::Body, "Alpha\n\nBeta", None).unwrap();
+    doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\nDelta", None).unwrap();
+    let ids: Vec<&str> = doc.main().body().blocks.iter().map(|b| b.id.as_str()).collect();
+    assert_eq!(ids, ["b0", "b1", "b3"]);
+    let held = doc.clone();
+    let err = doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\n## Gamma", Some(&base)).unwrap_err();
+    assert_eq!(err.code(), "edit::rebase_conflict");
+    assert_eq!(doc, held);
+}
+
 /// A stale revise that moves a block another writer re-kinded since refuses
 /// rather than writing it back as it read it.
 #[test]
