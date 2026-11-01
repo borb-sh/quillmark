@@ -1,7 +1,7 @@
 use quillmark_content::change::{Change, Splice, Step, apply, invert};
 use quillmark_content::model::{Anchor, Block, BlockKind};
 
-use crate::document::{EditError, Target, Write};
+use crate::document::{Card, CardRef, EditError, Target, Write};
 
 use super::parse;
 
@@ -84,7 +84,7 @@ fn replace_carries_the_anchors_it_does_not_name() {
     doc.main_mut().replace(Target::Body, &body, None).unwrap();
     let fresh = quillmark_content::markdown::from_markdown("Revenue grew 12%.\n\nShip").unwrap().content;
     let receipt = doc.main_mut().replace(Target::Body, &fresh, None).unwrap();
-    let dropped: Vec<&str> = receipt.dropped_anchors.iter().map(|a| a.id.as_str()).collect();
+    let dropped: Vec<&str> = receipt.dropped_anchors.iter().map(|a| a.context.id.as_str()).collect();
     assert_eq!(dropped, ["gone"]);
     assert_eq!(doc.main().body().anchors, [Anchor::new("kept".to_string(), 0, 7)]);
 }
@@ -101,24 +101,58 @@ fn a_field_takes_a_change_from_empty() {
     assert_eq!(doc.main().read(Target::Field("subject")).unwrap().text, "Hello");
 }
 
-/// `apply_all` lands every write or none: a stale second write leaves the
-/// first unwritten.
+/// `apply_all` lands every write or none, and resolves every card id before
+/// it applies any write: an unknown id refuses ahead of a stale base.
 #[test]
 fn apply_all_is_all_or_nothing() {
     let mut doc = parse(SOURCE);
     let held = doc.clone();
     let writes = [
-        Write { card: None, target: Target::Body, change: split_at(12, "b9"), base: None },
-        Write { card: None, target: Target::Field("subject"), change: Change::new(Vec::new()), base: Some("stale") },
+        Write { card: CardRef::Main, target: Target::Body, change: split_at(12, "b9"), base: None },
+        Write { card: CardRef::Main, target: Target::Field("subject"), change: Change::new(Vec::new()), base: Some("stale") },
     ];
     let (at, err) = doc.apply_all(&writes).unwrap_err();
     assert_eq!((at, err.code()), (1, "edit::stale_base"));
     assert_eq!(doc, held);
-    let (at, err) = doc
-        .apply_all(&[Write { card: Some(3), ..writes[0].clone() }])
-        .unwrap_err();
-    assert_eq!((at, err.code()), (0, "edit::index_out_of_range"));
+    let unknown = Write { card: CardRef::Id("nope"), ..writes[0].clone() };
+    let (at, err) = doc.apply_all(&[writes[1].clone(), unknown]).unwrap_err();
+    assert_eq!((at, err.code()), (1, "edit::unknown_card_id"));
 
     let receipts = doc.apply_all(&writes[..1]).unwrap();
     assert_eq!(receipts[0].hash, doc.main().hash_of(Target::Body).unwrap());
+}
+
+/// A write names its card by id, so a card moved or inserted ahead of it
+/// between the read and the write, its body equal to the one read, leaves
+/// the write on the card its writer read.
+#[test]
+fn a_write_lands_on_the_card_its_writer_read() {
+    let three = "~~~\n$quill: q\n~~~\n\n~~~card-yaml\n$kind: note\n$id: aaa\n~~~\n\nHello\n\n\
+                 ~~~card-yaml\n$kind: note\n$id: bbb\n~~~\n\nHello\n\n~~~card-yaml\n$kind: note\n$id: ccc\n~~~\n\nHello\n";
+    let bodies = |doc: &crate::document::Document| -> Vec<(String, String)> {
+        doc.cards().iter().map(|c| (c.id().unwrap().to_string(), c.body().text.clone())).collect()
+    };
+    let shuffles: [fn(&mut crate::document::Document); 2] = [
+        |doc| doc.move_card(2, 1).unwrap(),
+        |doc| {
+            let mut card = Card::new("note").unwrap();
+            card.overwrite_body(quillmark_content::lines::import::from_markdown("Hello").unwrap().content);
+            doc.insert_card(1, card).unwrap();
+        },
+    ];
+    for shuffle in shuffles {
+        let mut doc = parse(three);
+        let base = doc.card_by_id("bbb").unwrap().hash_of(Target::Body).unwrap();
+        shuffle(&mut doc);
+        let write = Write {
+            card: CardRef::Id("bbb"),
+            target: Target::Body,
+            change: Change::new(vec![Step::Splice(Splice::new(5, "", " world"))]),
+            base: Some(&base),
+        };
+        doc.apply_all(&[write]).unwrap();
+        let written: Vec<String> = bodies(&doc).into_iter().filter(|(_, t)| t != "Hello").map(|(id, _)| id).collect();
+        assert_eq!(written, ["bbb"]);
+        assert_eq!(doc.card_by_id("bbb").unwrap().body().text, "Hello world");
+    }
 }

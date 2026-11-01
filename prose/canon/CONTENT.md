@@ -78,7 +78,7 @@ A `Change` is a list of steps. Each step reads the value the step before it left
 | `container` | `{id, kind, attrs?}` or `{id, remove: true}` | Adds a container or sets an existing one's attributes, or removes one no path names. |
 | `mark` | `{start, end, type, attrs?, add}` | Adds or removes formatting over a range. |
 | `anchor` | `{id, start, end}` or `{id, remove: true}` | Places, moves or removes a comment anchor. |
-| `island` | `{id, props}` or `{at, island}` | Replaces an island's props, or inserts an island with its slot. Deleting the slot in a splice removes the island. |
+| `island` | `{id, props, slots?}` or `{at, island}` | Replaces an island's props, or inserts an island with its slot. A slot the new props name and the island lacks takes its content from `slots`, which names no other slot; a slot they no longer name leaves. Deleting the slot in a splice removes the island. |
 | `nested` | `{island, slot, change}` | Applies a change inside one slot: a table cell or a footnote. |
 
 A split inserts a `\n` whose record names the right half; the left half keeps its id, since the record that opens it does not move. A join deletes the right block's `\n` and record, and the joined block keeps the left's id and kind. Splits and joins therefore never rewrite a record a concurrent `setBlock` could be aimed at. Collab's Y form keeps the same boundary, so a split or a join lowers into Y as an insertion or a deletion alone.
@@ -87,7 +87,7 @@ Enter at the start of a block keeps the text on its id when the producer inserts
 
 `apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The editor defaults are for producers: `strong`, `emph`, `underline` and `strike` grow at their end, `code` and `link` at neither edge, `font_family` at both. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
 
-Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a surviving anchor whose text a write rewrote is named in `movedAnchors`.
+Text deleted under a range anchor shrinks it to what survives. An anchor whose text is deleted entirely is removed and named in the receipt's `droppedAnchors`; a surviving anchor whose text a write rewrote is named in `movedAnchors`. An island removed by a splice, or a slot a props step no longer names, takes the anchors of its slots with it, and each is named in `droppedAnchors` with the island and slot that held it. Every anchor a change takes out of the value is named there, except one its own `anchor` step removed, which the writer asked for.
 
 ## The laws
 
@@ -110,11 +110,14 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 | `revise(target, markdown, base)` | a writer's markdown: the `qm-*` tags of `annotated(target)` it keeps, then a word-aligned diff | kept by the tags kept, otherwise by the diff; drift reported |
 | `replace(target, content, base)` | a whole value, through the same diff | each anchor the value does not name carried where the diff keeps its text; the rest reported |
 
-`Document::apply_all` runs several writes, a base each, all or none. Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `droppedAnchors`; `movedAnchors`; and a revise's import warnings.
+A write names its card by `$id` (`CardRef::Id`, or the main card), never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, the base cannot tell. `Document::apply_all` runs several writes, a base each, all or none, and resolves every card id before it applies any; an id no card holds refuses with `edit::unknown_card_id`. Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `droppedAnchors`; `movedAnchors`; a revise's import warnings; and `whole_text`.
 
 **Pass the base.** `base` is the hash the writer read (`hash(addr)`), and a value that no longer hashes to it refuses the write with `edit::stale_base`, carrying `current`. Without one, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A stale writer reads again and rewrites, which for a script is one more `revise`.
 
-`diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line, pairs rewritten lines by word similarity, and diffs a paired line by word, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters. An inserted or deleted block brings the `\n` that opens it, so its neighbours keep their records. Block records, containers, marks, anchors and islands follow as their own steps.
+`diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line, pairs rewritten lines by word similarity, and diffs a paired line by word, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters. An inserted or deleted block brings the `\n` that opens it, so its neighbours keep their records. Block records, containers, marks, anchors and islands follow as their own steps; an anchor `after` holds in another place, the prose or a cell, moves there.
+
+- It refuses an `after` that is not a valid value.
+- Where no step-wise change reaches `after`, it rewrites the value or slot as one splice over its whole text, and says so in `Diff::whole_text`. A revise's or replace's receipt carries the flag, and the bindings raise it as an `edit::whole_text_diff` warning.
 
 ## Merge repair
 

@@ -170,7 +170,7 @@ card_kinds:
     const ed = buildQuill().writer(doc)
     ed.card(0).reviseField('prose', 'Keep this.\n\nFlag this line.')
     doc.apply({}, { steps: [{ anchor: { id: 'b', start: 0, end: 4 } }] })
-    doc.apply({ card: 0, field: 'prose' }, { steps: [{ anchor: { id: 'p', start: 11, end: 15 } }] })
+    doc.apply({ card: doc.cards[0].id, field: 'prose' }, { steps: [{ anchor: { id: 'p', start: 11, end: 15 } }] })
     expect(ed.reviseBody('Other.').droppedAnchors).toEqual([{ id: 'b', line: 'Body.' }])
     expect(ed.card(0).reviseField('prose', 'Keep this.').droppedAnchors).toEqual([{ id: 'p', line: 'Flag this line.' }])
   })
@@ -266,7 +266,7 @@ card_kinds:
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nFirst note.\n',
     )
     doc.apply({}, { steps: [{ anchor: { id: 'm', start: 0, end: 4 } }] })
-    doc.apply({ card: 0 }, { steps: [{ anchor: { id: 'n', start: 6, end: 10 } }] })
+    doc.apply({ card: doc.cards[0].id }, { steps: [{ anchor: { id: 'n', start: 6, end: 10 } }] })
     const cardId = doc.cards[0].id
     const receipt = quill
       .writer(doc)

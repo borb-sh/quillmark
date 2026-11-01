@@ -112,6 +112,11 @@ pub enum EditError {
     #[error("card id '{0}' is already held by another card")]
     DuplicateCardId(String),
 
+    /// A write naming a card by a `$id` no composable card of the document
+    /// holds.
+    #[error("no card holds the id '{0}'")]
+    UnknownCardId(String),
+
     /// A card placed in a document already holding
     /// [`MAX_CARD_COUNT`](crate::error::MAX_CARD_COUNT) composable cards, past
     /// which its markdown fails `parse::too_many_cards`.
@@ -238,6 +243,7 @@ impl EditError {
             EditError::IndexOutOfRange { .. } => "edit::index_out_of_range",
             EditError::InvalidCardId(_) => "edit::invalid_card_id",
             EditError::DuplicateCardId(_) => "edit::duplicate_card_id",
+            EditError::UnknownCardId(_) => "edit::unknown_card_id",
             EditError::TooManyCards { .. } => "edit::too_many_cards",
             EditError::ValueTooDeep { .. } => "edit::value_too_deep",
             EditError::Import(_) => "edit::import",
@@ -269,7 +275,7 @@ impl EditError {
                 "index" => index,
                 "len" => len,
             },
-            EditError::InvalidCardId(id) | EditError::DuplicateCardId(id) => {
+            EditError::InvalidCardId(id) | EditError::DuplicateCardId(id) | EditError::UnknownCardId(id) => {
                 diag_args! { "id" => id }
             }
             EditError::TooManyCards { max } => diag_args! { "max" => max },
@@ -962,6 +968,12 @@ impl Document {
 
     pub fn card_mut(&mut self, index: usize) -> Option<CardMut<'_>> {
         self.cards_vec_mut().get_mut(index).map(CardMut::new)
+    }
+
+    /// [`card_by_id`](Self::card_by_id), mutable.
+    pub fn card_by_id_mut(&mut self, id: &str) -> Option<CardMut<'_>> {
+        let index = self.card_index(id)?;
+        self.card_mut(index)
     }
 
     /// Append a composable card. Its `$kind` must be a valid, non-reserved

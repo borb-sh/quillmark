@@ -451,7 +451,7 @@ describe('Card ids', () => {
 
   it('a selector names its card, and reattach follows the card wherever it moved', () => {
     const doc = Document.fromMarkdown(MD)
-    doc.apply({ card: 0 }, { steps: [{ anchor: { id: 'n1', start: 17, end: 29 } }] })
+    doc.apply({ card: doc.cards[0].id }, { steps: [{ anchor: { id: 'n1', start: 17, end: 29 } }] })
     const [selector] = doc.anchorContexts()
     expect(selector).toMatchObject({ path: 'cards.note[0].body', cardId: doc.cards[0].id, quote: 'orchard rows' })
     expect(doc.toAnnotatedMarkdown().anchors[0].cardId).toBe(doc.cards[0].id)
@@ -733,7 +733,8 @@ describe('Document apply: the write primitive', () => {
     expect(() => mapPos(a, 5, 'left')).toThrow(/assoc/)
 
     const before = importMarkdown('hello world').content
-    const change = diff(before, importMarkdown('hello brave world').content)
+    const { change, warnings } = diff(before, importMarkdown('hello brave world').content)
+    expect(warnings).toEqual([])
     const doc = blankDoc()
     doc.replace({}, before)
     doc.apply({}, change)
@@ -938,7 +939,7 @@ describe('Document editor surface: storeField / removeField / overwrite / revise
     expect(exportMarkdown(doc.cards[0].body)).toBe('New card body.')
     expect(Array.isArray(delta.ops)).toBe(true)
 
-    doc.overwrite({ card: 0 }, importMarkdown('Card body from **markdown**.').content)
+    doc.overwrite({ card: doc.cards[0].id }, importMarkdown('Card body from **markdown**.').content)
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body from **markdown**.')
   })
 
@@ -960,7 +961,7 @@ describe('Document editor surface: storeField / removeField / overwrite / revise
   it('toAnnotatedMarkdown spells each anchor at its start and lists it at its path', () => {
     const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nMain **body**.\n\n~~~\n$kind: note\n~~~\n\nA note.\n')
     doc.apply({}, { steps: [{ anchor: { id: 'b', start: 5, end: 9 } }] })
-    doc.apply({ card: 0 }, { steps: [{ anchor: { id: 'n', start: 2, end: 2 } }] })
+    doc.apply({ card: doc.cards[0].id }, { steps: [{ anchor: { id: 'n', start: 2, end: 2 } }] })
     const read = doc.toAnnotatedMarkdown()
     expect(read.markdown).toContain('Main <qm-anchor ref="b"></qm-anchor>**body**.')
     expect(read.markdown).toContain('A <qm-anchor ref="n"></qm-anchor>note.')
@@ -996,6 +997,9 @@ describe('Document editor surface: storeField / removeField / overwrite / revise
     expect(Document.fromStored(doc.toStored()).warnings).toEqual([])
 
     expectEditCode(() => doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 0, end: 4 } }] }), 'edit::content_apply')
+
+    const { droppedAnchors } = doc.apply({}, { steps: [{ splice: { at: 6, delete: '\uFFFC', insert: '' } }] })
+    expect(droppedAnchors).toEqual([{ id: 'c1', path: 'main.body', quote: 'text', prefix: 'cell ', suffix: '', island: id, slot: cell }])
   })
 
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
@@ -1004,9 +1008,20 @@ describe('Document editor surface: storeField / removeField / overwrite / revise
     expectEditCode(() => doc.storeField(addr, 'x'), 'edit::index_out_of_range')
     expectEditCode(() => doc.removeField(addr), 'edit::index_out_of_range')
     expectEditCode(() => doc._revise({ card: 0 }, 'x'), 'edit::index_out_of_range')
-    expectEditCode(() => doc.replace({ card: 0 }, importMarkdown('x').content), 'edit::index_out_of_range')
-    expectEditCode(() => doc.apply({ card: 0 }, { steps: [] }), 'edit::index_out_of_range')
     expectEditCode(() => doc.read({ card: 0 }), 'edit::index_out_of_range')
+    expectEditCode(() => doc.read({ card: 'nobody' }), 'edit::unknown_card_id')
+    expectEditCode(() => doc.replace({ card: 'nobody' }, importMarkdown('x').content), 'edit::unknown_card_id')
+    expectEditCode(() => doc.applyAll([{ addr: { card: 'nobody' }, change: { steps: [] } }]), 'edit::unknown_card_id')
+  })
+
+  it('a content write names its card by id, and lands on it wherever the card moved', () => {
+    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nHello\n\n~~~\n$kind: note\n~~~\n\nHello\n')
+    const id = doc.cards[1].id
+    const base = doc.hash({ card: id })
+    doc.moveCard(1, 0)
+    expect(() => doc.apply({ card: 1 }, { steps: [] }, { base })).toThrow(/\$id/)
+    doc.apply({ card: id }, { steps: [{ splice: { at: 5, delete: '', insert: ' world' } }] }, { base })
+    expect(doc.cards.map((c) => [c.id, c.body.text])).toEqual([[id, 'Hello world'], [expect.any(String), 'Hello']])
   })
 })
 

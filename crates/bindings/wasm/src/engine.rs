@@ -244,9 +244,17 @@ export interface CardInput {
 /**
  * A write address: one navigation concept for the whole `Document` surface. An
  * absent `field` targets the card body; an absent `card` targets the main card.
- * `{}` is the main-card body; `{ card: 2 }` the body of the composable card at
- * index 2; `{ field: "intro" }` the main card's `intro` field; `{ card: 2,
- * field: "intro" }` a card field.
+ * A composable card is named by its `$id` (`card.id`) or by its index: `{}` is
+ * the main-card body; `{ card: "c3xk7p" }` the body of the card holding that
+ * id, wherever it sits; `{ card: 2 }` the body of the card at index 2;
+ * `{ field: "intro" }` the main card's `intro` field; `{ card: "c3xk7p",
+ * field: "intro" }` a card field. An id no card holds throws
+ * `edit::unknown_card_id`.
+ *
+ * The content lane's writes (`apply`, `applyAll`, `revise`, `replace`) take a
+ * card by `$id` only, and throw on an index: a card moved or inserted between
+ * a writer's read and its write shifts an index onto another card, and an
+ * equal body there would pass the `base` check.
  *
  * On the `Addr`-taking verbs a **bare string** is shorthand for `{ field: name }`
  * (`doc.storeField("qty", 3)`); a bare number is *not* an addr.
@@ -261,16 +269,17 @@ export interface CardInput {
  * inside takes the path as its own argument, `reader.getContentAt(addr, path)`.
  */
 export interface Addr {
-    card?: number;
+    card?: string | number;
     field?: string;
 }
 
 /**
  * A card-only address, taken by the card-scoped verbs (`storeExt`, `getExt`, `commitFields`, …). An absent `card` targets the main
- * card; a present `field` throws.
+ * card, a string the card holding that `$id`, a number the card at that
+ * index; a present `field` throws.
  */
 export interface CardAddr {
-    card?: number;
+    card?: string | number;
 }
 
 /**
@@ -946,7 +955,7 @@ impl Document {
         if addr.is_undefined() {
             return Ok(self.inner.hash());
         }
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let target = match &addr.field {
             None => quillmark_core::document::Target::Body,
             Some(name) => quillmark_core::document::Target::Field(name),
@@ -968,7 +977,7 @@ impl Document {
         &self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<String, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let card = self.addr_card_ref(&addr)?;
         match &addr.field {
             None => Ok(card.body_hash()),
@@ -987,7 +996,7 @@ impl Document {
         &self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let card = self.addr_card_ref(&addr)?;
         let base = self.addr_base(&addr);
         let (read, path) = match &addr.field {
@@ -1171,7 +1180,7 @@ impl Document {
         &self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let card = self.addr_card_ref(&addr)?;
         match &addr.field {
             None => content::content_out(card.body(), "getStored"),
@@ -1198,7 +1207,7 @@ impl Document {
         &self,
         #[wasm_bindgen(unchecked_optional_param_type = "CardAddr")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js(&addr)?;
+        let addr = Addr::from_js(&addr, &self.inner)?;
         if addr.field.is_some() {
             return Err(WasmError::from(
                 "bodyMarkdown is body-only: read a field's markdown with \
@@ -1232,7 +1241,7 @@ impl Document {
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let base = self.addr_base(&addr);
         let reader = quill.inner.reader(&self.inner);
         match &addr.field {
@@ -1280,7 +1289,7 @@ impl Document {
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let base = self.addr_base(&addr);
         match &addr.field {
             None => content::content_out(self.addr_card_ref(&addr)?.body(), "reader.getContent"),
@@ -1332,7 +1341,7 @@ impl Document {
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         #[wasm_bindgen(unchecked_param_type = "PathStep[]")] path: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let field = addr.require_field("reader.getContentAt")?.to_string();
         let at = path_from_js(&path, "reader.getContentAt")?;
         let base = self.addr_base(&addr);
@@ -1360,7 +1369,7 @@ impl Document {
         &self,
         #[wasm_bindgen(unchecked_optional_param_type = "CardAddr")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js(&addr)?;
+        let addr = Addr::from_js(&addr, &self.inner)?;
         addr.require_card_only("getExt")?;
         match self.addr_card_ref(&addr)?.ext() {
             Some(map) => serialize_or_throw(map, "getExt"),
@@ -1405,13 +1414,13 @@ impl Document {
     /// **Total on the index axis**, unlike the `Addr` reads, which throw there:
     /// an out-of-range `{card: 7, field: "from"}` renders `cards[7].from`, which
     /// parses back and resolves to nothing rather than mis-targeting. Only a
-    /// malformed address throws.
+    /// malformed address throws, or a card id no card holds.
     #[wasm_bindgen(js_name = pathFor)]
     pub fn path_for(
         &self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<String, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let base = self.addr_base(&addr);
         Ok(match &addr.field {
             Some(field) => base.field(field),
@@ -1461,7 +1470,7 @@ impl Document {
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         value: JsValue,
     ) -> Result<(), JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let field = addr.require_field("storeField")?.to_string();
         let mut json = js_value_to_json(value, "storeField")?;
         content::payload_in(&mut json, "storeField")?;
@@ -1480,7 +1489,7 @@ impl Document {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let field = addr.require_field("removeField")?.to_string();
         let base = self.addr_base(&addr);
         let removed = self
@@ -1505,7 +1514,7 @@ impl Document {
         #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
         value: JsValue,
     ) -> Result<(), JsValue> {
-        let addr = Addr::from_js(&addr)?;
+        let addr = Addr::from_js(&addr, &self.inner)?;
         addr.require_card_only("storeExt")?;
         let map = js_value_to_object(&value, "storeExt")?;
         let base = self.addr_base(&addr);
@@ -1522,7 +1531,7 @@ impl Document {
         &mut self,
         #[wasm_bindgen(unchecked_optional_param_type = "CardAddr")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js(&addr)?;
+        let addr = Addr::from_js(&addr, &self.inner)?;
         addr.require_card_only("removeExt")?;
         ext_map_to_js(self.addr_card_mut(&addr)?.remove_ext())
     }
@@ -1582,7 +1591,7 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "BaseOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let read = ReadBase::from_js(opts, "revise")?;
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let base = self.addr_base(&addr);
         let mut card = self.addr_card_mut(&addr)?;
         let revised = match (&addr.field, read.as_base()) {
@@ -1644,7 +1653,7 @@ impl Document {
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<String, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let base = self.addr_base(&addr);
         let Some(field) = addr.field.clone() else {
             return Ok(self.addr_card_ref(&addr)?.body_hash());
@@ -1680,7 +1689,7 @@ impl Document {
         opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let read = ReadBase::from_js(opts, "reviseField")?;
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let field = addr.require_field("reviseField")?.to_string();
         let base = self.addr_base(&addr);
         let mut writer = quill.inner.writer(&mut self.inner);
@@ -1729,7 +1738,7 @@ impl Document {
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
         value: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let field = addr.require_field("commitField")?.to_string();
         let mut json = js_value_to_json(value, "commitField")?;
         content::payload_in(&mut json, "commitField")?;
@@ -1762,7 +1771,7 @@ impl Document {
         #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
         #[wasm_bindgen(unchecked_param_type = "Record<string, unknown>")] fields: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js(&addr)?;
+        let addr = Addr::from_js(&addr, &self.inner)?;
         addr.require_card_only("commitFields")?;
         let batch = js_value_to_field_batch(&fields, "commitFields")?;
         let base = self.addr_base(&addr);
@@ -1903,41 +1912,103 @@ impl Document {
     }
 }
 
-/// Mirrors the `Addr` TS interface. [`from_js`](Addr::from_js) refuses an
-/// unknown key through [`reject_unknown_keys`].
+/// An [`Addr`] as it crosses, its card named by index or by `$id`.
+/// [`Addr::from_js`] refuses an unknown key through [`reject_unknown_keys`].
 #[derive(serde::Deserialize, Default)]
+struct AddrJs {
+    #[serde(default)]
+    card: Option<CardSel>,
+    #[serde(default)]
+    field: Option<String>,
+}
+
+/// How an `Addr` names its card: a composable card's index, or its `$id`.
+enum CardSel {
+    Index(usize),
+    Id(String),
+}
+
+impl<'de> serde::Deserialize<'de> for CardSel {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Sel;
+        impl serde::de::Visitor<'_> for Sel {
+            type Value = CardSel;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a card index or a card id")
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<CardSel, E> {
+                usize::try_from(v).map(CardSel::Index).map_err(|_| E::custom("card index out of range"))
+            }
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<CardSel, E> {
+                usize::try_from(v).map(CardSel::Index).map_err(|_| E::custom("a card index is not negative"))
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<CardSel, E> {
+                Ok(CardSel::Id(v.to_string()))
+            }
+        }
+        d.deserialize_any(Sel)
+    }
+}
+
+/// An address resolved against its document: `card` the composable card's
+/// index, `None` the main card.
+#[derive(Default)]
 struct Addr {
-    #[serde(default)]
     card: Option<usize>,
-    #[serde(default)]
     field: Option<String>,
 }
 
 impl Addr {
     /// `undefined`/`null`/`{}` all mean the main-card body. Rejects a stray key
     /// first so a swapped-arg call (`storeExt(ext, {})`) throws instead of
-    /// parsing as the empty main-card address and writing an empty value.
-    fn from_js(value: &JsValue) -> Result<Addr, JsValue> {
-        if value.is_undefined() || value.is_null() {
-            return Ok(Addr::default());
-        }
-        reject_unknown_keys(value, &["card", "field"], "addr", |k| {
-            format!("addr has unknown key `{k}`; an address takes only `card` and `field`")
-        })?;
-        serde_wasm_bindgen::from_value(value.clone())
-            .map_err(|e| WasmError::from(format!("addr must be an Addr object: {e}")).to_js_value())
+    /// parsing as the empty main-card address and writing an empty value. A
+    /// card id resolves to its card's index, an id no card holds throwing
+    /// `edit::unknown_card_id`.
+    fn from_js(value: &JsValue, doc: &quillmark_core::document::Document) -> Result<Addr, JsValue> {
+        let (card, field) = Addr::parse(value)?;
+        let card = match card {
+            None => None,
+            Some(CardSel::Index(index)) => Some(index),
+            Some(CardSel::Id(id)) => Some(card_by_id(doc, &id)?),
+        };
+        Ok(Addr { card, field })
     }
 
     /// A bare string is shorthand for `{ field: name }`; a bare number is not an
     /// addr.
-    fn from_js_or_string(value: &JsValue) -> Result<Addr, JsValue> {
+    fn from_js_or_string(value: &JsValue, doc: &quillmark_core::document::Document) -> Result<Addr, JsValue> {
         match value.as_string() {
             Some(field) => Ok(Addr {
                 card: None,
                 field: Some(field),
             }),
-            None => Addr::from_js(value),
+            None => Addr::from_js(value, doc),
         }
+    }
+
+    /// The address of a content write, which names a composable card by its
+    /// `$id` alone: an index another writer's move or insert can shift would
+    /// land the write on another card.
+    fn for_write(value: &JsValue, doc: &quillmark_core::document::Document, verb: &str) -> Result<Addr, JsValue> {
+        if value.as_string().is_none() && matches!(Addr::parse(value)?.0, Some(CardSel::Index(_))) {
+            return Err(WasmError::from(format!(
+                "{verb}: a content write names its card by `$id` (`{{ card: card.id }}`), not by index"
+            ))
+            .to_js_value());
+        }
+        Addr::from_js_or_string(value, doc)
+    }
+
+    fn parse(value: &JsValue) -> Result<(Option<CardSel>, Option<String>), JsValue> {
+        if value.is_undefined() || value.is_null() {
+            return Ok((None, None));
+        }
+        reject_unknown_keys(value, &["card", "field"], "addr", |k| {
+            format!("addr has unknown key `{k}`; an address takes only `card` and `field`")
+        })?;
+        let addr: AddrJs = serde_wasm_bindgen::from_value(value.clone())
+            .map_err(|e| WasmError::from(format!("addr must be an Addr object: {e}")).to_js_value())?;
+        Ok((addr.card, addr.field))
     }
 
     fn require_field(&self, ctx: &str) -> Result<&str, JsValue> {
@@ -2329,6 +2400,17 @@ fn invalid_quill_reference(ctx: &str, value: &str, reason: &str) -> JsValue {
         diagnostics: vec![diag],
     }
     .to_js_value()
+}
+
+/// The index of the card whose `$id` is `id`, throwing
+/// `edit::unknown_card_id` where no card holds it.
+fn card_by_id(doc: &quillmark_core::document::Document, id: &str) -> Result<usize, JsValue> {
+    doc.card_index(id).ok_or_else(|| {
+        edit_error_to_js(
+            &quillmark_core::document::EditError::UnknownCardId(id.to_string()),
+            &quillmark_core::path::DocPath::new(),
+        )
+    })
 }
 
 fn index_out_of_range(index: usize, len: usize) -> JsValue {

@@ -63,6 +63,7 @@ A table cell and a footnote's note are slots, each a `Content` of its own, and a
 - `anchor_contexts` reads it, at the value's path, its context cut at the cell's edges, and the annotated read lists it after the anchors before its island, with the cell's text as its `line`. No tag spells it: a cell holds none.
 - The steps reach it: a `nested` step places, moves or removes it, and a step placing an id the value holds anywhere is refused ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)).
 - A revise keeps it where the island continues and the cell at its place keeps its text, and drops it, named in the receipt, where the cell's text changed.
+- A splice that deletes the island's slot, or a props step whose grid no longer names the cell, drops it with the cell, named in the receipt's `droppedAnchors` with the `island` and `slot` that held it.
 - `reattach` searches every cell with the prose and places it in the one cell its quote counts in.
 
 A comment on a table as a whole anchors the table's slot: a one-character range over its `U+FFFC`, which the receipts list and the steps move with the table.

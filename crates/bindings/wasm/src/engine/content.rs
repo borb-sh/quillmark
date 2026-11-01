@@ -145,16 +145,36 @@ export type Step =
 /**
  * What a write did. `applied` is the change in its normalized form, which
  * `invert(applied, before)` undoes; `hash` is the value's new hash, the next
- * write's `base`. `droppedAnchors` names each anchor whose text the write
- * deleted, as it read before, and `movedAnchors` each surviving one whose text
- * it rewrote. `warnings` holds a `parse::dropped_construct` per construct a
- * revise's markdown dropped.
+ * write's `base`. `droppedAnchors` names each anchor the value held and holds
+ * nowhere now, as it read before: every one a `revise` or `replace` lost, and
+ * for an `apply` every one but those its `anchor` steps removed.
+ * `movedAnchors` names each surviving one whose text the write rewrote.
+ * `warnings` holds a `parse::dropped_construct` per construct a revise's
+ * markdown dropped, and an `edit::whole_text_diff` where the diff found no
+ * step-wise change and rewrote the whole text of the value or a slot.
  */
 export interface Receipt {
     applied: Change;
     hash: string;
-    droppedAnchors: AnchorContext[];
+    droppedAnchors: DroppedAnchor[];
     movedAnchors: { id: string; before: string; after: string }[];
+    warnings: Diagnostic[];
+}
+
+/**
+ * A receipt's dropped anchor: its selector, which `reattach` takes as given,
+ * and the `island` and `slot` that held it, absent for an anchor in the
+ * value's own text.
+ */
+export interface DroppedAnchor extends AnchorContext {
+    island?: string;
+    slot?: string;
+}
+
+/** What `diff` built: the change, and an `edit::whole_text_diff` warning
+ *  where it rewrote the whole text of the value or a slot as one splice. */
+export interface Diffed {
+    change: Change;
     warnings: Diagnostic[];
 }
 
@@ -165,7 +185,7 @@ export interface WriteOptions {
     base?: string;
 }
 
-/** One write of `applyAll`. */
+/** One write of `applyAll`. Its `addr` names a composable card by `$id`. */
 export interface Write {
     addr: Addr | string;
     change: Change;
@@ -212,9 +232,21 @@ export interface Repaired {
 struct ReceiptJs {
     applied: Value,
     hash: String,
-    dropped_anchors: Vec<super::AnchorContextJs>,
+    dropped_anchors: Vec<DroppedAnchorJs>,
     moved_anchors: Vec<MovedJs>,
     warnings: Vec<Diagnostic>,
+}
+
+/// A receipt's dropped anchor: its selector, and the island and slot that
+/// held it, absent for one in the value's own text.
+#[derive(serde::Serialize)]
+struct DroppedAnchorJs {
+    #[serde(flatten)]
+    selector: super::AnchorContextJs,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    island: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slot: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -383,19 +415,27 @@ fn write(
     .map_err(to_js)?;
     let card_id = card.id().map(str::to_string);
     let applied = units::change_from_scalars(&receipt.applied, &before, Utf16).map_err(apply_error)?;
+    let warnings = super::diags(receipt.diagnostics(Some(&path)));
     Ok(ReceiptJs {
         applied: applied.to_value(),
         hash: receipt.hash,
         dropped_anchors: receipt
             .dropped_anchors
             .into_iter()
-            .map(|a| super::AnchorContextJs {
-                id: a.id,
-                path: path.to_string(),
-                card_id: card_id.clone(),
-                quote: a.quote,
-                prefix: a.prefix,
-                suffix: a.suffix,
+            .map(|a| {
+                let (island, slot) = a.slot.map(|s| (s.island, s.slot)).unzip();
+                DroppedAnchorJs {
+                    selector: super::AnchorContextJs {
+                        id: a.context.id,
+                        path: path.to_string(),
+                        card_id: card_id.clone(),
+                        quote: a.context.quote,
+                        prefix: a.context.prefix,
+                        suffix: a.context.suffix,
+                    },
+                    island,
+                    slot,
+                }
             })
             .collect(),
         moved_anchors: receipt
@@ -403,7 +443,7 @@ fn write(
             .into_iter()
             .map(|m| MovedJs { id: m.id, before: m.before, after: m.after })
             .collect(),
-        warnings: super::diags(quillmark_core::document::dropped_constructs(receipt.warnings, Some(&path))),
+        warnings,
     })
 }
 
@@ -418,7 +458,7 @@ impl Document {
         &self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let content = card_of(&self.inner, &addr)?
             .read(target(&addr))
             .map_err(|e| edit_error_to_js(&e, &card_base(&self.inner, &addr)))?;
@@ -432,7 +472,7 @@ impl Document {
         &self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<String, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
         let card = card_of(&self.inner, &addr)?;
         match &addr.field {
             None => Ok(card.body_annotated().markdown),
@@ -455,7 +495,7 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let base = base_from_js(&opts, "apply")?;
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::for_write(&addr, &self.inner, "apply")?;
         let change = change_in(change, "apply")?;
         let receipt = write(&mut self.inner, &addr, Edit::Apply(change), base.as_deref())?;
         serialize_or_throw(&receipt, "apply")
@@ -471,21 +511,24 @@ impl Document {
         if !js_sys::Array::is_array(&writes) {
             return Err(WasmError::from("applyAll: writes must be a Write[]").to_js_value());
         }
-        let mut next = self.inner.clone();
-        let mut receipts = Vec::new();
+        let mut parsed = Vec::new();
         for w in js_sys::Array::from(&writes).iter() {
             reject_unknown_keys(&w, &["addr", "change", "base"], "write", |k| {
                 format!("applyAll: a write has unknown key `{k}`; a Write is {{ addr, change, base }}")
             })?;
             let get = |key: &str| js_sys::Reflect::get(&w, &key.into()).unwrap_or(JsValue::UNDEFINED);
-            let addr = Addr::from_js_or_string(&get("addr"))?;
+            let addr = Addr::for_write(&get("addr"), &self.inner, "applyAll")?;
             let base = match get("base") {
                 b if b.is_undefined() => None,
                 b => Some(b.as_string().ok_or_else(|| {
                     WasmError::from("applyAll: a write's base must be a string when given").to_js_value()
                 })?),
             };
-            let change = change_in(get("change"), "applyAll")?;
+            parsed.push((addr, change_in(get("change"), "applyAll")?, base));
+        }
+        let mut next = self.inner.clone();
+        let mut receipts = Vec::new();
+        for (addr, change, base) in parsed {
             receipts.push(write(&mut next, &addr, Edit::Apply(change), base.as_deref())?);
         }
         self.inner = next;
@@ -505,7 +548,7 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let base = base_from_js(&opts, "revise")?;
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::for_write(&addr, &self.inner, "revise")?;
         let receipt = write(&mut self.inner, &addr, Edit::Revise(markdown), base.as_deref())?;
         serialize_or_throw(&receipt, "revise")
     }
@@ -522,7 +565,7 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let base = base_from_js(&opts, "replace")?;
-        let addr = Addr::from_js_or_string(&addr)?;
+        let addr = Addr::for_write(&addr, &self.inner, "replace")?;
         let content = content_in(content, "replace")?;
         let receipt = write(&mut self.inner, &addr, Edit::Replace(content), base.as_deref())?;
         serialize_or_throw(&receipt, "replace")
@@ -611,16 +654,18 @@ pub fn map_pos(
 }
 
 /// A change taking `before` to `after`, word-aligned, for a writer with no
-/// steps of its own.
-#[wasm_bindgen(js_name = diff, unchecked_return_type = "Change")]
+/// steps of its own, and an `edit::whole_text_diff` warning where it rewrote
+/// a whole text as one splice.
+#[wasm_bindgen(js_name = diff, unchecked_return_type = "Diffed")]
 pub fn diff(
     #[wasm_bindgen(unchecked_param_type = "Content")] before: JsValue,
     #[wasm_bindgen(unchecked_param_type = "Content")] after: JsValue,
 ) -> Result<JsValue, JsValue> {
     let (before, after) = (content_in(before, "diff")?, content_in(after, "diff")?);
-    let change = quillmark_content::diff::diff(&before, &after);
-    let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
-    serialize_or_throw(&change.to_value(), "diff")
+    let diffed = quillmark_content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
+    let change = units::change_from_scalars(&diffed.change, &before, Utf16).map_err(apply_error)?;
+    let warnings: Vec<Diagnostic> = diffed.whole_text.then(quillmark_core::document::whole_text_diff).map(Into::into).into_iter().collect();
+    serialize_or_throw(&serde_json::json!({ "change": change.to_value(), "warnings": warnings }), "diff")
 }
 
 /// Enter at `at`: the change that splits the block holding `at`, the new

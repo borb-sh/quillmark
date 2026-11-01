@@ -214,10 +214,7 @@ impl Document {
         let Some(DocSeg::Card { kind, .. }) = selector.path.segs().first() else {
             return None;
         };
-        let index = self
-            .cards
-            .iter()
-            .position(|card| card.id() == Some(card_id))?;
+        let index = self.card_index(card_id)?;
         if self.cards[index].kind() != kind.as_deref() {
             return None;
         }

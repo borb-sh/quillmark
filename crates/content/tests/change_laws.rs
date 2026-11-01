@@ -5,7 +5,7 @@
 
 use proptest::prelude::*;
 use quillmark_content::change::{
-    AnchorStep, Assoc, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply, compose, compose_in,
+    AnchorStep, ApplyError, Assoc, Change, ContainerStep, IslandStep, MarkStep, SetBlock, Splice, Step, apply, compose, compose_in,
     invert, map_pos, map_pos_in,
 };
 use quillmark_content::gestures::{join_blocks, split_block};
@@ -14,8 +14,10 @@ use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{
     Anchor, Block, BlockKind, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT, Island, Mark, MarkKind, Pos,
 };
+use quillmark_content::table::Table;
 use quillmark_content::units::{Utf16, change_from_scalars, change_to_scalars, from_scalars};
 use serde_json::json;
+use std::collections::BTreeSet;
 
 fn word() -> impl Strategy<Value = String> {
     prop_oneof![
@@ -59,6 +61,11 @@ fn document() -> impl Strategy<Value = Content> {
             c.anchors.push(Anchor::new("c-0", 1, len.min(4)));
             c.anchors.push(Anchor::new("c-1", 2, 2));
         }
+        for (n, island) in c.islands.iter_mut().enumerate() {
+            if let Some(slot) = island.slots.values_mut().find(|s| s.len_usv() > 0) {
+                slot.anchors.push(Anchor::new(format!("s-{n}"), 0, 1));
+            }
+        }
         c.normalize();
         c.validate().unwrap();
         c
@@ -68,7 +75,7 @@ fn document() -> impl Strategy<Value = Content> {
 type Op = (u8, usize, usize, u8);
 
 fn ops() -> impl Strategy<Value = Vec<Op>> {
-    prop::collection::vec((0u8..9, any::<usize>(), any::<usize>(), any::<u8>()), 1..8)
+    prop::collection::vec((0u8..10, any::<usize>(), any::<usize>(), any::<u8>()), 1..8)
 }
 
 const INSERTS: [&str; 7] = ["x", "yz", " ", "\n", "q\nr", "\u{2028}", "😀a"];
@@ -173,6 +180,27 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
                 }
             };
             Step::Island(IslandStep::Insert { at, island })
+        }
+        8 => {
+            let tables: Vec<&Island> = c.islands.iter().filter(|i| i.island_type == IslandType::Table).collect();
+            let island = tables.get(x % tables.len().max(1))?;
+            let mut grid = Table::read(&island.props)?;
+            match z % 2 {
+                0 if grid.rows.len() > 1 => {
+                    grid.rows.remove(y % grid.rows.len());
+                }
+                _ if grid.columns.len() > 1 => {
+                    let col = y % grid.columns.len();
+                    grid.columns.remove(col);
+                    grid.rows.iter_mut().for_each(|r| {
+                        r.cells.remove(col);
+                    });
+                }
+                _ => return None,
+            }
+            let mut props = island.props.as_object()?.clone();
+            grid.write_into(&mut props);
+            Step::Island(IslandStep::Props { id: island.id.clone(), props: props.into(), slots: Default::default() })
         }
         _ => {
             let id = format!("q-n{k}");
@@ -380,9 +408,114 @@ fn a_wholly_deleted_range_anchor_is_dropped_and_a_point_collapses() {
     let mut d = from_markdown("keep this text").unwrap().content;
     d.anchors = vec![Anchor::new("gone", 5, 9), Anchor::new("pt", 7, 7), Anchor::new("cut", 3, 7)];
     let done = apply(&d, &Change::new(vec![Step::Splice(Splice::new(5, "this", "that"))])).unwrap();
-    assert_eq!(done.dropped.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["gone"]);
+    assert_eq!(done.dropped.iter().map(|a| a.context.id.as_str()).collect::<Vec<_>>(), ["gone"]);
     assert_eq!(done.content.anchor("pt"), Some(&Anchor::new("pt", 5, 5)));
     assert_eq!(done.content.anchor("cut"), Some(&Anchor::new("cut", 3, 5)));
+}
+
+fn anchor_ids(c: &Content, out: &mut BTreeSet<String>) {
+    out.extend(c.anchors.iter().map(|a| a.id.clone()));
+    for island in &c.islands {
+        island.slots.values().for_each(|slot| anchor_ids(slot, out));
+    }
+}
+
+fn removed_by_steps(steps: &[Step], out: &mut BTreeSet<String>) {
+    for step in steps {
+        match step {
+            Step::Anchor(AnchorStep::Remove { id }) => {
+                out.insert(id.clone());
+            }
+            Step::Nested { change, .. } => removed_by_steps(&change.steps, out),
+            _ => {}
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
+
+    /// Every anchor held before a change and nowhere after it, in the text or
+    /// a slot, is named in `dropped` once, with the slot that held it, unless
+    /// an `anchor` step removed it.
+    #[test]
+    fn every_anchor_a_change_loses_is_dropped(d in document(), ops in ops()) {
+        let c = change_for(&d, &ops);
+        let done = apply(&d, &c).unwrap();
+        let (mut before, mut after, mut removed) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
+        anchor_ids(&d, &mut before);
+        anchor_ids(&done.content, &mut after);
+        removed_by_steps(&c.steps, &mut removed);
+        let lost: BTreeSet<String> = before.difference(&after).filter(|id| !removed.contains(*id)).cloned().collect();
+        let named: Vec<&str> = done.dropped.iter().map(|a| a.context.id.as_str()).collect();
+        prop_assert_eq!(named.iter().copied().collect::<BTreeSet<_>>().len(), named.len());
+        prop_assert_eq!(named.iter().map(|id| id.to_string()).collect::<BTreeSet<_>>(), lost, "{:?}", c);
+        for a in &done.dropped {
+            let home = match &a.slot {
+                Some(s) => d.slot(&s.island, &s.slot).unwrap(),
+                None => &d,
+            };
+            prop_assert!(home.anchor(&a.context.id).is_some(), "{:?}", a);
+        }
+    }
+}
+
+/// Deleting an island's slot character, or dropping a table row with a props
+/// step, names each anchor its slots held with the island and the slot.
+#[test]
+fn an_island_takes_the_anchors_of_its_slots_into_the_receipt() {
+    let mut d = from_markdown("intro[^n]\n\n| a | b |\n| - | - |\n| c | d |\n\n[^n]: a note").unwrap().content;
+    let homes: Vec<(String, String)> = d
+        .islands
+        .iter()
+        .map(|i| (i.id.clone(), i.slot_order().last().unwrap().clone()))
+        .collect();
+    for (n, (island, slot)) in homes.iter().enumerate() {
+        d.slot_mut(island, slot).unwrap().anchors.push(Anchor::new(format!("a{n}"), 0, 1));
+    }
+    d.validate().unwrap();
+    let slot_of = |done: &quillmark_content::change::Applied| -> Vec<(String, String, String)> {
+        done.dropped
+            .iter()
+            .map(|a| {
+                let s = a.slot.clone().unwrap();
+                (a.context.id.clone(), s.island, s.slot)
+            })
+            .collect()
+    };
+    let at = d.text.chars().position(|ch| ch == ISLAND_SLOT).unwrap();
+    let cut = apply(&d, &Change::new(vec![Step::Splice(Splice::new(at, ISLAND_SLOT.to_string(), ""))])).unwrap();
+    assert_eq!(slot_of(&cut), [("a0".to_string(), homes[0].0.clone(), homes[0].1.clone())]);
+    assert_eq!(cut.dropped[0].context.quote, "a");
+
+    let table = &d.islands[1];
+    let mut grid = Table::read(&table.props).unwrap();
+    grid.rows.pop();
+    let mut props = table.props.as_object().unwrap().clone();
+    grid.write_into(&mut props);
+    let props = Step::Island(IslandStep::Props { id: table.id.clone(), props: props.into(), slots: Default::default() });
+    let shrunk = apply(&d, &Change::new(vec![props])).unwrap();
+    assert_eq!(slot_of(&shrunk), [("a1".to_string(), homes[1].0.clone(), homes[1].1.clone())]);
+}
+
+/// A props step's `slots` holds only slots the island gains: naming one it
+/// keeps, or one the props do not name, refuses the step.
+#[test]
+fn a_props_step_gives_content_only_to_a_slot_it_adds() {
+    let d = from_markdown("| a | b |\n| - | - |\n| c | d |").unwrap().content;
+    let table = &d.islands[0];
+    let held = table.slot_order()[0].clone();
+    for (slot, reason) in [
+        (held, "`slots` names a slot the island already holds"),
+        ("elsewhere".to_string(), "`slots` names a slot the props do not name"),
+    ] {
+        let step = Step::Island(IslandStep::Props {
+            id: table.id.clone(),
+            props: table.props.clone(),
+            slots: [(slot, quillmark_content::markdown::from_plaintext("x"))].into(),
+        });
+        assert_eq!(apply(&d, &Change::new(vec![step])).unwrap_err(), ApplyError::BadStep { step: 0, reason });
+    }
 }
 
 #[test]
@@ -563,12 +696,22 @@ mod diffs {
         erased(want) == erased(got)
     }
 
+    fn without_anchors(mut c: Content) -> Content {
+        c.anchors.clear();
+        for island in &mut c.islands {
+            for slot in island.slots.values_mut() {
+                *slot = without_anchors(std::mem::take(slot));
+            }
+        }
+        c
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(300))]
 
         #[test]
         fn a_diff_reaches_its_target(a in document(), b in document()) {
-            let c = diff(&a, &b);
+            let c = diff(&a, &b).unwrap().change;
             let done = apply(&a, &c);
             prop_assert!(done.is_ok(), "{:?}\n{:?}", done, c);
             let got = done.unwrap().content;
@@ -581,7 +724,9 @@ mod diffs {
             let fresh = from_markdown(&to_markdown(&edited)).unwrap().content;
             let aligned = align(&d, fresh);
             prop_assert_eq!(aligned.validate(), Ok(()));
-            let done = apply(&d, &diff(&d, &aligned)).unwrap().content;
+            let diffed = diff(&d, &aligned).unwrap();
+            prop_assert!(!diffed.whole_text, "{:?}", diffed.change);
+            let done = apply(&d, &diffed.change).unwrap().content;
             prop_assert_eq!(done, aligned);
         }
 
@@ -597,12 +742,9 @@ mod diffs {
 
         #[test]
         fn a_replace_carries_the_anchors_it_does_not_name(d in document(), ops in ops()) {
-            let mut edited = apply(&d, &change_for(&d, &ops)).unwrap().content;
-            edited.anchors.clear();
-            let done = apply(&d, &replace(&d, &edited)).unwrap();
-            let mut kept = done.content.clone();
-            kept.anchors.clear();
-            prop_assert!(ids_reached(&d, &edited, &kept));
+            let edited = without_anchors(apply(&d, &change_for(&d, &ops)).unwrap().content);
+            let done = apply(&d, &replace(&d, &edited).unwrap().change).unwrap();
+            prop_assert!(ids_reached(&d, &edited, &without_anchors(done.content)));
         }
     }
 
@@ -613,7 +755,7 @@ mod diffs {
         want.blocks[0].id = "x0".into();
         want.blocks[1].id = "x1".into();
         want.blocks[2].id = "b1".into();
-        let done = apply(&d, &diff(&d, &want)).unwrap().content;
+        let done = apply(&d, &diff(&d, &want).unwrap().change).unwrap().content;
         assert_eq!(segments(&done), ["b0=one", "x1=two", "b1=three"]);
     }
 
@@ -625,6 +767,35 @@ mod diffs {
         assert!(matches!(&r.change.steps[..], [Step::Splice(s)] if s.at == 5 && s.delete.is_empty() && s.insert == "\ngamma"), "{:?}", r.change);
         let back = revise(&r.content, "alpha\n\nbeta").unwrap();
         assert!(matches!(&back.change.steps[..], [Step::Splice(s)] if s.at == 5 && s.delete == "\ngamma" && s.insert.is_empty()), "{:?}", back.change);
+    }
+
+    /// An anchor `after` holds in another place, the prose or a cell, moves
+    /// there under `replace` as under `diff`, and drops nothing.
+    #[test]
+    fn an_anchor_moves_between_the_prose_and_a_cell() {
+        let mut prose = from_markdown("intro\n\n| a | b |\n| - | - |\n| c | d |").unwrap().content;
+        prose.anchors.push(Anchor::new("c1", 0, 3));
+        let mut cell = prose.clone();
+        cell.anchors.clear();
+        let (island, slot) = (cell.islands[0].id.clone(), cell.islands[0].slot_order()[3].clone());
+        cell.slot_mut(&island, &slot).unwrap().anchors.push(Anchor::new("c1", 0, 1));
+        for (from, to) in [(&prose, &cell), (&cell, &prose)] {
+            for change in [diff(from, to).unwrap().change, replace(from, to).unwrap().change] {
+                let done = apply(from, &change).unwrap();
+                assert_eq!(&done.content, to);
+                assert!(done.dropped.is_empty(), "{:?}", done.dropped);
+            }
+        }
+    }
+
+    /// A target that is no valid value is refused, never diffed to nothing.
+    #[test]
+    fn a_diff_refuses_an_invalid_target() {
+        let before = from_markdown("one").unwrap().content;
+        let mut invalid = from_markdown("one\n\ntwo").unwrap().content;
+        invalid.blocks[1].id = invalid.blocks[0].id.clone();
+        assert!(diff(&before, &invalid).is_err());
+        assert!(replace(&before, &invalid).is_err());
     }
 
     #[test]

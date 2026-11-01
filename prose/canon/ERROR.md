@@ -112,6 +112,11 @@ The content lane's writes (`apply`, `applyAll`, `revise`, `replace`) take a
 `base` hash and refuse a stale one under the same `edit::stale_base`, carrying
 `current`. A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)).
+A write names its card by `$id`, and an id no card holds is
+`edit::unknown_card_id`, carrying `id`; an address naming a card by `$id` on
+any other verb refuses the same way. A revise or replace whose diff found no
+step-wise change and rewrote a whole text as one splice warns
+`edit::whole_text_diff`, at the value's path, and writes.
 
 Building a card from a `CardWire` (`insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
@@ -217,6 +222,12 @@ families:
   conform reports a string's drops beside its `conform::*` warnings, and
   `validate` a string's the field still holds. A card inserted with a string
   body drops without it.
+- **`edit::whole_text_diff` off a content write.** A revise or replace
+  whose diff found no step-wise change to the value, or to one of its slots,
+  rewrites that text whole as one splice and still writes. The binding raises
+  `quillmark_core::document::whole_text_diff` on the `Receipt`'s `warnings`
+  at the value's path, read off `Receipt::whole_text`, and the module
+  function `diff` answers it beside its change, with no `path`.
 - **`export::lost_construct` off a markdown export.** The receipt of an
   export: `quillmark_content::export::to_markdown_checked` reads its markdown
   back and names each part of the content it does not carry, and
@@ -548,11 +559,13 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::root_only_entry` | `key` | structured |
 | `edit::invalid_card_id` | `id` | structured |
 | `edit::duplicate_card_id` | `id` | structured |
+| `edit::unknown_card_id` | `id` | structured |
 | `edit::import` | — | fallback |
 | `edit::content_apply` | — | fallback |
 | `edit::invalid_payload` | — | fallback |
 | `edit::stale_base` | `current` | structured |
 | `edit::rebase_conflict` | `current` | structured |
+| `edit::whole_text_diff` | — | code-determined |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
 | `conform::field_not_single_line` | `field`, `codec` | structured |

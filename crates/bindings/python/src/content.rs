@@ -75,18 +75,24 @@ pub(crate) fn write<'py>(
     }
     .map_err(to_py)?;
     let card_id = card.id().map(str::to_string);
+    let warnings = py_diagnostics(receipt.diagnostics(Some(&path)));
     let dropped: Vec<_> = receipt
         .dropped_anchors
         .into_iter()
         .map(|a| {
-            serde_json::json!({
-                "id": a.id,
+            let mut entry = serde_json::json!({
+                "id": a.context.id,
                 "path": path.to_string(),
                 "card_id": card_id,
-                "quote": a.quote,
-                "prefix": a.prefix,
-                "suffix": a.suffix,
-            })
+                "quote": a.context.quote,
+                "prefix": a.context.prefix,
+                "suffix": a.context.suffix,
+            });
+            if let Some(slot) = a.slot {
+                entry["island"] = slot.island.into();
+                entry["slot"] = slot.slot.into();
+            }
+            entry
         })
         .collect();
     let moved: Vec<_> = receipt
@@ -99,10 +105,7 @@ pub(crate) fn write<'py>(
     out.set_item("hash", receipt.hash)?;
     out.set_item("dropped_anchors", json_to_py(py, &serde_json::Value::Array(dropped))?)?;
     out.set_item("moved_anchors", json_to_py(py, &serde_json::Value::Array(moved))?)?;
-    out.set_item(
-        "warnings",
-        py_diagnostics(quillmark_core::document::dropped_constructs(receipt.warnings, Some(&path))),
-    )?;
+    out.set_item("warnings", warnings)?;
     Ok(out)
 }
 
@@ -148,11 +151,16 @@ pub fn map_pos<'py>(
 }
 
 /// A change taking `before` to `after`, word-aligned, for a writer with no
-/// steps of its own.
+/// steps of its own, as `{"change", "warnings"}`: an `edit::whole_text_diff`
+/// warning where it rewrote a whole text as one splice.
 #[pyfunction]
-pub fn diff<'py>(py: Python<'py>, before: &Bound<'_, PyAny>, after: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+pub fn diff<'py>(py: Python<'py>, before: &Bound<'_, PyAny>, after: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyDict>> {
     let (before, after) = (content_from_py(before, "diff")?, content_from_py(after, "diff")?);
-    json_to_py(py, &quillmark_content::diff::diff(&before, &after).to_value())
+    let diffed = quillmark_content::diff::diff(&before, &after).map_err(|e| change_error(e.into()))?;
+    let out = PyDict::new(py);
+    out.set_item("change", json_to_py(py, &diffed.change.to_value())?)?;
+    out.set_item("warnings", py_diagnostics(diffed.whole_text.then(quillmark_core::document::whole_text_diff).into_iter().collect()))?;
+    Ok(out)
 }
 
 /// Enter at `at`: the change that splits the block holding `at`, the new

@@ -3,13 +3,12 @@
 //! [`Card::apply`] writes a [`Change`] to a body or a richtext field and
 //! answers a [`Receipt`]. [`Card::revise`] and [`Card::replace`] build the
 //! change from a writer's markdown or a whole value and apply it.
-//! [`Document::apply_all`] applies several writes, all or nothing. Each takes
-//! the hash its writer read as `base` and refuses the write with
-//! `edit::stale_base` when the value has changed since.
+//! [`Document::apply_all`] applies several writes, all or nothing, each naming
+//! its card by `$id`. Each takes the hash its writer read as `base` and
+//! refuses the write with `edit::stale_base` when the value has changed since.
 
-use quillmark_content::change::{self, Change, Moved};
+use quillmark_content::change::{self, Change, Dropped, Moved};
 use quillmark_content::diff;
-use quillmark_content::lines::anchor::AnchorContext;
 use quillmark_content::lines::import::ImportWarning;
 use quillmark_content::model::Content;
 
@@ -26,6 +25,14 @@ pub enum Target<'a> {
     Field(&'a str),
 }
 
+/// The card a write reaches: the main card, or a composable card by its
+/// `$id`, which a card keeps wherever it moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardRef<'a> {
+    Main,
+    Id(&'a str),
+}
+
 /// What a write did.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Receipt {
@@ -33,19 +40,42 @@ pub struct Receipt {
     pub applied: Change,
     /// The value's new hash, the next write's base.
     pub hash: String,
-    /// Each anchor whose text the write deleted, as it read before.
-    pub dropped_anchors: Vec<AnchorContext>,
+    /// Each anchor the value held and holds nowhere now, as it read before,
+    /// with the slot that held it: every one a revise or replace lost, and
+    /// for an apply every one but those its `anchor` steps removed.
+    pub dropped_anchors: Vec<Dropped>,
     /// Each surviving anchor whose text the write rewrote.
     pub moved_anchors: Vec<Moved>,
     /// The markdown import's warnings, for a revise.
     pub warnings: Vec<ImportWarning>,
+    /// A revise or replace whose diff rewrote the whole text of the value or
+    /// of a slot as one splice, since no step-wise change reached it
+    /// ([`diff::Diff::whole_text`]).
+    pub whole_text: bool,
+}
+
+impl Receipt {
+    /// The receipt's warnings as diagnostics at `at`: a
+    /// [`dropped_construct`](super::dropped_construct) per construct the
+    /// markdown dropped, and a [`whole_text_diff`](super::whole_text_diff)
+    /// where the diff rewrote a whole text.
+    pub fn diagnostics(&self, at: Option<&crate::path::DocPath>) -> Vec<crate::error::Diagnostic> {
+        let mut out = super::dropped_constructs(self.warnings.clone(), at);
+        if self.whole_text {
+            let warning = super::whole_text_diff();
+            out.push(match at {
+                Some(at) => warning.with_path(at.to_string()),
+                None => warning,
+            });
+        }
+        out
+    }
 }
 
 /// One write of [`Document::apply_all`].
 #[derive(Debug, Clone)]
 pub struct Write<'a> {
-    /// The card, `None` for the main card.
-    pub card: Option<usize>,
+    pub card: CardRef<'a>,
     pub target: Target<'a>,
     pub change: Change,
     pub base: Option<&'a str>,
@@ -70,7 +100,7 @@ impl Card {
     pub fn apply(&mut self, target: Target<'_>, change: &Change, base: Option<&str>) -> Result<Receipt, EditError> {
         let before = self.read_at(target, base)?;
         let applied = change::apply(&before, change).map_err(EditError::Change)?;
-        self.land(target, before, applied, Vec::new())
+        self.land(target, before, applied, Vec::new(), None)
     }
 
     /// Rewrite the value at `target` as `markdown`: the anchors and islands
@@ -80,15 +110,17 @@ impl Card {
         let before = self.read_at(target, base)?;
         let revision = diff::revise(&before, markdown).map_err(EditError::Import)?;
         let applied = change::apply(&before, &revision.change).map_err(EditError::Change)?;
-        self.land(target, before, applied, revision.warnings)
+        self.land(target, before, applied, revision.warnings, Some(revision.whole_text))
     }
 
-    /// Write `content` over the value at `target`, each anchor `content` does
-    /// not name carried where the diff keeps its text.
+    /// Write `content` over the value at `target`, each anchor `content`
+    /// names nowhere carried where the diff keeps its text. A `content` that
+    /// is no valid value is refused.
     pub fn replace(&mut self, target: Target<'_>, content: &Content, base: Option<&str>) -> Result<Receipt, EditError> {
         let before = self.read_at(target, base)?;
-        let applied = change::apply(&before, &diff::replace(&before, content)).map_err(EditError::Change)?;
-        self.land(target, before, applied, Vec::new())
+        let diffed = diff::replace(&before, content).map_err(|e| EditError::Change(e.into()))?;
+        let applied = change::apply(&before, &diffed.change).map_err(EditError::Change)?;
+        self.land(target, before, applied, Vec::new(), Some(diffed.whole_text))
     }
 
     /// The value at `target`, refused with `edit::stale_base` when `base` is
@@ -108,13 +140,19 @@ impl Card {
         Ok(before)
     }
 
+    /// Store `applied` at `target`. `diffed` is a diff's `whole_text`, `None`
+    /// for a caller's change; a diff's receipt names every anchor it lost.
     fn land(
         &mut self,
         target: Target<'_>,
         before: Content,
-        applied: change::Applied,
+        mut applied: change::Applied,
         warnings: Vec<ImportWarning>,
+        diffed: Option<bool>,
     ) -> Result<Receipt, EditError> {
+        if diffed.is_some() {
+            applied.dropped = change::lost_anchors(&before, &applied.content, |_| true);
+        }
         let hash = content_hash(&applied.content);
         if applied.content != before {
             match target {
@@ -132,21 +170,49 @@ impl Card {
             dropped_anchors: applied.dropped,
             moved_anchors: applied.moved,
             warnings,
+            whole_text: diffed.unwrap_or(false),
         })
     }
 }
 
 impl Document {
+    /// The card `card` names, refused with `edit::unknown_card_id` where no
+    /// composable card holds its id.
+    pub fn card_at(&self, card: CardRef<'_>) -> Result<&Card, EditError> {
+        match card {
+            CardRef::Main => Ok(&self.main),
+            CardRef::Id(id) => self.card_by_id(id).ok_or_else(|| EditError::UnknownCardId(id.to_string())),
+        }
+    }
+
+    /// [`card_at`](Self::card_at), mutable.
+    pub fn card_at_mut(&mut self, card: CardRef<'_>) -> Result<super::CardMut<'_>, EditError> {
+        match card {
+            CardRef::Main => Ok(self.main_mut()),
+            CardRef::Id(id) => self.card_by_id_mut(id).ok_or_else(|| EditError::UnknownCardId(id.to_string())),
+        }
+    }
+
     /// Apply each write in order, or none of them: the first refused write's
-    /// index and error, and the document as it was.
+    /// index and error, and the document as it was. Every card id resolves
+    /// before any write applies.
     pub fn apply_all(&mut self, writes: &[Write<'_>]) -> Result<Vec<Receipt>, (usize, EditError)> {
+        let cards = writes
+            .iter()
+            .enumerate()
+            .map(|(n, w)| match w.card {
+                CardRef::Main => Ok(None),
+                CardRef::Id(id) => {
+                    self.card_index(id).map(Some).ok_or_else(|| (n, EditError::UnknownCardId(id.to_string())))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let mut next = self.clone();
         let mut receipts = Vec::with_capacity(writes.len());
-        for (n, w) in writes.iter().enumerate() {
-            let len = next.cards.len();
-            let card = match w.card {
+        for (n, (w, index)) in writes.iter().zip(cards).enumerate() {
+            let card = match index {
                 None => &mut next.main,
-                Some(index) => next.cards.get_mut(index).ok_or((n, EditError::IndexOutOfRange { index, len }))?,
+                Some(index) => &mut next.cards[index],
             };
             receipts.push(card.apply(w.target, &w.change, w.base).map_err(|e| (n, e))?);
         }

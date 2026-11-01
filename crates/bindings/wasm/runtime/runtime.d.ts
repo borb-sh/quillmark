@@ -149,6 +149,8 @@ export type {
 	Change,
 	Step,
 	Receipt,
+	DroppedAnchor,
+	Diffed,
 	WriteOptions,
 	Write,
 	RawContent,

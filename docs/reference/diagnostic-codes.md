@@ -151,7 +151,7 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 
 ## `edit::`
 
-A mutator or typed write the document refuses.
+A mutator or typed write the document refuses, and `edit::whole_text_diff`, the warning of a content write whose diff rewrote a whole text.
 
 - `edit::content_apply`
 - `edit::duplicate_card_id`
@@ -170,8 +170,10 @@ A mutator or typed write the document refuses.
 - `edit::root_only_entry`
 - `edit::stale_base`
 - `edit::too_many_cards`
+- `edit::unknown_card_id`
 - `edit::unknown_field`
 - `edit::value_too_deep`
+- `edit::whole_text_diff`
 
 ## `conform::`
 

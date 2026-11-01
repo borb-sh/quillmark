@@ -83,6 +83,22 @@ pub fn dropped_constructs(
         .collect()
 }
 
+/// The diagnostic code a write rides whose diff rewrote a whole text.
+pub const WHOLE_TEXT_DIFF: &str = "edit::whole_text_diff";
+
+/// The warning a revise or replace owes a diff that found no step-wise change
+/// to its target and rewrote the whole text of the value, or of a slot, as one
+/// splice. The value written is the one asked for; the anchors on the
+/// rewritten text drop, and the change carries no edit finer than the whole.
+/// It carries no `path`: the caller attaches the value's.
+pub fn whole_text_diff() -> Diagnostic {
+    Diagnostic::new(
+        Severity::Warning,
+        "the write rewrote the whole text as one splice: no step-wise change reached the value".to_string(),
+    )
+    .with_code(WHOLE_TEXT_DIFF.to_string())
+}
+
 /// The diagnostic code a markdown export's loss rides.
 pub const LOST_CONSTRUCT: &str = "export::lost_construct";
 
@@ -614,7 +630,7 @@ pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
-pub use write::{Receipt, Target, Write};
+pub use write::{CardRef, Receipt, Target, Write};
 
 /// Where Quillmark Markdown departs from plain Markdown and YAML, as rules
 /// surfaced verbatim to LLM/MCP consumers and to the bindings. The single
@@ -968,6 +984,16 @@ impl Document {
     /// [`card_mut`](Document::card_mut). `None` when out of range.
     pub fn card(&self, index: usize) -> Option<&Card> {
         self.cards.get(index)
+    }
+
+    /// The index of the composable card whose `$id` is `id`.
+    pub fn card_index(&self, id: &str) -> Option<usize> {
+        self.cards.iter().position(|card| card.id() == Some(id))
+    }
+
+    /// A composable card by its `$id`, which it keeps wherever it moves.
+    pub fn card_by_id(&self, id: &str) -> Option<&Card> {
+        self.card_index(id).map(|index| &self.cards[index])
     }
 
     pub(crate) fn main_card_mut(&mut self) -> &mut Card {

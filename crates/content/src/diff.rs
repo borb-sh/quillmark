@@ -11,24 +11,65 @@ use crate::ids::{Minter, prefix};
 use crate::lines::delta::{Op, diff_import, diff_words as text_diff, without_sentinel};
 use crate::lines::import::{ImportError, ImportWarning};
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{Content, ISLAND_SLOT, Island, Mark};
+use crate::model::{Content, ISLAND_SLOT, Invariant, Island, Mark};
 use crate::table::{self, Table};
 use std::collections::{HashMap, HashSet};
 
-/// The change that takes `before` to `after`. What no change can reach comes
-/// out under `before`'s ids instead: the first block's record, which no `\n`
-/// carries, and a container whose id `before` holds with another kind.
-pub fn diff(before: &Content, after: &Content) -> Change {
-    Change::new(diff_level(before, after, false, true))
+/// What [`diff`] built: the change, and whether some value or slot had no
+/// step-wise change to its target, so that the change rewrites that one's
+/// whole text as one splice.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Diff {
+    pub change: Change,
+    pub whole_text: bool,
 }
 
-/// [`diff`], leaving every anchor of `before` that `after` does not name to
+/// The change that takes `before` to `after`, refused where `after` is not a
+/// valid value. What no change can reach comes out under `before`'s ids
+/// instead: the first block's record, which no `\n` carries, and a container
+/// whose id `before` holds with another kind.
+pub fn diff(before: &Content, after: &Content) -> Result<Diff, Invariant> {
+    after.validate()?;
+    Ok(diff_with(before, after, None))
+}
+
+/// [`diff`], leaving every anchor of `before` that `after` names nowhere to
 /// ride the text it covers.
-pub fn diff_carrying(before: &Content, after: &Content) -> Change {
-    Change::new(diff_level(before, after, true, true))
+pub fn diff_carrying(before: &Content, after: &Content) -> Result<Diff, Invariant> {
+    after.validate()?;
+    let mut named = HashSet::new();
+    anchor_ids(after, &mut named);
+    Ok(diff_with(before, after, Some(&named)))
 }
 
-fn diff_level(before: &Content, after: &Content, carry: bool, top: bool) -> Vec<Step> {
+fn diff_with(before: &Content, after: &Content, carry: Option<&HashSet<String>>) -> Diff {
+    let mut whole_text = false;
+    let steps = diff_level(before, after, carry, true, &mut whole_text);
+    Diff { change: Change::new(steps), whole_text }
+}
+
+fn anchor_ids(c: &Content, out: &mut HashSet<String>) {
+    out.extend(c.anchors.iter().map(|a| a.id.clone()));
+    for island in &c.islands {
+        for slot in island.slots.values() {
+            anchor_ids(slot, out);
+        }
+    }
+}
+
+/// The fix-ups to `want`, less each anchor removal `carry` leaves to ride
+/// its text: one whose id `after` names nowhere.
+fn fixups_carrying(cur: &Content, want: &Content, carry: Option<&HashSet<String>>) -> Vec<Step> {
+    fixups(cur, want)
+        .into_iter()
+        .filter(|s| match (s, carry) {
+            (Step::Anchor(AnchorStep::Remove { id }), Some(named)) => named.contains(id),
+            _ => true,
+        })
+        .collect()
+}
+
+fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>, top: bool, whole_text: &mut bool) -> Vec<Step> {
     let mut want = reachable(before, after, top);
     let moved = moved_ids(&splices(before, &want));
     if !moved.is_empty() {
@@ -64,6 +105,7 @@ fn diff_level(before: &Content, after: &Content, carry: bool, top: bool) -> Vec<
     }));
     let mut cur = before.clone();
     if run(&mut cur, &steps, &mut Vec::new(), &mut Vec::new()).is_err() {
+        *whole_text = true;
         return replace_all(before, &want, carry);
     }
     let mut rest = Vec::new();
@@ -86,7 +128,7 @@ fn diff_level(before: &Content, after: &Content, carry: bool, top: bool) -> Vec<
             if let Some(held) = have.slots.get(slot)
                 && held != inner
             {
-                let change = Change::new(diff_level(held, inner, carry, false));
+                let change = Change::new(diff_level(held, inner, carry, false, whole_text));
                 if !change.is_empty() {
                     rest.push(Step::Nested { island: have.id.clone(), slot: slot.clone(), change });
                 }
@@ -94,10 +136,11 @@ fn diff_level(before: &Content, after: &Content, carry: bool, top: bool) -> Vec<
         }
     }
     if run(&mut cur, &rest, &mut Vec::new(), &mut Vec::new()).is_err() {
+        *whole_text = true;
         return replace_all(before, &want, carry);
     }
     steps.extend(rest);
-    steps.extend(fixups(&cur, &want).into_iter().filter(|s| !(carry && matches!(s, Step::Anchor(AnchorStep::Remove { .. })))));
+    steps.extend(fixups_carrying(&cur, &want, carry));
     steps
 }
 
@@ -123,7 +166,7 @@ fn moved_ids(steps: &[Step]) -> HashSet<String> {
 
 /// One splice over the whole text, for a pair the step-wise diff cannot
 /// bridge.
-fn replace_all(before: &Content, want: &Content, carry: bool) -> Vec<Step> {
+fn replace_all(before: &Content, want: &Content, carry: Option<&HashSet<String>>) -> Vec<Step> {
     let mut steps: Vec<Step> = want
         .containers
         .iter()
@@ -146,7 +189,7 @@ fn replace_all(before: &Content, want: &Content, carry: bool) -> Vec<Step> {
     }));
     let mut cur = before.clone();
     if run(&mut cur, &steps, &mut Vec::new(), &mut Vec::new()).is_ok() {
-        steps.extend(fixups(&cur, want).into_iter().filter(|s| !(carry && matches!(s, Step::Anchor(AnchorStep::Remove { .. })))));
+        steps.extend(fixups_carrying(&cur, want, carry));
     }
     steps
 }
@@ -580,23 +623,25 @@ fn align_island(held: &Island, island: &mut Island) {
 
 /// A markdown rewrite of `before`, as v1's revise reads it: anchors kept by
 /// the tags the markdown kept, otherwise by the word-aligned diff.
+/// `whole_text` is [`Diff::whole_text`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct Revision {
     pub change: Change,
     pub content: Content,
     pub warnings: Vec<ImportWarning>,
+    pub whole_text: bool,
 }
 
 pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ImportError> {
     let (lines, _, warnings) = diff_import(&to_lines(before), markdown)?;
     let content = align(before, from_lines(&lines));
-    let change = diff(before, &content);
-    Ok(Revision { change, content, warnings })
+    let Diff { change, whole_text } = diff_with(before, &content, None);
+    Ok(Revision { change, content, warnings, whole_text })
 }
 
 /// The change that writes `content` over `before`: each anchor of `before`
-/// that `content` does not name carried where the diff keeps its text.
-pub fn replace(before: &Content, content: &Content) -> Change {
+/// that `content` names nowhere carried where the diff keeps its text.
+pub fn replace(before: &Content, content: &Content) -> Result<Diff, Invariant> {
     diff_carrying(before, content)
 }
 

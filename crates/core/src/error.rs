@@ -779,6 +779,7 @@ mod args_canon {
             EditError::IndexOutOfRange { index: 3, len: 1 },
             EditError::InvalidCardId("-x".into()),
             EditError::DuplicateCardId("intro".into()),
+            EditError::UnknownCardId("gone".into()),
             EditError::TooManyCards { max: 1 },
             EditError::ValueTooDeep { max: 8 },
             EditError::Import(quillmark_content::lines::import::ImportError::NestingTooDeep {
@@ -978,6 +979,8 @@ card_kinds:
             .find(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
             .expect("no `parse::dropped_construct` sample from the drop probe");
         add(crate::document::DROPPED_CONSTRUCT, sample.args.clone());
+        let whole = crate::document::whole_text_diff();
+        add(crate::document::WHOLE_TEXT_DIFF, whole.args);
         let reminted = crate::document::Document::parse(
             "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~\n$kind: note\n$id: -x\n~~~\n",
         )

@@ -4,7 +4,7 @@
 //! and returns the change in its normalized form. [`invert`], [`compose`] and
 //! [`map_pos`] are pure helpers over changes.
 
-use crate::lines::anchor::{AnchorContext, anchor_context};
+use crate::lines::anchor::{AnchorContext, anchor_contexts};
 use crate::migrate::to_lines;
 use crate::model::{
     Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Usv,
@@ -157,10 +157,27 @@ pub struct Applied {
     /// each `setBlock` naming its kind and attributes, and a container step
     /// removing each container the change left unused.
     pub applied: Change,
-    /// Each range anchor whose text the change deleted, as it read before.
-    pub dropped: Vec<AnchorContext>,
+    /// Each anchor the value held before and holds nowhere after, unless an
+    /// `anchor` step removed it, as it read before, in reading order.
+    pub dropped: Vec<Dropped>,
     /// Each surviving range anchor whose text the change rewrote.
     pub moved: Vec<Moved>,
+}
+
+/// An anchor a change dropped: its context as it read before, and the slot
+/// that held it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dropped {
+    pub context: AnchorContext,
+    /// `None` for an anchor in the value's own text.
+    pub slot: Option<SlotRef>,
+}
+
+/// One slot of an island.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotRef {
+    pub island: String,
+    pub slot: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,8 +206,8 @@ impl Splice {
 pub fn apply(before: &Content, change: &Change) -> Result<Applied, ApplyError> {
     let mut content = before.clone();
     let mut applied = Vec::with_capacity(change.steps.len());
-    let mut dropped = Vec::new();
-    run(&mut content, &change.steps, &mut applied, &mut dropped)?;
+    let mut removed = Vec::new();
+    run(&mut content, &change.steps, &mut applied, &mut removed)?;
     let used: BTreeSet<&str> = content.blocks.iter().flat_map(|b| b.path.iter().map(String::as_str)).collect();
     let unused: Vec<String> =
         content.containers.iter().filter(|c| !used.contains(c.id.as_str())).map(|c| c.id.clone()).collect();
@@ -199,25 +216,58 @@ pub fn apply(before: &Content, change: &Change) -> Result<Applied, ApplyError> {
     }
     content.order_containers(true);
     content.validate()?;
-    let lowered = to_lines(before);
-    let dropped = dropped.iter().filter_map(|id| anchor_context(&lowered, id)).collect();
+    let removed: BTreeSet<&str> = removed.iter().map(String::as_str).collect();
+    let dropped = lost_anchors(before, &content, |id| !removed.contains(id));
     let moved = moved_anchors(before, &content);
     Ok(Applied { content, applied: Change { steps: applied }, dropped, moved })
 }
 
+/// Each anchor of `before`, in its text or a slot, that `after` holds
+/// nowhere and `keep` admits, as it read in `before`, in reading order.
+pub fn lost_anchors(before: &Content, after: &Content, keep: impl Fn(&str) -> bool) -> Vec<Dropped> {
+    let mut held = HashMap::new();
+    anchor_homes(after, None, &mut held);
+    let mut was = HashMap::new();
+    anchor_homes(before, None, &mut was);
+    was.retain(|id, _| !held.contains_key(id) && keep(id));
+    if was.is_empty() {
+        return Vec::new();
+    }
+    anchor_contexts(&to_lines(before))
+        .into_iter()
+        .filter_map(|context| {
+            let slot = was.remove(&context.id)?;
+            Some(Dropped { context, slot })
+        })
+        .collect()
+}
+
+/// Each anchor id of `c` and the slot that holds it.
+fn anchor_homes(c: &Content, slot: Option<&SlotRef>, out: &mut HashMap<String, Option<SlotRef>>) {
+    for a in &c.anchors {
+        out.insert(a.id.clone(), slot.cloned());
+    }
+    for island in &c.islands {
+        for (id, inner) in &island.slots {
+            anchor_homes(inner, Some(&SlotRef { island: island.id.clone(), slot: id.clone() }), out);
+        }
+    }
+}
+
 /// Runs `steps` on one level, a field or a slot, each held to `check`.
-pub(crate) fn run(c: &mut Content, steps: &[Step], applied: &mut Vec<Step>, dropped: &mut Vec<String>) -> Result<(), ApplyError> {
+/// `removed` collects the id of each anchor an `anchor` step removes.
+pub(crate) fn run(c: &mut Content, steps: &[Step], applied: &mut Vec<Step>, removed: &mut Vec<String>) -> Result<(), ApplyError> {
     for (n, step) in steps.iter().enumerate() {
-        let done = apply_step(c, step, n, dropped)?;
+        let done = apply_step(c, step, n, removed)?;
         c.check()?;
         applied.push(done);
     }
     Ok(())
 }
 
-fn apply_step(c: &mut Content, step: &Step, n: usize, dropped: &mut Vec<String>) -> Result<Step, ApplyError> {
+fn apply_step(c: &mut Content, step: &Step, n: usize, removed: &mut Vec<String>) -> Result<Step, ApplyError> {
     Ok(match step {
-        Step::Splice(s) => Step::Splice(splice(c, s, n, dropped)?),
+        Step::Splice(s) => Step::Splice(splice(c, s, n)?),
         Step::SetBlock(s) => Step::SetBlock(set_block(c, s, n)?),
         Step::Container(s) => {
             container(c, s)?;
@@ -229,6 +279,9 @@ fn apply_step(c: &mut Content, step: &Step, n: usize, dropped: &mut Vec<String>)
         }
         Step::Anchor(a) => {
             anchor(c, a, n)?;
+            if let AnchorStep::Remove { id } = a {
+                removed.push(id.clone());
+            }
             step.clone()
         }
         Step::Island(IslandStep::Props { id, props, slots }) => {
@@ -238,7 +291,7 @@ fn apply_step(c: &mut Content, step: &Step, n: usize, dropped: &mut Vec<String>)
         }
         Step::Island(IslandStep::Insert { at, island }) => {
             let s = Splice { islands: vec![island.clone()], ..Splice::new(*at, "", ISLAND_SLOT.to_string()) };
-            let done = splice(c, &s, n, dropped)?;
+            let done = splice(c, &s, n)?;
             let island = done.islands.into_iter().next().unwrap_or_else(|| island.clone());
             Step::Island(IslandStep::Insert { at: *at, island })
         }
@@ -246,7 +299,7 @@ fn apply_step(c: &mut Content, step: &Step, n: usize, dropped: &mut Vec<String>)
             let unknown = || ApplyError::UnknownSlot { island: island.clone(), slot: slot.clone() };
             let target = c.slot_mut(island, slot).ok_or_else(unknown)?;
             let mut inner = Vec::new();
-            run(target, &change.steps, &mut inner, dropped)?;
+            run(target, &change.steps, &mut inner, removed)?;
             if !target.is_slot_shape() {
                 return Err(Invariant::BadSlot { island: island.clone(), slot: slot.clone() }.into());
             }
@@ -255,7 +308,7 @@ fn apply_step(c: &mut Content, step: &Step, n: usize, dropped: &mut Vec<String>)
     })
 }
 
-fn splice(c: &mut Content, s: &Splice, n: usize, dropped: &mut Vec<String>) -> Result<Splice, ApplyError> {
+fn splice(c: &mut Content, s: &Splice, n: usize) -> Result<Splice, ApplyError> {
     let chars: Vec<char> = c.text.chars().collect();
     let del: Vec<char> = s.delete.chars().collect();
     let ins: Vec<char> = s.insert.chars().collect();
@@ -324,7 +377,6 @@ fn splice(c: &mut Content, s: &Splice, n: usize, dropped: &mut Vec<String>) -> R
         let point = a.is_point();
         let (start, end) = (map_start(a.start, at, dn, m, point), map_end(a.end, at, dn, m, point));
         if !point && start >= end {
-            dropped.push(a.id.clone());
             return false;
         }
         a.start = start;
@@ -521,8 +573,12 @@ fn island_props(
         };
         slots.insert(slot, content);
     }
-    if given.keys().any(|k| !gained.contains_key(k)) {
-        return Err(ApplyError::BadStep { step: n, reason: "`slots` names a slot the island already holds" });
+    if let Some(k) = given.keys().find(|k| !gained.contains_key(*k)) {
+        let reason = match slots.contains_key(k) {
+            true => "`slots` names a slot the island already holds",
+            false => "`slots` names a slot the props do not name",
+        };
+        return Err(ApplyError::BadStep { step: n, reason });
     }
     island.slots = slots;
     table::normalize_island(island);

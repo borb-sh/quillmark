@@ -54,6 +54,32 @@ over its keys: read `receipt["warnings"]`.
   the binding is the model. `overwrite`, `reviseContent` and `applyChange`
   stay one release as names for `replace` and `apply`; `mapMarks` is removed.
 - feat(python)!: **the same surface in snake case**, offsets in code points.
+- feat(core)!: **a content write names its card by `$id`.** `Write.card`
+  is a `CardRef` (`Main` or `Id`), `Document::apply_all` resolves every id
+  before it writes, and an id no card holds refuses with
+  `edit::unknown_card_id`. `Document::card_index`, `card_by_id` and
+  `card_by_id_mut` find a card by id. WASM `Addr.card` and Python `card=`
+  take a card's `$id` on every verb, and `apply`, `applyAll`, `revise` and
+  `replace` take nothing else, so a card moved or inserted between a read and
+  its write, its body equal to the one read, no longer takes the write.
+- feat(content)!: **the receipt names every anchor a change loses.** An
+  island a splice deletes, or a slot a props step no longer names, names the
+  anchors of its slots, each with the `island` and `slot` that held it.
+  `revise` and `replace` name every anchor they lose; `apply` every one but
+  those its own `anchor` steps removed. `Applied.dropped` and
+  `Receipt.dropped_anchors` are `change::Dropped`, an `AnchorContext` and a
+  `SlotRef`; WASM spells it `DroppedAnchor`.
+- feat(content)!: **`diff` says when it rewrites a whole text, and refuses an
+  invalid target.** `diff`, `diff_carrying` and `replace` return a `Diff`, or
+  the `Invariant` an invalid `after` breaks, where they returned zero steps.
+  `Diff::whole_text`, `Revision::whole_text` and `Receipt::whole_text` mark a
+  value or slot no step-wise change reached, which the bindings raise as an
+  `edit::whole_text_diff` warning; WASM and Python `diff` answer
+  `{ change, warnings }`.
+- fix(content): **`replace` moves an anchor between the prose and a cell**,
+  where it refused with `DuplicateId`: it carries only an anchor the new
+  value names nowhere. A props step naming a slot in `slots` that the props
+  do not name says so, apart from one naming a slot the island holds.
 
 ### Card identity
 
