@@ -121,10 +121,11 @@ A write names its card by `$id`, and an id no card holds is
 `edit::unknown_card_id`, carrying `id`; an address naming a card by `$id` on
 any other verb refuses the same way. A revise or replace whose diff found no
 step-wise change and rewrote a whole text as one splice warns
-`edit::whole_text_diff`, at the value's path, and writes. A revise or replace
-whose change removes an `x-` island refuses under `edit::drops_ext_island`,
-carrying `island` and `type`: markdown cannot spell one, so its writer may not
-have seen it, and a change through `apply` removes one.
+`edit::whole_text_diff`, at the value's path, and writes. A content write's
+revise or replace whose change removes an `x-` island refuses under
+`edit::drops_ext_island`, carrying `island` and `type`: markdown cannot spell
+one, so its writer may not have seen it, and a change through `apply` removes
+one. The line-form revise verbs do not check.
 
 Building a card from a `CardWire` (`insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:

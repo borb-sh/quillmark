@@ -52,7 +52,7 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 - Validation of an `x-` member is structural only: the name, the ranges, and its bag's JSON depth. An `x-` island holds any slots, each of paragraphs.
 - The line form lowers an `x-` block to a paragraph, drops an `x-` mark, and keeps an `x-` island with its slots as cells. The renderers draw the island as nothing, and markdown writes it as nothing, reporting the loss; the annotated read spells it as its token, so a revise keeps it.
 - A revise keeps a kept block's `x-` kind where the markdown reads back as a paragraph, and an `x-` mark over the text the diff keeps.
-- A revise or replace whose change removes an `x-` island refuses with `edit::drops_ext_island`, since its writer may never have seen it; a change through `apply` removes one.
+- A content write's revise or replace (`Card::revise`, `Card::replace`) whose change removes an `x-` island refuses with `edit::drops_ext_island`, since its writer may never have seen it; a change through `apply` removes one. The line-form revise verbs (`revise_body`, `revise_field`, `Document::revise`) do not check, and a plain markdown revise through them drops the island.
 - Steps set and remove `x-` names like any other.
 
 ## Validity
@@ -153,7 +153,7 @@ Each law is a property test over generated values and generated changes (`tests/
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes.
 5. Every `Change` yields a valid value or fails and changes nothing.
 6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back reads as the merged state it repaired: by any number of peers where no repair inserts, since the value then holds no character or slot the state does not, and by one writer otherwise.
-7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly, and which keeps what `o` did by id: each block kind and path, container, and island's props `o` changed, and each island or slot it changed that `c` drops without editing it first. `rebase(d, c, ∅) == c`. Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote.
+7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly, and which keeps what `o` did by id: each block kind and path, container, and island's props `o` changed, each block it changed, and each island or slot it changed that `c` drops without editing what `o` changed in it. `rebase(d, c, ∅) == c`. Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote.
 
 ## Writing a value
 

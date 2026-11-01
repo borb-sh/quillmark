@@ -43,30 +43,8 @@ pub fn diff_carrying(before: &Content, after: &Content) -> Result<Diff, Invarian
 
 fn diff_with(before: &Content, after: &Content, carry: Option<&HashSet<String>>) -> Diff {
     let mut whole_text = false;
-    let mut steps = diff_level(before, after, carry, true, &mut whole_text);
-    let want = reachable(before, after, true);
-    if !whole_text && !reaches(before, &steps, &want) {
-        whole_text = true;
-        steps = replace_all(before, &want, carry);
-    }
+    let steps = diff_level(before, after, carry, true, &mut whole_text);
     Diff { change: Change::new(steps), whole_text }
-}
-
-/// Whether `steps` take `before` to `want` in everything but the anchors,
-/// which a carrying diff leaves where their text is.
-fn reaches(before: &Content, steps: &[Step], want: &Content) -> bool {
-    fn bare(mut c: Content) -> Content {
-        c.normalize();
-        c.anchors.clear();
-        for island in &mut c.islands {
-            for slot in island.slots.values_mut() {
-                *slot = bare(std::mem::take(slot));
-            }
-        }
-        c
-    }
-    let mut cur = before.clone();
-    run(&mut cur, steps).is_ok() && bare(cur) == bare(want.clone())
 }
 
 fn anchor_ids(c: &Content, out: &mut HashSet<String>) {

@@ -115,11 +115,11 @@ over its keys: read `receipt["warnings"]`.
   still refuses. Validation is structural only. An `x-` block reads as a
   paragraph, an `x-` mark formats nothing, and an `x-` island renders and
   exports to markdown as nothing, which the annotated read spells as its
-  token so a revise keeps it; a revise or replace that removes one refuses
-  with `edit::drops_ext_island`, and `apply` removes it. Steps set and remove
-  them. `MarkStep::Remove`'s
-  `tag` is a `String`, `BlockKind::tag` and `MarkKind::tag` return `&str`, and
-  `IslandType` is no longer `Copy`.
+  token so a revise keeps it; a content write's revise or replace that
+  removes one refuses with `edit::drops_ext_island`, and `apply` removes it.
+  Steps set and remove them. `MarkStep::Remove`'s `tag` is a `String`,
+  `BlockKind::tag` and `MarkKind::tag` return `&str`, and `IslandType` is no
+  longer `Copy`.
 - feat(content): **`rebase(base, change, over)` moves a change past another
   made from the same value**, after ProseMirror's `rebaseSteps`. Each step
   maps through the inverse of its change's earlier steps, then `over`, then
