@@ -42,7 +42,7 @@ crate-internal to `quillmark-core` and never a storage option.
 
 ## The Format
 
-The current schema (`quillmark/document@0.135.0`) carries each card's full
+The current schema (`quillmark/document@0.134.0`) carries each card's full
 ordered payload: typed `$` system metadata, user fields, and YAML
 comments interleaved in source order: as a single discriminated-union
 item list. A composable card's `$id` is an `{type: id, value}` item after its
@@ -54,7 +54,7 @@ rests as one inside its item's `value`; see Byte-stability.
 
 ```json
 {
-  "schema": "quillmark/document@0.135.0",
+  "schema": "quillmark/document@0.134.0",
   "main": {
     "payload": {
       "items": [
@@ -84,15 +84,18 @@ document came through the bound door) live on the `Parsed` record, not on
 their `Document` handle as session state and exclude them from `equals` and
 the DTO alike.
 
-### Legacy schemas (V0_124_0 to V0_134_0)
+### Legacy schemas (V0_124_0 to V0_131_0)
 
-The tags `0.124.0`, `0.129.0`, `0.131.0` and `0.134.0` hold the line form,
+The tags `0.124.0`, `0.129.0` and `0.131.0` hold the line form,
 the v1 content encoding ([CONTENT.md](CONTENT.md) § "The line form"). A row
-under one loads through the `0.135.0` hop: its body, and each field value
+under one loads through the `0.134.0` hop: its body, and each field value
 that decodes as line-form content at any depth, migrates through
 `migrate::from_lines`, minting ids deterministically, so the same row
 always migrates to the same bytes. A `$seed` or `$ext` value stays as stored,
-and the decoders read a line-form value wherever they meet one.
+and the decoders read a line-form value wherever they meet one. A row a
+pre-release build wrote in the line form under `0.134.0` itself loads the same
+way: `StoredContent` migrates a line-form body, and the load walks each field
+value as the hop does.
 
 `0.124.0` carries the content vocabulary without the `footnote` and `math`
 islands, the `term` line kind or the `description` container. It is the oldest
@@ -478,8 +481,8 @@ is written, and never rewritten while its card lives.**
 
 The schema version is tied to the **crate version at which the `Document`
 wire format was last changed**: not the running crate version. The current
-format was fixed in `0.135.0`, so every save writes
-`quillmark/document@0.135.0`; every later patch release writes that same
+format was fixed in `0.134.0`, so every save writes
+`quillmark/document@0.134.0`; every later patch release writes that same
 value, because patches do not change the format.
 
 The format is the *bytes*, not only the envelope: `0.115.0` left the DTO tree
@@ -487,14 +490,14 @@ untouched, dropped an island's `loss` key and retired the `island` line kind,
 which is a format change because the writer emits different bytes for the same
 document.
 
-`0.124.0`, `0.129.0`, `0.131.0` and `0.134.0` share one tree over the line
+`0.124.0`, `0.129.0` and `0.131.0` share one tree over the line
 form: a field item is `{type: field, key, value}`, and a document, card,
 payload or payload item carrying a key its type does not name fails the load.
 `0.129.0` adds `footnote` and `math` to the island vocabulary, `term` to the
 line kinds and `description` to the containers. `0.131.0` adds `font_family`
-to the marks and a table's `head` and spans. `0.134.0` adds the `id` payload
-item. `0.135.0` keeps the payload tree and stores each body as the content
-model (`DocumentV0_135_0`, `StoredContent`).
+to the marks and a table's `head` and spans. `0.134.0` keeps the payload tree,
+adding the `id` payload item, and stores each body as the content model
+(`DocumentV0_134_0`, `StoredContent`).
 
 The V0_124_0 → V0_129_0 hop decodes its raw `body`, and can reject for the same
 reason a load can. Only the newest DTO converts to the live `Document`.
@@ -503,7 +506,7 @@ reason a load can. Only the newest DTO converts to the live `Document`.
 
 When the `Document` wire format changes again:
 
-1. **Freeze** the current `DocumentV0_135_0` type tree: leave its struct
+1. **Freeze** the current `DocumentV0_134_0` type tree: leave its struct
    /enum definitions and serde derives untouched so existing rows still parse.
    Replace any field whose type tracks the live crate (`StoredContent` is
    the one) with raw `serde_json::Value`, or the frozen tree will *write* the
@@ -515,7 +518,7 @@ When the `Document` wire format changes again:
    plus its `From<&Document>` and `TryFrom<… for Document>` conversions.
 4. **Add** the `StoredDocument::V0_NN_0` variant, tagged
    `#[serde(rename = "quillmark/document@0.NN.0")]`.
-5. **Write the migration**: `From<DocumentV0_135_0> for DocumentV0_NN_0` if
+5. **Write the migration**: `From<DocumentV0_134_0> for DocumentV0_NN_0` if
    the mapping cannot fail, or `TryFrom` if it can reject, as the V0_124_0 hop
    does for a body that will not decode. This is the only real labor: it
    encodes how old fields map to the new model.
@@ -527,7 +530,7 @@ newest tree, and the reader matches both tags into it.
 
 **A migration reaches the body for certain, and a field value only by its
 shape.** Every other stored content sits inside an opaque payload value carrying
-no schema tag. The `0.135.0` hop migrates a field value that decodes as
+no schema tag. The `0.134.0` hop migrates a field value that decodes as
 line-form content, but `$seed` and `$ext` are arbitrary by contract and a walk
 cannot tell content there from host data that merely looks like it. So a change
 to the *content* encoding has to stay readable too: the decoder reads the old
@@ -551,7 +554,7 @@ refuses, such as the lone major `memo@1` ([VERSIONING.md](VERSIONING.md)), or
 more cards than `MAX_CARD_COUNT`, the ceiling markdown parse and card
 placement both hold. Load measures no emitted size, since emission can
 outgrow the source a document parsed from.
-Migrations chain (`V0_124_0 → V0_129_0 → V0_135_0 → …`); only the newest DTO
+Migrations chain (`V0_124_0 → V0_129_0 → V0_134_0 → …`); only the newest DTO
 converts to the live `Document`, so each migration step stays small as versions
 accumulate. The cost is one frozen type tree per schema version plus one
 migration function per version bump.
@@ -574,7 +577,7 @@ sourcing it from a row count rather than a version number.
 
 ## Gotchas
 
-- The schema version is a hand-set constant (`STORAGE_V0_135_0`), **not**
+- The schema version is a hand-set constant (`STORAGE_V0_134_0`), **not**
   `CARGO_PKG_VERSION`: bumping it is a deliberate act tied to a model change.
 - Unknown schema versions are rejected on read, never silently ignored.
 - DTO type names carry version suffixes with underscores

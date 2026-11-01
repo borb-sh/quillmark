@@ -914,7 +914,7 @@ impl Document {
     /// only when the wire format changes, not on every release.
     #[wasm_bindgen(js_name = currentStorageVersion)]
     pub fn current_storage_version() -> String {
-        quillmark_core::document::STORAGE_V0_135_0.to_string()
+        quillmark_core::document::STORAGE_V0_134_0.to_string()
     }
 
     /// The canonical `$quill` reference grammar as author-facing text: the same

@@ -34,10 +34,9 @@ use crate::version::QuillReference;
 /// The wire key is spelled `schema` though it names a storage version, not a
 /// field schema: it is the serde tag [`StoredDocument`] dispatches on, and
 /// retagging it would break the versioning it exists to serve.
-pub const STORAGE_V0_135_0: &str = "quillmark/document@0.135.0";
-
-/// The tag before [`STORAGE_V0_135_0`], read: the line-form body, each
-/// composable card's payload holding an `id` item.
+///
+/// A row a pre-release build wrote under this tag holds the line form, and
+/// loads migrated as an older tag's row does.
 pub const STORAGE_V0_134_0: &str = "quillmark/document@0.134.0";
 
 /// The tag before [`STORAGE_V0_134_0`], read.
@@ -72,8 +71,6 @@ pub fn peek_storage_version(json: &str) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "schema")]
 pub enum StoredDocument {
-    #[serde(rename = "quillmark/document@0.135.0")]
-    V0_135_0(DocumentV0_135_0),
     #[serde(rename = "quillmark/document@0.134.0")]
     V0_134_0(DocumentV0_134_0),
     #[serde(rename = "quillmark/document@0.131.0")]
@@ -116,20 +113,20 @@ impl std::fmt::Display for StorageError {
 
 impl std::error::Error for StorageError {}
 
-/// Frozen `0.135.0` representation of a [`Document`]: the V0_129_0 tree, each
+/// Frozen `0.134.0` representation of a [`Document`]: the V0_129_0 tree, each
 /// body a content-model value (see [`StoredContent`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DocumentV0_135_0 {
-    pub main: CardV0_135_0,
+pub struct DocumentV0_134_0 {
+    pub main: CardV0_134_0,
     #[serde(default)]
-    pub cards: Vec<CardV0_135_0>,
+    pub cards: Vec<CardV0_134_0>,
 }
 
-/// Frozen `0.135.0` representation of a [`Card`].
+/// Frozen `0.134.0` representation of a [`Card`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CardV0_135_0 {
+pub struct CardV0_134_0 {
     pub payload: PayloadV0_129_0,
     pub body: StoredContent,
 }
@@ -165,10 +162,6 @@ impl<'de> Deserialize<'de> for StoredContent {
             .map_err(serde::de::Error::custom)
     }
 }
-
-/// Frozen `0.134.0` representation of a [`Document`]: the V0_129_0 tree, each
-/// composable card's payload holding an `id` item.
-pub type DocumentV0_134_0 = DocumentV0_129_0;
 
 /// Frozen `0.131.0` representation of a [`Document`]: the V0_129_0 tree over
 /// the content vocabulary holding the `font_family` mark, a table's `head` and
@@ -327,22 +320,22 @@ pub enum CommentPathSegmentV0_124_0 {
 
 impl From<Document> for StoredDocument {
     fn from(doc: Document) -> Self {
-        StoredDocument::V0_135_0(DocumentV0_135_0::from(&doc))
+        StoredDocument::V0_134_0(DocumentV0_134_0::from(&doc))
     }
 }
 
-impl From<&Document> for DocumentV0_135_0 {
+impl From<&Document> for DocumentV0_134_0 {
     fn from(doc: &Document) -> Self {
-        DocumentV0_135_0 {
-            main: CardV0_135_0::from(doc.main()),
-            cards: doc.cards().iter().map(CardV0_135_0::from).collect(),
+        DocumentV0_134_0 {
+            main: CardV0_134_0::from(doc.main()),
+            cards: doc.cards().iter().map(CardV0_134_0::from).collect(),
         }
     }
 }
 
-impl From<&Card> for CardV0_135_0 {
+impl From<&Card> for CardV0_134_0 {
     fn from(card: &Card) -> Self {
-        CardV0_135_0 {
+        CardV0_134_0 {
             payload: PayloadV0_129_0::from(card.payload()),
             body: StoredContent(card.body().clone()),
         }
@@ -351,7 +344,7 @@ impl From<&Card> for CardV0_135_0 {
 
 /// The hop from the line form: each body, and each field value that decodes
 /// as line-form content at any depth, migrates, minting its ids.
-impl From<DocumentV0_129_0> for DocumentV0_135_0 {
+impl From<DocumentV0_129_0> for DocumentV0_134_0 {
     fn from(d: DocumentV0_129_0) -> Self {
         let card = |mut c: CardV0_129_0| {
             for item in &mut c.payload.items {
@@ -359,12 +352,12 @@ impl From<DocumentV0_129_0> for DocumentV0_135_0 {
                     migrate_field(value);
                 }
             }
-            CardV0_135_0 {
+            CardV0_134_0 {
                 payload: c.payload,
                 body: StoredContent(quillmark_content::migrate::from_lines(&c.body.0)),
             }
         };
-        DocumentV0_135_0 { main: card(d.main), cards: d.cards.into_iter().map(card).collect() }
+        DocumentV0_134_0 { main: card(d.main), cards: d.cards.into_iter().map(card).collect() }
     }
 }
 
@@ -468,21 +461,20 @@ impl TryFrom<StoredDocument> for Document {
 
     fn try_from(stored: StoredDocument) -> Result<Self, Self::Error> {
         match stored {
-            StoredDocument::V0_135_0(payload) => Document::try_from(payload),
-            StoredDocument::V0_134_0(payload)
-            | StoredDocument::V0_131_0(payload)
-            | StoredDocument::V0_129_0(payload) => Document::try_from(DocumentV0_135_0::from(payload)),
+            StoredDocument::V0_134_0(payload) => Document::try_from(payload),
+            StoredDocument::V0_131_0(payload)
+            | StoredDocument::V0_129_0(payload) => Document::try_from(DocumentV0_134_0::from(payload)),
             StoredDocument::V0_124_0(payload) => {
-                Document::try_from(DocumentV0_135_0::from(DocumentV0_129_0::try_from(payload)?))
+                Document::try_from(DocumentV0_134_0::from(DocumentV0_129_0::try_from(payload)?))
             }
         }
     }
 }
 
-impl TryFrom<DocumentV0_135_0> for Document {
+impl TryFrom<DocumentV0_134_0> for Document {
     type Error = StorageError;
 
-    fn try_from(payload: DocumentV0_135_0) -> Result<Self, Self::Error> {
+    fn try_from(payload: DocumentV0_134_0) -> Result<Self, Self::Error> {
         let mut main = Card::try_from(payload.main)?;
         if main.quill().is_none() {
             return Err(StorageError::Malformed(
@@ -703,10 +695,15 @@ fn append_block(mut dst: Content, mut src: Content) -> Content {
     dst
 }
 
-impl TryFrom<CardV0_135_0> for Card {
+impl TryFrom<CardV0_134_0> for Card {
     type Error = StorageError;
 
-    fn try_from(card: CardV0_135_0) -> Result<Self, Self::Error> {
+    fn try_from(mut card: CardV0_134_0) -> Result<Self, Self::Error> {
+        for item in &mut card.payload.items {
+            if let PayloadItemV0_124_0::Field { value, .. } = item {
+                migrate_field(value);
+            }
+        }
         let payload = Payload::try_from(card.payload)?;
         validate_dto_payload(&payload)?;
         // `StoredContent`'s Deserialize already normalized and validated it.
@@ -1056,7 +1053,7 @@ This body and the metadata above are an indorsement card.
         let rewritten = serde_json::to_string(&doc).unwrap();
         assert_eq!(
             peek_storage_version(&rewritten).as_deref(),
-            Some(STORAGE_V0_135_0)
+            Some(STORAGE_V0_134_0)
         );
     }
 
@@ -1070,7 +1067,7 @@ This body and the metadata above are an indorsement card.
         let stored = serde_json::to_string(&doc).unwrap();
         assert_eq!(
             peek_storage_version(&stored).as_deref(),
-            Some(STORAGE_V0_135_0)
+            Some(STORAGE_V0_134_0)
         );
         assert!(stored.contains(r#""checked":true"#), "{stored}");
         assert!(stored.contains(r#""checked":false"#), "{stored}");
@@ -1090,46 +1087,51 @@ This body and the metadata above are an indorsement card.
         );
     }
 
-    /// The half no migration reaches: a `richtext` field rests as a content
-    /// object inside an opaque payload value, under no schema tag of its own, so
-    /// the decoder's own tolerance is what reads it.
+    /// A `richtext` field rests as a content object inside an opaque payload
+    /// value, under no schema tag of its own; one not in its canonical spelling
+    /// stays as written, and the decoder's own tolerance is what reads it,
+    /// under an older tag and a pre-release `0.134.0` row alike.
     #[test]
     fn a_legacy_content_field_reads_without_a_migration() {
-        let stored = serde_json::json!({
-            "schema": "quillmark/document@0.129.0",
-            "main": {
-                "payload": { "items": [
-                    { "type": "quill", "value": "q@1.0" },
-                    { "type": "kind", "value": "main" },
-                    { "type": "field", "key": "intro", "value": {
-                        "islands": [],
-                        "lines": [{"containers": [], "kind": "code", "lang": "rust"}],
-                        "marks": [{"end": 2, "start": 0, "type": "anchor", "id": "a1"}],
-                        "text": "hi",
-                    }},
-                ], "nested_comments": [] },
-                "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}],
-                         "marks": [], "text": ""},
-            },
-            "cards": [],
-        })
-        .to_string();
+        for schema in [STORAGE_V0_134_0, STORAGE_V0_129_0] {
+            let stored = serde_json::json!({
+                "schema": schema,
+                "main": {
+                    "payload": { "items": [
+                        { "type": "quill", "value": "q@1.0" },
+                        { "type": "kind", "value": "main" },
+                        { "type": "field", "key": "intro", "value": {
+                            "islands": [],
+                            "lines": [{"containers": [], "kind": "code", "lang": "rust"}],
+                            "marks": [{"end": 2, "start": 0, "type": "anchor", "id": "a1"}],
+                            "text": "hi",
+                        }},
+                    ], "nested_comments": [] },
+                    "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}],
+                             "marks": [], "text": ""},
+                },
+                "cards": [],
+            })
+            .to_string();
 
-        let doc: Document = serde_json::from_str(&stored).unwrap();
-        let value = doc.main().payload().get("intro").unwrap().as_json().clone();
-        let content = Codec::Richtext
-            .decode_field(&value)
-            .expect("the legacy spelling still decodes");
-        assert_eq!(
-            content.lines[0].kind,
-            quillmark_content::lines::model::LineKind::Code {
-                lang: Some("rust".into())
-            }
-        );
-        assert_eq!(
-            content.marks[0].kind,
-            quillmark_content::lines::model::MarkKind::Anchor { id: "a1".into() }
-        );
+            let doc: Document = serde_json::from_str(&stored).unwrap();
+            let value = doc.main().payload().get("intro").unwrap().as_json().clone();
+            let content = Codec::Richtext
+                .decode_field(&value)
+                .expect("the legacy spelling still decodes");
+            assert_eq!(
+                content.lines[0].kind,
+                quillmark_content::lines::model::LineKind::Code {
+                    lang: Some("rust".into())
+                },
+                "{schema}"
+            );
+            assert_eq!(
+                content.marks[0].kind,
+                quillmark_content::lines::model::MarkKind::Anchor { id: "a1".into() },
+                "{schema}"
+            );
+        }
     }
 
     #[test]
@@ -1138,7 +1140,7 @@ This body and the metadata above are an indorsement card.
         let json = serde_json::to_string(&doc).unwrap();
         assert_eq!(
             peek_storage_version(&json).as_deref(),
-            Some(STORAGE_V0_135_0)
+            Some(STORAGE_V0_134_0)
         );
 
         let future = r#"{"schema":"quillmark/document@0.99.0","main":{}}"#;
@@ -1562,11 +1564,11 @@ title: Hi
         let second = serde_json::to_string(&restored).unwrap();
         assert_eq!(
             first, second,
-            "V0_135_0 serialize→deserialize is a byte-fixed point"
+            "V0_134_0 serialize→deserialize is a byte-fixed point"
         );
         assert_eq!(
             peek_storage_version(&first).as_deref(),
-            Some(STORAGE_V0_135_0)
+            Some(STORAGE_V0_134_0)
         );
     }
 
@@ -1577,7 +1579,7 @@ title: Hi
     fn a_card_id_saves_under_the_newest_tag() {
         let doc = sample();
         let row: serde_json::Value = serde_json::to_value(&doc).unwrap();
-        assert_eq!(row["schema"], STORAGE_V0_135_0);
+        assert_eq!(row["schema"], STORAGE_V0_134_0);
         let id = doc.cards()[0].id().unwrap().to_string();
         assert!(
             row["cards"][0]["payload"]["items"]
@@ -1632,17 +1634,22 @@ title: Hi
         );
     }
 
-    /// Every save writes the newest tag, and a row of any older tag loads
-    /// with its body migrated, the same ids on every load.
+    /// Every save writes the newest tag, and a line-form row, of an older tag
+    /// or a pre-release `0.134.0`, loads with its body and its line-form
+    /// fields migrated, the same ids on every load.
     #[test]
     fn an_older_row_migrates_its_body_and_saves_under_the_newest_tag() {
+        let intro = quillmark_content::lines::serial::to_canonical_value(
+            &super::super::import_body("**hi** there").unwrap(),
+        );
         for schema in [STORAGE_V0_134_0, STORAGE_V0_131_0, STORAGE_V0_129_0] {
             let row = serde_json::json!({
                 "schema": schema,
                 "main": {
                     "payload": {"items": [
                         {"type": "quill", "value": "q@0.1"},
-                        {"type": "kind", "value": "main"}
+                        {"type": "kind", "value": "main"},
+                        {"type": "field", "key": "intro", "value": intro}
                     ]},
                     "body": {"text": "one\ntwo", "lines": [
                         {"kind": "para", "containers": []},
@@ -1656,8 +1663,10 @@ title: Hi
             assert_eq!(first, second, "{schema}");
             assert_eq!(first.main().body().text, "one\u{2028}two", "{schema}");
             assert_eq!(first.main().body().anchors.len(), 1, "{schema}");
+            let field = first.main().payload().get("intro").unwrap().as_json();
+            assert!(ContentModel::from_value(field).is_ok() && field.get("lines").is_none(), "{schema}");
             let saved = serde_json::to_value(&first).unwrap();
-            assert_eq!(saved["schema"], STORAGE_V0_135_0);
+            assert_eq!(saved["schema"], STORAGE_V0_134_0);
             assert_eq!(serde_json::from_value::<Document>(saved).unwrap(), first);
         }
     }
