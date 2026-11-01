@@ -143,6 +143,9 @@ over its keys: read `receipt["warnings"]`.
   offset by binary search**, where it walked the text from its start: the
   4000-step change crosses each way in about 20 ms, where it took 12 s out
   and 19 s in.
+- perf(core): **`content_hash` digests the content value as written**,
+  whose keys are already in order, rather than sorting a copy; the bytes are
+  the same.
 
 ### Card identity
 

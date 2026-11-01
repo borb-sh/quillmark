@@ -134,8 +134,13 @@ pub const HASH_TAG: &str = "quillmark/hash@1";
 /// value's JSON with every object's keys sorted, as lowercase hex. Sorting
 /// makes equal values hash alike however a store reordered their keys.
 pub fn value_hash(value: &JsonValue) -> String {
+    digest(&sorted(value))
+}
+
+/// [`value_hash`] of a value whose keys are sorted already.
+fn digest(sorted: &JsonValue) -> String {
     let mut bytes = format!("{HASH_TAG}\n").into_bytes();
-    serde_json::to_writer(&mut bytes, &sorted(value)).expect("a JSON value serializes");
+    serde_json::to_writer(&mut bytes, sorted).expect("a JSON value serializes");
     Sha256::digest(&bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -162,7 +167,7 @@ fn sorted(value: &JsonValue) -> JsonValue {
 /// a body, and [`Card::field_hash`] for a richtext field, however the field
 /// rests.
 pub fn content_hash(content: &Content) -> String {
-    value_hash(&content.to_value())
+    digest(&content.to_value())
 }
 
 /// [`revise_import`] under `base`: refused when `base` is stale, a merge when
