@@ -595,7 +595,7 @@ pub(crate) mod yaml_hints;
 pub use anchors::AnchorSelector;
 pub use base::{Base, BaseError, HASH_TAG, content_hash, revise_import_against, value_hash};
 pub use dto::{
-    STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, STORAGE_V0_135_0, StorageError,
+    STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, StorageError,
     StoredDocument, peek_storage_version,
 };
 pub use edit::{CardMut, EditError, Revised, revise_import};

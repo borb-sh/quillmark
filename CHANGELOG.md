@@ -2,9 +2,12 @@
 
 ## Unreleased
 
-Upgrade path for Content v2: [0.134 → 0.135](docs/migrations/0.134-to-0.135.md).
-Every content value is the content model, and offsets in content values and
-changes cross WASM in UTF-16 code units, where they counted scalar values.
+Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Every
+content value is the content model, and offsets in content values and changes
+cross WASM in UTF-16 code units, where they counted scalar values. Python's
+`revise_body`, `revise_field` and `revise_document` return a dict receipt,
+where they returned a list of `Diagnostic`, so a loop over the result runs
+over its keys: read `receipt["warnings"]`.
 
 ### Content v2
 
@@ -25,9 +28,11 @@ changes cross WASM in UTF-16 code units, where they counted scalar values.
   block's, a later run gets a derived container, an orphan slot or record
   goes, text beside a table splits off, and a collapsed range anchor is
   dropped. Total and deterministic.
-- feat(core)!: **storage moves to `quillmark/document@0.135.0`**, each body
+- feat(core)!: **storage moves to `quillmark/document@0.134.0`**, each body
   and richtext field the content model. An older row loads migrated, with the
-  same ids on every load. `parse::anchor_id_collision` is retired.
+  same ids on every load. A value holds each anchor id once over its text
+  and every slot, so a stored value holding one twice loads keeping its
+  first holder.
 - feat(core)!: **`Card::apply`, `revise` and `replace`** write a body or
   richtext field and answer a `Receipt`: the applied change, the new hash,
   and the dropped and moved anchors. Each takes the hash its writer read and
@@ -40,11 +45,6 @@ changes cross WASM in UTF-16 code units, where they counted scalar values.
   stay one release as names for `replace` and `apply`; `mapMarks` is removed.
 - feat(python)!: **the same surface in snake case**, offsets in code points.
 
-Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Python's
-`revise_body`, `revise_field` and `revise_document` return a dict receipt,
-where they returned a list of `Diagnostic`, so a loop over the result runs
-over its keys: read `receipt["warnings"]`.
-
 ### Card identity
 
 - feat(core)!: **every composable card carries a `$id`.** It emits after
@@ -53,10 +53,8 @@ over its keys: read `receipt["warnings"]`.
   re-mints a malformed or repeated one with `parse::card_id_reminted`. A
   null `$id` (`$id:`, `~`) is no `$id`.
   `insert_card` refuses a bad or held id (`edit::invalid_card_id`,
-  `edit::duplicate_card_id`). Storage moves to `quillmark/document@0.134.0`
-  for a row holding a composable card; a row of the main card alone keeps
-  its older tag, and an older row mints its ids on load. `$id` never reaches
-  the plate JSON.
+  `edit::duplicate_card_id`). An older row mints its ids on load. `$id`
+  never reaches the plate JSON.
 - feat(core)!: **a whole-document revise pairs cards by `$id` first.** An
   incoming card spelling a stored card's id revises it, the most similar of
   several spelling one keeps it, and the rest align by text as before. A
@@ -95,11 +93,6 @@ over its keys: read `receipt["warnings"]`.
   whose id the value already holds (`ApplyError::AnchorIdCollision`). A revise
   keeps a cell's anchor where its island continues and the cell's text is
   unchanged. `locate_site` and `reattach` search the cells with the prose.
-- feat(core): **a load reports an anchor id a cell shares.** Validation
-  still checks the prose alone, so such a value loads; `Content::anchor_collisions`
-  and `Document::anchor_collisions` name each id, and WASM `fromStored` /
-  `loadStored` and Python `from_stored` put a `parse::anchor_id_collision`
-  warning per value on `doc.warnings`.
 
 ### Scoped reads
 
