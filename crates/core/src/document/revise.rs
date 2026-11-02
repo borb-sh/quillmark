@@ -434,7 +434,7 @@ fn drop_value(
     let content_of = |value: &JsonValue| {
         value
             .is_object()
-            .then(|| super::lines_of(value).ok())
+            .then(|| quillmark_content::model::Content::lines_from_value(value).ok())
             .flatten()
     };
     if let Some(content) = content_of(stored) {

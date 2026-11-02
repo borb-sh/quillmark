@@ -6,27 +6,13 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use quillmark_content::change::{self, Assoc, Change};
+use quillmark_content::change::{self, Change};
 use quillmark_content::model::Content;
-use quillmark_core::document::{BaseError, Document, EditError, Receipt, Target};
+use quillmark_core::document::{Document, Edit, EditError, Receipt, Target};
 use quillmark_core::path::DocPath;
 
 use crate::errors::convert_edit_error;
 use crate::types::{json_to_py, py_diagnostics, py_to_json};
-
-/// How a write builds its change from the value it read.
-pub(crate) enum Edit<'a> {
-    Apply(Change),
-    Revise(&'a str),
-    Replace(Content),
-}
-
-pub(crate) fn target(field: Option<&str>) -> Target<'_> {
-    match field {
-        None => Target::Body,
-        Some(name) => Target::Field(name),
-    }
-}
 
 fn change_error(e: change::ApplyError) -> PyErr {
     convert_edit_error(EditError::Change(e), &DocPath::new())
@@ -68,12 +54,7 @@ pub(crate) fn write<'py>(
         Some(i) => doc.card_mut(i).expect("the card index is resolved"),
     };
     let to_py = |e: EditError| convert_edit_error(e, base_path);
-    let receipt: Receipt = match edit {
-        Edit::Apply(change) => card.apply(target(field), &change, base),
-        Edit::Revise(markdown) => card.revise(target(field), markdown, base),
-        Edit::Replace(content) => card.replace(target(field), &content, base),
-    }
-    .map_err(to_py)?;
+    let receipt: Receipt = card.write(Target::from(field), edit, base).map_err(to_py)?;
     let card_id = card.id().map(str::to_string);
     let warnings = py_diagnostics(receipt.diagnostics(Some(&path)));
     let dropped: Vec<_> = receipt
@@ -120,138 +101,12 @@ pub fn invert<'py>(py: Python<'py>, change: &Bound<'_, PyAny>, before: &Bound<'_
     json_to_py(py, &undo.to_value())
 }
 
-/// `a` then `b` as one change: their steps, adjacent splices that touch
-/// merged.
-#[pyfunction]
-pub fn compose<'py>(py: Python<'py>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-    let (a, b) = (change_from_py(a, "compose")?, change_from_py(b, "compose")?);
-    json_to_py(py, &change::compose(&a, &b).to_value())
-}
-
-/// `change`, made from `base`, rebased to apply after `over`, also made from
-/// `base`: each step at its mapped offsets, holding to what it read. Raises
-/// `QuillmarkError` (`edit::rebase_conflict`, carrying the `step` and
-/// `reason`) where a step no longer fits, and (`edit::content_apply`) where
-/// either change does not apply to `base`.
-#[pyfunction]
-pub fn rebase<'py>(
-    py: Python<'py>,
-    base: &Bound<'_, PyAny>,
-    change: &Bound<'_, PyAny>,
-    over: &Bound<'_, PyAny>,
-) -> PyResult<Bound<'py, PyAny>> {
-    let base = content_from_py(base, "rebase")?;
-    let (change, over) = (change_from_py(change, "rebase")?, change_from_py(over, "rebase")?);
-    let rebased = change::rebase(&base, &change, &over).map_err(|e| match e {
-        change::RebaseError::Apply(e) => change_error(e),
-        change::RebaseError::Conflict(c) => {
-            let now = change::apply(&base, &over).map(|a| a.content).unwrap_or_default();
-            let current = quillmark_core::document::content_hash(&now);
-            convert_edit_error(EditError::Base(BaseError::rebase_conflict(current, None, &c)), &DocPath::new())
-        }
-    })?;
-    json_to_py(py, &rebased.to_value())
-}
-
-/// Where `pos` lands after `change`, and what around it the change deleted,
-/// as `{"pos", "deleted", "deleted_before", "deleted_after",
-/// "deleted_across"}`. `assoc`, `"before"` or `"after"`, is the side of an
-/// insertion or a deletion at `pos` it keeps to. Raises `QuillmarkError`
-/// (`edit::content_apply`) for a splice that deletes an island and names none
-/// in `removed`: map the receipt's `applied`.
-#[pyfunction]
-pub fn map_pos<'py>(
-    py: Python<'py>,
-    change: &Bound<'_, PyAny>,
-    pos: &Bound<'_, PyAny>,
-    assoc: &str,
-) -> PyResult<Bound<'py, PyDict>> {
-    let change = change_from_py(change, "map_pos")?;
-    let pos = quillmark_content::wire::pos_from_value(&py_to_json(pos)?)
-        .map_err(|e| PyValueError::new_err(format!("map_pos: not a Pos: {e}")))?;
-    let assoc = match assoc {
-        "before" => Assoc::Before,
-        "after" => Assoc::After,
-        _ => return Err(PyValueError::new_err("map_pos: assoc must be \"before\" or \"after\"")),
-    };
-    let r = change::map_pos(&change, &pos, assoc).map_err(change_error)?;
-    let out = PyDict::new(py);
-    out.set_item("pos", json_to_py(py, &quillmark_content::wire::pos_value(&r.pos))?)?;
-    out.set_item("deleted", r.deleted)?;
-    out.set_item("deleted_before", r.deleted_before)?;
-    out.set_item("deleted_after", r.deleted_after)?;
-    out.set_item("deleted_across", r.deleted_across)?;
-    Ok(out)
-}
-
 /// A change taking `before` to `after`, word-aligned, for a writer with no
-/// steps of its own, as `{"change", "warnings"}`: an `edit::whole_text_diff`
-/// warning where it rewrote a whole text as one splice.
+/// steps of its own. Raises `QuillmarkError` (`edit::content_apply`) where
+/// `after` is not a valid value.
 #[pyfunction]
-pub fn diff<'py>(py: Python<'py>, before: &Bound<'_, PyAny>, after: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyDict>> {
+pub fn diff<'py>(py: Python<'py>, before: &Bound<'_, PyAny>, after: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     let (before, after) = (content_from_py(before, "diff")?, content_from_py(after, "diff")?);
-    let diffed = quillmark_content::diff::diff(&before, &after).map_err(|e| change_error(e.into()))?;
-    let out = PyDict::new(py);
-    out.set_item("change", json_to_py(py, &diffed.change.to_value())?)?;
-    out.set_item("warnings", py_diagnostics(diffed.whole_text.then(quillmark_core::document::whole_text_diff).into_iter().collect()))?;
-    Ok(out)
-}
-
-/// Enter at `at`: the change that splits the block holding `at`, the new
-/// block `new_id` taking its kind and path while the text keeps its id. Raises
-/// `QuillmarkError` (`edit::content_apply`) where `at` is past the text.
-#[pyfunction]
-pub fn split_block<'py>(py: Python<'py>, content: &Bound<'_, PyAny>, at: usize, new_id: &str) -> PyResult<Bound<'py, PyAny>> {
-    let content = content_from_py(content, "split_block")?;
-    let change = quillmark_content::gestures::split_block(&content, at, new_id).map_err(change_error)?;
+    let change = quillmark_content::diff::diff(&before, &after).map_err(|e| change_error(e.into()))?;
     json_to_py(py, &change.to_value())
-}
-
-/// Backspace at the start of block `id`: the change that joins it into the
-/// block before it, which keeps its id and kind. Raises `QuillmarkError`
-/// (`edit::content_apply`) where no block holds `id`, and for the first block.
-#[pyfunction]
-pub fn join_blocks<'py>(py: Python<'py>, content: &Bound<'_, PyAny>, id: &str) -> PyResult<Bound<'py, PyAny>> {
-    let content = content_from_py(content, "join_blocks")?;
-    let change = quillmark_content::gestures::join_blocks(&content, id).map_err(change_error)?;
-    json_to_py(py, &change.to_value())
-}
-
-/// Typing at `at`: the marks the typed text carries, each `{"type", "attrs"?}`
-/// to spread into a splice's `marks` over the text typed, as the canon's
-/// growth defaults grow them at the edges of the marks around `at`. Raises
-/// `QuillmarkError` (`edit::content_apply`) where `at` is past the text.
-#[pyfunction]
-pub fn inherited_marks<'py>(py: Python<'py>, content: &Bound<'_, PyAny>, at: usize) -> PyResult<Bound<'py, PyAny>> {
-    let content = content_from_py(content, "inherited_marks")?;
-    let kinds = quillmark_content::gestures::inherited_marks(&content, at).map_err(change_error)?;
-    let out: Vec<serde_json::Value> = kinds
-        .iter()
-        .map(|kind| {
-            let mut out = serde_json::Map::new();
-            out.insert("type".into(), kind.tag().into());
-            if let Some(attrs) = quillmark_content::wire::mark_attrs(kind) {
-                out.insert("attrs".into(), attrs);
-            }
-            serde_json::Value::Object(out)
-        })
-        .collect();
-    json_to_py(py, &serde_json::Value::Array(out))
-}
-
-/// `raw` made valid by the merge-repair rules, as `{"content", "repairs"}`.
-/// Total over any value shaped as content, and deterministic: the same raw
-/// value always repairs to the same content.
-#[pyfunction]
-pub fn repair<'py>(py: Python<'py>, raw: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-    let raw = quillmark_content::repair::Raw::from_value(&py_to_json(raw)?)
-        .map_err(|e| PyValueError::new_err(format!("repair: not shaped as content: {e}")))?;
-    let (content, repairs) = quillmark_content::repair::repair(raw);
-    json_to_py(
-        py,
-        &serde_json::json!({
-            "content": content.to_value(),
-            "repairs": repairs.iter().map(|r| r.to_value()).collect::<Vec<_>>(),
-        }),
-    )
 }

@@ -86,7 +86,7 @@ fn measure(n: usize) -> (usize, usize, [f64; 5]) {
     let times = [
         time(|| apply(&d, &mine).unwrap()),
         time(|| invert(&mine, &d).unwrap()),
-        time(|| apply(&d, &diff(&d, &after).unwrap().change).unwrap()),
+        time(|| apply(&d, &diff(&d, &after).unwrap()).unwrap()),
         time(|| rebase(&d, &mine, &theirs).unwrap()),
         time(|| change_to_scalars(&change_from_scalars(&mine, &d, Utf16).unwrap(), &d, Utf16).unwrap()),
     ];

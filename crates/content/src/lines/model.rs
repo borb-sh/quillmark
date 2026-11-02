@@ -339,11 +339,6 @@ impl Normalized {
         self.0
     }
 
-    /// Every caller must leave this normalized; the forwarded `apply_*` in
-    /// [`crate::lines::ops`] are the ones that do.
-    pub(crate) fn as_content_mut(&mut self) -> &mut Content {
-        &mut self.0
-    }
 }
 
 impl From<Content> for Normalized {

@@ -7,12 +7,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use quillmark::{Diagnostic, Document, Engine, Normalized, OutputFormat, Quill, RenderOptions};
 use quillmark_content::{
+    change::apply,
+    diff::diff,
     lines::export::{to_markdown, to_markdown_annotated},
     migrate::from_lines,
     model::Content,
     lines::import::{ImportWarning, from_markdown},
     lines::model::{ISLAND_SLOT, MarkKind},
-    lines::ops::change_bundle_from_value,
     lines::serial,
 };
 use quillmark_fixtures::{quills_path, resource_path};
@@ -165,7 +166,7 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
         Ok(c) => failures.push(format!("content is not canonical: {}", c.to_value())),
         Err(e) => failures.push(format!("content does not decode: {e}")),
     }
-    failures.extend(check_op_wire(stored, &content));
+    failures.extend(check_change(stored, &content, value));
     let reimports = match entry.get("reimports").map(serial::from_canonical_value) {
         None => content.clone(),
         Some(Ok(c)) => c,
@@ -302,87 +303,23 @@ fn surfaces(entry: &Value, engine: &Engine, quill: &Quill, doc: &Document) -> Ve
     failures
 }
 
-/// `content` lands through the authored lane, and through one `ChangeBundle`
-/// applied to an empty field: the text by `delta`, each island by an `insert` at
-/// its slot, each line's kind, containers and `continues` by line ops, and every
-/// mark by an `add`.
-fn check_op_wire(stored: &Value, content: &Normalized) -> Vec<String> {
+/// `lines` lands through the authored lane, and `content` through the one
+/// `Change` that `diff` takes from the empty value to it.
+fn check_change(stored: &Value, lines: &Normalized, content: &Value) -> Vec<String> {
     let mut failures = Vec::new();
     match serial::from_authored_value(stored) {
-        Ok(authored) if authored == *content => {}
-        Ok(authored) => failures.push(format!("overwrite stores {}", canonical(&authored))),
-        Err(e) => failures.push(format!("overwrite refuses: {e}")),
+        Ok(authored) if authored == *lines => {}
+        Ok(authored) => failures.push(format!("the authored lane stores {}", canonical(&authored))),
+        Err(e) => failures.push(format!("the authored lane refuses: {e}")),
     }
-    let bundle = match change_bundle_from_value(&bundle(stored)) {
-        Ok(b) => b,
-        Err(e) => return [failures, vec![format!("the bundle does not decode: {e}")]].concat(),
-    };
-    let mut applied = Normalized::empty();
-    match applied.apply_field_change(&bundle) {
-        Ok(()) if applied == *content => {}
-        Ok(()) => failures.push(format!("the bundle lands {}", canonical(&applied))),
-        Err(e) => failures.push(format!("the bundle refuses: {e:?}")),
+    let Ok(want) = Content::from_value(content) else { return failures };
+    match diff(&Content::empty(), &want).map(|c| apply(&Content::empty(), &c)) {
+        Ok(Ok(applied)) if applied.content == want => {}
+        Ok(Ok(applied)) => failures.push(format!("the change lands {}", applied.content.to_value())),
+        Ok(Err(e)) => failures.push(format!("the change refuses: {e:?}")),
+        Err(e) => failures.push(format!("no change reaches content: {e:?}")),
     }
     failures
-}
-
-/// The wire bundle that authors `stored` onto an empty field.
-fn bundle(stored: &Value) -> Value {
-    let text = stored["text"].as_str().unwrap_or_default();
-    let prose: String = text.chars().filter(|&c| c != ISLAND_SLOT).collect();
-    let delta: Vec<Value> = [prose]
-        .into_iter()
-        .filter(|p| !p.is_empty())
-        .map(|p| json!({ "insert": p }))
-        .collect();
-    let slots = text
-        .chars()
-        .enumerate()
-        .filter(|&(_, c)| c == ISLAND_SLOT)
-        .map(|(at, _)| at);
-    let island_ops: Vec<Value> = slots
-        .zip(stored["islands"].as_array().into_iter().flatten())
-        .map(|(at, island)| with(island, json!({ "op": "insert", "at": at })))
-        .collect();
-    let line_ops: Vec<Value> = stored["lines"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .enumerate()
-        .flat_map(|(line, l)| {
-            let mut ops = vec![
-                with(
-                    &json!({ "kind": l["kind"], "attrs": l.get("attrs") }),
-                    json!({ "op": "setKind", "line": line }),
-                ),
-                json!({ "op": "setContainers", "line": line, "containers": l["containers"] }),
-            ];
-            if let Some(continues) = l.get("continues") {
-                ops.push(json!({ "op": "setContinues", "line": line, "continues": continues }));
-            }
-            ops
-        })
-        .collect();
-    let mark_ops: Vec<Value> = stored["marks"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|m| with(m, json!({ "op": "add" })))
-        .collect();
-    json!({
-        "delta": { "ops": delta },
-        "islandOps": island_ops,
-        "lineOps": line_ops,
-        "markOps": mark_ops,
-    })
-}
-
-/// `object` with `keys` merged in, dropping a `null` value.
-fn with(object: &Value, keys: Value) -> Value {
-    let mut merged = object.as_object().cloned().unwrap_or_default();
-    merged.extend(keys.as_object().cloned().unwrap_or_default());
-    merged.retain(|_, v| !v.is_null());
-    Value::Object(merged)
 }
 
 /// `to_markdown(content)` re-imports, warning nothing, to `reimports`: the

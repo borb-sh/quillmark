@@ -13,15 +13,8 @@ from ._quillmark import (
     RenderResult,
     Severity,
     Writer,
-    compose,
     diff,
-    inherited_marks,
     invert,
-    join_blocks,
-    map_pos,
-    rebase,
-    repair,
-    split_block,
 )
 
 __all__ = [
@@ -37,15 +30,8 @@ __all__ = [
     "RenderResult",
     "Severity",
     "Writer",
-    "compose",
     "diff",
-    "inherited_marks",
     "invert",
-    "join_blocks",
-    "map_pos",
-    "rebase",
-    "repair",
-    "split_block",
 ]
 
 try:

@@ -40,8 +40,7 @@ is a block island's slot — the kind cannot tell that one from prose, so
 `Content::block_island_at` reads it off the island's type. Both emitters
 render such a line alone, so a `continues` line after one would be text neither
 projection reaches: `Content::normalize` clears the flag there, as it does on
-the first line and across a container boundary. `LineOp::SetContinues` writes
-what it is given and the mint settles it.
+the first line and across a container boundary.
 
 ## Escape functions
 

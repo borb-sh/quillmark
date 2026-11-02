@@ -1494,7 +1494,7 @@ fn render_marked_core(
         (out, points)
     };
 
-    // Verify-and-drop safety net. An editor's `apply_mark_ops` can build a mark
+    // Verify-and-drop safety net. An editor's change can build a mark
     // over a span markdown can't represent, and it lowers to a `**`/`*`/`~~` run
     // pulldown re-reads as literal text, leaking a delimiter into the content.
     // Re-parse the rendered line and, if its plain text drifted, search for a set
@@ -2550,32 +2550,19 @@ mod tests {
 
     /// The island writes its line whole, so a mark reaching over its slot
     /// projects as nothing: `[<pipe table>](u)` re-imports as prose with the
-    /// island gone, taking the table out of the document. Landing a table
-    /// inside a link run is how a host reaches the shape — the `\n` that opens
-    /// the island's line extends the mark over its slot.
+    /// island gone, taking the table out of the document.
     #[test]
     fn a_mark_reaching_over_a_block_islands_slot_does_not_wrap_its_markup() {
-        let mut rt = from_markdown("[abc](u)").unwrap().content;
-        rt.apply_field_change(&crate::lines::ops::ChangeBundle {
-            delta: crate::lines::delta::Delta {
-                ops: vec![
-                    crate::lines::delta::Op::Retain(1),
-                    crate::lines::delta::Op::Insert("\n\n".into()),
-                    crate::lines::delta::Op::Retain(2),
-                ],
-            },
-            island_ops: vec![crate::lines::ops::IslandOp::Insert {
-                at: 2,
-                island: Island::new("isl-t".into(), IslandType::Table).with_props(
-                    serde_json::json!({
-                        "aligns": ["none"],
-                        "header": [{"marks": [], "text": "h"}],
-                        "rows": [[{"marks": [], "text": "c"}]],
-                    }),
-                ),
-            }],
-            ..Default::default()
-        })
+        let rt = crate::lines::serial::from_canonical_value(&serde_json::json!({
+            "text": format!("a\n{ISLAND_SLOT}\nbc"),
+            "lines": [{"kind": "para", "containers": []}, {"kind": "para", "containers": []}, {"kind": "para", "containers": []}],
+            "marks": [{"start": 0, "end": 6, "type": "link", "attrs": {"url": "u"}}],
+            "islands": [{"id": "isl-t", "type": "table", "props": {
+                "aligns": ["none"],
+                "header": [{"marks": [], "text": "h"}],
+                "rows": [[{"marks": [], "text": "c"}]],
+            }}],
+        }))
         .expect("the slot is alone on its line");
         assert_eq!(rt.text, format!("a\n{ISLAND_SLOT}\nbc"));
         assert_eq!(

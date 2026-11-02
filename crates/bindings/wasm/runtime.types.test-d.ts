@@ -127,14 +127,10 @@ import type {
 	ContentAnchor,
 	ContentIsland,
 	TableProps,
-	Pos,
-	Assoc,
-	MapResult,
 	Change,
 	Step,
 	Receipt,
 	WriteOptions,
-	Write,
 	CardInput,
 	PathStep,
 	Addr,
@@ -162,14 +158,10 @@ export type ContentExportsPresent = [
 	ContentAnchor,
 	ContentIsland,
 	TableProps,
-	Pos,
-	Assoc,
-	MapResult,
 	Change,
 	Step,
 	Receipt,
 	WriteOptions,
-	Write,
 	CardInput,
 	PathStep,
 	Addr,
@@ -252,8 +244,6 @@ void liftedMark;
 declare const receipt: Receipt;
 const undo: Change = receipt.applied;
 void undo;
-const caret: Pos = { island: 't0', slot: 's3', at: 2 };
-void caret;
 // The payload rides `attrs` on the step as on the mark; the decoder refuses a
 // named sibling, so the type must too.
 // @ts-expect-error a link's url rides `attrs`

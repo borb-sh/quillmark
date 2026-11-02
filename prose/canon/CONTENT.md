@@ -149,7 +149,7 @@ Each law is a property test over generated values and generated changes (`tests/
 
 1. `apply(apply(d, c), invert(c, d)) == d`. Every change undoes exactly, deleted islands, anchors and block records included.
 2. `apply(d, compose(a, b)) == apply(apply(d, a), b)`. Compose concatenates the steps and merges adjacent splices that touch.
-3. `mapPos(c, p)` agrees with `apply`: the two edges of a character both say it was deleted, or land around it afterwards in the same order, a character inside a nested slot included. A change's maps followed by their mirrored inverses take every position home.
+3. `map_pos(c, p)` agrees with `apply`: the two edges of a character both say it was deleted, or land around it afterwards in the same order, a character inside a nested slot included. A change's maps followed by their mirrored inverses take every position home.
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes.
 5. Every `Change` yields a valid value or fails and changes nothing.
 6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back reads as the merged state it repaired: by any number of peers where no repair inserts, since the value then holds no character or slot the state does not, and by one writer otherwise.
@@ -165,9 +165,9 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 | `revise(target, markdown, base)` | a writer's markdown: the `qm-*` tags of `annotated(target)` it keeps, then a word-aligned diff | kept by the tags kept, otherwise by the diff; drift reported |
 | `replace(target, content, base)` | a whole value, through the same diff | each anchor the value does not name carried where the diff keeps its text; the rest reported |
 
-A write names its card by `$id` (`CardRef::Id`, or the main card), never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, the base cannot tell. `Document::apply_all` runs several writes, a base each, all or none, and resolves every card id before it applies any; an id no card holds refuses with `edit::unknown_card_id`.
+A binding's write names its card by `$id`, or the main card, never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, the base cannot tell. An id no card holds refuses with `edit::unknown_card_id`.
 
-Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `droppedAnchors`; `movedAnchors`; a revise's import warnings; `whole_text`; and `rebased`, true where the write rebased over a change since its base.
+Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `droppedAnchors`; `movedAnchors`; a revise's import warnings; and `rebased`, true where the write rebased over a change since its base.
 
 **Pass the base.** `base` is the hash the writer read (`hash(addr)`). Without one, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A value that no longer hashes to the base rebases the write over what changed since:
 
@@ -182,8 +182,7 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 
 `diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line, pairs rewritten lines by word similarity, and diffs a paired line by word, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters. An inserted or deleted block brings the `\n` that opens it, so its neighbours keep their records. Block records, containers, marks, anchors and islands follow as their own steps; an anchor `after` holds in another place, the prose or a cell, moves there. A block or island `after` holds in another place keeps its id, moved up or down.
 
-- It refuses an `after` that is not a valid value.
-- Where no step-wise change reaches `after`, it rewrites the value or slot as one splice over its whole text, and says so in `Diff::whole_text`. A revise's or replace's receipt carries the flag, and the bindings raise it as an `edit::whole_text_diff` warning.
+- It refuses an `after` that is not a valid value, and reaches every valid one step-wise.
 
 ## Merge repair
 

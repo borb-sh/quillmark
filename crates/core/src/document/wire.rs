@@ -476,7 +476,7 @@ mod tests {
 
         let card = Card::try_from(CardWire::new(String::new(), legacy.clone()))
             .expect("the card wire decodes storage-lane");
-        let storage = crate::document::lines_of(&legacy).unwrap();
+        let storage = quillmark_content::model::Content::lines_from_value(&legacy).unwrap();
         assert_eq!(
             quillmark_content::lines::serial::to_canonical_value(card.body_lines()),
             quillmark_content::lines::serial::to_canonical_value(&storage)

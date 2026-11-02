@@ -1079,7 +1079,7 @@ mod diffs {
 
         #[test]
         fn a_diff_reaches_its_target(a in document(), b in document()) {
-            let c = diff(&a, &b).unwrap().change;
+            let c = diff(&a, &b).unwrap();
             let done = apply(&a, &c);
             prop_assert!(done.is_ok(), "{:?}\n{:?}", done, c);
             let got = done.unwrap().content;
@@ -1092,9 +1092,7 @@ mod diffs {
             let fresh = from_markdown(&to_markdown(&edited)).unwrap().content;
             let aligned = align(&d, fresh);
             prop_assert_eq!(aligned.validate(), Ok(()));
-            let diffed = diff(&d, &aligned).unwrap();
-            prop_assert!(!diffed.whole_text, "{:?}", diffed.change);
-            let done = apply(&d, &diffed.change).unwrap().content;
+            let done = apply(&d, &diff(&d, &aligned).unwrap()).unwrap().content;
             prop_assert_eq!(done, aligned);
         }
 
@@ -1111,7 +1109,7 @@ mod diffs {
         #[test]
         fn a_replace_carries_the_anchors_it_does_not_name(d in document(), ops in ops()) {
             let edited = without_anchors(apply(&d, &change_for(&d, &ops)).unwrap().content);
-            let done = apply(&d, &replace(&d, &edited).unwrap().change).unwrap();
+            let done = apply(&d, &replace(&d, &edited).unwrap()).unwrap();
             prop_assert!(ids_reached(&d, &edited, &without_anchors(done.content)));
         }
     }
@@ -1123,7 +1121,7 @@ mod diffs {
         want.blocks[0].id = "x0".into();
         want.blocks[1].id = "x1".into();
         want.blocks[2].id = "b1".into();
-        let done = apply(&d, &diff(&d, &want).unwrap().change).unwrap().content;
+        let done = apply(&d, &diff(&d, &want).unwrap()).unwrap().content;
         assert_eq!(segments(&done), ["b0=one", "x1=two", "b1=three"]);
     }
 
@@ -1148,7 +1146,7 @@ mod diffs {
         let (island, slot) = (cell.islands[0].id.clone(), cell.islands[0].slot_order()[3].clone());
         cell.slot_mut(&island, &slot).unwrap().anchors.push(Anchor::new("c1", 0, 1));
         for (from, to) in [(&prose, &cell), (&cell, &prose)] {
-            for change in [diff(from, to).unwrap().change, replace(from, to).unwrap().change] {
+            for change in [diff(from, to).unwrap(), replace(from, to).unwrap()] {
                 let done = apply(from, &change).unwrap();
                 assert_eq!(&done.content, to);
                 assert!(done.dropped.is_empty(), "{:?}", done.dropped);
@@ -1175,7 +1173,7 @@ mod diffs {
         };
         for order in [[0, 3, 1, 2, 4], [0, 2, 3, 1, 4], [0, 2, 1, 3, 4]] {
             let after = moved(order);
-            let done = apply(&d, &diff(&d, &after).unwrap().change).unwrap().content;
+            let done = apply(&d, &diff(&d, &after).unwrap()).unwrap().content;
             assert_eq!(done, after, "{order:?}");
         }
     }
@@ -1194,8 +1192,7 @@ mod diffs {
         let (one, two) = (holding(&["cap"]), holding(&["cap", "cap2"]));
         for (from, to) in [(&one, &two), (&two, &one)] {
             for d in [diff(from, to).unwrap(), replace(from, to).unwrap()] {
-                assert!(!d.whole_text, "{:?}", d.change);
-                assert_eq!(&apply(from, &d.change).unwrap().content, to);
+                assert_eq!(&apply(from, &d).unwrap().content, to);
             }
         }
     }
@@ -1544,7 +1541,7 @@ fn a_diff_names_only_the_block_fields_it_changes_so_a_quote_and_a_heading_both_l
     let id = d.blocks[1].id.clone();
     let mut heading = d.clone();
     heading.blocks[1].kind = BlockKind::Heading { level: 2 };
-    let mine = quillmark_content::diff::diff(&d, &heading).unwrap().change;
+    let mine = quillmark_content::diff::diff(&d, &heading).unwrap();
     assert_eq!(mine.steps, [Step::SetBlock(SetBlock { id: id.clone(), kind: Some("heading".into()), attrs: json!({"level": 2}).as_object().cloned(), path: None })]);
     let quote = Change::new(vec![
         Step::Container(ContainerStep::Set(Container::new("q-n", ContainerKind::Quote))),
@@ -1586,7 +1583,7 @@ fn a_nested_step_conflicts_where_the_other_rewrote_its_island_and_rebases_over_a
     assert_eq!(done.slot(&island.id, &slot).unwrap().text, "cc!");
 
     let target = quillmark_content::diff::align(&d, from_markdown("intro\n\nend\n\n| aa | bb |\n| - | - |\n| Big cc | dd |").unwrap().content);
-    let moved = quillmark_content::diff::diff(&d, &target).unwrap().change;
+    let moved = quillmark_content::diff::diff(&d, &target).unwrap();
     let done = apply(&apply(&d, &moved).unwrap().content, &rebase(&d, &mine, &moved).unwrap()).unwrap().content;
     assert_eq!(done.slot(&island.id, &slot).unwrap().text, "Big cc!");
 }

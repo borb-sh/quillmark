@@ -338,6 +338,6 @@ fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> Cont
 fn content_of(value: &JsonValue) -> Option<Normalized> {
     value
         .is_object()
-        .then(|| super::lines_of(value).ok())
+        .then(|| quillmark_content::model::Content::lines_from_value(value).ok())
         .flatten()
 }

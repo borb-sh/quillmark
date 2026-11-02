@@ -667,8 +667,8 @@ impl PyDocument {
     /// selects the target, here as on every `card=` verb: `None` the main card,
     /// a `str` the composable card holding that `$id` (`edit::unknown_card_id`
     /// where none does), an `int` the card at that position (out of range
-    /// raises). The content writes, `apply`, `apply_all`, `revise` and
-    /// `replace`, take a card by `$id` alone, so a card moved or inserted
+    /// raises). The content writes, `apply`, `revise` and `replace`,
+    /// take a card by `$id` alone, so a card moved or inserted
     /// since the writer's read leaves the write on the card it read.
     #[pyo3(signature = (name, card=None))]
     fn remove_field<'py>(
@@ -918,7 +918,7 @@ impl PyDocument {
         let target = Target::resolve(&self.inner, card)?;
         let content = self
             .card_at(target.index)
-            .read(crate::content::target(field))
+            .read(quillmark_core::document::Target::from(field))
             .map_err(|e| convert_edit_error(e, &target.base))?;
         crate::content::content_to_py(py, &content)
     }
@@ -961,50 +961,8 @@ impl PyDocument {
         require_card_id(&card, "apply")?;
         let target = Target::resolve(&self.inner, card)?;
         let change = crate::content::change_from_py(change, "apply")?;
-        let edit = crate::content::Edit::Apply(change);
+        let edit = quillmark_core::document::Edit::Apply(change);
         crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
-    }
-
-    /// Apply each write in order, all of them or none: `writes` is a list of
-    /// dicts `{change, field?, card?, base?}`. The first refused write raises,
-    /// the document as it was.
-    fn apply_all<'py>(&mut self, py: Python<'py>, writes: &Bound<'_, PyAny>) -> PyResult<Vec<Bound<'py, PyDict>>> {
-        let mut parsed = Vec::new();
-        for w in writes.try_iter()? {
-            let w = w?;
-            let w = w.cast::<PyDict>().map_err(|_| PyValueError::new_err("apply_all: a write is a dict"))?;
-            for key in w.keys() {
-                let key: String = key.extract()?;
-                if !["change", "field", "card", "base"].contains(&key.as_str()) {
-                    return Err(PyValueError::new_err(format!(
-                        "apply_all: a write has unknown key `{key}`; a write is {{change, field, card, base}}"
-                    )));
-                }
-            }
-            let get = |k: &str| w.get_item(k).ok().flatten().filter(|v| !v.is_none());
-            let field: Option<String> = get("field").map(|v| v.extract()).transpose()?;
-            let card: Option<CardSel> = get("card").map(|v| v.extract()).transpose()?;
-            require_card_id(&card, "apply_all")?;
-            let base: Option<String> = get("base").map(|v| v.extract()).transpose()?;
-            let change = get("change").ok_or_else(|| PyValueError::new_err("apply_all: a write names a change"))?;
-            let change = crate::content::change_from_py(&change, "apply_all")?;
-            parsed.push((Target::resolve(&self.inner, card)?, field, change, base));
-        }
-        let mut next = self.inner.clone();
-        let mut receipts = Vec::new();
-        for (target, field, change, base) in parsed {
-            receipts.push(crate::content::write(
-                py,
-                &mut next,
-                target.index,
-                &target.base,
-                field.as_deref(),
-                crate::content::Edit::Apply(change),
-                base.as_deref(),
-            )?);
-        }
-        self.inner = next;
-        Ok(receipts)
     }
 
     /// Rewrite the value at `field` on `card` as `markdown`: the anchors and
@@ -1022,7 +980,7 @@ impl PyDocument {
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "revise")?;
         let target = Target::resolve(&self.inner, card)?;
-        let edit = crate::content::Edit::Revise(markdown);
+        let edit = quillmark_core::document::Edit::Revise(markdown);
         crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
     }
 
@@ -1041,7 +999,7 @@ impl PyDocument {
         require_card_id(&card, "replace")?;
         let target = Target::resolve(&self.inner, card)?;
         let content = crate::content::content_from_py(content, "replace")?;
-        let edit = crate::content::Edit::Replace(content);
+        let edit = quillmark_core::document::Edit::Replace(content);
         crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
     }
 }
@@ -1068,7 +1026,7 @@ fn selector_json(s: quillmark_core::document::AnchorSelector) -> serde_json::Val
     })
 }
 
-/// A `Revised` receipt as it crosses: `delta` on the op wire, `warnings` the
+/// A `Revised` receipt as it crosses: `delta` the line form's text delta, `warnings` the
 /// `Diagnostic` objects `set` returns, and `dropped_anchors` as `{id, line}`.
 fn revised_to_py<'py>(
     py: Python<'py>,

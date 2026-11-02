@@ -8,10 +8,10 @@ use super::{
 };
 use crate::error::WasmError;
 use crate::types::Diagnostic;
-use quillmark_content::change::{self, Assoc, Change};
+use quillmark_content::change::{self, Change};
 use quillmark_content::model::Content;
 use quillmark_content::units::{self, Utf16};
-use quillmark_core::document::{BaseError, Card, CardMut, EditError, Receipt, Target};
+use quillmark_core::document::{Card, CardMut, Edit, EditError, Receipt, Target};
 use quillmark_core::path::DocPath;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
@@ -104,28 +104,6 @@ export type ContentIsland = { id: string; slots?: Record<string, Content> } & (
     | { type: `x-${string}`; props: Record<string, unknown> }
 );
 
-/** A position: an offset into a value's text, or a path into an island's slot. */
-export type Pos = number | { island: string; slot: string; at: Pos };
-
-/** Which side of an insertion at a position, or of a deletion around it,
- *  `mapPos` keeps it to. */
-export type Assoc = "before" | "after";
-
-/**
- * Where `mapPos` lands a position. It always lands: inside deleted text on
- * the deletion's `assoc` edge, and inside an island a splice deleted on the
- * island's slot in the text that held it. `deleted` says the character on
- * the `assoc` side went, `deletedBefore` and `deletedAfter` the one on each
- * side, and `deletedAcross` that one deletion took both.
- */
-export interface MapResult {
-    pos: Pos;
-    deleted: boolean;
-    deletedBefore: boolean;
-    deletedAfter: boolean;
-    deletedAcross: boolean;
-}
-
 /**
  * An edit: a list of steps, each reading the value the step before it left.
  * `apply` runs them all or none.
@@ -178,8 +156,7 @@ export type Step =
  * for an `apply` every one but those its `anchor` steps removed.
  * `movedAnchors` names each surviving one whose text the write rewrote.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
- * markdown dropped, and an `edit::whole_text_diff` where the diff found no
- * step-wise change and rewrote the whole text of the value or a slot.
+ * markdown dropped.
  * `rebased` says the write's `base` was a value the field had moved on from,
  * and the write was rebased over what changed since.
  */
@@ -202,13 +179,6 @@ export interface DroppedAnchor extends AnchorContext {
     slot?: string;
 }
 
-/** What `diff` built: the change, and an `edit::whole_text_diff` warning
- *  where it rewrote the whole text of the value or a slot as one splice. */
-export interface Diffed {
-    change: Change;
-    warnings: Diagnostic[];
-}
-
 /** The hash a writer read. A value that has changed since rebases the write
  *  over the change, refusing it with `edit::rebase_conflict` where the two
  *  touch the same text or record, and with `edit::stale_base` where the document no
@@ -218,51 +188,6 @@ export interface WriteOptions {
     base?: string;
 }
 
-/** One write of `applyAll`. Its `addr` names a composable card by `$id`. */
-export interface Write {
-    addr: Addr | string;
-    change: Change;
-    base?: string;
-}
-
-/**
- * A value as a merge of the shared state left it, for `repair`: shaped as
- * `Content`, its invariants unchecked. `islands` may be an object keyed by
- * island id, with `slot_ids` naming the island each `U+FFFC` of `text`
- * carries, `null` where it carries none; an `islands` array pairs with the
- * slots in order. An anchor placed as a range carries `range: true`, since at
- * zero width it cannot be told from a point.
- */
-export type RawContent = Omit<Content, "islands" | "anchors" | "blocks"> & {
-    blocks?: ContentBlock[];
-    anchors?: (ContentAnchor & { range?: boolean })[];
-    islands?: ContentIsland[] | Record<string, Omit<ContentIsland, "id" | "slots"> & { slots?: Record<string, RawContent> }>;
-    slot_ids?: (string | null)[];
-};
-
-/**
- * One change `repair` made. `inserts: true` marks one whose write-back
- * inserts text or a slot, which only a single writer writes back.
- */
-export type Repair = (
-    | { repair: "missing_container"; block: string; container: string }
-    | { repair: "two_parents"; container: string }
-    | { repair: "split_run"; container: string; fresh: string }
-    | { repair: "orphan_slot"; island: string | null }
-    | { repair: "orphan_island"; island: string }
-    | { repair: "shared_island"; island: string; fresh: string }
-    | { repair: "split_block"; island: string; block: string }
-    | { repair: "empty_cell"; island: string; slot: string }
-    | { repair: "collapsed_anchor"; id: string }
-    | { repair: "invalid"; reason: string }
-    | { repair: "in_slot"; island: string; slot: string; inner: Repair }
-) & { inserts?: true };
-
-/** A repaired value and what changed to make it valid. */
-export interface Repaired {
-    content: Content;
-    repairs: Repair[];
-}
 "#;
 
 #[derive(serde::Serialize)]
@@ -328,10 +253,7 @@ fn base_from_js(opts: &JsValue, verb: &str) -> Result<Option<String>, JsValue> {
 }
 
 fn target(addr: &Addr) -> Target<'_> {
-    match &addr.field {
-        None => Target::Body,
-        Some(name) => Target::Field(name),
-    }
+    Target::from(addr.field.as_deref())
 }
 
 fn card_base(doc: &quillmark_core::document::Document, addr: &Addr) -> DocPath {
@@ -423,13 +345,6 @@ pub(super) fn payload_in(v: &mut Value, ctx: &str) -> Result<(), JsValue> {
     }
 }
 
-/// How a write builds its change from the value it read.
-enum Edit<'a> {
-    Apply(Change),
-    Revise(&'a str),
-    Replace(Content),
-}
-
 /// Run one write at `addr` on `doc`, its receipt as it crosses.
 fn write(
     doc: &mut quillmark_core::document::Document,
@@ -440,25 +355,12 @@ fn write(
     let card_base = card_base(doc, addr);
     let path = value_path(&card_base, addr);
     let to_js = |e: EditError| edit_error_to_js(&e, &card_base);
-    let target = target(addr);
-    let held = card_of(doc, addr)?;
-    let read = held.read_at(target, base).map_err(to_js)?;
-    let before = held.read(target).map_err(to_js)?;
     let mut card = card_mut_of(doc, addr)?;
-    let receipt: Receipt = match edit {
-        Edit::Apply(change) => {
-            let change = units::change_to_scalars(&change, &read, Utf16).map_err(|e| to_js(EditError::Change(e)))?;
-            card.apply(target, &change, base)
-        }
-        Edit::Revise(markdown) => card.revise(target, markdown, base),
-        Edit::Replace(content) => card.replace(target, &content, base),
-    }
-    .map_err(to_js)?;
+    let receipt: Receipt = card.write_in(target(addr), edit, base, Utf16).map_err(to_js)?;
     let card_id = card.id().map(str::to_string);
-    let applied = units::change_from_scalars(&receipt.applied, &before, Utf16).map_err(apply_error)?;
     let warnings = super::diags(receipt.diagnostics(Some(&path)));
     Ok(ReceiptJs {
-        applied: applied.to_value(),
+        applied: receipt.applied.to_value(),
         hash: receipt.hash,
         dropped_anchors: receipt
             .dropped_anchors
@@ -547,40 +449,6 @@ impl Document {
         serialize_or_throw(&receipt, "apply")
     }
 
-    /// Apply each write in order, all of them or none, a `base` per write.
-    /// The first refused write throws, the document as it was.
-    #[wasm_bindgen(js_name = applyAll, unchecked_return_type = "Receipt[]")]
-    pub fn apply_all(
-        &mut self,
-        #[wasm_bindgen(unchecked_param_type = "Write[]")] writes: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        if !js_sys::Array::is_array(&writes) {
-            return Err(WasmError::from("applyAll: writes must be a Write[]").to_js_value());
-        }
-        let mut parsed = Vec::new();
-        for w in js_sys::Array::from(&writes).iter() {
-            reject_unknown_keys(&w, &["addr", "change", "base"], "write", |k| {
-                format!("applyAll: a write has unknown key `{k}`; a Write is {{ addr, change, base }}")
-            })?;
-            let get = |key: &str| js_sys::Reflect::get(&w, &key.into()).unwrap_or(JsValue::UNDEFINED);
-            let addr = Addr::for_write(&get("addr"), &self.inner, "applyAll")?;
-            let base = match get("base") {
-                b if b.is_undefined() => None,
-                b => Some(b.as_string().ok_or_else(|| {
-                    WasmError::from("applyAll: a write's base must be a string when given").to_js_value()
-                })?),
-            };
-            parsed.push((addr, change_in(get("change"), "applyAll")?, base));
-        }
-        let mut next = self.inner.clone();
-        let mut receipts = Vec::new();
-        for (addr, change, base) in parsed {
-            receipts.push(write(&mut next, &addr, Edit::Apply(change), base.as_deref())?);
-        }
-        self.inner = next;
-        serialize_or_throw(&receipts, "applyAll")
-    }
-
     /// Rewrite the value at `addr` as `markdown`: the anchors and islands
     /// whose `qm-*` tags it keeps (`annotated(addr)` spells them) stay put,
     /// and the rest keeps what a word-aligned diff keeps. Answers the
@@ -617,38 +485,6 @@ impl Document {
         serialize_or_throw(&receipt, "replace")
     }
 
-    /// `replace` under its earlier name.
-    #[wasm_bindgen(js_name = overwrite, unchecked_return_type = "Receipt")]
-    pub fn overwrite(
-        &mut self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-        #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        self.replace(addr, content, opts)
-    }
-
-    /// `replace` under its earlier name.
-    #[wasm_bindgen(js_name = reviseContent, unchecked_return_type = "Receipt")]
-    pub fn revise_content(
-        &mut self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-        #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        self.replace(addr, content, opts)
-    }
-
-    /// `apply` under its earlier name.
-    #[wasm_bindgen(js_name = applyChange, unchecked_return_type = "Receipt")]
-    pub fn apply_change(
-        &mut self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-        #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
-        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        self.apply(addr, change, opts)
-    }
 }
 
 /// The change that undoes `change` on `before`. Throws `edit::content_apply`
@@ -666,154 +502,16 @@ pub fn invert(
     serialize_or_throw(&undo.to_value(), "invert")
 }
 
-/// `a` then `b` as one change: their steps, adjacent splices that touch
-/// merged.
-#[wasm_bindgen(js_name = compose, unchecked_return_type = "Change")]
-pub fn compose(
-    #[wasm_bindgen(unchecked_param_type = "Change")] a: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "Change")] b: JsValue,
-) -> Result<JsValue, JsValue> {
-    let (a, b) = (change_in(a, "compose")?, change_in(b, "compose")?);
-    serialize_or_throw(&change::compose_in(&a, &b, Utf16).to_value(), "compose")
-}
-
-/// `change`, made from `base`, rebased to apply after `over`, also made from
-/// `base`: each step at its mapped offsets, holding to what it read. Throws
-/// `edit::rebase_conflict`, carrying the `step` and `reason`, where a step no
-/// longer fits, and `edit::content_apply` where either change does not apply
-/// to `base`.
-#[wasm_bindgen(js_name = rebase, unchecked_return_type = "Change")]
-pub fn rebase(
-    #[wasm_bindgen(unchecked_param_type = "Content")] base: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "Change")] over: JsValue,
-) -> Result<JsValue, JsValue> {
-    let base = content_in(base, "rebase")?;
-    let change = units::change_to_scalars(&change_in(change, "rebase")?, &base, Utf16).map_err(apply_error)?;
-    let over = units::change_to_scalars(&change_in(over, "rebase")?, &base, Utf16).map_err(apply_error)?;
-    let now = change::apply(&base, &over).map_err(apply_error)?.content;
-    let rebased = change::rebase(&base, &change, &over).map_err(|e| match e {
-        change::RebaseError::Apply(e) => apply_error(e),
-        change::RebaseError::Conflict(c) => {
-            let err = EditError::Base(BaseError::rebase_conflict(quillmark_core::document::content_hash(&now), None, &c));
-            WasmError { diagnostics: vec![err.to_diagnostic(None)] }.to_js_value()
-        }
-    })?;
-    let rebased = units::change_from_scalars(&rebased, &now, Utf16).map_err(apply_error)?;
-    serialize_or_throw(&rebased.to_value(), "rebase")
-}
-
-/// Where `pos` lands after `change`, and what around it the change deleted.
-/// `assoc` is the side of an insertion or a deletion at `pos` it keeps to.
-#[wasm_bindgen(js_name = mapPos, unchecked_return_type = "MapResult")]
-pub fn map_pos(
-    #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "Pos")] pos: JsValue,
-    #[wasm_bindgen(unchecked_param_type = "Assoc")] assoc: JsValue,
-) -> Result<JsValue, JsValue> {
-    let change = change_in(change, "mapPos")?;
-    let pos = quillmark_content::wire::pos_from_value(&js_value_to_json(pos, "mapPos")?)
-        .map_err(|e| WasmError::from(format!("mapPos: not a Pos: {e}")).to_js_value())?;
-    let assoc = match assoc.as_string().as_deref() {
-        Some("before") => Assoc::Before,
-        Some("after") => Assoc::After,
-        _ => return Err(WasmError::from("mapPos: assoc must be \"before\" or \"after\"").to_js_value()),
-    };
-    let r = change::map_pos_in(&change, &pos, assoc, Utf16).map_err(apply_error)?;
-    let out = serde_json::json!({
-        "pos": quillmark_content::wire::pos_value(&r.pos),
-        "deleted": r.deleted,
-        "deletedBefore": r.deleted_before,
-        "deletedAfter": r.deleted_after,
-        "deletedAcross": r.deleted_across,
-    });
-    serialize_or_throw(&out, "mapPos")
-}
-
 /// A change taking `before` to `after`, word-aligned, for a writer with no
-/// steps of its own, and an `edit::whole_text_diff` warning where it rewrote
-/// a whole text as one splice.
-#[wasm_bindgen(js_name = diff, unchecked_return_type = "Diffed")]
+/// steps of its own. Throws `edit::content_apply` where `after` is not a
+/// valid value.
+#[wasm_bindgen(js_name = diff, unchecked_return_type = "Change")]
 pub fn diff(
     #[wasm_bindgen(unchecked_param_type = "Content")] before: JsValue,
     #[wasm_bindgen(unchecked_param_type = "Content")] after: JsValue,
 ) -> Result<JsValue, JsValue> {
     let (before, after) = (content_in(before, "diff")?, content_in(after, "diff")?);
-    let diffed = quillmark_content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
-    let change = units::change_from_scalars(&diffed.change, &before, Utf16).map_err(apply_error)?;
-    let warnings: Vec<Diagnostic> = diffed.whole_text.then(quillmark_core::document::whole_text_diff).map(Into::into).into_iter().collect();
-    serialize_or_throw(&serde_json::json!({ "change": change.to_value(), "warnings": warnings }), "diff")
-}
-
-/// Enter at `at`: the change that splits the block holding `at`, the new
-/// block `newId` taking its kind and path while the text keeps its id. Throws
-/// `edit::content_apply` where `at` is past the text, and where it falls
-/// inside a character.
-#[wasm_bindgen(js_name = splitBlock, unchecked_return_type = "Change")]
-pub fn split_block(
-    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-    at: usize,
-    #[wasm_bindgen(js_name = newId)] new_id: String,
-) -> Result<JsValue, JsValue> {
-    let content = content_in(content, "splitBlock")?;
-    let at = units::to_scalars(Utf16, &content.text, at).ok_or_else(|| apply_error(change::ApplyError::Stale { step: 0 }))?;
-    let change = quillmark_content::gestures::split_block(&content, at, &new_id).map_err(apply_error)?;
-    let change = units::change_from_scalars(&change, &content, Utf16).map_err(apply_error)?;
-    serialize_or_throw(&change.to_value(), "splitBlock")
-}
-
-/// Typing at `at`: the marks the typed text carries, each to spread into a
-/// splice's `marks` over the text typed, as the canon's growth defaults grow
-/// them at the edges of the marks around `at`. Throws `edit::content_apply`
-/// where `at` is past the text, and where it falls inside a character.
-#[wasm_bindgen(js_name = inheritedMarks, unchecked_return_type = "ContentMarkKind[]")]
-pub fn inherited_marks(
-    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-    at: usize,
-) -> Result<JsValue, JsValue> {
-    let content = content_in(content, "inheritedMarks")?;
-    let at = units::to_scalars(Utf16, &content.text, at).ok_or_else(|| apply_error(change::ApplyError::Stale { step: 0 }))?;
-    let kinds = quillmark_content::gestures::inherited_marks(&content, at).map_err(apply_error)?;
-    let out: Vec<Value> = kinds.iter().map(mark_kind_value).collect();
-    serialize_or_throw(&out, "inheritedMarks")
-}
-
-fn mark_kind_value(kind: &quillmark_content::model::MarkKind) -> Value {
-    let mut out = serde_json::Map::new();
-    out.insert("type".into(), kind.tag().into());
-    if let Some(attrs) = quillmark_content::wire::mark_attrs(kind) {
-        out.insert("attrs".into(), attrs);
-    }
-    Value::Object(out)
-}
-
-/// Backspace at the start of block `id`: the change that joins it into the
-/// block before it, which keeps its id and kind. Throws `edit::content_apply`
-/// where no block holds `id`, and for the first block.
-#[wasm_bindgen(js_name = joinBlocks, unchecked_return_type = "Change")]
-pub fn join_blocks(
-    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-    id: String,
-) -> Result<JsValue, JsValue> {
-    let content = content_in(content, "joinBlocks")?;
-    let change = quillmark_content::gestures::join_blocks(&content, &id).map_err(apply_error)?;
-    let change = units::change_from_scalars(&change, &content, Utf16).map_err(apply_error)?;
-    serialize_or_throw(&change.to_value(), "joinBlocks")
-}
-
-/// `raw` made valid by the merge-repair rules, and what changed. Total over
-/// any value shaped as content, and deterministic: the same raw value always
-/// repairs to the same content, so two peers repairing at once agree.
-#[wasm_bindgen(js_name = repair, unchecked_return_type = "Repaired")]
-pub fn repair(#[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue) -> Result<JsValue, JsValue> {
-    let mut json = js_value_to_json(raw, "repair")?;
-    units::raw_to_scalars(&mut json, Utf16);
-    let raw = quillmark_content::repair::Raw::from_value(&json)
-        .map_err(|e| WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value())?;
-    let (content, repairs) = quillmark_content::repair::repair(raw);
-    let out = serde_json::json!({
-        "content": content.to_value_in(Utf16),
-        "repairs": repairs.iter().map(|r| r.to_value()).collect::<Vec<_>>(),
-    });
-    serialize_or_throw(&out, "repair")
+    let change = quillmark_content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
+    let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
+    serialize_or_throw(&change.to_value(), "diff")
 }

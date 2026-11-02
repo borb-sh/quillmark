@@ -138,7 +138,7 @@ pub fn value_hash(value: &JsonValue) -> String {
 }
 
 /// [`value_hash`] of a value whose keys are sorted already.
-fn digest(sorted: &JsonValue) -> String {
+pub(super) fn digest(sorted: &JsonValue) -> String {
     let mut bytes = format!("{HASH_TAG}\n").into_bytes();
     serde_json::to_writer(&mut bytes, sorted).expect("a JSON value serializes");
     Sha256::digest(&bytes)

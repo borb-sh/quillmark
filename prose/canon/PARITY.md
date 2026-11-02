@@ -5,11 +5,11 @@
 
 ## TL;DR
 
-A content construct has one form, its stored JSON, and markdown, the op wire
-and the Typst lowering are codecs or projections of it. This page states the
+A content construct has one form, its stored JSON, and markdown, the change
+lane and the Typst lowering are codecs or projections of it. This page states the
 invariants every surface keeps and a matrix of what each surface does with each
 construct. A conformance corpus pins every row: a Rust test asserts its
-markdown, stored JSON, op wire, Typst lowering, validate and signal cells.
+markdown, stored JSON, change, Typst lowering, validate and signal cells.
 
 ## Invariants
 
@@ -51,7 +51,7 @@ import meets. The columns:
 |---|---|
 | Markdown | `from_markdown` and `to_markdown` ([markdown-spec.md](../references/markdown-spec.md) §6) |
 | Stored JSON | the canonical content, `serial::to_canonical_value` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") |
-| Op wire | the line form's authored lane: `serial::from_authored_value` and a `ChangeBundle`'s ops |
+| Change | the line form's authored lane, `serial::from_authored_value`, and the `Change` `diff` takes from the empty value to the content |
 | Typst lowering | `emit_content`, as [CONVERT.md](CONVERT.md) § "Element mapping" maps it |
 | Validate | `Quill::validate`'s verdict on the stored construct |
 | Signal | the code a cell reports under, with its `construct` arg |
@@ -69,7 +69,7 @@ import meets. The columns:
 
 ### Lines
 
-| Row | Markdown | Stored JSON | Op wire | Typst lowering | Validate | Signal |
+| Row | Markdown | Stored JSON | Change | Typst lowering | Validate | Signal |
 |---|---|---|---|---|---|---|
 | `line.para`: paragraph | spells | spells | spells | honors | silent: honored | none |
 | `line.heading`: heading and its `level` | spells | spells | spells | honors | silent: honored | none |
@@ -81,7 +81,7 @@ import meets. The columns:
 
 ### Containers
 
-| Row | Markdown | Stored JSON | Op wire | Typst lowering | Validate | Signal |
+| Row | Markdown | Stored JSON | Change | Typst lowering | Validate | Signal |
 |---|---|---|---|---|---|---|
 | `container.list_item.bullet`: bullet item | spells | spells | spells | honors | silent: honored | none |
 | `container.list_item.ordered`: ordered item | spells | spells | spells | honors | silent: honored | none |
@@ -100,7 +100,7 @@ A task item's body lowers through the helper, through the renderer a plate sets 
 
 ### Marks
 
-| Row | Markdown | Stored JSON | Op wire | Typst lowering | Validate | Signal |
+| Row | Markdown | Stored JSON | Change | Typst lowering | Validate | Signal |
 |---|---|---|---|---|---|---|
 | `mark.strong` | spells | spells | spells | honors | silent: honored | none |
 | `mark.emph` | spells | spells | spells | honors | silent: honored | none |
@@ -139,7 +139,7 @@ Roboto.
 
 ### Islands
 
-| Row | Markdown | Stored JSON | Op wire | Typst lowering | Validate | Signal |
+| Row | Markdown | Stored JSON | Change | Typst lowering | Validate | Signal |
 |---|---|---|---|---|---|---|
 | `island.table.aligns`: table with column `aligns` | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.marks`: a cell holding marks | spells | spells | spells | honors | silent: honored | none |
@@ -198,7 +198,7 @@ Typst math ([CONVERT.md](CONVERT.md#equations)).
 Rows for a markdown spelling rather than a construct: an alias of a construct
 above, or markup the content does not store.
 
-| Row | Markdown | Stored JSON | Op wire | Typst lowering | Validate | Signal |
+| Row | Markdown | Stored JSON | Change | Typst lowering | Validate | Signal |
 |---|---|---|---|---|---|---|
 | `html.br`: inline `<br>`, a hard break | spells | spells | spells | honors | silent: honored | none |
 | `html.u`: inline `<u>` in any case, underline | spells | spells | spells | honors | silent: honored | none |
@@ -268,11 +268,9 @@ fails:
   `Content::from_value` and re-encodes to itself.
 - A spelled entry imports to `lines`, warning `signals.import`, and a body
   holding it through `Document::parse` stores `content`.
-- `lines` lands through `serial::from_authored_value`, and through one
-  `ChangeBundle` read by `change_bundle_from_value` and applied to an empty
-  field: the text by `delta`, each island by an `insert` at its slot, each
-  line's kind, containers and `continues` by line ops, and every mark by an
-  `add`.
+- `lines` lands through `serial::from_authored_value`, and `content`
+  through the one `Change` `diff` takes from the empty value to it, applied
+  to the empty value.
 - `to_markdown(lines)` re-imports, warning nothing, to `reimports`: the fixed
   point where the entry has none.
 - A body holding `lines`, revised with `to_markdown(lines)`, lands on
