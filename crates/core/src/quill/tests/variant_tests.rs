@@ -413,9 +413,9 @@ fn classification_row(quill: &Quill, document: &Document) -> crate::quill::resol
 }
 
 /// `resolve()` reports the container as one cell at parity with the plate. Its
-/// rung is the strongest that contributed: a container the document wrote reads
-/// `authored` whichever rung filled its discriminant, an absent or present-null
-/// one keeps the discriminant's rung, and a value no container is built from
+/// source is the strongest that contributed: a container the document wrote reads
+/// `authored` whichever source filled its discriminant, an absent or present-null
+/// one keeps the discriminant's source, and a value no container is built from
 /// stays raw rather than reading as a blank world the document answered.
 #[test]
 fn resolve_reports_the_container_as_one_cell_at_its_strongest_rung() {

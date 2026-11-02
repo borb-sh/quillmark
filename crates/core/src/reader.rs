@@ -118,7 +118,7 @@ impl<'a> TypedReader<'a> {
     }
 
     /// The resolved view: for every declared field, the value the render
-    /// projection would use and the rung it came from. The one read that
+    /// projection would use and the source it came from. The one read that
     /// blank-fills and coerces; see
     /// [`Quill::resolve`](crate::quill::Quill::resolve), which takes `today` as
     /// this does.

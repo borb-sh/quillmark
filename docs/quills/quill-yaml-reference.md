@@ -123,7 +123,7 @@ main:
 | `type`        | string            | yes      | Data type (see [Field Types](#field-types)); a trailing `?` makes the field [optional](#optional-fields-t) |
 | `title`       | string            | no       | The field's label, a literal (see [`title`](#title)) |
 | `description` | string            | no       | Help text for the writer, carried by the authoring schema as the field's `description` |
-| `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the authoring schema carries it as the field's `default` (see [`default`](#default)). Declared on a **cell**: a leaf, an `array` or a `matrix`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
+| `default`     | matches `type`    | no       | The value the **majority of authors want**. When the value position is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the authoring schema carries it as the field's `default` (see [`default`](#default)). Declared on a **value position**: a leaf, an `array` or a `matrix`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
 | `example`     | matches `type`    | no       | A made-up value, checked at load as `default` is: it answers nothing, `schema()` exposes it, and the [example document](#example-document) commits it (see [`example`](#example)). On an `object` it is a load error (`quill::example_on_namespace`). |
 | `values`      | array of strings  | for `enum` | The closed set of allowed string values: the **choices**. Required on every `enum` field. Declaring `""` is a load error — every enum also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one), which Quillmark supplies. |
 | `ui`          | object            | no       | UI rendering hints (see [UI Properties](#ui-properties)) |
@@ -166,7 +166,7 @@ closing:
   type: text
   default: Sincerely
 
-# No default: the cell stays empty until an author answers it.
+# No default: the value position stays empty until an author answers it.
 classification:
   type: enum
   values: [UNCLASSIFIED, CUI]
@@ -196,7 +196,7 @@ and `Quill::validate` reports nothing about it.
 
 ### `example`
 
-A made-up value showing what an answer looks like. It never answers a cell: an unanswered field still renders its `default:`, else its blank.
+A made-up value showing what an answer looks like. It never answers a value position: an unanswered field still renders its `default:`, else its blank.
 
 ```yaml
 signer:
@@ -260,7 +260,7 @@ confidential:
 | `type: t` with `default:` | the default | a `t`, but `none` for a `date` or `datetime` defaulting to `""` |
 | `type: t?` | `none` | a `t` or `none` |
 
-- Any cell takes the `?`: every scalar type, `text`, `richtext`, `date`, `enum`, `array` and `matrix`. An `object` and an `enum` with `variants:` do not (`quill::optional_namespace`); mark the fields inside them instead.
+- Any value position takes the `?`: every scalar type, `text`, `richtext`, `date`, `enum`, `array` and `matrix`. An `object` and an `enum` with `variants:` do not (`quill::optional_namespace`); mark the fields inside them instead.
 - `?` and `default:` are exclusive (`quill::optional_default`): a default answers for the author, so the field would never be `none`.
 - An authored value is kept as written: `0`, `false`, `""`, and `[]` are answers. On an `enum?`, `""` is the blank and reads `none`.
 
@@ -294,7 +294,7 @@ The two grammars are **disjoint**: `date` rejects any time component, `datetime`
 
 Coercion runs when the document lowers into the backend's data, **upstream of the plate**. A value outside its declared grammar fails the render before any template code executes, so a plate that never mentions the field fails identically and no plate-side coercion repairs it. `quill.validate(doc)` is what names the field and its path. A `date` or `datetime` field is a scalar, so `quill.conform(doc)` passes it in silence: the conform walk covers content fields only.
 
-**Changing a declared date type on a deployed corpus is a corpus operation, not a schema edit.** The stored string is never rewritten: neither the transport door nor `conform` touches a scalar. Nothing is lost, and every document holding a value the new grammar rejects strands at render. Audit before publishing the change: load each stored row through the transport door, read the field, and test it against the target grammar. `reader.get` returns the stored string verbatim for both date types.
+**Changing a declared date type on a deployed corpus is a corpus operation, not a schema edit.** The stored string is never rewritten: neither the transport input path nor `conform` touches a scalar. Nothing is lost, and every document holding a value the new grammar rejects strands at render. Audit before publishing the change: load each stored row through the transport input path, read the field, and test it against the target grammar. `reader.get` returns the stored string verbatim for both date types.
 
 ```js
 const doc = Document.fromStored(row);
@@ -409,14 +409,14 @@ classification:
 ```
 
 A world with nothing to fill in still writes plainly — `classification:
-UNCLASSIFIED` is accepted and means the same as `{value: UNCLASSIFIED}`. A cell
+UNCLASSIFIED` is accepted and means the same as `{value: UNCLASSIFIED}`. A value position
 written beside the field instead of under it (`poc:` at card level next to
 `classification: CUI`) is an undeclared key that no declared field reads, and
 `quill.validate(doc)` warns `validation::unknown_field` with a hint to nest it.
 
 The container is a *document* shape. The schema's own `default:` names the
 discriminant alone (`default: ""`, `default: CUI`); a container-shaped one is a
-load error, because each cell in a world carries its literal on its own
+load error, because each value position in a world carries its literal on its own
 declaration.
 
 Two things follow, and they are the reason to reach for this over a
@@ -424,7 +424,7 @@ Two things follow, and they are the reason to reach for this over a
 
 - **The names shorten.** The prefix was hand-written namespacing; nesting
   supplies it structurally, so `cui_poc` becomes `poc`.
-- **Editors know.** The schema says which cells are out of play, so a form
+- **Editors know.** The schema says which value positions are out of play, so a form
   retires them instead of showing a CUI block on an unclassified memo.
 
 **Writing a plate against variants.** The live world's fields arrive only inside
@@ -446,14 +446,14 @@ in a CUI block leaves those values in the document and warns
 (`validation::out_of_variant`); they simply stop rendering. Flip back and they
 are still there. Remove the field to drop the value for good.
 
-A variant cell is an ordinary field: any type a card field may carry, prose,
+A variant value position is an ordinary field: any type a card field may carry, prose,
 dates and containers included, a typed dictionary (`type: object`) among them,
 reaching the plate exactly as a card-level one
 does. What it cannot carry is `variants:` of its own. `variants:` itself
 is valid on a `type: enum` field that is a card's own field or a typed
 dictionary's property — `header.classification` reads, binds and branches as
 `classification` does, one step down — and nowhere else: an array element, a
-matrix column and another variant's cell each refuse one, as does an object
+matrix column and another variant's value position each refuse one, as does an object
 inside any of them. It
 keys only on declared members (never `""`, which owns no field set), and cannot
 declare a field named `value`. Variant fields sit beside the discriminant,
@@ -461,7 +461,7 @@ inside its [group](#grouping) `object` when it is grouped; a `ui.group` on a
 variant field is `quill::nested_group_not_supported`. A field set shared by
 several members is repeated or shared with a YAML anchor — a variant keys on one
 member — but every variant declaring a given name must declare it *identically*,
-since the name is one cell of the container whichever world brings it into play
+since the name is one value position of the container whichever world brings it into play
 (`quill::variant_field_collision`).
 
 ### Primitive Arrays, Typed Tables, and Typed Dictionaries
@@ -619,7 +619,7 @@ qualifications:
 
 Member **ids** are snake_case: they are what the wire, the address and the
 document speak, while the **title** is display only. The roster is a mapping,
-so it has one slot per id and a member cannot be declared twice. `held` and
+so it has one key per id and a member cannot be declared twice. `held` and
 `title` cannot be column names.
 
 A document ticks sparsely. A member is held by being present:
@@ -637,7 +637,7 @@ validation (`validation::held_stored`), so untick a member by removing it, and
 its answers go with it.
 
 A member the roster does not declare is refused, as an out-of-domain `enum`
-value is. A mapping has one slot per key, so a member cannot be ticked twice.
+value is. A mapping has one entry per key, so a member cannot be ticked twice.
 
 The plate receives the held set: each held member's columns, keyed by id, in
 roster order. A member the document does not tick is absent, so print the
@@ -660,7 +660,7 @@ the matrix and its name: `qm.roster(card, "qualifications")` on a card,
 
 Three things to author against. Declare a `default:` on each column to say
 what a ticked member's unanswered column renders; without one it renders the
-column's blank. The matrix is a cell, so a `default:` on it is the set a
+column's blank. The matrix is a value position, so a `default:` on it is the set a
 document that leaves it out holds, and `type: matrix?` renders an unanswered one
 `none`; without either it renders `{}`, nothing ticked. A fresh document ticks
 nothing, and the authoring schema shows the vocabulary as the matrix's
@@ -698,7 +698,7 @@ qualifications:
 - The plate receives the held roster members in roster order, then each added
   item sorted by id, `{title, …columns}`, and `qm.roster` returns them in that
   order. A plate wanting another order sorts the rows itself. An added item's
-  `title` is a cell with an address, so `qm.ink(row.value, "title")` prints it with
+  `title` is a value position with an address, so `qm.ink(row.value, "title")` prints it with
   its click-to-edit region, where `row.title` prints it plainly.
 - Quillmark does not compare titles: an added item titled as a roster member
   prints beside it.
@@ -817,7 +817,7 @@ main:
         blank_title: "(no marking)"
 ```
 
-It labels the blank, never a member: `values:` carries no entry for it. Consumers must keep **unset** selectable and re-selectable — returning to it is how an author clears a cell, so a disabled placeholder that vanishes once a choice is made is the wrong idiom. Unset and a stored `""` differ where `default:` names a member: the stored blank is an answer and outranks the default.
+It labels the blank, never a member: `values:` carries no entry for it. Consumers must keep **unset** selectable and re-selectable — returning to it is how an author clears a value position, so a disabled placeholder that vanishes once a choice is made is the wrong idiom. Unset and a stored `""` differ where `default:` names a member: the stored blank is an answer and outranks the default.
 
 ### `compact`
 
@@ -847,7 +847,7 @@ It is a request: an editor grants it only where a neighbour packs too, so a pack
 - An `array`, an `object`, an `enum` with `variants:` and a `multiline: true` `text` or `richtext` never pack, whatever the key says, since their height grows with the document.
 - On a `matrix`, `compact: true` sets the roster's members side by side instead.
 - The properties of a card-level `object`, and of an `object` nested in it, follow the same rule, so a field moved into a group keeps its row.
-- The cells of an array's records, a variant, a matrix member and a typed table are laid out by their container and read no `compact`.
+- The value positions of an array's records, a variant, a matrix member and a typed table are laid out by their container and read no `compact`.
 
 ### `layout`
 
@@ -875,7 +875,7 @@ one at a time — right for a row of long prose, wrong for four short cells.
 Declaring it says two things.
 
 **A contract: every column is a leaf.** A column holding an `array`, an `object`
-or a `matrix` addresses below itself and is not one cell, so it is a load
+or a `matrix` addresses below itself and is not one value position, so it is a load
 error naming the column — `quill::table_column_not_leaf` on
 `appendices[].entries`. Text is a column whatever its `multiline`: how tall a cell
 renders is the editor's call, what it contains is not. On any field that is not a
@@ -884,7 +884,7 @@ typed table at all, the key is `quill::invalid_ui`.
 **A request: draw it as a grid.** An editor may still decline — a width that will
 not hold the columns, a cell renderer that will not take a block `richtext` — and
 fall back to the record list. What it will not meet is a shape it cannot draw at
-all; the contract settled that at load. Nothing else reads the key: the plate,
+all; the contract decided that at load. Nothing else reads the key: the plate,
 document validation and the authoring schema are all deliberately inert on it, and `schema()`
 echoes it verbatim for the editor to find.
 

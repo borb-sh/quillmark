@@ -728,7 +728,7 @@ impl FieldSchema {
     /// The discriminant a document authored for a variant-bearing field, read
     /// off either shape: the container's [`VARIANT_DISCRIMINANT_KEY`] or a bare
     /// scalar that bypassed coercion. `None` where the cell is absent or null,
-    /// which is what makes it the *authored* rung of the ladder.
+    /// which is what makes it the *authored* source of the ladder.
     pub fn authored_member(value: Option<&serde_json::Value>) -> Option<&serde_json::Value> {
         match value {
             Some(serde_json::Value::Object(o)) => o.get(VARIANT_DISCRIMINANT_KEY),

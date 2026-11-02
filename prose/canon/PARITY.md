@@ -21,11 +21,11 @@ markdown, stored JSON, change, Typst lowering, validate and signal cells.
    quill, declaration or session.
 3. **Fixed point.** `from_markdown(to_markdown(c)) == c`, except for anchors,
    which a markdown write keeps by diff-rebase (`revise`, `rebase`), never by
-   the projection, and a table's slot sharing its line, which the write breaks
+   the projection, and a table's island character sharing its line, which the write breaks
    onto a line of its own; the broken content is a fixed point.
 4. **No silent lane.** For every construct, quill and backend, the outcome is
    honored, inert with a signal, or refused at the write. The signal reaches
-   every door that meets the construct: a markdown drop the parse, import or
+   every input path that meets the construct: a markdown drop the parse, import or
    revise that drops it, and a decline `validate` and render.
 5. **Storage honesty.** Discriminators are closed and payload carriers are
    opaque. A knob is a key wherever a carrier exists, and a kind only where none
@@ -181,7 +181,7 @@ stores none.
 A cell a span covers is an empty placeholder in storage. The HTML leaves it
 out, as HTML does, and the lowering skips it.
 
-A table or cell key holding a value outside its set rests as written and rides
+A table or cell key holding a value outside its set is stored as written and rides
 as a key Quillmark does not name does.
 
 A footnote's island sits at its reference and holds the note as one table
@@ -210,7 +210,7 @@ above, or markup the content does not store.
 | `html.table.blank_line`: a blank line inside an HTML table, ending it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table`, `tr`, `td` |
 | `html.table.attr`: an attribute the HTML subset does not read, beside ones that only style the table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table[bgcolor]`, `td[nowrap]` |
 | `html.table.value`: a span value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `td[colspan]` |
-| `html.table.overlap`: a `colspan` reaching a slot a `rowspan` covers, stopping short of it | drops silently | n/a | n/a | n/a | n/a | none |
+| `html.table.overlap`: a `colspan` reaching a cell a `rowspan` covers, stopping short of it | drops silently | n/a | n/a | n/a | n/a | none |
 | `html.table.row`: rows short of the grid's widest | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table:row` |
 | `html.table.text`: a `caption` and its text outside every cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `caption`, `table:text` |
 | `html.table.tail`: prose tight under an HTML table's `</table>` | silent: honored | n/a | n/a | n/a | n/a | none |

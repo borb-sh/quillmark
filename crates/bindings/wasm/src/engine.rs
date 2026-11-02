@@ -87,7 +87,7 @@ export interface QuillFieldSchema {
     /** Per-member field sets on a `type: "enum"` field that is a card's own
      *  field or a typed dictionary's property, keyed by member: the fields that
      *  exist only where the discriminant holds that member. Declaring it makes
-     *  the field rest as a container, `{value: <member>, …that member's
+     *  the field stored as a container, `{value: <member>, …that member's
      *  fields}`, rather than a bare string. */
     variants?: Record<string, Record<string, QuillFieldSchema>>;
     /** The roster of a `type: "matrix"` field, required there and valid
@@ -318,9 +318,9 @@ export interface BaseOptions {
 }
 
 /**
- * The receipt of `writer.reviseDocument`. `droppedAnchors` names every prose
- * anchor the write did not carry, at its path and line in the stored document; a table
- * cell's anchors drop unnamed. `warnings` are the parse's, then each revised
+ * The receipt of `writer.reviseDocument`. `droppedAnchors` names every
+ * anchor the write did not keep, at its path and line in the stored document, a
+ * table cell's included. `warnings` are the parse's, then each revised
  * content field's `parse::dropped_construct`, then the writer's `conform::*`.
  * A field that lands rather than revises, on an inserted card or over no stored
  * content, reports no drop. `from` names, for each composable card of the
@@ -378,7 +378,7 @@ export interface DocumentAnchor {
  * An anchor's context at its address (`anchorContexts`, `anchorContext`,
  * `reattach`): the text-quote selector a host stores beside a comment thread.
  * `path` is the body or content value's `DocPath` string. `quote` is the
- * anchored text as stored, an inline island its `U+FFFC` slot, a hard break
+ * anchored text as stored, an inline island its `U+FFFC` island character, a hard break
  * its `U+2028` and a block break its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
  * of stored text on each side, cut at the value's edges or a cell's. `cardId` is the `$id`
  * of the card `path` names, absent on the main card: `reattach` finds the card
@@ -750,7 +750,7 @@ impl Quill {
 
     /// Parse `markdown` and conform it against this quill: the primary ingestion
     /// path, and the bound twin of the schema-free `Document.fromMarkdown`. The
-    /// returned document rests at its canonical form (a content field as a
+    /// returned document is in its stored form (a content field as a
     /// content object, a `text` field's under `codec: "plain"`), so `getStored`
     /// answers by the field's declared codec, not by how the document was built.
     ///
@@ -770,10 +770,10 @@ impl Quill {
         })
     }
 
-    /// Land `doc`'s declared content fields at their canonical rest **in
+    /// Land `doc`'s declared content fields in their stored form **in
     /// place**, returning the `conform::*` diagnostics for values that would not
     /// commit. The read-repair verb for a document that arrived through the
-    /// transport door (`fromMarkdown`, `fromStored`, a stored row).
+    /// transport input path (`fromMarkdown`, `fromStored`, a stored row).
     ///
     /// Idempotent: an equal value is not rewritten, so YAML comments and stored
     /// bytes survive. A value the strict write refuses stays as authored with a
@@ -791,7 +791,7 @@ impl Quill {
 
     /// The resolved-value view of `doc`: the ABI under `reader.resolve()`. For
     /// every declared field, the value the render projection would use and the
-    /// `FieldSource` rung it came from (`"authored" | "default" | "blank"`). The
+    /// `FieldSource` it came from (`"authored" | "default" | "blank"`). The
     /// card body is a `body` sibling on its card, never a row in `fields`, and
     /// `null` when the kind enables no body. Value and provenance only;
     /// diagnostics stay `validate`'s. `today` reads as on `Engine.open`.
@@ -814,7 +814,7 @@ impl Quill {
         }
     }
 
-    /// The quill's example document, `undefined` when no slot or body declares
+    /// The quill's example document, `undefined` when no field or body declares
     /// an example: the seeded document with every declared `example` committed
     /// as its cell's value and each kind's `body.example` as its body. A
     /// filled-in page whose values are made up to show the quill in use, never
@@ -1065,7 +1065,7 @@ impl Document {
 
     /// Re-add anchors a write dropped, each at the `path` its selector names,
     /// where its `quote` is found exactly once with its context agreeing: four
-    /// scalar values of quote or more, or a table's slot alone, eight of
+    /// scalar values of quote or more, or a table's island character alone, eight of
     /// context on each side or the whole context where the value's edge cut
     /// it, and an empty quote a point where the two meet. Never a nearest match. Returns the `Reattached`
     /// receipt.
@@ -1167,9 +1167,9 @@ impl Document {
     /// absent field is `undefined` — and only an out-of-range `addr.card` throws
     /// `edit::index_out_of_range`.
     ///
-    /// A content field at rest holds the canonical content object, a `text`
-    /// field's spelling `codec: "plain"`. A document from the bound door (`quill.parse` / `quill.conform`)
-    /// is at rest; one from the transport door may rest as authored until it is
+    /// A content field in its stored form holds the canonical content object, a `text`
+    /// field's spelling `codec: "plain"`. A document from the bound input path (`quill.parse` / `quill.conform`)
+    /// is in its stored form; one from the transport input path may stay as authored until it is
     /// conformed, and this read reports what is there. For the `Content` either
     /// way use `reader.getContent`.
     ///
@@ -1645,7 +1645,7 @@ impl Document {
     }
 
     /// The ABI under `writer.hashAt`: the body's hash, or a field's through its
-    /// schema (a `richtext` or `text` field its content however it rests, any
+    /// schema (a `richtext` or `text` field its content however it is stored, any
     /// other type its stored value), the `baseHash` the
     /// writer's `reviseBody` / `reviseField` check. An undeclared name throws
     /// `edit::unknown_field`, an out-of-range card throws.
@@ -2027,7 +2027,7 @@ impl Addr {
     }
 
     /// TS types cannot police this — an `Addr` variable flows into a `CardAddr`
-    /// slot — so the runtime check is the contract.
+    /// parameter — so the runtime check is the contract.
     fn require_card_only(&self, ctx: &str) -> Result<(), JsValue> {
         if self.field.is_some() {
             return Err(WasmError::from(format!(
@@ -2122,9 +2122,9 @@ impl ReadBase {
 }
 
 /// The canonical form of `rt`, read without a document: the one spelling
-/// `replace` and every other content door take. Marks are cut, settled and
+/// `replace` and every other content input path take. Marks are cut, unioned and
 /// sorted, anchors and containers ordered, an unused container dropped, island
-/// props settled, and a table cell of several paragraphs joined with hard
+/// props normalized, and a table cell of several paragraphs joined with hard
 /// breaks, so the answer's `text` is `rt.text` but for those breaks. Throws
 /// where `rt` is not a valid value once normalized.
 #[wasm_bindgen(js_name = normalize, unchecked_return_type = "Content")]
@@ -2282,10 +2282,10 @@ export type DocPathSeg =
 #[wasm_bindgen(typescript_custom_section)]
 const RESOLVED_TS: &'static str = r#"
 /**
- * The commitment-ladder rung that produced a `ResolvedField.value`.
+ * The commitment-ladder source that produced a `ResolvedField.value`.
  *
- * A container has no rung of its own — it is a namespace, and its value is the
- * composition of its cells' — so it reports the strongest rung that contributed:
+ * A container has no source of its own — it is a namespace, and its value is the
+ * composition of its cells' — so it reports the strongest source that contributed:
  * `authored` if the document wrote any of it, else `default` if any cell below
  * resolved to one, else `blank`.
  */
@@ -2293,7 +2293,7 @@ export type FieldSource = "authored" | "default" | "blank";
 
 /**
  * One resolved row: its `name`, the value the render projection would use, and
- * the `FieldSource` rung it came from. Rows are an ordered array, so declaration
+ * the `FieldSource` it came from. Rows are an ordered array, so declaration
  * order is structural rather than object-key order.
  */
 export interface ResolvedField {
@@ -2385,8 +2385,8 @@ pub fn format_diagnostic(
     Ok(diag.fmt_pretty())
 }
 
-/// The `$quill` reference refusal: one code and one hint for every door that
-/// parses one, `ctx` naming the door.
+/// The `$quill` reference refusal: one code and one hint for every input path that
+/// parses one, `ctx` naming the input path.
 fn invalid_quill_reference(ctx: &str, value: &str, reason: &str) -> JsValue {
     let diag = quillmark_core::error::Diagnostic::new(
         quillmark_core::error::Severity::Error,

@@ -20,7 +20,7 @@ the authoring document serves LLM/MCP consumers.
 
 | Surface | Consumer | Entry |
 |---|---|---|
-| card-yaml Markdown | humans | `Quill::parse` (the bound door; `Document::parse` is the quill-free transport one) |
+| card-yaml Markdown | humans | `Quill::parse` (the bound input path; `Document::parse` is the quill-free transport one) |
 | authoring document (JSON) | LLMs / MCP | `authoring_schema()` → write → `Quill::from_authoring` |
 | structured mutators | programs | `Document::new` → `store_fields` / `push_card` |
 
@@ -116,7 +116,7 @@ instead of by a caller.** `Quill::conform(&mut doc)` walks every declared
 content field through the same strict write `set` commits through, so a
 document that arrived through the opaque primitive (a parse, a stored row, a
 `store_field`) lands where the typed writer would have put it, whichever lane
-built it ([SCHEMAS.md](SCHEMAS.md) § "Content fields rest per codec").
+built it ([SCHEMAS.md](SCHEMAS.md) § "Content fields are stored per codec").
 `Quill::parse(md)` is parse-then-conform and the documented ingestion path.
 Where the writer refuses a value, conform leaves it authored and reports a
 `conform::*` warning: an ingestion pass must open a document it can repair, not
@@ -127,7 +127,7 @@ and `from_stored`'d with no bundle (standalone data), what quill-agnostic
 storage/migration infra writes through, what a store-now-validate-later editor
 uses to hold not-yet-conforming input, and the way to store a value opaquely on
 purpose. Reach for the opaque `store_*` for those; reach for the writer by
-default. `Quill::writer(&mut doc)` is the documented front door in every
+default. `Quill::writer(&mut doc)` is the documented entry in every
 surface: `quill.writer(doc)` in WASM and Python alike (the schema-bound
 `DocumentWriter` / `Writer` with `set` / `set_all` / `revise_body` / `revise_field` /
 `add_card` / `remove_card` / `card(i)`); the quill owns the schema, so it is the factory. The

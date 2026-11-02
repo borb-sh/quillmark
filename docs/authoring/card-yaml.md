@@ -100,7 +100,7 @@ on the block's typed metadata.
   by backends. The value must be a mapping (scalars and sequences are
   parse errors); an empty `$ext: {}` is preserved as a distinct, explicit
   declaration. Consumers namespace inside the map (`$ext.editor`, `$ext.agent`,
-  …) to avoid collisions; `$ext.editor.title` is the canonical slot for a
+  …) to avoid collisions; `$ext.editor.title` is the canonical key for a
   per-card display name (an editor-side rename).
 - **`$seed: <mapping>`** is a **root-only** mapping of per-kind seed overlays,
   keyed by card-kind. Like `$ext` it round-trips through Markdown and storage

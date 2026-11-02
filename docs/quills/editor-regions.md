@@ -33,7 +33,7 @@ Each value's ink is born in generated code, so it keeps its field's address howe
 | `date`, `datetime` | its default display (`2026-03-04`); for a pattern, `qm.ink(x, "<key>", ..)` |
 | an array of those | the array of their ink; one element by its own address, `"tags.0"` |
 | a blank value (a blank date, empty content, an unanswered `type: t?`) | `none` |
-| a typed dictionary, a table, a matrix | `none`: address the cell, `qm.ink(x, "address.city")`, `qm.ink(row, "org")` |
+| a typed dictionary, a table, a matrix | `none`: address the value position, `qm.ink(x, "address.city")`, `qm.ink(row, "org")` |
 
 An address the schema does not have fails the render, and so does a pattern on an address that is not a date's: a roster member's `title` is the roster's, not an address, so guard with `row.held and "title" in row.value` (an unheld row's `value` is `none`).
 

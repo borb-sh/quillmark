@@ -69,7 +69,7 @@ export interface CoreSurface {
  * The same line works everywhere: the binary streams from a URL in a browser
  * and is read off disk under Node.
  *
- * The only door to `Quill`, `Document` and the free functions, so the pre-init
+ * The only way in to `Quill`, `Document` and the free functions, so the pre-init
  * mistake is not expressible. Destructure at each entry point (route loader,
  * hydration path, worker) rather than threading one result around: the gate is
  * memoized and concurrency-safe, so every await after the first is free, and a
@@ -98,7 +98,7 @@ export declare const MAIN_CARD_ADDR: CardAddr;
 
 /**
  * The key carrying the discriminant inside a variant-bearing enum's value. A
- * field declaring `variants:` rests as `{value: <member>, …that member's
+ * field declaring `variants:` is stored as `{value: <member>, …that member's
  * fields}`, so reading or writing one means naming this key; it crosses the
  * boundary inside untyped container data, with no type to read it off.
  * Reserved: no variant may declare a field under it, and
@@ -169,7 +169,7 @@ export type {
 } from '../core/wasm.js';
 
 // The schema-bound whole-document read on `quill.reader(doc)`: the resolved
-// view (`reader.resolve()`, value + source rung per declared field, the body a
+// view (`reader.resolve()`, value + source per declared field, the body a
 // `body` sibling on its card and never a row in `fields`).
 export type {
 	FieldSource,
@@ -678,7 +678,7 @@ export declare class DocumentWriter {
 	/**
 	 * The hash of the body or field at `addr` through its schema: the
 	 * `baseHash` {@link reviseBody} and {@link reviseField} check. A
-	 * `richtext` field hashes its content however it rests, a `text` field its
+	 * `richtext` field hashes its content however it is stored, a `text` field its
 	 * literal text, any other type its stored value, an absent field as
 	 * `null`. Throws `UnknownField` for an undeclared name.
 	 */
@@ -726,7 +726,7 @@ export declare class DocumentWriter {
 	 * Replace the bound document with `markdown`, then conform it. Composable
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
 	 * card's body and stored content fields revise, their anchors rebasing as
-	 * {@link reviseBody}'s do, and every declared content field lands at rest.
+	 * {@link reviseBody}'s do, and every declared content field lands in its stored form.
 	 * Returns the `DocumentRevised` receipt, its `from` naming the stored card
 	 * each composable card revises and its `warnings` ending with the
 	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`
@@ -850,7 +850,7 @@ export declare class DocumentReader {
 	bodyMarkdown(): string;
 	/**
 	 * The resolved-value view: for every declared field, the value the render
-	 * projection would use and the rung it came from (`authored` / `default` /
+	 * projection would use and the source it came from (`authored` / `default` /
 	 * `blank`). The one read that blank-fills and coerces; {@link get} reports
 	 * what the document carries. Value and provenance only; diagnostics stay
 	 * `quill.validate`'s. `today` reads as on {@link Engine.open}; an editor

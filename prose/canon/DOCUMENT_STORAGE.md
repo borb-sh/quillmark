@@ -50,7 +50,7 @@ item list. A composable card's `$id` is an `{type: id, value}` item after its
 the `$`/non-`$` boundary. A field item is `{type: field, key, value}`;
 `body` is the content-model value ([CONTENT.md](CONTENT.md)) embedded
 structurally (a nested object, not a markdown string), and a `richtext` field
-rests as one inside its item's `value`; see Byte-stability.
+is stored as one inside its item's `value`; see Byte-stability.
 
 ```json
 {
@@ -79,7 +79,7 @@ seed | field | comment`; the `ext` and `seed` variants carry the
 `$ext` / `$seed` maps verbatim and are stripped from the plate JSON
 before backends see it.
 Load-time warnings (a parse's, plus the `conform::*` diagnostics when the
-document came through the bound door) live on the `Parsed` record, not on
+document came through the bound input path) live on the `Parsed` record, not on
 `Document`, so they never reach this format; the bindings stash them on
 their `Document` handle as session state and exclude them from `equals` and
 the DTO alike.
@@ -160,11 +160,11 @@ applied: the output is `serde_json`'s compact form otherwise. Bumping the
 `schema` version is the only event that may change the byte layout of a
 document written by the current writer.
 
-**Resting form.** Byte-equality is over `Document` values, so it is only
+**Stored form.** Byte-equality is over `Document` values, so it is only
 as useful as the model's agreement on what a given document *is*. A
-content field rests as the canonical content object, a `text` field's
-spelling `codec: "plain"` ([SCHEMAS.md](SCHEMAS.md) § "Content fields rest
-per codec").
+content field is stored as the canonical content object, a `text` field's
+spelling `codec: "plain"` ([SCHEMAS.md](SCHEMAS.md) § "Content fields are
+stored per codec").
 `Quill::conform` is what holds that: it walks a document's declared
 content fields through the same strict write the typed writer commits
 through, so a parse-then-conform and a typed write of the same values are
@@ -175,23 +175,23 @@ Non-content-typed fields keep their authored shorthands (`qty: "3"` stays
 a string until something writes it); the typed write remains their
 canonicalizer.
 
-A document that entered through the transport door (`Document::parse`, a
-stored row, `store_field`) rests as authored until it is conformed. That is
-a named state, not a second resting form: it is readable, round-trippable,
+A document that entered through the transport input path (`Document::parse`, a
+stored row, `store_field`) stays as authored until it is conformed. That is
+a named state, not a second stored form: it is readable, round-trippable,
 and one bound load away from converging.
 
 A `text` field stored as its literal string, as every one was before 0.135,
-is the authored form: it reads as literal text, holds no anchor, and rests as
-the `codec: "plain"` object once the bound door conforms it. Its hash moves
+is the authored form: it reads as literal text, holds no anchor, and is stored as
+the `codec: "plain"` object once the bound input path conforms it. Its hash moves
 then, once, and the stored row needs no migration.
 
-A comment's text rests without the whitespace ending it, as a parse reads its
+A comment's text is stored without the whitespace ending it, as a parse reads its
 line, so a stored row holding such text loads without it and rewrites once.
 
 **Migrated rows.** A row under an earlier tag migrates forward on read
-(§ Legacy schemas) and rests under the current tag once rewritten. Rewriting it
-once read (read-repair) is the same lane `Quill::conform` uses: a row read
-through the bound door converges to canonical rest and is eligible for rewrite
+(§ Legacy schemas) and is stored under the current tag once rewritten. Rewriting it
+once read (read-repair) is the same path `Quill::conform` uses: a row read
+through the bound input path converges to its stored form and is eligible for rewrite
 under the current tag. A population converges once and then holds.
 
 ## Content vocabularies
@@ -263,7 +263,7 @@ line separator (`is_font_family_name`).
 
 `font_family` and `link` are keyed (`MarkKind::is_keyed`): the tag is a key and
 the attrs its value, so a character holds at most one family and one link.
-Normalization settles overlap in raw input once, before the same-kind union:
+Normalization resolves overlap in raw input once, before the same-kind union:
 each stretch between two edges goes to the mark over it that starts later, then
 to the shorter, then to the later in canonical order. A `mark` step adding a
 keyed kind sets its value over its range, replacing every mark of the tag there.
@@ -297,9 +297,9 @@ Unknown *keys* survive in designated carriers only:
 A `footnote` island holds its note in the slot `note`, and an `image` its `url`
 and `alt` in `props`. A `math` island's props hold the equation's TeX under
 `tex`, a string on one line with no edge whitespace, and `display: true` on an
-equation set on its own line, absent at `false`. The authored lanes refuse a
+equation set on its own line, absent at `false`. The markdown input paths refuse a
 `tex` markdown cannot write between its dollars (an unescaped `$`, braces that
-do not balance, an empty inline one) as `ParseError::Shape`; the stored lane
+do not balance, an empty inline one) as `ParseError::Shape`; the stored read
 takes it, and markdown writes such an equation as other markup.
 
 A table island's props name its grid and its layout (`table` module):
@@ -329,10 +329,10 @@ column's layout where it was. A cell names four keys of its own under
 A cell's value equal to its column's is an override that stays when the
 column changes. The grid stays rectangular under a span: each cell a span
 covers keeps its slot as an empty placeholder, so a merge needs no
-storage-version event. `Content::normalize` settles each span so it covers
+storage-version event. `Content::normalize` fixes each span so it covers
 only what it can (`island::table_spans`):
 
-- Cells claim slots in reading order, so the earlier span wins.
+- Spans claim cells in reading order, so the earlier span wins.
 - A span covers only cells holding no text, no mark and no anchor that no
   other span covers, inside the grid and inside its own section: the `head`
   rows or the body. The cell a comment targets stays drawn.
@@ -361,7 +361,7 @@ Five rules bound the payload:
   blob can carry. A bag is refused where the decoder reads it, before it is
   cloned into the model, and `Content::validate` restates it as
   `Invariant::JsonTooDeep`.
-- **A table's grid is capped at `MAX_TABLE_CELLS` (100 000) slots**, its rows
+- **A table's grid is capped at `MAX_TABLE_CELLS` (100 000) cells**, its rows
   times its columns. The decoder refuses such a table as
   `Invariant::TableTooLarge`; markdown import drops the rows past the cap
   instead, its tables sharing one cap, warning `table:size`.
@@ -378,7 +378,7 @@ Five rules bound the payload:
   `Invariant::TooManyAnchors` (`edit::too_many_marks`,
   `edit::too_many_anchors`), and a change refuses at the step that would
   pass it.
-- **Inputs are capped at the doors.** Markdown an import reads, a revise's
+- **Inputs are capped at the input paths.** Markdown an import reads, a revise's
   and `importMarkdown`'s as well as a parse's, is capped at
   `MAX_MARKDOWN_SIZE` (10 MiB), refused as `ImportError::TooLarge`
   (`edit::input_too_large`). The bindings refuse a content value whose text
@@ -400,7 +400,7 @@ changed meaning for an existing discriminator.
 
 Structural parts, anchors and composable cards each carry an id, and all are
 the same handle: **opaque, unique within a scope, hash input, stable for the
-session, carried through edits and never rewritten.** They differ on one axis:
+session, kept through edits and never rewritten.** They differ on one axis:
 **who mints one, and why only they can.** Uniqueness scope, collision response,
 and markdown round-trip all follow from that.
 
@@ -430,7 +430,7 @@ for the same document, silently breaking divergence detection and cache keys.
 The scheme is positional: `{prefix}{n}` past the highest number the value
 already holds under the prefix (`ids::Minter`), so a cold import is a pure
 function of its markdown and an island takes `isl-{n}`. Ids then travel with
-their part across edits: deleting a slot drops that island and survivors keep
+their part across edits: deleting an island character drops that island and survivors keep
 their ids, so an id is *stable within a session*, not re-derived from position.
 The invariant that holds for every `Content`, checked by `Content::validate`,
 is therefore **uniqueness**, not `id == isl-{index}`.
@@ -528,7 +528,7 @@ is written, and never rewritten while its card lives.**
   holds (`card_id::Mint`). The sequence is a function of the document alone,
   so equal markdown parses to equal ids and the never-ambient rule of
   § Island-id determinism holds.
-- **Every door settles.** A parse, a load and a placing edit each leave every
+- **Every input path normalizes the id.** A parse, a load and a placing edit each leave every
   composable card holding a distinct valid id. A parse keeps the first card
   spelling an id, re-mints a later duplicate or an id outside the grammar, and
   warns `parse::card_id_reminted` at the card. `insert_card` mints for a card

@@ -139,16 +139,16 @@ A render that traps (out of memory, a panic) rejects with
 `runtime::backend_trapped`, the `WebAssembly.RuntimeError` on `cause`. The
 build's state is then undefined: terminate the Worker or restart the process.
 
-### The two doors: `Document.fromMarkdown` vs `quill.parse` / `quill.conform`
+### The two input paths: `Document.fromMarkdown` vs `quill.parse` / `quill.conform`
 
-`Document.fromMarkdown` is the quill-free **transport door** (migrations, `$ext`
+`Document.fromMarkdown` is the quill-free **transport input path** (migrations, `$ext`
 stamping, a quill that will not load, opening a document to fix its `$quill`).
-It needs a root `~~~` block carrying a `$quill` line, and a content field rests
+It needs a root `~~~` block carrying a `$quill` line, and a content field stays
 as authored.
 
-`quill.parse` is the **bound door**, and the primary ingestion path. It is
+`quill.parse` is the **bound input path**, and the primary one. It is
 `Document.fromMarkdown` followed by `conform`: the returned document's declared
-content fields rest at one form per codec (a `richtext` field as the canonical
+content fields are in their stored form, one per codec (a `richtext` field as the canonical
 content object, a `text` field as its literal string), so `getStored`
 answers "content object or string?" by the field's declared codec rather than by how the
 document was built. Parse warnings and the `conform::*` warnings both ride
@@ -163,7 +163,7 @@ when the document declares a `$quill` this quill does not answer to, before any
 mutation.
 
 ```ts
-const doc = quill.parse(markdown);          // rests canonical
+const doc = quill.parse(markdown);          // in its stored form
 const stale = Document.fromStored(row);
 const diags = quill.conform(stale);         // converges in place
 ```
@@ -251,9 +251,9 @@ an absent field; only an out-of-range card throws); field writes throw on a body
 address. `getStored` is the verbatim transport read, distinct from the interpreted
 `quill.reader(doc).get`; `bodyMarkdown` is the body markdown read (a `CardAddr`; a field's
 markdown is read through `quill.reader(doc).get(field)`). A content field's stored
-form rests per its declared codec through the bound door (a `richtext` field as
+form follows its declared codec through the bound input path (a `richtext` field as
 the content object, a `text` field as its literal string), and as authored
-through the transport door. For the `Content` either way read
+through the transport input path. For the `Content` either way read
 `quill.reader(doc).getContent(addr)`, which decodes through the codec the
 field's declared type names. Card-scoped verbs take a
 `CardAddr` (`{ card? }`) first: `doc.getExt({ card: 2 })`. An address parses
@@ -267,7 +267,7 @@ A `Document` holds only a `$quill` *reference*, not the resolved schema, so type
 writes go through the schema-bound writer while the quill-free opaque store sits
 on `Document` itself (**store** = verbatim, **set** = typed):
 
-- **`quill.writer(doc)`: the typed door whenever a quill is in hand.** Bind the
+- **`quill.writer(doc)`: the typed input path whenever a quill is in hand.** Bind the
   schema once and issue bare `set` / `setAll` / `reviseBody` / `reviseField` /
   `addCard` / `card(i)`. Each resolves the field's schema `type`, coerces the
   value to its canonical form (`"3"` → `3`, a markdown string → a richtext
@@ -323,7 +323,7 @@ v.get("subject");                                   // the values form: every co
 v.getContent("subject");                            // the same read as a `Content`, whichever lane stored it
 v.bodyMarkdown();                                   // the main body markdown (quill-free)
 v.get({ card: 0 });                                 // a card's body markdown; its fields read through get
-v.resolve();                                        // the render view: blank-filled, coerced, each field tagged with its rung
+v.resolve();                                        // the render view: blank-filled, coerced, each field tagged with its source
 ```
 
 `get` projects and `getContent` returns the `Content`; both decode through the codec

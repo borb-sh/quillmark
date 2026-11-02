@@ -64,7 +64,7 @@ quill.metadata              # `name`, `version`, `backend`, `author`, `descripti
 quill.quill_ref             # "name@version"
 
 doc     = quill.parse(markdown)           # parse + conform to the quill's schema, the primary ingestion path
-diags   = quill.conform(doc)              # the same walk in place on a transported document ([] = at rest)
+diags   = quill.conform(doc)              # the same walk in place on a transported document ([] = in its stored form)
 diags   = quill.validate(doc)             # list of diagnostic dicts ([] = valid): validation::*,
                                           # parse::dropped_construct, backend::declined_construct
 empty   = quill.empty_document()          # the empty Document: $quill + $kind: main, nothing committed

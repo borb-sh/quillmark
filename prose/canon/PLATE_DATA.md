@@ -69,7 +69,7 @@ equal data still produces byte-equal source.
 ```
 
 - A member's keys are the field's declared columns, each at its declared type,
-  and on an added item its `title`, a one-line `text` cell.
+  and on an added item its `title`, a one-line `text` value position.
 - A plate branches on presence first (`"flight_cc" in qm.data.qualifications`),
   then reads a held member's columns without a guard.
 - Each member carries its own `$path`; the matrix, holding only members, carries
@@ -91,7 +91,7 @@ the address starts from, as `qm.ink(dict, key)`'s does:
 ```
 
 A claim on `row.path` makes an unticked box clickable too. An added item's
-`title` is a cell, so `qm.ink(row.value, "title")` places it with a region of its
+`title` is a value position, so `qm.ink(row.value, "title")` places it with a region of its
 own. A roster member's `title` is the roster's and no address, so `qm.ink`
 refuses it, and an unheld row's `value` is `none`: a plate reads a title as
 `if row.held and "title" in row.value { qm.ink(row.value, "title") } else
@@ -150,7 +150,7 @@ Internals keep a `_qm-` prefix.
 
   | node | lowers to | recursion |
   |---|---|---|
-  | `contentMediaType: application/quillmark-content+json` | a `#let _qm_cN = [ .. ]` markup block the data cell references (blank ⇒ `""`) | — |
+  | `contentMediaType: application/quillmark-content+json` | a `#let _qm_cN = [ .. ]` markup block the data entry references (blank ⇒ `""`) | — |
   | `format: date` / `date-time` | `datetime(year:, month:, day:)` / the six-component form, authored wall-clock, seconds zero-filled (blank ⇒ `none`) | — |
   | `type: array` | a Typst array | each element against `items`, at `{path}.{i}` |
   | `type: object` with `properties` | a Typst dict, keys sorted unless the node carries `quillmark:roster` | each value against `properties[key]`, else `additionalProperties`, at `{path}.{key}` |
@@ -165,7 +165,7 @@ Internals keep a `_qm-` prefix.
   A one-line content node (no `quillmark:multiline: true`) lowers via
   `emit::emit_content_inline` to **pure inline** markup: the single `Para`'s
   content with no block terminator, so no `parbreak`. The value therefore
-  composes in an inline slot (`par(..)`, a grid cell) without Typst's "parbreak
+  composes in an inline context (`par(..)`, a grid cell) without Typst's "parbreak
   may not occur inside of a paragraph" warning. The flag is read at the content
   leaf, so a one-line `array<richtext>` needs no separate rule.
 
@@ -203,8 +203,8 @@ address:
 
 | address holds | its entry |
 |---|---|
-| string, number, boolean | `[#(data.at(..)..)]`, reading the cell off `data`; it prints what `#<value>` prints |
-| content | the `_qm_cN` binding the data cell holds |
+| string, number, boolean | `[#(data.at(..)..)]`, reading the value off `data`; it prints what `#<value>` prints |
+| content | the `_qm_cN` binding the data entry holds |
 | date | `(..args) => text(data.at(..)..display(..args))`; `(..args) => none` where blank |
 | array of those | the array of the elements' ink, each element also keyed on its own |
 | typed dictionary, matrix, blank content, `none` | no entry |
@@ -235,7 +235,7 @@ a scalar's has no segments, so its whole first placement is one region. An
 array's entry windows its elements beside their own entries, never around
 them, so windows never nest.
 
-The entries read their cells off `data` rather than repeating them, so a value
+The entries read their values off `data` rather than repeating them, so a value
 edit changes the data literal and leaves the table's text alone; only an entry
 appearing or going (a blank filled, a row added) changes it. `data`, each card
 and each typed dictionary is wrapped in a `{..}` code block, a unit Typst's
@@ -256,7 +256,7 @@ validates that name at compile time rather than leaving it silently unbound:
 | `classification.poc` | a container field — the property step |
 | `contact.address.city` | either step again, wherever the schema nests |
 | `qualifications.flight_cc` | a matrix field — the member step, whose own address is the tick |
-| `qualifications.wing_ig.title` | an open matrix — any key spelled as a member id, then the added item's cells |
+| `qualifications.wing_ig.title` | an open matrix — any key spelled as a member id, then the added item's value positions |
 | `$cards.<kind>.<n>.<field>` | a card field, `<n>` the per-kind ordinal |
 | `$cards.<kind>.<n>.<field>.<suffix>` | any of those suffixes, on a card field |
 
@@ -264,7 +264,7 @@ Every step is gated on what the node it steps out of actually offers, not on the
 name alone, so `subject.0` and `subject.poc` are both rejected on a scalar
 `subject`: a scalar has neither an element nor a property for the address to
 resolve to. A **container** is a typed dictionary or a variant container — both
-project as `type: object` carrying `properties`, so a variant's cells and its
+project as `type: object` carrying `properties`, so a variant's value positions and its
 `value` discriminant are addressable exactly as a dictionary's keys are
 ([SCHEMAS.md](SCHEMAS.md#enum-variants)). The grammar stops where the schema
 does, at whatever depth that is. This is the acroform resolver's grammar
@@ -296,4 +296,4 @@ resolver roots none.
 
 The same addresses key the preview's region sidecar
 ([PREVIEW.md](PREVIEW.md)), so a plate that prints one container property or
-one row cell through `qm.ink` surfaces a region a consumer can route back to it.
+one row value position through `qm.ink` surfaces a region a consumer can route back to it.

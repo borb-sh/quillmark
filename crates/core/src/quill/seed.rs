@@ -23,7 +23,7 @@ use crate::{
 ///
 /// Every seeded content field commits through [`seeded_rest`], the same strict
 /// write the typed writer uses, so a seeded card is at rest from birth
-/// (`SCHEMAS.md` § "Document seeding": seed-commits-rest).
+/// (`SCHEMAS.md` § "Document seeding": seed-commits-stored).
 fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, Normalized) {
     let seed = overlay.or(schema.seed.as_ref());
     let items: Vec<PayloadItem> = schema

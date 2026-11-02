@@ -1,7 +1,7 @@
 //! The content write primitive and its producers.
 //!
 //! [`Card::write`] lands an [`Edit`] on a body or a richtext field and
-//! answers a [`Receipt`]: a [`Change`], or one built from a gesture, a
+//! answers a [`Receipt`]: a [`Change`], or one built from a structural edit, a
 //! writer's markdown or a whole value. Each takes the hash its writer read as
 //! [`WriteOptions::base`]. A base the value has moved on from rebases the
 //! write over what changed since, which the card's change log holds; a write
@@ -89,7 +89,7 @@ pub enum Edit<'a> {
     /// may carry a [placeholder](quillmark_content::ids::is_placeholder),
     /// which the write fills and names in [`Receipt::minted`].
     Apply(Change),
-    /// A gesture's change on the value the base names, its offsets into it;
+    /// A structural edit's change on the value the base names, its offsets into it;
     /// the ids it opens are placeholders the write fills.
     Gesture(Gesture),
     /// The value rewritten as markdown: the anchors and islands whose `qm-*`
