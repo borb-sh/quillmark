@@ -705,3 +705,109 @@ fn a_raw_in_utf16_clamps_an_offset_inside_a_character_or_past_the_text() {
     assert!(repairs.is_empty(), "{repairs:?}");
     assert_eq!((c.marks[0].start, c.marks[0].end), (0, 3));
 }
+
+/// Text from the characters the offsets in UTF-16 split or the model treats
+/// apart: astral, a break, a slot, a line separator.
+fn json_text() -> impl Strategy<Value = String> {
+    prop::collection::vec(prop::sample::select(&["a", "😀", "\n", "\u{FFFC}", "\u{2028}", " ", "é"][..]), 0..8)
+        .prop_map(|v| v.concat())
+}
+
+fn json_offset() -> impl Strategy<Value = serde_json::Value> {
+    prop_oneof![0u64..12, Just(u32::MAX as u64), Just(u64::MAX)].prop_map(serde_json::Value::from)
+}
+
+fn json_block() -> impl Strategy<Value = serde_json::Value> {
+    (
+        prop::sample::select(&["b0", "b1", "b2", ""][..]),
+        prop::sample::select(&["para", "heading", "rule", "code", "x-a"][..]),
+        prop::collection::vec(prop::sample::select(&["l0", "i0", "q0", "zz"][..]), 0..3),
+    )
+        .prop_map(|(id, kind, path)| json!({"id": id, "kind": kind, "attrs": {"level": 2}, "path": path}))
+}
+
+fn json_island() -> impl Strategy<Value = serde_json::Value> {
+    (
+        prop::sample::select(&["t0", "f0", "isl-0"][..]),
+        prop::sample::select(&["table", "footnote", "math", "image", "x-c"][..]),
+        json_text(),
+    )
+        .prop_map(|(id, ty, t)| {
+            let slot = json!({"text": t, "blocks": [{"id": "b0", "kind": "para"}], "anchors": [{"id": "c9", "start": 0, "end": 3, "range": true}]});
+            json!({"id": id, "type": ty,
+                "props": {"columns": ["k0"], "rows": [{"id": "r0", "cells": {"k0": "s0"}}], "tex": "x", "url": "u"},
+                "slots": {"s0": slot.clone(), "note": slot}})
+        })
+}
+
+/// A merge state as collab hands it over, offsets in UTF-16: its islands as
+/// an array or keyed by id beside `slot_ids`.
+fn raw_json() -> impl Strategy<Value = serde_json::Value> {
+    (
+        json_text(),
+        prop::collection::vec(json_block(), 0..4),
+        prop::collection::vec((json_offset(), json_offset()), 0..3),
+        prop::collection::vec((json_offset(), json_offset(), any::<bool>()), 0..3),
+        prop::collection::vec(json_island(), 0..3),
+        any::<bool>(),
+    )
+        .prop_map(|(text, blocks, marks, anchors, islands, keyed)| {
+            let marks: Vec<serde_json::Value> = marks.into_iter().map(|(s, e)| json!({"start": s, "end": e, "type": "strong"})).collect();
+            let anchors: Vec<serde_json::Value> =
+                anchors.into_iter().enumerate().map(|(k, (s, e, r))| json!({"id": format!("a{k}"), "start": s, "end": e, "range": r})).collect();
+            let mut v = json!({"text": text, "blocks": blocks, "marks": marks, "anchors": anchors,
+                "containers": [{"id": "l0", "kind": "list"}, {"id": "i0", "kind": "item"}, {"id": "q0", "kind": "quote"}]});
+            if keyed {
+                let ids: Vec<serde_json::Value> = islands.iter().map(|i| i["id"].clone()).collect();
+                let map: serde_json::Map<String, serde_json::Value> =
+                    islands.into_iter().map(|i| (i["id"].as_str().unwrap().to_string(), i)).collect();
+                v["islands"] = serde_json::Value::Object(map);
+                v["slot_ids"] = serde_json::Value::Array(ids);
+            } else {
+                v["islands"] = serde_json::Value::Array(islands);
+            }
+            v
+        })
+}
+
+fn step_json() -> impl Strategy<Value = serde_json::Value> {
+    (json_offset(), json_offset(), json_text(), json_text(), 0u8..5).prop_map(|(a, b, del, ins, k)| match k {
+        0 => json!({"splice": {"at": a, "delete": del, "insert": ins, "marks": [{"start": a, "end": b, "type": "emph"}]}}),
+        1 => json!({"mark": {"start": a, "end": b, "type": "strong", "add": true, "quote": del}}),
+        2 => json!({"anchor": {"id": "c1", "start": a, "end": b}}),
+        3 => json!({"nested": {"island": "t0", "slot": "s0", "change": {"steps": [{"splice": {"at": a, "delete": del, "insert": ins}}]}}}),
+        _ => json!({"island": {"at": a, "island": {"id": "m9", "type": "math", "props": {"tex": "y"}}, "block": "b0"}}),
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// The JSON door collab feeds, in UTF-16: a merge state decodes or
+    /// refuses, and what decodes repairs as a struct does.
+    #[test]
+    fn a_raw_value_in_utf16_repairs_or_refuses(v in raw_json()) {
+        use quillmark_content::units::Utf16;
+        if let Ok(r) = Raw::from_value_in(&v, Utf16) {
+            let (c, _) = repair(r.clone());
+            prop_assert_eq!(c.validate(), Ok(()));
+            prop_assert_eq!(repair(r).0, c.clone());
+            prop_assert_eq!(repair(Raw::from(&c)), (c, Vec::new()));
+        }
+    }
+
+    /// A binding's change door, in UTF-16: a change decodes, converts to
+    /// scalars and applies, or refuses, and what applies is valid.
+    #[test]
+    fn a_change_in_utf16_applies_or_refuses(v in raw_json(), steps in prop::collection::vec(step_json(), 1..4)) {
+        use quillmark_content::change::{Change, apply};
+        use quillmark_content::units::{Utf16, change_to_scalars};
+        let base = Raw::from_value_in(&v, Utf16).map(|r| repair(r).0).unwrap_or_else(|_| Content::empty());
+        if let Ok(c) = Change::from_value_in(&json!({"steps": steps}), Utf16)
+            && let Ok(c) = change_to_scalars(&c, &base, Utf16)
+            && let Ok(done) = apply(&base, &c)
+        {
+            prop_assert_eq!(done.content.validate(), Ok(()));
+        }
+    }
+}
