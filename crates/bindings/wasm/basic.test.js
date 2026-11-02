@@ -14,6 +14,14 @@ import {
   normalize,
   invert,
   diff,
+  splitBlock,
+  joinBlocks,
+  deleteRange,
+  indent,
+  outdent,
+  wrap,
+  inheritedMarks,
+  mapPos,
   isInline,
   isPlain,
   parseDocPath,
@@ -754,6 +762,43 @@ describe('Document apply: the write primitive', () => {
     doc.replace({}, before)
     doc.apply({}, change)
     expect(doc.read({}).text).toBe('hello brave world')
+  })
+
+  it('the editing gestures answer changes in UTF-16 offsets that apply', () => {
+    const doc = blankDoc()
+    const run = (change) => {
+      doc.apply({}, change)
+      return doc.read({})
+    }
+    doc.replace({}, importMarkdown('😀 ab\n\n- one\n- two').content)
+    let c = doc.read({})
+    const split = splitBlock(c, 4, 'n')
+    expect(split.steps[0].splice.at).toBe(4)
+    c = run(split)
+    expect(c.text).toBe('😀 a\nb\none\ntwo')
+    c = run(joinBlocks(c, 'n'))
+    expect(c.text).toBe('😀 ab\none\ntwo')
+
+    const [, first, second] = c.blocks.map((b) => b.id)
+    c = run(indent(c, second))
+    expect(c.blocks[2].path).toHaveLength(4)
+    c = run(outdent(c, second))
+    expect(c.blocks[2].path).toHaveLength(2)
+    c = run(wrap(c, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' }))
+    expect(c.containers.find((k) => k.id === c.blocks[0].path[0]).kind).toBe('quote')
+    expectEditCode(() => indent(c, first), 'edit::content_apply')
+
+    c = run(deleteRange(c, 0, 6))
+    expect(c.text).toBe('one\ntwo')
+    expect(c.blocks[0].path).toHaveLength(2)
+
+    doc.replace({}, importMarkdown('**bold** x').content)
+    expect(inheritedMarks(doc.read({}), 4)).toEqual([{ type: 'strong' }])
+
+    const insert = { steps: [{ splice: { at: 0, delete: '', insert: '😀' } }] }
+    expect(mapPos(insert, 0)).toMatchObject({ pos: 2, deleted: false })
+    expect(mapPos(insert, 0, 'before').pos).toBe(0)
+    expect(() => mapPos(insert, 0, 'sideways')).toThrow(/assoc/)
   })
 
   it('normalize answers what replace stores, and refuses what replace refuses', () => {
