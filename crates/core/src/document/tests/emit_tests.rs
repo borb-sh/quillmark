@@ -222,10 +222,10 @@ Body.
 #[test]
 fn an_indented_text_field_survives_emit_and_reparse() {
     let text = "    indented\nplain\ntrailing   ";
-    let content = quillmark_content::import::from_plaintext(text);
+    let content = quillmark_content::lines::import::from_plaintext(text);
     let md = doc_with(&[(
         "sample",
-        quillmark_content::serial::to_canonical_value(&content),
+        quillmark_content::lines::serial::to_canonical_value(&content),
     )])
     .to_markdown();
     let back = Document::parse(&md).expect("re-parses").document;
@@ -236,7 +236,7 @@ fn an_indented_text_field_survives_emit_and_reparse() {
         .and_then(|v| v.as_str())
         .expect("the field projected to a markdown string");
     assert_eq!(
-        quillmark_content::import::from_markdown(projected)
+        quillmark_content::lines::import::from_markdown(projected)
             .expect("the projection re-imports")
             .content
             .text,
@@ -250,10 +250,10 @@ fn an_indented_text_field_survives_emit_and_reparse() {
 /// same value and re-encodes to different bytes.
 #[test]
 fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
-    let content = quillmark_content::import::from_markdown("> quoted")
+    let content = quillmark_content::lines::import::from_markdown("> quoted")
         .unwrap()
         .content;
-    let canonical = quillmark_content::serial::to_canonical_value(&content);
+    let canonical = quillmark_content::lines::serial::to_canonical_value(&content);
     let mut spelled = canonical.clone();
     spelled["lines"][0]["containers"][0]["instance"] = serde_json::json!(0);
 
@@ -283,8 +283,8 @@ fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
 fn a_nested_content_cell_projects_and_ext_content_does_not() {
     use crate::value::QuillValue;
 
-    let content = quillmark_content::serial::to_canonical_value(
-        &quillmark_content::import::from_markdown("and **this**")
+    let content = quillmark_content::lines::serial::to_canonical_value(
+        &quillmark_content::lines::import::from_markdown("and **this**")
             .unwrap()
             .content,
     );

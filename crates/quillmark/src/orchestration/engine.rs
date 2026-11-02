@@ -6,6 +6,7 @@ use quillmark_core::{
     session::LiveSession,
     types::{OutputFormat, RenderOptions},
 };
+use quillmark_content::units::{Scalars, Units};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -114,6 +115,19 @@ impl Engine {
         today: CalendarDate,
         opts: &RenderOptions,
     ) -> Result<RenderResult, RenderError> {
+        self.render_in(quill, doc, today, opts, Scalars)
+    }
+
+    /// [`render`](Self::render) with each region's `span` in `u`
+    /// ([`LiveSession::render_in`]).
+    pub fn render_in(
+        &self,
+        quill: &Quill,
+        doc: &Document,
+        today: CalendarDate,
+        opts: &RenderOptions,
+        u: impl Units,
+    ) -> Result<RenderResult, RenderError> {
         let default_format = self
             .resolve_backend(quill)?
             .supported_formats()
@@ -124,7 +138,7 @@ impl Engine {
         // default; only `output_format` gets the backend-default fallback.
         let mut resolved = opts.clone();
         resolved.output_format = opts.output_format.or(default_format);
-        let mut result = session.render(&resolved)?;
+        let mut result = session.render_in(&resolved, u)?;
         let unclaimed = quill
             .advisories(doc)
             .into_iter()

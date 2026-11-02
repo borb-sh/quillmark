@@ -2,10 +2,178 @@
 
 ## Unreleased
 
-Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Python's
+Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Every
+content value is the content model, and offsets in content values and changes
+cross WASM in UTF-16 code units, where they counted scalar values. Python's
 `revise_body`, `revise_field` and `revise_document` return a dict receipt,
 where they returned a list of `Diagnostic`, so a loop over the result runs
 over its keys: read `receipt["warnings"]`.
+
+### Content v2
+
+- feat(content)!: **the content model.** One value per body or `richtext`
+  field: flat text, blocks and containers with ids, marks, anchors apart from
+  marks, and islands whose cells and notes are slots of nested content.
+  Nothing derived is stored: an item's number is computed, and runs are told
+  apart by container id. The line form moves under `quillmark_content::lines`
+  and stays what the renderers and markdown codecs read; `migrate` moves
+  values between the two, minting ids deterministically.
+- feat(content)!: **the line form's op lane is removed.** `lines::ops`
+  (`ChangeBundle`, `LineOp`, `MarkOp`, `IslandOp` and their decoders),
+  `Card::apply_body_change`, `Card::apply_field_change`, the `Normalized`
+  `apply_*` methods and `EditError::ContentApply` go: a `Change` through
+  `Card::apply` is the one edit. `quillmark::session` no longer re-exports
+  them. The parity corpus's op-wire cell reads the `Change` `diff` takes
+  from the empty value.
+- feat(content): **`Change`, the one way a value is edited.** Splice,
+  `setBlock`, `container`, `mark`, `anchor`, `island` and `nested` steps,
+  with `invert`, `compose`, `map_pos` and a word-aligned `diff`, each a
+  property-tested law. A change yields a valid value or fails and changes
+  nothing.
+- feat(content)!: **a block's record rides the `\n` that opens it.** A
+  split names the right half and the left keeps its id, so Enter at the end
+  of any block, the last included, leaves the text on its id; a join keeps
+  the left block's id and kind. `blocks[0]` is the record no splice reaches,
+  so `diff` and `replace` keep the stored first id, and `repair` gives the
+  first piece of a block it splits beside an island the block's record.
+- feat(content): **`gestures::split_block` and `join_blocks`** build Enter
+  and Backspace as one splice each, inserting ahead of a block's opening
+  `\n` at its start so the text keeps its id.
+- feat(content): **`gestures::inherited_marks(content, at)`** answers the
+  marks typed text carries: `strong`, `emph`, `underline` and `strike` grow
+  at their end, `code`, `link` and an `x-` mark at neither edge,
+  `font_family` at both.
+- feat(bindings)!: **every WASM offset is UTF-16.** A region's `span`,
+  `positionAt`'s and `locate`'s `pos`, a typed revise's `Revised.delta` and
+  the deltas `reattach` takes count in UTF-16 code units, as content values
+  and changes do; core takes a host's units through `LiveSession::*_in`,
+  `Engine::render_in`, `Revised::delta_in` and `Document::reattach_in`.
+- feat(content): **`repair` makes a merged state valid.** A missing
+  container leaves a path, a container under two paths takes its first
+  block's, a later run gets a derived container, an orphan slot or record
+  goes, text beside a table splits off, and a collapsed range anchor is
+  dropped. Total and deterministic.
+- feat(content): **repair is how a merged state reads, and a write-back is
+  optional.** Peers holding one merged state compute one value without
+  writing. Any peer may write back a repair that only deletes or sets; one
+  that inserts (a block split beside an island, a heading's hard break, a
+  missing cell) is written back by a single writer, since two peers would
+  each insert their own. `Repair::inserts` says which, `inserts: true` on
+  the wire, and a missing cell reports `Repair::EmptyCell`.
+- feat(core)!: **storage moves to `quillmark/document@0.134.0`**, each body
+  and richtext field the content model. An older row loads migrated, with the
+  same ids on every load. A value holds each anchor id once over its text
+  and every slot, so a stored value holding one twice loads keeping its
+  first holder.
+- feat(core)!: **`Card::apply`, `revise` and `replace`** write a body or
+  richtext field and answer a `Receipt`: the applied change, the new hash,
+  and the dropped and moved anchors. Each takes the hash its writer read and
+  refuses a stale one with `edit::stale_base`. `Card::write` takes the
+  `Edit` each builds its change from, and `write_in` takes a host's units.
+- feat(wasm)!: **`doc.read`, `apply`, `revise`, `replace`, `annotated` and
+  `hash(addr)`, and `invert` and `diff`**, offsets in UTF-16 code units.
+  Every content payload crossing the binding is the model. `overwrite`,
+  `reviseContent`, `applyChange` and `mapMarks` are removed: call `replace`
+  and `apply`. `compose`, `rebase`, `mapPos`, the gestures and `repair` stay
+  unbound until the editor or collaboration calls them.
+- feat(python)!: **the same surface in snake case**, offsets in code points.
+- feat(core)!: **a content write names its card by `$id`.** An id no card
+  holds refuses with `edit::unknown_card_id`. `Document::card_index` and
+  `card_by_id` find a card by id. WASM `Addr.card` and Python `card=`
+  take a card's `$id` on every verb, and `apply`, `revise` and
+  `replace` take nothing else, so a card moved or inserted between a read and
+  its write, its body equal to the one read, no longer takes the write.
+- feat(content)!: **the receipt names every anchor a change loses.** An
+  island a splice deletes, or a slot a props step no longer names, names the
+  anchors of its slots, each with the `island` and `slot` that held it.
+  `revise` and `replace` name every anchor they lose; `apply` every one but
+  those its own `anchor` steps removed. `Applied.dropped` and
+  `Receipt.dropped_anchors` are `change::Dropped`, an `AnchorContext` and a
+  `SlotRef`; WASM spells it `DroppedAnchor`.
+- feat(content)!: **`diff` refuses an invalid target.** `diff` and `replace`
+  return the `Invariant` an invalid `after` breaks, where they returned zero
+  steps, and reach every valid one step-wise. WASM and Python `diff` answer
+  the `Change`.
+- feat(content)!: **every offset-addressed step can hold to what its writer
+  read.** `mark` steps and an `anchor` placement take an optional `quote`,
+  the text their range covered, and an `island` insert an optional `block`,
+  the id of the block it lands in; a mismatch is `ApplyError::Stale`, as a
+  splice's `delete` is. `Applied.applied` and `invert` fill both in.
+  `MarkStep::Add`, `MarkStep::Remove`, `AnchorStep::Set` and
+  `IslandStep::Insert` carry the new fields.
+- feat(content)!: **`map_pos` answers a `MapResult`.** A position always
+  lands, inside deleted text on the deletion's `assoc` edge and inside an
+  island a splice deleted on the island's slot, with `deleted`,
+  `deleted_before`, `deleted_after` and `deleted_across` saying what went
+  around it. A splice that deletes an island and names none in `removed` is
+  refused, where it mapped a position inside that island as kept. New
+  `mapping::StepMap` and `Mapping`, a list of step maps with mirror links, so
+  a position a step deleted and its rebased mirror put back maps home.
+- feat(content)!: **reserved `x-` names on three vocabularies.** A block
+  kind, mark type or island type spelled `x-` and more decodes into
+  `BlockKind::Ext`, `MarkKind::Ext` or `IslandType::Ext`, its attrs or props
+  held as written, and re-encodes to the same bytes; any other unknown name
+  still refuses. Validation is structural only. An `x-` block reads as a
+  paragraph, an `x-` mark formats nothing, and an `x-` island renders and
+  exports to markdown as nothing, which the annotated read spells as its
+  token so a revise keeps it; a content write's revise or replace that
+  removes one refuses with `edit::drops_ext_island`, and `apply` removes it.
+  Steps set and remove them. `MarkStep::Remove`'s `tag` is a `String`,
+  `BlockKind::tag` and `MarkKind::tag` return `&str`, and `IslandType` is no
+  longer `Copy`.
+- feat(content): **`rebase(base, change, over)` moves a change past another
+  made from the same value**, after ProseMirror's `rebaseSteps`. Each step
+  maps through the inverse of its change's earlier steps, then `over`, then
+  those steps rebased, and holds to its `delete`, `quote` or `block` on the
+  value it now reads; a step `over` deleted the text of, or whose id is gone,
+  is a `rebase::Conflict` naming it. A step by id that would overwrite what
+  `over` changed (a block's kind or path, a container, an island's props)
+  conflicts rather than undoing it, as does a splice that deletes an island
+  or block `over` changed, so a diff's `setBlock` names only the fields it
+  changes.
+  `Mapping::map_point` and `project` map
+  as `apply` moves a point anchor and inside one slot.
+- feat(core)!: **a stale `base` rebases the write instead of refusing it.**
+  Each card keeps, in memory only, a log of its recent writes per value: one
+  snapshot of the value, and each write's normalized change and the hash it
+  left. A base rebases while the writes since it hold at most `LOG_STEPS`
+  (4096) steps, thousands of keystrokes, and the base the newest write read
+  whatever its size; past twice that, the oldest writes fold into the
+  snapshot, so the log holds one copy of the value however large.
+  `apply`, `revise` and `replace` with a base the log holds rebase over the
+  changes since, and a revise or replace diffs from the value the base
+  names. The receipt's new `rebased` says so. A conflict refuses with
+  `edit::rebase_conflict`, carrying `step` and `reason`; a base the log does
+  not reach is `edit::stale_base` as before. `Card::read_at` answers the
+  value a base names, and `BaseError::Conflict` carries `step` and
+  `reason`.
+- fix(content): **`replace` moves an anchor between the prose and a cell**,
+  where it refused with `DuplicateId`: it carries only an anchor the new
+  value names nowhere. A props step naming a slot in `slots` that the props
+  do not name says so, apart from one naming a slot the island holds.
+- feat(content)!: **a block or island keeps its id when a change moves
+  it.** Block and island ids are unique at the end of a change, as anchor
+  ids are, so a step may insert a copy before another deletes the original;
+  a step naming an id held twice between steps is `ApplyError::BadStep`.
+  `diff` keeps the id of a block or island moved either way, where it
+  re-minted one moved toward the front.
+- perf(content): **`apply` runs a change in one pass.** Each step works on
+  the blocks it touches, checks only what it touched, and answers its
+  inverse as it applies; the whole value is validated once, at the end.
+  `invert` reads those inverses back, and a receipt lowers the value or
+  compares anchors only where something was dropped or rewritten. A
+  4000-step change to 288k characters applies in 26 ms, where it took 96 s,
+  and inverts in 30 ms, where it took 496 s; a revise of it takes 0.1 s and
+  a rebase 0.2 s, where they took 294 s and 396 s. An inverse's mark steps
+  restore each run of marks that differs, not one range over all of them.
+  `tests/speed.rs` is the gate, run in CI in a release build.
+- perf(content): **converting a change or value to UTF-16 finds each
+  offset by binary search**, where it walked the text from its start: the
+  4000-step change crosses each way in about 20 ms, where it took 12 s out
+  and 19 s in.
+- perf(core): **`content_hash` digests the content value as written**,
+  whose keys are already in order, rather than sorting a copy; the bytes are
+  the same.
 
 ### Card identity
 
@@ -15,10 +183,8 @@ over its keys: read `receipt["warnings"]`.
   re-mints a malformed or repeated one with `parse::card_id_reminted`. A
   null `$id` (`$id:`, `~`) is no `$id`.
   `insert_card` refuses a bad or held id (`edit::invalid_card_id`,
-  `edit::duplicate_card_id`). Storage moves to `quillmark/document@0.134.0`
-  for a row holding a composable card; a row of the main card alone keeps
-  its older tag, and an older row mints its ids on load. `$id` never reaches
-  the plate JSON.
+  `edit::duplicate_card_id`). An older row mints its ids on load. `$id`
+  never reaches the plate JSON.
 - feat(core)!: **a whole-document revise pairs cards by `$id` first.** An
   incoming card spelling a stored card's id revises it, the most similar of
   several spelling one keeps it, and the rest align by text as before. A
@@ -57,11 +223,6 @@ over its keys: read `receipt["warnings"]`.
   whose id the value already holds (`ApplyError::AnchorIdCollision`). A revise
   keeps a cell's anchor where its island continues and the cell's text is
   unchanged. `locate_site` and `reattach` search the cells with the prose.
-- feat(core): **a load reports an anchor id a cell shares.** Validation
-  still checks the prose alone, so such a value loads; `Content::anchor_collisions`
-  and `Document::anchor_collisions` name each id, and WASM `fromStored` /
-  `loadStored` and Python `from_stored` put a `parse::anchor_id_collision`
-  warning per value on `doc.warnings`.
 
 ### Scoped reads
 

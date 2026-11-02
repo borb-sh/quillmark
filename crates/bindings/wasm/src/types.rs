@@ -189,8 +189,8 @@ pub struct FieldRegion {
     pub page: usize,
     /// `[x0, y0, x1, y1]` in PDF points (1/72″), bottom-left origin.
     pub rect: [f32; 4],
-    /// The slice this box covers: USV `[start, end)` into the field's `Content`
-    /// for one content segment, `undefined` for a scalar's ink, a claim or a
+    /// The slice this box covers: UTF-16 `[start, end)` into the field's
+    /// `Content` for one content segment, `undefined` for a scalar's ink, a claim or a
     /// widget.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span: Option<[usize; 2]>,
@@ -247,8 +247,8 @@ impl From<quillmark_core::region::HitGranularity> for HitGranularity {
     }
 }
 
-/// A resolved point → content position: the field a click landed in and the USV
-/// offset into its `Content`. The `LiveSession.positionAt` result, inverse of
+/// A resolved point → content position: the field a click landed in and the
+/// UTF-16 offset into its `Content`. The `LiveSession.positionAt` result, inverse of
 /// `locate`.
 #[cfg(feature = "render")]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
@@ -256,7 +256,7 @@ impl From<quillmark_core::region::HitGranularity> for HitGranularity {
 pub struct ContentHit {
     /// Canonical `DocPath` field address (same grammar as `FieldRegion.field`).
     pub field: String,
-    /// USV offset into the field's `Content`.
+    /// UTF-16 offset into the field's `Content`.
     pub pos: usize,
     /// `undefined` when the backend does not report granularity.
     #[serde(default, skip_serializing_if = "Option::is_none")]

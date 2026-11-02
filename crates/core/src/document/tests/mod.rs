@@ -12,6 +12,7 @@ mod multibyte_tests;
 mod properties;
 mod revise_tests;
 mod seed_tests;
+mod write_tests;
 
 use std::path::{Path, PathBuf};
 

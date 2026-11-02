@@ -134,8 +134,8 @@ surface: `quill.writer(doc)` in WASM and Python alike (the schema-bound
 `_commitField` / `_commitFields` / `_reviseField` verbs (addressed by `Addr`) are
 the stable ABI underneath it, and `storeField` remains the
 quill-free opaque store. See [BINDINGS.md](BINDINGS.md) for the write surface, the
-`store` / `set` / `overwrite·revise·apply` vocabulary rule (a ladder by anchor
-fate, governing user-field writes), and the core-vs-bindings parity table.
+`store` / `set` / `apply·revise·replace` vocabulary rule (governing user-field
+writes), and the core-vs-bindings parity table.
 
 ## Addressing cards for re-render
 

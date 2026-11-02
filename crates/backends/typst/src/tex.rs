@@ -9,7 +9,7 @@
 
 use std::collections::BTreeSet;
 
-use quillmark_content::island::IslandType;
+use quillmark_content::lines::island::IslandType;
 use quillmark_core::Content;
 use quillmark_core::error::{Diagnostic, Severity};
 use quillmark_core::path::DocPath;

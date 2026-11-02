@@ -115,10 +115,10 @@ mod tests {
     }
 
     fn data(md: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(md)
+        let rt = quillmark_content::lines::import::from_markdown(md)
             .expect("import")
             .content;
-        serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) })
+        serde_json::json!({ "prose": quillmark_content::lines::serial::to_canonical_value(&rt) })
     }
 
     /// Each run of text `prose` places, as `(text, family)`, and the session's

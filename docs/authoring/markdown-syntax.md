@@ -116,7 +116,7 @@ On `<td>` and `<th>`:
 - Quillmark reads what HTML leaves out: unquoted values, a missing `<tbody>`, and missing `</td>`, `</th>` and `</tr>` tags. `<tfoot>` rows read as body rows at the end.
 - A row too short for the table, which is as wide as its widest row, fills with empty cells. Any other tag, an attribute not on this page and text outside every cell, such as a `<caption>`'s, drop, and each warns `parse::dropped_construct`, naming what dropped (`td[nowrap]`, `table:row`). `border`, `class`, `scope` and `style` drop without a warning.
 
-Export writes a table as pipes when pipes hold all of it, and as HTML otherwise, whichever spelling the document used: a table that gains a merged cell writes as HTML, and one that loses its last merge, width or header row change writes as pipes again.
+Export writes a table as pipes when pipes hold all of it, and as HTML otherwise, whichever spelling the document used: a table that gains a merged cell or a cell of several paragraphs writes as HTML, and one that loses its last merge, width, header row change or multi-paragraph cell writes as pipes again.
 
 ## `qm-*` tags
 

@@ -1080,11 +1080,11 @@ main:
             quillmark_core::quill::SchemaCodec::Content,
         );
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
-        let rt = quillmark_content::import::from_markdown("A probe paragraph, PROBETOKEN.")
+        let rt = quillmark_content::lines::import::from_markdown("A probe paragraph, PROBETOKEN.")
             .expect("import")
             .content;
         let data =
-            serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
+            serde_json::json!({ "intro": quillmark_content::lines::serial::to_canonical_value(&rt) });
         let mut world = QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
         let windows = world.inject_helper_package(&data, &meta).expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
@@ -1121,7 +1121,7 @@ main:
     /// `Foreign` would truncate the region at the mark's start.
     #[test]
     fn decoration_marks_do_not_truncate_the_region() {
-        use quillmark_content::model::{Content, Line, LineKind, Mark, MarkKind};
+        use quillmark_content::lines::model::{Content, Line, LineKind, Mark, MarkKind};
         const YAML: &str = r#"
 quill:
   name: deco_probe
@@ -1155,7 +1155,7 @@ main:
             );
             let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
             let data =
-                serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) });
+                serde_json::json!({ "prose": quillmark_content::lines::serial::to_canonical_value(&rt) });
             let mut world =
                 QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
             let windows = world.inject_helper_package(&data, &meta).expect("inject");
@@ -1235,11 +1235,11 @@ main:
             quillmark_core::quill::SchemaCodec::Content,
         );
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
-        let rt = quillmark_content::import::from_markdown("- Item ONE\n- Item TWO")
+        let rt = quillmark_content::lines::import::from_markdown("- Item ONE\n- Item TWO")
             .expect("import")
             .content;
         let data =
-            serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) });
+            serde_json::json!({ "prose": quillmark_content::lines::serial::to_canonical_value(&rt) });
         let mut world = QuillWorld::new(&q, &plate, &crate::FontLibrary::default()).expect("world");
         let windows = world.inject_helper_package(&data, &meta).expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
@@ -1363,11 +1363,11 @@ main:
     }
 
     fn prose(markdown: &str) -> serde_json::Value {
-        let rt = quillmark_content::import::from_markdown(markdown)
+        let rt = quillmark_content::lines::import::from_markdown(markdown)
             .expect("import")
             .content;
         serde_json::json!({
-            "prose": quillmark_content::serial::to_canonical_value(&rt),
+            "prose": quillmark_content::lines::serial::to_canonical_value(&rt),
             "classification": "UNCLASSIFIED",
         })
     }

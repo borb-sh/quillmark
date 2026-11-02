@@ -255,9 +255,9 @@ fn test_replace_body_reports_import_error() {
 
 #[test]
 fn test_overwrite_body_sets_directly() {
-    use quillmark_content::model::{Mark, MarkKind};
+    use quillmark_content::lines::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::import::from_markdown("underlined body")
+    let mut content = quillmark_content::lines::import::from_markdown("underlined body")
         .unwrap()
         .content
         .into_content();
@@ -266,14 +266,14 @@ fn test_overwrite_body_sets_directly() {
 
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(content.clone());
-    assert_eq!(card.body(), &content);
+    assert_eq!(card.body_lines(), &content);
 }
 
 #[test]
 fn test_overwrite_field_sets_directly() {
-    use quillmark_content::model::{Mark, MarkKind};
+    use quillmark_content::lines::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::import::from_markdown("underlined intro")
+    let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
         .unwrap()
         .content
         .into_content();
@@ -289,7 +289,7 @@ fn test_overwrite_field_sets_directly() {
     assert_eq!(read, content);
 
     assert_eq!(
-        card.overwrite_field("$bad", quillmark_content::model::Normalized::empty())
+        card.overwrite_field("$bad", quillmark_content::lines::model::Normalized::empty())
             .unwrap_err()
             .code(),
         "edit::invalid_field_name"
@@ -298,7 +298,7 @@ fn test_overwrite_field_sets_directly() {
 
 #[test]
 fn test_revise_field_diff_imports_and_returns_delta() {
-    use quillmark_content::model::{Mark, MarkKind};
+    use quillmark_content::lines::model::{Mark, MarkKind};
 
     let mut card = Card::new("note").unwrap();
     let revised = card.revise_field("intro", "hello target world").unwrap();
@@ -341,7 +341,7 @@ fn test_revise_field_diff_imports_and_returns_delta() {
 #[test]
 fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     use crate::quill::{FieldSchema, FieldType};
-    use quillmark_content::model::{Mark, MarkKind};
+    use quillmark_content::lines::model::{Mark, MarkKind};
 
     let inline = FieldSchema::new(
         "subject".to_string(),
@@ -413,15 +413,15 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
 
 #[test]
 fn test_commit_field_richtext_content_object_reads_back() {
-    use quillmark_content::model::{Mark, MarkKind};
+    use quillmark_content::lines::model::{Mark, MarkKind};
 
-    let mut content = quillmark_content::import::from_markdown("underlined intro")
+    let mut content = quillmark_content::lines::import::from_markdown("underlined intro")
         .unwrap()
         .content
         .into_content();
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
     let content = content.into_normalized();
-    let json = quillmark_content::serial::to_canonical_value(&content);
+    let json = quillmark_content::lines::serial::to_canonical_value(&content);
 
     let mut card = Card::new("note").unwrap();
     commit_richtext(&mut card, "intro", &json, false).unwrap();
@@ -622,7 +622,7 @@ fn test_revise_body_returns_delta_and_updates_body() {
     let mut card = Card::new("note").unwrap();
     let _ = card.revise_body("hello world").unwrap();
     let delta: Delta = card.revise_body("hello brave world").unwrap().delta;
-    assert_eq!(card.body().text, "hello brave world");
+    assert_eq!(card.body_lines().text, "hello brave world");
     // The delta maps a stale position at the end of "hello " forward across
     // the inserted "brave ".
     assert_eq!(delta.map_pos(6, Assoc::Before), 6);
@@ -631,9 +631,9 @@ fn test_revise_body_returns_delta_and_updates_body() {
 
 #[test]
 fn test_revise_body_rebases_anchor() {
-    use quillmark_content::model::{Mark, MarkKind};
+    use quillmark_content::lines::model::{Mark, MarkKind};
 
-    let mut base = quillmark_content::import::from_markdown("keep the target word")
+    let mut base = quillmark_content::lines::import::from_markdown("keep the target word")
         .unwrap()
         .content
         .into_content();
@@ -646,136 +646,15 @@ fn test_revise_body_rebases_anchor() {
 
     let _ = card.revise_body("why keep the target word").unwrap();
     let anchor = card
-        .body()
+        .body_lines()
         .marks
         .iter()
         .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
         .expect("identity anchor survives the whole-document replace");
-    let text = &card.body().text;
+    let text = &card.body_lines().text;
     let s = quillmark_content::usv::char_to_byte(text, anchor.start);
     let e = quillmark_content::usv::char_to_byte(text, anchor.end);
     assert_eq!(&text[s..e], "target");
-}
-
-#[test]
-fn test_apply_body_change_applies_bundle() {
-    use crate::session::{ChangeBundle, MarkOp};
-    use quillmark_content::delta::diff;
-    use quillmark_content::model::MarkKind;
-
-    let mut card = Card::new("note").unwrap();
-    let _ = card.revise_body("abc").unwrap();
-    card.apply_body_change(&ChangeBundle {
-        delta: diff("abc", "abXc"),
-        mark_ops: vec![MarkOp::Add {
-            start: 3,
-            end: 4,
-            kind: MarkKind::Strong,
-        }],
-        ..Default::default()
-    })
-    .unwrap();
-    assert_eq!(card.body().text, "abXc");
-    let strong = card
-        .body()
-        .marks
-        .iter()
-        .find(|m| matches!(m.kind, MarkKind::Strong))
-        .expect("strong mark applied post-delta");
-    assert_eq!((strong.start, strong.end), (3, 4));
-}
-
-#[test]
-fn test_apply_body_change_reports_out_of_range() {
-    use crate::session::{ChangeBundle, MarkOp};
-    use quillmark_content::delta::diff;
-    use quillmark_content::model::MarkKind;
-
-    let mut card = Card::new("note").unwrap();
-    let _ = card.revise_body("abc").unwrap();
-    let result = card.apply_body_change(&ChangeBundle {
-        delta: diff("abc", "abc"),
-        mark_ops: vec![MarkOp::Add {
-            start: 0,
-            end: 99,
-            kind: MarkKind::Strong,
-        }],
-        ..Default::default()
-    });
-    match result {
-        Err(EditError::ContentApply(_)) => {}
-        other => panic!("expected ContentApply, got {other:?}"),
-    }
-}
-
-#[test]
-fn test_apply_field_change_splices_and_persists() {
-    use crate::session::{ChangeBundle, MarkOp};
-    use quillmark_content::delta::diff;
-    use quillmark_content::model::MarkKind;
-
-    let mut card = Card::new("note").unwrap();
-    commit_richtext(&mut card, "intro", &serde_json::json!("abc"), false).unwrap();
-    card.apply_field_change(
-        "intro",
-        &ChangeBundle {
-            delta: diff("abc", "abXc"),
-            mark_ops: vec![MarkOp::Add {
-                start: 3,
-                end: 4,
-                kind: MarkKind::Strong,
-            }],
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    assert!(card.payload().get("intro").unwrap().as_json().is_object());
-    let rt = card
-        .field_content("intro", Codec::Richtext)
-        .unwrap()
-        .unwrap();
-    assert_eq!(rt.text, "abXc");
-    assert!(rt.marks.iter().any(|m| matches!(m.kind, MarkKind::Strong)));
-}
-
-#[test]
-fn test_apply_field_change_rejects_non_content() {
-    let mut card = Card::new("note").unwrap();
-    card.store_field("count", 3).unwrap();
-    assert_eq!(
-        card.apply_field_change("count", &crate::session::ChangeBundle::default())
-            .unwrap_err()
-            .code(),
-        "edit::field_decode"
-    );
-}
-
-#[test]
-fn test_apply_field_change_treats_an_absent_field_as_empty() {
-    use crate::session::ChangeBundle;
-
-    let mut card = Card::new("note").unwrap();
-    card.apply_field_change("intro", &ChangeBundle::default())
-        .expect("a zero-base bundle lands on the empty content");
-    assert_eq!(
-        card.field_text("intro", Codec::Richtext).unwrap().unwrap(),
-        ""
-    );
-
-    let stale = ChangeBundle {
-        delta: quillmark_content::delta::Delta {
-            ops: vec![quillmark_content::delta::Op::Retain(4)],
-        },
-        ..ChangeBundle::default()
-    };
-    assert_eq!(
-        card.apply_field_change("missing", &stale)
-            .unwrap_err()
-            .code(),
-        "edit::content_apply"
-    );
-    assert!(card.payload().get("missing").is_none());
 }
 
 #[test]
@@ -1081,7 +960,7 @@ fn storage_dto_refuses_what_the_parser_refuses() {
 #[test]
 fn a_field_write_past_the_count_is_refused_at_the_write() {
     use crate::document::edit::{PayloadViolation, validate_payload};
-    use quillmark_content::model::Normalized;
+    use quillmark_content::lines::model::Normalized;
 
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
@@ -1168,7 +1047,7 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
 fn no_verb_on_a_placed_card_moves_it_between_roles() {
     use crate::document::CardMut;
     use crate::quill::{FieldSchema, FieldType};
-    use quillmark_content::{model::Normalized, ops::ChangeBundle};
+    use quillmark_content::lines::model::Normalized;
 
     fn richtext() -> FieldSchema {
         FieldSchema::new(
@@ -1179,7 +1058,7 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
     }
     fn ignore<T, E>(_: Result<T, E>) {}
 
-    let verbs: [(&str, fn(&mut CardMut<'_>)); 15] = [
+    let verbs: [(&str, fn(&mut CardMut<'_>)); 13] = [
         ("store_field", |c| ignore(c.store_field("f", qv("v")))),
         ("store_fields", |c| ignore(c.store_fields([("h", qv("v"))]))),
         ("remove_field", |c| ignore(c.remove_field("f"))),
@@ -1199,12 +1078,6 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
         }),
         ("revise_body", |c| ignore(c.revise_body("body"))),
         ("revise_field", |c| ignore(c.revise_field("f", "text"))),
-        ("apply_body_change", |c| {
-            ignore(c.apply_body_change(&ChangeBundle::default()))
-        }),
-        ("apply_field_change", |c| {
-            ignore(c.apply_field_change("f", &ChangeBundle::default()))
-        }),
         ("commit_field", |c| {
             ignore(c.commit_field("f", qv("v"), &richtext()))
         }),

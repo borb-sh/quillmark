@@ -2,8 +2,6 @@
 `quill.reader(doc)` reads, both against the quill's schema. The quill-free
 mutator surface is `test_document.py`."""
 
-import json
-
 import pytest
 from quillmark import Document, Quill, QuillmarkError
 
@@ -190,26 +188,18 @@ def test_a_field_hash_reads_through_the_schema():
 
 
 def test_an_anchor_survives_the_field_and_document_revises():
-    """revise_field and revise_document rebase an anchor the stored field
-    holds; Python reaches anchors only through storage."""
+    """revise_field and revise_document rebase an anchor the field holds."""
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
     quill.writer(doc).revise_field("bio", "make it bold here")
-    stored = json.loads(doc.to_stored())
-    (bio,) = [i for i in stored["main"]["payload"]["items"] if i.get("key") == "bio"]
-    bio["value"]["marks"] = [{"start": 8, "end": 12, "type": "anchor", "attrs": {"id": "a1"}}]
-    doc = Document.from_stored(json.dumps(stored))
-
-    def bio_marks():
-        items = json.loads(doc.to_stored())["main"]["payload"]["items"]
-        return [i for i in items if i.get("key") == "bio"][0]["value"]["marks"]
+    doc.apply({"steps": [{"anchor": {"id": "a1", "start": 8, "end": 12}}]}, field="bio")
 
     w = quill.writer(doc)
     assert w.revise_field("bio", "now make it bold here")["dropped_anchors"] == []
-    assert bio_marks() == [{"attrs": {"id": "a1"}, "end": 16, "start": 12, "type": "anchor"}]
+    assert doc.read("bio")["anchors"] == [{"id": "a1", "start": 12, "end": 16}]
     receipt = w.revise_document("~~~\n$quill: sample_form@0.1.0\nbio: so now make it bold here\n~~~\n")
     assert receipt["dropped_anchors"] == []
-    assert bio_marks() == [{"attrs": {"id": "a1"}, "end": 19, "start": 15, "type": "anchor"}]
+    assert doc.read("bio")["anchors"] == [{"id": "a1", "start": 15, "end": 19}]
 
 
 def test_a_dropped_anchor_is_named_and_reattached_where_its_text_is_found_once():
@@ -218,9 +208,7 @@ def test_a_dropped_anchor_is_named_and_reattached_where_its_text_is_found_once()
     rule, or reports it orphaned."""
     quill = richtext_quill()
     doc = quill.parse("~~~\n$quill: sample_form@0.1.0\n~~~\n\nThe committee met on Monday to plan.\n")
-    stored = json.loads(doc.to_stored())
-    stored["main"]["body"]["marks"] = [{"start": 14, "end": 27, "type": "anchor", "attrs": {"id": "m1"}}]
-    doc = Document.from_stored(json.dumps(stored))
+    doc.apply({"steps": [{"anchor": {"id": "m1", "start": 14, "end": 27}}]})
     context = {
         "id": "m1",
         "path": "main.body",
@@ -396,7 +384,7 @@ def element_quill(tmp_path):
 def test_get_content_at_round_trips_an_elements_anchor_and_island_id(element_quill):
     """The nested Content read is the lossless one.
 
-    An anchor mark and an island id ride read -> edit -> `set` intact; the same
+    An anchor and an island id ride read -> edit -> `set` intact; the same
     loop through `get`, which projects to text, keeps neither."""
     doc = Document("element_test@0.1.0")
     w = element_quill.writer(doc)
@@ -404,22 +392,19 @@ def test_get_content_at_round_trips_an_elements_anchor_and_island_id(element_qui
     w.set("paragraphs", ["Plain", "Alpha ![pic](u) bold"])
 
     rt = v.get_content_at("paragraphs", [1])
-    rt["marks"].append({"type": "anchor", "attrs": {"id": "c1"}, "start": 0, "end": 5})
+    rt["anchors"] = [{"id": "c1", "start": 0, "end": 5}]
     rt["islands"][0]["id"] = "isl-7"  # off the positional mint, so a re-mint shows
     w.set("paragraphs", [v.get_content_at("paragraphs", [0]), rt])
 
     back = v.get_content_at("paragraphs", [1])
-    assert any(
-        m["type"] == "anchor" and m["attrs"]["id"] == "c1" and (m["start"], m["end"]) == (0, 5)
-        for m in back["marks"]
-    )
+    assert back["anchors"] == [{"id": "c1", "start": 0, "end": 5}]
     assert back["islands"][0]["id"] == "isl-7"
 
     text = v.get("paragraphs")
     assert all(isinstance(t, str) for t in text)
     w.set("paragraphs", text)
     lost = v.get_content_at("paragraphs", [1])
-    assert not any(m["type"] == "anchor" for m in lost["marks"])
+    assert "anchors" not in lost
     assert lost["islands"][0]["id"] == "isl-0"
 
 

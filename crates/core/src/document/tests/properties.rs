@@ -354,7 +354,7 @@ proptest! {
         let mut doc = parse_or_skip(&src).expect("a generated document parses");
         for i in 0..stored.len() {
             let mut card = doc.card_mut(i).unwrap();
-            let body = super::revise_tests::anchored(card.body(), &format!("card{i}"), &format!("c{i}"));
+            let body = super::revise_tests::anchored(card.body_lines(), &format!("card{i}"), &format!("c{i}"));
             card.overwrite_body(body);
         }
 
@@ -400,7 +400,7 @@ proptest! {
         let held: Vec<Vec<String>> = doc
             .cards()
             .iter()
-            .map(|c| super::revise_tests::anchor_ids(c.body()))
+            .map(|c| super::revise_tests::anchor_ids(c.body_lines()))
             .collect();
         for (p, (kept, _, _)) in incoming.iter().enumerate() {
             if let Some(i) = kept {

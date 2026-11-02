@@ -3,7 +3,7 @@
 //! `default`/blank. A card added to a document commits the document's `$seed`
 //! overlay for its kind in place of the kind's own `seed:`.
 
-use quillmark_content::model::Normalized;
+use quillmark_content::lines::model::Normalized;
 
 use super::Quill;
 use crate::document::PayloadItem;

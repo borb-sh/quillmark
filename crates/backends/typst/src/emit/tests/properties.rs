@@ -5,8 +5,8 @@
 //! The oracle is [`resolve`], shared with the fixed-sample tests beside it.
 
 use proptest::prelude::*;
-use quillmark_content::export::to_plaintext;
-use quillmark_content::import::from_plaintext;
+use quillmark_content::lines::export::to_plaintext;
+use quillmark_content::lines::import::from_plaintext;
 use typst::syntax::{SyntaxKind, ast, ast::AstNode};
 
 use super::{ALLOWED_LEAVES, resolve};
@@ -14,7 +14,7 @@ use crate::emit::{escape_markup, escape_string};
 
 /// The render path: import markdown to a content, then lower it to markup.
 fn mark_to_typst(markdown: &str) -> Result<String, String> {
-    let rt = quillmark_content::import::from_markdown(markdown)
+    let rt = quillmark_content::lines::import::from_markdown(markdown)
         .map_err(|e| e.to_string())?
         .content;
     crate::emit::emit_content(&rt)

@@ -521,7 +521,7 @@ fn adversarial_codegen_inputs_still_compile() {
     //   - `strong[0,4)` partially overlapping `code[2,6)`, a content an editor
     //     can build but markdown import never produces;
     //   - `i64::MIN` cannot be a Typst int literal (its magnitude overflows).
-    use quillmark_content::model::{Content, Line, LineKind, Mark, MarkKind};
+    use quillmark_content::lines::model::{Content, Line, LineKind, Mark, MarkKind};
     // The plate's assert proves the int round-tripped.
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.2.0" as qm
@@ -543,7 +543,7 @@ fn adversarial_codegen_inputs_still_compile() {
             ),
             &serde_json::json!({
                 "prose": content("Please <u>sign here"),
-                "overlap": quillmark_content::serial::to_canonical_value(&overlap.into_normalized()),
+                "overlap": quillmark_content::lines::serial::to_canonical_value(&overlap.into_normalized()),
                 "n": i64::MIN,
             }),
             common::test_date(),
@@ -688,11 +688,36 @@ fn position_at_and_locate_round_trip_a_content_offset() {
 }
 
 #[test]
+fn a_host_reads_spans_and_positions_in_its_own_units() {
+    use quillmark_content::units::Utf16;
+    const TEXT: &str = "Alpha 😀😀 beta gamma.";
+    let session = body_session(content(TEXT));
+    let scalars = session.regions().into_iter().find(|r| r.field == "prose").expect("a region");
+    let utf16 = session.regions_in(Utf16).into_iter().find(|r| r.field == "prose").expect("a region");
+    assert_eq!(scalars.span, Some([0, TEXT.chars().count()]));
+    assert_eq!(utf16.span, Some([0, TEXT.encode_utf16().count()]));
+    assert_eq!(session.field_boxes_in("prose", Utf16)[0].span, utf16.span);
+
+    let b = &TEXT[..TEXT.find('b').unwrap()];
+    let at = b.encode_utf16().count();
+    let caret = session.locate_in("prose", at, Utf16).expect("a caret at the b");
+    assert_eq!(caret.span, Some([at, at]));
+    assert_eq!(caret.rect, session.locate("prose", b.chars().count()).unwrap().rect);
+    assert_eq!(session.locate_in("prose", 7, Utf16), None, "inside a surrogate pair");
+
+    let (x, y) = centre(caret.rect);
+    let hit = session.position_at(caret.page, x, y, 0.0).expect("a hit");
+    let hit16 = session.position_at_in(caret.page, x, y, 0.0, Utf16).expect("a hit");
+    assert_eq!(hit16.pos, TEXT.chars().take(hit.pos).map(char::len_utf16).sum::<usize>());
+    assert_eq!(hit16.pos, at, "past both astral characters");
+}
+
+#[test]
 fn locate_past_a_trailing_hard_break_holds_the_preceding_run() {
     // Shift+enter at the end of a paragraph: the segment's last content
     // character is the hard break, which lowers to `#linebreak()` and closes no
     // run, so the caret past it has only a preceding run to hold.
-    use quillmark_content::model::{Content, Line, LineKind};
+    use quillmark_content::lines::model::{Content, Line, LineKind};
     let rt = Content::new(
         "Alpha beta\n".to_string(),
         vec![
@@ -702,7 +727,7 @@ fn locate_past_a_trailing_hard_break_holds_the_preceding_run() {
     )
     .into_normalized();
     assert_eq!(rt.validate(), Ok(()));
-    let session = body_session(quillmark_content::serial::to_canonical_value(&rt));
+    let session = body_session(quillmark_content::lines::serial::to_canonical_value(&rt));
 
     let first = session.locate("prose", 0).expect("first-glyph caret");
     let last = session.locate("prose", 10).expect("last-glyph caret");

@@ -73,6 +73,12 @@ Patching one card at a time is for a document that is no longer a pure projectio
 
 ## Scope note
 
-The typed writer is the recommended path in both bindings. JavaScript additionally exposes a quill-free **opaque store** (`storeField`, coercion deferred to render) and an anchor-preserving content lane for editors; those are WASM-only by audience: storage/migration tooling holding no quill, and live editors preserving caret identity. Python's field I/O is the typed writer and reader exclusively.
+The typed writer is the recommended path in both bindings. Both also expose the content lane on `Document`: `read` a body or richtext field, then write it with `apply` (a change of steps), `revise` (markdown) or `replace` (a whole value), passing the hash you read as `base` so a write over a newer value is refused rather than reverting it. JavaScript additionally exposes a quill-free **opaque store** (`storeField`, coercion deferred to render), WASM-only by audience: storage and migration tooling holding no quill.
+
+```js
+const base = doc.hash({ field: 'summary' })
+const receipt = doc.revise({ field: 'summary' }, 'A **shorter** summary.', { base })
+// receipt.droppedAnchors names each comment anchor whose text the rewrite removed
+```
 
 Full model: [PROGRAMMATIC.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PROGRAMMATIC.md).

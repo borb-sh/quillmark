@@ -12,8 +12,8 @@ import {
   importMarkdown,
   exportMarkdown,
   normalize,
-  mapPos,
-  mapMarks,
+  invert,
+  diff,
   isInline,
   isPlain,
   parseDocPath,
@@ -86,12 +86,10 @@ describe('Document.toMarkdown', () => {
 
 // The DTO's content rules are core's (`core/src/document/dto.rs`).
 describe('Document JSON DTO: toStored / fromStored', () => {
-  it('toStored emits a plain JSON string carrying the newest schema version only for a composable card', () => {
+  it('toStored emits a plain JSON string under the newest schema version', () => {
     const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
     expect(typeof dto).toBe('string')
-    expect(JSON.parse(dto).schema).toBe('quillmark/document@0.129.0')
-    const fonted = Document.fromMarkdown(`${TEST_MARKDOWN} <qm-span family="Carlito">Set</qm-span>`).toStored()
-    expect(JSON.parse(fonted).schema).toBe('quillmark/document@0.131.0')
+    expect(JSON.parse(dto).schema).toBe(Document.currentStorageVersion())
     const carded = Document.fromMarkdown(`${TEST_MARKDOWN}\n\n~~~\n$kind: note\n~~~\n`).toStored()
     expect(JSON.parse(carded).schema).toBe(Document.currentStorageVersion())
   })
@@ -282,7 +280,7 @@ describe('Document editor surface: addresses', () => {
   })
 })
 
-describe('Document editor surface: setQuillRef / overwrite / revise / reviseContent', () => {
+describe('Document editor surface: setQuillRef / replace / revise', () => {
   it('setQuillRef changes the quillRef and refuses an invalid one', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.setQuillRef('new_quill')
@@ -301,38 +299,37 @@ describe('Document editor surface: setQuillRef / overwrite / revise / reviseCont
     expect(warnings).toEqual([])
   })
 
-  it('overwrite({}, rt) writes a content object', () => {
+  it('replace({}, rt) writes a content object', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.overwrite({}, importMarkdown('Content **body** here.').content)
+    doc.replace({}, importMarkdown('Content **body** here.').content)
     expect(doc.main.body.text).toBe('Content body here.')
     expect(exportMarkdown(doc.main.body)).toBe('Content **body** here.')
   })
 
-  it('reviseContent({}, rt) lands a content and carries the anchors it omits', () => {
+  it('replace({}, content) lands a content and carries the anchors it omits', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.overwrite({}, importMarkdown('hello world').content)
-    doc.applyChange({}, { markOps: [{ op: 'add', start: 6, end: 11, type: 'anchor', attrs: { id: 'c1' } }] })
-    const { delta, warnings } = doc.reviseContent({}, importMarkdown('hello brave **world**').content)
+    doc.replace({}, importMarkdown('hello world').content)
+    doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 6, end: 11 } }] })
+    const { warnings } = doc.replace({}, importMarkdown('hello brave **world**').content)
     expect(exportMarkdown(doc.main.body)).toBe('hello brave **world**')
-    expect(doc.main.body.marks.find((m) => m.type === 'anchor')).toMatchObject({ start: 12, end: 17 })
-    expect(mapPos(delta, 11, 'after')).toBe(17)
+    expect(doc.main.body.anchors).toEqual([{ id: 'c1', start: 12, end: 17 }])
     expect(warnings).toEqual([])
   })
 
-  it('reviseContent({field}, rt) carries a field anchor and refuses a non-content value', () => {
+  it('replace({field}, content) carries a field anchor and refuses a non-content value', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc._revise({ field: 'note' }, 'hello world')
-    doc.applyChange({ field: 'note' }, { markOps: [{ op: 'add', start: 0, end: 5, type: 'anchor', attrs: { id: 'c1' } }] })
-    doc.reviseContent({ field: 'note' }, importMarkdown('oh hello world').content)
-    expect(doc.getStored({ field: 'note' }).marks).toEqual([{ start: 3, end: 8, type: 'anchor', attrs: { id: 'c1' } }])
+    doc.revise({ field: 'note' }, 'hello world')
+    doc.apply({ field: 'note' }, { steps: [{ anchor: { id: 'c1', start: 0, end: 5 } }] })
+    doc.replace({ field: 'note' }, importMarkdown('oh hello world').content)
+    expect(doc.getStored({ field: 'note' }).anchors).toEqual([{ id: 'c1', start: 3, end: 8 }])
     doc.storeField('count', 3)
-    expectEditCode(() => doc.reviseContent({ field: 'count' }, importMarkdown('x').content), 'edit::field_decode')
+    expectEditCode(() => doc.replace({ field: 'count' }, importMarkdown('x').content), 'edit::field_decode')
   })
 
-  it('overwrite rejects a non-content value (markdown must go through importMarkdown)', () => {
+  it('replace rejects a non-content value (markdown must go through importMarkdown)', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(() => doc.overwrite({}, 'plain markdown')).toThrow()
-    expect(() => doc.overwrite({}, { not: 'a content' })).toThrow()
+    expect(() => doc.replace({}, 'plain markdown')).toThrow()
+    expect(() => doc.replace({}, { not: 'a content' })).toThrow()
   })
 
   // Island `props` and unknown `attrs` are opaque host payload, and
@@ -340,9 +337,9 @@ describe('Document editor surface: setQuillRef / overwrite / revise / reviseCont
   // conversion, the tree's own drop) recurses one frame per level. On wasm32 the
   // stack is 1 MB and an overflow is a trap that takes the module down rather than
   // an error the host can catch, so an over-deep value must throw and leave the
-  // module serving. `overwrite` is the reachable door: the value arrives from JS and
+  // module serving. `replace` is the reachable door: the value arrives from JS and
   // one loop builds it.
-  it('overwrite rejects a deeply nested props instead of trapping the module', () => {
+  it('replace rejects a deeply nested props instead of trapping the module', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     let deep = []
     for (let i = 0; i < 5000; i++) deep = [deep]
@@ -350,12 +347,12 @@ describe('Document editor surface: setQuillRef / overwrite / revise / reviseCont
     rt.islands = [{ id: 'i1', type: 'image', props: deep }]
     // Matched on the message: a slot/shape complaint would pass a bare toThrow
     // while the depth door stayed open.
-    expect(() => doc.overwrite({}, rt)).toThrow(/nests deeper/)
-    doc.overwrite({}, importMarkdown('after').content)
+    expect(() => doc.replace({}, rt)).toThrow(/nests deeper/)
+    doc.replace({}, importMarkdown('after').content)
     expect(doc.main.body.text).toBe('after')
   })
 
-  // Every door taking opaque host JSON carries the guard, not just `overwrite`:
+  // Every door taking opaque host JSON carries the guard, not just `replace`:
   // a payload item's `value` crosses on the same `serde_wasm_bindgen` recursion.
   it('insertCard rejects a deeply nested payload item value instead of trapping the module', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
@@ -373,7 +370,7 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
   const MD = '~~~\n$quill: q\n~~~\n\nThe committee met on Monday to plan.\n\n~~~\n$kind: note\n~~~\n\nA note.\n'
   const anchoredDoc = () => {
     const doc = Document.fromMarkdown(MD)
-    doc.applyChange({}, { markOps: [{ op: 'add', start: 14, end: 27, type: 'anchor', attrs: { id: 'm1' } }] })
+    doc.apply({}, { steps: [{ anchor: { id: 'm1', start: 14, end: 27 } }] })
     return doc
   }
 
@@ -385,14 +382,16 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
     expect(doc.anchorContext('nope')).toBeUndefined()
   })
 
-  it('revise and reviseContent name the anchors they drop', () => {
+  it('revise and replace name the anchors they drop', () => {
     const doc = anchoredDoc()
-    expect(doc._revise({}, 'The committee met on Monday to plan, again.').droppedAnchors).toEqual([])
-    expect(doc._revise({}, 'Nothing like it.\n\nAt all.').droppedAnchors).toEqual([
-      { id: 'm1', line: 'The committee met on Monday to plan, again.' },
-    ])
+    expect(doc.revise({}, 'The committee met on Monday to plan, again.').droppedAnchors).toEqual([])
+    const context = { id: 'm1', path: 'main.body', quote: 'met on Monday', prefix: 'The committee ', suffix: ' to plan, again.' }
+    expect(doc.revise({}, 'Nothing like it.\n\nAt all.').droppedAnchors).toEqual([context])
     const other = anchoredDoc()
-    expect(other.reviseContent({}, importMarkdown('Nothing like it.\n\nAt all.').content).droppedAnchors).toEqual([
+    expect(other.replace({}, importMarkdown('Nothing like it.\n\nAt all.').content).droppedAnchors).toEqual([
+      { ...context, suffix: ' to plan.' },
+    ])
+    expect(anchoredDoc()._revise({}, 'Nothing like it.\n\nAt all.').droppedAnchors).toEqual([
       { id: 'm1', line: 'The committee met on Monday to plan.' },
     ])
   })
@@ -407,10 +406,25 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
     const { reattached, orphaned } = reopened.reattach(before)
     expect(orphaned).toEqual([])
     expect(reattached).toEqual([{ ...before[0], prefix: 'Minutes.\nThe committee ' }])
-    expect(reopened.equals(doc)).toBe(true)
+    expect(reopened.anchorContexts()).toEqual(doc.anchorContexts())
 
     const strict = Document.fromMarkdown(doc.toMarkdown())
     expect(strict.reattach(before, { 'main.body': delta }).orphaned).toEqual(before)
+  })
+
+  it('a typed revise answers its delta in UTF-16, over the text it revised', () => {
+    const doc = anchoredDoc()
+    doc._revise({}, '😀😀 alpha gamma')
+    const old = doc.read({}).text
+    const { delta } = doc._revise({}, '😀😀 alpha 😀 beta gamma')
+    let out = ''
+    let i = 0
+    for (const op of delta.ops) {
+      if ('retain' in op) out += old.slice(i, (i += op.retain))
+      else if ('delete' in op) i += op.delete
+      else out += op.insert
+    }
+    expect(out + old.slice(i)).toBe(doc.read({}).text)
   })
 
   it('reattach answers a live id without writing and refuses a malformed selector', () => {
@@ -446,7 +460,7 @@ describe('Card ids', () => {
 
   it('a selector names its card, and reattach follows the card wherever it moved', () => {
     const doc = Document.fromMarkdown(MD)
-    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 17, end: 29, type: 'anchor', attrs: { id: 'n1' } }] })
+    doc.apply({ card: doc.cards[0].id }, { steps: [{ anchor: { id: 'n1', start: 17, end: 29 } }] })
     const [selector] = doc.anchorContexts()
     expect(selector).toMatchObject({ path: 'cards.note[0].body', cardId: doc.cards[0].id, quote: 'orchard rows' })
     expect(doc.toAnnotatedMarkdown().anchors[0].cardId).toBe(doc.cards[0].id)
@@ -460,7 +474,7 @@ describe('Card ids', () => {
   })
 })
 
-describe('Content model: importMarkdown / exportMarkdown / mapPos', () => {
+describe('Content model: importMarkdown / exportMarkdown', () => {
   it('importMarkdown ∘ exportMarkdown round-trips a body', () => {
     const { content: rt, warnings } = importMarkdown('A **bold** line.')
     expect(typeof rt).toBe('object')
@@ -483,37 +497,39 @@ describe('Content model: importMarkdown / exportMarkdown / mapPos', () => {
     ])
   })
 
-  it('answers the canonical form on every Content lane, a zero instance omitted', () => {
+  it('answers the canonical form on every Content lane, adjacent runs apart by container id', () => {
     // A read is a write input, and the one form is what a host writes straight
-    // back. `instance` costs a key only where two adjacent runs would weld.
-    const written = (rt) => rt.lines.flatMap((l) => l.containers).map((c) => c.instance)
-
-    expect(written(importMarkdown('> a\n\n- b').content)).toEqual([undefined, undefined])
-    expect(written(importMarkdown('- a\n\n* b').content)).toEqual([undefined, 1])
+    // back. Two adjacent lists are two containers, each its own id.
+    const lists = (c) => c.blocks.map((b) => b.path[0])
+    expect(lists(importMarkdown('- a\n\n* b').content)).toEqual(['l0', 'l1'])
 
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: commit_test\n~~~\n\n> a\n\n- b')
-    expect(written(doc.main.body)).toEqual([undefined, undefined])
-    expect(written(doc.getStored({}))).toEqual([undefined, undefined])
+    expect(doc.getStored({})).toEqual(doc.main.body)
+    expect(doc.read({})).toEqual(doc.main.body)
 
-    // The round trip the one form buys: what a read hands back writes back
-    // unchanged.
-    doc.overwrite({}, doc.getStored({}))
+    const held = doc.read({})
+    expect(doc.replace({}, held).applied).toEqual({ steps: [] })
+    expect(doc.read({})).toEqual(held)
     expect(doc.bodyMarkdown()).toBe('> a\n\n- b')
   })
 
-  it('mapPos maps a position through a revise delta', () => {
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n\nhello world\n')
-    const { delta } = doc._revise({}, 'hello brave world')
-    // A caret at the end of "hello " stays; one after "world" shifts past "brave ".
-    expect(mapPos(delta, 6, 'before')).toBe(6)
-    expect(mapPos(delta, 11, 'after')).toBe(17)
+  it('offsets cross in UTF-16 code units', () => {
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n\n😀 **bold**\n')
+    const { text, marks } = doc.read({})
+    expect(marks).toEqual([{ start: 3, end: 7, type: 'strong' }])
+    expect(text.slice(3, 7)).toBe('bold')
+
+    const { applied } = doc.apply({}, { steps: [{ splice: { at: 2, delete: '', insert: '!' } }] })
+    expect(doc.read({}).text).toBe('😀! bold')
+    expect(applied.steps[0].splice.at).toBe(2)
+    expectEditCode(() => doc.apply({}, { steps: [{ splice: { at: 1, delete: '', insert: 'x' } }] }), 'edit::content_apply')
+    expect(() => doc.replace({}, { text: '😀', blocks: [{ id: 'b0', kind: 'para' }], marks: [{ start: 1, end: 2, type: 'strong' }] })).toThrow(/inside a character/)
   })
 
-  it('a stored null crosses as null, both ways', () => {
+  it('an auto-fit column is absent from widths, and a stored null crosses as null', () => {
     const md = '<table widths="1 2 auto">\n<tr><th>a</th><th>b</th><th>c</th></tr>\n<tr><td>1</td><td>2</td><td>3</td></tr>\n</table>'
     const { content } = importMarkdown(md)
-    expect(content.islands[0].props.widths).toEqual([1, 2, null])
-    expect(content.islands[0].props.widths[2]).toBeNull()
+    expect(content.islands[0].props.widths).toEqual({ k0: 1, k1: 2 })
     expect(importMarkdown(exportMarkdown(content)).content).toEqual(content)
 
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\nnote: null\n~~~\n')
@@ -527,12 +543,13 @@ describe('Content model: importMarkdown / exportMarkdown / mapPos', () => {
       `<table widths="${widths}">\n<tr><th>a</th><th>b</th></tr>\n<tr><td>1</td><td>2</td></tr>\n</table>`
     const { content, warnings } = importMarkdown(table(`${Number.MAX_SAFE_INTEGER} 1`))
     expect(warnings).toEqual([])
-    expect(content.islands[0].props.widths).toEqual([Number.MAX_SAFE_INTEGER, 1])
+    expect(content.islands[0].props.widths).toEqual({ k0: Number.MAX_SAFE_INTEGER, k1: 1 })
     expect(exportMarkdown(content)).toContain(`widths="${Number.MAX_SAFE_INTEGER} 1"`)
 
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n')
-    doc.overwrite({}, content)
-    expect(Document.fromStored(doc.toStored()).main.body).toEqual(content)
+    doc.replace({}, content)
+    expect(Document.fromStored(doc.toStored()).main.body).toEqual(doc.main.body)
+    expect(doc.main.body.islands).toEqual(content.islands)
 
     const past = importMarkdown(table('9007199254740992 1'))
     expect(past.content.islands[0].props.widths).toBeUndefined()
@@ -657,79 +674,102 @@ Kinded card.
   })
 })
 
-// One `applyChange` bundle carries three channels — a text delta, island ops
-// and line ops — over a field or body whose anchors survive the splice, and
-// `mapMarks` answers where each mark lands before the bundle is applied.
-describe('Document applyChange: the anchor-preserving change bundle', () => {
+// The write primitive and its pure helpers: `apply` runs a change all or
+// none, its receipt's `applied` inverts, and `diff` answers without a
+// document.
+describe('Document apply: the write primitive', () => {
   const blankDoc = () => Document.fromMarkdown('~~~card-yaml\n$quill: commit_test\n~~~\n\nBody.')
 
-  it('revise({field}) rebases a richtext field anchor and applyChange splices it', () => {
+  it('revise({field}) carries a richtext field anchor and apply formats it', () => {
     const doc = blankDoc()
-    doc._revise({ field: 'intro' }, 'make it bold here')
-    doc.applyChange(
-      { field: 'intro' },
-      { markOps: [{ op: 'add', start: 8, end: 12, type: 'anchor', attrs: { id: 'a1' } }] },
-    )
-    expect(doc._revise({ field: 'intro' }, 'now make it bold here').warnings).toEqual([])
-    expect(field(doc.main, 'intro').marks).toEqual([
-      { start: 12, end: 16, type: 'anchor', attrs: { id: 'a1' } },
-    ])
-    doc.applyChange(
-      { field: 'intro' },
-      { markOps: [{ op: 'add', start: 12, end: 16, type: 'strong' }] },
-    )
-    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('now make it **bold** here')
-    // An out-of-bounds op leaves the value unchanged (all-or-nothing).
-    expect(() =>
-      doc.applyChange({ field: 'intro' }, { markOps: [{ op: 'add', start: 999, end: 1000, type: 'emph' }] }),
-    ).toThrow()
+    doc.revise({ field: 'intro' }, 'make it bold here')
+    doc.apply({ field: 'intro' }, { steps: [{ anchor: { id: 'a1', start: 8, end: 12 } }] })
+    expect(doc.revise({ field: 'intro' }, 'now make it bold here').warnings).toEqual([])
+    expect(doc.read({ field: 'intro' }).anchors).toEqual([{ id: 'a1', start: 12, end: 16 }])
+    doc.apply({ field: 'intro' }, { steps: [{ mark: { start: 12, end: 16, type: 'strong', add: true } }] })
+    expect(exportMarkdown(doc.read({ field: 'intro' }))).toBe('now make it **bold** here')
+
+    // A refused step leaves the value as it was, the steps before it too.
+    const held = doc.read({ field: 'intro' })
+    const change = { steps: [{ mark: { start: 0, end: 3, type: 'emph', add: true } }, { splice: { at: 999, delete: '', insert: 'x' } }] }
+    expectEditCode(() => doc.apply({ field: 'intro' }, change), 'edit::content_apply')
+    expect(doc.read({ field: 'intro' })).toEqual(held)
   })
 
-  it('mapMarks answers where applyChange puts a mark across every text-moving channel', () => {
+  it('a receipt carries the normalized change, which invert undoes, and the next base', () => {
     const doc = blankDoc()
-    doc._revise({}, 'hello world')
-    doc.applyChange(
-      {},
-      {
-        markOps: [
-          { op: 'add', start: 6, end: 6, type: 'anchor', attrs: { id: 'c1' } },
-          { op: 'add', start: 6, end: 11, type: 'strong' },
-        ],
-      },
-    )
-    const before = doc.main.body
-    const bundle = {
-      delta: { ops: [{ retain: 6 }, { insert: 'X' }, { retain: 5 }] },
-      islandOps: [
-        { op: 'insert', at: 6, id: 'i1', type: 'image', props: { url: 'u', alt: 'a' } },
-      ],
-      lineOps: [{ op: 'split', at: 6 }],
-    }
+    const before = doc.read({})
+    const base = doc.hash({})
+    const receipt = doc.apply({}, { steps: [{ splice: { at: 0, delete: 'Body', insert: 'Text' } }] }, { base })
+    expect(receipt.hash).toBe(doc.hash({}))
+    expect(receipt.applied.steps).toHaveLength(1)
+    expect(doc.apply({}, { steps: [] }, { base }).rebased).toBe(true)
+    expectEditCode(() => doc.apply({}, { steps: [] }, { base: 'never-read' }), 'edit::stale_base')
+    expect(() => doc.apply({}, { steps: [] }, { baseMarkdown: 'Body.' })).toThrow(/base/)
 
-    const predicted = mapMarks(before, bundle)
-    doc.applyChange({}, bundle)
-    expect(doc.main.body.marks).toEqual(predicted)
-    expect(predicted.find((m) => m.type === 'anchor')).toMatchObject({ start: 6, end: 6 })
-
-    // A bundle `applyChange` would refuse throws here rather than answering.
-    expect(() => mapMarks(before, { islandOps: [{ op: 'insert', at: 99, id: 'i2', type: 'image', props: {} }] })).toThrow()
+    doc.apply({}, invert(receipt.applied, before), { base: receipt.hash })
+    expect(doc.read({})).toEqual(before)
   })
 
-  it('normalize answers what overwrite stores, a table sharing its line kept where it is', () => {
+  it('a stale base rebases a write over the change since, offsets in UTF-16 as the writer read them', () => {
     const doc = blankDoc()
-    const table = importMarkdown('| H |\n| --- |\n| a |').content
-    const shared = {
-      ...table,
-      text: 'a\uFFFCbold',
-      lines: [{ kind: 'para', containers: [] }],
+    doc.replace({}, importMarkdown('😀 hello world').content)
+    const base = doc.hash({})
+    doc.apply({}, { steps: [{ splice: { at: 0, delete: '', insert: '🎉 ' } }] })
+    const anchor = { steps: [{ anchor: { id: 'a1', start: 9, end: 14, quote: 'world' } }] }
+    const receipt = doc.apply({}, anchor, { base })
+    expect(receipt.rebased).toBe(true)
+    expect(receipt.applied.steps[0].anchor).toMatchObject({ start: 12, end: 17 })
+    expect(doc.read({}).anchors).toEqual([{ id: 'a1', start: 12, end: 17 }])
+
+    const reworded = { steps: [{ splice: { at: 9, delete: 'world', insert: 'there' } }] }
+    doc.apply({}, { steps: [{ splice: { at: 14, delete: 'r', insert: 'R' } }] })
+    const err = expectEditCode(() => doc.apply({}, reworded, { base }), 'edit::rebase_conflict')
+    expect(err.diagnostics[0].args).toMatchObject({ current: doc.hash({}), step: 0, reason: 'changed' })
+  })
+
+  it('a quoted step refuses text its writer did not read, offsets in UTF-16', () => {
+    const doc = blankDoc()
+    doc.replace({}, importMarkdown('😀 hello world').content)
+    const anchor = { steps: [{ anchor: { id: 'a1', start: 9, end: 14, quote: 'world' } }] }
+    doc.apply({}, { steps: [{ splice: { at: 0, delete: '', insert: 'XX ' } }] })
+    expectEditCode(() => doc.apply({}, anchor), 'edit::content_apply')
+    const receipt = doc.apply({}, { steps: [{ anchor: { id: 'a1', start: 12, end: 17, quote: 'world' } }] })
+    expect(receipt.applied.steps[0].anchor.quote).toBe('world')
+  })
+
+  it('a reserved x- name rides as written, and another unknown one throws', () => {
+    const doc = blankDoc()
+    const value = { text: 'Note', blocks: [{ id: 'b0', kind: 'x-callout', attrs: { tone: 'warm' } }], marks: [{ start: 0, end: 4, type: 'x-glow' }] }
+    doc.replace({}, value)
+    expect(doc.read({})).toEqual(value)
+    expect(exportMarkdown(value)).toBe('Note')
+    expect(() => doc.replace({}, { ...value, blocks: [{ id: 'b0', kind: 'callout' }] })).toThrow(/callout/)
+  })
+
+  it('diff answers without a document', () => {
+    const before = importMarkdown('hello world').content
+    const change = diff(before, importMarkdown('hello brave world').content)
+    const doc = blankDoc()
+    doc.replace({}, before)
+    doc.apply({}, change)
+    expect(doc.read({}).text).toBe('hello brave world')
+  })
+
+  it('normalize answers what replace stores, and refuses what replace refuses', () => {
+    const doc = blankDoc()
+    const content = {
+      text: 'a bold',
+      blocks: [{ id: 'b0', kind: 'para' }],
       marks: [{ start: 2, end: 6, type: 'strong' }, { start: 3, end: 6, type: 'strong' }],
     }
-    doc.overwrite({}, shared)
-    expect(normalize(shared)).toEqual(doc.main.body)
-    expect(doc.main.body.text).toBe(shared.text)
-    expect(exportMarkdown(doc.main.body)).toBe('a\n\n| H |\n| --- |\n| a |\n\n**bold**')
+    expect(normalize(content)).toEqual({ ...content, marks: [{ start: 2, end: 6, type: 'strong' }] })
+    doc.replace({}, content)
+    expect(doc.read({}).marks).toEqual(normalize(content).marks)
+    expect(exportMarkdown(doc.read({}))).toBe('a\\\n**bold**')
 
-    const refused = { ...shared, lines: [{ kind: 'bogus', containers: [] }] }
+    const table = importMarkdown('| H |\n| --- |\n| a |').content
+    const shared = { ...table, text: 'a￼bold' }
     const message = (f) => {
       try {
         f()
@@ -738,63 +778,36 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
       }
       return null
     }
-    expect(message(() => normalize(refused))).not.toBeNull()
-    expect(message(() => normalize(refused))).toBe(message(() => doc.overwrite({}, refused)))
+    expect(message(() => normalize(shared))).not.toBeNull()
+    expect(message(() => normalize(shared))).toBe(message(() => doc.replace({}, shared)))
   })
 
-  it('applyChange setContinues lowers a hard break op-wise', () => {
+  it('a hard break is a U+2028 inside one block, a split a new record', () => {
     const doc = blankDoc()
-    // Two paragraph lines (a delta-inserted `\n` mints `continues:false`), so
-    // export separates them with a blank line: two blocks.
-    doc._revise({}, 'one two')
-    doc.applyChange({}, { delta: { ops: [{ retain: 3 }, { insert: '\n' }, { retain: 4 }] } })
-    expect(exportMarkdown(doc.main.body)).toContain('\n\n')
+    doc.revise({}, 'one two')
+    doc.apply({}, { steps: [{ splice: { at: 3, delete: ' ', insert: ' ' } }] })
+    expect(doc.read({}).blocks).toHaveLength(1)
+    expect(exportMarkdown(doc.read({}))).toBe('one\\\ntwo')
 
-    // setContinues turns the boundary into a within-block hard break: one block,
-    // no blank-line separator, and identity anchors ride through (op, not overwrite).
-    doc.applyChange({}, { lineOps: [{ op: 'setContinues', line: 1, continues: true }] })
-    expect(exportMarkdown(doc.main.body)).not.toContain('\n\n')
-    expect(doc.main.body.lines[1].continues).toBe(true)
-
-    // `continues:true` on line 0 has nothing to continue: the mint clears it,
-    // and a cleared flag is absent from the wire rather than spelled `false`.
-    doc.applyChange({}, { lineOps: [{ op: 'setContinues', line: 0, continues: true }] })
-    expect(doc.main.body.lines[0].continues).toBeUndefined()
-    expect(doc.main.body.lines[1].continues).toBe(true)
+    doc.apply({}, { steps: [{ splice: { at: 3, delete: ' ', insert: '\n', blocks: [{ id: 'b9', kind: 'para' }] } }] })
+    expect(doc.read({}).blocks.map((b) => b.id)).toEqual([doc.read({}).blocks[0].id, 'b9'])
+    expect(exportMarkdown(doc.read({}))).toBe('one\n\ntwo')
   })
 
-  it('applyChange islandOps edits an island without costing the field its anchors', () => {
+  it('a nested step edits a table cell without costing the field its anchors', () => {
     const doc = blankDoc()
-    doc._revise({}, 'intro\n\n| H |\n| --- |\n| a |')
-    const island = doc.main.body.islands[0]
+    doc.revise({}, 'intro\n\n| H |\n| --- |\n| a |')
+    const island = doc.read({}).islands[0]
     expect(island.type).toBe('table')
+    doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 0, end: 5 } }] })
 
-    // An anchor over "intro", above the table: the thing an `overwrite` would drop.
-    doc.applyChange({}, { markOps: [{ op: 'add', start: 0, end: 5, type: 'anchor', attrs: { id: 'c1' } }] })
+    const cell = island.props.rows[1].cells[island.props.columns[0]]
+    const edit = { steps: [{ splice: { at: 0, delete: 'a', insert: 'b' } }] }
+    doc.apply({}, { steps: [{ nested: { island: island.id, slot: cell, change: edit } }] })
+    expect(doc.read({}).islands[0].slots[cell].text).toBe('b')
+    expect(doc.read({}).anchors).toEqual([{ id: 'c1', start: 0, end: 5 }])
 
-    doc.applyChange(
-      {},
-      {
-        islandOps: [
-          {
-            op: 'set',
-            id: island.id,
-            type: 'table',
-            props: {
-              header: [{ text: 'H', marks: [] }],
-              rows: [[{ text: 'b', marks: [] }]],
-              aligns: ['none'],
-            },
-          },
-        ],
-      },
-    )
-    expect(doc.main.body.islands[0].props.rows[0][0].text).toBe('b')
-    expect(doc.main.body.marks.some((m) => m.type === 'anchor' && m.attrs.id === 'c1')).toBe(true)
-
-    expect(() =>
-      doc.applyChange({}, { islandOps: [{ op: 'set', id: 'nope', type: 'table', props: {} }] }),
-    ).toThrow()
+    expectEditCode(() => doc.apply({}, { steps: [{ island: { id: 'nope', props: {} } }] }), 'edit::content_apply')
   })
 })
 
@@ -888,7 +901,7 @@ describe('Document.equals / clone', () => {
   })
 })
 
-describe('Document editor surface: storeField / removeField / overwrite / revise (card)', () => {
+describe('Document editor surface: storeField / removeField / replace / revise (card)', () => {
   it('storeField / removeField take a card address', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
     doc.storeField({ card: 0, field: 'content' }, 'hello')
@@ -898,13 +911,13 @@ describe('Document editor surface: storeField / removeField / overwrite / revise
     expect(doc.removeField({ card: 0, field: 'foo' })).toBeUndefined()
   })
 
-  it('revise / overwrite take a card address', () => {
+  it('revise / replace take a card address', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
     const { delta } = doc._revise({ card: 0 }, 'New card body.')
     expect(exportMarkdown(doc.cards[0].body)).toBe('New card body.')
     expect(Array.isArray(delta.ops)).toBe(true)
 
-    doc.overwrite({ card: 0 }, importMarkdown('Card body from **markdown**.').content)
+    doc.replace({ card: doc.cards[0].id }, importMarkdown('Card body from **markdown**.').content)
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body from **markdown**.')
   })
 
@@ -925,8 +938,8 @@ describe('Document editor surface: storeField / removeField / overwrite / revise
 
   it('toAnnotatedMarkdown spells each anchor at its start and lists it at its path', () => {
     const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nMain **body**.\n\n~~~\n$kind: note\n~~~\n\nA note.\n')
-    doc.applyChange({}, { markOps: [{ op: 'add', start: 5, end: 9, type: 'anchor', attrs: { id: 'b' } }] })
-    doc.applyChange({ card: 0 }, { markOps: [{ op: 'add', start: 2, end: 2, type: 'anchor', attrs: { id: 'n' } }] })
+    doc.apply({}, { steps: [{ anchor: { id: 'b', start: 5, end: 9 } }] })
+    doc.apply({ card: doc.cards[0].id }, { steps: [{ anchor: { id: 'n', start: 2, end: 2 } }] })
     const read = doc.toAnnotatedMarkdown()
     expect(read.markdown).toContain('Main <qm-anchor ref="b"></qm-anchor>**body**.')
     expect(read.markdown).toContain('A <qm-anchor ref="n"></qm-anchor>note.')
@@ -940,7 +953,7 @@ describe('Document editor surface: storeField / removeField / overwrite / revise
 
   it('a revise reads the annotated read back: a moved tag moves its anchor, a ref nothing holds reports', () => {
     const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nMain body here.\n')
-    doc.applyChange({}, { markOps: [{ op: 'add', start: 5, end: 9, type: 'anchor', attrs: { id: 'b' } }] })
+    doc.apply({}, { steps: [{ anchor: { id: 'b', start: 5, end: 9 } }] })
     const read = doc.toAnnotatedMarkdown().markdown
     expect(read).toContain('Main <qm-anchor ref="b"></qm-anchor>body here.')
     const moved = read.replace('Main <qm-anchor ref="b"></qm-anchor>body here.', 'Main body <qm-anchor ref="b"></qm-anchor>here.')
@@ -952,21 +965,19 @@ describe('Document editor surface: storeField / removeField / overwrite / revise
     expect(doc.anchorContext('b')).toMatchObject({ quote: 'here' })
   })
 
-  it('a cell anchor is read, and a load names an id a cell shares', () => {
+  it('a cell anchor is read, and an id the field already holds is refused', () => {
     const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nLead.\n\n| a |\n|---|\n| cell text |\n')
-    const body = doc.main.body
-    body.islands[0].props.rows[0][0].marks = [{ start: 5, end: 9, type: 'anchor', attrs: { id: 'c1' } }]
-    doc.overwrite({}, body)
+    const { id, props } = doc.read({}).islands[0]
+    const cell = props.rows[1].cells[props.columns[0]]
+    doc.apply({}, { steps: [{ nested: { island: id, slot: cell, change: { steps: [{ anchor: { id: 'c1', start: 5, end: 9 } }] } } }] })
     expect(doc.anchorContext('c1')).toMatchObject({ path: 'main.body', quote: 'text', prefix: 'cell ', suffix: '' })
     expect(doc.toAnnotatedMarkdown().anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'cell text' }])
     expect(Document.fromStored(doc.toStored()).warnings).toEqual([])
 
-    body.marks.push({ start: 0, end: 4, type: 'anchor', attrs: { id: 'c1' } })
-    doc.overwrite({}, body)
-    const loaded = Document.fromStored(doc.toStored())
-    expect(loaded.warnings).toEqual([
-      expect.objectContaining({ code: 'parse::anchor_id_collision', path: 'main.body', args: { id: 'c1' } }),
-    ])
+    expectEditCode(() => doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 0, end: 4 } }] }), 'edit::content_apply')
+
+    const { droppedAnchors } = doc.apply({}, { steps: [{ splice: { at: 6, delete: '\uFFFC', insert: '' } }] })
+    expect(droppedAnchors).toEqual([{ id: 'c1', path: 'main.body', quote: 'text', prefix: 'cell ', suffix: '', island: id, slot: cell }])
   })
 
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
@@ -975,7 +986,20 @@ describe('Document editor surface: storeField / removeField / overwrite / revise
     expectEditCode(() => doc.storeField(addr, 'x'), 'edit::index_out_of_range')
     expectEditCode(() => doc.removeField(addr), 'edit::index_out_of_range')
     expectEditCode(() => doc._revise({ card: 0 }, 'x'), 'edit::index_out_of_range')
-    expectEditCode(() => doc.overwrite({ card: 0 }, importMarkdown('x').content), 'edit::index_out_of_range')
+    expectEditCode(() => doc.read({ card: 0 }), 'edit::index_out_of_range')
+    expectEditCode(() => doc.read({ card: 'nobody' }), 'edit::unknown_card_id')
+    expectEditCode(() => doc.replace({ card: 'nobody' }, importMarkdown('x').content), 'edit::unknown_card_id')
+    expectEditCode(() => doc.apply({ card: 'nobody' }, { steps: [] }), 'edit::unknown_card_id')
+  })
+
+  it('a content write names its card by id, and lands on it wherever the card moved', () => {
+    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nHello\n\n~~~\n$kind: note\n~~~\n\nHello\n')
+    const id = doc.cards[1].id
+    const base = doc.hash({ card: id })
+    doc.moveCard(1, 0)
+    expect(() => doc.apply({ card: 1 }, { steps: [] }, { base })).toThrow(/\$id/)
+    doc.apply({ card: id }, { steps: [{ splice: { at: 5, delete: '', insert: ' world' } }] }, { base })
+    expect(doc.cards.map((c) => [c.id, c.body.text])).toEqual([[id, 'Hello world'], [expect.any(String), 'Hello']])
   })
 })
 

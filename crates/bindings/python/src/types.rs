@@ -471,9 +471,8 @@ impl PyDocument {
         })
     }
 
-    /// Reconstruct a `Document` from its versioned storage DTO string. Its
-    /// `warnings` hold one `parse::anchor_id_collision` per anchor id a value
-    /// holds more than once, a table cell or footnote taking part.
+    /// Reconstruct a `Document` from its versioned storage DTO string, with no
+    /// `warnings`.
     /// Raises `QuillmarkError` on malformed JSON, unknown `schema`, missing fields,
     /// or unparseable quill reference.
     #[staticmethod]
@@ -488,10 +487,9 @@ impl PyDocument {
                 msg,
             )
         })?;
-        let parse_warnings = inner.anchor_collisions();
         Ok(PyDocument {
             inner,
-            parse_warnings,
+            parse_warnings: Vec::new(),
         })
     }
 
@@ -545,7 +543,7 @@ impl PyDocument {
     /// verbs check. Raises `QuillmarkError` on a bad card index, a malformed
     /// field name, or a present non-content field value.
     #[pyo3(signature = (field=None, card=None))]
-    fn hash_at(&self, field: Option<&str>, card: Option<isize>) -> PyResult<String> {
+    fn hash_at(&self, field: Option<&str>, card: Option<CardSel>) -> PyResult<String> {
         let target = Target::resolve(&self.inner, card)?;
         let card = match target.index {
             None => self.inner.main(),
@@ -667,14 +665,19 @@ impl PyDocument {
 
     /// Remove a payload field, returning its previous value or `None`. `card`
     /// selects the target, here as on every `card=` verb: `None` the main card,
-    /// an index the composable card at that position (out of range raises).
+    /// a `str` the composable card holding that `$id` (`edit::unknown_card_id`
+    /// where none does), an `int` the card at that position (out of range
+    /// raises). The content writes, `apply`, `revise` and `replace`,
+    /// take a card by `$id` alone, so a card moved or inserted
+    /// since the writer's read leaves the write on the card it read.
     #[pyo3(signature = (name, card=None))]
     fn remove_field<'py>(
         &mut self,
         py: Python<'py>,
         name: &str,
-        card: Option<isize>,
+        card: Option<CardSel>,
     ) -> PyResult<Bound<'py, PyAny>> {
+        let card = card_position(&self.inner, card)?;
         let base = self.addr_base(card);
         match self
             .addr_card_mut(card)?
@@ -692,7 +695,8 @@ impl PyDocument {
     /// whole map is the write, so a consumer holding one namespace merges the
     /// rest: `{**doc.main["ext"], ns: v}`.
     #[pyo3(signature = (value, card=None))]
-    fn store_ext(&mut self, value: Bound<'_, PyAny>, card: Option<isize>) -> PyResult<()> {
+    fn store_ext(&mut self, value: Bound<'_, PyAny>, card: Option<CardSel>) -> PyResult<()> {
+        let card = card_position(&self.inner, card)?;
         let map = py_to_object(&value, "store_ext")?;
         let base = self.addr_base(card);
         self.addr_card_mut(card)?
@@ -707,8 +711,9 @@ impl PyDocument {
     fn remove_ext<'py>(
         &mut self,
         py: Python<'py>,
-        card: Option<isize>,
+        card: Option<CardSel>,
     ) -> PyResult<Bound<'py, PyAny>> {
+        let card = card_position(&self.inner, card)?;
         let prev = self.addr_card_mut(card)?.remove_ext();
         ext_map_to_py(py, prev)
     }
@@ -903,6 +908,109 @@ impl PyDocument {
         });
         json_to_py(py, &receipt)
     }
+
+    /// The `Content` at `field` (`None` the body) on `card` (`None` the main
+    /// card), an absent field the empty content. Raises `QuillmarkError` on a
+    /// bad card index, a malformed field name, or a present field value that is
+    /// not content.
+    #[pyo3(signature = (field=None, card=None))]
+    fn read<'py>(&self, py: Python<'py>, field: Option<&str>, card: Option<CardSel>) -> PyResult<Bound<'py, PyAny>> {
+        let target = Target::resolve(&self.inner, card)?;
+        let content = self
+            .card_at(target.index)
+            .read(quillmark_core::document::Target::from(field))
+            .map_err(|e| convert_edit_error(e, &target.base))?;
+        crate::content::content_to_py(py, &content)
+    }
+
+    /// The markdown at `field` on `card` with a `qm-*` tag for each anchor and
+    /// island id its lines can hold: what `revise` reads back. Raises as
+    /// `read`.
+    #[pyo3(signature = (field=None, card=None))]
+    fn annotated(&self, field: Option<&str>, card: Option<CardSel>) -> PyResult<String> {
+        let target = Target::resolve(&self.inner, card)?;
+        let card = self.card_at(target.index);
+        match field {
+            None => Ok(card.body_annotated().markdown),
+            Some(field) => card
+                .field_annotated(field)
+                .map(|a| a.markdown)
+                .map_err(|e| convert_edit_error(e, &target.base)),
+        }
+    }
+
+    /// **Apply** `change` to the value at `field` on `card`, all its steps or
+    /// none, and return the receipt: `applied` (the change in its normalized
+    /// form, which `invert` undoes), `hash` (the next write's `base`),
+    /// `dropped_anchors`, `moved_anchors`, `warnings` and `rebased`. `base`
+    /// is the hash the writer read (`hash_at`); pass it. One the value has
+    /// moved on from rebases the change over the change since, raising
+    /// `edit::rebase_conflict` where they touch the same text or
+    /// record and `edit::stale_base` where the document no longer holds the change
+    /// since. A refused change raises `edit::content_apply` and writes
+    /// nothing.
+    #[pyo3(signature = (change, field=None, card=None, base=None))]
+    fn apply<'py>(
+        &mut self,
+        py: Python<'py>,
+        change: &Bound<'_, PyAny>,
+        field: Option<&str>,
+        card: Option<CardSel>,
+        base: Option<&str>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        require_card_id(&card, "apply")?;
+        let target = Target::resolve(&self.inner, card)?;
+        let change = crate::content::change_from_py(change, "apply")?;
+        let edit = quillmark_core::document::Edit::Apply(change);
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+    }
+
+    /// Rewrite the value at `field` on `card` as `markdown`: the anchors and
+    /// islands whose `qm-*` tags it keeps (`annotated` spells them) stay put,
+    /// and the rest keeps what a word-aligned diff keeps. Returns the receipt,
+    /// its `warnings` the import's. Raises as `apply`.
+    #[pyo3(signature = (markdown, field=None, card=None, base=None))]
+    fn revise<'py>(
+        &mut self,
+        py: Python<'py>,
+        markdown: &str,
+        field: Option<&str>,
+        card: Option<CardSel>,
+        base: Option<&str>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        require_card_id(&card, "revise")?;
+        let target = Target::resolve(&self.inner, card)?;
+        let edit = quillmark_core::document::Edit::Revise(markdown);
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+    }
+
+    /// Write `content` over the value at `field` on `card`, carrying each
+    /// anchor it does not name where a diff keeps its text and reporting the
+    /// rest in `dropped_anchors`. Raises as `apply`.
+    #[pyo3(signature = (content, field=None, card=None, base=None))]
+    fn replace<'py>(
+        &mut self,
+        py: Python<'py>,
+        content: &Bound<'_, PyAny>,
+        field: Option<&str>,
+        card: Option<CardSel>,
+        base: Option<&str>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        require_card_id(&card, "replace")?;
+        let target = Target::resolve(&self.inner, card)?;
+        let content = crate::content::content_from_py(content, "replace")?;
+        let edit = quillmark_core::document::Edit::Replace(content);
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+    }
+}
+
+impl PyDocument {
+    fn card_at(&self, index: Option<usize>) -> &quillmark_core::document::Card {
+        match index {
+            None => self.inner.main(),
+            Some(i) => &self.inner.cards()[i],
+        }
+    }
 }
 
 /// An `AnchorSelector` as it crosses: a flat dict, its `path` a `DocPath`
@@ -918,7 +1026,7 @@ fn selector_json(s: quillmark_core::document::AnchorSelector) -> serde_json::Val
     })
 }
 
-/// A `Revised` receipt as it crosses: `delta` on the op wire, `warnings` the
+/// A `Revised` receipt as it crosses: `delta` the line form's text delta, `warnings` the
 /// `Diagnostic` objects `set` returns, and `dropped_anchors` as `{id, line}`.
 fn revised_to_py<'py>(
     py: Python<'py>,
@@ -1005,6 +1113,40 @@ fn read_base<'a>(
     }
 }
 
+/// How a `card=` selector names a composable card: by index, or by `$id`.
+#[derive(FromPyObject)]
+pub(crate) enum CardSel {
+    Index(isize),
+    Id(String),
+}
+
+/// The index `card` names, a card id resolved to its card's, `None` the main
+/// card. An id no card holds raises `edit::unknown_card_id`.
+fn card_position(doc: &Document, card: Option<CardSel>) -> PyResult<Option<isize>> {
+    match card {
+        None => Ok(None),
+        Some(CardSel::Index(index)) => Ok(Some(index)),
+        Some(CardSel::Id(id)) => match doc.card_index(&id) {
+            Some(index) => Ok(Some(index as isize)),
+            None => Err(convert_edit_error(
+                quillmark_core::document::EditError::UnknownCardId(id),
+                &quillmark_core::path::DocPath::new(),
+            )),
+        },
+    }
+}
+
+/// A content write names a composable card by its `$id` alone: an index
+/// another writer's move or insert can shift would land it on another card.
+fn require_card_id(card: &Option<CardSel>, verb: &str) -> PyResult<()> {
+    match card {
+        Some(CardSel::Index(_)) => Err(PyValueError::new_err(format!(
+            "{verb}: a content write names its card by its id (card=card[\"id\"]), not by index"
+        ))),
+        _ => Ok(()),
+    }
+}
+
 /// Which card a `Writer` / `Reader` verb addresses, and the `DocPath` its
 /// diagnostics anchor at: `None` is the main card.
 struct Target {
@@ -1013,8 +1155,8 @@ struct Target {
 }
 
 impl Target {
-    fn resolve(doc: &quillmark_core::document::Document, card: Option<isize>) -> PyResult<Self> {
-        match card {
+    fn resolve(doc: &quillmark_core::document::Document, card: Option<CardSel>) -> PyResult<Self> {
+        match card_position(doc, card)? {
             None => Ok(Target {
                 index: None,
                 base: quillmark_core::path::DocPath::main(),
@@ -1034,9 +1176,10 @@ impl Target {
 /// Re-borrows both objects per call, so it is ephemeral by convention: bind,
 /// write, discard.
 ///
-/// Every verb takes `card`: `None` writes the main card, an `int` the
-/// composable card at that index, raising `edit::index_out_of_range` when it
-/// addresses none. The index is read at the write, so it is never stale.
+/// Every verb takes `card`: `None` writes the main card, a `str` the
+/// composable card holding that `$id`, an `int` the card at that index,
+/// raising `edit::unknown_card_id` or `edit::index_out_of_range` when it
+/// addresses none.
 #[pyclass(name = "Writer")]
 pub struct PyWriter {
     quill: Py<PyQuill>,
@@ -1044,7 +1187,7 @@ pub struct PyWriter {
 }
 
 impl PyWriter {
-    fn target(doc: &PyDocument, card: Option<isize>) -> PyResult<Target> {
+    fn target(doc: &PyDocument, card: Option<CardSel>) -> PyResult<Target> {
         Target::resolve(&doc.inner, card)
     }
 }
@@ -1082,7 +1225,7 @@ impl PyWriter {
         &self,
         py: Python<'_>,
         field: Option<&str>,
-        card: Option<isize>,
+        card: Option<CardSel>,
     ) -> PyResult<String> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
@@ -1119,7 +1262,7 @@ impl PyWriter {
         py: Python<'_>,
         name: &str,
         value: Bound<'_, PyAny>,
-        card: Option<isize>,
+        card: Option<CardSel>,
     ) -> PyResult<Vec<PyDiagnostic>> {
         let qv = py_to_quillvalue(&value)?;
         let quill = self.quill.borrow(py);
@@ -1146,7 +1289,7 @@ impl PyWriter {
         &self,
         py: Python<'_>,
         fields: Bound<'_, PyDict>,
-        card: Option<isize>,
+        card: Option<CardSel>,
     ) -> PyResult<Vec<PyDiagnostic>> {
         let batch = pydict_to_field_batch(&fields)?;
         let quill = self.quill.borrow(py);
@@ -1181,7 +1324,7 @@ impl PyWriter {
         &self,
         py: Python<'py>,
         markdown: &str,
-        card: Option<isize>,
+        card: Option<CardSel>,
         base_hash: Option<&str>,
         base_markdown: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
@@ -1222,7 +1365,7 @@ impl PyWriter {
         py: Python<'py>,
         name: &str,
         text: &str,
-        card: Option<isize>,
+        card: Option<CardSel>,
         base_hash: Option<&str>,
         base_markdown: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
@@ -1373,7 +1516,7 @@ pub struct PyReader {
 }
 
 impl PyReader {
-    fn target(doc: &PyDocument, card: Option<isize>) -> PyResult<Target> {
+    fn target(doc: &PyDocument, card: Option<CardSel>) -> PyResult<Target> {
         Target::resolve(&doc.inner, card)
     }
 }
@@ -1395,7 +1538,7 @@ impl PyReader {
         &self,
         py: Python<'py>,
         name: &str,
-        card: Option<isize>,
+        card: Option<CardSel>,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
         let quill = self.quill.borrow(py);
         let doc = self.doc.borrow(py);
@@ -1426,7 +1569,7 @@ impl PyReader {
         &self,
         py: Python<'py>,
         name: &str,
-        card: Option<isize>,
+        card: Option<CardSel>,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
         let quill = self.quill.borrow(py);
         let doc = self.doc.borrow(py);
@@ -1467,7 +1610,7 @@ impl PyReader {
         py: Python<'py>,
         name: &str,
         path: &Bound<'py, PyAny>,
-        card: Option<isize>,
+        card: Option<CardSel>,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
         let at = path_from_py(path, "get_content_at")?;
         let quill = self.quill.borrow(py);
@@ -1489,7 +1632,7 @@ impl PyReader {
     /// rather than a schema fact. Raises only `edit::index_out_of_range`, for a
     /// `card` addressing none.
     #[pyo3(signature = (card=None))]
-    fn body_markdown(&self, py: Python<'_>, card: Option<isize>) -> PyResult<String> {
+    fn body_markdown(&self, py: Python<'_>, card: Option<CardSel>) -> PyResult<String> {
         let doc = self.doc.borrow(py);
         let target = Self::target(&doc, card)?;
         Ok(match target.index {
@@ -1760,15 +1903,9 @@ fn path_from_py(path: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Vec<quillmark::P
 
 fn content_to_py<'py>(
     py: Python<'py>,
-    content: Option<quillmark_content::model::Normalized>,
+    content: Option<quillmark_content::model::Content>,
 ) -> PyResult<Option<Bound<'py, PyAny>>> {
-    match content {
-        None => Ok(None),
-        Some(content) => Ok(Some(json_to_py(
-            py,
-            &quillmark_content::serial::to_canonical_value(&content),
-        )?)),
-    }
+    content.map(|c| crate::content::content_to_py(py, &c)).transpose()
 }
 
 fn read_value_to_py<'py>(
@@ -1815,7 +1952,7 @@ fn card_to_pydict<'py>(
     Ok(d)
 }
 
-fn json_to_py<'py>(py: Python<'py>, value: &serde_json::Value) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn json_to_py<'py>(py: Python<'py>, value: &serde_json::Value) -> PyResult<Bound<'py, PyAny>> {
     match value {
         serde_json::Value::Null => py.None().into_bound_py_any(py),
         serde_json::Value::Bool(b) => b.into_bound_py_any(py),
@@ -1884,7 +2021,7 @@ fn pydict_to_field_batch(
     Ok(batch)
 }
 
-fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
+pub(crate) fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
     py_to_json_at(value, 0)
 }
 

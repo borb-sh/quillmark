@@ -202,7 +202,7 @@ fn fill_card(
         None | Some(JsonValue::Null) => {}
         Some(JsonValue::String(markdown)) => {
             match import_body_at(markdown, &base.body(), warnings) {
-                Ok(body) => card.overwrite_body(body),
+                Ok(body) => card.set_body(quillmark_content::migrate::from_lines(&body)),
                 Err(e) => errors.push(
                     Diagnostic::new(Severity::Error, e.to_string())
                         .with_code("edit::import".to_string())

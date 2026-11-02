@@ -19,8 +19,8 @@ import type {
 	importMarkdown,
 	exportMarkdown,
 	normalize,
-	mapPos,
-	mapMarks,
+	invert,
+	diff,
 	isInline,
 	isPlain,
 	parseDocPath,
@@ -41,8 +41,8 @@ export interface CoreSurface {
 	importMarkdown: typeof importMarkdown;
 	exportMarkdown: typeof exportMarkdown;
 	normalize: typeof normalize;
-	mapPos: typeof mapPos;
-	mapMarks: typeof mapMarks;
+	invert: typeof invert;
+	diff: typeof diff;
 	isInline: typeof isInline;
 	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;
@@ -118,26 +118,26 @@ export type {
 	AuthoringCard
 } from '../core/wasm.js';
 
-// Content edit vocabulary: the op-grained content model `Document`'s methods
-// speak (`applyChange(addr, bundle)`, `overwrite(addr, rt)`, `reviseContent(addr, rt) => Revised`).
-// `ContentLineKind` is the shared half of `ContentLine` and `setKind`, and
-// `ContentMarkKind` of `ContentMark` and a mark op's `add` / `remove`: lifting a
-// read value's kind whole — destructure off the envelope, spread the rest into
-// the op — is the version-proof spelling of the op, and naming the type is what
-// makes that spelling type-check without a cast.
+// The content model `Document`'s write primitive and readers speak
+// (`apply(addr, change)`, `revise(addr, md)`, `replace(addr, content)`,
+// `read(addr)`), offsets in UTF-16 code units. `ContentBlockKind` and `ContentMarkKind` are the shared halves of a
+// read value and a step: destructure the kind off the envelope and spread it
+// into the step.
 export type {
 	Content,
-	ContentLine,
-	ContentLineKind,
+	ContentBlock,
+	ContentBlockKind,
 	ContentContainer,
 	ContentMark,
 	ContentMarkKind,
+	ContentAnchor,
 	ContentIsland,
 	TableProps,
-	ImageProps,
-	FootnoteProps,
-	MathProps,
-	TableCell,
+	Change,
+	Step,
+	Receipt,
+	DroppedAnchor,
+	WriteOptions,
 	CardInput,
 	PathStep,
 	Addr,
@@ -151,11 +151,6 @@ export type {
 	AnchorContext,
 	Reattached,
 	Imported,
-	Assoc,
-	IslandOp,
-	LineOp,
-	MarkOp,
-	ChangeBundle,
 	DocPathSeg
 } from '../core/wasm.js';
 
@@ -260,7 +255,7 @@ export interface RenderOptions {
  */
 export type HitGranularity = 'cluster' | 'segment';
 
-/** A click resolved to a field and USV offset into its Content. */
+/** A click resolved to a field and a UTF-16 offset into its Content. */
 export interface ContentHit {
 	/**
 	 * The field's canonical `DocPath` address (`parseDocPath`-routable): the same
@@ -313,7 +308,7 @@ export interface FieldRegion {
 	/** `[x0, y0, x1, y1]` in PDF points (1/72″), bottom-left origin. */
 	rect: [number, number, number, number];
 	/**
-	 * The content slice this box covers: USV `[start, end)` into the field's
+	 * The content slice this box covers: UTF-16 `[start, end)` into the field's
 	 * `Content` for content ink (one segment), absent for a scalar's or a
 	 * date's ink, a claim or a widget. Consumers key segment highlights on it;
 	 * {@link LiveSession.fieldBoxes} unions same-page segments for the
@@ -585,7 +580,8 @@ export declare class LiveSession {
 	positionAt(page: number, x: number, y: number, tolPt?: number): ContentHit | undefined;
 	/**
 	 * Content position → caret rect: reverse of {@link positionAt}. `field` is a
-	 * canonical `DocPath` address (`parseDocPath`-routable), as {@link regions} keys.
+	 * canonical `DocPath` address (`parseDocPath`-routable), as {@link regions} keys;
+	 * `pos` a UTF-16 offset into its `Content`, `undefined` inside a character.
 	 */
 	locate(field: string, pos: number): FieldRegion | undefined;
 	/** Page geometry in points (1/72″). */

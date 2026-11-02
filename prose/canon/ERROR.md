@@ -108,6 +108,23 @@ under `current` lands the revert the base refused. A refusal on a field
 anchors at the field. The whole-document lane raises them through
 `BoundParseError::Base`, as it raises a parse failure, before any mutation.
 
+The content lane's writes (`apply`, `revise`, `replace`) take a
+`base` hash. A base the value has moved on from rebases the write over the
+change since, and a write that conflicts with it refuses under
+`edit::rebase_conflict`, carrying `current`, the `step` of the writer's change
+that conflicts, and the `reason` (`deleted`, `changed`, `missing`, `refused`).
+A base the document no longer holds the change since for refuses under
+`edit::stale_base`, carrying `current`. The pure `rebase` raises the same
+conflict, its `current` the hash of the value `over` left. A change that does not apply to the value, or would leave it
+invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)).
+A write names its card by `$id`, and an id no card holds is
+`edit::unknown_card_id`, carrying `id`; an address naming a card by `$id` on
+any other verb refuses the same way. A content write's
+revise or replace whose change removes an `x-` island refuses under
+`edit::drops_ext_island`, carrying `island` and `type`: markdown cannot spell
+one, so its writer may not have seen it, and a change through `apply` removes
+one. The line-form revise verbs do not check.
+
 Building a card from a `CardWire` (`insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
 `WireError` carries the `EditError` its addressed twin raises, and
@@ -159,11 +176,6 @@ families:
   spelled, anchored at the card (`cards.<kind>[<i>]`) after every card's
   other warnings. A whole-document revise adds one at the revised card for
   an inserted card whose `$id` is not a card id or a stored card held.
-  A stored document's load (WASM `fromStored`, Python
-  `from_stored`; Rust `Document::anchor_collisions`) adds
-  `parse::anchor_id_collision` with the `id`, one per anchor id a body or
-  content value holds more than once with a table cell or footnote note
-  taking part, anchored at the value's path, and no other warning.
   A body's markdown import adds `parse::dropped_construct`, one per construct
   it dropped, with its `count`, anchored at the body (`main.body`,
   `cards.<kind>[<i>].body`) after its card's tag warnings. The `construct` is:
@@ -548,11 +560,13 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::root_only_entry` | `key` | structured |
 | `edit::invalid_card_id` | `id` | structured |
 | `edit::duplicate_card_id` | `id` | structured |
+| `edit::unknown_card_id` | `id` | structured |
 | `edit::import` | — | fallback |
 | `edit::content_apply` | — | fallback |
 | `edit::invalid_payload` | — | fallback |
 | `edit::stale_base` | `current` | structured |
-| `edit::rebase_conflict` | `current` | structured |
+| `edit::rebase_conflict` | `current`, `step`?, `reason`? | structured |
+| `edit::drops_ext_island` | `island`, `type` | structured |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
 | `conform::field_not_single_line` | `field`, `codec` | structured |
@@ -569,7 +583,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::unsupported_yaml_tag` | — | code-determined |
 | `parse::dropped_construct` | `construct`, `count` | structured |
 | `parse::card_id_reminted` | `id` | structured |
-| `parse::anchor_id_collision` | `id` | structured |
 | `export::lost_construct` | `construct`, `start`?, `end`? | structured |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |

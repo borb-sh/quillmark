@@ -6,7 +6,6 @@ Every `code` a `Diagnostic` can carry, by namespace. Route on these, not on `mes
 
 Reading a document: card-yaml, limits, body import.
 
-- `parse::anchor_id_collision`
 - `parse::body_import`
 - `parse::card_fence_missing_blank`
 - `parse::card_id_reminted`
@@ -155,6 +154,7 @@ Loading a quill: `Quill.yaml`, its files, its seeds, the `.quill` bundle that ca
 A mutator or typed write the document refuses.
 
 - `edit::content_apply`
+- `edit::drops_ext_island`
 - `edit::duplicate_card_id`
 - `edit::field_coercion_failed`
 - `edit::field_decode`
@@ -171,6 +171,7 @@ A mutator or typed write the document refuses.
 - `edit::root_only_entry`
 - `edit::stale_base`
 - `edit::too_many_cards`
+- `edit::unknown_card_id`
 - `edit::unknown_field`
 - `edit::value_too_deep`
 

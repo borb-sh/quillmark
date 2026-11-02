@@ -4,12 +4,11 @@
 //! rather than panicking on what a caller hands them.
 
 use proptest::prelude::*;
-use quillmark_content::island::IslandType;
-use quillmark_content::delta::{diff_import, Delta, Op};
-use quillmark_content::export::{to_markdown, to_markdown_annotated};
-use quillmark_content::import::from_markdown;
-use quillmark_content::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
-use quillmark_content::ops::{IslandOp, LineOp, MarkOp};
+use quillmark_content::lines::island::IslandType;
+use quillmark_content::lines::delta::diff_import;
+use quillmark_content::lines::export::{to_markdown, to_markdown_annotated};
+use quillmark_content::lines::import::from_markdown;
+use quillmark_content::lines::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
 use serde_json::{json, Value};
 
 /// The mint's fixed point: normalizing again changes nothing.
@@ -299,7 +298,7 @@ proptest! {
 
     /// Property 1a: the line edges `document()` cannot reach. Markdown mints no
     /// line leading or trailing with whitespace, and `plain_word` pins its first
-    /// char alphanumeric so no block marker leads a token; `apply_text_delta`
+    /// char alphanumeric so no block marker leads a token; an editor's change
     /// and `from_plaintext` mint both freely.
     #[test]
     fn edge_whitespace_and_block_markers_round_trip(
@@ -330,7 +329,7 @@ proptest! {
         prop_assert_eq!(&rt, &rt2, "not a fixed point: {:?}", md);
     }
 
-    /// Property 1b: free (Peritext-style) overlap, which `apply_mark_ops`
+    /// Property 1b: free (Peritext-style) overlap, which an editor's change
     /// produces but markdown import never does, exports to *balanced* markdown.
     /// The shape is a staircase (`s1 < s2 < e1 < e2 == n`) over contiguous
     /// word-char text. The `strong`+`emph` asterisk clash is unrepresentable and
@@ -402,22 +401,22 @@ proptest! {
             .chain(std::iter::once('a'))
             .collect();
         let n = text.chars().count();
-        let mut rt = Content::new(text.clone(), vec![Line::new(LineKind::Para)]).into_normalized();
-        prop_assume!(rt.validate().is_ok());
-        prop_assume!(rt.len_usv() == n);
+        let plain = Content::new(text.clone(), vec![Line::new(LineKind::Para)]).into_normalized();
+        prop_assume!(plain.validate().is_ok());
+        prop_assume!(plain.len_usv() == n);
         // Require the mark-free text to be a fixed point already, so a later
         // mismatch is mark-induced rather than an orthogonal markdown limit.
-        prop_assume!(from_markdown(&to_markdown(&rt)).unwrap().content.text == rt.text);
+        prop_assume!(from_markdown(&to_markdown(&plain)).unwrap().content.text == plain.text);
 
-        let ops: Vec<MarkOp> = specs
+        let marks: Vec<Mark> = specs
             .iter()
             .map(|&(a, b, k)| {
                 let (s, e) = (a % (n + 1), b % (n + 1));
-                MarkOp::Add { start: s.min(e), end: s.max(e), kind: ov_kind(k) }
+                Mark::new(s.min(e), s.max(e), ov_kind(k))
             })
-            .filter(|op| matches!(op, MarkOp::Add { start, end, .. } if start < end))
+            .filter(|m| m.start < m.end)
             .collect();
-        rt.apply_mark_ops(&ops).unwrap();
+        let rt = plain.into_content().with_marks(marks).into_normalized();
         prop_assert_eq!(rt.validate(), Ok(()), "editor marks left content invalid");
         prop_assert_eq!(&renormalized(&rt), &*rt, "editor marks left a repairable shape");
 
@@ -565,163 +564,15 @@ proptest! {
 
 }
 
-// Edit-channel invariant properties: a successful apply on a valid content
-// leaves it valid.
-
-/// `Op::Retain(n)`, or nothing when `n == 0` (no empty retains in the script).
-fn retain(n: usize) -> Vec<Op> {
-    if n == 0 {
-        vec![]
-    } else {
-        vec![Op::Retain(n)]
-    }
-}
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(400))]
 
-    /// `apply_text_delta` preserves `validate()`. A deletion can span an island
-    /// slot, and the cascade must drop the backing island so the slot/island
-    /// counts stay in sync. The insert charset includes `\r` and bidi controls,
-    /// which are stripped rather than left to break an invariant; U+FFFC is
-    /// excluded, that insert being rejected outright.
-    #[test]
-    fn apply_text_delta_preserves_validate(
-        md in document(),
-        ins in "[a-z0-9 \n\r\u{202E}\u{2069}]{0,10}",
-        pos_seed in 0usize..4096,
-        del_seed in 0usize..4096,
-        is_delete in any::<bool>(),
-    ) {
-        let mut rt = from_markdown(&md).unwrap().content;
-        prop_assert_eq!(rt.validate(), Ok(()), "import invalid for {:?}", md);
-        let len = rt.len_usv();
-        let pos = pos_seed % (len + 1);
-        let delta = if is_delete {
-            let k = del_seed % (len - pos + 1);
-            let ops = retain(pos)
-                .into_iter()
-                .chain(std::iter::once(Op::Delete(k)))
-                .chain(retain(len - pos - k))
-                .collect();
-            Delta { ops }
-        } else {
-            let ops = retain(pos)
-                .into_iter()
-                .chain(std::iter::once(Op::Insert(ins.clone())))
-                .chain(retain(len - pos))
-                .collect();
-            Delta { ops }
-        };
-        if rt.apply_text_delta(&delta).is_ok() {
-            prop_assert_eq!(rt.validate(), Ok(()), "text delta broke an invariant");
-            prop_assert_eq!(&renormalized(&rt), &*rt, "text delta left a repairable shape");
-        }
-    }
-
-    /// A surviving anchor carries the exact id it started with. The astral char
-    /// in the seeded id would expose byte-level munging.
-    #[test]
-    fn anchor_id_bit_invariant_under_splice(
-        md in document(),
-        a_seed in 0usize..4096,
-        b_seed in 0usize..4096,
-        ins in "[a-z0-9 \n]{0,10}",
-        pos_seed in 0usize..4096,
-        del_seed in 0usize..4096,
-        is_delete in any::<bool>(),
-    ) {
-        const ID: &str = "anchor-\u{1f4a1}-42";
-        let mut rt = from_markdown(&md).unwrap().content.into_content();
-        let len = rt.len_usv();
-        let a = a_seed % (len + 1);
-        let b = b_seed % (len + 1);
-        rt.marks.push(Mark::new(a.min(b), a.max(b), MarkKind::Anchor { id: ID.into() }));
-        let mut rt = rt.into_normalized();
-        prop_assert_eq!(rt.validate(), Ok(()), "seeded content invalid for {:?}", md);
-
-        let len = rt.len_usv();
-        let pos = pos_seed % (len + 1);
-        let delta = if is_delete {
-            let k = del_seed % (len - pos + 1);
-            let ops = retain(pos)
-                .into_iter()
-                .chain(std::iter::once(Op::Delete(k)))
-                .chain(retain(len - pos - k))
-                .collect();
-            Delta { ops }
-        } else {
-            let ops = retain(pos)
-                .into_iter()
-                .chain(std::iter::once(Op::Insert(ins.clone())))
-                .chain(retain(len - pos))
-                .collect();
-            Delta { ops }
-        };
-        if rt.apply_text_delta(&delta).is_ok() {
-            for m in &rt.marks {
-                if let MarkKind::Anchor { id } = &m.kind {
-                    prop_assert_eq!(id.as_str(), ID, "rebase rewrote an anchor id");
-                }
-            }
-            prop_assert_eq!(rt.validate(), Ok(()), "splice broke an invariant");
-            prop_assert_eq!(&renormalized(&rt), &*rt, "the splice left a repairable shape");
-        }
-    }
-
-    /// `apply_island_ops` preserves `validate()`: an accepted insert lands a
-    /// slot and its entry together wherever the position falls, including inside
-    /// a code fence, whose line normalization then demotes.
-    #[test]
-    fn apply_island_ops_preserves_validate(
-        md in document(),
-        pos_seed in 0usize..4096,
-    ) {
-        let mut rt = from_markdown(&md).unwrap().content;
-        let at = pos_seed % (rt.len_usv() + 1);
-        let op = IslandOp::Insert {
-            at,
-            island: Island::new("isl-prop".into(), IslandType::Image)
-                .with_props(json!({ "url": "ex.com", "alt": "a" })),
-        };
-        if rt.apply_island_ops(&[op]).is_ok() {
-            prop_assert_eq!(rt.validate(), Ok(()), "island op broke an invariant");
-            prop_assert_eq!(&renormalized(&rt), &*rt, "the island op left a repairable shape");
-        }
-    }
-
-    /// `apply_mark_ops` preserves `validate()`: an accepted Add over a clamped
-    /// range leaves the content valid (normalization trims edges / drops
-    /// zero-width).
-    #[test]
-    fn apply_mark_ops_preserves_validate(
-        md in document(),
-        s_seed in 0usize..4096,
-        e_seed in 0usize..4096,
-    ) {
-        let mut rt = from_markdown(&md).unwrap().content;
-        let len = rt.len_usv();
-        let a = s_seed % (len + 1);
-        let b = e_seed % (len + 1);
-        let op = MarkOp::Add { start: a.min(b), end: a.max(b), kind: MarkKind::Strong };
-        if rt.apply_mark_ops(&[op]).is_ok() {
-            prop_assert_eq!(rt.validate(), Ok(()), "mark op broke an invariant");
-            prop_assert_eq!(&renormalized(&rt), &*rt, "the mark op left a repairable shape");
-        }
-    }
-
     /// Font marks in any raw arrangement normalize to one family per
     /// character, the one the raw marks rank first there (the later start,
-    /// then the shorter, then the later name). An `Add` of a family then sets
-    /// exactly its range, a deletion or an insertion keeps every kept
-    /// character's family, and inserted text takes a family only inside a
-    /// run of one.
+    /// then the shorter, then the later name).
     #[test]
     fn font_marks_settle_to_one_family_per_character(
         raw in prop::collection::vec((0usize..12, 0usize..12, 0usize..3), 0..6),
-        add in (0usize..12, 0usize..12, 0usize..3),
-        cut in (0usize..12, 0usize..12),
-        put in (0usize..13, 1usize..3),
     ) {
         const NAMES: [&str; 3] = ["Arimo", "Bitter", "Carlito"];
         let family = |i: usize| MarkKind::FontFamily { name: NAMES[i].into() };
@@ -746,71 +597,12 @@ proptest! {
         };
 
         let marks: Vec<Mark> = raw.iter().map(|&(a, b, f)| Mark::new(a.min(b), a.max(b), family(f))).collect();
-        let mut rt = Content::new("abcdefghijkl".into(), vec![Line::new(LineKind::Para)])
+        let rt = Content::new("abcdefghijkl".into(), vec![Line::new(LineKind::Para)])
             .with_marks(marks.clone())
             .into_normalized();
-        let mut want = per_char(&marks, 12);
-        prop_assert_eq!(per_char(&rt.marks, 12), want.clone(), "normalize changed a family");
+        prop_assert_eq!(per_char(&rt.marks, 12), per_char(&marks, 12), "normalize changed a family");
         prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
         prop_assert_eq!(&renormalized(&rt), &*rt, "the mint left a repairable shape");
-
-        let (a, b) = (add.0.min(add.1), add.0.max(add.1));
-        if a < b {
-            rt.apply_mark_ops(&[MarkOp::Add { start: a, end: b, kind: family(add.2) }]).unwrap();
-            want[a..b].fill(Some(NAMES[add.2].to_string()));
-            prop_assert_eq!(per_char(&rt.marks, 12), want.clone(), "an Add did not set its range");
-            prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
-        }
-
-        let (p, q) = (cut.0.min(cut.1), cut.0.max(cut.1));
-        let delta = Delta { ops: retain(p).into_iter().chain([Op::Delete(q - p)]).chain(retain(12 - q)).collect() };
-        if p < q {
-            rt.apply_text_delta(&delta).unwrap();
-            want.drain(p..q);
-            prop_assert_eq!(per_char(&rt.marks, 12 - (q - p)), want.clone(), "a deletion changed a kept family");
-            prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
-        }
-
-        let len = want.len();
-        let at = put.0 % (len + 1);
-        let delta = Delta { ops: retain(at).into_iter().chain([Op::Insert("x".repeat(put.1))]).chain(retain(len - at)).collect() };
-        rt.apply_text_delta(&delta).unwrap();
-        let inside = (0 < at && at < len && want[at - 1] == want[at]).then(|| want[at].clone()).flatten();
-        want.splice(at..at, std::iter::repeat_n(inside, put.1));
-        prop_assert_eq!(per_char(&rt.marks, len + put.1), want, "an insertion changed a kept family");
-        prop_assert!(overlap_free(&rt.marks), "font marks overlap: {:?}", rt.marks);
-    }
-
-    /// `apply_line_ops` preserves `validate()` across an accepted
-    /// split/join/set-kind/set-continues. Split/join splice a `\n` and rebase
-    /// marks through that one-char change, so keeping the imported marks
-    /// exercises the remap. The kinds a line's text can contradict, and a
-    /// `continues` no block above can take, land wherever they fall: the
-    /// terminal normalize settles them, and the oracle reads the outcome.
-    #[test]
-    fn apply_line_ops_preserves_validate(
-        md in document(),
-        pos_seed in 0usize..4096,
-        line_seed in 0usize..64,
-        which in 0u8..6,
-    ) {
-        let mut rt = from_markdown(&md).unwrap().content;
-        let len = rt.len_usv();
-        let nlines = rt.lines.len().max(1);
-        let line = line_seed % nlines;
-        let kind = |k: LineKind| LineOp::SetKind { line, kind: k };
-        let op = match which {
-            0 => LineOp::Split { at: pos_seed % (len + 1) },
-            1 => LineOp::Join { line },
-            2 => kind(LineKind::Heading { level: 2 }),
-            3 => kind(LineKind::Rule),
-            4 => kind(LineKind::Code { lang: None }),
-            _ => LineOp::SetContinues { line, continues: true },
-        };
-        if rt.apply_line_ops(&[op]).is_ok() {
-            prop_assert_eq!(rt.validate(), Ok(()), "line op broke an invariant");
-            prop_assert_eq!(&renormalized(&rt), &*rt, "the line op left a repairable shape");
-        }
     }
 }
 
@@ -940,7 +732,7 @@ proptest! {
             .map(|&(a, b, k)| {
                 let (s, e) = (a % (n + 1), b % (n + 1));
                 let kind = if k == OV_KINDS { MarkKind::Code } else { ov_kind(k) };
-                quillmark_content::serial::mark_to_value(&Mark::new(s.min(e), s.max(e), kind))
+                quillmark_content::lines::serial::mark_to_value(&Mark::new(s.min(e), s.max(e), kind))
             })
             .collect();
         let rt = table_content(
@@ -967,7 +759,7 @@ proptest! {
         // an edge off a break. A code span is left out: one across a break
         // re-imports as two spans, and its clip can land a wrap's edge on a
         // space the trim exposes.
-        let (stored, kept) = quillmark_content::serial::parse_cell(&rt.islands[0].props["rows"][0][0]);
+        let (stored, kept) = quillmark_content::lines::serial::parse_cell(&rt.islands[0].props["rows"][0][0]);
         let cs: Vec<char> = stored.chars().collect();
         if !kept.iter().any(|m| m.kind == MarkKind::Code) {
             let commas: String = cs.iter().map(|&c| if c == '\n' { ',' } else { c }).collect();
@@ -990,7 +782,7 @@ proptest! {
                     if delimited(&m.kind) {
                         trim(&|c: char| c.is_whitespace());
                     }
-                    (m.start < m.end).then(|| quillmark_content::serial::mark_to_value(&m))
+                    (m.start < m.end).then(|| quillmark_content::lines::serial::mark_to_value(&m))
                 })
                 .collect();
             let twin = table_content(
@@ -1001,7 +793,7 @@ proptest! {
             .into_normalized();
             let twin2 = from_markdown(&to_markdown(&twin)).unwrap().content;
             let marks_of = |rt: &Normalized| {
-                let mut marks = quillmark_content::serial::parse_cell(&rt.islands[0].props["rows"][0][0]).1;
+                let mut marks = quillmark_content::lines::serial::parse_cell(&rt.islands[0].props["rows"][0][0]).1;
                 // Off the twin's `,` where the cell holds a `\n`, as a stored edge is.
                 for m in &mut marks {
                     while m.start < m.end && cs[m.start] == '\n' {
@@ -1034,12 +826,6 @@ const DECODE_DISCRIMINATORS: &[&str] = &[
     "$name", "element", "instance", "containers", "continues", "id", "props", "url", "level",
     "ordered", "ordinal", "rows", "aligns", "widths", "align", "list_item", "quote", "table",
     "checked", "head", "colspan", "rowspan", "valign",
-];
-
-/// Every op tag the line, mark and island decoders read.
-const OP_TAGS: &[&str] = &[
-    "add", "remove", "removeAnchor", "split", "join", "setKind", "setContainers", "setContinues",
-    "set", "insert",
 ];
 
 fn decode_key() -> impl Strategy<Value = String> {
@@ -1077,34 +863,10 @@ proptest! {
     /// The `install` lane.
     #[test]
     fn canonical_decode_never_panics(v in decode_json()) {
-        let _ = quillmark_content::serial::from_canonical_value(&v);
+        let _ = quillmark_content::lines::serial::from_canonical_value(&v);
     }
 
-    /// The `applyChange` lane.
-    #[test]
-    fn op_wire_decode_never_panics(v in decode_json()) {
-        let _ = quillmark_content::ops::change_bundle_from_value(&v);
-        let _ = quillmark_content::ops::line_op_from_value(&v);
-        let _ = quillmark_content::ops::mark_op_from_value(&v);
-    }
-
-    /// A spelled envelope reaches past the `op` tag, where each lane's own
-    /// argument decoding is.
-    #[test]
-    fn op_wire_decode_never_panics_past_the_tag(
-        op in prop::sample::select(OP_TAGS),
-        rest in prop::collection::hash_map(decode_key(), decode_json(), 0..6),
-    ) {
-        let mut obj: serde_json::Map<String, Value> = rest.into_iter().collect();
-        obj.insert("op".to_string(), Value::from(op));
-        let v = Value::Object(obj);
-        let _ = quillmark_content::ops::line_op_from_value(&v);
-        let _ = quillmark_content::ops::mark_op_from_value(&v);
-        let _ = quillmark_content::ops::island_op_from_value(&v);
-    }
-
-    /// A line's containers inside an envelope that decodes up to them, on
-    /// both lanes.
+    /// A line's containers inside an envelope that decodes up to them.
     #[test]
     fn container_decode_never_panics(containers in prop::collection::vec(decode_json(), 0..4)) {
         let content = serde_json::json!({
@@ -1113,9 +875,61 @@ proptest! {
             "marks": [],
             "islands": [],
         });
-        let _ = quillmark_content::serial::from_canonical_value(&content);
-        let op = serde_json::json!({"op": "setContainers", "line": 0, "containers": containers});
-        let _ = quillmark_content::ops::line_op_from_value(&op);
+        let _ = quillmark_content::lines::serial::from_canonical_value(&content);
+    }
+}
+
+/// A grid as a table's props spell it, either axis possibly empty, a row's
+/// cells possibly short, and the layout keys holding anything.
+fn grid_props() -> impl Strategy<Value = Value> {
+    (
+        prop::collection::vec("k[0-2]", 0..3),
+        prop::collection::vec(("r[0-2]", prop::collection::vec("s[0-3]", 0..3)), 0..3),
+        prop::collection::hash_map(
+            prop::sample::select(&["head", "aligns", "widths", "align", "cell_attrs"][..]),
+            decode_json(),
+            0..3,
+        ),
+    )
+        .prop_map(|(columns, rows, layout)| {
+            let rows: Vec<Value> = rows
+                .into_iter()
+                .map(|(id, slots)| {
+                    let cells: serde_json::Map<String, Value> =
+                        columns.iter().cloned().zip(slots.into_iter().map(Value::from)).collect();
+                    json!({"id": id, "cells": cells})
+                })
+                .collect();
+            let mut props = serde_json::Map::from_iter([("columns".to_string(), json!(columns)), ("rows".to_string(), Value::Array(rows))]);
+            props.extend(layout.into_iter().map(|(k, v)| (k.to_string(), v)));
+            Value::Object(props)
+        })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(400))]
+
+    /// The model's door: a value shaped as content around one island of each
+    /// type, its props generated, decodes or refuses, renders if it decodes,
+    /// and an island insert carrying it applies or refuses.
+    #[test]
+    fn model_decode_never_panics(
+        island_type in prop::sample::select(&["table", "footnote", "image", "math", "x-a"][..]),
+        props in prop_oneof![grid_props(), decode_json()],
+        slots in prop::collection::vec("s[0-3]|note", 0..3),
+    ) {
+        use quillmark_content::model::Content;
+        let slots: serde_json::Map<String, Value> =
+            slots.into_iter().map(|s| (s, json!({"text": "a", "blocks": [{"id": "b0", "kind": "para"}]}))).collect();
+        let island = json!({"id": "t0", "type": island_type, "props": props, "slots": slots});
+        let value = json!({"text": "\u{FFFC}", "blocks": [{"id": "b0", "kind": "para"}], "islands": [island.clone()]});
+        if let Ok(c) = Content::from_value(&value) {
+            let _ = quillmark_content::migrate::to_lines(&c);
+        }
+        let insert = json!({"steps": [{"island": {"at": 0, "island": island}}]});
+        if let Ok(change) = quillmark_content::change::Change::from_value(&insert) {
+            let _ = quillmark_content::change::apply(&Content::empty(), &change);
+        }
     }
 }
 
@@ -1147,10 +961,83 @@ proptest! {
 
     #[test]
     fn merge_lines_algebra(base in lines(), ours in lines(), theirs in lines()) {
-        use quillmark_content::delta::merge_lines;
+        use quillmark_content::lines::delta::merge_lines;
         prop_assert_eq!(merge_lines(&base, &base, &theirs), Some(theirs.clone()));
         prop_assert_eq!(merge_lines(&base, &ours, &base), Some(ours.clone()));
         prop_assert_eq!(merge_lines(&base, &ours, &ours), Some(ours.clone()));
         prop_assert_eq!(merge_lines(&base, &ours, &theirs), merge_lines(&base, &theirs, &ours));
+    }
+}
+
+mod model {
+    //! The content model over the line form: the migration is deterministic and
+    //! lowers back to what it read, and the wire is a byte and value fixed point.
+
+    use super::*;
+    use quillmark_content::markdown;
+    use quillmark_content::migrate::{from_lines, to_lines};
+    use quillmark_content::model::Content as V2;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(400))]
+
+        #[test]
+        fn migration_lowers_back_to_its_source(md in document()) {
+            let rt = from_markdown(&md).unwrap().content;
+            let v2 = from_lines(&rt);
+            prop_assert_eq!(v2.validate(), Ok(()), "invariants for {:?}", md);
+            prop_assert_eq!(&from_lines(&rt), &v2);
+            prop_assert_eq!(&to_lines(&v2), &rt, "lowering differs for {:?}", md);
+            prop_assert_eq!(from_lines(&to_lines(&v2)), v2);
+            prop_assert_eq!(markdown::to_markdown(&from_lines(&rt)), to_markdown(&rt));
+        }
+
+        #[test]
+        fn wire_fixed_point(md in document()) {
+            let v2 = markdown::from_markdown(&md).unwrap().content;
+            let json = v2.to_json();
+            let back = V2::from_json(&json).unwrap();
+            prop_assert_eq!(back.to_json(), json);
+            prop_assert_eq!(back, v2);
+        }
+
+        #[test]
+        fn a_v1_value_decodes_as_its_migration(md in document()) {
+            let rt = from_markdown(&md).unwrap().content;
+            let v1 = rt.to_canonical_json();
+            prop_assert_eq!(V2::from_json(&v1).unwrap(), from_lines(&rt));
+        }
+
+        #[test]
+        fn decode_never_panics(v in decode_json()) {
+            let _ = V2::from_value(&v);
+        }
+    }
+
+    /// Line-form shapes the model refuses migrate to the nearest it holds: a
+    /// table sharing its line takes a block of its own, and an anchor id held
+    /// twice keeps its first holder.
+    #[test]
+    fn a_shape_the_model_refuses_migrates_valid() {
+        let mut rt = from_markdown("before\n\n| a |\n|---|\n| b |\n\nafter").unwrap().content.into_content();
+        rt.text = "before\u{FFFC}after".into();
+        rt.lines.truncate(1);
+        rt.marks.push(Mark::new(0, 6, MarkKind::Anchor { id: "c1".into() }));
+        rt.marks.push(Mark::new(7, 12, MarkKind::Anchor { id: "c1".into() }));
+        let v2 = from_lines(&rt.into_normalized());
+        assert_eq!(v2.validate(), Ok(()));
+        assert_eq!(v2.text, "before\n\u{FFFC}\nafter");
+        assert_eq!(v2.anchors.len(), 1);
+        assert_eq!((v2.anchors[0].start, v2.anchors[0].end), (0, 6));
+    }
+
+    #[test]
+    fn fixture_bodies_migrate_and_lower_back() {
+        for name in ["sample.md", "card_yaml_demo.md", "extended_metadata_demo.md"] {
+            let rt = from_markdown(&fixture_body(name)).unwrap();
+            let v2 = from_lines(&rt.content);
+            assert_eq!(v2.validate(), Ok(()), "{name}");
+            assert_eq!(to_lines(&v2), rt.content, "{name}");
+        }
     }
 }

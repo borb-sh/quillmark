@@ -88,8 +88,8 @@ viewer ever needs to shed the retained world, a `freeze()` that drops it and
 keeps the pageable document is a *mode* to add, not a second type.
 
 `update` is the only edit verb: a whole-document recompile, and it is named apart
-from the content lane's `applyChange`, which splices ops into a document rather
-than recompiling one. Anchoring a caret
+from the content lane's `apply`, which applies a change to one value rather
+than recompiling a document. Anchoring a caret
 or selection across edits is the **editor's** job: its own transaction mapping
 (a ProseMirror / CodeMirror `StepMap`) carries positions through local edits, so
 the session holds no change log, no revision stamp, and no per-field delta
@@ -161,8 +161,12 @@ PDF post-processing, CI coverage probes. The sidecar always describes the
 whole document: page indices are document-space even under a `pages` subset
 render. Each region carries per-field geometry keyed on the **quill schema
 field path** (the address the editor uses) plus, for content ink, the
-**content span** it covers (§ Segments and the striped union). Five queries
-read it, three coarse and two fine:
+**content span** it covers (§ Segments and the striped union). A span and a
+content position count in the host's units, UTF-16 code units in JavaScript and
+code points in Python, converted on the text of the content value the compile
+read at that field; core counts scalar values and takes a host's units through
+`LiveSession::regions_in` and its siblings ([BINDINGS.md](BINDINGS.md)
+§ "Content offsets"). Five queries read it, three coarse and two fine:
 
 - `regions()` answers *field → rectangles* (scroll to / highlight a field),
   one box per content **segment** it draws. `fieldBoxes(field)` derives the
@@ -172,7 +176,7 @@ read it, three coarse and two fine:
   editor), hit-testing the compiled document directly so **every** placement
   resolves, not just the ones `regions()` surfaces.
 - `positionAt(page, x, y, tolPt?)` answers *point → content position*: the field
-  *and* a USV offset into its `Content`, cluster-exact, for placing a caret
+  *and* an offset into its `Content`, cluster-exact, for placing a caret
   or mapping a selection into the content model.
 - `locate(field, pos)` answers *content position → caret rect*: the reverse of
   `positionAt`, the box to draw a caret at.
@@ -261,7 +265,7 @@ leave a field unprinted on purpose.
 A content field is not one box. The backend records a per-**segment** source
 map (a segment is one paragraph, heading, or whole code fence: the content's
 `continues`-joined line run), and `regions()` returns one region per
-`(segment, page)`, each carrying `span: [start, end)`: the USV range of the
+`(segment, page)`, each carrying `span: [start, end)`: the range of the
 field's `Content` that box covers. A scalar's or a date's ink, a marker claim,
 and a widget carry no `span` (`undefined`): geometry with no content address.
 
