@@ -393,8 +393,8 @@ export interface DocumentAnchor {
  * An anchor's context at its address (`anchorContexts`, `anchorContext`,
  * `reattach`): the text-quote selector a host stores beside a comment thread.
  * `path` is the body or content value's `DocPath` string. `quote` is the
- * anchored text as stored, an inline island its `U+FFFC` slot and a line break
- * its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
+ * anchored text as stored, an inline island its `U+FFFC` slot, a hard break
+ * its `U+2028` and a block break its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
  * of stored text on each side, cut at the value's edges or a cell's. `cardId` is the `$id`
  * of the card `path` names, absent on the main card: `reattach` finds the card
  * by it wherever the card now sits, and orphans the selector where no card of
@@ -2050,11 +2050,16 @@ impl Addr {
 /// canonical `content` and a `parse::dropped_construct` warning per construct
 /// the import dropped, with no `path`. `replace(addr, importMarkdown(md).content)`
 /// spells the cold write; prefer `revise` for edit semantics.
-/// Throws on an over-nested input.
+/// Throws on an over-nested input, and `edit::input_too_large` on one past
+/// 10 MiB.
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
-    let imported = quillmark_content::markdown::from_markdown(markdown)
-        .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
+    let imported = quillmark_content::markdown::from_markdown(markdown).map_err(|e| match e {
+        quillmark_content::lines::import::ImportError::TooLarge { .. } => {
+            WasmError { diagnostics: vec![quillmark_core::document::EditError::import(e).to_diagnostic(None)] }.to_js_value()
+        }
+        e => WasmError::from(format!("importMarkdown: {e}")).to_js_value(),
+    })?;
     let out = ImportedJs {
         content: imported.content.to_value_in(quillmark_content::units::Utf16),
         warnings: diags(quillmark_core::document::dropped_constructs(

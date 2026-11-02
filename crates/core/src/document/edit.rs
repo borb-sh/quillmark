@@ -204,6 +204,30 @@ pub enum EditError {
     #[error("content change refused: {0}")]
     Change(quillmark_content::change::ApplyError),
 
+    /// Markdown a write imports past
+    /// [`MAX_MARKDOWN_SIZE`](quillmark_content::MAX_MARKDOWN_SIZE) bytes, or a
+    /// content value a binding takes whose text, its slots' included, is.
+    #[error("an input of {size} bytes is past the limit of {max}")]
+    InputTooLarge { size: usize, max: usize },
+
+    /// A change a binding takes holding more than
+    /// [`MAX_CHANGE_STEPS`](crate::document::MAX_CHANGE_STEPS) steps, nested
+    /// ones counted.
+    #[error("a change of {count} steps is past the limit of {max}")]
+    TooManySteps { count: usize, max: usize },
+
+    /// A value whose text holds more marks than
+    /// [`max_marks`](quillmark_content::max_marks) of its length, or a change
+    /// that would leave one.
+    #[error("{count} marks over a text that holds at most {max}")]
+    TooManyMarks { count: usize, max: usize },
+
+    /// A value holding more than
+    /// [`MAX_ANCHORS`](quillmark_content::MAX_ANCHORS) anchors, or a change
+    /// that would leave one.
+    #[error("{count} anchors, past the limit of {max}")]
+    TooManyAnchors { count: usize, max: usize },
+
     /// The card's item list violates an invariant of the list as a whole. A
     /// door taking a whole payload at once ([`Card::try_from`] a
     /// [`CardWire`](crate::document::CardWire)) reaches every variant; a field
@@ -225,6 +249,35 @@ pub enum EditError {
 }
 
 impl EditError {
+    /// A refused change, as [`TooManyMarks`](Self::TooManyMarks) or
+    /// [`TooManyAnchors`](Self::TooManyAnchors) where it passed a bound.
+    pub fn change(e: quillmark_content::change::ApplyError) -> Self {
+        match &e {
+            quillmark_content::change::ApplyError::Invalid(inv) => Self::bound(inv).unwrap_or(EditError::Change(e)),
+            _ => EditError::Change(e),
+        }
+    }
+
+    /// A refused import, as [`InputTooLarge`](Self::InputTooLarge) where its
+    /// markdown passed the size bound.
+    pub fn import(e: ImportError) -> Self {
+        match e {
+            ImportError::TooLarge { size, max } => EditError::InputTooLarge { size, max },
+            e => EditError::Import(e),
+        }
+    }
+
+    /// The error a content bound `inv` names, `None` for an invariant that
+    /// is not one.
+    pub fn bound(inv: &quillmark_content::model::Invariant) -> Option<Self> {
+        use quillmark_content::model::Invariant;
+        match *inv {
+            Invariant::TooManyMarks { marks, max } => Some(EditError::TooManyMarks { count: marks, max }),
+            Invariant::TooManyAnchors { anchors, max } => Some(EditError::TooManyAnchors { count: anchors, max }),
+            _ => None,
+        }
+    }
+
     pub(crate) fn unknown_field(name: impl Into<String>) -> Self {
         EditError::UnknownField {
             field: name.into(),
@@ -254,6 +307,10 @@ impl EditError {
             EditError::FieldNotSingleLine { .. } => "edit::field_not_single_line",
             EditError::FieldCoercionFailed { .. } => "edit::field_coercion_failed",
             EditError::Change(_) => "edit::content_apply",
+            EditError::InputTooLarge { .. } => "edit::input_too_large",
+            EditError::TooManySteps { .. } => "edit::too_many_steps",
+            EditError::TooManyMarks { .. } => "edit::too_many_marks",
+            EditError::TooManyAnchors { .. } => "edit::too_many_anchors",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
             EditError::Base(e) => e.code(),
@@ -314,6 +371,10 @@ impl EditError {
                 "target" => target,
             },
             EditError::Change(_) => diag_args! {},
+            EditError::InputTooLarge { size, max } => diag_args! { "size" => size, "max" => max },
+            EditError::TooManySteps { count, max }
+            | EditError::TooManyMarks { count, max }
+            | EditError::TooManyAnchors { count, max } => diag_args! { "count" => count, "max" => max },
             // One code, four sentences: the variant that spoke is not on the
             // wire, so a consumer's template falls back to `message`.
             EditError::InvalidPayload(_) => diag_args! {},
@@ -1409,7 +1470,7 @@ impl Card {
     /// over-nested input returns [`EditError::Import`] rather than degrading to
     /// the empty content.
     pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Revised, EditError> {
-        let (content, revised) = revise_import(self.body_lines(), body).map_err(EditError::Import)?;
+        let (content, revised) = revise_import(self.body_lines(), body).map_err(EditError::import)?;
         self.overwrite_body(content);
         Ok(revised)
     }
@@ -1423,7 +1484,7 @@ impl Card {
         body: impl Into<String>,
     ) -> Result<(Normalized, Revised), EditError> {
         let base = self.richtext_base(name)?;
-        revise_import(&base, body).map_err(EditError::Import)
+        revise_import(&base, body).map_err(EditError::import)
     }
 
     /// The field's current content value, read as [`richtext_base`](Self::richtext_base)

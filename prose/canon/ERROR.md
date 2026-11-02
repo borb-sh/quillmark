@@ -121,6 +121,17 @@ A base the document no longer holds the change since for refuses under
 `edit::stale_base`, carrying `current`. The pure `rebase` raises the same
 conflict, its `current` the hash of the value `over` left. A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)).
+Four bounds refuse under codes of their own, each carrying the `max` it
+passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content
+vocabularies" lists them): `edit::too_many_marks` and `edit::too_many_anchors`,
+carrying `count`, for a value that would hold more marks than its text
+allows or more anchors than a value may, refused by the step that would pass
+the bound, by a value a binding decodes, and by `replace`;
+`edit::too_many_steps`, carrying `count`, for a change of more steps than
+`MAX_CHANGE_STEPS`, on every write of a change and every change a binding
+takes; and `edit::input_too_large`, carrying `size` in bytes, for markdown a
+revise or `importMarkdown` reads past 10 MiB, or a content value a binding
+takes whose text and its slots' texts pass it.
 A write names its card by `$id`, and an id no card holds is
 `edit::unknown_card_id`, carrying `id`; an address naming a card by `$id` on
 any other verb refuses the same way. A content write's
@@ -206,6 +217,9 @@ families:
   - `footnote` for a footnote definition nothing references, a second
     definition of one label, or a reference in a table cell, an image's alt
     text or a note;
+  - `footnote:size` for a reference past the `MAX_NOTE_COPIES` characters
+    the copies of a document's notes share, which stays as its `[^label]`
+    text;
   - `footnote[<block>]` for a block in a note, which keeps its text as lines
     of the note: `heading`, `list`, `code`, `quote`, `table` or `rule`;
   - `math` for an equation in a table cell, an image's alt text or a note,
@@ -567,6 +581,10 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::unknown_card_id` | `id` | structured |
 | `edit::import` | — | fallback |
 | `edit::content_apply` | — | fallback |
+| `edit::input_too_large` | `size`, `max` | structured |
+| `edit::too_many_steps` | `count`, `max` | structured |
+| `edit::too_many_marks` | `count`, `max` | structured |
+| `edit::too_many_anchors` | `count`, `max` | structured |
 | `edit::invalid_payload` | — | fallback |
 | `edit::stale_base` | `current` | structured |
 | `edit::rebase_conflict` | `current`, `step`?, `reason`? | structured |

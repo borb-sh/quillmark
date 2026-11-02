@@ -1,11 +1,17 @@
-//! How long a long change takes, in a release build: `cargo test --release -p
-//! quillmark-content --test speed -- --ignored --nocapture`. Each case is a
-//! document of `n` paragraphs of about 72 characters and a change of one step
-//! per paragraph. The 288k-character case fails past [`BUDGET`].
+//! How long the content engine takes on long values, in a release build:
+//! `cargo test --release -p quillmark-content --test speed -- --ignored
+//! --nocapture`. A long change is a document of `n` paragraphs of about 72
+//! characters and a change of one step per paragraph, and its 288k-character
+//! case fails past [`BUDGET`]. A long value is `n` list items, quotes and
+//! paragraphs nested in containers, with `x-` marks and anchors, and its
+//! 20000-item case fails past [`VALUE_BUDGET`].
 
 use quillmark_content::change::{AnchorStep, Change, MarkStep, Splice, Step, apply, invert, rebase};
-use quillmark_content::diff::diff;
+use quillmark_content::diff::{diff, replace, revise};
+use quillmark_content::markdown::{from_markdown, to_markdown};
 use quillmark_content::model::{Anchor, Block, BlockKind, Content, Mark, MarkKind};
+use quillmark_content::repair::{Raw, repair};
+use serde_json::{Map, Value, json};
 use quillmark_content::units::{Utf16, change_from_scalars, change_to_scalars};
 use std::hint::black_box;
 use std::time::{Duration, Instant};
@@ -76,7 +82,7 @@ fn time<T>(f: impl Fn() -> T) -> Duration {
 /// The 288k-character case's limits in milliseconds: five times the targets
 /// of 100 to apply and 200 to invert, and about ten times what a laptop takes
 /// for the rest, which a pass that walks the whole text per step overruns.
-const BUDGET: [(&str, f64); 5] = [("apply", 500.0), ("invert", 1000.0), ("revise", 1500.0), ("rebase", 2500.0), ("utf16", 500.0)];
+const BUDGET: [(&str, f64); 5] = [("apply", 500.0), ("invert", 1000.0), ("diff", 1500.0), ("rebase", 2500.0), ("utf16", 500.0)];
 
 fn measure(n: usize) -> (usize, usize, [f64; 5]) {
     let d = document(n);
@@ -95,23 +101,114 @@ fn measure(n: usize) -> (usize, usize, [f64; 5]) {
 
 #[test]
 #[ignore = "a release-build timing, run on its own"]
-fn a_long_change_applies_inverts_revises_and_rebases_in_time() {
-    print!("{:>8} {:>6}", "chars", "steps");
+fn a_long_change_applies_inverts_diffs_and_rebases_in_time() {
+    let mut table = format!("{:>8} {:>6}", "chars", "steps");
     for (what, _) in BUDGET {
-        print!(" {:>10}", format!("{what} ms"));
+        table += &format!(" {:>10}", format!("{what} ms"));
     }
-    println!();
     let mut over = Vec::new();
     for n in [1000, 4000] {
         let (chars, steps, times) = measure(n);
-        print!("{chars:>8} {steps:>6}");
+        table += &format!("\n{chars:>8} {steps:>6}");
         for t in times {
-            print!(" {t:>10.1}");
+            table += &format!(" {t:>10.1}");
         }
-        println!();
         if n == 4000 {
             over.extend(BUDGET.iter().zip(times).filter(|((_, limit), t)| t > limit).map(|((what, limit), t)| format!("{what} {t:.1} ms > {limit} ms")));
         }
     }
+    println!("{table}");
+    assert!(over.is_empty(), "past budget: {}", over.join(", "));
+}
+
+fn ext(name: &str, n: usize) -> MarkKind {
+    let mut attrs = Map::new();
+    attrs.insert("n".into(), n.into());
+    MarkKind::Ext { name: format!("x-{name}"), attrs }
+}
+
+/// `n` items: runs of a nested bullet list, an ordered list and a quote
+/// between paragraphs, with an `x-` mark on one item in three and an anchor on
+/// one in seven.
+fn long_value(n: usize) -> (String, Content) {
+    let md: Vec<String> = (0..n)
+        .map(|i| match i % 40 {
+            0 => format!("\n## Part {i:05}\n"),
+            1..=19 if i % 5 == 3 => format!("  - nested {i:05} item with *one* word"),
+            1..=19 => format!("- item {i:05} carries a word"),
+            20 => format!("\nThe paragraph {i:05} sits between lists.\n"),
+            21..=34 => format!("{}. step {i:05} carries a word", i - 20),
+            _ => format!("\n> quoted {i:05} carries a word"),
+        })
+        .collect();
+    let md = md.join("\n");
+    let mut c = from_markdown(&md).unwrap().content;
+    let ranges = c.block_ranges();
+    c.marks.extend(ranges.iter().enumerate().filter(|(k, _)| k % 3 == 1).map(|(k, &(s, e))| Mark::new(s, e.min(s + 6), ext("tag", k % 4))));
+    c.anchors = ranges.iter().enumerate().filter(|(k, _)| k % 7 == 2).map(|(k, &(s, _))| Anchor::new(format!("a-{k}"), s + 2, s + 4)).collect();
+    c.normalize();
+    c.validate().unwrap();
+    assert!(!c.containers.is_empty() && c.marks.iter().any(|m| matches!(m.kind, MarkKind::Ext { .. })));
+    (md, c)
+}
+
+/// A value whose one `x-` mark per line would be cut at every break of the
+/// text it spans: refused at decode, before it multiplies.
+fn multiplying_value(n: usize) -> Value {
+    let text = vec!["ab"; n].join("\n");
+    let len = text.chars().count();
+    let blocks: Vec<Value> = (0..n).map(|i| json!({"id": format!("b{i}"), "kind": "para"})).collect();
+    let marks: Vec<Value> = (0..n).map(|i| json!({"start": 0, "end": len, "type": "x-a", "attrs": {"n": i}})).collect();
+    json!({"text": text, "blocks": blocks, "marks": marks})
+}
+
+/// The 20000-item value's limits in milliseconds, about five times what a
+/// loaded laptop takes: a lookup by scan per block overruns revise and
+/// replace, a walk per repaired container overruns repair, and a mark cut at
+/// every break before it is counted overruns refuse.
+const VALUE_BUDGET: [(&str, f64); 7] =
+    [("splice", 600.0), ("revise", 2500.0), ("replace", 1500.0), ("repair", 1000.0), ("import", 600.0), ("decode", 600.0), ("refuse", 100.0)];
+
+fn measure_value(n: usize) -> (usize, [f64; 7]) {
+    let (md, d) = long_value(n);
+    let middle = d.block_ranges()[d.blocks.len() / 2].0;
+    let one = Change::new(vec![Step::Splice(Splice::new(middle, "", "new "))]);
+    let after = apply(&d, &one).unwrap().content;
+    let written = to_markdown(&d);
+    let at = written.len() / 2 + written[written.len() / 2..].find("word").unwrap();
+    let revised = format!("{}phrase{}", &written[..at], &written[at + 4..]);
+    let value = d.to_value();
+    let multiplying = multiplying_value(2000);
+    let times = [
+        time(|| apply(&d, &one).unwrap()),
+        time(|| revise(&d, &revised).unwrap()),
+        time(|| replace(&d, &after).unwrap()),
+        time(|| repair(Raw::from(&d))),
+        time(|| from_markdown(&md).unwrap()),
+        time(|| Content::from_value(&value).unwrap()),
+        time(|| Content::from_value(&multiplying).unwrap_err()),
+    ];
+    (d.text.chars().count(), times.map(|t| t.as_secs_f64() * 1000.0))
+}
+
+#[test]
+#[ignore = "a release-build timing, run on its own"]
+fn a_long_value_writes_revises_repairs_and_decodes_in_time() {
+    let mut table = format!("{:>6} {:>8}", "items", "chars");
+    for (what, _) in VALUE_BUDGET {
+        table += &format!(" {:>11}", format!("{what} ms"));
+    }
+    let mut over = Vec::new();
+    for n in [5000, 20000] {
+        let (chars, times) = measure_value(n);
+        table += &format!("\n{n:>6} {chars:>8}");
+        for t in times {
+            table += &format!(" {t:>11.1}");
+        }
+        if n == 20000 {
+            over.extend(VALUE_BUDGET.iter().zip(times).filter(|((_, limit), t)| t > limit).map(|((what, limit), t)| format!("{what} {t:.1} ms > {limit} ms")));
+        }
+    }
+    println!("{table}");
     assert!(over.is_empty(), "past budget: {}", over.join(", "));
 }

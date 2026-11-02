@@ -161,6 +161,7 @@ A mutator or typed write the document refuses.
 - `edit::field_not_content`
 - `edit::field_not_single_line`
 - `edit::import`
+- `edit::input_too_large`
 - `edit::index_out_of_range`
 - `edit::invalid_card_id`
 - `edit::invalid_field_name`
@@ -170,7 +171,10 @@ A mutator or typed write the document refuses.
 - `edit::reserved_kind`
 - `edit::root_only_entry`
 - `edit::stale_base`
+- `edit::too_many_anchors`
 - `edit::too_many_cards`
+- `edit::too_many_marks`
+- `edit::too_many_steps`
 - `edit::unknown_card_id`
 - `edit::unknown_field`
 - `edit::value_too_deep`

@@ -8,14 +8,15 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use quillmark_content::change::{self, Change};
 use quillmark_content::model::Content;
-use quillmark_core::document::{Document, Edit, EditError, Receipt, Target};
+use quillmark_content::wire::ParseError;
+use quillmark_core::document::{Document, Edit, EditError, Receipt, Target, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 
 use crate::errors::convert_edit_error;
 use crate::types::{json_to_py, py_diagnostics, py_to_json};
 
 fn change_error(e: change::ApplyError) -> PyErr {
-    convert_edit_error(EditError::Change(e), &DocPath::new())
+    convert_edit_error(EditError::change(e), &DocPath::new())
 }
 
 pub(crate) fn content_from_py(value: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Content> {
@@ -23,11 +24,20 @@ pub(crate) fn content_from_py(value: &Bound<'_, PyAny>, ctx: &str) -> PyResult<C
     if !json.is_object() {
         return Err(PyValueError::new_err(format!("{ctx}: expected a Content dict")));
     }
-    Content::from_value(&json).map_err(|e| PyValueError::new_err(format!("{ctx}: not a Content: {e}")))
+    check_content_value(&json).map_err(|e| convert_edit_error(e, &DocPath::new()))?;
+    Content::from_value(&json).map_err(|e| match &e {
+        ParseError::Invalid(inv) if EditError::bound(inv).is_some() => {
+            convert_edit_error(EditError::bound(inv).expect("a bound"), &DocPath::new())
+        }
+        _ => PyValueError::new_err(format!("{ctx}: not a Content: {e}")),
+    })
 }
 
 pub(crate) fn change_from_py(value: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Change> {
-    Change::from_value(&py_to_json(value)?).map_err(|e| PyValueError::new_err(format!("{ctx}: not a Change: {e}")))
+    let change =
+        Change::from_value(&py_to_json(value)?).map_err(|e| PyValueError::new_err(format!("{ctx}: not a Change: {e}")))?;
+    check_change(&change).map_err(|e| convert_edit_error(e, &DocPath::new()))?;
+    Ok(change)
 }
 
 pub(crate) fn content_to_py<'py>(py: Python<'py>, c: &Content) -> PyResult<Bound<'py, PyAny>> {

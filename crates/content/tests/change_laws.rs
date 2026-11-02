@@ -100,7 +100,7 @@ fn with_ext(mut c: Content, seed: u8) -> Content {
 type Op = (u8, usize, usize, u8);
 
 fn ops() -> impl Strategy<Value = Vec<Op>> {
-    prop::collection::vec((0u8..14, any::<usize>(), any::<usize>(), any::<u8>()), 1..8)
+    prop::collection::vec((0u8..15, any::<usize>(), any::<usize>(), any::<u8>()), 1..8)
 }
 
 const INSERTS: [&str; 7] = ["x", "yz", " ", "\n", "q\nr", "\u{2028}", "😀a"];
@@ -302,7 +302,7 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
             s.islands = vec![island];
             Step::Splice(s)
         }
-        _ => {
+        13 => {
             let held = c.containers.get(x % c.containers.len().max(1))?;
             let kind = match held.kind {
                 ContainerKind::List { ordered, start } => ContainerKind::List { ordered: ordered != (z % 2 == 0), start: start + y as u64 % 3 },
@@ -311,7 +311,40 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
             };
             Step::Container(ContainerStep::Set(Container::new(held.id.clone(), kind)))
         }
+        _ => return island_move(c, x, y, z),
     })
+}
+
+/// An island moved as `diff` moves one: its slot, with the `\n` opening its
+/// block where it sits alone in one, deleted and inserted at another block
+/// boundary or offset under the same id, the copy first on every other `z`.
+fn island_move(c: &Content, x: usize, y: usize, z: u8) -> Option<Step> {
+    let island = c.islands.get(x % c.islands.len().max(1))?.clone();
+    let cs = chars(c);
+    let slot = cs.iter().enumerate().filter(|(_, ch)| **ch == ISLAND_SLOT).nth(x % c.islands.len())?.0;
+    let k = c.block_at(slot);
+    let alone = k > 0 && c.block_texts()[k] == ISLAND_SLOT.to_string();
+    let (from, chunk, blocks) = match alone {
+        true => (slot - 1, format!("\n{ISLAND_SLOT}"), vec![c.blocks[k].clone()]),
+        false => (slot, ISLAND_SLOT.to_string(), Vec::new()),
+    };
+    let n = chunk.chars().count();
+    let to = match alone {
+        true => {
+            let ends: Vec<usize> = (0..=cs.len()).filter(|&i| (i == cs.len() || cs[i] == '\n') && (i < from || i > from + n)).collect();
+            *ends.get(y % ends.len().max(1))?
+        }
+        false => (0..=cs.len()).filter(|&i| i < from || i > from + n).nth(y % (cs.len() - n).max(1))?,
+    };
+    let insert = |at| Step::Splice(Splice { blocks: blocks.clone(), islands: vec![island.clone()], ..Splice::new(at, "", chunk.clone()) });
+    let delete = |at| Step::Splice(Splice::new(at, chunk.clone(), ""));
+    let steps = match (z % 2 == 0, to < from) {
+        (true, true) => vec![insert(to), delete(from + n)],
+        (true, false) => vec![insert(to), delete(from)],
+        (false, true) => vec![delete(from), insert(to)],
+        (false, false) => vec![delete(from), insert(to - n)],
+    };
+    Some(Step::Nested { island: String::new(), slot: String::new(), change: Change::new(steps) })
 }
 
 /// A change built against `d`, each step kept only where the value it reads
@@ -369,6 +402,22 @@ fn next(p: &Pos) -> Pos {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(300))]
 
+    /// The canonical bytes written as the value is read, which the content
+    /// hash digests, are the bytes of the key-sorted JSON tree, opaque bags
+    /// and their numbers and escapes included.
+    #[test]
+    fn canonical_bytes_stream_as_the_tree_serializes(d in document(), n in any::<i64>(), f in any::<f64>(), s in "\\PC{0,6}") {
+        let mut d = d;
+        let attrs = json!({"z": f.is_finite().then_some(f), "a": {"y": [n, null, true, -0.0], "b": s.clone()}, "m": [{"q": 1, "c": 2}]});
+        let len = d.len_usv();
+        if len > 0 {
+            d.marks.push(Mark::new(0, len, MarkKind::Ext { name: "x-z".into(), attrs: attrs.as_object().unwrap().clone() }));
+        }
+        let mut streamed = Vec::new();
+        d.write_canonical(&mut streamed).unwrap();
+        prop_assert_eq!(String::from_utf8(streamed).unwrap(), serde_json::to_string(&d.to_value()).unwrap());
+    }
+
     #[test]
     fn every_change_inverts_exactly(d in document(), ops in ops()) {
         let c = change_for(&d, &ops);
@@ -377,6 +426,7 @@ proptest! {
         let back = apply(&after.content, &undo);
         prop_assert!(back.is_ok(), "undo refused: {:?}\nchange {:?}\nundo {:?}", back, c, undo);
         prop_assert_eq!(back.unwrap().content, d, "change {:?}", c);
+        prop_assert!(Mapping::from_change(&undo).is_ok(), "the inverse does not map: {:?}", undo);
     }
 
     #[test]
@@ -436,7 +486,8 @@ proptest! {
 
     /// Each character either goes, which the two edges around it both say,
     /// or keeps its place: the edges land around it, and the survivors keep
-    /// their order.
+    /// their order. One in a slot the change neither edits nor leaves
+    /// otherwise, its island moved or not, keeps its place.
     #[test]
     fn a_mapped_position_lands_on_its_character(d in document(), ops in ops()) {
         let c = change_for(&d, &ops);
@@ -446,6 +497,11 @@ proptest! {
             let q = map_pos(&after.applied, &p, Assoc::After).unwrap();
             let r = map_pos(&after.applied, &next(&p), Assoc::Before).unwrap();
             prop_assert_eq!(q.deleted, r.deleted, "{:?} under {:?}", p, c);
+            if let Pos::In { island, slot, .. } = &p {
+                let edited = c.steps.iter().any(|s| matches!(s, Step::Nested { island: i, slot: k, .. } if i == island && k == slot));
+                let kept = !edited && after.content.slot(island, slot).is_some_and(|now| Some(now) == d.slot(island, slot));
+                prop_assert!(!(kept && q.deleted), "{:?} in a slot the change kept, under {:?}", p, c);
+            }
             if q.deleted {
                 prop_assert!(q.deleted_after && r.deleted_before);
                 continue;
@@ -523,6 +579,40 @@ fn a_step_sets_and_removes_a_reserved_name_and_refuses_another_unknown_one() {
     assert!(matches!(Change::from_json(unknown), Err(quillmark_content::wire::ParseError::UnknownName { .. })));
     let unknown = Change::new(vec![Step::SetBlock(SetBlock { id: "b0".into(), kind: Some("callout".into()), ..SetBlock::default() })]);
     assert!(matches!(apply(&d, &unknown), Err(ApplyError::BadStep { step: 0, .. })));
+}
+
+/// A step holding a key its kind does not define is refused, so a
+/// misspelled precondition never decodes as a step without it; the `attrs`
+/// and `props` bags stay open.
+#[test]
+fn a_step_holding_a_key_it_does_not_define_is_refused() {
+    let steps = [
+        json!({"splice": {"at": 0, "delete": "he", "insert": "x", "marks": [{"start": 0, "end": 1, "type": "x-glow", "attrs": {"x-any": 1}}], "removed": {}}}),
+        json!({"setBlock": {"id": "b0", "kind": "x-callout", "attrs": {"tone": "warm", "x-any": 1}, "path": []}}),
+        json!({"container": {"id": "l9", "kind": "list", "attrs": {"ordered": true}}}),
+        json!({"container": {"id": "l9", "remove": true}}),
+        json!({"mark": {"start": 0, "end": 2, "type": "strong", "add": true, "quote": "he"}}),
+        json!({"anchor": {"id": "c1", "start": 0, "end": 2, "quote": "he"}}),
+        json!({"anchor": {"id": "c1", "remove": true}}),
+        json!({"island": {"at": 0, "island": {"id": "m0", "type": "math", "props": {"tex": "y", "x-any": 1}}, "block": "b0"}}),
+        json!({"island": {"id": "m0", "props": {"tex": "y"}, "slots": {}}}),
+        json!({"nested": {"island": "m0", "slot": "s0", "change": {"steps": []}}}),
+    ];
+    for step in steps {
+        assert!(Change::from_value(&json!({"steps": [step.clone()]})).is_ok(), "{step}");
+        let (name, body) = step.as_object().unwrap().iter().next().unwrap();
+        let mut wrong = body.clone();
+        wrong["qoute"] = json!("he");
+        let refused = Change::from_value(&json!({"steps": [{name: wrong}]}));
+        assert!(matches!(&refused, Err(quillmark_content::wire::ParseError::UnknownKey { key, .. }) if key == "qoute"), "{name}: {refused:?}");
+    }
+    for nested in [
+        json!({"splice": {"at": 0, "delet": "he", "insert": "x"}}),
+        json!({"splice": {"at": 0, "insert": "x", "marks": [{"type": "strong", "atrs": {}}]}}),
+        json!({"splice": {"at": 0, "insert": "x", "removed": {"block": []}}}),
+    ] {
+        assert!(matches!(Change::from_value(&json!({"steps": [nested.clone()]})), Err(quillmark_content::wire::ParseError::UnknownKey { .. })), "{nested}");
+    }
 }
 
 #[test]
@@ -1038,8 +1128,9 @@ proptest! {
 
 mod diffs {
     use super::*;
-    use quillmark_content::diff::{align, diff, replace, revise};
-    use quillmark_content::markdown::{to_markdown, to_markdown_annotated};
+    use quillmark_content::diff::{align, diff, lift, replace, revise};
+    use quillmark_content::markdown::{Loss, to_markdown, to_markdown_annotated, to_markdown_checked};
+    use quillmark_content::migrate::to_lines;
 
     /// The two equal once every block, container and island id is renamed by
     /// where it first appears.
@@ -1062,6 +1153,36 @@ mod diffs {
             c
         }
         erased(want) == erased(got)
+    }
+
+    /// `c` with each `x-` block a paragraph, each `x-` mark dropped and each
+    /// `x-` island gone.
+    fn without_ext(mut c: Content) -> Content {
+        let ext_slots: Vec<usize> = c
+            .islands
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| matches!(i.island_type, IslandType::Ext(_)))
+            .map(|(n, _)| n)
+            .collect();
+        for n in ext_slots.into_iter().rev() {
+            let at = c.text.chars().enumerate().filter(|(_, ch)| *ch == ISLAND_SLOT).nth(n).unwrap().0;
+            let step = Step::Splice(Splice::new(at, ISLAND_SLOT.to_string(), ""));
+            c = apply(&c, &Change::new(vec![step])).unwrap().content;
+        }
+        for b in &mut c.blocks {
+            if matches!(b.kind, BlockKind::Ext { .. }) {
+                b.kind = BlockKind::Para;
+            }
+        }
+        c.marks.retain(|m| !matches!(m.kind, MarkKind::Ext { .. }));
+        for island in &mut c.islands {
+            for slot in island.slots.values_mut() {
+                slot.marks.retain(|m| !matches!(m.kind, MarkKind::Ext { .. }));
+            }
+        }
+        c.normalize();
+        c
     }
 
     fn without_anchors(mut c: Content) -> Content {
@@ -1096,14 +1217,34 @@ mod diffs {
             prop_assert_eq!(done, aligned);
         }
 
+        /// Over values the model reaches, markdown-born or not: a revise with
+        /// the value's own annotated read writes nothing.
         #[test]
-        fn revising_with_the_markdown_read_changes_nothing(d in document()) {
-            let r = revise(&d, &to_markdown_annotated(&d).markdown).unwrap();
-            let done = apply(&d, &r.change).unwrap().content;
-            prop_assert_eq!(&done.text, &d.text);
-            prop_assert_eq!(done.blocks.iter().map(|b| &b.id).collect::<Vec<_>>(), d.blocks.iter().map(|b| &b.id).collect::<Vec<_>>());
-            prop_assert_eq!(done.containers, d.containers.clone());
-            prop_assert_eq!(done.islands.iter().map(|i| &i.id).collect::<Vec<_>>(), d.islands.iter().map(|i| &i.id).collect::<Vec<_>>());
+        fn revising_with_the_markdown_read_changes_nothing(d in document(), ops in ops()) {
+            for c in [d.clone(), apply(&d, &change_for(&d, &ops)).unwrap().content] {
+                let r = revise(&c, &to_markdown_annotated(&c).markdown).unwrap();
+                prop_assert_eq!(apply(&c, &r.change).unwrap().content, c.clone(), "{:?}", r.change);
+            }
+        }
+
+        /// The line form is a faithful view of every value but for what the
+        /// checked export names as its loss: an `x-` member, which it lowers,
+        /// and a slot whose breaks it spells otherwise.
+        #[test]
+        fn the_line_form_keeps_every_value_but_its_named_losses(d in document(), ops in ops()) {
+            for c in [d.clone(), apply(&d, &change_for(&d, &ops)).unwrap().content] {
+                let c = without_ext(c);
+                let mut lifted = lift(&c, &to_lines(&c));
+                let mut want = c.clone();
+                for loss in to_markdown_checked(&c).losses {
+                    let Loss::SlotBreaks { island, slot } = loss else { continue };
+                    for v in [&mut lifted, &mut want] {
+                        let i = v.islands.iter().position(|i| i.id == island).unwrap();
+                        v.islands[i].slots.insert(slot.clone(), Content::empty());
+                    }
+                }
+                prop_assert_eq!(lifted, want);
+            }
         }
 
         #[test]
@@ -1219,6 +1360,46 @@ mod diffs {
         assert_eq!(done.islands[0].slot_order(), d.islands[0].slot_order());
         assert!(r.change.steps.iter().any(|s| matches!(s, Step::Nested { .. })));
     }
+
+    /// A held id at the top of `u64` leaves no number past it, and a revise
+    /// mints the lowest one no held id takes.
+    #[test]
+    fn a_revise_past_an_id_at_the_top_of_u64_mints_the_lowest_free_one() {
+        let mut d = from_markdown("one\n\ntwo").unwrap().content;
+        d.blocks[1].id = format!("b{}", u64::MAX);
+        let r = revise(&d, "one\n\nnew\n\ntwo").unwrap();
+        assert_eq!(segments(&r.content), ["b0=one", "b1=new", &format!("b{}=two", u64::MAX)]);
+    }
+
+    /// Two tables each under the cell limit pass the import's budget for a
+    /// document's tables together; a revise with the read keeps every row of
+    /// the second, as it does an edit beside them.
+    #[test]
+    #[ignore = "a hundred thousand cells, minutes in a debug build: run with --release"]
+    fn a_revise_keeps_the_rows_its_reads_import_cut() {
+        let rows = quillmark_content::MAX_TABLE_CELLS / 4;
+        let table = |tag: &str| {
+            let body: String = (0..rows).map(|r| format!("| {tag}{r} | x |\n")).collect();
+            from_markdown(&format!("| a | b |\n| - | - |\n{body}")).unwrap().content
+        };
+        let (one, two) = (table("p"), table("q"));
+        let mut second = two.islands[0].clone();
+        second.id = "isl-1".into();
+        let c = Content {
+            text: format!("{ISLAND_SLOT}\n{ISLAND_SLOT}\nTail."),
+            blocks: vec![one.blocks[0].clone(), Block::new("b1", BlockKind::Para), Block::new("b2", BlockKind::Para)],
+            islands: vec![one.islands[0].clone(), second],
+            ..Content::empty()
+        };
+        assert_eq!(c.validate(), Ok(()));
+        let read = to_markdown_annotated(&c).markdown;
+        let rows_of = |c: &Content| c.islands.iter().map(|i| Table::read(&i.props).unwrap().rows.len()).collect::<Vec<_>>();
+        let cut = from_markdown(&read).unwrap().content;
+        assert!(rows_of(&cut)[1] < rows + 1, "the import cuts the second table");
+        let done = apply(&c, &revise(&c, &read.replace("Tail.", "Tail, edited.")).unwrap().change).unwrap().content;
+        assert_eq!(rows_of(&done), [rows + 1, rows + 1]);
+        assert_eq!(done.islands, c.islands);
+    }
 }
 
 /// `p` with its offsets in UTF-16 code units, each level on its own text.
@@ -1303,7 +1484,7 @@ fn an_offset_inside_a_surrogate_pair_is_refused() {
 /// A change on `d` that touches only the text in `[lo, hi]`, the window
 /// following what its own splices do, deleting no `\n`, so it joins no
 /// block another change edits, its anchors named `{side}-*`.
-fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str, k0: usize) -> Change {
+fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str) -> Change {
     let mut sim = d.clone();
     let mut steps = Vec::new();
     for (k, &(op, x, y, z)) in ops.iter().enumerate() {
@@ -1311,7 +1492,7 @@ fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str, k
         let (start, end) = (a.min(b), a.max(b));
         let step = match op % 3 {
             0 => {
-                let mut s = splice_on(&sim, start, 0, z, k0 + k);
+                let mut s = splice_on(&sim, start, 0, z, k);
                 let cs = chars(&sim);
                 let dn = cs[start..end].iter().take(3).take_while(|&&ch| ch != '\n').count();
                 s.delete = cs[start..start + dn].iter().collect();
@@ -1334,16 +1515,19 @@ fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str, k
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(300))]
+    #![proptest_config(ProptestConfig { max_global_rejects: 300, ..ProptestConfig::with_cases(300) })]
 
     /// A change rebased over another applies after it and leaves a valid
-    /// value, which the rebased change's inverse takes back exactly.
+    /// value, which the rebased change's inverse takes back exactly. A pair
+    /// that conflicts states nothing, and at most one in two may.
     #[test]
     fn a_rebased_change_applies_after_the_other_and_inverts_there(d in document(), mine in ops(), theirs in ops()) {
         let c = change_for(&d, &mine);
-        let o = change_from(&d, &theirs, 50);
+        let o = change_from(&d, &theirs, 0);
         let now = apply(&d, &o).unwrap().content;
-        let Ok(r) = rebase(&d, &c, &o) else { return Ok(()) };
+        let r = rebase(&d, &c, &o);
+        prop_assume!(r.is_ok());
+        let r = r.unwrap();
         let done = apply(&now, &r);
         prop_assert!(done.is_ok(), "{:?}\nchange {:?}\nover {:?}\nrebased {:?}", done, c, o, r);
         let done = done.unwrap().content;
@@ -1351,6 +1535,10 @@ proptest! {
         let undo = invert(&r, &now).unwrap();
         prop_assert_eq!(apply(&done, &undo).unwrap().content, now);
     }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
 
     #[test]
     fn a_change_rebased_over_nothing_is_itself(d in document(), ops in ops()) {
@@ -1362,13 +1550,16 @@ proptest! {
     /// joining no blocks, rebase over each other, and either way round reach
     /// the value holding both:
     /// the text left of it as the one wrote it, the text right of it as the
-    /// other did.
+    /// other did. The blocks each splits off take their ids from one
+    /// namespace, as two writers minting past one value do, and the change
+    /// rebased renames an id the other also introduced, so the two values
+    /// agree but for the ids of those blocks.
     #[test]
     fn changes_to_disjoint_text_rebase_into_both(d in document(), cut in any::<usize>(), mine in ops(), theirs in ops()) {
         let len = d.len_usv();
         let cut = cut % len;
-        let c = windowed(&d, &mine, (0, cut), "l", 0);
-        let o = windowed(&d, &theirs, (cut + 1, len), "r", 50);
+        let c = windowed(&d, &mine, (0, cut), "l");
+        let o = windowed(&d, &theirs, (cut + 1, len), "r");
         let (left, right) = (apply(&d, &c).unwrap().content, apply(&d, &o).unwrap().content);
         let r = rebase(&d, &c, &o);
         prop_assert!(r.is_ok(), "{:?}\nchange {:?}\nover {:?}", r, c, o);
@@ -1378,7 +1569,11 @@ proptest! {
         let theirs: String = chars(&right)[cut..].iter().collect();
         prop_assert_eq!(&both.text, &format!("{mine}{theirs}"));
         let back = rebase(&d, &o, &c).unwrap();
-        prop_assert_eq!(apply(&left, &back).unwrap().content, both);
+        let unnamed = |mut v: Content| {
+            v.blocks.iter_mut().for_each(|b| b.id.clear());
+            v
+        };
+        prop_assert_eq!(unnamed(apply(&left, &back).unwrap().content), unnamed(both));
     }
 }
 
@@ -1459,7 +1654,7 @@ proptest! {
     #[test]
     fn a_rebased_change_keeps_what_the_other_changed_or_conflicts(d in document(), mine in ops(), theirs in ops()) {
         let c = change_for(&d, &mine);
-        let o = change_from(&d, &theirs, 50);
+        let o = change_from(&d, &theirs, 0);
         let now = apply(&d, &o).unwrap().content;
         let Ok(r) = rebase(&d, &c, &o) else { return Ok(()) };
         let done = apply(&now, &r).unwrap().content;
@@ -1787,7 +1982,7 @@ proptest! {
         {
             let tabbed = done.content;
             let back = apply(&tabbed, &outdent(&tabbed, &first, &last).unwrap()).unwrap().content;
-            prop_assert_eq!(shapes(&back), shapes(&d));
+            prop_assert_eq!(&back, &d);
         }
         let len = d.len_usv();
         let (s, e) = ((x % (len + 1)).min(y % (len + 1)), (x % (len + 1)).max(y % (len + 1)));

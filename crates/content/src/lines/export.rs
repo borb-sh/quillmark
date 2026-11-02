@@ -29,7 +29,9 @@
 //! the import decodes no percent escape. A `url` or `alt` carrying a character
 //! the import does not admit there (a bidi control, a line separator, a line
 //! ending in an `alt`) comes back rewritten. A link over a footnote reference
-//! comes back as two links, one each side: link text reads no reference. An
+//! comes back as two links, one each side: link text reads no reference. A
+//! mark crossing a link's edge writes as one piece outside and one inside the
+//! link text. An
 //! equation whose `tex` its dollars cannot read back as itself comes back as
 //! other markup. A table's slot sharing its line comes back on a line of its
 //! own, the prose either side a block of its own: markdown writes a table only
@@ -1253,9 +1255,26 @@ fn render_marked_core(
 
     // Clip the wrapping marks so the sweep only ever sees a representable shape.
     let mut fmt: Vec<(usize, usize, &MarkKind)> = fmt.to_vec();
+    // A mark crossing one edge of a link writes as one piece outside the link
+    // and one inside its text; one over the whole link wraps it.
+    for &(ls, le, _) in links {
+        for edge in [ls, le] {
+            let crosses = |m: &(usize, usize, &MarkKind)| m.0 < edge && edge < m.1 && !(m.0 <= ls && le <= m.1);
+            let crossing: Vec<_> = fmt.iter().filter(|m| crosses(m)).map(|m| (edge, m.1, m.2)).collect();
+            for m in fmt.iter_mut().filter(|m| crosses(m)) {
+                m.1 = edge;
+            }
+            fmt.extend(crossing);
+        }
+    }
+    let inside_link = |m: &(usize, usize, &MarkKind)| links.iter().any(|&(ls, le, _)| ls <= m.0 && m.1 <= le && (m.0, m.1) != (ls, le));
+    let (mut inner, mut outer): (Vec<_>, Vec<_>) = fmt.drain(..).partition(|m| inside_link(m));
     let mut atomics: Vec<(usize, usize)> = code_ranges.to_vec();
+    clip_fmt_to_atomic(&mut inner, &atomics);
     atomics.extend(links.iter().map(|(s, e, _)| (*s, *e)));
-    clip_fmt_to_atomic(&mut fmt, &atomics);
+    clip_fmt_to_atomic(&mut outer, &atomics);
+    fmt.extend(outer);
+    fmt.extend(inner);
     // A clip can land an edge on a cell's `\n`, where storage trims a mark's
     // edge, so the probe below would read back a mark other than the one asked.
     for m in fmt.iter_mut() {
@@ -1339,7 +1358,27 @@ fn render_marked_core(
         let mut font: Option<usize> = None;
         let (mut oi, mut li, mut ci) = (0usize, 0usize, 0usize);
         let mut pos = 0usize;
+        let mut link: Option<OpenLink> = None;
         while pos <= n {
+            // A link's text closes the marks it opened before its `](url)`.
+            if let Some(open) = link.filter(|l| l.end == pos) {
+                while stack.len() > open.stack {
+                    out.push_str(delim(fmt[stack.pop().unwrap()].2, d));
+                }
+                while underlines.len() > open.underlines {
+                    underlines.pop();
+                    out.push_str("</u>");
+                }
+                if open.font && let Some(fi) = font.take() {
+                    out.push_str(&font_pair(fmt[fi].2).close_tag());
+                }
+                out.push_str("](");
+                let mut dest = String::new();
+                emit_url(open.url, &mut dest);
+                push_piped(&dest, escape_pipe, &mut out);
+                out.push(')');
+                link = None;
+            }
             // A mark whose start the cursor already passed was jumped over by
             // an atomic span's interior and never opens; clipping keeps that
             // set empty.
@@ -1350,7 +1389,13 @@ fn render_marked_core(
             while oi < by_start.len() && fmt[by_start[oi]].0 == pos {
                 oi += 1;
             }
-            let opening: Vec<usize> = by_start[from..oi].iter().copied().filter(|&fi| keep[fi]).collect();
+            while li < links.len() && links[li].0 < pos {
+                li += 1;
+            }
+            let link_here = links.get(li).copied().filter(|l| l.0 == pos && link.is_none());
+            let in_link = |fi: usize| link_here.is_some_and(|(ls, le, _)| ls <= fmt[fi].0 && fmt[fi].1 <= le && (fmt[fi].0, fmt[fi].1) != (ls, le));
+            let (inner, opening): (Vec<usize>, Vec<usize>) =
+                by_start[from..oi].iter().copied().filter(|&fi| keep[fi]).partition(|&fi| in_link(fi));
             let mut reopen: Vec<usize> = Vec::new();
             if let Some(idx) = stack.iter().position(|&fi| fmt[fi].1 == pos) {
                 while stack.len() > idx {
@@ -1376,7 +1421,7 @@ fn render_marked_core(
                 font = None;
             }
             let point = out.len();
-            points.push(point);
+            points.push(link.map_or(point, |l| l.point));
             if let Some(fi) = opening.iter().copied().find(|&fi| is_font(fi)) {
                 out.push_str(&font_pair(fmt[fi].2).open_tag());
                 font = Some(fi);
@@ -1394,37 +1439,30 @@ fn render_marked_core(
                 out.push_str(delim(fmt[fi].2, d));
                 stack.push(fi);
             }
-            // A link is emitted atomically as [text](url). Nested marks in link
-            // text are not supported, but islands are (a linked image is
-            // `[![alt](src)](url)`), so each char routes through
-            // `island_markup_at`; emitting the slice raw would leak the slot.
-            while li < links.len() && links[li].0 < pos {
-                li += 1;
-            }
-            if let Some(&(ls, le, url)) = links.get(li).filter(|l| l.0 == pos) {
+            // A link opens as `[`, its text sweeps with the marks inside it,
+            // and the frame closes as `](url)` at its end. An island in its
+            // text writes its markup (a linked image is `[![alt](src)](url)`).
+            if let Some((ls, le, url)) = link_here {
                 // `[^1][…](…)` reads the reference as text, so an empty
                 // comment, which the import drops, parts the two.
                 if ls > 0 && chars[ls - 1] == ISLAND_SLOT && out.ends_with(']') {
                     out.push_str("<!---->");
                 }
                 out.push('[');
-                for (i, &c) in chars[ls..le].iter().enumerate() {
-                    if c == ISLAND_SLOT {
-                        if let Some(slot) = island_markup_at(ls + i) {
-                            out.push_str(&slot);
-                        }
-                    } else {
-                        escape_char_into(c, i == 0, esc, &mut out);
-                    }
+                link = Some(OpenLink { start: ls, end: le, url, point, stack: stack.len(), underlines: underlines.len(), font: false });
+                if let Some(fi) = inner.iter().copied().find(|&fi| is_font(fi)) {
+                    out.push_str(&font_pair(fmt[fi].2).open_tag());
+                    font = Some(fi);
+                    link.as_mut().unwrap().font = true;
                 }
-                out.push_str("](");
-                let mut dest = String::new();
-                emit_url(url, &mut dest);
-                push_piped(&dest, escape_pipe, &mut out);
-                out.push(')');
-                points.resize(le, point);
-                pos = le;
-                continue;
+                for fi in inner.iter().copied().filter(|&fi| is_underline(fi)) {
+                    out.push_str("<u>");
+                    underlines.push(fi);
+                }
+                for fi in inner.iter().copied().filter(|&fi| !is_underline(fi) && !is_font(fi)) {
+                    out.push_str(delim(fmt[fi].2, d));
+                    stack.push(fi);
+                }
             }
             // A code range is atomic.
             while ci < code_ranges.len() && code_ranges[ci].0 < pos {
@@ -1451,7 +1489,7 @@ fn render_marked_core(
                     out.push(' ');
                 }
                 out.push_str(&fence);
-                points.resize(ce, point);
+                points.resize(ce, link.map_or(point, |l| l.point));
                 pos = ce;
                 continue;
             }
@@ -1461,6 +1499,8 @@ fn render_marked_core(
                     if let Some(slot) = island_markup_at(pos) {
                         out.push_str(&slot);
                     }
+                } else if let Some(open) = link {
+                    escape_char_into(c, pos == open.start, esc, &mut out);
                 } else if Some(pos) == escape_punct_at
                     // A bare `!` before a link's `[` or a reference's `[^`
                     // would open an image.
@@ -1663,6 +1703,19 @@ fn render_marked_core(
         }
     }
     out
+}
+
+/// A link the sweep is inside: its text's range, its url, the tag point of
+/// its start, and the marks open outside it, which its `](url)` closes after.
+#[derive(Clone, Copy)]
+struct OpenLink<'u> {
+    start: usize,
+    end: usize,
+    url: &'u str,
+    point: usize,
+    stack: usize,
+    underlines: usize,
+    font: bool,
 }
 
 /// Probes the verify-and-drop net will spend on one line before giving up and
@@ -2217,6 +2270,26 @@ mod tests {
             to_markdown(&from_markdown("[![a cat](cat.png)](https://e.com)").unwrap().content),
             "[![a cat](cat.png)](https://e.com)"
         );
+    }
+
+    /// Formatting over part of a link's text writes inside its brackets, and a
+    /// mark crossing the link's edge parts there into a piece either side.
+    #[test]
+    fn marks_inside_link_text_round_trip() {
+        round_trips("see [the *official* docs](https://x.io) now");
+        round_trips("[the `code` docs](u)");
+        round_trips("[the ~~code~~ docs](u)");
+        round_trips("[the <u>code</u> docs](u)");
+        round_trips("[the <span style=\"font-family: Fira\">code</span> docs](u)");
+        round_trips("**[the code docs](u)**");
+        let rt = marked(
+            "see the code docs",
+            vec![
+                Mark { start: 0, end: 10, kind: MarkKind::Strong },
+                Mark { start: 4, end: 17, kind: MarkKind::Link { url: "u".into() } },
+            ],
+        );
+        assert_eq!(to_markdown(&rt), "**see** [**the co**de docs](u)");
     }
 
     /// Editor-buildable, not importable. A code span is emitted verbatim, so it

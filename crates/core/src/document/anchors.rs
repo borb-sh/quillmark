@@ -5,10 +5,10 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
-use quillmark_content::lines::anchor::{AnchorContext, Reattached, anchor_context, anchor_contexts};
+use quillmark_content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
 use quillmark_content::lines::delta::Delta;
+use quillmark_content::model::Content;
 use quillmark_content::units::{Scalars, Units};
-use quillmark_content::lines::model::Normalized;
 use serde_json::Value as JsonValue;
 
 use super::{Card, Document};
@@ -66,7 +66,7 @@ impl AnchorSelector {
             .with_card_id(doc.card_id_at(path).map(str::to_string))
     }
 
-    fn context(&self) -> AnchorContext {
+    pub fn context(&self) -> AnchorContext {
         AnchorContext::new(&*self.id, &*self.quote, &*self.prefix, &*self.suffix)
     }
 }
@@ -243,7 +243,7 @@ impl Document {
     pub(crate) fn edit_content_at<R>(
         &mut self,
         path: &DocPath,
-        f: impl FnOnce(&mut Normalized) -> R,
+        f: impl FnOnce(&mut Content) -> R,
     ) -> Option<R> {
         let (card, rest) = match path.segs() {
             [DocSeg::Main, rest @ ..] => (&mut self.main, rest),
@@ -258,10 +258,10 @@ impl Document {
         };
         match rest {
             [DocSeg::Body] => {
-                let mut lines = card.body_lines().clone();
-                let out = f(&mut lines);
-                if &lines != card.body_lines() {
-                    card.set_body_lines(lines);
+                let mut body = card.body().clone();
+                let out = f(&mut body);
+                if &body != card.body() {
+                    card.set_body(body);
                 }
                 Some(out)
             }
@@ -281,7 +281,7 @@ impl Document {
                 let before = content.clone();
                 let out = f(&mut content);
                 if content != before {
-                    *leaf = super::stored_over(Some(leaf), &content);
+                    *leaf = content.to_value();
                 }
                 Some(out)
             }
@@ -306,13 +306,13 @@ impl Document {
     }
 }
 
-type Visit<'a> = dyn FnMut(&DocPath, &Normalized) -> ControlFlow<()> + 'a;
+type Visit<'a> = dyn FnMut(&DocPath, &Content) -> ControlFlow<()> + 'a;
 
 fn each_in_card(card: &Card, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow<()> {
     for (name, value) in card.payload().iter() {
         each_in_value(value.as_json(), &at.field(name), visit)?;
     }
-    visit(&at.body(), card.body_lines())
+    visit(&at.body(), card.body())
 }
 
 fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> ControlFlow<()> {
@@ -335,9 +335,6 @@ fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> Cont
     ControlFlow::Continue(())
 }
 
-fn content_of(value: &JsonValue) -> Option<Normalized> {
-    value
-        .is_object()
-        .then(|| quillmark_content::model::Content::lines_from_value(value).ok())
-        .flatten()
+fn content_of(value: &JsonValue) -> Option<Content> {
+    value.is_object().then(|| Content::from_value(value).ok()).flatten()
 }

@@ -79,7 +79,7 @@ over its keys: read `receipt["warnings"]`.
 - feat(core)!: **`Card::apply`, `revise` and `replace`** write a body or
   richtext field and answer a `Receipt`: the applied change, the new hash,
   and the dropped and moved anchors. Each takes the hash its writer read and
-  refuses a stale one with `edit::stale_base`. `Card::write` takes the
+  rebases a stale one over the writes since (below). `Card::write` takes the
   `Edit` each builds its change from, and `write_in` takes a host's units.
 - feat(wasm)!: **`doc.read`, `apply`, `revise`, `replace`, `annotated` and
   `hash(addr)`, and `invert` and `diff`**, offsets in UTF-16 code units.
@@ -92,7 +92,7 @@ over its keys: read `receipt["warnings"]`.
   `inheritedMarks` take a `Content` and answer the `Change` to apply, offsets
   in UTF-16. `mapPos` carries a position across a `Change`, where it took a
   line delta, and answers a `MapResult`.
-- feat(python)!: **the same surface in snake case**, offsets in code points.
+- feat(python)!: **the content lane in snake case**: `apply`, `revise` and `replace` on the document, and the `invert` and `diff` helpers, offsets in code points; the gestures, `map_pos` and `repair` are WASM-only.
 - feat(core)!: **a content write names its card by `$id`.** An id no card
   holds refuses with `edit::unknown_card_id`. `Document::card_index` and
   `card_by_id` find a card by id. WASM `Addr.card` and Python `card=`
@@ -179,8 +179,8 @@ over its keys: read `receipt["warnings"]`.
   `invert` reads those inverses back, and a receipt lowers the value or
   compares anchors only where something was dropped or rewritten. A
   4000-step change to 288k characters applies in 26 ms, where it took 96 s,
-  and inverts in 30 ms, where it took 496 s; a revise of it takes 0.1 s and
-  a rebase 0.2 s, where they took 294 s and 396 s. An inverse's mark steps
+  and inverts in 30 ms, where it took 496 s; applying its `diff` takes
+  0.1 s and a rebase 0.2 s, where they took 294 s and 396 s. An inverse's mark steps
   restore each run of marks that differs, not one range over all of them.
   `tests/speed.rs` is the gate, run in CI in a release build.
 - perf(content): **converting a change or value to UTF-16 finds each

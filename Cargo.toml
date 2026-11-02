@@ -47,6 +47,8 @@ indexmap = { version = "2", features = ["serde"] }
 
 # Char-level diff (Myers/LCS) for richtext edit deltas.
 similar = "3.1"
+# The word diff's tokens: UAX #29 word boundaries, each punctuation mark its own.
+unicode-segmentation = "1.13"
 
 # The content hash a guarded revise checks; already in the render graph
 # through Typst.

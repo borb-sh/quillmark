@@ -11,7 +11,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
-use quillmark_content::change::{self, Change, ContainerStep, Dropped, IslandStep, Moved, RebaseError, Step};
+use quillmark_content::change::{self, Change, Dropped, Moved, RebaseError, Step};
 use quillmark_content::diff;
 use quillmark_content::lines::import::ImportWarning;
 use quillmark_content::lines::island::IslandType;
@@ -139,20 +139,30 @@ impl Card {
     }
 
     fn write_with<U: Units>(&mut self, target: Target<'_>, edit: Edit<'_>, base: Option<&str>, u: Option<U>) -> Result<Receipt, EditError> {
+        if let Edit::Apply(change) = &edit {
+            check_change(change)?;
+        }
         let read = self.reading(target, base)?;
         let (change, warnings, diffed) = match edit {
             Edit::Apply(change) => match u {
-                Some(u) => (units::change_to_scalars(&change, read.read(), u).map_err(EditError::Change)?, Vec::new(), false),
+                Some(u) => (units::change_to_scalars(&change, read.read(), u).map_err(EditError::change)?, Vec::new(), false),
                 None => (change, Vec::new(), false),
             },
             Edit::Revise(markdown) => {
-                let taken = self.log.ids(target);
-                let revision = diff::revise_holding(read.read(), markdown, &read.now, &taken).map_err(EditError::Import)?;
+                let revision = diff::revise_keeping(read.read(), markdown, &read.now).map_err(|e| match e {
+                    diff::ReviseError::Import(e) => EditError::import(e),
+                    diff::ReviseError::Conflict(c) => {
+                        EditError::Base(BaseError::rebase_conflict(
+                            read.hash.clone().unwrap_or_else(|| self.hash_now(target, &read.now)),
+                            target.field().map(str::to_string),
+                            &c,
+                        ))
+                    }
+                })?;
                 (revision.change, revision.warnings, true)
             }
             Edit::Replace(content) => {
-                let taken = self.log.ids(target);
-                let change = diff::replace_holding(read.read(), &content, &read.now, &taken).map_err(|e| EditError::Change(e.into()))?;
+                let change = diff::replace_holding(read.read(), &content, &read.now).map_err(|e| EditError::change(e.into()))?;
                 (change, Vec::new(), true)
             }
         };
@@ -160,13 +170,13 @@ impl Card {
             None => change,
             Some(since) => read.rebase(target, since, &change)?,
         };
-        let mut applied = change::apply(&read.now, &change).map_err(EditError::Change)?;
+        let mut applied = change::apply(&read.now, &change).map_err(EditError::change)?;
         if diffed {
             keeps_ext_islands(&read.now, &applied.content)?;
             applied.dropped = change::lost_anchors(&read.now, &applied.content, |_| true);
         }
         let shown = match u {
-            Some(u) => units::change_from_scalars(&applied.applied, &read.now, u).map_err(EditError::Change)?,
+            Some(u) => units::change_from_scalars(&applied.applied, &read.now, u).map_err(EditError::change)?,
             None => applied.applied.clone(),
         };
         let rebased = read.since.is_some();
@@ -188,33 +198,53 @@ impl Card {
 
     fn reading(&self, target: Target<'_>, base: Option<&str>) -> Result<Reading, EditError> {
         let now = self.read(target)?;
-        let hash = content_hash(&now);
-        let since = match base {
-            Some(base) if base != hash => {
+        let Some(base) = base else {
+            return Ok(Reading { now, hash: None, since: None });
+        };
+        let hash = self.hash_now(target, &now);
+        let since = match base != hash {
+            true => {
                 let since = self.log.since(target, base, &hash);
                 let stale = || BaseError::Stale { current: hash.clone(), field: target.field().map(str::to_string) };
                 Some(since.ok_or_else(|| EditError::Base(stale()))?)
             }
-            _ => None,
+            false => None,
         };
-        Ok(Reading { now, hash, since })
+        Ok(Reading { now, hash: Some(hash), since })
+    }
+
+    /// The hash of `now`, the value at `target`: the one the last write left
+    /// there, or `now` hashed.
+    fn hash_now(&self, target: Target<'_>, now: &Content) -> String {
+        let held = match target {
+            Target::Body => self.hashes.body(),
+            Target::Field(name) => self.hashes.field(name),
+        };
+        held.map_or_else(|| content_hash(now), str::to_string)
     }
 
     /// Store `content` at `target`, where it differs from the value read,
     /// log `applied` as the change that made it, and answer its hash.
     fn land(&mut self, target: Target<'_>, read: Reading, content: Content, applied: Change) -> Result<String, EditError> {
         let Reading { now: before, hash: before_hash, .. } = read;
-        let value = content.to_value();
-        let hash = super::base::digest(&value);
+        let before_hash = before_hash.unwrap_or_else(|| self.hash_now(target, &before));
+        let (hash, value) = match target {
+            Target::Body => (content_hash(&content), None),
+            Target::Field(_) => {
+                let value = content.to_value();
+                (super::base::digest(&value), Some(value))
+            }
+        };
         if hash != before_hash {
-            match target {
-                Target::Body => self.set_body(content),
-                Target::Field(name) => {
+            match (target, value) {
+                (Target::Field(name), Some(value)) => {
                     self.payload_mut().insert(name.to_string(), QuillValue::from_json(value)).map_err(EditError::InvalidPayload)?;
                 }
+                _ => self.set_body(content),
             }
             self.log.record(target, before_hash, before, applied, hash.clone());
         }
+        self.remember_hash(target.field(), hash.clone());
         Ok(hash)
     }
 }
@@ -247,7 +277,8 @@ fn keeps_ext_islands(before: &Content, after: &Content) -> Result<(), EditError>
 /// hash the log reaches, what changed since.
 struct Reading {
     now: Content,
-    hash: String,
+    /// Hashed only where a base asks for it.
+    hash: Option<String>,
     since: Option<Since>,
 }
 
@@ -267,8 +298,8 @@ impl Reading {
     /// since: a conflict refused with `edit::rebase_conflict`.
     fn rebase(&self, target: Target<'_>, since: &Since, change: &Change) -> Result<Change, EditError> {
         change::rebase(&since.base, change, &since.over).map_err(|e| match e {
-            RebaseError::Apply(e) => EditError::Change(e),
-            RebaseError::Conflict(c) => EditError::Base(BaseError::rebase_conflict(self.hash.clone(), target.field().map(str::to_string), &c)),
+            RebaseError::Apply(e) => EditError::change(e),
+            RebaseError::Conflict(c) => EditError::Base(BaseError::rebase_conflict(self.hash.clone().unwrap_or_default(), target.field().map(str::to_string), &c)),
         })
     }
 }
@@ -279,6 +310,49 @@ impl Reading {
 /// holds. The log holds at most twice this many steps, or the newest write
 /// alone where it holds more.
 pub const LOG_STEPS: usize = 4096;
+
+/// The steps one change a host writes may hold, nested ones counted. Each
+/// step is applied, mapped through a rebase and logged on its own, and a
+/// rebase maps each over every step before it, so a change past this is
+/// refused before any of that runs; a writer splits a larger edit into
+/// several changes.
+pub const MAX_CHANGE_STEPS: usize = 4 * LOG_STEPS;
+
+/// Refuses a change of more than [`MAX_CHANGE_STEPS`] steps, as
+/// [`EditError::TooManySteps`]. Every [`Card::write`] of a change runs it,
+/// and the bindings run it on each change they take.
+pub fn check_change(change: &Change) -> Result<(), EditError> {
+    match steps_in(change) {
+        count if count > MAX_CHANGE_STEPS => Err(EditError::TooManySteps { count, max: MAX_CHANGE_STEPS }),
+        _ => Ok(()),
+    }
+}
+
+/// Refuses a content value, as the JSON a host sent, whose text and its
+/// slots' texts together pass
+/// [`MAX_MARKDOWN_SIZE`](quillmark_content::MAX_MARKDOWN_SIZE) bytes, as
+/// [`EditError::InputTooLarge`]: the bound a markdown door holds, before the
+/// value is decoded. The bindings run it on each content value they take.
+pub fn check_content_value(v: &serde_json::Value) -> Result<(), EditError> {
+    fn text_bytes(v: &serde_json::Value) -> usize {
+        let own = v.get("text").and_then(serde_json::Value::as_str).map_or(0, str::len);
+        let islands: Box<dyn Iterator<Item = &serde_json::Value>> = match v.get("islands") {
+            Some(serde_json::Value::Array(list)) => Box::new(list.iter()),
+            Some(serde_json::Value::Object(map)) => Box::new(map.values()),
+            _ => Box::new(std::iter::empty()),
+        };
+        islands
+            .filter_map(|i| i.get("slots").and_then(serde_json::Value::as_object))
+            .flat_map(|slots| slots.values())
+            .map(text_bytes)
+            .fold(own, usize::saturating_add)
+    }
+    let max = quillmark_content::MAX_MARKDOWN_SIZE;
+    match text_bytes(v) {
+        size if size > max => Err(EditError::InputTooLarge { size, max }),
+        _ => Ok(()),
+    }
+}
 
 /// A card's recent writes, per value it holds, in memory only: no store,
 /// hash or comparison sees it. Per value it holds one snapshot, the value
@@ -430,33 +504,6 @@ impl ChangeLog {
         if !track.fold() {
             self.targets.remove(at);
         }
-    }
-
-    /// Each top-level block, container and island id the log's snapshot at
-    /// `target` holds or a write it holds introduced: the ids a base the log
-    /// reaches may name, which a write mints past.
-    fn ids(&self, target: Target<'_>) -> HashSet<String> {
-        let Some(track) = self.track(target) else { return HashSet::new() };
-        let floor = &track.floor;
-        let mut ids: HashSet<String> = floor.blocks.iter().map(|b| b.id.clone()).collect();
-        ids.extend(floor.containers.iter().map(|k| k.id.clone()));
-        ids.extend(floor.islands.iter().map(|i| i.id.clone()));
-        for step in track.entries.iter().flat_map(|e| &e.applied.steps) {
-            match step {
-                Step::Splice(s) => {
-                    ids.extend(s.blocks.iter().map(|b| b.id.clone()));
-                    ids.extend(s.islands.iter().map(|i| i.id.clone()));
-                }
-                Step::Island(IslandStep::Insert { island, .. }) => {
-                    ids.insert(island.id.clone());
-                }
-                Step::Container(ContainerStep::Set(k)) => {
-                    ids.insert(k.id.clone());
-                }
-                _ => {}
-            }
-        }
-        ids
     }
 
     /// The value `base` named at `target` and the change from it to the

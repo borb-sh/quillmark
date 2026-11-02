@@ -19,6 +19,9 @@ pub enum ParseError {
     Shape(String),
     Json(String),
     UnknownName { axis: &'static str, name: String },
+    /// A key the object at `at`, a change's step or a part of one, does not
+    /// define.
+    UnknownKey { at: &'static str, key: String },
     Invalid(Invariant),
     /// A v1 value that did not decode.
     Legacy(v1::ParseError),
@@ -30,6 +33,7 @@ impl std::fmt::Display for ParseError {
             ParseError::Shape(s) => write!(f, "content json shape: {s}"),
             ParseError::Json(s) => write!(f, "content json parse: {s}"),
             ParseError::UnknownName { axis, name } => write!(f, "content vocabulary: unknown {axis} {name:?}"),
+            ParseError::UnknownKey { at, key } => write!(f, "content json shape: {at} holds no key {key:?}"),
             ParseError::Invalid(inv) => write!(f, "content invariant: {inv}"),
             ParseError::Legacy(e) => write!(f, "{e}"),
         }
@@ -59,10 +63,19 @@ impl Content {
     }
 
     pub fn to_json(&self) -> String {
-        serde_json::to_string(&self.to_value()).unwrap_or_default()
+        let mut out = Vec::new();
+        self.write_canonical(&mut out).expect("a value writes to memory");
+        String::from_utf8(out).expect("JSON is UTF-8")
     }
 
-    /// Decode, normalize and validate. A v1 value migrates.
+    /// The canonical bytes, [`to_json`](Self::to_json)'s, written to `w` as
+    /// they are made, with no [`Value`] built: what a hash digests.
+    pub fn write_canonical(&self, w: impl std::io::Write) -> std::io::Result<()> {
+        serde_json::to_writer(w, &canon::Field(self)).map_err(std::io::Error::other)
+    }
+
+    /// Decode, normalize and validate. A v1 value migrates. The bounds
+    /// normalizing would spend ([`Content::check_bounds`]) are checked first.
     pub fn from_value(v: &Value) -> Result<Content, ParseError> {
         if crate::model::json_too_deep(v) {
             return Err(ParseError::Invalid(Invariant::JsonTooDeep {
@@ -76,6 +89,7 @@ impl Content {
         } else {
             decode(v)?
         };
+        c.check_bounds()?;
         c.normalize();
         c.validate()?;
         Ok(c)
@@ -90,6 +104,164 @@ impl Content {
     pub fn from_json(s: &str) -> Result<Content, ParseError> {
         let v: Value = serde_json::from_str(s).map_err(|e| ParseError::Json(e.to_string()))?;
         Content::from_value(&v)
+    }
+}
+
+/// The canonical form serialized as it is read: every object's keys in
+/// ascending order, a key absent where its value is empty, an opaque bag's
+/// keys sorted as it is written, byte for byte what [`Content::to_value`]
+/// serializes to.
+mod canon {
+    use super::{block_attrs, container_attrs, mark_attrs};
+    use crate::model::{Anchor, Block, Container, Content, Island, Mark};
+    use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+    use serde_json::Value;
+
+    pub(super) struct Field<'a>(pub &'a Content);
+    struct Sorted<'a>(&'a Value);
+    struct OfBlock<'a>(&'a Block);
+    struct OfContainer<'a>(&'a Container);
+    struct OfMark<'a>(&'a Mark);
+    struct OfAnchor<'a>(&'a Anchor);
+    struct OfIsland<'a>(&'a Island);
+
+    /// A list, each item serialized through its view.
+    struct Each<'a, T, W>(&'a [T], fn(&'a T) -> W);
+
+    impl<'a, T, W: Serialize> Serialize for Each<'a, T, W> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let mut seq = s.serialize_seq(Some(self.0.len()))?;
+            for item in self.0 {
+                seq.serialize_element(&(self.1)(item))?;
+            }
+            seq.end()
+        }
+    }
+
+    impl Serialize for Field<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let c = self.0;
+            let mut m = s.serialize_map(None)?;
+            if !c.anchors.is_empty() {
+                m.serialize_entry("anchors", &Each(&c.anchors, OfAnchor))?;
+            }
+            m.serialize_entry("blocks", &Each(&c.blocks, OfBlock))?;
+            if !c.containers.is_empty() {
+                m.serialize_entry("containers", &Each(&c.containers, OfContainer))?;
+            }
+            if !c.islands.is_empty() {
+                m.serialize_entry("islands", &Each(&c.islands, OfIsland))?;
+            }
+            if !c.marks.is_empty() {
+                m.serialize_entry("marks", &Each(&c.marks, OfMark))?;
+            }
+            m.serialize_entry("text", &c.text)?;
+            m.end()
+        }
+    }
+
+    impl Serialize for OfBlock<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let b = self.0;
+            let mut m = s.serialize_map(None)?;
+            if let Some(attrs) = block_attrs(&b.kind) {
+                m.serialize_entry("attrs", &Sorted(&attrs))?;
+            }
+            m.serialize_entry("id", &b.id)?;
+            m.serialize_entry("kind", b.kind.tag())?;
+            if !b.path.is_empty() {
+                m.serialize_entry("path", &b.path)?;
+            }
+            m.end()
+        }
+    }
+
+    impl Serialize for OfContainer<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let c = self.0;
+            let mut m = s.serialize_map(None)?;
+            if let Some(attrs) = container_attrs(&c.kind) {
+                m.serialize_entry("attrs", &Sorted(&attrs))?;
+            }
+            m.serialize_entry("id", &c.id)?;
+            m.serialize_entry("kind", c.kind.tag())?;
+            m.end()
+        }
+    }
+
+    impl Serialize for OfMark<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let mk = self.0;
+            let mut m = s.serialize_map(None)?;
+            if let Some(attrs) = mark_attrs(&mk.kind) {
+                m.serialize_entry("attrs", &Sorted(&attrs))?;
+            }
+            m.serialize_entry("end", &mk.end)?;
+            m.serialize_entry("start", &mk.start)?;
+            m.serialize_entry("type", mk.kind.tag())?;
+            m.end()
+        }
+    }
+
+    impl Serialize for OfAnchor<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let a = self.0;
+            let mut m = s.serialize_map(None)?;
+            m.serialize_entry("end", &a.end)?;
+            m.serialize_entry("id", &a.id)?;
+            m.serialize_entry("start", &a.start)?;
+            m.end()
+        }
+    }
+
+    impl Serialize for OfIsland<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let i = self.0;
+            let mut m = s.serialize_map(None)?;
+            m.serialize_entry("id", &i.id)?;
+            m.serialize_entry("props", &Sorted(&i.props))?;
+            if !i.slots.is_empty() {
+                m.serialize_entry("slots", &Slots(i))?;
+            }
+            m.serialize_entry("type", i.island_type.as_str())?;
+            m.end()
+        }
+    }
+
+    struct Slots<'a>(&'a Island);
+
+    impl Serialize for Slots<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let mut m = s.serialize_map(Some(self.0.slots.len()))?;
+            for (k, v) in &self.0.slots {
+                m.serialize_entry(k, &Field(v))?;
+            }
+            m.end()
+        }
+    }
+
+    impl Serialize for Sorted<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            match self.0 {
+                Value::Object(map) => {
+                    let mut keys: Vec<&String> = map.keys().collect();
+                    keys.sort();
+                    let mut m = s.serialize_map(Some(keys.len()))?;
+                    for k in keys {
+                        m.serialize_entry(k, &Sorted(&map[k]))?;
+                    }
+                    m.end()
+                }
+                Value::Array(items) => {
+                    let mut seq = s.serialize_seq(Some(items.len()))?;
+                    for item in items {
+                        seq.serialize_element(&Sorted(item))?;
+                    }
+                    seq.end()
+                }
+                other => other.serialize(s),
+            }
+        }
     }
 }
 
@@ -522,6 +694,35 @@ mod tests {
         let annotated = crate::markdown::to_markdown_annotated(&c).markdown;
         let r = crate::diff::revise(&c, &annotated).unwrap();
         assert_eq!(crate::change::apply(&c, &r.change).unwrap().content, c, "{annotated}");
+    }
+
+    /// Marks of distinct attributes over many blocks, each cut at every
+    /// break, refuse before they are cut: at decode, and at the step of a
+    /// change that would pass the bound. A repair keeps those within it.
+    #[test]
+    fn marks_a_value_would_multiply_refuse_before_they_are_cut() {
+        use crate::change::{ApplyError, Change, MarkStep, Step, apply};
+        let n = 200;
+        let text = vec!["ab"; n].join("\n");
+        let len = text.chars().count();
+        let ext = |i: usize| json!({"start": 0, "end": len, "type": "x-a", "attrs": {"n": i}});
+        let blocks: Vec<Value> = (0..n).map(|i| json!({"id": format!("b{i}"), "kind": "para"})).collect();
+        let marked = json!({"text": text, "blocks": blocks, "marks": (0..n).map(ext).collect::<Vec<_>>()});
+        let too_many = |e: &Invariant| matches!(e, Invariant::TooManyMarks { .. });
+        assert!(matches!(Content::from_value(&marked), Err(ParseError::Invalid(e)) if too_many(&e)));
+
+        let (repaired, repairs) = crate::repair::repair(crate::repair::Raw::from_value(&marked).unwrap());
+        assert!(repaired.marks.len() <= crate::max_marks(len));
+        assert!(repairs.iter().any(|r| matches!(r, crate::repair::Repair::Invalid(e) if too_many(e))));
+
+        let bare = Content::from_value(&json!({"text": text, "blocks": blocks})).unwrap();
+        let steps = (0..n).map(|i| Step::Mark(MarkStep::Add { mark: mark_from_value(&ext(i)).unwrap(), quote: None }));
+        let refused = apply(&bare, &Change::new(steps.collect()));
+        assert!(matches!(refused, Err(ApplyError::Invalid(e)) if too_many(&e)));
+
+        let anchors: Vec<Value> = (0..=crate::MAX_ANCHORS).map(|i| json!({"id": format!("c{i}"), "start": 0, "end": 0})).collect();
+        let pinned = json!({"text": "", "blocks": [{"id": "b0", "kind": "para"}], "anchors": anchors});
+        assert!(matches!(Content::from_value(&pinned), Err(ParseError::Invalid(Invariant::TooManyAnchors { .. }))));
     }
 
     #[test]

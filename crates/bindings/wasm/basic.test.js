@@ -535,6 +535,14 @@ describe('Content model: importMarkdown / exportMarkdown', () => {
     expect(() => doc.replace({}, { text: '😀', blocks: [{ id: 'b0', kind: 'para' }], marks: [{ start: 1, end: 2, type: 'strong' }] })).toThrow(/inside a character/)
   })
 
+  it('a step holding a key it does not define is refused and writes nothing', () => {
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n\nhello world\n')
+    const held = doc.read({})
+    expect(() => doc.apply({}, { steps: [{ splice: { at: 0, delet: 'hello', insert: 'hi' } }] })).toThrow(/delet/)
+    expect(() => doc.apply({}, { steps: [{ mark: { start: 0, end: 5, type: 'strong', add: true, qoute: 'hello' } }] })).toThrow(/qoute/)
+    expect(doc.read({})).toEqual(held)
+  })
+
   it('an auto-fit column is absent from widths, and a stored null crosses as null', () => {
     const md = '<table widths="1 2 auto">\n<tr><th>a</th><th>b</th><th>c</th></tr>\n<tr><td>1</td><td>2</td><td>3</td></tr>\n</table>'
     const { content } = importMarkdown(md)

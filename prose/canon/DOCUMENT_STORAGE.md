@@ -129,7 +129,11 @@ applied. Every `body` subtree, by contrast, is the recursively key-sorted
 **canonical content form** (`StoredContent` in `dto.rs`): byte-identical
 to `Content::to_value` and independent of `preserve_order`, even in a
 consumer crate graph that lacks the feature. A `richtext` field's value is
-written through the same form. Sortedness is semantic *inside* the content
+written through the same form. `Content::write_canonical` writes those bytes as it
+reads the value, building no `Value` tree, and the content hash
+(`quillmark/hash@1`, SHA-256 over the tag, a newline and these bytes)
+digests them as they are written; the bytes and the hash are the ones the
+tree serializes to, unchanged. Sortedness is semantic *inside* the content
 (mark, island and attribute order carry no meaning, so the serializer commits
 to one bit pattern); insertion order is semantic *outside* it (payload item
 order is source order, and matters).
@@ -206,7 +210,7 @@ whole (`ids::is_ext_name`), decodes into the axis's `Ext` member with its
 hash does not move. A reader holds it without knowing it: validation is
 structural only (the name, the ranges, and the JSON depth of its bag), and the
 renderers read an `x-` block as a paragraph, an `x-` mark as no formatting, and
-an `x-` island as a placeholder. Steps may set and remove one. Containers hold
+an `x-` island as nothing. Steps may set and remove one. Containers hold
 no `x-` name: a container kind is a nesting rule (an item only after a list),
 and a reader cannot check a path through a container whose rule it does not
 know.
@@ -329,7 +333,7 @@ table or as HTML, whichever holds it
 ([markdown-spec.md](../references/markdown-spec.md) §6.8); a cell of several
 paragraphs writes as HTML.
 
-Three rules bound the payload:
+Five rules bound the payload:
 
 - **Payload depth is capped at `MAX_JSON_DEPTH` (128).** Island `props` and an
   `x-` member's `attrs` are host JSON of arbitrary shape, but not arbitrary
@@ -347,6 +351,28 @@ Three rules bound the payload:
   instead, its tables sharing one cap, warning `table:size`.
 - **Nesting is capped at `MAX_NESTING_DEPTH` (12)** items and quotes on one
   path, the depth the markdown codecs and the Typst lowering share.
+- **Marks and anchors are capped against the text they sit on.** A text, a
+  field's or a slot's, holds at most `max_marks(len)`: 64 and 4 per
+  character, far above the one a document nears, and a value at most
+  `MAX_ANCHORS` (100 000) anchors. An `x-` mark over many blocks is cut at
+  each, and marks of distinct attributes never union, so a few bytes could
+  otherwise ask for marks times blocks of them, on wasm32 an allocation that
+  traps. The decoder counts each mark once per block and line it spans and
+  refuses past the cap before normalizing, as `Invariant::TooManyMarks` and
+  `Invariant::TooManyAnchors` (`edit::too_many_marks`,
+  `edit::too_many_anchors`), and a change refuses at the step that would
+  pass it.
+- **Inputs are capped at the doors.** Markdown an import reads, a revise's
+  and `importMarkdown`'s as well as a parse's, is capped at
+  `MAX_MARKDOWN_SIZE` (10 MiB), refused as `ImportError::TooLarge`
+  (`edit::input_too_large`). The bindings refuse a content value whose text
+  and its slots' texts pass the same 10 MiB before decoding it, and a change
+  of more than `MAX_CHANGE_STEPS` (16 384) steps, nested ones counted
+  (`edit::too_many_steps`); `Card::write` refuses such a change too. A
+  footnote reference copies its note, so an import shares
+  `MAX_NOTE_COPIES` (1 000 000) characters among every copy past each
+  note's first; a reference past it stays as its `[^label]` text, warning
+  `footnote:size`.
 
 The opaque props are hash input like everything else in the canonical form, so
 they are recursively key-sorted along with the rest (see Byte-stability). Also a
@@ -395,9 +421,10 @@ is therefore **uniqueness**, not `id == isl-{index}`.
 
 A step names the ids of what it lands, and the apply refuses one already live
 in its scope. A producer minting in a step is bound by the same rule where it
-wants equal edits to reach equal bytes; a live client mints its own at random,
-so a live document's hash is stable from the moment it is stored rather than
-equal to a cold import's. Merge repair derives each id it mints from the ids
+wants equal edits to reach equal bytes; a live client mints its own by a rule
+of its own, and a write re-mints one it introduces that the value holds, so a
+live document's hash is stable from the moment it is stored rather than equal
+to a cold import's. Merge repair derives each id it mints from the ids
 involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 
 A markdown revise keeps the ids: `diff::align` gives the value read from the
@@ -405,9 +432,12 @@ markdown the ids of what it kept, an island equal to a stored one keeping that
 island's id and a `qm-island` tag naming one keeping it outright, and every
 other part mints past the highest id the value held before it, so none takes a
 dropped part's id. A revise or replace re-mints a part it introduces under an
-id the value it lands on holds, or the card's change log still holds, so two
-stale writes that each add a part never mint one id twice, and a stale writer
-never finds the id it read on a part minted since.
+id the value it lands on holds, reading that value and the one its base names
+and never the card's change log, so equal writes over equal values store
+equal bytes. Two stale writes that each add a part never land one id twice,
+since a rebase renames an id both introduced, and a stale writer never finds
+the id it read on a part minted since, since a rebase holds an id the writes
+since removed as gone ([CONTENT.md](CONTENT.md) § "Rebasing a change").
 
 Re-landing a dropped part is not a mint: the delete freed the id and it travels
 back with its part in the inverse, so restoring a deletion restores the bytes.
@@ -446,9 +476,10 @@ The annotated read (`Card::body_annotated` and `field_annotated`, WASM
 `doc.annotated(addr)`, Python `doc.annotated(field)`) spells each prose anchor as
 `<qm-anchor ref="ID"></qm-anchor>` at its start, and each island whose markup
 does not read back as `<qm-island ref="ID"></qm-island>`
-([markdown-spec.md](../references/markdown-spec.md) §6.4). It is two-way: a
-revise reads both against the value at its address, and a cold import drops
-both, the token reported. A range anchor reads as its start and keeps its range
+([markdown-spec.md](../references/markdown-spec.md) §6.4). It is two-way for
+both: a revise reads them against the value at its address, and a cold import
+drops both, the token reported. What else the read does not spell, a content
+write's revise keeps ([CONTENT.md](CONTENT.md) § "Writing a value"). A range anchor reads as its start and keeps its range
 through `revise`; a tag the writer kept pins its anchor's start where the tag
 stands, a tag the writer dropped leaves the anchor to the diff, and a tag naming
 an anchor the stored value does not hold drops, reported. An anchor in a table

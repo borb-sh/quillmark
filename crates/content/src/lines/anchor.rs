@@ -360,7 +360,7 @@ impl Normalized {
     }
 }
 
-fn locate_in(text: &[char], ctx: &AnchorContext, inserted: Option<&[(Usv, Usv)]>) -> Option<(Usv, Usv)> {
+pub(crate) fn locate_in(text: &[char], ctx: &AnchorContext, inserted: Option<&[(Usv, Usv)]>) -> Option<(Usv, Usv)> {
     let quote: Vec<char> = ctx.quote.chars().collect();
     let prefix: Vec<char> = ctx.prefix.chars().collect();
     let suffix: Vec<char> = ctx.suffix.chars().collect();

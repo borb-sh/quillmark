@@ -132,8 +132,9 @@ jobs:
       - name: Tests (zero-backend configuration)
         run: cargo test -p quillmark --no-default-features --locked
 
-  # A long change applied, inverted, revised, rebased and crossed to UTF-16 in
-  # a release build, failing past five times its targets
+  # A long change applied, inverted, diffed, rebased and crossed to UTF-16,
+  # and a long value spliced, revised, replaced, repaired, imported and
+  # decoded, in a release build, each failing past its budget
   # (crates/content/tests/speed.rs). Its own job so the timing runs on a runner
   # no other build shares; quillmark-content has a small dependency tree, so
   # the release build stays short.

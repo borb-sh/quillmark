@@ -299,6 +299,7 @@ pub fn repair(raw: Raw) -> (Content, Vec<Repair>) {
     let mut out = Vec::new();
     let mut c = field(raw, &mut out);
     dedupe_anchors(&mut c, &mut HashSet::new(), &mut out);
+    cap_anchors(&mut c, &mut out);
     c.normalize();
     if let Err(inv) = c.validate() {
         out.push(Repair::Invalid(inv));
@@ -582,6 +583,7 @@ fn field(raw: Raw, out: &mut Vec<Repair>) -> Content {
         m.end = m.end.min(len);
         m.start < m.end
     });
+    cap_marks(&text, &mut marks, out);
     let anchors = anchors
         .into_iter()
         .filter_map(|RawAnchor { mut anchor, range }| {
@@ -824,10 +826,9 @@ fn is_list(kinds: &HashMap<String, ContainerKind>, id: &str) -> bool {
 /// A path whose kinds nest: each id once, an item only right after a list, a
 /// list only right before an item, at most [`crate::MAX_NESTING_DEPTH`] deep.
 fn nest(path: &[String], kinds: &HashMap<String, ContainerKind>) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut out: Vec<String> = Vec::new();
-    for id in path {
-        if !seen.insert(id) {
+    let mut out: Vec<String> = Vec::with_capacity(path.len());
+    for (k, id) in path.iter().enumerate() {
+        if path[..k].contains(id) {
             continue;
         }
         let after_list = out.last().is_some_and(|l| is_list(kinds, l));
@@ -863,8 +864,10 @@ fn nest_all(blocks: &mut [Block], kinds: &HashMap<String, ContainerKind>, out: &
     }
 }
 
-/// Fixes the first container, in first-use order, that sits under two paths
-/// or spans two runs; false when none does.
+/// Fixes, in first-use order, each container that sits under two paths or
+/// spans several runs, reading every container's blocks in one walk; false
+/// when none does. A container one of whose blocks an earlier fix of the
+/// same pass rewrote waits for the next pass, which reads it afresh.
 fn relate(
     blocks: &mut [Block],
     kinds: &mut HashMap<String, ContainerKind>,
@@ -873,65 +876,72 @@ fn relate(
     out: &mut Vec<Repair>,
 ) -> bool {
     let mut order: Vec<String> = Vec::new();
-    let mut seen = HashSet::new();
-    for b in blocks.iter() {
-        for id in &b.path {
-            if seen.insert(id.clone()) {
-                order.push(id.clone());
-            }
+    let mut holders: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
+    for (i, b) in blocks.iter().enumerate() {
+        for (j, id) in b.path.iter().enumerate() {
+            holders
+                .entry(id.clone())
+                .or_insert_with(|| {
+                    order.push(id.clone());
+                    Vec::new()
+                })
+                .push((i, j));
         }
     }
+    let mut touched: HashSet<usize> = HashSet::new();
+    let mut fixed = false;
     for x in order {
-        let holders: Vec<(usize, usize)> = blocks
-            .iter()
-            .enumerate()
-            .filter_map(|(i, b)| b.path.iter().position(|p| *p == x).map(|j| (i, j)))
-            .collect();
-        let (first, j0) = holders[0];
+        let held = &holders[&x];
+        if held.iter().any(|(i, _)| touched.contains(i)) {
+            continue;
+        }
+        let (first, j0) = held[0];
         let prefix = blocks[first].path[..j0].to_vec();
         let mut moved = false;
-        for &(i, j) in &holders[1..] {
+        for &(i, j) in &held[1..] {
             if blocks[i].path[..j] != prefix[..] {
                 let rest = blocks[i].path[j..].to_vec();
                 blocks[i].path = prefix.iter().cloned().chain(rest).collect();
+                touched.insert(i);
                 moved = true;
             }
         }
         if moved {
             out.push(Repair::TwoParents { container: x });
-            return true;
-        }
-        let Some(k) = (1..holders.len()).find(|&k| holders[k].0 != holders[k - 1].0 + 1) else {
+            fixed = true;
             continue;
-        };
-        let run_first = blocks[holders[k].0].id.clone();
-        let mut renamed: HashMap<String, String> = HashMap::new();
-        let mut i = holders[k].0;
-        while i < blocks.len() {
-            let Some(j) = blocks[i].path.iter().position(|p| *p == x) else {
-                break;
-            };
-            for p in j..blocks[i].path.len() {
-                let y = blocks[i].path[p].clone();
-                let fresh = renamed.entry(y.clone()).or_insert_with(|| {
-                    let fresh = ids.derive(&[&y, &run_first]);
-                    let kind = kinds[&y].clone();
-                    kinds.insert(fresh.clone(), kind.clone());
-                    records.push(Container::new(fresh.clone(), kind));
-                    fresh
-                });
-                blocks[i].path[p] = fresh.clone();
-            }
-            i += 1;
         }
-        let fresh = renamed[&x].clone();
-        out.push(Repair::SplitRun {
-            container: x,
-            fresh,
-        });
-        return true;
+        let gaps: Vec<usize> = (1..held.len()).filter(|&k| held[k].0 != held[k - 1].0 + 1).collect();
+        for k in gaps {
+            let run_first = blocks[held[k].0].id.clone();
+            let mut renamed: HashMap<String, String> = HashMap::new();
+            let mut i = held[k].0;
+            while i < blocks.len() {
+                let Some(j) = blocks[i].path.iter().position(|p| *p == x) else {
+                    break;
+                };
+                for p in j..blocks[i].path.len() {
+                    let y = blocks[i].path[p].clone();
+                    let fresh = renamed.entry(y.clone()).or_insert_with(|| {
+                        let fresh = ids.derive(&[&y, &run_first]);
+                        let kind = kinds[&y].clone();
+                        kinds.insert(fresh.clone(), kind.clone());
+                        records.push(Container::new(fresh.clone(), kind));
+                        fresh
+                    });
+                    blocks[i].path[p] = fresh.clone();
+                }
+                touched.insert(i);
+                i += 1;
+            }
+            out.push(Repair::SplitRun {
+                container: x.clone(),
+                fresh: renamed[&x].clone(),
+            });
+            fixed = true;
+        }
     }
-    false
+    fixed
 }
 
 /// Every block island alone in a paragraph: a block holding one and text
@@ -1039,6 +1049,46 @@ fn split_block_islands(
         }
     }
     (new_text, new_blocks)
+}
+
+/// The marks within [`max_marks`](crate::max_marks) of `text`, each counted
+/// once per block and line it spans, as normalizing can leave them: those in
+/// order up to the bound kept, the rest dropped.
+fn cap_marks(text: &[char], marks: &mut Vec<Mark>, out: &mut Vec<Repair>) {
+    let breaks: Vec<Usv> = text.iter().enumerate().filter(|(_, c)| matches!(**c, '\n' | HARD_BREAK)).map(|(k, _)| k).collect();
+    let max = crate::max_marks(text.len());
+    let spans: Vec<usize> = marks.iter().map(|m| crate::model::mark_spans(&breaks, std::iter::once((m.start, m.end)))).collect();
+    let total = spans.iter().fold(0usize, |a, &n| a.saturating_add(n));
+    if total <= max {
+        return;
+    }
+    out.push(Repair::Invalid(Invariant::TooManyMarks { marks: total, max }));
+    let mut used = 0usize;
+    let mut k = 0;
+    marks.retain(|_| {
+        used = used.saturating_add(spans[k]);
+        k += 1;
+        used <= max
+    });
+}
+
+/// The anchors within [`MAX_ANCHORS`](crate::MAX_ANCHORS) over the text and
+/// every slot, those in reading order up to it kept and the rest dropped.
+fn cap_anchors(c: &mut Content, out: &mut Vec<Repair>) {
+    fn keep(c: &mut Content, left: &mut usize) {
+        c.anchors.truncate(*left);
+        *left -= c.anchors.len();
+        for island in &mut c.islands {
+            for slot in island.slots.values_mut() {
+                keep(slot, left);
+            }
+        }
+    }
+    let anchors = c.anchor_ids().len();
+    if anchors > crate::MAX_ANCHORS {
+        out.push(Repair::Invalid(Invariant::TooManyAnchors { anchors, max: crate::MAX_ANCHORS }));
+        keep(c, &mut { crate::MAX_ANCHORS });
+    }
 }
 
 /// Each anchor id once over the text and every slot, the first kept.

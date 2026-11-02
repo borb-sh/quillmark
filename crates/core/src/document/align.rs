@@ -1,7 +1,7 @@
 //! Card alignment for a whole-document revise: which stored card each incoming
 //! composable card revises, by the `$id` it spells and then by text.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use quillmark_content::lines::delta::{MIN_WORD_SIMILARITY, word_similarity};
 
@@ -79,7 +79,7 @@ pub(crate) fn align(stored: &[Slot<'_>], incoming: &[Slot<'_>]) -> Vec<Option<(u
         out[j] = Some((i, Pairing::Id));
     }
 
-    let spelled: Vec<&str> = incoming.iter().filter_map(|slot| slot.id).collect();
+    let spelled: HashSet<&str> = incoming.iter().filter_map(|slot| slot.id).collect();
     let reads_ids = spelled.iter().any(|id| by_id.contains_key(id));
     let removed = |i: usize| reads_ids && stored[i].id.is_some_and(|id| !spelled.contains(&id));
     let rest_stored: Vec<usize> = (0..stored.len())

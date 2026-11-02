@@ -678,11 +678,9 @@ pub enum Invariant {
     /// enforces; positional equality is not, since edits keep an island's id
     /// stable across renumbers.
     IslandIdCollision { id: String },
-    /// Two prose anchors share an `id`, or one carries the empty id.
-    /// `RemoveAnchor { id }` retains-out *every* match, so a shared id makes
-    /// removing one destroy both. Scope is prose marks: a collision a cell
-    /// takes part in loads, [`Content::anchor_collisions`] reports it, and the
-    /// ops refuse to make one.
+    /// Two prose anchors share an `id`, or one carries the empty id. Scope is
+    /// prose marks: a collision a cell takes part in loads, and
+    /// [`Content::anchor_collisions`] reports it.
     AnchorIdCollision { id: String },
     /// A line's container path is nested deeper than
     /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH). The Typst emitter
@@ -942,10 +940,8 @@ impl Content {
         // precedes the first line, and below it a differing container path, a
         // one-line block above, a line a table's slot ends above, after which
         // both emitters set the table as a block, or a table's slot alone on
-        // the line itself.
-        // `Join` across two paths, `SetKind` retagging the line above and
-        // `SetContinues` itself all reach the shape. Read after the demotion,
-        // which settles what the line above is.
+        // the line itself. Read after the demotion, which settles what the
+        // line above is.
         let block_island = self.block_island_lines();
         let ends = |i: usize| block_island.get(i).is_some_and(|&(ends, _)| ends);
         let alone = |i: usize| block_island.get(i).is_some_and(|&(_, alone)| alone);
@@ -1096,7 +1092,6 @@ impl Content {
                 segments,
             });
         }
-        // Anchor-id uniqueness is what `RemoveAnchor` presumes.
         let mut seen_anchor_ids = std::collections::HashSet::new();
         for m in &self.marks {
             if m.start > m.end || m.end > len {
@@ -1680,9 +1675,8 @@ mod tests {
         );
     }
 
-    /// A within-block break lives inside one container. `Join` mints the
-    /// crossing shape by merging two lines of differing paths, which leaves the
-    /// *next* line continuing across the seam; `normalize` clears it.
+    /// A within-block break lives inside one container: a line continuing
+    /// across a seam of differing paths is a shape `normalize` clears.
     #[test]
     fn continues_across_a_container_boundary_is_cleared() {
         let mut rt = Content::new(
@@ -1737,11 +1731,9 @@ mod tests {
     }
 
     /// A heading, a rule and a block island's line each render as their own line
-    /// alone, so a `continues` line after one is text no projection reaches.
-    /// `SetKind` mints the shape by retagging the line a continuation already
-    /// follows, `SetContinues` by raising the flag; `normalize` clears it. The
-    /// island case is a `Para` like any other, so the flag answers to the island
-    /// type rather than the kind.
+    /// alone, so a `continues` line after one is text no projection reaches;
+    /// `normalize` clears it. The island case is a `Para` like any other, so the
+    /// flag answers to the island type rather than the kind.
     #[test]
     fn continues_after_a_single_line_block_is_cleared() {
         let cases = [

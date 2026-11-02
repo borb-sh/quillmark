@@ -7,11 +7,10 @@
 
 use crate::draft::{Draft, HeldTwice};
 use crate::ids::is_id;
-use crate::lines::anchor::{AnchorContext, anchor_contexts};
-use crate::migrate::to_lines;
+use crate::lines::anchor::AnchorContext;
 use crate::model::{
-    Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Usv, check_block, check_island,
-    check_mark_kind, is_text_char, normalized_marks,
+    Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Usv, break_offsets, check_block,
+    check_island, check_mark_kind, is_text_char, mark_spans, normalized_marks,
 };
 pub use crate::mapping::{MapResult, Mapping};
 pub use crate::rebase::{Conflict, RebaseError, rebase};
@@ -167,8 +166,9 @@ pub struct Applied {
     pub content: Content,
     /// The change in its normalized form: each splice's `removed` filled in,
     /// each mark and anchor step's `quote` and each island insert's `block`,
-    /// each `setBlock` naming its kind and attributes, and a container step
-    /// removing each container the change left unused.
+    /// each `setBlock` naming the fields its writer gave, a path-only one
+    /// staying path-only, and a container step removing each container the
+    /// change left unused.
     pub applied: Change,
     /// Each anchor the value held before and holds nowhere after, unless an
     /// `anchor` step removed it, as it read before, in reading order.
@@ -264,7 +264,7 @@ pub fn lost_anchors(before: &Content, after: &Content, keep: impl Fn(&str) -> bo
     if was.is_empty() {
         return Vec::new();
     }
-    anchor_contexts(&to_lines(before))
+    crate::anchors::anchor_contexts(before)
         .into_iter()
         .filter_map(|context| {
             let slot = was.remove(&context.id)?;
@@ -417,6 +417,7 @@ impl Run {
         for island in &mut islands {
             table::normalize_island(island);
             for slot in island.slots.values_mut() {
+                slot.check_bounds()?;
                 slot.normalize();
             }
             if !is_id(&island.id) {
@@ -429,6 +430,7 @@ impl Run {
         }
 
         let (first, lost) = (d.slots_before(at), d.slots_before(end) - d.slots_before(at));
+        let held = marks.len();
         let removed_marks = clipped(&marks, at, end);
         let mut next = Vec::with_capacity(marks.len() + s.marks.len() + 1);
         for mk in marks {
@@ -445,6 +447,9 @@ impl Run {
         written.push_str(&s.insert);
         written.push_str(&text[from + s.delete.len()..]);
         let untouched = s.marks.is_empty() && removed_marks.is_empty() && next.iter().all(|mk| mk.end < at || mk.start > at + m);
+        if !untouched {
+            within_marks(d, held, ws, &written, &next, d.len() - dn + m)?;
+        }
         let next = if untouched { next } else { settled(ws, &written, next) };
         let inserted = clipped(&next, at, at + m);
 
@@ -464,7 +469,7 @@ impl Run {
                 marks: removed.marks.clone(),
                 blocks: removed.blocks.clone(),
                 islands: removed.islands.clone(),
-                removed: None,
+                removed: Some(Removed { blocks: s.blocks.clone(), marks: inserted.clone(), islands: islands.clone() }),
             }));
             undo.extend(restores);
         }
@@ -546,6 +551,7 @@ impl Run {
         }
         let (k0, k1) = (d.block_at(start), d.block_at(end));
         let (ws, text, mut marks) = d.window(k0, k1);
+        let held_marks = marks.len();
         let was = if self.undo { marks.clone() } else { Vec::new() };
         let remove = matches!(s, MarkStep::Remove { .. }) || matches!(s, MarkStep::Add { mark, .. } if mark.kind.is_keyed());
         if remove {
@@ -555,6 +561,7 @@ impl Run {
             check_mark_kind(&mark.kind)?;
             marks.push(mark.clone());
         }
+        within_marks(d, held_marks, ws, &text, &marks, d.len())?;
         let marks = settled(ws, &text, marks);
         let undo = match self.undo {
             true => mark_fixups(&marks, &was).into_iter().map(|step| quoting(step, |a, b| d.slice(a, b))).collect(),
@@ -627,6 +634,7 @@ impl Run {
                 Some(held) => held,
                 None => {
                     let mut fresh = given.get(&slot).cloned().unwrap_or_default();
+                    fresh.check_bounds()?;
                     fresh.normalize();
                     self.touched.extend(fresh.anchor_ids());
                     gained.insert(slot.clone(), fresh.clone());
@@ -672,6 +680,21 @@ fn clipped(marks: &[Mark], at: Usv, end: Usv) -> Vec<Mark> {
             (lo < hi).then(|| Mark::new(lo - at, hi - at, mk.kind.clone()))
         })
         .collect()
+}
+
+/// Refuses a step that would leave `d`, `len` characters long, past
+/// [`max_marks`](crate::max_marks): its `held` marks over the window at `at`
+/// replaced by `marks` over `text`, each counted once per block and line it
+/// spans, as settling them can leave them.
+fn within_marks(d: &Draft, held: usize, at: Usv, text: &str, marks: &[Mark], len: Usv) -> Result<(), Invariant> {
+    let breaks = break_offsets(text);
+    let spans = mark_spans(&breaks, marks.iter().map(|m| (m.start - at, m.end - at)));
+    let total = (d.mark_count() - held).saturating_add(spans);
+    let max = crate::max_marks(len);
+    match total > max {
+        true => Err(Invariant::TooManyMarks { marks: total, max }),
+        false => Ok(()),
+    }
 }
 
 /// `marks`, at offsets into the value, over `text`, which starts at `at`,
@@ -1203,6 +1226,14 @@ mod wire {
         }
     }
 
+    /// Refuses a key of `v` that `at` does not define.
+    fn only(v: &Value, at: &'static str, keys: &[&str]) -> Result<(), ParseError> {
+        match v.as_object().and_then(|m| m.keys().find(|k| !keys.contains(&k.as_str()))) {
+            Some(key) => Err(ParseError::UnknownKey { at, key: key.clone() }),
+            None => Ok(()),
+        }
+    }
+
     fn step_from(v: &Value, u: impl Units) -> Result<Step, ParseError> {
         let Some(m) = v.as_object().filter(|m| m.len() == 1) else {
             return Err(shape("a step is an object of one key"));
@@ -1213,13 +1244,17 @@ mod wire {
         }
         Ok(match name.as_str() {
             "splice" => {
+                only(body, "a splice", &["at", "delete", "insert", "marks", "blocks", "islands", "removed"])?;
                 let removed = match body.get("removed") {
                     None | Some(Value::Null) => None,
-                    Some(r @ Value::Object(_)) => Some(Removed {
-                        blocks: array(r, "blocks")?.iter().map(block_from_value).collect::<Result<_, _>>()?,
-                        marks: array(r, "marks")?.iter().map(mark_from_value).collect::<Result<_, _>>()?,
-                        islands: array(r, "islands")?.iter().map(island_from_value).collect::<Result<_, _>>()?,
-                    }),
+                    Some(r @ Value::Object(_)) => {
+                        only(r, "a splice's `removed`", &["blocks", "marks", "islands"])?;
+                        Some(Removed {
+                            blocks: array(r, "blocks")?.iter().map(block_from_value).collect::<Result<_, _>>()?,
+                            marks: array(r, "marks")?.iter().map(mark_from_value).collect::<Result<_, _>>()?,
+                            islands: array(r, "islands")?.iter().map(island_from_value).collect::<Result<_, _>>()?,
+                        })
+                    }
                     Some(_) => return Err(shape("`removed` is not an object")),
                 };
                 let insert = str_key(body, "insert")?;
@@ -1227,6 +1262,7 @@ mod wire {
                 let marks = array(body, "marks")?
                     .iter()
                     .map(|mv| {
+                        only(mv, "a splice's mark", &["start", "end", "type", "attrs"])?;
                         let kind = mark_kind_from(&str_key(mv, "type")?, &attrs(mv)?)?;
                         let start = if mv.get("start").is_some() { usize_key(mv, "start")? } else { 0 };
                         let end = if mv.get("end").is_some() { usize_key(mv, "end")? } else { len };
@@ -1246,28 +1282,32 @@ mod wire {
                     removed,
                 })
             }
-            "setBlock" => Step::SetBlock(SetBlock {
-                id: str_key(body, "id")?,
-                kind: match body.get("kind") {
-                    None | Some(Value::Null) => None,
-                    _ => Some(str_key(body, "kind")?),
-                },
-                attrs: match body.get("attrs") {
-                    None | Some(Value::Null) => None,
-                    Some(Value::Object(a)) => Some(a.clone()),
-                    Some(_) => return Err(shape("`attrs` is not an object")),
-                },
-                path: match body.get("path") {
-                    None | Some(Value::Null) => None,
-                    Some(Value::Array(a)) => Some(
-                        a.iter()
-                            .map(|p| p.as_str().map(str::to_string).ok_or_else(|| shape("a path entry is not a string")))
-                            .collect::<Result<_, _>>()?,
-                    ),
-                    Some(_) => return Err(shape("`path` is not an array")),
-                },
-            }),
+            "setBlock" => {
+                only(body, "a setBlock", &["id", "kind", "attrs", "path"])?;
+                Step::SetBlock(SetBlock {
+                    id: str_key(body, "id")?,
+                    kind: match body.get("kind") {
+                        None | Some(Value::Null) => None,
+                        _ => Some(str_key(body, "kind")?),
+                    },
+                    attrs: match body.get("attrs") {
+                        None | Some(Value::Null) => None,
+                        Some(Value::Object(a)) => Some(a.clone()),
+                        Some(_) => return Err(shape("`attrs` is not an object")),
+                    },
+                    path: match body.get("path") {
+                        None | Some(Value::Null) => None,
+                        Some(Value::Array(a)) => Some(
+                            a.iter()
+                                .map(|p| p.as_str().map(str::to_string).ok_or_else(|| shape("a path entry is not a string")))
+                                .collect::<Result<_, _>>()?,
+                        ),
+                        Some(_) => return Err(shape("`path` is not an array")),
+                    },
+                })
+            }
             "container" => {
+                only(body, "a container step", &["id", "kind", "attrs", "remove"])?;
                 let id = str_key(body, "id")?;
                 if removing(body)? {
                     Step::Container(ContainerStep::Remove { id })
@@ -1277,6 +1317,7 @@ mod wire {
                 }
             }
             "mark" => {
+                only(body, "a mark step", &["start", "end", "type", "attrs", "add", "quote"])?;
                 let add = body.get("add").and_then(Value::as_bool).ok_or_else(|| shape("`add` is not a boolean"))?;
                 let quote = opt_str(body, "quote")?;
                 if add {
@@ -1290,6 +1331,7 @@ mod wire {
                 }
             }
             "anchor" => {
+                only(body, "an anchor step", &["id", "start", "end", "quote", "remove"])?;
                 if removing(body)? {
                     Step::Anchor(AnchorStep::Remove { id: str_key(body, "id")? })
                 } else {
@@ -1297,22 +1339,31 @@ mod wire {
                 }
             }
             "island" => match body.get("island") {
-                Some(island) => Step::Island(IslandStep::Insert {
-                    at: usize_key(body, "at")?,
-                    island: island_from_value(island)?,
-                    block: opt_str(body, "block")?,
-                }),
-                None => Step::Island(IslandStep::Props {
-                    id: str_key(body, "id")?,
-                    props: body.get("props").cloned().ok_or_else(|| shape("an island step names `props`"))?,
-                    slots: slots_from(body)?,
-                }),
+                Some(island) => {
+                    only(body, "an island insert", &["at", "island", "block"])?;
+                    Step::Island(IslandStep::Insert {
+                        at: usize_key(body, "at")?,
+                        island: island_from_value(island)?,
+                        block: opt_str(body, "block")?,
+                    })
+                }
+                None => {
+                    only(body, "an island props step", &["id", "props", "slots"])?;
+                    Step::Island(IslandStep::Props {
+                        id: str_key(body, "id")?,
+                        props: body.get("props").cloned().ok_or_else(|| shape("an island step names `props`"))?,
+                        slots: slots_from(body)?,
+                    })
+                }
             },
-            "nested" => Step::Nested {
-                island: str_key(body, "island")?,
-                slot: str_key(body, "slot")?,
-                change: change_from(body.get("change").ok_or_else(|| shape("a nested step names `change`"))?, u)?,
-            },
+            "nested" => {
+                only(body, "a nested step", &["island", "slot", "change"])?;
+                Step::Nested {
+                    island: str_key(body, "island")?,
+                    slot: str_key(body, "slot")?,
+                    change: change_from(body.get("change").ok_or_else(|| shape("a nested step names `change`"))?, u)?,
+                }
+            }
             other => return Err(ParseError::UnknownName { axis: "step", name: other.to_string() }),
         })
     }

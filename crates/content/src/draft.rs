@@ -20,6 +20,8 @@ pub(crate) struct Draft {
     /// records have changed since it was built.
     ids: Option<HashMap<String, Option<usize>>>,
     scans: usize,
+    /// The marks `segs` hold together.
+    marks: usize,
 }
 
 /// One block's text and the marks over it, at offsets into it.
@@ -69,7 +71,8 @@ impl Draft {
             let from = at - last.len - 1;
             last.marks.extend(marks.map(|m| Mark::new(m.start - from, m.end - from, m.kind)));
         }
-        Draft { c, segs, starts, len: at - 1, slots, ids: None, scans: 0 }
+        let marks = segs.iter().map(|s| s.marks.len()).sum();
+        Draft { c, segs, starts, len: at - 1, slots, ids: None, scans: 0, marks }
     }
 
     pub(crate) fn finish(mut self) -> Content {
@@ -90,6 +93,11 @@ impl Draft {
 
     pub(crate) fn len(&self) -> Usv {
         self.len
+    }
+
+    /// The marks the value holds.
+    pub(crate) fn mark_count(&self) -> usize {
+        self.marks
     }
 
     /// The index of the block whose text holds offset `p`, its end included.
@@ -145,10 +153,12 @@ impl Draft {
         for k in k0..=k1 {
             let (at, end) = (self.starts[k], self.block_end(k));
             let own = &mut self.segs[k].marks;
+            self.marks -= own.len();
             own.clear();
             while let Some(m) = marks.next_if(|m| m.start < end || k == k1) {
                 own.push(Mark::new(m.start - at, m.end - at, m.kind));
             }
+            self.marks += own.len();
         }
     }
 
@@ -177,6 +187,7 @@ impl Draft {
         }
         let new_end = p - 1;
         let n = segs.len();
+        self.marks -= self.segs[k0..=k1].iter().map(|s| s.marks.len()).sum::<usize>();
         self.segs.splice(k0..=k1, segs);
         for s in &mut self.starts[k1 + 1..] {
             *s = *s - old_end + new_end;

@@ -1,6 +1,7 @@
 //! Structural ids: blocks, containers, islands, slots, rows and columns.
 //! Import, migration and a revise mint them deterministically, `{prefix}{n}`
-//! past the highest number a field already holds under that prefix; a live
+//! past the highest number a field already holds under that prefix, or the
+//! lowest number no held id takes where the highest is `u64::MAX`; a live
 //! client mints its own.
 
 use std::collections::{HashMap, HashSet};
@@ -56,7 +57,9 @@ impl Minter {
         let id = id.into();
         for (prefix, next) in &mut self.next {
             if let Some(n) = id.strip_prefix(prefix.as_str()).and_then(|n| n.parse::<u64>().ok()) {
-                *next = (*next).max(n + 1);
+                if let Some(past) = n.checked_add(1) {
+                    *next = (*next).max(past);
+                }
             }
         }
         self.held.insert(id);
@@ -66,21 +69,23 @@ impl Minter {
         self.held.contains(id)
     }
 
-    /// The first `{prefix}{n}` past the highest `n` held under `prefix`.
+    /// The first `{prefix}{n}` past the highest `n` held under `prefix`, or,
+    /// where that `n` is `u64::MAX`, the lowest `n` no held id takes.
     pub fn mint(&mut self, prefix: &str) -> String {
         let held = &self.held;
         let next = self.next.entry(prefix.to_string()).or_insert_with(|| {
             held.iter()
                 .filter_map(|id| id.strip_prefix(prefix)?.parse::<u64>().ok())
                 .max()
-                .map_or(0, |n| n + 1)
+                .and_then(|n| n.checked_add(1))
+                .unwrap_or(0)
         });
         let mut id = format!("{prefix}{next}");
         while held.contains(&id) {
-            *next += 1;
+            *next = next.wrapping_add(1);
             id = format!("{prefix}{next}");
         }
-        *next += 1;
+        *next = next.wrapping_add(1);
         self.held.insert(id.clone());
         id
     }
@@ -106,4 +111,13 @@ pub mod prefix {
     pub const ROW: &str = "r";
     pub const COLUMN: &str = "k";
     pub const SLOT: &str = "s";
+
+    /// The prefix a container of `kind` mints under.
+    pub fn container(kind: &crate::model::ContainerKind) -> &'static str {
+        match kind {
+            crate::model::ContainerKind::List { .. } => LIST,
+            crate::model::ContainerKind::Item { .. } => ITEM,
+            crate::model::ContainerKind::Quote => QUOTE,
+        }
+    }
 }
