@@ -63,6 +63,16 @@ def test_a_stale_base_rebases_over_the_change_since():
     assert err.value.diagnostics[0].args == {"current": doc.hash_at(), "step": 0, "reason": "deleted"}
 
 
+def test_a_placeholder_is_minted_under_the_writers_actor():
+    doc = Document.from_markdown(MD)
+    change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
+    receipt = doc.apply(change, actor="ann")
+    assert receipt["minted"] == {"?n": "ann:b0"}
+    assert [b["id"] for b in doc.read()["blocks"]] == ["b0", "ann:b0"]
+    with raises_edit_code("edit::invalid_actor"):
+        doc.apply({"steps": []}, actor="a:b")
+
+
 def test_a_reserved_x_name_rides_as_written():
     doc = Document.from_markdown(MD)
     value = {"text": "Note", "blocks": [{"id": "b0", "kind": "x-callout", "attrs": {"tone": "warm"}}], "marks": [{"start": 0, "end": 4, "type": "x-glow"}]}

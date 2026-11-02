@@ -14,12 +14,7 @@ import {
   normalize,
   invert,
   diff,
-  splitBlock,
-  joinBlocks,
-  deleteRange,
-  indent,
-  outdent,
-  wrap,
+  diffRange,
   inheritedMarks,
   mapPos,
   repair,
@@ -773,33 +768,39 @@ describe('Document apply: the write primitive', () => {
     expect(doc.read({}).text).toBe('hello brave world')
   })
 
-  it('the editing gestures answer changes in UTF-16 offsets that apply', () => {
+  it('the editing gestures write on the document in UTF-16 offsets and answer receipts', () => {
     const doc = blankDoc()
-    const run = (change) => {
-      doc.apply({}, change)
-      return doc.read({})
-    }
     doc.replace({}, importMarkdown('😀 ab\n\n- one\n- two').content)
+    const base = doc.hash({})
+    const split = doc.splitBlock({}, 4, { base, actor: 'ann' })
+    expect(split.applied.steps[0].splice.at).toBe(4)
+    expect(split.minted).toEqual({ '?0': 'ann:b0' })
+    expect(doc.read({}).text).toBe('😀 a\nb\none\ntwo')
+    const stale = doc.splitBlock({}, 1 + 2, { base, actor: 'bo', id: 'mine' })
+    expect(stale.rebased).toBe(true)
+    expect(doc.read({}).text).toBe('😀 \na\nb\none\ntwo')
+    doc.joinBlocks({}, 'mine')
+    doc.joinBlocks({}, 'ann:b0')
     let c = doc.read({})
-    const split = splitBlock(c, 4, 'n')
-    expect(split.steps[0].splice.at).toBe(4)
-    c = run(split)
-    expect(c.text).toBe('😀 a\nb\none\ntwo')
-    c = run(joinBlocks(c, 'n'))
     expect(c.text).toBe('😀 ab\none\ntwo')
 
     const [, first, second] = c.blocks.map((b) => b.id)
-    c = run(indent(c, second))
-    expect(c.blocks[2].path).toHaveLength(4)
-    c = run(outdent(c, second))
-    expect(c.blocks[2].path).toHaveLength(2)
-    c = run(wrap(c, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' }))
-    expect(c.containers.find((k) => k.id === c.blocks[0].path[0]).kind).toBe('quote')
-    expectEditCode(() => indent(c, first), 'edit::content_apply')
+    doc.indent({}, second)
+    expect(doc.read({}).blocks[2].path).toHaveLength(4)
+    doc.outdent({}, second, undefined, { actor: 'ann' })
+    expect(doc.read({}).blocks[2].path).toHaveLength(2)
+    const wrapped = doc.wrap({}, c.blocks[0].id, c.blocks[0].id, { kind: 'quote' }, { actor: 'ann' })
+    c = doc.read({})
+    expect(c.blocks[0].path).toEqual([wrapped.minted['?0']])
+    expect(c.containers.find((k) => k.id === 'ann:q0').kind).toBe('quote')
+    expectEditCode(() => doc.indent({}, first), 'edit::content_apply')
+    expectEditCode(() => doc.wrap({}, first, first, { kind: 'quote' }, { actor: 'a:b' }), 'edit::invalid_actor')
 
-    c = run(deleteRange(c, 0, 6))
+    doc.deleteRange({}, 0, 6)
+    c = doc.read({})
     expect(c.text).toBe('one\ntwo')
     expect(c.blocks[0].path).toHaveLength(2)
+    expect(doc.locate({}, 5)).toEqual({ id: c.blocks[1].id, index: 1, path: c.blocks[1].path })
 
     doc.replace({}, importMarkdown('**bold** x').content)
     expect(inheritedMarks(doc.read({}), 4)).toEqual([{ type: 'strong' }])
@@ -808,6 +809,30 @@ describe('Document apply: the write primitive', () => {
     expect(mapPos(insert, 0)).toMatchObject({ pos: 2, deleted: false })
     expect(mapPos(insert, 0, 'before').pos).toBe(0)
     expect(() => mapPos(insert, 0, 'sideways')).toThrow(/assoc/)
+  })
+
+  it('diffRange lowers a range an editor knows as one exact splice', () => {
+    const before = importMarkdown('😀 Paragraph one\n\ntwo').content
+    const after = { ...before, text: '😀 Paraxgraph one\ntwo' }
+    const { steps } = diffRange(before, after, { from: 7, to: 7 })
+    expect(steps).toHaveLength(1)
+    expect(steps[0].splice).toMatchObject({ at: 7, delete: '', insert: 'x' })
+    expect(diff(before, after).steps[0].splice.delete).toBe('Paragraph')
+    expect(() => diffRange(before, after, { from: 7 })).toThrow(/range.to/)
+  })
+
+  it('a placeholder a change puts is filled under the actor and named in minted', () => {
+    const doc = blankDoc()
+    doc.replace({}, importMarkdown('one').content)
+    const base = doc.hash({})
+    doc.apply({}, { steps: [{ splice: { at: 3, insert: ' more' } }] })
+    const change = { steps: [
+      { splice: { at: 3, insert: '\nnew', blocks: [{ id: '?n', kind: 'para' }] } },
+      { setBlock: { id: '?n', kind: 'heading', attrs: { level: 2 } } },
+    ] }
+    const receipt = doc.apply({}, change, { base, actor: 'ann' })
+    expect(receipt).toMatchObject({ rebased: true, minted: { '?n': 'ann:b0' } })
+    expect(doc.read({}).blocks[1]).toEqual({ id: 'ann:b0', kind: 'heading', attrs: { level: 2 } })
   })
 
   it('repair reads a merged state as a valid value, offsets in UTF-16', () => {
