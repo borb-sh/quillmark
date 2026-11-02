@@ -20,6 +20,7 @@ import initCore, { Quill, Document } from '../core/wasm.js';
 // Resolution-time, so `node:fs` never enters a browser graph.
 import { toModuleSource } from '#quillmark-env';
 import { importMarkdown, exportMarkdown, normalize, invert, diff } from '../core/wasm.js';
+import { splitBlock, joinBlocks, deleteRange, indent, outdent, wrap, inheritedMarks, mapPos } from '../core/wasm.js';
 import { isInline, isPlain } from '../core/wasm.js';
 import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 
@@ -50,6 +51,14 @@ const CORE_SURFACE = Object.freeze({
 	normalize,
 	invert,
 	diff,
+	splitBlock,
+	joinBlocks,
+	deleteRange,
+	indent,
+	outdent,
+	wrap,
+	inheritedMarks,
+	mapPos,
 	isInline,
 	isPlain,
 	parseDocPath,

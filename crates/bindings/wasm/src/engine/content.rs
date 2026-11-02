@@ -8,7 +8,8 @@ use super::{
 };
 use crate::error::WasmError;
 use crate::types::Diagnostic;
-use quillmark_content::change::{self, Change};
+use quillmark_content::change::{self, Assoc, Change};
+use quillmark_content::gestures::{self, Wrap};
 use quillmark_content::model::Content;
 use quillmark_content::units::{self, Utf16};
 use quillmark_core::document::{Card, CardMut, Edit, EditError, Receipt, Target};
@@ -187,6 +188,27 @@ export interface DroppedAnchor extends AnchorContext {
 export interface WriteOptions {
     base?: string;
 }
+
+/** A position in a value: an offset into its text, or one inside an
+ *  island's slot. */
+export type Pos = number | { island: string; slot: string; at: Pos };
+
+/**
+ * Where `mapPos` carried a position, and what around it the change deleted:
+ * the character on its `assoc` side (`deleted`), the one before, the one
+ * after, or both in one deletion (`deletedAcross`).
+ */
+export interface MapResult {
+    pos: Pos;
+    deleted: boolean;
+    deletedBefore: boolean;
+    deletedAfter: boolean;
+    deletedAcross: boolean;
+}
+
+/** What `wrap` opens around the blocks it wraps: a quote, or a list with an
+ *  item per wrapped child, each `checked` as given. */
+export type WrapKind = { kind: "quote" } | { kind: "list"; ordered: boolean; checked?: boolean };
 
 "#;
 
@@ -514,4 +536,165 @@ pub fn diff(
     let change = quillmark_content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
     let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
     serialize_or_throw(&change.to_value(), "diff")
+}
+
+fn gesture_out(change: Result<Change, change::ApplyError>, content: &Content, ctx: &str) -> Result<JsValue, JsValue> {
+    let change = units::change_from_scalars(&change.map_err(apply_error)?, content, Utf16).map_err(apply_error)?;
+    serialize_or_throw(&change.to_value(), ctx)
+}
+
+/// A UTF-16 offset into `content`'s text, as a scalar offset; one inside a
+/// surrogate pair or past the text is refused.
+fn offset_in(content: &Content, at: u32) -> Result<usize, JsValue> {
+    units::to_scalars(Utf16, &content.text, at as usize)
+        .ok_or_else(|| apply_error(change::ApplyError::Stale { step: 0 }))
+}
+
+/// Enter at `at`: the change splitting the block holding `at` there, the new
+/// block `newId` and the text keeping its id. Throws `edit::content_apply`
+/// where `at` is past the text.
+#[wasm_bindgen(js_name = splitBlock, unchecked_return_type = "Change")]
+pub fn split_block(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+    at: u32,
+    #[wasm_bindgen(js_name = newId)] new_id: &str,
+) -> Result<JsValue, JsValue> {
+    let content = content_in(content, "splitBlock")?;
+    let at = offset_in(&content, at)?;
+    gesture_out(gestures::split_block(&content, at, new_id), &content, "splitBlock")
+}
+
+/// Backspace at the start of block `id`: the change joining it onto the block
+/// before it, under that block's record. Throws `edit::content_apply` for the
+/// first block or an id no block holds.
+#[wasm_bindgen(js_name = joinBlocks, unchecked_return_type = "Change")]
+pub fn join_blocks(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+    id: &str,
+) -> Result<JsValue, JsValue> {
+    let content = content_in(content, "joinBlocks")?;
+    gesture_out(gestures::join_blocks(&content, id), &content, "joinBlocks")
+}
+
+/// Deleting `[start, end)`: the splice, and where the range runs from a
+/// block's start into a later block, the `setBlock` giving the block that
+/// keeps the text the shape of the block the range ends in.
+#[wasm_bindgen(js_name = deleteRange, unchecked_return_type = "Change")]
+pub fn delete_range(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+    start: u32,
+    end: u32,
+) -> Result<JsValue, JsValue> {
+    let content = content_in(content, "deleteRange")?;
+    let (start, end) = (offset_in(&content, start)?, offset_in(&content, end)?);
+    gesture_out(gestures::delete_range(&content, start, end), &content, "deleteRange")
+}
+
+/// Tab over the blocks `first` to `last` (`first` alone when absent): the
+/// change nesting their items under the item before them. Throws
+/// `edit::content_apply` where `first` is in no item, the range leaves its
+/// list, or its first item is the list's first.
+#[wasm_bindgen(js_name = indent, unchecked_return_type = "Change")]
+pub fn indent(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+    first: &str,
+    last: Option<String>,
+) -> Result<JsValue, JsValue> {
+    let content = content_in(content, "indent")?;
+    let last = last.as_deref().unwrap_or(first);
+    gesture_out(gestures::indent(&content, first, last), &content, "indent")
+}
+
+/// Shift-Tab over the blocks `first` to `last` (`first` alone when absent):
+/// the change lifting them out of the innermost item or quote holding
+/// `first`. Throws `edit::content_apply` where `first` is in neither or the
+/// range leaves it.
+#[wasm_bindgen(js_name = outdent, unchecked_return_type = "Change")]
+pub fn outdent(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+    first: &str,
+    last: Option<String>,
+) -> Result<JsValue, JsValue> {
+    let content = content_in(content, "outdent")?;
+    let last = last.as_deref().unwrap_or(first);
+    gesture_out(gestures::outdent(&content, first, last), &content, "outdent")
+}
+
+/// The change wrapping the blocks `first` to `last` in a quote or a list,
+/// around the children of their innermost shared item or quote that the range
+/// touches; a list the range sits in is wrapped whole.
+#[wasm_bindgen(js_name = wrap, unchecked_return_type = "Change")]
+pub fn wrap(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+    first: &str,
+    last: &str,
+    #[wasm_bindgen(unchecked_param_type = "WrapKind")] kind: JsValue,
+) -> Result<JsValue, JsValue> {
+    let content = content_in(content, "wrap")?;
+    let kind = js_value_to_json(kind, "wrap")?;
+    let with = match kind.get("kind").and_then(Value::as_str) {
+        Some("quote") => Wrap::Quote,
+        Some("list") => Wrap::List {
+            ordered: kind.get("ordered").and_then(Value::as_bool).unwrap_or(false),
+            checked: kind.get("checked").and_then(Value::as_bool),
+        },
+        _ => return Err(WasmError::from("wrap: expected { kind: \"quote\" } or { kind: \"list\", ordered }").to_js_value()),
+    };
+    gesture_out(gestures::wrap(&content, first, last, &with), &content, "wrap")
+}
+
+/// Typing at `at`: the formatting the typed text carries, for a splice's
+/// `marks`, in canonical order. Throws `edit::content_apply` where `at` is
+/// past the text.
+#[wasm_bindgen(js_name = inheritedMarks, unchecked_return_type = "ContentMarkKind[]")]
+pub fn inherited_marks(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+    at: u32,
+) -> Result<JsValue, JsValue> {
+    let content = content_in(content, "inheritedMarks")?;
+    let at = offset_in(&content, at)?;
+    let kinds = gestures::inherited_marks(&content, at).map_err(apply_error)?;
+    let out: Vec<Value> = kinds
+        .iter()
+        .map(|k| {
+            let mut m = serde_json::Map::new();
+            m.insert("type".into(), k.tag().into());
+            if let Some(attrs) = quillmark_content::wire::mark_attrs(k) {
+                m.insert("attrs".into(), attrs);
+            }
+            Value::Object(m)
+        })
+        .collect();
+    serialize_or_throw(&out, "inheritedMarks")
+}
+
+/// Where `pos` lands after `change`, and what around it the change deleted;
+/// `assoc` (`"after"` by default) picks the side of text inserted at it.
+/// Throws `edit::content_apply` where a splice deletes an island and names
+/// none in `removed`, as the receipt's `applied` always does.
+#[wasm_bindgen(js_name = mapPos, unchecked_return_type = "MapResult")]
+pub fn map_pos(
+    #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Pos")] pos: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "\"before\" | \"after\"")] assoc: JsValue,
+) -> Result<JsValue, JsValue> {
+    let change = change_in(change, "mapPos")?;
+    let pos = quillmark_content::wire::pos_from_value(&js_value_to_json(pos, "mapPos")?)
+        .map_err(|e| WasmError::from(format!("mapPos: not a position: {e}")).to_js_value())?;
+    let assoc = match assoc.as_string().as_deref() {
+        None | Some("after") => Assoc::After,
+        Some("before") => Assoc::Before,
+        Some(other) => {
+            return Err(WasmError::from(format!("mapPos: assoc is \"before\" or \"after\", not {other:?}")).to_js_value());
+        }
+    };
+    let r = change::map_pos_in(&change, &pos, assoc, Utf16).map_err(apply_error)?;
+    let out = serde_json::json!({
+        "pos": quillmark_content::wire::pos_value(&r.pos),
+        "deleted": r.deleted,
+        "deletedBefore": r.deleted_before,
+        "deletedAfter": r.deleted_after,
+        "deletedAcross": r.deleted_across,
+    });
+    serialize_or_throw(&out, "mapPos")
 }

@@ -9,7 +9,7 @@ use quillmark_content::change::{
     apply, compose, compose_in, invert, map_pos, map_pos_in, rebase,
 };
 use quillmark_content::rebase::{Conflict, RebaseError, Reason};
-use quillmark_content::gestures::{inherited_marks, join_blocks, split_block};
+use quillmark_content::gestures::{Wrap, delete_range, indent, inherited_marks, join_blocks, outdent, split_block, wrap};
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{
@@ -1643,4 +1643,157 @@ fn a_nested_step_rebases_over_the_edits_inside_its_slot() {
     assert_eq!(done.slot(&island.id, &slots[3]).unwrap().text, "ee");
     let clash = Change::new(vec![cell(&slots[3], Splice::new(1, "d", "D"))]);
     assert!(matches!(rebase(&d, &clash, &theirs), Err(RebaseError::Conflict(Conflict { step: 0, reason: Reason::Deleted }))));
+}
+
+/// Each block's text and its path as container kinds, outermost first: `L`
+/// an unordered list, `O` an ordered one, `I` an item, `Q` a quote.
+fn shapes(c: &Content) -> Vec<String> {
+    c.text
+        .split('\n')
+        .zip(&c.blocks)
+        .map(|(t, b)| {
+            let path: String = b
+                .path
+                .iter()
+                .map(|id| match &c.container(id).unwrap().kind {
+                    ContainerKind::List { ordered: false, .. } => 'L',
+                    ContainerKind::List { ordered: true, .. } => 'O',
+                    ContainerKind::Item { .. } => 'I',
+                    ContainerKind::Quote => 'Q',
+                })
+                .collect();
+            format!("{path}:{t}")
+        })
+        .collect()
+}
+
+fn ids(c: &Content) -> Vec<String> {
+    c.blocks.iter().map(|b| b.id.clone()).collect()
+}
+
+#[test]
+fn a_tab_nests_an_item_under_the_one_before_it_and_a_shift_tab_lifts_it() {
+    let d = from_markdown("- a\n- b\n  - c\n- d\n\npara").unwrap().content;
+    let b = ids(&d);
+    let run = |c: Change| shapes(&apply(&d, &c).unwrap().content);
+    assert_eq!(run(indent(&d, &b[1], &b[1]).unwrap()), ["LI:a", "LILI:b", "LILILI:c", "LI:d", ":para"]);
+    assert_eq!(run(indent(&d, &b[3], &b[3]).unwrap()), ["LI:a", "LI:b", "LILI:c", "LILI:d", ":para"], "d joins b's list");
+    assert_eq!(run(indent(&d, &b[1], &b[3]).unwrap()), ["LI:a", "LILI:b", "LILILI:c", "LILI:d", ":para"]);
+    assert!(indent(&d, &b[0], &b[0]).is_err(), "the first item has nothing to nest under");
+    assert!(indent(&d, &b[4], &b[4]).is_err(), "a paragraph is in no item");
+    assert!(indent(&d, &b[1], &b[4]).is_err(), "the range leaves the list");
+    assert_eq!(run(outdent(&d, &b[2], &b[2]).unwrap()), ["LI:a", "LI:b", "LI:c", "LI:d", ":para"]);
+    assert_eq!(run(outdent(&d, &b[1], &b[1]).unwrap()), ["LI:a", ":b", "LI:c", "LI:d", ":para"]);
+    assert_eq!(run(outdent(&d, &b[0], &b[0]).unwrap()), [":a", "LI:b", "LILI:c", "LI:d", ":para"]);
+    let split = apply(&d, &outdent(&d, &b[1], &b[1]).unwrap()).unwrap().content;
+    assert_ne!(split.blocks[0].path[0], split.blocks[3].path[0], "the items after a lifted one open a list of their own");
+}
+
+#[test]
+fn a_lifted_nested_item_takes_the_items_after_it_and_the_rest_of_its_parent() {
+    let d = from_markdown("- a\n  - b\n  - c\n  - d\n\n  tail").unwrap().content;
+    let b = ids(&d);
+    let done = apply(&d, &outdent(&d, &b[2], &b[2]).unwrap()).unwrap().content;
+    assert_eq!(shapes(&done), ["LI:a", "LILI:b", "LI:c", "LILI:d", "LI:tail"]);
+    assert_ne!(done.blocks[3].path[2], d.blocks[3].path[2], "b stays in the list, so the items after open one of their own");
+    let first = apply(&d, &outdent(&d, &b[1], &b[1]).unwrap()).unwrap().content;
+    assert_eq!(shapes(&first), ["LI:a", "LI:b", "LILI:c", "LILI:d", "LI:tail"]);
+    assert_eq!(first.blocks[2].path[2], d.blocks[2].path[2], "with none before, the items after keep their list");
+    assert_eq!(done.blocks[4].path[1], done.blocks[2].path[1], "the parent's rest moves into the lifted item");
+}
+
+#[test]
+fn a_shift_tab_in_a_quote_lifts_what_it_touches_and_splits_the_rest() {
+    let d = from_markdown("> a\n>\n> b\n>\n> c").unwrap().content;
+    let b = ids(&d);
+    let done = apply(&d, &outdent(&d, &b[1], &b[1]).unwrap()).unwrap().content;
+    assert_eq!(shapes(&done), ["Q:a", ":b", "Q:c"]);
+    assert_ne!(done.blocks[0].path, done.blocks[2].path);
+}
+
+#[test]
+fn a_wrap_opens_a_container_around_the_children_its_range_touches() {
+    let d = from_markdown("- a\n- b\n  - c\n- d\n\npara\n\nmore").unwrap().content;
+    let b = ids(&d);
+    let run = |c: Change| shapes(&apply(&d, &c).unwrap().content);
+    let quote = Wrap::Quote;
+    let ordered = Wrap::List { ordered: true, checked: None };
+    assert_eq!(run(wrap(&d, &b[4], &b[5], &quote).unwrap()), ["LI:a", "LI:b", "LILI:c", "LI:d", "Q:para", "Q:more"]);
+    assert_eq!(run(wrap(&d, &b[4], &b[5], &ordered).unwrap()), ["LI:a", "LI:b", "LILI:c", "LI:d", "OI:para", "OI:more"]);
+    assert_eq!(run(wrap(&d, &b[1], &b[3], &quote).unwrap()), ["QLI:a", "QLI:b", "QLILI:c", "QLI:d", ":para", ":more"], "a list the range sits in is wrapped whole");
+    assert_eq!(run(wrap(&d, &b[1], &b[1], &quote).unwrap()), ["LI:a", "LIQ:b", "LILI:c", "LI:d", ":para", ":more"]);
+    let listed = apply(&d, &wrap(&d, &b[4], &b[5], &ordered).unwrap()).unwrap().content;
+    assert_ne!(listed.blocks[4].path[1], listed.blocks[5].path[1], "each wrapped child is an item of its own");
+    let task = apply(&d, &wrap(&d, &b[4], &b[4], &Wrap::List { ordered: false, checked: Some(false) }).unwrap()).unwrap().content;
+    assert_eq!(task.container(&task.blocks[4].path[1]).unwrap().kind, ContainerKind::Item { checked: Some(false) });
+}
+
+#[test]
+fn a_delete_from_a_blocks_start_keeps_the_shape_of_the_block_it_ends_in() {
+    let h = from_markdown("# Title\n\nbody").unwrap().content;
+    let done = apply(&h, &delete_range(&h, 0, 6).unwrap()).unwrap().content;
+    assert_eq!(segments(&done), ["b0=body"]);
+    let joined = apply(&h, &delete_range(&h, 2, 7).unwrap()).unwrap().content;
+    assert_eq!(segments(&joined), ["b0#=Tiody"], "a delete from inside a block keeps that block's kind");
+    let l = from_markdown("- a\n- b\n\npara").unwrap().content;
+    let done = apply(&l, &delete_range(&l, 2, 5).unwrap()).unwrap().content;
+    assert_eq!(shapes(&done), ["LI:a", ":ara"]);
+    assert_eq!(delete_range(&l, 3, 2), Err(ApplyError::Stale { step: 0 }));
+    assert!(delete_range(&l, 1, 1).unwrap().is_empty());
+}
+
+fn nested_document() -> impl Strategy<Value = Content> {
+    let item = prop_oneof![
+        3 => "[a-z]{1,4}".prop_map(|w| format!("- {w}")),
+        2 => "[a-z]{1,4}".prop_map(|w| format!("  - {w}")),
+        1 => "[a-z]{1,4}".prop_map(|w| format!("    - {w}")),
+        1 => "[a-z]{1,4}".prop_map(|w| format!("  {w}")),
+    ];
+    let list = prop::collection::vec(item, 1..7).prop_map(|ls| format!("- x\n{}", ls.join("\n")));
+    let part = prop_oneof![2 => list, 1 => block()];
+    prop::collection::vec(part, 1..4).prop_map(|ps| from_markdown(&ps.join("\n\n")).unwrap().content)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(400))]
+
+    /// Every gesture's change applies wherever the gesture answers one, and
+    /// keeps the text and every block id; a Tab and a Shift-Tab over the same
+    /// blocks put the value back.
+    #[test]
+    fn a_gesture_keeps_the_text_and_its_tab_undoes_by_shift_tab(
+        d in nested_document(), x in any::<usize>(), y in any::<usize>(), w in 0u8..3,
+    ) {
+        let n = d.blocks.len();
+        let (k0, k1) = ((x % n).min(y % n), (x % n).max(y % n));
+        let (first, last) = (d.blocks[k0].id.clone(), d.blocks[k1].id.clone());
+        let with = match w {
+            0 => Wrap::Quote,
+            1 => Wrap::List { ordered: true, checked: None },
+            _ => Wrap::List { ordered: false, checked: Some(true) },
+        };
+        let deep = |e: &ApplyError| matches!(e, ApplyError::Invalid(Invariant::NestingTooDeep { .. }));
+        for change in [indent(&d, &first, &last), outdent(&d, &first, &last), wrap(&d, &first, &last, &with)].into_iter().flatten() {
+            match apply(&d, &change) {
+                Ok(done) => {
+                    prop_assert_eq!(&done.content.text, &d.text);
+                    prop_assert_eq!(ids(&done.content), ids(&d));
+                }
+                Err(e) => prop_assert!(deep(&e), "{:?} refused {:?}", change, e),
+            }
+        }
+        if let Ok(tab) = indent(&d, &first, &last)
+            && let Ok(done) = apply(&d, &tab)
+        {
+            let tabbed = done.content;
+            let back = apply(&tabbed, &outdent(&tabbed, &first, &last).unwrap()).unwrap().content;
+            prop_assert_eq!(shapes(&back), shapes(&d));
+        }
+        let len = d.len_usv();
+        let (s, e) = ((x % (len + 1)).min(y % (len + 1)), (x % (len + 1)).max(y % (len + 1)));
+        if let Ok(done) = apply(&d, &delete_range(&d, s, e).unwrap()) {
+            let kept: String = d.text.chars().take(s).chain(d.text.chars().skip(e)).collect();
+            prop_assert_eq!(done.content.text, kept);
+        }
+    }
 }

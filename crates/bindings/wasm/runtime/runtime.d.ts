@@ -21,6 +21,14 @@ import type {
 	normalize,
 	invert,
 	diff,
+	splitBlock,
+	joinBlocks,
+	deleteRange,
+	indent,
+	outdent,
+	wrap,
+	inheritedMarks,
+	mapPos,
 	isInline,
 	isPlain,
 	parseDocPath,
@@ -43,6 +51,14 @@ export interface CoreSurface {
 	normalize: typeof normalize;
 	invert: typeof invert;
 	diff: typeof diff;
+	splitBlock: typeof splitBlock;
+	joinBlocks: typeof joinBlocks;
+	deleteRange: typeof deleteRange;
+	indent: typeof indent;
+	outdent: typeof outdent;
+	wrap: typeof wrap;
+	inheritedMarks: typeof inheritedMarks;
+	mapPos: typeof mapPos;
 	isInline: typeof isInline;
 	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;

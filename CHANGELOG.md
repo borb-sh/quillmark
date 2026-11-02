@@ -74,8 +74,13 @@ over its keys: read `receipt["warnings"]`.
   `hash(addr)`, and `invert` and `diff`**, offsets in UTF-16 code units.
   Every content payload crossing the binding is the model. `overwrite`,
   `reviseContent`, `applyChange` and `mapMarks` are removed: call `replace`
-  and `apply`. `compose`, `rebase`, `mapPos`, the gestures and `repair` stay
-  unbound until the editor or collaboration calls them.
+  and `apply`. `compose`, `rebase` and `repair` stay unbound until the
+  editor or collaboration calls them.
+- feat(wasm)!: **the editing gestures and `mapPos(change, pos, assoc?)`.**
+  `splitBlock`, `joinBlocks`, `deleteRange`, `indent`, `outdent`, `wrap` and
+  `inheritedMarks` take a `Content` and answer the `Change` to apply, offsets
+  in UTF-16. `mapPos` carries a position across a `Change`, where it took a
+  line delta, and answers a `MapResult`.
 - feat(python)!: **the same surface in snake case**, offsets in code points.
 - feat(core)!: **a content write names its card by `$id`.** An id no card
   holds refuses with `edit::unknown_card_id`. `Document::card_index` and
