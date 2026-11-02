@@ -120,7 +120,7 @@ that conflicts, and the `reason` (`deleted`, `changed`, `missing`, `refused`).
 A base the document no longer holds the change since for refuses under
 `edit::stale_base`, carrying `current`. The pure `rebase` raises the same
 conflict, its `current` the hash of the value `since` left. A change that does not apply to the value, or would leave it
-invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)).
+invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content
 vocabularies" lists them): `edit::too_many_marks` and `edit::too_many_anchors`,

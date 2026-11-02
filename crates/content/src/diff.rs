@@ -4,7 +4,7 @@
 //! [`replace`] are the producers a markdown rewrite and a whole-value write
 //! use.
 
-use crate::change::{AnchorStep, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, apply, mark_fixups, run};
+use crate::change::{AnchorStep, ApplyError, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, apply, mark_fixups, run};
 use crate::rebase::{Conflict, RebaseError, Reason, rebase};
 use crate::ids::{Minter, prefix};
 use crate::lines::delta::{Op, diff_words as text_diff, rebase_pinned, relocate, without_sentinel};
@@ -733,6 +733,9 @@ pub enum ReviseError {
     /// The markdown rewrote a part of `before` its annotated read does not
     /// spell, which the revise would otherwise drop.
     Conflict(Conflict),
+    /// The markdown imports to a value its change cannot land on `before`,
+    /// one that would not validate.
+    Refused(ApplyError),
 }
 
 impl std::fmt::Display for ReviseError {
@@ -740,6 +743,7 @@ impl std::fmt::Display for ReviseError {
         match self {
             ReviseError::Import(e) => write!(f, "{e}"),
             ReviseError::Conflict(c) => write!(f, "{c}"),
+            ReviseError::Refused(e) => write!(f, "{e}"),
         }
     }
 }
@@ -773,12 +777,12 @@ pub fn revise_keeping(before: &Content, markdown: &str, now: &Content) -> Result
     };
     let read = revise_lines(before, &lines, &spelled, before)?.content;
     if read == *before {
-        return Ok(revise_lines(before, &lines, markdown, now)?);
+        return revise_lines(before, &lines, markdown, now);
     }
     let since = diff_with(&read, before, None);
     let held = apply(&read, &since).ok().map(|a| a.content);
     if held.as_ref() != Some(before) {
-        return Ok(revise_holding(before, markdown, now)?);
+        return revise_holding(before, markdown, now);
     }
     let mine = revise_holding(&read, markdown, now)?;
     let change = rebase(&read, &mine.change, &since).map_err(|e| match e {
@@ -798,12 +802,12 @@ pub fn revise_keeping(before: &Content, markdown: &str, now: &Content) -> Result
 /// `before`, `now` and the revision. The ids are a function of the three
 /// values alone, so equal values write equal bytes; a stale step by id is
 /// held to its own block by `rebase`.
-pub fn revise_holding(before: &Content, markdown: &str, now: &Content) -> Result<Revision, ImportError> {
+pub fn revise_holding(before: &Content, markdown: &str, now: &Content) -> Result<Revision, ReviseError> {
     revise_lines(before, &to_lines(before), markdown, now)
 }
 
 /// [`revise_holding`] with `before` already lowered to `lines`.
-fn revise_lines(before: &Content, lines: &crate::lines::model::Lines, markdown: &str, now: &Content) -> Result<Revision, ImportError> {
+fn revise_lines(before: &Content, lines: &crate::lines::model::Lines, markdown: &str, now: &Content) -> Result<Revision, ReviseError> {
     let Against { content: imported, warnings, pins } = match before.codec {
         Codec::Rich => from_markdown_against(markdown, lines)?,
         Codec::Plain => Against {
@@ -823,13 +827,7 @@ fn revise_lines(before: &Content, lines: &crate::lines::model::Lines, markdown: 
         return Ok(Revision { change: Change::default(), content, warnings });
     }
     let change = diff_with(before, &content, Some(&pinned));
-    let content = match apply(before, &change) {
-        Ok(done) => done.content,
-        Err(e) => {
-            debug_assert!(false, "a revise's change applies to the value it was made from: {e}");
-            content
-        }
-    };
+    let content = apply(before, &change).map_err(ReviseError::Refused)?.content;
     Ok(relocating(before, change, content, warnings))
 }
 

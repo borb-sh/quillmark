@@ -295,6 +295,7 @@ impl Card {
                             &c,
                         ))
                     }
+                    diff::ReviseError::Refused(e) => EditError::change(e),
                 })?;
                 let change = match opts.actor {
                     Some(actor) => mint::remint(&revision.change, read.read(), None, &[read.read(), &read.now], since, actor),

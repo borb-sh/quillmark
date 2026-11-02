@@ -1578,6 +1578,7 @@ impl Card {
                 target.field().map(str::to_string),
                 &c,
             )),
+            quillmark_content::diff::ReviseError::Refused(e) => EditError::change(e),
         })
     }
 
