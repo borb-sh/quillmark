@@ -164,6 +164,7 @@ export type {
 	Revised,
 	BaseOptions,
 	DocumentRevised,
+	MergeConflict,
 	AnnotatedMarkdown,
 	DocumentAnchor,
 	AnchorContext,
@@ -744,8 +745,11 @@ export declare class DocumentWriter {
 	 *
 	 * `opts` names what the writer read: `baseHash` is {@link hash}, and
 	 * `baseMarkdown` the whole document's markdown (`toMarkdown` or
-	 * `toAnnotatedMarkdown`), merged by line onto what changed since. A stale
-	 * or conflicting write throws before any mutation.
+	 * `toAnnotatedMarkdown`). A stale hash throws before any mutation. A
+	 * markdown base merges the write onto what changed since, card by card and
+	 * field by field: each place both changed keeps its value now and is named
+	 * in the receipt's `conflicts`, and the write throws
+	 * `edit::rebase_conflict` only where no merge can stand.
 	 */
 	reviseDocument(markdown: string, opts?: BaseOptions): DocumentRevised;
 	/**

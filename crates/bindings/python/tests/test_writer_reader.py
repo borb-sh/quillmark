@@ -138,8 +138,8 @@ def test_writer_revise_document():
     receipt = w.revise_document(
         "~~~\n$quill: sample_form@0.1.0\nbio: make it <kbd>**bold**</kbd>\n~~~\n\nBody.\n"
     )
-    assert sorted(receipt) == ["dropped_anchors", "from", "warnings"]
-    assert (receipt["dropped_anchors"], receipt["from"]) == ([], [])
+    assert sorted(receipt) == ["conflicts", "dropped_anchors", "from", "warnings"]
+    assert (receipt["dropped_anchors"], receipt["from"], receipt["conflicts"]) == ([], [], [])
     (dropped,) = receipt["warnings"]
     assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
     assert quill.reader(doc).get("bio") == "make it **bold**"
@@ -166,6 +166,16 @@ def test_a_base_refuses_a_stale_revise_and_merges_a_read():
     with raises_edit_code("edit::stale_base"):
         w.revise_document(read, base_hash=hash)
     w.revise_document(read.replace("Beta.", "Beta, rewritten."), base_markdown=read)
+    assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, rewritten.\n")
+    receipt = w.revise_document(read.replace("Alpha.", "Alpha, mine."), base_markdown=read)
+    assert receipt["conflicts"] == [
+        {
+            "path": "main.body",
+            "base": "Alpha.\n\nBeta.",
+            "current": "Alpha, edited.\n\nBeta, rewritten.",
+            "proposed": "Alpha, mine.\n\nBeta.",
+        }
+    ]
     assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, rewritten.\n")
     with pytest.raises(ValueError):
         w.revise_body("x", base_hash=hash, base_markdown=read)

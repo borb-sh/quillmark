@@ -187,6 +187,14 @@ card_kinds:
     )
     ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseMarkdown: read })
     expect(doc.bodyMarkdown()).toBe('Alpha, edited.\n\nBeta.\n\nGamma, rewritten.')
+    expect(ed.reviseDocument(read.replace('Alpha.', 'Alpha, mine.'), { baseMarkdown: read }).conflicts).toEqual([
+      {
+        path: 'main.body',
+        base: 'Alpha.\n\nBeta.\n\nGamma.',
+        current: 'Alpha, edited.\n\nBeta.\n\nGamma, rewritten.',
+        proposed: 'Alpha, mine.\n\nBeta.\n\nGamma.',
+      },
+    ])
     expectEditCode(
       () => ed.reviseBody('Alpha, mine.\n\nBeta.\n\nGamma.', { baseMarkdown: 'Alpha.\n\nBeta.\n\nGamma.' }),
       'edit::rebase_conflict',
@@ -250,7 +258,7 @@ card_kinds:
     const receipt = ed.reviseDocument(
       '~~~card-yaml\n$quill: editor_test\nsubject: Q3 **results**\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nprose: fresh\n~~~\n\n~~~card-yaml\n$kind: note\nprose: kept\n~~~\n',
     )
-    expect(Object.keys(receipt).sort()).toEqual(['droppedAnchors', 'from', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['conflicts', 'droppedAnchors', 'from', 'warnings'])
     expect(receipt.from).toEqual([null, 0])
     expect(receipt.droppedAnchors).toEqual([])
     expect(receipt.warnings).toEqual([])

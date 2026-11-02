@@ -1,7 +1,9 @@
 use quillmark_content::lines::export::to_markdown_annotated;
 use quillmark_content::lines::import::from_markdown;
 
-use crate::document::{Base, BaseError, Card, Document, EditError, content_hash, value_hash};
+use crate::document::{
+    Base, BaseError, Card, Document, EditError, MergeConflict, content_hash, value_hash,
+};
 use crate::quill::{BoundParseError, QuillConfig};
 use crate::writer::TypedWriter;
 use serde_json::json;
@@ -25,6 +27,13 @@ main:
       multiline: true
     on:
       type: date
+    jobs:
+      type: array
+      items:
+        type: object
+        properties:
+          title: { type: text }
+          dates: { type: text }
 card_kinds:
   item:
     fields:
@@ -251,7 +260,7 @@ fn an_annotated_document_read_with_a_field_anchor_is_a_fresh_read() {
 }
 
 #[test]
-fn a_merge_that_does_not_parse_is_a_conflict_and_warnings_follow_their_card() {
+fn a_field_both_sides_wrote_keeps_its_value_now_and_warnings_follow_their_card() {
     let config = config();
     let mut doc = parse(
         "~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nBody.\n\n~~~\n$kind: item\n~~~\n\nOne.\n",
@@ -262,16 +271,28 @@ fn a_merge_that_does_not_parse_is_a_conflict_and_warnings_follow_their_card() {
     let _ = w
         .revise_document(&read.replace("subject: Hello\n", "subject: Hello\nnote: theirs\n"))
         .unwrap();
-    let err = w
+    let revised = w
         .revise_document_against(
             Base::Read(&read),
-            &read.replace("$quill: memo@1.0.0\n", "$quill: memo@1.0.0\nnote: mine\n"),
+            &read
+                .replace("$quill: memo@1.0.0\n", "$quill: memo@1.0.0\nnote: mine\n")
+                .replace("Body.", "Body, mine."),
         )
-        .unwrap_err();
-    assert!(
-        matches!(err, BoundParseError::Base(BaseError::Conflict { .. })),
-        "{err:?}"
+        .unwrap();
+    assert_eq!(
+        revised.conflicts,
+        [MergeConflict {
+            path: "main.note".parse().unwrap(),
+            base: None,
+            current: Some(json!("theirs")),
+            proposed: Some(json!("mine")),
+        }]
     );
+    assert_eq!(
+        doc.main().payload().get("note").unwrap().as_json(),
+        &json!("theirs")
+    );
+    assert_eq!(doc.main().body_markdown(), "Body, mine.");
 
     let mut doc = parse(
         "~~~\n$quill: memo@1.0.0\n~~~\n\nBody.\n\n~~~\n$kind: item\n~~~\n\nOne.\n\n~~~\n$kind: item\n~~~\n\nTwo.\n",
@@ -437,4 +458,101 @@ fn a_token_survives_a_merge() {
         "Alpha, mine, \u{FFFC}.\nBeta two, theirs."
     );
     assert_eq!(doc.main().body_lines().islands, body.islands);
+}
+
+fn jobs(doc: &Document) -> serde_json::Value {
+    doc.main().payload().get("jobs").unwrap().as_json().clone()
+}
+
+/// The person edits one row while the writer edits another: both land.
+#[test]
+fn edits_to_two_rows_of_one_array_both_land() {
+    let config = config();
+    let mut doc = parse(
+        "~~~\n$quill: memo@1.0.0\njobs:\n  - title: Clerk\n    dates: 2019\n  - title: Analyst\n    dates: 2021\n~~~\n\nBody.\n",
+    );
+    config.conform(&mut doc).unwrap();
+    let read = doc.to_markdown_annotated().markdown;
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let _ = w
+        .revise_document(&read.replace("2019", "2019-2020"))
+        .unwrap();
+    let revised = w
+        .revise_document_against(
+            Base::Read(&read),
+            &read.replace("Analyst", "Senior analyst"),
+        )
+        .unwrap();
+    assert!(revised.conflicts.is_empty(), "{:?}", revised.conflicts);
+    assert_eq!(
+        jobs(&doc),
+        json!([
+            {"title": "Clerk", "dates": "2019-2020"},
+            {"title": "Senior analyst", "dates": "2021"},
+        ])
+    );
+}
+
+/// A card the person removed while the writer edited it stays removed and is
+/// reported whole; the writer's other edits land.
+#[test]
+fn a_card_removed_since_the_read_and_edited_by_the_writer_stays_removed() {
+    let config = config();
+    let mut doc = parse(
+        "~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nBody.\n\n~~~\n$kind: item\n~~~\n\nOne.\n\n~~~\n$kind: item\n~~~\n\nTwo.\n",
+    );
+    let read = doc.to_markdown_annotated().markdown;
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let _ = w.remove_card(1);
+    let revised = w
+        .revise_document_against(
+            Base::Read(&read),
+            &read
+                .replace("Two.", "Two, mine.")
+                .replace("Hello", "Goodbye"),
+        )
+        .unwrap();
+    assert_eq!(revised.conflicts.len(), 1, "{:?}", revised.conflicts);
+    let conflict = &revised.conflicts[0];
+    assert_eq!(conflict.path.to_string(), "cards.item[1]");
+    assert_eq!(conflict.current, None);
+    assert_eq!(
+        conflict.proposed.as_ref().unwrap()["$body"],
+        json!("Two, mine.")
+    );
+    assert_eq!(doc.cards().len(), 1);
+    assert_eq!(doc.card(0).unwrap().body_markdown(), "One.");
+    assert!(doc.to_markdown().contains("subject: Goodbye"));
+}
+
+/// Two edits to one line of a body keep the body now and report it, while the
+/// writer's edits elsewhere land.
+#[test]
+fn a_body_line_both_sides_changed_keeps_the_body_now() {
+    let config = config();
+    let mut doc = parse("~~~\n$quill: memo@1.0.0\nsubject: Hello\n~~~\n\nAlpha one.\n");
+    let read = doc.to_markdown_annotated().markdown;
+    let mut w = TypedWriter::new(&config, &mut doc);
+    let _ = w
+        .revise_document(&read.replace("Alpha one.", "Alpha, theirs."))
+        .unwrap();
+    let revised = w
+        .revise_document_against(
+            Base::Read(&read),
+            &read
+                .replace("Alpha one.", "Alpha, mine.")
+                .replace("Hello", "Goodbye"),
+        )
+        .unwrap();
+    assert_eq!(
+        revised.conflicts,
+        [MergeConflict {
+            path: "main.body".parse().unwrap(),
+            base: Some(json!("Alpha one.")),
+            current: Some(json!("Alpha, theirs.")),
+            proposed: Some(json!("Alpha, mine.")),
+        }]
+    );
+    assert_eq!(doc.main().body_markdown(), "Alpha, theirs.");
+    assert!(doc.to_markdown().contains("subject: Goodbye"));
 }

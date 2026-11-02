@@ -1408,8 +1408,12 @@ impl PyWriter {
     /// unchanged.
     ///
     /// `base_hash` (`hash()`) or `base_markdown` (the whole document's
-    /// markdown, annotated or not) guard the write as on `revise_body`,
-    /// raising before any mutation.
+    /// markdown, annotated or not) guard the write. A stale hash raises before
+    /// any mutation. Under `base_markdown` the writer's change and the change
+    /// since merge card by card and field by field; each place both changed
+    /// keeps its value now and is named in the receipt's `conflicts`, a list of
+    /// `{path, base, current, proposed}`, and the write raises
+    /// `edit::rebase_conflict` only where no merge can stand.
     #[pyo3(signature = (markdown, *, base_hash=None, base_markdown=None))]
     fn revise_document<'py>(
         &self,
@@ -1447,6 +1451,22 @@ impl PyWriter {
         )?;
         receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
         receipt.set_item("from", revised.from)?;
+        let conflicts: Vec<_> = revised
+            .conflicts
+            .into_iter()
+            .map(|c| {
+                serde_json::json!({
+                    "path": c.path.to_string(),
+                    "base": c.base,
+                    "current": c.current,
+                    "proposed": c.proposed,
+                })
+            })
+            .collect();
+        receipt.set_item(
+            "conflicts",
+            json_to_py(py, &serde_json::Value::Array(conflicts))?,
+        )?;
         Ok(receipt)
     }
 

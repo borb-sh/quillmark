@@ -12,6 +12,7 @@ use super::align::{Pairing, Slot, align};
 use super::card_id::{is_card_id, reminted_warning, settle_reporting};
 use super::edit::dropped_anchors;
 use super::emit::{DocumentAnchor, canonical_content, emit_payload_fields};
+use super::merge::MergeConflict;
 use super::{Card, Document, Parsed, Revising, dropped_constructs};
 use crate::error::{Diagnostic, ParseError};
 use crate::path::DocPath;
@@ -35,6 +36,10 @@ pub struct DocumentRevised {
     /// entry names was removed. Only cards of one `$kind` pair, and a card
     /// revising a stored one holds its `$id`.
     pub from: Vec<Option<usize>>,
+    /// Under a [`Base::Read`](super::Base::Read), each place the writer's
+    /// change and the change since its read both changed, which the write
+    /// leaves as it stands now. Empty for any other write.
+    pub conflicts: Vec<MergeConflict>,
 }
 
 impl Document {
@@ -179,6 +184,7 @@ impl Document {
             dropped_anchors,
             warnings,
             from: pairs.into_iter().map(|pair| pair.map(|(i, _)| i)).collect(),
+            conflicts: Vec::new(),
         }
     }
 }
@@ -348,7 +354,7 @@ fn revise_value(
 /// For each item of `incoming`, the item of `stored` it revises, or `None` for
 /// an inserted one: aligned by text as cards are, so an item inserted or
 /// removed ahead of an edited one leaves it paired with its own stored item.
-fn align_items(stored: &[JsonValue], incoming: &[JsonValue]) -> Vec<Option<usize>> {
+pub(crate) fn align_items(stored: &[JsonValue], incoming: &[JsonValue]) -> Vec<Option<usize>> {
     let stored_texts: Vec<String> = stored.iter().map(item_text).collect();
     let incoming_texts: Vec<String> = incoming.iter().map(item_text).collect();
     fn slots(texts: &[String]) -> Vec<Slot<'_>> {

@@ -16,6 +16,7 @@ use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
 use super::edit::{EditError, Revised, is_valid_field_name, revise_import};
+use super::merge::{MergeConflict, merge_documents};
 use super::revise::align_cards;
 use super::{Card, Codec, Document, Parsed, Revising, dropped_constructs};
 use crate::error::{Diagnostic, diag_args};
@@ -467,12 +468,12 @@ pub(crate) fn parse_against(
     doc: &Document,
     base: Base<'_>,
     markdown: &str,
-) -> Result<Revising, BoundParseError> {
+) -> Result<(Revising, Vec<MergeConflict>), BoundParseError> {
     let hash = || conformed(config, doc).map(|d| d.hash());
     let read = match base {
         Base::Hash(read) => {
             check(hash()?, read)?;
-            return Ok(Document::parse_revising(markdown)?);
+            return Ok((Document::parse_revising(markdown)?, Vec::new()));
         }
         Base::Read(read) => read,
     };
@@ -481,7 +482,7 @@ pub(crate) fn parse_against(
     let reads_now =
         |doc: &Document| read == doc.to_markdown() || read == doc.to_markdown_annotated().markdown;
     if reads_now(doc) || reads_now(&conformed(config, doc)?) {
-        return Ok(revising);
+        return Ok((revising, Vec::new()));
     }
     let spell = |side: Revising| -> Result<String, BoundParseError> {
         let mut revised = doc.clone();
@@ -493,7 +494,7 @@ pub(crate) fn parse_against(
     let now = conformed(config, doc)?.to_markdown_annotated().markdown;
     let read = spell(Document::parse_revising(read)?)?;
     if read == now {
-        return Ok(revising);
+        return Ok((revising, Vec::new()));
     }
     let new = spell(Revising {
         parsed: Parsed {
@@ -508,8 +509,9 @@ pub(crate) fn parse_against(
         step: None,
         reason: None,
     };
-    let merged = merge_lines(&read, &now, &new).ok_or_else(conflict)?;
-    let merged = Document::parse_revising(&merged).map_err(|_| conflict())?;
+    let parse = |markdown: &str| Document::parse_revising(markdown).map_err(|_| conflict());
+    let (merged, conflicts) =
+        merge_documents(config, parse(&read)?, parse(&now)?, parse(&new)?).ok_or_else(conflict)?;
     config
         .check_quill_reference(&merged.parsed.document)
         .map_err(|_| conflict())?;
@@ -531,13 +533,14 @@ pub(crate) fn parse_against(
             },
         )
         .collect();
-    Ok(Revising {
+    let merged = Revising {
         parsed: Parsed {
             document: merged.parsed.document,
             warnings,
         },
         bodies: merged.bodies,
-    })
+    };
+    Ok((merged, conflicts))
 }
 
 /// `path` with its card index moved through `pairs`, the writer's cards to the

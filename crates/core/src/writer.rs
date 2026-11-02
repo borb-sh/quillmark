@@ -181,8 +181,11 @@ impl<'a> TypedWriter<'a> {
         base: Base<'_>,
         markdown: &str,
     ) -> Result<DocumentRevised, BoundParseError> {
-        let parsed = crate::document::base::parse_against(self.config, self.doc, base, markdown)?;
-        self.revise_parsed(parsed)
+        let (parsed, conflicts) =
+            crate::document::base::parse_against(self.config, self.doc, base, markdown)?;
+        let mut revised = self.revise_parsed(parsed)?;
+        revised.conflicts = conflicts;
+        Ok(revised)
     }
 
     /// The hash of the document as this quill conforms it: the [`Base::Hash`]

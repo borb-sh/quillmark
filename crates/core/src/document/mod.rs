@@ -577,6 +577,7 @@ pub mod dto;
 pub mod edit;
 pub mod emit;
 pub mod fences;
+pub mod merge;
 pub mod meta;
 pub mod payload;
 pub(crate) mod prescan;
@@ -593,6 +594,7 @@ pub use dto::{
 };
 pub use edit::{CardMut, EditError, Revised, revise_import};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
+pub use merge::MergeConflict;
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
