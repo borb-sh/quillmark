@@ -35,6 +35,10 @@ def test_a_refused_change_writes_nothing():
     assert doc.read() == before
     with pytest.raises(ValueError):
         doc.apply({"steps": "nope"})
+    with pytest.raises(ValueError, match="delet"):
+        doc.apply({"steps": [{"splice": {"at": 0, "delet": "hello", "insert": "hi"}}]})
+    with pytest.raises(ValueError, match="qoute"):
+        doc.apply({"steps": [{"mark": {"start": 0, "end": 5, "type": "strong", "add": True, "qoute": "hello"}}]})
 
 
 def test_a_quoted_step_refuses_text_its_writer_did_not_read():

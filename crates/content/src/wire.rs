@@ -19,6 +19,9 @@ pub enum ParseError {
     Shape(String),
     Json(String),
     UnknownName { axis: &'static str, name: String },
+    /// A key the object at `at`, a change's step or a part of one, does not
+    /// define.
+    UnknownKey { at: &'static str, key: String },
     Invalid(Invariant),
     /// A v1 value that did not decode.
     Legacy(v1::ParseError),
@@ -30,6 +33,7 @@ impl std::fmt::Display for ParseError {
             ParseError::Shape(s) => write!(f, "content json shape: {s}"),
             ParseError::Json(s) => write!(f, "content json parse: {s}"),
             ParseError::UnknownName { axis, name } => write!(f, "content vocabulary: unknown {axis} {name:?}"),
+            ParseError::UnknownKey { at, key } => write!(f, "content json shape: {at} holds no key {key:?}"),
             ParseError::Invalid(inv) => write!(f, "content invariant: {inv}"),
             ParseError::Legacy(e) => write!(f, "{e}"),
         }

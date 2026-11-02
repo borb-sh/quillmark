@@ -1203,6 +1203,14 @@ mod wire {
         }
     }
 
+    /// Refuses a key of `v` that `at` does not define.
+    fn only(v: &Value, at: &'static str, keys: &[&str]) -> Result<(), ParseError> {
+        match v.as_object().and_then(|m| m.keys().find(|k| !keys.contains(&k.as_str()))) {
+            Some(key) => Err(ParseError::UnknownKey { at, key: key.clone() }),
+            None => Ok(()),
+        }
+    }
+
     fn step_from(v: &Value, u: impl Units) -> Result<Step, ParseError> {
         let Some(m) = v.as_object().filter(|m| m.len() == 1) else {
             return Err(shape("a step is an object of one key"));
@@ -1213,13 +1221,17 @@ mod wire {
         }
         Ok(match name.as_str() {
             "splice" => {
+                only(body, "a splice", &["at", "delete", "insert", "marks", "blocks", "islands", "removed"])?;
                 let removed = match body.get("removed") {
                     None | Some(Value::Null) => None,
-                    Some(r @ Value::Object(_)) => Some(Removed {
-                        blocks: array(r, "blocks")?.iter().map(block_from_value).collect::<Result<_, _>>()?,
-                        marks: array(r, "marks")?.iter().map(mark_from_value).collect::<Result<_, _>>()?,
-                        islands: array(r, "islands")?.iter().map(island_from_value).collect::<Result<_, _>>()?,
-                    }),
+                    Some(r @ Value::Object(_)) => {
+                        only(r, "a splice's `removed`", &["blocks", "marks", "islands"])?;
+                        Some(Removed {
+                            blocks: array(r, "blocks")?.iter().map(block_from_value).collect::<Result<_, _>>()?,
+                            marks: array(r, "marks")?.iter().map(mark_from_value).collect::<Result<_, _>>()?,
+                            islands: array(r, "islands")?.iter().map(island_from_value).collect::<Result<_, _>>()?,
+                        })
+                    }
                     Some(_) => return Err(shape("`removed` is not an object")),
                 };
                 let insert = str_key(body, "insert")?;
@@ -1227,6 +1239,7 @@ mod wire {
                 let marks = array(body, "marks")?
                     .iter()
                     .map(|mv| {
+                        only(mv, "a splice's mark", &["start", "end", "type", "attrs"])?;
                         let kind = mark_kind_from(&str_key(mv, "type")?, &attrs(mv)?)?;
                         let start = if mv.get("start").is_some() { usize_key(mv, "start")? } else { 0 };
                         let end = if mv.get("end").is_some() { usize_key(mv, "end")? } else { len };
@@ -1246,28 +1259,32 @@ mod wire {
                     removed,
                 })
             }
-            "setBlock" => Step::SetBlock(SetBlock {
-                id: str_key(body, "id")?,
-                kind: match body.get("kind") {
-                    None | Some(Value::Null) => None,
-                    _ => Some(str_key(body, "kind")?),
-                },
-                attrs: match body.get("attrs") {
-                    None | Some(Value::Null) => None,
-                    Some(Value::Object(a)) => Some(a.clone()),
-                    Some(_) => return Err(shape("`attrs` is not an object")),
-                },
-                path: match body.get("path") {
-                    None | Some(Value::Null) => None,
-                    Some(Value::Array(a)) => Some(
-                        a.iter()
-                            .map(|p| p.as_str().map(str::to_string).ok_or_else(|| shape("a path entry is not a string")))
-                            .collect::<Result<_, _>>()?,
-                    ),
-                    Some(_) => return Err(shape("`path` is not an array")),
-                },
-            }),
+            "setBlock" => {
+                only(body, "a setBlock", &["id", "kind", "attrs", "path"])?;
+                Step::SetBlock(SetBlock {
+                    id: str_key(body, "id")?,
+                    kind: match body.get("kind") {
+                        None | Some(Value::Null) => None,
+                        _ => Some(str_key(body, "kind")?),
+                    },
+                    attrs: match body.get("attrs") {
+                        None | Some(Value::Null) => None,
+                        Some(Value::Object(a)) => Some(a.clone()),
+                        Some(_) => return Err(shape("`attrs` is not an object")),
+                    },
+                    path: match body.get("path") {
+                        None | Some(Value::Null) => None,
+                        Some(Value::Array(a)) => Some(
+                            a.iter()
+                                .map(|p| p.as_str().map(str::to_string).ok_or_else(|| shape("a path entry is not a string")))
+                                .collect::<Result<_, _>>()?,
+                        ),
+                        Some(_) => return Err(shape("`path` is not an array")),
+                    },
+                })
+            }
             "container" => {
+                only(body, "a container step", &["id", "kind", "attrs", "remove"])?;
                 let id = str_key(body, "id")?;
                 if removing(body)? {
                     Step::Container(ContainerStep::Remove { id })
@@ -1277,6 +1294,7 @@ mod wire {
                 }
             }
             "mark" => {
+                only(body, "a mark step", &["start", "end", "type", "attrs", "add", "quote"])?;
                 let add = body.get("add").and_then(Value::as_bool).ok_or_else(|| shape("`add` is not a boolean"))?;
                 let quote = opt_str(body, "quote")?;
                 if add {
@@ -1290,6 +1308,7 @@ mod wire {
                 }
             }
             "anchor" => {
+                only(body, "an anchor step", &["id", "start", "end", "quote", "remove"])?;
                 if removing(body)? {
                     Step::Anchor(AnchorStep::Remove { id: str_key(body, "id")? })
                 } else {
@@ -1297,22 +1316,31 @@ mod wire {
                 }
             }
             "island" => match body.get("island") {
-                Some(island) => Step::Island(IslandStep::Insert {
-                    at: usize_key(body, "at")?,
-                    island: island_from_value(island)?,
-                    block: opt_str(body, "block")?,
-                }),
-                None => Step::Island(IslandStep::Props {
-                    id: str_key(body, "id")?,
-                    props: body.get("props").cloned().ok_or_else(|| shape("an island step names `props`"))?,
-                    slots: slots_from(body)?,
-                }),
+                Some(island) => {
+                    only(body, "an island insert", &["at", "island", "block"])?;
+                    Step::Island(IslandStep::Insert {
+                        at: usize_key(body, "at")?,
+                        island: island_from_value(island)?,
+                        block: opt_str(body, "block")?,
+                    })
+                }
+                None => {
+                    only(body, "an island props step", &["id", "props", "slots"])?;
+                    Step::Island(IslandStep::Props {
+                        id: str_key(body, "id")?,
+                        props: body.get("props").cloned().ok_or_else(|| shape("an island step names `props`"))?,
+                        slots: slots_from(body)?,
+                    })
+                }
             },
-            "nested" => Step::Nested {
-                island: str_key(body, "island")?,
-                slot: str_key(body, "slot")?,
-                change: change_from(body.get("change").ok_or_else(|| shape("a nested step names `change`"))?, u)?,
-            },
+            "nested" => {
+                only(body, "a nested step", &["island", "slot", "change"])?;
+                Step::Nested {
+                    island: str_key(body, "island")?,
+                    slot: str_key(body, "slot")?,
+                    change: change_from(body.get("change").ok_or_else(|| shape("a nested step names `change`"))?, u)?,
+                }
+            }
             other => return Err(ParseError::UnknownName { axis: "step", name: other.to_string() }),
         })
     }

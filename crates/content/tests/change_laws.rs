@@ -525,6 +525,40 @@ fn a_step_sets_and_removes_a_reserved_name_and_refuses_another_unknown_one() {
     assert!(matches!(apply(&d, &unknown), Err(ApplyError::BadStep { step: 0, .. })));
 }
 
+/// A step holding a key its kind does not define is refused, so a
+/// misspelled precondition never decodes as a step without it; the `attrs`
+/// and `props` bags stay open.
+#[test]
+fn a_step_holding_a_key_it_does_not_define_is_refused() {
+    let steps = [
+        json!({"splice": {"at": 0, "delete": "he", "insert": "x", "marks": [{"start": 0, "end": 1, "type": "x-glow", "attrs": {"x-any": 1}}], "removed": {}}}),
+        json!({"setBlock": {"id": "b0", "kind": "x-callout", "attrs": {"tone": "warm", "x-any": 1}, "path": []}}),
+        json!({"container": {"id": "l9", "kind": "list", "attrs": {"ordered": true}}}),
+        json!({"container": {"id": "l9", "remove": true}}),
+        json!({"mark": {"start": 0, "end": 2, "type": "strong", "add": true, "quote": "he"}}),
+        json!({"anchor": {"id": "c1", "start": 0, "end": 2, "quote": "he"}}),
+        json!({"anchor": {"id": "c1", "remove": true}}),
+        json!({"island": {"at": 0, "island": {"id": "m0", "type": "math", "props": {"tex": "y", "x-any": 1}}, "block": "b0"}}),
+        json!({"island": {"id": "m0", "props": {"tex": "y"}, "slots": {}}}),
+        json!({"nested": {"island": "m0", "slot": "s0", "change": {"steps": []}}}),
+    ];
+    for step in steps {
+        assert!(Change::from_value(&json!({"steps": [step.clone()]})).is_ok(), "{step}");
+        let (name, body) = step.as_object().unwrap().iter().next().unwrap();
+        let mut wrong = body.clone();
+        wrong["qoute"] = json!("he");
+        let refused = Change::from_value(&json!({"steps": [{name: wrong}]}));
+        assert!(matches!(&refused, Err(quillmark_content::wire::ParseError::UnknownKey { key, .. }) if key == "qoute"), "{name}: {refused:?}");
+    }
+    for nested in [
+        json!({"splice": {"at": 0, "delet": "he", "insert": "x"}}),
+        json!({"splice": {"at": 0, "insert": "x", "marks": [{"type": "strong", "atrs": {}}]}}),
+        json!({"splice": {"at": 0, "insert": "x", "removed": {"block": []}}}),
+    ] {
+        assert!(matches!(Change::from_value(&json!({"steps": [nested.clone()]})), Err(quillmark_content::wire::ParseError::UnknownKey { .. })), "{nested}");
+    }
+}
+
 #[test]
 fn a_typed_run_composes_into_one_splice() {
     let d = from_markdown("ab").unwrap().content;
