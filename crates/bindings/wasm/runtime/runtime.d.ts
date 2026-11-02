@@ -169,7 +169,13 @@ export type {
 	AnchorContext,
 	Reattached,
 	Imported,
-	DocPathSeg
+	DocPathSeg,
+	Pos,
+	MapResult,
+	WrapKind,
+	RawContent,
+	Repair,
+	Repaired
 } from '../core/wasm.js';
 
 // The schema-bound whole-document read on `quill.reader(doc)`: the resolved
