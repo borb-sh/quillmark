@@ -184,6 +184,12 @@ mod tests {
         let note = from_markdown("a[^1]\n\n[^1]: one\n\n    two").unwrap().content;
         let mut noted = note.to_value();
         assert_eq!(note.islands[0].slots[NOTE_SLOT].text, joined);
+        for md in ["a[^1]\n\n[^1]: one<br><br>two", "a[^1]\n\n[^1]: one<br>\n\n    two"] {
+            let c = from_markdown(md).unwrap().content;
+            let slot = &c.islands[0].slots[NOTE_SLOT];
+            assert_eq!((slot.text.as_str(), slot.blocks.len()), (joined.as_str(), 1), "{md:?}");
+            assert_eq!(from_markdown(&to_markdown(&c)).unwrap().content, c);
+        }
         noted["islands"][0]["slots"][NOTE_SLOT] = stored["islands"][0]["slots"]["s1"].clone();
         let refused = Invariant::BreakInCell { island: "isl-0".into(), slot: NOTE_SLOT.into() };
         assert_eq!(Content::from_value(&noted), Err(ParseError::Invalid(refused.clone())));
