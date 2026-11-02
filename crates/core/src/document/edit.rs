@@ -1312,7 +1312,7 @@ impl Card {
     /// markdown import, no diff, no schema check, infallible. A raw `Content`
     /// normalizes on the way in, so what lands is canonical. Anchor fate across
     /// the content lane: **overwrite destroys, [`revise_body`](Self::revise_body)
-    /// rebases, [`apply_body_change`](Self::apply_body_change) preserves.**
+    /// rebases, [`apply`](Self::apply) preserves.**
     pub fn overwrite_body(&mut self, content: impl Into<Normalized>) {
         self.set_body_lines(content.into());
     }
