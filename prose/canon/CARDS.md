@@ -23,8 +23,8 @@ Three shapes, and what each one is for:
 | **matrix** | a vocabulary someone ticks | a `matrix` field ([SCHEMAS.md](SCHEMAS.md#matrix)) |
 
 A **card** is ordered among kinds of other sorts, carries a fence-native
-`$body`, is retypable, and seeds per kind. A **row** is typed cells belonging to
-one parent; a `richtext` cell is a row's writing surface, and its prose is a
+`$body`, is retypable, and seeds per kind. A **row** is typed value positions belonging to
+one parent; a `richtext` value position is a row's writing surface, and its prose is a
 quoted YAML scalar rather than a fence. A **matrix** is rows the schema
 declares, plus any an open one's document adds; sparse data; and a total page.
 
@@ -145,7 +145,7 @@ none is minted one where it is placed. A whole-document revise pairs a card by
 the id it spells before any text match, and a comment selector finds its card
 by it wherever the card moved. The main card is `main` and carries none.
 [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#card-id-identity) states the grammar,
-the mint and each door's settle. `$id` never reaches the plate JSON, so it is
+the mint and how each input path normalizes the id. `$id` never reaches the plate JSON, so it is
 not the per-card key a template reads; it replaces the durable key a consumer
 used to carry in `$ext`.
 
@@ -172,7 +172,7 @@ namespace inside the map (`$ext.editor`, `$ext.agent`, …) to avoid
 collisions when more than one tool carries state on the same card. See
 [markdown-spec.md §3.3](../references/markdown-spec.md) for the full specification.
 
-`$ext.editor.title` is the canonical slot for a per-card display name:
+`$ext.editor.title` is the canonical key for a per-card display name:
 the label an editing surface shows when a user renames one card
 instance. It overrides the per-*kind* `title` and, being editor
 state, never reaches the backend.
@@ -183,7 +183,7 @@ state, never reaches the backend.
 the **main card only**, round-tripping through Markdown and the storage DTO and
 stripped before backends, but the seeding layer *interprets* it. It is
 **root-only** like `$quill`: a composable card carrying `$seed` is rejected at
-parse, on storage load, on insert (`push_card` / `insert_card`, the
+parse, on storage load, on insert (`unchecked().insert_card`, the
 positional gate that also polices `$kind`), and by `store_seed_overlay`, which
 writes only on a card carrying `$kind: main` — the root's own marker, so a card
 reached through `card_mut` is refused after placement too. It answers
@@ -191,7 +191,7 @@ reached through `card_mut` is refused after placement too. It answers
 keyed by composable card-kind, is a **sparse overlay** of the user fields (plus
 an optional reserved `$body` string) a freshly-added card of that kind inherits.
 
-**Twin in structure, not in key.** `$ext` is keyed by a free-form *namespace* a consumer owns and Quillmark never inspects; `$seed` is keyed by a validated composable *card-kind*, and its value is an overlay. The verbs follow the keys. `$ext` moves whole — `ext` / `store_ext` / `remove_ext` — because a map Quillmark never reads is one its consumer merges for itself: a namespaced write is the read spread over the new slot. `$seed` is addressed per kind — `store_seed_overlay` / `remove_seed_overlay` — matching the `seedOverlay` read and the `SeedOverlay` type.
+**Twin in structure, not in key.** `$ext` is keyed by a free-form *namespace* a consumer owns and Quillmark never inspects; `$seed` is keyed by a validated composable *card-kind*, and its value is an overlay. The verbs follow the keys. `$ext` moves whole — `ext` / `store_ext` / `remove_ext` — because a map Quillmark never reads is one its consumer merges for itself: a namespaced write is the read spread over the new key. `$seed` is addressed per kind — `store_seed_overlay` / `remove_seed_overlay` — matching the `seedOverlay` read and the `SeedOverlay` type.
 
 ````markdown
 ~~~
@@ -223,8 +223,8 @@ over `card_kinds`, and `main ∉ card_kinds` (a `$seed.main` entry is an advisor
 unknown-kind). Overlays are validated only on the editor surface
 (`Quill::validate`, warning-severity, rooted at `$seed.<kind>[.<field>]`) and
 **never gate render**: `compile_data` / `dry_run` ignore `$seed` entirely. Each
-cell is judged as the **document** value it is — an overlay cell is what
+value position is judged as the **document** value it is — an overlay value position is what
 `seed_card` commits into the new card — so the container spelling of a
-variant-bearing enum and a present-null cell read here exactly as they read in a
+variant-bearing enum and a present-null value position read here exactly as they read in a
 card. A malformed overlay surfaces enforcement only when a card is actually
 spawned from it, as an ordinary card diagnostic on that card.

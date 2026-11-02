@@ -190,6 +190,7 @@ impl TryFrom<CardWire> for Card {
                     super::edit::validate_field(&key, &value).map_err(|v| {
                         WireError::Edit(super::edit::edit_error_from_violation(&key, v))
                     })?;
+                    let value = super::edit::settled_field(&key, value)?;
                     Ok(PayloadItem::Field {
                         key,
                         value: QuillValue::from_json(value),
@@ -211,7 +212,7 @@ impl TryFrom<CardWire> for Card {
             payload.set_quill(reference);
         }
         // No `$kind` check, and none on `$quill`/`$seed` above: all three are
-        // positional and belong to `Document::push_card` / `insert_card`
+        // positional and belong to `Unchecked::insert_card`
         // (`check_composable_placement`).
         if !wire.kind.is_empty() {
             payload.set_kind(wire.kind);
@@ -265,7 +266,7 @@ mod tests {
             .content
             .into_content();
         content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-        let content = content.into_normalized();
+        let content = content.into_lines();
         let json = quillmark_content::lines::serial::to_canonical_value(&content);
         let schema = crate::quill::FieldSchema::new(
             "intro".to_string(),
@@ -315,7 +316,7 @@ mod tests {
         let mut payload = Payload::from_index_map(Default::default());
         payload.set_quill("memo@1.2.3".parse().unwrap());
         payload.set_kind("main");
-        let card = Card::from_parts(payload, quillmark_content::lines::model::Normalized::empty());
+        let card = Card::from_parts(payload, quillmark_content::lines::model::Lines::empty());
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.quill.as_deref(), Some("memo@1.2.3"));
@@ -419,7 +420,7 @@ mod tests {
 
         assert_eq!(
             with_body(JsonValue::Null).unwrap().body_lines(),
-            &quillmark_content::lines::model::Normalized::empty()
+            &quillmark_content::lines::model::Lines::empty()
         );
         assert_eq!(
             Codec::Richtext.project(with_body(json!("hi *there*")).unwrap().body_lines()),

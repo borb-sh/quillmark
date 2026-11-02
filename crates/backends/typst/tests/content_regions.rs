@@ -543,7 +543,7 @@ fn adversarial_codegen_inputs_still_compile() {
             ),
             &serde_json::json!({
                 "prose": content("Please <u>sign here"),
-                "overlap": quillmark_content::lines::serial::to_canonical_value(&overlap.into_normalized()),
+                "overlap": quillmark_content::lines::serial::to_canonical_value(&overlap.into_lines()),
                 "n": i64::MIN,
             }),
             common::test_date(),
@@ -725,7 +725,7 @@ fn locate_past_a_trailing_hard_break_holds_the_preceding_run() {
             Line::new(LineKind::Para).with_continues(true),
         ],
     )
-    .into_normalized();
+    .into_lines();
     assert_eq!(rt.validate(), Ok(()));
     let session = body_session(quillmark_content::lines::serial::to_canonical_value(&rt));
 

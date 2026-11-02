@@ -30,7 +30,7 @@
 //! residual.
 
 use crate::lines::import::{Against, ImportWarning, Pin};
-use crate::lines::model::{Island, Mark, MarkKind, Content, Normalized};
+use crate::lines::model::{Island, Mark, MarkKind, Content, Lines};
 use crate::units::{self, Units};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -630,7 +630,7 @@ fn push_insert(ops: &mut Vec<Op>, s: &str) {
 pub fn diff_import(
     base: &Content,
     new_markdown: &str,
-) -> Result<(Normalized, Delta, Vec<ImportWarning>), crate::lines::import::ImportError> {
+) -> Result<(Lines, Delta, Vec<ImportWarning>), crate::lines::import::ImportError> {
     let Against { content, warnings, pins } = crate::lines::import::from_markdown_against(new_markdown, base)?;
     let (content, delta) = rebase_pinned(base, content, &pins);
     Ok((content, delta, warnings))
@@ -641,7 +641,7 @@ pub fn diff_import(
 /// ends where the diff carries its stored end, when that lands from the pin to
 /// the end of the pin's line, and otherwise spans its stored length, cut at
 /// the line's end. A pin naming no prose anchor of `base` pins nothing.
-pub fn rebase_pinned(base: &Content, new: Normalized, pins: &[Pin]) -> (Normalized, Delta) {
+pub fn rebase_pinned(base: &Content, new: Lines, pins: &[Pin]) -> (Lines, Delta) {
     let (rebased, delta) = rebase_onto(base, new);
     if pins.is_empty() {
         return (rebased, delta);
@@ -671,11 +671,11 @@ pub fn rebase_pinned(base: &Content, new: Normalized, pins: &[Pin]) -> (Normaliz
         }
         next.marks.push(Mark::new(pin.at, end, stored.kind.clone()));
     }
-    (next.into_normalized(), delta)
+    (next.into_lines(), delta)
 }
 
 /// [`rebase_marks`] with each pin placed as [`rebase_pinned`] places it.
-pub fn rebase_marks_pinned(base: &Content, new: Normalized, pins: &[Pin]) -> Normalized {
+pub fn rebase_marks_pinned(base: &Content, new: Lines, pins: &[Pin]) -> Lines {
     match pins.is_empty() {
         true => rebase_marks(base, new),
         false => rebase_pinned(base, new, pins).0,
@@ -685,12 +685,12 @@ pub fn rebase_marks_pinned(base: &Content, new: Normalized, pins: &[Pin]) -> Nor
 /// [`diff_import`] over a content already imported: diff `new` against `base`
 /// and carry `base`'s surviving non-formatting marks onto it. `new` carries no
 /// anchor of its own, as an import's output does not.
-pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
+pub fn rebase_onto(base: &Content, new: Lines) -> (Lines, Delta) {
     let mut new_rt = new.into_content();
     let delta = diff(&base.text, &new_rt.text);
     carry_marks(base, &mut new_rt, &delta, |_| true);
     carry_island_ids(&base.islands, &mut new_rt);
-    (new_rt.into_normalized(), delta)
+    (new_rt.into_lines(), delta)
 }
 
 /// Diff `next` against `base` and carry each prose anchor of `base` whose id
@@ -700,7 +700,7 @@ pub fn rebase_onto(base: &Content, new: Normalized) -> (Normalized, Delta) {
 /// island props (cell anchors among them) included. An omitted anchor drops
 /// only where the diff deletes its text, so a splice or an overwrite is the
 /// door that removes one whose text stays.
-pub fn carry_anchors(base: &Content, next: Normalized) -> (Normalized, Delta) {
+pub fn carry_anchors(base: &Content, next: Lines) -> (Lines, Delta) {
     let mut next = next.into_content();
     let delta = diff(&base.text, &next.text);
     let cells: Vec<Mark> = next
@@ -721,16 +721,16 @@ pub fn carry_anchors(base: &Content, next: Normalized) -> (Normalized, Delta) {
     carry_marks(base, &mut next, &delta, |m| {
         !matches!(&m.kind, MarkKind::Anchor { id } if held.contains(id))
     });
-    (next.into_normalized(), delta)
+    (next.into_lines(), delta)
 }
 
 /// [`rebase_onto`] without the delta, diffing only when `base` holds a mark
 /// to carry.
-pub fn rebase_marks(base: &Content, new: Normalized) -> Normalized {
+pub fn rebase_marks(base: &Content, new: Lines) -> Lines {
     if base.marks.iter().all(|m| m.kind.is_formatting()) {
         let mut new_rt = new.into_content();
         carry_island_ids(&base.islands, &mut new_rt);
-        return new_rt.into_normalized();
+        return new_rt.into_lines();
     }
     rebase_onto(base, new).0
 }
@@ -870,6 +870,20 @@ fn rebase_mark(
     // Collapsed, try a verbatim block move: the annotated span must reappear
     // inside inserted text (not merely somewhere in the surviving content).
     relocate_span(base_chars, new_chars, inserted, m.start, m.end)
+}
+
+/// Where `new` re-homes `[start, end)` of `base` that its char diff from
+/// `base` deleted: a span or a point moved verbatim into text the diff
+/// inserted, at least [`MIN_MOVE`] characters of it, as [`rebase_mark`]
+/// relocates a mark. `None` where nothing moved it.
+pub(crate) fn relocate(base: &str, new: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let base_chars: Vec<char> = base.chars().collect();
+    let new_chars: Vec<char> = new.chars().collect();
+    let inserted = diff(base, new).inserted_spans();
+    match start == end {
+        true => relocate_point(&base_chars, &new_chars, &inserted, start),
+        false => relocate_span(&base_chars, &new_chars, &inserted, start, end),
+    }
 }
 
 /// Find the annotated span `base[start..end]` inside an inserted region of the
@@ -1123,7 +1137,7 @@ mod tests {
             end: 15,
             kind: MarkKind::Anchor { id: "c1".into() },
         });
-        let base = base.into_normalized();
+        let base = base.into_lines();
         let (new_rt, _, _) = diff_import(&base, "second para here\n\nfirst para here").unwrap();
         let anchor = new_rt
             .marks
@@ -1158,7 +1172,7 @@ mod tests {
             .into_content();
         base.marks.push(anchor(0, 3, "c1"));
         base.marks.push(anchor(8, 13, "c2"));
-        let base = base.into_normalized();
+        let base = base.into_lines();
 
         let mut next = from_markdown("zero one two three\n\n| a |\n|---|\n| b |")
             .unwrap()
@@ -1166,7 +1180,7 @@ mod tests {
             .into_content();
         next.marks.push(anchor(9, 12, "c2"));
         next.islands[0].id = "peer-0".into();
-        let (out, delta) = carry_anchors(&base, next.into_normalized());
+        let (out, delta) = carry_anchors(&base, next.into_lines());
 
         assert_eq!(delta.try_apply(&base.text).unwrap(), out.text);
         assert_eq!(held(&out, "c1"), "one");
@@ -1184,11 +1198,11 @@ mod tests {
             end: 3,
             kind: MarkKind::Anchor { id: "c1".into() },
         });
-        let base = base.into_normalized();
+        let base = base.into_lines();
         let mut next = from_markdown("see[^1] there\n\n[^1]: note").unwrap().content.into_content();
         next.islands[0].props["marks"] =
             serde_json::json!([{"start": 0, "end": 4, "type": "anchor", "id": "c1"}]);
-        let (out, _) = carry_anchors(&base, next.into_normalized());
+        let (out, _) = carry_anchors(&base, next.into_lines());
         assert!(out.marks.iter().all(|m| m.kind.is_formatting()));
     }
 
@@ -1201,7 +1215,7 @@ mod tests {
             end: 23,
             kind: MarkKind::Anchor { id: "c1".into() },
         });
-        let base = base.into_normalized();
+        let base = base.into_lines();
         let (new_rt, _, _) = diff_import(&base, "keep this").unwrap();
         assert!(
             !new_rt
@@ -1220,7 +1234,7 @@ mod tests {
             end: 6, // "target" in the first (deleted) paragraph
             kind: MarkKind::Anchor { id: "c1".into() },
         });
-        let base = base.into_normalized();
+        let base = base.into_lines();
         // First paragraph deleted; the second (with its own "target") survives
         // as retained text: the anchor must drop, not jump to it.
         let (new_rt, _, _) = diff_import(&base, "keep the target two").unwrap();
@@ -1272,7 +1286,7 @@ mod tests {
             end: 9,
             kind: MarkKind::Anchor { id: "c1".into() },
         });
-        let base = base.into_normalized();
+        let base = base.into_lines();
         let (new_rt, _, _) = diff_import(&base, "AAAMIDDLEZZZ").unwrap();
         let anchor = new_rt
             .marks
@@ -1286,14 +1300,14 @@ mod tests {
         );
     }
 
-    fn anchored(markdown: &str, start: usize, end: usize) -> Normalized {
+    fn anchored(markdown: &str, start: usize, end: usize) -> Lines {
         let mut base = from_markdown(markdown).unwrap().content.into_content();
         base.marks.push(Mark {
             start,
             end,
             kind: MarkKind::Anchor { id: "c1".into() },
         });
-        base.into_normalized()
+        base.into_lines()
     }
 
     fn anchored_text(content: &Content) -> Option<(usize, String)> {
@@ -1446,7 +1460,7 @@ mod tests {
             end: 12, // "target"
             kind: MarkKind::Anchor { id: "c1".into() },
         });
-        let base = base.into_normalized();
+        let base = base.into_lines();
 
         let new_markdown = format!("hello target world-{}-end", filler(30_000, 11));
         let start = std::time::Instant::now();
@@ -1523,10 +1537,10 @@ mod tests {
         assert_eq!(merge_lines(base, base, writer).as_deref(), Some(writer));
     }
 
-    fn with_anchor(markdown: &str, (start, end): (usize, usize), id: &str) -> Normalized {
+    fn with_anchor(markdown: &str, (start, end): (usize, usize), id: &str) -> Lines {
         let mut rt = from_markdown(markdown).unwrap().content.into_content();
         rt.marks.push(Mark::new(start, end, MarkKind::Anchor { id: id.into() }));
-        rt.into_normalized()
+        rt.into_lines()
     }
 
     fn anchor_of(rt: &Content, id: &str) -> Option<(usize, usize)> {
@@ -1597,7 +1611,7 @@ mod tests {
     fn a_token_keeps_its_island_as_stored() {
         let mut stored = from_markdown("See ![a](u.png) here.").unwrap().content.into_content();
         stored.islands[0].props["title"] = "kept".into();
-        let stored = stored.into_normalized();
+        let stored = stored.into_lines();
         let read = crate::lines::export::to_markdown_annotated(&stored).markdown;
         assert_eq!(read, "See <qm-island ref=\"isl-0\"></qm-island> here.");
 
@@ -1618,7 +1632,7 @@ mod tests {
     fn a_token_drops_reported_where_it_cannot_be_kept() {
         let mut stored = from_markdown("| h |\n| --- |\n| c |").unwrap().content.into_content();
         stored.islands[0].props["note"] = "kept".into();
-        let stored = stored.into_normalized();
+        let stored = stored.into_lines();
         assert_eq!(crate::lines::export::to_markdown_annotated(&stored).markdown, "<qm-island ref=\"isl-0\"></qm-island>");
 
         let md = "a <qm-island ref=\"isl-0\"></qm-island> b <qm-island ref=\"isl-9\"></qm-island>\n\n\
@@ -1641,7 +1655,7 @@ mod tests {
         stored.islands[0].props["note"] = "kept".into();
         stored.islands[0].props["rows"][0][0]["marks"] =
             serde_json::json!([{ "start": 0, "end": 4, "type": "anchor", "attrs": { "id": "c1" } }]);
-        let stored = stored.into_normalized();
+        let stored = stored.into_lines();
         let token = "<qm-island ref=\"isl-0\"></qm-island>";
         assert_eq!(crate::lines::export::to_markdown_annotated(&stored).markdown, token);
 
@@ -1661,7 +1675,7 @@ mod tests {
         let mut stored = from_markdown("Hello world.\n\n| h |\n| --- |\n| c |").unwrap().content.into_content();
         stored.marks.push(Mark::new(6, 11, MarkKind::Anchor { id: "w".into() }));
         stored.islands[0].props["note"] = "kept".into();
-        let stored = stored.into_normalized();
+        let stored = stored.into_lines();
         let read = crate::lines::export::to_markdown_annotated(&stored).markdown;
         let token = &read[read.find("<qm-island").unwrap()..];
         let (next, _, _) = diff_import(&stored, &format!("Hello {token}<qm-anchor ref=\"w\"></qm-anchor>world.")).unwrap();

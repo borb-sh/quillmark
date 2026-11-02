@@ -40,7 +40,7 @@ title: My Favorite Ice Cream
 I love **Taro** ice cream!
 """
 
-    parsed = Document.from_markdown(markdown)
+    parsed = Document.parse(markdown)
 
     print(f"Loaded quill: {quill.metadata['name']}")
     print(f"Backend: {quill.backend_id}")

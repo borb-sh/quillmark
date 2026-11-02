@@ -759,7 +759,7 @@ card_kinds:
     fn coverage_reaches_each_filled_address_through_its_nearest_region() {
         let config = QuillConfig::from_yaml(YAML).expect("config");
         let empty = crate::document::stored_over(None, 
-            &quillmark_content::lines::model::Normalized::empty(),
+            &quillmark_content::lines::model::Lines::empty(),
         );
         let body = crate::document::stored_over(None, 
             &quillmark_content::lines::import::from_markdown("A body.")

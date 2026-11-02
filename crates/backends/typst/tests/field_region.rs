@@ -216,7 +216,7 @@ fn a_claim_around_a_content_field_moves_none_of_its_regions() {
             Mark::new(6, 12, MarkKind::Strike),
             Mark::new(17, 27, MarkKind::Underline),
         ])
-        .into_normalized(),
+        .into_lines(),
     );
     let listed = common::content("- one\n- two\n  - nested\n\n1. first\n2. second");
     for body in [&listed, &decorated] {

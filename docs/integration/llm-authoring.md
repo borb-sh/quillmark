@@ -34,7 +34,7 @@ const schema = quill.authoringSchema    // JavaScript
 
 - Every field carries its `title`, `description`, `default`, and its `example:` as `examples`; every body its `description` and `examples`.
 - A `richtext` leaf is `{type: string, contentMediaType: text/markdown}` and a `text` leaf `{type: string}`.
-- Every cell admits `null`.
+- Every value position admits `null`.
 - Every object refuses a key the quill does not declare (`additionalProperties: false`), so an invented or misspelled field fails the schema. `fromAuthoring` still imports one, and `validate` warns on it.
 - Card kinds sit under `$defs`, and `cards` items select one by `kind`.
 - An enum with `variants:` is a `oneOf` with one branch per world.
@@ -64,7 +64,7 @@ const current = quill.toAuthoring(doc)
 A model revising a long document reads and writes one address at a time, rather than the whole document each turn (JavaScript only):
 
 ```javascript
-const read = doc.annotatedAt({ card: 0 })            // the body of cards[0], with its anchor tags
+const read = doc.toMarkdown({ card: 0 }, { annotated: true }) // the body of cards[0], with its anchor tags
 const reply = await model(read.markdown)              // the model edits that markdown alone
 quill.writer(doc).card(0).reviseBody(reply, { baseMarkdown: read.markdown })
 ```

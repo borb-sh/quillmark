@@ -169,7 +169,7 @@ $kind: main
 ~~~
 ",
     );
-    doc.push_card(Card::new("indorsement").unwrap()).unwrap();
+    doc.unchecked().insert_card(None, Card::new("indorsement").unwrap(), None).unwrap();
 
     let refused = EditError::RootOnlyEntry {
         key: MetaKey::Seed.as_str().to_string(),

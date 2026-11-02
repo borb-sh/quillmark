@@ -91,7 +91,7 @@ def test_quill_from_path_bad_backend_loads_then_fails_at_render(tmp_path):
     assert quill.backend_id == "nonexistent"
     assert quill.metadata["backend"] == "nonexistent"
 
-    doc = Document.from_markdown(
+    doc = Document.parse(
         "~~~card-yaml\n$quill: test\n$kind: main\n~~~\n\nBody.\n"
     )
     with pytest.raises(QuillmarkError):

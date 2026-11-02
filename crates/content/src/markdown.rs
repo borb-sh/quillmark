@@ -1,9 +1,12 @@
-//! Markdown at the edges: an import reads markdown through the line form and
-//! migrates it, an export lowers the content to the line form and writes it.
+//! Markdown at the edges: [`from_markdown`] is the one import and
+//! [`to_markdown`] with [`to_markdown_annotated`] the one export, plain or
+//! annotated; the plain export drops every anchor and the annotated one spells
+//! them for a revise to read back.
 
 use crate::lines;
-use crate::lines::export::{AnchorRead, Annotated, ExportLoss};
-use crate::lines::import::{ImportError, ImportWarning};
+use crate::lines::export::ExportLoss;
+pub use crate::lines::export::{AnchorRead, Annotated};
+pub use crate::lines::import::{DroppedConstruct, ImportError, ImportWarning};
 use crate::migrate::{from_lines, to_lines};
 use crate::model::{BlockKind, Codec, Content, MarkKind};
 use crate::model::Usv;
@@ -40,6 +43,9 @@ pub enum Loss {
     ExtMark { start: Usv, end: Usv, name: String, slot: Option<(String, String)> },
 }
 
+/// The import: `markdown` read cold, its ids minted positionally and no
+/// anchor in it. Its `qm-anchor` tags and `qm-island` tokens are what a
+/// revise reads back; read cold, they hold nothing.
 pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     let lines::import::Imported { content, warnings } = lines::import::from_markdown(markdown)?;
     Ok(Imported { content: from_lines(&content), warnings })
@@ -65,6 +71,8 @@ pub fn to_text(c: &Content) -> String {
     }
 }
 
+/// The plain export: what the content's markdown spells, every anchor and
+/// every `x-` construct dropped ([`to_markdown_checked`] names them).
 pub fn to_markdown(c: &Content) -> String {
     lines::export::to_markdown(&to_lines(c))
 }
@@ -141,8 +149,8 @@ mod tests {
 
     /// A table cell is one paragraph: a paragraph break in one reads as a hard
     /// break from either table spelling, a value holding one is refused at a
-    /// write, joined on a stored read and by repair, and a footnote's note
-    /// keeps its paragraphs.
+    /// write, joined on a stored read and by repair. A footnote's note is one
+    /// paragraph the same way.
     #[test]
     fn a_table_cell_is_one_paragraph() {
         use crate::model::Invariant;
@@ -173,9 +181,16 @@ mod tests {
         assert_eq!(repaired, pipe);
         assert!(matches!(repairs.as_slice(), [r @ Repair::Invalid(inv)] if *inv == refused && r.inserts()));
 
-        let mut noted = from_markdown("a[^1]\n\n[^1]: one").unwrap().content.to_value();
+        let note = from_markdown("a[^1]\n\n[^1]: one\n\n    two").unwrap().content;
+        let mut noted = note.to_value();
+        assert_eq!(note.islands[0].slots[NOTE_SLOT].text, joined);
         noted["islands"][0]["slots"][NOTE_SLOT] = stored["islands"][0]["slots"]["s1"].clone();
-        assert_eq!(Content::from_value(&noted).unwrap().to_value(), noted);
+        let refused = Invariant::BreakInCell { island: "isl-0".into(), slot: NOTE_SLOT.into() };
+        assert_eq!(Content::from_value(&noted), Err(ParseError::Invalid(refused.clone())));
+        assert_eq!(Content::from_value_lenient(&noted).unwrap().content, note);
+        let (repaired, repairs, _) = repair(Raw::from_value(&noted).unwrap());
+        assert_eq!(repaired, note);
+        assert!(matches!(repairs.as_slice(), [Repair::Invalid(inv)] if *inv == refused));
 
         let mut c = pipe;
         let cell = c.islands[0].slots.get_mut("s1").unwrap();

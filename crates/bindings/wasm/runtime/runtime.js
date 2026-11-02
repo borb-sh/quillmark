@@ -283,7 +283,7 @@ const HANDLE_KINDS = {
 	},
 	Document: {
 		code: 'runtime::not_a_document',
-		hint: 'Pass a Document built by Document.fromMarkdown / fromStored or quill.seedDocument / emptyDocument / fromAuthoring. A Document from another copy of @quillmark/wasm is refused too — each copy is its own WASM linear memory and its own class — so run `npm ls @quillmark/wasm` and dedupe to one.'
+		hint: 'Pass a Document built by Document.parse / fromStored or quill.seedDocument / emptyDocument / fromAuthoring. A Document from another copy of @quillmark/wasm is refused too — each copy is its own WASM linear memory and its own class — so run `npm ls @quillmark/wasm` and dedupe to one.'
 	}
 };
 
@@ -810,6 +810,41 @@ export class LiveSession {
 	}
 }
 
+// `doc.unchecked`: the writes no quill schema checks, delegating to the
+// `_unchecked*` verbs. A getter on the re-exported `Document` prototype, so
+// `Document === CoreDocument` stays true.
+class DocumentUnchecked {
+	#doc;
+	/** @param {Document} doc */
+	constructor(doc) {
+		this.#doc = doc;
+	}
+	/**
+	 * @param {import('../core/wasm.js').Addr | string} addr
+	 * @param {unknown} value
+	 * @returns {void}
+	 */
+	storeField(addr, value) {
+		return this.#doc._uncheckedStoreField(addr, value);
+	}
+	/**
+	 * @param {import('../core/wasm.js').CardInput} card
+	 * @param {number} [at] insertion index; appends when omitted
+	 * @param {import('../core/wasm.js').PlaceOptions} [opts]
+	 * @returns {string}
+	 */
+	insertCard(card, at, opts) {
+		return this.#doc._uncheckedInsertCard(card, at, opts);
+	}
+}
+
+Object.defineProperty(Document.prototype, 'unchecked', {
+	configurable: true,
+	get() {
+		return new DocumentUnchecked(this);
+	}
+});
+
 // These pure-JS classes bind a `quill` + `doc` pair once and delegate to the
 // `_commit*` / `_reader*` verbs, which take the quill per call. They hold JS
 // references to the caller's existing handles, so there is no WASM object of
@@ -885,10 +920,11 @@ export class DocumentWriter {
 	 * @param {Record<string, unknown>} [fields]
 	 * @param {string} [body]
 	 * @param {number} [at] insertion index; appends when omitted
+	 * @param {import('../core/wasm.js').PlaceOptions} [opts]
 	 * @returns {import('../core/wasm.js').Diagnostic[]}
 	 */
-	addCard(kind, fields, body, at) {
-		return this.#doc._addCard(this.#quill, kind, fields, body, at);
+	addCard(kind, fields, body, at, opts) {
+		return this.#doc._addCard(this.#quill, kind, fields, body, at, opts);
 	}
 	/**
 	 * @param {number} index
@@ -1011,12 +1047,6 @@ export class DocumentReader {
 	 */
 	getContentAt(addr, path) {
 		return this.#doc._readerGetContentAt(this.#quill, addr, path);
-	}
-	/**
-	 * @returns {string}
-	 */
-	bodyMarkdown() {
-		return this.#doc._readerGet(this.#quill, {});
 	}
 	/**
 	 * @param {string} [today] the render date, `YYYY-MM-DD`

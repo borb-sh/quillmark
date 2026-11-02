@@ -6,7 +6,7 @@
 ## TL;DR
 
 A comment is a thread the host stores, joined to the document by one anchor, `{id, start, end}` in a value's `anchors`, over the text it discusses.
-The document carries the anchor and nothing else, so a reply never moves its bytes.
+The document holds the anchor and nothing else, so a reply never moves its bytes.
 Core makes the anchor a reliable handle: it reads what each anchor is attached to, names every anchor a write drops, and places a dropped anchor again where its text is found exactly once.
 
 ## The contract
@@ -14,7 +14,7 @@ Core makes the anchor a reliable handle: it reads what each anchor is attached t
 - **The thread lives outside the document.** No body, author or status enters `Content`. The host keeps the thread, keyed by the anchor's id.
 - **The thread's id is the anchor's id.** The client mints it, as it mints every anchor id ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)). Quillmark mints none.
 - **The host mints ids unique per document.** A value holds each anchor id once over its text and every slot, and an `anchor` step placing an id the value holds anywhere is refused: placing and moving are two steps (`{id, start, end}` and `{id, start, end, move: true}`), so a placement never moves another comment's anchor. The model guarantees no more than that, so the contract requires the host's mint to be unique across the document, as a UUID is. A host namespaces its mint, as `c-<uuid>` does, so that the editors of a body and of each table cell or note, minting apart, never mint one id twice. `anchor_context(id)` and the live-id check take the first value holding an id.
-- **Every write keeps the anchors it can.** `apply` moves them exactly as its steps move text, and `revise` / `replace` / the writer's `reviseDocument` carry them through a diff ([CONTENT.md](CONTENT.md) § "Writing a value"). A writer removes an anchor with an `anchor` step that names it; a write that deletes an anchor's whole text drops it too, and the receipt names it.
+- **Every write keeps the anchors it can.** `apply` moves them exactly as its steps move text, and `revise` / `replace` / the writer's `reviseDocument` keep them through a diff ([CONTENT.md](CONTENT.md) § "Writing a value"). A writer removes an anchor with an `anchor` step that names it; a write that deletes an anchor's whole text drops it too, and the receipt names it.
 - **A write states what its writer read.** A revise diffs against the value stored now, so a person's edit made between a writer's read and its write reads as text the writer deleted, and the anchors on it drop. A host whose writer reads, thinks and then writes (an LLM) passes the read ([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive)):
   - the `base` of `apply`, `revise` and `replace` rebases the write over the change since, so an anchor placed late lands on the text it was read on, and refuses only where the two touch the same text or record (`edit::rebase_conflict`);
   - the writer's `baseHash` refuses the write once the value has changed (`edit::stale_base`);
@@ -28,17 +28,17 @@ Core makes the anchor a reliable handle: it reads what each anchor is attached t
 
 - `path` is the `DocPath` of the body or content value holding it.
 - `card_id` is the `$id` of the composable card `path` names, and none on the main card ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#card-id-identity)).
-- `quote` is the anchored text as stored: an inline island is its `U+FFFC` slot, a hard break its `U+2028` and a block break its `\n`, in the prose and in a cell alike. A write's `droppedAnchors` and `movedAnchors` spell it the same way. A point's quote is empty.
+- `quote` is the anchored text as stored: an inline island is its `U+FFFC` island character, a hard break its `U+2028` and a block break its `\n`, in the prose and in a cell alike. A write's `droppedAnchors` and `movedAnchors` spell it the same way. A point's quote is empty.
 - `prefix` and `suffix` are up to 32 Unicode scalar values of stored text on each side, cut at the value's edges, or a cell's edges for an anchor in one.
 
-A quote spanning an inline island (a footnote reference) includes its slot character, and is found again only where a slot sits.
+A quote spanning an inline island (a footnote reference) includes its island character, and is found again only where an island sits.
 The read is pure and cheap enough to run before every markdown write.
 
 ## The matching rule
 
 `reattach` runs on anchors `revise` already refused to move. `revise` floors a move at four characters and refuses a match in surviving text, so this rule is at least as strict, or it would undo that refusal. Per value, never guessing:
 
-1. The quote is four scalar values or more, or island slots alone. Any other shorter quote orphans.
+1. The quote is four scalar values or more, or island characters alone. Any other shorter quote orphans.
 2. Every occurrence of the quote in the stored text, the prose and each cell read as its own text, counts where its context agrees: the text before ends with the last eight scalar values of `prefix`, and the text after starts with the first eight of `suffix`.
 3. A `prefix` or `suffix` shorter than eight was cut at the value's edge, and agrees whole, wherever the edge now sits: a sentence written ahead of an anchor near the value's start leaves it placeable.
 4. A point (an empty quote) counts at each position where the prefix and the suffix both agree.
@@ -57,10 +57,10 @@ A selector naming none is path-strict, as is the rest of every path: a path nami
 
 ## Drift
 
-`revise` can keep an anchor on different words: it relocates a moved quote to the first occurrence overlapping inserted text, and a word-level rewrite can leave both ends of a range over new text. `reattach` never sees those anchors.
+Every revise verb is one revise at an address ([CONTENT.md](CONTENT.md) § "Writing a value"), and it can keep an anchor on different words: it relocates a moved quote of four characters or more to the first occurrence overlapping inserted text, and a word-level rewrite can leave both ends of a range over new text. `reattach` never sees those anchors.
 A write's `movedAnchors` reports drift by position, a point included: it names each surviving anchor the write moved, with its quote before and after and the first `reason` that holds.
 
-- `position`: an `anchor` step put it other than where the write's text edits carry it, as a writer moving a kept tag does, or in another slot.
+- `position`: an `anchor` step put it other than where the write's text edits move it, as a writer moving a kept tag does, or in another slot.
 - `block`: its start now sits in another block, as after a split or a join, or a paragraph the diff paired otherwise.
 - `context`: its quote, or the eight characters either side that `reattach` holds a selector's context to, read otherwise, so a relocated quote with an unchanged text still reports.
 
@@ -73,20 +73,20 @@ A table cell and a footnote's note are slots, each a `Content` of its own, and a
 - `anchor_contexts` reads it, at the value's path, its context cut at the cell's edges, and the annotated read lists it after the anchors before its island, with the cell's text as its `line`. No tag spells it: a cell holds none.
 - The steps reach it: a `nested` step places, moves or removes it, and a placement of an id the value holds anywhere is refused ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)).
 - A revise keeps it where the island continues and the cell at its place keeps its text, and drops it, named in the receipt, where the cell's text changed.
-- A splice that deletes the island's slot, or a props step whose grid no longer names the cell, drops it with the cell, named in the receipt's `droppedAnchors` with the `island` and `slot` that held it.
+- A splice that deletes the island's character, or a props step whose grid no longer names the cell, drops it with the cell, named in the receipt's `droppedAnchors` with the `island` and `slot` that held it.
 - `reattach` searches every cell with the prose and places it in the one cell its quote counts in.
 
-A comment on a table as a whole anchors the table's slot: a one-character range over its `U+FFFC`, which the receipts list and the steps move with the table.
-Its quote is the slot alone, so `reattach` places it on its context like a point, and only where one slot sits between the agreeing sides.
+A comment on a table as a whole anchors the table's island character: a one-character range over its `U+FFFC`, which the receipts list and the steps move with the table.
+Its quote is the island character alone, so `reattach` places it on its context like a point, and only where one island character sits between the agreeing sides.
 
 ## Text and scalar fields
 
-A `text` field rests as a content object spelling `codec: "plain"` ([SCHEMAS.md](SCHEMAS.md) § "Content fields rest per codec"), so a comment on it is an anchor in its `anchors`, as on a `richtext` field, and the whole contract holds unchanged:
+A `text` field is stored as a content object spelling `codec: "plain"` ([SCHEMAS.md](SCHEMAS.md) § "Content fields are stored per codec"), so a comment on it is an anchor in its `anchors`, as on a `richtext` field, and the whole contract holds unchanged:
 
 - `anchor_contexts` reads it at the field's path, `reattach` places it by the same rule, and every receipt names it where a write drops it.
-- A typed or schema-free field revise and the document revise carry it through the diff of the literal text.
+- A typed or schema-free field revise and the document revise keep it through the diff of the literal text.
 - The annotated read writes the field as its literal text, which holds no tag, and lists the anchor with the text of its line, as it lists a cell's. A writer that moves the text moves the anchor by the diff, never by a tag.
-- A `text` field still resting as its authored string holds no anchor; the bound door conforms it to the object, and a stored selector reattaches on it from then on.
+- A `text` field still stored as its authored string holds no anchor; the bound input path conforms it to the object, and a stored selector reattaches on it from then on.
 
 A field holding no content (an enum, a number, a date, a boolean, or a container of them) takes a comment on the whole value: a selector with a `path` and `card_id` and an empty `quote`, `prefix` and `suffix`. The document holds nothing for it.
 

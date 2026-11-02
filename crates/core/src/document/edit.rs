@@ -11,10 +11,9 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use quillmark_content::lines::delta::{carry_anchors, diff_import};
 use quillmark_content::lines::export::{AnchorRead, anchors_where};
-use quillmark_content::lines::import::{ImportError, ImportWarning};
-use quillmark_content::lines::model::Normalized;
+use quillmark_content::lines::import::ImportError;
+use quillmark_content::lines::model::Lines;
 
 use crate::document::base::{Base, BaseError};
 use crate::document::meta::{CardKindError, validate_composable_kind};
@@ -247,6 +246,11 @@ pub enum EditError {
     #[error("invalid actor '{0}': must be 1 to 64 scalar values holding no whitespace, control or ':', not opening with '?'")]
     InvalidActor(String),
 
+    /// A card placement's actor is not a
+    /// [card actor](super::card_id::is_card_actor).
+    #[error("invalid actor '{0}' for a card id: must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
+    InvalidCardActor(String),
+
     /// A revise's [`Base`] refused the write.
     #[error(transparent)]
     Base(BaseError),
@@ -317,7 +321,7 @@ impl EditError {
             EditError::TooManyAnchors { .. } => "edit::too_many_anchors",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
-            EditError::InvalidActor(_) => "edit::invalid_actor",
+            EditError::InvalidActor(_) | EditError::InvalidCardActor(_) => "edit::invalid_actor",
             EditError::Base(e) => e.code(),
         }
     }
@@ -387,7 +391,7 @@ impl EditError {
                 "island" => island,
                 "type" => kind,
             },
-            EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
+            EditError::InvalidActor(actor) | EditError::InvalidCardActor(actor) => diag_args! { "actor" => actor },
             EditError::Base(e) => e.args(),
         }
     }
@@ -533,6 +537,45 @@ fn check_field_name(name: &str) -> Result<(), EditError> {
 
 fn check_field(name: &str, value: &serde_json::Value) -> Result<(), EditError> {
     validate_field(name, value).map_err(|v| edit_error_from_violation(name, v))
+}
+
+/// `value` with each content value it holds, at any depth, decoded as a body
+/// write decodes one and held in its canonical form: a field's content
+/// validates, stores, compares and hashes as a body's does.
+/// [`EditError::FieldDecode`] at the first content value that does not
+/// decode.
+pub(crate) fn settled_field(name: &str, mut value: serde_json::Value) -> Result<serde_json::Value, EditError> {
+    let mut at = Vec::new();
+    settle_contents(&mut value, &mut at)
+        .map_err(|(codec, e)| field_decode(name, &at, codec, ContentDecodeError::NotContent(e)))?;
+    Ok(value)
+}
+
+fn settle_contents(value: &mut serde_json::Value, at: &mut Vec<PathSegment>) -> Result<(), (Codec, String)> {
+    if quillmark_content::units::is_content_value(value) {
+        let content = quillmark_content::model::Content::from_value(value)
+            .map_err(|e| (Codec::of_object(value), e.to_string()))?;
+        *value = content.to_value();
+        return Ok(());
+    }
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, v) in map.iter_mut() {
+                at.push(PathSegment::Key(key.clone()));
+                settle_contents(v, at)?;
+                at.pop();
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (index, v) in items.iter_mut().enumerate() {
+                at.push(PathSegment::Index(index));
+                settle_contents(v, at)?;
+                at.pop();
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// The composable-kind rule mapped onto the mutator error surface.
@@ -732,19 +775,9 @@ pub(crate) fn resolve_field_write(
     Ok((stored, drops))
 }
 
-/// [`diff_import`] `body` against `base`: the revised value, its anchors
-/// carried, and the import's warnings.
-pub fn revise_import(
-    base: &Normalized,
-    body: impl Into<String>,
-) -> Result<(Normalized, Vec<ImportWarning>), ImportError> {
-    let (content, _, warnings) = diff_import(base, &body.into())?;
-    Ok((content, warnings))
-}
-
 /// Every anchor of `stored`, in its prose or a cell, whose id `next` holds
 /// nowhere, as [`anchors_where`] reads it off `stored`.
-pub(crate) fn dropped_anchors(stored: &Normalized, next: &Normalized) -> Vec<AnchorRead> {
+pub(crate) fn dropped_anchors(stored: &Lines, next: &Lines) -> Vec<AnchorRead> {
     let sites = stored.anchor_sites();
     if sites.is_empty() {
         return Vec::new();
@@ -763,7 +796,7 @@ pub(crate) fn dropped_anchors(stored: &Normalized, next: &Normalized) -> Vec<Anc
 ///
 /// Placement is positional — the main card carries `$quill` and `$seed`, a
 /// composable card carries neither — and the gates that police it
-/// ([`Document::push_card`] / [`insert_card`](Document::insert_card),
+/// ([`Unchecked::insert_card`],
 /// [`Card::store_seed_overlay`]) run when a card is placed or edited, not when
 /// one is assigned over another. Handing out a `&mut Card` would make
 /// `*doc.card_mut(0).unwrap() = doc.main().clone()` a legal write past all of
@@ -779,25 +812,6 @@ impl<'a> CardMut<'a> {
 
     pub(crate) fn payload_mut(&mut self) -> &mut Payload {
         self.0.payload_mut()
-    }
-
-    /// [`Card::store_field`].
-    pub fn store_field(
-        &mut self,
-        name: &str,
-        value: impl Into<QuillValue>,
-    ) -> Result<(), EditError> {
-        self.0.store_field(name, value)
-    }
-
-    /// [`Card::store_fields`].
-    pub fn store_fields<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
-    where
-        K: Into<String>,
-        V: Into<QuillValue>,
-        I: IntoIterator<Item = (K, V)>,
-    {
-        self.0.store_fields(fields)
     }
 
     /// [`Card::remove_field`].
@@ -833,7 +847,8 @@ impl<'a> CardMut<'a> {
     }
 
     /// [`Card::overwrite_body`].
-    pub fn overwrite_body(&mut self, content: impl Into<Normalized>) {
+    #[cfg(test)]
+    pub(crate) fn overwrite_body(&mut self, content: impl Into<Lines>) {
         self.0.overwrite_body(content)
     }
 
@@ -916,10 +931,11 @@ impl<'a> CardMut<'a> {
     }
 
     /// [`Card::overwrite_field`].
-    pub fn overwrite_field(
+    #[cfg(test)]
+    pub(crate) fn overwrite_field(
         &mut self,
         name: &str,
-        content: impl Into<Normalized>,
+        content: impl Into<Lines>,
     ) -> Result<(), EditError> {
         self.0.overwrite_field(name, content)
     }
@@ -955,20 +971,6 @@ impl<'a> CardMut<'a> {
         body: impl Into<String>,
     ) -> Result<super::Receipt, EditError> {
         self.0.revise_field_against(name, base, body)
-    }
-
-    /// [`Card::revise_body_content`].
-    pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Result<super::Receipt, EditError> {
-        self.0.revise_body_content(content)
-    }
-
-    /// [`Card::revise_field_content`].
-    pub fn revise_field_content(
-        &mut self,
-        name: &str,
-        content: impl Into<Normalized>,
-    ) -> Result<super::Receipt, EditError> {
-        self.0.revise_field_content(name, content)
     }
 
     #[doc(hidden)]
@@ -1030,51 +1032,46 @@ impl Document {
         self.cards_vec_mut().get_mut(index).map(CardMut::new)
     }
 
-    /// Append a composable card. Its `$kind` must be a valid, non-reserved
-    /// composable kind ([`EditError::InvalidKindName`] /
-    /// [`EditError::ReservedKind`] otherwise), and the document must hold
-    /// fewer than [`MAX_CARD_COUNT`](crate::error::MAX_CARD_COUNT) cards
-    /// ([`EditError::TooManyCards`]). A card spelling no `$id` mints one; one
-    /// spelling an id keeps it, refused where it is no card id
-    /// ([`EditError::InvalidCardId`]) or another card holds it
-    /// ([`EditError::DuplicateCardId`]).
-    pub fn push_card(&mut self, card: Card) -> Result<(), EditError> {
-        self.insert_card(self.cards().len(), card)
+    /// The writes no quill schema checks: [`Unchecked`].
+    pub fn unchecked(&mut self) -> Unchecked<'_> {
+        Unchecked(self)
     }
 
-    /// Insert a composable card at `index` (`index > len` →
-    /// [`EditError::IndexOutOfRange`]; invalid `$kind` →
-    /// [`EditError::InvalidKindName`] / [`EditError::ReservedKind`]; a full
-    /// document → [`EditError::TooManyCards`]), its `$id` as
-    /// [`push_card`](Self::push_card) takes it.
-    pub fn insert_card(&mut self, index: usize, mut card: Card) -> Result<(), EditError> {
+    /// Place `card` at `at` (`None` appends), its `$id` as
+    /// [`Unchecked::insert_card`] takes it, answering that id.
+    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card, actor: Option<&str>) -> Result<String, EditError> {
         let len = self.cards().len();
+        let index = at.unwrap_or(len);
         if index > len {
             return Err(EditError::IndexOutOfRange { index, len });
         }
         Self::check_composable_placement(&card)?;
         self.check_card_room()?;
+        if let Some(actor) = actor.filter(|a| !super::card_id::is_card_actor(a)) {
+            return Err(EditError::InvalidCardActor(actor.to_string()));
+        }
         let held: std::collections::HashSet<String> = self
             .cards()
             .iter()
             .filter_map(Card::id)
             .map(str::to_string)
             .collect();
-        match card.id() {
+        let id = match card.id() {
             Some(id) if !super::card_id::is_card_id(id) => {
                 return Err(EditError::InvalidCardId(id.to_string()));
             }
             Some(id) if held.contains(id) => {
                 return Err(EditError::DuplicateCardId(id.to_string()));
             }
-            Some(_) => {}
+            Some(id) => id.to_string(),
             None => {
-                let id = super::card_id::Mint::new(held).mint();
-                card.payload_mut().set_id(id);
+                let id = super::card_id::Mint::new(held).mint_as(actor);
+                card.payload_mut().set_id(id.clone());
+                id
             }
-        }
+        };
         self.cards_vec_mut().insert(index, card);
-        Ok(())
+        Ok(id)
     }
 
     fn check_card_room(&self) -> Result<(), EditError> {
@@ -1154,6 +1151,52 @@ impl Document {
     }
 }
 
+/// The writes on a [`Document`] that no quill schema checks, from
+/// [`Document::unchecked`]: a field stored with no type coercion, and a card
+/// placed whole. Each still holds every invariant the document does: names,
+/// the §8 bounds, card ids, and each content value decoded as a body write
+/// decodes one and stored in its canonical form, so `==`, the stored bytes
+/// and the markdown export agree for a field as they do for a body. The
+/// schema-checked writes are [`Quill::writer`](crate::quill::Quill::writer)'s.
+pub struct Unchecked<'a>(&'a mut Document);
+
+impl Unchecked<'_> {
+    /// [`Card::store_field`] on the main card (`card: None`) or the composable
+    /// card at `card`, [`EditError::IndexOutOfRange`] where none is.
+    pub fn store_field(
+        &mut self,
+        card: Option<usize>,
+        name: &str,
+        value: impl Into<QuillValue>,
+    ) -> Result<(), EditError> {
+        let len = self.0.cards().len();
+        let card = match card {
+            None => self.0.main_card_mut(),
+            Some(index) => self
+                .0
+                .cards_vec_mut()
+                .get_mut(index)
+                .ok_or(EditError::IndexOutOfRange { index, len })?,
+        };
+        card.store_field(name, value)
+    }
+
+    /// Place a composable card at `at` (`None` appends; past the last card
+    /// [`EditError::IndexOutOfRange`]), answering its `$id`. Its `$kind` must
+    /// be a valid, non-reserved composable kind ([`EditError::InvalidKindName`]
+    /// / [`EditError::ReservedKind`]), and the document must hold fewer than
+    /// [`MAX_CARD_COUNT`](crate::error::MAX_CARD_COUNT) cards
+    /// ([`EditError::TooManyCards`]). A card spelling an id keeps it, refused
+    /// where it is no card id ([`EditError::InvalidCardId`]) or another card
+    /// holds it ([`EditError::DuplicateCardId`]). A card spelling none mints
+    /// one: under `actor`, `{actor}-{token}`, so two writers placing cards
+    /// from one document never mint one id, and positionally with none. An
+    /// actor that cannot open a card id is [`EditError::InvalidCardActor`].
+    pub fn insert_card(&mut self, at: Option<usize>, card: Card, actor: Option<&str>) -> Result<String, EditError> {
+        self.0.place_card(at, card, actor)
+    }
+}
+
 impl Card {
     /// Create a composable card with the given kind, no fields, and an empty body.
     pub fn new(kind: impl Into<String>) -> Result<Self, EditError> {
@@ -1163,18 +1206,21 @@ impl Card {
         payload.set_kind(kind);
         Ok(Card::from_parts(
             payload,
-            quillmark_content::lines::model::Normalized::empty(),
+            quillmark_content::lines::model::Lines::empty(),
         ))
     }
 
-    /// Store a payload field verbatim. Coercion is deferred to render; contrast the typed
+    /// Store a payload field with no schema in play: schema coercion is
+    /// deferred to render; contrast the typed
     /// [`TypedWriter::set`](crate::writer::TypedWriter::set). Scalars convert
     /// in place (`store_field("qty", 3)`) via the `From` impls on
-    /// [`QuillValue`].
+    /// [`QuillValue`]. Each content value in `value`, at any depth, decodes as
+    /// a body write's does and stores in its canonical form.
     ///
     /// Returns [`EditError::InvalidFieldName`] when `name` does not match
-    /// `[A-Za-z_][A-Za-z0-9_]*`, and [`EditError::InvalidPayload`] when `name`
-    /// is absent and the card already carries
+    /// `[A-Za-z_][A-Za-z0-9_]*`, [`EditError::FieldDecode`] for a content
+    /// value that does not decode, and [`EditError::InvalidPayload`] when
+    /// `name` is absent and the card already carries
     /// [`MAX_FIELD_COUNT`](crate::error::MAX_FIELD_COUNT) fields; overwriting a
     /// field a full card already carries is not a growth and lands.
     pub fn store_field(
@@ -1184,13 +1230,14 @@ impl Card {
     ) -> Result<(), EditError> {
         let value = value.into();
         check_field(name, value.as_json())?;
+        let value = QuillValue::from_json(settled_field(name, value.into_json())?);
         self.payload_mut()
             .insert(name.to_string(), value)
             .map_err(EditError::InvalidPayload)?;
         Ok(())
     }
 
-    /// Store several payload fields verbatim and atomically. The whole batch is validated first: on
+    /// Store several payload fields atomically. The whole batch is validated first: on
     /// any violation nothing is applied and every offending field is reported as
     /// a `(name, error)` pair. Per-field rules are those of
     /// [`Card::store_field`]; insertion order follows the iterator, and a
@@ -1206,16 +1253,20 @@ impl Card {
         V: Into<QuillValue>,
         I: IntoIterator<Item = (K, V)>,
     {
+        let mut errors: Vec<(String, EditError)> = Vec::new();
         let fields: Vec<(String, QuillValue)> = fields
             .into_iter()
-            .map(|(k, v)| (k.into(), v.into()))
-            .collect();
-        let errors: Vec<(String, EditError)> = fields
-            .iter()
-            .filter_map(|(name, value)| {
-                check_field(name, value.as_json())
-                    .err()
-                    .map(|e| (name.clone(), e))
+            .filter_map(|(k, v)| {
+                let (name, value): (String, QuillValue) = (k.into(), v.into());
+                let settled = check_field(&name, value.as_json())
+                    .and_then(|()| settled_field(&name, value.into_json()));
+                match settled {
+                    Ok(value) => Some((name, QuillValue::from_json(value))),
+                    Err(e) => {
+                        errors.push((name, e));
+                        None
+                    }
+                }
             })
             .collect();
         if !errors.is_empty() {
@@ -1350,16 +1401,15 @@ impl Card {
         self.remove_meta_namespace(MetaKey::Seed, card_kind)
     }
 
-    /// Overwrite the body with a pre-built [`Content`](quillmark_content::lines::model::Content): value semantics, no
-    /// markdown import, no diff, no schema check, infallible. A raw `Content`
-    /// normalizes on the way in, so what lands is canonical. Anchor fate across
-    /// the content lane: **overwrite destroys, [`revise_body`](Self::revise_body)
-    /// rebases, [`apply`](Self::apply) preserves.**
-    pub fn overwrite_body(&mut self, content: impl Into<Normalized>) {
+    /// Overwrite the body with a line-form value: no diff, no schema check,
+    /// infallible, the stored body's anchors gone. The public whole-value
+    /// write is [`replace`](Self::replace).
+    #[cfg(test)]
+    pub(crate) fn overwrite_body(&mut self, content: impl Into<Lines>) {
         self.set_body_lines(content.into());
     }
 
-    /// Overwrite a content field's value with a pre-built [`Content`](quillmark_content::lines::model::Content): the
+    /// Overwrite a content field's value with a line-form value: the
     /// field-level twin of [`overwrite_body`](Self::overwrite_body). Stores the
     /// canonical content JSON (identity and content-only marks intact), no diff,
     /// no schema check. The previous value's anchors are gone. Returns
@@ -1371,10 +1421,11 @@ impl Card {
     /// that is not plain with [`EditError::FieldDecode`]; one still resting as
     /// an authored string lands under the codec its next bound load
     /// ([`Quill::conform`](crate::quill::Quill::conform)) gives it.
-    pub fn overwrite_field(
+    #[cfg(test)]
+    pub(crate) fn overwrite_field(
         &mut self,
         name: &str,
-        content: impl Into<Normalized>,
+        content: impl Into<Lines>,
     ) -> Result<(), EditError> {
         check_field_name(name)?;
         self.store_field_content(name, &content.into())
@@ -1383,7 +1434,8 @@ impl Card {
     /// Assumes `name` is already validated: every caller checks it or resolves an
     /// existing field first. The §8 field count is the payload's, so an absent
     /// `name` on a full card is [`EditError::InvalidPayload`].
-    fn store_field_content(&mut self, name: &str, content: &Normalized) -> Result<(), EditError> {
+    #[cfg(test)]
+    fn store_field_content(&mut self, name: &str, content: &Lines) -> Result<(), EditError> {
         if self.stored_codec(name) == Codec::Text && !content.is_plain() {
             return Err(field_decode(
                 name,
@@ -1406,7 +1458,7 @@ impl Card {
     /// [`store_field`](Self::store_field), which defers coercion to render.
     ///
     /// The resting form each `type` commits to is
-    /// `prose/canon/SCHEMAS.md` § "Content fields rest per codec". Stricter than
+    /// `prose/canon/SCHEMAS.md` § "Content fields are stored per codec". Stricter than
     /// the render floor: a cross-type value the floor would coerce (`1` → `true`)
     /// fails here. `null` passes through unchanged, under the null ≡ absent rule.
     ///
@@ -1452,36 +1504,16 @@ impl Card {
         Ok(drops)
     }
 
-    /// Revise the body from an authored markdown string: edit semantics. Imports
-    /// the markdown, diffs it against the current body so surviving identity
-    /// anchors rebase (formatting marks are re-derived), and returns the
-    /// [`Receipt`](super::Receipt) a content write answers: the change from the
-    /// body before to the body now, which a host maps its positions through, the
-    /// import's warnings, and the anchors the write dropped or moved. An
-    /// over-nested input returns [`EditError::Import`] rather than degrading to
-    /// the empty content.
+    /// [`revise`](Self::revise) of the body with no base: the one revise at
+    /// [`Target::Body`](super::Target::Body), its receipt's `applied` counted
+    /// in scalars on the body it read, which
+    /// [`Receipt::in_units`](super::Receipt::in_units) converts.
     pub fn revise_body(&mut self, body: impl Into<String>) -> Result<super::Receipt, EditError> {
-        let (content, warnings) = revise_import(self.body_lines(), body).map_err(EditError::import)?;
-        self.revising(super::Target::Body, warnings, |card| {
-            card.overwrite_body(content);
-            Ok(())
-        })
+        self.revise_counted(super::Target::Body, &body.into())
     }
 
-    /// Decode the field's current content (an absent field imports from empty),
-    /// diff `body` against it so surviving anchors rebase, and return the new
-    /// content with the import's warnings. Stores nothing: the caller lands it.
-    fn diff_field(
-        &self,
-        name: &str,
-        body: impl Into<String>,
-    ) -> Result<(Normalized, Vec<ImportWarning>), EditError> {
-        let base = self.richtext_base(name)?;
-        revise_import(&base, body).map_err(EditError::import)
-    }
-
-    /// The field's current content value, read as [`richtext_base`](Self::richtext_base)
-    /// reads it: a markdown string imports, an absent field is empty.
+    /// The field's current content value: a markdown string imports, an
+    /// absent field is empty, and an object reads under the codec it names.
     pub(crate) fn richtext_value(&self, name: &str) -> Result<quillmark_content::model::Content, EditError> {
         check_field_name(name)?;
         match self.payload.get(name) {
@@ -1490,36 +1522,31 @@ impl Card {
         }
     }
 
-    /// The field's current content as a diff base: an absent field is empty.
-    pub(crate) fn richtext_base(&self, name: &str) -> Result<Normalized, EditError> {
+    /// The field's current content as a line-form diff base: an absent field
+    /// is empty.
+    pub(crate) fn richtext_base(&self, name: &str) -> Result<Lines, EditError> {
         check_field_name(name)?;
         match self.field_content(name, Codec::Richtext) {
             Some(Ok(rt)) => Ok(rt),
             Some(Err(e)) => Err(field_decode(name, &[], Codec::Richtext, e)),
-            None => Ok(Normalized::empty()),
+            None => Ok(Lines::empty()),
         }
     }
 
-    /// Revise a richtext field from an authored markdown string: the field-level
-    /// twin of [`revise_body`](Self::revise_body). Decodes the field's current
-    /// content as the diff base (an **absent** field cold-imports from empty),
-    /// rebases surviving anchors, re-stores the canonical content, and returns
-    /// the [`Receipt`](super::Receipt), as [`revise_body`](Self::revise_body) does.
-    ///
-    /// Schema-blind: a one-line `richtext` violation surfaces at validate/render,
-    /// not here.
-    ///
-    /// A field stored under `codec: "plain"` revises under the literal codec:
-    /// `body` is its text, not markdown. A `text` field still resting as its
-    /// authored string decodes as markdown here, which eats its escapes
-    /// (`a \*b\*` commits back as `a *b*`); the typed
+    /// [`revise`](Self::revise) of the field `name` with no base, as
+    /// [`revise_body`](Self::revise_body) is of the body. Schema-blind: the
+    /// field reads as [`read`](Self::read) reads it, so a field stored under
+    /// `codec: "plain"` takes `body` as its literal text and any other as
+    /// markdown, and a `text` field still resting as its authored string reads
+    /// as markdown here, which eats its escapes; the typed
     /// [`TypedWriter::revise_field`](crate::writer::TypedWriter::revise_field)
-    /// resolves the codec from the schema and is the door for it.
+    /// reads the codec from the schema.
     ///
     /// Returns [`EditError::InvalidFieldName`] for a malformed name,
     /// [`EditError::FieldDecode`] when the field is present but is not a
-    /// richtext content (a scalar a `store_field` wrote),
-    /// [`EditError::Import`] on an over-nested markdown input, and
+    /// content, [`EditError::Import`] on an over-nested markdown input,
+    /// [`EditError::Base`] with `edit::rebase_conflict` where `body` rewrites
+    /// what the field's annotated read does not spell, and
     /// [`EditError::InvalidPayload`] when an absent `name` would take the card
     /// past the §8 field count.
     pub fn revise_field(
@@ -1527,11 +1554,7 @@ impl Card {
         name: &str,
         body: impl Into<String>,
     ) -> Result<super::Receipt, EditError> {
-        if self.stored_codec(name) == Codec::Text {
-            return self.revise_field_plain(name, &body.into());
-        }
-        let (content, warnings) = self.diff_field(name, body)?;
-        self.revising(super::Target::Field(name), warnings, |card| card.store_field_content(name, &content))
+        self.revise_counted(super::Target::Field(name), &body.into())
     }
 
     /// The codec the stored field names: `text` for a content object spelling
@@ -1540,70 +1563,28 @@ impl Card {
         Codec::of_stored(self.payload.get(name).map(QuillValue::as_json))
     }
 
-    /// Revise a field under the literal codec: `text` imported as plain
-    /// content, each anchor of the stored value carried by the diff, and the
-    /// value stored under `codec: "plain"`.
-    fn revise_field_plain(&mut self, name: &str, text: &str) -> Result<super::Receipt, EditError> {
-        check_field_name(name)?;
-        let base = match self.field_content(name, Codec::Text) {
-            Some(Ok(rt)) => rt,
-            Some(Err(e)) => return Err(field_decode(name, &[], Codec::Text, e)),
-            None => Normalized::empty(),
-        };
-        let (content, _) = carry_anchors(&base, quillmark_content::lines::import::from_plaintext(text));
-        let stored = super::stored_as(
-            self.payload.get(name).map(QuillValue::as_json),
-            &content,
-            Codec::Text.content(),
-        );
-        self.revising(super::Target::Field(name), Vec::new(), |card| {
-            card.payload_mut()
-                .insert(name.to_string(), QuillValue::from_json(stored))
-                .map_err(EditError::InvalidPayload)
-                .map(|_| ())
+    /// The revise of `before`, the value at `target`, by `markdown`, as
+    /// [`revise`](Self::revise) builds it, landed nowhere.
+    fn revision(
+        &self,
+        target: super::Target<'_>,
+        before: &quillmark_content::model::Content,
+        markdown: &str,
+    ) -> Result<quillmark_content::diff::Revision, EditError> {
+        quillmark_content::diff::revise(before, markdown).map_err(|e| match e {
+            quillmark_content::diff::ReviseError::Import(e) => EditError::import(e),
+            quillmark_content::diff::ReviseError::Conflict(c) => EditError::Base(super::BaseError::rebase_conflict(
+                super::content_hash(before),
+                target.field().map(str::to_string),
+                &c,
+            )),
         })
-    }
-
-    /// Revise the body to a pre-built content: [`revise_body`](Self::revise_body)
-    /// with no markdown import. Diffs `content` against the current body,
-    /// carries each prose anchor `content` does not hold by id through the diff
-    /// ([`carry_anchors`]), and returns the [`Receipt`](super::Receipt), which
-    /// holds no warning. What `content` carries lands as it is, its own anchors
-    /// and island ids included.
-    pub fn revise_body_content(&mut self, content: impl Into<Normalized>) -> Result<super::Receipt, EditError> {
-        let (content, _) = carry_anchors(self.body_lines(), content.into());
-        self.revising(super::Target::Body, Vec::new(), |card| {
-            card.overwrite_body(content);
-            Ok(())
-        })
-    }
-
-    /// Revise a richtext field to a pre-built content: the field-level twin of
-    /// [`revise_body_content`](Self::revise_body_content), schema-blind as
-    /// [`revise_field`](Self::revise_field) is. An absent field diffs from
-    /// empty.
-    ///
-    /// A field stored under `codec: "plain"` keeps it, and refuses a `content`
-    /// that is not plain. A `text` field still resting as its authored string
-    /// decodes as markdown here; [`revise_field_checked`](Self::revise_field_checked)
-    /// reads it under its schema. Returns [`EditError::InvalidFieldName`] for a
-    /// malformed name, [`EditError::FieldDecode`] when the field is present but
-    /// is not a content or `content` is not plain where it must be, and
-    /// [`EditError::InvalidPayload`] when an absent `name` would take the card
-    /// past the §8 field count.
-    pub fn revise_field_content(
-        &mut self,
-        name: &str,
-        content: impl Into<Normalized>,
-    ) -> Result<super::Receipt, EditError> {
-        let base = self.richtext_base(name)?;
-        let (content, _) = carry_anchors(&base, content.into());
-        self.revising(super::Target::Field(name), Vec::new(), |card| card.store_field_content(name, &content))
     }
 
     /// Revise a content field from authored text **with schema enforcement**:
-    /// [`revise_field`](Self::revise_field)'s anchor-rebasing diff, then the
-    /// conform [`commit_field`](Self::commit_field) runs. Returns the
+    /// [`revise_field`](Self::revise_field)'s revise, the field read under the
+    /// codec `schema` declares, then the conform
+    /// [`commit_field`](Self::commit_field) runs. Returns the
     /// [`Receipt`](super::Receipt), and leaves the field unchanged on any error. A
     /// `text` field imports no markdown, so its receipt holds no warning.
     ///
@@ -1617,6 +1598,8 @@ impl Card {
         body: impl Into<String>,
         schema: &FieldSchema,
     ) -> Result<super::Receipt, EditError> {
+        check_field_name(name)?;
+        let target = super::Target::Field(name);
         if matches!(schema.r#type, FieldType::Text { .. }) {
             // The strict write runs the literal codec's boundary cleanup, so
             // the committed text is what the anchors are carried onto.
@@ -1630,19 +1613,27 @@ impl Card {
                 .decode_field(committed.as_json())
                 .map(|c| Codec::Text.project(&c))
                 .map_err(|e| field_decode(name, &[], Codec::Text, e))?;
-            return self.revise_field_plain(name, &text);
+            let mut before = match self.payload.get(name) {
+                None => quillmark_content::model::Content::empty(),
+                Some(v) => Codec::Text.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Text, e))?,
+            };
+            before.codec = Codec::Text.content();
+            let revised = self.revision(target, &before, &text)?;
+            let stored = QuillValue::from_json(revised.content.to_value());
+            return self.revising(target, Vec::new(), |card| {
+                card.payload_mut().insert(name.to_string(), stored).map(|_| ()).map_err(EditError::InvalidPayload)
+            });
         }
-        let (content, warnings) = self.diff_field(name, body)?;
-        // Re-canonicalizing a content object keeps its identity marks, so the
-        // schema check fires on the value the anchors survived onto.
-        let canonical = super::stored_over(self.payload.get(name).map(QuillValue::as_json), &content);
+        let before = self.richtext_value(name)?;
+        let revised = self.revision(target, &before, &body.into())?;
+        super::write::keeps_ext_islands(&before, &revised.content)?;
         let (stored, _) = resolve_field_write(
             name,
-            &QuillValue::from_json(canonical),
+            &QuillValue::from_json(revised.content.to_value()),
             schema,
             &DocPath::new(),
         )?;
-        self.revising(super::Target::Field(name), warnings, |card| {
+        self.revising(target, revised.warnings, |card| {
             card.payload_mut()
                 .insert(name.to_string(), stored)
                 .map(|_| ())

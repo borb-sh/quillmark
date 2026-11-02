@@ -9,7 +9,7 @@ pub use enums::{PyOutputFormat, PySeverity};
 pub use errors::QuillmarkError;
 pub use types::{
     PyArtifact, PyDiagnostic, PyDocument, PyEngine, PyLocation, PyQuill, PyReader, PyRenderResult,
-    PyWriter,
+    PyUnchecked, PyWriter,
 };
 
 #[pymodule]
@@ -17,6 +17,7 @@ fn _quillmark(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEngine>()?;
     m.add_class::<PyQuill>()?;
     m.add_class::<PyDocument>()?;
+    m.add_class::<PyUnchecked>()?;
     m.add_class::<PyWriter>()?;
     m.add_class::<PyReader>()?;
     m.add_class::<PyRenderResult>()?;

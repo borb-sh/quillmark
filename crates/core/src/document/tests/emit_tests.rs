@@ -108,8 +108,7 @@ fn round_trip_quill_version_selectors() {
 fn doc_with(fields: &[(&str, serde_json::Value)]) -> Document {
     let mut doc = Document::new("test".parse().unwrap());
     for (key, value) in fields {
-        doc.main_mut()
-            .store_field(key, crate::value::QuillValue::from_json(value.clone()))
+        doc.unchecked().store_field(None, key, crate::value::QuillValue::from_json(value.clone()))
             .unwrap();
     }
     doc
@@ -291,7 +290,7 @@ fn a_nested_content_cell_projects_and_ext_content_does_not() {
     let meta = QuillValue::from_json(serde_json::json!({ "blurb": content.clone() }));
 
     let mut doc = Document::new("q@1.0.0".parse().expect("reference"));
-    doc.main_mut().store_field("meta", meta).expect("stores");
+    doc.unchecked().store_field(None, "meta", meta).expect("stores");
     let mut ext = serde_json::Map::new();
     ext.insert("host".to_string(), content.clone());
     doc.main_mut().store_ext(ext).expect("ext stores");

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use quillmark_content::lines::export::ExportLoss;
 use quillmark_content::lines::import::{Imported, from_markdown as import_markdown};
-use quillmark_content::lines::model::Normalized;
+use quillmark_content::lines::model::Lines;
 use quillmark_content::model::Content;
 
 use crate::error::ParseError;
@@ -18,14 +18,15 @@ use crate::version::QuillReference;
 /// The stored spelling of a line-form value: under the ids of what it kept
 /// from `old`, the value it is written over, or minted fresh where there is
 /// none.
-pub(crate) fn stored_over(old: Option<&serde_json::Value>, lines: &Normalized) -> serde_json::Value {
+#[cfg(test)]
+pub(crate) fn stored_over(old: Option<&serde_json::Value>, lines: &Lines) -> serde_json::Value {
     lifted_over(old, lines).to_value()
 }
 
 /// [`stored_over`] under `codec`, whatever `old` held.
 pub(crate) fn stored_as(
     old: Option<&serde_json::Value>,
-    lines: &Normalized,
+    lines: &Lines,
     codec: quillmark_content::model::Codec,
 ) -> serde_json::Value {
     let mut content = lifted_over(old, lines);
@@ -33,7 +34,7 @@ pub(crate) fn stored_as(
     content.to_value()
 }
 
-fn lifted_over(old: Option<&serde_json::Value>, lines: &Normalized) -> Content {
+fn lifted_over(old: Option<&serde_json::Value>, lines: &Lines) -> Content {
     let held = old.filter(|v| v.is_object()).and_then(|v| Content::from_value_lenient(v).ok()).map(|read| read.content);
     match held {
         Some(held) => quillmark_content::diff::lift(&held, lines),
@@ -41,7 +42,7 @@ fn lifted_over(old: Option<&serde_json::Value>, lines: &Normalized) -> Content {
     }
 }
 
-pub(crate) fn import_body(md: &str) -> Result<Normalized, ImportError> {
+pub(crate) fn import_body(md: &str) -> Result<Lines, ImportError> {
     import_markdown(md).map(|imported| imported.content)
 }
 
@@ -51,7 +52,7 @@ pub(crate) fn import_body_at(
     md: &str,
     at: &crate::path::DocPath,
     warnings: &mut Vec<Diagnostic>,
-) -> Result<Normalized, ImportError> {
+) -> Result<Lines, ImportError> {
     let imported = import_markdown(md)?;
     warnings.extend(dropped_constructs(imported.warnings, Some(at)));
     Ok(imported.content)
@@ -175,7 +176,7 @@ fn listed(words: &[&str], last: &str) -> String {
 
 /// [`dropped_construct`]'s message, naming what dropped, and its hint, naming
 /// the spelling that keeps it.
-fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
+fn dropped_message(construct: &DroppedConstruct, n: usize) -> (String, String) {
     use quillmark_content::lines::carrier::RESERVED_ATTRS;
     use quillmark_content::lines::island::{CELL_VALIGNS, TABLE_ALIGNS};
     const TIGHT: &str =
@@ -210,7 +211,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
     };
     let tag = construct.to_string();
     match construct {
-        Dropped::Footnote => (
+        DroppedConstruct::Footnote => (
             format!(
                 "markdown import dropped {} in this field",
                 some("footnote", "footnotes")
@@ -219,7 +220,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              definition `[^label]: note` naming the same label."
                 .to_string(),
         ),
-        Dropped::FootnoteSize => (
+        DroppedConstruct::FootnoteSize => (
             format!(
                 "markdown import kept {} in this field as written text",
                 some("footnote reference", "footnote references")
@@ -229,7 +230,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 quillmark_content::MAX_NOTE_COPIES
             ),
         ),
-        Dropped::NoteBlock(block) => (
+        DroppedConstruct::NoteBlock(block) => (
             format!(
                 "markdown import kept the text of {} inside a footnote and dropped its structure",
                 some(&format!("{block} block"), &format!("{block} blocks"))
@@ -238,7 +239,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              of that text."
                 .to_string(),
         ),
-        Dropped::Bidi => (
+        DroppedConstruct::Bidi => (
             format!(
                 "markdown import dropped {} from this field",
                 some("bidi control", "bidi controls")
@@ -247,7 +248,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              U+2066–U+2069); the renderer orders mixed-direction text by the Unicode bidi algorithm."
                 .to_string(),
         ),
-        Dropped::Math => (
+        DroppedConstruct::Math => (
             format!(
                 "markdown import kept {} as written text in this field",
                 some("equation", "equations")
@@ -256,7 +257,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              and a footnote's note, around TeX that is not blank; write `\\$` for a dollar sign that opens none."
                 .to_string(),
         ),
-        Dropped::Table => (
+        DroppedConstruct::Table => (
             format!(
                 "markdown import closed {} in this field where its HTML block ended",
                 some("`<table>`", "`<table>`s")
@@ -265,7 +266,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              reads as markdown. Close each `<table>` with `</table>` before any blank line."
                 .to_string(),
         ),
-        Dropped::TableRow => (
+        DroppedConstruct::TableRow => (
             format!(
                 "markdown import padded {} in this field to its table's columns",
                 some("table row", "table rows")
@@ -274,7 +275,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              and a row short of the width pads with empty cells."
                 .to_string(),
         ),
-        Dropped::TableSize => (
+        DroppedConstruct::TableSize => (
             format!(
                 "markdown import cut {} in this field at {} cells",
                 some("table", "tables"),
@@ -283,14 +284,14 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
             "A table's rows times its columns stay within the bound; the rows past it drop. Split the table."
                 .to_string(),
         ),
-        Dropped::TableText => (
+        DroppedConstruct::TableText => (
             format!(
                 "markdown import dropped {} outside every cell of an HTML table in this field",
                 some("run of text", "runs of text")
             ),
             "Text in an HTML table sits in a `<td>` or `<th>`; a `<caption>` and text between rows drop.".to_string(),
         ),
-        Dropped::TableAttr { tag: element, attr } => attr_dropped(
+        DroppedConstruct::TableAttr { tag: element, attr } => attr_dropped(
             element,
             attr,
             match (element.as_str(), attr.as_str()) {
@@ -310,14 +311,14 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 _ => format!("`<{element}>` takes no attributes."),
             },
         ),
-        Dropped::ElementAttr { element, attr }
+        DroppedConstruct::ElementAttr { element, attr }
             if attr == "ref" && quillmark_content::lines::carrier::RESERVED.contains(&element.as_str()) =>
         {
             let (what, spelling) = match element == quillmark_content::lines::carrier::ANCHOR {
                 true => ("anchor", ("tag", "tags")),
                 false => ("island", ("token", "tokens")),
             };
-            let element = Dropped::Element(element.clone());
+            let element = DroppedConstruct::Element(element.clone());
             (
                 format!(
                     "markdown revise dropped {} naming no {what} the stored value holds, or one an earlier \
@@ -331,8 +332,8 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 ),
             )
         }
-        Dropped::ElementAttr { element, attr } => attr_dropped(
-            &Dropped::Element(element.clone()).to_string(),
+        DroppedConstruct::ElementAttr { element, attr } => attr_dropped(
+            &DroppedConstruct::Element(element.clone()).to_string(),
             attr,
             format!(
                 "An attribute name is lowercase letters, digits and `_`, opening with a letter, once per tag, \
@@ -340,7 +341,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                 RESERVED_ATTRS.join("`, `")
             ),
         ),
-        Dropped::BadName(_) => (
+        DroppedConstruct::BadName(_) => (
             format!(
                 "markdown import does not carry raw HTML: {} dropped",
                 some_in_field(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
@@ -350,7 +351,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                  opening with a letter. {TIGHT}"
             ),
         ),
-        Dropped::Element(name) if name == quillmark_content::lines::carrier::SPAN => (
+        DroppedConstruct::Element(name) if name == quillmark_content::lines::carrier::SPAN => (
             format!(
                 "markdown import dropped {} in this field",
                 some(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
@@ -360,7 +361,7 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                  HTML reads `<{tag}/>` as an open tag. A family is a run's, never a block's. {BESIDE}"
             ),
         ),
-        Dropped::Element(name) if name == quillmark_content::lines::carrier::ISLAND => (
+        DroppedConstruct::Element(name) if name == quillmark_content::lines::carrier::ISLAND => (
             format!(
                 "markdown import dropped {} in this field",
                 some(&format!("`<{tag}>` token"), &format!("`<{tag}>` tokens"))
@@ -371,14 +372,14 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
                  an image's alt text drop it."
             ),
         ),
-        Dropped::Element(_) => (
+        DroppedConstruct::Element(_) => (
             format!(
                 "markdown import dropped {} in this field",
                 some(&format!("`<{tag}>` tag"), &format!("`<{tag}>` tags"))
             ),
             format!("A `<{tag}>` tag carries nothing: what it wraps stays and the tags drop. Remove them."),
         ),
-        Dropped::Tag(name) => match name.as_str() {
+        DroppedConstruct::Tag(name) => match name.as_str() {
             "u" => (
                 format!("markdown import dropped {} in this field", some("`<u>` tag", "`<u>` tags")),
                 "A `<u>` takes no attributes and closes with `</u>` in the paragraph, heading, list item or \
@@ -530,10 +531,10 @@ impl Codec {
     pub(crate) fn decode_field(
         self,
         value: &serde_json::Value,
-    ) -> Result<Normalized, ContentDecodeError> {
+    ) -> Result<Lines, ContentDecodeError> {
         match self.decode_value(value) {
             Some(result) => result.map(|imported| imported.content),
-            None if value.is_null() => Ok(Normalized::empty()),
+            None if value.is_null() => Ok(Lines::empty()),
             None => Err(ContentDecodeError::NotContent(self.unshaped_message(value))),
         }
     }
@@ -570,7 +571,7 @@ impl Codec {
 
     /// Project a content back to this codec's text: the inverse of its string
     /// encoding.
-    pub(crate) fn project(self, content: &Normalized) -> String {
+    pub(crate) fn project(self, content: &Lines) -> String {
         match self {
             Codec::Richtext => quillmark_content::lines::export::to_markdown(content),
             Codec::Text => quillmark_content::lines::export::to_plaintext(content),
@@ -622,8 +623,8 @@ pub(crate) fn canonical_richtext_value(
 /// before its single-line check, so the newline a clip-chomped YAML `|` scalar
 /// keeps is no second line. Its anchors hold, cut at the new end.
 pub(crate) fn trim_line_end(
-    content: quillmark_content::lines::model::Normalized,
-) -> quillmark_content::lines::model::Normalized {
+    content: quillmark_content::lines::model::Lines,
+) -> quillmark_content::lines::model::Lines {
     let text = quillmark_content::lines::export::to_plaintext(&content);
     let trimmed = text.trim_end();
     if trimmed.len() == text.len() {
@@ -637,17 +638,17 @@ pub(crate) fn trim_line_end(
 /// rendered region's offsets still index the stored value, and so do its
 /// anchors.
 pub(crate) fn fold_line_breaks(
-    content: quillmark_content::lines::model::Normalized,
-) -> quillmark_content::lines::model::Normalized {
+    content: quillmark_content::lines::model::Lines,
+) -> quillmark_content::lines::model::Lines {
     let text = quillmark_content::lines::export::to_plaintext(&content);
     with_anchors_of(&content, quillmark_content::lines::import::from_plaintext(&text.replace('\n', " ")))
 }
 
 /// `to` holding `from`'s anchors, each cut to `to`'s length.
 fn with_anchors_of(
-    from: &quillmark_content::lines::model::Normalized,
-    to: quillmark_content::lines::model::Normalized,
-) -> quillmark_content::lines::model::Normalized {
+    from: &quillmark_content::lines::model::Lines,
+    to: quillmark_content::lines::model::Lines,
+) -> quillmark_content::lines::model::Lines {
     use quillmark_content::lines::model::{Mark, MarkKind};
     let mut to = to.into_content();
     let len = to.text.chars().count();
@@ -676,24 +677,24 @@ pub mod write;
 pub(crate) mod yaml_hints;
 
 pub use anchors::AnchorSelector;
-pub use base::{Base, BaseError, HASH_TAG, content_hash, revise_import_against, value_hash};
+pub use base::{Base, BaseError, HASH_TAG, content_hash, value_hash};
 pub use dto::{
     STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, StorageError,
     StoredDocument, peek_storage_version,
 };
-pub use edit::{CardMut, EditError, revise_import};
+pub use edit::{CardMut, EditError, Unchecked};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 pub use merge::MergeConflict;
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
-pub use quillmark_content::lines::anchor::Reattached;
+pub use quillmark_content::anchors::Reattached;
 /// Answered by [`Card::body_annotated`] and the content crate's anchor reads, so nameable from here.
-pub use quillmark_content::lines::export::{AnchorRead, Annotated};
+pub use quillmark_content::markdown::{AnchorRead, Annotated};
 /// Carried by [`EditError::Import`], so nameable from here.
-pub use quillmark_content::lines::import::ImportError;
+pub use quillmark_content::markdown::ImportError;
 /// Taken by [`dropped_construct`], so nameable from here.
-pub use quillmark_content::lines::import::{Dropped, ImportWarning};
+pub use quillmark_content::markdown::{DroppedConstruct, ImportWarning};
 pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
@@ -738,17 +739,16 @@ pub(crate) struct Revising {
     pub bodies: Vec<String>,
 }
 
-/// A single card-yaml block (root or composable). `body` is the content
-/// ([`Content`](quillmark_content::lines::model::Content)) form of the prose after the closing fence: the empty content
-/// when none follows; check `card.body_lines().is_blank()`. Markdown is a projection:
-/// [`Card::body_markdown`] re-emits it.
+/// A single card-yaml block (root or composable). `body` is the [`Content`]
+/// of the prose after the closing fence: the empty content when none follows.
+/// Markdown is a projection: [`Card::body_markdown`] re-emits it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Card {
     payload: Payload,
     body: Content,
     /// `body` lowered to the line form the codecs and renderers read, made
     /// when first read.
-    lines: Lines,
+    lines: Lowered,
     log: write::ChangeLog,
     hashes: Hashes,
 }
@@ -757,17 +757,17 @@ pub struct Card {
 /// reads pays nothing for it. Derived from the body, so it takes no part in
 /// equality.
 #[derive(Clone, Default)]
-struct Lines(std::sync::OnceLock<Normalized>);
+struct Lowered(std::sync::OnceLock<Lines>);
 
-impl PartialEq for Lines {
+impl PartialEq for Lowered {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl std::fmt::Debug for Lines {
+impl std::fmt::Debug for Lowered {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Lines")
+        f.write_str("Lowered")
     }
 }
 
@@ -809,7 +809,7 @@ pub(crate) trait IntoBody {
     fn into_body(self) -> Content;
 }
 
-impl IntoBody for Normalized {
+impl IntoBody for Lines {
     fn into_body(self) -> Content {
         quillmark_content::migrate::from_lines(&self)
     }
@@ -825,7 +825,7 @@ impl Card {
     /// Create a `Card` from its parts without validation.
     pub(crate) fn from_parts(payload: Payload, body: impl IntoBody) -> Self {
         let body = body.into_body();
-        Self { payload, body, lines: Lines::default(), log: write::ChangeLog::default(), hashes: Hashes::default() }
+        Self { payload, body, lines: Lowered::default(), log: write::ChangeLog::default(), hashes: Hashes::default() }
     }
 
     pub fn quill(&self) -> Option<&QuillReference> {
@@ -869,7 +869,7 @@ impl Card {
 
     /// The body lowered to the line form the markdown codecs and the renderers
     /// read.
-    pub fn body_lines(&self) -> &Normalized {
+    pub(crate) fn body_lines(&self) -> &Lines {
         self.lines.0.get_or_init(|| quillmark_content::migrate::to_lines(&self.body))
     }
 
@@ -881,7 +881,7 @@ impl Card {
     }
 
     pub(crate) fn set_body(&mut self, body: Content) {
-        self.lines = Lines::default();
+        self.lines = Lowered::default();
         self.hashes.body = None;
         self.body = body;
     }
@@ -898,7 +898,7 @@ impl Card {
 
     /// Writes a line-form body over the stored one, keeping the ids of what it
     /// kept.
-    pub(crate) fn set_body_lines(&mut self, lines: Normalized) {
+    pub(crate) fn set_body_lines(&mut self, lines: Lines) {
         let body = quillmark_content::diff::lift(&self.body, &lines);
         self.set_body(body);
     }
@@ -920,7 +920,7 @@ impl Card {
         &self,
         name: &str,
         codec: Codec,
-    ) -> Option<Result<Normalized, ContentDecodeError>> {
+    ) -> Option<Result<Lines, ContentDecodeError>> {
         Some(codec.decode_field(self.payload.get(name)?.as_json()))
     }
 
@@ -1023,7 +1023,7 @@ impl Document {
         // it in); match that shape so a blank document round-trips equal.
         payload.set_kind("main");
         Self {
-            main: Card::from_parts(payload, Normalized::empty()),
+            main: Card::from_parts(payload, Lines::empty()),
             cards: Vec::new(),
         }
     }
@@ -1034,7 +1034,7 @@ impl Document {
     ///
     /// The invariants are `debug_assert`s because no caller can break them.
     /// This is crate-internal; every public door that places a card gates it
-    /// ([`push_card`](Self::push_card) / [`insert_card`](Self::insert_card),
+    /// ([`Unchecked::insert_card`](crate::document::Unchecked::insert_card),
     /// [`set_card_kind`](Self::set_card_kind), parse, and
     /// `TryFrom<StoredDocument>` for external data, which checks all three and
     /// returns `StorageError::Malformed`), and a placed card is reachable only

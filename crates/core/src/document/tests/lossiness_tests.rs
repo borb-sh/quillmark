@@ -499,7 +499,7 @@ fn a_stored_or_wired_comment_reads_without_the_whitespace_ending_it() {
         text: "wired \t".to_string(),
         inline: false,
     }];
-    doc.push_card(Card::try_from(wire).unwrap()).unwrap();
+    doc.unchecked().insert_card(None, Card::try_from(wire).unwrap(), None).unwrap();
     let md = doc.to_markdown();
     assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
 }
@@ -895,8 +895,7 @@ fn nested_empty_mapping_survives_round_trip() {
 
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n";
     let mut doc = Document::parse(src).unwrap().document;
-    doc.main_mut()
-        .store_field(
+    doc.unchecked().store_field(None, 
             "cfg",
             QuillValue::from_json(serde_json::json!({ "opts": {} })),
         )

@@ -88,10 +88,10 @@ viewer ever needs to shed the retained world, a `freeze()` that drops it and
 keeps the pageable document is a *mode* to add, not a second type.
 
 `update` is the only edit verb: a whole-document recompile, and it is named apart
-from the content lane's `apply`, which applies a change to one value rather
+from the content `apply`, which applies a change to one value rather
 than recompiling a document. Anchoring a caret
 or selection across edits is the **editor's** job: its own transaction mapping
-(a ProseMirror / CodeMirror `StepMap`) carries positions through local edits, so
+(a ProseMirror / CodeMirror `StepMap`) maps positions through local edits, so
 the session holds no change log, no revision stamp, and no per-field delta
 path: `FieldRegion` / `ContentHit` carry no `revision`. Geometry
 (`regions`, `positionAt`, `locate`) is read against the current compile and
@@ -245,11 +245,11 @@ want to click:
   `null`, an empty string or empty content, so a `0` or `false` is listed;
 - a variant container's discriminant;
 - every roster member of a matrix, held or not, since the plate prints them all;
-- each cell of an item a document adds to an open matrix.
+- each value position of an item a document adds to an open matrix.
 
 Each carries `coveredBy`: the address itself where a region carries it, else
 the nearest enclosing address one does, else nothing. An enclosing address is
-coarse (a row claim reaching its cells, a whole array its elements) and is
+coarse (a row claim reaching its value positions, a whole array its elements) and is
 reported, not hidden: a click there opens more than the field.
 
 The derivation needs no backend seam. A key with a box always accrues its
@@ -475,7 +475,7 @@ The wasm `render` feature pulls in `web-sys`, the generic canvas *painter*
   would outrank every claim inside it, and whether a value regions would hang
   on how the plate spells the read. Attribution comes from what the plate
   declares (generated ink, a claim, a widget), so it does not move when the
-  plate is rewritten into an equivalent form. This is not a one-way door: a
+  plate is rewritten into an equivalent form. This is not irreversible: a
   later convenience, such as value-carried provenance or an opt-in scan, is
   admissible only as strictly more precise than a declared producer, and it
   ranks below a claim.

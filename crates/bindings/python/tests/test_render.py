@@ -10,7 +10,7 @@ from quillmark import OutputFormat, Document, Quill, QuillmarkError
 def test_pdf_artifact_reads_share_one_buffer(engine, taro_quill_dir, taro_md, tmp_path):
     """Re-reading `artifacts` hands back the same objects, and `bytes` is what `save` wrote."""
     quill = Quill.from_path(str(taro_quill_dir))
-    result = engine.render(quill, Document.from_markdown(taro_md), OutputFormat.PDF)
+    result = engine.render(quill, Document.parse(taro_md), OutputFormat.PDF)
 
     artifact = result.artifacts[0]
     assert result.artifacts[0] is artifact
@@ -26,7 +26,7 @@ def test_pdf_artifact_reads_share_one_buffer(engine, taro_quill_dir, taro_md, tm
 
 def test_engine_render_svg_page_selection(engine, taro_quill_dir, taro_md):
     quill = Quill.from_path(str(taro_quill_dir))
-    parsed = Document.from_markdown(taro_md)
+    parsed = Document.parse(taro_md)
 
     subset = engine.render(quill, parsed, OutputFormat.SVG, pages=[0])
     assert len(subset.artifacts) == 1
@@ -53,7 +53,7 @@ def test_engine_render_name_mismatch_errors(engine, taro_quill_dir):
         "title: Mismatch Test\n"
         "~~~\n\nContent.\n"
     )
-    parsed = Document.from_markdown(mismatch_md)
+    parsed = Document.parse(mismatch_md)
 
     with pytest.raises(QuillmarkError) as exc_info:
         engine.render(quill, parsed)
@@ -65,7 +65,7 @@ def test_engine_render_negative_page_is_out_of_bounds(engine, taro_quill_dir, ta
     """Page indices count from the first page, so a negative one is refused under
     the code a page past the last is refused under."""
     quill = Quill.from_path(str(taro_quill_dir))
-    parsed = Document.from_markdown(taro_md)
+    parsed = Document.parse(taro_md)
 
     with pytest.raises(QuillmarkError) as exc_info:
         engine.render(quill, parsed, OutputFormat.SVG, pages=[-1])
@@ -84,7 +84,7 @@ def test_engine_render_regions_sidecar(engine, taro_quill_dir, taro_md):
     interpolates the body, so it auto-tags at least one segment carrying a span.
     """
     quill = Quill.from_path(str(taro_quill_dir))
-    parsed = Document.from_markdown(taro_md)
+    parsed = Document.parse(taro_md)
 
     result = engine.render(quill, parsed, OutputFormat.PDF, regions=True)
 
@@ -108,7 +108,7 @@ def test_parse_and_load_errors_carry_coded_diagnostics(tmp_path):
     bogus.mkdir()
     (bogus / "Quill.yaml").write_text("quill: { name: x }\n")
 
-    for call in (lambda: Document.from_markdown(invalid_md), lambda: Quill.from_path(str(bogus))):
+    for call in (lambda: Document.parse(invalid_md), lambda: Quill.from_path(str(bogus))):
         with pytest.raises(QuillmarkError) as exc_info:
             call()
         assert exc_info.value.diagnostics
@@ -134,7 +134,7 @@ def test_render_dates_a_today_field(engine, tmp_path):
         )
         return Quill.from_path(str(root))
 
-    doc = Document.from_markdown("~~~card-yaml\n$quill: dated\n$kind: main\n~~~\n")
+    doc = Document.parse("~~~card-yaml\n$quill: dated\n$kind: main\n~~~\n")
 
     pinned = dated_quill("pinned", "qm.data.issued == datetime(year: 2026, month: 3, day: 14)")
     engine.render(pinned, doc, OutputFormat.SVG, today=datetime.date(2026, 3, 14))
@@ -163,7 +163,7 @@ def test_render_releases_the_gil(engine, taro_quill_dir, taro_md):
 
     quill = Quill.from_path(str(taro_quill_dir))
     body = "".join(f"\n\nLorem ipsum dolor sit amet {i}." for i in range(4000))
-    doc = Document.from_markdown(taro_md + body)
+    doc = Document.parse(taro_md + body)
     quill_ref = doc.quill_ref
     ticks = []
     stop = threading.Event()

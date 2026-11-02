@@ -619,8 +619,9 @@ See <qm-island ref="isl-2"></qm-island> for the merged cells.
 ### 6.5 Footnotes
 
 A footnote reference imports as a `footnote` island at its slot, inline in its
-paragraph, holding its definition's note as one table cell: `{text, marks}`,
-with the note's paragraphs and line breaks joined by `\n`. Each reference holds
+paragraph, holding its definition's note in the slot `note` as a table cell
+holds its text: one paragraph, the note's paragraphs and line breaks joined by
+hard breaks (`U+2028`). Each reference holds
 its own copy, so a note cited twice is two footnotes. The copies past each
 note's first share one budget per import, `MAX_NOTE_COPIES` (1 000 000)
 characters, so a long note cited many times cannot multiply into the content;
@@ -659,7 +660,7 @@ Export writes `$tex$` or `$$tex$$`, and writes each `$` of the text in a
 paragraph, cell, note or alt text as `\$` wherever another `$` or an equation
 there could pair with it, so a lone `$5` stays as written. A `tex` the dollars
 cannot read back as itself (an unescaped `$`, unbalanced braces, an empty inline
-equation) the authored lanes refuse. Import keeps such an equation's source as
+equation) an authored write refuses. Import keeps such an equation's source as
 text, reported as `math`, where the TeX left once its edge whitespace drops is
 one: `$ $` around a Unicode space reads empty.
 
@@ -926,19 +927,19 @@ the typed mutators (`set_quill` / `set_kind` / `set_id` / `set_ext` /
 ### 9.1 Canonical Idempotence
 
 A document in canonical form round-trips byte-equal under both
-`toMarkdown ∘ fromMarkdown` and `fromStored ∘ toStored`:
+`toMarkdown ∘ parse` and `fromStored ∘ toStored`:
 
-- **`toMarkdown(fromMarkdown(canonical)) == canonical`**: the canonical
+- **`toMarkdown(parse(canonical)) == canonical`**: the canonical
   form is a parse-emit fixed point.
-- **`toMarkdown(fromMarkdown(arbitrary)) == toMarkdown(fromMarkdown(
-  toMarkdown(fromMarkdown(arbitrary))))`**: at most one round-trip
+- **`toMarkdown(parse(arbitrary)) == toMarkdown(parse(
+  toMarkdown(parse(arbitrary))))`**: at most one round-trip
   canonicalises any valid input; further round-trips are no-ops.
 - **`toStored(fromStored(toStored(x))) == toStored(x)`** for any in-memory
   `Document x`: JSON serialization is byte-deterministic within a schema
   version.
 - **The Markdown and JSON forms agree:** `toMarkdown(fromStored(toStored(x)))
   == toMarkdown(x)` for every `Document x` produced by
-  `fromMarkdown(arbitrary)`. The two persistence formats canonicalise to
+  `parse(arbitrary)`. The two persistence formats canonicalise to
   the same in-memory model.
 
 Arbitrary (non-canonical) input parses successfully when it satisfies §1–8

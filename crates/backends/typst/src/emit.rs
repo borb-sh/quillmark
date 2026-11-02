@@ -7,7 +7,7 @@
 
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::lines::model::{
-    Container, Content, ISLAND_SLOT, LineKind, Mark, MarkKind, Normalized,
+    Container, Content, ISLAND_SLOT, LineKind, Mark, MarkKind, Lines,
 };
 use quillmark_content::lines::normalize::is_line_separator;
 use quillmark_core::error::MAX_NESTING_DEPTH;
@@ -331,7 +331,7 @@ impl From<EmitError> for quillmark_core::error::RenderError {
 }
 
 /// Lower `rt` to Typst markup.
-pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
+pub fn emit_content(rt: &Lines) -> Result<Emission, EmitError> {
     let max_depth = rt
         .lines
         .iter()
@@ -356,7 +356,7 @@ pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
 /// Anything not [`is_inline`] falls back to [`emit_content`].
 ///
 /// [`is_inline`]: quillmark_content::lines::model::Content::is_inline
-pub(crate) fn emit_content_inline(rt: &Normalized) -> Result<Emission, EmitError> {
+pub(crate) fn emit_content_inline(rt: &Lines) -> Result<Emission, EmitError> {
     if !rt.is_inline() {
         return emit_content(rt);
     }
@@ -1667,7 +1667,7 @@ mod tests {
                 Mark::new(1, 10, MarkKind::Link { url: "z".into() }),
                 Mark::new(3, 10, MarkKind::Strike),
             ])
-            .into_normalized();
+            .into_lines();
         assert_eq!(rt.validate(), Ok(()));
         assert_eq!(
             emit_content(&rt).unwrap().markup,
@@ -1852,7 +1852,7 @@ mod tests {
         use quillmark_content::lines::model::Line;
         for c in ('\0'..=char::MAX).filter(|c| *c != '\n' && reads_as_newline(*c)) {
             let text = format!("{c}- item{c}{c}tail{c}= not a heading");
-            let rt = Content::new(text, vec![Line::new(LineKind::Para)]).into_normalized();
+            let rt = Content::new(text, vec![Line::new(LineKind::Para)]).into_lines();
             assert!(
                 rt.validate().is_err(),
                 "{c:?} passes the content invariants"
@@ -1943,7 +1943,7 @@ mod tests {
                 let text = text.replace("{}", &ISLAND_SLOT.to_string());
                 let rt = Content::new(text.clone(), vec![Line::new(LineKind::Para)])
                     .with_islands(vec![Island::new("isl-0".into(), ty.clone())])
-                    .into_normalized();
+                    .into_lines();
                 assert_eq!(rt.validate(), Ok(()), "content invariants for {text:?}");
                 let markup = emit_content(&rt).unwrap().markup;
                 assert!(
@@ -2100,7 +2100,7 @@ mod tests {
                 Mark::new(0, 4, MarkKind::Strong),
                 Mark::new(2, 6, MarkKind::Emph),
             ]);
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         assert_eq!(rt.validate(), Ok(()));
         let out = emit_content(&rt).unwrap().markup;
         assert_eq!(out, "#strong[ab#emph[cd]]#emph[ef]\n\n");
@@ -2112,7 +2112,7 @@ mod tests {
     fn emit_marked(text: &str, marks: Vec<Mark>) -> String {
         use quillmark_content::lines::model::Line;
         let rt = Content::new(text.to_string(), vec![Line::new(LineKind::Para)]).with_marks(marks);
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         assert_eq!(rt.validate(), Ok(()), "content invariants");
         emit_content(&rt).unwrap().markup
     }
@@ -2453,7 +2453,7 @@ mod tests {
         // its content, and the leading `\` is not inside any run.
         use quillmark_content::lines::model::Line;
         let rt = Content::new("= x".to_string(), vec![Line::new(LineKind::Para)]);
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         let ec = emit_content(&rt).unwrap();
         let chars: Vec<char> = rt.text.chars().collect();
         for seg in &ec.segments {

@@ -69,7 +69,7 @@ export interface CoreSurface {
  * The same line works everywhere: the binary streams from a URL in a browser
  * and is read off disk under Node.
  *
- * The only door to `Quill`, `Document` and the free functions, so the pre-init
+ * The only way in to `Quill`, `Document` and the free functions, so the pre-init
  * mistake is not expressible. Destructure at each entry point (route loader,
  * hydration path, worker) rather than threading one result around: the gate is
  * memoized and concurrency-safe, so every await after the first is free, and a
@@ -98,7 +98,7 @@ export declare const MAIN_CARD_ADDR: CardAddr;
 
 /**
  * The key carrying the discriminant inside a variant-bearing enum's value. A
- * field declaring `variants:` rests as `{value: <member>, …that member's
+ * field declaring `variants:` is stored as `{value: <member>, …that member's
  * fields}`, so reading or writing one means naming this key; it crosses the
  * boundary inside untyped container data, with no type to read it off.
  * Reserved: no variant may declare a field under it, and
@@ -169,7 +169,7 @@ export type {
 } from '../core/wasm.js';
 
 // The schema-bound whole-document read on `quill.reader(doc)`: the resolved
-// view (`reader.resolve()`, value + source rung per declared field, the body a
+// view (`reader.resolve()`, value + source per declared field, the body a
 // `body` sibling on its card and never a row in `fields`).
 export type {
 	FieldSource,
@@ -181,7 +181,7 @@ export type {
 
 /**
  * The error every fallible method in this package throws: parse
- * (`Document.fromMarkdown`), document mutation, validation
+ * (`Document.parse`), document mutation, validation
  * (`Quill.fromTree`, `quill.validate`), and rendering (`engine.render`,
  * `engine.open`, `session.render`).
  *
@@ -649,9 +649,42 @@ declare module '../core/wasm.js' {
 		 */
 		reader(doc: Document): DocumentReader;
 	}
+	interface Document {
+		/**
+		 * The writes no quill schema checks, beside the typed ones of
+		 * {@link Quill.writer}. Each holds every document invariant the typed
+		 * writes do but the schema: names, the bounds, card ids, and each content
+		 * value decoded as a body's is and stored in its canonical form, so
+		 * `equals`, `toStored` and `toMarkdown` agree for a field as for a body.
+		 */
+		readonly unchecked: DocumentUnchecked;
+	}
 }
 
-import type { Addr, BaseOptions, Content, DocumentRevised, PathStep, Receipt, Resolved } from '../core/wasm.js';
+/** The schema-unchecked writes on a `Document`, from {@link Document.unchecked}. */
+export interface DocumentUnchecked {
+	/**
+	 * Store a field at `addr` with no schema coercion, which a render applies
+	 * later. A bare string is `Addr` shorthand for `{ field }`. Each content
+	 * value in `value`, at any depth, decodes as a body write's does, throwing
+	 * `edit::field_decode` where one does not. A body address throws, as do an
+	 * out-of-range card and a malformed name.
+	 */
+	storeField(addr: Addr | string, value: unknown): void;
+	/**
+	 * Place a card whole and answer its `$id`: `at` omitted appends, a number
+	 * inserts at that index (`0..=cards.length`). Accepts any `CardInput`,
+	 * including a card read back out of a document. A card spelling no `id`
+	 * mints one, under `opts.actor` where one is given (`{actor}-{token}`), so
+	 * two live clients placing cards never mint one id; a card spelling one
+	 * keeps it, refused where it is no card id or another card holds it. Throws
+	 * on an invalid kind, an out-of-range `at`, an invalid actor, or a document
+	 * holding 1,000 cards.
+	 */
+	insertCard(card: CardInput, at?: number, opts?: PlaceOptions): string;
+}
+
+import type { Addr, BaseOptions, CardInput, Content, DocumentRevised, PathStep, PlaceOptions, Receipt, Resolved } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -661,8 +694,8 @@ import type { Addr, BaseOptions, Content, DocumentRevised, PathStep, Receipt, Re
  *
  * Typed commit is the default whenever a quill is in hand: it resolves each
  * field's schema type and strict-commits it, throwing `UnknownField` for an
- * undeclared name rather than falling back. The raw `Document.storeField`
- * verb remains the deliberate quill-free primitive (standalone
+ * undeclared name rather than falling back. `doc.unchecked.storeField`
+ * remains the deliberate quill-free primitive (standalone
  * data, storage/migration infra, or not-yet-conforming in-progress input).
  */
 export declare class DocumentWriter {
@@ -678,7 +711,7 @@ export declare class DocumentWriter {
 	/**
 	 * The hash of the body or field at `addr` through its schema: the
 	 * `baseHash` {@link reviseBody} and {@link reviseField} check. A
-	 * `richtext` field hashes its content however it rests, a `text` field its
+	 * `richtext` field hashes its content however it is stored, a `text` field its
 	 * literal text, any other type its stored value, an absent field as
 	 * `null`. Throws `UnknownField` for an undeclared name.
 	 */
@@ -726,7 +759,7 @@ export declare class DocumentWriter {
 	 * Replace the bound document with `markdown`, then conform it. Composable
 	 * cards align to the stored ones by `$kind` and text similarity, an aligned
 	 * card's body and stored content fields revise, their anchors rebasing as
-	 * {@link reviseBody}'s do, and every declared content field lands at rest.
+	 * {@link reviseBody}'s do, and every declared content field lands in its stored form.
 	 * Returns the `DocumentRevised` receipt, its `from` naming the stored card
 	 * each composable card revises and its `warnings` ending with the
 	 * `conform::*` ones, and clears `doc.warnings`. Throws when `markdown`
@@ -734,8 +767,8 @@ export declare class DocumentWriter {
 	 * leaving the document unchanged.
 	 *
 	 * `opts` names what the writer read: `baseHash` is {@link hash}, and
-	 * `baseMarkdown` the whole document's markdown (`toMarkdown` or
-	 * `toAnnotatedMarkdown`). A stale hash throws before any mutation. A
+	 * `baseMarkdown` the whole document's markdown (`toMarkdown()`, cold or
+	 * annotated). A stale hash throws before any mutation. A
 	 * markdown base merges the write onto what changed since, card by card and
 	 * field by field: each place both changed keeps its value now and is named
 	 * in the receipt's `conflicts`, and the write throws
@@ -747,10 +780,12 @@ export declare class DocumentWriter {
 	 * body from optional markdown, and place it. `at` omitted appends, a number
 	 * inserts at that index. Transactional: a rejected field (throwing a per-field
 	 * diagnostic bundle) or an invalid kind, body, or position leaves the document
-	 * untouched. Returns the fields' `parse::dropped_construct` warnings, then
+	 * untouched. The card's `$id` mints as `doc.unchecked.insertCard` mints
+	 * one, under `opts.actor` where one is given. Returns the fields'
+	 * `parse::dropped_construct` warnings, then
 	 * the body import's, anchored under the placed card.
 	 */
-	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number): Diagnostic[];
+	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number, opts?: PlaceOptions): Diagnostic[];
 	/** Remove the composable card at `index`, returning it (or `undefined`). */
 	removeCard(index: number): Card | undefined;
 	/**
@@ -795,9 +830,8 @@ export declare class CardWriter {
  *
  * The schema authority is the point: unlike the quill-free `Document.getStored`,
  * an undeclared name throws `UnknownField` rather than reading back `undefined`,
- * and an undecodable content value throws `FieldDecode`. A field's markdown lives
- * here, not on the body-only `Document.bodyMarkdown`; the body read stays
- * quill-free and never throws.
+ * and an undecodable content value throws `FieldDecode`. The quill-free markdown
+ * read of any one value is `Document.toMarkdown(addr)`.
  *
  * `getContent` is the same read at the other end of the codec, returning the
  * `Content` rather than the projection. It binds the quill for the same reason
@@ -846,11 +880,9 @@ export declare class DocumentReader {
 	 * `IndexOutOfRange` for a bad `addr.card`.
 	 */
 	getContentAt(addr: Addr | string, path: PathStep[]): Content | undefined;
-	/** The main body's markdown: the quill-free body read. Equals `get({})`. */
-	bodyMarkdown(): string;
 	/**
 	 * The resolved-value view: for every declared field, the value the render
-	 * projection would use and the rung it came from (`authored` / `default` /
+	 * projection would use and the source it came from (`authored` / `default` /
 	 * `blank`). The one read that blank-fills and coerces; {@link get} reports
 	 * what the document carries. Value and provenance only; diagnostics stay
 	 * `quill.validate`'s. `today` reads as on {@link Engine.open}; an editor

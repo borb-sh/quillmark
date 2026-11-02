@@ -109,17 +109,17 @@ apart); a place both changed is not an error but an entry in the receipt's
 `current`, the hash of the value now: a writer reads the value again, checks
 that read against `current`, and writes from it. Retrying the same markdown
 under `current` lands the revert the base refused. A refusal on a field
-anchors at the field. The whole-document lane raises them through
+anchors at the field. The whole-document revise raises them through
 `BoundParseError::Base`, as it raises a parse failure, before any mutation.
 
-The content lane's writes (`apply`, `revise`, `replace`) take a
+The content writes (`apply`, `revise`, `replace`) take a
 `base` hash. A base the value has moved on from rebases the write over the
 change since, and a write that conflicts with it refuses under
 `edit::rebase_conflict`, carrying `current`, the `step` of the writer's change
 that conflicts, and the `reason` (`deleted`, `changed`, `missing`, `refused`).
 A base the document no longer holds the change since for refuses under
 `edit::stale_base`, carrying `current`. The pure `rebase` raises the same
-conflict, its `current` the hash of the value `over` left. A change that does not apply to the value, or would leave it
+conflict, its `current` the hash of the value `since` left. A change that does not apply to the value, or would leave it
 invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)).
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content
@@ -140,9 +140,11 @@ revise or replace whose change removes an `x-` island refuses under
 one, so its writer may not have seen it, and a change through `apply` removes
 one. The line-form revise verbs do not check. A content write whose `actor`
 is not an actor ([CONTENT.md](CONTENT.md) § Ids) refuses under
-`edit::invalid_actor`, carrying `actor`.
+`edit::invalid_actor`, carrying `actor`, as does a card placement whose
+`actor` cannot open a card id ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)
+§ "Card-id identity").
 
-Building a card from a `CardWire` (`insertCard`) is the same
+Building a card from a `CardWire` (`unchecked.insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
 `WireError` carries the `EditError` its addressed twin raises, and
 `WireError::code()` is that code. Two of its codes are not `edit::*`, or not
@@ -151,9 +153,9 @@ reachable elsewhere. A malformed `quill` string carries
 wherever a reference is parsed. And `edit::invalid_payload` names a malformed
 item list rather than a malformed field (a duplicate key, a field count past the
 §8 bound, a `$` entry twice, a comment spanning lines). Three of the four reach
-this door alone; the count also reaches an addressed mutator, because it is the
+this input path alone; the count also reaches an addressed mutator, because it is the
 one invariant a caller holding a `(name, value)` pair cannot check for itself —
-so `storeField` on a full card refuses under the code the wire already spells
+so `unchecked.storeField` on a full card refuses under the code the wire already spells
 for it, anchored at the card that is full.
 
 **`RenderResult`**: successful result carrying artifacts, output format, and non-fatal `Vec<Diagnostic>` warnings
@@ -213,7 +215,7 @@ families:
     blank line or another `<table>`;
   - `table:row` for an HTML table's row too short for its grid,
     `table:text` for text outside every cell, and `table:size` for a
-    table's rows past the `MAX_TABLE_CELLS` slots a document's tables share;
+    table's rows past the `MAX_TABLE_CELLS` cells a document's tables share;
   - `<tag>[<attr>]` for one attribute of an HTML table's tag that drops,
     such as `td[nowrap]` or `table[widths]`;
   - `footnote` for a footnote definition nothing references, a second
@@ -265,12 +267,12 @@ families:
   `text` where the text or its blocks read back otherwise. A `*`,
   `_` or `~~` mark is written over its text without the whitespace at its
   edges, and names its full range here.
-- **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
+- **`conform::*`: stored-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
   is the `edit::*` diagnostic that write would have raised, re-namespaced and
   demoted to `Severity::Warning` with its `args` and `path` intact: the value
-  rests as authored rather than being refused or silently retyped, so the state
+  stays as authored rather than being refused or silently retyped, so the state
   is repairable. The walk is stateless, so a repeat conform re-emits the
   identical set. Its scope is the content fields: a field whose type tree bears
   no content leaf never enters the walk, so a scalar the strict write would
@@ -357,7 +359,7 @@ session goes on serving them.
 Python and WASM bindings delegate to core types:
 
 - **Python**: `PyDiagnostic` wraps `Diagnostic`. Every raised exception is `QuillmarkError` (a single type). Every exception carries a `diagnostics` list; `str(exc)` follows the shared count-based message rule.
-- **WASM**: `WasmError` carries a single `diagnostics: Vec<Diagnostic>` (always non-empty). The thrown JS `Error` has a `.diagnostics` array attached and a `.message` derived from `diagnostics` by the same count-based rule. Consumers read `err.diagnostics[0]` for the primary diagnostic and iterate `err.diagnostics` for the rest. Parse failures (`Document.fromMarkdown`) carry the same shape; including the `parse::input_too_large` diagnostic for inputs over `MAX_INPUT_SIZE` (10 MiB) and the `edit::*` codes for post-parse mutators.
+- **WASM**: `WasmError` carries a single `diagnostics: Vec<Diagnostic>` (always non-empty). The thrown JS `Error` has a `.diagnostics` array attached and a `.message` derived from `diagnostics` by the same count-based rule. Consumers read `err.diagnostics[0]` for the primary diagnostic and iterate `err.diagnostics` for the rest. Parse failures (`Document.parse`) carry the same shape; including the `parse::input_too_large` diagnostic for inputs over `MAX_INPUT_SIZE` (10 MiB) and the `edit::*` codes for post-parse mutators.
 
 **WASM delivery follows the function kind, not the failure kind.** A synchronous verb throws; a promise-returning verb rejects; nothing does both.
 
@@ -630,7 +632,7 @@ Every `conform::*` row is reachable only through the content-field walk, so the 
 
 `validation::*`, `edit::*`, and `parse::*` are the codes an end user meets, and the table covers them. The rest carry no args, which is the domain's shape rather than a phase of the work:
 
-- **`quill::*`** is quill-authoring. Its reader is a template author debugging `Quill.yaml`, the one audience for whom canonical English is the deliverable. Three of its codes are `format!`-built per slot besides.
+- **`quill::*`** is quill-authoring. Its reader is a template author debugging `Quill.yaml`, the one audience for whom canonical English is the deliverable. Three of its codes are `format!`-built per literal key (`default:`, `example:`) besides.
 - **`typst::*`** is a closed set (`error_mapping.rs`), but a coarse one: the compile codes classify a Typst diagnostic without taking it apart, so the detail stays in the message that carries it.
 
 Because those codes carry no args, every consumer template falls back on them by the rule above. That is what makes a surface covering a third of the codes total rather than partial.

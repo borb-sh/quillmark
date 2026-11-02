@@ -3,7 +3,7 @@
 //! `default`/blank. A card added to a document commits the document's `$seed`
 //! overlay for its kind in place of the kind's own `seed:`.
 
-use quillmark_content::lines::model::Normalized;
+use quillmark_content::lines::model::Lines;
 
 use super::Quill;
 use crate::document::PayloadItem;
@@ -23,8 +23,8 @@ use crate::{
 ///
 /// Every seeded content field commits through [`seeded_rest`], the same strict
 /// write the typed writer uses, so a seeded card is at rest from birth
-/// (`SCHEMAS.md` § "Document seeding": seed-commits-rest).
-fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, Normalized) {
+/// (`SCHEMAS.md` § "Document seeding": seed-commits-stored).
+fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, Lines) {
     let seed = overlay.or(schema.seed.as_ref());
     let items: Vec<PayloadItem> = schema
         .fields
@@ -40,9 +40,9 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, N
 
     let body = match seed.and_then(|seed| seed.body.as_ref()) {
         Some(seeded_body) if schema.body_enabled() => {
-            crate::document::import_body(seeded_body).unwrap_or_else(|_| Normalized::empty())
+            crate::document::import_body(seeded_body).unwrap_or_else(|_| Lines::empty())
         }
-        _ => Normalized::empty(),
+        _ => Lines::empty(),
     };
 
     debug_assert!(

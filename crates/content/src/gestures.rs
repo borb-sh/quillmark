@@ -1,7 +1,7 @@
-//! The change of each editing gesture a host lowers, so every editor binding
+//! The change of each structural edit a host lowers, so every editor binding
 //! splits, joins, deletes, nests and wraps blocks and grows marks the same way:
-//! the text a gesture keeps keeps its block's id, a record a gesture opens
-//! carries a [placeholder](crate::ids::is_placeholder) the write that lands it
+//! the text an edit keeps keeps its block's id, a record an edit opens
+//! takes a [placeholder](crate::ids::is_placeholder) the write that lands it
 //! fills, `?0` first and on in the order the change puts them, and text typed
 //! at a mark's edge takes it as the canon's growth defaults say.
 

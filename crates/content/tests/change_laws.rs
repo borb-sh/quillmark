@@ -1359,6 +1359,22 @@ mod diffs {
         assert!(matches!(&back.change.steps[..], [Step::Splice(s)] if s.at == 5 && s.delete == "\ngamma" && s.insert.is_empty()), "{:?}", back.change);
     }
 
+    /// A revise that moves a paragraph moves its anchor with it, where the
+    /// anchor's quote is at least four characters; a shorter one drops.
+    #[test]
+    fn a_revise_moves_an_anchor_with_its_paragraph() {
+        let mut d = from_markdown("First paragraph here.\n\nSecond one there.").unwrap().content;
+        d.anchors.push(Anchor::new("c1", 22, 28));
+        d.anchors.push(Anchor::new("c2", 29, 31));
+        let r = revise(&d, "Second one there.\n\nFirst paragraph here.").unwrap();
+        let quote = |id: &str| {
+            let a = r.content.anchors.iter().find(|a| a.id == id)?;
+            Some(r.content.text.chars().skip(a.start).take(a.end - a.start).collect::<String>())
+        };
+        assert_eq!((quote("c1").as_deref(), quote("c2")), (Some("Second"), None), "{:?}", r.content.anchors);
+        assert_eq!(apply(&d, &r.change).unwrap().content, r.content);
+    }
+
     /// An anchor `after` holds in another place, the prose or a cell, moves
     /// there under `replace` as under `diff`, and drops nothing.
     #[test]

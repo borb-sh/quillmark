@@ -1,4 +1,4 @@
-use quillmark_content::lines::model::{Mark, MarkKind, Normalized};
+use quillmark_content::lines::model::{Mark, MarkKind, Lines};
 use quillmark_content::lines::serial::to_canonical_value;
 
 use crate::document::{Codec, Document};
@@ -7,7 +7,7 @@ use crate::value::QuillValue;
 use super::parse;
 
 /// `content` with an anchor `id` over the first occurrence of `word`.
-pub(super) fn anchored(content: &Normalized, word: &str, id: &str) -> Normalized {
+pub(super) fn anchored(content: &Lines, word: &str, id: &str) -> Lines {
     let byte = content.text.find(word).expect("word in content");
     let start = content.text[..byte].chars().count();
     let end = start + word.chars().count();
@@ -15,10 +15,10 @@ pub(super) fn anchored(content: &Normalized, word: &str, id: &str) -> Normalized
     content
         .marks
         .push(Mark::new(start, end, MarkKind::Anchor { id: id.into() }));
-    content.into_normalized()
+    content.into_lines()
 }
 
-pub(super) fn anchor_ids(content: &Normalized) -> Vec<String> {
+pub(super) fn anchor_ids(content: &Lines) -> Vec<String> {
     content
         .marks
         .iter()
@@ -63,9 +63,7 @@ fn stored_with_items() -> Document {
         to_canonical_value(&crate::document::import_body("a plain item").unwrap()),
         to_canonical_value(&anchored(&item, "flag", "i1")),
     ]);
-    doc.card_mut(0)
-        .unwrap()
-        .store_field("items", QuillValue::from_json(items))
+    doc.unchecked().store_field(Some(0), "items", QuillValue::from_json(items))
         .unwrap();
     doc
 }
@@ -154,8 +152,7 @@ fn an_omitted_ext_carries_when_the_card_aligns_by_text_or_the_kind_sequences_mat
 #[test]
 fn everything_else_lands_as_the_markdown_spells_it() {
     let mut doc = stored();
-    doc.main_mut()
-        .store_field("qty", QuillValue::from_json(serde_json::json!(3)))
+    doc.unchecked().store_field(None, "qty", QuillValue::from_json(serde_json::json!(3)))
         .unwrap();
     let incoming = "~~~\n$quill: other@1.2\n# kept comment\nsubject: plain now\nqty: 4\n~~~\n";
     let _ = doc.revise(incoming).unwrap();
@@ -246,8 +243,7 @@ fn an_anchor_in_content_stored_out_of_canonical_order_is_named_when_it_drops() {
         .rev()
         .collect();
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nBody.\n");
-    doc.main_mut()
-        .store_field("note", QuillValue::from_json(reordered.into()))
+    doc.unchecked().store_field(None, "note", QuillValue::from_json(reordered.into()))
         .unwrap();
 
     let receipt = doc.clone().revise(&doc.to_markdown()).unwrap();
@@ -375,8 +371,7 @@ fn a_revised_fields_nested_comments_stay() {
         "body": to_canonical_value(&crate::document::import_body("hello world").unwrap()),
         "note": "x",
     }]);
-    doc.main_mut()
-        .store_field("sections", QuillValue::from_json(sections))
+    doc.unchecked().store_field(None, "sections", QuillValue::from_json(sections))
         .unwrap();
     let markdown = doc
         .to_markdown()
@@ -400,7 +395,7 @@ fn a_card_spelling_its_id_revises_its_stored_card() {
     let second = doc.cards()[1].id().unwrap().to_string();
     let md = format!(
         "~~~\n$quill: q\n~~~\n\n\
-~~~\n$kind: note\n$id: {second}\n~~~\n\nPears, rewritten from the ground up.\n\n\
+~~~\n$kind: note\n$id: {second}\n~~~\n\nRewritten from the ground up, a note on pears.\n\n\
 ~~~\n$kind: note\n$id: {first}\n~~~\n\nNothing like apples now.\n"
     );
     let receipt = doc.revise(&md).unwrap();
@@ -513,10 +508,10 @@ fn an_item_inserted_ahead_keeps_each_anchor_on_its_own_item() {
 
 /// `content` with its first island holding a `title` its markdown cannot
 /// spell, so an annotated read writes the island as its token.
-pub(super) fn titled(content: &Normalized) -> Normalized {
+pub(super) fn titled(content: &Lines) -> Lines {
     let mut content = content.clone().into_content();
     content.islands[0].props["title"] = "kept".into();
-    content.into_normalized()
+    content.into_lines()
 }
 
 /// The annotated read is two-way: a writer that moves a tag moves its anchor's

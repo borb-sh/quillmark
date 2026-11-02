@@ -14,7 +14,7 @@ The package has one import surface: `@quillmark/wasm`, whose `init` resolves to
 
 `Quill` and `Document` are the internal Typst-less core build's own classes,
 handed out verbatim by `init`, so editor/validation code (`Quill.fromTree`,
-`Document.fromMarkdown`) loads only that small core binary: no backend is
+`Document.parse`) loads only that small core binary: no backend is
 loaded until you render. The `Engine` hides everything else: the render build,
 carrying both backends (`typst`, `acroform`), is a private WASM binary with its
 own linear memory, lazily loaded on the first render. The Engine clones a
@@ -139,16 +139,16 @@ A render that traps (out of memory, a panic) rejects with
 `runtime::backend_trapped`, the `WebAssembly.RuntimeError` on `cause`. The
 build's state is then undefined: terminate the Worker or restart the process.
 
-### The two doors: `Document.fromMarkdown` vs `quill.parse` / `quill.conform`
+### The two input paths: `Document.parse` vs `quill.parse` / `quill.conform`
 
-`Document.fromMarkdown` is the quill-free **transport door** (migrations, `$ext`
+`Document.parse` is the quill-free **transport input path** (migrations, `$ext`
 stamping, a quill that will not load, opening a document to fix its `$quill`).
-It needs a root `~~~` block carrying a `$quill` line, and a content field rests
+It needs a root `~~~` block carrying a `$quill` line, and a content field stays
 as authored.
 
-`quill.parse` is the **bound door**, and the primary ingestion path. It is
-`Document.fromMarkdown` followed by `conform`: the returned document's declared
-content fields rest at one form per codec (a `richtext` field as the canonical
+`quill.parse` is the **bound input path**, and the primary one. It is
+`Document.parse` followed by `conform`: the returned document's declared
+content fields are in their stored form, one per codec (a `richtext` field as the canonical
 content object, a `text` field as its literal string), so `getStored`
 answers "content object or string?" by the field's declared codec rather than by how the
 document was built. Parse warnings and the `conform::*` warnings both ride
@@ -163,7 +163,7 @@ when the document declares a `$quill` this quill does not answer to, before any
 mutation.
 
 ```ts
-const doc = quill.parse(markdown);          // rests canonical
+const doc = quill.parse(markdown);          // in its stored form
 const stale = Document.fromStored(row);
 const diags = quill.conform(stale);         // converges in place
 ```
@@ -179,7 +179,7 @@ discriminates the two formats without exceptions as control flow: it answers
 ```ts
 const doc = Document.storageVersionOf(content)
   ? Document.fromStored(content)
-  : Document.fromMarkdown(content);
+  : Document.parse(content);
 ```
 
 The tag model, what upgrading reads, and the one-time rewrites a release asks of stored rows are in [Persistence](https://quillmark.dev/integration/persistence/).
@@ -220,17 +220,18 @@ document path.
 `quill.seedDocument()` returns a starter document: one card per kind, each
 carrying the kind's `seed` from `Quill.yaml` and no other field;
 `quill.seedCard(kind)` seeds one composable card. Both
-return the read `Card` shape of `doc.main` / `doc.cards`, which `doc.insertCard`
+return the read `Card` shape of `doc.main` / `doc.cards`, which `doc.unchecked.insertCard`
 accepts directly:
 
 ```ts
-doc.insertCard(quill.seedCard("note"));                 // seed → append
-doc.insertCard({ kind: "note", body: "Plain **markdown**." });  // bare inline
-doc.insertCard({ kind: "note" }, 0);                    // insert at index 0
-doc.insertCard({                                        // fields → payload items
+doc.unchecked.insertCard(quill.seedCard("note"));                 // seed → append
+doc.unchecked.insertCard({ kind: "note", body: "Plain **markdown**." });  // bare inline
+doc.unchecked.insertCard({ kind: "note" }, 0);                    // insert at index 0
+doc.unchecked.insertCard({                                        // fields → payload items
   kind: "note",
   payloadItems: [{ type: "field", key: "x", value: 1 }],
 });
+const id = doc.unchecked.insertCard({ kind: "note" }, 0, { actor }); // a live client's $id, minted under its actor
 ```
 
 Reads and writes are two aligned shapes. A read `Card` always has `body:
@@ -244,16 +245,17 @@ card is an object literal: one `{ type: "field", key, value }` per field in
 
 **One address for the whole surface.** Reads and writes navigate by an `Addr`:
 `{ card?, field? }`, absent `card` = main, absent `field` = body, and a bare
-string is shorthand for `{ field }`. So `doc.storeField("qty", 3)` targets the
-main card's `qty`, `doc.storeField({ card: 2, field: "qty" }, 3)` a composable
+string is shorthand for `{ field }`. So `doc.unchecked.storeField("qty", 3)` targets the
+main card's `qty`, `doc.unchecked.storeField({ card: 2, field: "qty" }, 3)` a composable
 card's. Reads are total over the field axis (`getStored` → `undefined` for
 an absent field; only an out-of-range card throws); field writes throw on a body
 address. `getStored` is the verbatim transport read, distinct from the interpreted
-`quill.reader(doc).get`; `bodyMarkdown` is the body markdown read (a `CardAddr`; a field's
-markdown is read through `quill.reader(doc).get(field)`). A content field's stored
-form rests per its declared codec through the bound door (a `richtext` field as
+`quill.reader(doc).get`; `doc.toMarkdown(addr?, { annotated })` is the markdown
+export, the whole document without an address, and with `annotated` its anchors
+and islands spelled. A content field's stored
+form follows its declared codec through the bound input path (a `richtext` field as
 the content object, a `text` field as its literal string), and as authored
-through the transport door. For the `Content` either way read
+through the transport input path. For the `Content` either way read
 `quill.reader(doc).getContent(addr)`, which decodes through the codec the
 field's declared type names. Card-scoped verbs take a
 `CardAddr` (`{ card? }`) first: `doc.getExt({ card: 2 })`. An address parses
@@ -267,7 +269,7 @@ A `Document` holds only a `$quill` *reference*, not the resolved schema, so type
 writes go through the schema-bound writer while the quill-free opaque store sits
 on `Document` itself (**store** = verbatim, **set** = typed):
 
-- **`quill.writer(doc)`: the typed door whenever a quill is in hand.** Bind the
+- **`quill.writer(doc)`: the typed input path whenever a quill is in hand.** Bind the
   schema once and issue bare `set` / `setAll` / `reviseBody` / `reviseField` /
   `addCard` / `card(i)`. Each resolves the field's schema `type`, coerces the
   value to its canonical form (`"3"` → `3`, a markdown string → a richtext
@@ -280,8 +282,9 @@ on `Document` itself (**store** = verbatim, **set** = typed):
   class carries the `_commitField` / `_commitFields` / `_addCard` / `_revise` /
   `_reviseField` ABI the writer delegates to, hidden from the `.d.ts`.)
 
-- **`store*`: the deliberate quill-free primitive.** `doc.storeField(addr, value)`
-  validates only the field name/depth/kind and stores the value verbatim, no quill required. Reach for it
+- **`doc.unchecked`: the deliberate quill-free primitive.** `doc.unchecked.storeField(addr, value)`
+  checks the field name and depth, stores each content value in its canonical form (an
+  invalid one throws `edit::field_decode`), and defers every schema check, no quill required. Reach for it
   on purpose when you *want* the opaque store: quill-agnostic storage/migration
   infra that has no bundle and must write regardless of a drifted schema;
   store-now-validate-later editors holding in-progress input that `commit`
@@ -320,10 +323,9 @@ write.
 ```ts
 const v = quill.reader(doc);
 v.get("subject");                                   // the values form: every content leaf as its codec's text, else as stored
-v.getContent("subject");                            // the same read as a `Content`, whichever lane stored it
-v.bodyMarkdown();                                   // the main body markdown (quill-free)
+v.getContent("subject");                            // the same read as a `Content`, whichever write stored it
 v.get({ card: 0 });                                 // a card's body markdown; its fields read through get
-v.resolve();                                        // the render view: blank-filled, coerced, each field tagged with its rung
+v.resolve();                                        // the render view: blank-filled, coerced, each field tagged with its source
 ```
 
 `get` projects and `getContent` returns the `Content`; both decode through the codec
@@ -453,9 +455,9 @@ from any build or WASM instance in the page.
 
 `diagnostics` is always non-empty and its first entry is an error; [Error Handling](https://quillmark.dev/integration/error-handling/) has the shape, the code namespaces and the warnings that follow. The same shape applies to every throw site:
 
-- `Document.fromMarkdown`: parse errors (missing root `$quill` metadata, YAML
+- `Document.parse`: parse errors (missing root `$quill` metadata, YAML
   errors, `parse::input_too_large` for inputs > 10 MiB).
-- `Document` mutators (`storeField`, `insertCard`, the writer's `set`, etc.): a namespaced `edit::*` `code` on `diagnostics[0]`.
+- `Document` mutators (`unchecked.storeField`, `unchecked.insertCard`, the writer's `set`, etc.): a namespaced `edit::*` `code` on `diagnostics[0]`.
 - `engine.render` / `session.render`: backend compilation failures and
   validation errors.
 - An object argument carrying a key its verb does not read: the render

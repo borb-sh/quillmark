@@ -54,14 +54,14 @@ def _md(*lines):
 
 def test_validate_returns_empty_list_for_clean_document(tmp_path):
     quill = make_quill(tmp_path)
-    doc = Document.from_markdown(_md('title: "Hello"', "count: 1", 'byline: "A B"'))
+    doc = Document.parse(_md('title: "Hello"', "count: 1", 'byline: "A B"'))
     assert quill.validate(doc) == []
 
 
 def test_validate_forwards_type_mismatch(tmp_path):
     """A bad type surfaces with its code, path and hint, as JSON-serializable dicts."""
     quill = make_quill(tmp_path)
-    doc = Document.from_markdown(_md('title: "Hello"', 'count: "not-a-number"'))
+    doc = Document.parse(_md('title: "Hello"', 'count: "not-a-number"'))
 
     diags = quill.validate(doc)
     mismatch = next(d for d in diags if d.get("code") == "validation::type_mismatch")
@@ -112,7 +112,7 @@ def test_seed_overlay_round_trip(tmp_path):
     main['seed'] carries; it feeds seed_card as a plain dict;
     remove_seed_overlay clears it."""
     quill = make_quill(tmp_path)
-    doc = Document.from_markdown(_md())
+    doc = Document.parse(_md())
 
     assert doc.seed_overlay("note") is None
     doc.store_seed_overlay("note", {"tag": "WRITTEN"})
@@ -151,7 +151,7 @@ def _bound_md(*lines):
 def test_parse_lands_both_codecs_at_rest(tmp_path):
     """The bound door's crossing: a richtext field arrives as the canonical
     content dict, a text one as plain content holding its literal, and warnings ride the
-    same `doc.warnings` carrier a `from_markdown` parse uses."""
+    same `doc.warnings` carrier a `Document.parse` uses."""
     quill = make_quill(tmp_path, BOUND_QUILL_YAML)
     doc = quill.parse(_bound_md("subject: Q3 **results**", "note: 'a *literal* line'"))
 
@@ -167,7 +167,7 @@ def test_conform_converges_a_transported_document(tmp_path):
     returns a list, converges to the bound door's bytes, and is idempotent."""
     quill = make_quill(tmp_path, BOUND_QUILL_YAML)
     md = _bound_md("subject: Q3 **results**", "note: 'a *literal* line'")
-    doc = Document.from_markdown(md)
+    doc = Document.parse(md)
 
     assert quill.conform(doc) == []
     assert doc.to_stored() == quill.parse(md).to_stored()
@@ -195,7 +195,7 @@ def test_the_wrong_quill_raises_before_any_mutation(tmp_path):
         quill.parse(md)
     assert excinfo.value.diagnostics[0].code == "quill::name_mismatch"
 
-    doc = Document.from_markdown(md)
+    doc = Document.parse(md)
     before = doc.to_stored()
     with pytest.raises(QuillmarkError):
         quill.conform(doc)

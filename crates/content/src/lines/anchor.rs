@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::lines::delta::MIN_MOVE;
-use crate::lines::model::{Content, Mark, MarkKind, Normalized, Usv, ISLAND_SLOT};
+use crate::lines::model::{Content, Mark, MarkKind, Lines, Usv, ISLAND_SLOT};
 
 /// Context read on each side of an anchor, in Unicode scalar values.
 pub const ANCHOR_CONTEXT_USV: usize = 32;
@@ -180,16 +180,16 @@ impl Content {
 /// [`anchors_where`](crate::lines::export::anchors_where) lists them. A cell anchor's
 /// context is read off its cell's text and cut at the cell's edges. Read off
 /// the stored text, so it is pure and moves nothing.
-pub fn anchor_contexts(rt: &Normalized) -> Vec<AnchorContext> {
+pub fn anchor_contexts(rt: &Lines) -> Vec<AnchorContext> {
     contexts_where(rt, |_| true)
 }
 
 /// The [`anchor_contexts`] entry for `id`, reading no other anchor's context.
-pub fn anchor_context(rt: &Normalized, id: &str) -> Option<AnchorContext> {
+pub fn anchor_context(rt: &Lines, id: &str) -> Option<AnchorContext> {
     contexts_where(rt, |held| held == id).into_iter().next()
 }
 
-fn contexts_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<AnchorContext> {
+fn contexts_where(rt: &Lines, keep: impl Fn(&str) -> bool) -> Vec<AnchorContext> {
     let sites: Vec<AnchorSite> = rt.anchor_sites().into_iter().filter(|s| keep(&s.id)).collect();
     let mut texts: HashMap<Surface, Vec<char>> = HashMap::new();
     sites
@@ -234,7 +234,7 @@ fn contexts_where(rt: &Normalized, keep: impl Fn(&str) -> bool) -> Vec<AnchorCon
 /// The prose range of [`locate_site`]: `None` where the one counting place is
 /// in a cell.
 pub fn locate(
-    rt: &Normalized,
+    rt: &Lines,
     ctx: &AnchorContext,
     inserted: Option<&[(Usv, Usv)]>,
 ) -> Option<(Usv, Usv)> {
@@ -249,14 +249,14 @@ pub fn locate(
 /// one counting place over all of them names its surface and range. With
 /// `inserted` given, which spans the prose alone, only the prose counts.
 pub fn locate_site(
-    rt: &Normalized,
+    rt: &Lines,
     ctx: &AnchorContext,
     inserted: Option<&[(Usv, Usv)]>,
 ) -> Option<(Surface, Usv, Usv)> {
     locate_among(&searched(rt, inserted), ctx, inserted)
 }
 
-fn searched(rt: &Normalized, inserted: Option<&[(Usv, Usv)]>) -> Vec<(Surface, Vec<char>)> {
+fn searched(rt: &Lines, inserted: Option<&[(Usv, Usv)]>) -> Vec<(Surface, Vec<char>)> {
     match inserted {
         Some(_) => vec![(Surface::Prose, rt.text.chars().collect())],
         None => rt.surfaces(),
@@ -276,21 +276,21 @@ fn locate_among(
 }
 
 impl Content {
-    /// [`Normalized::reattach`] on this content, normalized first.
+    /// [`Lines::reattach`] on this content, normalized first.
     pub fn reattach(
         &mut self,
         ctxs: &[AnchorContext],
         inserted: Option<&[(Usv, Usv)]>,
         live: &HashSet<&str>,
     ) -> Reattached<AnchorContext> {
-        let mut rt = std::mem::replace(self, Content::empty()).into_normalized();
+        let mut rt = std::mem::replace(self, Content::empty()).into_lines();
         let out = rt.reattach(ctxs, inserted, live);
         *self = rt.into_content();
         out
     }
 }
 
-impl Normalized {
+impl Lines {
     /// Re-add each context's anchor where [`locate_site`] finds it, as a mark
     /// of the prose or of its cell, and answer which landed. An id in `live`, or already an anchor
     /// here on any surface, is not written and is answered as reattached at
@@ -327,7 +327,7 @@ impl Normalized {
             placed.push(site.is_some());
         }
         if !marks.is_empty() {
-            let mut content = std::mem::replace(self, Content::empty().into_normalized()).into_content();
+            let mut content = std::mem::replace(self, Content::empty().into_lines()).into_content();
             let mut cells: HashMap<(usize, usize), Vec<Mark>> = HashMap::new();
             for (surface, mark) in marks {
                 match surface {
@@ -344,7 +344,7 @@ impl Normalized {
                     }
                 }
             }
-            *self = content.into_normalized();
+            *self = content.into_lines();
         }
         let mut fresh: HashMap<String, AnchorContext> =
             anchor_contexts(self).into_iter().map(|c| (c.id.clone(), c)).collect();
@@ -413,14 +413,14 @@ mod tests {
     use crate::lines::import::from_markdown;
     use crate::lines::model::Mark;
 
-    fn content(markdown: &str) -> Normalized {
+    fn content(markdown: &str) -> Lines {
         from_markdown(markdown).unwrap().content
     }
 
-    fn with_anchor(rt: Normalized, start: Usv, end: Usv, id: &str) -> Normalized {
+    fn with_anchor(rt: Lines, start: Usv, end: Usv, id: &str) -> Lines {
         let mut rt = rt.into_content();
         rt.marks.push(Mark::new(start, end, MarkKind::Anchor { id: id.into() }));
-        rt.into_normalized()
+        rt.into_lines()
     }
 
     fn span(rt: &Content, id: &str) -> Option<(Usv, Usv)> {
@@ -434,10 +434,10 @@ mod tests {
         rt.text.chars().skip(start).take(end - start).collect()
     }
 
-    fn without_anchors(rt: &Normalized) -> Normalized {
+    fn without_anchors(rt: &Lines) -> Lines {
         let mut rt = rt.clone().into_content();
         rt.marks.retain(|m| m.kind.is_formatting());
-        rt.into_normalized()
+        rt.into_lines()
     }
 
     fn none() -> HashSet<&'static str> {
@@ -649,11 +649,11 @@ mod tests {
         assert_eq!(out.reattached, vec![ctx]);
     }
 
-    fn table_with_cell_anchor(id: &str) -> Normalized {
+    fn table_with_cell_anchor(id: &str) -> Lines {
         let mut rt = content("Lead line here.\n\n| head | other |\n|---|---|\n| alpha beta | gamma |\n\nTail line here.").into_content();
         rt.islands[0].props["rows"][0][0]["marks"] =
             serde_json::json!([{ "start": 6, "end": 10, "type": "anchor", "attrs": { "id": id } }]);
-        rt.into_normalized()
+        rt.into_lines()
     }
 
     #[test]
@@ -677,7 +677,7 @@ mod tests {
         let ctxs = anchor_contexts(&rt);
         let mut bare = without_anchors(&rt).into_content();
         bare.islands[0].props["rows"][0][0]["marks"] = serde_json::json!([]);
-        let mut bare = bare.into_normalized();
+        let mut bare = bare.into_lines();
         assert_eq!(locate(&bare, &ctxs[0], None), None, "the one place is a cell");
         assert_eq!(locate_site(&bare, &ctxs[0], None), Some((Surface::Cell { island: 0, cell: 2 }, 6, 10)));
         assert_eq!(locate_site(&bare, &ctxs[0], Some(&[(0, 100)])), None, "a delta binds the prose alone");

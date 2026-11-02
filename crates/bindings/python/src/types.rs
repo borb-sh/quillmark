@@ -324,7 +324,7 @@ impl PyQuill {
     }
 
     /// Parse `markdown` and conform it against this quill: the primary ingestion
-    /// path, and the bound twin of the schema-free `Document.from_markdown`. The
+    /// path, and the bound twin of the schema-free `Document.parse`. The
     /// returned document rests at its canonical form: a content field as a
     /// content object, a `text` field's under `codec: "plain"`.
     ///
@@ -458,8 +458,12 @@ impl PyDocument {
         })
     }
 
+    /// Parse a whole document's markdown, quill-free: the document-level
+    /// import, its content read cold, no anchor in it. `Quill.parse` is the
+    /// same parse conformed to a quill; `revise` is the import that keeps
+    /// anchors.
     #[staticmethod]
-    fn from_markdown(markdown: &str) -> PyResult<Self> {
+    fn parse(markdown: &str) -> PyResult<Self> {
         let output = Document::parse(markdown).map_err(|e| {
             let diag = e.to_diagnostic();
             let message = diag.message.clone();
@@ -524,11 +528,17 @@ impl PyDocument {
         quillmark_core::version::quill_ref_hint()
     }
 
-    /// Emit canonical Quillmark Markdown. Round-trip safe but for content: a
-    /// body or content field holds what its markdown spells, so its anchors
-    /// drop and its island ids re-mint. `to_stored` keeps both.
-    fn to_markdown(&self) -> String {
-        self.inner.to_markdown()
+    /// The one markdown export of the document. Cold, round-trip safe but for
+    /// content: a body or content field holds what its markdown spells, so its
+    /// anchors drop and its island ids re-mint; `to_stored` keeps both.
+    /// `annotated` spells each anchor and each island markdown cannot hold,
+    /// which `revise` and `writer.revise_document` read back.
+    #[pyo3(signature = (*, annotated=false))]
+    fn to_markdown(&self, annotated: bool) -> String {
+        match annotated {
+            true => self.inner.to_markdown_annotated().markdown,
+            false => self.inner.to_markdown(),
+        }
     }
 
     /// The hash of the document's stored form, the quill-free twin of
@@ -619,7 +629,7 @@ impl PyDocument {
 
     /// The main card's body as canonical Content-JSON (`{text, lines, marks,
     /// islands}`). For the markdown projection use
-    /// `quill.reader(doc).body_markdown()`.
+    /// `doc.to_markdown_at()`.
     #[getter]
     fn body<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let wire = quillmark_core::document::CardWire::from(self.inner.main());
@@ -752,27 +762,11 @@ impl PyDocument {
         Ok(())
     }
 
-    /// Place a composable card. `at` picks the position: `None` appends, `Some(i)`
-    /// inserts at index `i` (`0..=card_count`; out of range raises
-    /// `IndexOutOfRange`, and a document holding 1,000 cards raises
-    /// `edit::too_many_cards`). `card` is a `Card` dict, as `cards`, `remove_card`,
-    /// and `seed_card` return.
-    #[pyo3(signature = (card, at=None))]
-    fn insert_card(&mut self, card: Bound<'_, PyAny>, at: Option<isize>) -> PyResult<()> {
-        let core_card = py_dict_to_card(&card)?;
-        let at = at
-            .map(|at| card_index(at, self.inner.cards().len()))
-            .transpose()?;
-        // A kind error anchors at the target slot; an append has no slot yet, so
-        // its kind error carries no anchor.
-        let base = at.map_or_else(quillmark_core::path::DocPath::new, |i| {
-            quillmark_core::path::DocPath::card(None, i)
-        });
-        match at {
-            None => self.inner.push_card(core_card),
-            Some(index) => self.inner.insert_card(index, core_card),
-        }
-        .map_err(|e| convert_edit_error(e, &base))
+    /// The writes no quill schema checks: an [`PyUnchecked`] over this
+    /// document.
+    #[getter]
+    fn unchecked(slf: Py<Self>) -> PyUnchecked {
+        PyUnchecked { doc: slf }
     }
 
     /// Remove the composable card at `index`, returning it as a dict or `None`
@@ -927,20 +921,21 @@ impl PyDocument {
         crate::content::content_to_py(py, &content)
     }
 
-    /// The markdown at `field` on `card` with a `qm-*` tag for each anchor and
-    /// island id its lines can hold: what `revise` reads back. Raises as
+    /// `to_markdown` of the value at `field` (`None` the body) on `card`
+    /// (`None` the main card) alone, a `codec: "plain"` field its literal
+    /// text: with `annotated`, what `revise` there reads back. Raises as
     /// `read`.
-    #[pyo3(signature = (field=None, card=None))]
-    fn annotated(&self, field: Option<&str>, card: Option<CardSel>) -> PyResult<String> {
+    #[pyo3(signature = (field=None, card=None, *, annotated=false))]
+    fn to_markdown_at(&self, field: Option<&str>, card: Option<CardSel>, annotated: bool) -> PyResult<String> {
         let target = Target::resolve(&self.inner, card)?;
-        let card = self.card_at(target.index);
-        match field {
-            None => Ok(card.body_annotated().markdown),
-            Some(field) => card
-                .field_annotated(field)
-                .map(|a| a.markdown)
-                .map_err(|e| convert_edit_error(e, &target.base)),
-        }
+        let content = self
+            .card_at(target.index)
+            .read(quillmark_core::document::Target::from(field))
+            .map_err(|e| convert_edit_error(e, &target.base))?;
+        Ok(match annotated {
+            true => quillmark_content::markdown::to_text_annotated(&content).markdown,
+            false => quillmark_content::markdown::to_text(&content),
+        })
     }
 
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
@@ -1156,6 +1151,63 @@ impl Target {
                 })
             }
         }
+    }
+}
+
+/// The writes on a `Document` no quill schema checks, from
+/// `Document.unchecked`. Each still holds every document invariant but the
+/// schema: names, the bounds, card ids, and each content value decoded as a
+/// body's is and stored in its canonical form, so `equals`, `to_stored` and
+/// `to_markdown` agree for a field as for a body. The schema-checked writes
+/// are `quill.writer(doc)`'s.
+#[pyclass(name = "Unchecked")]
+pub struct PyUnchecked {
+    doc: Py<PyDocument>,
+}
+
+#[pymethods]
+impl PyUnchecked {
+    /// Store `value` as the field `name` on `card` (`None` the main card, a
+    /// `str` the card holding that `$id`, an `int` the card at that index)
+    /// with no schema coercion, which a render applies later. Each content
+    /// value in `value`, at any depth, decodes as a body write's does, raising
+    /// `edit::field_decode` where one does not.
+    #[pyo3(signature = (name, value, card=None))]
+    fn store_field(&self, py: Python<'_>, name: &str, value: Bound<'_, PyAny>, card: Option<CardSel>) -> PyResult<()> {
+        let qv = py_to_quillvalue(&value)?;
+        let mut doc = self.doc.borrow_mut(py);
+        let card = card_position(&doc.inner, card)?;
+        let base = doc.addr_base(card);
+        let index = card.map(|i| card_index(i, doc.inner.cards().len())).transpose()?;
+        doc.inner
+            .unchecked()
+            .store_field(index, name, qv)
+            .map_err(|e| convert_edit_error(e, &base))
+    }
+
+    /// Place a composable card and return its `$id`. `at` picks the position:
+    /// `None` appends, `i` inserts at index `i` (`0..=card_count`; out of range
+    /// raises `IndexOutOfRange`, and a document holding 1,000 cards raises
+    /// `edit::too_many_cards`). `card` is a `Card` dict, as `cards`,
+    /// `remove_card`, and `seed_card` return. A card spelling no `id` mints
+    /// one, under `actor` where one is given (`{actor}-{token}`), so two live
+    /// clients placing cards never mint one id.
+    #[pyo3(signature = (card, at=None, actor=None))]
+    fn insert_card(&self, py: Python<'_>, card: Bound<'_, PyAny>, at: Option<isize>, actor: Option<&str>) -> PyResult<String> {
+        let core_card = py_dict_to_card(&card)?;
+        let mut doc = self.doc.borrow_mut(py);
+        let at = at
+            .map(|at| card_index(at, doc.inner.cards().len()))
+            .transpose()?;
+        // A kind error anchors at the target slot; an append has no slot yet, so
+        // its kind error carries no anchor.
+        let base = at.map_or_else(quillmark_core::path::DocPath::new, |i| {
+            quillmark_core::path::DocPath::card(None, i)
+        });
+        doc.inner
+            .unchecked()
+            .insert_card(at, core_card, actor)
+            .map_err(|e| convert_edit_error(e, &base))
     }
 }
 
@@ -1474,9 +1526,11 @@ impl PyWriter {
     /// appends, `Some(i)` inserts at index `i`, and a position out of range
     /// raises. Transactional: a rejected field (raising a per-field diagnostic
     /// bundle) or an invalid kind, body, or position leaves the document
-    /// untouched. Returns the fields' `parse::dropped_construct` warnings, then
-    /// the body import's, anchored under the placed card.
-    #[pyo3(signature = (kind, fields=None, body=None, at=None))]
+    /// untouched. The card's `$id` mints as `unchecked.insert_card` mints one,
+    /// under `actor` where one is given. Returns the fields'
+    /// `parse::dropped_construct` warnings, then the body import's, anchored
+    /// under the placed card.
+    #[pyo3(signature = (kind, fields=None, body=None, at=None, actor=None))]
     fn add_card(
         &self,
         py: Python<'_>,
@@ -1484,6 +1538,7 @@ impl PyWriter {
         fields: Option<Bound<'_, PyDict>>,
         body: Option<String>,
         at: Option<isize>,
+        actor: Option<&str>,
     ) -> PyResult<Vec<PyDiagnostic>> {
         let batch = match fields {
             Some(f) => pydict_to_field_batch(&f)?,
@@ -1499,7 +1554,7 @@ impl PyWriter {
         quill
             .inner
             .writer(&mut doc.inner)
-            .add_card(kind, batch, body.as_deref(), at)
+            .add_card(kind, batch, body.as_deref(), at, actor)
             .map(py_diagnostics)
             .map_err(|errs| convert_edit_errors(errs, &quillmark_core::path::DocPath::new()))
     }
@@ -1645,23 +1700,6 @@ impl PyReader {
         }
         .map_err(|e| convert_edit_error(e, &target.base))?;
         content_to_py(py, read)
-    }
-
-    /// A body's markdown: quill-free, since a body's type is a format fact
-    /// rather than a schema fact. Raises only `edit::index_out_of_range`, for a
-    /// `card` addressing none.
-    #[pyo3(signature = (card=None))]
-    fn body_markdown(&self, py: Python<'_>, card: Option<CardSel>) -> PyResult<String> {
-        let doc = self.doc.borrow(py);
-        let target = Self::target(&doc, card)?;
-        Ok(match target.index {
-            None => doc.inner.main().body_markdown(),
-            Some(i) => doc
-                .inner
-                .card(i)
-                .ok_or_else(|| index_error(i, doc.inner.cards().len()))?
-                .body_markdown(),
-        })
     }
 }
 

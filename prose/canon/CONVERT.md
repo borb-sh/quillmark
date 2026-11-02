@@ -17,16 +17,16 @@ this page documents how the backend lowers the content it produces.
 ## Pipeline
 
 ```
-emit_content(&Normalized) -> Result<Emission, EmitError>
+emit_content(&Lines) -> Result<Emission, EmitError>
   ├─ block walk    lines → headings, paragraphs, code fences, lists, quotes, islands
   ├─ mark sweep    anchored marks → nested #strong[…] / #emph[…] / #link(…)[…] / #_qm-font(…)[…] / …
   └─ source map    per-segment (content ↔ gen) windows + one (content, gen) pair per run
 ```
 
 `Emission { markup: String, segments: Vec<SegmentMap> }`. The content is a
-single Unicode-scalar-value (USV) `text` carrying `lines` (line attributes and
+single `text`, offsets in scalars, holding `lines` (line attributes and
 container nesting), `marks` (anchored `[start, end)` ranges), and `islands`
-(tables/images at reserved slot chars). The walk is a terminator-model block
+(tables/images at reserved island characters). The walk is a terminator-model block
 tree over `lines`; the inline pass sweeps `marks` and islands within each line.
 
 A **segment** is a maximal run of lines joined by `Line::continues`: one
@@ -36,7 +36,7 @@ paragraph, one heading, one whole code fence, one block island's line. It is wha
 Only a `para` or `code` block takes continuations
 (`LineKind::takes_continuations`), and a continuation stays inside one container
 path. A heading and a rule are one line, and so is a `para` whose sole content
-is a block island's slot — the kind cannot tell that one from prose, so
+is a block island's character — the kind cannot tell that one from prose, so
 `Content::block_island_at` reads it off the island's type. Both emitters
 render such a line alone, so a `continues` line after one would be text neither
 projection reaches: `Content::normalize` clears the flag there, as it does on
@@ -69,7 +69,7 @@ Three escapers guard two Typst contexts; all live in `emit`:
 
   **Smart quotes are the quill's.** `'` and `"` pass through, so Typst's
   language-aware substitution applies and a quill chooses with
-  `#set smartquote(enabled: false)`. Escaping them here would settle that for
+  `#set smartquote(enabled: false)`. Escaping them here would decide that for
   every quill with no way back — unlike the shorthands, which the lexer decides
   and no set rule reaches.
 - **`escape_indent`**: the spaces, tabs and stray newlines opening a line,
@@ -104,7 +104,7 @@ wrap's closing `]` and an island's `)` would each run on into the document text
 behind them — or, for the `;`, eat the character. Trivia between the two ends
 the expression on its own.
 
-And a third time, at a **seam**: a position where the emitter writes nothing
+And a third time, at a **junction**: a position where the emitter writes nothing
 between two runs, which an island this build renders as nothing (an image, an
 empty table) leaves behind. The escapers are per run, so a
 multi-character rule sees one side of such a join at a time and the pair
@@ -118,8 +118,8 @@ is a lowering bug, never a document's.
 
 | Content construct | Typst |
 |---|---|
-| `LineKind::Heading{level}` | `=` … `======` (`level` × `=`); a table's slot on the line closes the heading, the table sets between, and the text after it opens a heading of the same level |
-| `LineKind::Para` | inline content; a hard break (a `continues` line join) emits `#linebreak()`, a soft break is a space (both settled at import). A slot alone on the line is the island's block, lowered by the island dispatch below; a table's slot sharing its line lowers in place, and Typst sets the table as a block between the prose either side |
+| `LineKind::Heading{level}` | `=` … `======` (`level` × `=`); a table's island character on the line closes the heading, the table sets between, and the text after it opens a heading of the same level |
+| `LineKind::Para` | inline content; a hard break (a `continues` line join) emits `#linebreak()`, a soft break is a space (both normalized at import). An island character alone on the line is the island's block, lowered by the island dispatch below; a table's island character sharing its line lowers in place, and Typst sets the table as a block between the prose either side |
 | `LineKind::Code{lang}` (code fence) | `#raw(block: true, lang: "…", "…")`; `lang:` emitted only when the language tag is non-empty |
 | `LineKind::Rule` (thematic break) | `#line(length: 100%)` |
 | `MarkKind::Strong` | `#strong[…]` |
@@ -150,7 +150,7 @@ The table's layout keys lower as:
 | `align` | `align(center, table(…))` under `context`, with `table.cell` set to the horizontal `align.alignment` the table stands in, so the placement moves the table and no text inside it, save a horizontal alignment the plate's own `table.cell` show rule sets |
 | `head` | that many rows from the top lower inside one `table.header`, which Typst repeats on each page the table runs onto; at `0` none does, and `header` lowers as the first body row |
 | a cell's `align` / `valign` | `table.cell(align: right + bottom)[…]`, `middle` as `horizon`, which Typst folds with the column's alignment; a value outside its set lowers as absent |
-| a cell's `colspan` / `rowspan` | `table.cell(colspan: 2, rowspan: 3)[…]`, each cell its span covers left out, so Typst's own placement, which skips a slot a span above fills, lands every cell where the grid holds it |
+| a cell's `colspan` / `rowspan` | `table.cell(colspan: 2, rowspan: 3)[…]`, each cell its span covers left out, so Typst's own placement, which skips a cell a span above fills, lands every cell where the grid holds it |
 
 A table cell is canonical `{text, marks}`, lowered through the same mark sweep
 as prose: a formatted cell reaches `#strong[…]` / `#emph[…]` / `#raw(…)` /
@@ -242,7 +242,7 @@ calls:
   carries one [`typst::unknown_font_family`](ERROR.md#warning-flow) warning per
   family and content field, `path` the field's `DocPath`.
 - A stretch stops at a code span, whose `raw` keeps its own font, and
-  at a math or table island's slot. A footnote's slot stays inside it: a
+  at a math or table island's character. A footnote's character stays inside it: a
   footnote entry takes none of its reference's styles, so the note is set by
   its own runs.
 
@@ -277,7 +277,7 @@ reads and the shape the WASM boundary pins:
   ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies"), lower
   as [above](#element-mapping); an absent one draws at its default: auto-fit,
   at the plate's placement, in the column's alignment, under one header row,
-  in one slot.
+  in one cell.
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. No backend resolves `url` (see [Declined images](#declined-images)).
 - **`footnote`** → `Cell`, the note, with no `\n` at either edge. Its `\n` is
@@ -335,7 +335,7 @@ lowers markdown into the content (markdown-spec §6 is its normative acceptance
 surface); every downstream render walks the content. No render path parses
 markdown.
 
-The one other caller is `export` itself, deliberately: its safety net settles a
+The one other caller is `export` itself, deliberately: its safety net fixes a
 line's markdown by re-importing it and dropping marks until the text comes back
 intact, because CommonMark's emphasis algorithm has corners no local rule
 captures. So export's correctness is *defined* by import: the two codecs cannot

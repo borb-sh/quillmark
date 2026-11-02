@@ -5,16 +5,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use quillmark::{Diagnostic, Document, Engine, Normalized, OutputFormat, Quill, RenderOptions};
+use quillmark::{Diagnostic, Document, Engine, OutputFormat, Quill, RenderOptions};
+use quillmark_core::document::Target;
 use quillmark_content::{
     change::apply,
     diff::diff,
-    lines::export::{to_markdown, to_markdown_annotated},
-    migrate::from_lines,
-    model::Content,
-    lines::import::{ImportWarning, from_markdown},
-    lines::model::{ISLAND_SLOT, MarkKind},
-    lines::serial,
+    markdown::{ImportWarning, from_markdown, to_markdown, to_markdown_annotated},
+    model::{Content, ISLAND_SLOT},
 };
 use quillmark_fixtures::{quills_path, resource_path};
 use serde_json::{Value, json};
@@ -148,26 +145,16 @@ fn the_matrix_has_a_row_per_entry_naming_its_signals() {
 
 fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
     let mut failures = Vec::new();
-    let stored = &entry["lines"];
-    let content = match serial::from_canonical_value(stored) {
-        Ok(c) => c,
-        Err(e) => return vec![format!("lines does not decode: {e}")],
-    };
-    if serial::to_canonical_value(&content) != *stored {
-        failures.push(format!("lines is not canonical: {}", canonical(&content)));
-    }
     let value = &entry["content"];
-    let migrated = from_lines(&content).to_value();
-    if migrated != *value {
-        failures.push(format!("lines migrates to {migrated}"));
+    let content = match Content::from_value(value) {
+        Ok(c) => c,
+        Err(e) => return vec![format!("content does not decode: {e}")],
+    };
+    if content.to_value() != *value {
+        failures.push(format!("content is not canonical: {}", content.to_value()));
     }
-    match Content::from_value(value) {
-        Ok(c) if c.to_value() == *value => {}
-        Ok(c) => failures.push(format!("content is not canonical: {}", c.to_value())),
-        Err(e) => failures.push(format!("content does not decode: {e}")),
-    }
-    failures.extend(check_change(stored, &content, value));
-    let reimports = match entry.get("reimports").map(serial::from_canonical_value) {
+    failures.extend(check_change(&content));
+    let reimports = match entry.get("reimports").map(Content::from_value) {
         None => content.clone(),
         Some(Ok(c)) => c,
         Some(Err(e)) => {
@@ -199,8 +186,8 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
                 Ok(i) => i,
                 Err(e) => return vec![format!("import fails: {e}")],
             };
-            if serial::to_canonical_value(&imported.content) != *stored {
-                failures.push(format!("imports as {}", canonical(&imported.content)));
+            if imported.content != content {
+                failures.push(format!("imports as {}", imported.content.to_value()));
             }
             let warnings: Value = imported
                 .warnings
@@ -220,12 +207,6 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
             if parsed.document.main().body().to_value() != *value {
                 failures.push(format!("a body stores {}", parsed.document.main().body().to_value()));
             }
-            if parsed.document.main().body_lines() != &content {
-                failures.push(format!(
-                    "a body imports as {}",
-                    canonical(parsed.document.main().body_lines())
-                ));
-            }
             let dropped = dropped_constructs(&parsed.warnings);
             if dropped != *import_signals {
                 failures.push(format!("a parse warns {dropped}"));
@@ -236,16 +217,24 @@ fn check(entry: &Value, engine: &Engine, quill: &Quill) -> Vec<String> {
             if import_signals.as_array().is_none_or(|a| !a.is_empty()) {
                 failures.push("an entry with no markdown declares import signals".into());
             }
-            let mut doc = Document::parse(&frontmatter(QUILL))
-                .expect("frontmatter parses")
-                .document;
-            doc.main_mut().overwrite_body(content);
-            doc
+            holding(&content)
         }
     };
 
     failures.extend(surfaces(entry, engine, quill, &doc));
     failures
+}
+
+/// A document whose body holds `content`, written through `replace`.
+fn holding(content: &Content) -> Document {
+    let mut doc = Document::parse(&frontmatter(QUILL))
+        .expect("frontmatter parses")
+        .document;
+    doc.main_mut()
+        .replace(Target::Body, content, None)
+        .expect("a canonical content replaces the empty body");
+    assert_eq!(doc.main().body(), content, "a replace over the empty body lands the content");
+    doc
 }
 
 /// The lowering, `validate` and a one-shot render of `doc` through `quill`.
@@ -303,34 +292,26 @@ fn surfaces(entry: &Value, engine: &Engine, quill: &Quill, doc: &Document) -> Ve
     failures
 }
 
-/// `lines` lands through the authored lane, and `content` through the one
-/// `Change` that `diff` takes from the empty value to it.
-fn check_change(stored: &Value, lines: &Normalized, content: &Value) -> Vec<String> {
-    let mut failures = Vec::new();
-    match serial::from_authored_value(stored) {
-        Ok(authored) if authored == *lines => {}
-        Ok(authored) => failures.push(format!("the authored lane stores {}", canonical(&authored))),
-        Err(e) => failures.push(format!("the authored lane refuses: {e}")),
+/// `content` lands through the one `Change` that `diff` takes from the
+/// empty value to it.
+fn check_change(want: &Content) -> Vec<String> {
+    match diff(&Content::empty(), want).map(|c| apply(&Content::empty(), &c)) {
+        Ok(Ok(applied)) if applied.content == *want => vec![],
+        Ok(Ok(applied)) => vec![format!("the change lands {}", applied.content.to_value())],
+        Ok(Err(e)) => vec![format!("the change refuses: {e:?}")],
+        Err(e) => vec![format!("no change reaches content: {e:?}")],
     }
-    let Ok(want) = Content::from_value(content) else { return failures };
-    match diff(&Content::empty(), &want).map(|c| apply(&Content::empty(), &c)) {
-        Ok(Ok(applied)) if applied.content == want => {}
-        Ok(Ok(applied)) => failures.push(format!("the change lands {}", applied.content.to_value())),
-        Ok(Err(e)) => failures.push(format!("the change refuses: {e:?}")),
-        Err(e) => failures.push(format!("no change reaches content: {e:?}")),
-    }
-    failures
 }
 
 /// `to_markdown(content)` re-imports, warning nothing, to `reimports`: the
 /// fixed point, and where markdown cannot spell the row, what the round trip
 /// lands on.
-fn check_fixed_point(content: &Normalized, reimports: &Normalized) -> Vec<String> {
+fn check_fixed_point(content: &Content, reimports: &Content) -> Vec<String> {
     match from_markdown(&to_markdown(content)) {
         Ok(again) if again.content == *reimports && again.warnings.is_empty() => vec![],
         Ok(again) => vec![format!(
             "to_markdown re-imports as {}, warning {:?}",
-            canonical(&again.content),
+            again.content.to_value(),
             again.warnings
         )],
         Err(e) => vec![format!("to_markdown does not re-import: {e}")],
@@ -339,26 +320,15 @@ fn check_fixed_point(content: &Normalized, reimports: &Normalized) -> Vec<String
 
 /// A body holding `content`, revised with `markdown`, lands on `reimports` plus
 /// every anchor `content` holds, warning nothing.
-fn check_revise(content: &Normalized, reimports: &Normalized, markdown: &str) -> Vec<String> {
-    let mut expected = reimports.clone().into_content();
-    expected.marks.extend(
-        content
-            .clone()
-            .into_content()
-            .marks
-            .into_iter()
-            .filter(|m| matches!(m.kind, MarkKind::Anchor { .. })),
-    );
-    let expected = expected.into_normalized();
-    let mut doc = Document::parse(&frontmatter(QUILL))
-        .expect("frontmatter parses")
-        .document;
-    doc.main_mut().overwrite_body(content.clone());
-    match doc.main_mut().revise_body(markdown) {
-        Ok(revised) if doc.main().body_lines() == &expected && revised.warnings.is_empty() => vec![],
+fn check_revise(content: &Content, reimports: &Content, markdown: &str) -> Vec<String> {
+    let mut expected = reimports.clone();
+    expected.anchors = content.anchors.clone();
+    let mut doc = holding(content);
+    match doc.main_mut().revise(Target::Body, markdown, None) {
+        Ok(revised) if *doc.main().body() == expected && revised.warnings.is_empty() => vec![],
         Ok(revised) => vec![format!(
             "a revise lands {}, warning {:?}",
-            canonical(doc.main().body_lines()),
+            doc.main().body().to_value(),
             revised.warnings
         )],
         Err(e) => vec![format!("a revise fails: {e:?}")],
@@ -366,19 +336,15 @@ fn check_revise(content: &Normalized, reimports: &Normalized, markdown: &str) ->
 }
 
 /// `content` without its anchors.
-fn unanchored(content: &Normalized) -> Normalized {
-    let mut unanchored = content.clone().into_content();
-    unanchored
-        .marks
-        .retain(|m| !matches!(m.kind, MarkKind::Anchor { .. }));
-    unanchored.into_normalized()
+fn unanchored(content: &Content) -> Content {
+    Content { anchors: Vec::new(), ..content.clone() }
 }
 
 /// `annotated` is the content's annotated read. Holding no island token, it
 /// imports cold, warning nothing, as the content without its anchors; holding
 /// one, it imports as `reimports` would with that island gone, warning one
 /// dropped `qm-island` per token.
-fn check_annotated(annotated: &Value, content: &Normalized, reimports: &Normalized) -> Vec<String> {
+fn check_annotated(annotated: &Value, content: &Content, reimports: &Content) -> Vec<String> {
     let Some(annotated) = annotated.as_str() else {
         return vec!["annotated is not a string".into()];
     };
@@ -391,10 +357,10 @@ fn check_annotated(annotated: &Value, content: &Normalized, reimports: &Normaliz
     let expected = match tokens {
         0 => unanchored(content),
         _ => {
-            let mut gone = reimports.clone().into_content();
+            let mut gone = reimports.clone();
             gone.text.retain(|c| c != ISLAND_SLOT);
             gone.islands.clear();
-            gone.into_normalized()
+            gone
         }
     };
     let warned: Vec<(String, usize)> = (tokens > 0)
@@ -405,7 +371,7 @@ fn check_annotated(annotated: &Value, content: &Normalized, reimports: &Normaliz
         Ok(i) if i.content == expected && signals(&i.warnings) == warned => {}
         Ok(i) => failures.push(format!(
             "annotated imports as {}, warning {:?}",
-            canonical(&i.content),
+            i.content.to_value(),
             i.warnings
         )),
         Err(e) => failures.push(format!("annotated does not import: {e}")),
@@ -424,31 +390,24 @@ fn signals(warnings: &[ImportWarning]) -> Vec<(String, usize)> {
 /// nothing, to a body holding `reimports`, and an annotated read that revises
 /// the document, warning nothing, to a body holding `content`; the read lists
 /// each anchor of `content` at `main.body` and spells `annotated`.
-fn check_document(
-    content: &Normalized,
-    reimports: &Normalized,
-    annotated: Option<&str>,
-) -> Vec<String> {
-    let mut doc = Document::parse(&frontmatter(QUILL))
-        .expect("frontmatter parses")
-        .document;
-    doc.main_mut().overwrite_body(content.clone());
+fn check_document(content: &Content, reimports: &Content, annotated: Option<&str>) -> Vec<String> {
+    let doc = holding(content);
     let read = doc.to_markdown_annotated();
     let mut failures: Vec<String> = match Document::parse(&doc.to_markdown()) {
-        Ok(p) if p.document.main().body_lines() == reimports && p.warnings.is_empty() => vec![],
+        Ok(p) if p.document.main().body() == reimports && p.warnings.is_empty() => vec![],
         Ok(p) => vec![format!(
             "the document parses to a body {}, warning {:?}",
-            canonical(p.document.main().body_lines()),
+            p.document.main().body().to_value(),
             p.warnings
         )],
         Err(e) => vec![format!("the document does not parse: {e}")],
     };
     let mut revised = doc.clone();
     match revised.revise(&read.markdown) {
-        Ok(r) if revised.main().body_lines() == content && r.warnings.is_empty() => {}
+        Ok(r) if revised.main().body() == content && r.warnings.is_empty() => {}
         Ok(r) => failures.push(format!(
             "the annotated read revises to a body {}, warning {:?}",
-            canonical(revised.main().body_lines()),
+            revised.main().body().to_value(),
             r.warnings
         )),
         Err(e) => failures.push(format!("the annotated read does not parse: {e}")),
@@ -458,14 +417,8 @@ fn check_document(
         .iter()
         .map(|a| (a.path.to_string(), a.id.as_str()))
         .collect();
-    let held: Vec<(String, &str)> = content
-        .marks
-        .iter()
-        .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } => Some(("main.body".to_string(), id.as_str())),
-            _ => None,
-        })
-        .collect();
+    let held: Vec<(String, &str)> =
+        content.anchors.iter().map(|a| ("main.body".to_string(), a.id.as_str())).collect();
     if listed != held {
         failures.push(format!("the annotated read lists {listed:?}"));
     }
@@ -486,10 +439,6 @@ fn declines(diags: &[Diagnostic]) -> Vec<Diagnostic> {
         .collect();
     declines.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.message.cmp(&b.message)));
     declines
-}
-
-fn canonical(content: &Normalized) -> String {
-    serial::to_canonical_value(content).to_string()
 }
 
 fn dropped_constructs(warnings: &[Diagnostic]) -> Value {

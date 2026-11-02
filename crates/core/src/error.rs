@@ -1007,7 +1007,7 @@ card_kinds:
             .content
             .into_content();
         wide.marks[0].end += 1;
-        let lost = quillmark_content::lines::export::to_markdown_checked(&wide.into_normalized());
+        let lost = quillmark_content::lines::export::to_markdown_checked(&wide.into_lines());
         add(
             crate::document::LOST_CONSTRUCT,
             crate::document::lost_construct(lost.losses.into_iter().next().expect("a loss")).args,

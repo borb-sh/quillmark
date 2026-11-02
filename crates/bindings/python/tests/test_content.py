@@ -11,7 +11,7 @@ MD = "~~~card-yaml\n$quill: test_quill\n~~~\n\nhello world\n"
 
 
 def test_a_receipt_carries_the_normalized_change_which_invert_undoes():
-    doc = Document.from_markdown(MD)
+    doc = Document.parse(MD)
     before = doc.read()
     base = doc.hash_at()
     receipt = doc.apply({"steps": [{"splice": {"at": 0, "delete": "hello", "insert": "hi"}}]}, base=base)
@@ -27,7 +27,7 @@ def test_a_receipt_carries_the_normalized_change_which_invert_undoes():
 
 
 def test_a_refused_change_writes_nothing():
-    doc = Document.from_markdown(MD)
+    doc = Document.parse(MD)
     before = doc.read()
     change = {"steps": [{"mark": {"start": 0, "end": 5, "type": "strong", "add": True}}, {"splice": {"at": 99, "insert": "x"}}]}
     with raises_edit_code("edit::content_apply"):
@@ -42,7 +42,7 @@ def test_a_refused_change_writes_nothing():
 
 
 def test_a_quoted_step_refuses_text_its_writer_did_not_read():
-    doc = Document.from_markdown(MD)
+    doc = Document.parse(MD)
     doc.apply({"steps": [{"splice": {"at": 0, "insert": "XX "}}]})
     with raises_edit_code("edit::content_apply"):
         doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]})
@@ -51,7 +51,7 @@ def test_a_quoted_step_refuses_text_its_writer_did_not_read():
 
 
 def test_a_stale_base_rebases_over_the_change_since():
-    doc = Document.from_markdown(MD)
+    doc = Document.parse(MD)
     base = doc.hash_at()
     doc.apply({"steps": [{"splice": {"at": 0, "insert": "XX "}}]})
     receipt = doc.apply({"steps": [{"anchor": {"id": "a1", "start": 6, "end": 11, "quote": "world"}}]}, base=base)
@@ -64,7 +64,7 @@ def test_a_stale_base_rebases_over_the_change_since():
 
 
 def test_a_placeholder_is_minted_under_the_writers_actor():
-    doc = Document.from_markdown(MD)
+    doc = Document.parse(MD)
     change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
     receipt = doc.apply(change, actor="ann")
     assert receipt["minted"] == {"?n": "ann:b0"}
@@ -74,7 +74,7 @@ def test_a_placeholder_is_minted_under_the_writers_actor():
 
 
 def test_a_reserved_x_name_rides_as_written():
-    doc = Document.from_markdown(MD)
+    doc = Document.parse(MD)
     value = {"text": "Note", "blocks": [{"id": "b0", "kind": "x-callout", "attrs": {"tone": "warm"}}], "marks": [{"start": 0, "end": 4, "type": "x-glow"}]}
     doc.replace(value)
     assert doc.read() == value
@@ -83,16 +83,16 @@ def test_a_reserved_x_name_rides_as_written():
 
 
 def test_offsets_count_code_points():
-    doc = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\n😀 **bold**\n")
+    doc = Document.parse("~~~card-yaml\n$quill: test_quill\n~~~\n\n😀 **bold**\n")
     assert doc.read()["marks"] == [{"start": 2, "end": 6, "type": "strong"}]
     doc.apply({"steps": [{"splice": {"at": 1, "delete": "", "insert": "!"}}]})
     assert doc.read()["text"] == "😀! bold"
 
 
 def test_revise_and_replace_name_the_anchors_they_drop():
-    doc = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\nThe committee met on Monday to plan.\n")
+    doc = Document.parse("~~~card-yaml\n$quill: test_quill\n~~~\n\nThe committee met on Monday to plan.\n")
     doc.apply({"steps": [{"anchor": {"id": "m1", "start": 14, "end": 27}}]})
-    assert doc.annotated() == 'The committee <qm-anchor ref="m1"></qm-anchor>met on Monday to plan.'
+    assert doc.to_markdown_at(annotated=True) == 'The committee <qm-anchor ref="m1"></qm-anchor>met on Monday to plan.'
     receipt = doc.revise("The board met on Monday to plan.")
     assert receipt["dropped_anchors"] == []
     assert doc.read()["anchors"] == [{"id": "m1", "start": 10, "end": 23}]
@@ -106,15 +106,15 @@ def test_revise_and_replace_name_the_anchors_they_drop():
 
 
 def test_diff_answers_without_a_document():
-    doc = Document.from_markdown(MD)
+    doc = Document.parse(MD)
     before = doc.read()
-    doc2 = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\nhello brave world\n")
+    doc2 = Document.parse("~~~card-yaml\n$quill: test_quill\n~~~\n\nhello brave world\n")
     doc.apply(diff(before, doc2.read()))
     assert doc.read()["text"] == "hello brave world"
 
 
 def test_a_content_write_names_its_card_by_id_wherever_it_moved():
-    doc = Document.from_markdown(
+    doc = Document.parse(
         "~~~card-yaml\n$quill: test_quill\n~~~\n\n~~~card-yaml\n$kind: note\n~~~\n\nHello\n\n"
         "~~~card-yaml\n$kind: note\n~~~\n\nHello\n"
     )
@@ -130,7 +130,7 @@ def test_a_content_write_names_its_card_by_id_wherever_it_moved():
 
 
 def test_deleting_an_island_names_the_anchors_of_its_slots():
-    doc = Document.from_markdown("~~~card-yaml\n$quill: test_quill\n~~~\n\nLead.\n\n| a |\n|---|\n| cell text |\n")
+    doc = Document.parse("~~~card-yaml\n$quill: test_quill\n~~~\n\nLead.\n\n| a |\n|---|\n| cell text |\n")
     island = doc.read()["islands"][0]
     cell = island["props"]["rows"][1]["cells"][island["props"]["columns"][0]]
     anchor = {"anchor": {"id": "c1", "start": 5, "end": 9}}
@@ -142,7 +142,7 @@ def test_deleting_an_island_names_the_anchors_of_its_slots():
 
 
 def test_an_anchor_placement_refuses_a_held_id_and_a_move_moves_it():
-    doc = Document.from_markdown(MD)
+    doc = Document.parse(MD)
     doc.apply({"steps": [{"anchor": {"id": "c1", "start": 0, "end": 5}}]})
     with raises_edit_code("edit::content_apply"):
         doc.apply({"steps": [{"anchor": {"id": "c1", "start": 6, "end": 11}}]})
@@ -164,7 +164,7 @@ def test_repair_answers_the_change_from_the_merged_text():
 
 
 def test_a_receipt_names_each_anchor_a_write_moved_and_what_moved():
-    doc = Document.from_markdown(MD)
+    doc = Document.parse(MD)
     doc.apply({"steps": [{"anchor": {"id": "p", "start": 0, "end": 0}}, {"anchor": {"id": "r", "start": 6, "end": 11}}]})
     receipt = doc.apply({"steps": [
         {"anchor": {"id": "p", "start": 5, "end": 5, "move": True}},

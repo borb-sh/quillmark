@@ -90,8 +90,8 @@ impl Content {
         Ok(c)
     }
 
-    /// The stored-value read: decode, join a table cell of several paragraphs
-    /// with hard breaks, normalize and validate, answering whether the value
+    /// The stored-value read: decode, join a table cell or a footnote's note of
+    /// several paragraphs with hard breaks, normalize and validate, answering whether the value
     /// read was not the canonical one, so its holder can store it again. The
     /// bounds are checked first, as [`from_value`](Self::from_value) checks
     /// them. A lenient read is this release's migration door: a later one
@@ -112,7 +112,7 @@ impl Content {
 
     /// [`from_value_lenient`](Self::from_value_lenient), lowered to the line
     /// form the renderers read.
-    pub fn lines_from_value(v: &Value) -> Result<crate::lines::model::Normalized, ParseError> {
+    pub fn lines_from_value(v: &Value) -> Result<crate::lines::model::Lines, ParseError> {
         Content::from_value_lenient(v).map(|read| crate::migrate::to_lines(&read.content))
     }
 

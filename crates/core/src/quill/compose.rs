@@ -65,7 +65,7 @@ impl QuillConfig {
     ) -> Result<serde_json::Value, RenderError> {
         // The one coercion pass. The ladder below consumes its coerced,
         // NFC-normalized output rather than re-conforming, so the plate is the
-        // sourced ladder with its rungs dropped.
+        // sourced ladder with its sources dropped.
         let coerced = self.coerce_and_validate(doc)?;
         let normalized = normalize_document(coerced);
 
@@ -448,7 +448,7 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
 /// plate ([`compile_data`](QuillConfig::compile_data)) and the resolved-value
 /// view ([`Quill::resolve`](crate::quill::Quill::resolve)), over an
 /// already-coerced, NFC-normalized field map. For every declared field it
-/// reports the value the render projection uses and the [`FieldSource`] rung
+/// reports the value the render projection uses and the [`FieldSource`]
 /// that produced it; undeclared authored fields carry through verbatim as
 /// [`Authored`](FieldSource::Authored), the schema being a floor, not an
 /// allowlist.
@@ -476,7 +476,7 @@ pub(crate) fn ladder_sourced(
     out
 }
 
-/// Drop the source rungs from [`resolve_card_sourced`]'s map: the render plate
+/// Drop the sources from [`resolve_card_sourced`]'s map: the render plate
 /// consumes the value half only; the resolved-value view keeps both.
 fn plate_fields(
     sourced: IndexMap<String, (QuillValue, FieldSource)>,
@@ -487,9 +487,9 @@ fn plate_fields(
         .collect()
 }
 
-/// The value half of [`resolve_value_sourced`], discarding the rung tag: the
-/// nested cut for a typed array's elements, whose rungs no projection surfaces —
-/// an `array` is a cell, since arity is a fact no leaf carries, so its own rung
+/// The value half of [`resolve_value_sourced`], discarding the source tag: the
+/// nested cut for a typed array's elements, whose sources no projection surfaces —
+/// an `array` is a cell, since arity is a fact no leaf carries, so its own source
 /// is the one its entry came from.
 fn resolve_value(
     value: Option<&QuillValue>,
@@ -500,16 +500,16 @@ fn resolve_value(
 }
 
 /// Resolve one (possibly absent or null) value against its field schema,
-/// reporting the [`FieldSource`] rung that produced it, and applying null ≡
+/// reporting the [`FieldSource`] that produced it, and applying null ≡
 /// absent recursively so no bare null reaches the plate.
 ///
 /// Resolution is a descent, not a return (`prose/canon/SCHEMAS.md` § "Cells and
 /// namespaces"): this picks the cell's **entry** — the authored value, else the
 /// schema `default:` — and hands it to [`compose`], which rebuilds a container
-/// from its declared members whichever rung the entry came from and floors a
+/// from its declared members whichever source the entry came from and floors a
 /// leaf at its [`blank`].
 ///
-/// The rung is the entry's, joined with what the descent found
+/// The source is the entry's, joined with what the descent found
 /// ([`FieldSource::join`]), computed by that same walk.
 pub(crate) fn resolve_value_sourced(
     value: Option<&QuillValue>,
@@ -564,8 +564,8 @@ fn entry_default(field: &FieldSchema) -> Option<QuillValue> {
     field.default.clone()
 }
 
-/// Build `field`'s value from `entry`, the value its own rung supplied (`None`
-/// where no rung above the floor had one), and report the strongest rung any
+/// Build `field`'s value from `entry`, the value its own source supplied (`None`
+/// where no source above the floor had one), and report the strongest source any
 /// cell below contributed. Terminates because each recursion descends strictly
 /// into the schema tree.
 ///
@@ -639,7 +639,7 @@ fn is_today(value: &QuillValue, field: &FieldSchema) -> bool {
 /// order, so equal documents compose equal plates only where the order is the
 /// ids'.
 ///
-/// A cell, so its rung is the entry's alone, as an array's is.
+/// A cell, so its source is the entry's alone, as an array's is.
 fn compose_matrix(
     stored: Option<&serde_json::Map<String, serde_json::Value>>,
     field: &FieldSchema,
@@ -714,7 +714,7 @@ fn held_cells(
 /// A present entry of another shape (`rows: abc` on an `array`, `addr: 5` on a
 /// typed dictionary) is kept raw by the scalar arm instead, as
 /// [`conform_card_render`] keeps it: [`resolve_value_sourced`] reports the
-/// entry's own rung, so a rebuilt container would carry the document's label over
+/// entry's own source, so a rebuilt container would carry the document's label over
 /// content the document never wrote. The gate refuses the shape
 /// (`validation::type_mismatch`), so only the ungated views meet it.
 fn composes_as(entry: Option<&QuillValue>, shape: fn(&serde_json::Value) -> bool) -> bool {
@@ -722,7 +722,7 @@ fn composes_as(entry: Option<&QuillValue>, shape: fn(&serde_json::Value) -> bool
 }
 
 /// Resolve every declared member of a namespace over its slice of `entry` into
-/// `out`, reporting the strongest rung any of them contributed. The two
+/// `out`, reporting the strongest source any of them contributed. The two
 /// namespaces a schema can spell — a typed dictionary's `properties` and the
 /// live world of a variant container — compose identically.
 ///
@@ -753,7 +753,7 @@ fn compose_members(
 /// variants" describes.
 ///
 /// The discriminant cuts the same ladder as any enum, but the container's own
-/// rung is the *cell's*: one the document wrote reads authored whichever rung
+/// source is the *cell's*: one the document wrote reads authored whichever source
 /// filled the tag, joined with what its live world's cells contributed
 /// ([`compose_members`]).
 fn resolve_variant_sourced(
@@ -763,7 +763,7 @@ fn resolve_variant_sourced(
 ) -> (QuillValue, FieldSource) {
     let present = value.filter(|v| !v.as_json().is_null());
     // A present entry that is neither the container nor a bare member name is
-    // kept raw, as any mis-shaped container is ([`composes_as`]): the rung is
+    // kept raw, as any mis-shaped container is ([`composes_as`]): the source is
     // the document's, and a blank world under it would read as an answer the
     // document gave.
     if let Some(raw) =
@@ -1237,7 +1237,7 @@ impl QuillConfig {
         if declined.is_empty() {
             return diags;
         }
-        self.each_plate_content(data, &mut |at: &DocPath, content: &crate::Content| {
+        self.each_plate_content(data, &mut |at: &DocPath, content: &quillmark_content::lines::model::Content| {
             let counts = super::BlockConstruct::tally(content);
             for &construct in declined {
                 let count = counts[construct as usize];
@@ -1256,7 +1256,7 @@ impl QuillConfig {
     pub fn each_plate_content(
         &self,
         data: &serde_json::Value,
-        each: &mut dyn FnMut(&DocPath, &crate::Content),
+        each: &mut dyn FnMut(&DocPath, &quillmark_content::lines::model::Content),
     ) {
         let mut card = |schema: &CardSchema,
                         obj: &serde_json::Map<String, serde_json::Value>,
@@ -1853,7 +1853,7 @@ main:
             json!({ "name": text(""), "email": text("hi@example.com"), "addr": { "city": text("Pgh") } }),
             "an absent container cuts each cell's own ladder, at every depth; got {absent}"
         );
-        // Authoring the empty map is a no-op: the same cells, the same rungs.
+        // Authoring the empty map is a no-op: the same cells, the same sources.
         let authored = plate_of(
             YAML,
             "~~~card-yaml\n$quill: ac@1.0.0\n$kind: main\ncontact: {}\n~~~\n",

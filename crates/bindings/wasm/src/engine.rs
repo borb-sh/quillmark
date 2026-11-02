@@ -87,7 +87,7 @@ export interface QuillFieldSchema {
     /** Per-member field sets on a `type: "enum"` field that is a card's own
      *  field or a typed dictionary's property, keyed by member: the fields that
      *  exist only where the discriminant holds that member. Declaring it makes
-     *  the field rest as a container, `{value: <member>, …that member's
+     *  the field stored as a container, `{value: <member>, …that member's
      *  fields}`, rather than a bare string. */
     variants?: Record<string, Record<string, QuillFieldSchema>>;
     /** The roster of a `type: "matrix"` field, required there and valid
@@ -227,7 +227,19 @@ export interface Card {
 }
 
 /**
- * A card written *into* a document, accepted by `Document.insertCard`. Like
+ * How a card is placed (`doc.unchecked.insertCard`, `writer.addCard`).
+ * `actor` names the writer, one per live session: a card spelling no `id`
+ * mints `{actor}-{token}`, so two clients placing cards from one document
+ * never mint one id; without it the id mints positionally. A card's actor is
+ * 1 to 57 of `[A-Za-z0-9_-]`, opening with a letter or digit; another throws
+ * `edit::invalid_actor`.
+ */
+export interface PlaceOptions {
+    actor?: string;
+}
+
+/**
+ * A card written *into* a document, accepted by `doc.unchecked.insertCard`. Like
  * `Card`, but `body` also takes a markdown `string`, and every field but `kind`
  * is optional (defaulting to no payload items and an empty body). A card
  * without an `id` is minted one where it is placed; one whose `id` is not a
@@ -259,7 +271,7 @@ export interface CardInput {
  * equal body there would pass the `base` check.
  *
  * On the `Addr`-taking verbs a **bare string** is shorthand for `{ field: name }`
- * (`doc.storeField("qty", 3)`); a bare number is *not* an addr.
+ * (`doc.removeField("qty")`); a bare number is *not* an addr.
  *
  * `doc.pathFor(addr)` mints the address as its canonical `DocPath` string, the
  * anchor `Diagnostic.path` carries and `session.locate` / `session.fieldBoxes`
@@ -318,9 +330,9 @@ export interface BaseOptions {
 }
 
 /**
- * The receipt of `writer.reviseDocument`. `droppedAnchors` names every prose
- * anchor the write did not carry, at its path and line in the stored document; a table
- * cell's anchors drop unnamed. `warnings` are the parse's, then each revised
+ * The receipt of `writer.reviseDocument`. `droppedAnchors` names every
+ * anchor the write did not keep, at its path and line in the stored document, a
+ * table cell's included. `warnings` are the parse's, then each revised
  * content field's `parse::dropped_construct`, then the writer's `conform::*`.
  * A field that lands rather than revises, on an inserted card or over no stored
  * content, reports no drop. `from` names, for each composable card of the
@@ -351,8 +363,34 @@ export interface MergeConflict {
     proposed: unknown;
 }
 
+/** What `toMarkdown` and `exportMarkdown` read: `annotated` spells each
+ * anchor and each island markdown cannot hold for a revise to read back. */
+export interface MarkdownOptions {
+    annotated?: boolean;
+}
+
+export interface Document {
+    /**
+     * The markdown of the whole document, or with `addr` of the body or content
+     * field there alone: a cold read, which drops every anchor and gives each
+     * island the markdown that re-mints it. A re-parse lands a `Document` equal
+     * to this one by value and by type but for content; `toStored` keeps both.
+     * At an address an absent field reads as the empty content, and a
+     * `codec: "plain"` field as its literal text. Throws on an out-of-range
+     * card, a malformed field name, or a present field value that is not
+     * content.
+     */
+    toMarkdown(addr?: Addr | string, opts?: { annotated?: false }): string;
+    /**
+     * The annotated read, what a revise reads back: the markdown with a tag at
+     * each anchor and a token for each island it cannot spell, and every anchor
+     * listed with its path. At an address, each anchor names that address.
+     */
+    toMarkdown(addr: Addr | string | undefined, opts: { annotated: true }): AnnotatedMarkdown;
+}
+
 /**
- * The read `toAnnotatedMarkdown` returns: `toMarkdown`'s markdown with a
+ * The annotated read `toMarkdown` returns: its markdown with a
  * `<qm-anchor ref="…"></qm-anchor>` at each prose anchor's start its line
  * can hold, and a `<qm-island ref="…"></qm-island>` token for each island
  * whose markdown does not read back, which every revise reads back; and every
@@ -378,7 +416,7 @@ export interface DocumentAnchor {
  * An anchor's context at its address (`anchorContexts`, `anchorContext`,
  * `reattach`): the text-quote selector a host stores beside a comment thread.
  * `path` is the body or content value's `DocPath` string. `quote` is the
- * anchored text as stored, an inline island its `U+FFFC` slot, a hard break
+ * anchored text as stored, an inline island its `U+FFFC` island character, a hard break
  * its `U+2028` and a block break its `\n`, empty for a point; `prefix` and `suffix` are up to 32 scalar values
  * of stored text on each side, cut at the value's edges or a cell's. `cardId` is the `$id`
  * of the card `path` names, absent on the main card: `reattach` finds the card
@@ -749,15 +787,15 @@ impl Quill {
     }
 
     /// Parse `markdown` and conform it against this quill: the primary ingestion
-    /// path, and the bound twin of the schema-free `Document.fromMarkdown`. The
-    /// returned document rests at its canonical form (a content field as a
+    /// path, and the bound twin of the schema-free `Document.parse`. The
+    /// returned document is in its stored form (a content field as a
     /// content object, a `text` field's under `codec: "plain"`), so `getStored`
     /// answers by the field's declared codec, not by how the document was built.
     ///
     /// Parse warnings and the `conform::*` diagnostics both land on
     /// `doc.warnings`. Throws on a parse failure, or when `markdown` declares a
     /// `$quill` this quill does not answer to. To open a document whose `$quill`
-    /// is stale, use `Document.fromMarkdown`, `setQuillRef`, then `quill.conform`.
+    /// is stale, use `Document.parse`, `setQuillRef`, then `quill.conform`.
     #[wasm_bindgen(js_name = parse)]
     pub fn parse(&self, markdown: &str) -> Result<Document, JsValue> {
         let parsed = self
@@ -770,10 +808,10 @@ impl Quill {
         })
     }
 
-    /// Land `doc`'s declared content fields at their canonical rest **in
+    /// Land `doc`'s declared content fields in their stored form **in
     /// place**, returning the `conform::*` diagnostics for values that would not
     /// commit. The read-repair verb for a document that arrived through the
-    /// transport door (`fromMarkdown`, `fromStored`, a stored row).
+    /// transport input path (`Document.parse`, `fromStored`, a stored row).
     ///
     /// Idempotent: an equal value is not rewritten, so YAML comments and stored
     /// bytes survive. A value the strict write refuses stays as authored with a
@@ -791,7 +829,7 @@ impl Quill {
 
     /// The resolved-value view of `doc`: the ABI under `reader.resolve()`. For
     /// every declared field, the value the render projection would use and the
-    /// `FieldSource` rung it came from (`"authored" | "default" | "blank"`). The
+    /// `FieldSource` it came from (`"authored" | "default" | "blank"`). The
     /// card body is a `body` sibling on its card, never a row in `fields`, and
     /// `null` when the kind enables no body. Value and provenance only;
     /// diagnostics stay `validate`'s. `today` reads as on `Engine.open`.
@@ -814,7 +852,7 @@ impl Quill {
         }
     }
 
-    /// The quill's example document, `undefined` when no slot or body declares
+    /// The quill's example document, `undefined` when no field or body declares
     /// an example: the seeded document with every declared `example` committed
     /// as its cell's value and each kind's `body.example` as its body. A
     /// filled-in page whose values are made up to show the quill in use, never
@@ -885,9 +923,12 @@ impl Document {
         })
     }
 
-    /// Parse markdown into a typed Document. Throws on parse errors.
-    #[wasm_bindgen(js_name = fromMarkdown)]
-    pub fn from_markdown(markdown: &str) -> Result<Document, JsValue> {
+    /// Parse a whole document's markdown, quill-free: the document-level
+    /// import, its content read cold, no anchor in it. `quill.parse` is the
+    /// same parse conformed to a quill; a revise is the import that keeps
+    /// anchors. Throws on parse errors.
+    #[wasm_bindgen(js_name = parse)]
+    pub fn parse(markdown: &str) -> Result<Document, JsValue> {
         let output = quillmark_core::document::Document::parse(markdown)
             .map_err(WasmError::from)
             .map_err(|e| e.to_js_value())?;
@@ -943,13 +984,51 @@ impl Document {
         quillmark_core::version::quill_ref_hint().to_string()
     }
 
-    /// Emit canonical Quillmark Markdown. Re-parsing the result produces a
-    /// `Document` equal to `self` by value and by type, but for content: a body
-    /// or content field holds what its markdown spells, so its anchors drop and
-    /// its island ids re-mint. `toStored` keeps both.
-    #[wasm_bindgen(js_name = toMarkdown)]
-    pub fn to_markdown(&self) -> String {
-        self.inner.to_markdown()
+    /// The one markdown export: the document, or with `addr` the value
+    /// there, cold or annotated (`MarkdownOptions`). Typed by the `Document`
+    /// interface's overloads.
+    #[wasm_bindgen(js_name = toMarkdown, skip_typescript)]
+    pub fn to_markdown(&self, addr: JsValue, opts: JsValue) -> Result<JsValue, JsValue> {
+        let annotated = markdown_options(&opts, "toMarkdown")?;
+        if addr.is_undefined() || addr.is_null() {
+            if !annotated {
+                return Ok(JsValue::from_str(&self.inner.to_markdown()));
+            }
+            let read = self.inner.to_markdown_annotated();
+            let js = AnnotatedMarkdownJs {
+                markdown: read.markdown,
+                anchors: read.anchors.into_iter().map(Into::into).collect(),
+            };
+            return serialize_or_throw(&js, "toMarkdown");
+        }
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
+        let card = self.addr_card_ref(&addr)?;
+        let base = self.addr_base(&addr);
+        let target = quillmark_core::document::Target::from(addr.field.as_deref());
+        let content = card.read(target).map_err(|e| edit_error_to_js(&e, &base))?;
+        if !annotated {
+            return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(&content)));
+        }
+        let read = quillmark_content::markdown::to_text_annotated(&content);
+        let path = match &addr.field {
+            None => base.body(),
+            Some(field) => base.field(field),
+        };
+        let card_id = card.id().map(str::to_string);
+        let js = AnnotatedMarkdownJs {
+            markdown: read.markdown,
+            anchors: read
+                .anchors
+                .into_iter()
+                .map(|a| DocumentAnchorJs {
+                    id: a.id,
+                    path: path.to_string(),
+                    card_id: card_id.clone(),
+                    line: a.line,
+                })
+                .collect(),
+        };
+        serialize_or_throw(&js, "toMarkdown")
     }
 
     /// With no `addr`, the hash of the document's stored form, the quill-free
@@ -985,61 +1064,8 @@ impl Document {
             .map_err(|e| edit_error_to_js(&e, &self.addr_base(&addr)))
     }
 
-    /// The annotated read of the body or richtext field at `addr` alone: the
-    /// scoped twin of `toAnnotatedMarkdown`, what a revise at `addr` reads
-    /// back and the `baseMarkdown` it merges against. Each anchor names `addr`'s
-    /// path. An absent field reads as the empty content. Throws as `hashAt`.
-    #[wasm_bindgen(js_name = annotatedAt, unchecked_return_type = "AnnotatedMarkdown")]
-    pub fn annotated_at(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
-        let card = self.addr_card_ref(&addr)?;
-        let base = self.addr_base(&addr);
-        let (read, path) = match &addr.field {
-            None => (card.body_annotated(), base.body()),
-            Some(field) => (
-                card.field_annotated(field)
-                    .map_err(|e| edit_error_to_js(&e, &base))?,
-                base.field(field),
-            ),
-        };
-        let card_id = card.id().map(str::to_string);
-        let js = AnnotatedMarkdownJs {
-            markdown: read.markdown,
-            anchors: read
-                .anchors
-                .into_iter()
-                .map(|a| DocumentAnchorJs {
-                    id: a.id,
-                    path: path.to_string(),
-                    card_id: card_id.clone(),
-                    line: a.line,
-                })
-                .collect(),
-        };
-        serialize_or_throw(&js, "annotatedAt")
-    }
-
-    /// `toMarkdown` with each prose anchor of every body and content field
-    /// spelled at its start where its line can hold the tag, every anchor,
-    /// a cell's too, listed with its field's path and line, and each island whose markdown
-    /// does not read back spelled as its token. `writer.reviseDocument` reads
-    /// both back: a kept tag pins its anchor, and a token keeps its island as
-    /// stored.
-    #[wasm_bindgen(js_name = toAnnotatedMarkdown, unchecked_return_type = "AnnotatedMarkdown")]
-    pub fn to_annotated_markdown(&self) -> Result<JsValue, JsValue> {
-        let read = self.inner.to_markdown_annotated();
-        let js = AnnotatedMarkdownJs {
-            markdown: read.markdown,
-            anchors: read.anchors.into_iter().map(Into::into).collect(),
-        };
-        serialize_or_throw(&js, "toAnnotatedMarkdown")
-    }
-
     /// Every anchor of every body and content value with its context, a table
-    /// cell's or a note's included, in the order `toAnnotatedMarkdown` lists
+    /// cell's or a note's included, in the order the annotated `toMarkdown` lists
     /// anchors: the selector a host stores beside a comment thread and hands
     /// back to `reattach`.
     #[wasm_bindgen(js_name = anchorContexts, unchecked_return_type = "AnchorContext[]")]
@@ -1065,7 +1091,7 @@ impl Document {
 
     /// Re-add anchors a write dropped, each at the `path` its selector names,
     /// where its `quote` is found exactly once with its context agreeing: four
-    /// scalar values of quote or more, or a table's slot alone, eight of
+    /// scalar values of quote or more, or a table's island character alone, eight of
     /// context on each side or the whole context where the value's edge cut
     /// it, and an empty quote a point where the two meet. Never a nearest match. Returns the `Reattached`
     /// receipt.
@@ -1167,9 +1193,9 @@ impl Document {
     /// absent field is `undefined` — and only an out-of-range `addr.card` throws
     /// `edit::index_out_of_range`.
     ///
-    /// A content field at rest holds the canonical content object, a `text`
-    /// field's spelling `codec: "plain"`. A document from the bound door (`quill.parse` / `quill.conform`)
-    /// is at rest; one from the transport door may rest as authored until it is
+    /// A content field in its stored form holds the canonical content object, a `text`
+    /// field's spelling `codec: "plain"`. A document from the bound input path (`quill.parse` / `quill.conform`)
+    /// is in its stored form; one from the transport input path may stay as authored until it is
     /// conformed, and this read reports what is there. For the `Content` either
     /// way use `reader.getContent`.
     ///
@@ -1195,31 +1221,6 @@ impl Document {
         }
     }
 
-    /// The **body** markdown projection: an on-demand, lossy export (content-only
-    /// marks do not survive markdown). A body's type is a format fact, not a
-    /// schema fact, so this read stays quill-free, and a body is never absent.
-    ///
-    /// `addr` is an optional card address (absent = main). A present `field`
-    /// throws: read a field's markdown through `quill.reader(doc).get(field)`,
-    /// which interprets by declared type. An out-of-range `addr.card` throws.
-    #[wasm_bindgen(js_name = bodyMarkdown, unchecked_return_type = "string")]
-    pub fn body_markdown(
-        &self,
-        #[wasm_bindgen(unchecked_optional_param_type = "CardAddr")] addr: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js(&addr, &self.inner)?;
-        if addr.field.is_some() {
-            return Err(WasmError::from(
-                "bodyMarkdown is body-only: read a field's markdown with \
-                 quill.reader(doc).get(field)",
-            )
-            .to_js_value());
-        }
-        Ok(JsValue::from_str(
-            &self.addr_card_ref(&addr)?.body_markdown(),
-        ))
-    }
-
     /// Interpreted read at `addr`, resolving the field's declared `type` from
     /// `quill`: the stable ABI under the runtime `reader.get`. The schema-plane
     /// twin of [`getStored`](Self::get_stored) — a `richtext` field returns its
@@ -1229,7 +1230,7 @@ impl Document {
     /// A bare string is `Addr` shorthand for `{ field }`; `{ card, field }`
     /// targets a composable card. An **absent** field returns `undefined`, and an
     /// absent `addr.field` reads the body markdown. An undeclared name throws
-    /// `edit::unknown_field` (the authority `bodyMarkdown` lacks), a `richtext`
+    /// `edit::unknown_field` (the authority `Document.toMarkdown` lacks), a `richtext`
     /// value that does not decode throws `edit::field_decode`, and an
     /// out-of-range `addr.card` throws.
     ///
@@ -1458,13 +1459,15 @@ impl Document {
         serialize_or_throw(&diags(self.parse_warnings.iter().cloned()), "warnings")
     }
 
-    /// Store a field verbatim at `addr`, deferring coercion to render; the typed
-    /// write is [`commitField`](Document::commit_field). A bare string is `Addr`
-    /// shorthand for `{ field }`; `{ card: 2, field: "qty" }` targets a
-    /// composable card. A body address throws:
-    /// write a body with `writer.reviseBody` / `replace`. Throws on an out-of-range card
-    /// or a malformed name.
-    #[wasm_bindgen(js_name = storeField)]
+    /// The ABI under `doc.unchecked.storeField`: store a field at `addr` with
+    /// no schema in play, deferring coercion to render; the typed write is
+    /// `writer.set`. A bare string is `Addr` shorthand for `{ field }`; `{
+    /// card: 2, field: "qty" }` targets a composable card. Each content value
+    /// in `value`, at any depth, decodes as a body write's does and stores in
+    /// its canonical form, throwing `edit::field_decode` where one does not. A
+    /// body address throws: write a body with `writer.reviseBody` / `replace`.
+    /// Throws on an out-of-range card or a malformed name.
+    #[wasm_bindgen(js_name = _uncheckedStoreField, skip_typescript)]
     pub fn store_field(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
@@ -1476,8 +1479,9 @@ impl Document {
         content::payload_in(&mut json, "storeField")?;
         let qv = quillmark_core::value::QuillValue::from_json(json);
         let base = self.addr_base(&addr);
-        self.addr_card_mut(&addr)?
-            .store_field(&field, qv)
+        self.inner
+            .unchecked()
+            .store_field(addr.card, &field, qv)
             .map_err(|e| edit_error_to_js(&e, &base))
     }
 
@@ -1645,7 +1649,7 @@ impl Document {
     }
 
     /// The ABI under `writer.hashAt`: the body's hash, or a field's through its
-    /// schema (a `richtext` or `text` field its content however it rests, any
+    /// schema (a `richtext` or `text` field its content however it is stored, any
     /// other type its stored value), the `baseHash` the
     /// writer's `reviseBody` / `reviseField` check. An undeclared name throws
     /// `edit::unknown_field`, an out-of-range card throws.
@@ -1725,7 +1729,7 @@ impl Document {
     /// having no field schema. A declared field is strict-committed, so a
     /// mismatch throws now rather than at render, and an undeclared name throws
     /// `edit::unknown_field` rather than falling to the opaque store — use
-    /// [`storeField`](Document::store_field) for that. Also throws
+    /// `doc.unchecked.storeField` for that. Also throws
     /// `edit::field_coercion_failed` / `edit::field_decode` /
     /// `edit::field_not_single_line` on a typed mismatch,
     /// `edit::invalid_field_name` on a malformed name, and
@@ -1800,8 +1804,10 @@ impl Document {
     /// leaves the document untouched. Field errors throw the same per-field
     /// bundle as [`commitFields`](Self::commit_fields); an invalid kind or body,
     /// or a bad position, throws a single-entry bundle keyed `$kind` / `$body`.
-    /// Returns the fields' `parse::dropped_construct` warnings, then the body
-    /// import's, anchored under the placed card.
+    /// The card's `$id` mints as `unchecked.insertCard` mints one, under
+    /// `opts.actor` where one is given. Returns the fields'
+    /// `parse::dropped_construct` warnings, then the body import's, anchored
+    /// under the placed card.
     #[wasm_bindgen(js_name = _addCard, skip_typescript, unchecked_return_type = "Diagnostic[]")]
     pub fn add_card(
         &mut self,
@@ -1812,7 +1818,9 @@ impl Document {
         >,
         #[wasm_bindgen(unchecked_optional_param_type = "string")] body: Option<String>,
         #[wasm_bindgen(unchecked_optional_param_type = "number")] at: Option<usize>,
+        #[wasm_bindgen(unchecked_optional_param_type = "PlaceOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
+        let actor = place_actor(&opts, "addCard")?;
         let batch = match fields {
             Some(f) => js_value_to_field_batch(&f, "addCard")?,
             None => Vec::new(),
@@ -1822,33 +1830,38 @@ impl Document {
         let warnings = quill
             .inner
             .writer(&mut self.inner)
-            .add_card(kind, batch, body.as_deref(), at)
+            .add_card(kind, batch, body.as_deref(), at, actor.as_deref())
             .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))?;
         serialize_or_throw(&diags(warnings), "addCard")
     }
 
-    /// Insert a card: `at` absent appends, a number inserts at that index (in
-    /// `0..=cards.length`). Accepts any `CardInput`, including a card read back
-    /// out of a document. Throws if `card.kind` is not a valid kind name, if
-    /// `at` is out of range, or `edit::too_many_cards` if the document holds
-    /// 1,000 cards.
-    #[wasm_bindgen(js_name = insertCard)]
+    /// The ABI under `doc.unchecked.insertCard`: place a card whole, `at`
+    /// absent appending and a number inserting at that index (in
+    /// `0..=cards.length`), and answer its `$id`. Accepts any `CardInput`,
+    /// including a card read back out of a document; its fields' content
+    /// values decode as its body does. A card spelling no `id` mints one,
+    /// under `opts.actor` where one is given. Throws if `card.kind` is not a
+    /// valid kind name, if `at` is out of range, `edit::invalid_actor` for an
+    /// actor that cannot open a card id, or `edit::too_many_cards` if the
+    /// document holds 1,000 cards.
+    #[wasm_bindgen(js_name = _uncheckedInsertCard, skip_typescript)]
     pub fn insert_card(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "CardInput")] card: JsValue,
         #[wasm_bindgen(unchecked_optional_param_type = "number")] at: Option<usize>,
-    ) -> Result<(), JsValue> {
+        #[wasm_bindgen(unchecked_optional_param_type = "PlaceOptions")] opts: JsValue,
+    ) -> Result<String, JsValue> {
+        let actor = place_actor(&opts, "insertCard")?;
         let core_card = js_to_card(&card)?;
         // A kind error anchors at the target slot; an append has no slot yet, so
         // its kind error carries no anchor.
         let base = at.map_or_else(quillmark_core::path::DocPath::new, |i| {
             quillmark_core::path::DocPath::card(None, i)
         });
-        match at {
-            Some(index) => self.inner.insert_card(index, core_card),
-            None => self.inner.push_card(core_card),
-        }
-        .map_err(|e| edit_error_to_js(&e, &base))
+        self.inner
+            .unchecked()
+            .insert_card(at, core_card, actor.as_deref())
+            .map_err(|e| edit_error_to_js(&e, &base))
     }
 
     #[wasm_bindgen(js_name = removeCard, unchecked_return_type = "Card | undefined")]
@@ -2027,7 +2040,7 @@ impl Addr {
     }
 
     /// TS types cannot police this — an `Addr` variable flows into a `CardAddr`
-    /// slot — so the runtime check is the contract.
+    /// parameter — so the runtime check is the contract.
     fn require_card_only(&self, ctx: &str) -> Result<(), JsValue> {
         if self.field.is_some() {
             return Err(WasmError::from(format!(
@@ -2063,14 +2076,36 @@ pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
     serialize_or_throw(&out, "importMarkdown")
 }
 
-/// Export canonical `Content` to its markdown projection. Throws if `rt` is not
-/// canonical content.
+/// The one content export: `rt`'s markdown, a `codec: "plain"` value's
+/// literal text. Cold, it drops every anchor; `opts.annotated` spells each
+/// anchor and each island markdown cannot hold, which a revise reads back.
+/// Throws if `rt` is not canonical content.
 #[wasm_bindgen(js_name = exportMarkdown)]
 pub fn export_markdown(
     #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "MarkdownOptions")] opts: JsValue,
 ) -> Result<String, JsValue> {
+    let annotated = markdown_options(&opts, "exportMarkdown")?;
     let content = content::content_in(rt, "exportMarkdown")?;
-    Ok(quillmark_content::markdown::to_markdown(&content))
+    Ok(match annotated {
+        true => quillmark_content::markdown::to_text_annotated(&content).markdown,
+        false => quillmark_content::markdown::to_text(&content),
+    })
+}
+
+/// `MarkdownOptions.annotated`, false where `opts` is absent.
+fn markdown_options(opts: &JsValue, verb: &str) -> Result<bool, JsValue> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Opts {
+        annotated: Option<bool>,
+    }
+    if opts.is_undefined() || opts.is_null() {
+        return Ok(false);
+    }
+    let opts: Opts = serde_json::from_value(js_value_to_json(opts.clone(), verb)?)
+        .map_err(|e| WasmError::from(format!("{verb}: options must be MarkdownOptions: {e}")).to_js_value())?;
+    Ok(opts.annotated.unwrap_or(false))
 }
 
 /// What a revise's writer read, off a `BaseOptions`.
@@ -2122,10 +2157,10 @@ impl ReadBase {
 }
 
 /// The canonical form of `rt`, read without a document: the one spelling
-/// `replace` and every other content door take. Marks are cut, settled and
+/// `replace` and every other content input path take. Marks are cut, unioned and
 /// sorted, anchors and containers ordered, an unused container dropped, island
-/// props settled, and a table cell of several paragraphs joined with hard
-/// breaks, so the answer's `text` is `rt.text` but for those breaks. Throws
+/// props normalized, and a table cell or footnote note of several paragraphs
+/// joined with hard breaks, so the answer's `text` is `rt.text` but for those breaks. Throws
 /// where `rt` is not a valid value once normalized.
 #[wasm_bindgen(js_name = normalize, unchecked_return_type = "Content")]
 pub fn normalize(
@@ -2282,10 +2317,10 @@ export type DocPathSeg =
 #[wasm_bindgen(typescript_custom_section)]
 const RESOLVED_TS: &'static str = r#"
 /**
- * The commitment-ladder rung that produced a `ResolvedField.value`.
+ * The commitment-ladder source that produced a `ResolvedField.value`.
  *
- * A container has no rung of its own — it is a namespace, and its value is the
- * composition of its cells' — so it reports the strongest rung that contributed:
+ * A container has no source of its own — it is a namespace, and its value is the
+ * composition of its cells' — so it reports the strongest source that contributed:
  * `authored` if the document wrote any of it, else `default` if any cell below
  * resolved to one, else `blank`.
  */
@@ -2293,7 +2328,7 @@ export type FieldSource = "authored" | "default" | "blank";
 
 /**
  * One resolved row: its `name`, the value the render projection would use, and
- * the `FieldSource` rung it came from. Rows are an ordered array, so declaration
+ * the `FieldSource` it came from. Rows are an ordered array, so declaration
  * order is structural rather than object-key order.
  */
 export interface ResolvedField {
@@ -2385,8 +2420,8 @@ pub fn format_diagnostic(
     Ok(diag.fmt_pretty())
 }
 
-/// The `$quill` reference refusal: one code and one hint for every door that
-/// parses one, `ctx` naming the door.
+/// The `$quill` reference refusal: one code and one hint for every input path that
+/// parses one, `ctx` naming the input path.
 fn invalid_quill_reference(ctx: &str, value: &str, reason: &str) -> JsValue {
     let diag = quillmark_core::error::Diagnostic::new(
         quillmark_core::error::Severity::Error,
@@ -2738,6 +2773,23 @@ fn card_to_js(card: &quillmark_core::document::Card) -> Result<JsValue, JsValue>
         }
     }
     serialize_or_throw(&wire, "card")
+}
+
+/// The `actor` a card placement's `PlaceOptions` name, if any.
+fn place_actor(opts: &JsValue, verb: &str) -> Result<Option<String>, JsValue> {
+    if opts.is_undefined() || opts.is_null() {
+        return Ok(None);
+    }
+    reject_unknown_keys(opts, &["actor"], "options", |k| {
+        format!("{verb}: options have unknown key `{k}`; a card placement takes `actor`")
+    })?;
+    let v = js_sys::Reflect::get(opts, &"actor".into()).unwrap_or(JsValue::UNDEFINED);
+    if v.is_undefined() {
+        return Ok(None);
+    }
+    v.as_string()
+        .map(Some)
+        .ok_or_else(|| WasmError::from(format!("{verb}: actor must be a string when given")).to_js_value())
 }
 
 fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue> {

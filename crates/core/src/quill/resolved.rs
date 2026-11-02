@@ -1,7 +1,7 @@
 //! The resolved-value view: [`Quill::resolve`].
 //!
 //! For every declared field, the value the render projection would use and the
-//! [`FieldSource`] rung it came from, cut through the same producer
+//! [`FieldSource`] it came from, cut through the same producer
 //! (`super::compose::resolve_card_sourced`) the render plate cuts.
 
 use indexmap::IndexMap;
@@ -14,7 +14,7 @@ use crate::{
     value::QuillValue,
 };
 
-/// The rung of the commitment ladder that produced a [`ResolvedField::value`].
+/// The source of the commitment ladder that produced a [`ResolvedField::value`].
 /// Serializes lowercase (`"authored" | "default" | "blank"`).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -31,7 +31,7 @@ pub enum FieldSource {
 impl FieldSource {
     /// Height on the ladder: how strongly the value claims to be the real
     /// answer. Private, so [`join`](Self::join) is the ladder's only order — a
-    /// consumer reads a rung, it never compares two.
+    /// consumer reads a source, it never compares two.
     fn commitment(self) -> u8 {
         match self {
             Self::Blank => 0,
@@ -40,7 +40,7 @@ impl FieldSource {
         }
     }
 
-    /// The more committed of two rungs. A namespace has no rung of its own, so
+    /// The more committed of two sources. A namespace has no source of its own, so
     /// it reports the strongest one that contributed to it.
     pub(crate) fn join(self, other: Self) -> Self {
         if other.commitment() > self.commitment() {
@@ -52,7 +52,7 @@ impl FieldSource {
 }
 
 /// One resolved row: its `name`, the value the render projection would use, and
-/// the [`FieldSource`] rung that value came from. A row carries its own name, so
+/// the [`FieldSource`] that value came from. A row carries its own name, so
 /// declaration order is structural: an ordered array, not JSON key order. The
 /// card body is a [`ResolvedMain::body`] / [`ResolvedCard::body`] sibling, never
 /// a row here.
@@ -95,7 +95,7 @@ impl Quill {
     /// For every declared field, the value [`compile_data`] emits into the plate:
     /// the two cut the *same* sourced ladder (`ladder_sourced`) over equal
     /// coerced input, so the value is the plate's by construction: tagged with
-    /// the [`FieldSource`] rung it came from. Diagnostics stay
+    /// the [`FieldSource`] it came from. Diagnostics stay
     /// [`Quill::validate`]'s; this view carries none.
     ///
     /// `today` is the render date, as [`compile_data`] takes it.
@@ -218,7 +218,7 @@ fn card_states(
 
 /// The body row (`name: "body"`). The value is byte-identical to the plate's
 /// `$body` (canonical Content-JSON of the card body). A body has no `default:`
-/// rung, so its source is only ever [`Authored`](FieldSource::Authored)
+/// value, so its source is only ever [`Authored`](FieldSource::Authored)
 /// (non-blank) or [`Blank`](FieldSource::Blank) (blank).
 fn body_state(card: &Card) -> ResolvedField {
     let value = QuillValue::from_json(card.body().to_value());
@@ -327,7 +327,7 @@ card_kinds:
     #[test]
     fn present_null_is_absent_takes_default_rung() {
         let quill = quill_from_yaml(QUILL);
-        // `status:` is a present-null → treated as absent → default rung.
+        // `status:` is a present-null → treated as absent → default source.
         let doc = parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\nstatus:\n~~~\n");
         let states = quill.resolve(&doc, test_date());
         let status = row(&states.main.fields, "status");
@@ -457,7 +457,7 @@ main:
         let mut payload = Payload::from_index_map(map);
         payload.set_quill("fs_test@1.0".parse().unwrap());
         payload.set_kind("main");
-        let main = Card::from_parts(payload, quillmark_content::lines::model::Normalized::empty());
+        let main = Card::from_parts(payload, quillmark_content::lines::model::Lines::empty());
         let doc = Document::from_main_and_cards(main, Vec::new());
         let states = quill.resolve(&doc, test_date());
 

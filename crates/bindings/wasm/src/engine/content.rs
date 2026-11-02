@@ -26,7 +26,7 @@ const CONTENT_TS: &'static str = r#"
  * container, with no mark and no island, read and written as its literal
  * text. Flat `text` where a
  * `\n` opens a block, `U+2028` is a hard break and `U+FFFC` is an island's
- * slot; one block record per `\n`-separated segment, each `\n` carrying the
+ * character; one block record per `\n`-separated segment, each `\n` carrying the
  * record of the block it opens and `blocks[0]` the first block's; containers
  * the blocks' paths name; formatting marks; comment anchors; and islands, a
  * table's cells and a footnote's note each a nested `Content` in its `slots`.
@@ -133,7 +133,7 @@ export interface Change {
  * - `mark` adds or removes formatting over a range.
  * - `anchor` places a comment anchor under an id the value holds nowhere,
  *   moves the one its text holds (`move: true`), or removes one.
- * - `island` replaces an island's props, or inserts an island's slot at `at`.
+ * - `island` replaces an island's props, or inserts an island's character at `at`.
  * - `nested` applies a change inside one slot of an island.
  *
  * A record a step puts, a block a splice opens, a container it sets or an
@@ -180,7 +180,7 @@ export type Step =
  * `rebased` says the write's `base` was a value the field had moved on from,
  * and the write was rebased over what changed since. `minted` maps each
  * placeholder the change gave a record it put to the id the write minted for
- * it; a gesture's own are `"?0"`, `"?1"` and on, in the order it puts them.
+ * it; a structural edit's own are `"?0"`, `"?1"` and on, in the order it puts them.
  */
 export interface Receipt {
     applied: Change;
@@ -247,8 +247,8 @@ export interface Located {
     path: string[];
 }
 
-/** A position in a value: an offset into its text, or one inside an
- *  island's slot. */
+/** A position in a value: an offset into its text, or one inside a
+ *  slot of an island. */
 export type Pos = number | { island: string; slot: string; at: Pos };
 
 /**
@@ -291,7 +291,7 @@ export interface RawContent {
 
 /**
  * One mend `repair` made. `inserts` marks one whose write-back inserts text
- * or a slot, which only a server writes back, and with none no peer; any peer may
+ * or an island's slot, which only a server writes back, and with none no peer; any peer may
  * write back a report holding none.
  */
 export type Repair = { inserts?: true } & (
@@ -583,24 +583,6 @@ impl Document {
             .read(target(&addr))
             .map_err(|e| edit_error_to_js(&e, &card_base(&self.inner, &addr)))?;
         content_out(&content, "read")
-    }
-
-    /// The markdown at `addr` with a `qm-*` tag for each anchor and island id
-    /// its lines can hold: what `revise` reads back. Throws as `read`.
-    #[wasm_bindgen(js_name = annotated)]
-    pub fn annotated(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-    ) -> Result<String, JsValue> {
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
-        let card = card_of(&self.inner, &addr)?;
-        match &addr.field {
-            None => Ok(card.body_annotated().markdown),
-            Some(field) => card
-                .field_annotated(field)
-                .map(|a| a.markdown)
-                .map_err(|e| edit_error_to_js(&e, &card_base(&self.inner, &addr))),
-        }
     }
 
     /// **Apply** `change` to the value at `addr`, all its steps or none, and

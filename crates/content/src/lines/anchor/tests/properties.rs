@@ -10,11 +10,11 @@ use crate::lines::anchor::{
     anchor_contexts, locate, AnchorContext, ANCHOR_AGREE_USV, ANCHOR_CONTEXT_USV, MIN_ANCHOR_QUOTE,
 };
 use crate::lines::island::IslandType;
-use crate::lines::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized, ISLAND_SLOT};
+use crate::lines::model::{Content, Island, Line, LineKind, Mark, MarkKind, Lines, ISLAND_SLOT};
 
 const ALPHABET: [char; 5] = ['a', 'b', ' ', '\n', ISLAND_SLOT];
 
-fn content(text: &str) -> Normalized {
+fn content(text: &str) -> Lines {
     let lines = vec![Line::new(LineKind::Para); text.matches('\n').count() + 1];
     let islands = (0..text.matches(ISLAND_SLOT).count())
         .map(|i| {
@@ -22,7 +22,7 @@ fn content(text: &str) -> Normalized {
                 .with_props(serde_json::json!({ "text": "note", "marks": [] }))
         })
         .collect();
-    Content::new(text.to_string(), lines).with_islands(islands).into_normalized()
+    Content::new(text.to_string(), lines).with_islands(islands).into_lines()
 }
 
 fn text(max: usize) -> impl Strategy<Value = String> {
@@ -132,7 +132,7 @@ proptest! {
         let mut rt = content(&field).into_content();
         let len = rt.len_usv();
         rt.marks.push(Mark::new(a.min(b).min(len), a.max(b).min(len), MarkKind::Anchor { id: "c".into() }));
-        let rt = rt.into_normalized();
+        let rt = rt.into_lines();
         prop_assume!(rt.validate().is_ok());
         let Some(anchor) = rt.marks.iter().find(|m| matches!(m.kind, MarkKind::Anchor { .. })) else {
             return Ok(());

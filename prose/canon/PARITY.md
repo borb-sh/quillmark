@@ -5,8 +5,9 @@
 
 ## TL;DR
 
-A content construct has one form, its stored JSON, and markdown, the change
-lane and the Typst lowering are codecs or projections of it. This page states the
+A content construct has one form, its `Content`, stored as its JSON, and
+markdown, the `Change` and the Typst lowering are codecs or projections of
+it. This page states the
 invariants every surface keeps and a matrix of what each surface does with each
 construct. A conformance corpus pins every row: a Rust test asserts its
 markdown, stored JSON, change, Typst lowering, validate and signal cells.
@@ -19,13 +20,13 @@ markdown, stored JSON, change, Typst lowering, validate and signal cells.
    projection some consumers use, never the storage boundary.
 2. **Pure import.** `from_markdown` is a function of its text alone: it reads no
    quill, declaration or session.
-3. **Fixed point.** `from_markdown(to_markdown(c)) == c`, except for anchors,
-   which a markdown write keeps by diff-rebase (`revise`, `rebase`), never by
-   the projection, and a table's slot sharing its line, which the write breaks
-   onto a line of its own; the broken content is a fixed point.
-4. **No silent lane.** For every construct, quill and backend, the outcome is
+3. **Fixed point.** `from_markdown(to_markdown(c)) == c`, except for what
+   markdown does not keep ([CONTENT.md](CONTENT.md) § "What markdown keeps"),
+   which a markdown write keeps by rebasing over it (`revise`), never by the
+   projection; the re-imported content is a fixed point.
+4. **No silent drop.** For every construct, quill and backend, the outcome is
    honored, inert with a signal, or refused at the write. The signal reaches
-   every door that meets the construct: a markdown drop the parse, import or
+   every input path that meets the construct: a markdown drop the parse, import or
    revise that drops it, and a decline `validate` and render.
 5. **Storage honesty.** Discriminators are closed and payload carriers are
    opaque. A knob is a key wherever a carrier exists, and a kind only where none
@@ -50,8 +51,8 @@ import meets. The columns:
 | Column | What it reads |
 |---|---|
 | Markdown | `from_markdown` and `to_markdown` ([markdown-spec.md](../references/markdown-spec.md) §6) |
-| Stored JSON | the canonical content, `serial::to_canonical_value` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") |
-| Change | the line form's authored lane, `serial::from_authored_value`, and the `Change` `diff` takes from the empty value to the content |
+| Stored JSON | the canonical content, `Content::to_value` ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content vocabularies") |
+| Change | the `Change` `diff` takes from the empty value to the content |
 | Typst lowering | `emit_content`, as [CONVERT.md](CONVERT.md) § "Element mapping" maps it |
 | Validate | `Quill::validate`'s verdict on the stored construct |
 | Signal | the code a cell reports under, with its `construct` arg |
@@ -181,7 +182,7 @@ stores none.
 A cell a span covers is an empty placeholder in storage. The HTML leaves it
 out, as HTML does, and the lowering skips it.
 
-A table or cell key holding a value outside its set rests as written and rides
+A table or cell key holding a value outside its set is stored as written and rides
 as a key Quillmark does not name does.
 
 A footnote's island sits at its reference and holds the note as one table
@@ -210,7 +211,7 @@ above, or markup the content does not store.
 | `html.table.blank_line`: a blank line inside an HTML table, ending it | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table`, `tr`, `td` |
 | `html.table.attr`: an attribute the HTML subset does not read, beside ones that only style the table | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table[bgcolor]`, `td[nowrap]` |
 | `html.table.value`: a span value outside its spelling | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `td[colspan]` |
-| `html.table.overlap`: a `colspan` reaching a slot a `rowspan` covers, stopping short of it | drops silently | n/a | n/a | n/a | n/a | none |
+| `html.table.overlap`: a `colspan` reaching a cell a `rowspan` covers, stopping short of it | drops silently | n/a | n/a | n/a | n/a | none |
 | `html.table.row`: rows short of the grid's widest | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `table:row` |
 | `html.table.text`: a `caption` and its text outside every cell | declines with a signal | n/a | n/a | n/a | n/a | `parse::dropped_construct`, `caption`, `table:text` |
 | `html.table.tail`: prose tight under an HTML table's `</table>` | silent: honored | n/a | n/a | n/a | n/a | none |
@@ -251,10 +252,9 @@ matrix row:
 |---|---|
 | `name` | the row's name |
 | `markdown` | the row's spelling, or `null` where markdown spells none (`mark.anchor`, the unnamed keys) |
-| `annotated` | `to_markdown_annotated(lines)`'s markdown, on a row whose construct only the annotated read spells: an anchor's tag (`mark.anchor`) or an island's token (the unnamed keys); absent elsewhere |
-| `lines` | the line form the renderers read, `serial::to_canonical_value`, pretty-printed so a change diffs by line |
-| `content` | the canonical stored content, `migrate::from_lines(lines)` as `Content::to_value` writes it |
-| `reimports` | what `from_markdown(to_markdown(lines))` lands on, on a row markdown cannot spell (`mark.anchor`, the unnamed keys); absent where it is `lines` |
+| `annotated` | `to_markdown_annotated(content)`'s markdown, on a row whose construct only the annotated read spells: an anchor's tag (`mark.anchor`) or an island's token (the unnamed keys); absent elsewhere |
+| `content` | the canonical stored content, as `Content::to_value` writes it |
+| `reimports` | the `Content` `from_markdown(to_markdown(content))` lands on, on a row markdown cannot spell (`mark.anchor`, the unnamed keys); absent where it is `content` |
 | `typst` | substrings the body's lowering contains, never a whole emission |
 | `signals.import` | `{construct, count}` per `parse::dropped_construct` the import raises, in order |
 | `signals.render` | the codes a one-shot render's warnings carry, in order |
@@ -263,28 +263,26 @@ matrix row:
 `crates/quillmark/tests/parity.rs` asserts each entry and names every one that
 fails:
 
-- `lines` decodes through `serial::from_canonical_value` and re-encodes to
-  itself, and migrates to `content`, which decodes through
-  `Content::from_value` and re-encodes to itself.
-- A spelled entry imports to `lines`, warning `signals.import`, and a body
-  holding it through `Document::parse` stores `content`.
-- `lines` lands through `serial::from_authored_value`, and `content`
-  through the one `Change` `diff` takes from the empty value to it, applied
-  to the empty value.
-- `to_markdown(lines)` re-imports, warning nothing, to `reimports`: the fixed
-  point where the entry has none.
-- A body holding `lines`, revised with `to_markdown(lines)`, lands on
-  `reimports` plus every anchor `lines` holds, warning nothing.
-- An entry's `annotated` is `to_markdown_annotated(lines)`'s markdown and
-  revises a body holding `lines` to `lines`, warning nothing. Imported
-  cold, it lands on `lines` without its anchors, warning nothing, where it
+- `content` decodes through `Content::from_value` and re-encodes to itself.
+- A spelled entry imports to `content`, warning `signals.import`, and a body
+  holding it through `Document::parse` stores `content`; an unspelled one is
+  held through `replace`.
+- `content` lands through the one `Change` `diff` takes from the empty value
+  to it, applied to the empty value.
+- `to_markdown(content)` re-imports, warning nothing, to `reimports`: the
+  fixed point where the entry has none.
+- A body holding `content`, revised with `to_markdown(content)`, lands on
+  `reimports` plus every anchor `content` holds, warning nothing.
+- An entry's `annotated` is `to_markdown_annotated(content)`'s markdown and
+  revises a body holding `content` to `content`, warning nothing. Imported
+  cold, it lands on `content` without its anchors, warning nothing, where it
   holds no token, and on `reimports` without its islands, warning one
   `qm-island` per token, where it holds one.
-- A document whose body holds `lines` emits markdown that parses through
+- A document whose body holds `content` emits markdown that parses through
   `Document::parse`, warning nothing, to a body holding `reimports`, and an
   annotated read that revises the document through `Document::revise`,
-  warning nothing, to a body holding `lines`; the read lists each anchor of
-  `lines` at `main.body` and spells `annotated`.
+  warning nothing, to a body holding `content`; the read lists each anchor of
+  `content` at `main.body` and spells `annotated`.
 - The rest runs through the fixture quill `table_demo`, against `typst` and
   `signals`.
 - The body's block in the generated helper, which is `emit_content`'s markup,
@@ -303,8 +301,8 @@ markup wrapped reaches the page.
 Each binding holds what only it can break, the crossing: every entry's
 `content` and import warnings cross out of a markdown import and a parse, and
 `content` crosses back in through a write and storage. The WASM binding's
-`parity.test.js` goes through `importMarkdown`, `fromMarkdown`, `replace` and
-`fromStored`; Python's `tests/test_parity.py` through `Document.from_markdown`
+`parity.test.js` goes through `importMarkdown`, `Document.parse`, `replace` and
+`fromStored`; Python's `tests/test_parity.py` through `Document.parse`
 and a stored load.
 
 A construct enters Quillmark with its row and its entry, and a change to what
