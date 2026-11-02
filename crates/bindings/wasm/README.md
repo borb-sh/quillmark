@@ -220,17 +220,18 @@ document path.
 `quill.seedDocument()` returns a starter document: one card per kind, each
 carrying the kind's `seed` from `Quill.yaml` and no other field;
 `quill.seedCard(kind)` seeds one composable card. Both
-return the read `Card` shape of `doc.main` / `doc.cards`, which `doc.insertCard`
+return the read `Card` shape of `doc.main` / `doc.cards`, which `doc.unchecked.insertCard`
 accepts directly:
 
 ```ts
-doc.insertCard(quill.seedCard("note"));                 // seed → append
-doc.insertCard({ kind: "note", body: "Plain **markdown**." });  // bare inline
-doc.insertCard({ kind: "note" }, 0);                    // insert at index 0
-doc.insertCard({                                        // fields → payload items
+doc.unchecked.insertCard(quill.seedCard("note"));                 // seed → append
+doc.unchecked.insertCard({ kind: "note", body: "Plain **markdown**." });  // bare inline
+doc.unchecked.insertCard({ kind: "note" }, 0);                    // insert at index 0
+doc.unchecked.insertCard({                                        // fields → payload items
   kind: "note",
   payloadItems: [{ type: "field", key: "x", value: 1 }],
 });
+const id = doc.unchecked.insertCard({ kind: "note" }, 0, { actor }); // a live client's $id, minted under its actor
 ```
 
 Reads and writes are two aligned shapes. A read `Card` always has `body:
@@ -244,8 +245,8 @@ card is an object literal: one `{ type: "field", key, value }` per field in
 
 **One address for the whole surface.** Reads and writes navigate by an `Addr`:
 `{ card?, field? }`, absent `card` = main, absent `field` = body, and a bare
-string is shorthand for `{ field }`. So `doc.storeField("qty", 3)` targets the
-main card's `qty`, `doc.storeField({ card: 2, field: "qty" }, 3)` a composable
+string is shorthand for `{ field }`. So `doc.unchecked.storeField("qty", 3)` targets the
+main card's `qty`, `doc.unchecked.storeField({ card: 2, field: "qty" }, 3)` a composable
 card's. Reads are total over the field axis (`getStored` → `undefined` for
 an absent field; only an out-of-range card throws); field writes throw on a body
 address. `getStored` is the verbatim transport read, distinct from the interpreted
@@ -280,8 +281,9 @@ on `Document` itself (**store** = verbatim, **set** = typed):
   class carries the `_commitField` / `_commitFields` / `_addCard` / `_revise` /
   `_reviseField` ABI the writer delegates to, hidden from the `.d.ts`.)
 
-- **`store*`: the deliberate quill-free primitive.** `doc.storeField(addr, value)`
-  validates only the field name/depth/kind and stores the value verbatim, no quill required. Reach for it
+- **`doc.unchecked`: the deliberate quill-free primitive.** `doc.unchecked.storeField(addr, value)`
+  checks the field name and depth, stores each content value in its canonical form (an
+  invalid one throws `edit::field_decode`), and defers every schema check, no quill required. Reach for it
   on purpose when you *want* the opaque store: quill-agnostic storage/migration
   infra that has no bundle and must write regardless of a drifted schema;
   store-now-validate-later editors holding in-progress input that `commit`
@@ -455,7 +457,7 @@ from any build or WASM instance in the page.
 
 - `Document.fromMarkdown`: parse errors (missing root `$quill` metadata, YAML
   errors, `parse::input_too_large` for inputs > 10 MiB).
-- `Document` mutators (`storeField`, `insertCard`, the writer's `set`, etc.): a namespaced `edit::*` `code` on `diagnostics[0]`.
+- `Document` mutators (`unchecked.storeField`, `unchecked.insertCard`, the writer's `set`, etc.): a namespaced `edit::*` `code` on `diagnostics[0]`.
 - `engine.render` / `session.render`: backend compilation failures and
   validation errors.
 - An object argument carrying a key its verb does not read: the render

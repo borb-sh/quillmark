@@ -752,27 +752,11 @@ impl PyDocument {
         Ok(())
     }
 
-    /// Place a composable card. `at` picks the position: `None` appends, `Some(i)`
-    /// inserts at index `i` (`0..=card_count`; out of range raises
-    /// `IndexOutOfRange`, and a document holding 1,000 cards raises
-    /// `edit::too_many_cards`). `card` is a `Card` dict, as `cards`, `remove_card`,
-    /// and `seed_card` return.
-    #[pyo3(signature = (card, at=None))]
-    fn insert_card(&mut self, card: Bound<'_, PyAny>, at: Option<isize>) -> PyResult<()> {
-        let core_card = py_dict_to_card(&card)?;
-        let at = at
-            .map(|at| card_index(at, self.inner.cards().len()))
-            .transpose()?;
-        // A kind error anchors at the target slot; an append has no slot yet, so
-        // its kind error carries no anchor.
-        let base = at.map_or_else(quillmark_core::path::DocPath::new, |i| {
-            quillmark_core::path::DocPath::card(None, i)
-        });
-        match at {
-            None => self.inner.push_card(core_card),
-            Some(index) => self.inner.insert_card(index, core_card),
-        }
-        .map_err(|e| convert_edit_error(e, &base))
+    /// The writes no quill schema checks: an [`PyUnchecked`] over this
+    /// document.
+    #[getter]
+    fn unchecked(slf: Py<Self>) -> PyUnchecked {
+        PyUnchecked { doc: slf }
     }
 
     /// Remove the composable card at `index`, returning it as a dict or `None`
@@ -1159,6 +1143,63 @@ impl Target {
     }
 }
 
+/// The writes on a `Document` no quill schema checks, from
+/// `Document.unchecked`. Each still holds every document invariant but the
+/// schema: names, the bounds, card ids, and each content value decoded as a
+/// body's is and stored in its canonical form, so `equals`, `to_stored` and
+/// `to_markdown` agree for a field as for a body. The schema-checked writes
+/// are `quill.writer(doc)`'s.
+#[pyclass(name = "Unchecked")]
+pub struct PyUnchecked {
+    doc: Py<PyDocument>,
+}
+
+#[pymethods]
+impl PyUnchecked {
+    /// Store `value` as the field `name` on `card` (`None` the main card, a
+    /// `str` the card holding that `$id`, an `int` the card at that index)
+    /// with no schema coercion, which a render applies later. Each content
+    /// value in `value`, at any depth, decodes as a body write's does, raising
+    /// `edit::field_decode` where one does not.
+    #[pyo3(signature = (name, value, card=None))]
+    fn store_field(&self, py: Python<'_>, name: &str, value: Bound<'_, PyAny>, card: Option<CardSel>) -> PyResult<()> {
+        let qv = py_to_quillvalue(&value)?;
+        let mut doc = self.doc.borrow_mut(py);
+        let card = card_position(&doc.inner, card)?;
+        let base = doc.addr_base(card);
+        let index = card.map(|i| card_index(i, doc.inner.cards().len())).transpose()?;
+        doc.inner
+            .unchecked()
+            .store_field(index, name, qv)
+            .map_err(|e| convert_edit_error(e, &base))
+    }
+
+    /// Place a composable card and return its `$id`. `at` picks the position:
+    /// `None` appends, `i` inserts at index `i` (`0..=card_count`; out of range
+    /// raises `IndexOutOfRange`, and a document holding 1,000 cards raises
+    /// `edit::too_many_cards`). `card` is a `Card` dict, as `cards`,
+    /// `remove_card`, and `seed_card` return. A card spelling no `id` mints
+    /// one, under `actor` where one is given (`{actor}-{token}`), so two live
+    /// clients placing cards never mint one id.
+    #[pyo3(signature = (card, at=None, actor=None))]
+    fn insert_card(&self, py: Python<'_>, card: Bound<'_, PyAny>, at: Option<isize>, actor: Option<&str>) -> PyResult<String> {
+        let core_card = py_dict_to_card(&card)?;
+        let mut doc = self.doc.borrow_mut(py);
+        let at = at
+            .map(|at| card_index(at, doc.inner.cards().len()))
+            .transpose()?;
+        // A kind error anchors at the target slot; an append has no slot yet, so
+        // its kind error carries no anchor.
+        let base = at.map_or_else(quillmark_core::path::DocPath::new, |i| {
+            quillmark_core::path::DocPath::card(None, i)
+        });
+        doc.inner
+            .unchecked()
+            .insert_card(at, core_card, actor)
+            .map_err(|e| convert_edit_error(e, &base))
+    }
+}
+
 /// A `Document` bound to its `Quill` for typed writes, from `Quill.writer(doc)`.
 /// Re-borrows both objects per call, so it is ephemeral by convention: bind,
 /// write, discard.
@@ -1474,9 +1515,11 @@ impl PyWriter {
     /// appends, `Some(i)` inserts at index `i`, and a position out of range
     /// raises. Transactional: a rejected field (raising a per-field diagnostic
     /// bundle) or an invalid kind, body, or position leaves the document
-    /// untouched. Returns the fields' `parse::dropped_construct` warnings, then
-    /// the body import's, anchored under the placed card.
-    #[pyo3(signature = (kind, fields=None, body=None, at=None))]
+    /// untouched. The card's `$id` mints as `unchecked.insert_card` mints one,
+    /// under `actor` where one is given. Returns the fields'
+    /// `parse::dropped_construct` warnings, then the body import's, anchored
+    /// under the placed card.
+    #[pyo3(signature = (kind, fields=None, body=None, at=None, actor=None))]
     fn add_card(
         &self,
         py: Python<'_>,
@@ -1484,6 +1527,7 @@ impl PyWriter {
         fields: Option<Bound<'_, PyDict>>,
         body: Option<String>,
         at: Option<isize>,
+        actor: Option<&str>,
     ) -> PyResult<Vec<PyDiagnostic>> {
         let batch = match fields {
             Some(f) => pydict_to_field_batch(&f)?,
@@ -1499,7 +1543,7 @@ impl PyWriter {
         quill
             .inner
             .writer(&mut doc.inner)
-            .add_card(kind, batch, body.as_deref(), at)
+            .add_card(kind, batch, body.as_deref(), at, actor)
             .map(py_diagnostics)
             .map_err(|errs| convert_edit_errors(errs, &quillmark_core::path::DocPath::new()))
     }

@@ -74,8 +74,8 @@ describe('Document.fromMarkdown', () => {
 describe('Document.toMarkdown', () => {
   it('a mutated document survives emit → re-parse', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeField('title', 'New Title')
-    doc.insertCard(makeCard('note', { author: 'Alice' }, 'Hello'))
+    doc._uncheckedStoreField('title', 'New Title')
+    doc._uncheckedInsertCard(makeCard('note', { author: 'Alice' }, 'Hello'))
     doc._revise({}, 'Updated body')
 
     const doc2 = Document.fromMarkdown(doc.toMarkdown())
@@ -100,8 +100,8 @@ describe('Document JSON DTO: toStored / fromStored', () => {
 
   it('round-trips a mutated document with cards back to an equal handle', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeField('title', 'New Title')
-    doc.insertCard(makeCard('note', { author: 'Alice' }, 'Hello'))
+    doc._uncheckedStoreField('title', 'New Title')
+    doc._uncheckedInsertCard(makeCard('note', { author: 'Alice' }, 'Hello'))
 
     const restored = Document.fromStored(doc.toStored())
 
@@ -220,7 +220,7 @@ main:
 describe('Document editor surface: storeField / removeField', () => {
   it('storeField writes a field and removeField returns it, undefined when absent', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeField('title', 'Updated')
+    doc._uncheckedStoreField('title', 'Updated')
     expect(field(doc.main, 'title')).toBe('Updated')
     expect(doc.removeField('title')).toBe('Updated')
     expect(hasField(doc.main, 'title')).toBe(false)
@@ -229,9 +229,22 @@ describe('Document editor surface: storeField / removeField', () => {
 
   it('both throw edit::invalid_field_name on an invalid name', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expectEditCode(() => doc.storeField('$body', 'x'), 'edit::invalid_field_name')
-    expectEditCode(() => doc.storeField('bad-name', 'x'), 'edit::invalid_field_name')
+    expectEditCode(() => doc._uncheckedStoreField('$body', 'x'), 'edit::invalid_field_name')
+    expectEditCode(() => doc._uncheckedStoreField('bad-name', 'x'), 'edit::invalid_field_name')
     expectEditCode(() => doc.removeField('$quill'), 'edit::invalid_field_name')
+  })
+
+  it('a field holds its content as a body does: canonical on store, refused when invalid', () => {
+    const { content } = importMarkdown('Hello *world*')
+    const anchored = { ...content, anchors: [{ id: 'a1', start: 0, end: 5 }] }
+    const a = Document.fromMarkdown(TEST_MARKDOWN)
+    const b = a.clone()
+    a._uncheckedStoreField('blurb', Object.fromEntries(Object.entries(anchored).reverse()))
+    b._uncheckedStoreField('blurb', anchored)
+    expect(a.equals(b)).toBe(true)
+    expect(a.toStored()).toBe(b.toStored())
+    expect(a.toMarkdown()).toContain('blurb: Hello *world*')
+    expectEditCode(() => a._uncheckedStoreField('blurb', { ...content, marks: [{ type: 'bold', start: 4, end: 2 }] }), 'edit::field_decode')
   })
 })
 
@@ -241,7 +254,7 @@ describe('Document blank-canvas constructor', () => {
     expect(doc.quillRef).toBe('test_quill')
     expect(doc.cards.length).toBe(0)
     expect(exportMarkdown(doc.main.body)).toBe('')
-    doc.storeField('title', 'Hello')
+    doc._uncheckedStoreField('title', 'Hello')
     expect(field(doc.main, 'title')).toBe('Hello')
   })
 
@@ -259,13 +272,13 @@ describe('Document editor surface: addresses', () => {
     // `Addr::from_js` rejects a stray key: a typo, or the fields object misread
     // as an address, is caught loud rather than silently parsed as the empty
     // main-card address.
-    expect(() => doc.storeField({ crad: 0, field: 'title' }, 'x')).toThrow(/unknown key/)
+    expect(() => doc._uncheckedStoreField({ crad: 0, field: 'title' }, 'x')).toThrow(/unknown key/)
     expect(field(doc.main, 'title')).not.toBe('x')
   })
 
   it('an address is a plain object, and every own key of it counts', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const write = (addr) => () => doc.storeField(addr, 'x')
+    const write = (addr) => () => doc._uncheckedStoreField(addr, 'x')
     expect(write(new Map([['card', 0]]))).toThrow('addr must be a plain object, not a `Map`')
     expect(write(Object.create({ card: 0 }))).toThrow('addr must be a plain object')
     expect(write(Object.defineProperty({}, 'crad', { value: 0 }))).toThrow('unknown key `crad`')
@@ -276,10 +289,10 @@ describe('Document editor surface: addresses', () => {
   it('an address whose read throws is refused, and the document stays writable', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     const trap = new Proxy({}, { ownKeys: () => { throw new Error('ownKeys trap') } })
-    expect(() => doc.storeField(trap, 'x')).toThrow(
+    expect(() => doc._uncheckedStoreField(trap, 'x')).toThrow(
       'addr must be a plain object, not one whose read throws: ownKeys trap'
     )
-    doc.storeField('title', 'y')
+    doc._uncheckedStoreField('title', 'y')
     expect(field(doc.main, 'title')).toBe('y')
   })
 })
@@ -327,7 +340,7 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
     doc.apply({ field: 'note' }, { steps: [{ anchor: { id: 'c1', start: 0, end: 5 } }] })
     doc.replace({ field: 'note' }, importMarkdown('oh hello world').content)
     expect(doc.getStored({ field: 'note' }).anchors).toEqual([{ id: 'c1', start: 3, end: 8 }])
-    doc.storeField('count', 3)
+    doc._uncheckedStoreField('count', 3)
     expectEditCode(() => doc.replace({ field: 'count' }, importMarkdown('x').content), 'edit::field_decode')
   })
 
@@ -365,8 +378,8 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
     for (let i = 0; i < 5000; i++) deep = [deep]
     const card = makeCard('note', { ok: 1 }, 'Hello')
     card.payloadItems[0].value = deep
-    expect(() => doc.insertCard(card)).toThrow(/nests deeper/)
-    doc.insertCard(makeCard('note', { ok: 2 }, 'Hello'))
+    expect(() => doc._uncheckedInsertCard(card)).toThrow(/nests deeper/)
+    doc._uncheckedInsertCard(makeCard('note', { ok: 2 }, 'Hello'))
     expect(doc.cardCount).toBe(1)
   })
 })
@@ -446,13 +459,24 @@ describe('Card ids', () => {
     expect(doc.toMarkdown()).toContain(`$kind: note\n$id: ${id}\n`)
     expect(Document.fromMarkdown(doc.toMarkdown()).cards[0].id).toBe(id)
 
-    doc.insertCard(makeCard('note', {}, 'Placed.'))
+    doc._uncheckedInsertCard(makeCard('note', {}, 'Placed.'))
     expect(doc.cards[1].id).toMatch(/^c[a-z2-9]{5}$/)
     expect(doc.cards[1].id).not.toBe(id)
-    doc.insertCard({ ...makeCard('note'), id: 'chosen' })
+    doc._uncheckedInsertCard({ ...makeCard('note'), id: 'chosen' })
     expect(doc.cards[2].id).toBe('chosen')
-    expectEditCode(() => doc.insertCard({ ...makeCard('note'), id }), 'edit::duplicate_card_id')
-    expectEditCode(() => doc.insertCard({ ...makeCard('note'), id: '-x' }), 'edit::invalid_card_id')
+    expectEditCode(() => doc._uncheckedInsertCard({ ...makeCard('note'), id }), 'edit::duplicate_card_id')
+    expectEditCode(() => doc._uncheckedInsertCard({ ...makeCard('note'), id: '-x' }), 'edit::invalid_card_id')
+  })
+
+  it('a live client places a card under its actor and carries the id it answers', () => {
+    const a = Document.fromMarkdown(MD)
+    const b = a.clone()
+    const minted = a._uncheckedInsertCard(makeCard('note', {}, 'From a.'), 1, { actor: '7' })
+    expect(minted).toBe(a.cards[1].id)
+    expect(minted).toMatch(/^7-c[a-z2-9]{5}$/)
+    expect(b._uncheckedInsertCard(makeCard('note', {}, 'From b.'), 1, { actor: '8' })).not.toBe(minted)
+    expect(b._uncheckedInsertCard({ ...makeCard('note', {}, 'From a.'), id: minted }, 1)).toBe(minted)
+    expectEditCode(() => a._uncheckedInsertCard(makeCard('note'), 0, { actor: 'a:b' }), 'edit::invalid_actor')
   })
 
   it('a selector names its card, and reattach follows the card wherever it moved', () => {
@@ -463,7 +487,7 @@ describe('Card ids', () => {
     expect(doc.toAnnotatedMarkdown().anchors[0].cardId).toBe(doc.cards[0].id)
 
     const reopened = Document.fromMarkdown(doc.toMarkdown())
-    reopened.insertCard(makeCard('note', {}, 'An earlier note.'), 0)
+    reopened._uncheckedInsertCard(makeCard('note', {}, 'An earlier note.'), 0)
     const { reattached, orphaned } = reopened.reattach([selector])
     expect(orphaned).toEqual([])
     expect(reattached[0].path).toBe('cards.note[1].body')
@@ -964,7 +988,7 @@ Card two.
     expect(field(removed, 'foo')).toBe('bar')
     expect(doc.removeCard(5)).toBeUndefined()
 
-    doc.insertCard(removed)
+    doc._uncheckedInsertCard(removed)
     const repushed = doc.cards[1]
     expect(repushed.kind).toBe('note')
     expect(field(repushed, 'foo')).toBe('bar')
@@ -972,9 +996,9 @@ Card two.
 
   it('a card or item carrying an unknown key is a loud error, not a silent drop', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(() => doc.insertCard({ kind: 'note', stray: 1 })).toThrow(/stray/)
+    expect(() => doc._uncheckedInsertCard({ kind: 'note', stray: 1 })).toThrow(/stray/)
     const item = { type: 'field', key: 'x', value: 'Example', stray: true }
-    expect(() => doc.insertCard({ kind: 'note', payloadItems: [item] })).toThrow(/stray/)
+    expect(() => doc._uncheckedInsertCard({ kind: 'note', payloadItems: [item] })).toThrow(/stray/)
     expect(doc.cardCount).toBe(0)
   })
 
@@ -987,20 +1011,20 @@ Card two.
       payloadItems: [{ type: 'field', key, value }],
     })
 
-    expectEditCode(() => doc.insertCard({ kind: 'BadKind' }), 'edit::invalid_kind_name')
-    expectEditCode(() => doc.insertCard(withField('bad-name', 1)), 'edit::invalid_field_name')
+    expectEditCode(() => doc._uncheckedInsertCard({ kind: 'BadKind' }), 'edit::invalid_kind_name')
+    expectEditCode(() => doc._uncheckedInsertCard(withField('bad-name', 1)), 'edit::invalid_field_name')
     expectEditCode(
-      () => doc.insertCard({ kind: 'note', quill: '@nope' }),
+      () => doc._uncheckedInsertCard({ kind: 'note', quill: '@nope' }),
       'parse::invalid_quill_reference',
     )
   })
 
   it('insertCard inserts at an index and refuses one past the end', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARDS)
-    doc.insertCard({ kind: 'intro' }, 0)
+    doc._uncheckedInsertCard({ kind: 'intro' }, 0)
     expect(doc.cards.map((c) => c.kind)).toEqual(['intro', 'note', 'summary'])
     expect(doc.cardCount).toBe(3)
-    expectEditCode(() => doc.insertCard({ kind: 'note' }, 5), 'edit::index_out_of_range')
+    expectEditCode(() => doc._uncheckedInsertCard({ kind: 'note' }, 5), 'edit::index_out_of_range')
   })
 
   it('moveCard reorders and refuses an out-of-range index', () => {
@@ -1019,7 +1043,7 @@ describe('Document.equals / clone', () => {
 
     const clone = a.clone()
     expect(a.equals(clone)).toBe(true)
-    clone.storeField('title', 'Changed')
+    clone._uncheckedStoreField('title', 'Changed')
     expect(a.equals(clone)).toBe(false)
     expect(field(a.main, 'title')).toBe('Test Document')
   })
@@ -1028,7 +1052,7 @@ describe('Document.equals / clone', () => {
 describe('Document editor surface: storeField / removeField / replace / revise (card)', () => {
   it('storeField / removeField take a card address', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
-    doc.storeField({ card: 0, field: 'content' }, 'hello')
+    doc._uncheckedStoreField({ card: 0, field: 'content' }, 'hello')
     expect(field(doc.cards[0], 'content')).toBe('hello')
     expect(doc.removeField({ card: 0, field: 'foo' })).toBe('bar')
     expect(hasField(doc.cards[0], 'foo')).toBe(false)
@@ -1107,7 +1131,7 @@ describe('Document editor surface: storeField / removeField / replace / revise (
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     const addr = { card: 0, field: 'foo' }
-    expectEditCode(() => doc.storeField(addr, 'x'), 'edit::index_out_of_range')
+    expectEditCode(() => doc._uncheckedStoreField(addr, 'x'), 'edit::index_out_of_range')
     expectEditCode(() => doc.removeField(addr), 'edit::index_out_of_range')
     expectEditCode(() => doc._revise({ card: 0 }, 'x'), 'edit::index_out_of_range')
     expectEditCode(() => doc.read({ card: 0 }), 'edit::index_out_of_range')
@@ -1144,7 +1168,7 @@ describe('Document editor surface: $ext', () => {
 
   it('card-level ext verbs target the card at index and take a card address only', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.insertCard({ kind: 'note', body: 'x' })
+    doc._uncheckedInsertCard({ kind: 'note', body: 'x' })
     doc.storeExt({ card: 0 }, { agent: { note: 'y' } })
     expect(doc.cards[0].ext.agent.note).toBe('y')
     expect(doc.getExt({ card: 0 }).agent.note).toBe('y')

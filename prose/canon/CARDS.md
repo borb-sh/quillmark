@@ -183,7 +183,7 @@ state, never reaches the backend.
 the **main card only**, round-tripping through Markdown and the storage DTO and
 stripped before backends, but the seeding layer *interprets* it. It is
 **root-only** like `$quill`: a composable card carrying `$seed` is rejected at
-parse, on storage load, on insert (`push_card` / `insert_card`, the
+parse, on storage load, on insert (`unchecked().insert_card`, the
 positional gate that also polices `$kind`), and by `store_seed_overlay`, which
 writes only on a card carrying `$kind: main` — the root's own marker, so a card
 reached through `card_mut` is refused after placement too. It answers

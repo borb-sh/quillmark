@@ -126,7 +126,7 @@ impl Quill {
             };
             let base = DocPath::card(Some(kind), index);
             fill_card(&mut card, envelope, &base, &at, &mut errors, &mut warnings);
-            if let Err(e) = document.push_card(card) {
+            if let Err(e) = document.unchecked().insert_card(None, card, None) {
                 errors.push(edit_error(&e, &base));
             }
         }

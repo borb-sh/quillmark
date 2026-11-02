@@ -140,9 +140,11 @@ revise or replace whose change removes an `x-` island refuses under
 one, so its writer may not have seen it, and a change through `apply` removes
 one. The line-form revise verbs do not check. A content write whose `actor`
 is not an actor ([CONTENT.md](CONTENT.md) § Ids) refuses under
-`edit::invalid_actor`, carrying `actor`.
+`edit::invalid_actor`, carrying `actor`, as does a card placement whose
+`actor` cannot open a card id ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)
+§ "Card-id identity").
 
-Building a card from a `CardWire` (`insertCard`) is the same
+Building a card from a `CardWire` (`unchecked.insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
 `WireError` carries the `EditError` its addressed twin raises, and
 `WireError::code()` is that code. Two of its codes are not `edit::*`, or not
@@ -153,7 +155,7 @@ item list rather than a malformed field (a duplicate key, a field count past the
 §8 bound, a `$` entry twice, a comment spanning lines). Three of the four reach
 this door alone; the count also reaches an addressed mutator, because it is the
 one invariant a caller holding a `(name, value)` pair cannot check for itself —
-so `storeField` on a full card refuses under the code the wire already spells
+so `unchecked.storeField` on a full card refuses under the code the wire already spells
 for it, anchored at the card that is full.
 
 **`RenderResult`**: successful result carrying artifacts, output format, and non-fatal `Vec<Diagnostic>` warnings

@@ -62,6 +62,20 @@ fn token(n: usize) -> String {
     out
 }
 
+/// The separator between an actor and the token a card id minted under it
+/// holds. A positional id holds none, so no actor's id is a positional one.
+pub const CARD_ACTOR_SEP: char = '-';
+
+/// The length of a minted token: `c` and five letters.
+const TOKEN_LEN: usize = 6;
+
+/// Whether `actor` may scope a card id's mint: the ids it mints,
+/// `{actor}-{token}`, are card ids. Two actors of one length mint apart by
+/// their prefix, and two of different lengths by the id's length.
+pub fn is_card_actor(actor: &str) -> bool {
+    !actor.is_empty() && actor.len() + 1 + TOKEN_LEN <= MAX_CARD_ID_LEN && is_card_id(actor)
+}
+
 /// The mint over one document: each call takes the next token of the
 /// sequence that `taken` does not hold, and holds it.
 pub(crate) struct Mint {
@@ -75,8 +89,16 @@ impl Mint {
     }
 
     pub(crate) fn mint(&mut self) -> String {
+        self.mint_as(None)
+    }
+
+    /// [`mint`](Self::mint), each token under `actor` where one is given.
+    pub(crate) fn mint_as(&mut self, actor: Option<&str>) -> String {
         loop {
-            let id = token(self.next);
+            let id = match actor {
+                Some(actor) => format!("{actor}{CARD_ACTOR_SEP}{}", token(self.next)),
+                None => token(self.next),
+            };
             self.next += 1;
             if self.taken.insert(id.clone()) {
                 return id;
@@ -161,6 +183,19 @@ mod tests {
         }
         for bad in ["", "-a", "_a", "a b", "a.b", "é", &"a".repeat(65)] {
             assert!(!is_card_id(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn an_actor_mints_under_its_own_prefix() {
+        let mut a = Mint::new(HashSet::new());
+        let mut b = Mint::new(HashSet::new());
+        let (x, y) = (a.mint_as(Some("7")), b.mint_as(Some("8")));
+        assert_eq!((x.as_str(), y.as_str()), (format!("7-{}", token(0)).as_str(), format!("8-{}", token(0)).as_str()));
+        assert!(is_card_id(&x) && x != token(0));
+        assert!(is_card_actor("client-42") && is_card_actor(&"a".repeat(57)));
+        for bad in ["", "a:b", "-a", "é", &"a".repeat(58)] {
+            assert!(!is_card_actor(bad), "{bad}");
         }
     }
 

@@ -54,12 +54,12 @@ fn test_document_store_field_rejects_invalid_names() {
     for name in ["$body", "$quill", "\u{212A}elvin", "e\u{0301}tat"] {
         let mut doc = make_doc();
         assert_eq!(
-            doc.main_mut().store_field(name, qv("value")),
+            doc.unchecked().store_field(None, name, qv("value")),
             Err(EditError::InvalidFieldName(name.to_string())),
             "expected InvalidFieldName for {:?}",
             name
         );
-        doc.main_mut().store_field("after", qv("w")).unwrap();
+        doc.unchecked().store_field(None, "after", qv("w")).unwrap();
         assert_eq!(Document::parse(&doc.to_markdown()).unwrap().document, doc);
     }
 }
@@ -67,15 +67,15 @@ fn test_document_store_field_rejects_invalid_names() {
 #[test]
 fn test_document_insert_and_remove_card() {
     let mut doc = make_doc_with_cards();
-    doc.insert_card(0, Card::new("intro").unwrap()).unwrap();
-    doc.insert_card(3, Card::new("footer").unwrap()).unwrap();
+    doc.unchecked().insert_card(Some(0), Card::new("intro").unwrap(), None).unwrap();
+    doc.unchecked().insert_card(Some(3), Card::new("footer").unwrap(), None).unwrap();
     let kinds: Vec<_> = doc.cards().iter().map(|c| c.kind()).collect();
     assert_eq!(
         kinds,
         [Some("intro"), Some("note"), Some("summary"), Some("footer")]
     );
     assert_eq!(
-        doc.insert_card(5, Card::new("note").unwrap()),
+        doc.unchecked().insert_card(Some(5), Card::new("note").unwrap(), None),
         Err(EditError::IndexOutOfRange { index: 5, len: 4 })
     );
     assert_eq!(doc.remove_card(0).unwrap().kind(), Some("intro"));
@@ -91,15 +91,15 @@ fn test_placing_a_card_past_the_card_ceiling_is_refused() {
 
     let mut doc = make_doc();
     for _ in 0..MAX_CARD_COUNT {
-        doc.push_card(Card::new("note").unwrap()).unwrap();
+        doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
     }
     assert!(Document::parse(&doc.to_markdown()).is_ok());
     let full = EditError::TooManyCards {
         max: MAX_CARD_COUNT,
     };
-    assert_eq!(doc.push_card(Card::new("note").unwrap()), Err(full.clone()));
+    assert_eq!(doc.unchecked().insert_card(None, Card::new("note").unwrap(), None), Err(full.clone()));
     assert_eq!(
-        doc.insert_card(0, Card::new("note").unwrap()),
+        doc.unchecked().insert_card(Some(0), Card::new("note").unwrap(), None),
         Err(full.clone())
     );
     assert_eq!(full.code(), "edit::too_many_cards");
@@ -153,10 +153,10 @@ fn test_document_new_blank_canvas() {
     assert!(doc.cards().is_empty());
     assert_eq!(doc.main().body_markdown(), "");
 
-    doc.main_mut().store_fields([("title", "Hello")]).unwrap();
+    doc.main_card_mut().store_fields([("title", "Hello")]).unwrap();
     let mut card = Card::new("note").unwrap();
     card.store_field("qty", 3).unwrap();
-    doc.push_card(card).unwrap();
+    doc.unchecked().insert_card(None, card, None).unwrap();
 
     let reparsed = Document::parse(&doc.to_markdown()).unwrap().document;
     assert_eq!(doc, reparsed);
@@ -688,10 +688,10 @@ fn store_field_rejects_value_past_depth_limit() {
         .unwrap()
         .document;
     let ok = crate::value::QuillValue::from_json(deep_value(50));
-    assert!(doc.main_mut().store_field("x", ok).is_ok());
+    assert!(doc.unchecked().store_field(None, "x", ok).is_ok());
 
     let too_deep = crate::value::QuillValue::from_json(deep_value(150));
-    let err = doc.main_mut().store_field("y", too_deep).unwrap_err();
+    let err = doc.unchecked().store_field(None, "y", too_deep).unwrap_err();
     assert!(
         matches!(err, crate::document::EditError::ValueTooDeep { max: 128 }),
         "expected ValueTooDeep, got {err:?}"
@@ -800,10 +800,10 @@ fn test_insert_card_refuses_root_only_entries() {
         mutate(&mut wire);
         let card = Card::try_from(wire).expect("the wire stays permissive on placement metadata");
         let mut doc = make_doc();
-        doc.push_card(card.clone()).map(|()| doc).map_err(|e| {
+        doc.unchecked().insert_card(None, card.clone(), None).map(|_| doc).map_err(|e| {
             let mut doc = make_doc();
             assert_eq!(
-                doc.insert_card(0, card),
+                doc.unchecked().insert_card(Some(0), card, None),
                 Err(e.clone()),
                 "push and insert agree"
             );
@@ -966,17 +966,16 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    doc.main_mut()
+    doc.main_card_mut()
         .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
         .expect("a batch that fills the card exactly to the cap lands");
     assert_eq!(doc.main().payload().len(), max);
 
-    doc.main_mut()
-        .store_field("f0", qv("replaced"))
+    doc.unchecked().store_field(None, "f0", qv("replaced"))
         .expect("a replace is not a growth");
 
     let mut refused = Vec::new();
-    refused.push(doc.main_mut().store_field("late", qv("v")).unwrap_err());
+    refused.push(doc.unchecked().store_field(None, "late", qv("v")).unwrap_err());
     refused.push(doc.main_mut().revise_field("late", "text").unwrap_err());
     refused.push(
         doc.main_mut()
@@ -1010,12 +1009,12 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max - 1).map(|i| format!("f{i}")).collect();
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    doc.main_mut()
+    doc.main_card_mut()
         .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
         .expect("one slot short of the cap");
 
     let errs = doc
-        .main_mut()
+        .main_card_mut()
         .store_fields([
             ("f0", qv("replaced")),
             ("a", qv("v")),
@@ -1059,9 +1058,7 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
     }
     fn ignore<T, E>(_: Result<T, E>) {}
 
-    let verbs: [(&str, fn(&mut CardMut<'_>)); 13] = [
-        ("store_field", |c| ignore(c.store_field("f", qv("v")))),
-        ("store_fields", |c| ignore(c.store_fields([("h", qv("v"))]))),
+    let verbs: [(&str, fn(&mut CardMut<'_>)); 11] = [
         ("remove_field", |c| ignore(c.remove_field("f"))),
         ("store_ext", |c| ignore(c.store_ext(serde_json::Map::new()))),
         ("remove_ext", |c| {
@@ -1103,4 +1100,84 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
         );
         let _ = doc.quill_reference();
     }
+}
+
+fn stored(doc: &Document) -> String {
+    serde_json::to_string(&crate::document::dto::StoredDocument::from(doc.clone())).unwrap()
+}
+
+/// A content value keyed in reverse of its canonical order: equal JSON, other
+/// bytes.
+fn reversed_keys(v: &serde_json::Value) -> serde_json::Value {
+    let map = v.as_object().unwrap();
+    serde_json::Value::Object(map.iter().rev().map(|(k, v)| (k.clone(), v.clone())).collect())
+}
+
+/// A field's content holds as a body's does: stored in its canonical form,
+/// so equal documents store equal bytes and the markdown export projects it,
+/// its anchors dropped; and one that does not decode is refused at the
+/// write, the wire and the load.
+#[test]
+fn a_field_write_holds_its_content_as_a_body_write_does() {
+    let mut content = quillmark_content::markdown::from_markdown("Hello *world*").unwrap().content;
+    content.anchors.push(quillmark_content::model::Anchor::new("a1", 0, 5));
+    let canonical = content.to_value();
+    let shuffled = reversed_keys(&canonical);
+    assert_ne!(serde_json::to_string(&shuffled).unwrap(), serde_json::to_string(&canonical).unwrap());
+
+    let mut a = make_doc();
+    a.unchecked().store_field(None, "f", QuillValue::from_json(shuffled.clone())).unwrap();
+    let mut b = make_doc();
+    b.unchecked().store_field(None, "f", QuillValue::from_json(canonical.clone())).unwrap();
+    assert_eq!(a, b);
+    assert_eq!(stored(&a), stored(&b));
+    assert!(a.to_markdown().contains("f: Hello *world*"), "{}", a.to_markdown());
+    assert!(!a.to_markdown().contains("a1"));
+
+    let mut nested = make_doc();
+    nested.unchecked().store_field(None, "rows", QuillValue::from_json(serde_json::json!([{ "f": shuffled }]))).unwrap();
+    assert_eq!(nested.main().payload().get("rows").unwrap().as_json(), &serde_json::json!([{ "f": canonical }]));
+
+    let mut bad = canonical.clone();
+    bad["anchors"][0]["end"] = 99.into();
+    let refused = make_doc().unchecked().store_field(None, "f", QuillValue::from_json(bad.clone())).unwrap_err();
+    assert_eq!(refused.code(), "edit::field_decode");
+    let refused = make_doc()
+        .unchecked()
+        .store_field(None, "rows", QuillValue::from_json(serde_json::json!([{ "f": bad }])))
+        .unwrap_err();
+    assert!(matches!(&refused, EditError::FieldDecode { at, .. } if at.len() == 2), "{refused:?}");
+
+    let mut wire = crate::document::CardWire::new("note".to_string(), serde_json::Value::Null);
+    wire.payload_items.push(crate::document::PayloadItemWire::Field { key: "f".into(), value: bad.clone() });
+    assert_eq!(Card::try_from(wire).unwrap_err().code(), "edit::field_decode");
+
+    let row = stored(&b).replace(&serde_json::to_string(&canonical).unwrap(), &serde_json::to_string(&bad).unwrap());
+    assert!(Document::from_stored(&row).is_err(), "a load refuses a field it would refuse as a body");
+}
+
+/// A card placed with no `$id` mints one positionally, or under the writer's
+/// actor where one is given, so two writers placing a card into one document
+/// mint two ids.
+#[test]
+fn a_placed_card_mints_under_its_writers_actor() {
+    let place = |actor: Option<&str>| {
+        let mut doc = make_doc();
+        let id = doc.unchecked().insert_card(None, Card::new("note").unwrap(), actor).unwrap();
+        assert_eq!(doc.cards()[0].id(), Some(id.as_str()));
+        id
+    };
+    let (none, seven, eight) = (place(None), place(Some("7")), place(Some("8")));
+    assert_eq!(none, place(None));
+    assert_eq!(seven, format!("7-{none}"));
+    assert_ne!(seven, eight);
+
+    let mut doc = make_doc();
+    assert_eq!(
+        doc.unchecked().insert_card(None, Card::new("note").unwrap(), Some("a:b")),
+        Err(EditError::InvalidCardActor("a:b".into()))
+    );
+    let mut spelled = Card::new("note").unwrap();
+    spelled.payload_mut().set_id("kept");
+    assert_eq!(doc.unchecked().insert_card(None, spelled, Some("7")).unwrap(), "kept");
 }

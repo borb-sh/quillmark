@@ -190,6 +190,7 @@ impl TryFrom<CardWire> for Card {
                     super::edit::validate_field(&key, &value).map_err(|v| {
                         WireError::Edit(super::edit::edit_error_from_violation(&key, v))
                     })?;
+                    let value = super::edit::settled_field(&key, value)?;
                     Ok(PayloadItem::Field {
                         key,
                         value: QuillValue::from_json(value),
@@ -211,7 +212,7 @@ impl TryFrom<CardWire> for Card {
             payload.set_quill(reference);
         }
         // No `$kind` check, and none on `$quill`/`$seed` above: all three are
-        // positional and belong to `Document::push_card` / `insert_card`
+        // positional and belong to `Unchecked::insert_card`
         // (`check_composable_placement`).
         if !wire.kind.is_empty() {
             payload.set_kind(wire.kind);

@@ -124,8 +124,7 @@ proptest! {
     fn conform_is_idempotent((name, value) in arb_field_value()) {
         let quill = quill();
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field(name, QuillValue::from_json(value))
+        doc.unchecked().store_field(None, name, QuillValue::from_json(value))
             .expect("the opaque store accepts any value");
 
         let first = quill.conform(&mut doc).expect("the quill matches");
@@ -147,8 +146,7 @@ proptest! {
 
         let mut conformed = blank_doc();
         conformed
-            .main_mut()
-            .store_field(name, QuillValue::from_json(value.clone()))
+            .unchecked().store_field(None, name, QuillValue::from_json(value.clone()))
             .expect("the opaque store accepts any value");
         let diags = quill.conform(&mut conformed).expect("the quill matches");
 
@@ -198,8 +196,7 @@ proptest! {
         };
 
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field(name, QuillValue::from_json(value))
+        doc.unchecked().store_field(None, name, QuillValue::from_json(value))
             .expect("the opaque store accepts any value");
         quill.conform(&mut doc).expect("the quill matches");
 

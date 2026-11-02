@@ -295,7 +295,7 @@ proptest! {
             ("nest", json!([{ "first": { k.clone(): text }, k.clone(): [text] }])),
         ];
         for (key, value) in fields {
-            doc.main_mut().store_field(key, QuillValue::from_json(value)).expect("stored");
+            doc.unchecked().store_field(None, key, QuillValue::from_json(value)).expect("stored");
         }
         let ext = json!({ "meta": { k.clone(): text } });
         doc.main_mut().payload_mut().set_ext(ext.as_object().unwrap().clone());

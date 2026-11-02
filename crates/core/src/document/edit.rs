@@ -247,6 +247,11 @@ pub enum EditError {
     #[error("invalid actor '{0}': must be 1 to 64 scalar values holding no whitespace, control or ':', not opening with '?'")]
     InvalidActor(String),
 
+    /// A card placement's actor is not a
+    /// [card actor](super::card_id::is_card_actor).
+    #[error("invalid actor '{0}' for a card id: must be 1 to 57 of [A-Za-z0-9_-], opening with a letter or digit")]
+    InvalidCardActor(String),
+
     /// A revise's [`Base`] refused the write.
     #[error(transparent)]
     Base(BaseError),
@@ -317,7 +322,7 @@ impl EditError {
             EditError::TooManyAnchors { .. } => "edit::too_many_anchors",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
-            EditError::InvalidActor(_) => "edit::invalid_actor",
+            EditError::InvalidActor(_) | EditError::InvalidCardActor(_) => "edit::invalid_actor",
             EditError::Base(e) => e.code(),
         }
     }
@@ -387,7 +392,7 @@ impl EditError {
                 "island" => island,
                 "type" => kind,
             },
-            EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
+            EditError::InvalidActor(actor) | EditError::InvalidCardActor(actor) => diag_args! { "actor" => actor },
             EditError::Base(e) => e.args(),
         }
     }
@@ -533,6 +538,45 @@ fn check_field_name(name: &str) -> Result<(), EditError> {
 
 fn check_field(name: &str, value: &serde_json::Value) -> Result<(), EditError> {
     validate_field(name, value).map_err(|v| edit_error_from_violation(name, v))
+}
+
+/// `value` with each content value it holds, at any depth, decoded as a body
+/// write decodes one and held in its canonical form: a field's content
+/// validates, stores, compares and hashes as a body's does.
+/// [`EditError::FieldDecode`] at the first content value that does not
+/// decode.
+pub(crate) fn settled_field(name: &str, mut value: serde_json::Value) -> Result<serde_json::Value, EditError> {
+    let mut at = Vec::new();
+    settle_contents(&mut value, &mut at)
+        .map_err(|(codec, e)| field_decode(name, &at, codec, ContentDecodeError::NotContent(e)))?;
+    Ok(value)
+}
+
+fn settle_contents(value: &mut serde_json::Value, at: &mut Vec<PathSegment>) -> Result<(), (Codec, String)> {
+    if quillmark_content::units::is_content_value(value) {
+        let content = quillmark_content::model::Content::from_value(value)
+            .map_err(|e| (Codec::of_object(value), e.to_string()))?;
+        *value = content.to_value();
+        return Ok(());
+    }
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, v) in map.iter_mut() {
+                at.push(PathSegment::Key(key.clone()));
+                settle_contents(v, at)?;
+                at.pop();
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (index, v) in items.iter_mut().enumerate() {
+                at.push(PathSegment::Index(index));
+                settle_contents(v, at)?;
+                at.pop();
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// The composable-kind rule mapped onto the mutator error surface.
@@ -763,7 +807,7 @@ pub(crate) fn dropped_anchors(stored: &Normalized, next: &Normalized) -> Vec<Anc
 ///
 /// Placement is positional — the main card carries `$quill` and `$seed`, a
 /// composable card carries neither — and the gates that police it
-/// ([`Document::push_card`] / [`insert_card`](Document::insert_card),
+/// ([`Unchecked::insert_card`],
 /// [`Card::store_seed_overlay`]) run when a card is placed or edited, not when
 /// one is assigned over another. Handing out a `&mut Card` would make
 /// `*doc.card_mut(0).unwrap() = doc.main().clone()` a legal write past all of
@@ -779,25 +823,6 @@ impl<'a> CardMut<'a> {
 
     pub(crate) fn payload_mut(&mut self) -> &mut Payload {
         self.0.payload_mut()
-    }
-
-    /// [`Card::store_field`].
-    pub fn store_field(
-        &mut self,
-        name: &str,
-        value: impl Into<QuillValue>,
-    ) -> Result<(), EditError> {
-        self.0.store_field(name, value)
-    }
-
-    /// [`Card::store_fields`].
-    pub fn store_fields<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
-    where
-        K: Into<String>,
-        V: Into<QuillValue>,
-        I: IntoIterator<Item = (K, V)>,
-    {
-        self.0.store_fields(fields)
     }
 
     /// [`Card::remove_field`].
@@ -1030,51 +1055,46 @@ impl Document {
         self.cards_vec_mut().get_mut(index).map(CardMut::new)
     }
 
-    /// Append a composable card. Its `$kind` must be a valid, non-reserved
-    /// composable kind ([`EditError::InvalidKindName`] /
-    /// [`EditError::ReservedKind`] otherwise), and the document must hold
-    /// fewer than [`MAX_CARD_COUNT`](crate::error::MAX_CARD_COUNT) cards
-    /// ([`EditError::TooManyCards`]). A card spelling no `$id` mints one; one
-    /// spelling an id keeps it, refused where it is no card id
-    /// ([`EditError::InvalidCardId`]) or another card holds it
-    /// ([`EditError::DuplicateCardId`]).
-    pub fn push_card(&mut self, card: Card) -> Result<(), EditError> {
-        self.insert_card(self.cards().len(), card)
+    /// The writes no quill schema checks: [`Unchecked`].
+    pub fn unchecked(&mut self) -> Unchecked<'_> {
+        Unchecked(self)
     }
 
-    /// Insert a composable card at `index` (`index > len` →
-    /// [`EditError::IndexOutOfRange`]; invalid `$kind` →
-    /// [`EditError::InvalidKindName`] / [`EditError::ReservedKind`]; a full
-    /// document → [`EditError::TooManyCards`]), its `$id` as
-    /// [`push_card`](Self::push_card) takes it.
-    pub fn insert_card(&mut self, index: usize, mut card: Card) -> Result<(), EditError> {
+    /// Place `card` at `at` (`None` appends), its `$id` as
+    /// [`Unchecked::insert_card`] takes it, answering that id.
+    pub(crate) fn place_card(&mut self, at: Option<usize>, mut card: Card, actor: Option<&str>) -> Result<String, EditError> {
         let len = self.cards().len();
+        let index = at.unwrap_or(len);
         if index > len {
             return Err(EditError::IndexOutOfRange { index, len });
         }
         Self::check_composable_placement(&card)?;
         self.check_card_room()?;
+        if let Some(actor) = actor.filter(|a| !super::card_id::is_card_actor(a)) {
+            return Err(EditError::InvalidCardActor(actor.to_string()));
+        }
         let held: std::collections::HashSet<String> = self
             .cards()
             .iter()
             .filter_map(Card::id)
             .map(str::to_string)
             .collect();
-        match card.id() {
+        let id = match card.id() {
             Some(id) if !super::card_id::is_card_id(id) => {
                 return Err(EditError::InvalidCardId(id.to_string()));
             }
             Some(id) if held.contains(id) => {
                 return Err(EditError::DuplicateCardId(id.to_string()));
             }
-            Some(_) => {}
+            Some(id) => id.to_string(),
             None => {
-                let id = super::card_id::Mint::new(held).mint();
-                card.payload_mut().set_id(id);
+                let id = super::card_id::Mint::new(held).mint_as(actor);
+                card.payload_mut().set_id(id.clone());
+                id
             }
-        }
+        };
         self.cards_vec_mut().insert(index, card);
-        Ok(())
+        Ok(id)
     }
 
     fn check_card_room(&self) -> Result<(), EditError> {
@@ -1154,6 +1174,52 @@ impl Document {
     }
 }
 
+/// The writes on a [`Document`] that no quill schema checks, from
+/// [`Document::unchecked`]: a field stored with no type coercion, and a card
+/// placed whole. Each still holds every invariant the document does: names,
+/// the §8 bounds, card ids, and each content value decoded as a body write
+/// decodes one and stored in its canonical form, so `==`, the stored bytes
+/// and the markdown export agree for a field as they do for a body. The
+/// schema-checked writes are [`Quill::writer`](crate::quill::Quill::writer)'s.
+pub struct Unchecked<'a>(&'a mut Document);
+
+impl Unchecked<'_> {
+    /// [`Card::store_field`] on the main card (`card: None`) or the composable
+    /// card at `card`, [`EditError::IndexOutOfRange`] where none is.
+    pub fn store_field(
+        &mut self,
+        card: Option<usize>,
+        name: &str,
+        value: impl Into<QuillValue>,
+    ) -> Result<(), EditError> {
+        let len = self.0.cards().len();
+        let card = match card {
+            None => self.0.main_card_mut(),
+            Some(index) => self
+                .0
+                .cards_vec_mut()
+                .get_mut(index)
+                .ok_or(EditError::IndexOutOfRange { index, len })?,
+        };
+        card.store_field(name, value)
+    }
+
+    /// Place a composable card at `at` (`None` appends; past the last card
+    /// [`EditError::IndexOutOfRange`]), answering its `$id`. Its `$kind` must
+    /// be a valid, non-reserved composable kind ([`EditError::InvalidKindName`]
+    /// / [`EditError::ReservedKind`]), and the document must hold fewer than
+    /// [`MAX_CARD_COUNT`](crate::error::MAX_CARD_COUNT) cards
+    /// ([`EditError::TooManyCards`]). A card spelling an id keeps it, refused
+    /// where it is no card id ([`EditError::InvalidCardId`]) or another card
+    /// holds it ([`EditError::DuplicateCardId`]). A card spelling none mints
+    /// one: under `actor`, `{actor}-{token}`, so two writers placing cards
+    /// from one document never mint one id, and positionally with none. An
+    /// actor that cannot open a card id is [`EditError::InvalidCardActor`].
+    pub fn insert_card(&mut self, at: Option<usize>, card: Card, actor: Option<&str>) -> Result<String, EditError> {
+        self.0.place_card(at, card, actor)
+    }
+}
+
 impl Card {
     /// Create a composable card with the given kind, no fields, and an empty body.
     pub fn new(kind: impl Into<String>) -> Result<Self, EditError> {
@@ -1167,14 +1233,17 @@ impl Card {
         ))
     }
 
-    /// Store a payload field verbatim. Coercion is deferred to render; contrast the typed
+    /// Store a payload field with no schema in play: schema coercion is
+    /// deferred to render; contrast the typed
     /// [`TypedWriter::set`](crate::writer::TypedWriter::set). Scalars convert
     /// in place (`store_field("qty", 3)`) via the `From` impls on
-    /// [`QuillValue`].
+    /// [`QuillValue`]. Each content value in `value`, at any depth, decodes as
+    /// a body write's does and stores in its canonical form.
     ///
     /// Returns [`EditError::InvalidFieldName`] when `name` does not match
-    /// `[A-Za-z_][A-Za-z0-9_]*`, and [`EditError::InvalidPayload`] when `name`
-    /// is absent and the card already carries
+    /// `[A-Za-z_][A-Za-z0-9_]*`, [`EditError::FieldDecode`] for a content
+    /// value that does not decode, and [`EditError::InvalidPayload`] when
+    /// `name` is absent and the card already carries
     /// [`MAX_FIELD_COUNT`](crate::error::MAX_FIELD_COUNT) fields; overwriting a
     /// field a full card already carries is not a growth and lands.
     pub fn store_field(
@@ -1184,13 +1253,14 @@ impl Card {
     ) -> Result<(), EditError> {
         let value = value.into();
         check_field(name, value.as_json())?;
+        let value = QuillValue::from_json(settled_field(name, value.into_json())?);
         self.payload_mut()
             .insert(name.to_string(), value)
             .map_err(EditError::InvalidPayload)?;
         Ok(())
     }
 
-    /// Store several payload fields verbatim and atomically. The whole batch is validated first: on
+    /// Store several payload fields atomically. The whole batch is validated first: on
     /// any violation nothing is applied and every offending field is reported as
     /// a `(name, error)` pair. Per-field rules are those of
     /// [`Card::store_field`]; insertion order follows the iterator, and a
@@ -1206,16 +1276,20 @@ impl Card {
         V: Into<QuillValue>,
         I: IntoIterator<Item = (K, V)>,
     {
+        let mut errors: Vec<(String, EditError)> = Vec::new();
         let fields: Vec<(String, QuillValue)> = fields
             .into_iter()
-            .map(|(k, v)| (k.into(), v.into()))
-            .collect();
-        let errors: Vec<(String, EditError)> = fields
-            .iter()
-            .filter_map(|(name, value)| {
-                check_field(name, value.as_json())
-                    .err()
-                    .map(|e| (name.clone(), e))
+            .filter_map(|(k, v)| {
+                let (name, value): (String, QuillValue) = (k.into(), v.into());
+                let settled = check_field(&name, value.as_json())
+                    .and_then(|()| settled_field(&name, value.into_json()));
+                match settled {
+                    Ok(value) => Some((name, QuillValue::from_json(value))),
+                    Err(e) => {
+                        errors.push((name, e));
+                        None
+                    }
+                }
             })
             .collect();
         if !errors.is_empty() {

@@ -5,7 +5,7 @@
 //! instead, so callers issue one verb (`set`) and never pass a type token or a
 //! `multiline` flag. An undeclared name is [`EditError::UnknownField`]: on the
 //! typed path it is a typo, not a fallback. Opaque storage stays available
-//! through the raw [`Card::store_field`](crate::document::Card::store_field)
+//! through the raw [`Unchecked::store_field`](crate::document::Unchecked::store_field)
 //! verb.
 //!
 //! ```ignore
@@ -52,7 +52,7 @@ impl<'a> TypedWriter<'a> {
     /// Write a field on the main card, strict-committing it against the field's
     /// schema type. An undeclared name fails with [`EditError::UnknownField`]
     /// rather than falling to the opaque
-    /// [`Card::store_field`](crate::document::Card::store_field). Other errors
+    /// [`Unchecked::store_field`](crate::document::Unchecked::store_field). Other errors
     /// are those of `Card::commit_field`.
     ///
     /// Returns a `parse::dropped_construct` warning per construct a `richtext`
@@ -224,15 +224,18 @@ impl<'a> TypedWriter<'a> {
     /// [`set_all`](Self::set_all); an invalid kind or body, or an out-of-range
     /// position, surfaces as a single-entry bundle keyed `$kind` / `$body`.
     ///
-    /// Returns the fields' `parse::dropped_construct` warnings, as
-    /// [`set_all`](Self::set_all) returns them, then the body import's, all
-    /// anchored under the placed card.
+    /// The card's `$id` mints as [`Unchecked::insert_card`](crate::document::Unchecked::insert_card)
+    /// mints one, under `actor` where one is given. Returns the fields'
+    /// `parse::dropped_construct` warnings, as [`set_all`](Self::set_all)
+    /// returns them, then the body import's, all anchored under the placed
+    /// card.
     pub fn add_card<K, V, I>(
         &mut self,
         kind: &str,
         fields: I,
         body: Option<&str>,
         at: Option<usize>,
+        actor: Option<&str>,
     ) -> Result<Vec<Diagnostic>, Vec<(String, EditError)>>
     where
         K: Into<String>,
@@ -250,11 +253,9 @@ impl<'a> TypedWriter<'a> {
                     .diagnostics(Some(&base.body())),
             );
         }
-        match at {
-            Some(index) => self.doc.insert_card(index, card),
-            None => self.doc.push_card(card),
-        }
-        .map_err(|e| vec![("$kind".to_string(), e)])?;
+        self.doc
+            .place_card(at, card, actor)
+            .map_err(|e| vec![("$kind".to_string(), e)])?;
         Ok(warnings)
     }
 
@@ -268,7 +269,7 @@ impl<'a> TypedWriter<'a> {
     /// `$kind` resolves its [`CardSchema`](crate::quill::CardSchema); an
     /// unknown kind carries no schema, so every typed write on it fails with
     /// [`EditError::UnknownField`] (write such a card opaquely through
-    /// [`Card::store_field`](crate::document::Card::store_field)).
+    /// [`Unchecked::store_field`](crate::document::Unchecked::store_field)).
     /// [`EditError::IndexOutOfRange`] when `index` is out of range.
     pub fn card(&mut self, index: usize) -> Result<CardWriter<'_>, EditError> {
         let len = self.doc.cards().len();
@@ -631,7 +632,7 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
-        ed.add_card("note", [("prose", "**hi**")], Some("card body"), None)
+        ed.add_card("note", [("prose", "**hi**")], Some("card body"), None, None)
             .unwrap();
         assert_eq!(doc.cards().len(), 1);
         assert_eq!(doc.cards()[0].kind(), Some("note"));
@@ -651,9 +652,9 @@ card_kinds:
         let mut doc = blank_doc();
         {
             let mut ed = TypedWriter::new(&config, &mut doc);
-            ed.add_card("note", [("prose", "a")], None, None).unwrap();
-            ed.add_card("note", [("prose", "c")], None, None).unwrap();
-            ed.add_card("note", [("prose", "b")], None, Some(1))
+            ed.add_card("note", [("prose", "a")], None, None, None).unwrap();
+            ed.add_card("note", [("prose", "c")], None, None, None).unwrap();
+            ed.add_card("note", [("prose", "b")], None, Some(1), None)
                 .unwrap();
         }
         let bodies: Vec<String> = doc
@@ -667,7 +668,7 @@ card_kinds:
         {
             let mut ed = TypedWriter::new(&config, &mut doc);
             let errs = ed
-                .add_card("note", [("prose", "x")], None, Some(9))
+                .add_card("note", [("prose", "x")], None, Some(9), None)
                 .unwrap_err();
             assert_eq!(errs[0].0, "$kind");
         }
@@ -694,7 +695,7 @@ card_kinds:
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
         let errs = ed
-            .add_card("note", [("stray", "x")], None, None)
+            .add_card("note", [("stray", "x")], None, None, None)
             .unwrap_err();
         assert_eq!(errs[0].0, "stray");
         assert_eq!(errs[0].1.code(), "edit::unknown_field");
@@ -705,7 +706,7 @@ card_kinds:
     fn card_writer_resolves_card_kind_schema() {
         let config = config();
         let mut doc = blank_doc();
-        doc.push_card(Card::new("note").unwrap()).unwrap();
+        doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         let mut card_ed = ed.card(0).unwrap();
@@ -780,7 +781,7 @@ card_kinds:
     fn card_writer_revise_field_resolves_card_schema() {
         let config = config();
         let mut doc = blank_doc();
-        doc.push_card(Card::new("note").unwrap()).unwrap();
+        doc.unchecked().insert_card(None, Card::new("note").unwrap(), None).unwrap();
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         let _ = ed.card(0).unwrap().revise_field("prose", "**hi**").unwrap();
@@ -826,7 +827,7 @@ card_kinds:
         let unanchored = vec![(Some(crate::document::DROPPED_CONSTRUCT.to_string()), None)];
 
         let added = ed
-            .add_card("note", [("prose", "a")], Some("<span>x</span>"), None)
+            .add_card("note", [("prose", "a")], Some("<span>x</span>"), None, None)
             .unwrap();
         assert_eq!(anchors(&added), dropped("cards.note[0].body"));
         let revised = ed.revise_body("<kbd>x</kbd>").unwrap();
@@ -844,7 +845,7 @@ card_kinds:
         let revised = ed.card(0).unwrap().revise_field("blurb", "plain").unwrap();
         assert!(revised.warnings.is_empty());
         let added = ed
-            .add_card("note", [("prose", "b")], Some("<span>y</span>"), Some(0))
+            .add_card("note", [("prose", "b")], Some("<span>y</span>"), Some(0), None)
             .unwrap();
         assert_eq!(anchors(&added), dropped("cards.note[0].body"));
         let set = ed.set("subject", "<kbd>x</kbd>").unwrap();
@@ -856,7 +857,7 @@ card_kinds:
             .unwrap();
         assert_eq!(anchors(&set), dropped("cards.note[1].blurb"));
         let added = ed
-            .add_card("note", [("blurb", "<em>z</em>")], None, None)
+            .add_card("note", [("blurb", "<em>z</em>")], None, None, None)
             .unwrap();
         assert_eq!(anchors(&added), dropped("cards.note[2].blurb"));
 

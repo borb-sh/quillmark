@@ -649,9 +649,42 @@ declare module '../core/wasm.js' {
 		 */
 		reader(doc: Document): DocumentReader;
 	}
+	interface Document {
+		/**
+		 * The writes no quill schema checks, beside the typed ones of
+		 * {@link Quill.writer}. Each holds every document invariant the typed
+		 * writes do but the schema: names, the bounds, card ids, and each content
+		 * value decoded as a body's is and stored in its canonical form, so
+		 * `equals`, `toStored` and `toMarkdown` agree for a field as for a body.
+		 */
+		readonly unchecked: DocumentUnchecked;
+	}
 }
 
-import type { Addr, BaseOptions, Content, DocumentRevised, PathStep, Receipt, Resolved } from '../core/wasm.js';
+/** The schema-unchecked writes on a `Document`, from {@link Document.unchecked}. */
+export interface DocumentUnchecked {
+	/**
+	 * Store a field at `addr` with no schema coercion, which a render applies
+	 * later. A bare string is `Addr` shorthand for `{ field }`. Each content
+	 * value in `value`, at any depth, decodes as a body write's does, throwing
+	 * `edit::field_decode` where one does not. A body address throws, as do an
+	 * out-of-range card and a malformed name.
+	 */
+	storeField(addr: Addr | string, value: unknown): void;
+	/**
+	 * Place a card whole and answer its `$id`: `at` omitted appends, a number
+	 * inserts at that index (`0..=cards.length`). Accepts any `CardInput`,
+	 * including a card read back out of a document. A card spelling no `id`
+	 * mints one, under `opts.actor` where one is given (`{actor}-{token}`), so
+	 * two live clients placing cards never mint one id; a card spelling one
+	 * keeps it, refused where it is no card id or another card holds it. Throws
+	 * on an invalid kind, an out-of-range `at`, an invalid actor, or a document
+	 * holding 1,000 cards.
+	 */
+	insertCard(card: CardInput, at?: number, opts?: PlaceOptions): string;
+}
+
+import type { Addr, BaseOptions, CardInput, Content, DocumentRevised, PathStep, PlaceOptions, Receipt, Resolved } from '../core/wasm.js';
 
 /**
  * A `Document` bound to its `Quill` for typed writes, from {@link Quill.writer}.
@@ -661,8 +694,8 @@ import type { Addr, BaseOptions, Content, DocumentRevised, PathStep, Receipt, Re
  *
  * Typed commit is the default whenever a quill is in hand: it resolves each
  * field's schema type and strict-commits it, throwing `UnknownField` for an
- * undeclared name rather than falling back. The raw `Document.storeField`
- * verb remains the deliberate quill-free primitive (standalone
+ * undeclared name rather than falling back. `doc.unchecked.storeField`
+ * remains the deliberate quill-free primitive (standalone
  * data, storage/migration infra, or not-yet-conforming in-progress input).
  */
 export declare class DocumentWriter {
@@ -747,10 +780,12 @@ export declare class DocumentWriter {
 	 * body from optional markdown, and place it. `at` omitted appends, a number
 	 * inserts at that index. Transactional: a rejected field (throwing a per-field
 	 * diagnostic bundle) or an invalid kind, body, or position leaves the document
-	 * untouched. Returns the fields' `parse::dropped_construct` warnings, then
+	 * untouched. The card's `$id` mints as `doc.unchecked.insertCard` mints
+	 * one, under `opts.actor` where one is given. Returns the fields'
+	 * `parse::dropped_construct` warnings, then
 	 * the body import's, anchored under the placed card.
 	 */
-	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number): Diagnostic[];
+	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number, opts?: PlaceOptions): Diagnostic[];
 	/** Remove the composable card at `index`, returning it (or `undefined`). */
 	removeCard(index: number): Card | undefined;
 	/**

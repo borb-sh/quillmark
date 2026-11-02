@@ -47,7 +47,7 @@ fn typed_write_and_read_spell_through_the_facade() {
         let mut writer: TypedWriter = quill.writer(&mut doc);
         writer.set("subject", "Hello **world**").expect("richtext");
         writer
-            .add_card("note", [("prose", "a *card*")], None, None)
+            .add_card("note", [("prose", "a *card*")], None, None, None)
             .expect("note is a declared card kind");
     }
 
