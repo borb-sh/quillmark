@@ -209,6 +209,7 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 - The log is bounded by steps, nested ones counted, not by writes. A base rebases while the writes since it hold at most `LOG_STEPS` (4096) steps, and the base the newest write read rebases whatever that write's size. At one write a keystroke, that is minutes of typing, and a composed run of typing is one splice, so the rebase over it stays small.
 - A write that takes the log past twice `LOG_STEPS` folds its oldest writes into the snapshot, one apply of their composed change, until it holds at most `LOG_STEPS`. A value's log holds one copy of the value and at most `2 × LOG_STEPS` steps, or the newest write alone where it holds more, and a fold comes at most once per `LOG_STEPS` steps written, or right after a write that alone holds more.
 - A write the log did not see, such as a typed writer's revise, breaks the chain, and the log forgets what came before it.
+- A card keeps the hash each write left on its body or field, which the next write reads as the value's hash instead of hashing it again; a write with no base hashes nothing before it applies. Any other write to the body or the payload forgets it.
 
 `diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line and then by word, and a revise carries its anchors through the same diff, but for one whose tag the writer kept, which stands where the tag does.
 
@@ -244,7 +245,7 @@ Beyond the table, repair is total over any value shaped as content: it keeps mar
 
 ## The line form
 
-The renderers and the markdown codecs read the line form under the `lines` module, one line per block with marks and islands inline. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md), [PARITY.md](PARITY.md)).
+The renderers and the markdown codecs read the line form under the `lines` module, one line per block with marks and islands inline. `migrate::to_lines` lowers a value to it and `migrate::from_lines` lifts a v1 value, minting ids deterministically; a markdown import runs through the line form and lifts ([CONVERT.md](CONVERT.md), [PARITY.md](PARITY.md)). A card lowers its body when the line form is first read, not on each write, so a write no renderer reads pays nothing for it.
 
 The line form is a faithful view of a value but for what `to_markdown_checked` names as its loss, which a law holds over generated values (`tests/change_laws.rs`): an `x-` block lowers to a paragraph and an `x-` mark drops (`Loss::ExtBlock`, `Loss::ExtMark`), and a slot's text is spelled with a block break as two line breaks, so a hard break beside a block break or at the slot's edge reads back otherwise (`Loss::SlotBreaks`). What it loses, a content write's revise keeps (§ "Writing a value"), and the anchor contexts and receipts read the stored text, not the line form.
 

@@ -152,7 +152,11 @@ impl Card {
                 let revision = diff::revise_keeping(read.read(), markdown, &read.now).map_err(|e| match e {
                     diff::ReviseError::Import(e) => EditError::import(e),
                     diff::ReviseError::Conflict(c) => {
-                        EditError::Base(BaseError::rebase_conflict(read.hash.clone(), target.field().map(str::to_string), &c))
+                        EditError::Base(BaseError::rebase_conflict(
+                            read.hash.clone().unwrap_or_else(|| self.hash_now(target, &read.now)),
+                            target.field().map(str::to_string),
+                            &c,
+                        ))
                     }
                 })?;
                 (revision.change, revision.warnings, true)
@@ -194,33 +198,53 @@ impl Card {
 
     fn reading(&self, target: Target<'_>, base: Option<&str>) -> Result<Reading, EditError> {
         let now = self.read(target)?;
-        let hash = content_hash(&now);
-        let since = match base {
-            Some(base) if base != hash => {
+        let Some(base) = base else {
+            return Ok(Reading { now, hash: None, since: None });
+        };
+        let hash = self.hash_now(target, &now);
+        let since = match base != hash {
+            true => {
                 let since = self.log.since(target, base, &hash);
                 let stale = || BaseError::Stale { current: hash.clone(), field: target.field().map(str::to_string) };
                 Some(since.ok_or_else(|| EditError::Base(stale()))?)
             }
-            _ => None,
+            false => None,
         };
-        Ok(Reading { now, hash, since })
+        Ok(Reading { now, hash: Some(hash), since })
+    }
+
+    /// The hash of `now`, the value at `target`: the one the last write left
+    /// there, or `now` hashed.
+    fn hash_now(&self, target: Target<'_>, now: &Content) -> String {
+        let held = match target {
+            Target::Body => self.hashes.body(),
+            Target::Field(name) => self.hashes.field(name),
+        };
+        held.map_or_else(|| content_hash(now), str::to_string)
     }
 
     /// Store `content` at `target`, where it differs from the value read,
     /// log `applied` as the change that made it, and answer its hash.
     fn land(&mut self, target: Target<'_>, read: Reading, content: Content, applied: Change) -> Result<String, EditError> {
         let Reading { now: before, hash: before_hash, .. } = read;
-        let value = content.to_value();
-        let hash = super::base::digest(&value);
+        let before_hash = before_hash.unwrap_or_else(|| self.hash_now(target, &before));
+        let (hash, value) = match target {
+            Target::Body => (content_hash(&content), None),
+            Target::Field(_) => {
+                let value = content.to_value();
+                (super::base::digest(&value), Some(value))
+            }
+        };
         if hash != before_hash {
-            match target {
-                Target::Body => self.set_body(content),
-                Target::Field(name) => {
+            match (target, value) {
+                (Target::Field(name), Some(value)) => {
                     self.payload_mut().insert(name.to_string(), QuillValue::from_json(value)).map_err(EditError::InvalidPayload)?;
                 }
+                _ => self.set_body(content),
             }
             self.log.record(target, before_hash, before, applied, hash.clone());
         }
+        self.remember_hash(target.field(), hash.clone());
         Ok(hash)
     }
 }
@@ -253,7 +277,8 @@ fn keeps_ext_islands(before: &Content, after: &Content) -> Result<(), EditError>
 /// hash the log reaches, what changed since.
 struct Reading {
     now: Content,
-    hash: String,
+    /// Hashed only where a base asks for it.
+    hash: Option<String>,
     since: Option<Since>,
 }
 
@@ -274,7 +299,7 @@ impl Reading {
     fn rebase(&self, target: Target<'_>, since: &Since, change: &Change) -> Result<Change, EditError> {
         change::rebase(&since.base, change, &since.over).map_err(|e| match e {
             RebaseError::Apply(e) => EditError::change(e),
-            RebaseError::Conflict(c) => EditError::Base(BaseError::rebase_conflict(self.hash.clone(), target.field().map(str::to_string), &c)),
+            RebaseError::Conflict(c) => EditError::Base(BaseError::rebase_conflict(self.hash.clone().unwrap_or_default(), target.field().map(str::to_string), &c)),
         })
     }
 }

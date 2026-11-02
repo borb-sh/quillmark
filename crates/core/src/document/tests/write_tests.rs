@@ -616,3 +616,22 @@ fn a_write_past_an_input_bound_refuses_under_its_code() {
     assert_eq!(err.code(), "edit::too_many_steps");
     assert_eq!(doc, held);
 }
+
+/// The hash a write leaves is the one the next write reads, and a write
+/// around the content lane, to the body or a field, leaves none behind: the
+/// hash read after it is the value's own.
+#[test]
+fn a_remembered_hash_is_the_values_own() {
+    use crate::document::base::content_hash;
+    let mut doc = parse(SOURCE);
+    let notes = Target::Field("notes");
+    for target in [Target::Body, notes] {
+        let receipt = doc.main_mut().apply(target, &Change::new(vec![Step::Splice(Splice::new(0, String::new(), "x".to_string()))]), None).unwrap();
+        assert_eq!(receipt.hash, content_hash(&doc.main().read(target).unwrap()));
+    }
+    doc.main_mut().store_field("notes", crate::value::QuillValue::from_json(serde_json::json!("plain"))).unwrap();
+    doc.main_mut().revise_body("Fresh body.").unwrap();
+    for target in [Target::Body, notes] {
+        assert_eq!(doc.main().hash_of(target).unwrap(), content_hash(&doc.main().read(target).unwrap()));
+    }
+}

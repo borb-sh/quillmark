@@ -667,9 +667,61 @@ pub(crate) struct Revising {
 pub struct Card {
     payload: Payload,
     body: Content,
-    /// `body` lowered to the line form the codecs and renderers read.
-    lines: Normalized,
+    /// `body` lowered to the line form the codecs and renderers read, made
+    /// when first read.
+    lines: Lines,
     log: write::ChangeLog,
+    hashes: Hashes,
+}
+
+/// A body's line form, lowered when first read: a write that no renderer
+/// reads pays nothing for it. Derived from the body, so it takes no part in
+/// equality.
+#[derive(Clone, Default)]
+struct Lines(std::sync::OnceLock<Normalized>);
+
+impl PartialEq for Lines {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for Lines {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Lines")
+    }
+}
+
+/// The hash a write left on the body and on each richtext field it wrote,
+/// so the next write reads it rather than hashing the value again. A body
+/// set forgets the body's, and any payload write every field's. Derived from
+/// the values, so it takes no part in equality.
+#[derive(Clone, Default)]
+pub(crate) struct Hashes {
+    body: Option<String>,
+    fields: std::collections::HashMap<String, String>,
+}
+
+impl Hashes {
+    pub(crate) fn body(&self) -> Option<&str> {
+        self.body.as_deref()
+    }
+
+    pub(crate) fn field(&self, name: &str) -> Option<&str> {
+        self.fields.get(name).map(String::as_str)
+    }
+}
+
+impl PartialEq for Hashes {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for Hashes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Hashes")
+    }
 }
 
 /// What a card body is built from: a line-form value migrates, minting its
@@ -694,8 +746,7 @@ impl Card {
     /// Create a `Card` from its parts without validation.
     pub(crate) fn from_parts(payload: Payload, body: impl IntoBody) -> Self {
         let body = body.into_body();
-        let lines = quillmark_content::migrate::to_lines(&body);
-        Self { payload, body, lines, log: write::ChangeLog::default() }
+        Self { payload, body, lines: Lines::default(), log: write::ChangeLog::default(), hashes: Hashes::default() }
     }
 
     pub fn quill(&self) -> Option<&QuillReference> {
@@ -727,6 +778,7 @@ impl Card {
     }
 
     pub(crate) fn payload_mut(&mut self) -> &mut Payload {
+        self.hashes.fields.clear();
         &mut self.payload
     }
 
@@ -739,19 +791,30 @@ impl Card {
     /// The body lowered to the line form the markdown codecs and the renderers
     /// read.
     pub fn body_lines(&self) -> &Normalized {
-        &self.lines
+        self.lines.0.get_or_init(|| quillmark_content::migrate::to_lines(&self.body))
     }
 
     /// The card body rendered back to its markdown projection. This is a
     /// derived view (`export ∘ body`), not stored state; a `Document` round-trip
     /// therefore canonicalizes the body (e.g. `__b__` → `**b**`).
     pub fn body_markdown(&self) -> String {
-        quillmark_content::lines::export::to_markdown(&self.lines)
+        quillmark_content::lines::export::to_markdown(self.body_lines())
     }
 
     pub(crate) fn set_body(&mut self, body: Content) {
-        self.lines = quillmark_content::migrate::to_lines(&body);
+        self.lines = Lines::default();
+        self.hashes.body = None;
         self.body = body;
+    }
+
+    /// Note the hash a write left at `field`, `None` the body.
+    pub(crate) fn remember_hash(&mut self, field: Option<&str>, hash: String) {
+        match field {
+            None => self.hashes.body = Some(hash),
+            Some(name) => {
+                self.hashes.fields.insert(name.to_string(), hash);
+            }
+        }
     }
 
     /// Writes a line-form body over the stored one, keeping the ids of what it

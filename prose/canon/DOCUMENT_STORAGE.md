@@ -129,7 +129,11 @@ applied. Every `body` subtree, by contrast, is the recursively key-sorted
 **canonical content form** (`StoredContent` in `dto.rs`): byte-identical
 to `Content::to_value` and independent of `preserve_order`, even in a
 consumer crate graph that lacks the feature. A `richtext` field's value is
-written through the same form. Sortedness is semantic *inside* the content
+written through the same form. `Content::write_canonical` writes those bytes as it
+reads the value, building no `Value` tree, and the content hash
+(`quillmark/hash@1`, SHA-256 over the tag, a newline and these bytes)
+digests them as they are written; the bytes and the hash are the ones the
+tree serializes to, unchanged. Sortedness is semantic *inside* the content
 (mark, island and attribute order carry no meaning, so the serializer commits
 to one bit pattern); insertion order is semantic *outside* it (payload item
 order is source order, and matters).

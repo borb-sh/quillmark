@@ -63,7 +63,15 @@ impl Content {
     }
 
     pub fn to_json(&self) -> String {
-        serde_json::to_string(&self.to_value()).unwrap_or_default()
+        let mut out = Vec::new();
+        self.write_canonical(&mut out).expect("a value writes to memory");
+        String::from_utf8(out).expect("JSON is UTF-8")
+    }
+
+    /// The canonical bytes, [`to_json`](Self::to_json)'s, written to `w` as
+    /// they are made, with no [`Value`] built: what a hash digests.
+    pub fn write_canonical(&self, w: impl std::io::Write) -> std::io::Result<()> {
+        serde_json::to_writer(w, &canon::Field(self)).map_err(std::io::Error::other)
     }
 
     /// Decode, normalize and validate. A v1 value migrates. The bounds
@@ -96,6 +104,164 @@ impl Content {
     pub fn from_json(s: &str) -> Result<Content, ParseError> {
         let v: Value = serde_json::from_str(s).map_err(|e| ParseError::Json(e.to_string()))?;
         Content::from_value(&v)
+    }
+}
+
+/// The canonical form serialized as it is read: every object's keys in
+/// ascending order, a key absent where its value is empty, an opaque bag's
+/// keys sorted as it is written, byte for byte what [`Content::to_value`]
+/// serializes to.
+mod canon {
+    use super::{block_attrs, container_attrs, mark_attrs};
+    use crate::model::{Anchor, Block, Container, Content, Island, Mark};
+    use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+    use serde_json::Value;
+
+    pub(super) struct Field<'a>(pub &'a Content);
+    struct Sorted<'a>(&'a Value);
+    struct OfBlock<'a>(&'a Block);
+    struct OfContainer<'a>(&'a Container);
+    struct OfMark<'a>(&'a Mark);
+    struct OfAnchor<'a>(&'a Anchor);
+    struct OfIsland<'a>(&'a Island);
+
+    /// A list, each item serialized through its view.
+    struct Each<'a, T, W>(&'a [T], fn(&'a T) -> W);
+
+    impl<'a, T, W: Serialize> Serialize for Each<'a, T, W> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let mut seq = s.serialize_seq(Some(self.0.len()))?;
+            for item in self.0 {
+                seq.serialize_element(&(self.1)(item))?;
+            }
+            seq.end()
+        }
+    }
+
+    impl Serialize for Field<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let c = self.0;
+            let mut m = s.serialize_map(None)?;
+            if !c.anchors.is_empty() {
+                m.serialize_entry("anchors", &Each(&c.anchors, OfAnchor))?;
+            }
+            m.serialize_entry("blocks", &Each(&c.blocks, OfBlock))?;
+            if !c.containers.is_empty() {
+                m.serialize_entry("containers", &Each(&c.containers, OfContainer))?;
+            }
+            if !c.islands.is_empty() {
+                m.serialize_entry("islands", &Each(&c.islands, OfIsland))?;
+            }
+            if !c.marks.is_empty() {
+                m.serialize_entry("marks", &Each(&c.marks, OfMark))?;
+            }
+            m.serialize_entry("text", &c.text)?;
+            m.end()
+        }
+    }
+
+    impl Serialize for OfBlock<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let b = self.0;
+            let mut m = s.serialize_map(None)?;
+            if let Some(attrs) = block_attrs(&b.kind) {
+                m.serialize_entry("attrs", &Sorted(&attrs))?;
+            }
+            m.serialize_entry("id", &b.id)?;
+            m.serialize_entry("kind", b.kind.tag())?;
+            if !b.path.is_empty() {
+                m.serialize_entry("path", &b.path)?;
+            }
+            m.end()
+        }
+    }
+
+    impl Serialize for OfContainer<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let c = self.0;
+            let mut m = s.serialize_map(None)?;
+            if let Some(attrs) = container_attrs(&c.kind) {
+                m.serialize_entry("attrs", &Sorted(&attrs))?;
+            }
+            m.serialize_entry("id", &c.id)?;
+            m.serialize_entry("kind", c.kind.tag())?;
+            m.end()
+        }
+    }
+
+    impl Serialize for OfMark<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let mk = self.0;
+            let mut m = s.serialize_map(None)?;
+            if let Some(attrs) = mark_attrs(&mk.kind) {
+                m.serialize_entry("attrs", &Sorted(&attrs))?;
+            }
+            m.serialize_entry("end", &mk.end)?;
+            m.serialize_entry("start", &mk.start)?;
+            m.serialize_entry("type", mk.kind.tag())?;
+            m.end()
+        }
+    }
+
+    impl Serialize for OfAnchor<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let a = self.0;
+            let mut m = s.serialize_map(None)?;
+            m.serialize_entry("end", &a.end)?;
+            m.serialize_entry("id", &a.id)?;
+            m.serialize_entry("start", &a.start)?;
+            m.end()
+        }
+    }
+
+    impl Serialize for OfIsland<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let i = self.0;
+            let mut m = s.serialize_map(None)?;
+            m.serialize_entry("id", &i.id)?;
+            m.serialize_entry("props", &Sorted(&i.props))?;
+            if !i.slots.is_empty() {
+                m.serialize_entry("slots", &Slots(i))?;
+            }
+            m.serialize_entry("type", i.island_type.as_str())?;
+            m.end()
+        }
+    }
+
+    struct Slots<'a>(&'a Island);
+
+    impl Serialize for Slots<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let mut m = s.serialize_map(Some(self.0.slots.len()))?;
+            for (k, v) in &self.0.slots {
+                m.serialize_entry(k, &Field(v))?;
+            }
+            m.end()
+        }
+    }
+
+    impl Serialize for Sorted<'_> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            match self.0 {
+                Value::Object(map) => {
+                    let mut keys: Vec<&String> = map.keys().collect();
+                    keys.sort();
+                    let mut m = s.serialize_map(Some(keys.len()))?;
+                    for k in keys {
+                        m.serialize_entry(k, &Sorted(&map[k]))?;
+                    }
+                    m.end()
+                }
+                Value::Array(items) => {
+                    let mut seq = s.serialize_seq(Some(items.len()))?;
+                    for item in items {
+                        seq.serialize_element(&Sorted(item))?;
+                    }
+                    seq.end()
+                }
+                other => other.serialize(s),
+            }
+        }
     }
 }
 

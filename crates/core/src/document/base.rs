@@ -140,12 +140,31 @@ pub fn value_hash(value: &JsonValue) -> String {
 
 /// [`value_hash`] of a value whose keys are sorted already.
 pub(super) fn digest(sorted: &JsonValue) -> String {
-    let mut bytes = format!("{HASH_TAG}\n").into_bytes();
-    serde_json::to_writer(&mut bytes, sorted).expect("a JSON value serializes");
-    Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    digesting(|w| serde_json::to_writer(w, sorted).map_err(std::io::Error::other))
+}
+
+/// SHA-256 over [`HASH_TAG`], a newline, and the bytes `write` writes, fed
+/// to the hasher as they are written, as lowercase hex.
+fn digesting(write: impl FnOnce(&mut Hashing) -> std::io::Result<()>) -> String {
+    let mut hashing = Hashing(Sha256::new());
+    hashing.0.update(HASH_TAG.as_bytes());
+    hashing.0.update(b"\n");
+    write(&mut hashing).expect("writing to a hasher does not fail");
+    hashing.0.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A hasher taking bytes as a writer.
+struct Hashing(Sha256);
+
+impl std::io::Write for Hashing {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 fn sorted(value: &JsonValue) -> JsonValue {
@@ -168,7 +187,7 @@ fn sorted(value: &JsonValue) -> JsonValue {
 /// a body, and [`Card::field_hash`] for a richtext field, however the field
 /// rests.
 pub fn content_hash(content: &Content) -> String {
-    digest(&content.to_value())
+    digesting(|w| content.write_canonical(w))
 }
 
 /// [`revise_import`] under `base`: refused when `base` is stale, a merge when
@@ -276,7 +295,10 @@ impl Card {
     /// The hash of the body's canonical form, the [`Base::Hash`] a body revise
     /// checks.
     pub fn body_hash(&self) -> String {
-        content_hash(self.body())
+        match self.hashes.body() {
+            Some(hash) => hash.to_string(),
+            None => content_hash(self.body()),
+        }
     }
 
     /// The body's annotated read ([`to_markdown_annotated`]): the scoped read
@@ -302,7 +324,10 @@ impl Card {
     /// [`revise_field`](Self::revise_field)'s terms: the typed writer's
     /// `field_hash` is the door for a field of another type.
     pub fn field_hash(&self, name: &str) -> Result<String, EditError> {
-        Ok(content_hash(&self.richtext_value(name)?))
+        match self.hashes.field(name) {
+            Some(hash) => Ok(hash.to_string()),
+            None => Ok(content_hash(&self.richtext_value(name)?)),
+        }
     }
 
     /// [`field_hash`](Self::field_hash) through the field's schema: a

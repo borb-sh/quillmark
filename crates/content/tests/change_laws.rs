@@ -402,6 +402,22 @@ fn next(p: &Pos) -> Pos {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(300))]
 
+    /// The canonical bytes written as the value is read, which the content
+    /// hash digests, are the bytes of the key-sorted JSON tree, opaque bags
+    /// and their numbers and escapes included.
+    #[test]
+    fn canonical_bytes_stream_as_the_tree_serializes(d in document(), n in any::<i64>(), f in any::<f64>(), s in "\\PC{0,6}") {
+        let mut d = d;
+        let attrs = json!({"z": f.is_finite().then_some(f), "a": {"y": [n, null, true, -0.0], "b": s.clone()}, "m": [{"q": 1, "c": 2}]});
+        let len = d.len_usv();
+        if len > 0 {
+            d.marks.push(Mark::new(0, len, MarkKind::Ext { name: "x-z".into(), attrs: attrs.as_object().unwrap().clone() }));
+        }
+        let mut streamed = Vec::new();
+        d.write_canonical(&mut streamed).unwrap();
+        prop_assert_eq!(String::from_utf8(streamed).unwrap(), serde_json::to_string(&d.to_value()).unwrap());
+    }
+
     #[test]
     fn every_change_inverts_exactly(d in document(), ops in ops()) {
         let c = change_for(&d, &ops);
