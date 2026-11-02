@@ -449,9 +449,10 @@ The annotated read (`Card::body_annotated` and `field_annotated`, WASM
 `doc.annotated(addr)`, Python `doc.annotated(field)`) spells each prose anchor as
 `<qm-anchor ref="ID"></qm-anchor>` at its start, and each island whose markup
 does not read back as `<qm-island ref="ID"></qm-island>`
-([markdown-spec.md](../references/markdown-spec.md) §6.4). It is two-way: a
-revise reads both against the value at its address, and a cold import drops
-both, the token reported. A range anchor reads as its start and keeps its range
+([markdown-spec.md](../references/markdown-spec.md) §6.4). It is two-way for
+both: a revise reads them against the value at its address, and a cold import
+drops both, the token reported. What else the read does not spell, a content
+write's revise keeps ([CONTENT.md](CONTENT.md) § "Writing a value"). A range anchor reads as its start and keeps its range
 through `revise`; a tag the writer kept pins its anchor's start where the tag
 stands, a tag the writer dropped leaves the anchor to the diff, and a tag naming
 an anchor the stored value does not hold drops, reported. An anchor in a table

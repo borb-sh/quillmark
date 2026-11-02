@@ -181,8 +181,14 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 | Write | Builds the change from | Anchors |
 |---|---|---|
 | `apply(target, change, base)` | the caller's steps, an editor's transaction lowered | move exactly as the steps move text |
-| `revise(target, markdown, base)` | a writer's markdown: the `qm-*` tags of `annotated(target)` it keeps, then a word-aligned diff | kept by the tags kept, otherwise by the diff; drift reported |
+| `revise(target, markdown, base)` | a writer's markdown: the `qm-*` tags of `annotated(target)` it keeps, then a word-aligned diff, rebased over what the read does not spell | kept by the tags kept, otherwise by the diff; drift reported |
 | `replace(target, content, base)` | a whole value, through the same diff | each anchor the value does not name carried where the diff keeps its text; the rest reported |
+
+**A revise keeps what its read does not spell.** Markdown spells less than a valid value can hold: an editor's empty paragraph, formatting a link's text does not carry, a cell's hard break before a paragraph break, a table past the import's budget. So a revise does not diff the writer's markdown against the value cold (`diff::revise_keeping`):
+
+- It imports `annotated(target)` under the value's ids (`read`), and takes the change from `read` to the value (`over`), exactly what the read lost.
+- It revises `read` with the writer's markdown, and rebases that change over `over`. What the read lost and the writer left alone rides back in. An edit over it lands as written where the rebase maps it, and refuses with `edit::rebase_conflict` where it rewrites what the read re-spelled.
+- Where `read` is the value itself, `over` is empty and the revise is the cold diff, at the cost of one import more.
 
 A binding's write names its card by `$id`, or the main card, never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, the base cannot tell. An id no card holds refuses with `edit::unknown_card_id`.
 

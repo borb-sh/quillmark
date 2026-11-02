@@ -146,7 +146,12 @@ impl Card {
                 None => (change, Vec::new(), false),
             },
             Edit::Revise(markdown) => {
-                let revision = diff::revise_holding(read.read(), markdown, &read.now).map_err(EditError::Import)?;
+                let revision = diff::revise_keeping(read.read(), markdown, &read.now).map_err(|e| match e {
+                    diff::ReviseError::Import(e) => EditError::Import(e),
+                    diff::ReviseError::Conflict(c) => {
+                        EditError::Base(BaseError::rebase_conflict(read.hash.clone(), target.field().map(str::to_string), &c))
+                    }
+                })?;
                 (revision.change, revision.warnings, true)
             }
             Edit::Replace(content) => {

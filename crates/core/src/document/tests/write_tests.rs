@@ -428,3 +428,110 @@ fn a_revise_or_replace_refuses_to_remove_an_x_island() {
     doc.main_mut().apply(Target::Body, &removed, None).unwrap();
     assert!(doc.main().body().islands.is_empty());
 }
+
+fn content(v: serde_json::Value) -> quillmark_content::model::Content {
+    quillmark_content::model::Content::from_value(&v).unwrap_or_else(|e| panic!("{e}: {v}"))
+}
+
+fn paras(text: &str) -> serde_json::Value {
+    let blocks: Vec<_> = (0..text.split('\n').count()).map(|k| serde_json::json!({"id": format!("b{k}"), "kind": "para"})).collect();
+    serde_json::json!({"text": text, "blocks": blocks})
+}
+
+/// Valid values whose markdown read spells less than they hold: an editor's
+/// empty paragraph (between blocks, at either end, holding a break, ending a
+/// note, between two lists), formatting inside link text, a lone or trailing
+/// hard break, a cell holding a break then a paragraph, a strong mark inside
+/// a code mark, a point anchor at either edge.
+fn unspelled() -> Vec<(&'static str, quillmark_content::model::Content)> {
+    use serde_json::json;
+    let list = |id: &str, item: &str, ordered: bool| {
+        [json!({"id": id, "kind": "list", "attrs": {"ordered": ordered, "start": 1}}), json!({"id": item, "kind": "item"})]
+    };
+    let [l0, i0] = list("l0", "i0", true);
+    let [l1, i1] = list("l1", "i1", true);
+    let mut anchored = content(paras("a\nb"));
+    anchored.anchors = vec![Anchor::new("p0", 0, 0), Anchor::new("p1", 3, 3)];
+    vec![
+        ("empty paragraph between", content(paras("Alpha.\n\nBeta."))),
+        ("empty paragraph first", content(paras("\nBeta."))),
+        ("empty paragraph last", content(paras("Alpha.\n"))),
+        ("break-only paragraph", content(paras("Alpha.\n\u{2028}\nBeta."))),
+        ("lone break", content(paras("\u{2028}"))),
+        ("trailing break", content(paras("a\u{2028}"))),
+        ("two lists around an empty paragraph", content(json!({
+            "text": "a\n\nb",
+            "blocks": [{"id": "b0", "kind": "para", "path": ["l0", "i0"]}, {"id": "b1", "kind": "para"}, {"id": "b2", "kind": "para", "path": ["l1", "i1"]}],
+            "containers": [l0, i0, l1, i1],
+        }))),
+        ("emphasis in link text", content(json!({
+            "text": "see the official docs now", "blocks": [{"id": "b0", "kind": "para"}],
+            "marks": [{"start": 4, "end": 21, "type": "link", "attrs": {"url": "https://x.io"}}, {"start": 8, "end": 16, "type": "emph"}],
+        }))),
+        ("code in link text", content(json!({
+            "text": "see the code docs", "blocks": [{"id": "b0", "kind": "para"}],
+            "marks": [{"start": 4, "end": 17, "type": "link", "attrs": {"url": "https://x.io"}}, {"start": 8, "end": 12, "type": "code"}],
+        }))),
+        ("cell: break then paragraph", content(json!({
+            "text": "\u{FFFC}", "blocks": [{"id": "b0", "kind": "para"}],
+            "islands": [{"id": "t0", "type": "table",
+                "props": {"columns": ["k0"], "rows": [{"id": "r0", "cells": {"k0": "s0"}}, {"id": "r1", "cells": {"k0": "s1"}}]},
+                "slots": {"s0": paras("H"), "s1": paras("a\u{2028}\nb")}}],
+        }))),
+        ("strong inside code", content(json!({
+            "text": "abcdef", "blocks": [{"id": "b0", "kind": "para"}],
+            "marks": [{"start": 0, "end": 6, "type": "code"}, {"start": 2, "end": 4, "type": "strong"}],
+        }))),
+        ("point anchors at the edges", anchored),
+    ]
+}
+
+/// A revise with the value's own annotated read writes nothing, whatever the
+/// markdown cannot spell; one that edits another paragraph keeps it too.
+#[test]
+fn a_revise_with_the_annotated_read_keeps_what_markdown_cannot_spell() {
+    for (name, value) in unspelled() {
+        let mut doc = parse(SOURCE);
+        doc.main_mut().replace(Target::Body, &value, None).unwrap();
+        let stored = doc.main().body().clone();
+        let read = quillmark_content::markdown::to_markdown_annotated(&stored).markdown;
+        let receipt = doc.main_mut().revise(Target::Body, &read, None).unwrap();
+        assert_eq!(doc.main().body(), &stored, "{name}: {read:?}");
+        assert!(receipt.applied.is_empty(), "{name}: {:?}", receipt.applied);
+    }
+    let mut doc = parse(SOURCE);
+    for (name, value) in unspelled().into_iter().filter(|(n, _)| n.starts_with("empty paragraph between") || n.contains("link")) {
+        let mut edited = value.clone();
+        edited.text.push_str("\nTail.");
+        edited.blocks.push(Block::new("tail", BlockKind::Para));
+        doc.main_mut().replace(Target::Body, &edited, None).unwrap();
+        let stored = doc.main().body().clone();
+        let read = quillmark_content::markdown::to_markdown_annotated(&stored).markdown;
+        doc.main_mut().revise(Target::Body, &read.replace("Tail.", "Tail, edited."), None).unwrap();
+        assert_eq!(doc.main().body().text, stored.text.replace("Tail.", "Tail, edited."), "{name}");
+        assert_eq!(doc.main().body().marks, stored.marks, "{name}");
+        assert_eq!(doc.main().body().blocks, stored.blocks, "{name}");
+    }
+}
+
+/// A revise that rewrites the text under what its read could not spell
+/// lands as written, and one that rewrites what the read re-spelled refuses
+/// with a rebase conflict rather than dropping it.
+#[test]
+fn a_revise_over_what_its_read_could_not_spell_lands_as_written_or_conflicts() {
+    let shape = |name: &str| unspelled().into_iter().find(|(n, _)| *n == name).unwrap().1;
+    let mut doc = parse(SOURCE);
+    doc.main_mut().replace(Target::Body, &shape("emphasis in link text"), None).unwrap();
+    doc.main_mut().revise(Target::Body, "see [the unofficial docs](https://x.io) now", None).unwrap();
+    let body = doc.main().body();
+    assert_eq!(body.text, "see the unofficial docs now");
+    assert!(body.marks.iter().all(|m| m.kind != quillmark_content::model::MarkKind::Emph), "{:?}", body.marks);
+
+    let mut doc = parse(SOURCE);
+    doc.main_mut().replace(Target::Body, &shape("cell: break then paragraph"), None).unwrap();
+    let held = doc.clone();
+    let read = quillmark_content::markdown::to_markdown_annotated(doc.main().body()).markdown;
+    let err = doc.main_mut().revise(Target::Body, &read.replace(">b</td>", ">c</td>"), None).unwrap_err();
+    assert_eq!(err.code(), "edit::rebase_conflict", "{read:?}");
+    assert_eq!(doc, held);
+}
