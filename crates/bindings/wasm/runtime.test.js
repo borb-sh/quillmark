@@ -156,7 +156,7 @@ card_kinds:
     const doc = blankDoc()
     const ed = quill.writer(doc)
     const receipt = ed.reviseBody('New **body**.')
-    expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'hash', 'movedAnchors', 'rebased', 'warnings'])
+    expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'hash', 'minted', 'movedAnchors', 'rebased', 'warnings'])
     expect(receipt.hash).toBe(doc.hashAt({}))
     expect(receipt.rebased).toBe(false)
     expect(doc.bodyMarkdown()).toBe('New **body**.')
@@ -176,7 +176,7 @@ card_kinds:
 
     ed.reviseField('memo', 'a 😀 \\*b\\*')
     const memo = ed.reviseField('memo', 'a 😀 \\*b\\* c')
-    expect(memo.applied.steps).toEqual([{ splice: { at: 10, delete: '', insert: ' c' } }])
+    expect(memo.applied.steps).toEqual([{ splice: { at: 10, delete: '', insert: ' c', removed: {} } }])
     expect(ed.reviseField('memo', 'a 😀 \\*b\\* c').applied.steps).toEqual([])
 
     doc.apply({}, { steps: [{ anchor: { id: 'g', start: 14, end: 19 } }] })

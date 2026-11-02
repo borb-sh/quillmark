@@ -147,6 +147,8 @@ Text edits go through `diff_range(before, after, from, to)` (`diffRange(before, 
 
 `apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and `gestures::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family carries over. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
 
+A collab session merges marks by Yjs's rules, not by these defaults. Where one peer formats a range while another types at its edge, client order decides whether the typed text takes the mark, so a session's merge can differ from a rebase of the same two edits.
+
 The structural gestures build their changes the same way, so an editor that lowers through them builds no container path. A container a gesture opens is a placeholder its write fills.
 
 - `delete_range` deletes a range. Where it runs from a block's start into a later block, the block that keeps the text takes the kind, attributes and path of the block the range ends in, as ProseMirror's delete does, and keeps the first block's id.
@@ -280,7 +282,8 @@ Its `Change` takes the merged text to the value's: each character a rule deletes
 Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Writing a repair back into the shared state is optional, and who may write it back depends on what it writes:
 
 - A repair whose rules only delete or set an attribute may be written back by any peer. Two peers writing back one repair delete the same characters and records and set the same values, so their merge is one write-back, and it reads as the merged state did. A record minted for a `\n` that holds none, a split run's container and a re-minted id are sets too, each under an id derived from the ids involved.
-- A rule that inserts, `Repair::inserts` (`inserts: true` on the wire), is written back by a server where the session has one, and by no one otherwise: a split block's `\n` and record, the space a heading's hard break becomes, the hard break a cell's paragraph break becomes, and a missing cell's empty slot. Two peers inserting at once each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one peer's slot under its id. Until a server writes it back, or for the session's life where none does, every peer reads the merged state through repair and maps through its change, and a peer writes back a report only when none of its repairs inserts.
+- A rule that inserts, `Repair::inserts` (`inserts: true` on the wire), is written back by a server where the session has one, and by no one otherwise: a split block's `\n` and record, the space a heading's hard break becomes, the hard break a cell's paragraph break becomes, and a missing cell's empty slot. Two peers inserting at once each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one peer's slot under its id.
+- Until a server writes it back, or for the session's life where none does, every peer reads the merged state through repair and maps through its change, and a peer writes back a report only when none of its repairs inserts.
 
 | Merged state | How it arises | Repair |
 |---|---|---|

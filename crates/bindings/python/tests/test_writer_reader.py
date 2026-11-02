@@ -103,7 +103,7 @@ def test_writer_revise_field():
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
     receipt = w.revise_field("bio", "make it **bold**")
-    assert sorted(receipt) == ["applied", "dropped_anchors", "hash", "moved_anchors", "rebased", "warnings"]
+    assert sorted(receipt) == ["applied", "dropped_anchors", "hash", "minted", "moved_anchors", "rebased", "warnings"]
     assert receipt["applied"]["steps"][0]["splice"]["insert"] == "make it bold"
     assert receipt["hash"] == w.hash_at("bio")
     assert (receipt["dropped_anchors"], receipt["moved_anchors"], receipt["warnings"], receipt["rebased"]) == ([], [], [], False)
@@ -474,6 +474,6 @@ def test_a_text_field_revise_answers_one_splice_over_its_literal_text():
     w = taro_quill().writer(doc)
     w.revise_field("title", "a \U0001F600 \\*b\\*")
     receipt = w.revise_field("title", "a \U0001F600 \\*b\\* c")
-    assert receipt["applied"] == {"steps": [{"splice": {"at": 9, "delete": "", "insert": " c"}}]}
+    assert receipt["applied"] == {"steps": [{"splice": {"at": 9, "delete": "", "insert": " c", "removed": {}}}]}
     assert receipt["hash"] == w.hash_at("title")
     assert w.revise_field("title", "a \U0001F600 \\*b\\* c")["applied"] == {"steps": []}
