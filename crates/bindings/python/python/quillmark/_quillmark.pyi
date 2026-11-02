@@ -159,7 +159,7 @@ class Document:
     def reattach(
         self,
         selectors: Sequence[AnchorContext],
-        deltas: dict[str, dict[str, Any]] | None = None,
+        changes: dict[str, Change] | None = None,
     ) -> Reattached: ...
     def read(self, field: str | None = None, card: int | str | None = None) -> Content: ...
     def annotated(self, field: str | None = None, card: int | str | None = None) -> str: ...
@@ -202,7 +202,8 @@ class Receipt(TypedDict):
     moved_anchors: list[MovedAnchor]
     warnings: list[Diagnostic]
     # The base was a value the field had moved on from, and the write was
-    # rebased over what changed since.
+    # rebased over what changed since, or, for a writer's revise under its
+    # markdown read, merged with it.
     rebased: bool
 
 def invert(change: Change, before: Content) -> Change: ...
@@ -228,20 +229,11 @@ class Reattached(TypedDict):
     reattached: list[AnchorContext]
     orphaned: list[AnchorContext]
 
-class DroppedAnchor(TypedDict):
-    id: str
-    line: str
-
 class DocumentDroppedAnchor(TypedDict):
     id: str
     path: str
     card_id: str | None
     line: str
-
-class Revised(TypedDict):
-    delta: dict[str, Any]
-    warnings: list[Diagnostic]
-    dropped_anchors: list[DroppedAnchor]
 
 class MergeConflict(TypedDict):
     path: str
@@ -308,7 +300,7 @@ class Writer:
         *,
         base_hash: str | None = None,
         base_markdown: str | None = None,
-    ) -> Revised: ...
+    ) -> Receipt: ...
     def revise_field(
         self,
         name: str,
@@ -317,7 +309,7 @@ class Writer:
         *,
         base_hash: str | None = None,
         base_markdown: str | None = None,
-    ) -> Revised: ...
+    ) -> Receipt: ...
     def revise_document(
         self,
         markdown: str,

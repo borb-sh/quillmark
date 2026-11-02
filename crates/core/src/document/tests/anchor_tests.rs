@@ -198,21 +198,21 @@ fn a_delta_binds_only_the_path_it_is_keyed_by() {
         .unwrap();
 
     let mut strict = bare.clone();
-    let here = HashMap::from([(DocPath::main_body(), revised.delta.clone())]);
+    let here = HashMap::from([(DocPath::main_body(), revised.applied.clone())]);
     assert_eq!(
         strict.reattach(&before, &here).orphaned,
         before,
         "both quotes sit in kept text"
     );
 
-    let elsewhere = HashMap::from([("cards.note[0].body".parse().unwrap(), revised.delta)]);
+    let elsewhere = HashMap::from([("cards.note[0].body".parse().unwrap(), revised.applied)]);
     let out = bare.reattach(&before, &elsewhere);
     assert_eq!(ids(&out.reattached), ["m1", "m2"]);
     assert_eq!(anchor_ids(bare.main().body_lines()), ["m1", "m2"]);
 }
 
 #[test]
-fn a_quote_found_again_in_inserted_text_is_placed_with_the_delta() {
+fn a_quote_found_again_in_inserted_text_is_placed_with_the_change() {
     let mut doc = parse(
         "~~~\n$quill: q\n~~~\n\nIntro.\n\nOver the fiscal year we approved the budget for roads.\n",
     );
@@ -223,8 +223,8 @@ fn a_quote_found_again_in_inserted_text_is_placed_with_the_delta() {
                      nine ten eleven twelve thirteen fiscal year we approved the budget for roads.";
     let mut bare = without_anchors(&doc);
     let revised = bare.main_mut().revise_body(rewritten).unwrap();
-    let deltas = HashMap::from([(DocPath::main_body(), revised.delta)]);
-    let out = bare.reattach(&before, &deltas);
+    let changes = HashMap::from([(DocPath::main_body(), revised.applied)]);
+    let out = bare.reattach(&before, &changes);
     assert!(out.orphaned.is_empty(), "{out:?}");
     assert_eq!(out.reattached[0].quote, "approved the budget");
 
@@ -237,7 +237,7 @@ fn a_quote_found_again_in_inserted_text_is_placed_with_the_delta() {
 }
 
 /// Every rung that revises one body or field names the anchor it drops, with
-/// the line it stood on.
+/// the text it held.
 #[test]
 fn every_field_revise_names_the_anchor_it_drops() {
     let base = crate::document::import_body("Keep this line.\n\nDrop this anchored line.").unwrap();
@@ -254,7 +254,7 @@ fn every_field_revise_names_the_anchor_it_drops() {
         card.overwrite_field("f", base.clone()).unwrap();
         card
     };
-    type Rung = fn(&mut Card, &Normalized, &FieldSchema) -> crate::document::Revised;
+    type Rung = fn(&mut Card, &Normalized, &FieldSchema) -> crate::document::Receipt;
     let rungs: [(&str, Rung); 5] = [
         ("revise_body", |c, _, _| {
             c.revise_body("Keep this line.").unwrap()
@@ -263,7 +263,7 @@ fn every_field_revise_names_the_anchor_it_drops() {
             c.revise_field("f", "Keep this line.").unwrap()
         }),
         ("revise_body_content", |c, n, _| {
-            c.revise_body_content(n.clone())
+            c.revise_body_content(n.clone()).unwrap()
         }),
         ("revise_field_content", |c, n, _| {
             c.revise_field_content("f", n.clone()).unwrap()
@@ -278,9 +278,9 @@ fn every_field_revise_names_the_anchor_it_drops() {
         let dropped: Vec<(&str, &str)> = revised
             .dropped_anchors
             .iter()
-            .map(|a| (a.id.as_str(), a.line.as_str()))
+            .map(|a| (a.context.id.as_str(), a.context.quote.as_str()))
             .collect();
-        assert_eq!(dropped, [("c1", "Drop this anchored line.")], "{rung}");
+        assert_eq!(dropped, [("c1", "anchored")], "{rung}");
     }
 
     let mut card = fresh();
@@ -374,9 +374,10 @@ fn a_revise_names_a_cell_anchor_it_drops() {
     let dropped: Vec<(&str, &str)> = revised
         .dropped_anchors
         .iter()
-        .map(|a| (a.id.as_str(), a.line.as_str()))
+        .map(|a| (a.context.id.as_str(), a.context.quote.as_str()))
         .collect();
-    assert_eq!(dropped, [("t1", "one cell")]);
+    assert_eq!(dropped, [("t1", "cell")]);
+    assert!(revised.dropped_anchors[0].slot.is_some());
 }
 
 /// The content model holds an anchor id once, so a line-form collision a

@@ -66,7 +66,18 @@ pub(crate) fn write<'py>(
     let to_py = |e: EditError| convert_edit_error(e, base_path);
     let receipt: Receipt = card.write(Target::from(field), edit, base).map_err(to_py)?;
     let card_id = card.id().map(str::to_string);
-    let warnings = py_diagnostics(receipt.diagnostics(Some(&path)));
+    receipt_to_py(py, receipt, &path, card_id)
+}
+
+/// `receipt` as it crosses, its dropped anchors' selectors at `path` on the
+/// card `card_id` names.
+pub(crate) fn receipt_to_py<'py>(
+    py: Python<'py>,
+    receipt: Receipt,
+    path: &DocPath,
+    card_id: Option<String>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let warnings = py_diagnostics(receipt.diagnostics(Some(path)));
     let dropped: Vec<_> = receipt
         .dropped_anchors
         .into_iter()

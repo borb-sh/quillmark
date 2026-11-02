@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use quillmark::{
     AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, CalendarDate, CardReader, Delta,
     DocPath, Document, DocumentAnchor, DocumentRevised, EditError, ImportError, Normalized,
-    ParseDateError, Parsed, Quill, QuillReference, QuillValue, Reattached, Revised, TypedReader,
+    ParseDateError, Parsed, Quill, QuillReference, QuillValue, Reattached, Receipt, TypedReader,
     TypedWriter,
 };
 
@@ -83,14 +83,10 @@ fn content_lane_spells_through_the_facade() {
     let _: Option<quillmark_content::model::Content> = reader.get_content("subject").expect("subject is declared");
     let _: Annotated = doc.main().body_annotated();
 
-    let revised: Result<Revised, EditError> = doc.main_mut().revise_body("# Body");
-    let Revised {
-        delta,
-        dropped_anchors,
-        ..
-    } = revised.expect("a heading imports");
-    let _: Delta = delta;
-    let _: Vec<AnchorRead> = dropped_anchors;
+    let revised: Result<Receipt, EditError> = doc.main_mut().revise_body("# Body");
+    let Receipt { applied, dropped_anchors, .. } = revised.expect("a heading imports");
+    let _: quillmark_content::change::Change = applied;
+    let _: Vec<quillmark_content::change::Dropped> = dropped_anchors;
     let _: fn(ImportError) -> EditError = EditError::Import;
 
     let read: AnnotatedMarkdown = doc.to_markdown_annotated();
@@ -106,12 +102,13 @@ fn content_lane_spells_through_the_facade() {
 
     let selectors: Vec<AnchorSelector> = doc.anchor_contexts();
     let _: Option<AnchorSelector> = doc.anchor_context("c1");
-    let deltas: HashMap<DocPath, Delta> = HashMap::new();
+    let changes: HashMap<DocPath, quillmark_content::change::Change> = HashMap::new();
     let Reattached {
         reattached,
         orphaned,
         ..
-    } = doc.reattach(&selectors, &deltas);
+    } = doc.reattach(&selectors, &changes);
+    let _: Option<(AnchorRead, Delta)> = None;
     let _: (Vec<AnchorSelector>, Vec<AnchorSelector>) = (reattached, orphaned);
 }
 

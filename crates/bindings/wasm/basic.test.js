@@ -300,11 +300,12 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
     )
   })
 
-  it('revise({}, md) revises the main body and returns the text delta', () => {
+  it('revise({}, md) revises the main body and returns the content receipt', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const { delta, warnings } = doc._revise({}, 'Body from **markdown**.')
+    const { applied, hash, warnings } = doc._revise({}, 'Body from **markdown**.')
     expect(exportMarkdown(doc.main.body)).toBe('Body from **markdown**.')
-    expect(Array.isArray(delta.ops)).toBe(true)
+    expect(Array.isArray(applied.steps)).toBe(true)
+    expect(hash).toBe(doc.hashAt({}))
     expect(warnings).toEqual([])
   })
 
@@ -400,15 +401,13 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
     expect(other.replace({}, importMarkdown('Nothing like it.\n\nAt all.').content).droppedAnchors).toEqual([
       { ...context, suffix: ' to plan.' },
     ])
-    expect(anchoredDoc()._revise({}, 'Nothing like it.\n\nAt all.').droppedAnchors).toEqual([
-      { id: 'm1', line: 'The committee met on Monday to plan.' },
-    ])
+    expect(anchoredDoc()._revise({}, 'Nothing like it.\n\nAt all.').droppedAnchors).toEqual([{ ...context, suffix: ' to plan.' }])
   })
 
   it('reattach places a dropped anchor where its quote and context are found once', () => {
     const doc = anchoredDoc()
     const before = doc.anchorContexts()
-    const { delta } = doc._revise({}, 'Minutes.\n\nThe committee met on Monday to plan.')
+    const { applied } = doc._revise({}, 'Minutes.\n\nThe committee met on Monday to plan.')
     expect(doc.anchorContexts().map((c) => c.id)).toEqual(['m1'])
 
     const reopened = Document.fromMarkdown(doc.toMarkdown())
@@ -418,22 +417,16 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
     expect(reopened.anchorContexts()).toEqual(doc.anchorContexts())
 
     const strict = Document.fromMarkdown(doc.toMarkdown())
-    expect(strict.reattach(before, { 'main.body': delta }).orphaned).toEqual(before)
+    expect(strict.reattach(before, { 'main.body': applied }).orphaned).toEqual(before)
+    expect(() => strict.reattach(before, { 'main.body': { ops: [] } })).toThrow(/reattach/)
   })
 
-  it('a typed revise answers its delta in UTF-16, over the text it revised', () => {
+  it('a typed revise answers its change in UTF-16, over the value it revised', () => {
     const doc = anchoredDoc()
     doc._revise({}, '😀😀 alpha gamma')
-    const old = doc.read({}).text
-    const { delta } = doc._revise({}, '😀😀 alpha 😀 beta gamma')
-    let out = ''
-    let i = 0
-    for (const op of delta.ops) {
-      if ('retain' in op) out += old.slice(i, (i += op.retain))
-      else if ('delete' in op) i += op.delete
-      else out += op.insert
-    }
-    expect(out + old.slice(i)).toBe(doc.read({}).text)
+    const { applied } = doc._revise({}, '😀😀 alpha 😀 beta gamma')
+    expect(mapPos(applied, 10, 'before').pos).toBe(10)
+    expect(mapPos(applied, 11, 'after').pos).toBe(19)
   })
 
   it('reattach answers a live id without writing and refuses a malformed selector', () => {
@@ -1018,9 +1011,9 @@ describe('Document editor surface: storeField / removeField / replace / revise (
 
   it('revise / replace take a card address', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
-    const { delta } = doc._revise({ card: 0 }, 'New card body.')
+    const { applied } = doc._revise({ card: 0 }, 'New card body.')
     expect(exportMarkdown(doc.cards[0].body)).toBe('New card body.')
-    expect(Array.isArray(delta.ops)).toBe(true)
+    expect(Array.isArray(applied.steps)).toBe(true)
 
     doc.replace({ card: doc.cards[0].id }, importMarkdown('Card body from **markdown**.').content)
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body from **markdown**.')

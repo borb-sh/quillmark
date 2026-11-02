@@ -79,11 +79,76 @@ pub struct Receipt {
     /// The markdown import's warnings, for a revise.
     pub warnings: Vec<ImportWarning>,
     /// The base was a value the field had moved on from, and the write was
-    /// rebased over what changed since.
+    /// rebased over what changed since, or, for a writer's revise under its
+    /// markdown read, merged with it.
     pub rebased: bool,
+    counted: Counted,
+}
+
+/// What a receipt's `applied` counts its offsets over, when it counts them in
+/// scalars and holds what [`Receipt::in_units`] converts them on.
+#[derive(Debug, Clone, PartialEq)]
+enum Counted {
+    Host,
+    Content(Arc<Content>),
+    Text(Arc<str>),
 }
 
 impl Receipt {
+    /// The receipt of a `text` field's revise from `before` to `after`: one
+    /// splice over the literal text, from the first character the two differ
+    /// at to the last.
+    pub(crate) fn of_text(before: String, after: &str, hash: String) -> Receipt {
+        let (b, a): (Vec<char>, Vec<char>) = (before.chars().collect(), after.chars().collect());
+        let head = b.iter().zip(&a).take_while(|(x, y)| x == y).count();
+        let tail = b[head..].iter().rev().zip(a[head..].iter().rev()).take_while(|(x, y)| x == y).count();
+        let steps = match b == a {
+            true => Vec::new(),
+            false => vec![Step::Splice(change::Splice {
+                at: head,
+                delete: b[head..b.len() - tail].iter().collect(),
+                insert: a[head..a.len() - tail].iter().collect(),
+                ..Default::default()
+            })],
+        };
+        Receipt {
+            applied: Change { steps },
+            hash,
+            dropped_anchors: Vec::new(),
+            moved_anchors: Vec::new(),
+            warnings: Vec::new(),
+            rebased: false,
+            counted: Counted::Text(before.into()),
+        }
+    }
+
+    /// The receipt with `applied` counted in `u`. A writer's revise answers
+    /// its change in scalars, and this converts it on the value it read; a
+    /// receipt [`Card::write`] or [`Card::write_in`] answered comes back as
+    /// it is, in the units its write was given.
+    pub fn in_units(mut self, u: impl Units) -> Receipt {
+        self.applied = match std::mem::replace(&mut self.counted, Counted::Host) {
+            Counted::Host => return self,
+            Counted::Content(before) => units::change_from_scalars(&self.applied, &before, u)
+                .expect("a receipt's change applies to the value it read"),
+            Counted::Text(before) => Change {
+                steps: self
+                    .applied
+                    .steps
+                    .into_iter()
+                    .map(|step| match step {
+                        Step::Splice(mut s) => {
+                            s.at = before.chars().take(s.at).map(|c| u.char_len(c)).sum();
+                            Step::Splice(s)
+                        }
+                        step => step,
+                    })
+                    .collect(),
+            },
+        };
+        self
+    }
+
     /// The receipt's warnings as diagnostics at `at`: a
     /// [`dropped_construct`](super::dropped_construct) per construct the
     /// markdown dropped.
@@ -182,7 +247,40 @@ impl Card {
         };
         let rebased = read.since.is_some();
         let hash = self.land(target, read, applied.content, applied.applied)?;
-        Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased })
+        Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased, counted: Counted::Host })
+    }
+
+    /// Run `write`, which stores a new value at `target`, and answer its
+    /// receipt: the change from the value before to the value after, in
+    /// scalars, logged as a write through [`write`](Self::write) logs its own,
+    /// so a later write naming the hash before rebases over it.
+    pub(crate) fn revising(
+        &mut self,
+        target: Target<'_>,
+        warnings: Vec<ImportWarning>,
+        write: impl FnOnce(&mut Self) -> Result<(), EditError>,
+    ) -> Result<Receipt, EditError> {
+        let before = self.read(target)?;
+        let before_hash = self.hash_now(target, &before);
+        write(self)?;
+        let after = self.read(target)?;
+        let change = diff::diff(&before, &after).map_err(|e| EditError::change(e.into()))?;
+        let applied = change::apply(&before, &change).map_err(EditError::change)?;
+        let dropped_anchors = change::lost_anchors(&before, &after, |_| true);
+        let hash = self.hash_now(target, &after);
+        let before = Arc::new(before);
+        if hash != before_hash {
+            self.log.record(target, before_hash, Content::clone(&before), applied.applied.clone(), hash.clone());
+        }
+        Ok(Receipt {
+            applied: applied.applied,
+            hash,
+            dropped_anchors,
+            moved_anchors: applied.moved,
+            warnings,
+            rebased: false,
+            counted: Counted::Content(before),
+        })
     }
 
     /// The value `base` names at `target`: the value now, where `base` is

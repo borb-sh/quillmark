@@ -304,6 +304,37 @@ fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, C
     Ok((Applied { content, applied, dropped, moved }, inverse))
 }
 
+/// The text `change`'s top-level splices inserted that survives in `after`,
+/// the text it produced, as scalar ranges into `after`. The change counts in
+/// `u`; a range whose edge falls inside a character or past `after` is left
+/// out.
+pub fn inserted_spans(change: &Change, after: &str, u: impl Units) -> Vec<(Usv, Usv)> {
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    for step in &change.steps {
+        let Step::Splice(s) = step else { continue };
+        let (at, deleted, inserted) = (s.at, u.len(&s.delete), u.len(&s.insert));
+        let end = at + deleted;
+        let shift = |p: usize, inside: usize| match p {
+            p if p <= at => p,
+            p if p >= end => p - deleted + inserted,
+            _ => inside,
+        };
+        spans = spans
+            .into_iter()
+            .map(|(a, b)| (shift(a, at + inserted), shift(b, at)))
+            .filter(|(a, b)| a < b)
+            .collect();
+        if inserted > 0 {
+            spans.push((at, at + inserted));
+        }
+    }
+    spans.sort_unstable();
+    spans
+        .into_iter()
+        .filter_map(|(a, b)| Some((crate::units::to_scalars(u, after, a)?, crate::units::to_scalars(u, after, b)?)))
+        .collect()
+}
+
 /// Each anchor of `before`, in its text or a slot, that `after` holds
 /// nowhere and `keep` admits, as it read in `before`, in reading order.
 pub fn lost_anchors(before: &Content, after: &Content, keep: impl Fn(&str) -> bool) -> Vec<Dropped> {

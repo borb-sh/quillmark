@@ -280,7 +280,7 @@ export interface Repaired {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ReceiptJs {
+pub(super) struct ReceiptJs {
     applied: Value,
     hash: String,
     dropped_anchors: Vec<DroppedAnchorJs>,
@@ -456,8 +456,14 @@ fn write(
     let mut card = card_mut_of(doc, addr)?;
     let receipt: Receipt = card.write_in(target(addr), edit, base, Utf16).map_err(to_js)?;
     let card_id = card.id().map(str::to_string);
-    let warnings = super::diags(receipt.diagnostics(Some(&path)));
-    Ok(ReceiptJs {
+    Ok(receipt_js(receipt, &path, card_id))
+}
+
+/// `receipt` as it crosses, its dropped anchors' selectors at `path` on the
+/// card `card_id` names.
+pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath, card_id: Option<String>) -> ReceiptJs {
+    let warnings = super::diags(receipt.diagnostics(Some(path)));
+    ReceiptJs {
         applied: receipt.applied.to_value(),
         hash: receipt.hash,
         dropped_anchors: receipt
@@ -486,7 +492,7 @@ fn write(
             .collect(),
         warnings,
         rebased: receipt.rebased,
-    })
+    }
 }
 
 #[wasm_bindgen]

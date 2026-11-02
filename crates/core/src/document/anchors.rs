@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 
 use quillmark_content::anchors::{AnchorContext, Reattached, anchor_context, anchor_contexts};
-use quillmark_content::lines::delta::Delta;
+use quillmark_content::change::{Change, inserted_spans};
 use quillmark_content::model::Content;
 use quillmark_content::units::{Scalars, Units};
 use serde_json::Value as JsonValue;
@@ -125,22 +125,23 @@ impl Document {
     /// - An id live anywhere in the document, a cell's anchor included, is not
     ///   written: it is answered as reattached, with the selector the first
     ///   value holding it reads.
-    /// - `deltas` holds a write's [`Delta`] per path where the caller has one,
-    ///   and a match at that path must then overlap text the write inserted.
+    /// - `changes` holds a write's change, its receipt's `applied`, per path
+    ///   where the caller has one, and a match at that path must then overlap
+    ///   text the write inserted.
     pub fn reattach(
         &mut self,
         selectors: &[AnchorSelector],
-        deltas: &HashMap<DocPath, Delta>,
+        changes: &HashMap<DocPath, Change>,
     ) -> Reattached<AnchorSelector> {
-        self.reattach_in(selectors, deltas, Scalars)
+        self.reattach_in(selectors, changes, Scalars)
     }
 
-    /// [`reattach`](Self::reattach) with each delta counted in `u`, as
-    /// [`Revised::delta_in`](super::Revised::delta_in) answers it.
+    /// [`reattach`](Self::reattach) with each change counted in `u`, as
+    /// [`Receipt::in_units`](super::Receipt::in_units) answers it.
     pub fn reattach_in(
         &mut self,
         selectors: &[AnchorSelector],
-        deltas: &HashMap<DocPath, Delta>,
+        changes: &HashMap<DocPath, Change>,
         u: impl Units,
     ) -> Reattached<AnchorSelector> {
         let mut answered = HashSet::new();
@@ -179,9 +180,9 @@ impl Document {
 
         for (path, at) in pending {
             let ctxs: Vec<AnchorContext> = at.iter().map(|&i| selectors[i].context()).collect();
-            let delta = deltas.get(path);
+            let change = changes.get(path);
             let Some(placed) = self.edit_content_at(path, |content| {
-                let inserted = delta.map(|d| d.inserted_spans_in(&content.text, u));
+                let inserted = change.map(|c| inserted_spans(c, &content.text, u));
                 content
                     .reattach(&ctxs, inserted.as_deref(), &HashSet::new())
                     .reattached
