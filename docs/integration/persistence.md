@@ -1,6 +1,6 @@
 # Persistence
 
-A `Document`'s in-memory layout tracks the evolving Quillmark model and is not a stable interface. To store a document (a database row, a cache, a message payload) without persisting Markdown (whose syntax also evolves), serialize to a **versioned JSON envelope** with `to_stored`. That is the one form frozen per schema version; `to_markdown` round-trips but its syntax moves.
+A `Document`'s in-memory layout tracks the evolving Quillmark model and is not a stable interface. To store a document (a database row, a cache, a message payload) without persisting Markdown (whose syntax also evolves), serialize to a **versioned JSON envelope** with `to_stored`. That is the one form frozen per schema version; `to_markdown` drops every comment anchor and engine-minted id, and its syntax moves.
 
 What `quill.reader(doc)` hands a consumer to edit is the values form — content
 as its codec's text, sparse, carrying neither anchors nor `$quill`. It is a

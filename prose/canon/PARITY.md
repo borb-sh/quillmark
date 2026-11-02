@@ -68,7 +68,7 @@ import meets. The columns:
 | n/a | the surface never meets the construct: past the markdown column, a spelling the import does not store |
 | drops silently | outside the vocabulary: the surface loses the construct and nothing reports it; in the validate column, the render loses it and `validate` says nothing |
 
-### Lines
+### Blocks
 
 | Row | Markdown | Stored JSON | Change | Typst lowering | Validate | Signal |
 |---|---|---|---|---|---|---|
@@ -94,7 +94,7 @@ import meets. The columns:
 | `container.quote.instance`: two adjacent quotes | spells | spells | spells | honors | silent: honored | none |
 
 Two adjacent bullet lists lower to items a blank line parts, which Typst reads
-as one wide list: the `instance` boundary does not reach the page.
+as one wide list: the boundary between the two does not reach the page.
 
 A task item's body lowers through the helper, through the renderer a plate sets on
 `tasks`, else as a box ticked when done.
@@ -144,7 +144,7 @@ Roboto.
 |---|---|---|---|---|---|---|
 | `island.table.aligns`: table with column `aligns` | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.marks`: a cell holding marks | spells | spells | spells | honors | silent: honored | none |
-| `island.table.cell.break`: a cell's `\n`, spelled `<br>` | spells | spells | spells | honors | silent: honored | none |
+| `island.table.cell.break`: a cell's hard break (`U+2028`), spelled `<br>` | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.align`: a cell's horizontal alignment | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.valign`: a cell's vertical alignment | spells | spells | spells | honors | silent: honored | none |
 | `island.table.cell.align_valign`: both, over a cell holding marks | spells | spells | spells | honors | silent: honored | none |
@@ -185,8 +185,8 @@ out, as HTML does, and the lowering skips it.
 A table or cell key holding a value outside its set is stored as written and rides
 as a key Quillmark does not name does.
 
-A footnote's island sits at its reference and holds the note as one table
-cell. Markdown writes the reference as `[^n]` and the note as a definition
+A footnote's island sits at its reference and holds the note in its `note`
+slot, one paragraph as a cell is. Markdown writes the reference as `[^n]` and the note as a definition
 under the body, numbered in reading order.
 
 An equation's island holds its TeX as written between the dollars. Markdown

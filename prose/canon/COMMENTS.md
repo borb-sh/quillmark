@@ -1,6 +1,6 @@
 # Comment Anchors
 
-> **Implementation**: `crates/content/src/` (the `lines::anchor` module), `crates/core/src/document/` (the `anchors` module)
+> **Implementation**: `crates/content/src/` (the `anchors` module), `crates/core/src/document/` (the `anchors` module)
 > **Related**: [CONTENT.md](CONTENT.md), [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md), [BINDINGS.md](BINDINGS.md)
 
 ## TL;DR
@@ -44,9 +44,9 @@ The read is pure and cheap enough to run before every markdown write.
 4. A point (an empty quote) counts at each position where the prefix and the suffix both agree.
 5. Where the caller passes the write's change for the path, its receipt's `applied`, a match must overlap text that change's top-level splices inserted, the discipline `revise` keeps, and only the value's own text counts, since those splices span it alone. Without one, the context rule alone decides.
 6. Exactly one counting place over the prose and every cell: attach there. None or several: orphan. No nearest match, no partial quote, no edit distance.
-7. A selector stored before 0.135 spells a hard break as `\n` and a cell's block break as two; where the stored spelling counts nowhere, the rule runs once more over each surface spelled that way.
-7. An id already live anywhere in the document, a cell's anchor included, is not re-added. It is answered as reattached with the selector the first value holding it reads.
-8. Each id is answered once: of selectors sharing an id, the first is answered and the rest are left out of the receipt.
+7. A selector that spells a hard break as `\n` and a cell's block break as two, where it counts nowhere as spelled, runs the rule once more over each surface spelled that way.
+8. An id already live anywhere in the document, a cell's anchor included, is not re-added. It is answered as reattached with the selector the first value holding it reads.
+9. Each id is answered once: of selectors sharing an id, the first is answered and the rest are left out of the receipt.
 
 A range lands exactly over the quote's characters. A point lands at the one position where the prefix meets the suffix, as an empty range.
 A write that inserts text at a point leaves the point before it: a point binds to the text on its left, as a caret does.
@@ -58,11 +58,7 @@ A selector naming none is path-strict, as is the rest of every path: a path nami
 ## Drift
 
 Every revise verb is one revise at an address ([CONTENT.md](CONTENT.md) § "Writing a value"), and it can keep an anchor on different words: it relocates a moved quote of four characters or more to the first occurrence overlapping inserted text, and a word-level rewrite can leave both ends of a range over new text. `reattach` never sees those anchors.
-A write's `movedAnchors` reports drift by position, a point included: it names each surviving anchor the write moved, with its quote before and after and the first `reason` that holds.
-
-- `position`: an `anchor` step put it other than where the write's text edits move it, as a writer moving a kept tag does, or in another slot.
-- `block`: its start now sits in another block, as after a split or a join, or a paragraph the diff paired otherwise.
-- `context`: its quote, or the eight characters either side that `reattach` holds a selector's context to, read otherwise, so a relocated quote with an unchanged text still reports.
+A write's `movedAnchors` reports drift by position, a point included: it names each surviving anchor the write moved, with its quote before and after and the first `reason` that holds, `position`, `block` or `context` ([CONTENT.md](CONTENT.md) § Changes). A writer moving a kept tag reports `position`, a split or a join `block`, and a relocated quote whose text is unchanged still reports `context`, since the eight characters either side are what `reattach` holds a selector's context to.
 
 A host re-reads the selector of each anchor named there. Nothing moves an anchor on its own.
 
@@ -97,11 +93,11 @@ A field holding no content (an enum, a number, a date, a boolean, or a container
 ## Hosting
 
 A host holding threads persists the `StoredDocument` or keeps the live document and revises it.
-It never reopens from markdown: `toMarkdown` drops every anchor, and `equals` counts anchors, so an echo guarded by `equals` never matches once a document holds one.
+It never reopens from markdown: the plain `toMarkdown` drops every anchor, and `equals` counts anchors, so an echo guarded by `equals` never matches once a document holds one.
 A host that stores markdown recovers by running `reattach` over every stored selector after the open, under the same rule. Recovery is a search that can orphan, so it is the fallback, not the design.
 
 ## Links
 
-- Per-field rule and constants: the `lines::anchor` module of `quillmark-content` (`Content::anchor_sites`, `anchor_contexts`, `locate_site`, `Content::reattach`).
+- Per-field rule and constants: the `anchors` module of `quillmark-content` (`anchor_contexts`, `locate_site`, `Content::reattach`).
 - Document walk and the path writer: `Document::anchor_contexts`, `anchor_context`, `reattach`.
-- Receipts: `Receipt.dropped_anchors`, `Revised.dropped_anchors` and `DocumentRevised.dropped_anchors`.
+- Receipts: `Receipt.dropped_anchors` and `DocumentRevised.dropped_anchors`.

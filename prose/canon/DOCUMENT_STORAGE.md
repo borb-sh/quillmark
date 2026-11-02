@@ -14,7 +14,7 @@ syntax also evolves), `Document` serializes to a **versioned JSON envelope**,
 
 | Form | Round-trips? | Stable for storage? |
 |---|---|---|
-| Markdown (`Document::to_markdown`) | Yes | No: syntax evolves |
+| Markdown (`Document::to_markdown`) | No: anchors and ids drop ([CONTENT.md](CONTENT.md) § "What markdown keeps") | No: syntax evolves |
 | `StoredDocument` JSON | Yes: lossless | Yes: frozen per schema version |
 
 Use `StoredDocument` JSON whenever a `Document` must survive a process
@@ -62,7 +62,8 @@ is stored as one inside its item's `value`; see Byte-stability.
         { "type": "kind",  "value": "main" },
         { "type": "ext",   "value": { "presentation": { "title": "Greeting Card" } } },
         { "type": "field", "key": "title", "value": "Hi" }
-      ]
+      ],
+      "nested_comments": []
     },
     "body": { "blocks": [ { "id": "b0", "kind": "para" } ], "text": "Hi" }
   },
@@ -77,7 +78,8 @@ payload items is `type` (not `kind`) to keep it unambiguous next to the
 `$kind` metadata semantic. The full variant set is `quill | kind | id | ext |
 seed | field | comment`; the `ext` and `seed` variants carry the
 `$ext` / `$seed` maps verbatim and are stripped from the plate JSON
-before backends see it.
+before backends see it. `nested_comments` holds the YAML comments inside a
+field's value, each at its container path and position.
 Load-time warnings (a parse's, plus the `conform::*` diagnostics when the
 document came through the bound input path) live on the `Parsed` record, not on
 `Document`, so they never reach this format; the bindings stash them on
@@ -92,10 +94,10 @@ under one loads through the `0.134.0` hop: its body, and each field value
 that decodes as line-form content at any depth, migrates through
 `migrate::from_lines`, minting ids deterministically, so the same row
 always migrates to the same bytes. A `$seed` or `$ext` value stays as stored,
-and the decoders read a line-form value wherever they meet one. A row a
-pre-release build wrote in the line form under `0.134.0` itself loads the same
-way: `StoredContent` migrates a line-form body, and the load walks each field
-value as the hop does.
+and the decoders read a line-form value wherever they meet one. A row
+under `0.134.0` holding a line-form body or field loads the same way:
+`StoredContent` migrates a line-form body, and the load walks each field value
+as the hop does.
 
 `0.124.0` carries the content vocabulary without the `footnote` and `math`
 islands, the `term` line kind or the `description` container. It is the oldest
@@ -147,11 +149,9 @@ outbound check is the backstop.
 **A canonical value reads as itself; another moves once.** A write's decode
 takes one spelling per value and refuses the rest ([CONTENT.md](CONTENT.md)
 § "Validity"), so a value a write stored re-encodes to its own bytes and its
-hash holds across a read. A stored body or field value spelled otherwise, which
-only hand-built JSON and earlier builds wrote, reads leniently in 0.135: as its
-canonical form, its hash moving once, with a `content::noncanonical_read`
-warning on `Document::from_stored` naming where, so the host stores the row
-again. A later release refuses such a row's value, as a write's decode does.
+hash holds across a read. A stored body or field value spelled otherwise reads as its canonical form, its
+hash moving once, with a `content::noncanonical_read` warning naming where, so
+the host stores the row again ([CONTENT.md](CONTENT.md) § "Validity").
 
 The guarantee follows from: struct field order is fixed in the frozen
 DTO tree; `Vec` fields preserve order by definition; the two disciplines
@@ -180,8 +180,7 @@ stored row, an unchecked `store_field` of a string) stays as authored until it i
 a named state, not a second stored form: it is readable, round-trippable,
 and one bound load away from converging.
 
-A `text` field stored as its literal string, as every one was before 0.135,
-is the authored form: it reads as literal text, holds no anchor, and is stored as
+A `text` field stored as its literal string is the authored form: it reads as literal text, holds no anchor, and is stored as
 the `codec: "plain"` object once the bound input path conforms it. Its hash moves
 then, once, and the stored row needs no migration.
 
@@ -347,8 +346,7 @@ rides untouched, as an unnamed key does. Markdown writes a table as a GFM pipe
 table or as HTML, whichever holds it
 ([markdown-spec.md](../references/markdown-spec.md) §6.8). A cell, like a
 footnote's note, is one paragraph, its lines parted by `U+2028`; a stored cell
-or note of several paragraphs reads joined with `U+2028` in 0.135, under `content::noncanonical_read`, and
-a later release refuses it ([CONTENT.md](CONTENT.md) § "Validity").
+or note of several paragraphs reads joined ([CONTENT.md](CONTENT.md) § "Validity").
 
 Five rules bound the payload:
 
@@ -445,17 +443,11 @@ which actors wrote it, and its hash is stable from the moment it is stored
 rather than equal to a cold import's. Merge repair derives each id it mints
 from the ids involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 
-A markdown revise keeps the ids: `diff::align` gives the value read from the
-markdown the ids of what it kept, an island equal to a stored one keeping that
-island's id and a `qm-island` tag naming one keeping it outright, and every
-other part mints past the highest id the value held before it, so none takes a
-dropped part's id. A revise or replace re-mints a part it introduces under an
-id the value it lands on holds, reading that value and the one its base names
-and never the card's change log, so equal writes over equal values store
-equal bytes. Two stale writes that each add a part never land one id twice,
-since a rebase renames an id both introduced, and a stale writer never finds
-the id it read on a part minted since, since a rebase holds an id the writes
-since removed as gone ([CONTENT.md](CONTENT.md) § "Rebasing a change").
+A markdown revise keeps the ids of what it kept (`diff::align`), an island
+equal to a stored one or named by a `qm-island` tag keeping its id, and mints
+every other part past the highest id the value held, so none takes a dropped
+part's id. How a revise or replace mints over a stale base, reading values and
+never the change log, is CONTENT.md § "Writing a value".
 
 Re-landing a dropped part is not a mint: the delete freed the id and it travels
 back with its part in the inverse, so restoring a deletion restores the bytes.
@@ -482,36 +474,24 @@ read-only in markdown.**
   holds each id once and a host's colliding mint fails loudly. The empty id is
   refused as a degenerate handle.
 - **Opaque and invariant.** The runtime never rewrites an id. Positions move
-  through steps exactly; the id passes untouched. An anchor whose text is
-  deleted entirely drops *whole*, named in the receipt's `droppedAnchors`, and a
-  surviving anchor whose position, block or context a write moved is named
-  in `movedAnchors`, a point included. A
-  rewrite diffs by line, then by word within a line it pairs, so an anchor keeps
-  its place wherever its text is untouched.
-
-No markdown round-trip guarantee: `to_markdown` emits nothing for an anchor and
-import mints none, so a cold export→import loses every anchor ([CONTENT.md](CONTENT.md)
-§ "What markdown keeps").
+  through steps exactly; the id passes untouched, and an anchor whose text is
+  deleted entirely drops whole, named in the receipt ([CONTENT.md](CONTENT.md)
+  § Changes).
+- **Not in plain markdown.** A cold export and import loses every anchor
+  ([CONTENT.md](CONTENT.md) § "What markdown keeps").
 
 The annotated read (`Card::body_annotated` and `field_annotated`, WASM
 `doc.toMarkdown(addr, { annotated: true })`, Python
 `doc.to_markdown_at(field, annotated=True)`) spells each prose anchor as
 `<qm-anchor ref="ID"></qm-anchor>` at its start, and each island whose markup
 does not read back as `<qm-island ref="ID"></qm-island>`
-([markdown-spec.md](../references/markdown-spec.md) §6.4). It is two-way for
-both: a revise reads them against the value at its address, and a cold import
-drops both, the token reported. What else the read does not spell, a content
-write's revise keeps ([CONTENT.md](CONTENT.md) § "Writing a value"). A range anchor reads as its start and keeps its range
-through `revise`; a tag the writer kept pins its anchor's start where the tag
-stands, a tag the writer dropped leaves the anchor to the diff, and a tag naming
-an anchor the stored value does not hold drops, reported. An anchor in a table
-cell or a footnote's note lives in its slot, so it moves with the cell wherever
-its row moves.
-
-The writer's whole-document revise keeps anchors through `Document::revise`,
-which aligns cards by `$id`, `$kind` and text and revises each aligned body and
-content field; an anchor on a card it cannot align, or one the diff drops,
-drops, and the receipt names it.
+([markdown-spec.md](../references/markdown-spec.md) §6.4). A revise reads them
+back ([CONTENT.md](CONTENT.md) § "Writing a value"): a range anchor reads as its
+start and keeps its range, a tag the writer kept pins its anchor's start where
+the tag stands, a tag the writer dropped leaves the anchor to the diff, and a
+tag naming an anchor the stored value does not hold drops, reported. An anchor
+in a table cell or a footnote's note lives in its slot, so it moves with the
+cell wherever its row moves.
 
 A comment thread hangs on an anchor by its id: [COMMENTS.md](COMMENTS.md)
 states that contract, the selector each anchor reads as, and the exact rule
@@ -574,10 +554,9 @@ format was fixed in `0.134.0`, so every save writes
 `quillmark/document@0.134.0`; every later patch release writes that same
 value, because patches do not change the format.
 
-The format is the *bytes*, not only the envelope: `0.115.0` left the DTO tree
-untouched, dropped an island's `loss` key and retired the `island` line kind,
-which is a format change because the writer emits different bytes for the same
-document.
+The format is the *bytes*, not only the envelope: dropping a key or retiring a
+kind with the DTO tree untouched is a format change, because the writer emits
+different bytes for the same document.
 
 `0.124.0`, `0.129.0` and `0.131.0` share one tree over the line
 form: a field item is `{type: field, key, value}`, and a document, card,
@@ -648,21 +627,12 @@ converts to the live `Document`, so each migration step stays small as versions
 accumulate. The cost is one frozen type tree per schema version plus one
 migration function per version bump.
 
-A legacy variant may be **retired**: its DTO tree, migration, and tests
-deleted: once a product/release-history call confirms no stored population
-remains in that shape. A row that later surfaces in a retired shape fails as
-an unknown version, so the evidence for "no live rows" is what the whole call
-turns on. Every tag from `0.81.0` through `0.116.0` is retired.
-
-Two things that evidence is not. A release version is not a schema tag: the
-tag a build stamps is the newest one its DTO carries, so one tag's population
-spans every release between its bump and the next. And prose is not registry
-state — whether a version was yanked is checkable against crates.io, npm, and
-PyPI, and only those answer it.
-
-Retirement is cheap to undo while the deleted tree is recoverable from
-history. That is the argument for retiring when the evidence holds, and for
-sourcing it from a row count rather than a version number.
+A legacy variant may be **retired**, its DTO tree, migration and tests
+deleted, once a count of stored rows shows none remains in that shape; a
+release version is not that evidence, since one tag's rows span every release
+between its bump and the next. A row that later surfaces in a retired shape
+fails as an unknown version. Every tag from `0.81.0` through `0.116.0` is
+retired.
 
 ## Gotchas
 

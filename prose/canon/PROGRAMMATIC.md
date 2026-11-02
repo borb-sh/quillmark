@@ -4,18 +4,15 @@
 
 ## TL;DR
 
-A `Document` is built and mutated in memory (no Markdown text involved)
-through validated constructors and mutators: `Document::new` (blank canvas),
-`Card::new`, `Card::store_field` / `store_fields`, and the document's
-`unchecked()` writes, `store_field` and `insert_card`. Every mutator enforces
-the same field-name, depth, kind, and field-count invariants the Markdown parser
-does, and decodes each content value it is handed as a body write does, so a constructed document cannot be invalid — with no bypass, since
-`Payload`'s own mutation half is crate-internal, `card.payload()` is a read
-view, and a placed card is reached as a `CardMut` (every `Card` verb forwarded,
-no whole-card assignment) rather than a `&mut Card`. This is the
-authoring surface for
-programs (database row → rendered PDF); Markdown serves human authoring and
-the authoring document serves LLM/MCP consumers.
+A `Document` is built and mutated in memory, with no Markdown text, through
+validated constructors and mutators: `Document::new`, `Card::new`,
+`Card::store_field` / `store_fields`, and the document's `unchecked()` writes,
+`store_field` and `insert_card`. Every mutator holds the parser's field-name,
+depth, kind and field-count invariants and decodes each content value as a body
+write does, so a constructed document cannot be invalid. There is no bypass:
+`Payload`'s mutation half is crate-internal, `card.payload()` is a read view,
+and a placed card is reached as a `CardMut`, never a `&mut Card`. This is the
+authoring surface for programs (database row → rendered PDF).
 
 ## Three authoring surfaces, one model
 
