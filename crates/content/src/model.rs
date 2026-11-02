@@ -270,7 +270,7 @@ impl Island {
     }
 
     /// The slot ids the island's props reference, in reading order.
-    /// Each table cell of several paragraphs made one, every `\n` in it a
+    /// Each table cell or footnote note of several paragraphs made one, every `\n` in it a
     /// [`HARD_BREAK`] and its blocks after the first dropped; answers the slot
     /// of each cell joined. Offsets keep, one character standing for another.
     pub fn join_cells(&mut self) -> Vec<String> {
@@ -342,8 +342,8 @@ pub enum Invariant {
     TooManyAnchors { anchors: usize, max: usize },
     /// A slot holds what only a field's own text may: anything but paragraphs.
     BadSlot { island: String, slot: String },
-    /// A table cell holds a paragraph break: a cell is one paragraph, its
-    /// lines parted by [`HARD_BREAK`].
+    /// A table cell or a footnote's note holds a paragraph break: each is
+    /// one paragraph, its lines parted by [`HARD_BREAK`].
     BreakInCell { island: String, slot: String },
     /// A value spelled otherwise than [`Content::normalize`] leaves it: `what`
     /// names the part normalizing would rewrite or drop.
@@ -392,7 +392,7 @@ impl std::fmt::Display for Invariant {
                 write!(f, "slot `{slot}` of island `{island}` holds more than paragraphs")
             }
             Invariant::BreakInCell { island, slot } => {
-                write!(f, "cell `{slot}` of table `{island}` holds more than one paragraph")
+                write!(f, "slot `{slot}` of island `{island}` holds more than one paragraph")
             }
             Invariant::NotCanonical { what } => write!(f, "the value's {what} are not in canonical form"),
             Invariant::SplitContainer { id } => write!(f, "container `{id}` spans two separate runs"),

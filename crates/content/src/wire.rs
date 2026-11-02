@@ -90,8 +90,8 @@ impl Content {
         Ok(c)
     }
 
-    /// The stored-value read: decode, join a table cell of several paragraphs
-    /// with hard breaks, normalize and validate, answering whether the value
+    /// The stored-value read: decode, join a table cell or a footnote's note of
+    /// several paragraphs with hard breaks, normalize and validate, answering whether the value
     /// read was not the canonical one, so its holder can store it again. The
     /// bounds are checked first, as [`from_value`](Self::from_value) checks
     /// them. A lenient read is this release's migration door: a later one

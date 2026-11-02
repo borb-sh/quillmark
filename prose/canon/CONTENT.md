@@ -36,7 +36,7 @@ A short field as it is stored. A `\n` opens a block, `U+2028` is a hard break in
 - **Containers** are lists, list items and quotes. Nesting lives only in the blocks' paths, so a container can never dangle from a missing parent or sit in a cycle. A list holds `ordered` and `start` and an item holds `checked`; an item's number is computed when read.
 - **Marks** are formatting over `[start, end)`. Same-kind marks union. `link` and `font_family` are keyed: a character holds at most one url and one family.
 - **Anchors** are comment handles with a host-minted id, kept apart from marks. A point is an anchor with `start == end`.
-- **Islands** are tables, images, footnotes and equations, one per slot in slot order. A table's cells and a footnote's note are slots, each a nested `Content`: a cell is one paragraph, its lines parted by hard breaks (`U+2028`), and a note and an `x-` island's slot are paragraphs. Rows, columns and slots carry ids, so an anchor in a cell stays in its slot wherever the row moves.
+- **Islands** are tables, images, footnotes and equations, one per slot in slot order. A table's cells and a footnote's note are slots, each a nested `Content`: a cell and a note are each one paragraph, its lines parted by hard breaks (`U+2028`), and `validate` refuses a `\n` in either; an `x-` island's slot is paragraphs. Rows, columns and slots carry ids, so an anchor in a cell stays in its slot wherever the row moves.
 - **`codec`** is `"plain"` on a `text` field's value and absent on every other. A plain value is read and written as its literal text: markdown projects it verbatim, a revise reads its input as text, and its annotated read spells no tag ([SCHEMAS.md](SCHEMAS.md) § "Content fields rest per codec"). Any other name is `ParseError::UnknownName` with axis `codec`. The key is part of the canonical bytes, and a change, which applies to the value it was made from, never sets it.
 
 Offsets are Unicode scalar values in storage. Each binding speaks its host's units at its boundary and converts inside ([BINDINGS.md](BINDINGS.md) § "Content offsets").
@@ -82,7 +82,7 @@ Normalizing spends the mark bound before validating can refuse: a mark crosses a
 
 So a value decodes only from the bytes it encodes to, up to the wire's own spelling of an empty key (absent or empty reads as one), and decoding then encoding is the identity on every value a write accepts. `diff::replace` and `Card::replace` refuse the same values a decode does. `normalize` is the producer's verb: a producer that builds a value by hand normalizes it before it writes it.
 
-**A stored value reads leniently, for 0.135 only.** The read of a value already stored (`Content::from_value_lenient`: a stored row's body and fields, a field a document holds, the renderers' read) checks the bounds, joins a table cell of several paragraphs with `U+2028`, normalizes and validates, and says whether it rewrote anything. `Document::from_stored` warns `content::noncanonical_read` at each body or field it rewrote, so a host stores the row again ([ERROR.md](ERROR.md) § "Warning flow"). 0.135 reads leniently; a later release refuses a stored value the write's decode refuses, and drops the warning.
+**A stored value reads leniently, for 0.135 only.** The read of a value already stored (`Content::from_value_lenient`: a stored row's body and fields, a field a document holds, the renderers' read) checks the bounds, joins a table cell or a footnote's note of several paragraphs with `U+2028`, normalizes and validates, and says whether it rewrote anything. `Document::from_stored` warns `content::noncanonical_read` at each body or field it rewrote, so a host stores the row again ([ERROR.md](ERROR.md) § "Warning flow"). 0.135 reads leniently; a later release refuses a stored value the write's decode refuses, and drops the warning.
 
 ## Ids
 
@@ -295,7 +295,7 @@ Repair is how a merged state reads: it is total and deterministic, so peers hold
 | Text beside a block island | Two peers type on either side of a table's slot | The block splits at the island's edges; the first piece keeps the record, as a split's left half does, and each later piece takes a fresh id |
 | A range anchor at zero width | Its text was deleted while another peer moved it | Dropped and reported |
 | A table cell naming no slot of its own | A concurrent row insert and column insert | The cell gets an empty slot, its id the row and column ids joined |
-| A table cell of several paragraphs | A merge that splits a block inside a cell | Each `\n` in the cell becomes `U+2028` and the cell keeps its first record |
+| A table cell or a footnote's note of several paragraphs | A merge that splits a block inside a cell or a note | Each `\n` in the slot becomes `U+2028` and the slot keeps its first record |
 
 The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` carries in slot order, `null` where it carries none; an `islands` array pairs with the slots in order. And an anchor placed as a range carries `range: true`, since a range collapsed to zero width cannot otherwise be told from a point. A v1 value, `lines[]` with no `blocks`, is read as `migrate::from_lines` lifts it.
 

@@ -776,14 +776,7 @@ fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>, steps: Option<&m
             if !table(&id, &mut props, &mut slots, out) {
                 return None;
             }
-            let mut joined = Island { id: id.clone(), island_type: IslandType::Table, props: Value::Null, slots };
-            for slot in joined.join_cells() {
-                let text = &joined.slots[&slot].text;
-                let breaks = text.chars().enumerate().filter(|(_, ch)| *ch == HARD_BREAK).map(|(k, _)| Step::Splice(Splice::new(k, "\n", &HARD_BREAK.to_string())));
-                nested.push(Step::Nested { island: id.clone(), slot: slot.clone(), change: Change::new(breaks.collect()) });
-                out.push(Repair::Invalid(Invariant::BreakInCell { island: id.clone(), slot }));
-            }
-            slots = joined.slots;
+            slots = join_cells(&id, IslandType::Table, slots, &mut nested, out);
             let now: BTreeSet<String> = slots.keys().cloned().collect();
             if props != was || now != held {
                 let gained = slots.iter().filter(|(k, _)| !held.contains(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -796,6 +789,7 @@ fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>, steps: Option<&m
                 let note = slots.remove(NOTE_SLOT).unwrap_or_default();
                 slots = BTreeMap::from([(NOTE_SLOT.to_string(), note)]);
             }
+            slots = join_cells(&id, IslandType::Footnote, slots, &mut nested, out);
         }
         IslandType::Math | IslandType::Image => {
             let key = if raw.island_type == IslandType::Math {
@@ -827,6 +821,25 @@ fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>, steps: Option<&m
         props,
         slots,
     })
+}
+
+/// `slots` with each slot of several paragraphs that holds one joined by hard
+/// breaks, the splices that join it onto `nested`.
+fn join_cells(
+    id: &str,
+    island_type: IslandType,
+    slots: BTreeMap<String, Content>,
+    nested: &mut Vec<Step>,
+    out: &mut Vec<Repair>,
+) -> BTreeMap<String, Content> {
+    let mut joined = Island { id: id.to_string(), island_type, props: Value::Null, slots };
+    for slot in joined.join_cells() {
+        let text = &joined.slots[&slot].text;
+        let breaks = text.chars().enumerate().filter(|(_, ch)| *ch == HARD_BREAK).map(|(k, _)| Step::Splice(Splice::new(k, "\n", &HARD_BREAK.to_string())));
+        nested.push(Step::Nested { island: id.to_string(), slot: slot.clone(), change: Change::new(breaks.collect()) });
+        out.push(Repair::Invalid(Invariant::BreakInCell { island: id.to_string(), slot }));
+    }
+    joined.slots
 }
 
 /// A table's grid made whole: columns and rows with valid unique ids, every

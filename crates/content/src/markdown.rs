@@ -141,8 +141,8 @@ mod tests {
 
     /// A table cell is one paragraph: a paragraph break in one reads as a hard
     /// break from either table spelling, a value holding one is refused at a
-    /// write, joined on a stored read and by repair, and a footnote's note
-    /// keeps its paragraphs.
+    /// write, joined on a stored read and by repair. A footnote's note is one
+    /// paragraph the same way.
     #[test]
     fn a_table_cell_is_one_paragraph() {
         use crate::model::Invariant;
@@ -173,9 +173,16 @@ mod tests {
         assert_eq!(repaired, pipe);
         assert!(matches!(repairs.as_slice(), [r @ Repair::Invalid(inv)] if *inv == refused && r.inserts()));
 
-        let mut noted = from_markdown("a[^1]\n\n[^1]: one").unwrap().content.to_value();
+        let note = from_markdown("a[^1]\n\n[^1]: one\n\n    two").unwrap().content;
+        let mut noted = note.to_value();
+        assert_eq!(note.islands[0].slots[NOTE_SLOT].text, joined);
         noted["islands"][0]["slots"][NOTE_SLOT] = stored["islands"][0]["slots"]["s1"].clone();
-        assert_eq!(Content::from_value(&noted).unwrap().to_value(), noted);
+        let refused = Invariant::BreakInCell { island: "isl-0".into(), slot: NOTE_SLOT.into() };
+        assert_eq!(Content::from_value(&noted), Err(ParseError::Invalid(refused.clone())));
+        assert_eq!(Content::from_value_lenient(&noted).unwrap().content, note);
+        let (repaired, repairs, _) = repair(Raw::from_value(&noted).unwrap());
+        assert_eq!(repaired, note);
+        assert!(matches!(repairs.as_slice(), [Repair::Invalid(inv)] if *inv == refused));
 
         let mut c = pipe;
         let cell = c.islands[0].slots.get_mut("s1").unwrap();

@@ -619,8 +619,9 @@ See <qm-island ref="isl-2"></qm-island> for the merged cells.
 ### 6.5 Footnotes
 
 A footnote reference imports as a `footnote` island at its slot, inline in its
-paragraph, holding its definition's note as one table cell: `{text, marks}`,
-with the note's paragraphs and line breaks joined by `\n`. Each reference holds
+paragraph, holding its definition's note in the slot `note` as a table cell
+holds its text: one paragraph, the note's paragraphs and line breaks joined by
+hard breaks (`U+2028`). Each reference holds
 its own copy, so a note cited twice is two footnotes. The copies past each
 note's first share one budget per import, `MAX_NOTE_COPIES` (1 000 000)
 characters, so a long note cited many times cannot multiply into the content;
