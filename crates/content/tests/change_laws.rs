@@ -1219,6 +1219,16 @@ mod diffs {
         assert_eq!(done.islands[0].slot_order(), d.islands[0].slot_order());
         assert!(r.change.steps.iter().any(|s| matches!(s, Step::Nested { .. })));
     }
+
+    /// A held id at the top of `u64` leaves no number past it, and a revise
+    /// mints the lowest one no held id takes.
+    #[test]
+    fn a_revise_past_an_id_at_the_top_of_u64_mints_the_lowest_free_one() {
+        let mut d = from_markdown("one\n\ntwo").unwrap().content;
+        d.blocks[1].id = format!("b{}", u64::MAX);
+        let r = revise(&d, "one\n\nnew\n\ntwo").unwrap();
+        assert_eq!(segments(&r.content), ["b0=one", "b1=new", &format!("b{}=two", u64::MAX)]);
+    }
 }
 
 /// `p` with its offsets in UTF-16 code units, each level on its own text.
