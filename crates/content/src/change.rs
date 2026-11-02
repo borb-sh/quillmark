@@ -464,7 +464,7 @@ impl Run {
                 marks: removed.marks.clone(),
                 blocks: removed.blocks.clone(),
                 islands: removed.islands.clone(),
-                removed: None,
+                removed: Some(Removed { blocks: s.blocks.clone(), marks: inserted.clone(), islands: islands.clone() }),
             }));
             undo.extend(restores);
         }

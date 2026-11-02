@@ -100,7 +100,7 @@ fn with_ext(mut c: Content, seed: u8) -> Content {
 type Op = (u8, usize, usize, u8);
 
 fn ops() -> impl Strategy<Value = Vec<Op>> {
-    prop::collection::vec((0u8..14, any::<usize>(), any::<usize>(), any::<u8>()), 1..8)
+    prop::collection::vec((0u8..15, any::<usize>(), any::<usize>(), any::<u8>()), 1..8)
 }
 
 const INSERTS: [&str; 7] = ["x", "yz", " ", "\n", "q\nr", "\u{2028}", "😀a"];
@@ -302,7 +302,7 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
             s.islands = vec![island];
             Step::Splice(s)
         }
-        _ => {
+        13 => {
             let held = c.containers.get(x % c.containers.len().max(1))?;
             let kind = match held.kind {
                 ContainerKind::List { ordered, start } => ContainerKind::List { ordered: ordered != (z % 2 == 0), start: start + y as u64 % 3 },
@@ -311,7 +311,40 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
             };
             Step::Container(ContainerStep::Set(Container::new(held.id.clone(), kind)))
         }
+        _ => return island_move(c, x, y, z),
     })
+}
+
+/// An island moved as `diff` moves one: its slot, with the `\n` opening its
+/// block where it sits alone in one, deleted and inserted at another block
+/// boundary or offset under the same id, the copy first on every other `z`.
+fn island_move(c: &Content, x: usize, y: usize, z: u8) -> Option<Step> {
+    let island = c.islands.get(x % c.islands.len().max(1))?.clone();
+    let cs = chars(c);
+    let slot = cs.iter().enumerate().filter(|(_, ch)| **ch == ISLAND_SLOT).nth(x % c.islands.len())?.0;
+    let k = c.block_at(slot);
+    let alone = k > 0 && c.block_texts()[k] == ISLAND_SLOT.to_string();
+    let (from, chunk, blocks) = match alone {
+        true => (slot - 1, format!("\n{ISLAND_SLOT}"), vec![c.blocks[k].clone()]),
+        false => (slot, ISLAND_SLOT.to_string(), Vec::new()),
+    };
+    let n = chunk.chars().count();
+    let to = match alone {
+        true => {
+            let ends: Vec<usize> = (0..=cs.len()).filter(|&i| (i == cs.len() || cs[i] == '\n') && (i < from || i > from + n)).collect();
+            *ends.get(y % ends.len().max(1))?
+        }
+        false => (0..=cs.len()).filter(|&i| i < from || i > from + n).nth(y % (cs.len() - n).max(1))?,
+    };
+    let insert = |at| Step::Splice(Splice { blocks: blocks.clone(), islands: vec![island.clone()], ..Splice::new(at, "", chunk.clone()) });
+    let delete = |at| Step::Splice(Splice::new(at, chunk.clone(), ""));
+    let steps = match (z % 2 == 0, to < from) {
+        (true, true) => vec![insert(to), delete(from + n)],
+        (true, false) => vec![insert(to), delete(from)],
+        (false, true) => vec![delete(from), insert(to)],
+        (false, false) => vec![delete(from), insert(to - n)],
+    };
+    Some(Step::Nested { island: String::new(), slot: String::new(), change: Change::new(steps) })
 }
 
 /// A change built against `d`, each step kept only where the value it reads
@@ -377,6 +410,7 @@ proptest! {
         let back = apply(&after.content, &undo);
         prop_assert!(back.is_ok(), "undo refused: {:?}\nchange {:?}\nundo {:?}", back, c, undo);
         prop_assert_eq!(back.unwrap().content, d, "change {:?}", c);
+        prop_assert!(Mapping::from_change(&undo).is_ok(), "the inverse does not map: {:?}", undo);
     }
 
     #[test]
@@ -436,7 +470,8 @@ proptest! {
 
     /// Each character either goes, which the two edges around it both say,
     /// or keeps its place: the edges land around it, and the survivors keep
-    /// their order.
+    /// their order. One in a slot the change leaves as it was, its island
+    /// moved or not, keeps its place.
     #[test]
     fn a_mapped_position_lands_on_its_character(d in document(), ops in ops()) {
         let c = change_for(&d, &ops);
@@ -446,6 +481,10 @@ proptest! {
             let q = map_pos(&after.applied, &p, Assoc::After).unwrap();
             let r = map_pos(&after.applied, &next(&p), Assoc::Before).unwrap();
             prop_assert_eq!(q.deleted, r.deleted, "{:?} under {:?}", p, c);
+            if let Pos::In { island, slot, .. } = &p {
+                let kept = after.content.slot(island, slot).is_some_and(|now| Some(now) == d.slot(island, slot));
+                prop_assert!(!(kept && q.deleted), "{:?} in a slot the change kept, under {:?}", p, c);
+            }
             if q.deleted {
                 prop_assert!(q.deleted_after && r.deleted_before);
                 continue;
