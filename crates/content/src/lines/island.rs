@@ -227,6 +227,13 @@ impl IslandType {
         }
     }
 
+    /// Whether this type's slots hold paragraphs: a footnote's note and an
+    /// `x-` island's slots do, and a table's cell is one paragraph, its lines
+    /// parted by hard breaks.
+    pub fn slot_holds_paragraphs(&self) -> bool {
+        !matches!(self, Self::Table)
+    }
+
     /// This type's `(text, marks)` cells: the set that participates in mark
     /// normalization and cell-mark validation. Empty for a type with no cell
     /// model.

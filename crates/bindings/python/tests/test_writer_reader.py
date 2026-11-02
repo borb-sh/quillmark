@@ -6,6 +6,7 @@ import pytest
 from quillmark import Document, Quill, QuillmarkError
 
 from conftest import (
+    TARO_MARKDOWN,
     field,
     has_field,
     raises_edit_code,
@@ -97,13 +98,15 @@ def test_card_selector_targets_the_composable_card_on_both_lanes():
 
 def test_writer_revise_field():
     """revise_field diff-imports markdown into a richtext field under the same
-    guards as `set`, returning its receipt: the text delta, what the import
-    dropped at the field, and the anchors the diff dropped."""
+    guards as `set`, returning the receipt a content write answers."""
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
     receipt = w.revise_field("bio", "make it **bold**")
-    assert receipt == {"delta": {"ops": [{"insert": "make it bold"}]}, "warnings": [], "dropped_anchors": []}
+    assert sorted(receipt) == ["applied", "dropped_anchors", "hash", "minted", "moved_anchors", "rebased", "warnings"]
+    assert receipt["applied"]["steps"][0]["splice"]["insert"] == "make it bold"
+    assert receipt["hash"] == w.hash_at("bio")
+    assert (receipt["dropped_anchors"], receipt["moved_anchors"], receipt["warnings"], receipt["rebased"]) == ([], [], [], False)
     assert quill.reader(doc).get("bio") == "make it **bold**"
     (dropped,) = w.revise_field("bio", "make it <kbd>**bold**</kbd>")["warnings"]
     assert (dropped.code, dropped.path) == ("parse::dropped_construct", "main.bio")
@@ -159,6 +162,10 @@ def test_a_base_refuses_a_stale_revise_and_merges_a_read():
     read, hash = doc.to_markdown(), w.hash()
     body_hash = w.hash_at()
     assert body_hash == doc.hash_at()
+    assert w.revise_body("Alpha, edited.\n\nBeta.")["rebased"] is False
+    merged = w.revise_body("Alpha.\n\nBeta, mine.", base_markdown="Alpha.\n\nBeta.")
+    assert merged["rebased"] is True
+    assert doc.to_markdown().endswith("Alpha, edited.\n\nBeta, mine.\n")
     w.revise_body("Alpha, edited.\n\nBeta.")
     with raises_edit_code("edit::stale_base") as exc_info:
         w.revise_body("Other.", base_hash=body_hash)
@@ -233,8 +240,8 @@ def test_a_dropped_anchor_is_named_and_reattached_where_its_text_is_found_once()
 
     w = quill.writer(doc)
     receipt = w.revise_body("Nothing like it.\n\nAt all.")
-    assert receipt["dropped_anchors"] == [{"id": "m1", "line": "The committee met on Monday to plan."}]
-    assert doc.reattach([context], {"main.body": receipt["delta"]}) == {"reattached": [], "orphaned": [context]}
+    assert receipt["dropped_anchors"] == [context]
+    assert doc.reattach([context], {"main.body": receipt["applied"]}) == {"reattached": [], "orphaned": [context]}
 
     receipt = w.revise_document("~~~\n$quill: sample_form@0.1.0\n~~~\n\nMinutes.\n\nThe committee met on Monday to plan.\n")
     assert receipt["dropped_anchors"] == []
@@ -458,3 +465,15 @@ def test_reader_body_markdown_reads_the_main_body():
     doc = Document("taro@0.1.0")
     quill.writer(doc).revise_body("A **taro** essay.")
     assert quill.reader(doc).body_markdown() == "A **taro** essay."
+
+
+def test_a_text_field_revise_answers_one_splice_over_its_literal_text():
+    """A `text` field's receipt is one splice over the literal text, in code
+    points."""
+    doc = taro_quill().parse(TARO_MARKDOWN)
+    w = taro_quill().writer(doc)
+    w.revise_field("title", "a \U0001F600 \\*b\\*")
+    receipt = w.revise_field("title", "a \U0001F600 \\*b\\* c")
+    assert receipt["applied"] == {"steps": [{"splice": {"at": 9, "delete": "", "insert": " c", "removed": {}}}]}
+    assert receipt["hash"] == w.hash_at("title")
+    assert w.revise_field("title", "a \U0001F600 \\*b\\* c")["applied"] == {"steps": []}

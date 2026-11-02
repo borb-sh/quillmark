@@ -3,7 +3,7 @@ its producers `revise` and `replace`, the reads, and the pure helpers over
 changes. Offsets count code points."""
 
 import pytest
-from quillmark import Document, diff, invert
+from quillmark import Document, diff, invert, repair
 
 from conftest import raises_edit_code
 
@@ -61,6 +61,16 @@ def test_a_stale_base_rebases_over_the_change_since():
     with raises_edit_code("edit::rebase_conflict") as err:
         doc.apply({"steps": [{"splice": {"at": 6, "delete": "world", "insert": "there"}}]}, base=base)
     assert err.value.diagnostics[0].args == {"current": doc.hash_at(), "step": 0, "reason": "deleted"}
+
+
+def test_a_placeholder_is_minted_under_the_writers_actor():
+    doc = Document.from_markdown(MD)
+    change = {"steps": [{"splice": {"at": 5, "insert": "\nnew", "blocks": [{"id": "?n", "kind": "para"}]}}]}
+    receipt = doc.apply(change, actor="ann")
+    assert receipt["minted"] == {"?n": "ann:b0"}
+    assert [b["id"] for b in doc.read()["blocks"]] == ["b0", "ann:b0"]
+    with raises_edit_code("edit::invalid_actor"):
+        doc.apply({"steps": []}, actor="a:b")
 
 
 def test_a_reserved_x_name_rides_as_written():
@@ -128,4 +138,39 @@ def test_deleting_an_island_names_the_anchors_of_its_slots():
     receipt = doc.apply({"steps": [{"splice": {"at": 6, "delete": "\ufffc", "insert": ""}}]})
     assert receipt["dropped_anchors"] == [
         {"id": "c1", "path": "main.body", "card_id": None, "quote": "text", "prefix": "cell ", "suffix": "", "island": island["id"], "slot": cell}
+    ]
+
+
+def test_an_anchor_placement_refuses_a_held_id_and_a_move_moves_it():
+    doc = Document.from_markdown(MD)
+    doc.apply({"steps": [{"anchor": {"id": "c1", "start": 0, "end": 5}}]})
+    with raises_edit_code("edit::content_apply"):
+        doc.apply({"steps": [{"anchor": {"id": "c1", "start": 6, "end": 11}}]})
+    with raises_edit_code("edit::content_apply"):
+        doc.apply({"steps": [{"anchor": {"id": "c9", "start": 6, "end": 11, "move": True}}]})
+    receipt = doc.apply({"steps": [{"anchor": {"id": "c1", "start": 6, "end": 11, "move": True}}]})
+    assert receipt["applied"]["steps"][0]["anchor"]["move"] is True
+    assert doc.read()["anchors"] == [{"id": "c1", "start": 6, "end": 11}]
+
+
+def test_repair_answers_the_change_from_the_merged_text():
+    merged = {"text": "a\rb", "blocks": [{"id": "b0", "kind": "para"}], "anchors": [{"id": "p", "start": 2, "end": 2}]}
+    read = repair(merged)
+    assert read["content"]["text"] == "ab"
+    assert read["change"] == {"steps": [{"splice": {"at": 1, "delete": "\r", "insert": ""}}]}
+    assert read["content"]["anchors"] == [{"id": "p", "start": 1, "end": 1}]
+    valid = {"text": "ab", "blocks": [{"id": "b0", "kind": "para"}]}
+    assert repair(valid) == {"content": valid, "repairs": [], "change": {"steps": []}}
+
+
+def test_a_receipt_names_each_anchor_a_write_moved_and_what_moved():
+    doc = Document.from_markdown(MD)
+    doc.apply({"steps": [{"anchor": {"id": "p", "start": 0, "end": 0}}, {"anchor": {"id": "r", "start": 6, "end": 11}}]})
+    receipt = doc.apply({"steps": [
+        {"anchor": {"id": "p", "start": 5, "end": 5, "move": True}},
+        {"splice": {"at": 5, "delete": " ", "insert": "\n", "blocks": [{"id": "b9", "kind": "para"}]}},
+    ]})
+    assert receipt["moved_anchors"] == [
+        {"id": "p", "before": "", "after": "", "reason": "position"},
+        {"id": "r", "before": "world", "after": "world", "reason": "block"},
     ]

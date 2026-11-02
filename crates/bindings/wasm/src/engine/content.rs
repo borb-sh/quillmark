@@ -9,11 +9,11 @@ use super::{
 use crate::error::WasmError;
 use crate::types::Diagnostic;
 use quillmark_content::change::{self, Assoc, Change};
-use quillmark_content::gestures::{self, Wrap};
+use quillmark_content::gestures::{self, Gesture, Wrap};
 use quillmark_content::model::Content;
 use quillmark_content::units::{self, Utf16};
 use quillmark_content::wire::ParseError;
-use quillmark_core::document::{Card, CardMut, Edit, EditError, Receipt, Target, check_change, check_content_value};
+use quillmark_core::document::{Card, CardMut, Edit, EditError, Receipt, Target, WriteOptions, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
@@ -131,11 +131,21 @@ export interface Change {
  * - `container` adds a container or sets an existing one's attributes, or
  *   removes one no path names.
  * - `mark` adds or removes formatting over a range.
- * - `anchor` places, moves or removes a comment anchor.
+ * - `anchor` places a comment anchor under an id the value holds nowhere,
+ *   moves the one its text holds (`move: true`), or removes one.
  * - `island` replaces an island's props, or inserts an island's slot at `at`.
  * - `nested` applies a change inside one slot of an island.
  *
- * A `mark` step and an `anchor` placement take `quote`, the text their range
+ * A record a step puts, a block a splice opens, a container it sets or an
+ * island it inserts, may carry a placeholder id, `?` and an id (`"?1"`), and a
+ * step may name it, as a `setBlock` path or a `nested` island does: the write
+ * mints an id for it past every id the value holds, under `actor` where one is
+ * given, and the receipt's `minted` names it.
+ *
+ * A placement of a held id, and a move or removal of one the text does not
+ * hold, is refused (`edit::content_apply`).
+ *
+ * A `mark` step and an `anchor` placement or move take `quote`, the text their range
  * covered when the writer read it, and an island insert takes `block`, the id
  * of the block the writer read `at` in. A step whose `quote` or `block` the
  * value no longer holds is refused as stale (`edit::content_apply`), as a
@@ -150,7 +160,7 @@ export type Step =
     | { setBlock: { id: string; kind?: ContentBlockKind["kind"]; attrs?: Record<string, unknown>; path?: string[] } }
     | { container: ContentContainer | { id: string; remove: true } }
     | { mark: { start: number; end: number; add: boolean; quote?: string } & ContentMarkKind }
-    | { anchor: (ContentAnchor & { quote?: string }) | { id: string; remove: true } }
+    | { anchor: (ContentAnchor & { quote?: string; move?: true }) | { id: string; remove: true } }
     | { island: { id: string; props: Record<string, unknown>; slots?: Record<string, Content> } | { at: number; island: ContentIsland; block?: string } }
     | { nested: { island: string; slot: string; change: Change } };
 
@@ -160,19 +170,34 @@ export type Step =
  * write's `base`. `droppedAnchors` names each anchor the value held and holds
  * nowhere now, as it read before: every one a `revise` or `replace` lost, and
  * for an `apply` every one but those its `anchor` steps removed.
- * `movedAnchors` names each surviving one whose text the write rewrote.
+ * `movedAnchors` names each surviving one the write moved, a point included,
+ * with the text it covered before and after and `reason`, the first of these
+ * that holds: `position`, an anchor step put it other than where the write's
+ * text edits carry it; `block`, its start sits in another block; `context`,
+ * its text or the eight characters either side read otherwise.
  * `warnings` holds a `parse::dropped_construct` per construct a revise's
  * markdown dropped.
  * `rebased` says the write's `base` was a value the field had moved on from,
- * and the write was rebased over what changed since.
+ * and the write was rebased over what changed since. `minted` maps each
+ * placeholder the change gave a record it put to the id the write minted for
+ * it; a gesture's own are `"?0"`, `"?1"` and on, in the order it puts them.
  */
 export interface Receipt {
     applied: Change;
     hash: string;
     droppedAnchors: DroppedAnchor[];
-    movedAnchors: { id: string; before: string; after: string }[];
+    movedAnchors: MovedAnchor[];
     warnings: Diagnostic[];
     rebased: boolean;
+    minted: Record<string, string>;
+}
+
+/** A surviving anchor a write moved, and what moved. */
+export interface MovedAnchor {
+    id: string;
+    before: string;
+    after: string;
+    reason: "position" | "block" | "context";
 }
 
 /**
@@ -185,13 +210,41 @@ export interface DroppedAnchor extends AnchorContext {
     slot?: string;
 }
 
-/** The hash a writer read. A value that has changed since rebases the write
- *  over the change, refusing it with `edit::rebase_conflict` where the two
- *  touch the same text or record, and with `edit::stale_base` where the document no
- *  longer holds the change since. Pass it: a write without one lands over
- *  whatever the value now holds. */
+/** `base` is the hash a writer read. A value that has changed since rebases
+ *  the write over the change, refusing it with `edit::rebase_conflict` where
+ *  the two touch the same text or record, and with `edit::stale_base` where
+ *  the document no longer holds the change since. Pass it: a write without one
+ *  lands over whatever the value now holds.
+ *
+ *  `actor` names the writer, one per live session: each id the write mints
+ *  is `{actor}:{prefix}{n}`, so two clients writing from one value never mint
+ *  one id. Without one a write mints `{prefix}{n}`, as an import does. An
+ *  actor is 1 to 64 characters holding no whitespace, control or `:`, not
+ *  opening with `?`; another throws `edit::invalid_actor`. */
 export interface WriteOptions {
     base?: string;
+    actor?: string;
+}
+
+/** `splitBlock`'s options: a write's, and `id`, the new block's id, which
+ *  the write mints where absent. */
+export interface SplitBlockOptions extends WriteOptions {
+    id?: string;
+}
+
+/** A range of a value's text, UTF-16 offsets: `diffRange`'s `from` and `to`
+ *  are into `before`. */
+export interface TextRange {
+    from: number;
+    to: number;
+}
+
+/** What `locate` answers: the block holding an offset, its index among the
+ *  value's blocks, and its container path, outermost first. */
+export interface Located {
+    id: string;
+    index: number;
+    path: string[];
 }
 
 /** A position in a value: an offset into its text, or one inside an
@@ -238,7 +291,7 @@ export interface RawContent {
 
 /**
  * One mend `repair` made. `inserts` marks one whose write-back inserts text
- * or a slot, which only a session's single writer writes back; any peer may
+ * or a slot, which only a server writes back, and with none no peer; any peer may
  * write back a report holding none.
  */
 export type Repair = { inserts?: true } & (
@@ -255,24 +308,28 @@ export type Repair = { inserts?: true } & (
 | { repair: "in_slot"; island: string; slot: string; inner: Repair }
 );
 
-/** What `repair` read a merged value as: the valid `content`, and each
- *  mend, none for a value already valid. */
+/** What `repair` read a merged value as: the valid `content`, each mend,
+ *  and `change`, the change from the merged text to the content's, which
+ *  `mapPos` carries a position through to where repair puts an anchor
+ *  there; no mend and no step for a value already valid. */
 export interface Repaired {
     content: Content;
     repairs: Repair[];
+    change: Change;
 }
 
 "#;
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ReceiptJs {
+pub(super) struct ReceiptJs {
     applied: Value,
     hash: String,
     dropped_anchors: Vec<DroppedAnchorJs>,
     moved_anchors: Vec<MovedJs>,
     warnings: Vec<Diagnostic>,
     rebased: bool,
+    minted: std::collections::BTreeMap<String, String>,
 }
 
 /// A receipt's dropped anchor: its selector, and the island and slot that
@@ -292,38 +349,53 @@ struct MovedJs {
     id: String,
     before: String,
     after: String,
+    reason: &'static str,
 }
 
-/// The `base` of a `WriteOptions`.
-fn base_from_js(opts: &JsValue, verb: &str) -> Result<Option<String>, JsValue> {
-    if opts.is_undefined() || opts.is_null() {
-        return Ok(None);
-    }
-    let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
-    if js_sys::Reflect::has(opts, &"baseMarkdown".into()).unwrap_or(false) {
-        return Err(invalid(
-            "a write takes the hash it read as `base`; a markdown base has no change to merge against".into(),
-        ));
-    }
-    reject_unknown_keys(opts, &["base", "baseHash"], "options", |k| {
-        format!("{verb}: options have unknown key `{k}`; a write takes only `base`")
-    })?;
-    let mut found = None;
-    for key in ["base", "baseHash"] {
-        if !js_sys::Reflect::has(opts, &key.into()).unwrap_or(false) {
-            continue;
+/// A `WriteOptions` from JS: the `base` the writer read and its `actor`.
+struct WriteOpts {
+    base: Option<String>,
+    actor: Option<String>,
+}
+
+impl WriteOpts {
+    /// The options of `verb`, which also reads the keys `extra` names.
+    fn from_js(opts: &JsValue, verb: &str, extra: &[&str]) -> Result<WriteOpts, JsValue> {
+        let mut out = WriteOpts { base: None, actor: None };
+        if opts.is_undefined() || opts.is_null() {
+            return Ok(out);
         }
-        let v = js_sys::Reflect::get(opts, &key.into()).unwrap_or(JsValue::UNDEFINED);
-        // A key present with no string is a caller bug (a lookup that found
-        // nothing, a missing `await`), and would drop into an unguarded write.
-        let Some(hash) = v.as_string() else {
-            return Err(invalid(format!("{key} must be a string when given")));
-        };
-        if found.replace(hash).is_some() {
-            return Err(invalid("name base or baseHash, not both".into()));
+        let invalid = |e: String| WasmError::from(format!("{verb}: {e}")).to_js_value();
+        if js_sys::Reflect::has(opts, &"baseMarkdown".into()).unwrap_or(false) {
+            return Err(invalid(
+                "a write takes the hash it read as `base`; a markdown base has no change to merge against".into(),
+            ));
         }
+        let keys: Vec<&str> = ["base", "baseHash", "actor"].into_iter().chain(extra.iter().copied()).collect();
+        reject_unknown_keys(opts, &keys, "options", |k| {
+            format!("{verb}: options have unknown key `{k}`; a write takes {}", keys.iter().filter(|k| **k != "baseHash").map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "))
+        })?;
+        for key in ["base", "baseHash"] {
+            if !js_sys::Reflect::has(opts, &key.into()).unwrap_or(false) {
+                continue;
+            }
+            let v = js_sys::Reflect::get(opts, &key.into()).unwrap_or(JsValue::UNDEFINED);
+            // A key present with no string is a caller bug (a lookup that found
+            // nothing, a missing `await`), and would drop into an unguarded write.
+            let Some(hash) = v.as_string() else {
+                return Err(invalid(format!("{key} must be a string when given")));
+            };
+            if out.base.replace(hash).is_some() {
+                return Err(invalid("name base or baseHash, not both".into()));
+            }
+        }
+        out.actor = string_opt(opts, "actor", verb)?;
+        Ok(out)
     }
-    Ok(found)
+
+    fn as_ref(&self) -> WriteOptions<'_> {
+        WriteOptions { base: self.base.as_deref(), actor: self.actor.as_deref() }
+    }
 }
 
 fn target(addr: &Addr) -> Target<'_> {
@@ -383,6 +455,20 @@ pub(super) fn content_in(value: JsValue, ctx: &str) -> Result<Content, JsValue> 
     })
 }
 
+/// [`content_in`] for a value a producer hands to be normalized: read as a
+/// stored value is, its canonical form.
+pub(super) fn content_normalized(value: JsValue, ctx: &str) -> Result<Content, JsValue> {
+    let json = js_value_to_json(value, ctx)?;
+    if !json.is_object() {
+        return Err(WasmError::from(format!("{ctx}: expected a Content object")).to_js_value());
+    }
+    check_content_value(&json).map_err(bound_error)?;
+    Content::from_value_lenient_in(&json, Utf16).map(|read| read.content).map_err(|e| match &e {
+        ParseError::Invalid(inv) if EditError::bound(inv).is_some() => bound_error(EditError::bound(inv).expect("a bound")),
+        _ => WasmError::from(format!("{ctx}: not a Content: {e}")).to_js_value(),
+    })
+}
+
 /// `c` for JS, offsets in UTF-16 code units.
 pub(super) fn content_out(c: &Content, ctx: &str) -> Result<JsValue, JsValue> {
     serialize_or_throw(&c.to_value_in(Utf16), ctx)
@@ -433,16 +519,22 @@ fn write(
     doc: &mut quillmark_core::document::Document,
     addr: &Addr,
     edit: Edit<'_>,
-    base: Option<&str>,
+    opts: WriteOptions<'_>,
 ) -> Result<ReceiptJs, JsValue> {
     let card_base = card_base(doc, addr);
     let path = value_path(&card_base, addr);
     let to_js = |e: EditError| edit_error_to_js(&e, &card_base);
     let mut card = card_mut_of(doc, addr)?;
-    let receipt: Receipt = card.write_in(target(addr), edit, base, Utf16).map_err(to_js)?;
+    let receipt: Receipt = card.write_in(target(addr), edit, opts, Utf16).map_err(to_js)?;
     let card_id = card.id().map(str::to_string);
-    let warnings = super::diags(receipt.diagnostics(Some(&path)));
-    Ok(ReceiptJs {
+    Ok(receipt_js(receipt, &path, card_id))
+}
+
+/// `receipt` as it crosses, its dropped anchors' selectors at `path` on the
+/// card `card_id` names.
+pub(super) fn receipt_js(receipt: Receipt, path: &quillmark_core::path::DocPath, card_id: Option<String>) -> ReceiptJs {
+    let warnings = super::diags(receipt.diagnostics(Some(path)));
+    ReceiptJs {
         applied: receipt.applied.to_value(),
         hash: receipt.hash,
         dropped_anchors: receipt
@@ -467,11 +559,12 @@ fn write(
         moved_anchors: receipt
             .moved_anchors
             .into_iter()
-            .map(|m| MovedJs { id: m.id, before: m.before, after: m.after })
+            .map(|m| MovedJs { id: m.id, before: m.before, after: m.after, reason: m.reason.name() })
             .collect(),
         warnings,
         rebased: receipt.rebased,
-    })
+        minted: receipt.minted,
+    }
 }
 
 #[wasm_bindgen]
@@ -525,10 +618,10 @@ impl Document {
         #[wasm_bindgen(unchecked_param_type = "Change")] change: JsValue,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let base = base_from_js(&opts, "apply")?;
+        let opts = WriteOpts::from_js(&opts, "apply", &[])?;
         let addr = Addr::for_write(&addr, &self.inner, "apply")?;
         let change = change_in(change, "apply")?;
-        let receipt = write(&mut self.inner, &addr, Edit::Apply(change), base.as_deref())?;
+        let receipt = write(&mut self.inner, &addr, Edit::Apply(change), opts.as_ref())?;
         serialize_or_throw(&receipt, "apply")
     }
 
@@ -544,9 +637,9 @@ impl Document {
         markdown: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let base = base_from_js(&opts, "revise")?;
+        let opts = WriteOpts::from_js(&opts, "revise", &[])?;
         let addr = Addr::for_write(&addr, &self.inner, "revise")?;
-        let receipt = write(&mut self.inner, &addr, Edit::Revise(markdown), base.as_deref())?;
+        let receipt = write(&mut self.inner, &addr, Edit::Revise(markdown), opts.as_ref())?;
         serialize_or_throw(&receipt, "revise")
     }
 
@@ -561,13 +654,156 @@ impl Document {
         #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let base = base_from_js(&opts, "replace")?;
+        let opts = WriteOpts::from_js(&opts, "replace", &[])?;
         let addr = Addr::for_write(&addr, &self.inner, "replace")?;
         let content = content_in(content, "replace")?;
-        let receipt = write(&mut self.inner, &addr, Edit::Replace(content), base.as_deref())?;
+        let receipt = write(&mut self.inner, &addr, Edit::Replace(content), opts.as_ref())?;
         serialize_or_throw(&receipt, "replace")
     }
 
+    /// **Enter** at `at` (UTF-16, into the value `opts.base` names): split
+    /// the block holding it there, the text keeping its id and the new block
+    /// `opts.id`, or one the write mints and names in `minted` under `"?0"`.
+    /// Answers the `Receipt`; throws as `apply`.
+    #[wasm_bindgen(js_name = splitBlock, unchecked_return_type = "Receipt")]
+    pub fn split_block(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        at: u32,
+        #[wasm_bindgen(unchecked_optional_param_type = "SplitBlockOptions")] opts: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let id = string_opt(&opts, "id", "splitBlock")?;
+        let gesture = Gesture::SplitBlock { at: at as usize, id };
+        self.gesture(addr, gesture, opts, "splitBlock", &["id"])
+    }
+
+    /// **Backspace** at the start of block `id`: join it onto the block
+    /// before it, under that block's record. Answers the `Receipt`; throws as
+    /// `apply`, and `edit::content_apply` for the first block.
+    #[wasm_bindgen(js_name = joinBlocks, unchecked_return_type = "Receipt")]
+    pub fn join_blocks(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        id: &str,
+        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        self.gesture(addr, Gesture::JoinBlocks { id: id.to_string() }, opts, "joinBlocks", &[])
+    }
+
+    /// Delete `[start, end)` (UTF-16): where the range runs from a block's
+    /// start into a later block, the block that keeps the text takes the
+    /// shape of the block the range ends in. Answers the `Receipt`; throws as
+    /// `apply`.
+    #[wasm_bindgen(js_name = deleteRange, unchecked_return_type = "Receipt")]
+    pub fn delete_range(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        start: u32,
+        end: u32,
+        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        self.gesture(addr, Gesture::DeleteRange { start: start as usize, end: end as usize }, opts, "deleteRange", &[])
+    }
+
+    /// **Tab** over the blocks `first` to `last` (`first` alone when absent):
+    /// nest their items under the item before them. Answers the `Receipt`;
+    /// throws as `apply`, and `edit::content_apply` where `first` is in no
+    /// item, the range leaves its list, or its first item is the list's
+    /// first.
+    #[wasm_bindgen(js_name = indent, unchecked_return_type = "Receipt")]
+    pub fn indent(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        first: &str,
+        last: Option<String>,
+        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let last = last.unwrap_or_else(|| first.to_string());
+        self.gesture(addr, Gesture::Indent { first: first.to_string(), last }, opts, "indent", &[])
+    }
+
+    /// **Shift-Tab** over the blocks `first` to `last` (`first` alone when
+    /// absent): lift them out of the innermost item or quote holding `first`.
+    /// Answers the `Receipt`; throws as `apply`, and `edit::content_apply`
+    /// where `first` is in neither or the range leaves it.
+    #[wasm_bindgen(js_name = outdent, unchecked_return_type = "Receipt")]
+    pub fn outdent(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        first: &str,
+        last: Option<String>,
+        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let last = last.unwrap_or_else(|| first.to_string());
+        self.gesture(addr, Gesture::Outdent { first: first.to_string(), last }, opts, "outdent", &[])
+    }
+
+    /// Wrap the blocks `first` to `last` in a quote or a list, around the
+    /// children of their innermost shared item or quote the range touches; a
+    /// list the range sits in is wrapped whole. Answers the `Receipt`, the
+    /// containers it opens named in `minted`; throws as `apply`.
+    #[wasm_bindgen(js_name = wrap, unchecked_return_type = "Receipt")]
+    pub fn wrap(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        first: &str,
+        last: &str,
+        #[wasm_bindgen(unchecked_param_type = "WrapKind")] kind: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let kind = js_value_to_json(kind, "wrap")?;
+        let with = match kind.get("kind").and_then(Value::as_str) {
+            Some("quote") => Wrap::Quote,
+            Some("list") => Wrap::List {
+                ordered: kind.get("ordered").and_then(Value::as_bool).unwrap_or(false),
+                checked: kind.get("checked").and_then(Value::as_bool),
+            },
+            _ => return Err(WasmError::from("wrap: expected { kind: \"quote\" } or { kind: \"list\", ordered }").to_js_value()),
+        };
+        let gesture = Gesture::Wrap { first: first.to_string(), last: last.to_string(), with };
+        self.gesture(addr, gesture, opts, "wrap", &[])
+    }
+
+    /// The block holding offset `at` (UTF-16) of the value at `addr`: its
+    /// `id`, its `index` among the value's blocks and its container `path`;
+    /// at a block's end, that block. Throws `edit::content_apply` where `at`
+    /// is past the text or inside a surrogate pair, and as `read`.
+    #[wasm_bindgen(js_name = locate, unchecked_return_type = "Located")]
+    pub fn locate(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        at: u32,
+    ) -> Result<JsValue, JsValue> {
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
+        let card = card_of(&self.inner, &addr)?;
+        let to_js = |e: EditError| edit_error_to_js(&e, &card_base(&self.inner, &addr));
+        let content = card.read(target(&addr)).map_err(to_js)?;
+        let at = offset_in(&content, at)?;
+        let located = card.locate(target(&addr), at).map_err(to_js)?;
+        let out = serde_json::json!({ "id": located.id, "index": located.index, "path": located.path });
+        serialize_or_throw(&out, "locate")
+    }
+}
+
+impl Document {
+    fn gesture(&mut self, addr: JsValue, gesture: Gesture, opts: JsValue, verb: &str, extra: &[&str]) -> Result<JsValue, JsValue> {
+        let opts = WriteOpts::from_js(&opts, verb, extra)?;
+        let addr = Addr::for_write(&addr, &self.inner, verb)?;
+        let receipt = write(&mut self.inner, &addr, Edit::Gesture(gesture), opts.as_ref())?;
+        serialize_or_throw(&receipt, verb)
+    }
+}
+
+/// A string `key` of `opts`, absent where `opts` or the key is.
+fn string_opt(opts: &JsValue, key: &str, verb: &str) -> Result<Option<String>, JsValue> {
+    if opts.is_undefined() || opts.is_null() || !js_sys::Reflect::has(opts, &key.into()).unwrap_or(false) {
+        return Ok(None);
+    }
+    let v = js_sys::Reflect::get(opts, &key.into()).unwrap_or(JsValue::UNDEFINED);
+    if v.is_undefined() {
+        return Ok(None);
+    }
+    v.as_string().map(Some).ok_or_else(|| WasmError::from(format!("{verb}: {key} must be a string when given")).to_js_value())
 }
 
 /// The change that undoes `change` on `before`. Throws `edit::content_apply`
@@ -599,26 +835,24 @@ pub fn diff(
     serialize_or_throw(&change.to_value(), "diff")
 }
 
-/// The valid value every peer holding the merged state `raw` reads, and what
-/// was mended to reach it: total and deterministic, every id it mints derived
-/// from the ids involved. Throws only on a `raw` not shaped as content.
+/// The valid value every peer holding the merged state `raw` reads, what was
+/// mended to reach it, and the change from `raw`'s text to the value's, which
+/// a peer maps its positions through: total and deterministic, every id it
+/// mints derived from the ids involved. Throws only on a `raw` not shaped as
+/// content.
 #[wasm_bindgen(js_name = repair, unchecked_return_type = "Repaired")]
 pub fn repair(#[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue) -> Result<JsValue, JsValue> {
     let json = js_value_to_json(raw, "repair")?;
     check_content_value(&json).map_err(bound_error)?;
     let raw = quillmark_content::repair::Raw::from_value_in(&json, Utf16)
         .map_err(|e| WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value())?;
-    let (content, repairs) = quillmark_content::repair::repair(raw);
+    let (content, repairs, change) = quillmark_content::repair::repair(raw.clone());
     let out = serde_json::json!({
         "content": content.to_value_in(Utf16),
         "repairs": repairs.iter().map(quillmark_content::repair::Repair::to_value).collect::<Vec<_>>(),
+        "change": quillmark_content::repair::change_in(&raw, &change, Utf16).to_value(),
     });
     serialize_or_throw(&out, "repair")
-}
-
-fn gesture_out(change: Result<Change, change::ApplyError>, content: &Content, ctx: &str) -> Result<JsValue, JsValue> {
-    let change = units::change_from_scalars(&change.map_err(apply_error)?, content, Utf16).map_err(apply_error)?;
-    serialize_or_throw(&change.to_value(), ctx)
 }
 
 /// A UTF-16 offset into `content`'s text, as a scalar offset; one inside a
@@ -628,97 +862,34 @@ fn offset_in(content: &Content, at: u32) -> Result<usize, JsValue> {
         .ok_or_else(|| apply_error(change::ApplyError::Stale { step: 0 }))
 }
 
-/// Enter at `at`: the change splitting the block holding `at` there, the new
-/// block `newId` and the text keeping its id. Throws `edit::content_apply`
-/// where `at` is past the text.
-#[wasm_bindgen(js_name = splitBlock, unchecked_return_type = "Change")]
-pub fn split_block(
-    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-    at: u32,
-    #[wasm_bindgen(js_name = newId)] new_id: &str,
+/// The change taking `before` to `after` where they differ over one range,
+/// `range.from` to `range.to` of `before` (UTF-16), which `after` holds from
+/// `range.from` to `range.to + after.length - before.length`, as a
+/// ProseMirror `ReplaceStep` names it: one splice over the characters of the
+/// range that differ, and the records, marks, anchors and islands as `diff`
+/// gives them. Where the two differ outside the range, the answer is
+/// `diff`'s. Throws `edit::content_apply` where `after` is not a valid value
+/// or an offset falls inside a surrogate pair.
+#[wasm_bindgen(js_name = diffRange, unchecked_return_type = "Change")]
+pub fn diff_range(
+    #[wasm_bindgen(unchecked_param_type = "Content")] before: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "Content")] after: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "TextRange")] range: JsValue,
 ) -> Result<JsValue, JsValue> {
-    let content = content_in(content, "splitBlock")?;
-    let at = offset_in(&content, at)?;
-    gesture_out(gestures::split_block(&content, at, new_id), &content, "splitBlock")
-}
-
-/// Backspace at the start of block `id`: the change joining it onto the block
-/// before it, under that block's record. Throws `edit::content_apply` for the
-/// first block or an id no block holds.
-#[wasm_bindgen(js_name = joinBlocks, unchecked_return_type = "Change")]
-pub fn join_blocks(
-    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-    id: &str,
-) -> Result<JsValue, JsValue> {
-    let content = content_in(content, "joinBlocks")?;
-    gesture_out(gestures::join_blocks(&content, id), &content, "joinBlocks")
-}
-
-/// Deleting `[start, end)`: the splice, and where the range runs from a
-/// block's start into a later block, the `setBlock` giving the block that
-/// keeps the text the shape of the block the range ends in.
-#[wasm_bindgen(js_name = deleteRange, unchecked_return_type = "Change")]
-pub fn delete_range(
-    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-    start: u32,
-    end: u32,
-) -> Result<JsValue, JsValue> {
-    let content = content_in(content, "deleteRange")?;
-    let (start, end) = (offset_in(&content, start)?, offset_in(&content, end)?);
-    gesture_out(gestures::delete_range(&content, start, end), &content, "deleteRange")
-}
-
-/// Tab over the blocks `first` to `last` (`first` alone when absent): the
-/// change nesting their items under the item before them. Throws
-/// `edit::content_apply` where `first` is in no item, the range leaves its
-/// list, or its first item is the list's first.
-#[wasm_bindgen(js_name = indent, unchecked_return_type = "Change")]
-pub fn indent(
-    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-    first: &str,
-    last: Option<String>,
-) -> Result<JsValue, JsValue> {
-    let content = content_in(content, "indent")?;
-    let last = last.as_deref().unwrap_or(first);
-    gesture_out(gestures::indent(&content, first, last), &content, "indent")
-}
-
-/// Shift-Tab over the blocks `first` to `last` (`first` alone when absent):
-/// the change lifting them out of the innermost item or quote holding
-/// `first`. Throws `edit::content_apply` where `first` is in neither or the
-/// range leaves it.
-#[wasm_bindgen(js_name = outdent, unchecked_return_type = "Change")]
-pub fn outdent(
-    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-    first: &str,
-    last: Option<String>,
-) -> Result<JsValue, JsValue> {
-    let content = content_in(content, "outdent")?;
-    let last = last.as_deref().unwrap_or(first);
-    gesture_out(gestures::outdent(&content, first, last), &content, "outdent")
-}
-
-/// The change wrapping the blocks `first` to `last` in a quote or a list,
-/// around the children of their innermost shared item or quote that the range
-/// touches; a list the range sits in is wrapped whole.
-#[wasm_bindgen(js_name = wrap, unchecked_return_type = "Change")]
-pub fn wrap(
-    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
-    first: &str,
-    last: &str,
-    #[wasm_bindgen(unchecked_param_type = "WrapKind")] kind: JsValue,
-) -> Result<JsValue, JsValue> {
-    let content = content_in(content, "wrap")?;
-    let kind = js_value_to_json(kind, "wrap")?;
-    let with = match kind.get("kind").and_then(Value::as_str) {
-        Some("quote") => Wrap::Quote,
-        Some("list") => Wrap::List {
-            ordered: kind.get("ordered").and_then(Value::as_bool).unwrap_or(false),
-            checked: kind.get("checked").and_then(Value::as_bool),
-        },
-        _ => return Err(WasmError::from("wrap: expected { kind: \"quote\" } or { kind: \"list\", ordered }").to_js_value()),
+    let (before, after) = (content_in(before, "diffRange")?, content_in(after, "diffRange")?);
+    reject_unknown_keys(&range, &["from", "to"], "range", |k| format!("diffRange: range has unknown key `{k}`; it takes `from` and `to`"))?;
+    let bound = |key: &str| -> Result<u32, JsValue> {
+        js_sys::Reflect::get(&range, &key.into())
+            .ok()
+            .and_then(|v| v.as_f64())
+            .filter(|n| n.fract() == 0.0 && *n >= 0.0 && *n <= u32::MAX as f64)
+            .map(|n| n as u32)
+            .ok_or_else(|| WasmError::from(format!("diffRange: range.{key} must be a non-negative integer")).to_js_value())
     };
-    gesture_out(gestures::wrap(&content, first, last, &with), &content, "wrap")
+    let (from, to) = (offset_in(&before, bound("from")?)?, offset_in(&before, bound("to")?)?);
+    let change = quillmark_content::diff::diff_range(&before, &after, from, to).map_err(|e| apply_error(e.into()))?;
+    let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
+    serialize_or_throw(&change.to_value(), "diffRange")
 }
 
 /// Typing at `at`: the formatting the typed text carries, for a splice's

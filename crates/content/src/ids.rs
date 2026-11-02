@@ -1,8 +1,8 @@
 //! Structural ids: blocks, containers, islands, slots, rows and columns.
-//! Import, migration and a revise mint them deterministically, `{prefix}{n}`
-//! past the highest number a field already holds under that prefix, or the
-//! lowest number no held id takes where the highest is `u64::MAX`; a live
-//! client mints its own.
+//! A write mints them deterministically, `{prefix}{n}` past the highest
+//! number a field already holds under that prefix, or the lowest number no
+//! held id takes where the highest is `u64::MAX`; a write under an
+//! [actor](is_actor) mints `{actor}:{prefix}{n}` the same way.
 
 use std::collections::{HashMap, HashSet};
 
@@ -10,8 +10,12 @@ use std::collections::{HashMap, HashSet};
 pub const MAX_ID_LEN: usize = 128;
 
 /// Whether `id` may name a structural part: 1 to [`MAX_ID_LEN`] scalar values,
-/// none of them whitespace, a control, a bidi control or a slot.
+/// none of them whitespace, a control, a bidi control or a slot, the first not
+/// [`PLACEHOLDER`].
 pub fn is_id(id: &str) -> bool {
+    if id.starts_with(PLACEHOLDER) {
+        return false;
+    }
     let mut n = 0;
     for c in id.chars() {
         n += 1;
@@ -25,6 +29,37 @@ pub fn is_id(id: &str) -> bool {
         }
     }
     n > 0
+}
+
+/// What opens a placeholder: an id a change gives a record it inserts, which
+/// the write that lands the change fills with one it mints.
+pub const PLACEHOLDER: char = '?';
+
+/// Whether `id` is a placeholder: [`PLACEHOLDER`] and an [id](is_id).
+pub fn is_placeholder(id: &str) -> bool {
+    id.strip_prefix(PLACEHOLDER).is_some_and(is_id)
+}
+
+/// The longest actor, in scalar values.
+pub const MAX_ACTOR_LEN: usize = 64;
+
+/// The separator between an actor and an id minted under it. No positional
+/// id holds it, and a repair's or a diff's derived id holds it only where it
+/// derives from an actor's.
+pub const ACTOR_SEP: char = ':';
+
+/// Whether `actor` may scope a write's mints: an [id](is_id) of at most
+/// [`MAX_ACTOR_LEN`] scalar values holding no [`ACTOR_SEP`].
+pub fn is_actor(actor: &str) -> bool {
+    is_id(actor) && !actor.contains(ACTOR_SEP) && actor.chars().count() <= MAX_ACTOR_LEN
+}
+
+/// The prefix `prefix` mints under for `actor`, `prefix` itself for none.
+pub fn scoped(actor: Option<&str>, prefix: &str) -> String {
+    match actor {
+        Some(actor) => format!("{actor}{ACTOR_SEP}{prefix}"),
+        None => prefix.to_string(),
+    }
 }
 
 /// The prefix of the reserved extension names.

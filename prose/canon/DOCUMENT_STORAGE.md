@@ -144,6 +144,15 @@ serializer error. A store that checked only on load would accept bytes it could
 not read back; every write a `Card` takes already holds a valid value, so the
 outbound check is the backstop.
 
+**A canonical value reads as itself; another moves once.** A write's decode
+takes one spelling per value and refuses the rest ([CONTENT.md](CONTENT.md)
+§ "Validity"), so a value a write stored re-encodes to its own bytes and its
+hash holds across a read. A stored body or field value spelled otherwise, which
+only hand-built JSON and earlier builds wrote, reads leniently in 0.135: as its
+canonical form, its hash moving once, with a `content::noncanonical_read`
+warning on `Document::from_stored` naming where, so the host stores the row
+again. A later release refuses such a row's value, as a write's decode does.
+
 The guarantee follows from: struct field order is fixed in the frozen
 DTO tree; `Vec` fields preserve order by definition; the two disciplines
 above each hold at their respective level. No whitespace normalization is
@@ -335,8 +344,10 @@ only what it can (`island::table_spans`):
 A table or cell key holding a value outside its set is read as absent and
 rides untouched, as an unnamed key does. Markdown writes a table as a GFM pipe
 table or as HTML, whichever holds it
-([markdown-spec.md](../references/markdown-spec.md) §6.8); a cell of several
-paragraphs writes as HTML.
+([markdown-spec.md](../references/markdown-spec.md) §6.8). A cell is one
+paragraph, its lines parted by `U+2028`; a stored cell of several paragraphs
+reads joined with `U+2028` in 0.135, under `content::noncanonical_read`, and
+a later release refuses it ([CONTENT.md](CONTENT.md) § "Validity").
 
 Five rules bound the payload:
 
@@ -408,13 +419,13 @@ Each section below states one handle's policy whole.
 ## Island-id determinism
 
 A structural id is part of the canonical form, so it is hash input like every
-other field, and byte-stability's promise: equal content → equal bytes,
-*whatever the producer*: requires that equal content carry equal ids. The rule:
-**an id Quillmark mints is a deterministic function of content, never drawn
-from an ambient source** (RNG, wall-clock, UUID, allocation identity, session
-or process state). An ambient id would make re-importing the same markdown
-yield different bytes for the same document, silently breaking divergence
-detection and cache keys.
+other field, and byte-stability's promise of equal bytes for equal content
+holds for a cold import, a migration and a revise: equal content from them
+carries equal ids. The rule: **an id Quillmark mints is a deterministic
+function of the values in play and the writer's actor, never drawn from an
+ambient source** (RNG, wall-clock, UUID, allocation identity, process state).
+An ambient id would make re-importing the same markdown yield different bytes
+for the same document, silently breaking divergence detection and cache keys.
 
 The scheme is positional: `{prefix}{n}` past the highest number the value
 already holds under the prefix (`ids::Minter`), so a cold import is a pure
@@ -425,12 +436,13 @@ The invariant that holds for every `Content`, checked by `Content::validate`,
 is therefore **uniqueness**, not `id == isl-{index}`.
 
 A step names the ids of what it lands, and the apply refuses one already live
-in its scope. A producer minting in a step is bound by the same rule where it
-wants equal edits to reach equal bytes; a live client mints its own by a rule
-of its own, and a write re-mints one it introduces that the value holds, so a
-live document's hash is stable from the moment it is stored rather than equal
-to a cold import's. Merge repair derives each id it mints from the ids
-involved ([CONTENT.md](CONTENT.md) § "Merge repair").
+in its scope. A live client mints none of its own: a record it puts carries a
+placeholder the write fills, and the write mints under the client's actor,
+`{actor}:{prefix}{n}`, so two clients never mint one id
+([CONTENT.md](CONTENT.md) § Ids). A live document's bytes therefore depend on
+which actors wrote it, and its hash is stable from the moment it is stored
+rather than equal to a cold import's. Merge repair derives each id it mints
+from the ids involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 
 A markdown revise keeps the ids: `diff::align` gives the value read from the
 markdown the ids of what it kept, an island equal to a stored one keeping that
@@ -464,13 +476,15 @@ read-only in markdown.**
   consumer knows the referent. A client wanting generated ids mints them
   client-side and supplies them.
 - **Unique per `Content`.** An `anchor` step placing an id the value or any
-  slot holds elsewhere is refused, and `Content::validate` refuses a value
-  holding one twice, so a stored value holds each id once. The empty id is
+  slot holds is refused, as is a move of one its text does not hold, and
+  `Content::validate` refuses a value holding one twice, so a stored value
+  holds each id once and a host's colliding mint fails loudly. The empty id is
   refused as a degenerate handle.
 - **Opaque and invariant.** The runtime never rewrites an id. Positions move
   through steps exactly; the id passes untouched. An anchor whose text is
   deleted entirely drops *whole*, named in the receipt's `droppedAnchors`, and a
-  surviving anchor whose text a write rewrote is named in `movedAnchors`. A
+  surviving anchor whose position, block or context a write moved is named
+  in `movedAnchors`, a point included. A
   rewrite diffs by line, then by word within a line it pairs, so an anchor keeps
   its place wherever its text is untouched.
 

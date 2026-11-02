@@ -677,12 +677,13 @@ table island. Export picks the spelling from what the island holds, never
 from how the source wrote it, so a plain `<table>` re-exports as pipes.
 
 **Pipes or HTML.** Export writes a pipe table exactly when the table has one
-header row and holds no `widths`, no placement, no cell `align`, `valign`,
-`colspan` or `rowspan`, and no cell of several paragraphs. Column alignment
-rides the delimiter row, and a `<br>` in a cell is inline HTML GitHub renders,
-so neither forces HTML. Any other table writes as HTML, and one that loses its
-last such key writes as pipes again. A cell's paragraphs are written apart by
-`<br><br>`, which reads back as a paragraph break in either spelling.
+header row and holds no `widths`, no placement, and no cell `align`,
+`valign`, `colspan` or `rowspan`. Column alignment rides the delimiter row,
+and a `<br>` in a cell is inline HTML GitHub renders, so neither forces HTML.
+Any other table writes as HTML, and one that loses its last such key writes
+as pipes again. A cell is one paragraph, its lines parted by hard breaks, so
+no cell writes as several: `<br><br>` in a cell reads as one hard break in
+either spelling.
 
 ```markdown
 <table widths="1 2 2" aligns="left left right" align="center">
@@ -753,7 +754,9 @@ Text outside every cell, a `<caption>`'s say, drops, reported as
 block and parses no markdown inside it, so import scans the subset itself and
 reads each cell's content as one line of inline markdown: `<td>**Total**</td>`
 is bold. A line break in a cell's source is a space, as HTML reads one, and a
-`<br>` is the cell's line break. A subset tag inside a comment, an
+`<br>` is the cell's line break. A `<p>` boundary inside a cell, the run of
+`<p>` and `</p>` tags and the whitespace around it, is a line break too, and
+one at the cell's edge is nothing. A subset tag inside a comment, an
 angle-bracketed link destination or after a backslash is the cell's text. A
 code span never reaches past a subset tag, so a stray backtick is the cell's
 text rather than a span that merges cells, rows or the prose after the table,

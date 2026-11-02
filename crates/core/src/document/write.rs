@@ -1,18 +1,21 @@
 //! The content write primitive and its producers.
 //!
 //! [`Card::write`] lands an [`Edit`] on a body or a richtext field and
-//! answers a [`Receipt`]: a [`Change`], or one built from a writer's markdown
-//! or a whole value. Each takes the hash its writer read as `base`. A base
-//! the value has moved on from rebases the write over what changed since,
-//! which the card's change log holds; a write that conflicts with it is
-//! refused with `edit::rebase_conflict`, and a base the log no longer reaches
-//! with `edit::stale_base`.
+//! answers a [`Receipt`]: a [`Change`], or one built from a gesture, a
+//! writer's markdown or a whole value. Each takes the hash its writer read as
+//! [`WriteOptions::base`]. A base the value has moved on from rebases the
+//! write over what changed since, which the card's change log holds; a write
+//! that conflicts with it is refused with `edit::rebase_conflict`, and a base
+//! the log no longer reaches with `edit::stale_base`.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use quillmark_content::change::{self, Change, Dropped, Moved, RebaseError, Step};
 use quillmark_content::diff;
+use quillmark_content::gestures::{Gesture, Wrap};
+use quillmark_content::ids::is_actor;
+use quillmark_content::mint;
 use quillmark_content::lines::import::ImportWarning;
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::model::Content;
@@ -22,6 +25,15 @@ use super::base::{BaseError, content_hash};
 use super::edit::EditError;
 use super::Card;
 use crate::value::QuillValue;
+
+/// Where an offset sits: the block holding it, by id and index, and that
+/// block's container path, outermost first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    pub id: String,
+    pub index: usize,
+    pub path: Vec<String>,
+}
 
 /// The value a write reaches on its card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,11 +60,38 @@ impl<'a> From<Option<&'a str>> for Target<'a> {
     }
 }
 
+/// What a write reads besides its edit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WriteOptions<'a> {
+    /// The hash the writer read, which a write over a value that has moved on
+    /// rebases from.
+    pub base: Option<&'a str>,
+    /// Who writes, scoping each id the write mints: `{actor}:{prefix}{n}`
+    /// where it is given, `{prefix}{n}` where not. A live client passes one
+    /// unique to its session, so two clients writing from one value never
+    /// mint one id. An actor other than an
+    /// [id](quillmark_content::ids::is_actor) of at most 64 scalar values
+    /// holding no `:` is refused with `edit::invalid_actor`.
+    pub actor: Option<&'a str>,
+}
+
+impl<'a> From<Option<&'a str>> for WriteOptions<'a> {
+    /// The options of a write with this base and no actor.
+    fn from(base: Option<&'a str>) -> Self {
+        WriteOptions { base, actor: None }
+    }
+}
+
 /// How a write builds its change from the value its writer read.
 #[derive(Debug, Clone)]
 pub enum Edit<'a> {
-    /// A change, its offsets into the value the base names.
+    /// A change, its offsets into the value the base names. A record it puts
+    /// may carry a [placeholder](quillmark_content::ids::is_placeholder),
+    /// which the write fills and names in [`Receipt::minted`].
     Apply(Change),
+    /// A gesture's change on the value the base names, its offsets into it;
+    /// the ids it opens are placeholders the write fills.
+    Gesture(Gesture),
     /// The value rewritten as markdown: the anchors and islands whose `qm-*`
     /// tags it keeps stay put, and the rest keeps what a word-aligned diff
     /// keeps.
@@ -73,16 +112,44 @@ pub struct Receipt {
     /// with the slot that held it: every one a revise or replace lost, and
     /// for an apply every one but those its `anchor` steps removed.
     pub dropped_anchors: Vec<Dropped>,
-    /// Each surviving anchor whose text the write rewrote.
+    /// Each surviving anchor the write moved, a point included, and what
+    /// moved: its position, its block or its context.
     pub moved_anchors: Vec<Moved>,
     /// The markdown import's warnings, for a revise.
     pub warnings: Vec<ImportWarning>,
     /// The base was a value the field had moved on from, and the write was
-    /// rebased over what changed since.
+    /// rebased over what changed since, or, for a writer's revise under its
+    /// markdown read, merged with it.
     pub rebased: bool,
+    /// Each placeholder the change gave a record it put, and the id the
+    /// write minted for it past every id the value it landed on, the value
+    /// its base named and the writes since hold.
+    pub minted: BTreeMap<String, String>,
+    counted: Counted,
+}
+
+/// What a receipt's `applied` counts its offsets over, when it counts them in
+/// scalars and holds what [`Receipt::in_units`] converts them on.
+#[derive(Debug, Clone, PartialEq)]
+enum Counted {
+    Host,
+    Content(Arc<Content>),
 }
 
 impl Receipt {
+    /// The receipt with `applied` counted in `u`. A writer's revise answers
+    /// its change in scalars, and this converts it on the value it read; a
+    /// receipt [`Card::write`] or [`Card::write_in`] answered comes back as
+    /// it is, in the units its write was given.
+    pub fn in_units(mut self, u: impl Units) -> Receipt {
+        self.applied = match std::mem::replace(&mut self.counted, Counted::Host) {
+            Counted::Host => return self,
+            Counted::Content(before) => units::change_from_scalars(&self.applied, &before, u)
+                .expect("a receipt's change applies to the value it read"),
+        };
+        self
+    }
+
     /// The receipt's warnings as diagnostics at `at`: a
     /// [`dropped_construct`](super::dropped_construct) per construct the
     /// markdown dropped.
@@ -109,45 +176,115 @@ impl Card {
     }
 
     /// [`write`](Self::write) of [`Edit::Apply`].
-    pub fn apply(&mut self, target: Target<'_>, change: &Change, base: Option<&str>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Apply(change.clone()), base)
+    pub fn apply<'o>(&mut self, target: Target<'_>, change: &Change, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+        self.write(target, Edit::Apply(change.clone()), opts)
     }
 
     /// [`write`](Self::write) of [`Edit::Revise`].
-    pub fn revise(&mut self, target: Target<'_>, markdown: &str, base: Option<&str>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Revise(markdown), base)
+    pub fn revise<'o>(&mut self, target: Target<'_>, markdown: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+        self.write(target, Edit::Revise(markdown), opts)
     }
 
     /// [`write`](Self::write) of [`Edit::Replace`].
-    pub fn replace(&mut self, target: Target<'_>, content: &Content, base: Option<&str>) -> Result<Receipt, EditError> {
-        self.write(target, Edit::Replace(content.clone()), base)
+    pub fn replace<'o>(&mut self, target: Target<'_>, content: &Content, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+        self.write(target, Edit::Replace(content.clone()), opts)
     }
 
-    /// Land `edit` on the value at `target`, all of it or none. A `base` the
+    /// Enter at `at`: [`write`](Self::write) of
+    /// [`Gesture::SplitBlock`], the new block `id` or one the write mints.
+    pub fn split_block<'o>(&mut self, target: Target<'_>, at: usize, id: Option<&str>, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+        self.write(target, Edit::Gesture(Gesture::SplitBlock { at, id: id.map(str::to_string) }), opts)
+    }
+
+    /// Backspace at the start of block `id`: [`write`](Self::write) of
+    /// [`Gesture::JoinBlocks`].
+    pub fn join_blocks<'o>(&mut self, target: Target<'_>, id: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+        self.write(target, Edit::Gesture(Gesture::JoinBlocks { id: id.to_string() }), opts)
+    }
+
+    /// Deleting `[start, end)`: [`write`](Self::write) of
+    /// [`Gesture::DeleteRange`].
+    pub fn delete_range<'o>(&mut self, target: Target<'_>, start: usize, end: usize, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+        self.write(target, Edit::Gesture(Gesture::DeleteRange { start, end }), opts)
+    }
+
+    /// Tab over the blocks `first` to `last`: [`write`](Self::write) of
+    /// [`Gesture::Indent`].
+    pub fn indent<'o>(&mut self, target: Target<'_>, first: &str, last: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+        self.write(target, Edit::Gesture(Gesture::Indent { first: first.to_string(), last: last.to_string() }), opts)
+    }
+
+    /// Shift-Tab over the blocks `first` to `last`: [`write`](Self::write)
+    /// of [`Gesture::Outdent`].
+    pub fn outdent<'o>(&mut self, target: Target<'_>, first: &str, last: &str, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+        self.write(target, Edit::Gesture(Gesture::Outdent { first: first.to_string(), last: last.to_string() }), opts)
+    }
+
+    /// Wrapping the blocks `first` to `last`: [`write`](Self::write) of
+    /// [`Gesture::Wrap`].
+    pub fn wrap<'o>(&mut self, target: Target<'_>, first: &str, last: &str, with: Wrap, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+        self.write(target, Edit::Gesture(Gesture::Wrap { first: first.to_string(), last: last.to_string(), with }), opts)
+    }
+
+    /// The block holding offset `at` of the value at `target`, its index and
+    /// its container path; at a block's end, that block. `Stale` where `at`
+    /// is past the text.
+    pub fn locate(&self, target: Target<'_>, at: usize) -> Result<Located, EditError> {
+        let content = self.read(target)?;
+        if at > content.len_usv() {
+            return Err(EditError::change(change::ApplyError::Stale { step: 0 }));
+        }
+        let index = content.block_at(at);
+        let block = &content.blocks[index];
+        Ok(Located { id: block.id.clone(), index, path: block.path.clone() })
+    }
+
+    /// Land `edit` on the value at `target`, all of it or none. A base the
     /// value has moved on from rebases the edit's change over what changed
-    /// since; a revise or replace diffs from the value `base` names, so what
+    /// since; a revise or replace diffs from the value the base names, so what
     /// changed since is rebased over rather than undone, and is refused where
-    /// it would drop an `x-` island.
-    pub fn write(&mut self, target: Target<'_>, edit: Edit<'_>, base: Option<&str>) -> Result<Receipt, EditError> {
-        self.write_with(target, edit, base, None::<units::Scalars>)
+    /// it would drop an `x-` island. Each id it mints is minted under the
+    /// options' actor where one is given.
+    pub fn write<'o>(&mut self, target: Target<'_>, edit: Edit<'_>, opts: impl Into<WriteOptions<'o>>) -> Result<Receipt, EditError> {
+        self.write_with(target, edit, opts.into(), None::<units::Scalars>)
     }
 
     /// [`write`](Self::write) for a host counting offsets in `u`: an
-    /// [`Edit::Apply`]'s change and the receipt's `applied` are in `u`.
-    pub fn write_in(&mut self, target: Target<'_>, edit: Edit<'_>, base: Option<&str>, u: impl Units) -> Result<Receipt, EditError> {
-        self.write_with(target, edit, base, Some(u))
+    /// [`Edit::Apply`]'s change, an [`Edit::Gesture`]'s offsets and the
+    /// receipt's `applied` are in `u`.
+    pub fn write_in<'o>(&mut self, target: Target<'_>, edit: Edit<'_>, opts: impl Into<WriteOptions<'o>>, u: impl Units) -> Result<Receipt, EditError> {
+        self.write_with(target, edit, opts.into(), Some(u))
     }
 
-    fn write_with<U: Units>(&mut self, target: Target<'_>, edit: Edit<'_>, base: Option<&str>, u: Option<U>) -> Result<Receipt, EditError> {
+    fn write_with<U: Units>(&mut self, target: Target<'_>, edit: Edit<'_>, opts: WriteOptions<'_>, u: Option<U>) -> Result<Receipt, EditError> {
         if let Edit::Apply(change) = &edit {
             check_change(change)?;
         }
-        let read = self.reading(target, base)?;
+        if let Some(actor) = opts.actor.filter(|a| !is_actor(a)) {
+            return Err(EditError::InvalidActor(actor.to_string()));
+        }
+        let read = self.reading(target, opts.base)?;
+        let over = read.since.as_ref().map(|since| &since.over);
+        let fill = |change: &Change| mint::fill(change, &[read.read(), &read.now], over, opts.actor).map_err(EditError::change);
+        let mut minted = BTreeMap::new();
         let (change, warnings, diffed) = match edit {
-            Edit::Apply(change) => match u {
-                Some(u) => (units::change_to_scalars(&change, read.read(), u).map_err(EditError::change)?, Vec::new(), false),
-                None => (change, Vec::new(), false),
-            },
+            Edit::Apply(change) => {
+                let filled = fill(&change)?;
+                minted = filled.minted;
+                match u {
+                    Some(u) => (units::change_to_scalars(&filled.change, read.read(), u).map_err(EditError::change)?, Vec::new(), false),
+                    None => (filled.change, Vec::new(), false),
+                }
+            }
+            Edit::Gesture(gesture) => {
+                let gesture = match u {
+                    Some(u) => gesture.to_scalars(read.read(), u).map_err(EditError::change)?,
+                    None => gesture,
+                };
+                let filled = fill(&gesture.change(read.read()).map_err(EditError::change)?)?;
+                minted = filled.minted;
+                (filled.change, Vec::new(), false)
+            }
             Edit::Revise(markdown) => {
                 let revision = diff::revise_keeping(read.read(), markdown, &read.now).map_err(|e| match e {
                     diff::ReviseError::Import(e) => EditError::import(e),
@@ -159,10 +296,18 @@ impl Card {
                         ))
                     }
                 })?;
-                (revision.change, revision.warnings, true)
+                let change = match opts.actor {
+                    Some(actor) => mint::remint(&revision.change, read.read(), None, &[read.read(), &read.now], over, actor),
+                    None => revision.change,
+                };
+                (change, revision.warnings, true)
             }
             Edit::Replace(content) => {
                 let change = diff::replace_holding(read.read(), &content, &read.now).map_err(|e| EditError::change(e.into()))?;
+                let change = match opts.actor {
+                    Some(actor) => mint::remint(&change, read.read(), Some(&content), &[read.read(), &read.now], over, actor),
+                    None => change,
+                };
                 (change, Vec::new(), true)
             }
         };
@@ -181,7 +326,41 @@ impl Card {
         };
         let rebased = read.since.is_some();
         let hash = self.land(target, read, applied.content, applied.applied)?;
-        Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased })
+        Ok(Receipt { applied: shown, hash, dropped_anchors: applied.dropped, moved_anchors: applied.moved, warnings, rebased, minted, counted: Counted::Host })
+    }
+
+    /// Run `write`, which stores a new value at `target`, and answer its
+    /// receipt: the change from the value before to the value after, in
+    /// scalars, logged as a write through [`write`](Self::write) logs its own,
+    /// so a later write naming the hash before rebases over it.
+    pub(crate) fn revising(
+        &mut self,
+        target: Target<'_>,
+        warnings: Vec<ImportWarning>,
+        write: impl FnOnce(&mut Self) -> Result<(), EditError>,
+    ) -> Result<Receipt, EditError> {
+        let before = self.read(target)?;
+        let before_hash = self.hash_now(target, &before);
+        write(self)?;
+        let after = self.read(target)?;
+        let change = diff::diff(&before, &after).map_err(|e| EditError::change(e.into()))?;
+        let applied = change::apply(&before, &change).map_err(EditError::change)?;
+        let dropped_anchors = change::lost_anchors(&before, &after, |_| true);
+        let hash = self.hash_now(target, &after);
+        let before = Arc::new(before);
+        if hash != before_hash {
+            self.log.record(target, before_hash, Content::clone(&before), applied.applied.clone(), hash.clone());
+        }
+        Ok(Receipt {
+            applied: applied.applied,
+            hash,
+            dropped_anchors,
+            moved_anchors: applied.moved,
+            warnings,
+            rebased: false,
+            minted: applied.minted,
+            counted: Counted::Content(before),
+        })
     }
 
     /// The value `base` names at `target`: the value now, where `base` is

@@ -133,21 +133,32 @@ pub struct CardV0_134_0 {
 
 /// A card body embedded as a content-model value, through its canonical
 /// JSON ([`quillmark_content::wire`]): `Serialize` validates, then writes the
-/// key-sorted object; `Deserialize` decodes, normalizes and validates, so an
-/// invalid body fails the load. Both directions check, as [`CanonicalContent`]
-/// does.
+/// key-sorted object; `Deserialize` reads it as a stored value
+/// ([`ContentModel::from_value_lenient`]), so an invalid body fails the load
+/// and a non-canonical one loads canonical, `rewritten` saying so. Both
+/// directions check, as [`CanonicalContent`] does.
 #[derive(Debug, Clone, PartialEq)]
-pub struct StoredContent(pub ContentModel);
+pub struct StoredContent {
+    pub content: ContentModel,
+    /// Whether the stored bytes spelled the body otherwise than `content`.
+    pub rewritten: bool,
+}
+
+impl From<ContentModel> for StoredContent {
+    fn from(content: ContentModel) -> Self {
+        StoredContent { content, rewritten: false }
+    }
+}
 
 impl Serialize for StoredContent {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        self.0
+        self.content
             .validate()
             .map_err(|inv| serde::ser::Error::custom(format!("content invariant: {inv}")))?;
-        self.0.to_value().serialize(serializer)
+        self.content.to_value().serialize(serializer)
     }
 }
 
@@ -157,8 +168,8 @@ impl<'de> Deserialize<'de> for StoredContent {
         D: serde::Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        ContentModel::from_value(&value)
-            .map(StoredContent)
+        ContentModel::from_value_lenient(&value)
+            .map(|read| StoredContent { content: read.content, rewritten: read.rewritten })
             .map_err(serde::de::Error::custom)
     }
 }
@@ -337,7 +348,7 @@ impl From<&Card> for CardV0_134_0 {
     fn from(card: &Card) -> Self {
         CardV0_134_0 {
             payload: PayloadV0_129_0::from(card.payload()),
-            body: StoredContent(card.body().clone()),
+            body: StoredContent::from(card.body().clone()),
         }
     }
 }
@@ -354,7 +365,7 @@ impl From<DocumentV0_129_0> for DocumentV0_134_0 {
             }
             CardV0_134_0 {
                 payload: c.payload,
-                body: StoredContent(quillmark_content::migrate::from_lines(&c.body.0)),
+                body: StoredContent::from(quillmark_content::migrate::from_lines(&c.body.0)),
             }
         };
         DocumentV0_134_0 { main: card(d.main), cards: d.cards.into_iter().map(card).collect() }
@@ -373,6 +384,26 @@ fn migrate_field(value: &mut serde_json::Value) {
         serde_json::Value::Object(map) => map.values_mut().for_each(migrate_field),
         serde_json::Value::Array(items) => items.iter_mut().for_each(migrate_field),
         _ => {}
+    }
+}
+
+/// Each content value in a field's value, at any depth, read as a stored
+/// value is: one spelled otherwise than its canonical form is rewritten to
+/// it. True where one was.
+fn settle_field(value: &mut serde_json::Value) -> bool {
+    if quillmark_content::units::is_content_value(value) && !quillmark_content::wire::is_v1(value) {
+        return match ContentModel::from_value_lenient(value) {
+            Ok(read) if read.rewritten => {
+                *value = read.content.to_value();
+                true
+            }
+            _ => false,
+        };
+    }
+    match value {
+        serde_json::Value::Object(map) => map.values_mut().fold(false, |any, v| settle_field(v) | any),
+        serde_json::Value::Array(items) => items.iter_mut().fold(false, |any, v| settle_field(v) | any),
+        _ => false,
     }
 }
 
@@ -460,14 +491,7 @@ impl TryFrom<StoredDocument> for Document {
     type Error = StorageError;
 
     fn try_from(stored: StoredDocument) -> Result<Self, Self::Error> {
-        match stored {
-            StoredDocument::V0_134_0(payload) => Document::try_from(payload),
-            StoredDocument::V0_131_0(payload)
-            | StoredDocument::V0_129_0(payload) => Document::try_from(DocumentV0_134_0::from(payload)),
-            StoredDocument::V0_124_0(payload) => {
-                Document::try_from(DocumentV0_134_0::from(DocumentV0_129_0::try_from(payload)?))
-            }
-        }
+        from_stored(stored).map(|parsed| parsed.document)
     }
 }
 
@@ -475,84 +499,106 @@ impl TryFrom<DocumentV0_134_0> for Document {
     type Error = StorageError;
 
     fn try_from(payload: DocumentV0_134_0) -> Result<Self, Self::Error> {
-        let mut main = Card::try_from(payload.main)?;
-        if main.quill().is_none() {
-            return Err(StorageError::Malformed(
-                "main card must carry a $quill entry".into(),
-            ));
+        document_from_stored(payload).map(|parsed| parsed.document)
+    }
+}
+
+/// A stored row's [`Document`], with a
+/// [`noncanonical_read`](super::noncanonical_read) warning for each content
+/// value the read rewrote to its canonical form.
+pub fn from_stored(stored: StoredDocument) -> Result<super::Parsed, StorageError> {
+    match stored {
+        StoredDocument::V0_134_0(payload) => document_from_stored(payload),
+        StoredDocument::V0_131_0(payload) | StoredDocument::V0_129_0(payload) => {
+            document_from_stored(DocumentV0_134_0::from(payload))
         }
-        if main.id().is_some() {
-            return Err(StorageError::Malformed(
-                "main card must not carry a $id entry: it is addressed as `main`".into(),
-            ));
+        StoredDocument::V0_124_0(payload) => {
+            document_from_stored(DocumentV0_134_0::from(DocumentV0_129_0::try_from(payload)?))
         }
-        // The root's `$kind` is `main` by position: any other value emits a root
-        // block the parser rejects. An absent one is synthesised so the emit
-        // stays parseable, as the parser does.
-        match main.kind() {
-            Some("main") => {}
-            None => main.payload_mut().set_kind("main"),
-            Some(other) => {
+    }
+}
+
+fn document_from_stored(payload: DocumentV0_134_0) -> Result<super::Parsed, StorageError> {
+    let mut warnings = Vec::new();
+    let (mut main, rewritten) = card_from_stored(payload.main)?;
+    warnings.extend(rewritten.warnings(&crate::path::DocPath::main()));
+    if main.quill().is_none() {
+        return Err(StorageError::Malformed(
+            "main card must carry a $quill entry".into(),
+        ));
+    }
+    if main.id().is_some() {
+        return Err(StorageError::Malformed(
+            "main card must not carry a $id entry: it is addressed as `main`".into(),
+        ));
+    }
+    // The root's `$kind` is `main` by position: any other value emits a root
+    // block the parser rejects. An absent one is synthesised so the emit
+    // stays parseable, as the parser does.
+    match main.kind() {
+        Some("main") => {}
+        None => main.payload_mut().set_kind("main"),
+        Some(other) => {
+            return Err(StorageError::Malformed(format!(
+                "main card has $kind {other:?}, but `main` is reserved for \
+                 the document root"
+            )));
+        }
+    }
+    let mut cards = Vec::with_capacity(payload.cards.len());
+    for (index, card) in payload.cards.into_iter().enumerate() {
+        let (card, rewritten) = card_from_stored(card)?;
+        warnings.extend(rewritten.warnings(&crate::path::DocPath::card(card.kind(), index)));
+        cards.push(card);
+    }
+    let mut kindless = false;
+    let mut ids = std::collections::HashSet::new();
+    for card in &cards {
+        if let Some(id) = card.id() {
+            if !super::card_id::is_card_id(id) {
+                return Err(StorageError::Malformed(format!("invalid card id {id:?}")));
+            }
+            if !ids.insert(id) {
                 return Err(StorageError::Malformed(format!(
-                    "main card has $kind {other:?}, but `main` is reserved for \
-                     the document root"
+                    "card id {id:?} is held by two cards"
                 )));
             }
         }
-        let cards = payload
-            .cards
-            .into_iter()
-            .map(Card::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut kindless = false;
-        let mut ids = std::collections::HashSet::new();
-        for card in &cards {
-            if let Some(id) = card.id() {
-                if !super::card_id::is_card_id(id) {
-                    return Err(StorageError::Malformed(format!("invalid card id {id:?}")));
-                }
-                if !ids.insert(id) {
-                    return Err(StorageError::Malformed(format!(
-                        "card id {id:?} is held by two cards"
-                    )));
-                }
+        if card.quill().is_some() {
+            return Err(StorageError::Malformed(
+                "composable cards must not carry a $quill entry".into(),
+            ));
+        }
+        if card.seed().is_some() {
+            return Err(StorageError::Malformed(
+                "composable cards must not carry a $seed entry".into(),
+            ));
+        }
+        let Some(kind) = card.kind() else {
+            kindless = true;
+            continue;
+        };
+        match validate_composable_kind(kind) {
+            Ok(()) => {}
+            Err(super::meta::CardKindError::InvalidName) => {
+                return Err(StorageError::Malformed(format!(
+                    "invalid composable card kind {kind:?}: must match \
+                     [a-z_][a-z0-9_]*"
+                )));
             }
-            if card.quill().is_some() {
-                return Err(StorageError::Malformed(
-                    "composable cards must not carry a $quill entry".into(),
-                ));
-            }
-            if card.seed().is_some() {
-                return Err(StorageError::Malformed(
-                    "composable cards must not carry a $seed entry".into(),
-                ));
-            }
-            let Some(kind) = card.kind() else {
-                kindless = true;
-                continue;
-            };
-            match validate_composable_kind(kind) {
-                Ok(()) => {}
-                Err(super::meta::CardKindError::InvalidName) => {
-                    return Err(StorageError::Malformed(format!(
-                        "invalid composable card kind {kind:?}: must match \
-                         [a-z_][a-z0-9_]*"
-                    )));
-                }
-                Err(super::meta::CardKindError::Reserved) => {
-                    return Err(StorageError::Malformed(format!(
-                        "composable card kind {kind:?} is reserved (root only)"
-                    )));
-                }
+            Err(super::meta::CardKindError::Reserved) => {
+                return Err(StorageError::Malformed(format!(
+                    "composable card kind {kind:?} is reserved (root only)"
+                )));
             }
         }
-        let doc = if kindless {
-            fold_kindless(main, cards)?
-        } else {
-            Document::from_main_and_cards(main, cards)
-        };
-        within_card_ceiling(doc)
     }
+    let doc = if kindless {
+        fold_kindless(main, cards)?
+    } else {
+        Document::from_main_and_cards(main, cards)
+    };
+    within_card_ceiling(doc).map(|document| super::Parsed { document, warnings })
 }
 
 /// `doc`, when it holds no more cards than markdown parse admits.
@@ -698,16 +744,41 @@ fn append_block(mut dst: Content, mut src: Content) -> Content {
 impl TryFrom<CardV0_134_0> for Card {
     type Error = StorageError;
 
-    fn try_from(mut card: CardV0_134_0) -> Result<Self, Self::Error> {
-        for item in &mut card.payload.items {
-            if let PayloadItemV0_124_0::Field { value, .. } = item {
-                migrate_field(value);
+    fn try_from(card: CardV0_134_0) -> Result<Self, Self::Error> {
+        card_from_stored(card).map(|(card, _)| card)
+    }
+}
+
+/// A stored card, with what of it the read rewrote to its canonical form: its
+/// body, and each field holding a content value spelled otherwise.
+fn card_from_stored(mut card: CardV0_134_0) -> Result<(Card, Rewritten), StorageError> {
+    let mut rewritten = Rewritten { body: card.body.rewritten, fields: Vec::new() };
+    for item in &mut card.payload.items {
+        if let PayloadItemV0_124_0::Field { key, value } = item {
+            migrate_field(value);
+            if settle_field(value) {
+                rewritten.fields.push(key.clone());
             }
         }
-        let payload = Payload::try_from(card.payload)?;
-        validate_dto_payload(&payload)?;
-        // `StoredContent`'s Deserialize already normalized and validated it.
-        Ok(Card::from_parts(payload, card.body.0))
+    }
+    let payload = Payload::try_from(card.payload)?;
+    validate_dto_payload(&payload)?;
+    Ok((Card::from_parts(payload, card.body.content), rewritten))
+}
+
+/// What a stored card's read rewrote to its canonical form.
+struct Rewritten {
+    body: bool,
+    fields: Vec<String>,
+}
+
+impl Rewritten {
+    /// One [`noncanonical_read`](super::noncanonical_read) warning per value
+    /// rewritten, at the card `at` names.
+    fn warnings(self, at: &crate::path::DocPath) -> impl Iterator<Item = crate::error::Diagnostic> {
+        let body = self.body.then(|| at.body());
+        let fields = self.fields.into_iter().map(|name| at.field(&name));
+        body.into_iter().chain(fields).map(|path| super::noncanonical_read().with_path(path.to_string()))
     }
 }
 
@@ -1570,6 +1641,36 @@ title: Hi
             peek_storage_version(&first).as_deref(),
             Some(STORAGE_V0_134_0)
         );
+    }
+
+    /// A row whose body and field hold values a write's decode refuses loads
+    /// them canonical, warned at each, and re-stores to bytes that load
+    /// warning nothing; a row the write stored warns nothing.
+    #[test]
+    fn a_noncanonical_stored_value_loads_canonical_and_warns_where() {
+        let mut row: serde_json::Value = serde_json::to_value(sample()).unwrap();
+        let noncanonical = serde_json::json!({
+            "text": "ab\ncd", "blocks": [{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}],
+            "marks": [{"start": 3, "end": 5, "type": "strong"}, {"start": 0, "end": 2, "type": "strong"}, {"start": 1, "end": 1, "type": "emph"}],
+        });
+        row["main"]["body"] = noncanonical.clone();
+        row["main"]["payload"]["items"].as_array_mut().unwrap().push(serde_json::json!({"type": "field", "key": "note", "value": noncanonical}));
+        let json = row.to_string();
+        assert!(ContentModel::from_value(&noncanonical).is_err());
+
+        let parsed = Document::from_stored(&json).unwrap();
+        let at: Vec<_> = parsed.warnings.iter().map(|w| (w.code.as_deref(), w.path.as_deref())).collect();
+        assert_eq!(at, [(Some(super::super::NONCANONICAL_READ), Some("main.body")), (Some(super::super::NONCANONICAL_READ), Some("main.note"))]);
+        let doc = parsed.document;
+        assert_eq!(serde_json::from_str::<Document>(&json).unwrap(), doc);
+        let canonical = ContentModel::from_value_lenient(&noncanonical).unwrap().content;
+        assert_eq!(doc.main().body(), &canonical);
+        assert_eq!(doc.main().payload().get("note").map(|v| v.as_json().clone()), Some(canonical.to_value()));
+
+        let restored = serde_json::to_string(&doc).unwrap();
+        let again = Document::from_stored(&restored).unwrap();
+        assert_eq!((again.document, again.warnings), (doc, Vec::new()));
+        assert_eq!(Document::from_stored(&serde_json::to_string(&sample()).unwrap()).unwrap().warnings, []);
     }
 
     /// A document holding a composable card saves under the newest tag, each card's

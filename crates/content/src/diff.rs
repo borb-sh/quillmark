@@ -11,7 +11,7 @@ use crate::lines::delta::{Op, diff_words as text_diff, rebase_pinned, without_se
 use crate::lines::import::{Against, ImportError, ImportWarning, from_markdown_against};
 use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{Block, BlockKind, Codec, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
+use crate::model::{Block, BlockKind, Codec, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind, Usv};
 use crate::table::{self, Table};
 use std::collections::{HashMap, HashSet};
 
@@ -36,8 +36,10 @@ fn fixups(now: &Content, want: &Content) -> Vec<Step> {
     let held: HashMap<&str, &crate::model::Anchor> = now.anchors.iter().map(|a| (a.id.as_str(), a)).collect();
     let wanted: HashSet<&str> = want.anchors.iter().map(|a| a.id.as_str()).collect();
     for a in &want.anchors {
-        if held.get(a.id.as_str()) != Some(&a) {
-            out.push(Step::Anchor(AnchorStep::Set { anchor: a.clone(), quote: None }));
+        match held.get(a.id.as_str()) {
+            Some(h) if *h == a => {}
+            Some(_) => out.push(Step::Anchor(AnchorStep::Move { anchor: a.clone(), quote: None })),
+            None => out.push(Step::Anchor(AnchorStep::Place { anchor: a.clone(), quote: None })),
         }
     }
     for a in &now.anchors {
@@ -60,8 +62,32 @@ fn fixups_carrying(cur: &Content, want: &Content, carry: Option<&HashSet<String>
         .collect()
 }
 
+/// The change that takes `before` to `after` where the two differ over one
+/// range of the text: `[from, to)` of `before`, which `after` holds as
+/// `[from, to + after.len - before.len)`, as a ProseMirror `ReplaceStep`
+/// names it. Its text is one splice over the characters of that range that
+/// differ, never coarser than the range, and its records, containers, marks,
+/// anchors and islands follow as [`diff`]'s do, so applying it reaches what
+/// `diff` reaches. Where the texts differ outside the range, or a block or
+/// island there holds another id than `before`'s, the range is not the
+/// change's, and the change is [`diff`]'s.
+pub fn diff_range(before: &Content, after: &Content, from: Usv, to: Usv) -> Result<Change, Invariant> {
+    after.validate()?;
+    let want = reachable(before, after, true);
+    let splices = range_splice(before, &want, from, to).unwrap_or_else(|| splices(before, &want));
+    Ok(Change::new(level_steps(before, &want, None, splices)))
+}
+
 fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>, top: bool) -> Vec<Step> {
     let want = reachable(before, after, top);
+    let splices = splices(before, &want);
+    level_steps(before, &want, carry, splices)
+}
+
+/// The steps that take `before` to `want` after `splices`, which take its
+/// text to `want`'s: each container, then the splices, then each record,
+/// island and slot that still differs, then the marks and anchors.
+fn level_steps(before: &Content, want: &Content, carry: Option<&HashSet<String>>, splices: Vec<Step>) -> Vec<Step> {
     let held = containers_by_id(before);
     let mut steps = Vec::new();
     for k in &want.containers {
@@ -69,7 +95,7 @@ fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>
             steps.push(Step::Container(ContainerStep::Set(k.clone())));
         }
     }
-    steps.extend(splices(before, &want).into_iter().map(|mut s| {
+    steps.extend(splices.into_iter().map(|mut s| {
         if let Step::Splice(sp) = &mut s {
             sp.removed = None;
         }
@@ -99,7 +125,7 @@ fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>
     let ran = run(&mut cur, &rest);
     debug_assert!(ran.is_ok(), "a diff's record and island steps apply after its splices");
     steps.extend(rest);
-    steps.extend(fixups_carrying(&cur, &want, carry));
+    steps.extend(fixups_carrying(&cur, want, carry));
     steps
 }
 
@@ -120,14 +146,16 @@ fn record_step(have: &Block, need: &Block) -> Option<Step> {
 /// `after` under the ids a change from `before` can give it.
 fn reachable(before: &Content, after: &Content, top: bool) -> Content {
     let mut want = after.clone();
-    let mut ids = Minter::default();
-    for b in before.blocks.iter().chain(&want.blocks) {
-        ids.hold(&b.id);
-    }
     let first = before.blocks.first().map(|b| b.id.clone()).unwrap_or_default();
-    for b in &mut want.blocks[1..] {
-        if b.id == first {
-            b.id = ids.mint(prefix::BLOCK);
+    if want.blocks[1..].iter().any(|b| b.id == first) {
+        let mut ids = Minter::default();
+        for b in before.blocks.iter().chain(&want.blocks) {
+            ids.hold(&b.id);
+        }
+        for b in &mut want.blocks[1..] {
+            if b.id == first {
+                b.id = ids.mint(prefix::BLOCK);
+            }
         }
     }
     want.blocks[0].id = first;
@@ -154,6 +182,11 @@ fn reachable(before: &Content, after: &Content, top: bool) -> Content {
     want
 }
 
+/// The block ids of `c`.
+fn block_ids(c: &Content) -> HashSet<&str> {
+    c.blocks.iter().map(|b| b.id.as_str()).collect()
+}
+
 /// Each island of `c` by its id.
 fn islands_by_id(c: &Content) -> HashMap<&str, &Island> {
     c.islands.iter().map(|i| (i.id.as_str(), i)).collect()
@@ -171,36 +204,125 @@ fn fresh_id(id: &str, before: &Content, after: &Content) -> String {
 
 /// The splices of a word-aligned diff of the two texts, a kept `\n` or slot
 /// whose record differs deleted and inserted again.
-fn splices(before: &Content, want: &Content) -> Vec<Step> {
-    let a: Vec<char> = before.text.chars().collect();
-    let b: Vec<char> = want.text.chars().collect();
-    let records = |chars: &[char]| -> Vec<Option<usize>> {
-        let (mut nl, mut sl) = (0, 0);
-        chars
-            .iter()
-            .map(|&ch| match ch {
-                '\n' => {
-                    nl += 1;
-                    Some(nl)
-                }
-                ISLAND_SLOT => {
-                    sl += 1;
-                    Some(sl - 1)
-                }
-                _ => None,
-            })
-            .collect()
-    };
-    let (ra, rb) = (records(&a), records(&b));
-    let same = |i: usize, j: usize| match (a[i], ra[i], rb[j]) {
-        ('\n', Some(x), Some(y)) => before.blocks[x].id == want.blocks[y].id,
-        (ISLAND_SLOT, Some(x), Some(y)) => {
-            let (p, q) = (&before.islands[x], &want.islands[y]);
-            let slots_follow_props = !matches!(p.island_type, IslandType::Ext(_));
-            p.id == q.id && p.island_type == q.island_type && (slots_follow_props || p.slots.keys().eq(q.slots.keys()))
+/// The two texts and the record each `\n` and slot carries: a block's index
+/// for a `\n`, an island's for a slot.
+struct Texts<'a> {
+    before: &'a Content,
+    want: &'a Content,
+    a: Vec<char>,
+    b: Vec<char>,
+    ra: Vec<Option<usize>>,
+    rb: Vec<Option<usize>>,
+}
+
+impl<'a> Texts<'a> {
+    fn new(before: &'a Content, want: &'a Content) -> Self {
+        let a: Vec<char> = before.text.chars().collect();
+        let b: Vec<char> = want.text.chars().collect();
+        let (ra, rb) = (records(&a), records(&b));
+        Texts { before, want, a, b, ra, rb }
+    }
+
+    /// Whether `a[i]`, kept as `b[j]`, keeps its record: a `\n` its block's
+    /// id, a slot its island's id, type and, for an `x-` island, slots.
+    fn same(&self, i: usize, j: usize) -> bool {
+        match (self.a[i], self.ra[i], self.rb[j]) {
+            ('\n', Some(x), Some(y)) => self.before.blocks[x].id == self.want.blocks[y].id,
+            (ISLAND_SLOT, Some(x), Some(y)) => {
+                let (p, q) = (&self.before.islands[x], &self.want.islands[y]);
+                let slots_follow_props = !matches!(p.island_type, IslandType::Ext(_));
+                p.id == q.id && p.island_type == q.island_type && (slots_follow_props || p.slots.keys().eq(q.slots.keys()))
+            }
+            _ => true,
         }
-        _ => true,
+    }
+}
+
+fn records(chars: &[char]) -> Vec<Option<usize>> {
+    let (mut nl, mut sl) = (0, 0);
+    chars
+        .iter()
+        .map(|&ch| match ch {
+            '\n' => {
+                nl += 1;
+                Some(nl)
+            }
+            ISLAND_SLOT => {
+                sl += 1;
+                Some(sl - 1)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The furthest a range splice slides past its range to meet the records on
+/// either side, as Enter at a block's start, which the text alone places on
+/// either side of the `\n` before it, needs.
+const MAX_SLIDE: usize = 64;
+
+/// The one splice of `before` to `want` over `[from, to)` of `before`, its
+/// edges moved in past what the two keep and, where the records outside it
+/// differ, slid until they agree; `None` where no place within
+/// [`MAX_SLIDE`] makes them.
+fn range_splice(before: &Content, want: &Content, from: Usv, to: Usv) -> Option<Vec<Step>> {
+    let t = Texts::new(before, want);
+    let (a, b) = (&t.a, &t.b);
+    let to_b = (to + b.len()).checked_sub(a.len())?;
+    if from > to || to > a.len() || from > to_b || a[..from] != b[..from] || a[to..] != b[to_b..] {
+        return None;
+    }
+    let (mut i0, mut i1, mut j1) = (from, to, to_b);
+    while i0 < i1 && i0 < j1 && a[i0] == b[i0] && t.same(i0, i0) {
+        i0 += 1;
+    }
+    while i1 > i0 && j1 > i0 && a[i1 - 1] == b[j1 - 1] && t.same(i1 - 1, j1 - 1) {
+        i1 -= 1;
+        j1 -= 1;
+    }
+    let kept = |i0: usize, i1: usize, j1: usize| {
+        let lead = (0..i0).all(|k| t.same(k, k));
+        lead && (i1..a.len()).all(|k| t.same(k, k + j1 - i1))
     };
+    let mut at = Some((i0, i1, j1)).filter(|&(i0, i1, j1)| kept(i0, i1, j1));
+    let (mut l0, mut l1, mut lj) = (i0, i1, j1);
+    for _ in 0..MAX_SLIDE {
+        if at.is_some() || l0 == 0 {
+            break;
+        }
+        let la = if l1 > l0 { a[l1 - 1] } else { a[l0 - 1] };
+        let lb = if lj > l0 { b[lj - 1] } else { b[l0 - 1] };
+        if la != lb {
+            break;
+        }
+        (l0, l1, lj) = (l0 - 1, l1 - 1, lj - 1);
+        at = Some((l0, l1, lj)).filter(|&(i0, i1, j1)| kept(i0, i1, j1));
+    }
+    let (mut r0, mut r1, mut rj) = (i0, i1, j1);
+    for _ in 0..MAX_SLIDE {
+        if at.is_some() || r1 >= a.len() || rj >= b.len() {
+            break;
+        }
+        let fa = if r1 > r0 { a[r0] } else { a[r1] };
+        let fb = if rj > r0 { b[r0] } else { b[rj] };
+        if fa != fb {
+            break;
+        }
+        (r0, r1, rj) = (r0 + 1, r1 + 1, rj + 1);
+        at = Some((r0, r1, rj)).filter(|&(i0, i1, j1)| kept(i0, i1, j1));
+    }
+    let (i0, i1, j1) = at?;
+    if i0 == i1 && i0 == j1 {
+        return Some(Vec::new());
+    }
+    let marks = MarksOver::new(&want.marks);
+    Some(vec![Step::Splice(splice_of(want, &marks, &a[i0..i1], &b[i0..j1], i0, &t.rb[i0..j1], i0))])
+}
+
+fn splices(before: &Content, want: &Content) -> Vec<Step> {
+    let t = Texts::new(before, want);
+    let (a, b, ra, rb) = (&t.a, &t.b, &t.ra, &t.rb);
+    let same = |i: usize, j: usize| t.same(i, j);
     let marks = MarksOver::new(&want.marks);
     let mut steps = Vec::new();
     let (mut i, mut j, mut pos) = (0usize, 0usize, 0usize);
@@ -428,13 +550,13 @@ pub fn align(before: &Content, after: Content) -> Content {
         }
     }
 
-    let mut block_to: HashMap<usize, String> = HashMap::new();
+    let mut block_to: Vec<Option<usize>> = vec![None; after.blocks.len()];
     let mut containers: HashMap<String, String> = HashMap::new();
     let mut taken: HashSet<String> = HashSet::new();
     let kinds_before: HashMap<&str, &ContainerKind> = before.containers.iter().map(|k| (k.id.as_str(), &k.kind)).collect();
     let kinds_after: HashMap<String, ContainerKind> = after.containers.iter().map(|k| (k.id.clone(), k.kind.clone())).collect();
     for &(x, y) in &blocks {
-        block_to.insert(y, before.blocks[x].id.clone());
+        block_to[y] = Some(x);
         if matches!(before.blocks[x].kind, BlockKind::Ext { .. }) && after.blocks[y].kind == BlockKind::Para {
             after.blocks[y].kind = before.blocks[x].kind.clone();
         }
@@ -458,34 +580,37 @@ pub fn align(before: &Content, after: Content) -> Content {
             }
         }
     }
-    let mut ids = Minter::default();
-    for id in before.blocks.iter().map(|b| &b.id).chain(before.containers.iter().map(|k| &k.id)) {
-        ids.hold(id);
-    }
-    for id in block_to.values().chain(containers.values()) {
-        ids.hold(id);
-    }
+    let mut minter: Option<Minter> = None;
+    let build = |containers: &HashMap<String, String>| {
+        let mut ids = Minter::default();
+        for id in before.blocks.iter().map(|b| &b.id).chain(before.containers.iter().map(|k| &k.id)).chain(containers.values()) {
+            ids.hold(id);
+        }
+        ids
+    };
+    let mut fresh: Vec<(String, String)> = Vec::new();
     for k in &after.containers {
         if !containers.contains_key(&k.id) {
             let kept = if !kinds_before.contains_key(k.id.as_str()) && !taken.contains(&k.id) {
-                ids.hold(&k.id);
+                minter.get_or_insert_with(|| build(&containers)).hold(&k.id);
                 k.id.clone()
             } else {
-                ids.mint(container_prefix(k))
+                minter.get_or_insert_with(|| build(&containers)).mint(container_prefix(k))
             };
             taken.insert(kept.clone());
-            containers.insert(k.id.clone(), kept);
+            fresh.push((k.id.clone(), kept));
         }
     }
+    containers.extend(fresh);
     let held: HashSet<&str> = before.blocks.iter().map(|b| b.id.as_str()).collect();
     for (y, b) in after.blocks.iter_mut().enumerate() {
-        b.id = match block_to.get(&y) {
-            Some(id) => id.clone(),
-            None if !held.contains(b.id.as_str()) && !ids.holds(&b.id) => {
-                ids.hold(&b.id);
+        b.id = match block_to[y] {
+            Some(x) => before.blocks[x].id.clone(),
+            None if !held.contains(b.id.as_str()) && !minter.get_or_insert_with(|| build(&containers)).holds(&b.id) => {
+                minter.get_or_insert_with(|| build(&containers)).hold(&b.id);
                 b.id.clone()
             }
-            None => ids.mint(prefix::BLOCK),
+            None => minter.get_or_insert_with(|| build(&containers)).mint(prefix::BLOCK),
         };
         for id in &mut b.path {
             if let Some(to) = containers.get(id) {
@@ -641,13 +766,14 @@ pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ReviseError>
 /// `over` introduced too is renamed past it. A [`Codec::Plain`] value reads
 /// `markdown` as its literal text, which is its whole read.
 pub fn revise_keeping(before: &Content, markdown: &str, now: &Content) -> Result<Revision, ReviseError> {
+    let lines = to_lines(before);
     let spelled = match before.codec {
         Codec::Rich => crate::markdown::to_markdown_annotated(before).markdown,
         Codec::Plain => crate::markdown::to_plaintext(before),
     };
-    let read = revise_holding(before, &spelled, before)?.content;
+    let read = revise_lines(before, &lines, &spelled, before)?.content;
     if read == *before {
-        return Ok(revise_holding(before, markdown, now)?);
+        return Ok(revise_lines(before, &lines, markdown, now)?);
     }
     let over = diff_with(&read, before, None);
     let held = apply(&read, &over).ok().map(|a| a.content);
@@ -673,22 +799,29 @@ pub fn revise_keeping(before: &Content, markdown: &str, now: &Content) -> Result
 /// values alone, so equal values write equal bytes; a stale step by id is
 /// held to its own block by `rebase`.
 pub fn revise_holding(before: &Content, markdown: &str, now: &Content) -> Result<Revision, ImportError> {
-    let lines = to_lines(before);
+    revise_lines(before, &to_lines(before), markdown, now)
+}
+
+/// [`revise_holding`] with `before` already lowered to `lines`.
+fn revise_lines(before: &Content, lines: &crate::lines::model::Normalized, markdown: &str, now: &Content) -> Result<Revision, ImportError> {
     let Against { content: imported, warnings, pins } = match before.codec {
-        Codec::Rich => from_markdown_against(markdown, &lines)?,
+        Codec::Rich => from_markdown_against(markdown, lines)?,
         Codec::Plain => Against {
             content: crate::lines::import::from_plaintext(markdown),
             warnings: Vec::new(),
             pins: Vec::new(),
         },
     };
-    let (imported, _) = rebase_pinned(&lines, imported, &pins);
+    let (imported, _) = rebase_pinned(lines, imported, &pins);
     let mut content = holding(before, &align(before, from_lines(&imported)), now, true);
     content.codec = before.codec;
     // A pinned anchor stands where its tag does; every other rides the diff's
     // splices, as a replace's do.
     let pinned: HashSet<String> = pins.into_iter().map(|p| p.id).collect();
     content.anchors.retain(|a| pinned.contains(&a.id));
+    if content == *before {
+        return Ok(Revision { change: Change::default(), content, warnings });
+    }
     let change = diff_with(before, &content, Some(&pinned));
     let content = match apply(before, &change) {
         Ok(done) => done.content,
@@ -702,6 +835,8 @@ pub fn revise_holding(before: &Content, markdown: &str, now: &Content) -> Result
 
 /// The change that writes `content` over `before`: each anchor of `before`
 /// that `content` names nowhere carried where the diff keeps its text.
+/// Refuses a `content` that is not valid or not canonical
+/// ([`Content::check_canonical`]), as the decode a write reads it through does.
 pub fn replace(before: &Content, content: &Content) -> Result<Change, Invariant> {
     replace_holding(before, content, before)
 }
@@ -710,6 +845,7 @@ pub fn replace(before: &Content, content: &Content) -> Result<Change, Invariant>
 /// ids minted as [`revise_holding`] mints them.
 pub fn replace_holding(before: &Content, content: &Content, now: &Content) -> Result<Change, Invariant> {
     content.validate()?;
+    content.check_canonical()?;
     let named: HashSet<String> = content.anchor_ids().into_iter().collect();
     Ok(diff_with(before, &holding(before, content, now, true), Some(&named)))
 }
@@ -720,27 +856,32 @@ pub fn replace_holding(before: &Content, content: &Content, now: &Content) -> Re
 /// three hold.
 fn holding(before: &Content, want: &Content, now: &Content, top: bool) -> Content {
     let mut want = reachable(before, want, top);
-    let mut ids = Minter::default();
-    let mut island_ids = Minter::default();
-    for c in [before, now, &want] {
-        c.blocks.iter().map(|b| &b.id).chain(c.containers.iter().map(|k| &k.id)).for_each(|id| ids.hold(id));
-        c.islands.iter().for_each(|i| island_ids.hold(&i.id));
-    }
+    let held_ids = |cs: [&Content; 3]| {
+        let mut ids = Minter::default();
+        for c in cs {
+            c.blocks.iter().map(|b| &b.id).chain(c.containers.iter().map(|k| &k.id)).for_each(|id| ids.hold(id));
+        }
+        ids
+    };
+    let mut ids: Option<Minter> = None;
     let containers = |c: &Content| -> HashSet<String> { c.containers.iter().map(|k| k.id.clone()).collect() };
-    let blocks = |c: &Content| -> HashSet<String> { c.blocks.iter().map(|b| b.id.clone()).collect() };
     let mut renamed = HashMap::new();
     let (was, held) = (containers(before), containers(now));
-    for k in &mut want.containers {
-        if !was.contains(&k.id) && held.contains(&k.id) {
-            let fresh = ids.mint(container_prefix(k));
-            renamed.insert(std::mem::replace(&mut k.id, fresh.clone()), fresh);
+    for k in 0..want.containers.len() {
+        let id = &want.containers[k].id;
+        if !was.contains(id) && held.contains(id) {
+            let fresh = ids.get_or_insert_with(|| held_ids([before, now, &want])).mint(container_prefix(&want.containers[k]));
+            renamed.insert(std::mem::replace(&mut want.containers[k].id, fresh.clone()), fresh);
         }
     }
-    let (was, held) = (blocks(before), blocks(now));
+    let (was, held) = (block_ids(before), block_ids(now));
+    let clash: Vec<usize> =
+        (0..want.blocks.len()).filter(|&k| !was.contains(want.blocks[k].id.as_str()) && held.contains(want.blocks[k].id.as_str())).collect();
+    for k in clash {
+        let fresh = ids.get_or_insert_with(|| held_ids([before, now, &want])).mint(prefix::BLOCK);
+        want.blocks[k].id = fresh;
+    }
     for b in &mut want.blocks {
-        if !was.contains(&b.id) && held.contains(&b.id) {
-            b.id = ids.mint(prefix::BLOCK);
-        }
         for id in &mut b.path {
             if let Some(to) = renamed.get(id) {
                 *id = to.clone();
@@ -748,16 +889,24 @@ fn holding(before: &Content, want: &Content, now: &Content, top: bool) -> Conten
         }
     }
     let (was, held) = (islands_by_id(before), islands_by_id(now));
-    for i in &mut want.islands {
-        match (was.get(i.id.as_str()), held.get(i.id.as_str())) {
+    let mut island_ids: Option<Minter> = None;
+    for k in 0..want.islands.len() {
+        match (was.get(want.islands[k].id.as_str()), held.get(want.islands[k].id.as_str())) {
             (Some(was), Some(held)) => {
-                for (slot, inner) in &mut i.slots {
+                for (slot, inner) in &mut want.islands[k].slots {
                     if let (Some(w), Some(n)) = (was.slots.get(slot), held.slots.get(slot)) {
                         *inner = holding(w, inner, n, false);
                     }
                 }
             }
-            (None, Some(_)) => i.id = island_ids.mint(prefix::ISLAND),
+            (None, Some(_)) => {
+                let ids = island_ids.get_or_insert_with(|| {
+                    let mut ids = Minter::default();
+                    [before, now, &want].iter().flat_map(|c| &c.islands).for_each(|i| ids.hold(&i.id));
+                    ids
+                });
+                want.islands[k].id = ids.mint(prefix::ISLAND);
+            }
             _ => {}
         }
     }

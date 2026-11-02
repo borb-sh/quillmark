@@ -243,7 +243,7 @@ fn read_content(
         return Ok(None);
     };
     codec
-        .decode_content(value)
+        .read_content(value)
         .map(Some)
         .map_err(|e| field_decode(name, at, codec, e))
 }

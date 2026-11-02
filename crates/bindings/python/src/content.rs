@@ -9,7 +9,7 @@ use pyo3::types::PyDict;
 use quillmark_content::change::{self, Change};
 use quillmark_content::model::Content;
 use quillmark_content::wire::ParseError;
-use quillmark_core::document::{Document, Edit, EditError, Receipt, Target, check_change, check_content_value};
+use quillmark_core::document::{Document, Edit, EditError, Receipt, Target, WriteOptions, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 
 use crate::errors::convert_edit_error;
@@ -53,7 +53,7 @@ pub(crate) fn write<'py>(
     base_path: &DocPath,
     field: Option<&str>,
     edit: Edit<'_>,
-    base: Option<&str>,
+    opts: WriteOptions<'_>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let path = match field {
         None => base_path.body(),
@@ -64,9 +64,20 @@ pub(crate) fn write<'py>(
         Some(i) => doc.card_mut(i).expect("the card index is resolved"),
     };
     let to_py = |e: EditError| convert_edit_error(e, base_path);
-    let receipt: Receipt = card.write(Target::from(field), edit, base).map_err(to_py)?;
+    let receipt: Receipt = card.write(Target::from(field), edit, opts).map_err(to_py)?;
     let card_id = card.id().map(str::to_string);
-    let warnings = py_diagnostics(receipt.diagnostics(Some(&path)));
+    receipt_to_py(py, receipt, &path, card_id)
+}
+
+/// `receipt` as it crosses, its dropped anchors' selectors at `path` on the
+/// card `card_id` names.
+pub(crate) fn receipt_to_py<'py>(
+    py: Python<'py>,
+    receipt: Receipt,
+    path: &DocPath,
+    card_id: Option<String>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let warnings = py_diagnostics(receipt.diagnostics(Some(path)));
     let dropped: Vec<_> = receipt
         .dropped_anchors
         .into_iter()
@@ -89,7 +100,7 @@ pub(crate) fn write<'py>(
     let moved: Vec<_> = receipt
         .moved_anchors
         .into_iter()
-        .map(|m| serde_json::json!({ "id": m.id, "before": m.before, "after": m.after }))
+        .map(|m| serde_json::json!({ "id": m.id, "before": m.before, "after": m.after, "reason": m.reason.name() }))
         .collect();
     let out = PyDict::new(py);
     out.set_item("applied", json_to_py(py, &receipt.applied.to_value())?)?;
@@ -98,6 +109,7 @@ pub(crate) fn write<'py>(
     out.set_item("moved_anchors", json_to_py(py, &serde_json::Value::Array(moved))?)?;
     out.set_item("warnings", warnings)?;
     out.set_item("rebased", receipt.rebased)?;
+    out.set_item("minted", receipt.minted)?;
     Ok(out)
 }
 
@@ -119,4 +131,23 @@ pub fn diff<'py>(py: Python<'py>, before: &Bound<'_, PyAny>, after: &Bound<'_, P
     let (before, after) = (content_from_py(before, "diff")?, content_from_py(after, "diff")?);
     let change = quillmark_content::diff::diff(&before, &after).map_err(|e| change_error(e.into()))?;
     json_to_py(py, &change.to_value())
+}
+
+/// The valid value every peer holding the merged state `raw` reads, what was
+/// mended to reach it, and the change from `raw`'s text to the value's, which
+/// a peer maps its positions through: `{"content", "repairs", "change"}`.
+/// Raises `ValueError` only on a `raw` not shaped as content.
+#[pyfunction]
+pub fn repair<'py>(py: Python<'py>, raw: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyDict>> {
+    let json = py_to_json(raw)?;
+    check_content_value(&json).map_err(|e| convert_edit_error(e, &DocPath::new()))?;
+    let raw = quillmark_content::repair::Raw::from_value(&json)
+        .map_err(|e| PyValueError::new_err(format!("repair: not shaped as content: {e}")))?;
+    let (content, repairs, change) = quillmark_content::repair::repair(raw);
+    let out = PyDict::new(py);
+    out.set_item("content", content_to_py(py, &content)?)?;
+    let repairs: Vec<serde_json::Value> = repairs.iter().map(quillmark_content::repair::Repair::to_value).collect();
+    out.set_item("repairs", json_to_py(py, &serde_json::Value::Array(repairs))?)?;
+    out.set_item("change", json_to_py(py, &change.to_value())?)?;
+    Ok(out)
 }

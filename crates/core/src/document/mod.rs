@@ -34,7 +34,7 @@ pub(crate) fn stored_as(
 }
 
 fn lifted_over(old: Option<&serde_json::Value>, lines: &Normalized) -> Content {
-    let held = old.filter(|v| v.is_object()).and_then(|v| Content::from_value(v).ok());
+    let held = old.filter(|v| v.is_object()).and_then(|v| Content::from_value_lenient(v).ok()).map(|read| read.content);
     match held {
         Some(held) => quillmark_content::diff::lift(&held, lines),
         None => quillmark_content::migrate::from_lines(lines),
@@ -89,6 +89,19 @@ pub fn dropped_constructs(
             None => dropped_construct(w),
         })
         .collect()
+}
+
+/// The diagnostic code a stored content value read in a spelling other than
+/// its canonical one rides.
+pub const NONCANONICAL_READ: &str = "content::noncanonical_read";
+
+/// The warning a stored read owes a content value it rewrote to its canonical
+/// form: the value loads canonical, and storing the document again writes
+/// those bytes. This release reads such a value; a later one refuses it.
+pub fn noncanonical_read() -> Diagnostic {
+    Diagnostic::new(Severity::Warning, "a stored content value is not in canonical form, and reads as it".to_string())
+        .with_code(NONCANONICAL_READ.to_string())
+        .with_hint("store the document again to write its canonical form; a later release refuses the value as stored".to_string())
 }
 
 /// The diagnostic code a markdown export's loss rides.
@@ -543,6 +556,18 @@ impl Codec {
         }
     }
 
+    /// [`decode_content`](Self::decode_content) for a value the document
+    /// already holds: an object reads as a stored value does
+    /// ([`Content::from_value_lenient`]), the canonical form of what it spells.
+    pub(crate) fn read_content(self, value: &serde_json::Value) -> Result<Content, ContentDecodeError> {
+        match value {
+            serde_json::Value::Object(_) => Content::from_value_lenient(value)
+                .map(|read| read.content)
+                .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
+            _ => self.decode_content(value),
+        }
+    }
+
     /// Project a content back to this codec's text: the inverse of its string
     /// encoding.
     pub(crate) fn project(self, content: &Normalized) -> String {
@@ -656,14 +681,14 @@ pub use dto::{
     STORAGE_V0_124_0, STORAGE_V0_129_0, STORAGE_V0_131_0, STORAGE_V0_134_0, StorageError,
     StoredDocument, peek_storage_version,
 };
-pub use edit::{CardMut, EditError, Revised, revise_import};
+pub use edit::{CardMut, EditError, revise_import};
 pub use emit::{AnnotatedMarkdown, DocumentAnchor};
 pub use merge::MergeConflict;
 pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{MetaKey, Payload, PayloadItem};
 /// Returned by [`Document::reattach`], so nameable from here.
 pub use quillmark_content::lines::anchor::Reattached;
-/// Carried by [`Revised::dropped_anchors`], so nameable from here.
+/// Answered by [`Card::body_annotated`] and the content crate's anchor reads, so nameable from here.
 pub use quillmark_content::lines::export::{AnchorRead, Annotated};
 /// Carried by [`EditError::Import`], so nameable from here.
 pub use quillmark_content::lines::import::ImportError;
@@ -673,7 +698,7 @@ pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
-pub use write::{Edit, LOG_STEPS, MAX_CHANGE_STEPS, Receipt, Target, check_change, check_content_value};
+pub use write::{Edit, LOG_STEPS, Located, MAX_CHANGE_STEPS, Receipt, Target, WriteOptions, check_change, check_content_value};
 
 /// Where Quillmark Markdown departs from plain Markdown and YAML, as rules
 /// surfaced verbatim to LLM/MCP consumers and to the bindings. The single
@@ -1030,6 +1055,15 @@ impl Document {
         );
         card_id::settle(&mut cards, &std::collections::HashSet::new());
         Self { main, cards }
+    }
+
+    /// Read a stored row ([`StoredDocument`] JSON) into a [`Parsed`]: the
+    /// [`Document`], and a [`noncanonical_read`] warning at each body or field
+    /// whose content value the read rewrote to its canonical form. Fails as
+    /// deserializing a `Document` from `json` fails.
+    pub fn from_stored(json: &str) -> Result<Parsed, serde_json::Error> {
+        let stored: StoredDocument = serde_json::from_str(json)?;
+        dto::from_stored(stored).map_err(serde::de::Error::custom)
     }
 
     /// Parse card-yaml Markdown into a [`Parsed`]: the [`Document`] plus any

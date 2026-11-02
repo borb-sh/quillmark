@@ -270,6 +270,24 @@ impl Island {
     }
 
     /// The slot ids the island's props reference, in reading order.
+    /// Each table cell of several paragraphs made one, every `\n` in it a
+    /// [`HARD_BREAK`] and its blocks after the first dropped; answers the slot
+    /// of each cell joined. Offsets keep, one character standing for another.
+    pub fn join_cells(&mut self) -> Vec<String> {
+        if self.island_type.slot_holds_paragraphs() {
+            return Vec::new();
+        }
+        let mut joined = Vec::new();
+        for (id, slot) in &mut self.slots {
+            if slot.blocks.len() > 1 && slot.blocks.len() == slot.text.matches('\n').count() + 1 {
+                slot.text = slot.text.replace('\n', &HARD_BREAK.to_string());
+                slot.blocks.truncate(1);
+                joined.push(id.clone());
+            }
+        }
+        joined
+    }
+
     pub fn slot_order(&self) -> Vec<String> {
         match self.island_type {
             IslandType::Table => crate::table::Table::read(&self.props)
@@ -324,6 +342,12 @@ pub enum Invariant {
     TooManyAnchors { anchors: usize, max: usize },
     /// A slot holds what only a field's own text may: anything but paragraphs.
     BadSlot { island: String, slot: String },
+    /// A table cell holds a paragraph break: a cell is one paragraph, its
+    /// lines parted by [`HARD_BREAK`].
+    BreakInCell { island: String, slot: String },
+    /// A value spelled otherwise than [`Content::normalize`] leaves it: `what`
+    /// names the part normalizing would rewrite or drop.
+    NotCanonical { what: &'static str },
     /// A container whose blocks are not one contiguous run.
     SplitContainer { id: String },
     /// A container under two different parent paths.
@@ -367,6 +391,10 @@ impl std::fmt::Display for Invariant {
             Invariant::BadSlot { island, slot } => {
                 write!(f, "slot `{slot}` of island `{island}` holds more than paragraphs")
             }
+            Invariant::BreakInCell { island, slot } => {
+                write!(f, "cell `{slot}` of table `{island}` holds more than one paragraph")
+            }
+            Invariant::NotCanonical { what } => write!(f, "the value's {what} are not in canonical form"),
             Invariant::SplitContainer { id } => write!(f, "container `{id}` spans two separate runs"),
             Invariant::TwoParents { id } => write!(f, "container `{id}` sits under two different paths"),
             Invariant::UnusedContainer { id } => write!(f, "container `{id}` holds no block"),
@@ -546,6 +574,12 @@ impl Content {
             }
         }
         out
+    }
+
+    /// Whether the text or a slot in it holds an anchor under `id`.
+    pub fn holds_anchor(&self, id: &str) -> bool {
+        self.anchors.iter().any(|a| a.id == id)
+            || self.islands.iter().any(|i| i.slots.values().any(|slot| slot.holds_anchor(id)))
     }
 
     /// The content at `island`'s `slot`.
@@ -789,6 +823,59 @@ impl Content {
         Ok(())
     }
 
+    /// Refuses a value [`normalize`](Self::normalize) would rewrite: marks not
+    /// cut, settled and sorted, anchors not sorted, containers out of
+    /// first-use order or one no path names, and island props a settle would
+    /// change, in the text and in every slot. Run after
+    /// [`validate`](Self::validate), whose ranges it reads.
+    pub fn check_canonical(&self) -> Result<(), Invariant> {
+        let not = |what| Err(Invariant::NotCanonical { what });
+        if !self.marks.is_empty() {
+            let chars: Vec<char> = self.text.chars().collect();
+            if normalized_marks(&chars, self.marks.clone()) != self.marks {
+                return not("marks");
+            }
+        }
+        if !self.anchors.is_sorted_by(|a, b| (a.start, a.end, &a.id) <= (b.start, b.end, &b.id)) {
+            return not("anchors");
+        }
+        if !self.containers.is_empty() {
+            let mut ordered = self.clone_shell();
+            ordered.order_containers(true);
+            if ordered.containers != self.containers {
+                return not("containers");
+            }
+        }
+        for island in &self.islands {
+            if matches!(island.island_type, IslandType::Table | IslandType::Math) {
+                let mut settled = island.clone();
+                crate::table::normalize_island(&mut settled);
+                if settled.props != island.props {
+                    return not("island props");
+                }
+            }
+            for slot in island.slots.values() {
+                slot.check_canonical()?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The blocks and containers alone, what ordering containers reads.
+    fn clone_shell(&self) -> Content {
+        Content { blocks: self.blocks.clone(), containers: self.containers.clone(), ..Content::empty() }
+    }
+
+    /// [`Island::join_cells`] over each island; answers the `(island, slot)`
+    /// of each cell joined.
+    pub fn join_cells(&mut self) -> Vec<(String, String)> {
+        let mut joined = Vec::new();
+        for island in &mut self.islands {
+            joined.extend(island.join_cells().into_iter().map(|slot| (island.id.clone(), slot)));
+        }
+        joined
+    }
+
     /// Whether this content may sit in a slot: paragraphs in no container,
     /// holding no island. A block of a kind this build does not know reads as
     /// a paragraph.
@@ -974,6 +1061,9 @@ pub(crate) fn check_island(island: &Island) -> Result<(), Invariant> {
         slot.check()?;
         if !slot.is_slot_shape() {
             return Err(Invariant::BadSlot { island: island.id.clone(), slot: id.clone() });
+        }
+        if !island.island_type.slot_holds_paragraphs() && slot.blocks.len() > 1 {
+            return Err(Invariant::BreakInCell { island: island.id.clone(), slot: id.clone() });
         }
     }
     Ok(())

@@ -13,7 +13,7 @@ Core makes the anchor a reliable handle: it reads what each anchor is attached t
 
 - **The thread lives outside the document.** No body, author or status enters `Content`. The host keeps the thread, keyed by the anchor's id.
 - **The thread's id is the anchor's id.** The client mints it, as it mints every anchor id ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)). Quillmark mints none.
-- **The host mints ids unique per document.** A value holds each anchor id once over its text and every slot, and a step placing a held id is refused, but the model guarantees no more than that, so the contract requires the host's mint to be unique across the document, as a UUID is. A host namespaces its mint, as `c-<uuid>` does, so that the editors of a body and of each table cell or note, minting apart, never mint one id twice, since a step placing an id another slot holds is refused. `anchor_context(id)` and the live-id check take the first value holding an id.
+- **The host mints ids unique per document.** A value holds each anchor id once over its text and every slot, and an `anchor` step placing an id the value holds anywhere is refused: placing and moving are two steps (`{id, start, end}` and `{id, start, end, move: true}`), so a placement never moves another comment's anchor. The model guarantees no more than that, so the contract requires the host's mint to be unique across the document, as a UUID is. A host namespaces its mint, as `c-<uuid>` does, so that the editors of a body and of each table cell or note, minting apart, never mint one id twice. `anchor_context(id)` and the live-id check take the first value holding an id.
 - **Every write keeps the anchors it can.** `apply` moves them exactly as its steps move text, and `revise` / `replace` / the writer's `reviseDocument` carry them through a diff ([CONTENT.md](CONTENT.md) § "Writing a value"). A writer removes an anchor with an `anchor` step that names it; a write that deletes an anchor's whole text drops it too, and the receipt names it.
 - **A write states what its writer read.** A revise diffs against the value stored now, so a person's edit made between a writer's read and its write reads as text the writer deleted, and the anchors on it drop. A host whose writer reads, thinks and then writes (an LLM) passes the read ([BINDINGS.md](BINDINGS.md#the-write-surface-object-placement-over-one-primitive)):
   - the `base` of `apply`, `revise` and `replace` rebases the write over the change since, so an anchor placed late lands on the text it was read on, and refuses only where the two touch the same text or record (`edit::rebase_conflict`);
@@ -42,7 +42,7 @@ The read is pure and cheap enough to run before every markdown write.
 2. Every occurrence of the quote in the stored text, the prose and each cell read as its own text, counts where its context agrees: the text before ends with the last eight scalar values of `prefix`, and the text after starts with the first eight of `suffix`.
 3. A `prefix` or `suffix` shorter than eight was cut at the value's edge, and agrees whole, wherever the edge now sits: a sentence written ahead of an anchor near the value's start leaves it placeable.
 4. A point (an empty quote) counts at each position where the prefix and the suffix both agree.
-5. Where the caller passes the write's delta for the path, a match must overlap text that write inserted, the discipline `revise` keeps, and only the prose counts, since a delta spans the prose alone. Without one, the context rule alone decides.
+5. Where the caller passes the write's change for the path, its receipt's `applied`, a match must overlap text that change's top-level splices inserted, the discipline `revise` keeps, and only the value's own text counts, since those splices span it alone. Without one, the context rule alone decides.
 6. Exactly one counting place over the prose and every cell: attach there. None or several: orphan. No nearest match, no partial quote, no edit distance.
 7. A selector stored before 0.135 spells a hard break as `\n` and a cell's block break as two; where the stored spelling counts nowhere, the rule runs once more over each surface spelled that way.
 7. An id already live anywhere in the document, a cell's anchor included, is not re-added. It is answered as reattached with the selector the first value holding it reads.
@@ -58,14 +58,20 @@ A selector naming none is path-strict, as is the rest of every path: a path nami
 ## Drift
 
 `revise` can keep an anchor on different words: it relocates a moved quote to the first occurrence overlapping inserted text, and a word-level rewrite can leave both ends of a range over new text. `reattach` never sees those anchors.
-A caller compares each surviving anchor's selector after the write to the one it read before, and a changed quote is the drift it shows. Nothing moves an anchor on its own.
+A write's `movedAnchors` reports drift by position, a point included: it names each surviving anchor the write moved, with its quote before and after and the first `reason` that holds.
+
+- `position`: an `anchor` step put it other than where the write's text edits carry it, as a writer moving a kept tag does, or in another slot.
+- `block`: its start now sits in another block, as after a split or a join, or a paragraph the diff paired otherwise.
+- `context`: its quote, or the eight characters either side that `reattach` holds a selector's context to, read otherwise, so a relocated quote with an unchanged text still reports.
+
+A host re-reads the selector of each anchor named there. Nothing moves an anchor on its own.
 
 ## Table cells and notes
 
 A table cell and a footnote's note are slots, each a `Content` of its own, and an anchor in one sits in that slot's `anchors`. It moves with the slot wherever its row moves. The contract holds there as in the prose:
 
 - `anchor_contexts` reads it, at the value's path, its context cut at the cell's edges, and the annotated read lists it after the anchors before its island, with the cell's text as its `line`. No tag spells it: a cell holds none.
-- The steps reach it: a `nested` step places, moves or removes it, and a step placing an id the value holds anywhere is refused ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)).
+- The steps reach it: a `nested` step places, moves or removes it, and a placement of an id the value holds anywhere is refused ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md#anchor-id-identity)).
 - A revise keeps it where the island continues and the cell at its place keeps its text, and drops it, named in the receipt, where the cell's text changed.
 - A splice that deletes the island's slot, or a props step whose grid no longer names the cell, drops it with the cell, named in the receipt's `droppedAnchors` with the `island` and `slot` that held it.
 - `reattach` searches every cell with the prose and places it in the one cell its quote counts in.

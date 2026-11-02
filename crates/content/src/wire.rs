@@ -74,37 +74,87 @@ impl Content {
         serde_json::to_writer(w, &canon::Field(self)).map_err(std::io::Error::other)
     }
 
-    /// Decode, normalize and validate. A v1 value migrates. The bounds
-    /// normalizing would spend ([`Content::check_bounds`]) are checked first.
+    /// Decode and validate, refusing a value [`normalize`](Self::normalize)
+    /// would rewrite ([`Content::check_canonical`]): the one spelling a write
+    /// takes. The bounds ([`Content::check_bounds`]) are checked first. A v1
+    /// value migrates.
     pub fn from_value(v: &Value) -> Result<Content, ParseError> {
-        if crate::model::json_too_deep(v) {
-            return Err(ParseError::Invalid(Invariant::JsonTooDeep {
-                what: "content",
-                max: crate::MAX_JSON_DEPTH,
-            }));
-        }
-        let mut c = if is_v1(v) {
-            let lines = v1::from_canonical_value(v).map_err(ParseError::Legacy)?;
-            crate::migrate::from_lines(&lines)
-        } else {
-            decode(v)?
+        let c = match decoded(v)? {
+            Decoded::Migrated(c) => c,
+            Decoded::Read(c) => {
+                c.validate()?;
+                c.check_canonical()?;
+                c
+            }
         };
-        c.check_bounds()?;
-        c.normalize();
-        c.validate()?;
         Ok(c)
     }
 
-    /// [`from_value`](Self::from_value), lowered to the line form the
-    /// renderers read.
+    /// The stored-value read: decode, join a table cell of several paragraphs
+    /// with hard breaks, normalize and validate, answering whether the value
+    /// read was not the canonical one, so its holder can store it again. The
+    /// bounds are checked first, as [`from_value`](Self::from_value) checks
+    /// them. A lenient read is this release's migration door: a later one
+    /// reads stored values as `from_value` does.
+    pub fn from_value_lenient(v: &Value) -> Result<Lenient, ParseError> {
+        match decoded(v)? {
+            Decoded::Migrated(content) => Ok(Lenient { content, rewritten: false }),
+            Decoded::Read(read) => {
+                let mut content = read.clone();
+                let joined = !content.join_cells().is_empty();
+                content.normalize();
+                content.validate()?;
+                let rewritten = joined || content != read;
+                Ok(Lenient { content, rewritten })
+            }
+        }
+    }
+
+    /// [`from_value_lenient`](Self::from_value_lenient), lowered to the line
+    /// form the renderers read.
     pub fn lines_from_value(v: &Value) -> Result<crate::lines::model::Normalized, ParseError> {
-        Content::from_value(v).map(|c| crate::migrate::to_lines(&c))
+        Content::from_value_lenient(v).map(|read| crate::migrate::to_lines(&read.content))
     }
 
     pub fn from_json(s: &str) -> Result<Content, ParseError> {
         let v: Value = serde_json::from_str(s).map_err(|e| ParseError::Json(e.to_string()))?;
         Content::from_value(&v)
     }
+}
+
+/// A stored value as [`Content::from_value_lenient`] reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lenient {
+    pub content: Content,
+    /// Whether the value read was spelled otherwise than `content`: its
+    /// canonical bytes differ from the ones read, and its hash moves once it
+    /// is stored again.
+    pub rewritten: bool,
+}
+
+enum Decoded {
+    /// A v1 value, migrated: the canonical form, ids minted.
+    Migrated(Content),
+    /// A value as spelled, within its bounds.
+    Read(Content),
+}
+
+/// `v` decoded within the JSON depth and its bounds, a v1 value migrated.
+fn decoded(v: &Value) -> Result<Decoded, ParseError> {
+    if crate::model::json_too_deep(v) {
+        return Err(ParseError::Invalid(Invariant::JsonTooDeep { what: "content", max: crate::MAX_JSON_DEPTH }));
+    }
+    if is_v1(v) {
+        let lines = v1::from_canonical_value(v).map_err(ParseError::Legacy)?;
+        let mut c = crate::migrate::from_lines(&lines);
+        c.check_bounds()?;
+        c.normalize();
+        c.validate()?;
+        return Ok(Decoded::Migrated(c));
+    }
+    let c = decode(v)?;
+    c.check_bounds()?;
+    Ok(Decoded::Read(c))
 }
 
 /// The canonical form serialized as it is read: every object's keys in
@@ -727,7 +777,7 @@ mod tests {
         let too_many = |e: &Invariant| matches!(e, Invariant::TooManyMarks { .. });
         assert!(matches!(Content::from_value(&marked), Err(ParseError::Invalid(e)) if too_many(&e)));
 
-        let (repaired, repairs) = crate::repair::repair(crate::repair::Raw::from_value(&marked).unwrap());
+        let (repaired, repairs, _) = crate::repair::repair(crate::repair::Raw::from_value(&marked).unwrap());
         assert!(repaired.marks.len() <= crate::max_marks(len));
         assert!(repairs.iter().any(|r| matches!(r, crate::repair::Repair::Invalid(e) if too_many(e))));
 
@@ -741,12 +791,52 @@ mod tests {
         assert!(matches!(Content::from_value(&pinned), Err(ParseError::Invalid(Invariant::TooManyAnchors { .. }))));
     }
 
+    /// Each spelling `normalize` would rewrite or drop is refused by the
+    /// write's decode, naming what it would change, and read by the stored
+    /// read as the canonical value, reported rewritten.
     #[test]
-    fn a_container_no_block_names_is_dropped() {
-        let mut v = memo();
-        v["containers"].as_array_mut().unwrap().push(json!({"id": "q9", "kind": "quote"}));
-        let c = Content::from_value(&v).unwrap();
-        assert!(c.container("q9").is_none());
+    fn a_value_normalize_would_rewrite_is_refused_at_a_write_and_read_when_stored() {
+        use Invariant::{BadMark, NotCanonical, UnusedContainer};
+        let not = |what| NotCanonical { what };
+        let equation = |tex: &str, display: Value| {
+            json!({"id": "m0", "type": "math", "props": {"tex": tex, "display": display}})
+        };
+        let cases: Vec<(&str, Invariant, Box<dyn Fn(&mut Value)>)> = vec![
+            ("reversed mark", BadMark { start: 31, end: 28, len: 53 }, Box::new(|v| v["marks"] = json!([{"start": 31, "end": 28, "type": "strong"}]))),
+            ("empty mark", BadMark { start: 28, end: 28, len: 53 }, Box::new(|v| v["marks"] = json!([{"start": 28, "end": 28, "type": "strong"}]))),
+            ("mark over a newline", not("marks"), Box::new(|v| v["marks"] = json!([{"start": 14, "end": 15, "type": "emph"}, {"start": 28, "end": 31, "type": "strong"}]))),
+            ("x- mark over a newline", not("marks"), Box::new(|v| v["marks"] = json!([{"start": 14, "end": 15, "type": "x-a"}, {"start": 28, "end": 31, "type": "strong"}]))),
+            ("mark across a block", not("marks"), Box::new(|v| v["marks"] = json!([{"start": 10, "end": 20, "type": "strong"}]))),
+            ("marks that touch", not("marks"), Box::new(|v| v["marks"] = json!([{"start": 28, "end": 29, "type": "strong"}, {"start": 29, "end": 31, "type": "strong"}]))),
+            ("marks out of order", not("marks"), Box::new(|v| v["marks"] = json!([{"start": 28, "end": 31, "type": "strong"}, {"start": 15, "end": 16, "type": "emph"}]))),
+            ("anchors out of order", not("anchors"), Box::new(|v| v["anchors"] = json!([{"id": "c-7f3a", "start": 23, "end": 27}, {"id": "c-1", "start": 0, "end": 2}]))),
+            ("unused container", UnusedContainer { id: "q9".into() }, Box::new(|v| v["containers"].as_array_mut().unwrap().push(json!({"id": "q9", "kind": "quote"})))),
+            ("containers out of order", not("containers"), Box::new(|v| v["containers"].as_array_mut().unwrap().swap(1, 2))),
+            ("head at its default", not("island props"), Box::new(|v| v["islands"][0]["props"]["head"] = json!(1))),
+            ("head past the rows", not("island props"), Box::new(|v| v["islands"][0]["props"]["head"] = json!(9))),
+            ("align at none", not("island props"), Box::new(|v| v["islands"][0]["props"]["aligns"] = json!({"k1": "none"}))),
+            ("untrimmed tex", not("island props"), Box::new(move |v| {
+                v["text"] = json!("Quarterly memo\nRevenue grew 12%.\nShip v2\nDraft spec\u{FFFC}\n\u{FFFC}");
+                v["islands"].as_array_mut().unwrap().insert(0, equation(" x ", json!(true)));
+            })),
+            ("display at its default", not("island props"), Box::new(move |v| {
+                v["text"] = json!("Quarterly memo\nRevenue grew 12%.\nShip v2\nDraft spec\u{FFFC}\n\u{FFFC}");
+                v["islands"].as_array_mut().unwrap().insert(0, equation("x", json!(false)));
+            })),
+            ("a cell's marks", not("marks"), Box::new(|v| {
+                v["islands"][0]["slots"]["s1"]["marks"] = json!([{"start": 3, "end": 7, "type": "emph"}, {"start": 0, "end": 3, "type": "emph"}]);
+            })),
+        ];
+        for (name, refused, edit) in cases {
+            let mut v = memo();
+            edit(&mut v);
+            assert_eq!(Content::from_value(&v), Err(ParseError::Invalid(refused)), "{name}");
+            let read = Content::from_value_lenient(&v).unwrap();
+            assert!(read.rewritten, "{name}");
+            assert_eq!(Content::from_value(&read.content.to_value()).as_ref(), Ok(&read.content), "{name}");
+        }
+        let read = Content::from_value_lenient(&memo()).unwrap();
+        assert_eq!((read.content.to_value(), read.rewritten), (sort_keys_owned(memo()), false));
     }
 
     #[test]

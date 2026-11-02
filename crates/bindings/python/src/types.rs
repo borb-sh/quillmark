@@ -471,13 +471,15 @@ impl PyDocument {
         })
     }
 
-    /// Reconstruct a `Document` from its versioned storage DTO string, with no
-    /// `warnings`.
+    /// Reconstruct a `Document` from its versioned storage DTO string. Its
+    /// `warnings` hold a `content::noncanonical_read` at each body or field
+    /// whose content value the read rewrote to its canonical form, which
+    /// storing the document again writes.
     /// Raises `QuillmarkError` on malformed JSON, unknown `schema`, missing fields,
     /// or unparseable quill reference.
     #[staticmethod]
     fn from_stored(json: &str) -> PyResult<Self> {
-        let inner: Document = serde_json::from_str(json).map_err(|e| {
+        let parsed = Document::from_stored(json).map_err(|e| {
             let msg = format!("invalid storage DTO: {e}");
             raise_with_diagnostics(
                 vec![quillmark_core::error::Diagnostic::new(
@@ -488,8 +490,8 @@ impl PyDocument {
             )
         })?;
         Ok(PyDocument {
-            inner,
-            parse_warnings: Vec::new(),
+            inner: parsed.document,
+            parse_warnings: parsed.warnings,
         })
     }
 
@@ -843,16 +845,16 @@ impl PyDocument {
     /// without is path-strict. A path naming no body or content value orphans
     /// its selector. An id live anywhere in the document, a table cell's
     /// included, is answered as reattached and not written. Each id is answered
-    /// once, by its first selector. `deltas` maps a path to the `delta` of the
-    /// revise that dropped its anchors, and a match there must overlap text
-    /// that revise inserted. Raises `ValueError` on a selector or delta that is
-    /// not one, or a path that does not parse.
-    #[pyo3(signature = (selectors, deltas=None))]
+    /// once, by its first selector. `changes` maps a path to the `applied` of the
+    /// write that dropped its anchors, and a match there must overlap text
+    /// that write inserted. Raises `ValueError` on a selector or change that
+    /// is not one, or a path that does not parse.
+    #[pyo3(signature = (selectors, changes=None))]
     fn reattach<'py>(
         &mut self,
         py: Python<'py>,
         selectors: &Bound<'_, PyAny>,
-        deltas: Option<&Bound<'_, PyAny>>,
+        changes: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let invalid = |e: String| PyValueError::new_err(format!("reattach: {e}"));
         let parse_path = |path: &str| {
@@ -893,12 +895,14 @@ impl PyDocument {
             })
             .collect::<PyResult<Vec<_>>>()?;
         let mut by_path = std::collections::HashMap::new();
-        if let Some(deltas) = deltas.filter(|d| !d.is_none()) {
-            let deltas: std::collections::HashMap<String, quillmark_core::session::Delta> =
-                serde_json::from_value(py_to_json(deltas)?)
-                    .map_err(|e| invalid(format!("deltas must map a path to a delta: {e}")))?;
-            for (path, delta) in deltas {
-                by_path.insert(parse_path(&path)?, delta);
+        if let Some(changes) = changes.filter(|c| !c.is_none()) {
+            let serde_json::Value::Object(changes) = py_to_json(changes)? else {
+                return Err(invalid("changes must map a path to a change".into()));
+            };
+            for (path, change) in changes {
+                let change = quillmark_content::change::Change::from_value(&change)
+                    .map_err(|e| invalid(format!("changes[{path:?}] is not a change: {e}")))?;
+                by_path.insert(parse_path(&path)?, change);
             }
         }
         let out = self.inner.reattach(&selectors, &by_path);
@@ -942,14 +946,17 @@ impl PyDocument {
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
     /// none, and return the receipt: `applied` (the change in its normalized
     /// form, which `invert` undoes), `hash` (the next write's `base`),
-    /// `dropped_anchors`, `moved_anchors`, `warnings` and `rebased`. `base`
-    /// is the hash the writer read (`hash_at`); pass it. One the value has
+    /// `dropped_anchors`, `moved_anchors`, `warnings`, `rebased` and
+    /// `minted`, each placeholder id the change gave a record mapped to the id
+    /// the write minted. `actor` scopes each id the write mints,
+    /// `{actor}:{prefix}{n}`. `base` is the hash the writer read
+    /// (`hash_at`); pass it. One the value has
     /// moved on from rebases the change over the change since, raising
     /// `edit::rebase_conflict` where they touch the same text or
     /// record and `edit::stale_base` where the document no longer holds the change
     /// since. A refused change raises `edit::content_apply` and writes
     /// nothing.
-    #[pyo3(signature = (change, field=None, card=None, base=None))]
+    #[pyo3(signature = (change, field=None, card=None, base=None, actor=None))]
     fn apply<'py>(
         &mut self,
         py: Python<'py>,
@@ -957,19 +964,20 @@ impl PyDocument {
         field: Option<&str>,
         card: Option<CardSel>,
         base: Option<&str>,
+        actor: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "apply")?;
         let target = Target::resolve(&self.inner, card)?;
         let change = crate::content::change_from_py(change, "apply")?;
         let edit = quillmark_core::document::Edit::Apply(change);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base, actor })
     }
 
     /// Rewrite the value at `field` on `card` as `markdown`: the anchors and
     /// islands whose `qm-*` tags it keeps (`annotated` spells them) stay put,
     /// and the rest keeps what a word-aligned diff keeps. Returns the receipt,
     /// its `warnings` the import's. Raises as `apply`.
-    #[pyo3(signature = (markdown, field=None, card=None, base=None))]
+    #[pyo3(signature = (markdown, field=None, card=None, base=None, actor=None))]
     fn revise<'py>(
         &mut self,
         py: Python<'py>,
@@ -977,17 +985,18 @@ impl PyDocument {
         field: Option<&str>,
         card: Option<CardSel>,
         base: Option<&str>,
+        actor: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "revise")?;
         let target = Target::resolve(&self.inner, card)?;
         let edit = quillmark_core::document::Edit::Revise(markdown);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base, actor })
     }
 
     /// Write `content` over the value at `field` on `card`, carrying each
     /// anchor it does not name where a diff keeps its text and reporting the
     /// rest in `dropped_anchors`. Raises as `apply`.
-    #[pyo3(signature = (content, field=None, card=None, base=None))]
+    #[pyo3(signature = (content, field=None, card=None, base=None, actor=None))]
     fn replace<'py>(
         &mut self,
         py: Python<'py>,
@@ -995,12 +1004,13 @@ impl PyDocument {
         field: Option<&str>,
         card: Option<CardSel>,
         base: Option<&str>,
+        actor: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "replace")?;
         let target = Target::resolve(&self.inner, card)?;
         let content = crate::content::content_from_py(content, "replace")?;
         let edit = quillmark_core::document::Edit::Replace(content);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base, actor })
     }
 }
 
@@ -1024,29 +1034,6 @@ fn selector_json(s: quillmark_core::document::AnchorSelector) -> serde_json::Val
         "prefix": s.prefix,
         "suffix": s.suffix,
     })
-}
-
-/// A `Revised` receipt as it crosses: `delta` the line form's text delta, `warnings` the
-/// `Diagnostic` objects `set` returns, and `dropped_anchors` as `{id, line}`.
-fn revised_to_py<'py>(
-    py: Python<'py>,
-    revised: quillmark_core::document::Revised,
-) -> PyResult<Bound<'py, PyDict>> {
-    let dropped: Vec<_> = revised
-        .dropped_anchors
-        .into_iter()
-        .map(|a| serde_json::json!({ "id": a.id, "line": a.line }))
-        .collect();
-    let delta =
-        serde_json::to_value(&revised.delta).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let receipt = PyDict::new(py);
-    receipt.set_item("delta", json_to_py(py, &delta)?)?;
-    receipt.set_item("warnings", py_diagnostics(revised.warnings))?;
-    receipt.set_item(
-        "dropped_anchors",
-        json_to_py(py, &serde_json::Value::Array(dropped))?,
-    )?;
-    Ok(receipt)
 }
 
 impl PyDocument {
@@ -1190,6 +1177,14 @@ impl PyWriter {
     fn target(doc: &PyDocument, card: Option<CardSel>) -> PyResult<Target> {
         Target::resolve(&doc.inner, card)
     }
+
+    fn card_id(doc: &PyDocument, index: Option<usize>) -> Option<String> {
+        match index {
+            None => doc.inner.main().id(),
+            Some(i) => doc.inner.cards().get(i).and_then(|c| c.id()),
+        }
+        .map(str::to_string)
+    }
 }
 
 #[pymethods]
@@ -1307,11 +1302,12 @@ impl PyWriter {
         .map_err(|errs| convert_edit_errors(errs, &target.base))
     }
 
-    /// Revise a body from markdown; anchors rebase. Returns the receipt as a
-    /// dict: `delta`, the text change as `{ops}`; `warnings`, the import's
-    /// `parse::dropped_construct` as `Diagnostic` objects, anchored at the
-    /// body; and `dropped_anchors`, each anchor the diff dropped as
-    /// `{id, line}`.
+    /// Revise a body from markdown; anchors rebase. Returns the receipt a
+    /// content write answers, as `Document.revise` does: `applied`, the change
+    /// from the body before; `hash`; `dropped_anchors` and `moved_anchors`;
+    /// `warnings`, the import's `parse::dropped_construct` as `Diagnostic`
+    /// objects anchored at the body; and `rebased`, set where a
+    /// `base_markdown` merged.
     ///
     /// `base_hash` or `base_markdown` names what the writer read: a
     /// `base_hash` (`hash_at`) the body no longer hashes to raises
@@ -1332,6 +1328,7 @@ impl PyWriter {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
+        let card_id = Self::card_id(&doc, target.index);
         let mut writer = quill.inner.writer(&mut doc.inner);
         match (target.index, read) {
             (None, None) => writer.revise_body(markdown),
@@ -1347,7 +1344,7 @@ impl PyWriter {
             }
         }
         .map_err(|e| convert_edit_error(e, &target.base))
-        .and_then(|revised| revised_to_py(py, revised))
+        .and_then(|receipt| crate::content::receipt_to_py(py, receipt, &target.base.body(), card_id))
     }
 
     /// Revise the content field `name` from authored text: typed *and*
@@ -1357,7 +1354,8 @@ impl PyWriter {
     /// one-paragraph `richtext` field rejects a multi-block result with
     /// `edit::field_not_single_line`. Raises `edit::unknown_field` for an undeclared
     /// name. Returns the receipt as `revise_body` does, its warnings anchored
-    /// at the field. `base_hash` / `base_markdown` guard the write as on
+    /// at the field; a `text` field's `applied` is one splice over its literal
+    /// text. `base_hash` / `base_markdown` guard the write as on
     /// `revise_body`; a `text` field's `base_markdown` is its literal text.
     #[pyo3(signature = (name, text, card=None, *, base_hash=None, base_markdown=None))]
     fn revise_field<'py>(
@@ -1373,6 +1371,7 @@ impl PyWriter {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
         let target = Self::target(&doc, card)?;
+        let card_id = Self::card_id(&doc, target.index);
         let mut writer = quill.inner.writer(&mut doc.inner);
         match (target.index, read) {
             (None, None) => writer.revise_field(name, text),
@@ -1388,7 +1387,7 @@ impl PyWriter {
             }
         }
         .map_err(|e| convert_edit_error(e, &target.base))
-        .and_then(|revised| revised_to_py(py, revised))
+        .and_then(|receipt| crate::content::receipt_to_py(py, receipt, &target.base.field(name), card_id))
     }
 
     /// Replace the bound document with `markdown`, then conform it: a

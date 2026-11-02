@@ -68,6 +68,8 @@ A content write meets the content bounds under `edit::*`:
 - `edit::too_many_marks` (`count`, `max`): a text holding more marks than 64 and 4 per character of it.
 - `edit::too_many_anchors` (`count`, `max`): a value holding more than 100 000 anchors.
 
+A write whose `actor` is not 1 to 64 characters free of whitespace, controls and `:`, or opens with `?`, refuses with `edit::invalid_actor` (`actor`).
+
 `parse::payload_not_mapping` is a card-yaml block whose payload is YAML but not a mapping, usually code fenced with `~~~` in a body. It is located at the fence's line. Its `args` carry `actual` (`string`, `number`, `boolean` or `sequence`) and, when the fence has one, `info`, the info string.
 
 `parse::missing_kind` is a card-yaml block after the root whose payload names no `$kind`: a card missing its kind line, or code fenced with `~~~` whose text reads as a mapping. It is located at the fence's line, and its `args` carry `info` when the fence has one.
@@ -84,7 +86,7 @@ Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning
 - **`parse::dropped_construct`**: markdown the content cannot carry, one per construct, carrying `construct` and `count` in `args`. `construct` is a raw tag's lowercase name, such as `div` or an HTML table's `caption`, or the `qm-*` tag that dropped: `qm-keep` for a tag it ignores, `qm-span[color]` for an attribute. An HTML table reports `table` where its block ends before its `</table>`, `table:row` for a row too short for it, `table:text` for text outside every cell, `table:size` for the rows of a table past 100 000 cells, and `<tag>[<attr>]`, such as `td[nowrap]` or `td[colspan]`, for an attribute it does not read other than `border`, `class`, `scope` and `style`, which drop silently.
   A footnote reference past the 1 000 000 characters the copies of a document's notes share reports `footnote:size` and stays as its `[^label]` text.
     - A parse anchors it at the body (`main.body`, `cards.<kind>[<i>].body`) on `doc.warnings`. A `richtext` field's markdown string reports at the field (`main.subject`, `cards.<kind>[<i>].items[0]`): on `doc.warnings` from `quill.parse`, and from `quill.validate(doc)` on a document loaded without its quill. A typed `set` / `setAll` returns them at the field, and `addCard` its fields' ahead of its body's.
-    - `doc.revise` returns it in its receipt's `warnings`, and the writer's `reviseBody` / `reviseField` in `{ delta, warnings, droppedAnchors }`, anchored at the address written; Python's `revise_body` / `revise_field` return it among their dict receipt's `warnings`, as `Diagnostic` objects.
+    - `doc.revise` returns it in its receipt's `warnings`, and the writer's `reviseBody` / `reviseField` in the same `Receipt`, anchored at the address written; Python's `revise_body` / `revise_field` return it among their dict receipt's `warnings`, as `Diagnostic` objects.
     - The writer's `reviseDocument` returns it among its receipt's `warnings`, and so does Python's `revise_document`.
     - `addCard` returns it as a list, anchored under the placed card; `importMarkdown` returns it beside the content, with no path.
 - **Validation warnings**: `quill.validate(doc)` returns every diagnostic, and its severity says whether the document renders ([full rule](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md#what-blocks-a-render)):

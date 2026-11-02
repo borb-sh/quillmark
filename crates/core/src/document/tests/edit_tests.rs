@@ -297,12 +297,12 @@ fn test_overwrite_field_sets_directly() {
 }
 
 #[test]
-fn test_revise_field_diff_imports_and_returns_delta() {
+fn test_revise_field_diff_imports_and_returns_its_change() {
     use quillmark_content::lines::model::{Mark, MarkKind};
 
     let mut card = Card::new("note").unwrap();
     let revised = card.revise_field("intro", "hello target world").unwrap();
-    assert!(!revised.delta.ops.is_empty());
+    assert!(!revised.applied.steps.is_empty());
 
     let mut base = card
         .field_content("intro", Codec::Richtext)
@@ -353,7 +353,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     let revised = card
         .revise_field_checked("subject", "hello target world", &inline)
         .unwrap();
-    assert!(!revised.delta.ops.is_empty());
+    assert!(!revised.applied.steps.is_empty());
 
     let mut base = card
         .field_content("subject", Codec::Richtext)
@@ -402,7 +402,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     let d = card
         .revise_field_checked("body", "para one\n\npara two", &block)
         .unwrap();
-    assert!(!d.delta.ops.is_empty());
+    assert!(!d.applied.steps.is_empty());
     assert!(
         card.field_text("body", Codec::Richtext)
             .unwrap()
@@ -616,17 +616,18 @@ fn test_field_content_absent_and_non_content() {
 }
 
 #[test]
-fn test_revise_body_returns_delta_and_updates_body() {
-    use crate::session::{Assoc, Delta};
+fn test_revise_body_returns_its_change_and_updates_body() {
+    use quillmark_content::change::Assoc;
+    use quillmark_content::mapping::Mapping;
+    use quillmark_content::model::Pos;
 
     let mut card = Card::new("note").unwrap();
     let _ = card.revise_body("hello world").unwrap();
-    let delta: Delta = card.revise_body("hello brave world").unwrap().delta;
+    let applied = card.revise_body("hello brave world").unwrap().applied;
     assert_eq!(card.body_lines().text, "hello brave world");
-    // The delta maps a stale position at the end of "hello " forward across
-    // the inserted "brave ".
-    assert_eq!(delta.map_pos(6, Assoc::Before), 6);
-    assert_eq!(delta.map_pos(11, Assoc::After), 17);
+    let mapping = Mapping::from_change(&applied).unwrap();
+    assert_eq!(mapping.map(&Pos::at(6), Assoc::Before).pos, Pos::at(6));
+    assert_eq!(mapping.map(&Pos::at(11), Assoc::After).pos, Pos::at(17));
 }
 
 #[test]

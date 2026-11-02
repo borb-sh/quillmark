@@ -138,7 +138,9 @@ any other verb refuses the same way. A content write's
 revise or replace whose change removes an `x-` island refuses under
 `edit::drops_ext_island`, carrying `island` and `type`: markdown cannot spell
 one, so its writer may not have seen it, and a change through `apply` removes
-one. The line-form revise verbs do not check.
+one. The line-form revise verbs do not check. A content write whose `actor`
+is not an actor ([CONTENT.md](CONTENT.md) § Ids) refuses under
+`edit::invalid_actor`, carrying `actor`.
 
 Building a card from a `CardWire` (`insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
@@ -232,10 +234,9 @@ families:
   while the field still holds the string.
 - **`parse::dropped_construct` off a markdown write.** The diagnostic a parse
   adds, minted by `quillmark_core::document::dropped_construct`, also rides
-  the write that imported the markdown. A revise returns it on its `Revised`
-  receipt beside the `Delta`: unanchored from a `Card` verb, which does not
-  know its address, and at the body or field from the typed writer and WASM
-  `revise`. A whole-document revise (`Document::revise`, the writer's
+  the write that imported the markdown. A revise returns it among its
+  `Receipt`'s warnings, unanchored in Rust, and at the body or field once a
+  binding reads it through `Receipt::diagnostics`. A whole-document revise (`Document::revise`, the writer's
   `revise_document`) carries the parse's warnings, then each revised content
   field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
   at the placed card's body, WASM `importMarkdown` and `rebase` beside the
@@ -247,6 +248,14 @@ families:
   conform reports a string's drops beside its `conform::*` warnings, and
   `validate` a string's the field still holds. A card inserted with a string
   body drops without it.
+- **`content::noncanonical_read` off a stored read.** `Document::from_stored`
+  (WASM `Document.fromStored`, Python `Document.from_stored`) reads each body
+  and each content value in a field the way a stored value reads
+  ([CONTENT.md](CONTENT.md) § "Validity"), and warns once at the body or
+  field (`main.body`, `cards.<kind>[<i>].<field>`) whose value it rewrote to
+  its canonical form, so the host can store the document again. The warning
+  rides `doc.warnings` as a parse's do. 0.135 reads such a value; a later
+  release refuses it, and the code goes with that window.
 - **`export::lost_construct` off a markdown export.** The receipt of an
   export: `quillmark_content::export::to_markdown_checked` reads its markdown
   back and names each part of the content it does not carry, and
@@ -589,6 +598,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::stale_base` | `current` | structured |
 | `edit::rebase_conflict` | `current`, `step`?, `reason`? | structured |
 | `edit::drops_ext_island` | `island`, `type` | structured |
+| `edit::invalid_actor` | `actor` | structured |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
 | `conform::field_not_single_line` | `field`, `codec` | structured |
@@ -606,6 +616,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::dropped_construct` | `construct`, `count` | structured |
 | `parse::card_id_reminted` | `id` | structured |
 | `export::lost_construct` | `construct`, `start`?, `end`? | structured |
+| `content::noncanonical_read` | — | code-determined |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |
 | `parse::body_import` | — | fallback |
