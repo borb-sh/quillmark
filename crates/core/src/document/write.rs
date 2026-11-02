@@ -439,7 +439,7 @@ impl Card {
 
 /// Refuses a revise or replace whose result no longer holds an `x-` island
 /// `before` holds, at any depth.
-fn keeps_ext_islands(before: &Content, after: &Content) -> Result<(), EditError> {
+pub(crate) fn keeps_ext_islands(before: &Content, after: &Content) -> Result<(), EditError> {
     fn ext(c: &Content, at: &str, out: &mut Vec<(String, String, String)>) {
         for island in &c.islands {
             let here = format!("{at}/{}", island.id);

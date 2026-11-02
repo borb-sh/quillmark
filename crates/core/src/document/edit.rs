@@ -1552,6 +1552,7 @@ impl Card {
         }
         let before = self.richtext_value(name)?;
         let revised = self.revision(target, &before, &body.into())?;
+        super::write::keeps_ext_islands(&before, &revised.content)?;
         let (stored, _) = resolve_field_write(
             name,
             &QuillValue::from_json(revised.content.to_value()),
