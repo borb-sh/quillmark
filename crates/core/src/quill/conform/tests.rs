@@ -513,7 +513,7 @@ fn revise_document_revises_then_conforms() {
         .push(Mark::new(0, 4, MarkKind::Anchor { id: "k".into() }));
     doc.card_mut(0)
         .unwrap()
-        .overwrite_field("prose", body.into_normalized())
+        .overwrite_field("prose", body.into_lines())
         .unwrap();
 
     let md = MD

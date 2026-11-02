@@ -759,8 +759,8 @@ load that admitted it already warned.
 before any is applied, so a consumer submitting a whole form sees every typo in
 one pass. Both **canonicalize what they write**: a value position keeps its authored
 shorthand until that value position is written. A content value position written through either is
-a cold import — anchors on it do not survive, and `revise_field` is the write
-that keeps them.
+a cold import — anchors on it do not survive, and `revise_field`, the content
+revise at the field's address, is the write that keeps them.
 
 **A projection, never a storage format** ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)).
 What a read does not carry, and what a write does to it:
@@ -775,7 +775,7 @@ What a read does not carry, and what a write does to it:
 `$ext` is the consumer's own card key ([PROGRAMMATIC.md](PROGRAMMATIC.md)
 § "Addressing cards for re-render") and no field write reaches it: it has its
 own verbs (`Card::ext` / `Card::store_ext`), so bookkeeping stamped there
-survives every write through this lane.
+survives every field write.
 
 ## Blank-filled render
 

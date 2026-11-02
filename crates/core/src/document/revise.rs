@@ -1,9 +1,9 @@
 //! The whole-document revise: a markdown write that keeps what markdown cannot
 //! spell.
 
-use quillmark_content::lines::delta::{rebase_marks, rebase_marks_pinned};
-use quillmark_content::lines::import::{Against, from_markdown_against};
-use quillmark_content::lines::model::Normalized;
+use quillmark_content::lines::delta::rebase_marks;
+use quillmark_content::lines::model::Lines;
+use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
@@ -152,7 +152,7 @@ impl Document {
                 }
                 None => {
                     if let Some(body) = body {
-                        revise_body(&Normalized::empty(), &body, &at.body(), &mut warnings);
+                        revise_body(&Content::empty(), &body, &at.body(), &mut warnings);
                     }
                     if let Some(spelled) = card.id().map(str::to_string) {
                         if !is_card_id(&spelled) || stored_ids.contains(&spelled) {
@@ -238,12 +238,14 @@ fn revise_card(
     warnings: &mut Vec<Diagnostic>,
     moves: &mut Moves,
 ) -> Card {
-    let body = incoming.body_lines().clone();
-    let lines = match source.and_then(|md| revise_body(stored.body_lines(), md, &at.body(), warnings)) {
+    let body = match source.and_then(|md| revise_body(stored.body(), md, &at.body(), warnings)) {
         Some(revised) => revised,
-        None => rebase_marks(stored.body_lines(), body),
+        None => {
+            let lines = rebase_marks(stored.body_lines(), incoming.body_lines().clone());
+            quillmark_content::diff::lift(stored.body(), &lines)
+        }
     };
-    incoming.set_body(quillmark_content::diff::lift(stored.body(), &lines));
+    incoming.set_body(body);
 
     for (name, value) in incoming.payload_mut().fields_mut() {
         if let Some(stored) = stored.payload().get(name) {
@@ -266,27 +268,28 @@ fn revise_card(
     incoming
 }
 
+/// `markdown` revising `stored` as [`Card::revise`] revises a value with no
+/// base. Where the markdown rewrites what the stored value's annotated read
+/// does not spell, which that revise refuses, the revise is the cold diff
+/// against `stored`, dropping what the markdown cannot spell rather than
+/// refusing the document. `None` on an over-nested input.
+fn revised(stored: &Content, markdown: &str) -> Option<quillmark_content::diff::Revision> {
+    use quillmark_content::diff::{ReviseError, revise, revise_holding};
+    match revise(stored, markdown) {
+        Ok(revision) => Some(revision),
+        Err(ReviseError::Conflict(_)) => revise_holding(stored, markdown, stored).ok(),
+        Err(ReviseError::Import(_)) => None,
+    }
+}
+
 /// `source`, a body the parse read with its tokens unresolved, revising
-/// `stored`: its tags pinned and its tokens resolved against `stored`, its
-/// anchors rebased, and a `parse::dropped_construct` at `at` for each tag the
-/// parse did not report.
-fn revise_body(
-    stored: &Normalized,
-    source: &str,
-    at: &DocPath,
-    warnings: &mut Vec<Diagnostic>,
-) -> Option<Normalized> {
-    let Against {
-        content,
-        warnings: reported,
-        pins,
-    } = from_markdown_against(source, stored).ok()?;
-    let tags = reported
-        .into_iter()
-        .filter(|w| w.construct.is_held_tag())
-        .collect();
+/// `stored`: [`revised`], and a `parse::dropped_construct` at `at` for each
+/// tag the parse did not report.
+fn revise_body(stored: &Content, source: &str, at: &DocPath, warnings: &mut Vec<Diagnostic>) -> Option<Content> {
+    let revision = revised(stored, source)?;
+    let tags = revision.warnings.into_iter().filter(|w| w.construct.is_held_tag()).collect();
     warnings.extend(dropped_constructs(tags, Some(at)));
-    Some(rebase_marks_pinned(stored, content, &pins))
+    Some(revision.content)
 }
 
 /// Revise each string in `incoming` that sits where `stored` holds a content
@@ -300,25 +303,18 @@ fn revise_value(
     warnings: &mut Vec<Diagnostic>,
     moves: &mut Moves,
 ) {
-    if let Some(base) = canonical_content(stored) {
+    if canonical_content(stored).is_some() {
         let JsonValue::String(text) = incoming else {
             return;
         };
-        if super::Codec::of_object(stored) == super::Codec::Text {
-            let content = quillmark_content::lines::import::from_plaintext(text);
-            *incoming = super::stored_over(Some(stored), &rebase_marks(&base, content));
-            return;
-        }
-        let Ok(Against {
-            content,
-            warnings: reported,
-            pins,
-        }) = from_markdown_against(text, &base)
-        else {
+        let Some(base) = Content::from_value_lenient(stored).ok().map(|read| read.content) else {
             return;
         };
-        warnings.extend(dropped_constructs(reported, Some(at)));
-        *incoming = super::stored_over(Some(stored), &rebase_marks_pinned(&base, content, &pins));
+        let Some(revision) = revised(&base, text) else {
+            return;
+        };
+        warnings.extend(dropped_constructs(revision.warnings, Some(at)));
+        *incoming = revision.content.to_value();
         return;
     }
     match (stored, incoming) {
@@ -480,12 +476,12 @@ fn drop_value(
 }
 
 fn drop_content(
-    stored: &Normalized,
-    revised: Option<&Normalized>,
+    stored: &Lines,
+    revised: Option<&Lines>,
     at: &DocPath,
     out: &mut Vec<DocumentAnchor>,
 ) {
-    let removed = Normalized::empty();
+    let removed = Lines::empty();
     let dropped = dropped_anchors(stored, revised.unwrap_or(&removed));
     out.extend(dropped.into_iter().map(|a| DocumentAnchor {
         id: a.id,

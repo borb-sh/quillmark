@@ -14,7 +14,7 @@ The package has one import surface: `@quillmark/wasm`, whose `init` resolves to
 
 `Quill` and `Document` are the internal Typst-less core build's own classes,
 handed out verbatim by `init`, so editor/validation code (`Quill.fromTree`,
-`Document.fromMarkdown`) loads only that small core binary: no backend is
+`Document.parse`) loads only that small core binary: no backend is
 loaded until you render. The `Engine` hides everything else: the render build,
 carrying both backends (`typst`, `acroform`), is a private WASM binary with its
 own linear memory, lazily loaded on the first render. The Engine clones a
@@ -139,15 +139,15 @@ A render that traps (out of memory, a panic) rejects with
 `runtime::backend_trapped`, the `WebAssembly.RuntimeError` on `cause`. The
 build's state is then undefined: terminate the Worker or restart the process.
 
-### The two input paths: `Document.fromMarkdown` vs `quill.parse` / `quill.conform`
+### The two input paths: `Document.parse` vs `quill.parse` / `quill.conform`
 
-`Document.fromMarkdown` is the quill-free **transport input path** (migrations, `$ext`
+`Document.parse` is the quill-free **transport input path** (migrations, `$ext`
 stamping, a quill that will not load, opening a document to fix its `$quill`).
 It needs a root `~~~` block carrying a `$quill` line, and a content field stays
 as authored.
 
 `quill.parse` is the **bound input path**, and the primary one. It is
-`Document.fromMarkdown` followed by `conform`: the returned document's declared
+`Document.parse` followed by `conform`: the returned document's declared
 content fields are in their stored form, one per codec (a `richtext` field as the canonical
 content object, a `text` field as its literal string), so `getStored`
 answers "content object or string?" by the field's declared codec rather than by how the
@@ -179,7 +179,7 @@ discriminates the two formats without exceptions as control flow: it answers
 ```ts
 const doc = Document.storageVersionOf(content)
   ? Document.fromStored(content)
-  : Document.fromMarkdown(content);
+  : Document.parse(content);
 ```
 
 The tag model, what upgrading reads, and the one-time rewrites a release asks of stored rows are in [Persistence](https://quillmark.dev/integration/persistence/).
@@ -250,8 +250,9 @@ main card's `qty`, `doc.unchecked.storeField({ card: 2, field: "qty" }, 3)` a co
 card's. Reads are total over the field axis (`getStored` → `undefined` for
 an absent field; only an out-of-range card throws); field writes throw on a body
 address. `getStored` is the verbatim transport read, distinct from the interpreted
-`quill.reader(doc).get`; `bodyMarkdown` is the body markdown read (a `CardAddr`; a field's
-markdown is read through `quill.reader(doc).get(field)`). A content field's stored
+`quill.reader(doc).get`; `doc.toMarkdown(addr?, { annotated })` is the markdown
+export, the whole document without an address, and with `annotated` its anchors
+and islands spelled. A content field's stored
 form follows its declared codec through the bound input path (a `richtext` field as
 the content object, a `text` field as its literal string), and as authored
 through the transport input path. For the `Content` either way read
@@ -322,8 +323,7 @@ write.
 ```ts
 const v = quill.reader(doc);
 v.get("subject");                                   // the values form: every content leaf as its codec's text, else as stored
-v.getContent("subject");                            // the same read as a `Content`, whichever lane stored it
-v.bodyMarkdown();                                   // the main body markdown (quill-free)
+v.getContent("subject");                            // the same read as a `Content`, whichever write stored it
 v.get({ card: 0 });                                 // a card's body markdown; its fields read through get
 v.resolve();                                        // the render view: blank-filled, coerced, each field tagged with its source
 ```
@@ -455,7 +455,7 @@ from any build or WASM instance in the page.
 
 `diagnostics` is always non-empty and its first entry is an error; [Error Handling](https://quillmark.dev/integration/error-handling/) has the shape, the code namespaces and the warnings that follow. The same shape applies to every throw site:
 
-- `Document.fromMarkdown`: parse errors (missing root `$quill` metadata, YAML
+- `Document.parse`: parse errors (missing root `$quill` metadata, YAML
   errors, `parse::input_too_large` for inputs > 10 MiB).
 - `Document` mutators (`unchecked.storeField`, `unchecked.insertCard`, the writer's `set`, etc.): a namespaced `edit::*` `code` on `diagnostics[0]`.
 - `engine.render` / `session.render`: backend compilation failures and

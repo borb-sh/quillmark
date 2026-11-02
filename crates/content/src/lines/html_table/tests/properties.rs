@@ -95,7 +95,7 @@ fn soup() -> impl Strategy<Value = String> {
 }
 
 /// `rt` with each covered cell's `align` and `valign` gone.
-fn without_covered_alignment(rt: &crate::lines::model::Normalized) -> crate::lines::model::Normalized {
+fn without_covered_alignment(rt: &crate::lines::model::Lines) -> crate::lines::model::Lines {
     let mut content = rt.clone().into_content();
     for island in &mut content.islands {
         let spans = crate::lines::island::table_spans(&island.props);
@@ -110,7 +110,7 @@ fn without_covered_alignment(rt: &crate::lines::model::Normalized) -> crate::lin
             }
         }
     }
-    content.into_normalized()
+    content.into_lines()
 }
 
 proptest! {
@@ -118,7 +118,7 @@ proptest! {
 
     #[test]
     fn a_table_reads_back_from_the_spelling_its_storage_picks(table in table()) {
-        let rt = table.into_normalized();
+        let rt = table.into_lines();
         prop_assert_eq!(rt.validate(), Ok(()));
         let md = to_markdown(&rt);
         prop_assert_eq!(md.starts_with("<table"), writes_html(&rt.islands[0].props), "{}", md);

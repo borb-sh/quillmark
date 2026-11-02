@@ -64,7 +64,7 @@ describe('@quillmark/wasm: surface', () => {
   it('throws satisfy isQuillmarkError with non-empty structured diagnostics', () => {
     let caught
     try {
-      Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: [unclosed\n~~~\n\nbody')
+      Document.parse('~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: [unclosed\n~~~\n\nbody')
     } catch (e) {
       caught = e
     }
@@ -121,7 +121,7 @@ card_kinds:
 `
   const buildQuill = () =>
     Quill.fromTree(makeQuill({ name: 'editor_test', plate: TEST_PLATE, quillYaml: EDITOR_QUILL_YAML }))
-  const blankDoc = () => Document.fromMarkdown('~~~card-yaml\n$quill: editor_test\n~~~\n\nBody.')
+  const blankDoc = () => Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nBody.')
 
   it('quill.writer(doc) is the front door and returns a DocumentWriter', () => {
     const quill = buildQuill()
@@ -159,7 +159,7 @@ card_kinds:
     expect(Object.keys(receipt).sort()).toEqual(['applied', 'droppedAnchors', 'hash', 'minted', 'movedAnchors', 'rebased', 'warnings'])
     expect(receipt.hash).toBe(doc.hashAt({}))
     expect(receipt.rebased).toBe(false)
-    expect(doc.bodyMarkdown()).toBe('New **body**.')
+    expect(doc.toMarkdown({})).toBe('New **body**.')
     const { warnings } = ed.reviseField('subject', 'Q3 <kbd>**results**</kbd>')
     expect(warnings.map((w) => [w.code, w.path])).toEqual([
       ['parse::dropped_construct', 'main.subject'],
@@ -168,7 +168,7 @@ card_kinds:
   })
 
   it('a writer revise answers its change in UTF-16, which maps a position and feeds reattach', () => {
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: editor_test\n~~~\n\n😀 alpha gamma')
+    const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\n😀 alpha gamma')
     const ed = buildQuill().writer(doc)
     const { applied } = ed.reviseBody('😀 alpha beta gamma')
     expect(mapPos(applied, 9, 'after').pos).toBe(14)
@@ -187,7 +187,7 @@ card_kinds:
   })
 
   it('reviseBody / reviseField name the anchors they drop', () => {
-    const doc = Document.fromMarkdown(
+    const doc = Document.parse(
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     const ed = buildQuill().writer(doc)
@@ -201,9 +201,9 @@ card_kinds:
   })
 
   it('a stale baseHash refuses a revise, and a baseMarkdown lands beside the change since', () => {
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
+    const doc = Document.parse('~~~card-yaml\n$quill: editor_test\n~~~\n\nAlpha.\n\nBeta.\n\nGamma.')
     const ed = buildQuill().writer(doc)
-    const read = doc.toAnnotatedMarkdown().markdown
+    const read = doc.toMarkdown(undefined, { annotated: true }).markdown
     const hash = doc.hashAt({})
     ed.reviseBody('Alpha, edited.\n\nBeta.\n\nGamma.')
     expectEditCode(() => ed.reviseBody('Other.', { baseHash: hash }), 'edit::stale_base')
@@ -211,7 +211,7 @@ card_kinds:
       expect.objectContaining({ diagnostics: [expect.objectContaining({ args: { current: doc.hashAt({}) } })] }),
     )
     ed.reviseDocument(read.replace('Gamma.', 'Gamma, rewritten.'), { baseMarkdown: read })
-    expect(doc.bodyMarkdown()).toBe('Alpha, edited.\n\nBeta.\n\nGamma, rewritten.')
+    expect(doc.toMarkdown({})).toBe('Alpha, edited.\n\nBeta.\n\nGamma, rewritten.')
     expect(ed.reviseDocument(read.replace('Alpha.', 'Alpha, mine.'), { baseMarkdown: read }).conflicts).toEqual([
       {
         path: 'main.body',
@@ -228,7 +228,7 @@ card_kinds:
   })
 
   it('writer.hashAt reads a field through its schema, so a string at rest and its conformed content agree', () => {
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: editor_test\nsubject: Hello *world*\n~~~\n\nBody.')
+    const doc = Document.parse('~~~card-yaml\n$quill: editor_test\nsubject: Hello *world*\n~~~\n\nBody.')
     const ed = buildQuill().writer(doc)
     const hash = ed.hashAt('subject')
     expect(hash).toBe(doc.hashAt('subject'))
@@ -259,7 +259,7 @@ card_kinds:
   })
 
   it('card(i).set / reviseBody / reviseField address the composable card', () => {
-    const doc = Document.fromMarkdown(
+    const doc = Document.parse(
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     const ed = buildQuill().writer(doc)
@@ -328,7 +328,7 @@ card_kinds:
   })
 
   it('a refused write carries the DocPath it anchors to, and pathFor mints the same one', () => {
-    const doc = Document.fromMarkdown(
+    const doc = Document.parse(
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     const ed = buildQuill().writer(doc)
@@ -362,7 +362,7 @@ card_kinds:
   })
 
   it('card(i).setAll typed-commits a batch and refuses an unknown name or index', () => {
-    const doc = Document.fromMarkdown(
+    const doc = Document.parse(
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     const ed = buildQuill().writer(doc)
@@ -440,7 +440,7 @@ card_kinds:
   const buildQuill = () =>
     Quill.fromTree(makeQuill({ name: 'view_test', plate: TEST_PLATE, quillYaml: VIEW_QUILL_YAML }))
   const seededDoc = (quill) => {
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nMain **body**.')
+    const doc = Document.parse('~~~card-yaml\n$quill: view_test\n~~~\n\nMain **body**.')
     const w = quill.writer(doc)
     w.set('subject', 'Q3 **results**')
     w.set('qty', '3')
@@ -467,21 +467,21 @@ card_kinds:
 
   it('absence returns undefined; an unknown name throws (schema authority)', () => {
     const quill = buildQuill()
-    const v = quill.reader(Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.'))
+    const v = quill.reader(Document.parse('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.'))
     expect(v.get('subject')).toBeUndefined() // absent, not a typo
     expectEditCode(() => v.get('nope'), 'edit::unknown_field') // typo, not absent
   })
 
-  it('annotatedAt reads one address', () => {
+  it('the annotated toMarkdown reads one address', () => {
     const quill = buildQuill()
     const doc = seededDoc(quill)
     quill.writer(doc).reviseBody('# Plan\n\nMain **body**.')
     doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 10, end: 14 } }] })
 
-    const read = doc.annotatedAt({})
+    const read = doc.toMarkdown({}, { annotated: true })
     expect(read.markdown).toBe('# Plan\n\nMain <qm-anchor ref="c1"></qm-anchor>**body**.')
     expect(read.anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'Main body.' }])
-    expect(doc.annotatedAt('subject')).toEqual({ markdown: 'Q3 **results**', anchors: [] })
+    expect(doc.toMarkdown('subject', { annotated: true })).toEqual({ markdown: 'Q3 **results**', anchors: [] })
     const receipt = quill.writer(doc).reviseBody(read.markdown.replace('Main', 'The main'), { baseMarkdown: read.markdown })
     expect(receipt.droppedAnchors).toEqual([])
     expect(doc.anchorContext('c1')).toMatchObject({ quote: 'body' })
@@ -489,9 +489,9 @@ card_kinds:
 
   it('an absent field addr reads the body markdown', () => {
     const quill = buildQuill()
-    const v = quill.reader(seededDoc(quill))
-    expect(v.bodyMarkdown()).toBe('Main **body**.')
-    expect(v.get({})).toBe('Main **body**.')
+    const doc = seededDoc(quill)
+    expect(quill.reader(doc).get({})).toBe('Main **body**.')
+    expect(doc.toMarkdown({})).toBe('Main **body**.')
   })
 
   it('get reads a card field through its $kind schema', () => {
@@ -516,7 +516,7 @@ card_kinds:
 
     // conform is the same walk on a document that arrived any other way, and it
     // converges to identical bytes. A second pass is a no-op.
-    const transported = Document.fromMarkdown(md)
+    const transported = Document.parse(md)
     expect(quill.conform(transported)).toEqual([])
     expect(transported.equals(bound)).toBe(true)
     expect(quill.conform(transported)).toEqual([])
@@ -530,7 +530,7 @@ card_kinds:
 
     // The transport door still opens it, and conform reports the same mismatch
     // without touching the document.
-    const doc = Document.fromMarkdown(md)
+    const doc = Document.parse(md)
     const before = doc.toStored()
     expectEditCode(() => quill.conform(doc), 'quill::name_mismatch')
     expect(doc.toStored()).toBe(before)
@@ -551,7 +551,7 @@ card_kinds:
   // zero `instance`.
   it('a Content read answers the canonical form', () => {
     const quill = buildQuill()
-    const doc = Document.fromMarkdown(
+    const doc = Document.parse(
       "~~~card-yaml\n$quill: view_test\nparagraphs: ['> a']\n~~~\n\n> a\n\n- b"
     )
     const v = quill.reader(doc)
@@ -562,7 +562,7 @@ card_kinds:
 
   it('getContentAt takes a mixed index/key path, on the document and on a card', () => {
     const quill = buildQuill()
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
+    const doc = Document.parse('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
     doc.unchecked.storeField('rows', [{}, { notes: 'a *note*' }])
     quill.writer(doc).addCard('note', { lines: ['a *b*'] })
     const v = quill.reader(doc)
@@ -612,7 +612,7 @@ card_kinds:
   const buildQuill = () =>
     Quill.fromTree(makeQuill({ name: 'field_states_test', quillYaml: QUILL_YAML }))
 
-  const resolveOf = (md) => buildQuill().reader(Document.fromMarkdown(md)).resolve()
+  const resolveOf = (md) => buildQuill().reader(Document.parse(md)).resolve()
 
   // Rows are an ordered array; look one up by its `name`.
   const byName = (rows, name) => rows.find((r) => r.name === name)
@@ -659,7 +659,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
   // per-test `testTimeout` still catches a genuine hang. The hook carries its own
   // generous timeout for the cold load.
   beforeAll(async () => {
-    await new Engine().render(makeRuntimeQuill(), Document.fromMarkdown(TEST_MARKDOWN), {
+    await new Engine().render(makeRuntimeQuill(), Document.parse(TEST_MARKDOWN), {
       format: 'pdf',
     })
   }, 120000)
@@ -667,7 +667,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
   it('renders a core Quill + Document to PDF without exposing a backend handle', async () => {
     const engine = new Engine()
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
 
     const result = await engine.render(quill, doc, { format: 'pdf' })
     expect(result.artifacts.length).toBeGreaterThan(0)
@@ -716,7 +716,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
   it('loads the backend on first render only: the format probe and sync core work load none', async () => {
     const { engine, loaded } = countingEngine()
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
 
     expect(await engine.supportedFormats(quill)).toContain('pdf')
     expect(quill.schema).toBeDefined()
@@ -767,7 +767,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     }
     const engine = new Engine()
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     const render = (options) => engine.render(quill, doc, options)
 
     for (const [options, refusal] of [
@@ -820,7 +820,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     }
     const engine = new Engine()
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     const revoked = Proxy.revocable({}, {})
     revoked.revoke()
     for (const options of [
@@ -879,7 +879,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
   it('caches the backend quill clone once per canonical instance', async () => {
     const { engine, fromTreeCalls } = fromTreeCountingEngine()
     const quillA = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
 
     await engine.render(quillA, doc, { format: 'svg' })
     await engine.render(quillA, doc, { format: 'svg' })
@@ -935,7 +935,7 @@ A single line of body ink.`
 
     const engine = new Engine()
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(SMOKE_MARKDOWN)
+    const doc = Document.parse(SMOKE_MARKDOWN)
     const session = await engine.open(quill, doc)
     try {
       // Getters.
@@ -1008,7 +1008,7 @@ A single line of body ink.`
 
       // update: recompile in place.
       expect(typeof session.update).toBe('function')
-      const cs = session.update(Document.fromMarkdown(SMOKE_MARKDOWN))
+      const cs = session.update(Document.parse(SMOKE_MARKDOWN))
       expect(Array.isArray(cs.dirtyPages)).toBe(true)
     } finally {
       session.free()
@@ -1053,7 +1053,7 @@ main:
     const { engine: counted, loaded } = countingEngine()
     await counted.load(quill)
     expect(loaded()).toBe(1)
-    const session = await counted.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
+    const session = await counted.open(quill, Document.parse(TEST_MARKDOWN))
     try {
       expect(session.pageCount).toBeGreaterThan(0)
       expect(loaded()).toBe(1)
@@ -1084,7 +1084,7 @@ main:
   it('coalesces concurrent first renders into a single backend load', async () => {
     const { engine, loaded } = countingEngine()
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
 
     await Promise.all([
       engine.render(quill, doc, { format: 'svg' }),
@@ -1102,7 +1102,7 @@ main:
     // free() runs.
     const renderEngine = new Engine()
     const renderQuill = makeRuntimeQuill()
-    const renderDoc = Document.fromMarkdown(TEST_MARKDOWN)
+    const renderDoc = Document.parse(TEST_MARKDOWN)
     const pendingRender = renderEngine.render(renderQuill, renderDoc, { format: 'svg' })
     renderDoc.free()
     renderQuill.free()
@@ -1111,7 +1111,7 @@ main:
 
     const openEngine = new Engine()
     const openQuill = makeRuntimeQuill()
-    const openDoc = Document.fromMarkdown(TEST_MARKDOWN)
+    const openDoc = Document.parse(TEST_MARKDOWN)
     const pendingOpen = openEngine.open(openQuill, openDoc)
     openDoc.free()
     openQuill.free()
@@ -1165,7 +1165,7 @@ main:
       },
     })
     const err = await engine
-      .render(makeRuntimeQuill(), Document.fromMarkdown(TEST_MARKDOWN))
+      .render(makeRuntimeQuill(), Document.parse(TEST_MARKDOWN))
       .catch((e) => e)
     expect(err.diagnostics[0].code).toBe('runtime::backend_trapped')
     expect(err.cause).toBeInstanceOf(WebAssembly.RuntimeError)
@@ -1196,7 +1196,7 @@ main:
       })
     const rendered = (err) =>
       throwingEngine(err)
-        .render(makeRuntimeQuill(), Document.fromMarkdown(TEST_MARKDOWN))
+        .render(makeRuntimeQuill(), Document.parse(TEST_MARKDOWN))
         .catch((e) => e)
 
     const overflow = new RangeError('Maximum call stack size exceeded')
@@ -1250,7 +1250,7 @@ main:
       },
     })
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     await expect(engine.render(quill, doc)).rejects.toThrow('doc clone refused')
   })
 })
@@ -1295,14 +1295,14 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
 
   it('rejects a non-handle argument at a bind, naming the method', () => {
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     expectEditCode(() => quill.writer(null), 'runtime::not_a_document')
     expectEditCode(() => new DocumentWriter(null, doc), 'runtime::not_a_quill')
   })
 
   it('leaves a by-reference core method to wasm-bindgen, which refuses it too', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const other = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
+    const other = Document.parse(TEST_MARKDOWN)
 
     // Out of contract by design: `_assertClass` throws a bare Error here, so a
     // caller routing on diagnostics sees nothing. Cheap to state, and the line
@@ -1326,7 +1326,7 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
 
   it('refuses a foreign handle in either position at every writer and reader bind', () => {
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     const binds = Object.values(runtime).filter(
       (v) => isClass(v) && caughtFrom(() => new v())?.diagnostics?.[0]?.code === 'runtime::not_a_quill'
     )
@@ -1344,7 +1344,7 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
   // constructs directly.
   it('refuses a foreign Document at the writer and reader entry points', () => {
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     expectForeign(() => quill.writer(foreignDoc(doc)), 'quill.writer(doc)')
     expectForeign(() => quill.reader(foreignDoc(doc)), 'quill.reader(doc)')
   })
@@ -1361,7 +1361,7 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
   it('holds every Engine verb to the quill-first rule (derived)', async () => {
     const engine = new Engine()
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     const verbs = Object.getOwnPropertyNames(Engine.prototype).filter((n) => n !== 'constructor')
     expect(verbs.length).toBeGreaterThan(0)
     for (const verb of verbs) {
@@ -1386,7 +1386,7 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
   it('refuses a foreign Document at every Engine entry point taking one', async () => {
     const engine = new Engine()
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     await expectForeignAsync(
       engine.render(quill, foreignDoc(doc)),
       'engine.render(quill, doc)'
@@ -1397,9 +1397,9 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
   it('refuses a foreign Document on session.update', async () => {
     const engine = new Engine()
     const quill = makeRuntimeQuill()
-    const session = await engine.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
+    const session = await engine.open(quill, Document.parse(TEST_MARKDOWN))
     try {
-      const next = Document.fromMarkdown(TEST_MARKDOWN.replace('Hello World', 'Next'))
+      const next = Document.parse(TEST_MARKDOWN.replace('Hello World', 'Next'))
       expectForeign(() => session.update(foreignDoc(next)), 'session.update(doc)')
       // The session is untouched by the refusal and still applies a local doc.
       expect(session.update(next).pageCount).toBe(session.pageCount)
@@ -1433,8 +1433,8 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
 
     it('refuses copy B handles everywhere, in contract', async () => {
       const quillA = makeRuntimeQuill()
-      const docA = Document.fromMarkdown(TEST_MARKDOWN)
-      const docB = copyB.Document.fromMarkdown(TEST_MARKDOWN)
+      const docA = Document.parse(TEST_MARKDOWN)
+      const docB = copyB.Document.parse(TEST_MARKDOWN)
       const quillB = copyB.Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
 
       expectForeign(() => quillA.writer(docB), 'quill.writer(doc)')
@@ -1457,10 +1457,10 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
     it('reads copy B handles fine through copy B, which is the point', () => {
       // The rule is about CROSSING, not about copy B being defective. Copy B's
       // own classes work together; only mixing them throws.
-      const docB = copyB.Document.fromMarkdown(TEST_MARKDOWN)
+      const docB = copyB.Document.parse(TEST_MARKDOWN)
       const quillB = copyB.Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
       expect(quillB.validate(docB)).toEqual(
-        makeRuntimeQuill().validate(Document.fromMarkdown(TEST_MARKDOWN))
+        makeRuntimeQuill().validate(Document.parse(TEST_MARKDOWN))
       )
     })
   })
@@ -1486,7 +1486,7 @@ main:
 #assert.eq(qm.data.issued, datetime(year: 2026, month: 3, day: 14))`
 
   const quill = () => Quill.fromTree(makeQuill({ name: 'dated', plate: PLATE, quillYaml: QUILL_YAML }))
-  const doc = () => Document.fromMarkdown('~~~card-yaml\n$quill: dated\n$kind: main\n~~~\n')
+  const doc = () => Document.parse('~~~card-yaml\n$quill: dated\n$kind: main\n~~~\n')
   const issued = (resolved) => resolved.main.fields.find((r) => r.name === 'issued')
 
   it('resolves `today` as the given date, else the local one', () => {
@@ -1534,7 +1534,7 @@ describe('the font library', () => {
     ])
     expect(faces[0].data).toEqual(font('Figtree-Regular.ttf'))
 
-    const doc = Document.fromMarkdown(FONTED)
+    const doc = Document.parse(FONTED)
     expect(unknownFamilies(await engine.render(makeRuntimeQuill(), doc, { format: 'svg' }))).toEqual([])
     expect(unknownFamilies(await new Engine().render(makeRuntimeQuill(), doc, { format: 'svg' }))).toEqual(['Figtree'])
   })
@@ -1543,7 +1543,7 @@ describe('the font library', () => {
     const engine = new Engine({ fonts: [new TextEncoder().encode('wOF2 not a ttf')] })
     const first = await engine.fontFaces(makeRuntimeQuill()).catch((e) => e)
     const second = await engine
-      .render(makeRuntimeQuill(), Document.fromMarkdown(TEST_MARKDOWN), { format: 'svg' })
+      .render(makeRuntimeQuill(), Document.parse(TEST_MARKDOWN), { format: 'svg' })
       .catch((e) => e)
     expect(first.diagnostics[0].code).toBe('engine::font_unsupported')
     expect(second).toBe(first)

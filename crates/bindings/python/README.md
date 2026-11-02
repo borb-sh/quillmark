@@ -109,7 +109,7 @@ The read twin of `Writer`. `get` reads each field in the values form: every
 content leaf in its type tree as its codec's text (a richtext leaf to markdown, a
 text leaf to its literal text), everything else as stored, never coerced.
 `get_content` is the same read at the other end of the codec, handing back the
-field's `Content` as a dict whichever lane stored it.
+field's `Content` as a dict whichever write stored it.
 
 ```python
 v = quill.reader(doc)
@@ -117,9 +117,8 @@ v.get("bio")                              # richtext → markdown str; scalar �
                                           # undeclared name raises UnknownField; undecodable content raises FieldDecode
 v.get_content("bio")                      # the `Content` dict {text, lines, marks, islands}; absent → None
                                           # a type that is not a content leaf raises FieldNotContent
-v.body_markdown()                         # the main body markdown (quill-free body read)
 v.get("author", card=0)                   # a card field, interpreted by its $kind schema
-v.body_markdown(card=0)
+doc.to_markdown_at(card=0)                # a card body's markdown, quill-free
 doc.card(0)["kind"]                       # the composable card's $kind
 ```
 
@@ -142,7 +141,7 @@ artifact.save("out.pdf")
 
 ```python
 doc = Document("my_quill")                       # blank canvas: $quill only, no fields, no cards
-doc = Document.from_markdown(markdown)
+doc = Document.parse(markdown)
 emitted = doc.to_markdown()
 
 stored   = doc.to_stored()
@@ -170,7 +169,7 @@ doc.unchecked.insert_card({"kind": "note"}, actor="7")                # a live c
 doc.unchecked.store_field("title", "x", card=None)                    # no schema coercion; content stored canonical
 doc.remove_card(0)                               # returns the Card dict, or None
 doc.move_card(2, 0)
-doc.remove_field("title")                        # remove has no lane; card=i targets a composable card
+doc.remove_field("title")                        # remove serves every write path; card=i targets a composable card
 
 # Out-of-band consumer state (never rendered):
 doc.store_ext({"agent": {"pinned": True}})       # whole $ext map; card=i for a composable card
@@ -203,7 +202,7 @@ raises `ValueError` before core is called, described by no diagnostic.
 
 ```python
 try:
-    Document.from_markdown(bad_md)
+    Document.parse(bad_md)
 except QuillmarkError as exc:
     for d in exc.diagnostics:
         print(d.severity, d.code, d.message, d.path)

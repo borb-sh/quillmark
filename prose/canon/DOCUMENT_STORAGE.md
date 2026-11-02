@@ -339,7 +339,8 @@ only what it can (`island::table_spans`):
 - A span is stored as it covers, absent at 1, and a covered cell's span keys
   are absent. A covered cell keeps its `align` and `valign`, which it draws
   again once no span covers it; markdown spells no covered cell, so
-  `from_markdown(to_markdown(c))` drops them.
+  `from_markdown(to_markdown(c))` drops them ([CONTENT.md](CONTENT.md) § "What
+  markdown keeps").
 
 A table or cell key holding a value outside its set is read as absent and
 rides untouched, as an unnamed key does. Markdown writes a table as a GFM pipe
@@ -489,10 +490,12 @@ read-only in markdown.**
   its place wherever its text is untouched.
 
 No markdown round-trip guarantee: `to_markdown` emits nothing for an anchor and
-import mints none, so a cold export→import loses every anchor.
+import mints none, so a cold export→import loses every anchor ([CONTENT.md](CONTENT.md)
+§ "What markdown keeps").
 
 The annotated read (`Card::body_annotated` and `field_annotated`, WASM
-`doc.annotated(addr)`, Python `doc.annotated(field)`) spells each prose anchor as
+`doc.toMarkdown(addr, { annotated: true })`, Python
+`doc.to_markdown_at(field, annotated=True)`) spells each prose anchor as
 `<qm-anchor ref="ID"></qm-anchor>` at its start, and each island whose markup
 does not read back as `<qm-island ref="ID"></qm-island>`
 ([markdown-spec.md](../references/markdown-spec.md) §6.4). It is two-way for

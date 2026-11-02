@@ -282,9 +282,9 @@ void surfaceIsWhatTheGateGives;
 // reachable off the destructure.
 declare const gated: CoreSurface;
 const fromTree: RuntimeQuill = gated.Quill.fromTree(new Map<string, Uint8Array>());
-const fromMarkdown: RuntimeDocument = gated.Document.fromMarkdown('# Hi');
+const parsed: RuntimeDocument = gated.Document.parse('# Hi');
 void fromTree;
-void fromMarkdown;
+void parsed;
 
 // The instance types stay exported as TYPES, so an annotation needs no await:
 // only obtaining a value does.

@@ -393,7 +393,7 @@ fn a_plain_read_of_an_unchanged_value_writes_the_writers_own() {
         .content
         .into_content();
     body.islands[0].props["note"] = "kept".into();
-    card.overwrite_body(body.into_normalized());
+    card.overwrite_body(body.into_lines());
     let read = card.body_markdown();
     let edited = read.replace("cell", "cell, edited");
     let revised = card

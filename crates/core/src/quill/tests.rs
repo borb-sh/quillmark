@@ -1706,7 +1706,7 @@ fn text_coercion_imports_verbatim_and_refuses_marks() {
         .unwrap()
         .content
         .into_content()
-        .into_normalized();
+        .into_lines();
     assert_eq!(
         coerce(
             FIELD,

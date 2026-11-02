@@ -4,14 +4,17 @@
 //! blocks, blocks carrying their kind and container path, marks, anchors, and
 //! islands, all over one coordinate space of Unicode scalar values. [`wire`] is
 //! the canonical, byte-deterministic JSON storage and the bindings carry.
-//! [`markdown`] is the projection at the edges, read and written through the
-//! line form in [`lines`], which the renderers also read; [`migrate`] moves
-//! values between the two. [`change`] is the one way a value is edited,
-//! [`anchors`] reads each anchor's context and re-attaches a dropped one,
-//! [`mapping`] maps positions across changes, [`rebase`] moves a change
-//! made from one value past another made from it, [`gestures`] is the change
-//! of each structural edit, [`mint`] fills the ids a change leaves to its
-//! write, and [`repair`] makes valid a state two concurrent edits merged into.
+//! [`markdown`] is the projection at the edges, one import and one export.
+//! [`change`] is the one way a value is edited, [`anchors`] reads each
+//! anchor's context and re-attaches a dropped one, [`mapping`] maps
+//! positions across changes, [`rebase`] moves a change made from one value
+//! past another made from it, [`gestures`] is the change of each structural
+//! edit, [`mint`] fills the ids a change leaves to its write, and [`repair`]
+//! makes valid a state two concurrent edits merged into.
+//!
+//! The line form, `lines` and the `migrate` between it and the model, is the
+//! intermediate the markdown codecs and the renderers read; it is hidden from
+//! the documented surface and no document API takes or answers it.
 
 pub mod anchors;
 pub mod change;
@@ -19,9 +22,11 @@ pub mod diff;
 mod draft;
 pub mod gestures;
 pub mod ids;
+#[doc(hidden)]
 pub mod lines;
 pub mod mapping;
 pub mod markdown;
+#[doc(hidden)]
 pub mod migrate;
 pub mod mint;
 pub mod model;

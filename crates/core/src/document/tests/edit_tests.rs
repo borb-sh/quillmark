@@ -262,7 +262,7 @@ fn test_overwrite_body_sets_directly() {
         .content
         .into_content();
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-    let content = content.into_normalized();
+    let content = content.into_lines();
 
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(content.clone());
@@ -278,7 +278,7 @@ fn test_overwrite_field_sets_directly() {
         .content
         .into_content();
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-    let content = content.into_normalized();
+    let content = content.into_lines();
 
     let mut card = Card::new("note").unwrap();
     card.overwrite_field("intro", content.clone()).unwrap();
@@ -289,7 +289,7 @@ fn test_overwrite_field_sets_directly() {
     assert_eq!(read, content);
 
     assert_eq!(
-        card.overwrite_field("$bad", quillmark_content::lines::model::Normalized::empty())
+        card.overwrite_field("$bad", quillmark_content::lines::model::Lines::empty())
             .unwrap_err()
             .code(),
         "edit::invalid_field_name"
@@ -312,7 +312,7 @@ fn test_revise_field_diff_imports_and_returns_its_change() {
     // 6..12 is "target".
     base.marks
         .push(Mark::new(6, 12, MarkKind::Anchor { id: "c1".into() }));
-    let base = base.into_normalized();
+    let base = base.into_lines();
     card.overwrite_field("intro", base).unwrap();
     let _ = card
         .revise_field("intro", "why keep the target here")
@@ -363,7 +363,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_single_line() {
     // 6..12 is "target".
     base.marks
         .push(Mark::new(6, 12, MarkKind::Anchor { id: "c1".into() }));
-    let base = base.into_normalized();
+    let base = base.into_lines();
     card.overwrite_field("subject", base).unwrap();
     let _ = card
         .revise_field_checked("subject", "why keep the target here", &inline)
@@ -420,7 +420,7 @@ fn test_commit_field_richtext_content_object_reads_back() {
         .content
         .into_content();
     content.marks.push(Mark::new(0, 10, MarkKind::Underline));
-    let content = content.into_normalized();
+    let content = content.into_lines();
     let json = quillmark_content::lines::serial::to_canonical_value(&content);
 
     let mut card = Card::new("note").unwrap();
@@ -641,7 +641,7 @@ fn test_revise_body_rebases_anchor() {
     // Anchor over "target" (chars 9..15).
     base.marks
         .push(Mark::new(9, 15, MarkKind::Anchor { id: "c1".into() }));
-    let base = base.into_normalized();
+    let base = base.into_lines();
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(base);
 
@@ -961,7 +961,7 @@ fn storage_dto_refuses_what_the_parser_refuses() {
 #[test]
 fn a_field_write_past_the_count_is_refused_at_the_write() {
     use crate::document::edit::{PayloadViolation, validate_payload};
-    use quillmark_content::lines::model::Normalized;
+    use quillmark_content::lines::model::Lines;
 
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
@@ -979,7 +979,7 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
     refused.push(doc.main_mut().revise_field("late", "text").unwrap_err());
     refused.push(
         doc.main_mut()
-            .overwrite_field("late", Normalized::empty())
+            .overwrite_field("late", Lines::empty())
             .unwrap_err(),
     );
     refused.push(
@@ -1047,7 +1047,7 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
 fn no_verb_on_a_placed_card_moves_it_between_roles() {
     use crate::document::CardMut;
     use crate::quill::{FieldSchema, FieldType};
-    use quillmark_content::lines::model::Normalized;
+    use quillmark_content::lines::model::Lines;
 
     fn richtext() -> FieldSchema {
         FieldSchema::new(
@@ -1070,9 +1070,9 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
         ("remove_seed_overlay", |c| {
             c.remove_seed_overlay("note");
         }),
-        ("overwrite_body", |c| c.overwrite_body(Normalized::empty())),
+        ("overwrite_body", |c| c.overwrite_body(Lines::empty())),
         ("overwrite_field", |c| {
-            ignore(c.overwrite_field("f", Normalized::empty()))
+            ignore(c.overwrite_field("f", Lines::empty()))
         }),
         ("revise_body", |c| ignore(c.revise_body("body"))),
         ("revise_field", |c| ignore(c.revise_field("f", "text"))),

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use quillmark_content::lines::model::{MarkKind, Normalized};
+use quillmark_content::lines::model::{MarkKind, Lines};
 use serde_json::{Value as JsonValue, json};
 
 use crate::document::{AnchorSelector, Card, Codec, Document};
@@ -159,7 +159,7 @@ fn an_id_live_anywhere_is_answered_and_not_written() {
     table.islands[0].props["rows"][0][0]["marks"] =
         json!([{ "start": 0, "end": 1, "type": "anchor", "id": "cell1" }]);
     doc.main_mut()
-        .overwrite_field("grid", Normalized::from(table))
+        .overwrite_field("grid", Lines::from(table))
         .unwrap();
     let held = doc.clone();
 
@@ -254,7 +254,7 @@ fn every_field_revise_names_the_anchor_it_drops() {
         card.overwrite_field("f", base.clone()).unwrap();
         card
     };
-    type Rung = fn(&mut Card, &Normalized, &FieldSchema) -> crate::document::Receipt;
+    type Rung = fn(&mut Card, &Lines, &FieldSchema) -> crate::document::Receipt;
     let rungs: [(&str, Rung); 5] = [
         ("revise_body", |c, _, _| {
             c.revise_body("Keep this line.").unwrap()
@@ -262,11 +262,13 @@ fn every_field_revise_names_the_anchor_it_drops() {
         ("revise_field", |c, _, _| {
             c.revise_field("f", "Keep this line.").unwrap()
         }),
-        ("revise_body_content", |c, n, _| {
-            c.revise_body_content(n.clone()).unwrap()
+        ("replace body", |c, n, _| {
+            let n = quillmark_content::migrate::from_lines(n);
+            c.replace(crate::document::Target::Body, &n, None).unwrap()
         }),
-        ("revise_field_content", |c, n, _| {
-            c.revise_field_content("f", n.clone()).unwrap()
+        ("replace field", |c, n, _| {
+            let n = quillmark_content::migrate::from_lines(n);
+            c.replace(crate::document::Target::Field("f"), &n, None).unwrap()
         }),
         ("revise_field_checked", |c, _, s| {
             c.revise_field_checked("f", "Keep this line.", s).unwrap()
@@ -338,14 +340,14 @@ fn a_selector_resolves_its_card_by_id() {
     }
 }
 
-fn table_body(cell_id: &str) -> Normalized {
+fn table_body(cell_id: &str) -> Lines {
     let table =
         crate::document::import_body("Lead line.\n\n| a | b |\n|---|---|\n| one cell | 2 |")
             .unwrap();
     let mut table = table.into_content();
     table.islands[0].props["rows"][0][0]["marks"] =
         json!([{ "start": 4, "end": 8, "type": "anchor", "attrs": { "id": cell_id } }]);
-    Normalized::from(table)
+    Lines::from(table)
 }
 
 #[test]

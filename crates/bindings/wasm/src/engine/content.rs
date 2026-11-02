@@ -585,24 +585,6 @@ impl Document {
         content_out(&content, "read")
     }
 
-    /// The markdown at `addr` with a `qm-*` tag for each anchor and island id
-    /// its lines can hold: what `revise` reads back. Throws as `read`.
-    #[wasm_bindgen(js_name = annotated)]
-    pub fn annotated(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-    ) -> Result<String, JsValue> {
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
-        let card = card_of(&self.inner, &addr)?;
-        match &addr.field {
-            None => Ok(card.body_annotated().markdown),
-            Some(field) => card
-                .field_annotated(field)
-                .map(|a| a.markdown)
-                .map_err(|e| edit_error_to_js(&e, &card_base(&self.inner, &addr))),
-        }
-    }
-
     /// **Apply** `change` to the value at `addr`, all its steps or none, and
     /// answer the `Receipt`. `opts.base` is the hash the writer read
     /// (`hash(addr)`), and the change's offsets are into the value it names:

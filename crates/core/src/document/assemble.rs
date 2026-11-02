@@ -149,7 +149,7 @@ fn import_card_body(
     at: &DocPath,
     import: Import,
     warnings: &mut Vec<Diagnostic>,
-) -> Result<quillmark_content::lines::model::Normalized, ParseError> {
+) -> Result<quillmark_content::lines::model::Lines, ParseError> {
     let imported = import(body).map_err(|e| ParseError::BodyImport {
         path: at.to_string(),
         message: e.to_string(),

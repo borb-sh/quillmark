@@ -112,7 +112,7 @@ impl Content {
 
     /// [`from_value_lenient`](Self::from_value_lenient), lowered to the line
     /// form the renderers read.
-    pub fn lines_from_value(v: &Value) -> Result<crate::lines::model::Normalized, ParseError> {
+    pub fn lines_from_value(v: &Value) -> Result<crate::lines::model::Lines, ParseError> {
         Content::from_value_lenient(v).map(|read| crate::migrate::to_lines(&read.content))
     }
 

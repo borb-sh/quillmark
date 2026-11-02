@@ -38,11 +38,11 @@ enum Role {
 }
 
 /// `change` with each placeholder replaced by an id minted past the ids of
-/// `held`, of `over` and of the change itself, under `actor` where one is
+/// `held`, of `since` and of the change itself, under `actor` where one is
 /// given, in the order the change puts them. One placeholder names one
 /// record: putting it twice, or naming one no step puts, is
 /// [`ApplyError::BadStep`].
-pub fn fill(change: &Change, held: &[&Content], over: Option<&Change>, actor: Option<&str>) -> Result<Filled, ApplyError> {
+pub fn fill(change: &Change, held: &[&Content], since: Option<&Change>, actor: Option<&str>) -> Result<Filled, ApplyError> {
     let mut out = change.clone();
     let mut put: Vec<(usize, String, &'static str)> = Vec::new();
     let mut named: Vec<(usize, String)> = Vec::new();
@@ -57,7 +57,7 @@ pub fn fill(change: &Change, held: &[&Content], over: Option<&Change>, actor: Op
     if put.is_empty() && named.is_empty() {
         return Ok(Filled { change: out, minted: BTreeMap::new() });
     }
-    let mut ids = minter(&mut out, held, over);
+    let mut ids = minter(&mut out, held, since);
     let mut minted = BTreeMap::new();
     for (n, id, p) in put {
         if minted.insert(id, ids.mint(&scoped(actor, p))).is_some() {
@@ -77,9 +77,9 @@ pub fn fill(change: &Change, held: &[&Content], over: Option<&Change>, actor: Op
 
 /// `change`, made from `before`, with each id it puts that `before` does not
 /// hold at that level and `keep` does not either minted afresh under `actor`,
-/// past the ids of `held`, `over` and the change: the ids a producer minted
+/// past the ids of `held`, `since` and the change: the ids a producer minted
 /// for a writer, where `keep` holds the ids the writer gave.
-pub fn remint(change: &Change, before: &Content, keep: Option<&Content>, held: &[&Content], over: Option<&Change>, actor: &str) -> Change {
+pub fn remint(change: &Change, before: &Content, keep: Option<&Content>, held: &[&Content], since: Option<&Change>, actor: &str) -> Change {
     let mut out = change.clone();
     let (mut was, mut kept) = (Held::new(before), keep.map(Held::new));
     let mut fresh: Vec<((Level, Scope, String), &'static str)> = Vec::new();
@@ -95,7 +95,7 @@ pub fn remint(change: &Change, before: &Content, keep: Option<&Content>, held: &
     if fresh.is_empty() {
         return out;
     }
-    let mut ids = minter(&mut out, held, over);
+    let mut ids = minter(&mut out, held, since);
     let to: HashMap<(Level, Scope, String), String> = fresh.into_iter().map(|(key, p)| (key, ids.mint(&scoped(Some(actor), p)))).collect();
     visit(&mut out.steps, &None, &mut |_, level, scope, _, id| {
         if let Some(fresh) = to.get(&(level.clone(), scope, id.clone())) {
@@ -105,17 +105,17 @@ pub fn remint(change: &Change, before: &Content, keep: Option<&Content>, held: &
     out
 }
 
-/// A minter holding every id of `held` at every level, of `over` and of
+/// A minter holding every id of `held` at every level, of `since` and of
 /// `change`.
-fn minter(change: &mut Change, held: &[&Content], over: Option<&Change>) -> Minter {
+fn minter(change: &mut Change, held: &[&Content], since: Option<&Change>) -> Minter {
     let mut ids = Minter::default();
     for c in held {
         hold_content(&mut ids, c);
     }
     let mut hold = |_: usize, _: &Level, _: Scope, _: Role, id: &mut String| ids.hold(id.clone());
     visit(&mut change.steps, &None, &mut hold);
-    if let Some(over) = over {
-        visit(&mut over.clone().steps, &None, &mut hold);
+    if let Some(since) = since {
+        visit(&mut since.clone().steps, &None, &mut hold);
     }
     ids
 }

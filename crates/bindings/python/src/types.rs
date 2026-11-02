@@ -324,7 +324,7 @@ impl PyQuill {
     }
 
     /// Parse `markdown` and conform it against this quill: the primary ingestion
-    /// path, and the bound twin of the schema-free `Document.from_markdown`. The
+    /// path, and the bound twin of the schema-free `Document.parse`. The
     /// returned document rests at its canonical form: a content field as a
     /// content object, a `text` field's under `codec: "plain"`.
     ///
@@ -458,8 +458,12 @@ impl PyDocument {
         })
     }
 
+    /// Parse a whole document's markdown, quill-free: the document-level
+    /// import, its content read cold, no anchor in it. `Quill.parse` is the
+    /// same parse conformed to a quill; `revise` is the import that keeps
+    /// anchors.
     #[staticmethod]
-    fn from_markdown(markdown: &str) -> PyResult<Self> {
+    fn parse(markdown: &str) -> PyResult<Self> {
         let output = Document::parse(markdown).map_err(|e| {
             let diag = e.to_diagnostic();
             let message = diag.message.clone();
@@ -524,11 +528,17 @@ impl PyDocument {
         quillmark_core::version::quill_ref_hint()
     }
 
-    /// Emit canonical Quillmark Markdown. Round-trip safe but for content: a
-    /// body or content field holds what its markdown spells, so its anchors
-    /// drop and its island ids re-mint. `to_stored` keeps both.
-    fn to_markdown(&self) -> String {
-        self.inner.to_markdown()
+    /// The one markdown export of the document. Cold, round-trip safe but for
+    /// content: a body or content field holds what its markdown spells, so its
+    /// anchors drop and its island ids re-mint; `to_stored` keeps both.
+    /// `annotated` spells each anchor and each island markdown cannot hold,
+    /// which `revise` and `writer.revise_document` read back.
+    #[pyo3(signature = (*, annotated=false))]
+    fn to_markdown(&self, annotated: bool) -> String {
+        match annotated {
+            true => self.inner.to_markdown_annotated().markdown,
+            false => self.inner.to_markdown(),
+        }
     }
 
     /// The hash of the document's stored form, the quill-free twin of
@@ -619,7 +629,7 @@ impl PyDocument {
 
     /// The main card's body as canonical Content-JSON (`{text, lines, marks,
     /// islands}`). For the markdown projection use
-    /// `quill.reader(doc).body_markdown()`.
+    /// `doc.to_markdown_at()`.
     #[getter]
     fn body<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let wire = quillmark_core::document::CardWire::from(self.inner.main());
@@ -911,20 +921,21 @@ impl PyDocument {
         crate::content::content_to_py(py, &content)
     }
 
-    /// The markdown at `field` on `card` with a `qm-*` tag for each anchor and
-    /// island id its lines can hold: what `revise` reads back. Raises as
+    /// `to_markdown` of the value at `field` (`None` the body) on `card`
+    /// (`None` the main card) alone, a `codec: "plain"` field its literal
+    /// text: with `annotated`, what `revise` there reads back. Raises as
     /// `read`.
-    #[pyo3(signature = (field=None, card=None))]
-    fn annotated(&self, field: Option<&str>, card: Option<CardSel>) -> PyResult<String> {
+    #[pyo3(signature = (field=None, card=None, *, annotated=false))]
+    fn to_markdown_at(&self, field: Option<&str>, card: Option<CardSel>, annotated: bool) -> PyResult<String> {
         let target = Target::resolve(&self.inner, card)?;
-        let card = self.card_at(target.index);
-        match field {
-            None => Ok(card.body_annotated().markdown),
-            Some(field) => card
-                .field_annotated(field)
-                .map(|a| a.markdown)
-                .map_err(|e| convert_edit_error(e, &target.base)),
-        }
+        let content = self
+            .card_at(target.index)
+            .read(quillmark_core::document::Target::from(field))
+            .map_err(|e| convert_edit_error(e, &target.base))?;
+        Ok(match annotated {
+            true => quillmark_content::markdown::to_text_annotated(&content).markdown,
+            false => quillmark_content::markdown::to_text(&content),
+        })
     }
 
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
@@ -1689,23 +1700,6 @@ impl PyReader {
         }
         .map_err(|e| convert_edit_error(e, &target.base))?;
         content_to_py(py, read)
-    }
-
-    /// A body's markdown: quill-free, since a body's type is a format fact
-    /// rather than a schema fact. Raises only `edit::index_out_of_range`, for a
-    /// `card` addressing none.
-    #[pyo3(signature = (card=None))]
-    fn body_markdown(&self, py: Python<'_>, card: Option<CardSel>) -> PyResult<String> {
-        let doc = self.doc.borrow(py);
-        let target = Self::target(&doc, card)?;
-        Ok(match target.index {
-            None => doc.inner.main().body_markdown(),
-            Some(i) => doc
-                .inner
-                .card(i)
-                .ok_or_else(|| index_error(i, doc.inner.cards().len()))?
-                .body_markdown(),
-        })
     }
 }
 

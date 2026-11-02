@@ -124,7 +124,7 @@ card_kinds:
 `
     const quill = Quill.fromTree(new Map([['Quill.yaml', enc.encode(yaml)]]))
 
-    const doc = Document.fromMarkdown(
+    const doc = Document.parse(
       '~~~\n$quill: seed_core@1.0.0\n$kind: main\n$seed:\n  note:\n    author: Custom Author\n~~~\n',
     )
 
@@ -140,7 +140,7 @@ card_kinds:
     expect(quill.seedCard('missing')).toBeUndefined()
 
     // storeSeedOverlay writes an overlay; main.seed reads it back; remove clears.
-    const doc2 = Document.fromMarkdown('~~~\n$quill: seed_core@1.0.0\n$kind: main\n~~~\n')
+    const doc2 = Document.parse('~~~\n$quill: seed_core@1.0.0\n$kind: main\n~~~\n')
     doc2.storeSeedOverlay('note', { author: 'Written' })
     expect(doc2.main.seed?.note.author).toBe('Written')
     doc2.removeSeedOverlay('note')
@@ -152,7 +152,7 @@ card_kinds:
 // persistence surface must work with Typst absent, not merely be present.
 describe('@quillmark/wasm/core Document editing (Typst-free)', () => {
   it('keyed card reads mirror the card write verbs', () => {
-    const doc = Document.fromMarkdown(`~~~
+    const doc = Document.parse(`~~~
 $quill: core_test
 $kind: main
 title: Draft
@@ -165,20 +165,19 @@ title: Draft
     expect(doc.getStored({ card: 0, field: 'author' })).toBe('Alice')
     expect(doc.getStored({ card: 0, field: 'missing' })).toBeUndefined()
 
-    // bodyMarkdown is the card body read (card address); a field address throws.
-    // A field's markdown reads through the schema-plane view,
-    // quill.reader(doc).get({ card, field }).
-    expect(doc.bodyMarkdown({ card: 0 })).toContain('A note body.')
-    expect(() => doc.bodyMarkdown({ card: 0, field: 'author' })).toThrow(/body-only/)
+    // toMarkdown at an address reads that value alone, a field's string as
+    // the markdown it imports to.
+    expect(doc.toMarkdown({ card: 0 })).toContain('A note body.')
+    expect(doc.toMarkdown({ card: 0, field: 'author' })).toBe('Alice')
 
     // An out-of-range index is a boundary error: it throws, the way the card
     // write verbs do, rather than reading back as undefined/"".
     expect(() => doc.getStored({ card: 1, field: 'author' })).toThrow()
-    expect(() => doc.bodyMarkdown({ card: 1 })).toThrow()
+    expect(() => doc.toMarkdown({ card: 1 })).toThrow()
   })
 
   it('single-card and seed-overlay reads', () => {
-    const doc = Document.fromMarkdown(`~~~
+    const doc = Document.parse(`~~~
 $quill: core_test
 $kind: main
 title: Draft

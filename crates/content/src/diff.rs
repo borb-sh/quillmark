@@ -7,7 +7,7 @@
 use crate::change::{AnchorStep, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, apply, mark_fixups, run};
 use crate::rebase::{Conflict, RebaseError, Reason, rebase};
 use crate::ids::{Minter, prefix};
-use crate::lines::delta::{Op, diff_words as text_diff, rebase_pinned, without_sentinel};
+use crate::lines::delta::{Op, diff_words as text_diff, rebase_pinned, relocate, without_sentinel};
 use crate::lines::import::{Against, ImportError, ImportWarning, from_markdown_against};
 use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
@@ -658,9 +658,9 @@ pub fn align(before: &Content, after: Content) -> Content {
         }
     }
     for m in before.marks.iter().filter(|m| matches!(m.kind, MarkKind::Ext { .. })) {
-        let mut over = kept[m.start..m.end].iter().flatten();
-        if let Some(&lo) = over.next() {
-            let hi = over.last().copied().unwrap_or(lo);
+        let mut covered = kept[m.start..m.end].iter().flatten();
+        if let Some(&lo) = covered.next() {
+            let hi = covered.last().copied().unwrap_or(lo);
             after.marks.push(Mark::new(lo, hi + 1, m.kind.clone()));
         }
     }
@@ -763,7 +763,7 @@ pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ReviseError>
 /// to `before`. A part of `before` the read lost and the writer left alone
 /// rides back in; one the writer rewrote is a [`ReviseError::Conflict`]. Ids
 /// are minted as [`revise_holding`] mints them, and one the rebase finds
-/// `over` introduced too is renamed past it. A [`Codec::Plain`] value reads
+/// `since` introduced too is renamed past it. A [`Codec::Plain`] value reads
 /// `markdown` as its literal text, which is its whole read.
 pub fn revise_keeping(before: &Content, markdown: &str, now: &Content) -> Result<Revision, ReviseError> {
     let lines = to_lines(before);
@@ -775,13 +775,13 @@ pub fn revise_keeping(before: &Content, markdown: &str, now: &Content) -> Result
     if read == *before {
         return Ok(revise_lines(before, &lines, markdown, now)?);
     }
-    let over = diff_with(&read, before, None);
-    let held = apply(&read, &over).ok().map(|a| a.content);
+    let since = diff_with(&read, before, None);
+    let held = apply(&read, &since).ok().map(|a| a.content);
     if held.as_ref() != Some(before) {
         return Ok(revise_holding(before, markdown, now)?);
     }
     let mine = revise_holding(&read, markdown, now)?;
-    let change = rebase(&read, &mine.change, &over).map_err(|e| match e {
+    let change = rebase(&read, &mine.change, &since).map_err(|e| match e {
         RebaseError::Conflict(c) => ReviseError::Conflict(c),
         RebaseError::Apply(e) => ReviseError::Conflict(Conflict { step: 0, reason: Reason::Refused(e) }),
     })?;
@@ -803,7 +803,7 @@ pub fn revise_holding(before: &Content, markdown: &str, now: &Content) -> Result
 }
 
 /// [`revise_holding`] with `before` already lowered to `lines`.
-fn revise_lines(before: &Content, lines: &crate::lines::model::Normalized, markdown: &str, now: &Content) -> Result<Revision, ImportError> {
+fn revise_lines(before: &Content, lines: &crate::lines::model::Lines, markdown: &str, now: &Content) -> Result<Revision, ImportError> {
     let Against { content: imported, warnings, pins } = match before.codec {
         Codec::Rich => from_markdown_against(markdown, lines)?,
         Codec::Plain => Against {
@@ -830,7 +830,36 @@ fn revise_lines(before: &Content, lines: &crate::lines::model::Normalized, markd
             content
         }
     };
-    Ok(Revision { change, content, warnings })
+    Ok(relocating(before, change, content, warnings))
+}
+
+/// The revision `change` makes of `before`, landing on `after`, with a
+/// placement for each anchor of `before`'s text that `after` holds nowhere
+/// and whose text `after` holds again in what the revision inserted: a
+/// paragraph moved whole keeps its anchor. A quote shorter than
+/// [`MIN_MOVE`](crate::lines::delta::MIN_MOVE) characters is too weak to
+/// follow, and drops.
+fn relocating(before: &Content, change: Change, after: Content, warnings: Vec<ImportWarning>) -> Revision {
+    let held: HashSet<&str> = after.anchors.iter().map(|a| a.id.as_str()).collect();
+    let places: Vec<Step> = before
+        .anchors
+        .iter()
+        .filter(|a| !held.contains(a.id.as_str()))
+        .filter_map(|a| {
+            let (start, end) = relocate(&before.text, &after.text, a.start, a.end)?;
+            Some(Step::Anchor(AnchorStep::Place { anchor: crate::model::Anchor { id: a.id.clone(), start, end }, quote: None }))
+        })
+        .collect();
+    if places.is_empty() {
+        return Revision { change, content: after, warnings };
+    }
+    let mut steps = change.steps.clone();
+    steps.extend(places);
+    let relocated = Change::new(steps);
+    match apply(before, &relocated) {
+        Ok(done) => Revision { change: relocated, content: done.content, warnings },
+        Err(_) => Revision { change, content: after, warnings },
+    }
 }
 
 /// The change that writes `content` over `before`: each anchor of `before`
@@ -915,6 +944,7 @@ fn holding(before: &Content, want: &Content, now: &Content, top: bool) -> Conten
 
 /// A line-form value written over `before`, under the ids of what it kept and
 /// its codec.
+#[doc(hidden)]
 pub fn lift(before: &Content, after: &crate::lines::model::Content) -> Content {
     let mut out = align(before, from_lines(after));
     out.codec = before.codec;

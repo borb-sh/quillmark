@@ -1146,7 +1146,7 @@ main:
         let region_width = |kind: MarkKind| -> f32 {
             let rt = Content::new(TEXT.to_string(), vec![Line::new(LineKind::Para)])
                 .with_marks(vec![Mark::new(6, 11, kind)])
-                .into_normalized();
+                .into_lines();
             let q = quill(YAML, PLATE);
             let plate = crate::read_plate(&q).expect("plate");
             let schema = quillmark_core::quill::build_transform_schema(

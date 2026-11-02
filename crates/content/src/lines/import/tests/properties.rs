@@ -11,7 +11,7 @@ use proptest::prelude::*;
 use super::generate::{contained, counted, prefixed, table, tally, word, Piece};
 use crate::lines::export::to_markdown;
 use crate::lines::import::from_markdown;
-use crate::lines::model::Normalized;
+use crate::lines::model::Lines;
 
 fn inline() -> impl Strategy<Value = Piece> {
     let tagged = (
@@ -175,7 +175,7 @@ fn document() -> impl Strategy<Value = Piece> {
 }
 
 /// The content's text and every table cell's, where a word can land.
-fn imported_text(rt: &Normalized) -> String {
+fn imported_text(rt: &Lines) -> String {
     let mut all = rt.text.clone();
     for island in &rt.islands {
         let cells = ["header", "rows"]

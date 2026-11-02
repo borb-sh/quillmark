@@ -1237,7 +1237,7 @@ impl QuillConfig {
         if declined.is_empty() {
             return diags;
         }
-        self.each_plate_content(data, &mut |at: &DocPath, content: &crate::Content| {
+        self.each_plate_content(data, &mut |at: &DocPath, content: &quillmark_content::lines::model::Content| {
             let counts = super::BlockConstruct::tally(content);
             for &construct in declined {
                 let count = counts[construct as usize];
@@ -1256,7 +1256,7 @@ impl QuillConfig {
     pub fn each_plate_content(
         &self,
         data: &serde_json::Value,
-        each: &mut dyn FnMut(&DocPath, &crate::Content),
+        each: &mut dyn FnMut(&DocPath, &quillmark_content::lines::model::Content),
     ) {
         let mut card = |schema: &CardSchema,
                         obj: &serde_json::Map<String, serde_json::Value>,

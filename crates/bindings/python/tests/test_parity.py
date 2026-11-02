@@ -20,7 +20,7 @@ def name(entry):
 
 
 def parse(body):
-    return Document.from_markdown(f"{FRONTMATTER}\n{body}\n")
+    return Document.parse(f"{FRONTMATTER}\n{body}\n")
 
 
 @pytest.mark.parametrize("entry", SPELLED, ids=name)

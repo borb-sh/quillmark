@@ -35,14 +35,14 @@ describe('parity.json', () => {
           expect(imported.content).toStrictEqual(content)
           expect(dropped(imported.warnings)).toStrictEqual(expected(signals, undefined))
 
-          const doc = Document.fromMarkdown(`${FRONTMATTER}\n${markdown}\n`)
+          const doc = Document.parse(`${FRONTMATTER}\n${markdown}\n`)
           expect(doc.main.body).toStrictEqual(content)
           expect(dropped(doc.warnings)).toStrictEqual(expected(signals, 'main.body'))
         })
       }
 
       it('crosses in through replace and storage', () => {
-        const doc = Document.fromMarkdown(FRONTMATTER)
+        const doc = Document.parse(FRONTMATTER)
         doc.replace({}, content)
         expect(unblocked(doc.read({}))).toStrictEqual(unblocked(content))
 

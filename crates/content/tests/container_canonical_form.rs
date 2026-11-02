@@ -15,7 +15,7 @@
 
 use quillmark_content::lines::export::to_markdown;
 use quillmark_content::lines::import::from_markdown;
-use quillmark_content::lines::model::{Container, Content, Line, LineKind, Normalized};
+use quillmark_content::lines::model::{Container, Content, Line, LineKind, Lines};
 
 /// Containers a hand-built path can hold: lists, quotes and elements.
 fn alphabet() -> Vec<Container> {
@@ -59,7 +59,7 @@ fn paths() -> Vec<Vec<Container>> {
     out
 }
 
-fn build(paths: &[&Vec<Container>]) -> Normalized {
+fn build(paths: &[&Vec<Container>]) -> Lines {
     let text = (0..paths.len())
         .map(|i| ((b'a' + i as u8) as char).to_string())
         .collect::<Vec<_>>()
@@ -68,7 +68,7 @@ fn build(paths: &[&Vec<Container>]) -> Normalized {
         .iter()
         .map(|p| Line::new(LineKind::Para).with_containers((*p).clone()))
         .collect();
-    Content::new(text, lines).into_normalized()
+    Content::new(text, lines).into_lines()
 }
 
 /// An inner run must not continue across an *item* boundary: two inner lists
@@ -82,7 +82,7 @@ fn every_normalized_pair_is_idempotent_and_a_markdown_fixed_point() {
         for b in &ps {
             let rt = build(&[a, b]);
             assert_eq!(rt.validate(), Ok(()), "invalid after normalize: {rt:?}");
-            let again = rt.clone().into_content().into_normalized();
+            let again = rt.clone().into_content().into_lines();
             assert_eq!(again, rt, "normalize not idempotent for {a:?} then {b:?}");
             let md = to_markdown(&rt);
             if from_markdown(&md).expect("re-imports").content != rt {
@@ -111,7 +111,7 @@ fn triples_over_the_container_alphabet_are_fixed_points() {
         for b in ps.iter().step_by(5) {
             for c in ps.iter().step_by(8) {
                 let rt = build(&[a, b, c]);
-                let again = rt.clone().into_content().into_normalized();
+                let again = rt.clone().into_content().into_lines();
                 assert_eq!(again, rt, "not idempotent: {a:?} {b:?} {c:?}");
                 if from_markdown(&to_markdown(&rt)).unwrap().content != rt {
                     broken += 1;

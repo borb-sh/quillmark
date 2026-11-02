@@ -10,15 +10,15 @@ use std::collections::BTreeMap;
 use quillmark_content::lines::delta::{merge_lines, rebase_marks_pinned};
 use quillmark_content::lines::export::{Annotated, to_markdown, to_markdown_annotated};
 use quillmark_content::lines::import::{ImportWarning, from_markdown_against};
-use quillmark_content::lines::model::Normalized;
+use quillmark_content::lines::model::Lines;
 use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
-use super::edit::{EditError, is_valid_field_name, revise_import};
+use super::edit::{EditError, is_valid_field_name};
 use super::merge::{MergeConflict, merge_documents};
 use super::revise::align_cards;
-use super::{Card, Codec, Document, Parsed, Receipt, Revising, Target};
+use super::{Card, Codec, Document, Parsed, Receipt, Revising};
 use crate::error::{Diagnostic, diag_args};
 use crate::path::{DocPath, DocSeg};
 use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
@@ -190,23 +190,6 @@ pub fn content_hash(content: &Content) -> String {
     digesting(|w| content.write_canonical(w))
 }
 
-/// [`revise_import`] under `base`: refused when `base` is stale, a merge when
-/// `base` is a read the stored value has moved on from. Answers the revised
-/// value, the warnings of the writer's markdown, and whether it merged.
-pub fn revise_import_against(
-    held: &Content,
-    stored: &Normalized,
-    base: Base<'_>,
-    body: &str,
-) -> Result<(Normalized, Vec<ImportWarning>, bool), EditError> {
-    let write = richtext_write(stored, || content_hash(held), base, body)?;
-    let revise = |md: &str| revise_import(stored, md).map_err(EditError::import);
-    match write {
-        Write::Own => revise(body).map(|(content, warnings)| (content, warnings, false)),
-        Write::Merged(md, warnings) => revise(&md).map(|(content, _)| (content, warnings, true)),
-    }
-}
-
 /// What a guarded write lands: the writer's own markdown, or the merge with
 /// the import warnings of the writer's markdown, which the merge no longer
 /// spells.
@@ -234,7 +217,7 @@ fn check(current: String, read: &str) -> Result<(), BaseError> {
 /// annotated markdown writes the writer's own, though its markup lost an
 /// island its spelling cannot match.
 fn richtext_write(
-    stored: &Normalized,
+    stored: &Lines,
     current: impl FnOnce() -> String,
     base: Base<'_>,
     body: &str,
@@ -306,7 +289,7 @@ impl Card {
     /// a body revise reads back, and the markdown a [`Base::Read`] merge of one
     /// takes. Its anchors carry no path; the body is theirs.
     pub fn body_annotated(&self) -> Annotated {
-        to_markdown_annotated(self.body_lines())
+        quillmark_content::markdown::to_markdown_annotated(self.body())
     }
 
     /// The field's annotated read, decoded as
@@ -315,11 +298,7 @@ impl Card {
     /// stored under `codec: "plain"` reads as its literal text, its anchors
     /// listed and no tag spelled.
     pub fn field_annotated(&self, name: &str) -> Result<Annotated, EditError> {
-        let content = self.richtext_base(name)?;
-        Ok(match self.stored_codec(name) {
-            Codec::Richtext => to_markdown_annotated(&content),
-            Codec::Text => quillmark_content::lines::export::to_plaintext_annotated(&content),
-        })
+        Ok(quillmark_content::markdown::to_text_annotated(&self.richtext_value(name)?))
     }
 
     /// The hash of the richtext field's content, decoded as
@@ -395,12 +374,11 @@ impl Card {
         base: Base<'_>,
         body: impl Into<String>,
     ) -> Result<Receipt, EditError> {
-        let (content, warnings, merged) = revise_import_against(self.body(), self.body_lines(), base, &body.into())?;
-        let receipt = self.revising(Target::Body, warnings, |card| {
-            card.overwrite_body(content);
-            Ok(())
-        })?;
-        Ok(if merged { receipt.merged(None) } else { receipt })
+        let body = body.into();
+        match richtext_write(self.body_lines(), || content_hash(self.body()), base, &body)? {
+            Write::Own => self.revise_body(body),
+            Write::Merged(md, warnings) => Ok(self.revise_body(md)?.merged(Some(warnings))),
+        }
     }
 
     /// [`revise_field`](Self::revise_field) under `base`, its hash

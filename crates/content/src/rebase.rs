@@ -13,7 +13,7 @@ use crate::model::{Anchor, Content, Mark, MarkKind, Pos, Usv};
 use crate::units::Scalars;
 use std::collections::{HashMap, HashSet};
 
-/// A step of the change that does not fit the value `over` left.
+/// A step of the change that does not fit the value `since` left.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Conflict {
     /// The step's index in the change, a nested step's for a step inside it.
@@ -23,15 +23,15 @@ pub struct Conflict {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Reason {
-    /// `over` deleted text the step reads: any of the text a splice deletes,
+    /// `since` deleted text the step reads: any of the text a splice deletes,
     /// the whole range of a mark step or a range anchor, or the text on both
     /// sides of an insert.
     Deleted,
     /// The text a splice deletes or a step quotes, the block an island insert
     /// names, what a step by id overwrites, an island, block record or mark
     /// a splice deletes, the formatting of a mark step's type over its range,
-    /// or the slot a nested step edits where `over` removed it, now reads
-    /// otherwise; or `over` placed, moved or removed the anchor the step
+    /// or the slot a nested step edits where `since` removed it, now reads
+    /// otherwise; or `since` placed, moved or removed the anchor the step
     /// names.
     Changed,
     /// The step names a block, container, anchor, island or slot that is no
@@ -99,47 +99,47 @@ impl std::fmt::Display for RebaseError {
 
 impl std::error::Error for RebaseError {}
 
-/// `change`, made from `base`, rebased to apply after `over`, also made from
+/// `change`, made from `base`, rebased to apply after `since`, also made from
 /// `base`: the writer's own steps at their mapped offsets, each holding to
 /// what it read.
 ///
 /// - A splice maps the edges of its deletion inward and still deletes its
-///   `delete`; one whose text `over` deleted any of, or rewrote, conflicts.
-///   An insert maps as a point anchor does, and conflicts where `over`
+///   `delete`; one whose text `since` deleted any of, or rewrote, conflicts.
+///   An insert maps as a point anchor does, and conflicts where `since`
 ///   deleted the text on both sides of it.
 /// - A mark step and a range anchor map their edges inward, as `apply` moves
 ///   a range anchor, and a point anchor as `apply` moves one. One whose range
-///   `over` deleted entirely conflicts: a write is whole or refused, and a
+///   `since` deleted entirely conflicts: a write is whole or refused, and a
 ///   step with nothing to land on is part of what its writer asked for. A
 ///   `quote` the range no longer covers conflicts.
 /// - `setBlock`, `container`, an island's props and anchor removal are by id
 ///   and pass unchanged, and conflict where the id is gone. One that
-///   overwrites what `over` changed conflicts: the fields of a block's record
+///   overwrites what `since` changed conflicts: the fields of a block's record
 ///   a `setBlock` names, a container's attributes, an island's props and the
 ///   slots they drop.
 /// - A splice conflicts where an island, block record or mark it deletes
 ///   reads otherwise than its writer read it, so a stale rewrite of a word
-///   `over` formatted conflicts rather than dropping the formatting.
-/// - A mark step conflicts where `over` changed the formatting of its type on
+///   `since` formatted conflicts rather than dropping the formatting.
+/// - A mark step conflicts where `since` changed the formatting of its type on
 ///   a character of its range both values hold.
-/// - An anchor step conflicts where an `anchor` step of `over` names its id:
-///   a stale write never brings back an anchor `over` removed, nor wins one
+/// - An anchor step conflicts where an `anchor` step of `since` names its id:
+///   a stale write never brings back an anchor `since` removed, nor wins one
 ///   both moved.
-/// - `nested` rebases its change over what `over` did inside that slot. Where
-///   `over` removed the island or the slot and the slot now reads otherwise,
+/// - `nested` rebases its change over what `since` did inside that slot. Where
+///   `since` removed the island or the slot and the slot now reads otherwise,
 ///   its edits are not in the mapping, and the step conflicts.
 ///
-/// Identity is by incarnation. A block, container or island `over` removed
-/// is gone for the change even where `over` put one back under its id, so a
+/// Identity is by incarnation. A block, container or island `since` removed
+/// is gone for the change even where `since` put one back under its id, so a
 /// step naming it conflicts as missing rather than landing on the new one;
-/// an island `over` only moves keeps its identity. An id the change
-/// introduces that `over` also introduced is renamed past every id either
+/// an island `since` only moves keeps its identity. An id the change
+/// introduces that `since` also introduced is renamed past every id either
 /// holds, through the change's steps after it. A placeholder is filled past
-/// the ids of `base` and `over` before the change rebases.
-pub fn rebase(base: &Content, change: &Change, over: &Change) -> Result<Change, RebaseError> {
-    let change = &crate::mint::fill(change, &[base], Some(over), None).map_err(RebaseError::Apply)?.change;
+/// the ids of `base` and `since` before the change rebases.
+pub fn rebase(base: &Content, change: &Change, since: &Change) -> Result<Change, RebaseError> {
+    let change = &crate::mint::fill(change, &[base], Some(since), None).map_err(RebaseError::Apply)?.change;
     apply(base, change).map_err(RebaseError::Apply)?;
-    let theirs = apply(base, over).map_err(RebaseError::Apply)?;
+    let theirs = apply(base, since).map_err(RebaseError::Apply)?;
     let over_steps: Vec<&Step> = theirs.applied.steps.iter().collect();
     let change = Change { steps: renamed(&change.steps, &over_steps, base, &theirs.content) };
     let own = apply(base, &change).map_err(RebaseError::Apply)?;
@@ -154,14 +154,14 @@ pub fn rebase(base: &Content, change: &Change, over: &Change) -> Result<Change, 
     Ok(rebased)
 }
 
-/// The steps of one level, a field or a slot, rebased over `over` and applied
+/// The steps of one level, a field or a slot, rebased over `since` and applied
 /// in turn to `now`, as `orig` applies in turn to `was`, the value they were
 /// made from. `norm` is `orig` as `apply` normalized it there, whose maps
 /// take a step back across its predecessors.
 fn level(
     orig: &[Step],
     norm: &[Step],
-    over: &Mapping,
+    since: &Mapping,
     over_steps: &[&Step],
     was: &mut Draft,
     now: &mut Draft,
@@ -181,7 +181,7 @@ fn level(
         let map = StepMap::of(step, Scalars).map_err(|e| (i, Reason::Refused(e)))?;
         maps.append_map(map.invert(), None);
     }
-    maps.append_mapping(over);
+    maps.append_mapping(since);
     let mut out = Vec::with_capacity(n);
     let (mut own, mut put) = (HashSet::new(), mine.iter().peekable());
     for (i, step) in orig.iter().enumerate() {
@@ -197,7 +197,7 @@ fn level(
                 let missing = || (i, Reason::Missing(ApplyError::UnknownSlot { island: island.clone(), slot: slot.clone() }));
                 let theirs = now.c.slot(island, slot).cloned().ok_or_else(missing)?;
                 let read = was.c.slot(island, slot).cloned().ok_or_else(missing)?;
-                if rehomed(over, island, slot) && read != theirs {
+                if rehomed(since, island, slot) && read != theirs {
                     return Err((i, Reason::Changed));
                 }
                 let inner = maps.slice(n - i, maps.len()).project(island, slot);
@@ -374,9 +374,9 @@ fn renamed(steps: &[Step], theirs: &[&Step], base: &Content, now: &Content) -> V
         }
     }
     for ((island, slot), at) in slots {
-        let over = inside(theirs, &island, &slot);
+        let since = inside(theirs, &island, &slot);
         let (Some(was), Some(held)) = (base.slot(&island, &slot), now.slot(&island, &slot)) else { continue };
-        if over.is_empty() {
+        if since.is_empty() {
             continue;
         }
         let flat: Vec<Step> = at
@@ -386,7 +386,7 @@ fn renamed(steps: &[Step], theirs: &[&Step], base: &Content, now: &Content) -> V
                 _ => Vec::new(),
             })
             .collect();
-        let mut fresh = renamed(&flat, &over, was, held).into_iter();
+        let mut fresh = renamed(&flat, &since, was, held).into_iter();
         for n in at {
             if let Step::Nested { change, .. } = &mut out[n] {
                 change.steps = fresh.by_ref().take(change.steps.len()).collect();
@@ -428,10 +428,10 @@ fn rename(step: &mut Step, to: &dyn Fn(Scope, &mut String)) {
     }
 }
 
-/// Whether `over` removed the island, or that slot of it, so that what the
+/// Whether `since` removed the island, or that slot of it, so that what the
 /// slot holds is not reached by mapping its edits.
-fn rehomed(over: &Mapping, island: &str, slot: &str) -> bool {
-    over.maps().iter().any(|map| match map {
+fn rehomed(since: &Mapping, island: &str, slot: &str) -> bool {
+    since.maps().iter().any(|map| match map {
         StepMap::Replace { removed, .. } => removed.iter().any(|id| id == island),
         StepMap::Slots { island: id, removed, .. } => id == island && removed.contains(slot),
         _ => false,
@@ -457,7 +457,7 @@ fn overwrites(step: &Step, (read, put): &(Step, Vec<Step>), (wrote, puts): &(Ste
     }
 }
 
-/// Whether `over` changed the formatting of a mark step's type on a
+/// Whether `since` changed the formatting of a mark step's type on a
 /// character of its range that `was`, the value the step reads, and `now`,
 /// where it lands, both hold.
 fn reformats(step: &Step, was: &Draft, now: &Draft, through: &Tail) -> bool {

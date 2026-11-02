@@ -283,7 +283,7 @@ const HANDLE_KINDS = {
 	},
 	Document: {
 		code: 'runtime::not_a_document',
-		hint: 'Pass a Document built by Document.fromMarkdown / fromStored or quill.seedDocument / emptyDocument / fromAuthoring. A Document from another copy of @quillmark/wasm is refused too — each copy is its own WASM linear memory and its own class — so run `npm ls @quillmark/wasm` and dedupe to one.'
+		hint: 'Pass a Document built by Document.parse / fromStored or quill.seedDocument / emptyDocument / fromAuthoring. A Document from another copy of @quillmark/wasm is refused too — each copy is its own WASM linear memory and its own class — so run `npm ls @quillmark/wasm` and dedupe to one.'
 	}
 };
 
@@ -1047,12 +1047,6 @@ export class DocumentReader {
 	 */
 	getContentAt(addr, path) {
 		return this.#doc._readerGetContentAt(this.#quill, addr, path);
-	}
-	/**
-	 * @returns {string}
-	 */
-	bodyMarkdown() {
-		return this.#doc._readerGet(this.#quill, {});
 	}
 	/**
 	 * @param {string} [today] the render date, `YYYY-MM-DD`

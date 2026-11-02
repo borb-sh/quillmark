@@ -28,7 +28,7 @@ pub const ISLAND_SLOT: char = '\u{FFFC}';
 
 /// One content field as a content: the text plus the structure that rides on it.
 ///
-/// The mint ([`Content::into_normalized`]) establishes the canonical form:
+/// The mint ([`Content::into_lines`]) establishes the canonical form:
 /// marks sorted and unioned, container paths renumbered, a line's kind agreeing
 /// with its text, table props on one column count. The mint never moves text:
 /// a block island's slot may share its line, and each emitter sets its markup
@@ -307,7 +307,7 @@ impl Container {
 }
 
 /// A [`Content`] that [`Content::normalize`] has run on: the precondition both
-/// projections carry. Minted only by [`Content::into_normalized`], which the
+/// projections carry. Minted only by [`Content::into_lines`], which the
 /// codecs decode through; a mutation that does not re-establish the invariant
 /// takes [`into_content`](Self::into_content) and mints again.
 ///
@@ -327,12 +327,12 @@ impl Container {
 /// returns an error. An unguarded recursion aborts the process, which no
 /// `Result` can catch.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Normalized(Content);
+pub struct Lines(Content);
 
-impl Normalized {
+impl Lines {
     /// [`Content::empty`], which is already canonical.
-    pub fn empty() -> Normalized {
-        Normalized(Content::empty())
+    pub fn empty() -> Lines {
+        Lines(Content::empty())
     }
 
     pub fn into_content(self) -> Content {
@@ -341,13 +341,13 @@ impl Normalized {
 
 }
 
-impl From<Content> for Normalized {
-    fn from(rt: Content) -> Normalized {
-        rt.into_normalized()
+impl From<Content> for Lines {
+    fn from(rt: Content) -> Lines {
+        rt.into_lines()
     }
 }
 
-impl std::ops::Deref for Normalized {
+impl std::ops::Deref for Lines {
     type Target = Content;
 
     fn deref(&self) -> &Content {
@@ -783,7 +783,7 @@ impl Content {
     /// The text and its per-line attributes; marks and islands start empty.
     ///
     /// Constructing neither normalizes nor checks: the canonical form is the
-    /// caller's until [`into_normalized`](Self::into_normalized) runs, and
+    /// caller's until [`into_lines`](Self::into_lines) runs, and
     /// [`validate`](Self::validate) reports what that cannot repair. The codecs
     /// ([`crate::lines::import`], [`Content::from_canonical_json`]) do both.
     pub fn new(text: String, lines: Vec<Line>) -> Self {
@@ -795,11 +795,11 @@ impl Content {
         }
     }
 
-    /// Normalize and seal. With [`Normalized::empty`], the only mint for
-    /// [`Normalized`]; the codecs decode through here.
-    pub fn into_normalized(mut self) -> Normalized {
+    /// Normalize and seal. With [`Lines::empty`], the only mint for
+    /// [`Lines`]; the codecs decode through here.
+    pub fn into_lines(mut self) -> Lines {
         self.normalize();
-        Normalized(self)
+        Lines(self)
     }
 
     pub fn with_marks(mut self, marks: Vec<Mark>) -> Self {
@@ -1527,7 +1527,7 @@ mod tests {
             vec![Line::new(LineKind::Para); 4],
         )
         .with_islands(vec![table_island(), image("isl-1"), image("isl-2")])
-        .into_normalized();
+        .into_lines();
         assert_eq!(rt.validate(), Ok(()));
 
         assert_eq!(rt.block_island_at(1).map(|i| i.id.as_str()), Some("isl-0"));
@@ -1549,7 +1549,7 @@ mod tests {
             let what = island.island_type.as_str().to_string();
             let rt = tagged(&ISLAND_SLOT.to_string(), LineKind::Para)
                 .with_islands(vec![island])
-                .into_normalized();
+                .into_lines();
             assert_eq!(rt.validate(), Ok(()), "{what}");
             assert_eq!(rt.lines[0].kind, LineKind::Para, "{what}");
             let md = crate::lines::export::to_markdown(&rt);
@@ -1760,7 +1760,7 @@ mod tests {
             assert!(!rt.lines[1].continues, "normalize clears it after {kind:?}");
             assert_eq!(rt.validate(), Ok(()));
             assert_eq!(
-                crate::lines::export::to_markdown(&rt.into_normalized()),
+                crate::lines::export::to_markdown(&rt.into_lines()),
                 markdown,
                 "the continuation projects as the paragraph it is"
             );
@@ -1790,7 +1790,7 @@ mod tests {
             vec![Line::new(LineKind::Para), Line::new(LineKind::Para).with_continues(true)],
         )
         .with_islands(vec![table_island()])
-        .into_normalized();
+        .into_lines();
         assert!(!rt.lines[1].continues);
         assert_eq!(rt.validate(), Ok(()));
         let markdown = crate::lines::export::to_markdown(&rt);
@@ -1835,7 +1835,7 @@ mod tests {
             {"start": 2, "end": 4, "type": "strong"}
         ]));
         b.normalize();
-        let canon = |rt: &Content| rt.clone().into_normalized().to_canonical_json();
+        let canon = |rt: &Content| rt.clone().into_lines().to_canonical_json();
         assert_eq!(canon(&a), canon(&b));
         let once = canon(&a);
         a.normalize();
@@ -1856,7 +1856,7 @@ mod tests {
         assert_eq!(rt.islands[0].props["header"][0]["x_host"], 2);
         assert!(rt.islands[0].props["rows"][0][1].get("x_host").is_none());
         assert!(rt
-            .into_normalized()
+            .into_lines()
             .to_canonical_json()
             .contains(r#""x_host":2"#));
     }
@@ -1935,7 +1935,7 @@ mod tests {
         assert_eq!(props["header"][1]["text"], serde_json::json!(""));
         assert_eq!(props["rows"][1][0]["text"], serde_json::json!("d e"));
 
-        let canon = |rt: &Content| rt.clone().into_normalized().to_canonical_json();
+        let canon = |rt: &Content| rt.clone().into_lines().to_canonical_json();
         let once = canon(&rt);
         rt.normalize();
         assert_eq!(canon(&rt), once);

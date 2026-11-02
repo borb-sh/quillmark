@@ -1,6 +1,6 @@
 /**
  * The Document API over the canonical flow:
- * `Quill.fromTree(tree)` → `Document.fromMarkdown(markdown)` →
+ * `Quill.fromTree(tree)` → `Document.parse(markdown)` →
  * `engine.render(quill, doc, opts)`, against the Typst backend build.
  */
 
@@ -45,9 +45,9 @@ const field = (card, key) =>
 const hasField = (card, key) =>
   card.payloadItems.some((i) => i.type === 'field' && i.key === key)
 
-describe('Document.fromMarkdown', () => {
+describe('Document.parse', () => {
   it('reads quillRef, payload fields, body content, cards and warnings', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
 
     expect(doc.quillRef).toBe('test_quill')
     expect(field(doc.main, 'title')).toBe('Test Document')
@@ -62,7 +62,7 @@ describe('Document.fromMarkdown', () => {
   })
 
   it('should expose card fields and body', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
+    const doc = Document.parse(MD_WITH_CARD)
 
     expect(doc.cards.length).toBe(1)
     expect(doc.cards[0].kind).toBe('note')
@@ -73,12 +73,12 @@ describe('Document.fromMarkdown', () => {
 
 describe('Document.toMarkdown', () => {
   it('a mutated document survives emit → re-parse', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     doc._uncheckedStoreField('title', 'New Title')
     doc._uncheckedInsertCard(makeCard('note', { author: 'Alice' }, 'Hello'))
     doc._revise({}, 'Updated body')
 
-    const doc2 = Document.fromMarkdown(doc.toMarkdown())
+    const doc2 = Document.parse(doc.toMarkdown())
     expect(field(doc2.main, 'title')).toBe('New Title')
     expect(exportMarkdown(doc2.main.body)).toBe('Updated body')
     expect(doc2.cards.length).toBe(1)
@@ -91,15 +91,15 @@ describe('Document.toMarkdown', () => {
 // The DTO's content rules are core's (`core/src/document/dto.rs`).
 describe('Document JSON DTO: toStored / fromStored', () => {
   it('toStored emits a plain JSON string under the newest schema version', () => {
-    const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
+    const dto = Document.parse(TEST_MARKDOWN).toStored()
     expect(typeof dto).toBe('string')
     expect(JSON.parse(dto).schema).toBe(Document.currentStorageVersion())
-    const carded = Document.fromMarkdown(`${TEST_MARKDOWN}\n\n~~~\n$kind: note\n~~~\n`).toStored()
+    const carded = Document.parse(`${TEST_MARKDOWN}\n\n~~~\n$kind: note\n~~~\n`).toStored()
     expect(JSON.parse(carded).schema).toBe(Document.currentStorageVersion())
   })
 
   it('round-trips a mutated document with cards back to an equal handle', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     doc._uncheckedStoreField('title', 'New Title')
     doc._uncheckedInsertCard(makeCard('note', { author: 'Alice' }, 'Hello'))
 
@@ -112,7 +112,7 @@ describe('Document JSON DTO: toStored / fromStored', () => {
   })
 
   it('a row naming a construct outside the vocabulary does not open, but its tag still reads', () => {
-    const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
+    const dto = Document.parse(TEST_MARKDOWN).toStored()
     const outside = dto.replace('"kind":"para"', '"kind":"callout"')
     expect(outside).not.toBe(dto)
     expect(() => Document.fromStored(outside)).toThrow()
@@ -155,7 +155,7 @@ describe('Quill.fromTree + engine.render', () => {
   it('renders one Document repeatedly, once per format', () => {
     const engine = new Engine()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     for (const { opts, mimeType } of RENDER_FORMAT_CASES) {
       const result = opts === undefined ? engine.render(quill, doc) : engine.render(quill, doc, opts)
       expect(result.artifacts[0].bytes).toBeInstanceOf(Uint8Array)
@@ -212,14 +212,14 @@ main:
   it('should throw a quill::name_mismatch error when the document quill ref differs from the quill name', () => {
     const engine = new Engine()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-    const doc = Document.fromMarkdown(TEST_MARKDOWN.replace('test_quill', 'other_quill'))
+    const doc = Document.parse(TEST_MARKDOWN.replace('test_quill', 'other_quill'))
     expectEditCode(() => engine.render(quill, doc, { format: 'pdf' }), 'quill::name_mismatch')
   })
 })
 
 describe('Document editor surface: storeField / removeField', () => {
   it('storeField writes a field and removeField returns it, undefined when absent', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     doc._uncheckedStoreField('title', 'Updated')
     expect(field(doc.main, 'title')).toBe('Updated')
     expect(doc.removeField('title')).toBe('Updated')
@@ -228,7 +228,7 @@ describe('Document editor surface: storeField / removeField', () => {
   })
 
   it('both throw edit::invalid_field_name on an invalid name', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     expectEditCode(() => doc._uncheckedStoreField('$body', 'x'), 'edit::invalid_field_name')
     expectEditCode(() => doc._uncheckedStoreField('bad-name', 'x'), 'edit::invalid_field_name')
     expectEditCode(() => doc.removeField('$quill'), 'edit::invalid_field_name')
@@ -237,7 +237,7 @@ describe('Document editor surface: storeField / removeField', () => {
   it('a field holds its content as a body does: canonical on store, refused when invalid', () => {
     const { content } = importMarkdown('Hello *world*')
     const anchored = { ...content, anchors: [{ id: 'a1', start: 0, end: 5 }] }
-    const a = Document.fromMarkdown(TEST_MARKDOWN)
+    const a = Document.parse(TEST_MARKDOWN)
     const b = a.clone()
     a._uncheckedStoreField('blurb', Object.fromEntries(Object.entries(anchored).reverse()))
     b._uncheckedStoreField('blurb', anchored)
@@ -268,7 +268,7 @@ describe('Document blank-canvas constructor', () => {
 
 describe('Document editor surface: addresses', () => {
   it('an address with an unknown key throws instead of parsing as {}', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     // `Addr::from_js` rejects a stray key: a typo, or the fields object misread
     // as an address, is caught loud rather than silently parsed as the empty
     // main-card address.
@@ -277,7 +277,7 @@ describe('Document editor surface: addresses', () => {
   })
 
   it('an address is a plain object, and every own key of it counts', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     const write = (addr) => () => doc._uncheckedStoreField(addr, 'x')
     expect(write(new Map([['card', 0]]))).toThrow('addr must be a plain object, not a `Map`')
     expect(write(Object.create({ card: 0 }))).toThrow('addr must be a plain object')
@@ -287,7 +287,7 @@ describe('Document editor surface: addresses', () => {
   })
 
   it('an address whose read throws is refused, and the document stays writable', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     const trap = new Proxy({}, { ownKeys: () => { throw new Error('ownKeys trap') } })
     expect(() => doc._uncheckedStoreField(trap, 'x')).toThrow(
       'addr must be a plain object, not one whose read throws: ownKeys trap'
@@ -299,7 +299,7 @@ describe('Document editor surface: addresses', () => {
 
 describe('Document editor surface: setQuillRef / replace / revise', () => {
   it('setQuillRef changes the quillRef and refuses an invalid one', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     doc.setQuillRef('new_quill')
     expect(doc.quillRef).toBe('new_quill')
     expectEditCode(
@@ -309,7 +309,7 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
   })
 
   it('revise({}, md) revises the main body and returns the content receipt', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     const { applied, hash, warnings } = doc._revise({}, 'Body from **markdown**.')
     expect(exportMarkdown(doc.main.body)).toBe('Body from **markdown**.')
     expect(Array.isArray(applied.steps)).toBe(true)
@@ -318,14 +318,14 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
   })
 
   it('replace({}, rt) writes a content object', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     doc.replace({}, importMarkdown('Content **body** here.').content)
     expect(doc.main.body.text).toBe('Content body here.')
     expect(exportMarkdown(doc.main.body)).toBe('Content **body** here.')
   })
 
   it('replace({}, content) lands a content and carries the anchors it omits', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     doc.replace({}, importMarkdown('hello world').content)
     doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 6, end: 11 } }] })
     const { warnings } = doc.replace({}, importMarkdown('hello brave **world**').content)
@@ -335,7 +335,7 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
   })
 
   it('replace({field}, content) carries a field anchor and refuses a non-content value', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     doc.revise({ field: 'note' }, 'hello world')
     doc.apply({ field: 'note' }, { steps: [{ anchor: { id: 'c1', start: 0, end: 5 } }] })
     doc.replace({ field: 'note' }, importMarkdown('oh hello world').content)
@@ -345,7 +345,7 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
   })
 
   it('replace rejects a non-content value (markdown must go through importMarkdown)', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     expect(() => doc.replace({}, 'plain markdown')).toThrow()
     expect(() => doc.replace({}, { not: 'a content' })).toThrow()
   })
@@ -358,7 +358,7 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
   // module serving. `replace` is the reachable door: the value arrives from JS and
   // one loop builds it.
   it('replace rejects a deeply nested props instead of trapping the module', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     let deep = []
     for (let i = 0; i < 5000; i++) deep = [deep]
     const rt = importMarkdown('body').content
@@ -373,7 +373,7 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
   // Every door taking opaque host JSON carries the guard, not just `replace`:
   // a payload item's `value` crosses on the same `serde_wasm_bindgen` recursion.
   it('insertCard rejects a deeply nested payload item value instead of trapping the module', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     let deep = []
     for (let i = 0; i < 5000; i++) deep = [deep]
     const card = makeCard('note', { ok: 1 }, 'Hello')
@@ -387,7 +387,7 @@ describe('Document editor surface: setQuillRef / replace / revise', () => {
 describe('Document comment anchors: anchorContexts / reattach / droppedAnchors', () => {
   const MD = '~~~\n$quill: q\n~~~\n\nThe committee met on Monday to plan.\n\n~~~\n$kind: note\n~~~\n\nA note.\n'
   const anchoredDoc = () => {
-    const doc = Document.fromMarkdown(MD)
+    const doc = Document.parse(MD)
     doc.apply({}, { steps: [{ anchor: { id: 'm1', start: 14, end: 27 } }] })
     return doc
   }
@@ -418,13 +418,13 @@ describe('Document comment anchors: anchorContexts / reattach / droppedAnchors',
     const { applied } = doc._revise({}, 'Minutes.\n\nThe committee met on Monday to plan.')
     expect(doc.anchorContexts().map((c) => c.id)).toEqual(['m1'])
 
-    const reopened = Document.fromMarkdown(doc.toMarkdown())
+    const reopened = Document.parse(doc.toMarkdown())
     const { reattached, orphaned } = reopened.reattach(before)
     expect(orphaned).toEqual([])
     expect(reattached).toEqual([{ ...before[0], prefix: 'Minutes.\nThe committee ' }])
     expect(reopened.anchorContexts()).toEqual(doc.anchorContexts())
 
-    const strict = Document.fromMarkdown(doc.toMarkdown())
+    const strict = Document.parse(doc.toMarkdown())
     expect(strict.reattach(before, { 'main.body': applied }).orphaned).toEqual(before)
     expect(() => strict.reattach(before, { 'main.body': { ops: [] } })).toThrow(/reattach/)
   })
@@ -452,12 +452,12 @@ describe('Card ids', () => {
   const MD = '~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nA note about the orchard rows.\n'
 
   it('a composable card carries its $id through markdown and placement', () => {
-    const doc = Document.fromMarkdown(MD)
+    const doc = Document.parse(MD)
     const id = doc.cards[0].id
     expect(id).toMatch(/^c[a-z2-9]{5}$/)
     expect(doc.main.id).toBeUndefined()
     expect(doc.toMarkdown()).toContain(`$kind: note\n$id: ${id}\n`)
-    expect(Document.fromMarkdown(doc.toMarkdown()).cards[0].id).toBe(id)
+    expect(Document.parse(doc.toMarkdown()).cards[0].id).toBe(id)
 
     doc._uncheckedInsertCard(makeCard('note', {}, 'Placed.'))
     expect(doc.cards[1].id).toMatch(/^c[a-z2-9]{5}$/)
@@ -469,7 +469,7 @@ describe('Card ids', () => {
   })
 
   it('a live client places a card under its actor and carries the id it answers', () => {
-    const a = Document.fromMarkdown(MD)
+    const a = Document.parse(MD)
     const b = a.clone()
     const minted = a._uncheckedInsertCard(makeCard('note', {}, 'From a.'), 1, { actor: '7' })
     expect(minted).toBe(a.cards[1].id)
@@ -480,13 +480,13 @@ describe('Card ids', () => {
   })
 
   it('a selector names its card, and reattach follows the card wherever it moved', () => {
-    const doc = Document.fromMarkdown(MD)
+    const doc = Document.parse(MD)
     doc.apply({ card: doc.cards[0].id }, { steps: [{ anchor: { id: 'n1', start: 17, end: 29 } }] })
     const [selector] = doc.anchorContexts()
     expect(selector).toMatchObject({ path: 'cards.note[0].body', cardId: doc.cards[0].id, quote: 'orchard rows' })
-    expect(doc.toAnnotatedMarkdown().anchors[0].cardId).toBe(doc.cards[0].id)
+    expect(doc.toMarkdown(undefined, { annotated: true }).anchors[0].cardId).toBe(doc.cards[0].id)
 
-    const reopened = Document.fromMarkdown(doc.toMarkdown())
+    const reopened = Document.parse(doc.toMarkdown())
     reopened._uncheckedInsertCard(makeCard('note', {}, 'An earlier note.'), 0)
     const { reattached, orphaned } = reopened.reattach([selector])
     expect(orphaned).toEqual([])
@@ -524,18 +524,18 @@ describe('Content model: importMarkdown / exportMarkdown', () => {
     const lists = (c) => c.blocks.map((b) => b.path[0])
     expect(lists(importMarkdown('- a\n\n* b').content)).toEqual(['l0', 'l1'])
 
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: commit_test\n~~~\n\n> a\n\n- b')
+    const doc = Document.parse('~~~card-yaml\n$quill: commit_test\n~~~\n\n> a\n\n- b')
     expect(doc.getStored({})).toEqual(doc.main.body)
     expect(doc.read({})).toEqual(doc.main.body)
 
     const held = doc.read({})
     expect(doc.replace({}, held).applied).toEqual({ steps: [] })
     expect(doc.read({})).toEqual(held)
-    expect(doc.bodyMarkdown()).toBe('> a\n\n- b')
+    expect(doc.toMarkdown({})).toBe('> a\n\n- b')
   })
 
   it('offsets cross in UTF-16 code units', () => {
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n\n😀 **bold**\n')
+    const doc = Document.parse('~~~card-yaml\n$quill: test_quill\n~~~\n\n😀 **bold**\n')
     const { text, marks } = doc.read({})
     expect(marks).toEqual([{ start: 3, end: 7, type: 'strong' }])
     expect(text.slice(3, 7)).toBe('bold')
@@ -548,7 +548,7 @@ describe('Content model: importMarkdown / exportMarkdown', () => {
   })
 
   it('a step holding a key it does not define is refused and writes nothing', () => {
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n\nhello world\n')
+    const doc = Document.parse('~~~card-yaml\n$quill: test_quill\n~~~\n\nhello world\n')
     const held = doc.read({})
     expect(() => doc.apply({}, { steps: [{ splice: { at: 0, delet: 'hello', insert: 'hi' } }] })).toThrow(/delet/)
     expect(() => doc.apply({}, { steps: [{ mark: { start: 0, end: 5, type: 'strong', add: true, qoute: 'hello' } }] })).toThrow(/qoute/)
@@ -561,7 +561,7 @@ describe('Content model: importMarkdown / exportMarkdown', () => {
     expect(content.islands[0].props.widths).toEqual({ k0: 1, k1: 2 })
     expect(importMarkdown(exportMarkdown(content)).content).toEqual(content)
 
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\nnote: null\n~~~\n')
+    const doc = Document.parse('~~~card-yaml\n$quill: test_quill\nnote: null\n~~~\n')
     expect(doc.getStored('note')).toBeNull()
   })
 
@@ -575,7 +575,7 @@ describe('Content model: importMarkdown / exportMarkdown', () => {
     expect(content.islands[0].props.widths).toEqual({ k0: Number.MAX_SAFE_INTEGER, k1: 1 })
     expect(exportMarkdown(content)).toContain(`widths="${Number.MAX_SAFE_INTEGER} 1"`)
 
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n~~~\n')
+    const doc = Document.parse('~~~card-yaml\n$quill: test_quill\n~~~\n')
     doc.replace({}, content)
     expect(Document.fromStored(doc.toStored()).main.body).toEqual(doc.main.body)
     expect(doc.main.body.islands).toEqual(content.islands)
@@ -670,7 +670,7 @@ Kinded card.
 `
 
   it('mints every address the Addr surface can name', () => {
-    const doc = Document.fromMarkdown(MD)
+    const doc = Document.parse(MD)
     const rows = [
       // An absent field is the body, an absent card the main card; a bare
       // string is the `{ field }` shorthand the Addr verbs take.
@@ -691,7 +691,7 @@ Kinded card.
   })
 
   it('is total on the index axis, unlike the Addr reads', () => {
-    const doc = Document.fromMarkdown(MD)
+    const doc = Document.parse(MD)
     // An out-of-range card mints the unknown-kind root
     // `edit::index_out_of_range` anchors at, so a per-keystroke call needs no
     // `try`.
@@ -707,7 +707,7 @@ Kinded card.
 // none, its receipt's `applied` inverts, and `diff` answers without a
 // document.
 describe('Document apply: the write primitive', () => {
-  const blankDoc = () => Document.fromMarkdown('~~~card-yaml\n$quill: commit_test\n~~~\n\nBody.')
+  const blankDoc = () => Document.parse('~~~card-yaml\n$quill: commit_test\n~~~\n\nBody.')
 
   it('revise({field}) carries a richtext field anchor and apply formats it', () => {
     const doc = blankDoc()
@@ -982,7 +982,7 @@ Card two.
 `
 
   it('removeCard → insertCard round-trips a card with fields (read shape == write shape)', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARDS)
+    const doc = Document.parse(MD_WITH_CARDS)
     const removed = doc.removeCard(0)
     expect(doc.cards.map((c) => c.kind)).toEqual(['summary'])
     expect(field(removed, 'foo')).toBe('bar')
@@ -995,7 +995,7 @@ Card two.
   })
 
   it('a card or item carrying an unknown key is a loud error, not a silent drop', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     expect(() => doc._uncheckedInsertCard({ kind: 'note', stray: 1 })).toThrow(/stray/)
     const item = { type: 'field', key: 'x', value: 'Example', stray: true }
     expect(() => doc._uncheckedInsertCard({ kind: 'note', payloadItems: [item] })).toThrow(/stray/)
@@ -1005,7 +1005,7 @@ Card two.
   it('a card the wire refuses carries the code its addressed mutator mints', () => {
     // Two doors onto one violation: what storeField / setQuillRef throw for a
     // name and a reference is what a card built from a wire throws.
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     const withField = (key, value) => ({
       kind: 'note',
       payloadItems: [{ type: 'field', key, value }],
@@ -1020,7 +1020,7 @@ Card two.
   })
 
   it('insertCard inserts at an index and refuses one past the end', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARDS)
+    const doc = Document.parse(MD_WITH_CARDS)
     doc._uncheckedInsertCard({ kind: 'intro' }, 0)
     expect(doc.cards.map((c) => c.kind)).toEqual(['intro', 'note', 'summary'])
     expect(doc.cardCount).toBe(3)
@@ -1028,7 +1028,7 @@ Card two.
   })
 
   it('moveCard reorders and refuses an out-of-range index', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARDS)
+    const doc = Document.parse(MD_WITH_CARDS)
     doc.moveCard(1, 0)
     expect(doc.cards.map((c) => c.kind)).toEqual(['summary', 'note'])
     expectEditCode(() => doc.moveCard(5, 0), 'edit::index_out_of_range')
@@ -1037,9 +1037,9 @@ Card two.
 
 describe('Document.equals / clone', () => {
   it('compares by value across a clone, an emit round-trip and a mutation', () => {
-    const a = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(a.equals(Document.fromMarkdown(TEST_MARKDOWN))).toBe(true)
-    expect(a.equals(Document.fromMarkdown(a.toMarkdown()))).toBe(true)
+    const a = Document.parse(TEST_MARKDOWN)
+    expect(a.equals(Document.parse(TEST_MARKDOWN))).toBe(true)
+    expect(a.equals(Document.parse(a.toMarkdown()))).toBe(true)
 
     const clone = a.clone()
     expect(a.equals(clone)).toBe(true)
@@ -1051,7 +1051,7 @@ describe('Document.equals / clone', () => {
 
 describe('Document editor surface: storeField / removeField / replace / revise (card)', () => {
   it('storeField / removeField take a card address', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
+    const doc = Document.parse(MD_WITH_CARD)
     doc._uncheckedStoreField({ card: 0, field: 'content' }, 'hello')
     expect(field(doc.cards[0], 'content')).toBe('hello')
     expect(doc.removeField({ card: 0, field: 'foo' })).toBe('bar')
@@ -1060,7 +1060,7 @@ describe('Document editor surface: storeField / removeField / replace / revise (
   })
 
   it('revise / replace take a card address', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
+    const doc = Document.parse(MD_WITH_CARD)
     const { applied } = doc._revise({ card: 0 }, 'New card body.')
     expect(exportMarkdown(doc.cards[0].body)).toBe('New card body.')
     expect(Array.isArray(applied.steps)).toBe(true)
@@ -1070,7 +1070,7 @@ describe('Document editor surface: storeField / removeField / replace / revise (
   })
 
   it('revise anchors a dropped construct at the address it wrote', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
+    const doc = Document.parse(MD_WITH_CARD)
     const { warnings } = doc._revise({ card: 0 }, 'Card <span>body</span>.')
     expect(doc.cards[0].body.text).toBe('Card body.')
     expect(warnings).toEqual([
@@ -1084,11 +1084,11 @@ describe('Document editor surface: storeField / removeField / replace / revise (
     expect(doc._revise({ field: 'intro' }, '<kbd>x</kbd>').warnings[0].path).toBe('main.intro')
   })
 
-  it('toAnnotatedMarkdown spells each anchor at its start and lists it at its path', () => {
-    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nMain **body**.\n\n~~~\n$kind: note\n~~~\n\nA note.\n')
+  it('the annotated toMarkdown spells each anchor at its start and lists it at its path', () => {
+    const doc = Document.parse('~~~\n$quill: q\n~~~\n\nMain **body**.\n\n~~~\n$kind: note\n~~~\n\nA note.\n')
     doc.apply({}, { steps: [{ anchor: { id: 'b', start: 5, end: 9 } }] })
     doc.apply({ card: doc.cards[0].id }, { steps: [{ anchor: { id: 'n', start: 2, end: 2 } }] })
-    const read = doc.toAnnotatedMarkdown()
+    const read = doc.toMarkdown(undefined, { annotated: true })
     expect(read.markdown).toContain('Main <qm-anchor ref="b"></qm-anchor>**body**.')
     expect(read.markdown).toContain('A <qm-anchor ref="n"></qm-anchor>note.')
     expect(read.anchors).toEqual([
@@ -1096,13 +1096,16 @@ describe('Document editor surface: storeField / removeField / replace / revise (
       { id: 'n', path: 'cards.note[0].body', cardId: doc.cards[0].id, line: 'A note.' },
     ])
 
-    expect(Document.fromMarkdown(read.markdown).equals(Document.fromMarkdown(doc.toMarkdown()))).toBe(true)
+    expect(Document.parse(read.markdown).equals(Document.parse(doc.toMarkdown()))).toBe(true)
+    const body = doc.read({})
+    expect(exportMarkdown(body, { annotated: true })).toBe(doc.toMarkdown({}, { annotated: true }).markdown)
+    expect(exportMarkdown(body)).toBe('Main **body**.')
   })
 
   it('a revise reads the annotated read back: a moved tag moves its anchor, a ref nothing holds reports', () => {
-    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nMain body here.\n')
+    const doc = Document.parse('~~~\n$quill: q\n~~~\n\nMain body here.\n')
     doc.apply({}, { steps: [{ anchor: { id: 'b', start: 5, end: 9 } }] })
-    const read = doc.toAnnotatedMarkdown().markdown
+    const read = doc.toMarkdown(undefined, { annotated: true }).markdown
     expect(read).toContain('Main <qm-anchor ref="b"></qm-anchor>body here.')
     const moved = read.replace('Main <qm-anchor ref="b"></qm-anchor>body here.', 'Main body <qm-anchor ref="b"></qm-anchor>here.')
     const receipt = doc._revise({}, moved.split('~~~\n\n')[1].trim() + ' <qm-anchor ref="gone"></qm-anchor>')
@@ -1114,12 +1117,12 @@ describe('Document editor surface: storeField / removeField / replace / revise (
   })
 
   it('a cell anchor is read, and an id the field already holds is refused', () => {
-    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\nLead.\n\n| a |\n|---|\n| cell text |\n')
+    const doc = Document.parse('~~~\n$quill: q\n~~~\n\nLead.\n\n| a |\n|---|\n| cell text |\n')
     const { id, props } = doc.read({}).islands[0]
     const cell = props.rows[1].cells[props.columns[0]]
     doc.apply({}, { steps: [{ nested: { island: id, slot: cell, change: { steps: [{ anchor: { id: 'c1', start: 5, end: 9 } }] } } }] })
     expect(doc.anchorContext('c1')).toMatchObject({ path: 'main.body', quote: 'text', prefix: 'cell ', suffix: '' })
-    expect(doc.toAnnotatedMarkdown().anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'cell text' }])
+    expect(doc.toMarkdown(undefined, { annotated: true }).anchors).toEqual([{ id: 'c1', path: 'main.body', line: 'cell text' }])
     expect(Document.fromStored(doc.toStored()).warnings).toEqual([])
 
     expectEditCode(() => doc.apply({}, { steps: [{ anchor: { id: 'c1', start: 0, end: 4 } }] }), 'edit::content_apply')
@@ -1129,7 +1132,7 @@ describe('Document editor surface: storeField / removeField / replace / revise (
   })
 
   it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     const addr = { card: 0, field: 'foo' }
     expectEditCode(() => doc._uncheckedStoreField(addr, 'x'), 'edit::index_out_of_range')
     expectEditCode(() => doc.removeField(addr), 'edit::index_out_of_range')
@@ -1141,7 +1144,7 @@ describe('Document editor surface: storeField / removeField / replace / revise (
   })
 
   it('a content write names its card by id, and lands on it wherever the card moved', () => {
-    const doc = Document.fromMarkdown('~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nHello\n\n~~~\n$kind: note\n~~~\n\nHello\n')
+    const doc = Document.parse('~~~\n$quill: q\n~~~\n\n~~~\n$kind: note\n~~~\n\nHello\n\n~~~\n$kind: note\n~~~\n\nHello\n')
     const id = doc.cards[1].id
     const base = doc.hash({ card: id })
     doc.moveCard(1, 0)
@@ -1153,7 +1156,7 @@ describe('Document editor surface: storeField / removeField / replace / revise (
 
 describe('Document editor surface: $ext', () => {
   it('storeExt / getExt / removeExt round the whole map on the main card', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     expect(doc.getExt({})).toBeUndefined()
     const ext = { editor: { title: 'A' }, agent: { pinned: true } }
     doc.storeExt({}, ext)
@@ -1167,7 +1170,7 @@ describe('Document editor surface: $ext', () => {
   })
 
   it('card-level ext verbs target the card at index and take a card address only', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
     doc._uncheckedInsertCard({ kind: 'note', body: 'x' })
     doc.storeExt({ card: 0 }, { agent: { note: 'y' } })
     expect(doc.cards[0].ext.agent.note).toBe('y')
@@ -1185,7 +1188,7 @@ describe('quill.open + session.render', () => {
   it('should support open + session.render with pageCount', () => {
     const engine = new Engine()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.parse(TEST_MARKDOWN)
 
     const session = engine.open(quill, doc)
     expect(typeof session.pageCount).toBe('number')
@@ -1207,7 +1210,7 @@ describe('quill.open + session.render', () => {
   it('refuses an out-of-bounds page and a page selection on PDF', () => {
     const engine = new Engine()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-    const session = engine.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
+    const session = engine.open(quill, Document.parse(TEST_MARKDOWN))
     expect(() => session.render({ format: 'png', ppi: 80, pages: [0, session.pageCount + 10] })).toThrow()
     expect(() => session.render({ format: 'pdf', pages: [0] })).toThrow()
   })
@@ -1358,7 +1361,7 @@ title: "Hello"
 count: 1
 ~~~
 `
-    expect(quill.validate(Document.fromMarkdown(md))).toEqual([])
+    expect(quill.validate(Document.parse(md))).toEqual([])
   })
 
   it('forwards a type_mismatch with canonical code, path, and hint as plain JSON', () => {
@@ -1370,7 +1373,7 @@ title: "Hello"
 count: "not-a-number"
 ~~~
 `
-    const diags = JSON.parse(JSON.stringify(quill.validate(Document.fromMarkdown(md))))
+    const diags = JSON.parse(JSON.stringify(quill.validate(Document.parse(md))))
     const mismatch = diags.find((d) => d.code === 'validation::type_mismatch')
     expect(mismatch.path).toBe('main.count')
     expect(typeof mismatch.hint).toBe('string')
@@ -1470,7 +1473,7 @@ title:
 
 # Body
 `
-    const result = engine.render(quill, Document.fromMarkdown(md), { format: 'svg' })
+    const result = engine.render(quill, Document.parse(md), { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
   })
 })

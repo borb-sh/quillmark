@@ -70,7 +70,7 @@ YAML or Markdown.
 
 A program holding a whole form folds it over the verbs above: `set_all` for a
 card's fields, `add_card` per composable card, `revise_body` for a body. Each
-is the typed lane, refusing an undeclared name and reporting every refused
+is the typed writer, refusing an undeclared name and reporting every refused
 field at once ([SCHEMAS.md](SCHEMAS.md) § "The values form").
 
 ## Validation: batched, atomic, at the boundary
@@ -118,8 +118,8 @@ whole-form batch surfaces every typo at once.
 instead of by a caller.** `Quill::conform(&mut doc)` walks every declared
 content field through the same strict write `set` commits through, so a
 document that arrived through the opaque primitive (a parse, a stored row, an
-unchecked `store_field`) lands where the typed writer would have put it, whichever lane
-built it ([SCHEMAS.md](SCHEMAS.md) § "Content fields are stored per codec").
+unchecked `store_field`) lands where the typed writer would have put it, whichever write
+path built it ([SCHEMAS.md](SCHEMAS.md) § "Content fields are stored per codec").
 `Quill::parse(md)` is parse-then-conform and the documented ingestion path.
 Where the writer refuses a value, conform leaves it authored and reports a
 `conform::*` warning: an ingestion pass must open a document it can repair, not
@@ -144,7 +144,7 @@ writes), and the core-vs-bindings parity table.
 
 Quillmark offers no durable card handle: a `remove_card` / `add_card` moves every index after it, so a consumer keeps its own key in the card's `$ext`. The recipe is [Programmatic Use](../../docs/integration/programmatic.md); this section owns the `$ext` contract.
 
-`$ext` round-trips through Markdown and the storage DTO and never reaches a backend ([CARDS.md](CARDS.md) § Out-of-band Metadata). It has its own verbs (`store_ext` / `remove_ext`, `card.ext()`) and no field write touches it, so a key stamped here survives every write through the typed lane. **Quillmark guarantees nothing about what a consumer puts there**: no uniqueness, no collision check, no repair on a hand-edited file. Namespacing (`$ext.myapp`) is what keeps two tools on one card from colliding, and it is a convention, not an enforced rule.
+`$ext` round-trips through Markdown and the storage DTO and never reaches a backend ([CARDS.md](CARDS.md) § Out-of-band Metadata). It has its own verbs (`store_ext` / `remove_ext`, `card.ext()`) and no field write touches it, so a key stamped here survives every write through the typed writer. **Quillmark guarantees nothing about what a consumer puts there**: no uniqueness, no collision check, no repair on a hand-edited file. Namespacing (`$ext.myapp`) is what keeps two tools on one card from colliding, and it is a convention, not an enforced rule.
 
 ## Links
 
