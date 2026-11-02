@@ -834,7 +834,7 @@ describe('Document apply: the write primitive', () => {
     expect(() => repair({ text: 1 })).toThrow(/repair/)
   })
 
-  it('normalize answers what replace stores, and refuses what replace refuses', () => {
+  it('replace takes what normalize answers, and both refuse what is not valid', () => {
     const doc = blankDoc()
     const content = {
       text: 'a bold',
@@ -842,7 +842,8 @@ describe('Document apply: the write primitive', () => {
       marks: [{ start: 2, end: 6, type: 'strong' }, { start: 3, end: 6, type: 'strong' }],
     }
     expect(normalize(content)).toEqual({ ...content, marks: [{ start: 2, end: 6, type: 'strong' }] })
-    doc.replace({}, content)
+    expect(() => doc.replace({}, content)).toThrow(/not in canonical form/)
+    doc.replace({}, normalize(content))
     expect(doc.read({}).marks).toEqual(normalize(content).marks)
     expect(exportMarkdown(doc.read({}))).toBe('a\\\n**bold**')
 
