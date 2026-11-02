@@ -327,7 +327,7 @@ pub(crate) fn from_line_props(
                 for c in 0..cols {
                     let slot = minter.mint(prefix::SLOT);
                     let (text, marks) = r.get(c).map(crate::lines::serial::parse_cell).unwrap_or_default();
-                    slots.insert(slot.clone(), cell_to_slot(&text, &marks));
+                    slots.insert(slot.clone(), cell_to_slot(&text, &marks, false));
                     cells.push(slot);
                 }
                 rows.push(Row { id, cells });
@@ -357,7 +357,7 @@ pub(crate) fn from_line_props(
             out.remove("text");
             out.remove("marks");
             let mut slots = BTreeMap::new();
-            slots.insert(NOTE_SLOT.to_string(), cell_to_slot(&text, &marks));
+            slots.insert(NOTE_SLOT.to_string(), cell_to_slot(&text, &marks, true));
             (Value::Object(out), slots)
         }
         IslandType::Ext(_) => {
@@ -366,7 +366,7 @@ pub(crate) fn from_line_props(
                     .iter()
                     .map(|(id, cell)| {
                         let (text, marks) = crate::lines::serial::parse_cell(cell);
-                        (id.clone(), cell_to_slot(&text, &marks))
+                        (id.clone(), cell_to_slot(&text, &marks, true))
                     })
                     .collect(),
                 _ => BTreeMap::new(),
@@ -408,21 +408,27 @@ pub(crate) fn slot_to_cell(slot: &Content) -> (String, Vec<line::Mark>) {
     (text, line::normalize_marks(marks))
 }
 
-/// A line-form cell as a slot: each `\n\n` a paragraph break, each other
+/// A line-form cell as a slot: each `\n\n` a paragraph break where the slot
+/// holds `paragraphs`, a hard break where it is one paragraph, and each other
 /// `\n` a hard break.
-pub(crate) fn cell_to_slot(text: &str, marks: &[line::Mark]) -> Content {
+pub(crate) fn cell_to_slot(text: &str, marks: &[line::Mark], paragraphs: bool) -> Content {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     let mut shift = Vec::with_capacity(chars.len() + 1);
     let mut dropped = 0usize;
-    let mut paragraphs = 1usize;
+    let mut blocks = 1usize;
     let mut i = 0;
     while i < chars.len() {
         shift.push(dropped);
         match chars[i] {
             '\n' if chars.get(i + 1) == Some(&'\n') => {
-                out.push('\n');
-                paragraphs += 1;
+                match paragraphs {
+                    true => {
+                        out.push('\n');
+                        blocks += 1;
+                    }
+                    false => out.push(HARD_BREAK),
+                }
                 dropped += 1;
                 shift.push(dropped);
                 i += 2;
@@ -435,7 +441,7 @@ pub(crate) fn cell_to_slot(text: &str, marks: &[line::Mark]) -> Content {
     }
     shift.push(dropped);
     let at = |p: usize| p - shift[p.min(shift.len() - 1)];
-    let blocks = (0..paragraphs).map(|n| Block::new(format!("{}{n}", prefix::BLOCK), BlockKind::Para)).collect();
+    let blocks = (0..blocks).map(|n| Block::new(format!("{}{n}", prefix::BLOCK), BlockKind::Para)).collect();
     let mut slot = Content { text: out, blocks, ..Content::empty() };
     for m in marks {
         let (start, end) = (at(m.start), at(m.end));

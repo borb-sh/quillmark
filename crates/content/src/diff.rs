@@ -689,6 +689,8 @@ pub fn revise_holding(before: &Content, markdown: &str, now: &Content) -> Result
 
 /// The change that writes `content` over `before`: each anchor of `before`
 /// that `content` names nowhere carried where the diff keeps its text.
+/// Refuses a `content` that is not valid or not canonical
+/// ([`Content::check_canonical`]), as the decode a write reads it through does.
 pub fn replace(before: &Content, content: &Content) -> Result<Change, Invariant> {
     replace_holding(before, content, before)
 }
@@ -697,6 +699,7 @@ pub fn replace(before: &Content, content: &Content) -> Result<Change, Invariant>
 /// ids minted as [`revise_holding`] mints them.
 pub fn replace_holding(before: &Content, content: &Content, now: &Content) -> Result<Change, Invariant> {
     content.validate()?;
+    content.check_canonical()?;
     let named: HashSet<String> = content.anchor_ids().into_iter().collect();
     Ok(diff_with(before, &holding(before, content, now, true), Some(&named)))
 }

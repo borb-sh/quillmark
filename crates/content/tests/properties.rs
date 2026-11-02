@@ -1055,3 +1055,154 @@ mod model {
         }
     }
 }
+
+mod strict {
+    //! The write's decode against the stored read: a value spelled otherwise
+    //! than `normalize` leaves it is refused by the one, read by the other to
+    //! a value the first accepts, and canonical bytes decode to themselves.
+
+    use super::*;
+    use quillmark_content::markdown;
+    use quillmark_content::model::Content as V2;
+
+    /// One spelling `normalize` would rewrite, made at offsets `at` and `n`
+    /// pick inside the value.
+    #[derive(Debug, Clone, Copy)]
+    enum Respell {
+        ReverseMark,
+        EmptyMark,
+        SplitMark,
+        MarkOverBreak,
+        ExtMarkOverBreak,
+        ShuffleMarks,
+        ShuffleAnchors,
+        UnusedContainer,
+        SwapContainers,
+        DefaultHead,
+        CellParagraphs,
+    }
+
+    fn respell() -> impl Strategy<Value = Respell> {
+        use Respell::*;
+        prop::sample::select(vec![
+            ReverseMark, EmptyMark, SplitMark, MarkOverBreak, ExtMarkOverBreak, ShuffleMarks, ShuffleAnchors,
+            UnusedContainer, SwapContainers, DefaultHead, CellParagraphs,
+        ])
+    }
+
+    /// `v` respelled, the respelling read at `at`; `v` itself where it holds
+    /// nothing the respelling reaches.
+    fn respelled(v: &Value, r: Respell, at: usize) -> Value {
+        let mut v = v.clone();
+        let text: Vec<char> = v["text"].as_str().unwrap().chars().collect();
+        let marks = v.get("marks").and_then(Value::as_array).cloned().unwrap_or_default();
+        let anchors = v.get("anchors").and_then(Value::as_array).cloned().unwrap_or_default();
+        let newlines: Vec<usize> = text.iter().enumerate().filter(|(_, c)| **c == '\n').map(|(i, _)| i).collect();
+        let newline = (!newlines.is_empty()).then(|| newlines[at % newlines.len()]);
+        let push_mark = |v: &mut Value, mark: Value| {
+            let mut all = marks.clone();
+            all.push(mark);
+            v["marks"] = Value::Array(all);
+        };
+        match r {
+            Respell::ReverseMark | Respell::EmptyMark | Respell::SplitMark if !marks.is_empty() => {
+                let k = at % marks.len();
+                let (s, e) = (marks[k]["start"].as_u64().unwrap(), marks[k]["end"].as_u64().unwrap());
+                let mut all = marks.clone();
+                match r {
+                    Respell::ReverseMark => (all[k]["start"], all[k]["end"]) = (e.into(), s.into()),
+                    Respell::EmptyMark => all[k]["end"] = s.into(),
+                    _ if e - s >= 2 => {
+                        let mid = s + 1 + (at as u64 % (e - s - 1));
+                        let mut tail = all[k].clone();
+                        all[k]["end"] = mid.into();
+                        tail["start"] = mid.into();
+                        all.insert(k + 1, tail);
+                    }
+                    _ => {}
+                }
+                v["marks"] = Value::Array(all);
+            }
+            Respell::MarkOverBreak if newline.is_some() => {
+                let n = newline.unwrap();
+                push_mark(&mut v, json!({"start": n, "end": n + 1, "type": "strike"}));
+            }
+            Respell::ExtMarkOverBreak if newline.is_some() => {
+                let n = newline.unwrap();
+                push_mark(&mut v, json!({"start": n, "end": n + 1, "type": "x-tag"}));
+            }
+            Respell::ShuffleMarks if marks.len() >= 2 => {
+                let mut all = marks.clone();
+                all.rotate_left(1 + at % (marks.len() - 1));
+                v["marks"] = Value::Array(all);
+            }
+            Respell::ShuffleAnchors => {
+                let mut all = anchors.clone();
+                all.push(json!({"id": "c-late", "start": text.len(), "end": text.len()}));
+                all.push(json!({"id": "c-early", "start": 0, "end": 0}));
+                v["anchors"] = Value::Array(all);
+            }
+            Respell::UnusedContainer => {
+                let mut all = v.get("containers").and_then(Value::as_array).cloned().unwrap_or_default();
+                all.insert(at % (all.len() + 1), json!({"id": "q-unused", "kind": "quote"}));
+                v["containers"] = Value::Array(all);
+            }
+            Respell::SwapContainers => {
+                if let Some(all) = v.get_mut("containers").and_then(Value::as_array_mut).filter(|a| a.len() >= 2) {
+                    let k = at % (all.len() - 1);
+                    all.swap(k, k + 1);
+                }
+            }
+            Respell::DefaultHead => {
+                if let Some(table) = tables(&mut v).next() {
+                    table["props"]["head"] = json!(1);
+                }
+            }
+            Respell::CellParagraphs => {
+                if let Some(table) = tables(&mut v).next() {
+                    let slots = table["slots"].as_object_mut().unwrap();
+                    let n = slots.len();
+                    let cell = slots.values_mut().nth(at % n).unwrap();
+                    let text = format!("{}\nmore", cell["text"].as_str().unwrap());
+                    cell["text"] = text.into();
+                    cell["blocks"].as_array_mut().unwrap().push(json!({"id": "b-more", "kind": "para"}));
+                }
+            }
+            _ => {}
+        }
+        v
+    }
+
+    fn tables(v: &mut Value) -> impl Iterator<Item = &mut Value> {
+        v.get_mut("islands")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+            .filter(|i| i["type"] == "table")
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(400))]
+
+        #[test]
+        fn strict_refuses_what_normalize_rewrites_and_the_lenient_read_settles_it(
+            md in document(),
+            r in respell(),
+            at in 0usize..64,
+        ) {
+            let canonical = markdown::from_markdown(&md).unwrap().content.to_value();
+            prop_assert_eq!(V2::from_value(&canonical).unwrap().to_value(), canonical.clone());
+
+            let v = respelled(&canonical, r, at);
+            let strict = V2::from_value(&v);
+            if let Ok(c) = &strict {
+                prop_assert_eq!(&c.to_value(), &v, "{:?} accepted a respelling", r);
+            }
+            let read = V2::from_value_lenient(&v).unwrap();
+            prop_assert_eq!(read.rewritten, strict.is_err(), "{:?}", r);
+            let settled = read.content.to_value();
+            prop_assert_eq!(V2::from_value(&settled).map(|c| c.to_value()), Ok(settled.clone()), "{:?}", r);
+            prop_assert_eq!(V2::from_value_lenient(&settled).unwrap().rewritten, false);
+        }
+    }
+}

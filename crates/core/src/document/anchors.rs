@@ -237,7 +237,7 @@ impl Document {
     /// Run `f` on the body or content value `path` names, writing the value
     /// back where `f` changed it, or `None` where `path` names neither. A field
     /// value counts where it is an object
-    /// [`Content::from_value`](quillmark_content::model::Content::from_value) accepts, the test the revise's drop report
+    /// [`Content::from_value_lenient`](quillmark_content::model::Content::from_value_lenient) reads, the test the revise's drop report
     /// applies, and lands back in canonical form in place, so the comments
     /// around it stay.
     pub(crate) fn edit_content_at<R>(
@@ -336,5 +336,5 @@ fn each_in_value(value: &JsonValue, at: &DocPath, visit: &mut Visit<'_>) -> Cont
 }
 
 fn content_of(value: &JsonValue) -> Option<Content> {
-    value.is_object().then(|| Content::from_value(value).ok()).flatten()
+    value.is_object().then(|| Content::from_value_lenient(value).ok()).flatten().map(|read| read.content)
 }

@@ -986,6 +986,8 @@ card_kinds:
             .find(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
             .expect("no `parse::dropped_construct` sample from the drop probe");
         add(crate::document::DROPPED_CONSTRUCT, sample.args.clone());
+        let noncanonical = crate::document::noncanonical_read();
+        add(crate::document::NONCANONICAL_READ, noncanonical.args.clone());
         let reminted = crate::document::Document::parse(
             "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~\n$kind: note\n$id: -x\n~~~\n",
         )

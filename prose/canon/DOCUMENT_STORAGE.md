@@ -144,6 +144,15 @@ serializer error. A store that checked only on load would accept bytes it could
 not read back; every write a `Card` takes already holds a valid value, so the
 outbound check is the backstop.
 
+**A canonical value reads as itself; another moves once.** A write's decode
+takes one spelling per value and refuses the rest ([CONTENT.md](CONTENT.md)
+§ "Validity"), so a value a write stored re-encodes to its own bytes and its
+hash holds across a read. A stored body or field value spelled otherwise, which
+only hand-built JSON and earlier builds wrote, reads leniently in 0.135: as its
+canonical form, its hash moving once, with a `content::noncanonical_read`
+warning on `Document::from_stored` naming where, so the host stores the row
+again. A later release refuses such a row's value, as a write's decode does.
+
 The guarantee follows from: struct field order is fixed in the frozen
 DTO tree; `Vec` fields preserve order by definition; the two disciplines
 above each hold at their respective level. No whitespace normalization is
@@ -330,8 +339,10 @@ only what it can (`island::table_spans`):
 A table or cell key holding a value outside its set is read as absent and
 rides untouched, as an unnamed key does. Markdown writes a table as a GFM pipe
 table or as HTML, whichever holds it
-([markdown-spec.md](../references/markdown-spec.md) §6.8); a cell of several
-paragraphs writes as HTML.
+([markdown-spec.md](../references/markdown-spec.md) §6.8). A cell is one
+paragraph, its lines parted by `U+2028`; a stored cell of several paragraphs
+reads joined with `U+2028` in 0.135, under `content::noncanonical_read`, and
+a later release refuses it ([CONTENT.md](CONTENT.md) § "Validity").
 
 Five rules bound the payload:
 

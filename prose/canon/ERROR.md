@@ -247,6 +247,14 @@ families:
   conform reports a string's drops beside its `conform::*` warnings, and
   `validate` a string's the field still holds. A card inserted with a string
   body drops without it.
+- **`content::noncanonical_read` off a stored read.** `Document::from_stored`
+  (WASM `Document.fromStored`, Python `Document.from_stored`) reads each body
+  and each content value in a field the way a stored value reads
+  ([CONTENT.md](CONTENT.md) § "Validity"), and warns once at the body or
+  field (`main.body`, `cards.<kind>[<i>].<field>`) whose value it rewrote to
+  its canonical form, so the host can store the document again. The warning
+  rides `doc.warnings` as a parse's do. 0.135 reads such a value; a later
+  release refuses it, and the code goes with that window.
 - **`export::lost_construct` off a markdown export.** The receipt of an
   export: `quillmark_content::export::to_markdown_checked` reads its markdown
   back and names each part of the content it does not carry, and
@@ -606,6 +614,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::dropped_construct` | `construct`, `count` | structured |
 | `parse::card_id_reminted` | `id` | structured |
 | `export::lost_construct` | `construct`, `start`?, `end`? | structured |
+| `content::noncanonical_read` | — | code-determined |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |
 | `parse::body_import` | — | fallback |

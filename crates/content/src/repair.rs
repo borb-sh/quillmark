@@ -134,7 +134,7 @@ impl Repair {
     pub fn inserts(&self) -> bool {
         match self {
             Repair::SplitBlock { .. } | Repair::EmptyCell { .. } => true,
-            Repair::Invalid(Invariant::BreakInHeading { .. }) => true,
+            Repair::Invalid(Invariant::BreakInHeading { .. } | Invariant::BreakInCell { .. }) => true,
             Repair::InSlot { repair, .. } => repair.inserts(),
             _ => false,
         }
@@ -657,6 +657,11 @@ fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>) -> Option<Island
             if !table(&id, &mut props, &mut slots, out) {
                 return None;
             }
+            let mut held = Island { id: id.clone(), island_type: IslandType::Table, props: Value::Null, slots };
+            for slot in held.join_cells() {
+                out.push(Repair::Invalid(Invariant::BreakInCell { island: id.clone(), slot }));
+            }
+            slots = held.slots;
         }
         IslandType::Footnote => {
             if slots.len() != 1 || !slots.contains_key(NOTE_SLOT) {

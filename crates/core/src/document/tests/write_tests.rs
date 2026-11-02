@@ -441,7 +441,7 @@ fn paras(text: &str) -> serde_json::Value {
 /// Valid values whose markdown read spells less than they hold: an editor's
 /// empty paragraph (between blocks, at either end, holding a break, ending a
 /// note, between two lists), formatting inside link text, a lone or trailing
-/// hard break, a cell holding a break then a paragraph, a strong mark inside
+/// hard break, a cell holding two breaks in a row, a strong mark inside
 /// a code mark, a point anchor at either edge.
 fn unspelled() -> Vec<(&'static str, quillmark_content::model::Content)> {
     use serde_json::json;
@@ -472,11 +472,11 @@ fn unspelled() -> Vec<(&'static str, quillmark_content::model::Content)> {
             "text": "see the code docs", "blocks": [{"id": "b0", "kind": "para"}],
             "marks": [{"start": 4, "end": 17, "type": "link", "attrs": {"url": "https://x.io"}}, {"start": 8, "end": 12, "type": "code"}],
         }))),
-        ("cell: break then paragraph", content(json!({
+        ("cell: two breaks", content(json!({
             "text": "\u{FFFC}", "blocks": [{"id": "b0", "kind": "para"}],
             "islands": [{"id": "t0", "type": "table",
                 "props": {"columns": ["k0"], "rows": [{"id": "r0", "cells": {"k0": "s0"}}, {"id": "r1", "cells": {"k0": "s1"}}]},
-                "slots": {"s0": paras("H"), "s1": paras("a\u{2028}\nb")}}],
+                "slots": {"s0": paras("H"), "s1": paras("a\u{2028}\u{2028}b")}}],
         }))),
         ("strong inside code", content(json!({
             "text": "abcdef", "blocks": [{"id": "b0", "kind": "para"}],
@@ -528,10 +528,10 @@ fn a_revise_over_what_its_read_could_not_spell_lands_as_written_or_conflicts() {
     assert!(body.marks.iter().all(|m| m.kind != quillmark_content::model::MarkKind::Emph), "{:?}", body.marks);
 
     let mut doc = parse(SOURCE);
-    doc.main_mut().replace(Target::Body, &shape("cell: break then paragraph"), None).unwrap();
+    doc.main_mut().replace(Target::Body, &shape("cell: two breaks"), None).unwrap();
     let held = doc.clone();
     let read = quillmark_content::markdown::to_markdown_annotated(doc.main().body()).markdown;
-    let err = doc.main_mut().revise(Target::Body, &read.replace(">b</td>", ">c</td>"), None).unwrap_err();
+    let err = doc.main_mut().revise(Target::Body, &read.replace("a<br><br>b", "z"), None).unwrap_err();
     assert_eq!(err.code(), "edit::rebase_conflict", "{read:?}");
     assert_eq!(doc, held);
 }

@@ -2790,10 +2790,9 @@ mod tests {
         }
         let rt = from_markdown("| h |\n| --- |\n| \\<br> |").unwrap().content;
         assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "<br>");
-        let rt = from_markdown("| h |\n| --- |\n| a<br><br>b |").unwrap().content;
-        let html = to_markdown(&rt);
-        assert!(html.starts_with("<table>"), "{html}");
-        assert_eq!(from_markdown(&html).unwrap().content, rt);
+        let md = "| h |\n| --- |\n| a<br><br>b |";
+        let rt = from_markdown(md).unwrap().content;
+        assert_eq!(to_markdown(&rt), md);
     }
 
     #[test]

@@ -471,13 +471,15 @@ impl PyDocument {
         })
     }
 
-    /// Reconstruct a `Document` from its versioned storage DTO string, with no
-    /// `warnings`.
+    /// Reconstruct a `Document` from its versioned storage DTO string. Its
+    /// `warnings` hold a `content::noncanonical_read` at each body or field
+    /// whose content value the read rewrote to its canonical form, which
+    /// storing the document again writes.
     /// Raises `QuillmarkError` on malformed JSON, unknown `schema`, missing fields,
     /// or unparseable quill reference.
     #[staticmethod]
     fn from_stored(json: &str) -> PyResult<Self> {
-        let inner: Document = serde_json::from_str(json).map_err(|e| {
+        let parsed = Document::from_stored(json).map_err(|e| {
             let msg = format!("invalid storage DTO: {e}");
             raise_with_diagnostics(
                 vec![quillmark_core::error::Diagnostic::new(
@@ -488,8 +490,8 @@ impl PyDocument {
             )
         })?;
         Ok(PyDocument {
-            inner,
-            parse_warnings: Vec::new(),
+            inner: parsed.document,
+            parse_warnings: parsed.warnings,
         })
     }
 

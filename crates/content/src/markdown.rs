@@ -105,7 +105,7 @@ pub fn to_plaintext(c: &Content) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Block, BlockKind, HARD_BREAK};
+    use crate::model::{HARD_BREAK, NOTE_SLOT};
 
     #[test]
     fn a_hard_break_is_one_block() {
@@ -115,27 +115,49 @@ mod tests {
         assert_eq!(from_markdown(&to_markdown(&c)).unwrap().content, c);
     }
 
+    /// A table cell is one paragraph: a paragraph break in one reads as a hard
+    /// break from either table spelling, a value holding one is refused at a
+    /// write, joined on a stored read and by repair, and a footnote's note
+    /// keeps its paragraphs.
     #[test]
-    fn a_slot_of_two_paragraphs_writes_an_html_table_and_reads_back() {
-        let mut c = from_markdown("| a | b |\n| - | - |\n| c | d |").unwrap().content;
-        let island = &mut c.islands[0];
-        let slot = island.slot_order()[3].clone();
-        let cell = island.slots.get_mut(&slot).unwrap();
-        cell.text = "d\ne".into();
-        cell.blocks.push(Block::new("b1", BlockKind::Para));
-        cell.blocks[0].id = "b2".into();
-        assert_eq!(c.validate(), Ok(()));
-        let out = to_markdown_checked(&c);
-        assert!(out.markdown.contains("<table"), "{}", out.markdown);
-        assert_eq!(out.losses, []);
-        let back = from_markdown(&out.markdown).unwrap().content;
-        assert_eq!(back.islands[0].slots[&slot].text, "d\ne");
+    fn a_table_cell_is_one_paragraph() {
+        use crate::model::Invariant;
+        use crate::repair::{Raw, Repair, repair};
+        use crate::wire::ParseError;
+        let pipe = from_markdown("| h |\n| - |\n| one<br><br>two |").unwrap().content;
+        let html = from_markdown("<table><tr><td>h</td></tr><tr><td><p>one</p>\n<p>two</p></td></tr></table>").unwrap();
+        assert_eq!(html.warnings, []);
+        let joined = format!("one{HARD_BREAK}two");
+        for c in [&pipe, &html.content] {
+            let cell = &c.islands[0].slots[&c.islands[0].slot_order()[1]];
+            assert_eq!((cell.text.as_str(), cell.blocks.len()), (joined.as_str(), 1));
+            assert_eq!(from_markdown(&to_markdown(c)).unwrap().content, *c);
+        }
+        let mut edited = pipe.clone();
+        edited.islands[0].slots.get_mut("s1").unwrap().text = format!("one{HARD_BREAK}three");
+        let change = crate::diff::replace(&pipe, &edited).unwrap();
+        assert_eq!(crate::change::apply(&pipe, &change).unwrap().content, edited);
 
-        let cell = c.islands[0].slots.get_mut(&slot).unwrap();
+        let mut stored = pipe.to_value();
+        stored["islands"][0]["slots"]["s1"]["text"] = "one\ntwo".into();
+        stored["islands"][0]["slots"]["s1"]["blocks"] = serde_json::json!([{"id": "b0", "kind": "para"}, {"id": "b1", "kind": "para"}]);
+        let refused = Invariant::BreakInCell { island: "isl-0".into(), slot: "s1".into() };
+        assert_eq!(Content::from_value(&stored), Err(ParseError::Invalid(refused.clone())));
+        let read = Content::from_value_lenient(&stored).unwrap();
+        assert_eq!((read.content.clone(), read.rewritten), (pipe.clone(), true));
+        let (repaired, repairs) = repair(Raw::from_value(&stored).unwrap());
+        assert_eq!(repaired, pipe);
+        assert!(matches!(repairs.as_slice(), [r @ Repair::Invalid(inv)] if *inv == refused && r.inserts()));
+
+        let mut noted = from_markdown("a[^1]\n\n[^1]: one").unwrap().content.to_value();
+        noted["islands"][0]["slots"][NOTE_SLOT] = stored["islands"][0]["slots"]["s1"].clone();
+        assert_eq!(Content::from_value(&noted).unwrap().to_value(), noted);
+
+        let mut c = pipe;
+        let cell = c.islands[0].slots.get_mut("s1").unwrap();
         cell.text = format!("d{HARD_BREAK}{HARD_BREAK}e");
-        cell.blocks.truncate(1);
         let out = to_markdown_checked(&c);
-        assert_eq!(out.losses, [Loss::SlotBreaks { island: c.islands[0].id.clone(), slot }]);
+        assert_eq!(out.losses, [Loss::SlotBreaks { island: "isl-0".into(), slot: "s1".into() }]);
     }
 
     #[test]

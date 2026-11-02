@@ -23,6 +23,12 @@ Reading a document: card-yaml, limits, body import.
 - `parse::unsupported_yaml_tag`
 - `parse::yaml_error_with_location`
 
+## `content::`
+
+Reading a stored content value.
+
+- `content::noncanonical_read`
+
 ## `export::`
 
 Writing a content to markdown.
