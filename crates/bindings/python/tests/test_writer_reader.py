@@ -59,9 +59,10 @@ def test_writer_add_card_transactional_and_positioned():
     quill = taro_quill()
     doc = Document("taro@0.1.0")
     ed = quill.writer(doc)
-    ed.add_card("quotes", {"author": "First"}, "A quote body.")
+    first = ed.add_card("quotes", {"author": "First"}, "A quote body.")
     ed.add_card("quotes", {"author": "Second"}, at=0)
     assert [field(c, "author")["text"] for c in doc.cards] == ["Second", "First"]
+    assert first == {"id": doc.cards[1]["id"], "warnings": []}
     with raises_edit_code("edit::unknown_field"):
         ed.add_card("quotes", {"stray": "x"})
     with raises_edit_code("edit::index_out_of_range"):
@@ -265,10 +266,10 @@ def test_markdown_writes_return_their_drops_at_the_body_written():
     assert drops(w.revise_body("a <kbd>b</kbd>")["warnings"]) == [
         ("parse::dropped_construct", "main.body", "kbd")
     ]
-    assert drops(w.add_card("quotes", {"author": "A"}, "x <span>y</span>")) == [
+    assert drops(w.add_card("quotes", {"author": "A"}, "x <span>y</span>")["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[0].body", "span")
     ]
-    assert drops(w.add_card("quotes", {"author": "B"}, "<em>z</em>", at=0)) == [
+    assert drops(w.add_card("quotes", {"author": "B"}, "<em>z</em>", at=0)["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[0].body", "em")
     ]
     assert drops(w.revise_body("c <kbd>d</kbd>", card=1)["warnings"]) == [

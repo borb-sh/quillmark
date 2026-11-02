@@ -8,7 +8,8 @@ use crate::lines::export::ExportLoss;
 pub use crate::lines::export::{AnchorRead, Annotated};
 pub use crate::lines::import::{DroppedConstruct, ImportError, ImportWarning};
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{BlockKind, Codec, Content, MarkKind};
+use crate::ids::prefix;
+use crate::model::{Block, BlockKind, Codec, Content, HARD_BREAK, ISLAND_SLOT, MarkKind};
 use crate::model::Usv;
 
 /// A markdown import: the content and what the markdown spelled that it
@@ -51,10 +52,35 @@ pub fn from_markdown(markdown: &str) -> Result<Imported, ImportError> {
     Ok(Imported { content: from_lines(&content), warnings })
 }
 
-/// The literal codec: each blank-line-separated run a paragraph, each lone
-/// `\n` within one a hard break.
+/// The literal codec: each blank line a paragraph break and each other `\n`
+/// a hard break, so a run of `\n` past two that counts odd is a hard break
+/// then a paragraph break per pair. Every character is text, never syntax.
 pub fn from_plaintext(s: &str) -> Content {
-    from_lines(&lines::import::from_plaintext(s))
+    let mut text = String::with_capacity(s.len());
+    let mut breaks = 0usize;
+    let mut blocks = 1usize;
+    let mut flush = |text: &mut String, breaks: &mut usize| {
+        if *breaks % 2 == 1 {
+            text.push(HARD_BREAK);
+        }
+        for _ in 0..*breaks / 2 {
+            text.push('\n');
+            blocks += 1;
+        }
+        *breaks = 0;
+    };
+    for c in s.chars().filter(|&c| c != ISLAND_SLOT).filter_map(lines::normalize::admit_char) {
+        match c {
+            '\n' => breaks += 1,
+            c => {
+                flush(&mut text, &mut breaks);
+                text.push(c);
+            }
+        }
+    }
+    flush(&mut text, &mut breaks);
+    let blocks = (0..blocks).map(|n| Block::new(format!("{}{n}", prefix::BLOCK), BlockKind::Para)).collect();
+    Content { text, blocks, ..Content::empty() }
 }
 
 /// [`from_plaintext`] under [`Codec::Plain`]: a `text` field's value.
@@ -119,7 +145,7 @@ pub fn to_markdown_annotated(c: &Content) -> Annotated {
 pub fn to_text_annotated(c: &Content) -> Annotated {
     match c.codec {
         Codec::Rich => to_markdown_annotated(c),
-        Codec::Plain => lines::export::to_plaintext_annotated(&to_lines(c)),
+        Codec::Plain => Annotated { markdown: to_plaintext(c), anchors: anchors_where(c, |_| true) },
     }
 }
 
@@ -129,15 +155,26 @@ pub fn anchors_where(c: &Content, keep: impl Fn(&str) -> bool) -> Vec<AnchorRead
 }
 
 /// The text with every block break a blank line and every hard break a `\n`,
-/// island slots removed: what the literal codec reads back.
+/// island slots removed: what [`from_plaintext`] reads back, so
+/// `plain(to_plaintext(v)) == v` for a plain value `v` whose every hard break
+/// stands between two characters of its paragraph.
 pub fn to_plaintext(c: &Content) -> String {
-    lines::export::to_plaintext(&to_lines(c))
+    let mut out = String::with_capacity(c.text.len());
+    for ch in c.text.chars() {
+        match ch {
+            '\n' => out.push_str("\n\n"),
+            HARD_BREAK => out.push('\n'),
+            ISLAND_SLOT => {}
+            ch => out.push(ch),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{HARD_BREAK, NOTE_SLOT};
+    use crate::model::NOTE_SLOT;
 
     #[test]
     fn a_hard_break_is_one_block() {
@@ -184,6 +221,12 @@ mod tests {
         let note = from_markdown("a[^1]\n\n[^1]: one\n\n    two").unwrap().content;
         let mut noted = note.to_value();
         assert_eq!(note.islands[0].slots[NOTE_SLOT].text, joined);
+        for md in ["a[^1]\n\n[^1]: one<br><br>two", "a[^1]\n\n[^1]: one<br>\n\n    two"] {
+            let c = from_markdown(md).unwrap().content;
+            let slot = &c.islands[0].slots[NOTE_SLOT];
+            assert_eq!((slot.text.as_str(), slot.blocks.len()), (joined.as_str(), 1), "{md:?}");
+            assert_eq!(from_markdown(&to_markdown(&c)).unwrap().content, c);
+        }
         noted["islands"][0]["slots"][NOTE_SLOT] = stored["islands"][0]["slots"]["s1"].clone();
         let refused = Invariant::BreakInCell { island: "isl-0".into(), slot: NOTE_SLOT.into() };
         assert_eq!(Content::from_value(&noted), Err(ParseError::Invalid(refused.clone())));

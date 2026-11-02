@@ -2,7 +2,7 @@
 //! card one. The policy is `prose/canon/DOCUMENT_STORAGE.md` § "The id
 //! handles".
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use sha2::{Digest, Sha256};
 
@@ -81,6 +81,37 @@ pub fn is_card_actor(actor: &str) -> bool {
 pub(crate) struct Mint {
     taken: HashSet<String>,
     next: usize,
+}
+
+/// Where each actor's mint stands in one [`Document`](super::Document)'s
+/// life since its parse, load or seed: the index of the token past the last
+/// one it minted under that actor, so an actor never mints an id twice,
+/// whether or not a card still holds it. Not document state: equality and
+/// storage skip it.
+#[derive(Clone, Default)]
+pub(crate) struct ActorMints(HashMap<String, usize>);
+
+impl ActorMints {
+    /// A mint past `held` and past every token minted under `actor` before.
+    pub(crate) fn mint(&mut self, held: HashSet<String>, actor: &str) -> String {
+        let next = self.0.entry(actor.to_string()).or_default();
+        let mut mint = Mint { taken: held, next: *next };
+        let id = mint.mint_as(Some(actor));
+        *next = mint.next;
+        id
+    }
+}
+
+impl PartialEq for ActorMints {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for ActorMints {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ActorMints")
+    }
 }
 
 impl Mint {

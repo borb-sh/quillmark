@@ -120,7 +120,7 @@ that conflicts, and the `reason` (`deleted`, `changed`, `missing`, `refused`).
 A base the document no longer holds the change since for refuses under
 `edit::stale_base`, carrying `current`. The pure `rebase` raises the same
 conflict, its `current` the hash of the value `since` left. A change that does not apply to the value, or would leave it
-invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)).
+invalid, is `edit::content_apply`, and writes nothing ([CONTENT.md](CONTENT.md)); the whole-document revise reports it as a warning at the value it leaves as stored.
 Four bounds refuse under codes of their own, each carrying the `max` it
 passed ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Content
 vocabularies" lists them): `edit::too_many_marks` and `edit::too_many_anchors`,
@@ -241,9 +241,10 @@ families:
   binding reads it through `Receipt::diagnostics`. A whole-document revise (`Document::revise`, the writer's
   `revise_document`) carries the parse's warnings, then each revised content
   field's at the field, on `DocumentRevised.warnings`. `add_card` returns it
-  at the placed card's body, WASM `importMarkdown` and `rebase` beside the
-  content with no `path`. Python's `add_card` returns them as a list, and its
-  `revise_body` / `revise_field` / `revise_document` under the dict receipt's
+  at the placed card's body, on `CardAdded.warnings` beside the card's `id`,
+  WASM `importMarkdown` and `rebase` beside the content with no `path`.
+  Python's `add_card` returns them under its dict's `warnings`, beside `id`,
+  and its `revise_body` / `revise_field` / `revise_document` under the dict receipt's
   `warnings`, as `Diagnostic` objects. A typed `set` / `set_all` returns
   a `richtext` string's drops at the string's path (WASM `set` / `setAll`,
   Python `set` / `set_all`), and `add_card` its fields' ahead of its body's. A

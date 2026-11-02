@@ -1649,7 +1649,7 @@ fn single_line_coercion_takes_one_block_and_folds_or_refuses_more() {
         assert!(content.is_inline(), "{value:?}");
         quillmark_content::lines::export::to_plaintext(&content)
     };
-    assert_eq!(folded("one\n\ntwo"), "one  two");
+    assert_eq!(folded("one\n\ntwo"), "one two");
     assert_eq!(folded("\none \ntwo\n"), " one  two");
 }
 

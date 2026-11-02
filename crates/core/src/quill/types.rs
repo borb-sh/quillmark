@@ -361,9 +361,10 @@ pub enum FieldType {
         multiline: bool,
     },
     /// The same [`Content`](quillmark_content::lines::model::Content) through a *literal*
-    /// codec ([`from_plaintext`](quillmark_content::lines::import::from_plaintext) /
-    /// [`to_plaintext`](quillmark_content::lines::export::to_plaintext)): `*hi*` is four
-    /// characters, verbatim both ways, never emphasis.
+    /// codec ([`from_plaintext`](quillmark_content::markdown::from_plaintext) /
+    /// [`to_plaintext`](quillmark_content::markdown::to_plaintext)): `*hi*` is four
+    /// characters, never emphasis, a blank line a paragraph break and any other
+    /// line break a hard break.
     Text {
         /// Lifts the one-line constraint, enforced where
         /// [`RichText`](Self::RichText)'s is, to admit line breaks.

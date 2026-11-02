@@ -20,3 +20,4 @@ cc ab39f24d89736d65c9c54ff0f2c2f6fb3ac88905e4a04116b126d5b7205a37fd # shrinks to
 cc 468e3cda98ccd8144126082b7c5fab98a8aefcc79f80872f13b2f11c57facee3
 cc e8d73ba66ac5274fefc10dd40042ec527be4a858e981f247964ecf9389d1ef4a
 cc a1281008f597791035705d51d5fc71685df0977dd4ec3690f1416c45f2df4ce9 # shrinks to body = "AA$\u{2000}$"
+cc b25e40ef4f06eb9216fcf3a9127adbb0d584b823e5a44b553e9c3571923b5e9c # shrinks to a = "[^1]: alpha\n\n    <br> alpha\n\n[^1]", b = ""

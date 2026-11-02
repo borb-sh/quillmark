@@ -145,7 +145,10 @@ fn annotated(content: &Lines, path: &DocPath, anchors: &Anchors) -> String {
 fn annotated_as(codec: super::Codec, content: &Lines, path: &DocPath, anchors: &Anchors) -> String {
     let read = match codec {
         super::Codec::Richtext => to_markdown_annotated(content),
-        super::Codec::Text => quillmark_content::lines::export::to_plaintext_annotated(content),
+        super::Codec::Text => quillmark_content::markdown::to_text_annotated(&quillmark_content::model::Content {
+            codec: quillmark_content::model::Codec::Plain,
+            ..quillmark_content::migrate::from_lines(content)
+        }),
     };
     anchors
         .found

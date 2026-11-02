@@ -502,7 +502,7 @@ impl Codec {
                 Codec::Richtext => {
                     import_markdown(s).map_err(|e| ContentDecodeError::BadMarkdown(e.to_string()))
                 }
-                Codec::Text => Ok(whole(quillmark_content::lines::import::from_plaintext(s))),
+                Codec::Text => Ok(whole(quillmark_content::migrate::to_lines(&quillmark_content::markdown::from_plaintext(s)))),
             }),
             _ => None,
         }
@@ -574,7 +574,7 @@ impl Codec {
     pub(crate) fn project(self, content: &Lines) -> String {
         match self {
             Codec::Richtext => quillmark_content::lines::export::to_markdown(content),
-            Codec::Text => quillmark_content::lines::export::to_plaintext(content),
+            Codec::Text => quillmark_content::markdown::to_plaintext(&quillmark_content::migrate::from_lines(content)),
         }
     }
 }
@@ -1008,6 +1008,7 @@ impl Serialize for SeedOverlay {
 pub struct Document {
     main: Card,
     cards: Vec<Card>,
+    mints: card_id::ActorMints,
 }
 
 impl Document {
@@ -1025,6 +1026,7 @@ impl Document {
         Self {
             main: Card::from_parts(payload, Lines::empty()),
             cards: Vec::new(),
+            mints: Default::default(),
         }
     }
 
@@ -1054,7 +1056,7 @@ impl Document {
             "composable cards must not carry `$seed`"
         );
         card_id::settle(&mut cards, &std::collections::HashSet::new());
-        Self { main, cards }
+        Self { main, cards, mints: Default::default() }
     }
 
     /// Read a stored row ([`StoredDocument`] JSON) into a [`Parsed`]: the

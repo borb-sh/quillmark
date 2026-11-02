@@ -1373,6 +1373,14 @@ mod diffs {
         };
         assert_eq!((quote("c1").as_deref(), quote("c2")), (Some("Second"), None), "{:?}", r.content.anchors);
         assert_eq!(apply(&d, &r.change).unwrap().content, r.content);
+
+        let mut d = from_markdown("Alpha beta gamma.\n\nDelta epsilon zeta.\n\nEta.").unwrap().content;
+        d.anchors.push(Anchor::new("c1", 18, 31));
+        for md in ["Eta.\n\nDelta epsilon zeta.\n\nAlpha beta gamma.", "Intro.\n\nAlpha beta gamma.\n\nEta.\n\nNew para holding Delta epsilon zeta. inside."] {
+            let r = revise(&d, md).unwrap();
+            let a = r.content.anchors.iter().find(|a| a.id == "c1").unwrap_or_else(|| panic!("{md:?}: {:?}", r.change));
+            assert_eq!(r.content.text.chars().skip(a.start).take(a.end - a.start).collect::<String>(), "Delta epsilon", "{md:?}");
+        }
     }
 
     /// An anchor `after` holds in another place, the prose or a cell, moves

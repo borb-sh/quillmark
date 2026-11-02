@@ -872,17 +872,16 @@ fn rebase_mark(
     relocate_span(base_chars, new_chars, inserted, m.start, m.end)
 }
 
-/// Where `new` re-homes `[start, end)` of `base` that its char diff from
-/// `base` deleted: a span or a point moved verbatim into text the diff
-/// inserted, at least [`MIN_MOVE`] characters of it, as [`rebase_mark`]
-/// relocates a mark. `None` where nothing moved it.
-pub(crate) fn relocate(base: &str, new: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+/// Where `new` re-homes `[start, end)` of `base` that the change to `new`
+/// deleted: a span or a point moved verbatim into `inserted`, the ranges of
+/// `new` the change inserted, at least [`MIN_MOVE`] characters of it, as
+/// [`rebase_mark`] relocates a mark. `None` where nothing moved it.
+pub(crate) fn relocate(base: &str, new: &str, inserted: &[(usize, usize)], start: usize, end: usize) -> Option<(usize, usize)> {
     let base_chars: Vec<char> = base.chars().collect();
     let new_chars: Vec<char> = new.chars().collect();
-    let inserted = diff(base, new).inserted_spans();
     match start == end {
-        true => relocate_point(&base_chars, &new_chars, &inserted, start),
-        false => relocate_span(&base_chars, &new_chars, &inserted, start, end),
+        true => relocate_point(&base_chars, &new_chars, inserted, start),
+        false => relocate_span(&base_chars, &new_chars, inserted, start, end),
     }
 }
 

@@ -3,17 +3,18 @@
 
 use quillmark_content::lines::delta::rebase_marks;
 use quillmark_content::lines::model::Lines;
+use quillmark_content::change::ApplyError;
 use quillmark_content::model::Content;
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
 use super::align::{Pairing, Slot, align};
 use super::card_id::{is_card_id, reminted_warning, settle_reporting};
-use super::edit::dropped_anchors;
+use super::edit::{EditError, dropped_anchors};
 use super::emit::{DocumentAnchor, canonical_content, emit_payload_fields};
 use super::merge::MergeConflict;
 use super::{Card, Document, Parsed, Revising, dropped_constructs};
-use crate::error::{Diagnostic, ParseError};
+use crate::error::{Diagnostic, ParseError, Severity};
 use crate::path::DocPath;
 use crate::value::QuillValue;
 
@@ -28,7 +29,9 @@ pub struct DocumentRevised {
     pub dropped_anchors: Vec<DocumentAnchor>,
     /// The parse warnings, then one `parse::dropped_construct` per construct
     /// dropped from a field revising a stored content value, each at its
-    /// address in the revised document.
+    /// address in the revised document, and an `edit::content_apply` warning
+    /// at each body or content value the revise leaves as stored because what
+    /// the markdown spells for it does not validate.
     pub warnings: Vec<Diagnostic>,
     /// For each composable card of the revised document, the index of the
     /// stored card it revises, or `None` for an inserted card. A stored card no
@@ -56,7 +59,8 @@ impl Document {
     /// markdown string in a field where the stored field holds a content
     /// object, at any depth, by key in an object and by index in an array,
     /// revise as [`Card::revise_body`] and [`Card::revise_field`] do, so
-    /// surviving anchors rebase. Everything else
+    /// surviving anchors rebase. A body or value whose revise does not
+    /// validate keeps its stored value, with a warning. Everything else
     /// lands as the markdown spells it: scalars, `$quill`, `$seed`, YAML
     /// comments, inserted cards, and removed cards dropped.
     ///
@@ -88,7 +92,7 @@ impl Document {
                 },
             bodies,
         } = revising;
-        let Document { main, cards } = incoming;
+        let Document { main, cards, .. } = incoming;
         let mut bodies = bodies.into_iter();
 
         let pairs = align_cards(&self.cards, &cards);
@@ -152,7 +156,7 @@ impl Document {
                 }
                 None => {
                     if let Some(body) = body {
-                        revise_body(&Content::empty(), &body, &at.body(), &mut warnings);
+                        let _ = revise_body(&Content::empty(), &body, &at.body(), &mut warnings);
                     }
                     if let Some(spelled) = card.id().map(str::to_string) {
                         if !is_card_id(&spelled) || stored_ids.contains(&spelled) {
@@ -175,10 +179,8 @@ impl Document {
             anchor.card_id = self.card_id_at(&anchor.path).map(str::to_string);
         }
 
-        *self = Document {
-            main,
-            cards: revised_cards,
-        };
+        self.main = main;
+        self.cards = revised_cards;
         DocumentRevised {
             dropped_anchors,
             warnings,
@@ -238,14 +240,25 @@ fn revise_card(
     warnings: &mut Vec<Diagnostic>,
     moves: &mut Moves,
 ) -> Card {
-    let body = match source.and_then(|md| revise_body(stored.body(), md, &at.body(), warnings)) {
-        Some(revised) => revised,
+    let revised = match source {
+        Some(md) => revise_body(stored.body(), md, &at.body(), warnings),
+        None => Ok(None),
+    };
+    let body = revised.and_then(|revised| match revised {
+        Some(revised) => Ok(revised),
         None => {
             let lines = rebase_marks(stored.body_lines(), incoming.body_lines().clone());
-            quillmark_content::diff::lift(stored.body(), &lines)
+            let lifted = quillmark_content::diff::lift(stored.body(), &lines);
+            lifted.validate().map(|()| lifted).map_err(ApplyError::Invalid)
         }
-    };
-    incoming.set_body(body);
+    });
+    match body {
+        Ok(body) => incoming.set_body(body),
+        Err(e) => {
+            warnings.push(kept_warning(e, &at.body()));
+            incoming.set_body(stored.body().clone());
+        }
+    }
 
     for (name, value) in incoming.payload_mut().fields_mut() {
         if let Some(stored) = stored.payload().get(name) {
@@ -272,24 +285,39 @@ fn revise_card(
 /// base. Where the markdown rewrites what the stored value's annotated read
 /// does not spell, which that revise refuses, the revise is the cold diff
 /// against `stored`, dropping what the markdown cannot spell rather than
-/// refusing the document. `None` on an over-nested input.
-fn revised(stored: &Content, markdown: &str) -> Option<quillmark_content::diff::Revision> {
+/// refusing the document. `None` on an over-nested input, and the refusal
+/// where the markdown imports to a value that does not validate.
+fn revised(stored: &Content, markdown: &str) -> Result<Option<quillmark_content::diff::Revision>, ApplyError> {
     use quillmark_content::diff::{ReviseError, revise, revise_holding};
-    match revise(stored, markdown) {
-        Ok(revision) => Some(revision),
-        Err(ReviseError::Conflict(_)) => revise_holding(stored, markdown, stored).ok(),
-        Err(ReviseError::Import(_)) => None,
+    let revision = match revise(stored, markdown) {
+        Err(ReviseError::Conflict(_)) => revise_holding(stored, markdown, stored),
+        revision => revision,
+    };
+    match revision {
+        Ok(revision) => Ok(Some(revision)),
+        Err(ReviseError::Refused(e)) => Err(e),
+        Err(ReviseError::Import(_) | ReviseError::Conflict(_)) => Ok(None),
     }
+}
+
+/// The warning for a value a revise leaves as stored because what the
+/// markdown spells for it does not validate.
+fn kept_warning(e: ApplyError, at: &DocPath) -> Diagnostic {
+    let mut warning = EditError::change(e).to_diagnostic(Some(at.clone()));
+    warning.severity = Severity::Warning;
+    warning
 }
 
 /// `source`, a body the parse read with its tokens unresolved, revising
 /// `stored`: [`revised`], and a `parse::dropped_construct` at `at` for each
 /// tag the parse did not report.
-fn revise_body(stored: &Content, source: &str, at: &DocPath, warnings: &mut Vec<Diagnostic>) -> Option<Content> {
-    let revision = revised(stored, source)?;
+fn revise_body(stored: &Content, source: &str, at: &DocPath, warnings: &mut Vec<Diagnostic>) -> Result<Option<Content>, ApplyError> {
+    let Some(revision) = revised(stored, source)? else {
+        return Ok(None);
+    };
     let tags = revision.warnings.into_iter().filter(|w| w.construct.is_held_tag()).collect();
     warnings.extend(dropped_constructs(tags, Some(at)));
-    Some(revision.content)
+    Ok(Some(revision.content))
 }
 
 /// Revise each string in `incoming` that sits where `stored` holds a content
@@ -310,8 +338,14 @@ fn revise_value(
         let Some(base) = Content::from_value_lenient(stored).ok().map(|read| read.content) else {
             return;
         };
-        let Some(revision) = revised(&base, text) else {
-            return;
+        let revision = match revised(&base, text) {
+            Ok(Some(revision)) => revision,
+            Ok(None) => return,
+            Err(e) => {
+                warnings.push(kept_warning(e, at));
+                *incoming = stored.clone();
+                return;
+            }
         };
         warnings.extend(dropped_constructs(revision.warnings, Some(at)));
         *incoming = revision.content.to_value();

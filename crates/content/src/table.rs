@@ -357,7 +357,7 @@ pub(crate) fn from_line_props(
             out.remove("text");
             out.remove("marks");
             let mut slots = BTreeMap::new();
-            slots.insert(NOTE_SLOT.to_string(), cell_to_slot(&text, &marks, true));
+            slots.insert(NOTE_SLOT.to_string(), cell_to_slot(&text, &marks, false));
             (Value::Object(out), slots)
         }
         IslandType::Ext(_) => {

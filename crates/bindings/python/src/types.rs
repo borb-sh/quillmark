@@ -1527,19 +1527,19 @@ impl PyWriter {
     /// raises. Transactional: a rejected field (raising a per-field diagnostic
     /// bundle) or an invalid kind, body, or position leaves the document
     /// untouched. The card's `$id` mints as `unchecked.insert_card` mints one,
-    /// under `actor` where one is given. Returns the fields'
-    /// `parse::dropped_construct` warnings, then the body import's, anchored
-    /// under the placed card.
+    /// under `actor` where one is given. Returns a dict: `id`, that id, and
+    /// `warnings`, the fields' `parse::dropped_construct` warnings then the
+    /// body import's, anchored under the placed card.
     #[pyo3(signature = (kind, fields=None, body=None, at=None, actor=None))]
-    fn add_card(
+    fn add_card<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         kind: &str,
-        fields: Option<Bound<'_, PyDict>>,
+        fields: Option<Bound<'py, PyDict>>,
         body: Option<String>,
         at: Option<isize>,
         actor: Option<&str>,
-    ) -> PyResult<Vec<PyDiagnostic>> {
+    ) -> PyResult<Bound<'py, PyDict>> {
         let batch = match fields {
             Some(f) => pydict_to_field_batch(&f)?,
             None => Vec::new(),
@@ -1551,12 +1551,15 @@ impl PyWriter {
             .transpose()?;
         // The card is built before it joins the document, so field errors anchor
         // at bare names (empty base).
-        quill
+        let added = quill
             .inner
             .writer(&mut doc.inner)
             .add_card(kind, batch, body.as_deref(), at, actor)
-            .map(py_diagnostics)
-            .map_err(|errs| convert_edit_errors(errs, &quillmark_core::path::DocPath::new()))
+            .map_err(|errs| convert_edit_errors(errs, &quillmark_core::path::DocPath::new()))?;
+        let out = PyDict::new(py);
+        out.set_item("id", added.id)?;
+        out.set_item("warnings", py_diagnostics(added.warnings))?;
+        Ok(out)
     }
 
     /// Remove the composable card at `index`, returning it as a dict or `None`

@@ -426,3 +426,40 @@ proptest! {
         }
     }
 }
+
+const SOUP_WORDS: &[&str] = &[
+    "alpha", "délta", "🎉", "**bold**", "*em*", "`code`", "[link](http://x)", "a\\", "[^1]", "$x$", "<br>", "~~s~~",
+];
+const SOUP_LEADS: &[&str] = &["", "- ", "1. ", "> ", "# ", "    ", "| ", "[^1]: ", "> - "];
+
+/// Markdown of blank-line-parted lines, each a block lead and words, a note
+/// definition and its indented continuation among them.
+fn arb_soup() -> impl Strategy<Value = String> {
+    let line = (prop::sample::select(SOUP_LEADS), prop::collection::vec(prop::sample::select(SOUP_WORDS), 0..5))
+        .prop_map(|(lead, words)| format!("{lead}{}", words.join(" ")));
+    prop::collection::vec(line, 0..7).prop_map(|lines| lines.join("\n\n"))
+}
+
+fn assert_stores(doc: &Document) -> Result<(), TestCaseError> {
+    for card in std::iter::once(doc.main()).chain(doc.cards()) {
+        prop_assert_eq!(card.body().validate(), Ok(()));
+    }
+    prop_assert!(serde_json::to_string(doc).is_ok());
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(1000))]
+
+    /// What `parse` reads and what a whole-document revise lands is valid, so
+    /// the document stores.
+    #[test]
+    fn a_parsed_or_revised_document_stores(a in arb_soup(), b in arb_soup()) {
+        let doc = |body: &str| format!("~~~\n$quill: q\n~~~\n\n{body}\n{}", card_block("note", body));
+        let Some(mut parsed) = parse_or_skip(&doc(&a)) else { return Ok(()) };
+        assert_stores(&parsed)?;
+        if parsed.revise(&doc(&b)).is_ok() {
+            assert_stores(&parsed)?;
+        }
+    }
+}
