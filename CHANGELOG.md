@@ -79,7 +79,7 @@ over its keys: read `receipt["warnings"]`.
 - feat(core)!: **`Card::apply`, `revise` and `replace`** write a body or
   richtext field and answer a `Receipt`: the applied change, the new hash,
   and the dropped and moved anchors. Each takes the hash its writer read and
-  refuses a stale one with `edit::stale_base`. `Card::write` takes the
+  rebases a stale one over the writes since (below). `Card::write` takes the
   `Edit` each builds its change from, and `write_in` takes a host's units.
 - feat(wasm)!: **`doc.read`, `apply`, `revise`, `replace`, `annotated` and
   `hash(addr)`, and `invert` and `diff`**, offsets in UTF-16 code units.

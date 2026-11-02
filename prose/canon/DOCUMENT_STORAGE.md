@@ -405,9 +405,12 @@ markdown the ids of what it kept, an island equal to a stored one keeping that
 island's id and a `qm-island` tag naming one keeping it outright, and every
 other part mints past the highest id the value held before it, so none takes a
 dropped part's id. A revise or replace re-mints a part it introduces under an
-id the value it lands on holds, or the card's change log still holds, so two
-stale writes that each add a part never mint one id twice, and a stale writer
-never finds the id it read on a part minted since.
+id the value it lands on holds, reading that value and the one its base names
+and never the card's change log, so equal writes over equal values store
+equal bytes. Two stale writes that each add a part never land one id twice,
+since a rebase renames an id both introduced, and a stale writer never finds
+the id it read on a part minted since, since a rebase holds an id the writes
+since removed as gone ([CONTENT.md](CONTENT.md) § "Rebasing a change").
 
 Re-landing a dropped part is not a mint: the delete freed the id and it travels
 back with its part in the inverse, so restoring a deletion restores the bytes.

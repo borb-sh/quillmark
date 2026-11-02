@@ -71,7 +71,7 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 
 ## Ids
 
-Blocks, containers, islands, slots, table rows and table columns carry structural ids. Import, migration and a revise mint them deterministically, `{prefix}{n}` past the highest number a value already holds under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise or replace re-mints an id it introduces that the value it lands on or the card's log holds (§ "Writing a value"). A live client mints its own. Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
+Blocks, containers, islands, slots, table rows and table columns carry structural ids. Import, migration and a revise mint them deterministically, `{prefix}{n}` past the highest number a value already holds under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise or replace re-mints an id it introduces that the value it lands on holds (§ "Writing a value"). A live client mints its own. Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
 
 ## Changes
 
@@ -142,7 +142,7 @@ Each step maps through the inverse of its change's earlier steps, then `over`, t
 | `splice` | the edges of its deletion inward; an insert as a point anchor | `over` deleted any of its deletion, or the text there no longer reads `delete`; an insert where `over` deleted the text on both sides; `over` changed an island it deletes, or the record of a block it deletes and writes back |
 | `mark`, range `anchor` | its edges inward, as `apply` moves a range anchor | `over` deleted the whole range, or the range no longer reads its `quote` |
 | point `anchor`, island insert | as `apply` moves a point anchor | an insert where `over` deleted the text on both sides, or `block` no longer holds `at` |
-| `setBlock`, `container`, island props | unchanged | the id is gone, or `over` changed what the step overwrites |
+| `setBlock`, `container`, island props | unchanged | the id is gone or `over` removed it, or `over` changed what the step overwrites |
 | anchor removal | unchanged | the id is gone |
 | `nested` | its change rebased over what `over` did in that slot | the slot is gone, a step inside conflicts, or `over` removed the island or the slot and the slot now reads otherwise |
 
@@ -153,6 +153,12 @@ A step holds to what it overwrites as its writer read it, its own earlier steps 
 - a splice holds each island and block record it deletes, so a stale delete or move of a block `over` re-kinded conflicts where ProseMirror's would delete it.
 
 Where `over` removed an island or slot, the edits in it are not in the mapping, so a `nested` step lands only where the slot reads as it did.
+
+Identity is by incarnation, not by spelling:
+
+- A block record, container or island `over` removed is gone for the rebased change, even where a later step of `over` put one back under the same id, as an editor does that deletes a block and mints its freed id for a new one.
+- A step naming such an id conflicts as `missing` rather than landing on the new holder: a `setBlock`, a `container` step, an island props step, an island insert's `block`, or a path a step writes. An island `over` only moves keeps its identity.
+- An id the change introduces that `over` also introduced, as two writers minting past one value do, is renamed past the highest id either holds, from the step that introduces it through the change's later steps, and so in each slot both edit. The rename depends on `base`, the change and `over` alone.
 
 A range `over` deleted entirely conflicts rather than dropping its step: a write is whole or refused, and a step with nothing left to land on is still part of what its writer asked for. A `Conflict` names the step, a `nested` step's index for one inside it, and its `Reason`: `deleted`, `changed`, `missing`, or `refused` where the mapped step fails otherwise or the change leaves an invalid value.
 
@@ -166,7 +172,7 @@ Each law is a property test over generated values and generated changes (`tests/
 4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes.
 5. Every `Change` yields a valid value or fails and changes nothing.
 6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back reads as the merged state it repaired: by any number of peers where no repair inserts, since the value then holds no character or slot the state does not, and by one writer otherwise.
-7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly, and which keeps what `o` did by id: each block kind and path, container, and island's props `o` changed, each block it changed, and each island or slot it changed that `c` drops without editing what `o` changed in it. `rebase(d, c, ∅) == c`. Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote.
+7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly, and which keeps what `o` did by id: each block kind and path, container, and island's props `o` changed, each block it changed, and each island or slot it changed that `c` drops without editing what `o` changed in it. `rebase(d, c, ∅) == c`. Two changes to text either side of a character neither touches, joining no blocks, rebase over each other and reach the same value either way round, holding the text each wrote, but for the id of a block both introduced, which the rebased one renames.
 
 ## Writing a value
 
@@ -186,7 +192,9 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 
 - Each card keeps a `ChangeLog` per value it holds, in memory only: one snapshot, the value its oldest write read, and each write's normalized change and the hash it left. No hash, comparison or stored form sees it.
 - A base the log holds composes the changes from it to now, and the write rebases over them and applies. The value the base names is the snapshot with the changes before it applied as one composed change; one that does not hash to the base refuses as stale. A revise or replace diffs from the value the base names, so an edit made since is not read as text the writer deleted.
-- Each block, container and island id a revise or replace introduces is minted afresh where the value now holds it or the log does, in its snapshot or a write since, past all of them (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them. Two stale writes that each add a paragraph both land, and an id a write freed is not minted again while a base that names it rebases, so a stale step by id never lands on another block. `rebase` itself re-mints nothing.
+- Each block, container and island id a revise or replace introduces is minted afresh where the value now holds it, past the ids of the value the base names, the value now and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them.
+- Minting reads those two values and never the log, so equal values written over equal values store equal bytes, and `normalize` predicts what `replace` stores up to the first block's id, which a replace keeps.
+- Two stale writes that each add a paragraph both land. An id a write freed may be minted again: `rebase` holds a stale step by it to the block it read, and renames an id the write introduces that a write since also introduced (§ "Rebasing a change").
 - A write that conflicts refuses with `edit::rebase_conflict`, carrying `current`, `step` and `reason`.
 - A base the log does not reach refuses with `edit::stale_base`, carrying `current`, and the writer reads again.
 - The log is bounded by steps, nested ones counted, not by writes. A base rebases while the writes since it hold at most `LOG_STEPS` (4096) steps, and the base the newest write read rebases whatever that write's size. At one write a keystroke, that is minutes of typing, and a composed run of typing is one splice, so the rebase over it stays small.

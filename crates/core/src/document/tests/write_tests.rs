@@ -252,19 +252,60 @@ fn a_stale_write_keeps_a_record_changed_since_or_refuses() {
     assert_eq!(doc, held);
 }
 
-/// A block id a write freed is not minted again while a base that names it
-/// still rebases, so a stale writer's step on the block it read refuses
-/// rather than landing on a different paragraph.
+/// A write mints from the value it lands on and the value its base names
+/// alone, so equal values take one write to equal bytes whatever the card's
+/// history; a stale step on the block it read refuses rather than landing on
+/// the paragraph minted since under its freed id.
 #[test]
-fn a_freed_block_id_is_not_minted_again_while_a_stale_base_names_it() {
-    let mut doc = parse("~~~\n$quill: q\n~~~\n\nAlpha\n\nBeta\n\nGamma\n");
+fn a_write_mints_from_the_values_alone_and_a_stale_step_misses_a_freed_id() {
+    let source = "~~~\n$quill: q\n~~~\n\nAlpha\n\nBeta\n\nGamma\n";
+    let mut doc = parse(source);
     let base = doc.main().hash_of(Target::Body).unwrap();
     doc.main_mut().revise(Target::Body, "Alpha\n\nBeta", None).unwrap();
-    doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\nDelta", None).unwrap();
+    let fresh = parse("~~~\n$quill: q\n~~~\n\nAlpha\n\nBeta\n");
+    assert_eq!(doc.main().body(), fresh.main().body());
+    let mut fresh = fresh;
+    let delta = quillmark_content::markdown::from_markdown("Alpha\n\nBeta\n\nDelta").unwrap().content;
+    let receipts = [&mut doc, &mut fresh].map(|d| d.main_mut().replace(Target::Body, &delta, None).unwrap());
+    assert_eq!(receipts[0].hash, receipts[1].hash);
     let ids: Vec<&str> = doc.main().body().blocks.iter().map(|b| b.id.as_str()).collect();
-    assert_eq!(ids, ["b0", "b1", "b3"]);
+    assert_eq!(ids, ["b0", "b1", "b2"]);
+
     let held = doc.clone();
     let err = doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\n## Gamma", Some(&base)).unwrap_err();
+    assert_eq!((err.code(), err.args()["reason"].clone()), ("edit::rebase_conflict", serde_json::json!("missing")));
+    assert_eq!(doc, held);
+    let heading = Change::new(vec![Step::SetBlock(quillmark_content::change::SetBlock {
+        id: "b2".into(),
+        kind: Some("heading".into()),
+        attrs: serde_json::json!({"level": 1}).as_object().cloned(),
+        path: None,
+    })]);
+    let err = doc.main_mut().apply(Target::Body, &heading, Some(&base)).unwrap_err();
+    assert_eq!((err.code(), err.args()["reason"].clone()), ("edit::rebase_conflict", serde_json::json!("missing")));
+    assert_eq!(doc, held);
+}
+
+/// A live editor that deletes a block and mints its id again for a new one
+/// writes through `apply`; a stale step by that id refuses there too.
+#[test]
+fn a_stale_step_misses_an_id_a_live_editor_minted_again() {
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nalpha\n\nbravo\n\ncharlie\n");
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(Splice::new(11, "\ncharlie", ""))]), None).unwrap();
+    let enter = Splice { blocks: vec![Block::new("b2".to_string(), BlockKind::Para)], ..Splice::new(5, "", "\nnew") };
+    doc.main_mut().apply(Target::Body, &Change::new(vec![Step::Splice(enter)]), None).unwrap();
+    assert_eq!(doc.main().body().blocks[1].id, "b2");
+    let held = doc.clone();
+    let heading = Change::new(vec![Step::SetBlock(quillmark_content::change::SetBlock {
+        id: "b2".into(),
+        kind: Some("heading".into()),
+        attrs: serde_json::json!({"level": 1}).as_object().cloned(),
+        path: None,
+    })]);
+    let err = doc.main_mut().apply(Target::Body, &heading, Some(&base)).unwrap_err();
+    assert_eq!((err.code(), err.args()["reason"].clone()), ("edit::rebase_conflict", serde_json::json!("missing")));
+    let err = doc.main_mut().revise(Target::Body, "alpha\n\nbravo\n\n# charlie", Some(&base)).unwrap_err();
     assert_eq!(err.code(), "edit::rebase_conflict");
     assert_eq!(doc, held);
 }

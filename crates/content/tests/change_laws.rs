@@ -1387,7 +1387,7 @@ fn an_offset_inside_a_surrogate_pair_is_refused() {
 /// A change on `d` that touches only the text in `[lo, hi]`, the window
 /// following what its own splices do, deleting no `\n`, so it joins no
 /// block another change edits, its anchors named `{side}-*`.
-fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str, k0: usize) -> Change {
+fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str) -> Change {
     let mut sim = d.clone();
     let mut steps = Vec::new();
     for (k, &(op, x, y, z)) in ops.iter().enumerate() {
@@ -1395,7 +1395,7 @@ fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str, k
         let (start, end) = (a.min(b), a.max(b));
         let step = match op % 3 {
             0 => {
-                let mut s = splice_on(&sim, start, 0, z, k0 + k);
+                let mut s = splice_on(&sim, start, 0, z, k);
                 let cs = chars(&sim);
                 let dn = cs[start..end].iter().take(3).take_while(|&&ch| ch != '\n').count();
                 s.delete = cs[start..start + dn].iter().collect();
@@ -1418,16 +1418,19 @@ fn windowed(d: &Content, ops: &[Op], (lo, mut hi): (usize, usize), side: &str, k
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(300))]
+    #![proptest_config(ProptestConfig { max_global_rejects: 300, ..ProptestConfig::with_cases(300) })]
 
     /// A change rebased over another applies after it and leaves a valid
-    /// value, which the rebased change's inverse takes back exactly.
+    /// value, which the rebased change's inverse takes back exactly. A pair
+    /// that conflicts states nothing, and at most one in two may.
     #[test]
     fn a_rebased_change_applies_after_the_other_and_inverts_there(d in document(), mine in ops(), theirs in ops()) {
         let c = change_for(&d, &mine);
-        let o = change_from(&d, &theirs, 50);
+        let o = change_from(&d, &theirs, 0);
         let now = apply(&d, &o).unwrap().content;
-        let Ok(r) = rebase(&d, &c, &o) else { return Ok(()) };
+        let r = rebase(&d, &c, &o);
+        prop_assume!(r.is_ok());
+        let r = r.unwrap();
         let done = apply(&now, &r);
         prop_assert!(done.is_ok(), "{:?}\nchange {:?}\nover {:?}\nrebased {:?}", done, c, o, r);
         let done = done.unwrap().content;
@@ -1435,6 +1438,10 @@ proptest! {
         let undo = invert(&r, &now).unwrap();
         prop_assert_eq!(apply(&done, &undo).unwrap().content, now);
     }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
 
     #[test]
     fn a_change_rebased_over_nothing_is_itself(d in document(), ops in ops()) {
@@ -1446,13 +1453,16 @@ proptest! {
     /// joining no blocks, rebase over each other, and either way round reach
     /// the value holding both:
     /// the text left of it as the one wrote it, the text right of it as the
-    /// other did.
+    /// other did. The blocks each splits off take their ids from one
+    /// namespace, as two writers minting past one value do, and the change
+    /// rebased renames an id the other also introduced, so the two values
+    /// agree but for the ids of those blocks.
     #[test]
     fn changes_to_disjoint_text_rebase_into_both(d in document(), cut in any::<usize>(), mine in ops(), theirs in ops()) {
         let len = d.len_usv();
         let cut = cut % len;
-        let c = windowed(&d, &mine, (0, cut), "l", 0);
-        let o = windowed(&d, &theirs, (cut + 1, len), "r", 50);
+        let c = windowed(&d, &mine, (0, cut), "l");
+        let o = windowed(&d, &theirs, (cut + 1, len), "r");
         let (left, right) = (apply(&d, &c).unwrap().content, apply(&d, &o).unwrap().content);
         let r = rebase(&d, &c, &o);
         prop_assert!(r.is_ok(), "{:?}\nchange {:?}\nover {:?}", r, c, o);
@@ -1462,7 +1472,11 @@ proptest! {
         let theirs: String = chars(&right)[cut..].iter().collect();
         prop_assert_eq!(&both.text, &format!("{mine}{theirs}"));
         let back = rebase(&d, &o, &c).unwrap();
-        prop_assert_eq!(apply(&left, &back).unwrap().content, both);
+        let unnamed = |mut v: Content| {
+            v.blocks.iter_mut().for_each(|b| b.id.clear());
+            v
+        };
+        prop_assert_eq!(unnamed(apply(&left, &back).unwrap().content), unnamed(both));
     }
 }
 
@@ -1543,7 +1557,7 @@ proptest! {
     #[test]
     fn a_rebased_change_keeps_what_the_other_changed_or_conflicts(d in document(), mine in ops(), theirs in ops()) {
         let c = change_for(&d, &mine);
-        let o = change_from(&d, &theirs, 50);
+        let o = change_from(&d, &theirs, 0);
         let now = apply(&d, &o).unwrap().content;
         let Ok(r) = rebase(&d, &c, &o) else { return Ok(()) };
         let done = apply(&now, &r).unwrap().content;

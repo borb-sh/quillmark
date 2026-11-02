@@ -11,7 +11,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
-use quillmark_content::change::{self, Change, ContainerStep, Dropped, IslandStep, Moved, RebaseError, Step};
+use quillmark_content::change::{self, Change, Dropped, Moved, RebaseError, Step};
 use quillmark_content::diff;
 use quillmark_content::lines::import::ImportWarning;
 use quillmark_content::lines::island::IslandType;
@@ -146,13 +146,11 @@ impl Card {
                 None => (change, Vec::new(), false),
             },
             Edit::Revise(markdown) => {
-                let taken = self.log.ids(target);
-                let revision = diff::revise_holding(read.read(), markdown, &read.now, &taken).map_err(EditError::Import)?;
+                let revision = diff::revise_holding(read.read(), markdown, &read.now).map_err(EditError::Import)?;
                 (revision.change, revision.warnings, true)
             }
             Edit::Replace(content) => {
-                let taken = self.log.ids(target);
-                let change = diff::replace_holding(read.read(), &content, &read.now, &taken).map_err(|e| EditError::Change(e.into()))?;
+                let change = diff::replace_holding(read.read(), &content, &read.now).map_err(|e| EditError::Change(e.into()))?;
                 (change, Vec::new(), true)
             }
         };
@@ -430,33 +428,6 @@ impl ChangeLog {
         if !track.fold() {
             self.targets.remove(at);
         }
-    }
-
-    /// Each top-level block, container and island id the log's snapshot at
-    /// `target` holds or a write it holds introduced: the ids a base the log
-    /// reaches may name, which a write mints past.
-    fn ids(&self, target: Target<'_>) -> HashSet<String> {
-        let Some(track) = self.track(target) else { return HashSet::new() };
-        let floor = &track.floor;
-        let mut ids: HashSet<String> = floor.blocks.iter().map(|b| b.id.clone()).collect();
-        ids.extend(floor.containers.iter().map(|k| k.id.clone()));
-        ids.extend(floor.islands.iter().map(|i| i.id.clone()));
-        for step in track.entries.iter().flat_map(|e| &e.applied.steps) {
-            match step {
-                Step::Splice(s) => {
-                    ids.extend(s.blocks.iter().map(|b| b.id.clone()));
-                    ids.extend(s.islands.iter().map(|i| i.id.clone()));
-                }
-                Step::Island(IslandStep::Insert { island, .. }) => {
-                    ids.insert(island.id.clone());
-                }
-                Step::Container(ContainerStep::Set(k)) => {
-                    ids.insert(k.id.clone());
-                }
-                _ => {}
-            }
-        }
-        ids
     }
 
     /// The value `base` named at `target` and the change from it to the

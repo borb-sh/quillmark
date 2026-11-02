@@ -111,4 +111,13 @@ pub mod prefix {
     pub const ROW: &str = "r";
     pub const COLUMN: &str = "k";
     pub const SLOT: &str = "s";
+
+    /// The prefix a container of `kind` mints under.
+    pub fn container(kind: &crate::model::ContainerKind) -> &'static str {
+        match kind {
+            crate::model::ContainerKind::List { .. } => LIST,
+            crate::model::ContainerKind::Item { .. } => ITEM,
+            crate::model::ContainerKind::Quote => QUOTE,
+        }
+    }
 }
