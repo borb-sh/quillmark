@@ -61,10 +61,11 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 
 - a `\r`, a bidi control, or a line separator other than `U+2028` in the text;
 - a block count other than the segment count, or an island count other than the slot count;
-- an id that is empty, longer than 128 scalar values, or holds whitespace, a control or a slot, and an id held twice: blocks, containers and islands each in their scope, anchors once over the value and every slot;
+- a block, container or island id that is empty, longer than 128 scalar values, or holds whitespace, a control or a slot, an anchor id that is empty (the rest of an anchor id is the host's), and an id held twice: blocks, containers and islands each in their scope, anchors once over the value and every slot;
 - a path naming a missing container, a path whose kinds do not nest (an item only right after a list, a list only right before an item), or one nesting past `MAX_NESTING_DEPTH` (12);
-- a container whose blocks are not one contiguous run, or that sits under two different parent paths;
+- a container whose blocks are not one contiguous run, that sits under two different parent paths, or that no block's path names;
 - a heading holding a hard break, a rule holding text, a code block holding an island, and a block-only island (a table) sharing its block with anything else;
+- an island whose props do not read as its type's (a table whose grid names a row, column or cell no slot backs, or a slot no cell names), and a table of more than `MAX_TABLE_CELLS` cells;
 - a mark or anchor past the text, an empty mark, and a slot holding anything but paragraphs in no container;
 - more marks on one text, a field's or a slot's, than `max_marks` of its length: `MARKS_BASE` (64) and `MARKS_PER_CHAR` (4) per character, and more than `MAX_ANCHORS` (100 000) anchors over the value and its slots.
 
@@ -74,7 +75,9 @@ Normalizing spends the mark bound before validating can refuse: a mark crosses a
 
 ## Ids
 
-Blocks, containers, islands, slots, table rows and table columns carry structural ids. Import, migration and a revise mint them deterministically, `{prefix}{n}` past the highest number a value already holds under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise or replace re-mints an id it introduces that the value it lands on holds (§ "Writing a value"). A live client mints its own. Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
+Blocks, containers, islands, slots, table rows and table columns carry structural ids. Import, migration and a revise mint them deterministically, `{prefix}{n}` past the highest number a value already holds under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise or replace re-mints an id it introduces that the value it lands on holds (§ "Writing a value").
+
+A live client mints its own by a rule of its own; a write re-mints one it introduces that the value holds, and a rebase renames one two writers both introduced (§ "Rebasing a change"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
 
 ## Changes
 
@@ -109,11 +112,11 @@ A writer outside the live session therefore passes the base. A stale write then 
 
 A split inserts a `\n` whose record names the right half; the left half keeps its id, since the record that opens it does not move. A join deletes the right block's `\n` and record, and the joined block keeps the left's id and kind. Splits and joins therefore never rewrite a record a concurrent `setBlock` could be aimed at. Collab's Y form keeps the same boundary, so a split or a join lowers into Y as an insertion or a deletion alone.
 
-Enter at the start of a block keeps the text on its id when the producer inserts the `\n` ahead of the one that opens the block, so the new record names the empty block before it. No `\n` carries the first block's record, so no splice reaches its id: Enter at the start of the first block moves its text to the new record, and `diff` and `replace` keep the stored first id. `gestures::split_block` and `join_blocks` build these changes, the one implementation every editor binding lowers Enter and Backspace through.
+Enter at the start of a block keeps the text on its id when the producer inserts the `\n` ahead of the one that opens the block, so the new record names the empty block before it. No `\n` carries the first block's record, so no splice reaches its id: Enter at the start of the first block moves its text to the new record, and `diff` and `replace` keep the stored first id. `gestures::split_block` and `join_blocks` build these changes; WASM binds them for an editor, and the one editor today lowers each transaction by a whole-field `diff` instead ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
 
-`apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and `gestures::inherited_marks(content, at)` is their one implementation: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family carries over. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
+`apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and `gestures::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family carries over. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
 
-The structural gestures build their changes the same way, so no editor builds a container path. A container a gesture opens takes an id no container holds.
+The structural gestures build their changes the same way, so an editor that lowers through them builds no container path; the one editor today builds its own. A container a gesture opens takes an id no container holds.
 
 - `delete_range` deletes a range. Where it runs from a block's start into a later block, the block that keeps the text takes the kind, attributes and path of the block the range ends in, as ProseMirror's delete does, and keeps the first block's id.
 - `indent` (Tab) nests the items of the innermost list holding a range under the item before them, joining that item's list where it ends in one and else opening a list of their own list's kind.
@@ -138,11 +141,11 @@ Text deleted under a range anchor shrinks it to what survives. An anchor whose t
 
 `rebase(base, change, over)` moves `change` past `over`, both made from `base`, after ProseMirror's `rebaseSteps` (`src/rebase.rs`). It takes the value because each step re-checks itself on the value it now reads, and because a change's maps read off its normalized form.
 
-Each step maps through the inverse of its change's earlier steps, then `over`, then those steps rebased, each linked to its inverse as its mirror. It then applies to what `over` and the rebased steps before it left. The answer is the writer's own steps at their mapped offsets, with the quotes and blocks it gave.
+Each step maps through the inverse of its change's earlier steps, then `over`, then those steps rebased, each linked to its inverse as its mirror. It then applies to what `over` and the rebased steps before it left. The answer is the writer's own steps at their mapped offsets, with the quotes and blocks it gave. Rebase is an ordered transform, not a convergent one: whether a write lands, and the value it leaves, can depend on which write reached the log first, but for the pairs law 7 names.
 
 | Step | Maps | Conflicts where |
 |---|---|---|
-| `splice` | the edges of its deletion inward; an insert as a point anchor | `over` deleted any of its deletion, or the text there no longer reads `delete`; an insert where `over` deleted the text on both sides; `over` changed an island it deletes, or the record of a block it deletes and writes back |
+| `splice` | the edges of its deletion inward; an insert as a point anchor | `over` deleted any of its deletion, or the text there no longer reads `delete`; an insert where `over` deleted the text on both sides; `over` changed an island it deletes, or the record of a block it deletes |
 | `mark`, range `anchor` | its edges inward, as `apply` moves a range anchor | `over` deleted the whole range, or the range no longer reads its `quote` |
 | point `anchor`, island insert | as `apply` moves a point anchor | an insert where `over` deleted the text on both sides, or `block` no longer holds `at` |
 | `setBlock`, `container`, island props | unchanged | the id is gone or `over` removed it, or `over` changed what the step overwrites |
@@ -239,7 +242,7 @@ A single step cannot break the model, but two valid concurrent edits can merge i
 | A range anchor at zero width | Its text was deleted while another peer moved it | Dropped and reported |
 | A table cell naming no slot of its own | A concurrent row insert and column insert | The cell gets an empty slot, its id the row and column ids joined |
 
-The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` carries in slot order, `null` where it carries none; an `islands` array pairs with the slots in order. And an anchor placed as a range carries `range: true`, since a range collapsed to zero width cannot otherwise be told from a point.
+The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` carries in slot order, `null` where it carries none; an `islands` array pairs with the slots in order. And an anchor placed as a range carries `range: true`, since a range collapsed to zero width cannot otherwise be told from a point. A v1 value, `lines[]` with no `blocks`, is read as `migrate::from_lines` lifts it.
 
 Beyond the table, repair is total over any value shaped as content: it keeps marks and anchors within their bounds (§ Validity), removes forbidden characters, mints a missing block record and drops an extra one, re-mints a bad or duplicate id, drops a slot under a bad key, mends a table grid a concurrent row and column edit broke, clips marks and anchors to the text, and turns a rule holding text or a code block holding an island into a paragraph. A fresh id is the ids involved joined by `-`, with a numeric suffix where that id is taken, so two peers writing back one repair write the same bytes.
 

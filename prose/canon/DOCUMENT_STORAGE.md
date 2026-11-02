@@ -210,7 +210,7 @@ whole (`ids::is_ext_name`), decodes into the axis's `Ext` member with its
 hash does not move. A reader holds it without knowing it: validation is
 structural only (the name, the ranges, and the JSON depth of its bag), and the
 renderers read an `x-` block as a paragraph, an `x-` mark as no formatting, and
-an `x-` island as a placeholder. Steps may set and remove one. Containers hold
+an `x-` island as nothing. Steps may set and remove one. Containers hold
 no `x-` name: a container kind is a nesting rule (an item only after a list),
 and a reader cannot check a path through a container whose rule it does not
 know.
@@ -421,9 +421,10 @@ is therefore **uniqueness**, not `id == isl-{index}`.
 
 A step names the ids of what it lands, and the apply refuses one already live
 in its scope. A producer minting in a step is bound by the same rule where it
-wants equal edits to reach equal bytes; a live client mints its own at random,
-so a live document's hash is stable from the moment it is stored rather than
-equal to a cold import's. Merge repair derives each id it mints from the ids
+wants equal edits to reach equal bytes; a live client mints its own by a rule
+of its own, and a write re-mints one it introduces that the value holds, so a
+live document's hash is stable from the moment it is stored rather than equal
+to a cold import's. Merge repair derives each id it mints from the ids
 involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 
 A markdown revise keeps the ids: `diff::align` gives the value read from the

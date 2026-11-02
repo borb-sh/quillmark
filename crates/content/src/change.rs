@@ -166,8 +166,9 @@ pub struct Applied {
     pub content: Content,
     /// The change in its normalized form: each splice's `removed` filled in,
     /// each mark and anchor step's `quote` and each island insert's `block`,
-    /// each `setBlock` naming its kind and attributes, and a container step
-    /// removing each container the change left unused.
+    /// each `setBlock` naming the fields its writer gave, a path-only one
+    /// staying path-only, and a container step removing each container the
+    /// change left unused.
     pub applied: Change,
     /// Each anchor the value held before and holds nowhere after, unless an
     /// `anchor` step removed it, as it read before, in reading order.

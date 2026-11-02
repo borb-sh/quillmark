@@ -92,7 +92,7 @@ over its keys: read `receipt["warnings"]`.
   `inheritedMarks` take a `Content` and answer the `Change` to apply, offsets
   in UTF-16. `mapPos` carries a position across a `Change`, where it took a
   line delta, and answers a `MapResult`.
-- feat(python)!: **the same surface in snake case**, offsets in code points.
+- feat(python)!: **the content lane in snake case**: `apply`, `revise` and `replace` on the document, and the `invert` and `diff` helpers, offsets in code points; the gestures, `map_pos` and `repair` are WASM-only.
 - feat(core)!: **a content write names its card by `$id`.** An id no card
   holds refuses with `edit::unknown_card_id`. `Document::card_index` and
   `card_by_id` find a card by id. WASM `Addr.card` and Python `card=`
