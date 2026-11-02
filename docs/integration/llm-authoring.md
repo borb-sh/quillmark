@@ -64,7 +64,7 @@ const current = quill.toAuthoring(doc)
 A model revising a long document reads and writes one address at a time, rather than the whole document each turn (JavaScript only):
 
 ```javascript
-const read = doc.annotatedAt({ card: 0 })            // the body of cards[0], with its anchor tags
+const read = doc.toMarkdown({ card: 0 }, { annotated: true }) // the body of cards[0], with its anchor tags
 const reply = await model(read.markdown)              // the model edits that markdown alone
 quill.writer(doc).card(0).reviseBody(reply, { baseMarkdown: read.markdown })
 ```

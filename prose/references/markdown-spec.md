@@ -926,19 +926,19 @@ the typed mutators (`set_quill` / `set_kind` / `set_id` / `set_ext` /
 ### 9.1 Canonical Idempotence
 
 A document in canonical form round-trips byte-equal under both
-`toMarkdown ∘ fromMarkdown` and `fromStored ∘ toStored`:
+`toMarkdown ∘ parse` and `fromStored ∘ toStored`:
 
-- **`toMarkdown(fromMarkdown(canonical)) == canonical`**: the canonical
+- **`toMarkdown(parse(canonical)) == canonical`**: the canonical
   form is a parse-emit fixed point.
-- **`toMarkdown(fromMarkdown(arbitrary)) == toMarkdown(fromMarkdown(
-  toMarkdown(fromMarkdown(arbitrary))))`**: at most one round-trip
+- **`toMarkdown(parse(arbitrary)) == toMarkdown(parse(
+  toMarkdown(parse(arbitrary))))`**: at most one round-trip
   canonicalises any valid input; further round-trips are no-ops.
 - **`toStored(fromStored(toStored(x))) == toStored(x)`** for any in-memory
   `Document x`: JSON serialization is byte-deterministic within a schema
   version.
 - **The Markdown and JSON forms agree:** `toMarkdown(fromStored(toStored(x)))
   == toMarkdown(x)` for every `Document x` produced by
-  `fromMarkdown(arbitrary)`. The two persistence formats canonicalise to
+  `parse(arbitrary)`. The two persistence formats canonicalise to
   the same in-memory model.
 
 Arbitrary (non-canonical) input parses successfully when it satisfies §1–8

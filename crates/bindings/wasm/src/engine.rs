@@ -1218,7 +1218,7 @@ impl Document {
     /// A bare string is `Addr` shorthand for `{ field }`; `{ card, field }`
     /// targets a composable card. An **absent** field returns `undefined`, and an
     /// absent `addr.field` reads the body markdown. An undeclared name throws
-    /// `edit::unknown_field` (the authority `bodyMarkdown` lacks), a `richtext`
+    /// `edit::unknown_field` (the authority `Document.toMarkdown` lacks), a `richtext`
     /// value that does not decode throws `edit::field_decode`, and an
     /// out-of-range `addr.card` throws.
     ///

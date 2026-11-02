@@ -57,7 +57,7 @@ A selector naming none is path-strict, as is the rest of every path: a path nami
 
 ## Drift
 
-`revise` can keep an anchor on different words: it relocates a moved quote to the first occurrence overlapping inserted text, and a word-level rewrite can leave both ends of a range over new text. `reattach` never sees those anchors.
+Every revise verb is one revise at an address ([CONTENT.md](CONTENT.md) § "Writing a value"), and it can keep an anchor on different words: it relocates a moved quote of four characters or more to the first occurrence overlapping inserted text, and a word-level rewrite can leave both ends of a range over new text. `reattach` never sees those anchors.
 A write's `movedAnchors` reports drift by position, a point included: it names each surviving anchor the write moved, with its quote before and after and the first `reason` that holds.
 
 - `position`: an `anchor` step put it other than where the write's text edits carry it, as a writer moving a kept tag does, or in another slot.

@@ -629,7 +629,7 @@ impl PyDocument {
 
     /// The main card's body as canonical Content-JSON (`{text, lines, marks,
     /// islands}`). For the markdown projection use
-    /// `quill.reader(doc).body_markdown()`.
+    /// `doc.to_markdown_at()`.
     #[getter]
     fn body<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let wire = quillmark_core::document::CardWire::from(self.inner.main());
