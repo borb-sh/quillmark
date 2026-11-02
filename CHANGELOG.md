@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.134.0 - 2026-11-02
 
 Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Every
 content value is the content model, and offsets in content values and changes
@@ -317,6 +317,147 @@ over its keys: read `receipt["warnings"]`.
 - docs(canon): **`COMMENTS.md` states the comment-anchor contract**: the
   thread outside the document, the id it shares with its anchor, the matching
   rule, drift, table cells, and the hosting rule. (#2349)
+
+### Commits since v0.133.0
+
+- feat(content)!: indent, outdent, wrap and delete_range gestures, bound to WASM with mapPos
+- docs(core): overwrite_body's anchor-fate note names apply
+- refactor(content)!: cut the surface no caller reaches, and give the content write one path
+- docs(migrations): a content write's revise or replace refuses to drop an x- island
+- refactor(content): a diff answers the steps it found, without a whole-text fallback no input reaches
+- fix(core): a stale revise never finds the id it read on a block minted since
+- fix(content)!: a rebased splice conflicts where a block record it deletes changed since
+- fix(content): the word diff keeps an island slot out of the word beside it
+- feat(core)!: a card's change log folds old writes into one snapshot, bounded by steps
+- test(content): the overwrite law holds a dropped island to what the change read
+- fix(core): two stale revises that each add a paragraph elsewhere both land
+- test(content): the change-law generator reaches slot edits, island splices, containers and new rows
+- docs(canon): a write with no base is refused only where a precondition reads text
+- fix(content): raw_to_scalars saturates an offset wider than usize
+- fix(python): apply_all resolves every card id before any write
+- fix(content): repair drops a slot under a bad key and keeps the rest
+- fix(content): repair keeps an x- block holding a block island alone
+- fix(content)!: a rebased step by id conflicts where it would overwrite what `over` changed
+- test(core): the args canon samples edit::drops_ext_island
+- feat(core)!: a revise or replace refuses to remove an x- island
+- fix(content): a diff reaches an x- island whose slots changed
+- fix(content): a table with no rows refuses instead of panicking
+- feat(content): repair is how a merged state reads, and only a single writer writes back a rule that inserts
+- docs(canon): a host namespaces the anchor ids it mints
+- feat(bindings)!: the render seam and the typed revise's delta speak the host's units
+- feat(content): `gestures::inherited_marks`, the one implementation of the growth defaults
+- ci: a release-build speed gate for a long change
+- perf(core): content_hash digests the content value as written
+- feat(content)!: apply runs a change in one pass, and a block or island keeps its id when a change moves it
+- feat(core)!: a stale base rebases the write over the change since, through `rebase(base, change, over)`
+- feat(content)!: reserved `x-` names on the block, mark and island vocabularies
+- feat(content)!: `map_pos` answers a `MapResult`, and `Mapping` links maps to their mirrors
+- feat(content)!: mark, anchor and island-insert steps hold to what their writer read
+- feat(core)!: a content write names its card by `$id`, and its receipt every anchor it loses
+- feat(bindings): splitBlock and joinBlocks, Python split_block and join_blocks
+- feat(content)!: a block's record rides the `\n` that opens it
+- feat(core)!: ship Content v2 in 0.134, under quillmark/document@0.134.0
+- docs: the content model in canon, the migration guide and the changelog
+- feat(content): repair a merged state into a valid value
+- feat(content)!: v2 write primitive in Python, word-aligned v2 diff
+- feat(wasm)!: speak the v2 content model at the JS boundary
+- feat(content): convert offsets to a host's units at the binding boundary
+- feat(core): add the content write primitive and its producers
+- feat(core)!: store the content model under quillmark/document@0.135.0
+- fix(content): cut marks at hard breaks so composing agrees with applying in turn
+- feat(content): add changes, their inverse and composition, and the diff producers
+- feat(content): add the content model, its wire form and the v1 migration
+- refactor(content): move the line-based model under `lines`
+- refactor(wasm)!: remove WASM API no consumer uses
+- refactor(core,pdf)!: remove public items nothing outside their crate uses
+- refactor(core): remove the unreleased reader.outline
+- chore: skip the workspace format commit in git blame
+- chore: format the workspace with cargo fmt, outside the content crate
+- chore: leave the content crate and its canon paragraph out of this PR
+- Revert "chore: format the workspace with cargo fmt"
+- fix(core): the YAML sanitizer strips serde-saphyr 2.0's API names
+- chore: skip the workspace format commit in git blame
+- chore: format the workspace with cargo fmt
+- build(deps): the PDF form backend rasters through Typst's hayro 0.7
+- refactor(wasm): share the JS test fixtures and the small runtime guards
+- refactor(wasm): shorten WasmError-to-JsValue call sites with js_err
+- refactor(core): add EditError::to_diagnostic for the bindings
+- test(backends): share the AcroForm walk and the repeated session builders
+- test(core): give the copied unit-test helpers one home in quill.rs
+- test(quillmark): share one in-memory quill builder across facade tests
+- test(content): fuzz a mark across a hard break
+- refactor(content)!: remove serial::line_kind_to_value
+- fix(content): a hard break into a table's own line clears
+- test: drop tests that restate derive output and constants
+- test(content): fold near-duplicate op, delta and model tests
+- test(core): drop subsumed document edit tests
+- test(core): trim the version tests
+- test(core): fold the DocPath round-trip tests into one table
+- test(wasm): drop the Proxy from the font parse-once test
+- test(content): fold the basic markdown import tests into one table
+- docs(cli): collapse the CLI README to a quick start and link the reference
+- docs(storage): name storage tags, not builds, and trim version-pinned asides
+- docs(canon): stop restating docs in PROGRAMMATIC and VERSIONING
+- docs(bindings): cut the wasm and Python READMEs to their language-specific surface
+- docs(storage): state the storage-tag vocabulary list once and link to it
+- docs(migrations): merge the 0.131 guide's two Stored rows sections
+- refactor: fold thin wrappers and repeated error builders
+- docs: correct stale pointers in canon, content docs and the wasm typings
+- chore: drop unused dev-deps and stale manifest and CI notes
+- fix(python): hash_at raises edit::index_out_of_range for a card past the end
+- ci(release): publish to PyPI only when PUBLISH_PYPI is set
+- build(deps): Bump serde-saphyr from 1.3.0 to 2.0.0
+- build(deps): Bump pyo3 from 0.29.2 to 0.30.1
+- build(deps): Bump the cargo group across 1 directory with 4 updates
+- build(deps): Bump lopdf from 0.45.0 to 0.46.0
+- docs: keep "codec" to the markdown and literal codecs
+- docs: name the content-model functions apart from the codecs
+- docs(changelog): a null `$id` is no id
+- docs: a removed card's id is free to a later edit
+- fix(content): a tag right after a table's token pins the prose after it
+- perf(content): a reattach reads each surface once
+- docs: a null `$id` is no id
+- fix(core): a blank `$id` is no id
+- fix(core): a typed revise of a date or enum under a fresh hash is no stale read
+- fix(core): a dropped tag's hint reads without a run of spaces
+- fix(content): a cell's anchor reads back as no export loss
+- fix(core): a moved tag pins through a base merge
+- fix(core): a plain read of an unchanged value writes the writer's own
+- fix(content): a token written twice copies no cell anchor
+- fix(core): a new card in a removed card's place takes none of its identity
+- feat(core): an outline and the annotated read of one address
+- feat(content)!: a cell's anchor joins the comment contract
+- feat(content)!: a revise reads the annotated read back
+- feat(core)!: every composable card carries a $id
+- fix(content): the export's mark priority reads the spans as written
+- feat(content)!: an export names what it does not spell
+- fix(content): an edge-cut anchor context agrees as far as it reaches
+- docs: the base hash pairs with its lane, and a conflict is retried from a fresh read
+- feat(bindings): writer.hash and hashAt read the typed base hash; a null baseHash throws
+- fix(core): a base hashes through the schema and merges a document conformed
+- docs: the write precondition in BINDINGS, ERROR and COMMENTS
+- feat(python): base_hash and base_markdown on the writer's revise verbs
+- feat(wasm): BaseOptions on every revise, hashAt, hash and hashContent
+- feat(core)!: a revise checks a base hash or merges the markdown its writer read
+- feat(content): merge_lines, a three-way merge by line
+- fix(content): a quote of island slots alone is placed on its context
+- test(content): compare the orphaned receipt to a slice of one
+- test(wasm): reattach tests keep to the wire
+- docs: the guide and changelog name revise_import's Normalized base
+- docs(canon): COMMENTS.md id assumption and ERROR.md receipt shape
+- fix(python): revise receipts keep Diagnostic warnings
+- refactor(core): dropped_anchors reads the Normalized its callers hold
+- refactor(core): reattach once per path, each id answered once
+- fix(content): reattach skips a malformed anchor and answers each id once
+- test(content): the located-range property reaches locate
+- fix(content): selectors keep island slots, so an anchor beside one survives reattach
+- docs(canon): COMMENTS.md, the comment-anchor contract
+- feat(python)!: revise verbs return the whole receipt
+- feat(wasm): anchorContexts, reattach and droppedAnchors receipts
+- feat(core): Document::reattach and Revised.dropped_anchors
+- feat(content): anchor contexts and exact re-attachment
+- feat(core,wasm): the revise receipt reports the card alignment
+- build(deps): Bump the actions group with 6 updates
 
 ## v0.133.0 - 2026-10-29
 
