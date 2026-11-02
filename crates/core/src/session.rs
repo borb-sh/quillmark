@@ -6,7 +6,6 @@ use crate::{
     types::RenderOptions,
 };
 pub use quillmark_content::lines::delta::{Assoc, Delta, Op};
-pub use quillmark_content::lines::ops::{ApplyError, ChangeBundle, IslandOp, LineOp, MarkOp};
 use quillmark_content::units::{self, Units};
 use std::sync::OnceLock;
 

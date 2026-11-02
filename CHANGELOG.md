@@ -18,6 +18,13 @@ over its keys: read `receipt["warnings"]`.
   apart by container id. The line form moves under `quillmark_content::lines`
   and stays what the renderers and markdown codecs read; `migrate` moves
   values between the two, minting ids deterministically.
+- feat(content)!: **the line form's op lane is removed.** `lines::ops`
+  (`ChangeBundle`, `LineOp`, `MarkOp`, `IslandOp` and their decoders),
+  `Card::apply_body_change`, `Card::apply_field_change`, the `Normalized`
+  `apply_*` methods and `EditError::ContentApply` go: a `Change` through
+  `Card::apply` is the one edit. `quillmark::session` no longer re-exports
+  them. The parity corpus's op-wire cell reads the `Change` `diff` takes
+  from the empty value.
 - feat(content): **`Change`, the one way a value is edited.** Splice,
   `setBlock`, `container`, `mark`, `anchor`, `island` and `nested` steps,
   with `invert`, `compose`, `map_pos` and a word-aligned `diff`, each a
@@ -31,12 +38,11 @@ over its keys: read `receipt["warnings"]`.
   first piece of a block it splits beside an island the block's record.
 - feat(content): **`gestures::split_block` and `join_blocks`** build Enter
   and Backspace as one splice each, inserting ahead of a block's opening
-  `\n` at its start so the text keeps its id. WASM `splitBlock` /
-  `joinBlocks`, Python `split_block` / `join_blocks`.
+  `\n` at its start so the text keeps its id.
 - feat(content): **`gestures::inherited_marks(content, at)`** answers the
   marks typed text carries: `strong`, `emph`, `underline` and `strike` grow
   at their end, `code`, `link` and an `x-` mark at neither edge,
-  `font_family` at both. WASM `inheritedMarks`, Python `inherited_marks`.
+  `font_family` at both.
 - feat(bindings)!: **every WASM offset is UTF-16.** A region's `span`,
   `positionAt`'s and `locate`'s `pos`, a typed revise's `Revised.delta` and
   the deltas `reattach` takes count in UTF-16 code units, as content values
@@ -62,20 +68,19 @@ over its keys: read `receipt["warnings"]`.
 - feat(core)!: **`Card::apply`, `revise` and `replace`** write a body or
   richtext field and answer a `Receipt`: the applied change, the new hash,
   and the dropped and moved anchors. Each takes the hash its writer read and
-  refuses a stale one with `edit::stale_base`. `Document::apply_all` is all
-  or nothing.
-- feat(wasm)!: **`doc.read`, `apply`, `applyAll`, `revise`, `replace`,
-  `annotated` and `hash(addr)`, and `invert`, `compose`, `mapPos`, `diff` and
-  `repair`**, offsets in UTF-16 code units. Every content payload crossing
-  the binding is the model. `overwrite`, `reviseContent` and `applyChange`
-  stay one release as names for `replace` and `apply`; `mapMarks` is removed.
+  refuses a stale one with `edit::stale_base`. `Card::write` takes the
+  `Edit` each builds its change from, and `write_in` takes a host's units.
+- feat(wasm)!: **`doc.read`, `apply`, `revise`, `replace`, `annotated` and
+  `hash(addr)`, and `invert` and `diff`**, offsets in UTF-16 code units.
+  Every content payload crossing the binding is the model. `overwrite`,
+  `reviseContent`, `applyChange` and `mapMarks` are removed: call `replace`
+  and `apply`. `compose`, `rebase`, `mapPos`, the gestures and `repair` stay
+  unbound until the editor or collaboration calls them.
 - feat(python)!: **the same surface in snake case**, offsets in code points.
-- feat(core)!: **a content write names its card by `$id`.** `Write.card`
-  is a `CardRef` (`Main` or `Id`), `Document::apply_all` resolves every id
-  before it writes, and an id no card holds refuses with
-  `edit::unknown_card_id`. `Document::card_index`, `card_by_id` and
-  `card_by_id_mut` find a card by id. WASM `Addr.card` and Python `card=`
-  take a card's `$id` on every verb, and `apply`, `applyAll`, `revise` and
+- feat(core)!: **a content write names its card by `$id`.** An id no card
+  holds refuses with `edit::unknown_card_id`. `Document::card_index` and
+  `card_by_id` find a card by id. WASM `Addr.card` and Python `card=`
+  take a card's `$id` on every verb, and `apply`, `revise` and
   `replace` take nothing else, so a card moved or inserted between a read and
   its write, its body equal to the one read, no longer takes the write.
 - feat(content)!: **the receipt names every anchor a change loses.** An
@@ -85,13 +90,10 @@ over its keys: read `receipt["warnings"]`.
   those its own `anchor` steps removed. `Applied.dropped` and
   `Receipt.dropped_anchors` are `change::Dropped`, an `AnchorContext` and a
   `SlotRef`; WASM spells it `DroppedAnchor`.
-- feat(content)!: **`diff` says when it rewrites a whole text, and refuses an
-  invalid target.** `diff`, `diff_carrying` and `replace` return a `Diff`, or
-  the `Invariant` an invalid `after` breaks, where they returned zero steps.
-  `Diff::whole_text`, `Revision::whole_text` and `Receipt::whole_text` mark a
-  value or slot no step-wise change reached, which the bindings raise as an
-  `edit::whole_text_diff` warning; WASM and Python `diff` answer
-  `{ change, warnings }`.
+- feat(content)!: **`diff` refuses an invalid target.** `diff` and `replace`
+  return the `Invariant` an invalid `after` breaks, where they returned zero
+  steps, and reach every valid one step-wise. WASM and Python `diff` answer
+  the `Change`.
 - feat(content)!: **every offset-addressed step can hold to what its writer
   read.** `mark` steps and an `anchor` placement take an optional `quote`,
   the text their range covered, and an `island` insert an optional `block`,
@@ -106,8 +108,7 @@ over its keys: read `receipt["warnings"]`.
   around it. A splice that deletes an island and names none in `removed` is
   refused, where it mapped a position inside that island as kept. New
   `mapping::StepMap` and `Mapping`, a list of step maps with mirror links, so
-  a position a step deleted and its rebased mirror put back maps home. WASM
-  `mapPos` answers `MapResult`, Python `map_pos` its dict.
+  a position a step deleted and its rebased mirror put back maps home.
 - feat(content)!: **reserved `x-` names on three vocabularies.** A block
   kind, mark type or island type spelled `x-` and more decodes into
   `BlockKind::Ext`, `MarkKind::Ext` or `IslandType::Ext`, its attrs or props
@@ -131,8 +132,7 @@ over its keys: read `receipt["warnings"]`.
   or block `over` changed, so a diff's `setBlock` names only the fields it
   changes.
   `Mapping::map_point` and `project` map
-  as `apply` moves a point anchor and inside one slot. WASM `rebase`,
-  Python `rebase`.
+  as `apply` moves a point anchor and inside one slot.
 - feat(core)!: **a stale `base` rebases the write instead of refusing it.**
   Each card keeps, in memory only, a log of its recent writes per value: one
   snapshot of the value, and each write's normalized change and the hash it

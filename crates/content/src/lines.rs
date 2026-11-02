@@ -13,6 +13,5 @@ pub mod import;
 pub mod island;
 pub mod model;
 pub mod normalize;
-pub mod ops;
 pub mod serial;
 pub mod traverse;

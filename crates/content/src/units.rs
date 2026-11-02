@@ -76,7 +76,6 @@ pub(crate) fn split_at(u: impl Units, s: &str, n: usize) -> Option<(&str, &str)>
 enum Dir {
     In,
     Out,
-    Raw,
 }
 
 /// Where a text's characters of other than one unit sit, so an offset
@@ -113,7 +112,6 @@ impl Index {
         match dir {
             Dir::In => self.to_scalars(n),
             Dir::Out => Some(self.to_units(n)),
-            Dir::Raw => Some(self.floor(n)),
         }
     }
 
@@ -151,18 +149,6 @@ impl Index {
         match self.locate(n) {
             (_, Some(_)) => None,
             (p, None) => (p <= self.len).then_some(p),
-        }
-    }
-
-    /// The scalar offset `n` units in, inside a character taken to its start,
-    /// and past the end kept as far past it.
-    fn floor(&self, n: usize) -> Usv {
-        if n >= self.units {
-            return self.len + (n - self.units);
-        }
-        match self.locate(n) {
-            (_, Some(at)) => at,
-            (p, None) => p,
         }
     }
 
@@ -268,16 +254,8 @@ pub fn value_from_scalars(v: &mut Value, u: impl Units) {
     value_offsets(v, u, Dir::Out);
 }
 
-/// Move a [raw](crate::repair::Raw) value's offsets from `u` to scalar values
-/// in place, an offset inside a character taken to its start, for
-/// [`repair`](crate::repair::repair) to settle.
-pub fn raw_to_scalars(v: &mut Value, u: impl Units) {
-    value_offsets(v, u, Dir::Raw);
-}
-
 fn value_offsets(v: &mut Value, u: impl Units, dir: Dir) -> Option<()> {
-    let raw = matches!(dir, Dir::Raw) && v.get("text").is_some_and(Value::is_string);
-    if !raw && !is_content_value(v) {
+    if !is_content_value(v) {
         return Some(());
     }
     let index = Index::new(u, v["text"].as_str().unwrap_or_default());
@@ -291,15 +269,12 @@ fn value_offsets(v: &mut Value, u: impl Units, dir: Dir) -> Option<()> {
             }
         }
     }
-    let islands: Vec<&mut Value> = match v.get_mut("islands") {
-        Some(Value::Array(list)) => list.iter_mut().collect(),
-        Some(Value::Object(map)) if raw => map.values_mut().collect(),
-        _ => Vec::new(),
-    };
-    for island in islands {
-        if let Some(Value::Object(slots)) = island.get_mut("slots") {
-            for slot in slots.values_mut() {
-                value_offsets(slot, u, dir)?;
+    if let Some(Value::Array(islands)) = v.get_mut("islands") {
+        for island in islands {
+            if let Some(Value::Object(slots)) = island.get_mut("slots") {
+                for slot in slots.values_mut() {
+                    value_offsets(slot, u, dir)?;
+                }
             }
         }
     }
@@ -332,7 +307,7 @@ fn steps(c: Content, steps_: &[Step], u: impl Units, dir: Dir) -> Result<Change,
     for (n, step) in steps_.iter().enumerate() {
         let conv = step_in(&draft, &index, step, n, u, dir)?;
         let scalar = match dir {
-            Dir::In | Dir::Raw => &conv,
+            Dir::In => &conv,
             Dir::Out => step,
         };
         run.step(&mut draft, scalar, n).map_err(|e| renumber(e, n))?;

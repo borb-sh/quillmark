@@ -609,7 +609,7 @@ impl QuillConfig {
                     }
                 };
                 if json_value.is_object() {
-                    let rt = crate::document::lines_of(json_value).map_err(|e| {
+                    let rt = quillmark_content::model::Content::lines_from_value(json_value).map_err(|e| {
                         CoercionError::uncoercible(
                             path,
                             "<object>",

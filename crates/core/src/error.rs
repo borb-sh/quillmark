@@ -806,10 +806,7 @@ mod args_canon {
                 target: "integer".into(),
                 message: "x".into(),
             },
-            EditError::ContentApply(quillmark_content::lines::ops::ApplyError::LineOutOfRange {
-                line: 3,
-                lines: 1,
-            }),
+            EditError::Change(quillmark_content::change::ApplyError::Stale { step: 0 }),
             EditError::InvalidPayload(crate::document::edit::PayloadViolation::DuplicateField {
                 key: "title".into(),
             }),
@@ -985,8 +982,6 @@ card_kinds:
             .find(|d| d.code.as_deref() == Some(crate::document::DROPPED_CONSTRUCT))
             .expect("no `parse::dropped_construct` sample from the drop probe");
         add(crate::document::DROPPED_CONSTRUCT, sample.args.clone());
-        let whole = crate::document::whole_text_diff();
-        add(crate::document::WHOLE_TEXT_DIFF, whole.args);
         let reminted = crate::document::Document::parse(
             "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~\n$kind: note\n$id: -x\n~~~\n",
         )

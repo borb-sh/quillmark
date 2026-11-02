@@ -1,7 +1,7 @@
 use quillmark_content::change::{AnchorStep, Change, Splice, Step, apply, invert};
 use quillmark_content::model::{Anchor, Block, BlockKind};
 
-use crate::document::{Card, CardRef, EditError, LOG_STEPS, Target, Write};
+use crate::document::{Card, EditError, LOG_STEPS, Target};
 
 use super::parse;
 
@@ -330,30 +330,9 @@ fn a_field_takes_a_change_from_empty() {
     assert_eq!(doc.main().read(Target::Field("subject")).unwrap().text, "Hello");
 }
 
-/// `apply_all` lands every write or none, and resolves every card id before
-/// it applies any write: an unknown id refuses ahead of a stale base.
-#[test]
-fn apply_all_is_all_or_nothing() {
-    let mut doc = parse(SOURCE);
-    let held = doc.clone();
-    let writes = [
-        Write { card: CardRef::Main, target: Target::Body, change: split_at(12, "b9"), base: None },
-        Write { card: CardRef::Main, target: Target::Field("subject"), change: Change::new(Vec::new()), base: Some("stale") },
-    ];
-    let (at, err) = doc.apply_all(&writes).unwrap_err();
-    assert_eq!((at, err.code()), (1, "edit::stale_base"));
-    assert_eq!(doc, held);
-    let unknown = Write { card: CardRef::Id("nope"), ..writes[0].clone() };
-    let (at, err) = doc.apply_all(&[writes[1].clone(), unknown]).unwrap_err();
-    assert_eq!((at, err.code()), (1, "edit::unknown_card_id"));
-
-    let receipts = doc.apply_all(&writes[..1]).unwrap();
-    assert_eq!(receipts[0].hash, doc.main().hash_of(Target::Body).unwrap());
-}
-
-/// A write names its card by id, so a card moved or inserted ahead of it
-/// between the read and the write, its body equal to the one read, leaves
-/// the write on the card its writer read.
+/// A write that finds its card by id, after a card moved or was inserted
+/// ahead of it since the read, its body equal to the one read, lands on the
+/// card its writer read.
 #[test]
 fn a_write_lands_on_the_card_its_writer_read() {
     let three = "~~~\n$quill: q\n~~~\n\n~~~card-yaml\n$kind: note\n$id: aaa\n~~~\n\nHello\n\n\
@@ -373,13 +352,9 @@ fn a_write_lands_on_the_card_its_writer_read() {
         let mut doc = parse(three);
         let base = doc.card_by_id("bbb").unwrap().hash_of(Target::Body).unwrap();
         shuffle(&mut doc);
-        let write = Write {
-            card: CardRef::Id("bbb"),
-            target: Target::Body,
-            change: Change::new(vec![Step::Splice(Splice::new(5, "", " world"))]),
-            base: Some(&base),
-        };
-        doc.apply_all(&[write]).unwrap();
+        let at = doc.card_index("bbb").unwrap();
+        let change = Change::new(vec![Step::Splice(Splice::new(5, "", " world"))]);
+        doc.card_mut(at).unwrap().apply(Target::Body, &change, Some(&base)).unwrap();
         let written: Vec<String> = bodies(&doc).into_iter().filter(|(_, t)| t != "Hello").map(|(id, _)| id).collect();
         assert_eq!(written, ["bbb"]);
         assert_eq!(doc.card_by_id("bbb").unwrap().body().text, "Hello world");

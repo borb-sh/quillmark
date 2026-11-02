@@ -567,57 +567,11 @@ pub(crate) fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
 // bag, so `{"type": "link", "url": "…"}` decodes. The two lanes answer that
 // oppositely. Storage (`Content::from_canonical_json`) stays lenient: content
 // stored in that spelling is beyond any migration's reach, a `richtext` field
-// resting as a content object under no schema tag. Authored (the `crate::lines::ops`
-// wire, and `overwrite` through [`from_authored_value`]) rejects it, the shape
-// meaning a stale copy of the encoding.
+// resting as a content object under no schema tag. Authored
+// ([`from_authored_value`]) rejects it, the shape meaning a stale copy of the encoding.
 //
 // The rule is narrow on purpose: a *legacy payload key* beside the name that
 // spelled it, nothing else, off the same frozen table [`payload`] reads.
-
-/// [`line_kind_from_value`] for the authored lane: a legacy payload sibling, or
-/// a `lang` the storage decode would reduce, is a shape error rather than a
-/// silent repair.
-pub(crate) fn line_kind_from_authored_value(v: &Value) -> Result<LineKind, ParseError> {
-    reject_line_kind_legacy(v)?;
-    reject_unwritable_lang(v)?;
-    line_kind_from_value(v)
-}
-
-/// A `lang` [`crate::lines::import::sanitize_lang`] would change is a shape error: the
-/// emitter writes it onto the fence header unquoted, so the storage lane's
-/// reduction of it is a repair the host did not ask for.
-fn reject_unwritable_lang(v: &Value) -> Result<(), ParseError> {
-    let Some(o) = v.as_object() else {
-        return Ok(());
-    };
-    if o.get("kind").and_then(Value::as_str) != Some("code") {
-        return Ok(());
-    }
-    let Some(lang) = payload(o, legacy_line_kind_keys("code"), "lang").and_then(Value::as_str)
-    else {
-        return Ok(());
-    };
-    if crate::lines::import::sanitize_lang(lang) != lang {
-        return Err(ParseError::Shape("code lang"));
-    }
-    Ok(())
-}
-
-/// [`container_from_value`] for the authored lane. See
-/// [`line_kind_from_authored_value`].
-pub(crate) fn container_from_authored_value(v: &Value) -> Result<Container, ParseError> {
-    reject_container_legacy(v)?;
-    container_from_value(v)?.ok_or_else(|| ParseError::UnknownName {
-        axis: "container",
-        name: v.get("container").and_then(Value::as_str).unwrap_or_default().to_string(),
-    })
-}
-
-/// [`mark_from_value`] for the authored lane. See [`line_kind_from_authored_value`].
-pub(crate) fn mark_from_authored_value(v: &Value) -> Result<Mark, ParseError> {
-    reject_mark_legacy(v)?;
-    mark_from_value(v)
-}
 
 /// The authored lane's verdict on a mark, without building it. Table cells are
 /// the only caller: [`parse_cell`] reads their marks leniently, so a cell mark
@@ -627,15 +581,6 @@ pub(crate) fn reject_unreadable_mark(v: &Value) -> Result<(), ParseError> {
     reject_unwritable_link_url(v)?;
     mark_from_value(v)?;
     Ok(())
-}
-
-/// [`island_from_value`] for the authored lane: an image `url` the markdown
-/// projection cannot write is a shape error rather than a silent rewrite, the
-/// rule [`line_kind_from_authored_value`] carries for a code fence's `lang`.
-pub(crate) fn island_from_authored_value(v: &Value) -> Result<Island, ParseError> {
-    reject_unwritable_image_url(v)?;
-    reject_unwritable_tex(v)?;
-    island_from_value(v)
 }
 
 /// A link `url` [`crate::lines::export::url_is_writable`] refuses is a shape error: the
@@ -1363,8 +1308,7 @@ mod tests {
     }
 
     /// A table whose grid pads past [`MAX_TABLE_CELLS`](crate::MAX_TABLE_CELLS)
-    /// slots is refused before the mint pads it, on the stored lane and the op
-    /// wire alike.
+    /// slots is refused before the mint pads it.
     #[test]
     fn a_table_past_its_cell_bound_is_refused() {
         let cell = serde_json::json!({"text": "", "marks": []});
@@ -1380,23 +1324,6 @@ mod tests {
         assert!(matches!(
             from_canonical_value(&content(props(rows))),
             Err(ParseError::Invalid(Invariant::TableTooLarge { cells, .. })) if cells == (rows + 1) * 1000
-        ));
-        let op = serde_json::json!({"op": "insert", "at": 0, "id": "i1", "type": "table", "props": props(rows)});
-        assert!(matches!(
-            crate::lines::ops::island_op_from_value(&op),
-            Err(ParseError::Invalid(Invariant::TableTooLarge { .. }))
-        ));
-    }
-
-    #[test]
-    fn deep_json_payload_is_rejected_on_the_op_wire() {
-        let deep = nested_arrays(1_000);
-        // An island's `props` is the one payload the op wire retains.
-        let op = serde_json::json!({"op":"insert","at":0,
-          "id":"i1","type":"image","props":deep});
-        assert!(matches!(
-            crate::lines::ops::island_op_from_value(&op),
-            Err(ParseError::Invalid(Invariant::JsonTooDeep { .. }))
         ));
     }
 
@@ -1853,17 +1780,6 @@ mod tests {
         }
     }
 
-    /// The authored wire refuses a `lang` the emitter cannot write, where the
-    /// storage decode reduces it so the blob still opens.
-    #[test]
-    fn an_unwritable_code_lang_is_refused_when_authored() {
-        let v = serde_json::json!({"kind": "code", "attrs": {"lang": "rust\ninjected line"}});
-        assert!(matches!(
-            line_kind_from_authored_value(&v),
-            Err(ParseError::Shape("code lang"))
-        ));
-    }
-
     /// The same split on a link or image `url`: CommonMark admits no line
     /// ending in a destination, so the whole-content authored door refuses one
     /// as deep as the values the projection writes, while storage keeps what it
@@ -2066,11 +1982,6 @@ mod tests {
                 (LineKind::Para, vec![Container::Quote { instance: 0 }]),
             ]
         );
-        let element = serde_json::json!({"container": "element", "attrs": {"$name": "keep"}});
-        assert!(matches!(
-            container_from_authored_value(&element),
-            Err(ParseError::UnknownName { axis: "container", .. })
-        ));
         assert!(matches!(
             from_authored_value(&stored),
             Err(ParseError::UnknownName { axis: "container", .. })

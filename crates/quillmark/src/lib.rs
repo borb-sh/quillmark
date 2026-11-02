@@ -50,7 +50,7 @@ pub use quillmark_core::{
     region::{
         ContentHit, FieldCoverage, HitGranularity, RenderedRegion, coverage, plate_addr_to_doc_path,
     },
-    session::{ChangeBundle, ChangeSet, Delta, LiveSession},
+    session::{ChangeSet, Delta, LiveSession},
     types::{Artifact, OutputFormat, RenderOptions},
     value::{PathSegment, QuillValue},
     version::QuillReference,

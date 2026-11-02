@@ -16,7 +16,6 @@ use quillmark_content::units::Units;
 use quillmark_content::lines::export::{AnchorRead, anchors_where};
 use quillmark_content::lines::import::ImportError;
 use quillmark_content::lines::model::Normalized;
-use quillmark_content::lines::ops::{ApplyError, ChangeBundle};
 
 use crate::document::base::{Base, BaseError};
 use crate::document::meta::{CardKindError, validate_composable_kind};
@@ -200,11 +199,6 @@ pub enum EditError {
         message: String,
     },
 
-    /// A content field-change bundle (text delta, line ops, mark ops) applied
-    /// out of bounds or broke an invariant normalization could not repair.
-    #[error("content apply failed: {0:?}")]
-    ContentApply(ApplyError),
-
     /// A content [`Change`](quillmark_content::change::Change) the value
     /// refused; the value is as it was.
     #[error("content change refused: {0}")]
@@ -259,7 +253,7 @@ impl EditError {
             EditError::FieldNotContent { .. } => "edit::field_not_content",
             EditError::FieldNotSingleLine { .. } => "edit::field_not_single_line",
             EditError::FieldCoercionFailed { .. } => "edit::field_coercion_failed",
-            EditError::ContentApply(_) | EditError::Change(_) => "edit::content_apply",
+            EditError::Change(_) => "edit::content_apply",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
             EditError::Base(e) => e.code(),
@@ -319,7 +313,7 @@ impl EditError {
                 "field" => field,
                 "target" => target,
             },
-            EditError::ContentApply(_) | EditError::Change(_) => diag_args! {},
+            EditError::Change(_) => diag_args! {},
             // One code, four sentences: the variant that spoke is not on the
             // wire, so a consumer's template falls back to `message`.
             EditError::InvalidPayload(_) => diag_args! {},
@@ -863,6 +857,22 @@ impl<'a> CardMut<'a> {
         self.0.replace(target, content, base)
     }
 
+    /// [`Card::write`].
+    pub fn write(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, base: Option<&str>) -> Result<super::Receipt, EditError> {
+        self.0.write(target, edit, base)
+    }
+
+    /// [`Card::write_in`].
+    pub fn write_in(
+        &mut self,
+        target: super::Target<'_>,
+        edit: super::Edit<'_>,
+        base: Option<&str>,
+        u: impl quillmark_content::units::Units,
+    ) -> Result<super::Receipt, EditError> {
+        self.0.write_in(target, edit, base, u)
+    }
+
     /// [`Card::overwrite_field`].
     pub fn overwrite_field(
         &mut self,
@@ -917,20 +927,6 @@ impl<'a> CardMut<'a> {
         content: impl Into<Normalized>,
     ) -> Result<Revised, EditError> {
         self.0.revise_field_content(name, content)
-    }
-
-    /// [`Card::apply_body_change`].
-    pub fn apply_body_change(&mut self, bundle: &ChangeBundle) -> Result<(), EditError> {
-        self.0.apply_body_change(bundle)
-    }
-
-    /// [`Card::apply_field_change`].
-    pub fn apply_field_change(
-        &mut self,
-        name: &str,
-        bundle: &ChangeBundle,
-    ) -> Result<(), EditError> {
-        self.0.apply_field_change(name, bundle)
     }
 
     #[doc(hidden)]
@@ -990,12 +986,6 @@ impl Document {
 
     pub fn card_mut(&mut self, index: usize) -> Option<CardMut<'_>> {
         self.cards_vec_mut().get_mut(index).map(CardMut::new)
-    }
-
-    /// [`card_by_id`](Self::card_by_id), mutable.
-    pub fn card_by_id_mut(&mut self, id: &str) -> Option<CardMut<'_>> {
-        let index = self.card_index(id)?;
-        self.card_mut(index)
     }
 
     /// Append a composable card. Its `$kind` must be a valid, non-reserved
@@ -1322,7 +1312,7 @@ impl Card {
     /// markdown import, no diff, no schema check, infallible. A raw `Content`
     /// normalizes on the way in, so what lands is canonical. Anchor fate across
     /// the content lane: **overwrite destroys, [`revise_body`](Self::revise_body)
-    /// rebases, [`apply_body_change`](Self::apply_body_change) preserves.**
+    /// rebases, [`apply`](Self::apply) preserves.**
     pub fn overwrite_body(&mut self, content: impl Into<Normalized>) {
         self.set_body_lines(content.into());
     }
@@ -1607,56 +1597,6 @@ impl Card {
         Ok((delta, base))
     }
 
-    /// Apply a committed field-change bundle to the body content. Order is text
-    /// delta → island ops → line ops → mark ops, then one terminal
-    /// normalization; mark ranges are in final-text coordinates. Returns
-    /// [`EditError::ContentApply`] when an op is out of bounds; the apply is
-    /// all-or-nothing, so the body is unchanged on error.
-    pub fn apply_body_change(&mut self, bundle: &ChangeBundle) -> Result<(), EditError> {
-        let mut lines = self.body_lines().clone();
-        lines.apply_field_change(bundle).map_err(EditError::ContentApply)?;
-        self.set_body_lines(lines);
-        Ok(())
-    }
-
-    /// Splice a content field-change bundle into a field's stored content: the
-    /// field-path twin of [`apply_body_change`](Self::apply_body_change), and
-    /// what lets identity marks persist on field content across incremental
-    /// edits. Decodes the field's canonical content, applies the all-or-nothing
-    /// bundle, and re-stores the canonical result.
-    ///
-    /// An **absent** field splices against the empty content. A bundle that
-    /// expected content still fails: its text delta declares the base length it
-    /// was computed against, so only a zero-base bundle lands.
-    ///
-    /// Returns [`EditError::InvalidFieldName`] for a malformed name,
-    /// [`EditError::FieldDecode`] when the stored value is not a content,
-    /// [`EditError::ContentApply`] when the bundle applies out of bounds, and
-    /// [`EditError::InvalidPayload`] when an absent `name` would take the card
-    /// past the §8 field count.
-    ///
-    /// **Richtext codec**: schema-blind like [`revise_field`](Self::revise_field),
-    /// so a `text` field's stored string decodes here as markdown and a
-    /// splice lands it off its resting form until the next bound load.
-    pub fn apply_field_change(
-        &mut self,
-        name: &str,
-        bundle: &ChangeBundle,
-    ) -> Result<(), EditError> {
-        let mut content = match self.field_content(name, Codec::Richtext) {
-            Some(Ok(rt)) => rt,
-            Some(Err(e)) => return Err(field_decode(name, &[], Codec::Richtext, e)),
-            // Only this arm creates; the `Some` arms resolved an existing field.
-            None => {
-                check_field_name(name)?;
-                Normalized::empty()
-            }
-        };
-        content
-            .apply_field_change(bundle)
-            .map_err(EditError::ContentApply)?;
-        self.store_field_content(name, &content)
-    }
 }
 
 #[cfg(test)]

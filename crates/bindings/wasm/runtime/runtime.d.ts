@@ -19,15 +19,8 @@ import type {
 	importMarkdown,
 	exportMarkdown,
 	normalize,
-	mapPos,
 	invert,
-	compose,
-	rebase,
 	diff,
-	repair,
-	splitBlock,
-	joinBlocks,
-	inheritedMarks,
 	isInline,
 	isPlain,
 	parseDocPath,
@@ -48,15 +41,8 @@ export interface CoreSurface {
 	importMarkdown: typeof importMarkdown;
 	exportMarkdown: typeof exportMarkdown;
 	normalize: typeof normalize;
-	mapPos: typeof mapPos;
 	invert: typeof invert;
-	compose: typeof compose;
-	rebase: typeof rebase;
 	diff: typeof diff;
-	repair: typeof repair;
-	splitBlock: typeof splitBlock;
-	joinBlocks: typeof joinBlocks;
-	inheritedMarks: typeof inheritedMarks;
 	isInline: typeof isInline;
 	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;
@@ -134,8 +120,7 @@ export type {
 
 // The content model `Document`'s write primitive and readers speak
 // (`apply(addr, change)`, `revise(addr, md)`, `replace(addr, content)`,
-// `read(addr)`), offsets in UTF-16 code units, with `repair`'s raw value and
-// report. `ContentBlockKind` and `ContentMarkKind` are the shared halves of a
+// `read(addr)`), offsets in UTF-16 code units. `ContentBlockKind` and `ContentMarkKind` are the shared halves of a
 // read value and a step: destructure the kind off the envelope and spread it
 // into the step.
 export type {
@@ -148,19 +133,11 @@ export type {
 	ContentAnchor,
 	ContentIsland,
 	TableProps,
-	Pos,
-	Assoc,
-	MapResult,
 	Change,
 	Step,
 	Receipt,
 	DroppedAnchor,
-	Diffed,
 	WriteOptions,
-	Write,
-	RawContent,
-	Repair,
-	Repaired,
 	CardInput,
 	PathStep,
 	Addr,

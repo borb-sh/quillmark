@@ -15,13 +15,6 @@ use crate::error::ParseError;
 use crate::error::{Diagnostic, Severity};
 use crate::version::QuillReference;
 
-/// A stored content value, in either spelling, lowered to the line form.
-pub(crate) fn lines_of(
-    value: &serde_json::Value,
-) -> Result<Normalized, quillmark_content::wire::ParseError> {
-    Content::from_value(value).map(|c| quillmark_content::migrate::to_lines(&c))
-}
-
 /// The stored spelling of a line-form value: under the ids of what it kept
 /// from `old`, the value it is written over, or minted fresh where there is
 /// none.
@@ -81,22 +74,6 @@ pub fn dropped_constructs(
             None => dropped_construct(w),
         })
         .collect()
-}
-
-/// The diagnostic code a write rides whose diff rewrote a whole text.
-pub const WHOLE_TEXT_DIFF: &str = "edit::whole_text_diff";
-
-/// The warning a revise or replace owes a diff that found no step-wise change
-/// to its target and rewrote the whole text of the value, or of a slot, as one
-/// splice. The value written is the one asked for; the anchors on the
-/// rewritten text drop, and the change carries no edit finer than the whole.
-/// It carries no `path`: the caller attaches the value's.
-pub fn whole_text_diff() -> Diagnostic {
-    Diagnostic::new(
-        Severity::Warning,
-        "the write rewrote the whole text as one splice: no step-wise change reached the value".to_string(),
-    )
-    .with_code(WHOLE_TEXT_DIFF.to_string())
 }
 
 /// The diagnostic code a markdown export's loss rides.
@@ -455,7 +432,7 @@ impl Codec {
         };
         match value {
             serde_json::Value::Object(_) => Some(
-                lines_of(value)
+                quillmark_content::model::Content::lines_from_value(value)
                     .map(whole)
                     .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             ),
@@ -630,7 +607,7 @@ pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
-pub use write::{CardRef, LOG_STEPS, Receipt, Target, Write};
+pub use write::{Edit, LOG_STEPS, Receipt, Target};
 
 /// Where Quillmark Markdown departs from plain Markdown and YAML, as rules
 /// surfaced verbatim to LLM/MCP consumers and to the bindings. The single

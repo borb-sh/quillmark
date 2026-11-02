@@ -409,7 +409,6 @@ mod tests {
     mod properties;
 
     use super::*;
-    use crate::lines::ops::MarkOp;
     use crate::lines::delta::{diff_import, rebase_onto};
     use crate::lines::import::from_markdown;
     use crate::lines::model::Mark;
@@ -684,25 +683,6 @@ mod tests {
         assert_eq!(locate_site(&bare, &ctxs[0], Some(&[(0, 100)])), None, "a delta binds the prose alone");
         let out = bare.reattach(&ctxs, None, &none());
         assert_eq!((out.reattached, bare), (ctxs, rt));
-    }
-
-    #[test]
-    fn the_ops_reach_cell_anchors_and_refuse_a_collision() {
-        let mut rt = table_with_cell_anchor("cell");
-        let add = MarkOp::Add { start: 0, end: 4, kind: MarkKind::Anchor { id: "cell".into() } };
-        assert_eq!(rt.apply_mark_ops(&[add]), Err(crate::lines::ops::ApplyError::AnchorIdCollision { id: "cell".into() }));
-
-        let island = rt.islands[0].clone();
-        let mut renamed = island.clone();
-        renamed.id = "isl-9".into();
-        let mut twice = rt.clone();
-        let insert = crate::lines::ops::IslandOp::Insert { at: twice.len_usv(), island: renamed };
-        assert_eq!(twice.apply_island_ops(&[insert]), Err(crate::lines::ops::ApplyError::AnchorIdCollision { id: "cell".into() }));
-        let set = crate::lines::ops::IslandOp::Set { island: island.clone() };
-        assert_eq!(rt.clone().apply_island_ops(&[set]), Ok(()), "a set keeps the ids it replaces");
-
-        rt.apply_mark_ops(&[MarkOp::RemoveAnchor { id: "cell".into() }]).unwrap();
-        assert!(rt.anchor_sites().is_empty());
     }
 
     #[test]

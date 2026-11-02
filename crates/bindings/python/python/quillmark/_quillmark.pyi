@@ -26,12 +26,8 @@ __all__ = [
     "RenderResult",
     "Severity",
     "Writer",
-    "compose",
     "diff",
     "invert",
-    "map_pos",
-    "rebase",
-    "repair",
 ]
 
 @final
@@ -170,7 +166,6 @@ class Document:
     def apply(
         self, change: Change, field: str | None = None, card: str | None = None, base: str | None = None
     ) -> Receipt: ...
-    def apply_all(self, writes: Sequence[Write]) -> list[Receipt]: ...
     def revise(
         self, markdown: str, field: str | None = None, card: str | None = None, base: str | None = None
     ) -> Receipt: ...
@@ -185,15 +180,6 @@ Content = dict[str, Any]
 
 # An edit: `{"steps": [...]}`, each step a dict of one key naming it.
 Change = dict[str, Any]
-
-# A position: an offset, or `{"island", "slot", "at"}` into an island's slot.
-Pos = int | dict[str, Any]
-
-class Write(TypedDict, total=False):
-    change: Change
-    field: str | None
-    card: str | None
-    base: str | None
 
 class MovedAnchor(TypedDict):
     id: str
@@ -215,41 +201,7 @@ class Receipt(TypedDict):
     rebased: bool
 
 def invert(change: Change, before: Content) -> Change: ...
-def compose(a: Change, b: Change) -> Change: ...
-def rebase(base: Content, change: Change, over: Change) -> Change: ...
-class MapResult(TypedDict):
-    pos: Pos
-    deleted: bool
-    deleted_before: bool
-    deleted_after: bool
-    deleted_across: bool
-
-def map_pos(change: Change, pos: Pos, assoc: Literal["before", "after"]) -> MapResult: ...
-class Diffed(TypedDict):
-    change: Change
-    warnings: list[Diagnostic]
-
-def diff(before: Content, after: Content) -> Diffed: ...
-def split_block(content: Content, at: int, new_id: str) -> Change: ...
-def join_blocks(content: Content, id: str) -> Change: ...
-
-# A mark's formatting without its range: `{"type": ..., "attrs"?: ...}`.
-MarkKind = dict[str, Any]
-
-def inherited_marks(content: Content, at: int) -> list[MarkKind]: ...
-
-# A value as a merge left it: shaped as `Content`, its invariants unchecked.
-# `islands` may be a dict keyed by island id with `slot_ids` naming the island
-# each slot carries (`None` for none), and an anchor placed as a range may
-# carry `"range": True`.
-RawContent = dict[str, Any]
-
-class Repaired(TypedDict):
-    content: Content
-    repairs: list[dict[str, Any]]
-
-def repair(raw: RawContent) -> Repaired: ...
-
+def diff(before: Content, after: Content) -> Change: ...
 class AnchorContext(TypedDict):
     id: str
     path: str

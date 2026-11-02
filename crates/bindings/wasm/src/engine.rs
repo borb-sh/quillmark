@@ -253,7 +253,7 @@ export interface CardInput {
  * field: "intro" }` a card field. An id no card holds throws
  * `edit::unknown_card_id`.
  *
- * The content lane's writes (`apply`, `applyAll`, `revise`, `replace`) take a
+ * The content lane's writes (`apply`, `revise`, `replace`) take a
  * card by `$id` only, and throw on an index: a card moved or inserted between
  * a writer's read and its write shifts an index onto another card, and an
  * equal body there would pass the `base` check.
@@ -957,14 +957,7 @@ impl Document {
         if addr.is_undefined() {
             return Ok(self.inner.hash());
         }
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
-        let target = match &addr.field {
-            None => quillmark_core::document::Target::Body,
-            Some(name) => quillmark_core::document::Target::Field(name),
-        };
-        self.addr_card_ref(&addr)?
-            .hash_of(target)
-            .map_err(|e| edit_error_to_js(&e, &self.addr_base(&addr)))
+        self.hash_at(addr)
     }
 
     /// The hash of the body or richtext field at `addr`, the `baseHash` a
@@ -980,13 +973,9 @@ impl Document {
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<String, JsValue> {
         let addr = Addr::from_js_or_string(&addr, &self.inner)?;
-        let card = self.addr_card_ref(&addr)?;
-        match &addr.field {
-            None => Ok(card.body_hash()),
-            Some(field) => card
-                .field_hash(field)
-                .map_err(|e| edit_error_to_js(&e, &self.addr_base(&addr))),
-        }
+        self.addr_card_ref(&addr)?
+            .hash_of(quillmark_core::document::Target::from(addr.field.as_deref()))
+            .map_err(|e| edit_error_to_js(&e, &self.addr_base(&addr)))
     }
 
     /// The annotated read of the body or richtext field at `addr` alone: the
@@ -1464,7 +1453,7 @@ impl Document {
     /// write is [`commitField`](Document::commit_field). A bare string is `Addr`
     /// shorthand for `{ field }`; `{ card: 2, field: "qty" }` targets a
     /// composable card. A body address throws:
-    /// write a body with `writer.reviseBody` / `overwrite`. Throws on an out-of-range card
+    /// write a body with `writer.reviseBody` / `replace`. Throws on an out-of-range card
     /// or a malformed name.
     #[wasm_bindgen(js_name = storeField)]
     pub fn store_field(
@@ -1573,8 +1562,8 @@ impl Document {
     /// The ABI under `writer.reviseBody`: **revise** the richtext value at
     /// `addr` from a markdown string. Imports the markdown, diffs it against the current
     /// value, rebases surviving identity anchors, and returns the `Revised`
-    /// receipt: the text `delta` an editor bridge maps its own positions through
-    /// (`mapPos`), and a `parse::dropped_construct` warning per construct the
+    /// receipt: the text `delta` an editor bridge maps its own positions through,
+    /// and a `parse::dropped_construct` warning per construct the
     /// import dropped, its `path` the address written. An absent `addr.field`
     /// targets the body, an absent `addr.card` the main card; an absent field
     /// cold-imports from empty.
@@ -2017,7 +2006,7 @@ impl Addr {
         self.field.as_deref().ok_or_else(|| {
             WasmError::from(format!(
                 "{ctx}: a body address (no `field`) is not a field write, \
-                 write the body with overwrite / writer.reviseBody"
+                 write the body with replace / writer.reviseBody"
             ))
             .to_js_value()
         })
@@ -2038,8 +2027,8 @@ impl Addr {
 
 /// Import a markdown string: the markdown codec's import, pure and document-free. Returns the
 /// canonical `content` and a `parse::dropped_construct` warning per construct
-/// the import dropped, with no `path`. `overwrite(addr, importMarkdown(md).content)`
-/// spells the cold, anchor-losing write; prefer `revise` for edit semantics.
+/// the import dropped, with no `path`. `replace(addr, importMarkdown(md).content)`
+/// spells the cold write; prefer `revise` for edit semantics.
 /// Throws on an over-nested input.
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
@@ -2113,9 +2102,9 @@ impl ReadBase {
     }
 }
 
-/// The canonical form of `rt`: the content `overwrite` stores from it, read
+/// The canonical form of `rt`: the content `replace` stores from it, read
 /// without a document. Normalizing rewrites structure, never the text, so the
-/// answer's `text` is `rt.text`. Throws where `overwrite` would, with the same
+/// answer's `text` is `rt.text`. Throws where `replace` would, with the same
 /// error under this verb's name.
 #[wasm_bindgen(js_name = normalize, unchecked_return_type = "Content")]
 pub fn normalize(
@@ -2130,8 +2119,8 @@ struct ImportedJs {
     warnings: Vec<Diagnostic>,
 }
 
-/// The `Revised` receipt as it crosses: `delta` on the op wire `applyChange`
-/// carries.
+/// The `Revised` receipt as it crosses, its `delta` on the line form's text
+/// wire.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RevisedJs {
@@ -2908,8 +2897,8 @@ impl LiveSession {
     /// and the session recovers on the next successful `update`. On success,
     /// repaint `dirtyPages ∩ visible`.
     ///
-    /// Distinct from [`applyChange`](Document::apply_change), which splices ops
-    /// into a document; this recompiles a document the caller already mutated.
+    /// Distinct from [`apply`](Document::apply), which edits a document's
+    /// content; this recompiles a document the caller already mutated.
     #[wasm_bindgen(js_name = update)]
     pub fn update(&mut self, doc: &Document) -> Result<Ts<ChangeSet>, JsValue> {
         let cs = self.inner.update(&doc.inner).map_err(js_err)?;

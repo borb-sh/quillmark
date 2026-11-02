@@ -1050,10 +1050,7 @@ mod wire {
 
         /// Decodes the shape; what the steps mean is [`apply`]'s to check.
         pub fn from_value(v: &Value) -> Result<Change, ParseError> {
-            if crate::model::json_too_deep(v) {
-                return Err(ParseError::Invalid(Invariant::JsonTooDeep { what: "change", max: crate::MAX_JSON_DEPTH }));
-            }
-            change_from(v, Scalars)
+            Change::from_value_in(v, Scalars)
         }
 
         /// [`from_value`](Self::from_value) with offsets in `u`, as a binding's
