@@ -833,18 +833,19 @@ fn revise_lines(before: &Content, lines: &crate::lines::model::Lines, markdown: 
 
 /// The revision `change` makes of `before`, landing on `after`, with a
 /// placement for each anchor of `before`'s text that `after` holds nowhere
-/// and whose text `after` holds again in what the revision inserted: a
+/// and whose text `after` holds again in what `change` inserted: a
 /// paragraph moved whole keeps its anchor. A quote shorter than
 /// [`MIN_MOVE`](crate::lines::delta::MIN_MOVE) characters is too weak to
 /// follow, and drops.
 fn relocating(before: &Content, change: Change, after: Content, warnings: Vec<ImportWarning>) -> Revision {
     let held: HashSet<&str> = after.anchors.iter().map(|a| a.id.as_str()).collect();
+    let inserted = crate::change::inserted_spans(&change, &after.text, crate::units::Scalars);
     let places: Vec<Step> = before
         .anchors
         .iter()
         .filter(|a| !held.contains(a.id.as_str()))
         .filter_map(|a| {
-            let (start, end) = relocate(&before.text, &after.text, a.start, a.end)?;
+            let (start, end) = relocate(&before.text, &after.text, &inserted, a.start, a.end)?;
             Some(Step::Anchor(AnchorStep::Place { anchor: crate::model::Anchor { id: a.id.clone(), start, end }, quote: None }))
         })
         .collect();
