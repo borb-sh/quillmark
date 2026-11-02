@@ -101,7 +101,11 @@ routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 A revise guarded by what its writer read (a `Base`) refuses under two more:
 `edit::stale_base` when the value no longer hashes to the writer's
 `baseHash`, and `edit::rebase_conflict` when the writer's edit of its
-`baseMarkdown` and the change made since touch the same lines. Both carry
+`baseMarkdown` and the change made since touch the same lines. A whole
+document under `baseMarkdown` refuses only where no merge can stand (a side
+reordered the cards, or both changed a card's `$quill`, `$seed` or `$ext`
+apart); a place both changed is not an error but an entry in the receipt's
+`conflicts`, its value now kept. Both refusals carry
 `current`, the hash of the value now: a writer reads the value again, checks
 that read against `current`, and writes from it. Retrying the same markdown
 under `current` lands the revert the base refused. A refusal on a field

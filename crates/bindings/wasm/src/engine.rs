@@ -320,8 +320,12 @@ export interface Revised {
  * throws `edit::stale_base`. `baseMarkdown` is the markdown the writer read, annotated
  * or not (a `text` field's literal text): when the value has changed since,
  * the writer's edit and the change since merge by line, so both land, and
- * runs of lines both changed throw `edit::rebase_conflict`. Each refusal's
- * `args.current` is the hash now, and leaves the value unchanged.
+ * runs of lines both changed throw `edit::rebase_conflict`. A
+ * `reviseDocument` instead merges card by card and field by field, keeps each
+ * place both changed as it stands now and names it in the receipt's
+ * `conflicts`, and throws `edit::rebase_conflict` only where no merge can
+ * stand. Each refusal's `args.current` is the hash now, and leaves the value
+ * unchanged.
  */
 export interface BaseOptions {
     baseHash?: string;
@@ -337,12 +341,29 @@ export interface BaseOptions {
  * content, reports no drop. `from` names, for each composable card of the
  * revised document, the index of the stored card it revises, or `null` for an
  * inserted card; a stored card no entry names was removed, and only cards of
- * one `$kind` pair.
+ * one `$kind` pair. `conflicts` is empty unless the write carries a
+ * `baseMarkdown`.
  */
 export interface DocumentRevised {
     droppedAnchors: DocumentAnchor[];
     warnings: Diagnostic[];
     from: (number | null)[];
+    conflicts: MergeConflict[];
+}
+
+/**
+ * A place a `reviseDocument` under `baseMarkdown` found changed both by the
+ * writer and since its read, which the write leaves as it stands now. `path`
+ * is where it stands in the written document, or would stand where the write
+ * left it out. Each side is the value there, `null` where that side holds
+ * nothing: a field or item absent, a card removed. A body is its markdown,
+ * and a whole card an object of its fields beside `$kind` and `$body`.
+ */
+export interface MergeConflict {
+    path: string;
+    base: unknown;
+    current: unknown;
+    proposed: unknown;
 }
 
 /**
@@ -2188,6 +2209,15 @@ struct DocumentRevisedJs {
     dropped_anchors: Vec<DocumentAnchorJs>,
     warnings: Vec<Diagnostic>,
     from: Vec<Option<usize>>,
+    conflicts: Vec<MergeConflictJs>,
+}
+
+#[derive(serde::Serialize)]
+struct MergeConflictJs {
+    path: String,
+    base: Option<serde_json::Value>,
+    current: Option<serde_json::Value>,
+    proposed: Option<serde_json::Value>,
 }
 
 #[derive(serde::Serialize)]
@@ -2226,6 +2256,16 @@ impl From<quillmark_core::document::DocumentRevised> for DocumentRevisedJs {
                 .collect(),
             warnings: diags(revised.warnings),
             from: revised.from,
+            conflicts: revised
+                .conflicts
+                .into_iter()
+                .map(|c| MergeConflictJs {
+                    path: c.path.to_string(),
+                    base: c.base,
+                    current: c.current,
+                    proposed: c.proposed,
+                })
+                .collect(),
         }
     }
 }

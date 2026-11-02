@@ -229,12 +229,19 @@ class Revised(TypedDict):
     warnings: list[Diagnostic]
     dropped_anchors: list[DroppedAnchor]
 
+class MergeConflict(TypedDict):
+    path: str
+    base: Any
+    current: Any
+    proposed: Any
+
 DocumentRevised = TypedDict(
     "DocumentRevised",
     {
         "dropped_anchors": list[DocumentDroppedAnchor],
         "warnings": list[Diagnostic],
         "from": list[int | None],
+        "conflicts": list[MergeConflict],
     },
 )
 
