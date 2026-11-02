@@ -6,7 +6,7 @@
 use proptest::prelude::*;
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::lines::delta::diff_import;
-use quillmark_content::lines::export::{to_markdown, to_markdown_annotated};
+use quillmark_content::lines::export::{to_markdown, to_markdown_annotated, to_markdown_checked, ExportLoss};
 use quillmark_content::lines::import::from_markdown;
 use quillmark_content::lines::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
 use serde_json::{json, Value};
@@ -524,7 +524,8 @@ proptest! {
 
     /// The annotated read of an imported content spells no island token,
     /// imports as the plain projection does, lists every prose anchor once,
-    /// in `(start, id)` order, and revises its content to itself.
+    /// in `(start, id)` order, and revises its content to itself, or names
+    /// the mark its markdown cannot write.
     #[test]
     fn the_annotated_read_imports_as_the_plain_one(
         md in prop_oneof![document(), delimiter_run()],
@@ -558,8 +559,21 @@ proptest! {
         prop_assert_eq!(got, want.into_iter().map(|(_, id)| id).collect::<Vec<_>>());
 
         let (revised, _, warnings) = diff_import(&rt, &read.markdown).unwrap();
-        prop_assert_eq!(&revised, &rt, "the read does not revise to itself: {:?}", read.markdown);
         prop_assert!(warnings.is_empty(), "{:?}", warnings);
+        // An imported mark markdown cannot write back, a strike over escaped
+        // punctuation a letter follows, is a named loss, not a silent one; the
+        // text and the islands always come home.
+        let losses = to_markdown_checked(&rt).losses;
+        if losses.is_empty() {
+            prop_assert_eq!(&revised, &rt, "the read does not revise to itself: {:?}", read.markdown);
+        } else {
+            prop_assert!(
+                losses.iter().all(|l| matches!(l, ExportLoss::Mark { .. })),
+                "the read loses more than marks: {:?} in {:?}", losses, read.markdown
+            );
+            prop_assert_eq!(&revised.text, &rt.text, "the read does not revise its text to itself: {:?}", read.markdown);
+            prop_assert_eq!(&revised.islands, &rt.islands, "the read does not revise its islands to itself: {:?}", read.markdown);
+        }
     }
 
 }
