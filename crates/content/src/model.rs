@@ -545,19 +545,20 @@ impl Content {
     /// Containers in the order paths first name them; with `drop`, the ones no
     /// path names leave.
     pub(crate) fn order_containers(&mut self, drop: bool) {
-        let mut order: HashMap<&str, usize> = HashMap::new();
+        let mut rank: HashMap<&str, usize> = HashMap::new();
         for b in &self.blocks {
             for id in &b.path {
-                let n = order.len();
-                order.entry(id.as_str()).or_insert(n);
+                let n = rank.len();
+                rank.entry(id.as_str()).or_insert(n);
             }
         }
-        let rank: HashMap<String, usize> = order.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
         if drop {
-            self.containers.retain(|c| rank.contains_key(&c.id));
+            self.containers.retain(|c| rank.contains_key(c.id.as_str()));
         }
-        self.containers
-            .sort_by_key(|c| rank.get(&c.id).copied().unwrap_or(usize::MAX));
+        let at = |c: &Container| rank.get(c.id.as_str()).copied().unwrap_or(usize::MAX);
+        if !self.containers.is_sorted_by_key(at) {
+            self.containers.sort_by_key(at);
+        }
     }
 
     /// [`check`](Self::check) and [`check_relations`](Self::check_relations):
@@ -813,8 +814,7 @@ fn check_path<'a>(b: &Block, containers: impl Fn(&str) -> Option<&'a ContainerKi
     if levels > crate::MAX_NESTING_DEPTH {
         return Err(Invariant::NestingTooDeep { block: b.id.clone(), depth: levels, max: crate::MAX_NESTING_DEPTH });
     }
-    let mut seen = HashSet::new();
-    if !b.path.iter().all(|id| seen.insert(id)) {
+    if b.path.iter().enumerate().any(|(k, id)| b.path[..k].contains(id)) {
         return Err(Invariant::BadPath { block: b.id.clone() });
     }
     Ok(())

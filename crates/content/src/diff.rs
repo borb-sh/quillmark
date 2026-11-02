@@ -11,7 +11,7 @@ use crate::lines::delta::{Op, diff_words as text_diff, rebase_pinned, without_se
 use crate::lines::import::{Against, ImportError, ImportWarning, from_markdown_against};
 use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{Block, BlockKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
+use crate::model::{Block, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
 use crate::table::{self, Table};
 use std::collections::{HashMap, HashSet};
 
@@ -62,9 +62,10 @@ fn fixups_carrying(cur: &Content, want: &Content, carry: Option<&HashSet<String>
 
 fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>, top: bool) -> Vec<Step> {
     let want = reachable(before, after, top);
+    let held = containers_by_id(before);
     let mut steps = Vec::new();
     for k in &want.containers {
-        if before.container(&k.id) != Some(k) {
+        if held.get(k.id.as_str()) != Some(&k) {
             steps.push(Step::Container(ContainerStep::Set(k.clone())));
         }
     }
@@ -131,9 +132,10 @@ fn reachable(before: &Content, after: &Content, top: bool) -> Content {
     }
     want.blocks[0].id = first;
     if top {
+        let held = containers_by_id(before);
         let mut renamed = HashMap::new();
         for k in &mut want.containers {
-            if before.container(&k.id).is_some_and(|held| !held.kind.same_kind(&k.kind)) {
+            if held.get(k.id.as_str()).is_some_and(|held| !held.kind.same_kind(&k.kind)) {
                 let fresh = fresh_id(&k.id, before, after);
                 renamed.insert(k.id.clone(), fresh.clone());
                 k.id = fresh;
@@ -150,6 +152,16 @@ fn reachable(before: &Content, after: &Content, top: bool) -> Content {
         }
     }
     want
+}
+
+/// Each island of `c` by its id.
+fn islands_by_id(c: &Content) -> HashMap<&str, &Island> {
+    c.islands.iter().map(|i| (i.id.as_str(), i)).collect()
+}
+
+/// Each container of `c` by its id.
+fn containers_by_id(c: &Content) -> HashMap<&str, &Container> {
+    c.containers.iter().map(|k| (k.id.as_str(), k)).collect()
 }
 
 fn fresh_id(id: &str, before: &Content, after: &Content) -> String {
@@ -419,6 +431,8 @@ pub fn align(before: &Content, after: Content) -> Content {
     let mut block_to: HashMap<usize, String> = HashMap::new();
     let mut containers: HashMap<String, String> = HashMap::new();
     let mut taken: HashSet<String> = HashSet::new();
+    let kinds_before: HashMap<&str, &ContainerKind> = before.containers.iter().map(|k| (k.id.as_str(), &k.kind)).collect();
+    let kinds_after: HashMap<String, ContainerKind> = after.containers.iter().map(|k| (k.id.clone(), k.kind.clone())).collect();
     for &(x, y) in &blocks {
         block_to.insert(y, before.blocks[x].id.clone());
         if matches!(before.blocks[x].kind, BlockKind::Ext { .. }) && after.blocks[y].kind == BlockKind::Para {
@@ -426,8 +440,8 @@ pub fn align(before: &Content, after: Content) -> Content {
         }
         let (pa, pb) = (&before.blocks[x].path, &after.blocks[y].path);
         for (ka, kb) in pa.iter().zip(pb) {
-            let same_kind = match (before.container(ka), after.container(kb)) {
-                (Some(p), Some(q)) => p.kind.same_kind(&q.kind),
+            let same_kind = match (kinds_before.get(ka.as_str()), kinds_after.get(kb)) {
+                (Some(p), Some(q)) => p.same_kind(q),
                 _ => false,
             };
             if !same_kind {
@@ -453,7 +467,7 @@ pub fn align(before: &Content, after: Content) -> Content {
     }
     for k in &after.containers {
         if !containers.contains_key(&k.id) {
-            let kept = if before.container(&k.id).is_none() && !taken.contains(&k.id) {
+            let kept = if !kinds_before.contains_key(k.id.as_str()) && !taken.contains(&k.id) {
                 ids.hold(&k.id);
                 k.id.clone()
             } else {
@@ -699,16 +713,19 @@ fn holding(before: &Content, want: &Content, now: &Content, top: bool) -> Conten
         c.blocks.iter().map(|b| &b.id).chain(c.containers.iter().map(|k| &k.id)).for_each(|id| ids.hold(id));
         c.islands.iter().for_each(|i| island_ids.hold(&i.id));
     }
+    let containers = |c: &Content| -> HashSet<String> { c.containers.iter().map(|k| k.id.clone()).collect() };
+    let blocks = |c: &Content| -> HashSet<String> { c.blocks.iter().map(|b| b.id.clone()).collect() };
     let mut renamed = HashMap::new();
+    let (was, held) = (containers(before), containers(now));
     for k in &mut want.containers {
-        if before.container(&k.id).is_none() && now.container(&k.id).is_some() {
+        if !was.contains(&k.id) && held.contains(&k.id) {
             let fresh = ids.mint(container_prefix(k));
             renamed.insert(std::mem::replace(&mut k.id, fresh.clone()), fresh);
         }
     }
-    let has_block = |c: &Content, id: &str| c.blocks.iter().any(|b| b.id == id);
+    let (was, held) = (blocks(before), blocks(now));
     for b in &mut want.blocks {
-        if !has_block(before, &b.id) && has_block(now, &b.id) {
+        if !was.contains(&b.id) && held.contains(&b.id) {
             b.id = ids.mint(prefix::BLOCK);
         }
         for id in &mut b.path {
@@ -717,9 +734,9 @@ fn holding(before: &Content, want: &Content, now: &Content, top: bool) -> Conten
             }
         }
     }
+    let (was, held) = (islands_by_id(before), islands_by_id(now));
     for i in &mut want.islands {
-        let (was, held) = (before.islands.iter().find(|x| x.id == i.id), now.islands.iter().find(|x| x.id == i.id));
-        match (was, held) {
+        match (was.get(i.id.as_str()), held.get(i.id.as_str())) {
             (Some(was), Some(held)) => {
                 for (slot, inner) in &mut i.slots {
                     if let (Some(w), Some(n)) = (was.slots.get(slot), held.slots.get(slot)) {
