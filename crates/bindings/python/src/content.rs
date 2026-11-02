@@ -120,3 +120,22 @@ pub fn diff<'py>(py: Python<'py>, before: &Bound<'_, PyAny>, after: &Bound<'_, P
     let change = quillmark_content::diff::diff(&before, &after).map_err(|e| change_error(e.into()))?;
     json_to_py(py, &change.to_value())
 }
+
+/// The valid value every peer holding the merged state `raw` reads, what was
+/// mended to reach it, and the change from `raw`'s text to the value's, which
+/// a peer maps its positions through: `{"content", "repairs", "change"}`.
+/// Raises `ValueError` only on a `raw` not shaped as content.
+#[pyfunction]
+pub fn repair<'py>(py: Python<'py>, raw: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyDict>> {
+    let json = py_to_json(raw)?;
+    check_content_value(&json).map_err(|e| convert_edit_error(e, &DocPath::new()))?;
+    let raw = quillmark_content::repair::Raw::from_value(&json)
+        .map_err(|e| PyValueError::new_err(format!("repair: not shaped as content: {e}")))?;
+    let (content, repairs, change) = quillmark_content::repair::repair(raw);
+    let out = PyDict::new(py);
+    out.set_item("content", content_to_py(py, &content)?)?;
+    let repairs: Vec<serde_json::Value> = repairs.iter().map(quillmark_content::repair::Repair::to_value).collect();
+    out.set_item("repairs", json_to_py(py, &serde_json::Value::Array(repairs))?)?;
+    out.set_item("change", json_to_py(py, &change.to_value())?)?;
+    Ok(out)
+}

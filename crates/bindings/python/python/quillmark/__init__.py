@@ -15,6 +15,7 @@ from ._quillmark import (
     Writer,
     diff,
     invert,
+    repair,
 )
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "Writer",
     "diff",
     "invert",
+    "repair",
 ]
 
 try:

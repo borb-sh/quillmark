@@ -711,7 +711,7 @@ mod tests {
         let too_many = |e: &Invariant| matches!(e, Invariant::TooManyMarks { .. });
         assert!(matches!(Content::from_value(&marked), Err(ParseError::Invalid(e)) if too_many(&e)));
 
-        let (repaired, repairs) = crate::repair::repair(crate::repair::Raw::from_value(&marked).unwrap());
+        let (repaired, repairs, _) = crate::repair::repair(crate::repair::Raw::from_value(&marked).unwrap());
         assert!(repaired.marks.len() <= crate::max_marks(len));
         assert!(repairs.iter().any(|r| matches!(r, crate::repair::Repair::Invalid(e) if too_many(e))));
 

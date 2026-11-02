@@ -237,7 +237,7 @@ export interface RawContent {
 
 /**
  * One mend `repair` made. `inserts` marks one whose write-back inserts text
- * or a slot, which only a session's single writer writes back; any peer may
+ * or a slot, which only a server writes back, and with none no peer; any peer may
  * write back a report holding none.
  */
 export type Repair = { inserts?: true } & (
@@ -254,11 +254,14 @@ export type Repair = { inserts?: true } & (
 | { repair: "in_slot"; island: string; slot: string; inner: Repair }
 );
 
-/** What `repair` read a merged value as: the valid `content`, and each
- *  mend, none for a value already valid. */
+/** What `repair` read a merged value as: the valid `content`, each mend,
+ *  and `change`, the change from the merged text to the content's, which
+ *  `mapPos` carries a position through to where repair puts an anchor
+ *  there; no mend and no step for a value already valid. */
 export interface Repaired {
     content: Content;
     repairs: Repair[];
+    change: Change;
 }
 
 "#;
@@ -598,19 +601,22 @@ pub fn diff(
     serialize_or_throw(&change.to_value(), "diff")
 }
 
-/// The valid value every peer holding the merged state `raw` reads, and what
-/// was mended to reach it: total and deterministic, every id it mints derived
-/// from the ids involved. Throws only on a `raw` not shaped as content.
+/// The valid value every peer holding the merged state `raw` reads, what was
+/// mended to reach it, and the change from `raw`'s text to the value's, which
+/// a peer maps its positions through: total and deterministic, every id it
+/// mints derived from the ids involved. Throws only on a `raw` not shaped as
+/// content.
 #[wasm_bindgen(js_name = repair, unchecked_return_type = "Repaired")]
 pub fn repair(#[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue) -> Result<JsValue, JsValue> {
     let json = js_value_to_json(raw, "repair")?;
     check_content_value(&json).map_err(bound_error)?;
     let raw = quillmark_content::repair::Raw::from_value_in(&json, Utf16)
         .map_err(|e| WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value())?;
-    let (content, repairs) = quillmark_content::repair::repair(raw);
+    let (content, repairs, change) = quillmark_content::repair::repair(raw.clone());
     let out = serde_json::json!({
         "content": content.to_value_in(Utf16),
         "repairs": repairs.iter().map(quillmark_content::repair::Repair::to_value).collect::<Vec<_>>(),
+        "change": quillmark_content::repair::change_in(&raw, &change, Utf16).to_value(),
     });
     serialize_or_throw(&out, "repair")
 }

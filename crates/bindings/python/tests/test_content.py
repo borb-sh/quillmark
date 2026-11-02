@@ -3,7 +3,7 @@ its producers `revise` and `replace`, the reads, and the pure helpers over
 changes. Offsets count code points."""
 
 import pytest
-from quillmark import Document, diff, invert
+from quillmark import Document, diff, invert, repair
 
 from conftest import raises_edit_code
 
@@ -141,3 +141,13 @@ def test_an_anchor_placement_refuses_a_held_id_and_a_move_moves_it():
     receipt = doc.apply({"steps": [{"anchor": {"id": "c1", "start": 6, "end": 11, "move": True}}]})
     assert receipt["applied"]["steps"][0]["anchor"]["move"] is True
     assert doc.read()["anchors"] == [{"id": "c1", "start": 6, "end": 11}]
+
+
+def test_repair_answers_the_change_from_the_merged_text():
+    merged = {"text": "a\rb", "blocks": [{"id": "b0", "kind": "para"}], "anchors": [{"id": "p", "start": 2, "end": 2}]}
+    read = repair(merged)
+    assert read["content"]["text"] == "ab"
+    assert read["change"] == {"steps": [{"splice": {"at": 1, "delete": "\r", "insert": ""}}]}
+    assert read["content"]["anchors"] == [{"id": "p", "start": 1, "end": 1}]
+    valid = {"text": "ab", "blocks": [{"id": "b0", "kind": "para"}]}
+    assert repair(valid) == {"content": valid, "repairs": [], "change": {"steps": []}}

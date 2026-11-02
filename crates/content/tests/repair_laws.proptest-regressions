@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 55c46e08a15907eff4a64032701c718a925a6de8a274543e1778b3e07b95f96c # shrinks to d = Content { text: "a a", blocks: [Block { id: "b0", kind: Para, path: [] }], containers: [], marks: [], anchors: [], islands: [] }, ds = [(138, 0, 812219714032139701), (13, 13859006316430976508, 483379813154960155)], spread = 2

@@ -202,6 +202,15 @@ class Receipt(TypedDict):
 
 def invert(change: Change, before: Content) -> Change: ...
 def diff(before: Content, after: Content) -> Change: ...
+
+class Repaired(TypedDict):
+    content: Content
+    repairs: list[dict[str, Any]]
+    # The change from the merged text to the content's: a position mapped
+    # through it lands where repair puts an anchor there.
+    change: Change
+
+def repair(raw: dict[str, Any]) -> Repaired: ...
 class AnchorContext(TypedDict):
     id: str
     path: str

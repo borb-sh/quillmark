@@ -823,7 +823,7 @@ describe('Document apply: the write primitive', () => {
 
   it('repair reads a merged state as a valid value, offsets in UTF-16', () => {
     const valid = importMarkdown('😀 **ab**').content
-    expect(repair(valid)).toEqual({ content: valid, repairs: [] })
+    expect(repair(valid)).toEqual({ content: valid, repairs: [], change: { steps: [] } })
 
     const merged = {
       text: '😀 ab\nc',
@@ -843,6 +843,11 @@ describe('Document apply: the write primitive', () => {
       { repair: 'collapsed_anchor', id: 'a' },
     ])
     expect(() => repair({ text: 1 })).toThrow(/repair/)
+
+    const forbidden = { text: '😀\r ab', blocks: [{ id: 'b0', kind: 'para' }], anchors: [{ id: 'p', start: 4, end: 4 }] }
+    const read = repair(forbidden)
+    expect(read.change.steps).toEqual([{ splice: { at: 2, delete: '\r', insert: '' } }])
+    expect(mapPos(read.change, 4).pos).toBe(read.content.anchors[0].start)
   })
 
   it('normalize answers what replace stores, and refuses what replace refuses', () => {
