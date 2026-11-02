@@ -233,6 +233,8 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 - It refuses an `after` that is not a valid value, and reaches every valid one step-wise.
 - `revise(c, annotated(c))` changes nothing, for every valid `c` the model reaches, markdown-born or not (`tests/change_laws.rs`).
 
+The interactive target is a field of 20000 blocks or 500000 characters: a keystroke's `apply` lands in 5 ms at 100000 characters, a one-word revise or a replace of a 20000-item list in 300 ms, a repair of a valid 10000-item list in 50 ms, and import and decode grow linearly (`crates/content/tests/speed.rs`, `crates/core/tests/speed.rs`).
+
 ## Merge repair
 
 A single step cannot break the model, but two valid concurrent edits can merge into a state no step allows. `repair(raw) -> (Content, Repair[])` makes any such state valid (`src/repair.rs`). Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Writing a repair back into the shared state is optional, and who may write it back depends on what it writes:
