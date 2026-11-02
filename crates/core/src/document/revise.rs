@@ -2,7 +2,6 @@
 //! spell.
 
 use quillmark_content::lines::delta::{rebase_marks, rebase_marks_pinned};
-use quillmark_content::lines::export::to_markdown;
 use quillmark_content::lines::import::{Against, from_markdown_against};
 use quillmark_content::lines::model::Normalized;
 use serde_json::Value as JsonValue;
@@ -290,9 +289,10 @@ fn revise_body(
     Some(rebase_marks_pinned(stored, content, &pins))
 }
 
-/// Revise each markdown string in `incoming` that sits where `stored` holds a
-/// content object, by key in an object and by [aligned](align_items) item in
-/// an array, into the content it imports with `stored`'s anchors rebased.
+/// Revise each string in `incoming` that sits where `stored` holds a content
+/// object, by key in an object and by [aligned](align_items) item in an array,
+/// into the content it imports under that object's codec with `stored`'s
+/// anchors rebased.
 fn revise_value(
     stored: &JsonValue,
     incoming: &mut JsonValue,
@@ -304,6 +304,11 @@ fn revise_value(
         let JsonValue::String(text) = incoming else {
             return;
         };
+        if super::Codec::of_object(stored) == super::Codec::Text {
+            let content = quillmark_content::lines::import::from_plaintext(text);
+            *incoming = super::stored_over(Some(stored), &rebase_marks(&base, content));
+            return;
+        }
         let Ok(Against {
             content,
             warnings: reported,
@@ -373,12 +378,12 @@ pub(crate) fn align_items(stored: &[JsonValue], incoming: &[JsonValue]) -> Vec<O
         .collect()
 }
 
-/// The text an item aligns by: a content object's markdown, a string as
+/// The text an item aligns by: a content object's projection, a string as
 /// written, and every other value's leaves in order.
 fn item_text(value: &JsonValue) -> String {
     fn walk(value: &JsonValue, out: &mut String) {
         if let Some(content) = canonical_content(value) {
-            out.push_str(&to_markdown(&content));
+            out.push_str(&super::Codec::of_object(value).project(&content));
             out.push('\n');
             return;
         }

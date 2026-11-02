@@ -308,12 +308,17 @@ impl Card {
         to_markdown_annotated(self.body_lines())
     }
 
-    /// The richtext field's annotated read, decoded as
+    /// The field's annotated read, decoded as
     /// [`revise_field`](Self::revise_field) decodes it, an absent field the
-    /// empty content's: the scoped read a field revise reads back.
-    /// **Richtext only**, as [`field_hash`](Self::field_hash) is.
+    /// empty content's: the scoped read a field revise reads back. A field
+    /// stored under `codec: "plain"` reads as its literal text, its anchors
+    /// listed and no tag spelled.
     pub fn field_annotated(&self, name: &str) -> Result<Annotated, EditError> {
-        Ok(to_markdown_annotated(&self.richtext_base(name)?))
+        let content = self.richtext_base(name)?;
+        Ok(match self.stored_codec(name) {
+            Codec::Richtext => to_markdown_annotated(&content),
+            Codec::Text => quillmark_content::lines::export::to_plaintext_annotated(&content),
+        })
     }
 
     /// The hash of the richtext field's content, decoded as
@@ -330,9 +335,10 @@ impl Card {
         }
     }
 
-    /// [`field_hash`](Self::field_hash) through the field's schema: a
-    /// `richtext` field hashes its content, a `text` field its literal text,
-    /// any other type its stored value, an absent one as `null`. The
+    /// [`field_hash`](Self::field_hash) through the field's schema: a content
+    /// field hashes its content, a `text` field's authored string read as
+    /// literal text and an absent one as the empty plain content, any other
+    /// type its stored value, an absent one as `null`. The
     /// [`Base::Hash`] a typed field revise checks.
     #[doc(hidden)]
     pub fn field_hash_checked(
@@ -342,10 +348,21 @@ impl Card {
     ) -> Result<String, EditError> {
         match schema.r#type {
             FieldType::RichText { .. } => self.field_hash(name),
-            FieldType::Text { .. } => Ok(value_hash(&match self.text_now(name)? {
-                Some(text) => JsonValue::String(text),
-                None => JsonValue::Null,
-            })),
+            FieldType::Text { .. } => match self.hashes.field(name) {
+                Some(hash) => Ok(hash.to_string()),
+                None => {
+                    if !is_valid_field_name(name) {
+                        return Err(EditError::InvalidFieldName(name.to_string()));
+                    }
+                    let content = match self.payload().get(name) {
+                        None => Content::empty_as(Codec::Text.content()),
+                        Some(v) => Codec::Text
+                            .decode_content(v.as_json())
+                            .map_err(|e| super::edit::field_decode(name, &[], Codec::Text, e))?,
+                    };
+                    Ok(content_hash(&content))
+                }
+            },
             _ => {
                 if !is_valid_field_name(name) {
                     return Err(EditError::InvalidFieldName(name.to_string()));
@@ -391,6 +408,10 @@ impl Card {
         body: impl Into<String>,
     ) -> Result<Revised, EditError> {
         let body = body.into();
+        if self.stored_codec(name) == Codec::Text {
+            let body = self.text_body_against(name, base, body, || self.field_hash(name))?;
+            return self.revise_field(name, body);
+        }
         let stored = self.richtext_base(name)?;
         let held = self.richtext_value(name)?;
         let write = richtext_write(&stored, || content_hash(&held), base, &body)
@@ -432,32 +453,44 @@ impl Card {
                     .reporting(warnings)),
             };
         }
-        let current = || self.field_hash_checked(name, schema);
-        let body = match base {
+        let body = self.text_body_against(name, base, body, || self.field_hash_checked(name, schema))?;
+        self.revise_field_checked(name, body, schema)
+    }
+
+    /// The text a literal-codec revise under `base` writes: `body` when `base`
+    /// is current, the line merge of `body` over the text now when `base` is a
+    /// read it has moved on from, refused when the hash `current` answers is
+    /// not `base`'s or the merge conflicts.
+    fn text_body_against(
+        &self,
+        name: &str,
+        base: Base<'_>,
+        body: String,
+        current: impl Fn() -> Result<String, EditError>,
+    ) -> Result<String, EditError> {
+        match base {
             Base::Hash(read) => {
                 check(current()?, read).map_err(|e| EditError::Base(e.at_field(name)))?;
-                body
+                Ok(body)
             }
             Base::Read(read) => {
                 let now = self.text_now(name)?.unwrap_or_default();
                 if read == now {
-                    body
-                } else {
-                    match merge_lines(read, &now, &body) {
-                        Some(merged) => merged,
-                        None => {
-                            return Err(EditError::Base(BaseError::Conflict {
-                                current: current()?,
-                                field: Some(name.to_string()),
-                                step: None,
-                                reason: None,
-                            }));
-                        }
-                    }
+                    return Ok(body);
                 }
+                merge_lines(read, &now, &body).ok_or_else(|| {
+                    match current() {
+                        Ok(current) => EditError::Base(BaseError::Conflict {
+                            current,
+                            field: Some(name.to_string()),
+                            step: None,
+                            reason: None,
+                        }),
+                        Err(e) => e,
+                    }
+                })
             }
-        };
-        self.revise_field_checked(name, body, schema)
+        }
     }
 }
 

@@ -1386,9 +1386,10 @@ impl Card {
     /// [`EditError::InvalidPayload`] when an absent `name` would take the card
     /// past the §8 field count.
     ///
-    /// Richtext codec: a `text` field rests as its literal string, so an
-    /// object landed here departs that field's resting form until the next bound
-    /// load ([`Quill::conform`](crate::quill::Quill::conform)) converges it.
+    /// A field stored under `codec: "plain"` keeps it and refuses a `content`
+    /// that is not plain with [`EditError::FieldDecode`]; one still resting as
+    /// an authored string lands under the codec its next bound load
+    /// ([`Quill::conform`](crate::quill::Quill::conform)) gives it.
     pub fn overwrite_field(
         &mut self,
         name: &str,
@@ -1402,6 +1403,16 @@ impl Card {
     /// existing field first. The §8 field count is the payload's, so an absent
     /// `name` on a full card is [`EditError::InvalidPayload`].
     fn store_field_content(&mut self, name: &str, content: &Normalized) -> Result<(), EditError> {
+        if self.stored_codec(name) == Codec::Text && !content.is_plain() {
+            return Err(field_decode(
+                name,
+                &[],
+                Codec::Text,
+                super::ContentDecodeError::NotContent(
+                    quillmark_content::model::Invariant::NotPlain.to_string(),
+                ),
+            ));
+        }
         let canonical = super::stored_over(self.payload.get(name).map(QuillValue::as_json), content);
         self.payload_mut()
             .insert(name.to_string(), QuillValue::from_json(canonical))
@@ -1516,11 +1527,12 @@ impl Card {
     /// Schema-blind: a one-line `richtext` violation surfaces at validate/render,
     /// not here.
     ///
-    /// **Richtext only**, and the exclusion bites: decoding a `text` field's
-    /// value as markdown eats its escapes (`a \*b\*` commits back as `a *b*`)
-    /// and leaves a content object where that field rests as a string. The typed
+    /// A field stored under `codec: "plain"` revises under the literal codec:
+    /// `body` is its text, not markdown. A `text` field still resting as its
+    /// authored string decodes as markdown here, which eats its escapes
+    /// (`a \*b\*` commits back as `a *b*`); the typed
     /// [`TypedWriter::revise_field`](crate::writer::TypedWriter::revise_field)
-    /// resolves the codec from the schema and is the `text`-safe door.
+    /// resolves the codec from the schema and is the door for it.
     ///
     /// Returns [`EditError::InvalidFieldName`] for a malformed name,
     /// [`EditError::FieldDecode`] when the field is present but is not a
@@ -1533,8 +1545,40 @@ impl Card {
         name: &str,
         body: impl Into<String>,
     ) -> Result<Revised, EditError> {
+        if self.stored_codec(name) == Codec::Text {
+            return self.revise_field_plain(name, &body.into());
+        }
         let (content, revised) = self.diff_field(name, body)?;
         self.store_field_content(name, &content)?;
+        Ok(revised)
+    }
+
+    /// The codec the stored field names: `text` for a content object spelling
+    /// `codec: "plain"`, `richtext` for any other value or none.
+    pub(crate) fn stored_codec(&self, name: &str) -> Codec {
+        Codec::of_stored(self.payload.get(name).map(QuillValue::as_json))
+    }
+
+    /// Revise a field under the literal codec: `text` imported as plain
+    /// content, each anchor of the stored value carried by the diff, and the
+    /// value stored under `codec: "plain"`.
+    fn revise_field_plain(&mut self, name: &str, text: &str) -> Result<Revised, EditError> {
+        check_field_name(name)?;
+        let base = match self.field_content(name, Codec::Text) {
+            Some(Ok(rt)) => rt,
+            Some(Err(e)) => return Err(field_decode(name, &[], Codec::Text, e)),
+            None => Normalized::empty(),
+        };
+        let (content, revised) =
+            carry_receipt(&base, quillmark_content::lines::import::from_plaintext(text));
+        let stored = super::stored_as(
+            self.payload.get(name).map(QuillValue::as_json),
+            &content,
+            Codec::Text.content(),
+        );
+        self.payload_mut()
+            .insert(name.to_string(), QuillValue::from_json(stored))
+            .map_err(EditError::InvalidPayload)?;
         Ok(revised)
     }
 
@@ -1555,14 +1599,14 @@ impl Card {
     /// [`revise_field`](Self::revise_field) is. An absent field diffs from
     /// empty.
     ///
-    /// **Richtext only**: a `text` field's literal string decodes as markdown
-    /// here, so the receipt's delta is measured against a base the field does
-    /// not hold, and the value lands as a content object off its resting form.
-    /// A `text` field holds no anchor to carry; [`overwrite_field`](Self::overwrite_field)
-    /// is its door. Returns [`EditError::InvalidFieldName`] for a malformed name,
-    /// [`EditError::FieldDecode`] when the field is present but is not a
-    /// richtext content, and [`EditError::InvalidPayload`] when an absent `name`
-    /// would take the card past the §8 field count.
+    /// A field stored under `codec: "plain"` keeps it, and refuses a `content`
+    /// that is not plain. A `text` field still resting as its authored string
+    /// decodes as markdown here; [`revise_field_checked`](Self::revise_field_checked)
+    /// reads it under its schema. Returns [`EditError::InvalidFieldName`] for a
+    /// malformed name, [`EditError::FieldDecode`] when the field is present but
+    /// is not a content or `content` is not plain where it must be, and
+    /// [`EditError::InvalidPayload`] when an absent `name` would take the card
+    /// past the §8 field count.
     pub fn revise_field_content(
         &mut self,
         name: &str,
@@ -1590,18 +1634,20 @@ impl Card {
         body: impl Into<String>,
         schema: &FieldSchema,
     ) -> Result<Revised, EditError> {
-        // Decoding a `text` value as markdown eats its escapes, so a
-        // byte-identical revise of `a \*b\*` would commit `a *b*`. It has no
-        // anchors to rebase either, so it takes the literal codec.
         if matches!(schema.r#type, FieldType::Text { .. }) {
-            return self
-                .revise_field_text(name, body, schema)
-                .map(|(delta, base)| Revised {
-                    delta,
-                    warnings: Vec::new(),
-                    dropped_anchors: Vec::new(),
-                    base,
-                });
+            // The strict write runs the literal codec's boundary cleanup, so
+            // the committed text is what the anchors are carried onto.
+            let (committed, _) = resolve_field_write(
+                name,
+                &QuillValue::from(body.into()),
+                schema,
+                &DocPath::new(),
+            )?;
+            let text = Codec::Text
+                .decode_field(committed.as_json())
+                .map(|c| Codec::Text.project(&c))
+                .map_err(|e| field_decode(name, &[], Codec::Text, e))?;
+            return self.revise_field_plain(name, &text);
         }
         let (content, revised) = self.diff_field(name, body)?;
         // Re-canonicalizing a content object keeps its identity marks, so the
@@ -1618,46 +1664,6 @@ impl Card {
             .map_err(EditError::InvalidPayload)?;
         Ok(revised)
     }
-
-    /// The `text` arm of [`revise_field_checked`](Self::revise_field_checked).
-    /// No markdown import in either direction, so escapes, `*`, and `_` are
-    /// ordinary characters on both sides of the diff and a byte-identical revise
-    /// is a byte no-op. The `Delta` is over the literal text.
-    fn revise_field_text(
-        &mut self,
-        name: &str,
-        text: impl Into<String>,
-        schema: &FieldSchema,
-    ) -> Result<(Delta, String), EditError> {
-        // Ahead of the read: a directly-constructed payload can hold an ill-named
-        // field, whose decode error would otherwise mask the bad name.
-        check_field_name(name)?;
-        let base = match self.field_text(name, Codec::Text) {
-            Some(Ok(text)) => text,
-            Some(Err(e)) => return Err(field_decode(name, &[], Codec::Text, e)),
-            None => String::new(),
-        };
-        // The strict write is the codec: it runs the `from_plaintext` boundary
-        // cleanup, so the committed string is what the diff must measure against.
-        let (stored, _) = resolve_field_write(
-            name,
-            &QuillValue::from(text.into()),
-            schema,
-            &DocPath::new(),
-        )?;
-        let delta = quillmark_content::lines::delta::diff(
-            &base,
-            stored
-                .as_json()
-                .as_str()
-                .expect("a text field rests as a string"),
-        );
-        self.payload_mut()
-            .insert(name.to_string(), stored)
-            .map_err(EditError::InvalidPayload)?;
-        Ok((delta, base))
-    }
-
 }
 
 #[cfg(test)]

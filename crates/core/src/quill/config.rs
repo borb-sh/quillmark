@@ -567,8 +567,6 @@ impl QuillConfig {
                 }
             }
             FieldType::Text { multiline } => {
-                // The literal codec and its two rests: `SCHEMAS.md`
-                // §"Content fields rest per codec".
                 let mut plain_check = |rt: quillmark_content::lines::model::Normalized| -> Result<
                     quillmark_content::lines::model::Normalized,
                     CoercionError,
@@ -600,13 +598,8 @@ impl QuillConfig {
                     }
                     Ok(rt)
                 };
-                let commit = |old: Option<&serde_json::Value>, rt: &quillmark_content::lines::model::Normalized| -> QuillValue {
-                    match mode {
-                        Leniency::Render => QuillValue::from_json(crate::document::stored_over(old, rt)),
-                        Leniency::Write => QuillValue::from_json(serde_json::Value::String(
-                            quillmark_content::lines::export::to_plaintext(rt),
-                        )),
-                    }
+                let commit = |old: Option<&serde_json::Value>, rt: &quillmark_content::lines::model::Normalized| {
+                    QuillValue::from_json(crate::document::stored_as(old, rt, quillmark_content::model::Codec::Plain))
                 };
                 if json_value.is_object() {
                     let rt = quillmark_content::model::Content::lines_from_value(json_value).map_err(|e| {
@@ -681,7 +674,7 @@ impl QuillConfig {
                         });
                 }
                 if json_value.is_object() {
-                    let rt = quillmark_content::model::Content::from_value(json_value).map_err(|e| {
+                    let mut rt = quillmark_content::model::Content::from_value(json_value).map_err(|e| {
                         CoercionError::uncoercible(
                             path,
                             "<object>",
@@ -690,6 +683,7 @@ impl QuillConfig {
                         )
                     })?;
                     inline_check(&rt)?;
+                    rt.codec = quillmark_content::model::Codec::Rich;
                     return Ok(QuillValue::from_json(rt.to_value()));
                 }
                 let Some(markdown) = lenient_string(json_value) else {
@@ -3199,7 +3193,11 @@ fn literal_content(
             if !*multiline && !rt.is_inline() {
                 return Err(single_line_error(label, "text"));
             }
-            Ok(Some(QuillValue::from_json(crate::document::stored_over(None, &rt))))
+            Ok(Some(QuillValue::from_json(crate::document::stored_as(
+                None,
+                &rt,
+                quillmark_content::model::Codec::Plain,
+            ))))
         }
         FieldType::Array => {
             let Some(items) = field.items.as_deref() else {

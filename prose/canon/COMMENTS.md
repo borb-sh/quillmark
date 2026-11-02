@@ -73,6 +73,21 @@ A table cell and a footnote's note are slots, each a `Content` of its own, and a
 A comment on a table as a whole anchors the table's slot: a one-character range over its `U+FFFC`, which the receipts list and the steps move with the table.
 Its quote is the slot alone, so `reattach` places it on its context like a point, and only where one slot sits between the agreeing sides.
 
+## Text and scalar fields
+
+A `text` field rests as a content object spelling `codec: "plain"` ([SCHEMAS.md](SCHEMAS.md) § "Content fields rest per codec"), so a comment on it is an anchor in its `anchors`, as on a `richtext` field, and the whole contract holds unchanged:
+
+- `anchor_contexts` reads it at the field's path, `reattach` places it by the same rule, and every receipt names it where a write drops it.
+- A typed or schema-free field revise and the document revise carry it through the diff of the literal text.
+- The annotated read writes the field as its literal text, which holds no tag, and lists the anchor with the text of its line, as it lists a cell's. A writer that moves the text moves the anchor by the diff, never by a tag.
+- A `text` field still resting as its authored string holds no anchor; the bound door conforms it to the object, and a stored selector reattaches on it from then on.
+
+A field holding no content (an enum, a number, a date, a boolean, or a container of them) takes a comment on the whole value: a selector with a `path` and `card_id` and an empty `quote`, `prefix` and `suffix`. The document holds nothing for it.
+
+- `reattach` resolves its card by `card_id` as it does any selector's, and answers it reattached, at the path as resolved and with nothing written, while a value sits at that path. It orphans where none does, or where the card is gone.
+- A whole-field selector naming a content value is read by the matching rule, as a point with no context.
+- Drift for a scalar is the value changing; the host reads the value itself and compares.
+
 ## Hosting
 
 A host holding threads persists the `StoredDocument` or keeps the live document and revises it.

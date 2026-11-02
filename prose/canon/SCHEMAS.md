@@ -35,7 +35,7 @@ Supported field types:
 | `object` | Structured map; requires `properties:` |
 | `date` | A strict calendar date `YYYY-MM-DD`, or the keyword `today` ([The render date](#the-render-date-today)). Rejects any time component (a time-bearing string is a `datetime`, not a truncated date). The common case in documents, so it is the unmarked date type. Stored verbatim; lowers to a native Typst `datetime(year:, month:, day:)`, with `qm.ink(dict, key, ..)` for a click-to-edit rendering (see `PLATE_DATA.md`) |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`, seconds optional (zero-filled). Rejects timezone offsets (`Z`, `±HH:MM`), the space separator, fractional seconds, and a bare date (which is a `date`). An offset is **rejected, never dropped**: Quillmark does no zone math, keeping wall-clock semantics end to end. Stored verbatim; lowers the same way over the six-component `datetime(year:, .., second:)` |
-| `text` | Open **unformatted** text over the same canonical content (`Content`) as `richtext` (same media type, nav, and regions) but a **literal** codec (`from_plaintext`/`to_plaintext`): delimiters stay literal, no markup, verbatim round-trip. One line; `multiline: true` admits line breaks. Constrained mark-/island-free (`Content::is_plain`); a formatted wire content is rejected (`validation::not_plain`), not stripped. **Rests as the literal string** — in the *document*. A plate receives the content object, exactly as for `richtext` (no backend reads the `text` annotation), and a plate that computes with the value takes its `str` through `qm.str(..)` ([PLATE_DATA.md](PLATE_DATA.md)), every character recovered because the value carries no marks, whitespace normalized |
+| `text` | Open **unformatted** text over the same canonical content (`Content`) as `richtext` (same media type, nav, and regions) but a **literal** codec (`from_plaintext`/`to_plaintext`): delimiters stay literal, no markup, verbatim round-trip. One line; `multiline: true` admits line breaks. Constrained mark-/island-free (`Content::is_plain`); a formatted wire content is rejected (`validation::not_plain`), not stripped. **Rests as a content object spelling `codec: "plain"`**, which the content model holds to plainness itself ([CONTENT.md](CONTENT.md) § "The value") and emit projects back to the literal string. A plate receives that content object, exactly as for `richtext` (no backend reads the `text` annotation), and a plate that computes with the value takes its `str` through `qm.str(..)` ([PLATE_DATA.md](PLATE_DATA.md)), every character recovered because the value carries no marks, whitespace normalized |
 | `richtext` | Rich **formatted** prose over a canonical content (`Content`); markdown is a projection of it. One paragraph (exactly one `Para` line, no container, no islands); `multiline: true` admits block structure (paragraphs, lists, containers). A `richtext` spells `multiline:` either way, `true` or `false`, and its absence is a load error. The pre-richtext `markdown` spelling and the retired `type: richtext(inline)` token are schema load errors (`quill::field_parse_error`). **Rests as the canonical content object** |
 
 `multiline` is the one line-shape key: coercion, `validate`, the editor and
@@ -355,23 +355,31 @@ sibling `default: []`.
 
 A content field's **resting form** is the shape it is stored in once anything
 schema-aware has written it: the typed writer, the seeder, or `Quill::conform`
-(the bound door, [BINDINGS.md](BINDINGS.md)). It is per-codec, and the split is
-forced, not chosen:
+(the bound door, [BINDINGS.md](BINDINGS.md)). Every content field rests as the
+canonical content object, which holds what a string cannot (anchors, block and
+island ids, content-only marks), and the object names its codec:
 
-| Codec | Rest | Why |
+| Codec | Rest | Emit |
 |---|---|---|
-| `richtext` | the canonical content object | the markdown projection is lossy (anchors, island ids, content-only marks), so string rest loses identity |
-| `text` | the literal string | `from_plaintext`/`to_plaintext` are inverses on plain content and `is_plain` excludes every mark, so string rest loses nothing, while object rest corrupts at emit |
+| `richtext` | the canonical content object, no `codec` key | its markdown, lossy where markdown cannot spell a part |
+| `text` | the canonical content object spelling `codec: "plain"` | its literal text, verbatim |
 
-Emit is schema-free: `project_content_field` routes every canonical content
-object in a field's value, at any depth, through `export::to_markdown`, and it
-cannot sniff the codec from the shape (a `richtext` content that happens to be plain is
-indistinguishable from a `text` one). An object-rest `text` field
-holding `a *literal* line` would therefore emit markdown-escaped
-(`a \*literal\* line`), and a re-parse would read the backslashes as
-characters. String rest removes that; the plate is unaffected, since the render
-floor still coerces `text` to the content object backends receive
-([PLATE_DATA.md](PLATE_DATA.md)).
+The key is what lets the schema-free paths keep the literal codec. Emit is
+schema-free: `project_content_field` routes every canonical content object in a
+field's value, at any depth, through the projection its `codec` names, so a
+`text` field holding `a *literal* line` emits `a *literal* line`, never the
+markdown-escaped `a \*literal\* line` a re-parse would read the backslashes of.
+The document revise, a schema-free field revise and the annotated read read the
+key the same way: a `codec: "plain"` value revises from literal text, and its
+annotated read is that text with its anchors listed and no tag in it
+([COMMENTS.md](COMMENTS.md) § "Text and scalar fields"). The key is part of the
+canonical bytes, so it is part of every content hash, and every write keeps it:
+a change applies to the value it was made from, whose codec it does not touch.
+
+The schema still decides the codec: conform writes `codec: "plain"` on a `text`
+field's value and leaves a `richtext` field's unspelled, whatever the stored
+object said, so a declared type change between the two rewrites the key with
+the value ([§ A declared type change rewrites stored values](#a-declared-type-change-rewrites-stored-values)).
 
 Rest is enforced only for a **declared content field**: one whose type tree
 bears a content leaf (`field_contains_content`), and its whole subtree conforms
@@ -391,8 +399,8 @@ being the identity on it, and a present-null reads `null` at every type. That
 is the [values form](#the-values-form).
 Without it the caller reads the stored element and decides for itself what the
 bytes mean, which is the judgement the resting form exists to remove. The caller
-also has less to decide with: the codec is a schema fact, and the stored shape
-does not carry it.
+also has less to decide with: the codec is a schema fact, and a value resting as
+authored, a string, does not carry it.
 
 ### A declared type change rewrites stored values
 
@@ -517,8 +525,12 @@ Coercion rules per type:
   - a string imports through the **literal** codec (`from_plaintext`,
     verbatim: no markdown parse, no escaping);
   - an editor-supplied content object is validated **plain**
-    (`Content::is_plain`: no marks, no islands, all `Para` lines) rather than
-    markdown-decoded. A formatted wire content is rejected, not stripped.
+    (`Content::is_plain`: no marks, no islands, all `Para` lines; anchors are
+    no marks) rather than markdown-decoded. A formatted wire content is
+    rejected, not stripped, and one spelling `codec: "plain"` is refused by
+    the content model's own decoder;
+  - either commits as the content object spelling `codec: "plain"`, its
+    anchors kept.
 
   Enforcement mirrors the one-line constraint, in the same three places:
   coercion (`CoercionError`); validation (`validation::not_plain`, the

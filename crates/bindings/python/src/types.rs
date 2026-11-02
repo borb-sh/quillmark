@@ -325,8 +325,8 @@ impl PyQuill {
 
     /// Parse `markdown` and conform it against this quill: the primary ingestion
     /// path, and the bound twin of the schema-free `Document.from_markdown`. The
-    /// returned document rests at its canonical form: a `richtext` field as a
-    /// content object, a `text` field as its literal string.
+    /// returned document rests at its canonical form: a content field as a
+    /// content object, a `text` field's under `codec: "plain"`.
     ///
     /// Parse warnings and the `conform::*` diagnostics both land on
     /// `doc.warnings`. Raises `QuillmarkError` on a parse failure, or when
@@ -1216,9 +1216,9 @@ impl PyWriter {
 
     /// The hash of the body (`field=None`) or of `field` through its schema on
     /// `card` (`None` for the main card): the `base_hash` `revise_body` /
-    /// `revise_field` check. A `richtext` field hashes its content however it
-    /// rests, a `text` field its literal text, any other type its stored
-    /// value, an absent field as `None`. Raises `edit::unknown_field` for an
+    /// `revise_field` check. A `richtext` or `text` field hashes its content
+    /// however it rests, any other type its stored value, an absent field as
+    /// `None`. Raises `edit::unknown_field` for an
     /// undeclared name.
     #[pyo3(signature = (field=None, card=None))]
     fn hash_at(

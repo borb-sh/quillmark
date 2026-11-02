@@ -153,9 +153,9 @@ document written by the current writer.
 
 **Resting form.** Byte-equality is over `Document` values, so it is only
 as useful as the model's agreement on what a given document *is*. A
-content field has one resting form per codec: a `richtext` field rests as
-the canonical content object, a `text` field as its literal string
-([SCHEMAS.md](SCHEMAS.md) § "Content fields rest per codec").
+content field rests as the canonical content object, a `text` field's
+spelling `codec: "plain"` ([SCHEMAS.md](SCHEMAS.md) § "Content fields rest
+per codec").
 `Quill::conform` is what holds that: it walks a document's declared
 content fields through the same strict write the typed writer commits
 through, so a parse-then-conform and a typed write of the same values are
@@ -170,6 +170,11 @@ A document that entered through the transport door (`Document::parse`, a
 stored row, `store_field`) rests as authored until it is conformed. That is
 a named state, not a second resting form: it is readable, round-trippable,
 and one bound load away from converging.
+
+A `text` field stored as its literal string, as every one was before 0.135,
+is the authored form: it reads as literal text, holds no anchor, and rests as
+the `codec: "plain"` object once the bound door conforms it. Its hash moves
+then, once, and the stored row needs no migration.
 
 A comment's text rests without the whitespace ending it, as a parse reads its
 line, so a stored row holding such text loads without it and rewrites once.
