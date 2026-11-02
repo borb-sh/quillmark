@@ -181,7 +181,7 @@ export type {
 
 /**
  * The error every fallible method in this package throws: parse
- * (`Document.fromMarkdown`), document mutation, validation
+ * (`Document.parse`), document mutation, validation
  * (`Quill.fromTree`, `quill.validate`), and rendering (`engine.render`,
  * `engine.open`, `session.render`).
  *
@@ -734,8 +734,8 @@ export declare class DocumentWriter {
 	 * leaving the document unchanged.
 	 *
 	 * `opts` names what the writer read: `baseHash` is {@link hash}, and
-	 * `baseMarkdown` the whole document's markdown (`toMarkdown` or
-	 * `toAnnotatedMarkdown`). A stale hash throws before any mutation. A
+	 * `baseMarkdown` the whole document's markdown (`toMarkdown()`, cold or
+	 * annotated). A stale hash throws before any mutation. A
 	 * markdown base merges the write onto what changed since, card by card and
 	 * field by field: each place both changed keeps its value now and is named
 	 * in the receipt's `conflicts`, and the write throws
@@ -795,9 +795,8 @@ export declare class CardWriter {
  *
  * The schema authority is the point: unlike the quill-free `Document.getStored`,
  * an undeclared name throws `UnknownField` rather than reading back `undefined`,
- * and an undecodable content value throws `FieldDecode`. A field's markdown lives
- * here, not on the body-only `Document.bodyMarkdown`; the body read stays
- * quill-free and never throws.
+ * and an undecodable content value throws `FieldDecode`. The quill-free markdown
+ * read of any one value is `Document.toMarkdown(addr)`.
  *
  * `getContent` is the same read at the other end of the codec, returning the
  * `Content` rather than the projection. It binds the quill for the same reason
@@ -846,8 +845,6 @@ export declare class DocumentReader {
 	 * `IndexOutOfRange` for a bad `addr.card`.
 	 */
 	getContentAt(addr: Addr | string, path: PathStep[]): Content | undefined;
-	/** The main body's markdown: the quill-free body read. Equals `get({})`. */
-	bodyMarkdown(): string;
 	/**
 	 * The resolved-value view: for every declared field, the value the render
 	 * projection would use and the rung it came from (`authored` / `default` /

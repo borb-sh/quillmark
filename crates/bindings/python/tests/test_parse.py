@@ -12,7 +12,7 @@ from conftest import field, has_field, raises_edit_code
 def test_projection(taro_md):
     """`main` exposes payload fields but not `$` metadata; `body` is the content
     dict; `cards` projects each card's kind, fields and body."""
-    doc = Document.from_markdown(taro_md)
+    doc = Document.parse(taro_md)
     assert "Ice Cream" in field(doc.main, "title")
     assert not has_field(doc.main, "$quill")
     assert "nutty" in doc.body["text"]
@@ -26,10 +26,10 @@ def test_projection(taro_md):
 def test_json_dto_round_trip(taro_md):
     """to_stored emits a DTO that from_stored round-trips, tagged with the
     newest version."""
-    doc = Document.from_markdown(taro_md)
+    doc = Document.parse(taro_md)
     dto = doc.to_stored()
     assert Document.storage_version_of(dto) == Document.current_storage_version()
-    main_only = Document.from_markdown("~~~\n$quill: taro@0.1.0\n~~~\n\nSet\n")
+    main_only = Document.parse("~~~\n$quill: taro@0.1.0\n~~~\n\nSet\n")
     assert Document.storage_version_of(main_only.to_stored()) == Document.current_storage_version()
 
     restored = Document.from_stored(dto)
@@ -58,7 +58,7 @@ def test_clone_and_copy_isolate_mutations(taro_md):
     """clone(), copy.copy and copy.deepcopy compare equal and are independent."""
     import copy
 
-    doc = Document.from_markdown(taro_md)
+    doc = Document.parse(taro_md)
     for dup in (doc.clone(), copy.copy(doc), copy.deepcopy(doc)):
         assert dup == doc and dup.equals(doc)
         dup.remove_field("title")
@@ -71,7 +71,7 @@ def test_remove_field_on_card():
         "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n\nBody.\n\n"
         "~~~card-yaml\n$kind: note\nfoo: bar\nbaz: qux\n~~~\n"
     )
-    doc = Document.from_markdown(md)
+    doc = Document.parse(md)
     assert doc.remove_field("foo", card=0) == "bar"
     assert not has_field(doc.cards[0], "foo")
     assert field(doc.cards[0], "baz") == "qux"
@@ -84,7 +84,7 @@ def test_diagnostic_str_and_repr():
         "~~~card-yaml\n$quill: my_quill\n$kind: main\ntitle: Hi\n"
         "weird: !custom value\n~~~\n\nBody\n"
     )
-    diag = Document.from_markdown(warn_md).warnings[0]
+    diag = Document.parse(warn_md).warnings[0]
     assert diag.code == "parse::unsupported_yaml_tag"
     assert diag.message in str(diag)
 

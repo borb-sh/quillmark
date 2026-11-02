@@ -351,8 +351,34 @@ export interface MergeConflict {
     proposed: unknown;
 }
 
+/** What `toMarkdown` and `exportMarkdown` read: `annotated` spells each
+ * anchor and each island markdown cannot hold for a revise to read back. */
+export interface MarkdownOptions {
+    annotated?: boolean;
+}
+
+export interface Document {
+    /**
+     * The markdown of the whole document, or with `addr` of the body or content
+     * field there alone: a cold read, which drops every anchor and gives each
+     * island the markdown that re-mints it. A re-parse lands a `Document` equal
+     * to this one by value and by type but for content; `toStored` keeps both.
+     * At an address an absent field reads as the empty content, and a
+     * `codec: "plain"` field as its literal text. Throws on an out-of-range
+     * card, a malformed field name, or a present field value that is not
+     * content.
+     */
+    toMarkdown(addr?: Addr | string, opts?: { annotated?: false }): string;
+    /**
+     * The annotated read, what a revise reads back: the markdown with a tag at
+     * each anchor and a token for each island it cannot spell, and every anchor
+     * listed with its path. At an address, each anchor names that address.
+     */
+    toMarkdown(addr: Addr | string | undefined, opts: { annotated: true }): AnnotatedMarkdown;
+}
+
 /**
- * The read `toAnnotatedMarkdown` returns: `toMarkdown`'s markdown with a
+ * The annotated read `toMarkdown` returns: its markdown with a
  * `<qm-anchor ref="…"></qm-anchor>` at each prose anchor's start its line
  * can hold, and a `<qm-island ref="…"></qm-island>` token for each island
  * whose markdown does not read back, which every revise reads back; and every
@@ -885,9 +911,12 @@ impl Document {
         })
     }
 
-    /// Parse markdown into a typed Document. Throws on parse errors.
-    #[wasm_bindgen(js_name = fromMarkdown)]
-    pub fn from_markdown(markdown: &str) -> Result<Document, JsValue> {
+    /// Parse a whole document's markdown, quill-free: the document-level
+    /// import, its content read cold, no anchor in it. `quill.parse` is the
+    /// same parse conformed to a quill; a revise is the import that keeps
+    /// anchors. Throws on parse errors.
+    #[wasm_bindgen(js_name = parse)]
+    pub fn parse(markdown: &str) -> Result<Document, JsValue> {
         let output = quillmark_core::document::Document::parse(markdown)
             .map_err(WasmError::from)
             .map_err(|e| e.to_js_value())?;
@@ -943,13 +972,51 @@ impl Document {
         quillmark_core::version::quill_ref_hint().to_string()
     }
 
-    /// Emit canonical Quillmark Markdown. Re-parsing the result produces a
-    /// `Document` equal to `self` by value and by type, but for content: a body
-    /// or content field holds what its markdown spells, so its anchors drop and
-    /// its island ids re-mint. `toStored` keeps both.
-    #[wasm_bindgen(js_name = toMarkdown)]
-    pub fn to_markdown(&self) -> String {
-        self.inner.to_markdown()
+    /// The one markdown export: the document, or with `addr` the value
+    /// there, cold or annotated (`MarkdownOptions`). Typed by the `Document`
+    /// interface's overloads.
+    #[wasm_bindgen(js_name = toMarkdown, skip_typescript)]
+    pub fn to_markdown(&self, addr: JsValue, opts: JsValue) -> Result<JsValue, JsValue> {
+        let annotated = markdown_options(&opts, "toMarkdown")?;
+        if addr.is_undefined() || addr.is_null() {
+            if !annotated {
+                return Ok(JsValue::from_str(&self.inner.to_markdown()));
+            }
+            let read = self.inner.to_markdown_annotated();
+            let js = AnnotatedMarkdownJs {
+                markdown: read.markdown,
+                anchors: read.anchors.into_iter().map(Into::into).collect(),
+            };
+            return serialize_or_throw(&js, "toMarkdown");
+        }
+        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
+        let card = self.addr_card_ref(&addr)?;
+        let base = self.addr_base(&addr);
+        let target = quillmark_core::document::Target::from(addr.field.as_deref());
+        let content = card.read(target).map_err(|e| edit_error_to_js(&e, &base))?;
+        if !annotated {
+            return Ok(JsValue::from_str(&quillmark_content::markdown::to_text(&content)));
+        }
+        let read = quillmark_content::markdown::to_text_annotated(&content);
+        let path = match &addr.field {
+            None => base.body(),
+            Some(field) => base.field(field),
+        };
+        let card_id = card.id().map(str::to_string);
+        let js = AnnotatedMarkdownJs {
+            markdown: read.markdown,
+            anchors: read
+                .anchors
+                .into_iter()
+                .map(|a| DocumentAnchorJs {
+                    id: a.id,
+                    path: path.to_string(),
+                    card_id: card_id.clone(),
+                    line: a.line,
+                })
+                .collect(),
+        };
+        serialize_or_throw(&js, "toMarkdown")
     }
 
     /// With no `addr`, the hash of the document's stored form, the quill-free
@@ -983,59 +1050,6 @@ impl Document {
         self.addr_card_ref(&addr)?
             .hash_of(quillmark_core::document::Target::from(addr.field.as_deref()))
             .map_err(|e| edit_error_to_js(&e, &self.addr_base(&addr)))
-    }
-
-    /// The annotated read of the body or richtext field at `addr` alone: the
-    /// scoped twin of `toAnnotatedMarkdown`, what a revise at `addr` reads
-    /// back and the `baseMarkdown` it merges against. Each anchor names `addr`'s
-    /// path. An absent field reads as the empty content. Throws as `hashAt`.
-    #[wasm_bindgen(js_name = annotatedAt, unchecked_return_type = "AnnotatedMarkdown")]
-    pub fn annotated_at(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr, &self.inner)?;
-        let card = self.addr_card_ref(&addr)?;
-        let base = self.addr_base(&addr);
-        let (read, path) = match &addr.field {
-            None => (card.body_annotated(), base.body()),
-            Some(field) => (
-                card.field_annotated(field)
-                    .map_err(|e| edit_error_to_js(&e, &base))?,
-                base.field(field),
-            ),
-        };
-        let card_id = card.id().map(str::to_string);
-        let js = AnnotatedMarkdownJs {
-            markdown: read.markdown,
-            anchors: read
-                .anchors
-                .into_iter()
-                .map(|a| DocumentAnchorJs {
-                    id: a.id,
-                    path: path.to_string(),
-                    card_id: card_id.clone(),
-                    line: a.line,
-                })
-                .collect(),
-        };
-        serialize_or_throw(&js, "annotatedAt")
-    }
-
-    /// `toMarkdown` with each prose anchor of every body and content field
-    /// spelled at its start where its line can hold the tag, every anchor,
-    /// a cell's too, listed with its field's path and line, and each island whose markdown
-    /// does not read back spelled as its token. `writer.reviseDocument` reads
-    /// both back: a kept tag pins its anchor, and a token keeps its island as
-    /// stored.
-    #[wasm_bindgen(js_name = toAnnotatedMarkdown, unchecked_return_type = "AnnotatedMarkdown")]
-    pub fn to_annotated_markdown(&self) -> Result<JsValue, JsValue> {
-        let read = self.inner.to_markdown_annotated();
-        let js = AnnotatedMarkdownJs {
-            markdown: read.markdown,
-            anchors: read.anchors.into_iter().map(Into::into).collect(),
-        };
-        serialize_or_throw(&js, "toAnnotatedMarkdown")
     }
 
     /// Every anchor of every body and content value with its context, a table
@@ -1193,31 +1207,6 @@ impl Document {
                 None => Ok(JsValue::UNDEFINED),
             },
         }
-    }
-
-    /// The **body** markdown projection: an on-demand, lossy export (content-only
-    /// marks do not survive markdown). A body's type is a format fact, not a
-    /// schema fact, so this read stays quill-free, and a body is never absent.
-    ///
-    /// `addr` is an optional card address (absent = main). A present `field`
-    /// throws: read a field's markdown through `quill.reader(doc).get(field)`,
-    /// which interprets by declared type. An out-of-range `addr.card` throws.
-    #[wasm_bindgen(js_name = bodyMarkdown, unchecked_return_type = "string")]
-    pub fn body_markdown(
-        &self,
-        #[wasm_bindgen(unchecked_optional_param_type = "CardAddr")] addr: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js(&addr, &self.inner)?;
-        if addr.field.is_some() {
-            return Err(WasmError::from(
-                "bodyMarkdown is body-only: read a field's markdown with \
-                 quill.reader(doc).get(field)",
-            )
-            .to_js_value());
-        }
-        Ok(JsValue::from_str(
-            &self.addr_card_ref(&addr)?.body_markdown(),
-        ))
     }
 
     /// Interpreted read at `addr`, resolving the field's declared `type` from
@@ -2063,14 +2052,36 @@ pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
     serialize_or_throw(&out, "importMarkdown")
 }
 
-/// Export canonical `Content` to its markdown projection. Throws if `rt` is not
-/// canonical content.
+/// The one content export: `rt`'s markdown, a `codec: "plain"` value's
+/// literal text. Cold, it drops every anchor; `opts.annotated` spells each
+/// anchor and each island markdown cannot hold, which a revise reads back.
+/// Throws if `rt` is not canonical content.
 #[wasm_bindgen(js_name = exportMarkdown)]
 pub fn export_markdown(
     #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "MarkdownOptions")] opts: JsValue,
 ) -> Result<String, JsValue> {
+    let annotated = markdown_options(&opts, "exportMarkdown")?;
     let content = content::content_in(rt, "exportMarkdown")?;
-    Ok(quillmark_content::markdown::to_markdown(&content))
+    Ok(match annotated {
+        true => quillmark_content::markdown::to_text_annotated(&content).markdown,
+        false => quillmark_content::markdown::to_text(&content),
+    })
+}
+
+/// `MarkdownOptions.annotated`, false where `opts` is absent.
+fn markdown_options(opts: &JsValue, verb: &str) -> Result<bool, JsValue> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Opts {
+        annotated: Option<bool>,
+    }
+    if opts.is_undefined() || opts.is_null() {
+        return Ok(false);
+    }
+    let opts: Opts = serde_json::from_value(js_value_to_json(opts.clone(), verb)?)
+        .map_err(|e| WasmError::from(format!("{verb}: options must be MarkdownOptions: {e}")).to_js_value())?;
+    Ok(opts.annotated.unwrap_or(false))
 }
 
 /// What a revise's writer read, off a `BaseOptions`.

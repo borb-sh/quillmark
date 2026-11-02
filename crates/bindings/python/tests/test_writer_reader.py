@@ -80,7 +80,7 @@ def test_card_selector_targets_the_composable_card_on_both_lanes():
 
     assert doc.card(0)["kind"] == "quotes"
     assert v.get("author", card=0) == "Basho"
-    assert v.body_markdown(card=0) == "A quote body."
+    assert doc.to_markdown_at(card=0) == "A quote body."
 
     ed.set("author", "Issa", card=0)
     assert field(doc.cards[0], "author")["text"] == "Issa"
@@ -193,7 +193,7 @@ def test_a_field_hash_reads_through_the_schema():
     string or as conformed content, so a conform between the read and the
     write does not stale the base; an undeclared name raises."""
     quill = richtext_quill()
-    doc = Document.from_markdown("~~~\n$quill: sample_form@0.1.0\nbio: Hello *world*\n~~~\n")
+    doc = Document.parse("~~~\n$quill: sample_form@0.1.0\nbio: Hello *world*\n~~~\n")
     w = quill.writer(doc)
     hash, whole = w.hash_at("bio"), w.hash()
     assert hash == doc.hash_at("bio")
@@ -274,7 +274,7 @@ def test_markdown_writes_return_their_drops_at_the_body_written():
     assert drops(w.revise_body("c <kbd>d</kbd>", card=1)["warnings"]) == [
         ("parse::dropped_construct", "cards.quotes[1].body", "kbd")
     ]
-    assert quill.reader(doc).body_markdown(card=1) == "c d"
+    assert doc.to_markdown_at(card=1) == "c d"
 
 
 def test_reader_interprets_by_declared_type():
@@ -295,9 +295,9 @@ def test_reader_interprets_by_declared_type():
 def test_reader_richtext_holding_scalar_raises_mismatch():
     """A present value that does not decode as richtext raises FieldDecode.
 
-    Seated quill-free via `from_markdown`: a bare number under a richtext field."""
+    Seated quill-free via `Document.parse`: a bare number under a richtext field."""
     quill = richtext_quill()
-    doc = Document.from_markdown(
+    doc = Document.parse(
         "~~~card-yaml\n$quill: sample_form@0.1.0\n$kind: main\nbio: 3\n~~~\n"
     )
     with raises_edit_code("edit::field_decode"):
@@ -315,7 +315,7 @@ def test_reader_get_content_spans_both_storage_forms():
     quill.writer(committed).set("bio", "A **bold** intro.")
     assert isinstance(field(committed.main, "bio"), dict)  # committed lane
 
-    parsed = Document.from_markdown(
+    parsed = Document.parse(
         "~~~card-yaml\n$quill: sample_form@0.1.0\n$kind: main\nbio: A **bold** intro.\n~~~\n"
     )
     assert isinstance(field(parsed.main, "bio"), str)  # parsed lane
@@ -429,7 +429,7 @@ def test_get_content_at_path_and_card_selector(element_quill):
     """`path` walks to the leaf's own codec, a path naming nothing stored reads
     None, a malformed step and a bare `str` are the argument's error, and
     `card=` addresses a composable card's schema."""
-    doc = Document.from_markdown(
+    doc = Document.parse(
         "~~~card-yaml\n$quill: element_test@0.1.0\n$kind: main\n"
         "recipients: ['a *literal* line']\nparagraphs: ['A **bold** intro.', 3]\n"
         "tags: ['x']\nrows:\n  - {}\n  - notes: a *note*\n~~~\n"
@@ -459,12 +459,12 @@ def test_get_content_at_path_and_card_selector(element_quill):
         v.get_content_at("rows", "notes")
 
 
-def test_reader_body_markdown_reads_the_main_body():
-    """reader.body_markdown() with no card reads the main body markdown."""
+def test_to_markdown_at_reads_the_main_body():
+    """to_markdown_at() with no address reads the main body markdown."""
     quill = taro_quill()
     doc = Document("taro@0.1.0")
     quill.writer(doc).revise_body("A **taro** essay.")
-    assert quill.reader(doc).body_markdown() == "A **taro** essay."
+    assert doc.to_markdown_at() == "A **taro** essay."
 
 
 def test_a_text_field_revise_answers_one_splice_over_its_literal_text():

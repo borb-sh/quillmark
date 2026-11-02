@@ -117,9 +117,8 @@ v.get("bio")                              # richtext → markdown str; scalar �
                                           # undeclared name raises UnknownField; undecodable content raises FieldDecode
 v.get_content("bio")                      # the `Content` dict {text, lines, marks, islands}; absent → None
                                           # a type that is not a content leaf raises FieldNotContent
-v.body_markdown()                         # the main body markdown (quill-free body read)
 v.get("author", card=0)                   # a card field, interpreted by its $kind schema
-v.body_markdown(card=0)
+doc.to_markdown_at(card=0)                # a card body's markdown, quill-free
 doc.card(0)["kind"]                       # the composable card's $kind
 ```
 
@@ -142,7 +141,7 @@ artifact.save("out.pdf")
 
 ```python
 doc = Document("my_quill")                       # blank canvas: $quill only, no fields, no cards
-doc = Document.from_markdown(markdown)
+doc = Document.parse(markdown)
 emitted = doc.to_markdown()
 
 stored   = doc.to_stored()
@@ -201,7 +200,7 @@ raises `ValueError` before core is called, described by no diagnostic.
 
 ```python
 try:
-    Document.from_markdown(bad_md)
+    Document.parse(bad_md)
 except QuillmarkError as exc:
     for d in exc.diagnostics:
         print(d.severity, d.code, d.message, d.path)
