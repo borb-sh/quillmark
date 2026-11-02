@@ -29,6 +29,7 @@ import type {
 	wrap,
 	inheritedMarks,
 	mapPos,
+	repair,
 	isInline,
 	isPlain,
 	parseDocPath,
@@ -59,6 +60,7 @@ export interface CoreSurface {
 	wrap: typeof wrap;
 	inheritedMarks: typeof inheritedMarks;
 	mapPos: typeof mapPos;
+	repair: typeof repair;
 	isInline: typeof isInline;
 	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;
@@ -167,7 +169,13 @@ export type {
 	AnchorContext,
 	Reattached,
 	Imported,
-	DocPathSeg
+	DocPathSeg,
+	Pos,
+	MapResult,
+	WrapKind,
+	RawContent,
+	Repair,
+	Repaired
 } from '../core/wasm.js';
 
 // The schema-bound whole-document read on `quill.reader(doc)`: the resolved

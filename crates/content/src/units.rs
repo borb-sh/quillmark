@@ -144,6 +144,15 @@ impl Index {
         (p, inside)
     }
 
+    /// The scalar offset unit offset `n` reaches, one inside a character
+    /// moved to its start and one past the text to its end.
+    fn clamped(&self, n: usize) -> Usv {
+        match self.locate(n) {
+            (_, Some(at)) => at,
+            (p, None) => p.min(self.len),
+        }
+    }
+
     /// [`to_scalars`].
     fn to_scalars(&self, n: usize) -> Option<Usv> {
         match self.locate(n) {
@@ -236,6 +245,19 @@ impl Content {
     }
 }
 
+impl crate::repair::Raw {
+    /// [`from_value`](Self::from_value) with offsets in `u`, converted as
+    /// [`raw_to_scalars`] does. A v1 value counts scalar values, as v1 did.
+    pub fn from_value_in(v: &Value, u: impl Units) -> Result<crate::repair::Raw, ParseError> {
+        if crate::model::json_too_deep(v) || crate::wire::is_v1(v) {
+            return crate::repair::Raw::from_value(v);
+        }
+        let mut v = v.clone();
+        raw_to_scalars(&mut v, u);
+        crate::repair::Raw::from_value(&v)
+    }
+}
+
 /// Whether `v` is shaped as a v2 content value: a `text` string and a
 /// `blocks` array.
 pub fn is_content_value(v: &Value) -> bool {
@@ -246,15 +268,23 @@ pub fn is_content_value(v: &Value) -> bool {
 /// other keys untouched; false when one falls inside a character or past its
 /// text. A value not shaped as v2 content is left as it is.
 pub fn value_to_scalars(v: &mut Value, u: impl Units) -> bool {
-    value_offsets(v, u, Dir::In).is_some()
+    value_offsets(v, u, Dir::In, false).is_some()
 }
 
 /// Move a content value's offsets from scalar values to `u` in place.
 pub fn value_from_scalars(v: &mut Value, u: impl Units) {
-    value_offsets(v, u, Dir::Out);
+    value_offsets(v, u, Dir::Out, false);
 }
 
-fn value_offsets(v: &mut Value, u: impl Units, dir: Dir) -> Option<()> {
+/// Move a raw value's offsets ([`Raw`](crate::repair::Raw)) from `u` to scalar
+/// values in place, its `islands` an array or an object keyed by id. An offset
+/// inside a character moves to that character's start and one past the text to
+/// its end, since repair clips what the text no longer holds.
+pub fn raw_to_scalars(v: &mut Value, u: impl Units) {
+    value_offsets(v, u, Dir::In, true);
+}
+
+fn value_offsets(v: &mut Value, u: impl Units, dir: Dir, raw: bool) -> Option<()> {
     if !is_content_value(v) {
         return Some(());
     }
@@ -264,17 +294,21 @@ fn value_offsets(v: &mut Value, u: impl Units, dir: Dir) -> Option<()> {
         for item in items {
             for edge in ["start", "end"] {
                 let Some(n) = item.get(edge).and_then(Value::as_u64) else { continue };
-                let n = index.offset(dir, usize::try_from(n).unwrap_or(usize::MAX))?;
+                let n = usize::try_from(n).unwrap_or(usize::MAX);
+                let n = if raw { index.clamped(n) } else { index.offset(dir, n)? };
                 item[edge] = n.into();
             }
         }
     }
-    if let Some(Value::Array(islands)) = v.get_mut("islands") {
-        for island in islands {
-            if let Some(Value::Object(slots)) = island.get_mut("slots") {
-                for slot in slots.values_mut() {
-                    value_offsets(slot, u, dir)?;
-                }
+    let islands: Vec<&mut Value> = match v.get_mut("islands") {
+        Some(Value::Array(list)) => list.iter_mut().collect(),
+        Some(Value::Object(map)) if raw => map.values_mut().collect(),
+        _ => Vec::new(),
+    };
+    for island in islands {
+        if let Some(Value::Object(slots)) = island.get_mut("slots") {
+            for slot in slots.values_mut() {
+                value_offsets(slot, u, dir, raw)?;
             }
         }
     }

@@ -1797,3 +1797,21 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn a_diff_merging_or_splitting_table_cells_lands_the_span() {
+    let d = from_markdown("| a | b |\n| - | - |\n| c | d |").unwrap().content;
+    let mut after = d.clone();
+    let table = &mut after.islands[0];
+    let row = table.props["rows"][1]["cells"].clone();
+    let cols: Vec<String> = table.props["columns"].as_array().unwrap().iter().map(|c| c.as_str().unwrap().to_string()).collect();
+    let (left, right) = (row[&cols[0]].as_str().unwrap().to_string(), row[&cols[1]].as_str().unwrap().to_string());
+    table.props["cell_attrs"] = json!({ left.clone(): { "colspan": 2 } });
+    table.slots.insert(left, quillmark_content::markdown::from_plaintext("c d"));
+    table.slots.insert(right, quillmark_content::markdown::from_plaintext(""));
+    let after = Content::from_value(&after.to_value()).unwrap();
+    for (from, to) in [(&d, &after), (&after, &d)] {
+        let change = quillmark_content::diff::diff(from, to).unwrap();
+        assert_eq!(&apply(from, &change).unwrap().content, to);
+    }
+}
