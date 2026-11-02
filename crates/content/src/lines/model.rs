@@ -11,13 +11,13 @@ use crate::lines::normalize::{is_bidi_char, is_line_separator};
 use serde_json::Value as JsonValue;
 use std::borrow::Cow;
 
-/// A position in a [`Content`], counted in Unicode scalar values (USV): never
-/// bytes, never UTF-16 units. One astral char is 1 USV / 4 UTF-8 bytes / 2
-/// UTF-16 units. [`crate::usv`] converts one to the UTF-8 byte offset Rust
+/// A position in a [`Content`], counted in Unicode scalar values (scalar): never
+/// bytes, never UTF-16 units. One astral char is 1 scalar / 4 UTF-8 bytes / 2
+/// UTF-16 units. [`crate::units::char_to_byte`] converts one to the UTF-8 byte offset Rust
 /// slicing needs.
-pub type Usv = usize;
+pub type Scalar = usize;
 
-/// U+FFFC OBJECT REPLACEMENT CHARACTER: the single-USV slot an island occupies
+/// U+FFFC OBJECT REPLACEMENT CHARACTER: the single-scalar slot an island occupies
 /// in the content. One slot per island; every slot has a backing island. A stray
 /// slot (or a slot with no island) is an invariant violation, which
 /// [`Content::validate`] reports and the mint cannot repair — so a codec taking
@@ -359,13 +359,13 @@ impl std::ops::Deref for Lines {
 /// only for [`MarkKind::Anchor`]; normalization drops zero-width formatting.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mark {
-    pub start: Usv,
-    pub end: Usv,
+    pub start: Scalar,
+    pub end: Scalar,
     pub kind: MarkKind,
 }
 
 impl Mark {
-    pub fn new(start: Usv, end: Usv, kind: MarkKind) -> Self {
+    pub fn new(start: Scalar, end: Scalar, kind: MarkKind) -> Self {
         Mark { start, end, kind }
     }
 }
@@ -419,7 +419,7 @@ pub fn is_font_family_name(name: &str) -> bool {
 /// tag, the greater setting it: the later start, then the shorter mark, then
 /// the later in canonical order. Only [`normalize_marks`] reads it, settling
 /// raw overlap once; normalized content holds none.
-fn keyed_rank(m: &Mark) -> (Usv, std::cmp::Reverse<Usv>, (String, String)) {
+fn keyed_rank(m: &Mark) -> (Scalar, std::cmp::Reverse<Scalar>, (String, String)) {
     (m.start, std::cmp::Reverse(m.end), m.kind.sort_key())
 }
 
@@ -667,7 +667,7 @@ pub enum Invariant {
     LineCountMismatch { lines: usize, segments: usize },
     /// A mark range runs past the content or is inverted (`start > end`).
     /// Clamping would guess which end the author meant.
-    MarkOutOfRange { start: Usv, end: Usv, len: Usv },
+    MarkOutOfRange { start: Scalar, end: Scalar, len: Scalar },
     /// A heading level outside 1..=6. No rewrite is principled: level 0 exports
     /// as bare text and level 7 as literal hashes, and a clamp guesses the
     /// other way. Both wires refuse it ahead of the model
@@ -723,7 +723,7 @@ pub(crate) fn line_kind_contradicts_text(kind: &LineKind, seg: &str) -> bool {
 /// Whether `[start, end)` is a whole line of `chars`: a line boundary on each
 /// side and nothing else between them. An empty range asks it of the position a
 /// splice would fill.
-pub(crate) fn is_whole_line(chars: &[char], start: Usv, end: Usv) -> bool {
+pub(crate) fn is_whole_line(chars: &[char], start: Scalar, end: Scalar) -> bool {
     (start == 0 || chars.get(start - 1) == Some(&'\n')) && matches!(chars.get(end), None | Some('\n'))
 }
 
@@ -733,7 +733,7 @@ pub(crate) fn is_whole_line(chars: &[char], start: Usv, end: Usv) -> bool {
 pub(crate) fn inline_block_islands<'a>(
     chars: &'a [char],
     islands: &'a [Island],
-) -> impl Iterator<Item = Usv> + 'a {
+) -> impl Iterator<Item = Scalar> + 'a {
     chars
         .iter()
         .enumerate()
@@ -749,7 +749,7 @@ pub(crate) fn inline_block_islands<'a>(
 /// the slot's own piece is a `Para`, the kind re-importing the island's block
 /// markup yields even where the broken line was a heading; the prose pieces keep
 /// the line's role, and only the first can still continue the block above.
-fn fragment_line(line: &Line, span: std::ops::Range<Usv>, breaks: &[Usv], first: bool) -> Line {
+fn fragment_line(line: &Line, span: std::ops::Range<Scalar>, breaks: &[Scalar], first: bool) -> Line {
     if span.len() == 1 && breaks.binary_search(&span.start).is_ok() {
         return Line {
             kind: LineKind::Para,
@@ -818,8 +818,8 @@ impl Content {
         Content::new(String::new(), vec![Line::new(LineKind::Para)])
     }
 
-    /// Total length in USV.
-    pub fn len_usv(&self) -> Usv {
+    /// Total length in scalar.
+    pub fn len_scalars(&self) -> Scalar {
         self.text.chars().count()
     }
 
@@ -989,13 +989,13 @@ impl Content {
             return;
         }
         let chars: Vec<char> = self.text.chars().collect();
-        let breaks: Vec<Usv> = inline_block_islands(&chars, &self.islands).collect();
+        let breaks: Vec<Scalar> = inline_block_islands(&chars, &self.islands).collect();
         if breaks.is_empty() {
             return;
         }
         // Where the `\n` goes, in the text's own coordinates, so every cut sits
         // strictly inside a line and the fragments below stay in step with it.
-        let mut cuts: Vec<Usv> = Vec::with_capacity(breaks.len() * 2);
+        let mut cuts: Vec<Scalar> = Vec::with_capacity(breaks.len() * 2);
         for &at in &breaks {
             if at > 0 && chars[at - 1] != '\n' {
                 cuts.push(at);
@@ -1040,7 +1040,7 @@ impl Content {
         self.text = text;
         self.lines = lines;
         let delta = Delta { ops };
-        let after_slot: Vec<Usv> = breaks.iter().map(|&at| at + 1).collect();
+        let after_slot: Vec<Scalar> = breaks.iter().map(|&at| at + 1).collect();
         for m in &mut self.marks {
             if m.start == m.end {
                 let assoc = match after_slot.contains(&m.start) {
@@ -1061,7 +1061,7 @@ impl Content {
     pub fn validate(&self) -> Result<(), Invariant> {
         let mut slots = 0usize;
         let mut newlines = 0usize;
-        let mut len: Usv = 0;
+        let mut len: Scalar = 0;
         for c in self.text.chars() {
             if c == '\r' {
                 return Err(Invariant::CarriageReturn);
@@ -1124,7 +1124,7 @@ impl Content {
             }
         }
         // Table-cell marks: the prose range rule again, but each mark is bounded
-        // by its own cell's text length (in USV).
+        // by its own cell's text length (in scalar).
         let mut seen_ids = std::collections::HashSet::with_capacity(self.islands.len());
         for island in &self.islands {
             if !seen_ids.insert(island.id.as_str()) {
@@ -1264,7 +1264,7 @@ pub(crate) fn trim_marks_off_newlines(chars: &[char], marks: &mut [Mark]) {
 /// reopens it on the next, so in prose a mark never spans a line join. Zero-width
 /// pieces are left for [`normalize_marks`] to drop.
 pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let breaks: Vec<Usv> =
+    let breaks: Vec<Scalar> =
         chars.iter().enumerate().filter(|(_, c)| matches!(**c, '\n' | crate::model::HARD_BREAK)).map(|(i, _)| i).collect();
     let within = |m: &Mark| {
         let lo = breaks.partition_point(|&b| b < m.start);
@@ -1297,7 +1297,7 @@ pub(crate) fn split_marks_at_newlines(chars: &[char], marks: Vec<Mark>) -> Vec<M
 pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     use std::collections::BTreeMap;
 
-    let mut groups: BTreeMap<(String, String), Vec<(Usv, Usv)>> = BTreeMap::new();
+    let mut groups: BTreeMap<(String, String), Vec<(Scalar, Scalar)>> = BTreeMap::new();
     let mut kind_of: BTreeMap<(String, String), MarkKind> = BTreeMap::new();
     let mut passthrough: Vec<Mark> = Vec::new();
 
@@ -1371,7 +1371,7 @@ fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
         let ranks: Vec<_> = marks.iter().map(keyed_rank).collect();
         let mut by_end: Vec<usize> = (0..marks.len()).collect();
         by_end.sort_by_key(|&i| marks[i].end);
-        let mut edges: Vec<Usv> = marks.iter().flat_map(|m| [m.start, m.end]).collect();
+        let mut edges: Vec<Scalar> = marks.iter().flat_map(|m| [m.start, m.end]).collect();
         edges.sort_unstable();
         edges.dedup();
         let mut over = BTreeSet::new();
@@ -1398,7 +1398,7 @@ fn settle_keyed(keyed: Vec<Mark>) -> Vec<Mark> {
 mod tests {
     use super::*;
 
-    fn f(start: Usv, end: Usv, kind: MarkKind) -> Mark {
+    fn f(start: Scalar, end: Scalar, kind: MarkKind) -> Mark {
         Mark { start, end, kind }
     }
 
@@ -1875,7 +1875,7 @@ mod tests {
             island_type: IslandType::Table,
             props: serde_json::json!({
                 "aligns": ["none"],
-                // "ab" is 2 USV; a mark ending at 5 runs past the cell.
+                // "ab" is 2 scalar; a mark ending at 5 runs past the cell.
                 "header": [{"text": "ab", "marks": [{"start": 0, "end": 5, "type": "strong"}]}],
                 "rows": [],
             }),

@@ -94,8 +94,7 @@ impl Content {
     /// several paragraphs with hard breaks, normalize and validate, answering whether the value
     /// read was not the canonical one, so its holder can store it again. The
     /// bounds are checked first, as [`from_value`](Self::from_value) checks
-    /// them. A lenient read is this release's migration door: a later one
-    /// reads stored values as `from_value` does.
+    /// them.
     pub fn from_value_lenient(v: &Value) -> Result<Lenient, ParseError> {
         match decoded(v)? {
             Decoded::Migrated(content) => Ok(Lenient { content, rewritten: false }),
@@ -108,12 +107,6 @@ impl Content {
                 Ok(Lenient { content, rewritten })
             }
         }
-    }
-
-    /// [`from_value_lenient`](Self::from_value_lenient), lowered to the line
-    /// form the renderers read.
-    pub fn lines_from_value(v: &Value) -> Result<crate::lines::model::Lines, ParseError> {
-        Content::from_value_lenient(v).map(|read| crate::migrate::to_lines(&read.content))
     }
 
     pub fn from_json(s: &str) -> Result<Content, ParseError> {

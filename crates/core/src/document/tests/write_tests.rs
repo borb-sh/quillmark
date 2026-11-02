@@ -637,15 +637,15 @@ fn a_remembered_hash_is_the_values_own() {
     }
 }
 
-/// Two live writers gesture from one read under their own actors: each
+/// Two live writers make structural edits from one read under their own actors: each
 /// verb answers its receipt, the second rebased, and their mints differ. A
 /// placeholder in a stale apply is filled past the value it lands on and named
 /// in `minted`; a revise under an actor mints under it, and a bad actor
 /// writes nothing.
 #[test]
-fn gestures_and_placeholders_mint_under_the_writers_actor() {
+fn structural_edits_and_placeholders_mint_under_the_writers_actor() {
     use crate::document::WriteOptions;
-    use quillmark_content::gestures::Wrap;
+    use quillmark_content::structural::Wrap;
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nalpha\n\nbravo\n\ncharlie\n");
     let base = doc.main().hash_of(Target::Body).unwrap();
     let ann = WriteOptions { base: Some(&base), actor: Some("ann") };

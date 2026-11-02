@@ -171,7 +171,7 @@ pub enum EditError {
 
     /// A content field written under a one-line schema (no `multiline: true`)
     /// decoded to a multi-line content. Both text codecs carry the constraint,
-    /// so one code covers both and `codec` says which lane raised it.
+    /// so one code covers both and `codec` says which codec raised it.
     #[error(
         "{codec} field '{field}' is not a single line: {codec} requires a single line with \
          no container or island; declare multiline: true to admit more"
@@ -226,8 +226,8 @@ pub enum EditError {
     #[error("{count} anchors, past the limit of {max}")]
     TooManyAnchors { count: usize, max: usize },
 
-    /// The card's item list violates an invariant of the list as a whole. A
-    /// door taking a whole payload at once ([`Card::try_from`] a
+    /// The card's item list violates an invariant of the list as a whole. An
+    /// input path taking a whole payload at once ([`Card::try_from`] a
     /// [`CardWire`](crate::document::CardWire)) reaches every variant; a field
     /// write reaches [`PayloadViolation::TooManyFields`], the one invariant a
     /// caller holding a `(name, value)` pair cannot check for itself.
@@ -544,14 +544,14 @@ fn check_field(name: &str, value: &serde_json::Value) -> Result<(), EditError> {
 /// validates, stores, compares and hashes as a body's does.
 /// [`EditError::FieldDecode`] at the first content value that does not
 /// decode.
-pub(crate) fn settled_field(name: &str, mut value: serde_json::Value) -> Result<serde_json::Value, EditError> {
+pub(crate) fn canonical_field(name: &str, mut value: serde_json::Value) -> Result<serde_json::Value, EditError> {
     let mut at = Vec::new();
-    settle_contents(&mut value, &mut at)
+    canonicalize_contents(&mut value, &mut at)
         .map_err(|(codec, e)| field_decode(name, &at, codec, ContentDecodeError::NotContent(e)))?;
     Ok(value)
 }
 
-fn settle_contents(value: &mut serde_json::Value, at: &mut Vec<PathSegment>) -> Result<(), (Codec, String)> {
+fn canonicalize_contents(value: &mut serde_json::Value, at: &mut Vec<PathSegment>) -> Result<(), (Codec, String)> {
     if quillmark_content::units::is_content_value(value) {
         let content = quillmark_content::model::Content::from_value(value)
             .map_err(|e| (Codec::of_object(value), e.to_string()))?;
@@ -562,14 +562,14 @@ fn settle_contents(value: &mut serde_json::Value, at: &mut Vec<PathSegment>) -> 
         serde_json::Value::Object(map) => {
             for (key, v) in map.iter_mut() {
                 at.push(PathSegment::Key(key.clone()));
-                settle_contents(v, at)?;
+                canonicalize_contents(v, at)?;
                 at.pop();
             }
         }
         serde_json::Value::Array(items) => {
             for (index, v) in items.iter_mut().enumerate() {
                 at.push(PathSegment::Index(index));
-                settle_contents(v, at)?;
+                canonicalize_contents(v, at)?;
                 at.pop();
             }
         }
@@ -790,7 +790,7 @@ pub(crate) fn dropped_anchors(stored: &Lines, next: &Lines) -> Vec<AnchorRead> {
     anchors_where(stored, |id| !held.contains(id))
 }
 
-/// The mutable door onto a card already placed in a [`Document`]: every
+/// The mutable handle on a card already placed in a [`Document`]: every
 /// `&mut self` verb [`Card`] carries, forwarded, and no way to replace the card
 /// itself. Reads arrive through [`Deref`](std::ops::Deref).
 ///
@@ -908,7 +908,7 @@ impl<'a> CardMut<'a> {
         target: super::Target<'_>,
         first: &str,
         last: &str,
-        with: quillmark_content::gestures::Wrap,
+        with: quillmark_content::structural::Wrap,
         opts: impl Into<super::WriteOptions<'o>>,
     ) -> Result<super::Receipt, EditError> {
         self.0.wrap(target, first, last, with, opts)
@@ -1233,7 +1233,7 @@ impl Card {
     ) -> Result<(), EditError> {
         let value = value.into();
         check_field(name, value.as_json())?;
-        let value = QuillValue::from_json(settled_field(name, value.into_json())?);
+        let value = QuillValue::from_json(canonical_field(name, value.into_json())?);
         self.payload_mut()
             .insert(name.to_string(), value)
             .map_err(EditError::InvalidPayload)?;
@@ -1262,7 +1262,7 @@ impl Card {
             .filter_map(|(k, v)| {
                 let (name, value): (String, QuillValue) = (k.into(), v.into());
                 let settled = check_field(&name, value.as_json())
-                    .and_then(|()| settled_field(&name, value.into_json()));
+                    .and_then(|()| canonical_field(&name, value.into_json()));
                 match settled {
                     Ok(value) => Some((name, QuillValue::from_json(value))),
                     Err(e) => {
@@ -1421,7 +1421,7 @@ impl Card {
     /// past the §8 field count.
     ///
     /// A field stored under `codec: "plain"` keeps it and refuses a `content`
-    /// that is not plain with [`EditError::FieldDecode`]; one still resting as
+    /// that is not plain with [`EditError::FieldDecode`]; one still stored as
     /// an authored string lands under the codec its next bound load
     /// ([`Quill::conform`](crate::quill::Quill::conform)) gives it.
     #[cfg(test)]
@@ -1460,7 +1460,7 @@ impl Card {
     /// `type` and store the canonical form. The typed sibling of the opaque
     /// [`store_field`](Self::store_field), which defers coercion to render.
     ///
-    /// The resting form each `type` commits to is
+    /// The stored form each `type` commits to is
     /// `prose/canon/SCHEMAS.md` § "Content fields are stored per codec". Stricter than
     /// the render floor: a cross-type value the floor would coerce (`1` → `true`)
     /// fails here. `null` passes through unchanged, under the null ≡ absent rule.

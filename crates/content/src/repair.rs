@@ -13,7 +13,7 @@ use crate::lines::model::json_depth_exceeds;
 use crate::lines::normalize::is_bidi_char;
 use crate::model::{
     Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, HARD_BREAK, ISLAND_SLOT,
-    Invariant, Island, Mark, NOTE_SLOT, Usv, is_lang, is_text_char,
+    Invariant, Island, Mark, NOTE_SLOT, Scalar, is_lang, is_text_char,
 };
 use crate::table::{Row, Table};
 use crate::units::Units;
@@ -316,7 +316,7 @@ pub fn repair(raw: Raw) -> (Content, Vec<Repair>, Change) {
     if let Err(inv) = c.validate() {
         out.push(Repair::Invalid(inv));
         let text: Vec<char> = c.text.chars().collect();
-        let slots: BTreeSet<Usv> = text.iter().enumerate().filter(|(_, ch)| **ch == ISLAND_SLOT).map(|(k, _)| k).collect();
+        let slots: BTreeSet<Scalar> = text.iter().enumerate().filter(|(_, ch)| **ch == ISLAND_SLOT).map(|(k, _)| k).collect();
         let held = c.islands.clone();
         steps.extend(deletions(&text, &slots, |k| held.get(k).cloned()));
         c = flatten(c);
@@ -364,15 +364,15 @@ pub fn change_in(raw: &Raw, change: &Change, u: impl Units) -> Change {
 /// The splices that delete the characters of `text` at `at`, each run as
 /// one, the last first so each reads the text the one before it left. The
 /// `n`th slot of `text` names `island(n)` in `removed`.
-fn deletions(text: &[char], at: &BTreeSet<Usv>, island: impl Fn(usize) -> Option<Island>) -> Vec<Step> {
-    let mut runs: Vec<(Usv, Usv)> = Vec::new();
+fn deletions(text: &[char], at: &BTreeSet<Scalar>, island: impl Fn(usize) -> Option<Island>) -> Vec<Step> {
+    let mut runs: Vec<(Scalar, Scalar)> = Vec::new();
     for &k in at {
         match runs.last_mut() {
             Some(run) if run.1 == k => run.1 += 1,
             _ => runs.push((k, k + 1)),
         }
     }
-    let slot_index = |k: Usv| text[..k].iter().filter(|&&c| c == ISLAND_SLOT).count();
+    let slot_index = |k: Scalar| text[..k].iter().filter(|&&c| c == ISLAND_SLOT).count();
     runs.into_iter()
         .rev()
         .map(|(a, b)| {
@@ -419,17 +419,17 @@ impl Ids {
 }
 
 /// Offsets past characters taken out of the text.
-struct Removed(Vec<Usv>);
+struct Removed(Vec<Scalar>);
 
 impl Removed {
-    fn map(&self, o: Usv) -> Usv {
+    fn map(&self, o: Scalar) -> Scalar {
         o - self.0.partition_point(|&p| p < o)
     }
 }
 
 fn remove_chars(
     text: &mut Vec<char>,
-    at: &BTreeSet<Usv>,
+    at: &BTreeSet<Scalar>,
     marks: &mut [Mark],
     anchors: &mut [&mut Anchor],
 ) {
@@ -487,7 +487,7 @@ fn field(raw: Raw, out: &mut Vec<Repair>, steps: &mut Vec<Step>) -> Content {
     let mut anchor_refs: Vec<&mut Anchor> = anchors.iter_mut().map(|a| &mut a.anchor).collect();
     remove_chars(&mut text, &forbidden, &mut marks, &mut anchor_refs);
 
-    let slots: Vec<Usv> = text
+    let slots: Vec<Scalar> = text
         .iter()
         .enumerate()
         .filter(|(_, c)| **c == ISLAND_SLOT)
@@ -538,8 +538,8 @@ fn field(raw: Raw, out: &mut Vec<Repair>, steps: &mut Vec<Step>) -> Content {
         }
     }
     let mut lost = lost.into_iter();
-    let removed: BTreeMap<Usv, Island> = gone.iter().map(|&at| (at, lost.next().expect("a lost island per gone slot"))).collect();
-    let slot_at: Vec<Usv> = text.iter().enumerate().filter(|(_, c)| **c == ISLAND_SLOT).map(|(k, _)| k).collect();
+    let removed: BTreeMap<Scalar, Island> = gone.iter().map(|&at| (at, lost.next().expect("a lost island per gone slot"))).collect();
+    let slot_at: Vec<Scalar> = text.iter().enumerate().filter(|(_, c)| **c == ISLAND_SLOT).map(|(k, _)| k).collect();
     steps.extend(deletions(&text, &gone, |n| removed.get(&slot_at[n]).cloned()));
     let carried: HashSet<&String> = slot_ids.iter().flatten().collect();
     for id in islands.keys().filter(|id| !carried.contains(id)) {
@@ -755,7 +755,7 @@ fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>, steps: Option<&m
                 slot: key.clone(),
             }));
             let text: Vec<char> = c.text.chars().collect();
-            let at: BTreeSet<Usv> = text.iter().enumerate().filter(|(_, ch)| **ch == ISLAND_SLOT).map(|(k, _)| k).collect();
+            let at: BTreeSet<Scalar> = text.iter().enumerate().filter(|(_, ch)| **ch == ISLAND_SLOT).map(|(k, _)| k).collect();
             let held = c.islands.clone();
             edits.extend(deletions(&text, &at, |k| held.get(k).cloned()));
             c = flatten(c);
@@ -1107,7 +1107,7 @@ fn split_block_islands(
 ) -> (Vec<char>, Vec<Block>) {
     let mut new_text = Vec::with_capacity(text.len());
     let mut new_blocks = Vec::with_capacity(blocks.len());
-    let mut breaks: Vec<Usv> = Vec::new();
+    let mut breaks: Vec<Scalar> = Vec::new();
     let mut slot = 0usize;
     let mut start = 0usize;
     for b in blocks {
@@ -1116,7 +1116,7 @@ fn split_block_islands(
             .position(|&c| c == '\n')
             .map_or(text.len(), |n| start + n);
         let seg = &text[start..end];
-        let mut pieces: Vec<(Usv, Usv, Option<&Island>)> = Vec::new();
+        let mut pieces: Vec<(Scalar, Scalar, Option<&Island>)> = Vec::new();
         let mut from = 0;
         for (k, &c) in seg.iter().enumerate() {
             if c != ISLAND_SLOT {
@@ -1188,7 +1188,7 @@ fn split_block_islands(
         start = end + 1;
     }
     if !breaks.is_empty() {
-        let shift = |o: Usv, edge_moves: bool| {
+        let shift = |o: Scalar, edge_moves: bool| {
             o + breaks.partition_point(|&p| if edge_moves { p <= o } else { p < o })
         };
         for m in marks {
@@ -1207,7 +1207,7 @@ fn split_block_islands(
 /// once per block and line it spans, as normalizing can leave them: those in
 /// order up to the bound kept, the rest dropped.
 fn cap_marks(text: &[char], marks: &mut Vec<Mark>, out: &mut Vec<Repair>) {
-    let breaks: Vec<Usv> = text.iter().enumerate().filter(|(_, c)| matches!(**c, '\n' | HARD_BREAK)).map(|(k, _)| k).collect();
+    let breaks: Vec<Scalar> = text.iter().enumerate().filter(|(_, c)| matches!(**c, '\n' | HARD_BREAK)).map(|(k, _)| k).collect();
     let max = crate::max_marks(text.len());
     let spans: Vec<usize> = marks.iter().map(|m| crate::model::mark_spans(&breaks, std::iter::once((m.start, m.end)))).collect();
     let total = spans.iter().fold(0usize, |a, &n| a.saturating_add(n));
@@ -1269,7 +1269,7 @@ fn dedupe_anchors(c: &mut Content, seen: &mut HashSet<String>, out: &mut Vec<Rep
 /// the last resort for a field.
 fn flatten(mut c: Content) -> Content {
     let mut text: Vec<char> = c.text.chars().collect();
-    let slots: BTreeSet<Usv> = text
+    let slots: BTreeSet<Scalar> = text
         .iter()
         .enumerate()
         .filter(|(_, ch)| **ch == ISLAND_SLOT)

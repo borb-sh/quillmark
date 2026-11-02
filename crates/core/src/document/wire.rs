@@ -190,7 +190,7 @@ impl TryFrom<CardWire> for Card {
                     super::edit::validate_field(&key, &value).map_err(|v| {
                         WireError::Edit(super::edit::edit_error_from_violation(&key, v))
                     })?;
-                    let value = super::edit::settled_field(&key, value)?;
+                    let value = super::edit::canonical_field(&key, value)?;
                     Ok(PayloadItem::Field {
                         key,
                         value: QuillValue::from_json(value),
@@ -477,7 +477,7 @@ mod tests {
 
         let card = Card::try_from(CardWire::new(String::new(), legacy.clone()))
             .expect("the card wire decodes storage-lane");
-        let storage = quillmark_content::model::Content::lines_from_value(&legacy).unwrap();
+        let storage = quillmark_content::migrate::lines_from_value(&legacy).unwrap();
         assert_eq!(
             quillmark_content::lines::serial::to_canonical_value(card.body_lines()),
             quillmark_content::lines::serial::to_canonical_value(&storage)

@@ -151,6 +151,12 @@ fn object(v: serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// A stored value read as [`Content::from_value_lenient`] reads it, lowered
+/// to the line form the renderers read.
+pub fn lines_from_value(v: &serde_json::Value) -> Result<line::Lines, crate::wire::ParseError> {
+    Content::from_value_lenient(v).map(|read| to_lines(&read.content))
+}
+
 /// The content as the line form spells it: each hard break a `\n` opening a
 /// continuation line, each list and item one list-item container with its
 /// ordinal, adjacent runs told apart by `instance`, anchors as anchor marks.

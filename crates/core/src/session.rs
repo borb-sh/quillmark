@@ -5,7 +5,6 @@ use crate::{
     region::{ContentHit, FieldCoverage, RenderedRegion},
     types::RenderOptions,
 };
-pub use quillmark_content::lines::delta::{Assoc, Delta, Op};
 use quillmark_content::units::{self, Units};
 use std::sync::OnceLock;
 
@@ -123,7 +122,7 @@ pub trait SessionHandle: Send + Sync + 'static {
     /// A point → **content position** in a content field: the fine-grained
     /// twin of [`field_at`](Self::field_at) (which answers with the field
     /// alone). `x`/`y` are PDF points, bottom-left origin on `page`. Returns
-    /// the field plus a USV offset into its `Content`, cluster-exact and
+    /// the field plus a scalar offset into its `Content`, cluster-exact and
     /// degrading to the containing segment's start on origin-less ink (see
     /// [`ContentHit`]). `tol` reads as it does on [`field_at`](Self::field_at).
     /// `None` past `tol` from all content ink, on a scalar/widget (no content
@@ -134,7 +133,7 @@ pub trait SessionHandle: Send + Sync + 'static {
     }
 
     /// A content position → **caret rect** in a content field: the reverse of
-    /// [`position_at`](Self::position_at). `pos` is a USV offset into `field`'s
+    /// [`position_at`](Self::position_at). `pos` is a scalar offset into `field`'s
     /// `Content`; the returned [`RenderedRegion`] is the box of the glyph the
     /// caret sits at, page-indexed, with `span` collapsed to `[pos, pos]`.
     /// `None` when `field` places no tracked content or `pos` maps to no drawn
@@ -289,7 +288,7 @@ impl LiveSession {
         self.inner.field_at(page, x, y, tol)
     }
 
-    /// A point → **content position**: the field *and* a USV offset into its
+    /// A point → **content position**: the field *and* a scalar offset into its
     /// `Content`. The offset is cluster-exact and degrades to the containing
     /// segment's start on origin-less ink. `tol` reads as on
     /// [`field_at`](Self::field_at). `None` past `tol` from all content ink, on
@@ -302,7 +301,7 @@ impl LiveSession {
     }
 
     /// A content position → **caret rect**, the reverse of
-    /// [`position_at`](Self::position_at): given a field and a USV offset into
+    /// [`position_at`](Self::position_at): given a field and a scalar offset into
     /// its `Content`, return the box (page-indexed) to draw a caret at. `None`
     /// when the field places no tracked content or the offset maps to no drawn
     /// glyph. Resolves against the current compile.

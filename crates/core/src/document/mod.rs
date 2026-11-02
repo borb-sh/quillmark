@@ -494,7 +494,7 @@ impl Codec {
         };
         match value {
             serde_json::Value::Object(_) => Some(
-                quillmark_content::model::Content::lines_from_value(value)
+                quillmark_content::migrate::lines_from_value(value)
                     .map(whole)
                     .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
             ),
@@ -1153,7 +1153,7 @@ impl Document {
     /// ```json
     /// {
     ///   "$quill": "<ref>",
-    ///   "$body": { "text": "…", "lines": [...], "marks": [...], "islands": [...] },
+    ///   "$body": { "text": "…", "blocks": [...], "containers": [...], "marks": [...], "islands": [...] },
     ///   "$cards": [{ "$kind": "<tag>", "$body": <content>, "<field>": <value>, ... }],
     ///   "<field>": <value>, ...
     /// }

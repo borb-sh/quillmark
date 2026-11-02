@@ -29,10 +29,10 @@ pub struct AnchorSelector {
     /// The anchored text as stored, island slots and line breaks included;
     /// empty for a point.
     pub quote: String,
-    /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_USV)
+    /// Up to [`ANCHOR_CONTEXT_SCALARS`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_SCALARS)
     /// scalar values before the anchor, cut at the value's start.
     pub prefix: String,
-    /// Up to [`ANCHOR_CONTEXT_USV`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_USV)
+    /// Up to [`ANCHOR_CONTEXT_SCALARS`](quillmark_content::lines::anchor::ANCHOR_CONTEXT_SCALARS)
     /// scalar values after the anchor, cut at the value's end.
     pub suffix: String,
 }

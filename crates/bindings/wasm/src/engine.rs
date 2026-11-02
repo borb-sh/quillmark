@@ -275,7 +275,7 @@ export interface CardInput {
  * field: "intro" }` a card field. An id no card holds throws
  * `edit::unknown_card_id`.
  *
- * The content lane's writes (`apply`, `revise`, `replace`) take a
+ * The content writes (`apply`, `revise`, `replace`) take a
  * card by `$id` only, and throw on an index: a card moved or inserted between
  * a writer's read and its write shifts an index onto another card, and an
  * equal body there would pass the `base` check.
@@ -322,7 +322,7 @@ export interface Delta {
  * What a revise's writer read, the optional last argument of the writer's
  * `reviseBody` / `reviseField` / `reviseDocument`.
  * Name one or neither; a key present with no string throws. `baseHash` is the
- * hash the writer read, paired with the lane it writes on: `writer.hashAt` /
+ * hash the writer read, paired with the write path it writes on: `writer.hashAt` /
  * `writer.hash`. A write onto a value that hashes otherwise
  * throws `edit::stale_base`. `baseMarkdown` is the markdown the writer read, annotated
  * or not (a `text` field's literal text): when the value has changed since,

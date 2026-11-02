@@ -4,23 +4,25 @@
 //! blocks, blocks carrying their kind and container path, marks, anchors, and
 //! islands, all over one coordinate space of Unicode scalar values. [`wire`] is
 //! the canonical, byte-deterministic JSON storage and the bindings carry.
-//! [`markdown`] is the projection at the edges, one import and one export.
+//! [`markdown`] is the projection at the edges, one import and one export
+//! per codec.
 //! [`change`] is the one way a value is edited, [`anchors`] reads each
 //! anchor's context and re-attaches a dropped one, [`mapping`] maps
 //! positions across changes, [`rebase`] moves a change made from one value
-//! past another made from it, [`gestures`] is the change of each structural
+//! past another made from it, [`structural`] is the change of each structural
 //! edit, [`mint`] fills the ids a change leaves to its write, and [`repair`]
 //! makes valid a state two concurrent edits merged into.
 //!
 //! The line form, `lines` and the `migrate` between it and the model, is the
-//! intermediate the markdown codecs and the renderers read; it is hidden from
-//! the documented surface and no document API takes or answers it.
+//! intermediate the markdown codecs, the renderers and core's revise read; it
+//! is hidden from the documented surface and no public API takes or answers
+//! it.
 
 pub mod anchors;
 pub mod change;
 pub mod diff;
 mod draft;
-pub mod gestures;
+pub mod structural;
 pub mod ids;
 #[doc(hidden)]
 pub mod lines;
@@ -34,7 +36,6 @@ pub mod rebase;
 pub mod repair;
 pub mod table;
 pub mod units;
-pub mod usv;
 pub mod wire;
 
 /// Maximum container nesting depth the markdown codecs accept before erroring.
@@ -53,7 +54,7 @@ pub const MAX_NESTING_DEPTH: usize = 12;
 pub const MAX_TABLE_CELLS: usize = 100_000;
 
 /// Maximum bytes of markdown one import reads, the bound a document's parse
-/// holds its whole input to. Every markdown door, a revise's included, refuses
+/// holds its whole input to. Every markdown import, a revise's included, refuses
 /// past it, so a field cannot take through a revise what a document could not
 /// through a parse.
 pub const MAX_MARKDOWN_SIZE: usize = 10 * 1024 * 1024;
@@ -95,3 +96,5 @@ pub const MAX_ANCHORS: usize = 100_000;
 /// unrecoverable trap, not a catchable error. Matches `serde_json::from_str`'s
 /// own limit, so nothing a stored blob can carry is refused.
 pub const MAX_JSON_DEPTH: usize = 128;
+
+pub use lines::model::json_depth_exceeds;

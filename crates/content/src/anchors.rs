@@ -3,9 +3,9 @@
 
 use std::collections::HashSet;
 
-use crate::lines::anchor::{ANCHOR_CONTEXT_USV, locate_in};
+use crate::lines::anchor::{ANCHOR_CONTEXT_SCALARS, locate_in};
 pub use crate::lines::anchor::{AnchorContext, Reattached};
-use crate::model::{Anchor, Content, HARD_BREAK, ISLAND_SLOT, Usv};
+use crate::model::{Anchor, Content, HARD_BREAK, ISLAND_SLOT, Scalar};
 
 /// A text surface of a value: its prose, or one slot of one of its islands.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,7 +18,7 @@ pub enum Surface {
 /// where each stands, a slot's at its island's slot, then by slot order and
 /// start. `quote` is the anchored text as stored, a hard break its `U+2028`
 /// and a block break its `\n`; `prefix` and `suffix` are up to
-/// [`ANCHOR_CONTEXT_USV`] scalar values of stored text either side, cut at
+/// [`ANCHOR_CONTEXT_SCALARS`] scalar values of stored text either side, cut at
 /// the surface's edges. Read off the stored text, so it is pure and moves
 /// nothing.
 pub fn anchor_contexts(c: &Content) -> Vec<AnchorContext> {
@@ -31,7 +31,7 @@ pub fn anchor_context(c: &Content, id: &str) -> Option<AnchorContext> {
 }
 
 fn contexts_where(c: &Content, keep: impl Fn(&str) -> bool) -> Vec<AnchorContext> {
-    let mut sites: Vec<(Usv, usize, Usv, AnchorContext)> = Vec::new();
+    let mut sites: Vec<(Scalar, usize, Scalar, AnchorContext)> = Vec::new();
     let prose: Vec<char> = c.text.chars().collect();
     for a in c.anchors.iter().filter(|a| keep(&a.id)) {
         sites.push((a.start, 0, a.start, context_of(&prose, a)));
@@ -55,15 +55,15 @@ fn context_of(text: &[char], a: &Anchor) -> AnchorContext {
     AnchorContext {
         id: a.id.clone(),
         quote: text[start..end].iter().collect(),
-        prefix: text[start.saturating_sub(ANCHOR_CONTEXT_USV)..start].iter().collect(),
-        suffix: text[end..(end + ANCHOR_CONTEXT_USV).min(text.len())].iter().collect(),
+        prefix: text[start.saturating_sub(ANCHOR_CONTEXT_SCALARS)..start].iter().collect(),
+        suffix: text[end..(end + ANCHOR_CONTEXT_SCALARS).min(text.len())].iter().collect(),
     }
 }
 
 /// A surface's text as the line form spelled it, with each of its positions
 /// mapped to the stored one: a hard break as `\n`, and in a slot a block
 /// break as two.
-fn line_spelling(text: &str, slot: bool) -> (Vec<char>, Vec<Usv>) {
+fn line_spelling(text: &str, slot: bool) -> (Vec<char>, Vec<Scalar>) {
     let mut chars = Vec::with_capacity(text.len());
     let mut at = Vec::with_capacity(text.len() + 1);
     for (i, ch) in text.chars().enumerate() {
@@ -87,7 +87,7 @@ fn line_spelling(text: &str, slot: bool) -> (Vec<char>, Vec<Usv>) {
 /// spelling, or, where that names none, over the line form's spelling of
 /// each surface, which the selectors stored before 0.135 use. With
 /// `inserted` given, the prose alone counts.
-pub fn locate_site(c: &Content, ctx: &AnchorContext, inserted: Option<&[(Usv, Usv)]>) -> Option<(Surface, Usv, Usv)> {
+pub fn locate_site(c: &Content, ctx: &AnchorContext, inserted: Option<&[(Scalar, Scalar)]>) -> Option<(Surface, Scalar, Scalar)> {
     let surfaces: Vec<(Surface, &str)> = match inserted {
         Some(_) => vec![(Surface::Prose, c.text.as_str())],
         None => std::iter::once((Surface::Prose, c.text.as_str()))
@@ -98,7 +98,7 @@ pub fn locate_site(c: &Content, ctx: &AnchorContext, inserted: Option<&[(Usv, Us
             }))
             .collect(),
     };
-    let one = |mut hits: Box<dyn Iterator<Item = (Surface, Usv, Usv)> + '_>| {
+    let one = |mut hits: Box<dyn Iterator<Item = (Surface, Scalar, Scalar)> + '_>| {
         let hit = hits.next();
         hit.filter(|_| hits.next().is_none())
     };
@@ -129,7 +129,7 @@ impl Content {
     pub fn reattach(
         &mut self,
         ctxs: &[AnchorContext],
-        inserted: Option<&[(Usv, Usv)]>,
+        inserted: Option<&[(Scalar, Scalar)]>,
         live: &HashSet<&str>,
     ) -> Reattached<AnchorContext> {
         let mut answered = HashSet::new();

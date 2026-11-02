@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use quillmark::{
-    AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, CalendarDate, CardReader, Delta,
+    AnchorRead, AnchorSelector, Annotated, AnnotatedMarkdown, CalendarDate, CardReader,
     DocPath, Document, DocumentAnchor, DocumentRevised, EditError, ImportError, Content,
     ParseDateError, Parsed, Quill, QuillReference, QuillValue, Reattached, Receipt, TypedReader,
     TypedWriter,
@@ -108,7 +108,7 @@ fn content_lane_spells_through_the_facade() {
         orphaned,
         ..
     } = doc.reattach(&selectors, &changes);
-    let _: Option<(AnchorRead, Delta)> = None;
+    let _: Option<AnchorRead> = None;
     let _: (Vec<AnchorSelector>, Vec<AnchorSelector>) = (reattached, orphaned);
 }
 

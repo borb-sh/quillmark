@@ -9,7 +9,7 @@ use super::{
 use crate::error::WasmError;
 use crate::types::Diagnostic;
 use quillmark_content::change::{self, Assoc, Change};
-use quillmark_content::gestures::{self, Gesture, Wrap};
+use quillmark_content::structural::{self, StructuralEdit, Wrap};
 use quillmark_content::model::Content;
 use quillmark_content::units::{self, Utf16};
 use quillmark_content::wire::ParseError;
@@ -607,9 +607,10 @@ impl Document {
         serialize_or_throw(&receipt, "apply")
     }
 
-    /// Rewrite the value at `addr` as `markdown`: the anchors and islands
-    /// whose `qm-*` tags it keeps (`annotated(addr)` spells them) stay put,
-    /// and the rest keeps what a word-aligned diff keeps. Answers the
+    /// Rewrite the value at `addr` as `markdown`, an edit of the read
+    /// `toMarkdown(addr, { annotated: true })` gives: the anchors and islands
+    /// whose `qm-*` tags it keeps stay put, what the read does not spell rides
+    /// back in, and the rest keeps what a word-aligned diff keeps. Answers the
     /// `Receipt`, its `warnings` the import's. Throws as `apply`, and on an
     /// over-nested markdown input.
     #[wasm_bindgen(js_name = revise, unchecked_return_type = "Receipt")]
@@ -655,8 +656,8 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "SplitBlockOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let id = string_opt(&opts, "id", "splitBlock")?;
-        let gesture = Gesture::SplitBlock { at: at as usize, id };
-        self.gesture(addr, gesture, opts, "splitBlock", &["id"])
+        let edit = StructuralEdit::SplitBlock { at: at as usize, id };
+        self.structural(addr, edit, opts, "splitBlock", &["id"])
     }
 
     /// **Backspace** at the start of block `id`: join it onto the block
@@ -669,7 +670,7 @@ impl Document {
         id: &str,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        self.gesture(addr, Gesture::JoinBlocks { id: id.to_string() }, opts, "joinBlocks", &[])
+        self.structural(addr, StructuralEdit::JoinBlocks { id: id.to_string() }, opts, "joinBlocks", &[])
     }
 
     /// Delete `[start, end)` (UTF-16): where the range runs from a block's
@@ -684,7 +685,7 @@ impl Document {
         end: u32,
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        self.gesture(addr, Gesture::DeleteRange { start: start as usize, end: end as usize }, opts, "deleteRange", &[])
+        self.structural(addr, StructuralEdit::DeleteRange { start: start as usize, end: end as usize }, opts, "deleteRange", &[])
     }
 
     /// **Tab** over the blocks `first` to `last` (`first` alone when absent):
@@ -701,7 +702,7 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let last = last.unwrap_or_else(|| first.to_string());
-        self.gesture(addr, Gesture::Indent { first: first.to_string(), last }, opts, "indent", &[])
+        self.structural(addr, StructuralEdit::Indent { first: first.to_string(), last }, opts, "indent", &[])
     }
 
     /// **Shift-Tab** over the blocks `first` to `last` (`first` alone when
@@ -717,7 +718,7 @@ impl Document {
         #[wasm_bindgen(unchecked_optional_param_type = "WriteOptions")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
         let last = last.unwrap_or_else(|| first.to_string());
-        self.gesture(addr, Gesture::Outdent { first: first.to_string(), last }, opts, "outdent", &[])
+        self.structural(addr, StructuralEdit::Outdent { first: first.to_string(), last }, opts, "outdent", &[])
     }
 
     /// Wrap the blocks `first` to `last` in a quote or a list, around the
@@ -742,8 +743,8 @@ impl Document {
             },
             _ => return Err(WasmError::from("wrap: expected { kind: \"quote\" } or { kind: \"list\", ordered }").to_js_value()),
         };
-        let gesture = Gesture::Wrap { first: first.to_string(), last: last.to_string(), with };
-        self.gesture(addr, gesture, opts, "wrap", &[])
+        let edit = StructuralEdit::Wrap { first: first.to_string(), last: last.to_string(), with };
+        self.structural(addr, edit, opts, "wrap", &[])
     }
 
     /// The block holding offset `at` (UTF-16) of the value at `addr`: its
@@ -768,10 +769,10 @@ impl Document {
 }
 
 impl Document {
-    fn gesture(&mut self, addr: JsValue, gesture: Gesture, opts: JsValue, verb: &str, extra: &[&str]) -> Result<JsValue, JsValue> {
+    fn structural(&mut self, addr: JsValue, edit: StructuralEdit, opts: JsValue, verb: &str, extra: &[&str]) -> Result<JsValue, JsValue> {
         let opts = WriteOpts::from_js(&opts, verb, extra)?;
         let addr = Addr::for_write(&addr, &self.inner, verb)?;
-        let receipt = write(&mut self.inner, &addr, Edit::Gesture(gesture), opts.as_ref())?;
+        let receipt = write(&mut self.inner, &addr, Edit::Structural(edit), opts.as_ref())?;
         serialize_or_throw(&receipt, verb)
     }
 }
@@ -884,7 +885,7 @@ pub fn inherited_marks(
 ) -> Result<JsValue, JsValue> {
     let content = content_in(content, "inheritedMarks")?;
     let at = offset_in(&content, at)?;
-    let kinds = gestures::inherited_marks(&content, at).map_err(apply_error)?;
+    let kinds = structural::inherited_marks(&content, at).map_err(apply_error)?;
     let out: Vec<Value> = kinds
         .iter()
         .map(|k| {

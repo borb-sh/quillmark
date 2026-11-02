@@ -1,4 +1,4 @@
-//! The per-field edit surface: a [`Delta`] of text splices over the USV content,
+//! The per-field edit surface: a [`Delta`] of text splices over the scalar content,
 //! plus the **stale-text writer** path, cold-parse a full new markdown document,
 //! char-diff it against the base, and rebase the base's non-formatting marks
 //! (anchors/comments) through the diff so annotations survive an LLM
@@ -31,14 +31,13 @@
 
 use crate::lines::import::{Against, ImportWarning, Pin};
 use crate::lines::model::{Island, Mark, MarkKind, Content, Lines};
-use crate::units::{self, Units};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use similar::{capture_diff_slices, Algorithm, ChangeTag, DiffOp, TextDiff};
 
 /// A per-field edit against a base content. Ops apply left-to-right, consuming
 /// base positions; `Retain`/`Delete` advance the base cursor, `Insert` adds new
-/// text. USV throughout.
+/// text. scalar throughout.
 ///
 /// Serializes as `{ "ops": [ {"retain": n} | {"insert": s} | {"delete": n} ] }`:
 /// the wire `rebase` and the `applyChange` bundle carry across the
@@ -72,65 +71,13 @@ pub enum Assoc {
     After,
 }
 
-/// A delta's expected base length disagreed with the text it was applied to:
-/// the delta was built against a different revision of the base.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BaseLengthMismatch {
-    pub expected: usize,
-    pub actual: usize,
-}
-
 impl Delta {
-    /// Chars of base the `Retain`/`Delete` ops together consume: the base
-    /// length this delta was built against. Saturating, so a wire delta whose
-    /// counts exceed `usize` reports a length no base has and
-    /// [`try_apply`](Self::try_apply) rejects it as a mismatch.
-    pub fn expected_base_len(&self) -> usize {
-        self.ops.iter().fold(0usize, |acc, op| match op {
-            Op::Retain(n) | Op::Delete(n) => acc.saturating_add(*n),
-            Op::Insert(_) => acc,
-        })
-    }
-
-    /// Apply to `base`, producing the new text, or [`BaseLengthMismatch`] when
-    /// the ops consume *more* base than `base` has: a delta built against a
-    /// longer revision. Base beyond what the ops consume is retained
-    /// implicitly, matching [`map_pos`](Self::map_pos), so a producer naming
-    /// only the region it changes need not pad a trailing [`Op::Retain`].
-    ///
-    /// Cost of the leniency: a short delta carries no full-base-length check, so
-    /// one replayed against a wrong but *longer* base applies silently.
-    pub fn try_apply(&self, base: &str) -> Result<String, BaseLengthMismatch> {
-        let expected = self.expected_base_len();
-        let actual = base.chars().count();
-        if expected > actual {
-            return Err(BaseLengthMismatch { expected, actual });
-        }
-        let chars: Vec<char> = base.chars().collect();
-        let mut out = String::new();
-        let mut i = 0usize;
-        for op in &self.ops {
-            match op {
-                Op::Retain(n) => {
-                    out.extend(&chars[i..i + n]);
-                    i += n;
-                }
-                Op::Delete(n) => i += n,
-                Op::Insert(s) => out.push_str(s),
-            }
-        }
-        out.extend(&chars[i..]);
-        Ok(out)
-    }
-
     /// Map a base char position to its new position. `assoc` decides the side of
     /// a same-position insertion (`After` moves past it).
     ///
-    /// The base cursor saturates, as [`expected_base_len`](Self::expected_base_len)
-    /// does: this is the one door a wire delta reaches without `try_apply`
-    /// having bounded it, and an op run summing past `usize` describes a base
-    /// longer than any content, so a position lands inside it as it would in a
-    /// bounded one.
+    /// The base cursor saturates: an op run summing past `usize` describes a
+    /// base longer than any content, so a position lands inside it as it would
+    /// in a bounded one.
     pub fn map_pos(&self, pos: usize, assoc: Assoc) -> usize {
         let mut old = 0usize;
         let mut new = 0usize;
@@ -213,53 +160,13 @@ impl Delta {
         spans
     }
 
-    /// This delta with each count in `u`, read on `base`, the text it applies
-    /// to; counts past `base` keep their length per character.
-    pub fn to_units(&self, base: &str, u: impl Units) -> Delta {
-        let mut chars = base.chars();
-        let mut take = |n: usize| (0..n).map(|_| chars.next().map_or(1, |c| u.char_len(c))).sum();
-        let ops = self
-            .ops
-            .iter()
-            .map(|op| match op {
-                Op::Retain(n) => Op::Retain(take(*n)),
-                Op::Delete(n) => Op::Delete(take(*n)),
-                Op::Insert(s) => Op::Insert(s.clone()),
-            })
-            .collect();
-        Delta { ops }
-    }
-
-    /// [`inserted_spans`](Self::inserted_spans) of a delta counted in `u`,
-    /// as scalar ranges into `after`, the text it produced; a span whose edge
-    /// falls inside a character or past `after` is left out.
-    pub fn inserted_spans_in(&self, after: &str, u: impl Units) -> Vec<(usize, usize)> {
-        let mut spans = Vec::new();
-        let mut new = 0usize;
-        for op in &self.ops {
-            match op {
-                Op::Retain(n) => new = new.saturating_add(*n),
-                Op::Insert(s) => {
-                    let len = u.len(s);
-                    if let (true, Some(start), Some(end)) =
-                        (len > 0, units::to_scalars(u, after, new), units::to_scalars(u, after, new + len))
-                    {
-                        spans.push((start, end));
-                    }
-                    new = new.saturating_add(len);
-                }
-                Op::Delete(_) => {}
-            }
-        }
-        spans
-    }
 }
 
 /// A relocation match shorter than this many chars is too weak to trust: the
 /// verbatim-move detector's length floor.
 pub(crate) const MIN_MOVE: usize = 4;
 
-/// Above this many USV chars, a char diff skips `similar`'s
+/// Above this many scalar chars, a char diff skips `similar`'s
 /// char-level Myers diff and falls back to [`coarse_replace`].
 /// `TextDiff::from_chars` is O(N·D) with no deadline; on two long, unrelated
 /// single-line strings D grows with N, so cost is effectively quadratic (two
@@ -269,7 +176,7 @@ pub(crate) const MIN_MOVE: usize = 4;
 /// cutoff is deterministic in CI.
 const CHAR_DIFF_LIMIT: usize = 5_000;
 
-/// Char-level Myers/LCS diff over USV: a minimal `Retain` / `Delete` / `Insert`
+/// Char-level Myers/LCS diff over scalar: a minimal `Retain` / `Delete` / `Insert`
 /// script. Disjoint edits stay separate ops rather than collapsing the span
 /// between them into one delete+insert, so anchors sitting in unchanged middle
 /// text survive rebase without relying on the move detector.
@@ -693,37 +600,6 @@ pub fn rebase_onto(base: &Content, new: Lines) -> (Lines, Delta) {
     (new_rt.into_lines(), delta)
 }
 
-/// Diff `next` against `base` and carry each prose anchor of `base` whose id
-/// `next` holds nowhere, in prose or a cell, onto it, rebased through the diff:
-/// [`rebase_onto`] for a content built elsewhere, such as a merge's projection.
-/// Everything `next` carries stays as it is, its own anchors, island ids and
-/// island props (cell anchors among them) included. An omitted anchor drops
-/// only where the diff deletes its text, so a splice or an overwrite is the
-/// door that removes one whose text stays.
-pub fn carry_anchors(base: &Content, next: Lines) -> (Lines, Delta) {
-    let mut next = next.into_content();
-    let delta = diff(&base.text, &next.text);
-    let cells: Vec<Mark> = next
-        .islands
-        .iter()
-        .flat_map(|i| i.island_type.cell_marks(&i.props))
-        .flat_map(|(_, marks)| marks)
-        .collect();
-    let held: HashSet<String> = next
-        .marks
-        .iter()
-        .chain(&cells)
-        .filter_map(|m| match &m.kind {
-            MarkKind::Anchor { id } => Some(id.clone()),
-            _ => None,
-        })
-        .collect();
-    carry_marks(base, &mut next, &delta, |m| {
-        !matches!(&m.kind, MarkKind::Anchor { id } if held.contains(id))
-    });
-    (next.into_lines(), delta)
-}
-
 /// [`rebase_onto`] without the delta, diffing only when `base` holds a mark
 /// to carry.
 pub fn rebase_marks(base: &Content, new: Lines) -> Lines {
@@ -1004,26 +880,21 @@ mod tests {
     use crate::lines::import::from_markdown;
     use crate::lines::model::MarkKind;
 
-    #[test]
-    fn a_delta_in_utf16_applies_as_js_slices_and_inserts_where_it_did() {
-        let (base, new) = ("😀a b😀", "😀a 😀x b😀!");
-        let d = diff(base, new);
-        let wide = d.to_units(base, crate::units::Utf16);
-        let units: Vec<u16> = base.encode_utf16().collect();
-        let (mut out, mut i) = (Vec::new(), 0);
-        for op in &wide.ops {
+    fn apply(d: &Delta, base: &str) -> String {
+        let chars: Vec<char> = base.chars().collect();
+        let (mut out, mut i) = (String::new(), 0);
+        for op in &d.ops {
             match op {
                 Op::Retain(n) => {
-                    out.extend(&units[i..i + n]);
+                    out.extend(&chars[i..i + n]);
                     i += n;
                 }
                 Op::Delete(n) => i += n,
-                Op::Insert(s) => out.extend(s.encode_utf16()),
+                Op::Insert(s) => out.push_str(s),
             }
         }
-        out.extend(&units[i..]);
-        assert_eq!(String::from_utf16(&out).unwrap(), new);
-        assert_eq!(wide.inserted_spans_in(new, crate::units::Utf16), d.inserted_spans());
+        out.extend(&chars[i..]);
+        out
     }
 
     #[test]
@@ -1045,61 +916,10 @@ mod tests {
     #[test]
     fn map_pos_across_an_insertion() {
         let d = diff("abcdef", "abcXYdef");
-        assert_eq!(d.try_apply("abcdef").unwrap(), "abcXYdef");
         assert_eq!(d.map_pos(2, Assoc::After), 2);
         assert_eq!(d.map_pos(4, Assoc::Before), 6);
         assert_eq!(d.map_pos(3, Assoc::After), 5);
         assert_eq!(d.map_pos(3, Assoc::Before), 3);
-    }
-
-    #[test]
-    fn try_apply_accepts_short_delta_with_implicit_trailing_retain() {
-        let short = Delta {
-            ops: vec![Op::Insert("NEW ".into())],
-        };
-        assert_eq!(short.expected_base_len(), 0);
-        assert_eq!(short.try_apply("hello").unwrap(), "NEW hello");
-
-        let partial = Delta {
-            ops: vec![Op::Retain(1), Op::Insert("X".into())],
-        };
-        assert_eq!(partial.try_apply("hello").unwrap(), "hXello");
-    }
-
-    #[test]
-    fn try_apply_rejects_over_long_delta() {
-        let over = Delta {
-            ops: vec![Op::Retain(9)],
-        };
-        assert_eq!(
-            over.try_apply("hello"),
-            Err(BaseLengthMismatch {
-                expected: 9,
-                actual: 5,
-            })
-        );
-
-        // Over-consumption via Delete fails the same way.
-        let over_del = Delta {
-            ops: vec![Op::Delete(9)],
-        };
-        assert!(over_del.try_apply("hello").is_err());
-    }
-
-    #[test]
-    fn try_apply_rejects_delta_whose_counts_overflow() {
-        // Counts arrive off the wire, where any u64 deserializes.
-        let over = Delta {
-            ops: vec![Op::Retain(usize::MAX), Op::Retain(2)],
-        };
-        assert_eq!(over.expected_base_len(), usize::MAX);
-        assert_eq!(
-            over.try_apply("hello"),
-            Err(BaseLengthMismatch {
-                expected: usize::MAX,
-                actual: 5,
-            })
-        );
     }
 
     /// `mapPos` hands a wire delta here with no length check ahead of it, and
@@ -1148,61 +968,6 @@ mod tests {
                 .to_string(),
             "first para here"
         );
-    }
-
-    #[test]
-    fn carry_anchors_keeps_what_next_holds_and_carries_the_rest() {
-        let anchor = |start, end, id: &str| Mark {
-            start,
-            end,
-            kind: MarkKind::Anchor { id: id.into() },
-        };
-        let held = |rt: &Content, id: &str| {
-            let m = rt
-                .marks
-                .iter()
-                .find(|m| matches!(&m.kind, MarkKind::Anchor { id: i } if i == id))
-                .unwrap();
-            rt.text[byte(&rt.text, m.start)..byte(&rt.text, m.end)].to_string()
-        };
-        let mut base = from_markdown("one two three\n\n| a |\n|---|\n| b |")
-            .unwrap()
-            .content
-            .into_content();
-        base.marks.push(anchor(0, 3, "c1"));
-        base.marks.push(anchor(8, 13, "c2"));
-        let base = base.into_lines();
-
-        let mut next = from_markdown("zero one two three\n\n| a |\n|---|\n| b |")
-            .unwrap()
-            .content
-            .into_content();
-        next.marks.push(anchor(9, 12, "c2"));
-        next.islands[0].id = "peer-0".into();
-        let (out, delta) = carry_anchors(&base, next.into_lines());
-
-        assert_eq!(delta.try_apply(&base.text).unwrap(), out.text);
-        assert_eq!(held(&out, "c1"), "one");
-        assert_eq!(held(&out, "c2"), "two");
-        let anchors = out.marks.iter().filter(|m| !m.kind.is_formatting()).count();
-        assert_eq!(anchors, 2, "an id next holds is not carried a second time");
-        assert_eq!(out.islands[0].id, "peer-0");
-    }
-
-    #[test]
-    fn carry_anchors_reads_an_id_a_cell_of_next_holds_as_held() {
-        let mut base = from_markdown("see[^1] here\n\n[^1]: note").unwrap().content.into_content();
-        base.marks.push(Mark {
-            start: 0,
-            end: 3,
-            kind: MarkKind::Anchor { id: "c1".into() },
-        });
-        let base = base.into_lines();
-        let mut next = from_markdown("see[^1] there\n\n[^1]: note").unwrap().content.into_content();
-        next.islands[0].props["marks"] =
-            serde_json::json!([{"start": 0, "end": 4, "type": "anchor", "id": "c1"}]);
-        let (out, _) = carry_anchors(&base, next.into_lines());
-        assert!(out.marks.iter().all(|m| m.kind.is_formatting()));
     }
 
     #[test]
@@ -1256,7 +1021,7 @@ mod tests {
     #[test]
     fn disjoint_edits_are_separate_ops() {
         let d = diff("aaaMIDDLEbbb", "AAAMIDDLEZZZ");
-        assert_eq!(d.try_apply("aaaMIDDLEbbb").unwrap(), "AAAMIDDLEZZZ");
+        assert_eq!(apply(&d, "aaaMIDDLEbbb"), "AAAMIDDLEZZZ");
         let retained: usize = d
             .ops
             .iter()
@@ -1267,7 +1032,7 @@ mod tests {
             .sum();
         assert!(
             retained >= 6,
-            "unchanged middle span retained ({retained} USV): {ops:?}",
+            "unchanged middle span retained ({retained} scalar): {ops:?}",
             ops = d.ops
         );
         assert!(
@@ -1371,7 +1136,7 @@ mod tests {
             "took {:?}",
             start.elapsed()
         );
-        assert_eq!(d.try_apply(&base).unwrap(), new);
+        assert_eq!(apply(&d, &base), new);
     }
 
     #[test]
@@ -1391,11 +1156,11 @@ mod tests {
             "took {:?}",
             start.elapsed()
         );
-        assert_eq!(d.try_apply(&base).unwrap(), new);
+        assert_eq!(apply(&d, &base), new);
     }
 
     fn byte(s: &str, char_idx: usize) -> usize {
-        crate::usv::char_to_byte(s, char_idx)
+        crate::units::char_to_byte(s, char_idx)
     }
 
     /// Deterministic filler with no long common substring between the two
@@ -1420,7 +1185,7 @@ mod tests {
             "large single-line diff took {elapsed:?}, expected well under the 2s budget"
         );
 
-        assert_eq!(d.try_apply(&base).unwrap(), new);
+        assert_eq!(apply(&d, &base), new);
     }
 
     #[test]
@@ -1430,7 +1195,7 @@ mod tests {
         let base = format!("shared-prefix-{}-shared-suffix", filler(20_000, 0));
         let new = format!("shared-prefix-{}-shared-suffix", filler(20_000, 5));
         let d = diff(&base, &new);
-        assert_eq!(d.try_apply(&base).unwrap(), new);
+        assert_eq!(apply(&d, &base), new);
 
         let Some(Op::Retain(prefix_len)) = d.ops.first() else {
             panic!("expected a leading Retain for the shared prefix: {:?}", d.ops);

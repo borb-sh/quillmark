@@ -325,7 +325,7 @@ impl PyQuill {
 
     /// Parse `markdown` and conform it against this quill: the primary ingestion
     /// path, and the bound twin of the schema-free `Document.parse`. The
-    /// returned document rests at its canonical form: a content field as a
+    /// returned document is in its stored form: a content field as a
     /// content object, a `text` field's under `codec: "plain"`.
     ///
     /// Parse warnings and the `conform::*` diagnostics both land on
@@ -549,7 +549,7 @@ impl PyDocument {
     }
 
     /// The hash of the body (`field=None`) or richtext field on `card` (`None`
-    /// for the main card): the field's content however it rests, an absent
+    /// for the main card): the field's content however it is stored, an absent
     /// field the empty content. Richtext only; `writer.hash_at` reads a field
     /// of any type through its schema, and is the `base_hash` the writer's
     /// verbs check. Raises `QuillmarkError` on a bad card index, a malformed
@@ -1264,7 +1264,7 @@ impl PyWriter {
     /// The hash of the body (`field=None`) or of `field` through its schema on
     /// `card` (`None` for the main card): the `base_hash` `revise_body` /
     /// `revise_field` check. A `richtext` or `text` field hashes its content
-    /// however it rests, any other type its stored value, an absent field as
+    /// however it is stored, any other type its stored value, an absent field as
     /// `None`. Raises `edit::unknown_field` for an
     /// undeclared name.
     #[pyo3(signature = (field=None, card=None))]
@@ -1766,7 +1766,7 @@ impl PyRenderResult {
     /// bottom-left origin and page indices document-space. `field` is a `DocPath`
     /// address, as the document APIs use. Content fields carry one entry per
     /// segment (paragraph, heading, code fence) and page, each `span` the covered
-    /// USV range; scalar ink, claims and widgets carry `span: None`. Group by
+    /// scalar range; scalar ink, claims and widgets carry `span: None`. Group by
     /// `field` and union the segment rects for the whole-field box.
     #[getter]
     fn regions<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {

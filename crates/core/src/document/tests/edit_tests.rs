@@ -653,8 +653,8 @@ fn test_revise_body_rebases_anchor() {
         .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
         .expect("identity anchor survives the whole-document replace");
     let text = &card.body_lines().text;
-    let s = quillmark_content::usv::char_to_byte(text, anchor.start);
-    let e = quillmark_content::usv::char_to_byte(text, anchor.end);
+    let s = quillmark_content::units::char_to_byte(text, anchor.start);
+    let e = quillmark_content::units::char_to_byte(text, anchor.end);
     assert_eq!(&text[s..e], "target");
 }
 

@@ -1263,7 +1263,7 @@ impl QuillConfig {
                         path: DocPath| {
             for (key, value) in obj {
                 if key == "$body" {
-                    if let Ok(content) = quillmark_content::model::Content::lines_from_value(value) {
+                    if let Ok(content) = quillmark_content::migrate::lines_from_value(value) {
                         each(&path.body(), &content);
                     }
                 } else if let Some(field) = schema.fields.get(key.as_str()) {

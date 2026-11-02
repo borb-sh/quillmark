@@ -6,9 +6,18 @@
 
 use crate::change::{AnchorStep, ApplyError, Change, IslandStep, MarkStep, Run, Splice, Step};
 use crate::draft::Draft;
-use crate::model::{Content, Island, Mark, Usv};
+use crate::model::{Content, Island, Mark, Scalar};
 use crate::wire::{ParseError, shape};
 use serde_json::Value;
+
+/// A scalar index into `text` as a UTF-8 byte offset. Saturates to
+/// `text.len()` at or past the end, so it is safe as a slice bound.
+pub fn char_to_byte(text: &str, char_idx: usize) -> usize {
+    text.char_indices()
+        .nth(char_idx)
+        .map(|(b, _)| b)
+        .unwrap_or(text.len())
+}
 
 /// A unit offsets count in.
 pub trait Units: Copy {
@@ -47,7 +56,7 @@ impl Units for Utf16 {
 
 /// The scalar offset `n` units into `text`; `None` inside a character or past
 /// the end.
-pub fn to_scalars(u: impl Units, text: &str, n: usize) -> Option<Usv> {
+pub fn to_scalars(u: impl Units, text: &str, n: usize) -> Option<Scalar> {
     let mut at = 0;
     for (k, c) in text.chars().enumerate() {
         if at == n {
@@ -62,14 +71,14 @@ pub fn to_scalars(u: impl Units, text: &str, n: usize) -> Option<Usv> {
 }
 
 /// The unit offset of scalar offset `n` into `text`, saturating at its end.
-pub fn from_scalars(u: impl Units, text: &str, n: Usv) -> usize {
+pub fn from_scalars(u: impl Units, text: &str, n: Scalar) -> usize {
     text.chars().take(n).map(|c| u.char_len(c)).sum()
 }
 
 /// `s` split `n` units in; `None` inside a character or past the end.
 pub(crate) fn split_at(u: impl Units, s: &str, n: usize) -> Option<(&str, &str)> {
     let k = to_scalars(u, s, n)?;
-    Some(s.split_at(crate::usv::char_to_byte(s, k)))
+    Some(s.split_at(crate::units::char_to_byte(s, k)))
 }
 
 #[derive(Clone, Copy)]
@@ -83,8 +92,8 @@ enum Dir {
 struct Index {
     /// Each such character's scalar offset, the unit offset it starts at, and
     /// its units, in order.
-    wide: Vec<(Usv, usize, usize)>,
-    len: Usv,
+    wide: Vec<(Scalar, usize, usize)>,
+    len: Scalar,
     units: usize,
 }
 
@@ -95,7 +104,7 @@ impl Index {
 
     /// The characters of `text` of other than one unit, as `wide` holds them,
     /// for `text` starting at scalar offset `at` and unit offset `units`.
-    fn read(u: impl Units, text: &str, at: Usv, units: usize) -> Vec<(Usv, usize, usize)> {
+    fn read(u: impl Units, text: &str, at: Scalar, units: usize) -> Vec<(Scalar, usize, usize)> {
         let mut out = Vec::new();
         let mut units = units;
         for (k, c) in text.chars().enumerate() {
@@ -116,7 +125,7 @@ impl Index {
     }
 
     /// [`from_scalars`].
-    fn to_units(&self, p: Usv) -> usize {
+    fn to_units(&self, p: Scalar) -> usize {
         if p >= self.len {
             return self.units;
         }
@@ -131,7 +140,7 @@ impl Index {
 
     /// The scalar offset unit offset `n` reaches, and the scalar offset of the
     /// character `n` falls inside, if any.
-    fn locate(&self, n: usize) -> (Usv, Option<Usv>) {
+    fn locate(&self, n: usize) -> (Scalar, Option<Scalar>) {
         let k = self.wide.partition_point(|w| w.1 + w.2 <= n);
         let inside = self.wide.get(k).filter(|w| w.1 < n).map(|w| w.0);
         let p = match k {
@@ -146,7 +155,7 @@ impl Index {
 
     /// The scalar offset unit offset `n` reaches, one inside a character
     /// moved to its start and one past the text to its end.
-    fn clamped(&self, n: usize) -> Usv {
+    fn clamped(&self, n: usize) -> Scalar {
         match self.locate(n) {
             (_, Some(at)) => at,
             (p, None) => p.min(self.len),
@@ -154,7 +163,7 @@ impl Index {
     }
 
     /// [`to_scalars`].
-    fn to_scalars(&self, n: usize) -> Option<Usv> {
+    fn to_scalars(&self, n: usize) -> Option<Scalar> {
         match self.locate(n) {
             (_, Some(_)) => None,
             (p, None) => (p <= self.len).then_some(p),
@@ -162,7 +171,7 @@ impl Index {
     }
 
     /// The text with `delete`, at scalar offset `at`, replaced by `insert`.
-    fn splice(&mut self, u: impl Units, at: Usv, delete: &str, insert: &str) {
+    fn splice(&mut self, u: impl Units, at: Scalar, delete: &str, insert: &str) {
         let (dn, du) = (delete.chars().count(), u.len(delete));
         let (m, mu) = (insert.chars().count(), u.len(insert));
         let from = self.to_units(at);

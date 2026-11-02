@@ -11,7 +11,7 @@ use crate::lines::delta::{Op, diff_words as text_diff, rebase_pinned, relocate, 
 use crate::lines::import::{Against, ImportError, ImportWarning, from_markdown_against};
 use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{Block, BlockKind, Codec, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind, Usv};
+use crate::model::{Block, BlockKind, Codec, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind, Scalar};
 use crate::table::{self, Table};
 use std::collections::{HashMap, HashSet};
 
@@ -71,7 +71,7 @@ fn fixups_carrying(cur: &Content, want: &Content, carry: Option<&HashSet<String>
 /// `diff` reaches. Where the texts differ outside the range, or a block or
 /// island there holds another id than `before`'s, the range is not the
 /// change's, and the change is [`diff`]'s.
-pub fn diff_range(before: &Content, after: &Content, from: Usv, to: Usv) -> Result<Change, Invariant> {
+pub fn diff_range(before: &Content, after: &Content, from: Scalar, to: Scalar) -> Result<Change, Invariant> {
     after.validate()?;
     let want = reachable(before, after, true);
     let splices = range_splice(before, &want, from, to).unwrap_or_else(|| splices(before, &want));
@@ -265,7 +265,7 @@ const MAX_SLIDE: usize = 64;
 /// edges moved in past what the two keep and, where the records outside it
 /// differ, slid until they agree; `None` where no place within
 /// [`MAX_SLIDE`] makes them.
-fn range_splice(before: &Content, want: &Content, from: Usv, to: Usv) -> Option<Vec<Step>> {
+fn range_splice(before: &Content, want: &Content, from: Scalar, to: Scalar) -> Option<Vec<Step>> {
     let t = Texts::new(before, want);
     let (a, b) = (&t.a, &t.b);
     let to_b = (to + b.len()).checked_sub(a.len())?;

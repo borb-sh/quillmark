@@ -19,7 +19,7 @@
 
 use crate::lines::model::{
     canonicalize_keys, is_font_family_name, Container, Island, Line, LineKind, Mark,
-    MarkKind, Content, Lines, Usv,
+    MarkKind, Content, Lines, Scalar,
 };
 use serde_json::{Map, Value};
 use std::borrow::Cow;
@@ -233,13 +233,13 @@ fn bag_from_wire(
     Ok(v.clone())
 }
 
-/// Read a wire position as a [`Usv`] index. **Checked**, not `as usize`: the
+/// Read a wire position as a [`Scalar`] index. **Checked**, not `as usize`: the
 /// deployment target is wasm32, where the truncating cast turns `2^32 + 5` into
 /// an in-range `5`, landing a mark at the wrong position instead of rejecting
 /// the document.
-pub(crate) fn usv_from(v: Option<&Value>, what: &'static str) -> Result<Usv, ParseError> {
+pub(crate) fn usv_from(v: Option<&Value>, what: &'static str) -> Result<Scalar, ParseError> {
     let n = v.and_then(Value::as_u64).ok_or(ParseError::Shape(what))?;
-    Usv::try_from(n).map_err(|_| ParseError::Shape(what))
+    Scalar::try_from(n).map_err(|_| ParseError::Shape(what))
 }
 
 fn arr<'a>(obj: &'a Map<String, Value>, key: &'static str) -> Result<&'a Vec<Value>, ParseError> {
@@ -494,8 +494,8 @@ pub fn mark_to_value(mark: &Mark) -> Value {
 /// What every mark carries whatever its type.
 struct MarkShape<'a> {
     fields: &'a Map<String, Value>,
-    start: Usv,
-    end: Usv,
+    start: Scalar,
+    end: Scalar,
     ty: &'a str,
 }
 
@@ -754,7 +754,7 @@ fn reject_legacy_siblings(
 }
 
 /// Parse a table-cell object `{text, marks}` leniently: its plain text plus the
-/// marks over it, their ranges USV offsets into that text and their wire shape
+/// marks over it, their ranges scalar offsets into that text and their wire shape
 /// the one prose marks use. A malformed mark is skipped rather than failing.
 /// Public so the typst emitter renders a cell through the same parse the codecs
 /// use.
@@ -1044,7 +1044,7 @@ pub(crate) fn normalize_note_props(props: &mut Value) {
     let chars: Vec<char> = text.chars().collect();
     let lead = chars.iter().take_while(|&&c| c == '\n').count();
     let end = lead.max(chars.len() - chars.iter().rev().take_while(|&&c| c == '\n').count());
-    let clip = |at: Usv| at.clamp(lead, end) - lead;
+    let clip = |at: Scalar| at.clamp(lead, end) - lead;
     let marks: Vec<Mark> = marks
         .into_iter()
         .map(|m| Mark::new(clip(m.start), clip(m.end), m.kind))

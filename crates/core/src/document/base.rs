@@ -28,8 +28,8 @@ use crate::quill::{BoundParseError, FieldSchema, FieldType, QuillConfig};
 pub enum Base<'a> {
     /// The hash of the value the writer read: [`Card::body_hash`],
     /// [`Card::field_hash`], [`Document::hash`] or [`content_hash`] on the
-    /// quill-free lane, and the typed writer's `hash` / `field_hash` on the
-    /// typed one. The write is refused with [`BaseError::Stale`] when the value
+    /// content write, and the typed writer's `hash` / `field_hash` on the
+    /// typed writer. The write is refused with [`BaseError::Stale`] when the value
     /// now hashes otherwise.
     Hash(&'a str),
     /// The markdown the writer read, annotated or not (a `text` field's literal
@@ -480,7 +480,7 @@ impl Card {
 
 impl Document {
     /// The hash of the document's stored form, the [`Base::Hash`] a
-    /// whole-document revise checks on the quill-free lane. The typed writer's
+    /// whole-document revise checks on the quill-free write. The typed writer's
     /// `hash` conforms first, so a document loaded without its quill hashes
     /// as its conformed self.
     pub fn hash(&self) -> String {

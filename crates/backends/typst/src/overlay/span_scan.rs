@@ -975,7 +975,7 @@ fn walk_glyphs(
     });
 }
 
-/// The content USV offset a glyph's generated position maps to. With no owning
+/// The content scalar offset a glyph's generated position maps to. With no owning
 /// run (the `#raw` multi-line case, where every line shares one node wider than
 /// any run) the safe degrade is the segment's content start, not a node-start
 /// computation that could land outside every line's own text.

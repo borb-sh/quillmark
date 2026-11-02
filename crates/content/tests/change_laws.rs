@@ -9,7 +9,7 @@ use quillmark_content::change::{
     apply, compose, compose_in, invert, map_pos, map_pos_in, rebase,
 };
 use quillmark_content::rebase::{Conflict, RebaseError, Reason};
-use quillmark_content::gestures::{Wrap, delete_range, indent, inherited_marks, join_blocks, outdent, split_block, wrap};
+use quillmark_content::structural::{Wrap, delete_range, indent, inherited_marks, join_blocks, outdent, split_block, wrap};
 use quillmark_content::lines::island::IslandType;
 use quillmark_content::markdown::from_markdown;
 use quillmark_content::model::{
@@ -58,13 +58,13 @@ fn document() -> impl Strategy<Value = Content> {
             md.push_str("\n\n[^n]: a note");
         }
         let mut c = with_ext(from_markdown(&md).unwrap().content, ext);
-        let len = c.len_usv();
+        let len = c.len_scalars();
         if len > 3 {
             c.anchors.push(Anchor::new("c-0", 1, len.min(4)));
             c.anchors.push(Anchor::new("c-1", 2, 2));
         }
         for (n, island) in c.islands.iter_mut().enumerate() {
-            if let Some(slot) = island.slots.values_mut().find(|s| s.len_usv() > 0) {
+            if let Some(slot) = island.slots.values_mut().find(|s| s.len_scalars() > 0) {
                 slot.anchors.push(Anchor::new(format!("s-{n}"), 0, 1));
             }
         }
@@ -90,7 +90,7 @@ fn with_ext(mut c: Content, seed: u8) -> Content {
         let k = seed as usize / 4 % c.blocks.len();
         c.blocks[k].kind = BlockKind::Ext { name: "x-callout".into(), attrs: json!({"tone": "warm"}).as_object().unwrap().clone() };
     }
-    let len = c.len_usv();
+    let len = c.len_scalars();
     if seed % 3 == 0 && len > 1 {
         c.marks.push(Mark::new(1, len.min(5), MarkKind::Ext { name: "x-glow".into(), attrs: Default::default() }));
     }
@@ -163,7 +163,7 @@ fn slots_of(c: &Content) -> Vec<(&Island, String)> {
 }
 
 fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
-    let len = c.len_usv();
+    let len = c.len_scalars();
     Some(match op {
         0 | 1 => Step::Splice(splice_on(c, x, y, z, k)),
         2 => {
@@ -282,7 +282,7 @@ fn step_for(c: &Content, (op, x, y, z): Op, k: usize) -> Option<Step> {
             let with = slots_of(c);
             let (island, slot) = with.get(x % with.len().max(1))?;
             let inner = &island.slots[slot];
-            let n = inner.len_usv();
+            let n = inner.len_scalars();
             let (a, b) = (y % (n + 1), y / 3 % (n + 1));
             let (start, end) = (a.min(b), a.max(b));
             let quote = quote_of(inner, start, end, z as usize);
@@ -415,7 +415,7 @@ proptest! {
     fn canonical_bytes_stream_as_the_tree_serializes(d in document(), n in any::<i64>(), f in any::<f64>(), s in "\\PC{0,6}") {
         let mut d = d;
         let attrs = json!({"z": f.is_finite().then_some(f), "a": {"y": [n, null, true, -0.0], "b": s.clone()}, "m": [{"q": 1, "c": 2}]});
-        let len = d.len_usv();
+        let len = d.len_scalars();
         if len > 0 {
             d.marks.push(Mark::new(0, len, MarkKind::Ext { name: "x-z".into(), attrs: attrs.as_object().unwrap().clone() }));
         }
@@ -468,7 +468,7 @@ proptest! {
     #[test]
     fn typing_and_deleting_compose_as_applied(d in document(), keys in prop::collection::vec(0u8..4, 1..10), at in any::<usize>()) {
         let mut doc = d.clone();
-        let mut caret = at % (d.len_usv() + 1);
+        let mut caret = at % (d.len_scalars() + 1);
         let mut total = Change::default();
         for k in keys {
             let s = match k {
@@ -533,7 +533,7 @@ proptest! {
         for i in 0..n {
             both.set_mirror(i, 2 * n - 1 - i);
         }
-        let edges = (0..=d.len_usv()).map(Pos::At);
+        let edges = (0..=d.len_scalars()).map(Pos::At);
         for p in positions(&d).into_iter().map(|(p, _)| p).chain(edges) {
             for assoc in [Assoc::Before, Assoc::After] {
                 prop_assert_eq!(&both.map(&p, assoc).pos, &p, "{:?} under {:?}", assoc, after.applied);
@@ -667,7 +667,7 @@ fn a_split_keeps_the_text_on_its_id_and_a_join_keeps_the_left_block() {
 #[test]
 fn an_id_held_twice_between_steps_is_refused_by_name_and_fails_at_the_end() {
     let d = from_markdown("alpha[^n]\n\nbeta\n\n[^n]: note").unwrap().content;
-    let len = d.len_usv();
+    let len = d.len_scalars();
     let (block, island) = (d.blocks[1].id.clone(), d.islands[0].clone());
     let copy = Step::Splice(Splice { blocks: vec![d.blocks[1].clone()], ..Splice::new(len, "", "\ncopy") });
     let twin = Step::Island(IslandStep::Insert { at: len, island: island.clone(), block: None });
@@ -690,7 +690,7 @@ proptest! {
 
     #[test]
     fn a_split_keeps_every_id_and_its_join_undoes_it(d in document(), at in any::<usize>()) {
-        let at = at % (d.len_usv() + 1);
+        let at = at % (d.len_scalars() + 1);
         let split = apply(&d, &split_block(&d, at, Some("n")).unwrap()).unwrap().content;
         let kept: Vec<&str> = split.blocks.iter().map(|b| b.id.as_str()).filter(|id| *id != "n").collect();
         prop_assert_eq!(kept, d.blocks.iter().map(|b| b.id.as_str()).collect::<Vec<_>>());
@@ -723,7 +723,7 @@ fn typed_text_grows_each_mark_at_the_edges_the_canon_names() {
     assert_eq!(tags(0), ["font_family"], "a family grows at its start");
     assert_eq!(tags(1), ["font_family"], "and at its end");
     assert_eq!(tags(19), ["font_family"], "past the block's opening break, from the text after");
-    assert_eq!(inherited_marks(&d, d.len_usv() + 1), Err(ApplyError::Stale { step: 0 }));
+    assert_eq!(inherited_marks(&d, d.len_scalars() + 1), Err(ApplyError::Stale { step: 0 }));
 }
 
 proptest! {
@@ -735,7 +735,7 @@ proptest! {
     fn typed_text_carries_its_inherited_marks_and_passes_them_on(
         mut d in document(), at in any::<usize>(), (x, y, z) in (any::<usize>(), any::<usize>(), any::<usize>()),
     ) {
-        let len = d.len_usv() + 1;
+        let len = d.len_scalars() + 1;
         let (x, y, z) = (x % len, y % len, z % len);
         d.marks.push(Mark::new(x.min(y), x.max(y), MarkKind::FontFamily { name: "Inter".into() }));
         d.marks.push(Mark::new(y.min(z), y.max(z), MarkKind::Code));
@@ -821,7 +821,7 @@ proptest! {
     /// and the same step unquoted lands wherever its range fits.
     #[test]
     fn a_quote_holds_a_step_to_the_text_it_read(d in document(), (x, y, z) in (any::<usize>(), any::<usize>(), any::<u8>()), pre in (any::<usize>(), any::<usize>(), any::<u8>())) {
-        let len = d.len_usv();
+        let len = d.len_scalars();
         let (a, b) = (x % (len + 1), y % (len + 1));
         let (start, end) = (a.min(b), a.max(b));
         let quote: String = chars(&d)[start..end].iter().collect();
@@ -831,7 +831,7 @@ proptest! {
             _ => Step::Mark(MarkStep::Remove { start, end, tag: "strong".into(), quote }),
         };
         let Ok(mid) = apply(&d, &Change::new(vec![Step::Splice(splice_on(&d, pre.0, pre.1, pre.2, 0))])) else { return Ok(()) };
-        let now: Option<String> = (end <= mid.content.len_usv()).then(|| chars(&mid.content)[start..end].iter().collect());
+        let now: Option<String> = (end <= mid.content.len_scalars()).then(|| chars(&mid.content)[start..end].iter().collect());
         let unquoted = apply(&mid.content, &Change::new(vec![step(None)]));
         match apply(&mid.content, &Change::new(vec![step(Some(quote.clone()))])) {
             Ok(done) => {
@@ -1663,7 +1663,7 @@ proptest! {
     /// agree but for the ids of those blocks.
     #[test]
     fn changes_to_disjoint_text_rebase_into_both(d in document(), cut in any::<usize>(), mine in ops(), theirs in ops()) {
-        let len = d.len_usv();
+        let len = d.len_scalars();
         let cut = cut % len;
         let c = windowed(&d, &mine, (0, cut), "l");
         let o = windowed(&d, &theirs, (cut + 1, len), "r");
@@ -1672,7 +1672,7 @@ proptest! {
         prop_assert!(r.is_ok(), "{:?}\nchange {:?}\nover {:?}", r, c, o);
         let r = r.unwrap();
         let both = apply(&right, &r).unwrap().content;
-        let mine: String = chars(&left)[..left.len_usv() - (len - cut)].iter().collect();
+        let mine: String = chars(&left)[..left.len_scalars() - (len - cut)].iter().collect();
         let theirs: String = chars(&right)[cut..].iter().collect();
         prop_assert_eq!(&both.text, &format!("{mine}{theirs}"));
         let back = rebase(&d, &o, &c).unwrap();
@@ -1800,7 +1800,7 @@ fn formats(c: &Content, i: usize) -> std::collections::BTreeMap<String, MarkKind
 /// change made from `d`, left as it was, and that `landed`, the change
 /// rebased over it, holds otherwise than `theirs`.
 fn reformatted(d: &Content, own: &quillmark_content::change::Applied, theirs: &quillmark_content::change::Applied, landed: &quillmark_content::change::Applied) -> Option<String> {
-    for j in 0..d.len_usv() {
+    for j in 0..d.len_scalars() {
         let (Some(jo), Some(jc)) = (char_map(&theirs.applied, j), char_map(&own.applied, j)) else { continue };
         let Some(jf) = char_map(&landed.applied, jo) else { continue };
         let (dv, ov, cv, fv) = (formats(d, j), formats(&theirs.content, jo), formats(&own.content, jc), formats(&landed.content, jf));
@@ -1928,7 +1928,7 @@ fn rewording_the_word_beside_a_footnote_rebases_over_an_edit_inside_the_note() {
     let d = from_markdown("Alpha[^a] beta gamma\n\n[^a]: note text here").unwrap().content;
     let island = d.islands[0].clone();
     let note = island.slot_order()[0].clone();
-    let len = island.slots[&note].len_usv();
+    let len = island.slots[&note].len_scalars();
     let over = Change::new(vec![Step::Nested { island: island.id.clone(), slot: note.clone(), change: Change::new(vec![Step::Splice(Splice::new(len, "", "!"))]) }]);
     let mine = quillmark_content::diff::revise(&d, "Omega[^a] beta gamma\n\n[^a]: note text here").unwrap().change;
     assert!(mine.steps.iter().all(|s| !matches!(s, Step::Splice(sp) if sp.delete.contains(ISLAND_SLOT))), "{mine:?}");
@@ -2128,11 +2128,11 @@ fn nested_document() -> impl Strategy<Value = Content> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(400))]
 
-    /// Every gesture's change applies wherever the gesture answers one, and
+    /// Every structural edit's change applies wherever the edit answers one, and
     /// keeps the text and every block id; a Tab and a Shift-Tab over the same
     /// blocks put the value back.
     #[test]
-    fn a_gesture_keeps_the_text_and_its_tab_undoes_by_shift_tab(
+    fn a_structural_edit_keeps_the_text_and_its_tab_undoes_by_shift_tab(
         d in nested_document(), x in any::<usize>(), y in any::<usize>(), w in 0u8..3,
     ) {
         let n = d.blocks.len();
@@ -2160,7 +2160,7 @@ proptest! {
             let back = apply(&tabbed, &outdent(&tabbed, &first, &last).unwrap()).unwrap().content;
             prop_assert_eq!(&back, &d);
         }
-        let len = d.len_usv();
+        let len = d.len_scalars();
         let (s, e) = ((x % (len + 1)).min(y % (len + 1)), (x % (len + 1)).max(y % (len + 1)));
         if let Ok(done) = apply(&d, &delete_range(&d, s, e).unwrap()) {
             let kept: String = d.text.chars().take(s).chain(d.text.chars().skip(e)).collect();
@@ -2231,13 +2231,13 @@ proptest! {
         let edited = apply(&d, &change_for(&d, &ops)).unwrap().content;
         let whole = apply(&d, &diff(&d, &edited).unwrap()).unwrap().content;
         let (from, to) = changed_range(&d, &edited);
-        let len = d.len_usv();
+        let len = d.len_scalars();
         let (from, to) = (from - wide.0 % (from + 1), to + wide.1 % (len - to + 1));
         let change = diff_range(&d, &edited, from, to).unwrap();
         prop_assert_eq!(&apply(&d, &change).unwrap().content, &whole, "{:?}", change);
         let splices: Vec<&Splice> = change.steps.iter().filter_map(|s| if let Step::Splice(s) = s { Some(s) } else { None }).collect();
         prop_assert!(splices.len() <= 1, "{:?}", change);
-        let grown = edited.len_usv() + to - len;
+        let grown = edited.len_scalars() + to - len;
         for s in splices {
             prop_assert!(s.delete.chars().count() <= to - from && s.insert.chars().count() <= grown - from, "{:?} over {}..{}", s, from, to);
         }
@@ -2264,7 +2264,7 @@ fn a_range_diff_types_one_letter_as_one_letter_and_keeps_enter_on_the_text() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(300))]
 
-    /// Two writers each gesture from one value under their own actor: the
+    /// Two writers each make a structural edit from one value under their own actor: the
     /// ids each mints are its own, so where the second rebases over the
     /// first, nothing is renamed and the value holds only ids one of them or
     /// the value gave.
@@ -2282,7 +2282,7 @@ proptest! {
                 1 => wrap(&d, first, last, &Wrap::Quote),
                 2 => indent(&d, first, last),
                 3 => outdent(&d, first, last),
-                _ => split_block(&d, x % (d.len_usv() + 1), None),
+                _ => split_block(&d, x % (d.len_scalars() + 1), None),
             }
         };
         let (Ok(a), Ok(b)) = (gesture(picks[0]), gesture(picks[1])) else { return Ok(()) };
