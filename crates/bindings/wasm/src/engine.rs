@@ -239,6 +239,16 @@ export interface PlaceOptions {
 }
 
 /**
+ * What `writer.addCard` answers: the placed card's `$id`, and the fields'
+ * `parse::dropped_construct` warnings then the body import's, anchored under
+ * the placed card.
+ */
+export interface CardAdded {
+    id: string;
+    warnings: Diagnostic[];
+}
+
+/**
  * A card written *into* a document, accepted by `doc.unchecked.insertCard`. Like
  * `Card`, but `body` also takes a markdown `string`, and every field but `kind`
  * is optional (defaulting to no payload items and an empty body). A card
@@ -1805,10 +1815,10 @@ impl Document {
     /// bundle as [`commitFields`](Self::commit_fields); an invalid kind or body,
     /// or a bad position, throws a single-entry bundle keyed `$kind` / `$body`.
     /// The card's `$id` mints as `unchecked.insertCard` mints one, under
-    /// `opts.actor` where one is given. Returns the fields'
-    /// `parse::dropped_construct` warnings, then the body import's, anchored
-    /// under the placed card.
-    #[wasm_bindgen(js_name = _addCard, skip_typescript, unchecked_return_type = "Diagnostic[]")]
+    /// `opts.actor` where one is given. Returns a `CardAdded`: that id, and
+    /// the fields' `parse::dropped_construct` warnings, then the body
+    /// import's, anchored under the placed card.
+    #[wasm_bindgen(js_name = _addCard, skip_typescript, unchecked_return_type = "CardAdded")]
     pub fn add_card(
         &mut self,
         quill: &Quill,
@@ -1827,12 +1837,12 @@ impl Document {
         };
         // The card is built before it joins the document, so field errors anchor
         // at bare names (empty base).
-        let warnings = quill
+        let added = quill
             .inner
             .writer(&mut self.inner)
             .add_card(kind, batch, body.as_deref(), at, actor.as_deref())
             .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))?;
-        serialize_or_throw(&diags(warnings), "addCard")
+        serialize_or_throw(&CardAddedJs { id: added.id, warnings: diags(added.warnings) }, "addCard")
     }
 
     /// The ABI under `doc.unchecked.insertCard`: place a card whole, `at`
@@ -2167,6 +2177,12 @@ pub fn normalize(
     #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
 ) -> Result<JsValue, JsValue> {
     content::content_out(&content::content_normalized(rt, "normalize")?, "normalize")
+}
+
+#[derive(serde::Serialize)]
+struct CardAddedJs {
+    id: String,
+    warnings: Vec<Diagnostic>,
 }
 
 #[derive(serde::Serialize)]

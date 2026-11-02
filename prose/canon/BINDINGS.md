@@ -150,7 +150,14 @@ Both refusals carry `current`, the hash now. The hash is content-addressed, so i
 
 Every binding verb is *identical* to its core twin or names its one forced difference: **FFI** (a wasm-bindgen / pyo3 constraint), **idiom** (a language ergonomic), or **scope** (a surface a binding omits by intent: Python is Tier 1 + storage + render), nothing else admitted.
 
-**Identical to their core twins**, so the table below omits them, each binding spelling them in its own case: `set` / `set_all`, `add_card` (make, typed commit and insert fused into one transactional call; `at` appends when absent, else inserts at the index, and `actor` scopes the `$id` it mints as `unchecked.insert_card`'s does), `remove_card`, and `conform` (in place, returning the `conform::*` diagnostics; Python's are the dicts `validate` answers with). Two more are identical where they exist, both WASM-only: the `writer.card(i).kind` cursor read, and `session.update`, a whole-document recompile distinct from the content `apply`. The table holds one row per forced difference.
+**Identical to their core twins**, so the table below omits them, each binding spelling them in its own case:
+
+- `set` / `set_all`.
+- `add_card`: make, typed commit and insert fused into one transactional call. `at` appends when absent, else inserts at the index, and `actor` scopes the `$id` it mints as `unchecked.insert_card`'s does. It answers that id beside its warnings as `CardAdded`, a dict of `id` and `warnings` in Python.
+- `remove_card`.
+- `conform`: in place, returning the `conform::*` diagnostics; Python's are the dicts `validate` answers with.
+
+Two more are identical where they exist, both WASM-only: the `writer.card(i).kind` cursor read, and `session.update`, a whole-document recompile distinct from the content `apply`. The table holds one row per forced difference.
 
 | Concept | Core | Bindings | Class |
 |---|---|---|---|

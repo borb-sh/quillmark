@@ -34,6 +34,15 @@ use crate::path::DocPath;
 use crate::quill::{BoundParseError, FieldSchema, QuillConfig};
 use crate::value::QuillValue;
 
+/// What [`TypedWriter::add_card`] answers: the placed card's `$id` and the
+/// warnings its fields and body raised.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct CardAdded {
+    pub id: String,
+    pub warnings: Vec<Diagnostic>,
+}
+
 /// A [`Document`] bound to its [`QuillConfig`] for typed writes. Construct with
 /// [`Quill::writer`](crate::quill::Quill::writer). Writes target the main card;
 /// use [`card`](Self::card) for a composable card.
@@ -225,8 +234,8 @@ impl<'a> TypedWriter<'a> {
     /// position, surfaces as a single-entry bundle keyed `$kind` / `$body`.
     ///
     /// The card's `$id` mints as [`Unchecked::insert_card`](crate::document::Unchecked::insert_card)
-    /// mints one, under `actor` where one is given. Returns the fields'
-    /// `parse::dropped_construct` warnings, as [`set_all`](Self::set_all)
+    /// mints one, under `actor` where one is given. Returns that id and the
+    /// fields' `parse::dropped_construct` warnings, as [`set_all`](Self::set_all)
     /// returns them, then the body import's, all anchored under the placed
     /// card.
     pub fn add_card<K, V, I>(
@@ -236,7 +245,7 @@ impl<'a> TypedWriter<'a> {
         body: Option<&str>,
         at: Option<usize>,
         actor: Option<&str>,
-    ) -> Result<Vec<Diagnostic>, Vec<(String, EditError)>>
+    ) -> Result<CardAdded, Vec<(String, EditError)>>
     where
         K: Into<String>,
         V: Into<QuillValue>,
@@ -253,10 +262,11 @@ impl<'a> TypedWriter<'a> {
                     .diagnostics(Some(&base.body())),
             );
         }
-        self.doc
+        let id = self
+            .doc
             .place_card(at, card, actor)
             .map_err(|e| vec![("$kind".to_string(), e)])?;
-        Ok(warnings)
+        Ok(CardAdded { id, warnings })
     }
 
     /// Remove the composable card at `index`, returning it. `None` when
@@ -632,9 +642,11 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
-        ed.add_card("note", [("prose", "**hi**")], Some("card body"), None, None)
+        let added = ed
+            .add_card("note", [("prose", "**hi**")], Some("card body"), None, None)
             .unwrap();
         assert_eq!(doc.cards().len(), 1);
+        assert_eq!(doc.cards()[0].id(), Some(added.id.as_str()));
         assert_eq!(doc.cards()[0].kind(), Some("note"));
         assert_eq!(
             doc.cards()[0]
@@ -829,7 +841,7 @@ card_kinds:
         let added = ed
             .add_card("note", [("prose", "a")], Some("<span>x</span>"), None, None)
             .unwrap();
-        assert_eq!(anchors(&added), dropped("cards.note[0].body"));
+        assert_eq!(anchors(&added.warnings), dropped("cards.note[0].body"));
         let revised = ed.revise_body("<kbd>x</kbd>").unwrap();
         assert_eq!(anchors(&revised.diagnostics(None)), unanchored);
         let revised = ed.revise_field("subject", "<kbd>x</kbd>").unwrap();
@@ -847,7 +859,7 @@ card_kinds:
         let added = ed
             .add_card("note", [("prose", "b")], Some("<span>y</span>"), Some(0), None)
             .unwrap();
-        assert_eq!(anchors(&added), dropped("cards.note[0].body"));
+        assert_eq!(anchors(&added.warnings), dropped("cards.note[0].body"));
         let set = ed.set("subject", "<kbd>x</kbd>").unwrap();
         assert_eq!(anchors(&set), dropped("main.subject"));
         let set = ed
@@ -859,7 +871,7 @@ card_kinds:
         let added = ed
             .add_card("note", [("blurb", "<em>z</em>")], None, None, None)
             .unwrap();
-        assert_eq!(anchors(&added), dropped("cards.note[2].blurb"));
+        assert_eq!(anchors(&added.warnings), dropped("cards.note[2].blurb"));
 
         let revised = doc
             .card_mut(1)

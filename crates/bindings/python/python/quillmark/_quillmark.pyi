@@ -263,6 +263,10 @@ class MergeConflict(TypedDict):
     current: Any
     proposed: Any
 
+class CardAdded(TypedDict):
+    id: str
+    warnings: list[Diagnostic]
+
 DocumentRevised = TypedDict(
     "DocumentRevised",
     {
@@ -353,7 +357,7 @@ class Writer:
         body: str | None = None,
         at: int | None = None,
         actor: str | None = None,
-    ) -> list[Diagnostic]: ...
+    ) -> CardAdded: ...
     def remove_card(self, index: int) -> dict[str, Any] | None: ...
 
 @final

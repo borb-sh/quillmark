@@ -54,7 +54,7 @@ pub use quillmark_core::{
     types::{Artifact, OutputFormat, RenderOptions},
     value::{PathSegment, QuillValue},
     version::QuillReference,
-    writer::TypedWriter,
+    writer::{CardAdded, TypedWriter},
 };
 
 mod load;

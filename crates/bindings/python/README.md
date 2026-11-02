@@ -92,8 +92,9 @@ w.set_all({"title": "T", "author": "A"})  # atomic batch; one diagnostic per bad
 w.revise_body("A **taro** essay.")        # body write (edit semantics; a body has no field schema)
 w.revise_field("bio", "make it **bold**") # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
-                                          # set, set_all and add_card return the parse::dropped_construct
+                                          # set and set_all return the parse::dropped_construct
                                           # warnings their markdown raised: [Diagnostic, ...]
+                                          # add_card returns {"id", "warnings": [Diagnostic, ...]}
                                           # revise_body and revise_field return their receipt:
                                           # {"delta", "warnings": [Diagnostic, ...], "dropped_anchors": [{"id", "line"}]}
 w.revise_document(markdown)               # whole-document write: cards align by $kind and text, anchors rebase,

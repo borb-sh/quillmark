@@ -244,7 +244,8 @@ card_kinds:
   it('addCard commits fields and body; removeCard returns the card', () => {
     const doc = blankDoc()
     const ed = buildQuill().writer(doc)
-    expect(ed.addCard('note', { prose: 'Field **body**.' }, 'Card body text.')).toEqual([])
+    const added = ed.addCard('note', { prose: 'Field **body**.' }, 'Card body text.')
+    expect(added).toEqual({ id: doc.cards[0].id, warnings: [] })
     expect(doc.cards[0].kind).toBe('note')
     expect(exportMarkdown(fieldOf(doc.cards[0], 'prose'))).toBe('Field **body**.')
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body text.')
@@ -252,7 +253,7 @@ card_kinds:
     expect(doc.cards).toHaveLength(0)
 
     ed.addCard('note', {}, 'First.')
-    expect(ed.addCard('note', {}, 'x <span>y</span>', 0).map((w) => [w.code, w.path])).toEqual([
+    expect(ed.addCard('note', {}, 'x <span>y</span>', 0).warnings.map((w) => [w.code, w.path])).toEqual([
       ['parse::dropped_construct', 'cards.note[0].body'],
     ])
     expect(exportMarkdown(doc.cards[0].body)).toBe('x y')
