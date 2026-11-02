@@ -74,11 +74,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use unicase::UniCase;
 
-/// Import errors: just the nesting guard.
+/// Why an import refused its markdown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportError {
     /// Container nesting exceeded [`MAX_NESTING_DEPTH`].
     NestingTooDeep { depth: usize, max: usize },
+    /// The markdown is longer than
+    /// [`MAX_MARKDOWN_SIZE`](crate::MAX_MARKDOWN_SIZE) bytes.
+    TooLarge { size: usize, max: usize },
 }
 
 impl std::fmt::Display for ImportError {
@@ -86,6 +89,9 @@ impl std::fmt::Display for ImportError {
         match self {
             ImportError::NestingTooDeep { depth, max } => {
                 write!(f, "nesting too deep: {depth} (max {max})")
+            }
+            ImportError::TooLarge { size, max } => {
+                write!(f, "markdown of {size} bytes is past the limit of {max}")
             }
         }
     }
@@ -136,6 +142,10 @@ pub enum Dropped {
     /// already defined or nested in another, or a reference where no note
     /// can sit (a table cell, an image's alt text, another note): `footnote`.
     Footnote,
+    /// A reference past the [`MAX_NOTE_COPIES`](crate::MAX_NOTE_COPIES)
+    /// characters a document's notes may copy, which stays as its text:
+    /// `footnote:size`.
+    FootnoteSize,
     /// The structure of a block inside a footnote, whose text the note keeps:
     /// `footnote[<block>]`, the block `list`, `heading`, `code`, `quote`,
     /// `table` or `rule`.
@@ -167,6 +177,7 @@ impl std::fmt::Display for Dropped {
             Dropped::Element(name) => write!(f, "{PREFIX}{name}"),
             Dropped::ElementAttr { element, attr } => write!(f, "{PREFIX}{element}[{attr}]"),
             Dropped::Footnote => f.write_str("footnote"),
+            Dropped::FootnoteSize => f.write_str("footnote:size"),
             Dropped::NoteBlock(block) => write!(f, "footnote[{block}]"),
             Dropped::Math => f.write_str("math"),
             Dropped::Bidi => f.write_str("bidi"),
@@ -290,6 +301,9 @@ pub fn from_markdown_against(markdown: &str, stored: &Content) -> Result<Against
 }
 
 fn import(markdown: &str, tags: Tags) -> Result<(Content, Vec<ImportWarning>), ImportError> {
+    if markdown.len() > crate::MAX_MARKDOWN_SIZE {
+        return Err(ImportError::TooLarge { size: markdown.len(), max: crate::MAX_MARKDOWN_SIZE });
+    }
     let mut b = Builder { tags, ..Builder::default() };
     parse_markdown(markdown, options(), |text, events| b.run(MarkdownFixer::new(text, events.into_iter())))?;
     let (content, mut dropped) = b.finish();
@@ -590,8 +604,9 @@ struct Builder {
     note: Option<NoteAcc>,
     /// Each definition read, by the label pulldown matches references with.
     notes: HashMap<UniCase<String>, Note>,
-    /// Each footnote island minted, by index, and the label it reads.
-    note_refs: Vec<(usize, UniCase<String>)>,
+    /// Each footnote island minted, by index, the label it reads and the
+    /// reference's byte offset.
+    note_refs: Vec<(usize, UniCase<String>, usize)>,
     /// How the walk reads an anchor tag or an island token.
     tags: Tags,
     /// Each anchor id a tag has named, so a second tag naming it reports.
@@ -657,6 +672,8 @@ impl NoteAcc {
 /// A note read off its definition.
 struct Note {
     props: serde_json::Value,
+    /// The note's characters, which each reference past the first copies.
+    chars: usize,
     at: usize,
     used: bool,
     dropped: Drops,
@@ -1553,7 +1570,8 @@ impl Builder {
             return self.dropped.add(Dropped::Footnote, note.at);
         }
         let props = crate::lines::serial::cell_to_value(&note.inline.text, &note.inline.marks);
-        self.notes.insert(key, Note { props, at: note.at, used: false, dropped: note.dropped });
+        let chars = note.inline.text.chars().count();
+        self.notes.insert(key, Note { props, chars, at: note.at, used: false, dropped: note.dropped });
     }
 
     /// A footnote reference: an island in prose, its note filled in once
@@ -1567,7 +1585,7 @@ impl Builder {
         }
         self.ensure_open(LineKind::Para);
         self.inline.push_raw(ISLAND_SLOT);
-        self.note_refs.push((self.islands.len(), UniCase::new(label)));
+        self.note_refs.push((self.islands.len(), UniCase::new(label), at));
         self.mint_island(IslandType::Footnote, serde_json::Value::Null);
     }
 
@@ -1628,14 +1646,34 @@ impl Builder {
     fn finish(mut self) -> (Content, Drops) {
         self.close_note();
         // A reference whose definition dropped, nested in another, reads
-        // back as the text it is, as one naming no definition does.
-        for (index, label) in std::mem::take(&mut self.note_refs).into_iter().rev() {
+        // back as the text it is, as one naming no definition does, and so
+        // does one past the budget its note's copies share.
+        let mut budget = crate::MAX_NOTE_COPIES;
+        let mut read: HashSet<&UniCase<String>> = HashSet::new();
+        let copies: Vec<bool> = self
+            .note_refs
+            .iter()
+            .map(|(_, label, _)| match self.notes.get(label) {
+                Some(_) if read.insert(label) => true,
+                Some(note) if note.chars <= budget => {
+                    budget -= note.chars;
+                    true
+                }
+                _ => false,
+            })
+            .collect();
+        for ((index, label, at), copied) in std::mem::take(&mut self.note_refs).into_iter().zip(copies).rev() {
             match self.notes.get_mut(&label) {
-                Some(note) => {
+                Some(note) if copied => {
                     self.islands[index].props = note.props.clone();
                     note.used = true;
                 }
-                None => self.unslot(index, &format!("[^{}]", label.into_inner())),
+                held => {
+                    if held.is_some() {
+                        self.dropped.add(Dropped::FootnoteSize, at);
+                    }
+                    self.unslot(index, &format!("[^{}]", label.into_inner()));
+                }
             }
         }
         for (n, island) in self.islands.iter_mut().enumerate() {
@@ -2754,6 +2792,21 @@ pub(crate) mod tests {
             assert_eq!(imported.content.text, *text, "{md:?}");
             assert_eq!(dropped(&imported), *warned, "{md:?}");
         }
+    }
+
+    /// A note's first reference copies it free; later copies spend one
+    /// budget the document's notes share, and a reference past it stays as
+    /// its text, reported. A markdown past the size bound refuses whole.
+    #[test]
+    fn note_copies_past_the_budget_stay_as_text() {
+        let note = "w".repeat(crate::MAX_NOTE_COPIES / 2);
+        let imported = imp_fixed(&format!("a[^1] b[^1] c[^1] d[^1] e[^2]\n\n[^1]: {note}\n\n[^2]: {note}"));
+        let rt = &imported.content;
+        assert_eq!(rt.text, "a\u{FFFC} b\u{FFFC} c\u{FFFC} d[^1] e\u{FFFC}");
+        assert_eq!(dropped(&imported), [("footnote:size", 1)]);
+
+        let big = "a".repeat(crate::MAX_MARKDOWN_SIZE + 1);
+        assert!(matches!(from_markdown(&big), Err(ImportError::TooLarge { .. })));
     }
 
     /// `$…$` is an inline equation and `$$…$$` a display one, each an island

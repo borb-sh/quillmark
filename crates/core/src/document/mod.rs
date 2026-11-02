@@ -191,6 +191,16 @@ fn dropped_message(construct: &Dropped, n: usize) -> (String, String) {
              definition `[^label]: note` naming the same label."
                 .to_string(),
         ),
+        Dropped::FootnoteSize => (
+            format!(
+                "markdown import kept {} in this field as written text",
+                some("footnote reference", "footnote references")
+            ),
+            format!(
+                "A reference copies its whole note, and after the first reading of each note the copies share                  {} characters; the references past it stay as `[^label]`. Cite a long note once.",
+                quillmark_content::MAX_NOTE_COPIES
+            ),
+        ),
         Dropped::NoteBlock(block) => (
             format!(
                 "markdown import kept the text of {} inside a footnote and dropped its structure",
@@ -609,7 +619,7 @@ pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
-pub use write::{Edit, LOG_STEPS, Receipt, Target};
+pub use write::{Edit, LOG_STEPS, MAX_CHANGE_STEPS, Receipt, Target, check_change, check_content_value};
 
 /// Where Quillmark Markdown departs from plain Markdown and YAML, as rules
 /// surfaced verbatim to LLM/MCP consumers and to the bindings. The single

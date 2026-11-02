@@ -139,15 +139,18 @@ impl Card {
     }
 
     fn write_with<U: Units>(&mut self, target: Target<'_>, edit: Edit<'_>, base: Option<&str>, u: Option<U>) -> Result<Receipt, EditError> {
+        if let Edit::Apply(change) = &edit {
+            check_change(change)?;
+        }
         let read = self.reading(target, base)?;
         let (change, warnings, diffed) = match edit {
             Edit::Apply(change) => match u {
-                Some(u) => (units::change_to_scalars(&change, read.read(), u).map_err(EditError::Change)?, Vec::new(), false),
+                Some(u) => (units::change_to_scalars(&change, read.read(), u).map_err(EditError::change)?, Vec::new(), false),
                 None => (change, Vec::new(), false),
             },
             Edit::Revise(markdown) => {
                 let revision = diff::revise_keeping(read.read(), markdown, &read.now).map_err(|e| match e {
-                    diff::ReviseError::Import(e) => EditError::Import(e),
+                    diff::ReviseError::Import(e) => EditError::import(e),
                     diff::ReviseError::Conflict(c) => {
                         EditError::Base(BaseError::rebase_conflict(read.hash.clone(), target.field().map(str::to_string), &c))
                     }
@@ -155,7 +158,7 @@ impl Card {
                 (revision.change, revision.warnings, true)
             }
             Edit::Replace(content) => {
-                let change = diff::replace_holding(read.read(), &content, &read.now).map_err(|e| EditError::Change(e.into()))?;
+                let change = diff::replace_holding(read.read(), &content, &read.now).map_err(|e| EditError::change(e.into()))?;
                 (change, Vec::new(), true)
             }
         };
@@ -163,13 +166,13 @@ impl Card {
             None => change,
             Some(since) => read.rebase(target, since, &change)?,
         };
-        let mut applied = change::apply(&read.now, &change).map_err(EditError::Change)?;
+        let mut applied = change::apply(&read.now, &change).map_err(EditError::change)?;
         if diffed {
             keeps_ext_islands(&read.now, &applied.content)?;
             applied.dropped = change::lost_anchors(&read.now, &applied.content, |_| true);
         }
         let shown = match u {
-            Some(u) => units::change_from_scalars(&applied.applied, &read.now, u).map_err(EditError::Change)?,
+            Some(u) => units::change_from_scalars(&applied.applied, &read.now, u).map_err(EditError::change)?,
             None => applied.applied.clone(),
         };
         let rebased = read.since.is_some();
@@ -270,7 +273,7 @@ impl Reading {
     /// since: a conflict refused with `edit::rebase_conflict`.
     fn rebase(&self, target: Target<'_>, since: &Since, change: &Change) -> Result<Change, EditError> {
         change::rebase(&since.base, change, &since.over).map_err(|e| match e {
-            RebaseError::Apply(e) => EditError::Change(e),
+            RebaseError::Apply(e) => EditError::change(e),
             RebaseError::Conflict(c) => EditError::Base(BaseError::rebase_conflict(self.hash.clone(), target.field().map(str::to_string), &c)),
         })
     }
@@ -282,6 +285,49 @@ impl Reading {
 /// holds. The log holds at most twice this many steps, or the newest write
 /// alone where it holds more.
 pub const LOG_STEPS: usize = 4096;
+
+/// The steps one change a host writes may hold, nested ones counted. Each
+/// step is applied, mapped through a rebase and logged on its own, and a
+/// rebase maps each over every step before it, so a change past this is
+/// refused before any of that runs; a writer splits a larger edit into
+/// several changes.
+pub const MAX_CHANGE_STEPS: usize = 4 * LOG_STEPS;
+
+/// Refuses a change of more than [`MAX_CHANGE_STEPS`] steps, as
+/// [`EditError::TooManySteps`]. Every [`Card::write`] of a change runs it,
+/// and the bindings run it on each change they take.
+pub fn check_change(change: &Change) -> Result<(), EditError> {
+    match steps_in(change) {
+        count if count > MAX_CHANGE_STEPS => Err(EditError::TooManySteps { count, max: MAX_CHANGE_STEPS }),
+        _ => Ok(()),
+    }
+}
+
+/// Refuses a content value, as the JSON a host sent, whose text and its
+/// slots' texts together pass
+/// [`MAX_MARKDOWN_SIZE`](quillmark_content::MAX_MARKDOWN_SIZE) bytes, as
+/// [`EditError::InputTooLarge`]: the bound a markdown door holds, before the
+/// value is decoded. The bindings run it on each content value they take.
+pub fn check_content_value(v: &serde_json::Value) -> Result<(), EditError> {
+    fn text_bytes(v: &serde_json::Value) -> usize {
+        let own = v.get("text").and_then(serde_json::Value::as_str).map_or(0, str::len);
+        let islands: Box<dyn Iterator<Item = &serde_json::Value>> = match v.get("islands") {
+            Some(serde_json::Value::Array(list)) => Box::new(list.iter()),
+            Some(serde_json::Value::Object(map)) => Box::new(map.values()),
+            _ => Box::new(std::iter::empty()),
+        };
+        islands
+            .filter_map(|i| i.get("slots").and_then(serde_json::Value::as_object))
+            .flat_map(|slots| slots.values())
+            .map(text_bytes)
+            .fold(own, usize::saturating_add)
+    }
+    let max = quillmark_content::MAX_MARKDOWN_SIZE;
+    match text_bytes(v) {
+        size if size > max => Err(EditError::InputTooLarge { size, max }),
+        _ => Ok(()),
+    }
+}
 
 /// A card's recent writes, per value it holds, in memory only: no store,
 /// hash or comparison sees it. Per value it holds one snapshot, the value

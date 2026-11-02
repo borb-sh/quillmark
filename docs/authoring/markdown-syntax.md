@@ -39,7 +39,7 @@ The figure comes from the 2024 survey.[^src]
 [^src]: Office of Budget, *Annual Survey*, 2024.
 ```
 
-A note is inline text. A paragraph, list item or other block inside a definition becomes a line of the note and warns under `parse::dropped_construct` (`footnote[list]`, `footnote[quote]`, …). A definition nothing references, a second definition of one label, and a reference inside a table cell, an image's alt text or another note drop, warning `footnote`. A reference with no definition stays as the text written.
+A note is inline text. A paragraph, list item or other block inside a definition becomes a line of the note and warns under `parse::dropped_construct` (`footnote[list]`, `footnote[quote]`, …). A definition nothing references, a second definition of one label, and a reference inside a table cell, an image's alt text or another note drop, warning `footnote`. A reference with no definition stays as the text written. Each reference holds its own copy of the note; past the first copy of each note, the copies of a document share 1 000 000 characters, and a reference past them stays as its text, warning `footnote:size`.
 
 ## Math
 

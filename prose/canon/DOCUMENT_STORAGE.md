@@ -329,7 +329,7 @@ table or as HTML, whichever holds it
 ([markdown-spec.md](../references/markdown-spec.md) §6.8); a cell of several
 paragraphs writes as HTML.
 
-Three rules bound the payload:
+Five rules bound the payload:
 
 - **Payload depth is capped at `MAX_JSON_DEPTH` (128).** Island `props` and an
   `x-` member's `attrs` are host JSON of arbitrary shape, but not arbitrary
@@ -347,6 +347,28 @@ Three rules bound the payload:
   instead, its tables sharing one cap, warning `table:size`.
 - **Nesting is capped at `MAX_NESTING_DEPTH` (12)** items and quotes on one
   path, the depth the markdown codecs and the Typst lowering share.
+- **Marks and anchors are capped against the text they sit on.** A text, a
+  field's or a slot's, holds at most `max_marks(len)`: 64 and 4 per
+  character, far above the one a document nears, and a value at most
+  `MAX_ANCHORS` (100 000) anchors. An `x-` mark over many blocks is cut at
+  each, and marks of distinct attributes never union, so a few bytes could
+  otherwise ask for marks times blocks of them, on wasm32 an allocation that
+  traps. The decoder counts each mark once per block and line it spans and
+  refuses past the cap before normalizing, as `Invariant::TooManyMarks` and
+  `Invariant::TooManyAnchors` (`edit::too_many_marks`,
+  `edit::too_many_anchors`), and a change refuses at the step that would
+  pass it.
+- **Inputs are capped at the doors.** Markdown an import reads, a revise's
+  and `importMarkdown`'s as well as a parse's, is capped at
+  `MAX_MARKDOWN_SIZE` (10 MiB), refused as `ImportError::TooLarge`
+  (`edit::input_too_large`). The bindings refuse a content value whose text
+  and its slots' texts pass the same 10 MiB before decoding it, and a change
+  of more than `MAX_CHANGE_STEPS` (16 384) steps, nested ones counted
+  (`edit::too_many_steps`); `Card::write` refuses such a change too. A
+  footnote reference copies its note, so an import shares
+  `MAX_NOTE_COPIES` (1 000 000) characters among every copy past each
+  note's first; a reference past it stays as its `[^label]` text, warning
+  `footnote:size`.
 
 The opaque props are hash input like everything else in the canonical form, so
 they are recursively key-sorted along with the rest (see Byte-stability). Also a

@@ -9,8 +9,8 @@ use crate::draft::{Draft, HeldTwice};
 use crate::ids::is_id;
 use crate::lines::anchor::AnchorContext;
 use crate::model::{
-    Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Usv, check_block, check_island,
-    check_mark_kind, is_text_char, normalized_marks,
+    Anchor, Block, Container, Content, ISLAND_SLOT, Invariant, Island, Mark, Pos, Usv, break_offsets, check_block,
+    check_island, check_mark_kind, is_text_char, mark_spans, normalized_marks,
 };
 pub use crate::mapping::{MapResult, Mapping};
 pub use crate::rebase::{Conflict, RebaseError, rebase};
@@ -416,6 +416,7 @@ impl Run {
         for island in &mut islands {
             table::normalize_island(island);
             for slot in island.slots.values_mut() {
+                slot.check_bounds()?;
                 slot.normalize();
             }
             if !is_id(&island.id) {
@@ -428,6 +429,7 @@ impl Run {
         }
 
         let (first, lost) = (d.slots_before(at), d.slots_before(end) - d.slots_before(at));
+        let held = marks.len();
         let removed_marks = clipped(&marks, at, end);
         let mut next = Vec::with_capacity(marks.len() + s.marks.len() + 1);
         for mk in marks {
@@ -444,6 +446,9 @@ impl Run {
         written.push_str(&s.insert);
         written.push_str(&text[from + s.delete.len()..]);
         let untouched = s.marks.is_empty() && removed_marks.is_empty() && next.iter().all(|mk| mk.end < at || mk.start > at + m);
+        if !untouched {
+            within_marks(d, held, ws, &written, &next, d.len() - dn + m)?;
+        }
         let next = if untouched { next } else { settled(ws, &written, next) };
         let inserted = clipped(&next, at, at + m);
 
@@ -545,6 +550,7 @@ impl Run {
         }
         let (k0, k1) = (d.block_at(start), d.block_at(end));
         let (ws, text, mut marks) = d.window(k0, k1);
+        let held_marks = marks.len();
         let was = if self.undo { marks.clone() } else { Vec::new() };
         let remove = matches!(s, MarkStep::Remove { .. }) || matches!(s, MarkStep::Add { mark, .. } if mark.kind.is_keyed());
         if remove {
@@ -554,6 +560,7 @@ impl Run {
             check_mark_kind(&mark.kind)?;
             marks.push(mark.clone());
         }
+        within_marks(d, held_marks, ws, &text, &marks, d.len())?;
         let marks = settled(ws, &text, marks);
         let undo = match self.undo {
             true => mark_fixups(&marks, &was).into_iter().map(|step| quoting(step, |a, b| d.slice(a, b))).collect(),
@@ -626,6 +633,7 @@ impl Run {
                 Some(held) => held,
                 None => {
                     let mut fresh = given.get(&slot).cloned().unwrap_or_default();
+                    fresh.check_bounds()?;
                     fresh.normalize();
                     self.touched.extend(fresh.anchor_ids());
                     gained.insert(slot.clone(), fresh.clone());
@@ -671,6 +679,21 @@ fn clipped(marks: &[Mark], at: Usv, end: Usv) -> Vec<Mark> {
             (lo < hi).then(|| Mark::new(lo - at, hi - at, mk.kind.clone()))
         })
         .collect()
+}
+
+/// Refuses a step that would leave `d`, `len` characters long, past
+/// [`max_marks`](crate::max_marks): its `held` marks over the window at `at`
+/// replaced by `marks` over `text`, each counted once per block and line it
+/// spans, as settling them can leave them.
+fn within_marks(d: &Draft, held: usize, at: Usv, text: &str, marks: &[Mark], len: Usv) -> Result<(), Invariant> {
+    let breaks = break_offsets(text);
+    let spans = mark_spans(&breaks, marks.iter().map(|m| (m.start - at, m.end - at)));
+    let total = (d.mark_count() - held).saturating_add(spans);
+    let max = crate::max_marks(len);
+    match total > max {
+        true => Err(Invariant::TooManyMarks { marks: total, max }),
+        false => Ok(()),
+    }
 }
 
 /// `marks`, at offsets into the value, over `text`, which starts at `at`,

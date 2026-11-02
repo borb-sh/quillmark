@@ -66,7 +66,8 @@ impl Content {
         serde_json::to_string(&self.to_value()).unwrap_or_default()
     }
 
-    /// Decode, normalize and validate. A v1 value migrates.
+    /// Decode, normalize and validate. A v1 value migrates. The bounds
+    /// normalizing would spend ([`Content::check_bounds`]) are checked first.
     pub fn from_value(v: &Value) -> Result<Content, ParseError> {
         if crate::model::json_too_deep(v) {
             return Err(ParseError::Invalid(Invariant::JsonTooDeep {
@@ -80,6 +81,7 @@ impl Content {
         } else {
             decode(v)?
         };
+        c.check_bounds()?;
         c.normalize();
         c.validate()?;
         Ok(c)
@@ -526,6 +528,35 @@ mod tests {
         let annotated = crate::markdown::to_markdown_annotated(&c).markdown;
         let r = crate::diff::revise(&c, &annotated).unwrap();
         assert_eq!(crate::change::apply(&c, &r.change).unwrap().content, c, "{annotated}");
+    }
+
+    /// Marks of distinct attributes over many blocks, each cut at every
+    /// break, refuse before they are cut: at decode, and at the step of a
+    /// change that would pass the bound. A repair keeps those within it.
+    #[test]
+    fn marks_a_value_would_multiply_refuse_before_they_are_cut() {
+        use crate::change::{ApplyError, Change, MarkStep, Step, apply};
+        let n = 200;
+        let text = vec!["ab"; n].join("\n");
+        let len = text.chars().count();
+        let ext = |i: usize| json!({"start": 0, "end": len, "type": "x-a", "attrs": {"n": i}});
+        let blocks: Vec<Value> = (0..n).map(|i| json!({"id": format!("b{i}"), "kind": "para"})).collect();
+        let marked = json!({"text": text, "blocks": blocks, "marks": (0..n).map(ext).collect::<Vec<_>>()});
+        let too_many = |e: &Invariant| matches!(e, Invariant::TooManyMarks { .. });
+        assert!(matches!(Content::from_value(&marked), Err(ParseError::Invalid(e)) if too_many(&e)));
+
+        let (repaired, repairs) = crate::repair::repair(crate::repair::Raw::from_value(&marked).unwrap());
+        assert!(repaired.marks.len() <= crate::max_marks(len));
+        assert!(repairs.iter().any(|r| matches!(r, crate::repair::Repair::Invalid(e) if too_many(e))));
+
+        let bare = Content::from_value(&json!({"text": text, "blocks": blocks})).unwrap();
+        let steps = (0..n).map(|i| Step::Mark(MarkStep::Add { mark: mark_from_value(&ext(i)).unwrap(), quote: None }));
+        let refused = apply(&bare, &Change::new(steps.collect()));
+        assert!(matches!(refused, Err(ApplyError::Invalid(e)) if too_many(&e)));
+
+        let anchors: Vec<Value> = (0..=crate::MAX_ANCHORS).map(|i| json!({"id": format!("c{i}"), "start": 0, "end": 0})).collect();
+        let pinned = json!({"text": "", "blocks": [{"id": "b0", "kind": "para"}], "anchors": anchors});
+        assert!(matches!(Content::from_value(&pinned), Err(ParseError::Invalid(Invariant::TooManyAnchors { .. }))));
     }
 
     #[test]

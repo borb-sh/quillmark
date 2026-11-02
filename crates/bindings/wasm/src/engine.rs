@@ -2050,11 +2050,16 @@ impl Addr {
 /// canonical `content` and a `parse::dropped_construct` warning per construct
 /// the import dropped, with no `path`. `replace(addr, importMarkdown(md).content)`
 /// spells the cold write; prefer `revise` for edit semantics.
-/// Throws on an over-nested input.
+/// Throws on an over-nested input, and `edit::input_too_large` on one past
+/// 10 MiB.
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Imported")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
-    let imported = quillmark_content::markdown::from_markdown(markdown)
-        .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
+    let imported = quillmark_content::markdown::from_markdown(markdown).map_err(|e| match e {
+        quillmark_content::lines::import::ImportError::TooLarge { .. } => {
+            WasmError { diagnostics: vec![quillmark_core::document::EditError::import(e).to_diagnostic(None)] }.to_js_value()
+        }
+        e => WasmError::from(format!("importMarkdown: {e}")).to_js_value(),
+    })?;
     let out = ImportedJs {
         content: imported.content.to_value_in(quillmark_content::units::Utf16),
         warnings: diags(quillmark_core::document::dropped_constructs(

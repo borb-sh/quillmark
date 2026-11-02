@@ -12,7 +12,8 @@ use quillmark_content::change::{self, Assoc, Change};
 use quillmark_content::gestures::{self, Wrap};
 use quillmark_content::model::Content;
 use quillmark_content::units::{self, Utf16};
-use quillmark_core::document::{Card, CardMut, Edit, EditError, Receipt, Target};
+use quillmark_content::wire::ParseError;
+use quillmark_core::document::{Card, CardMut, Edit, EditError, Receipt, Target, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
@@ -354,7 +355,11 @@ fn value_path(base: &DocPath, addr: &Addr) -> DocPath {
 }
 
 fn apply_error(e: change::ApplyError) -> JsValue {
-    WasmError { diagnostics: vec![EditError::Change(e).to_diagnostic(None)] }.to_js_value()
+    bound_error(EditError::change(e))
+}
+
+fn bound_error(e: EditError) -> JsValue {
+    WasmError { diagnostics: vec![e.to_diagnostic(None)] }.to_js_value()
 }
 
 /// A `Content` from JS, offsets in UTF-16 code units.
@@ -366,8 +371,11 @@ pub(super) fn content_in(value: JsValue, ctx: &str) -> Result<Content, JsValue> 
         ))
         .to_js_value());
     }
-    Content::from_value_in(&json, Utf16)
-        .map_err(|e| WasmError::from(format!("{ctx}: not a Content: {e}")).to_js_value())
+    check_content_value(&json).map_err(bound_error)?;
+    Content::from_value_in(&json, Utf16).map_err(|e| match &e {
+        ParseError::Invalid(inv) if EditError::bound(inv).is_some() => bound_error(EditError::bound(inv).expect("a bound")),
+        _ => WasmError::from(format!("{ctx}: not a Content: {e}")).to_js_value(),
+    })
 }
 
 /// `c` for JS, offsets in UTF-16 code units.
@@ -378,7 +386,9 @@ pub(super) fn content_out(c: &Content, ctx: &str) -> Result<JsValue, JsValue> {
 /// A change from JS, still in UTF-16 code units.
 fn change_in(value: JsValue, ctx: &str) -> Result<Change, JsValue> {
     let json = js_value_to_json(value, ctx)?;
-    Change::from_value_in(&json, Utf16).map_err(|e| WasmError::from(format!("{ctx}: not a Change: {e}")).to_js_value())
+    let change = Change::from_value_in(&json, Utf16).map_err(|e| WasmError::from(format!("{ctx}: not a Change: {e}")).to_js_value())?;
+    check_change(&change).map_err(bound_error)?;
+    Ok(change)
 }
 
 /// A stored payload value with each content value in it, at any depth, moved
@@ -590,6 +600,7 @@ pub fn diff(
 #[wasm_bindgen(js_name = repair, unchecked_return_type = "Repaired")]
 pub fn repair(#[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue) -> Result<JsValue, JsValue> {
     let json = js_value_to_json(raw, "repair")?;
+    check_content_value(&json).map_err(bound_error)?;
     let raw = quillmark_content::repair::Raw::from_value_in(&json, Utf16)
         .map_err(|e| WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value())?;
     let (content, repairs) = quillmark_content::repair::repair(raw);

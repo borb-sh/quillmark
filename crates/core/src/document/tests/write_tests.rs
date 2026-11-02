@@ -600,3 +600,19 @@ fn a_receipt_spells_a_dropped_and_a_moved_anchor_as_stored() {
     assert_eq!(receipt.dropped_anchors[0].context, read[0].context());
     assert_eq!(receipt.moved_anchors.iter().map(|m| (m.id.as_str(), m.before.as_str())).collect::<Vec<_>>(), [("c2", "gamma\u{2028}delta")]);
 }
+
+/// A write past an input bound refuses under the bound's code before any of
+/// it runs, and writes nothing: markdown past 10 MiB, a change past
+/// `MAX_CHANGE_STEPS`.
+#[test]
+fn a_write_past_an_input_bound_refuses_under_its_code() {
+    let mut doc = parse(SOURCE);
+    let held = doc.clone();
+    let huge = "a".repeat(quillmark_content::MAX_MARKDOWN_SIZE + 1);
+    let err = doc.main_mut().revise(Target::Body, &huge, None).unwrap_err();
+    assert_eq!(err.code(), "edit::input_too_large");
+    let steps = (0..=crate::document::MAX_CHANGE_STEPS).map(|_| Step::Splice(Splice::new(0, String::new(), "x".to_string())));
+    let err = doc.main_mut().apply(Target::Body, &Change::new(steps.collect()), None).unwrap_err();
+    assert_eq!(err.code(), "edit::too_many_steps");
+    assert_eq!(doc, held);
+}

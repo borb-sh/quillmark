@@ -284,6 +284,12 @@ pub enum Invariant {
     BadIsland { id: String, reason: &'static str },
     JsonTooDeep { what: &'static str, max: usize },
     TableTooLarge { cells: usize, max: usize },
+    /// A text holding more marks than [`max_marks`](crate::max_marks) of its
+    /// length, a mark counted once per block and line it spans before it is
+    /// cut at each.
+    TooManyMarks { marks: usize, max: usize },
+    /// A value holding more than [`MAX_ANCHORS`](crate::MAX_ANCHORS) anchors.
+    TooManyAnchors { anchors: usize, max: usize },
     /// A slot holds what only a field's own text may: anything but paragraphs.
     BadSlot { island: String, slot: String },
     /// A container whose blocks are not one contiguous run.
@@ -323,6 +329,8 @@ impl std::fmt::Display for Invariant {
             Invariant::BadIsland { id, reason } => write!(f, "island `{id}`: {reason}"),
             Invariant::JsonTooDeep { what, max } => write!(f, "{what} nest past {max} levels"),
             Invariant::TableTooLarge { cells, max } => write!(f, "a table of {cells} cells is past the limit of {max}"),
+            Invariant::TooManyMarks { marks, max } => write!(f, "{marks} marks over a text that holds at most {max}"),
+            Invariant::TooManyAnchors { anchors, max } => write!(f, "{anchors} anchors, past the limit of {max}"),
             Invariant::BadSlot { island, slot } => {
                 write!(f, "slot `{slot}` of island `{island}` holds more than paragraphs")
             }
@@ -558,7 +566,41 @@ impl Content {
         self.check()?;
         self.check_relations()?;
         let mut ids = HashSet::new();
-        self.check_anchor_ids(&mut ids)
+        self.check_anchor_ids(&mut ids)?;
+        match ids.len() > crate::MAX_ANCHORS {
+            true => Err(Invariant::TooManyAnchors { anchors: ids.len(), max: crate::MAX_ANCHORS }),
+            false => Ok(()),
+        }
+    }
+
+    /// The bounds a value is held to before it is normalized, which would
+    /// spend them: on each text, the marks normalizing can leave, a mark
+    /// counted once per block and line it spans, within
+    /// [`max_marks`](crate::max_marks) of the text; and the anchors of the
+    /// whole value within [`MAX_ANCHORS`](crate::MAX_ANCHORS).
+    pub fn check_bounds(&self) -> Result<(), Invariant> {
+        let mut anchors = 0usize;
+        self.check_bounds_counting(&mut anchors)
+    }
+
+    fn check_bounds_counting(&self, anchors: &mut usize) -> Result<(), Invariant> {
+        let breaks = break_offsets(&self.text);
+        let len = self.len_usv();
+        let max = crate::max_marks(len);
+        let marks = mark_spans(&breaks, self.marks.iter().map(|m| (m.start, m.end)));
+        if marks > max {
+            return Err(Invariant::TooManyMarks { marks, max });
+        }
+        *anchors = anchors.saturating_add(self.anchors.len());
+        if *anchors > crate::MAX_ANCHORS {
+            return Err(Invariant::TooManyAnchors { anchors: *anchors, max: crate::MAX_ANCHORS });
+        }
+        for island in &self.islands {
+            for slot in island.slots.values() {
+                slot.check_bounds_counting(anchors)?;
+            }
+        }
+        Ok(())
     }
 
     /// What every step keeps: the characters, the counts, the ids, the
@@ -599,6 +641,10 @@ impl Content {
             if !block_ids.insert(b.id.as_str()) {
                 return Err(Invariant::DuplicateId { id: b.id.clone() });
             }
+        }
+        let max = crate::max_marks(len);
+        if self.marks.len() > max {
+            return Err(Invariant::TooManyMarks { marks: self.marks.len(), max });
         }
         for m in &self.marks {
             if m.start >= m.end || m.end > len {
@@ -790,12 +836,13 @@ fn check_ext(name: &str, attrs: &JsonMap<String, JsonValue>, what: &'static str)
 /// cut at each `\n` and [`HARD_BREAK`], one name and attributes unioned where
 /// they touch, an empty one dropped.
 fn settle_ext(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
-    let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| matches!(**c, '\n' | HARD_BREAK)).map(|(i, _)| i).collect();
+    let breaks: Vec<Usv> = chars.iter().enumerate().filter(|(_, c)| is_break(**c)).map(|(i, _)| i).collect();
     let mut groups: BTreeMap<(String, String), (MarkKind, Vec<(Usv, Usv)>)> = BTreeMap::new();
     for m in marks {
         let entry = groups.entry(m.kind.sort_key()).or_insert_with(|| (m.kind.clone(), Vec::new()));
         let mut start = m.start;
-        for &at in breaks.iter().filter(|&&b| m.start <= b && b < m.end) {
+        let from = breaks.partition_point(|&b| b < m.start);
+        for &at in breaks[from..].iter().take_while(|&&b| b < m.end) {
             entry.1.push((start, at));
             start = at + 1;
         }
@@ -821,6 +868,24 @@ fn settle_ext(chars: &[char], marks: Vec<Mark>) -> Vec<Mark> {
         }
     }
     out
+}
+
+/// Whether `c` ends a mark: a `\n` or a [`HARD_BREAK`].
+fn is_break(c: char) -> bool {
+    matches!(c, '\n' | HARD_BREAK)
+}
+
+/// The offset of each `\n` and [`HARD_BREAK`] in `text`.
+pub(crate) fn break_offsets(text: &str) -> Vec<Usv> {
+    text.chars().enumerate().filter(|&(_, c)| is_break(c)).map(|(i, _)| i).collect()
+}
+
+/// How many marks `ranges` settle into at most: each one more than the
+/// `breaks` it spans, found by binary search.
+pub(crate) fn mark_spans(breaks: &[Usv], ranges: impl Iterator<Item = (Usv, Usv)>) -> usize {
+    ranges
+        .map(|(s, e)| breaks.partition_point(|&b| b < e).saturating_sub(breaks.partition_point(|&b| b < s)) + 1)
+        .fold(0usize, usize::saturating_add)
 }
 
 pub(crate) fn check_island(island: &Island) -> Result<(), Invariant> {

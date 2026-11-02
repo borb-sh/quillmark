@@ -26,7 +26,7 @@ macro_rules! diag_args {
 pub(crate) use diag_args;
 
 /// Maximum markdown input size.
-pub const MAX_INPUT_SIZE: usize = 10 * 1024 * 1024;
+pub const MAX_INPUT_SIZE: usize = quillmark_content::MAX_MARKDOWN_SIZE;
 
 /// Maximum bytes in one card-yaml block.
 pub const MAX_YAML_SIZE: usize = 1024 * 1024;
@@ -807,6 +807,10 @@ mod args_canon {
                 message: "x".into(),
             },
             EditError::Change(quillmark_content::change::ApplyError::Stale { step: 0 }),
+            EditError::InputTooLarge { size: 11, max: 10 },
+            EditError::TooManySteps { count: 11, max: 10 },
+            EditError::TooManyMarks { count: 11, max: 10 },
+            EditError::TooManyAnchors { count: 11, max: 10 },
             EditError::InvalidPayload(crate::document::edit::PayloadViolation::DuplicateField {
                 key: "title".into(),
             }),

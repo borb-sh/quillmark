@@ -299,6 +299,7 @@ pub fn repair(raw: Raw) -> (Content, Vec<Repair>) {
     let mut out = Vec::new();
     let mut c = field(raw, &mut out);
     dedupe_anchors(&mut c, &mut HashSet::new(), &mut out);
+    cap_anchors(&mut c, &mut out);
     c.normalize();
     if let Err(inv) = c.validate() {
         out.push(Repair::Invalid(inv));
@@ -582,6 +583,7 @@ fn field(raw: Raw, out: &mut Vec<Repair>) -> Content {
         m.end = m.end.min(len);
         m.start < m.end
     });
+    cap_marks(&text, &mut marks, out);
     let anchors = anchors
         .into_iter()
         .filter_map(|RawAnchor { mut anchor, range }| {
@@ -1039,6 +1041,46 @@ fn split_block_islands(
         }
     }
     (new_text, new_blocks)
+}
+
+/// The marks within [`max_marks`](crate::max_marks) of `text`, each counted
+/// once per block and line it spans, as normalizing can leave them: those in
+/// order up to the bound kept, the rest dropped.
+fn cap_marks(text: &[char], marks: &mut Vec<Mark>, out: &mut Vec<Repair>) {
+    let breaks: Vec<Usv> = text.iter().enumerate().filter(|(_, c)| matches!(**c, '\n' | HARD_BREAK)).map(|(k, _)| k).collect();
+    let max = crate::max_marks(text.len());
+    let spans: Vec<usize> = marks.iter().map(|m| crate::model::mark_spans(&breaks, std::iter::once((m.start, m.end)))).collect();
+    let total = spans.iter().fold(0usize, |a, &n| a.saturating_add(n));
+    if total <= max {
+        return;
+    }
+    out.push(Repair::Invalid(Invariant::TooManyMarks { marks: total, max }));
+    let mut used = 0usize;
+    let mut k = 0;
+    marks.retain(|_| {
+        used = used.saturating_add(spans[k]);
+        k += 1;
+        used <= max
+    });
+}
+
+/// The anchors within [`MAX_ANCHORS`](crate::MAX_ANCHORS) over the text and
+/// every slot, those in reading order up to it kept and the rest dropped.
+fn cap_anchors(c: &mut Content, out: &mut Vec<Repair>) {
+    fn keep(c: &mut Content, left: &mut usize) {
+        c.anchors.truncate(*left);
+        *left -= c.anchors.len();
+        for island in &mut c.islands {
+            for slot in island.slots.values_mut() {
+                keep(slot, left);
+            }
+        }
+    }
+    let anchors = c.anchor_ids().len();
+    if anchors > crate::MAX_ANCHORS {
+        out.push(Repair::Invalid(Invariant::TooManyAnchors { anchors, max: crate::MAX_ANCHORS }));
+        keep(c, &mut { crate::MAX_ANCHORS });
+    }
 }
 
 /// Each anchor id once over the text and every slot, the first kept.

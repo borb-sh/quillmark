@@ -180,7 +180,7 @@ pub fn revise_import_against(
     body: &str,
 ) -> Result<(Normalized, Revised), EditError> {
     let write = richtext_write(stored, || content_hash(held), base, body)?;
-    let revise = |md: &str| revise_import(stored, md).map_err(EditError::Import);
+    let revise = |md: &str| revise_import(stored, md).map_err(EditError::import);
     match write {
         Write::Own => revise(body),
         Write::Merged(md, warnings) => {
@@ -239,7 +239,7 @@ fn richtext_write(
                 let content = rebase_marks_pinned(stored, against.content, &against.pins);
                 (to_markdown_annotated(&content).markdown, against.warnings)
             })
-            .map_err(EditError::Import)
+            .map_err(EditError::import)
     };
     let now = to_markdown_annotated(stored).markdown;
     let (read, _) = spelled(read)?;

@@ -621,7 +621,10 @@ See <qm-island ref="isl-2"></qm-island> for the merged cells.
 A footnote reference imports as a `footnote` island at its slot, inline in its
 paragraph, holding its definition's note as one table cell: `{text, marks}`,
 with the note's paragraphs and line breaks joined by `\n`. Each reference holds
-its own copy, so a note cited twice is two footnotes. A label matches its
+its own copy, so a note cited twice is two footnotes. The copies past each
+note's first share one budget per import, `MAX_NOTE_COPIES` (1 000 000)
+characters, so a long note cited many times cannot multiply into the content;
+a reference past it stays as its `[^label]` text. A label matches its
 definition as GFM matches it, case-insensitively.
 
 What the island cannot hold drops, reported under `parse::dropped_construct`:
@@ -630,6 +633,7 @@ What the island cannot hold drops, reported under `parse::dropped_construct`:
 |---|---|
 | A definition nothing references, or a second definition of one label | `footnote` |
 | A reference in a table cell, an image's alt text or a note | `footnote` |
+| A reference past the budget the copies of the notes share | `footnote:size` |
 | A heading, list, code block, block quote, table or rule in a note, which keeps its text as lines of the note | `footnote[<block>]`: `heading`, `list`, `code`, `quote`, `table`, `rule` |
 
 Export numbers the references `[^1]`, `[^2]`, … in reading order and writes
@@ -866,6 +870,10 @@ the block, plus 64 KiB, is refused as `parse::invalid_structure`: each comment
 and tag records the path of the collection holding it, each level costing its
 key's bytes and a fixed overhead, and the bound keeps that memory linear in the
 block.
+
+The document size bounds every markdown import, not only a parse: a body or
+field's revise and a bare import refuse markdown past 10 MiB too
+(`edit::input_too_large`).
 
 Markdown block nesting depth (12) is enforced at import time by the
 markdown→content parser (`Document::parse`): at every point of a body, the
