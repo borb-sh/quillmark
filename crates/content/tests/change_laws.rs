@@ -1982,7 +1982,7 @@ proptest! {
         {
             let tabbed = done.content;
             let back = apply(&tabbed, &outdent(&tabbed, &first, &last).unwrap()).unwrap().content;
-            prop_assert_eq!(shapes(&back), shapes(&d));
+            prop_assert_eq!(&back, &d);
         }
         let len = d.len_usv();
         let (s, e) = ((x % (len + 1)).min(y % (len + 1)), (x % (len + 1)).max(y % (len + 1)));
