@@ -535,3 +535,54 @@ fn a_revise_over_what_its_read_could_not_spell_lands_as_written_or_conflicts() {
     assert_eq!(err.code(), "edit::rebase_conflict", "{read:?}");
     assert_eq!(doc, held);
 }
+
+fn anchored(body: &str, anchors: &[(&str, &str)]) -> crate::document::Document {
+    let mut doc = parse(&format!("~~~\n$quill: q\n~~~\n\n{body}"));
+    let text = doc.main().body().text.clone();
+    let steps = anchors
+        .iter()
+        .map(|(id, quote)| {
+            let start = text[..text.find(quote).unwrap()].chars().count();
+            Step::Anchor(AnchorStep::Set { anchor: Anchor::new(*id, start, start + quote.chars().count()), quote: None })
+        })
+        .collect();
+    doc.main_mut().apply(Target::Body, &Change::new(steps), None).unwrap();
+    doc
+}
+
+fn quote_of(doc: &crate::document::Document, id: &str) -> Option<String> {
+    let body = doc.main().body();
+    let chars: Vec<char> = body.text.chars().collect();
+    body.anchors.iter().find(|a| a.id == id).map(|a| chars[a.start..a.end].iter().collect())
+}
+
+/// A revise and a replace carry an anchor through the one word diff: a word
+/// rewritten under the anchor's end leaves the anchor on the words kept, and
+/// a punctuation mark changed beside the anchored word leaves the word.
+#[test]
+fn a_revise_and_a_replace_carry_an_anchor_through_one_word_diff() {
+    let doc = anchored("The quick brown fox jumps over the lazy dog.\n", &[("c1", "brown fox"), ("c2", "dog")]);
+    let md = "The quick brown wolf jumps over the lazy dog!";
+    let mut revised = doc.clone();
+    let receipt = revised.main_mut().revise(Target::Body, md, None).unwrap();
+    let mut replaced = doc.clone();
+    replaced.main_mut().replace(Target::Body, &quillmark_content::markdown::from_markdown(md).unwrap().content, None).unwrap();
+    assert_eq!(quote_of(&revised, "c1").as_deref(), Some("brown "));
+    assert_eq!(quote_of(&revised, "c2").as_deref(), Some("dog"));
+    assert_eq!(revised.main().body().anchors, replaced.main().body().anchors);
+    assert_eq!(receipt.moved_anchors.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["c1"]);
+}
+
+/// A replaced run's lines pair by best similarity, so a paragraph the writer
+/// inserts that resembles the one it edited takes neither that paragraph's
+/// id nor its anchor.
+#[test]
+fn an_inserted_look_alike_paragraph_takes_no_id_or_anchor_from_the_edited_one() {
+    let mut doc = anchored("Intro.\n\nThe meeting is on Monday at noon.\n\nOther text here.\n", &[("c1", "The meeting")]);
+    let edited = doc.main().body().blocks[1].id.clone();
+    let md = "Intro.\n\nThe meeting room is on floor three.\n\nThe meeting is on Tuesday at noon.\n\nOther text here.";
+    doc.main_mut().revise(Target::Body, md, None).unwrap();
+    let body = doc.main().body();
+    assert_eq!(body.blocks[2].id, edited, "{:?}", body.blocks);
+    assert_eq!(body.block_at(body.anchors[0].start), 2);
+}

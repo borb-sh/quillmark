@@ -207,7 +207,12 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 - A write that takes the log past twice `LOG_STEPS` folds its oldest writes into the snapshot, one apply of their composed change, until it holds at most `LOG_STEPS`. A value's log holds one copy of the value and at most `2 × LOG_STEPS` steps, or the newest write alone where it holds more, and a fold comes at most once per `LOG_STEPS` steps written, or right after a write that alone holds more.
 - A write the log did not see, such as a typed writer's revise, breaks the chain, and the log forgets what came before it.
 
-`diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line, pairs rewritten lines by word similarity, and diffs a paired line by word, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters. An inserted or deleted block brings the `\n` that opens it, so its neighbours keep their records. Block records, containers, marks, anchors and islands follow as their own steps; an anchor `after` holds in another place, the prose or a cell, moves there. A block or island `after` holds in another place keeps its id, moved up or down.
+`diff(before, after)` is the producer for a writer with no steps of its own. It diffs the text by line and then by word, and a revise carries its anchors through the same diff, but for one whose tag the writer kept, which stands where the tag does.
+
+- The lines of a rewritten run pair by their best total word similarity, so an inserted line that resembles an edited one takes neither its record nor its anchors.
+- A paired line diffs by word at UAX #29 word boundaries, each punctuation mark a word of its own, so a rewritten word changes as a whole and a range over it drops rather than riding its scattered letters, and a changed full stop leaves the word before it.
+- An inserted or deleted block brings the `\n` that opens it, so its neighbours keep their records.
+- Block records, containers, marks, anchors and islands follow as their own steps; an anchor `after` holds in another place, the prose or a cell, moves there. A block or island `after` holds in another place keeps its id, moved up or down.
 
 - It refuses an `after` that is not a valid value, and reaches every valid one step-wise.
 

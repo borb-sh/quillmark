@@ -320,11 +320,12 @@ fn diff_at(base: &str, new: &str, grain: Grain) -> Delta {
     Delta { ops }
 }
 
-/// Emit one run of replaced lines. Lines pair from the front, then from the
-/// back, while each pair is a rewrite: neither is longer than
-/// [`CHAR_DIFF_LIMIT`] chars, the two clear [`MIN_WORD_SIMILARITY`], and
-/// neither occurs whole on the other side, as a moved line does. A paired line
-/// diffs by char, and the unpaired middle is deleted and inserted whole.
+/// Emit one run of replaced lines. Lines pair in order, the pairing with the
+/// greatest total similarity ([`pair_lines`]), where each pair is a rewrite:
+/// neither is longer than [`CHAR_DIFF_LIMIT`] chars, the two clear
+/// [`MIN_WORD_SIMILARITY`], and neither occurs whole on the other side, as a
+/// moved line does. A paired line diffs by its grain, and an unpaired line is
+/// deleted or inserted whole.
 fn refine_replace(
     ops: &mut Vec<Op>,
     old: &[&str],
@@ -333,35 +334,84 @@ fn refine_replace(
     new_set: &HashSet<&str>,
     grain: Grain,
 ) {
-    let rewrite = |o: &str, n: &str| {
-        o.chars().count() <= CHAR_DIFF_LIMIT
+    let similarity = |o: &str, n: &str| {
+        let fits = o.chars().count() <= CHAR_DIFF_LIMIT
             && n.chars().count() <= CHAR_DIFF_LIMIT
             && !new_set.contains(line_text(o))
-            && !old_set.contains(line_text(n))
-            && word_similarity(&words(o), &words(n)) >= MIN_WORD_SIMILARITY
+            && !old_set.contains(line_text(n));
+        let s = if fits { word_similarity(&words(o), &words(n)) } else { 0.0 };
+        (s >= MIN_WORD_SIMILARITY).then_some(s)
     };
-    let mut head = 0;
-    while head < old.len().min(new.len()) && rewrite(old[head], new[head]) {
-        head += 1;
+    let (mut i, mut j) = (0, 0);
+    for (oi, nj) in pair_lines(old.len(), new.len(), similarity, old, new) {
+        for line in &old[i..oi] {
+            push_delete(ops, line.chars().count());
+        }
+        for line in &new[j..nj] {
+            push_insert(ops, line);
+        }
+        push_grain_diff(ops, old[oi], new[nj], grain);
+        (i, j) = (oi + 1, nj + 1);
     }
-    let mut tail = 0;
-    while tail < (old.len() - head).min(new.len() - head)
-        && rewrite(old[old.len() - 1 - tail], new[new.len() - 1 - tail])
-    {
-        tail += 1;
-    }
-    for k in 0..head {
-        push_grain_diff(ops, old[k], new[k], grain);
-    }
-    for line in &old[head..old.len() - tail] {
+    for line in &old[i..] {
         push_delete(ops, line.chars().count());
     }
-    for line in &new[head..new.len() - tail] {
+    for line in &new[j..] {
         push_insert(ops, line);
     }
-    for k in 0..tail {
-        push_grain_diff(ops, old[old.len() - tail + k], new[new.len() - tail + k], grain);
+}
+
+/// Past this many candidate pairs, a run's lines pair from the front and the
+/// back only, as the pairing's cost is one word diff per candidate.
+const PAIRING_LIMIT: usize = 4_096;
+
+/// The pairs `(old, new)` of a replaced run, in order, that maximise the
+/// total similarity of the pairs, each clearing the threshold; the greedy
+/// front-and-back pairing above [`PAIRING_LIMIT`] candidates.
+fn pair_lines(
+    n: usize,
+    m: usize,
+    similarity: impl Fn(&str, &str) -> Option<f32>,
+    old: &[&str],
+    new: &[&str],
+) -> Vec<(usize, usize)> {
+    if n * m > PAIRING_LIMIT {
+        let mut head = 0;
+        while head < n.min(m) && similarity(old[head], new[head]).is_some() {
+            head += 1;
+        }
+        let mut tail = 0;
+        while tail < (n - head).min(m - head) && similarity(old[n - 1 - tail], new[m - 1 - tail]).is_some() {
+            tail += 1;
+        }
+        return (0..head).map(|k| (k, k)).chain((0..tail).map(|k| (n - tail + k, m - tail + k))).collect();
     }
+    // best[i][j]: the greatest total over old[..i] and new[..j].
+    let mut best = vec![vec![0.0f32; m + 1]; n + 1];
+    for i in 1..=n {
+        for j in 1..=m {
+            let mut here = best[i - 1][j].max(best[i][j - 1]);
+            if let Some(s) = similarity(old[i - 1], new[j - 1]) {
+                here = here.max(best[i - 1][j - 1] + s);
+            }
+            best[i][j] = here;
+        }
+    }
+    let mut pairs = Vec::new();
+    let (mut i, mut j) = (n, m);
+    while i > 0 && j > 0 {
+        if best[i][j] == best[i - 1][j] {
+            i -= 1;
+        } else if best[i][j] == best[i][j - 1] {
+            j -= 1;
+        } else {
+            pairs.push((i - 1, j - 1));
+            i -= 1;
+            j -= 1;
+        }
+    }
+    pairs.reverse();
+    pairs
 }
 
 fn line_text(line: &str) -> &str {
@@ -414,23 +464,31 @@ fn push_grain_diff(ops: &mut Vec<Op>, base: &str, new: &str, grain: Grain) {
     }
 }
 
-/// `text` as the word diff's tokens: runs of whitespace, runs of anything
-/// else, and each island slot alone, so a word beside an island changes
-/// without taking the island with it.
+/// `text` as the word diff's tokens: UAX #29 word boundaries, so each
+/// punctuation mark is a token of its own and a word changes without the
+/// mark beside it, and each island slot alone, so a word beside an island
+/// changes without taking the island with it.
 fn word_tokens(text: &str) -> Vec<&str> {
+    use unicode_segmentation::UnicodeSegmentation;
     let mut out = Vec::new();
-    let mut start = 0;
-    let mut last: Option<(bool, bool)> = None;
-    for (at, ch) in text.char_indices() {
-        let kind = (ch.is_whitespace(), ch == crate::lines::model::ISLAND_SLOT);
-        if last.is_some_and(|k| k != kind || kind.1) {
-            out.push(&text[start..at]);
-            start = at;
+    for word in text.split_word_bounds() {
+        if word.contains(crate::lines::model::ISLAND_SLOT) {
+            let mut start = 0;
+            for (at, ch) in word.char_indices() {
+                if ch == crate::lines::model::ISLAND_SLOT {
+                    if start < at {
+                        out.push(&word[start..at]);
+                    }
+                    out.push(&word[at..at + ch.len_utf8()]);
+                    start = at + ch.len_utf8();
+                }
+            }
+            if start < word.len() {
+                out.push(&word[start..]);
+            }
+        } else {
+            out.push(word);
         }
-        last = Some(kind);
-    }
-    if start < text.len() {
-        out.push(&text[start..]);
     }
     out
 }

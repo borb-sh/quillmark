@@ -7,8 +7,8 @@
 use crate::change::{AnchorStep, Change, ContainerStep, IslandStep, SetBlock, Splice, Step, apply, mark_fixups, run};
 use crate::rebase::{Conflict, RebaseError, Reason, rebase};
 use crate::ids::{Minter, prefix};
-use crate::lines::delta::{Op, diff_import, diff_words as text_diff, without_sentinel};
-use crate::lines::import::{ImportError, ImportWarning};
+use crate::lines::delta::{Op, diff_words as text_diff, rebase_pinned, without_sentinel};
+use crate::lines::import::{Against, ImportError, ImportWarning, from_markdown_against};
 use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
 use crate::model::{Block, BlockKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
@@ -654,9 +654,22 @@ pub fn revise_keeping(before: &Content, markdown: &str, now: &Content) -> Result
 /// values alone, so equal values write equal bytes; a stale step by id is
 /// held to its own block by `rebase`.
 pub fn revise_holding(before: &Content, markdown: &str, now: &Content) -> Result<Revision, ImportError> {
-    let (lines, _, warnings) = diff_import(&to_lines(before), markdown)?;
-    let content = holding(before, &align(before, from_lines(&lines)), now, true);
-    let change = diff_with(before, &content, None);
+    let lines = to_lines(before);
+    let Against { content: imported, warnings, pins } = from_markdown_against(markdown, &lines)?;
+    let (imported, _) = rebase_pinned(&lines, imported, &pins);
+    let mut content = holding(before, &align(before, from_lines(&imported)), now, true);
+    // A pinned anchor stands where its tag does; every other rides the diff's
+    // splices, as a replace's do.
+    let pinned: HashSet<String> = pins.into_iter().map(|p| p.id).collect();
+    content.anchors.retain(|a| pinned.contains(&a.id));
+    let change = diff_with(before, &content, Some(&pinned));
+    let content = match apply(before, &change) {
+        Ok(done) => done.content,
+        Err(e) => {
+            debug_assert!(false, "a revise's change applies to the value it was made from: {e}");
+            content
+        }
+    };
     Ok(Revision { change, content, warnings })
 }
 

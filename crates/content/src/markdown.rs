@@ -29,8 +29,9 @@ pub struct Exported {
 pub enum Loss {
     /// What the line form reports, in its positions, which are the content's.
     Line(ExportLoss),
-    /// A slot whose hard breaks sit where markdown reads a paragraph break:
-    /// two in a row, or one ending a paragraph another follows.
+    /// A slot whose text the line form spells otherwise: a hard break where
+    /// markdown reads a paragraph break (two in a row, or one ending a
+    /// paragraph another follows), or one at the slot's edge.
     SlotBreaks { island: String, slot: String },
     /// An `x-` block, which markdown writes as a paragraph.
     ExtBlock { id: String, name: String },
@@ -71,10 +72,11 @@ pub fn to_markdown_checked(c: &Content) -> Exported {
         _ => None,
     }));
     losses.extend(ext_marks(c, None));
+    let lifted = crate::diff::lift(c, &to_lines(c));
     for island in &c.islands {
         for (id, slot) in &island.slots {
-            let (text, marks) = crate::table::slot_to_cell(slot);
-            if crate::table::cell_to_slot(&text, &marks).text != slot.text {
+            let held = lifted.island(&island.id).and_then(|i| i.slots.get(id));
+            if held.map(|s| &s.text) != Some(&slot.text) {
                 losses.push(Loss::SlotBreaks { island: island.id.clone(), slot: id.clone() });
             }
             losses.extend(ext_marks(slot, Some((island.id.clone(), id.clone()))));

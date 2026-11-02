@@ -1112,8 +1112,9 @@ proptest! {
 
 mod diffs {
     use super::*;
-    use quillmark_content::diff::{align, diff, replace, revise};
-    use quillmark_content::markdown::{to_markdown, to_markdown_annotated};
+    use quillmark_content::diff::{align, diff, lift, replace, revise};
+    use quillmark_content::markdown::{Loss, to_markdown, to_markdown_annotated, to_markdown_checked};
+    use quillmark_content::migrate::to_lines;
 
     /// The two equal once every block, container and island id is renamed by
     /// where it first appears.
@@ -1136,6 +1137,36 @@ mod diffs {
             c
         }
         erased(want) == erased(got)
+    }
+
+    /// `c` with each `x-` block a paragraph, each `x-` mark dropped and each
+    /// `x-` island gone.
+    fn without_ext(mut c: Content) -> Content {
+        let ext_slots: Vec<usize> = c
+            .islands
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| matches!(i.island_type, IslandType::Ext(_)))
+            .map(|(n, _)| n)
+            .collect();
+        for n in ext_slots.into_iter().rev() {
+            let at = c.text.chars().enumerate().filter(|(_, ch)| *ch == ISLAND_SLOT).nth(n).unwrap().0;
+            let step = Step::Splice(Splice::new(at, ISLAND_SLOT.to_string(), ""));
+            c = apply(&c, &Change::new(vec![step])).unwrap().content;
+        }
+        for b in &mut c.blocks {
+            if matches!(b.kind, BlockKind::Ext { .. }) {
+                b.kind = BlockKind::Para;
+            }
+        }
+        c.marks.retain(|m| !matches!(m.kind, MarkKind::Ext { .. }));
+        for island in &mut c.islands {
+            for slot in island.slots.values_mut() {
+                slot.marks.retain(|m| !matches!(m.kind, MarkKind::Ext { .. }));
+            }
+        }
+        c.normalize();
+        c
     }
 
     fn without_anchors(mut c: Content) -> Content {
@@ -1170,14 +1201,34 @@ mod diffs {
             prop_assert_eq!(done, aligned);
         }
 
+        /// Over values the model reaches, markdown-born or not: a revise with
+        /// the value's own annotated read writes nothing.
         #[test]
-        fn revising_with_the_markdown_read_changes_nothing(d in document()) {
-            let r = revise(&d, &to_markdown_annotated(&d).markdown).unwrap();
-            let done = apply(&d, &r.change).unwrap().content;
-            prop_assert_eq!(&done.text, &d.text);
-            prop_assert_eq!(done.blocks.iter().map(|b| &b.id).collect::<Vec<_>>(), d.blocks.iter().map(|b| &b.id).collect::<Vec<_>>());
-            prop_assert_eq!(done.containers, d.containers.clone());
-            prop_assert_eq!(done.islands.iter().map(|i| &i.id).collect::<Vec<_>>(), d.islands.iter().map(|i| &i.id).collect::<Vec<_>>());
+        fn revising_with_the_markdown_read_changes_nothing(d in document(), ops in ops()) {
+            for c in [d.clone(), apply(&d, &change_for(&d, &ops)).unwrap().content] {
+                let r = revise(&c, &to_markdown_annotated(&c).markdown).unwrap();
+                prop_assert_eq!(apply(&c, &r.change).unwrap().content, c.clone(), "{:?}", r.change);
+            }
+        }
+
+        /// The line form is a faithful view of every value but for what the
+        /// checked export names as its loss: an `x-` member, which it lowers,
+        /// and a slot whose breaks it spells otherwise.
+        #[test]
+        fn the_line_form_keeps_every_value_but_its_named_losses(d in document(), ops in ops()) {
+            for c in [d.clone(), apply(&d, &change_for(&d, &ops)).unwrap().content] {
+                let c = without_ext(c);
+                let mut lifted = lift(&c, &to_lines(&c));
+                let mut want = c.clone();
+                for loss in to_markdown_checked(&c).losses {
+                    let Loss::SlotBreaks { island, slot } = loss else { continue };
+                    for v in [&mut lifted, &mut want] {
+                        let i = v.islands.iter().position(|i| i.id == island).unwrap();
+                        v.islands[i].slots.insert(slot.clone(), Content::empty());
+                    }
+                }
+                prop_assert_eq!(lifted, want);
+            }
         }
 
         #[test]
