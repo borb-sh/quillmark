@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.134.1 - 2026-11-02
+
+- feat(wasm): **`repair(raw)` reads a merged state as a valid value.** It
+  takes a `RawContent`, offsets in UTF-16 code units, and answers `Repaired`:
+  the content and the `Repair`s it made, `inserts: true` on one a single
+  writer writes back. An offset inside a character moves to its start, one
+  past the text to its end. The runtime exports `RawContent`, `Repair`,
+  `Repaired`, `Pos`, `MapResult` and `WrapKind`.
+- fix(content): **`diff` edits a table's cells before its props**, so a
+  change merging or splitting cells lands its spans.
+
 ## v0.134.0 - 2026-11-02
 
 Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Every
