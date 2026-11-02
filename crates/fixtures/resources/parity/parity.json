@@ -2,17 +2,6 @@
   {
     "name": "line.para",
     "markdown": "Paragraph text.",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Paragraph text."
-    },
     "content": {
       "blocks": [
         {
@@ -33,20 +22,6 @@
   {
     "name": "line.heading",
     "markdown": "## A heading",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "attrs": {
-            "level": 2
-          },
-          "containers": [],
-          "kind": "heading"
-        }
-      ],
-      "marks": [],
-      "text": "A heading"
-    },
     "content": {
       "blocks": [
         {
@@ -70,17 +45,6 @@
   {
     "name": "line.code",
     "markdown": "```\nplain code\n```",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "code"
-        }
-      ],
-      "marks": [],
-      "text": "plain code"
-    },
     "content": {
       "blocks": [
         {
@@ -101,20 +65,6 @@
   {
     "name": "line.code.lang",
     "markdown": "```rust\nfn main() {}\n```",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "attrs": {
-            "lang": "rust"
-          },
-          "containers": [],
-          "kind": "code"
-        }
-      ],
-      "marks": [],
-      "text": "fn main() {}"
-    },
     "content": {
       "blocks": [
         {
@@ -138,17 +88,6 @@
   {
     "name": "line.code.html",
     "markdown": "```\n<!-- a --> b\n```",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "code"
-        }
-      ],
-      "marks": [],
-      "text": "<!-- a --> b"
-    },
     "content": {
       "blocks": [
         {
@@ -169,25 +108,6 @@
   {
     "name": "line.rule",
     "markdown": "Above\n\n***\n\nBelow",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        },
-        {
-          "containers": [],
-          "kind": "rule"
-        },
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Above\n\nBelow"
-    },
     "content": {
       "blocks": [
         {
@@ -216,22 +136,6 @@
   {
     "name": "line.continues",
     "markdown": "One line\\\ntwo line",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        },
-        {
-          "containers": [],
-          "continues": true,
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "One line\ntwo line"
-    },
     "content": {
       "blocks": [
         {
@@ -252,39 +156,6 @@
   {
     "name": "container.list_item.bullet",
     "markdown": "- one\n- two",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": false,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": false,
-                "ordinal": 1,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "one\ntwo"
-    },
     "content": {
       "blocks": [
         {
@@ -336,39 +207,6 @@
   {
     "name": "container.list_item.ordered",
     "markdown": "1. one\n2. two",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": true,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": true,
-                "ordinal": 1,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "one\ntwo"
-    },
     "content": {
       "blocks": [
         {
@@ -420,39 +258,6 @@
   {
     "name": "container.list_item.start",
     "markdown": "3. three\n4. four",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": true,
-                "ordinal": 0,
-                "start": 3
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": true,
-                "ordinal": 1,
-                "start": 3
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "three\nfour"
-    },
     "content": {
       "blocks": [
         {
@@ -504,40 +309,6 @@
   {
     "name": "container.list_item.instance",
     "markdown": "1. one\n\n1) two",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": true,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": true,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item",
-              "instance": 1
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "one\ntwo"
-    },
     "content": {
       "blocks": [
         {
@@ -597,40 +368,6 @@
   {
     "name": "container.list_item.instance.bullet",
     "markdown": "- one\n\n+ two",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": false,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": false,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item",
-              "instance": 1
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "one\ntwo"
-    },
     "content": {
       "blocks": [
         {
@@ -690,41 +427,6 @@
   {
     "name": "container.list_item.task",
     "markdown": "- [x] done\n- [ ] open",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "checked": true,
-                "ordered": false,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "attrs": {
-                "checked": false,
-                "ordered": false,
-                "ordinal": 1,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "done\nopen"
-    },
     "content": {
       "blocks": [
         {
@@ -782,21 +484,6 @@
   {
     "name": "container.quote",
     "markdown": "> quoted",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "container": "quote"
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "quoted"
-    },
     "content": {
       "blocks": [
         {
@@ -826,30 +513,6 @@
   {
     "name": "container.quote.instance",
     "markdown": "> one\n\n> two",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "container": "quote"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "container": "quote",
-              "instance": 1
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "one\ntwo"
-    },
     "content": {
       "blocks": [
         {
@@ -891,23 +554,6 @@
   {
     "name": "mark.strong",
     "markdown": "**bold**",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 4,
-          "start": 0,
-          "type": "strong"
-        }
-      ],
-      "text": "bold"
-    },
     "content": {
       "blocks": [
         {
@@ -935,23 +581,6 @@
   {
     "name": "mark.emph",
     "markdown": "*emph*",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 4,
-          "start": 0,
-          "type": "emph"
-        }
-      ],
-      "text": "emph"
-    },
     "content": {
       "blocks": [
         {
@@ -979,23 +608,6 @@
   {
     "name": "mark.underline",
     "markdown": "<u>underlined</u>",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 10,
-          "start": 0,
-          "type": "underline"
-        }
-      ],
-      "text": "underlined"
-    },
     "content": {
       "blocks": [
         {
@@ -1023,23 +635,6 @@
   {
     "name": "mark.strike",
     "markdown": "~~gone~~",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 4,
-          "start": 0,
-          "type": "strike"
-        }
-      ],
-      "text": "gone"
-    },
     "content": {
       "blocks": [
         {
@@ -1067,23 +662,6 @@
   {
     "name": "mark.code",
     "markdown": "`code`",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 4,
-          "start": 0,
-          "type": "code"
-        }
-      ],
-      "text": "code"
-    },
     "content": {
       "blocks": [
         {
@@ -1111,26 +689,6 @@
   {
     "name": "mark.link",
     "markdown": "[link](https://example.com)",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "url": "https://example.com"
-          },
-          "end": 4,
-          "start": 0,
-          "type": "link"
-        }
-      ],
-      "text": "link"
-    },
     "content": {
       "blocks": [
         {
@@ -1162,26 +720,6 @@
     "name": "mark.anchor",
     "markdown": null,
     "annotated": "<qm-anchor ref=\"c1\"></qm-anchor>Hi there",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "id": "c1"
-          },
-          "end": 2,
-          "start": 0,
-          "type": "anchor"
-        }
-      ],
-      "text": "Hi there"
-    },
     "content": {
       "anchors": [
         {
@@ -1199,14 +737,12 @@
       "text": "Hi there"
     },
     "reimports": {
-      "islands": [],
-      "lines": [
+      "blocks": [
         {
-          "containers": [],
+          "id": "b0",
           "kind": "para"
         }
       ],
-      "marks": [],
       "text": "Hi there"
     },
     "typst": [
@@ -1220,26 +756,6 @@
   {
     "name": "mark.font_family",
     "markdown": "<qm-span family=\"Roboto\">set</qm-span>",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "name": "Roboto"
-          },
-          "end": 3,
-          "start": 0,
-          "type": "font_family"
-        }
-      ],
-      "text": "set"
-    },
     "content": {
       "blocks": [
         {
@@ -1270,26 +786,6 @@
   {
     "name": "mark.font_family.unknown",
     "markdown": "<qm-span family=\"Carlito\">set</qm-span>",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "name": "Carlito"
-          },
-          "end": 3,
-          "start": 0,
-          "type": "font_family"
-        }
-      ],
-      "text": "set"
-    },
     "content": {
       "blocks": [
         {
@@ -1322,33 +818,6 @@
   {
     "name": "mark.across_break",
     "markdown": "**one**\\\n**two**",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        },
-        {
-          "containers": [],
-          "continues": true,
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 3,
-          "start": 0,
-          "type": "strong"
-        },
-        {
-          "end": 7,
-          "start": 4,
-          "type": "strong"
-        }
-      ],
-      "text": "one\ntwo"
-    },
     "content": {
       "blocks": [
         {
@@ -1381,59 +850,6 @@
   {
     "name": "island.table.aligns",
     "markdown": "| a | b | c |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "left",
-              "center",
-              "right"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              },
-              {
-                "marks": [],
-                "text": "c"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                },
-                {
-                  "marks": [],
-                  "text": "3"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -1547,77 +963,6 @@
   {
     "name": "island.table.cell.marks",
     "markdown": "| **a** | *b* |\n| --- | --- |\n| `c` | [d](https://example.com) |",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [
-                  {
-                    "end": 1,
-                    "start": 0,
-                    "type": "strong"
-                  }
-                ],
-                "text": "a"
-              },
-              {
-                "marks": [
-                  {
-                    "end": 1,
-                    "start": 0,
-                    "type": "emph"
-                  }
-                ],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [
-                    {
-                      "end": 1,
-                      "start": 0,
-                      "type": "code"
-                    }
-                  ],
-                  "text": "c"
-                },
-                {
-                  "marks": [
-                    {
-                      "attrs": {
-                        "url": "https://example.com"
-                      },
-                      "end": 1,
-                      "start": 0,
-                      "type": "link"
-                    }
-                  ],
-                  "text": "d"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -1738,41 +1083,6 @@
   {
     "name": "island.table.cell.break",
     "markdown": "| a |\n| --- |\n| one<br>two |",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "one\ntwo"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -1838,51 +1148,6 @@
   {
     "name": "island.table.cell.align",
     "markdown": "<table aligns=\"none right\">\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td align=\"center\">1</td><td>2</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "right"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "align": "center",
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -1978,51 +1243,6 @@
   {
     "name": "island.table.cell.valign",
     "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td valign=\"bottom\">1</td><td>2<br>3</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1",
-                  "valign": "bottom"
-                },
-                {
-                  "marks": [],
-                  "text": "2\n3"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -2115,63 +1335,6 @@
   {
     "name": "island.table.cell.align_valign",
     "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td align=\"right\" valign=\"middle\">**1** *2*</td><td>3<br>4</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "align": "right",
-                  "marks": [
-                    {
-                      "end": 1,
-                      "start": 0,
-                      "type": "strong"
-                    },
-                    {
-                      "end": 3,
-                      "start": 2,
-                      "type": "emph"
-                    }
-                  ],
-                  "text": "1 2",
-                  "valign": "middle"
-                },
-                {
-                  "marks": [],
-                  "text": "3\n4"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -2276,69 +1439,6 @@
   {
     "name": "island.table.cell.font",
     "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td align=\"center\"><qm-span family=\"Roboto\">1</qm-span></td><td><qm-span family=\"Roboto\">2</qm-span></td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [
-                    {
-                      "attrs": {
-                        "name": "Roboto"
-                      },
-                      "end": 1,
-                      "start": 0,
-                      "type": "font_family"
-                    }
-                  ],
-                  "text": "1",
-                  "align": "center"
-                },
-                {
-                  "marks": [
-                    {
-                      "attrs": {
-                        "name": "Roboto"
-                      },
-                      "end": 1,
-                      "start": 0,
-                      "type": "font_family"
-                    }
-                  ],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -2451,60 +1551,6 @@
   {
     "name": "island.table.cell.colspan",
     "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th><th>c</th></tr>\n</thead>\n<tbody>\n<tr><td colspan=\"2\">1</td><td>2</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              },
-              {
-                "marks": [],
-                "text": "c"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "colspan": 2,
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": ""
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -2617,61 +1663,6 @@
   {
     "name": "island.table.cell.rowspan",
     "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td rowspan=\"2\">1</td><td>2</td></tr>\n<tr><td>3</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "rowspan": 2,
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ],
-              [
-                {
-                  "marks": [],
-                  "text": ""
-                },
-                {
-                  "marks": [],
-                  "text": "3"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -2789,42 +1780,6 @@
     "name": "island.table.props.unnamed",
     "markdown": null,
     "annotated": "<qm-island ref=\"isl-0\"></qm-island>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                }
-              ]
-            ],
-            "x_host": "kept"
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -2881,38 +1836,57 @@
       "text": "￼"
     },
     "reimports": {
+      "blocks": [
+        {
+          "id": "b0",
+          "kind": "para"
+        }
+      ],
       "islands": [
         {
           "id": "isl-0",
           "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
+            "columns": [
+              "k0"
             ],
             "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                }
-              ]
+              {
+                "cells": {
+                  "k0": "s0"
+                },
+                "id": "r0"
+              },
+              {
+                "cells": {
+                  "k0": "s1"
+                },
+                "id": "r1"
+              }
             ]
+          },
+          "slots": {
+            "s0": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "a"
+            },
+            "s1": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "1"
+            }
           },
           "type": "table"
         }
       ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
       "text": "￼"
     },
     "typst": [
@@ -2927,42 +1901,6 @@
     "name": "island.table.cell.unnamed",
     "markdown": null,
     "annotated": "<qm-island ref=\"isl-0\"></qm-island>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a",
-                "x_host": "kept"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -3023,38 +1961,57 @@
       "text": "￼"
     },
     "reimports": {
+      "blocks": [
+        {
+          "id": "b0",
+          "kind": "para"
+        }
+      ],
       "islands": [
         {
           "id": "isl-0",
           "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
+            "columns": [
+              "k0"
             ],
             "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                }
-              ]
+              {
+                "cells": {
+                  "k0": "s0"
+                },
+                "id": "r0"
+              },
+              {
+                "cells": {
+                  "k0": "s1"
+                },
+                "id": "r1"
+              }
             ]
+          },
+          "slots": {
+            "s0": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "a"
+            },
+            "s1": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "1"
+            }
           },
           "type": "table"
         }
       ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
       "text": "￼"
     },
     "typst": [
@@ -3069,51 +2026,6 @@
     "name": "island.table.cell.value",
     "markdown": null,
     "annotated": "<qm-island ref=\"isl-0\"></qm-island>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1",
-                  "valign": "horizon"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -3195,47 +2107,78 @@
       "text": "￼"
     },
     "reimports": {
+      "blocks": [
+        {
+          "id": "b0",
+          "kind": "para"
+        }
+      ],
       "islands": [
         {
           "id": "isl-0",
           "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
+            "columns": [
+              "k0",
+              "k1"
             ],
             "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
+              {
+                "cells": {
+                  "k0": "s0",
+                  "k1": "s1"
                 },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
+                "id": "r0"
+              },
+              {
+                "cells": {
+                  "k0": "s2",
+                  "k1": "s3"
+                },
+                "id": "r1"
+              }
             ]
+          },
+          "slots": {
+            "s0": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "a"
+            },
+            "s1": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "b"
+            },
+            "s2": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "1"
+            },
+            "s3": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "2"
+            }
           },
           "type": "table"
         }
       ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
       "text": "￼"
     },
     "typst": [
@@ -3250,51 +2193,6 @@
     "name": "island.table.props.value",
     "markdown": null,
     "annotated": "<qm-island ref=\"isl-0\"></qm-island>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ],
-            "align": "middle"
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -3372,47 +2270,78 @@
       "text": "￼"
     },
     "reimports": {
+      "blocks": [
+        {
+          "id": "b0",
+          "kind": "para"
+        }
+      ],
       "islands": [
         {
           "id": "isl-0",
           "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
+            "columns": [
+              "k0",
+              "k1"
             ],
             "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
+              {
+                "cells": {
+                  "k0": "s0",
+                  "k1": "s1"
                 },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
+                "id": "r0"
+              },
+              {
+                "cells": {
+                  "k0": "s2",
+                  "k1": "s3"
+                },
+                "id": "r1"
+              }
             ]
+          },
+          "slots": {
+            "s0": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "a"
+            },
+            "s1": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "b"
+            },
+            "s2": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "1"
+            },
+            "s3": {
+              "blocks": [
+                {
+                  "id": "b0",
+                  "kind": "para"
+                }
+              ],
+              "text": "2"
+            }
           },
           "type": "table"
         }
       ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
       "text": "￼"
     },
     "typst": [
@@ -3426,26 +2355,6 @@
   {
     "name": "island.image",
     "markdown": "![alt text](https://example.com/a.png)",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "alt": "alt text",
-            "url": "https://example.com/a.png"
-          },
-          "type": "image"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -3479,32 +2388,6 @@
   {
     "name": "island.footnote",
     "markdown": "Cited.[^1]\n\n[^1]: The *source*.",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "marks": [
-              {
-                "end": 10,
-                "start": 4,
-                "type": "emph"
-              }
-            ],
-            "text": "The source."
-          },
-          "type": "footnote"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Cited.￼"
-    },
     "content": {
       "blocks": [
         {
@@ -3550,25 +2433,6 @@
   {
     "name": "island.math",
     "markdown": "Area $\\pi r^2$.",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "tex": "\\pi r^2"
-          },
-          "type": "math"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Area ￼."
-    },
     "content": {
       "blocks": [
         {
@@ -3598,26 +2462,6 @@
   {
     "name": "island.math.display",
     "markdown": "$$\\frac{a}{b}$$",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "display": true,
-            "tex": "\\frac{a}{b}"
-          },
-          "type": "math"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -3648,25 +2492,6 @@
   {
     "name": "island.math.unsupported",
     "markdown": "$\\foo$",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "tex": "\\foo"
-          },
-          "type": "math"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -3698,22 +2523,6 @@
   {
     "name": "html.br",
     "markdown": "one<br>two",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        },
-        {
-          "containers": [],
-          "continues": true,
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "one\ntwo"
-    },
     "content": {
       "blocks": [
         {
@@ -3734,23 +2543,6 @@
   {
     "name": "html.u",
     "markdown": "<U>loud</U>",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 4,
-          "start": 0,
-          "type": "underline"
-        }
-      ],
-      "text": "loud"
-    },
     "content": {
       "blocks": [
         {
@@ -3778,17 +2570,6 @@
   {
     "name": "html.u.attrs",
     "markdown": "a <u class=\"x\">b</u> c",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "a b c"
-    },
     "content": {
       "blocks": [
         {
@@ -3814,17 +2595,6 @@
   {
     "name": "html.span",
     "markdown": "a <span class=\"x\">span</span> b",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "a span b"
-    },
     "content": {
       "blocks": [
         {
@@ -3850,50 +2620,6 @@
   {
     "name": "html.block6.table",
     "markdown": "<div align=\"center\">\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</div>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -3985,56 +2711,6 @@
   {
     "name": "html.table",
     "markdown": "<table>\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td>**1**</td><td>2</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [
-                    {
-                      "end": 1,
-                      "start": 0,
-                      "type": "strong"
-                    }
-                  ],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -4128,51 +2804,6 @@
   {
     "name": "html.table.lenient",
     "markdown": "<table>\n<tr><th>a<th>b\n<tr><td colspan=2>1\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "colspan": 2,
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": ""
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -4265,36 +2896,6 @@
   {
     "name": "html.table.blank_line",
     "markdown": "<table>\n<tr><td>a</td></tr>\n\n<tr><td>b</td></tr>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "head": 0,
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
-            ],
-            "headless": true,
-            "rows": []
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -4359,36 +2960,6 @@
   {
     "name": "html.table.attr",
     "markdown": "<table border=\"1\" bgcolor=\"red\">\n<tr><td class=\"x\" nowrap>a</td></tr>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "head": 0,
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
-            ],
-            "headless": true,
-            "rows": []
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -4449,41 +3020,6 @@
   {
     "name": "html.table.value",
     "markdown": "<table>\n<tr><td colspan=\"x\">a</td><td>b</td></tr>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "head": 0,
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "headless": true,
-            "rows": []
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -4551,53 +3087,6 @@
   {
     "name": "html.table.overlap",
     "markdown": "<table>\n<tr><td>a</td><td rowspan=\"2\">b</td></tr>\n<tr><td colspan=\"2\">c</td></tr>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "head": 0,
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "rowspan": 2,
-                "text": "b"
-              }
-            ],
-            "headless": true,
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "c"
-                },
-                {
-                  "marks": [],
-                  "text": ""
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -4691,75 +3180,6 @@
   {
     "name": "html.table.row",
     "markdown": "<table>\n<tr><td>a</td><td>b</td></tr>\n<tr><td>c</td><td>d</td><td>e</td></tr>\n<tr><td>f</td></tr>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none",
-              "none"
-            ],
-            "head": 0,
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              },
-              {
-                "marks": [],
-                "text": ""
-              }
-            ],
-            "headless": true,
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "c"
-                },
-                {
-                  "marks": [],
-                  "text": "d"
-                },
-                {
-                  "marks": [],
-                  "text": "e"
-                }
-              ],
-              [
-                {
-                  "marks": [],
-                  "text": "f"
-                },
-                {
-                  "marks": [],
-                  "text": ""
-                },
-                {
-                  "marks": [],
-                  "text": ""
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -4909,36 +3329,6 @@
   {
     "name": "html.table.text",
     "markdown": "<table>\n<caption>Roster</caption>\n<tr><td>a</td></tr>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "head": 0,
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
-            ],
-            "headless": true,
-            "rows": []
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -4999,45 +3389,6 @@
   {
     "name": "html.table.tail",
     "markdown": "<table><tr><th>Name</th></tr><tr><td>SSgt Doe</td></tr></table>\nThe roster ends here.",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "Name"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "SSgt Doe"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        },
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼\nThe roster ends here."
-    },
     "content": {
       "blocks": [
         {
@@ -5107,17 +3458,6 @@
   {
     "name": "html.block6.text",
     "markdown": "<center>\n**Signed**\nJ. Doe\n</center>",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": ""
-    },
     "content": {
       "blocks": [
         {
@@ -5141,17 +3481,6 @@
   {
     "name": "html.block1",
     "markdown": "<pre>\nraw\n</pre>\n\nafter",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "after"
-    },
     "content": {
       "blocks": [
         {
@@ -5177,17 +3506,6 @@
   {
     "name": "html.comment",
     "markdown": "<!-- note --> Text",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Text"
-    },
     "content": {
       "blocks": [
         {
@@ -5208,17 +3526,6 @@
   {
     "name": "html.tag_line.paragraph",
     "markdown": "Above\n<div>\nBelow",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Above"
-    },
     "content": {
       "blocks": [
         {
@@ -5244,40 +3551,6 @@
   {
     "name": "html.tag_line.list",
     "markdown": "1. First\n<div>\n\n1. Second",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": true,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item"
-            }
-          ],
-          "kind": "para"
-        },
-        {
-          "containers": [
-            {
-              "attrs": {
-                "ordered": true,
-                "ordinal": 0,
-                "start": 1
-              },
-              "container": "list_item",
-              "instance": 1
-            }
-          ],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "First\nSecond"
-    },
     "content": {
       "blocks": [
         {
@@ -5342,23 +3615,6 @@
   {
     "name": "carrier.element.dropped",
     "markdown": "<qm-keep>\n\n**Signed**\n\n</qm-keep>",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "end": 6,
-          "start": 0,
-          "type": "strong"
-        }
-      ],
-      "text": "Signed"
-    },
     "content": {
       "blocks": [
         {
@@ -5391,17 +3647,6 @@
   {
     "name": "markdown.description_list",
     "markdown": "Term\n: Description.",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Term : Description."
-    },
     "content": {
       "blocks": [
         {
@@ -5422,17 +3667,6 @@
   {
     "name": "carrier.anchor",
     "markdown": "Text <qm-anchor ref=\"c1\"></qm-anchor>here.",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Text here."
-    },
     "content": {
       "blocks": [
         {
@@ -5453,26 +3687,6 @@
   {
     "name": "markdown.link_title",
     "markdown": "[a](https://example.com \"Title\")",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "url": "https://example.com"
-          },
-          "end": 1,
-          "start": 0,
-          "type": "link"
-        }
-      ],
-      "text": "a"
-    },
     "content": {
       "blocks": [
         {
@@ -5503,41 +3717,6 @@
   {
     "name": "markdown.cell_image",
     "markdown": "| a |\n| --- |\n| ![pic](https://example.com/a.png) |",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "pic"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -5603,17 +3782,6 @@
   {
     "name": "markdown.footnote.unused",
     "markdown": "Text.\n\n[^1]: Never cited.",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Text."
-    },
     "content": {
       "blocks": [
         {
@@ -5639,26 +3807,6 @@
   {
     "name": "markdown.footnote.block",
     "markdown": "Cited.[^1]\n\n[^1]: First.\n\n    > Quoted.",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "marks": [],
-            "text": "First.\nQuoted."
-          },
-          "type": "footnote"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "Cited.￼"
-    },
     "content": {
       "blocks": [
         {
@@ -5702,41 +3850,6 @@
   {
     "name": "markdown.footnote.in_cell",
     "markdown": "| a |\n|---|\n| x[^1] |\n\n[^1]: n",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "x"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -5807,41 +3920,6 @@
   {
     "name": "markdown.math.in_cell",
     "markdown": "| a |\n|---|\n| $x$ |",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "$x$"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -5912,17 +3990,6 @@
   {
     "name": "markdown.math.dollar",
     "markdown": "It costs $5, or $6 with tax.",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "It costs $5, or $6 with tax."
-    },
     "content": {
       "blocks": [
         {
@@ -5943,64 +4010,6 @@
   {
     "name": "island.table.props.widths",
     "markdown": "<table widths=\"25 50 auto\">\n<thead>\n<tr><th>a</th><th>b</th><th>c</th></tr>\n</thead>\n<tbody>\n<tr><td>1</td><td>2</td><td>3</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              },
-              {
-                "marks": [],
-                "text": "c"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                },
-                {
-                  "marks": [],
-                  "text": "3"
-                }
-              ]
-            ],
-            "widths": [
-              25,
-              50,
-              null
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -6112,50 +4121,6 @@
   {
     "name": "island.table.props.widths.auto",
     "markdown": "<table widths=\"auto auto\">\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td>1</td><td>2</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -6242,51 +4207,6 @@
   {
     "name": "island.table.props.align",
     "markdown": "<table align=\"center\">\n<thead>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td>1</td><td>2</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "align": "center",
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -6374,26 +4294,6 @@
   {
     "name": "carrier.font.value",
     "markdown": "a <qm-span family=\"Roboto\" color=\"red\">b</qm-span> c",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [
-        {
-          "attrs": {
-            "name": "Roboto"
-          },
-          "end": 3,
-          "start": 2,
-          "type": "font_family"
-        }
-      ],
-      "text": "a b c"
-    },
     "content": {
       "blocks": [
         {
@@ -6429,17 +4329,6 @@
   {
     "name": "carrier.font.unclosed",
     "markdown": "a <qm-span family=\"Roboto\">b c",
-    "lines": {
-      "islands": [],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "a b c"
-    },
     "content": {
       "blocks": [
         {
@@ -6465,62 +4354,6 @@
   {
     "name": "island.table.props.head",
     "markdown": "<table>\n<thead>\n<tr><th colspan=\"2\">Roster</th></tr>\n<tr><th>a</th><th>b</th></tr>\n</thead>\n<tbody>\n<tr><td>1</td><td>2</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "head": 2,
-            "header": [
-              {
-                "colspan": 2,
-                "marks": [],
-                "text": "Roster"
-              },
-              {
-                "marks": [],
-                "text": ""
-              }
-            ],
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "a"
-                },
-                {
-                  "marks": [],
-                  "text": "b"
-                }
-              ],
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
@@ -6638,52 +4471,6 @@
   {
     "name": "island.table.props.head.zero",
     "markdown": "<table>\n<tbody>\n<tr><td>a</td><td>b</td></tr>\n<tr><td>1</td><td>2</td></tr>\n</tbody>\n</table>",
-    "lines": {
-      "islands": [
-        {
-          "id": "isl-0",
-          "props": {
-            "aligns": [
-              "none",
-              "none"
-            ],
-            "head": 0,
-            "header": [
-              {
-                "marks": [],
-                "text": "a"
-              },
-              {
-                "marks": [],
-                "text": "b"
-              }
-            ],
-            "headless": true,
-            "rows": [
-              [
-                {
-                  "marks": [],
-                  "text": "1"
-                },
-                {
-                  "marks": [],
-                  "text": "2"
-                }
-              ]
-            ]
-          },
-          "type": "table"
-        }
-      ],
-      "lines": [
-        {
-          "containers": [],
-          "kind": "para"
-        }
-      ],
-      "marks": [],
-      "text": "￼"
-    },
     "content": {
       "blocks": [
         {
