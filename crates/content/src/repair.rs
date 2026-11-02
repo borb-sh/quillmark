@@ -139,7 +139,7 @@ impl Repair {
     pub fn inserts(&self) -> bool {
         match self {
             Repair::SplitBlock { .. } | Repair::EmptyCell { .. } => true,
-            Repair::Invalid(Invariant::BreakInHeading { .. }) => true,
+            Repair::Invalid(Invariant::BreakInHeading { .. } | Invariant::BreakInCell { .. }) => true,
             Repair::InSlot { repair, .. } => repair.inserts(),
             _ => false,
         }
@@ -776,6 +776,14 @@ fn island_of(id: String, raw: RawIsland, out: &mut Vec<Repair>, steps: Option<&m
             if !table(&id, &mut props, &mut slots, out) {
                 return None;
             }
+            let mut joined = Island { id: id.clone(), island_type: IslandType::Table, props: Value::Null, slots };
+            for slot in joined.join_cells() {
+                let text = &joined.slots[&slot].text;
+                let breaks = text.chars().enumerate().filter(|(_, ch)| *ch == HARD_BREAK).map(|(k, _)| Step::Splice(Splice::new(k, "\n", &HARD_BREAK.to_string())));
+                nested.push(Step::Nested { island: id.clone(), slot: slot.clone(), change: Change::new(breaks.collect()) });
+                out.push(Repair::Invalid(Invariant::BreakInCell { island: id.clone(), slot }));
+            }
+            slots = joined.slots;
             let now: BTreeSet<String> = slots.keys().cloned().collect();
             if props != was || now != held {
                 let gained = slots.iter().filter(|(k, _)| !held.contains(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();

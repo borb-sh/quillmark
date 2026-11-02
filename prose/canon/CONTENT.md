@@ -36,7 +36,7 @@ A short field as it is stored. A `\n` opens a block, `U+2028` is a hard break in
 - **Containers** are lists, list items and quotes. Nesting lives only in the blocks' paths, so a container can never dangle from a missing parent or sit in a cycle. A list holds `ordered` and `start` and an item holds `checked`; an item's number is computed when read.
 - **Marks** are formatting over `[start, end)`. Same-kind marks union. `link` and `font_family` are keyed: a character holds at most one url and one family.
 - **Anchors** are comment handles with a host-minted id, kept apart from marks. A point is an anchor with `start == end`.
-- **Islands** are tables, images, footnotes and equations, one per slot in slot order. A table's cells and a footnote's note are slots, each a nested `Content` of paragraphs. Rows, columns and slots carry ids, so an anchor in a cell stays in its slot wherever the row moves.
+- **Islands** are tables, images, footnotes and equations, one per slot in slot order. A table's cells and a footnote's note are slots, each a nested `Content`: a cell is one paragraph, its lines parted by hard breaks (`U+2028`), and a note and an `x-` island's slot are paragraphs. Rows, columns and slots carry ids, so an anchor in a cell stays in its slot wherever the row moves.
 - **`codec`** is `"plain"` on a `text` field's value and absent on every other. A plain value is read and written as its literal text: markdown projects it verbatim, a revise reads its input as text, and its annotated read spells no tag ([SCHEMAS.md](SCHEMAS.md) § "Content fields rest per codec"). Any other name is `ParseError::UnknownName` with axis `codec`. The key is part of the canonical bytes, and a change, which applies to the value it was made from, never sets it.
 
 Offsets are Unicode scalar values in storage. Each binding speaks its host's units at its boundary and converts inside ([BINDINGS.md](BINDINGS.md) § "Content offsets").
@@ -67,13 +67,22 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 - a container whose blocks are not one contiguous run, that sits under two different parent paths, or that no block's path names;
 - a heading holding a hard break, a rule holding text, a code block holding an island, and a block-only island (a table) sharing its block with anything else;
 - an island whose props do not read as its type's (a table whose grid names a row, column or cell no slot backs, or a slot no cell names), and a table of more than `MAX_TABLE_CELLS` cells;
-- a mark or anchor past the text, an empty mark, and a slot holding anything but paragraphs in no container;
+- a mark or anchor past the text, an empty mark, a slot holding anything but paragraphs in no container, and a table cell holding more than one paragraph (`Invariant::BreakInCell`);
 - a `codec: "plain"` value holding a mark, an island, a container or a block other than a paragraph (`Invariant::NotPlain`), so no step formats a plain value and repair flattens one that a merge formatted;
 - more marks on one text, a field's or a slot's, than `max_marks` of its length: `MARKS_BASE` (64) and `MARKS_PER_CHAR` (4) per character, and more than `MAX_ANCHORS` (100 000) anchors over the value and its slots.
 
 Normalizing spends the mark bound before validating can refuse: a mark crosses as many blocks as it spans, and `x-` marks of distinct attributes never union, so marks times blocks of them come out of a value that names each once. The decoder (`Content::from_value`) therefore checks the bound first, counting each mark once per `\n` and `U+2028` it spans plus one, the most it can be cut into (`Content::check_bounds`), and so does a change: a step whose marks would pass the bound refuses before it settles them, as `Invariant::TooManyMarks`. Repair keeps the marks in order up to the bound and the anchors in reading order up to theirs, and reports the rest.
 
-`Content::normalize` gives the one canonical form: marks cut at each `\n` and `U+2028`, unioned and sorted; anchors sorted; containers in the order paths first name them, an unused one dropped; island props key-sorted and settled. A value's wire form (the `wire` module) writes every object's keys in ascending order and omits a key whose value is empty, so equal values serialize to equal bytes.
+`Content::normalize` gives the one canonical form: marks cut at each `\n` and `U+2028`, unioned and sorted; anchors sorted; containers in the order paths first name them, an unused one dropped; island props key-sorted and settled (a table's layout keys absent at their defaults and `head` clamped to its rows, an equation's `tex` settled and `display` absent at `false`). A value's wire form (the `wire` module) writes every object's keys in ascending order and omits a key whose value is empty, so equal values serialize to equal bytes.
+
+**One spelling per value.** The decoder a write reads through (`Content::from_value`, and every binding's `Content` input) checks the bounds, then validates the value as decoded, then refuses one `normalize` would rewrite or drop (`Content::check_canonical`):
+
+- a mark not cut, settled or sorted, an `x-` mark over only a break among them, an anchor or container out of order, or island props a settle would change, as `Invariant::NotCanonical` naming the part;
+- a reversed or empty mark and an unused container, which are already invalid.
+
+So a value decodes only from the bytes it encodes to, up to the wire's own spelling of an empty key (absent or empty reads as one), and decoding then encoding is the identity on every value a write accepts. `diff::replace` and `Card::replace` refuse the same values a decode does. `normalize` is the producer's verb: a producer that builds a value by hand normalizes it before it writes it.
+
+**A stored value reads leniently, for 0.135 only.** The read of a value already stored (`Content::from_value_lenient`: a stored row's body and fields, a field a document holds, the renderers' read) checks the bounds, joins a table cell of several paragraphs with `U+2028`, normalizes and validates, and says whether it rewrote anything. `Document::from_stored` warns `content::noncanonical_read` at each body or field it rewrote, so a host stores the row again ([ERROR.md](ERROR.md) § "Warning flow"). 0.135 reads leniently; a later release refuses a stored value the write's decode refuses, and drops the warning.
 
 ## Ids
 
@@ -206,7 +215,7 @@ Each law is a property test over generated values and generated changes (`tests/
 1. `apply(apply(d, c), invert(c, d)) == d`. Every change undoes exactly, deleted islands, anchors and block records included.
 2. `apply(d, compose(a, b)) == apply(apply(d, a), b)`. Compose concatenates the steps and merges adjacent splices that touch.
 3. `map_pos(c, p)` agrees with `apply`: the two edges of a character both say it was deleted, or land around it afterwards in the same order, a character inside a nested slot included, and one in an island the change moves keeps its place. A change's maps followed by their mirrored inverses take every position home.
-4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes.
+4. `parse(serialize(d)) == d`, and equal values serialize to equal bytes. `parse` refuses a value `normalize` would change, and the lenient read of it reaches one `parse` accepts (`tests/properties.rs`).
 5. Every `Change` yields a valid value or fails and changes nothing.
 6. `repair` is total and deterministic: any merged state repairs to a valid value, the same state always to the same value, and a valid value to itself with nothing reported. A write-back reads as the merged state it repaired: by any number of peers where no repair inserts, since the value then holds no character or slot the state does not, and by one writer otherwise.
 7. Where `rebase(d, c, o)` succeeds, `apply(apply(d, o), rebase(d, c, o))` succeeds and leaves a valid value, which the rebased change's inverse takes back exactly. `rebase(d, c, ∅) == c`. The value keeps what `o` did:
@@ -226,7 +235,7 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 | `revise(target, markdown, opts)` | a writer's markdown: the `qm-*` tags of `annotated(target)` it keeps, then a word-aligned diff, rebased over what the read does not spell | kept by the tags kept, otherwise by the diff; drift reported |
 | `replace(target, content, opts)` | a whole value, through the same diff | each anchor the value does not name carried where the diff keeps its text; the rest reported |
 
-**A revise keeps what its read does not spell.** Markdown spells less than a valid value can hold: an editor's empty paragraph, formatting a link's text does not carry, a cell's hard break before a paragraph break, a table past the import's budget. So a revise does not diff the writer's markdown against the value cold (`diff::revise_keeping`):
+**A revise keeps what its read does not spell.** Markdown spells less than a valid value can hold: an editor's empty paragraph, formatting a link's text does not carry, two hard breaks in a row in a cell, a table past the import's budget. So a revise does not diff the writer's markdown against the value cold (`diff::revise_keeping`):
 
 - It imports `annotated(target)` under the value's ids (`read`), and takes the change from `read` to the value (`over`), exactly what the read lost.
 - It revises `read` with the writer's markdown, and rebases that change over `over`. What the read lost and the writer left alone rides back in. An edit over it lands as written where the rebase maps it, and refuses with `edit::rebase_conflict` where it rewrites what the read re-spelled.
@@ -260,6 +269,8 @@ Each write answers a `Receipt`: `applied`, the change in its normalized form, wh
 - It refuses an `after` that is not a valid value, and reaches every valid one step-wise.
 - `revise(c, annotated(c))` changes nothing, for every valid `c` the model reaches, markdown-born or not (`tests/change_laws.rs`).
 
+The interactive target is a field of 20000 blocks or 500000 characters: a keystroke's `apply` lands in 5 ms at 100000 characters, a one-word revise or a replace of a 20000-item list in 300 ms, a repair of a valid 10000-item list in 50 ms, and import and decode grow linearly (`crates/content/tests/speed.rs`, `crates/core/tests/speed.rs`).
+
 ## Merge repair
 
 A single step cannot break the model, but two valid concurrent edits can merge into a state no step allows. `repair(raw) -> (Content, Repair[], Change)` makes any such state valid (`src/repair.rs`).
@@ -269,7 +280,7 @@ Its `Change` takes the merged text to the value's: each character a rule deletes
 Repair is how a merged state reads: it is total and deterministic, so peers holding one merged state compute one value without writing anything. Writing a repair back into the shared state is optional, and who may write it back depends on what it writes:
 
 - A repair whose rules only delete or set an attribute may be written back by any peer. Two peers writing back one repair delete the same characters and records and set the same values, so their merge is one write-back, and it reads as the merged state did. A record minted for a `\n` that holds none, a split run's container and a re-minted id are sets too, each under an id derived from the ids involved.
-- A rule that inserts, `Repair::inserts` (`inserts: true` on the wire), is written back by a server where the session has one, and by no one otherwise: a split block's `\n` and record, the space a heading's hard break becomes, and a missing cell's empty slot. Two peers inserting at once each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one peer's slot under its id. Until a server writes it back, or for the session's life where none does, every peer reads the merged state through repair and maps through its change, and a peer writes back a report only when none of its repairs inserts.
+- A rule that inserts, `Repair::inserts` (`inserts: true` on the wire), is written back by a server where the session has one, and by no one otherwise: a split block's `\n` and record, the space a heading's hard break becomes, the hard break a cell's paragraph break becomes, and a missing cell's empty slot. Two peers inserting at once each insert their own: text lands twice and stays, since the extra copy is valid, and a cell minted twice keeps one peer's slot under its id. Until a server writes it back, or for the session's life where none does, every peer reads the merged state through repair and maps through its change, and a peer writes back a report only when none of its repairs inserts.
 
 | Merged state | How it arises | Repair |
 |---|---|---|
@@ -281,6 +292,7 @@ Repair is how a merged state reads: it is total and deterministic, so peers hold
 | Text beside a block island | Two peers type on either side of a table's slot | The block splits at the island's edges; the first piece keeps the record, as a split's left half does, and each later piece takes a fresh id |
 | A range anchor at zero width | Its text was deleted while another peer moved it | Dropped and reported |
 | A table cell naming no slot of its own | A concurrent row insert and column insert | The cell gets an empty slot, its id the row and column ids joined |
+| A table cell of several paragraphs | A merge that splits a block inside a cell | Each `\n` in the cell becomes `U+2028` and the cell keeps its first record |
 
 The raw value is shaped as `Content` with two additions only repair reads. Its `islands` may be an object keyed by island id, with `slot_ids` naming the island each `U+FFFC` carries in slot order, `null` where it carries none; an `islands` array pairs with the slots in order. And an anchor placed as a range carries `range: true`, since a range collapsed to zero width cannot otherwise be told from a point. A v1 value, `lines[]` with no `blocks`, is read as `migrate::from_lines` lifts it.
 

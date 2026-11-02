@@ -237,6 +237,18 @@ impl Content {
         Content::from_value(&v)
     }
 
+    /// [`from_value_lenient`](Self::from_value_lenient) with offsets in `u`.
+    pub fn from_value_lenient_in(v: &Value, u: impl Units) -> Result<crate::wire::Lenient, ParseError> {
+        if crate::model::json_too_deep(v) || crate::wire::is_v1(v) {
+            return Content::from_value_lenient(v);
+        }
+        let mut v = v.clone();
+        if !value_to_scalars(&mut v, u) {
+            return Err(shape(SPLIT));
+        }
+        Content::from_value_lenient(&v)
+    }
+
     /// [`to_value`](Self::to_value) with offsets in `u`.
     pub fn to_value_in(&self, u: impl Units) -> Value {
         let mut c = self.clone();

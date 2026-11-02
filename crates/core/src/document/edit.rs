@@ -1486,7 +1486,7 @@ impl Card {
         check_field_name(name)?;
         match self.payload.get(name) {
             None => Ok(quillmark_content::model::Content::empty()),
-            Some(v) => Codec::Richtext.decode_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
+            Some(v) => Codec::Richtext.read_content(v.as_json()).map_err(|e| field_decode(name, &[], Codec::Richtext, e)),
         }
     }
 

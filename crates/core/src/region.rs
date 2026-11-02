@@ -468,7 +468,7 @@ fn is_blank(field: &FieldSchema, value: &serde_json::Value) -> bool {
 }
 
 fn content_is_blank(value: &serde_json::Value) -> bool {
-    quillmark_content::model::Content::from_value(value).map_or(true, |c| c.is_blank())
+    quillmark_content::model::Content::from_value_lenient(value).map_or(true, |read| read.content.is_blank())
 }
 
 /// How precisely a [`ContentHit::pos`] resolved. Never sub-cluster.

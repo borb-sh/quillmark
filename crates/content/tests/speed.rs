@@ -4,7 +4,9 @@
 //! characters and a change of one step per paragraph, and its 288k-character
 //! case fails past [`BUDGET`]. A long value is `n` list items, quotes and
 //! paragraphs nested in containers, with `x-` marks and anchors, and its
-//! 20000-item case fails past [`VALUE_BUDGET`].
+//! 20000-item case fails past [`VALUE_BUDGET`]. The interactive target, a
+//! field of 20000 blocks or 500000 characters, holds [`TARGET`]: a plain
+//! list's revise, replace and repair in time, and import and decode linear.
 
 use quillmark_content::change::{AnchorStep, Change, MarkStep, Splice, Step, apply, invert, rebase};
 use quillmark_content::diff::{diff, replace, revise};
@@ -210,5 +212,66 @@ fn a_long_value_writes_revises_repairs_and_decodes_in_time() {
         }
     }
     println!("{table}");
+    assert!(over.is_empty(), "past budget: {}", over.join(", "));
+}
+
+/// The interactive target's limits in milliseconds: a one-word revise and a
+/// replace of a 20000-item list, and a repair of a valid 10000-item one.
+const TARGET: [(&str, f64); 3] = [("revise", 300.0), ("replace", 300.0), ("repair", 50.0)];
+
+/// What a CI runner may take beyond a laptop: each limit in [`TARGET`] is
+/// checked at this multiple of itself.
+const HEADROOM: f64 = 2.0;
+
+/// The most import or decode may grow from 10000 items to 20000: twice, and
+/// the allocator's and caches' share past it, under the 4 of a quadratic pass.
+const LINEAR: f64 = 3.0;
+
+fn plain_list(n: usize) -> (String, Content) {
+    let md: Vec<String> = (0..n).map(|i| format!("- item {i:05} carries a word")).collect();
+    let md = md.join("\n");
+    let c = from_markdown(&md).unwrap().content;
+    (md, c)
+}
+
+fn one_word(d: &Content) -> String {
+    let written = to_markdown(d);
+    let at = written.len() / 2 + written[written.len() / 2..].find("word").unwrap();
+    format!("{}phrase{}", &written[..at], &written[at + 4..])
+}
+
+#[test]
+#[ignore = "a release-build timing, run on its own"]
+fn the_interactive_target_holds_its_budgets_and_grows_linearly() {
+    let (_, list) = plain_list(20000);
+    let revised = one_word(&list);
+    let after = revise(&list, &revised).unwrap().content;
+    let (_, half) = plain_list(10000);
+    let ms = |t: Duration| t.as_secs_f64() * 1000.0;
+    let times = [
+        ms(time(|| revise(&list, &revised).unwrap())),
+        ms(time(|| replace(&list, &after).unwrap())),
+        ms(time(|| repair(Raw::from(&half)))),
+    ];
+    let mut over = Vec::new();
+    for ((what, limit), t) in TARGET.iter().zip(times) {
+        println!("{what:>8} {t:>8.1} ms (target {limit} ms)");
+        if t > limit * HEADROOM {
+            over.push(format!("{what} {t:.1} ms > {limit} ms x {HEADROOM}"));
+        }
+    }
+    let (md_small, small) = long_value(10000);
+    let (md_large, large) = long_value(20000);
+    let (v_small, v_large) = (small.to_value(), large.to_value());
+    let growth = [
+        ("import", ms(time(|| from_markdown(&md_large).unwrap())) / ms(time(|| from_markdown(&md_small).unwrap()))),
+        ("decode", ms(time(|| Content::from_value(&v_large).unwrap())) / ms(time(|| Content::from_value(&v_small).unwrap()))),
+    ];
+    for (what, ratio) in growth {
+        println!("{what:>8} x{ratio:.2} from 10000 items to 20000");
+        if ratio > LINEAR {
+            over.push(format!("{what} grows x{ratio:.2} > x{LINEAR}"));
+        }
+    }
     assert!(over.is_empty(), "past budget: {}", over.join(", "));
 }

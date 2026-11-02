@@ -619,6 +619,49 @@ pub(crate) fn cell_source(content: &str) -> String {
     src
 }
 
+/// A cell's content with its `<p>` tags read as the lines of the one
+/// paragraph a cell is: each run of them and the whitespace around it a `<br>`
+/// between text, and nothing at the content's edges. Each run keeps its
+/// length but a bare `<p>`, one byte shorter than its `<br>`.
+pub(crate) fn cell_paragraphs(content: &str) -> std::borrow::Cow<'_, str> {
+    let tags: Vec<Range<usize>> = content
+        .match_indices('<')
+        .filter_map(|(i, _)| html::tag_at(content, i).filter(|t| t.name.eq_ignore_ascii_case("p")).map(|t| t.span))
+        .collect();
+    if tags.is_empty() {
+        return content.into();
+    }
+    let blank = |s: &str| s.trim_matches(WHITESPACE).is_empty();
+    let mut out = String::with_capacity(content.len() + 1);
+    let (mut taken, mut k) = (0, 0);
+    while k < tags.len() {
+        let mut end = tags[k].end;
+        let mut next = k + 1;
+        while next < tags.len() && tags[next].start >= end && blank(&content[end..tags[next].start]) {
+            end = tags[next].end;
+            next += 1;
+        }
+        let start = content[..tags[k].start].trim_end_matches(WHITESPACE).len().max(taken);
+        let end = content.len() - content[end..].trim_start_matches(WHITESPACE).len();
+        out.push_str(&content[taken..start]);
+        let n = end - start;
+        if blank(&content[..start]) || blank(&content[end..]) {
+            out.extend(std::iter::repeat_n(' ', n));
+        } else {
+            out.push_str("<br");
+            out.extend(std::iter::repeat_n(' ', n.saturating_sub(4)));
+            out.push('>');
+        }
+        taken = end;
+        k = next;
+    }
+    out.push_str(&content[taken..]);
+    out.into()
+}
+
+/// The whitespace HTML reads between a cell's words.
+const WHITESPACE: [char; 3] = [' ', '\t', '\n'];
+
 /// The inline events of `src`, a [`cell_source`], with its sentinels taken off
 /// the text events that hold them, and each code span split around the
 /// subset's tags it holds, each tag its text, as a span the scan reads never
@@ -654,17 +697,14 @@ pub(crate) fn cell_events(src: &str) -> Vec<(Event<'_>, Range<usize>)> {
 }
 
 /// Whether a table writes as HTML: one holding more or fewer header rows than
-/// one, `widths`, a placement, a cell's alignment or span, or a cell of several
-/// paragraphs, which a GFM pipe table has no spelling for.
+/// one, `widths`, a placement, or a cell's alignment or span, which a GFM pipe
+/// table has no spelling for.
 pub(crate) fn writes_html(props: &Value) -> bool {
     let layout = TableLayout::of(props);
     layout.head != 1
         || layout.widths.is_some()
         || layout.align.is_some()
-        || crate::lines::serial::table_cell_values(props).any(|cell| {
-            cell_alignment(cell) != (None, None)
-                || cell.get("text").and_then(Value::as_str).is_some_and(|t| t.contains("\n\n"))
-        })
+        || crate::lines::serial::table_cell_values(props).any(|cell| cell_alignment(cell) != (None, None))
         || table_spans(props).iter().flatten().flatten().any(|span| *span != (1, 1))
 }
 

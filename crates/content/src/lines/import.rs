@@ -1461,7 +1461,7 @@ impl Builder {
     /// inline import, as one line of markdown
     /// ([`cell_source`](crate::lines::html_table::cell_source)).
     fn inline_source(&mut self, content: &str, at: usize) -> Result<(), ImportError> {
-        let src = crate::lines::html_table::cell_source(content);
+        let src = crate::lines::html_table::cell_source(&crate::lines::html_table::cell_paragraphs(content));
         let events = crate::lines::html_table::cell_events(&src);
         self.run(MarkdownFixer::new(&src, events.into_iter()).map(|item| item.shifted(at)))
     }

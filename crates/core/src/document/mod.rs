@@ -34,7 +34,7 @@ pub(crate) fn stored_as(
 }
 
 fn lifted_over(old: Option<&serde_json::Value>, lines: &Normalized) -> Content {
-    let held = old.filter(|v| v.is_object()).and_then(|v| Content::from_value(v).ok());
+    let held = old.filter(|v| v.is_object()).and_then(|v| Content::from_value_lenient(v).ok()).map(|read| read.content);
     match held {
         Some(held) => quillmark_content::diff::lift(&held, lines),
         None => quillmark_content::migrate::from_lines(lines),
@@ -89,6 +89,19 @@ pub fn dropped_constructs(
             None => dropped_construct(w),
         })
         .collect()
+}
+
+/// The diagnostic code a stored content value read in a spelling other than
+/// its canonical one rides.
+pub const NONCANONICAL_READ: &str = "content::noncanonical_read";
+
+/// The warning a stored read owes a content value it rewrote to its canonical
+/// form: the value loads canonical, and storing the document again writes
+/// those bytes. This release reads such a value; a later one refuses it.
+pub fn noncanonical_read() -> Diagnostic {
+    Diagnostic::new(Severity::Warning, "a stored content value is not in canonical form, and reads as it".to_string())
+        .with_code(NONCANONICAL_READ.to_string())
+        .with_hint("store the document again to write its canonical form; a later release refuses the value as stored".to_string())
 }
 
 /// The diagnostic code a markdown export's loss rides.
@@ -540,6 +553,18 @@ impl Codec {
             },
             serde_json::Value::Null => Ok(Content::empty_as(self.content())),
             _ => Err(ContentDecodeError::NotContent(self.unshaped_message(value))),
+        }
+    }
+
+    /// [`decode_content`](Self::decode_content) for a value the document
+    /// already holds: an object reads as a stored value does
+    /// ([`Content::from_value_lenient`]), the canonical form of what it spells.
+    pub(crate) fn read_content(self, value: &serde_json::Value) -> Result<Content, ContentDecodeError> {
+        match value {
+            serde_json::Value::Object(_) => Content::from_value_lenient(value)
+                .map(|read| read.content)
+                .map_err(|e| ContentDecodeError::NotContent(e.to_string())),
+            _ => self.decode_content(value),
         }
     }
 
@@ -1030,6 +1055,15 @@ impl Document {
         );
         card_id::settle(&mut cards, &std::collections::HashSet::new());
         Self { main, cards }
+    }
+
+    /// Read a stored row ([`StoredDocument`] JSON) into a [`Parsed`]: the
+    /// [`Document`], and a [`noncanonical_read`] warning at each body or field
+    /// whose content value the read rewrote to its canonical form. Fails as
+    /// deserializing a `Document` from `json` fails.
+    pub fn from_stored(json: &str) -> Result<Parsed, serde_json::Error> {
+        let stored: StoredDocument = serde_json::from_str(json)?;
+        dto::from_stored(stored).map_err(serde::de::Error::custom)
     }
 
     /// Parse card-yaml Markdown into a [`Parsed`]: the [`Document`] plus any

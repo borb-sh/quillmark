@@ -455,6 +455,20 @@ pub(super) fn content_in(value: JsValue, ctx: &str) -> Result<Content, JsValue> 
     })
 }
 
+/// [`content_in`] for a value a producer hands to be normalized: read as a
+/// stored value is, its canonical form.
+pub(super) fn content_normalized(value: JsValue, ctx: &str) -> Result<Content, JsValue> {
+    let json = js_value_to_json(value, ctx)?;
+    if !json.is_object() {
+        return Err(WasmError::from(format!("{ctx}: expected a Content object")).to_js_value());
+    }
+    check_content_value(&json).map_err(bound_error)?;
+    Content::from_value_lenient_in(&json, Utf16).map(|read| read.content).map_err(|e| match &e {
+        ParseError::Invalid(inv) if EditError::bound(inv).is_some() => bound_error(EditError::bound(inv).expect("a bound")),
+        _ => WasmError::from(format!("{ctx}: not a Content: {e}")).to_js_value(),
+    })
+}
+
 /// `c` for JS, offsets in UTF-16 code units.
 pub(super) fn content_out(c: &Content, ctx: &str) -> Result<JsValue, JsValue> {
     serialize_or_throw(&c.to_value_in(Utf16), ctx)

@@ -899,18 +899,19 @@ impl Document {
     }
 
     /// Reconstruct a `Document` from a versioned storage DTO string produced by
-    /// [`toStored`](Document::to_stored), with no `warnings`.
-    /// Throws if `json` is not a valid storage DTO (malformed JSON, unknown
-    /// `schema`, missing fields, or unparseable quill reference).
+    /// [`toStored`](Document::to_stored). Its `warnings` hold a
+    /// `content::noncanonical_read` at each body or field whose content value
+    /// the read rewrote to its canonical form, which storing the document
+    /// again writes. Throws if `json` is not a valid storage DTO (malformed
+    /// JSON, unknown `schema`, missing fields, or unparseable quill reference).
     #[wasm_bindgen(js_name = fromStored)]
     pub fn from_stored(json: &str) -> Result<Document, JsValue> {
-        let inner: quillmark_core::document::Document =
-            serde_json::from_str(json).map_err(|e| {
-                WasmError::from(format!("fromStored: invalid storage DTO: {e}")).to_js_value()
-            })?;
+        let parsed = quillmark_core::document::Document::from_stored(json).map_err(|e| {
+            WasmError::from(format!("fromStored: invalid storage DTO: {e}")).to_js_value()
+        })?;
         Ok(Document {
-            inner,
-            parse_warnings: Vec::new(),
+            inner: parsed.document,
+            parse_warnings: parsed.warnings,
         })
     }
 
@@ -2120,15 +2121,17 @@ impl ReadBase {
     }
 }
 
-/// The canonical form of `rt`: the content `replace` stores from it, read
-/// without a document. Normalizing rewrites structure, never the text, so the
-/// answer's `text` is `rt.text`. Throws where `replace` would, with the same
-/// error under this verb's name.
+/// The canonical form of `rt`, read without a document: the one spelling
+/// `replace` and every other content door take. Marks are cut, settled and
+/// sorted, anchors and containers ordered, an unused container dropped, island
+/// props settled, and a table cell of several paragraphs joined with hard
+/// breaks, so the answer's `text` is `rt.text` but for those breaks. Throws
+/// where `rt` is not a valid value once normalized.
 #[wasm_bindgen(js_name = normalize, unchecked_return_type = "Content")]
 pub fn normalize(
     #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
 ) -> Result<JsValue, JsValue> {
-    content::content_out(&content::content_in(rt, "normalize")?, "normalize")
+    content::content_out(&content::content_normalized(rt, "normalize")?, "normalize")
 }
 
 #[derive(serde::Serialize)]
