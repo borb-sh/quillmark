@@ -75,9 +75,14 @@ Normalizing spends the mark bound before validating can refuse: a mark crosses a
 
 ## Ids
 
-Blocks, containers, islands, slots, table rows and table columns carry structural ids. Import, migration and a revise mint them deterministically, `{prefix}{n}` past the highest number a value already holds under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise or replace re-mints an id it introduces that the value it lands on holds (§ "Writing a value").
+Blocks, containers, islands, slots, table rows and table columns carry structural ids. Quillmark mints every one, by one rule (`ids`, `mint`):
 
-A live client mints its own by a rule of its own; a write re-mints one it introduces that the value holds, and a rebase renames one two writers both introduced (§ "Rebasing a change"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
+- Import, migration and a write with no actor mint positionally, `{prefix}{n}` past the highest number the values in play hold under that prefix (`b`, `l`, `i`, `q`, `isl-`, `r`, `k`, `s`), so the same markdown always imports to the same bytes. A revise, as an LLM writer makes it, passes no actor.
+- A live client mints through the engine under its actor: a write given `actor` mints `{actor}:{prefix}{n}` the same way. An actor is an id of at most 64 scalar values holding no `:`, one per session, so two clients writing from one value never mint one id and their merge needs no repair. No positional id holds a `:`, and a repair's `a-b` or a diff's `{id}-{n}` holds one only where it derives from an actor's.
+- A record a change puts may carry a placeholder in place of its id: `?` and an id, such as `"?1"`, which other steps of the change may name. No id opens with `?`. The write that lands the change mints an id for each placeholder and names it in the receipt's `minted`, `{"?1": "ann:b4"}`; a placeholder put twice, or named and never put, refuses the change.
+- A write fills a placeholder past every id the value it lands on, the value its base names and the writes since hold, never consulting the log, so a stale write's placeholder takes an id no write since holds and its rebase renames nothing, and a freed id is never minted again by it (§ "Writing a value").
+
+The cost is stated: a live document's bytes depend on which actor typed, so equal content no longer means equal bytes across a cold import and a live session; determinism holds for import, migration and revise ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Island-id determinism"). A rebase renames an id two writers both introduced, as two writers with one actor or none do (§ "Rebasing a change"). Anchor ids are the host's: no content determines what a comment refers to, so Quillmark mints none ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "The id handles").
 
 ## Changes
 
@@ -112,11 +117,26 @@ A writer outside the live session therefore passes the base. A stale write then 
 
 A split inserts a `\n` whose record names the right half; the left half keeps its id, since the record that opens it does not move. A join deletes the right block's `\n` and record, and the joined block keeps the left's id and kind. Splits and joins therefore never rewrite a record a concurrent `setBlock` could be aimed at. Collab's Y form keeps the same boundary, so a split or a join lowers into Y as an insertion or a deletion alone.
 
-Enter at the start of a block keeps the text on its id when the producer inserts the `\n` ahead of the one that opens the block, so the new record names the empty block before it. No `\n` carries the first block's record, so no splice reaches its id: Enter at the start of the first block moves its text to the new record, and `diff` and `replace` keep the stored first id. `gestures::split_block` and `join_blocks` build these changes; WASM binds them for an editor, and the one editor today lowers each transaction by a whole-field `diff` instead ([BINDINGS.md](BINDINGS.md) § "The write surface: object placement over one primitive").
+Enter at the start of a block keeps the text on its id when the producer inserts the `\n` ahead of the one that opens the block, so the new record names the empty block before it. No `\n` carries the first block's record, so no splice reaches its id: Enter at the start of the first block moves its text to the new record, and `diff` and `replace` keep the stored first id.
+
+An editor lowers a transaction in two ways, both exact. The structural keys go through the gestures, which are verbs on the document:
+
+- `split_block`, `join_blocks`, `delete_range`, `indent`, `outdent` and `wrap` on `Card` (`doc.splitBlock(addr, at, opts)` and the rest in WASM) build the gesture's change from the value the base names and write it as `apply` does, rebase, log and receipt included.
+- A record a gesture opens carries a placeholder, `?0` first, which the write fills under the writer's actor; `split_block` takes the new block's id or mints one. `gestures` holds the same changes as functions over a value.
+- `locate(addr, offset)` answers the block holding an offset, its index and its container path, so an editor builds no path of its own.
+
+Text edits go through `diff_range(before, after, from, to)` (`diffRange(before, after, {from, to})`), the exact lowering of a range an editor already knows, ProseMirror's `ReplaceStep`:
+
+- `from` and `to` are offsets into `before`; `after` holds the same text before `from`, and from `to + after.len - before.len` on the text `before` holds from `to`.
+- The change is one splice over the characters of that range that differ, so typing one letter into a word is a one-character splice, never coarser than the range. Where the records beside it place an inserted `\n` on the other side of an equal one, as Enter at a block's start does, the splice slides to meet them.
+- Records, containers, marks, anchors and islands follow as `diff`'s do, so applying it reaches what `diff` reaches.
+- A range the two values do not agree outside, in text or in the id a `\n` or slot carries, is not the change's range, and the change is `diff`'s.
+
+`diff` stays for a writer with no steps (§ "Writing a value").
 
 `apply` never grows a mark: a splice states the marks its inserted text carries, so every inverse is exact. The growth defaults are for producers, and `gestures::inherited_marks(content, at)` states them, for a producer that asks: `strong`, `emph`, `underline` and `strike` grow at their end, `code`, `link` and an `x-` mark at neither edge, and `font_family` at both, the family before `at` winning over the one after. A `\n` and a hard break hold no mark, so at a block's or a line's start only a family carries over. Anchors never grow: a range keeps its edges, and a point stays left of text typed at it.
 
-The structural gestures build their changes the same way, so an editor that lowers through them builds no container path; the one editor today builds its own. A container a gesture opens takes an id no container holds.
+The structural gestures build their changes the same way, so an editor that lowers through them builds no container path. A container a gesture opens is a placeholder its write fills.
 
 - `delete_range` deletes a range. Where it runs from a block's start into a later block, the block that keeps the text takes the kind, attributes and path of the block the range ends in, as ProseMirror's delete does, and keeps the first block's id.
 - `indent` (Tab) nests the items of the innermost list holding a range under the item before them, joining that item's list where it ends in one and else opening a list of their own list's kind.
@@ -186,9 +206,9 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 
 | Write | Builds the change from | Anchors |
 |---|---|---|
-| `apply(target, change, base)` | the caller's steps, an editor's transaction lowered | move exactly as the steps move text |
-| `revise(target, markdown, base)` | a writer's markdown: the `qm-*` tags of `annotated(target)` it keeps, then a word-aligned diff, rebased over what the read does not spell | kept by the tags kept, otherwise by the diff; drift reported |
-| `replace(target, content, base)` | a whole value, through the same diff | each anchor the value does not name carried where the diff keeps its text; the rest reported |
+| `apply(target, change, opts)` | the caller's steps, an editor's transaction lowered, or a gesture's | move exactly as the steps move text |
+| `revise(target, markdown, opts)` | a writer's markdown: the `qm-*` tags of `annotated(target)` it keeps, then a word-aligned diff, rebased over what the read does not spell | kept by the tags kept, otherwise by the diff; drift reported |
+| `replace(target, content, opts)` | a whole value, through the same diff | each anchor the value does not name carried where the diff keeps its text; the rest reported |
 
 **A revise keeps what its read does not spell.** Markdown spells less than a valid value can hold: an editor's empty paragraph, formatting a link's text does not carry, a cell's hard break before a paragraph break, a table past the import's budget. So a revise does not diff the writer's markdown against the value cold (`diff::revise_keeping`):
 
@@ -198,14 +218,14 @@ One write primitive and two producers over it, on a card's body or richtext fiel
 
 A binding's write names its card by `$id`, or the main card, never by index: a card moved or inserted between a writer's read and its write shifts an index onto another card, and where that card's value is equal to the one read, the base cannot tell. An id no card holds refuses with `edit::unknown_card_id`.
 
-Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `droppedAnchors`; `movedAnchors`; a revise's import warnings; and `rebased`, true where the write rebased over a change since its base.
+Each write answers a `Receipt`: `applied`, the change in its normalized form, which `invert(applied, before)` undoes; `hash`, the value's new hash and the next write's base; `droppedAnchors`; `movedAnchors`; a revise's import warnings; `rebased`, true where the write rebased over a change since its base; and `minted`, each placeholder and the id the write gave it. A write's options are `base` and `actor` (`WriteOptions`); the actor scopes every id the write mints (§ Ids), and one that is not an actor refuses with `edit::invalid_actor`.
 
 **Pass the base.** `base` is the hash the writer read (`hash(addr)`). Without one, a write lands over whatever the value now holds, so an edit made between the writer's read and its write reads as text the writer deleted. A value that no longer hashes to the base rebases the write over what changed since:
 
 - Each card keeps a `ChangeLog` per value it holds, in memory only: one snapshot, the value its oldest write read, and each write's normalized change and the hash it left. No hash, comparison or stored form sees it.
 - A base the log holds composes the changes from it to now, and the write rebases over them and applies. The value the base names is the snapshot with the changes before it applied as one composed change; one that does not hash to the base refuses as stale. A revise or replace diffs from the value the base names, so an edit made since is not read as text the writer deleted.
-- Each block, container and island id a revise or replace introduces is minted afresh where the value now holds it, past the ids of the value the base names, the value now and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them.
-- Minting reads those two values and never the log, so equal values written over equal values store equal bytes, and `normalize` predicts what `replace` stores up to the first block's id, which a replace keeps.
+- Each block, container and island id a revise or replace introduces is minted afresh where the value now holds it, past the ids of the value the base names, the value now and the write (`diff::revise_holding`, `diff::replace_holding`), a replace's own id among them. Under an actor, each id such a write minted rather than took from its writer moves under the actor (`mint::remint`).
+- Minting never consults the log: it reads those two values and the change since, so equal values written over equal values by one actor, or none, store equal bytes, and `normalize` predicts what `replace` stores up to the first block's id, which a replace keeps, and the actor's ids.
 - Two stale writes that each add a paragraph both land. An id a write freed may be minted again: `rebase` holds a stale step by it to the block it read, and renames an id the write introduces that a write since also introduced (§ "Rebasing a change").
 - A write that conflicts refuses with `edit::rebase_conflict`, carrying `current`, `step` and `reason`.
 - A base the log does not reach refuses with `edit::stale_base`, carrying `current`, and the writer reads again.

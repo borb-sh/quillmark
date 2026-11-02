@@ -126,8 +126,10 @@ impl std::error::Error for RebaseError {}
 /// step naming it conflicts as missing rather than landing on the new one;
 /// an island `over` only moves keeps its identity. An id the change
 /// introduces that `over` also introduced is renamed past every id either
-/// holds, through the change's steps after it.
+/// holds, through the change's steps after it. A placeholder is filled past
+/// the ids of `base` and `over` before the change rebases.
 pub fn rebase(base: &Content, change: &Change, over: &Change) -> Result<Change, RebaseError> {
+    let change = &crate::mint::fill(change, &[base], Some(over), None).map_err(RebaseError::Apply)?.change;
     apply(base, change).map_err(RebaseError::Apply)?;
     let theirs = apply(base, over).map_err(RebaseError::Apply)?;
     let over_steps: Vec<&Step> = theirs.applied.steps.iter().collect();

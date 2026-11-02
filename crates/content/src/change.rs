@@ -175,6 +175,10 @@ pub struct Applied {
     pub dropped: Vec<Dropped>,
     /// Each surviving range anchor whose text the change rewrote.
     pub moved: Vec<Moved>,
+    /// Each placeholder the change gave a record it put, and the id
+    /// [`mint::fill`](crate::mint::fill) gave it, minted past the ids `before`
+    /// holds.
+    pub minted: BTreeMap<String, String>,
 }
 
 /// An anchor a change dropped: its context as it read before, and the slot
@@ -227,6 +231,7 @@ pub fn invert(change: &Change, before: &Content) -> Result<Change, ApplyError> {
 }
 
 fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, Change), ApplyError> {
+    let crate::mint::Filled { change, minted } = crate::mint::fill(change, &[before], None, None)?;
     let mut run = Run::new(undo);
     let mut draft = Draft::new(before.clone());
     let (mut applied, mut groups) = run.level(&mut draft, &change.steps)?;
@@ -250,7 +255,7 @@ fn applying(before: &Content, change: &Change, undo: bool) -> Result<(Applied, C
     };
     let moved = moved_anchors(before, &content, &run.touched);
     let inverse = Change { steps: groups.into_iter().rev().flatten().collect() };
-    Ok((Applied { content, applied: Change { steps: applied }, dropped, moved }, inverse))
+    Ok((Applied { content, applied: Change { steps: applied }, dropped, moved, minted }, inverse))
 }
 
 /// Each anchor of `before`, in its text or a slot, that `after` holds

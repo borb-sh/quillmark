@@ -243,6 +243,11 @@ pub enum EditError {
     #[error("the write removes the {kind} island '{island}', which its writer may not have seen; remove it with apply")]
     DropsExtIsland { island: String, kind: String },
 
+    /// A content write's actor is not an
+    /// [actor](quillmark_content::ids::is_actor).
+    #[error("invalid actor '{0}': must be 1 to 64 scalar values holding no whitespace, control or ':', not opening with '?'")]
+    InvalidActor(String),
+
     /// A revise's [`Base`] refused the write.
     #[error(transparent)]
     Base(BaseError),
@@ -313,6 +318,7 @@ impl EditError {
             EditError::TooManyAnchors { .. } => "edit::too_many_anchors",
             EditError::InvalidPayload(_) => "edit::invalid_payload",
             EditError::DropsExtIsland { .. } => "edit::drops_ext_island",
+            EditError::InvalidActor(_) => "edit::invalid_actor",
             EditError::Base(e) => e.code(),
         }
     }
@@ -382,6 +388,7 @@ impl EditError {
                 "island" => island,
                 "type" => kind,
             },
+            EditError::InvalidActor(actor) => diag_args! { "actor" => actor },
             EditError::Base(e) => e.args(),
         }
     }
@@ -894,44 +901,81 @@ impl<'a> CardMut<'a> {
     }
 
     /// [`Card::apply`].
-    pub fn apply(
+    pub fn apply<'o>(
         &mut self,
         target: super::Target<'_>,
         change: &quillmark_content::change::Change,
-        base: Option<&str>,
+        opts: impl Into<super::WriteOptions<'o>>,
     ) -> Result<super::Receipt, EditError> {
-        self.0.apply(target, change, base)
+        self.0.apply(target, change, opts)
     }
 
     /// [`Card::revise`].
-    pub fn revise(&mut self, target: super::Target<'_>, markdown: &str, base: Option<&str>) -> Result<super::Receipt, EditError> {
-        self.0.revise(target, markdown, base)
+    pub fn revise<'o>(&mut self, target: super::Target<'_>, markdown: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.0.revise(target, markdown, opts)
     }
 
     /// [`Card::replace`].
-    pub fn replace(
+    pub fn replace<'o>(
         &mut self,
         target: super::Target<'_>,
         content: &quillmark_content::model::Content,
-        base: Option<&str>,
+        opts: impl Into<super::WriteOptions<'o>>,
     ) -> Result<super::Receipt, EditError> {
-        self.0.replace(target, content, base)
+        self.0.replace(target, content, opts)
+    }
+
+    /// [`Card::split_block`].
+    pub fn split_block<'o>(&mut self, target: super::Target<'_>, at: usize, id: Option<&str>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.0.split_block(target, at, id, opts)
+    }
+
+    /// [`Card::join_blocks`].
+    pub fn join_blocks<'o>(&mut self, target: super::Target<'_>, id: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.0.join_blocks(target, id, opts)
+    }
+
+    /// [`Card::delete_range`].
+    pub fn delete_range<'o>(&mut self, target: super::Target<'_>, start: usize, end: usize, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.0.delete_range(target, start, end, opts)
+    }
+
+    /// [`Card::indent`].
+    pub fn indent<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.0.indent(target, first, last, opts)
+    }
+
+    /// [`Card::outdent`].
+    pub fn outdent<'o>(&mut self, target: super::Target<'_>, first: &str, last: &str, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.0.outdent(target, first, last, opts)
+    }
+
+    /// [`Card::wrap`].
+    pub fn wrap<'o>(
+        &mut self,
+        target: super::Target<'_>,
+        first: &str,
+        last: &str,
+        with: quillmark_content::gestures::Wrap,
+        opts: impl Into<super::WriteOptions<'o>>,
+    ) -> Result<super::Receipt, EditError> {
+        self.0.wrap(target, first, last, with, opts)
     }
 
     /// [`Card::write`].
-    pub fn write(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, base: Option<&str>) -> Result<super::Receipt, EditError> {
-        self.0.write(target, edit, base)
+    pub fn write<'o>(&mut self, target: super::Target<'_>, edit: super::Edit<'_>, opts: impl Into<super::WriteOptions<'o>>) -> Result<super::Receipt, EditError> {
+        self.0.write(target, edit, opts)
     }
 
     /// [`Card::write_in`].
-    pub fn write_in(
+    pub fn write_in<'o>(
         &mut self,
         target: super::Target<'_>,
         edit: super::Edit<'_>,
-        base: Option<&str>,
+        opts: impl Into<super::WriteOptions<'o>>,
         u: impl quillmark_content::units::Units,
     ) -> Result<super::Receipt, EditError> {
-        self.0.write_in(target, edit, base, u)
+        self.0.write_in(target, edit, opts, u)
     }
 
     /// [`Card::overwrite_field`].

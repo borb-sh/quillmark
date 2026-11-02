@@ -11,7 +11,7 @@ use crate::lines::delta::{Op, diff_words as text_diff, rebase_pinned, without_se
 use crate::lines::import::{Against, ImportError, ImportWarning, from_markdown_against};
 use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{Block, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind};
+use crate::model::{Block, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind, Usv};
 use crate::table::{self, Table};
 use std::collections::{HashMap, HashSet};
 
@@ -60,8 +60,32 @@ fn fixups_carrying(cur: &Content, want: &Content, carry: Option<&HashSet<String>
         .collect()
 }
 
+/// The change that takes `before` to `after` where the two differ over one
+/// range of the text: `[from, to)` of `before`, which `after` holds as
+/// `[from, to + after.len - before.len)`, as a ProseMirror `ReplaceStep`
+/// names it. Its text is one splice over the characters of that range that
+/// differ, never coarser than the range, and its records, containers, marks,
+/// anchors and islands follow as [`diff`]'s do, so applying it reaches what
+/// `diff` reaches. Where the texts differ outside the range, or a block or
+/// island there holds another id than `before`'s, the range is not the
+/// change's, and the change is [`diff`]'s.
+pub fn diff_range(before: &Content, after: &Content, from: Usv, to: Usv) -> Result<Change, Invariant> {
+    after.validate()?;
+    let want = reachable(before, after, true);
+    let splices = range_splice(before, &want, from, to).unwrap_or_else(|| splices(before, &want));
+    Ok(Change::new(level_steps(before, &want, None, splices)))
+}
+
 fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>, top: bool) -> Vec<Step> {
     let want = reachable(before, after, top);
+    let splices = splices(before, &want);
+    level_steps(before, &want, carry, splices)
+}
+
+/// The steps that take `before` to `want` after `splices`, which take its
+/// text to `want`'s: each container, then the splices, then each record,
+/// island and slot that still differs, then the marks and anchors.
+fn level_steps(before: &Content, want: &Content, carry: Option<&HashSet<String>>, splices: Vec<Step>) -> Vec<Step> {
     let held = containers_by_id(before);
     let mut steps = Vec::new();
     for k in &want.containers {
@@ -69,7 +93,7 @@ fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>
             steps.push(Step::Container(ContainerStep::Set(k.clone())));
         }
     }
-    steps.extend(splices(before, &want).into_iter().map(|mut s| {
+    steps.extend(splices.into_iter().map(|mut s| {
         if let Step::Splice(sp) = &mut s {
             sp.removed = None;
         }
@@ -99,7 +123,7 @@ fn diff_level(before: &Content, after: &Content, carry: Option<&HashSet<String>>
     let ran = run(&mut cur, &rest);
     debug_assert!(ran.is_ok(), "a diff's record and island steps apply after its splices");
     steps.extend(rest);
-    steps.extend(fixups_carrying(&cur, &want, carry));
+    steps.extend(fixups_carrying(&cur, want, carry));
     steps
 }
 
@@ -171,36 +195,125 @@ fn fresh_id(id: &str, before: &Content, after: &Content) -> String {
 
 /// The splices of a word-aligned diff of the two texts, a kept `\n` or slot
 /// whose record differs deleted and inserted again.
-fn splices(before: &Content, want: &Content) -> Vec<Step> {
-    let a: Vec<char> = before.text.chars().collect();
-    let b: Vec<char> = want.text.chars().collect();
-    let records = |chars: &[char]| -> Vec<Option<usize>> {
-        let (mut nl, mut sl) = (0, 0);
-        chars
-            .iter()
-            .map(|&ch| match ch {
-                '\n' => {
-                    nl += 1;
-                    Some(nl)
-                }
-                ISLAND_SLOT => {
-                    sl += 1;
-                    Some(sl - 1)
-                }
-                _ => None,
-            })
-            .collect()
-    };
-    let (ra, rb) = (records(&a), records(&b));
-    let same = |i: usize, j: usize| match (a[i], ra[i], rb[j]) {
-        ('\n', Some(x), Some(y)) => before.blocks[x].id == want.blocks[y].id,
-        (ISLAND_SLOT, Some(x), Some(y)) => {
-            let (p, q) = (&before.islands[x], &want.islands[y]);
-            let slots_follow_props = !matches!(p.island_type, IslandType::Ext(_));
-            p.id == q.id && p.island_type == q.island_type && (slots_follow_props || p.slots.keys().eq(q.slots.keys()))
+/// The two texts and the record each `\n` and slot carries: a block's index
+/// for a `\n`, an island's for a slot.
+struct Texts<'a> {
+    before: &'a Content,
+    want: &'a Content,
+    a: Vec<char>,
+    b: Vec<char>,
+    ra: Vec<Option<usize>>,
+    rb: Vec<Option<usize>>,
+}
+
+impl<'a> Texts<'a> {
+    fn new(before: &'a Content, want: &'a Content) -> Self {
+        let a: Vec<char> = before.text.chars().collect();
+        let b: Vec<char> = want.text.chars().collect();
+        let (ra, rb) = (records(&a), records(&b));
+        Texts { before, want, a, b, ra, rb }
+    }
+
+    /// Whether `a[i]`, kept as `b[j]`, keeps its record: a `\n` its block's
+    /// id, a slot its island's id, type and, for an `x-` island, slots.
+    fn same(&self, i: usize, j: usize) -> bool {
+        match (self.a[i], self.ra[i], self.rb[j]) {
+            ('\n', Some(x), Some(y)) => self.before.blocks[x].id == self.want.blocks[y].id,
+            (ISLAND_SLOT, Some(x), Some(y)) => {
+                let (p, q) = (&self.before.islands[x], &self.want.islands[y]);
+                let slots_follow_props = !matches!(p.island_type, IslandType::Ext(_));
+                p.id == q.id && p.island_type == q.island_type && (slots_follow_props || p.slots.keys().eq(q.slots.keys()))
+            }
+            _ => true,
         }
-        _ => true,
+    }
+}
+
+fn records(chars: &[char]) -> Vec<Option<usize>> {
+    let (mut nl, mut sl) = (0, 0);
+    chars
+        .iter()
+        .map(|&ch| match ch {
+            '\n' => {
+                nl += 1;
+                Some(nl)
+            }
+            ISLAND_SLOT => {
+                sl += 1;
+                Some(sl - 1)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The furthest a range splice slides past its range to meet the records on
+/// either side, as Enter at a block's start, which the text alone places on
+/// either side of the `\n` before it, needs.
+const MAX_SLIDE: usize = 64;
+
+/// The one splice of `before` to `want` over `[from, to)` of `before`, its
+/// edges moved in past what the two keep and, where the records outside it
+/// differ, slid until they agree; `None` where no place within
+/// [`MAX_SLIDE`] makes them.
+fn range_splice(before: &Content, want: &Content, from: Usv, to: Usv) -> Option<Vec<Step>> {
+    let t = Texts::new(before, want);
+    let (a, b) = (&t.a, &t.b);
+    let to_b = (to + b.len()).checked_sub(a.len())?;
+    if from > to || to > a.len() || from > to_b || a[..from] != b[..from] || a[to..] != b[to_b..] {
+        return None;
+    }
+    let (mut i0, mut i1, mut j1) = (from, to, to_b);
+    while i0 < i1 && i0 < j1 && a[i0] == b[i0] && t.same(i0, i0) {
+        i0 += 1;
+    }
+    while i1 > i0 && j1 > i0 && a[i1 - 1] == b[j1 - 1] && t.same(i1 - 1, j1 - 1) {
+        i1 -= 1;
+        j1 -= 1;
+    }
+    let kept = |i0: usize, i1: usize, j1: usize| {
+        let lead = (0..i0).all(|k| t.same(k, k));
+        lead && (i1..a.len()).all(|k| t.same(k, k + j1 - i1))
     };
+    let mut at = Some((i0, i1, j1)).filter(|&(i0, i1, j1)| kept(i0, i1, j1));
+    let (mut l0, mut l1, mut lj) = (i0, i1, j1);
+    for _ in 0..MAX_SLIDE {
+        if at.is_some() || l0 == 0 {
+            break;
+        }
+        let la = if l1 > l0 { a[l1 - 1] } else { a[l0 - 1] };
+        let lb = if lj > l0 { b[lj - 1] } else { b[l0 - 1] };
+        if la != lb {
+            break;
+        }
+        (l0, l1, lj) = (l0 - 1, l1 - 1, lj - 1);
+        at = Some((l0, l1, lj)).filter(|&(i0, i1, j1)| kept(i0, i1, j1));
+    }
+    let (mut r0, mut r1, mut rj) = (i0, i1, j1);
+    for _ in 0..MAX_SLIDE {
+        if at.is_some() || r1 >= a.len() || rj >= b.len() {
+            break;
+        }
+        let fa = if r1 > r0 { a[r0] } else { a[r1] };
+        let fb = if rj > r0 { b[r0] } else { b[rj] };
+        if fa != fb {
+            break;
+        }
+        (r0, r1, rj) = (r0 + 1, r1 + 1, rj + 1);
+        at = Some((r0, r1, rj)).filter(|&(i0, i1, j1)| kept(i0, i1, j1));
+    }
+    let (i0, i1, j1) = at?;
+    if i0 == i1 && i0 == j1 {
+        return Some(Vec::new());
+    }
+    let marks = MarksOver::new(&want.marks);
+    Some(vec![Step::Splice(splice_of(want, &marks, &a[i0..i1], &b[i0..j1], i0, &t.rb[i0..j1], i0))])
+}
+
+fn splices(before: &Content, want: &Content) -> Vec<Step> {
+    let t = Texts::new(before, want);
+    let (a, b, ra, rb) = (&t.a, &t.b, &t.ra, &t.rb);
+    let same = |i: usize, j: usize| t.same(i, j);
     let marks = MarksOver::new(&want.marks);
     let mut steps = Vec::new();
     let (mut i, mut j, mut pos) = (0usize, 0usize, 0usize);

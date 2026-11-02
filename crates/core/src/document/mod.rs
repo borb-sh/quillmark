@@ -619,7 +619,7 @@ pub use revise::DocumentRevised;
 // Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
-pub use write::{Edit, LOG_STEPS, MAX_CHANGE_STEPS, Receipt, Target, check_change, check_content_value};
+pub use write::{Edit, LOG_STEPS, Located, MAX_CHANGE_STEPS, Receipt, Target, WriteOptions, check_change, check_content_value};
 
 /// Where Quillmark Markdown departs from plain Markdown and YAML, as rules
 /// surfaced verbatim to LLM/MCP consumers and to the bindings. The single

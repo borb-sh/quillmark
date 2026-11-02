@@ -21,12 +21,7 @@ import type {
 	normalize,
 	invert,
 	diff,
-	splitBlock,
-	joinBlocks,
-	deleteRange,
-	indent,
-	outdent,
-	wrap,
+	diffRange,
 	inheritedMarks,
 	mapPos,
 	repair,
@@ -52,12 +47,7 @@ export interface CoreSurface {
 	normalize: typeof normalize;
 	invert: typeof invert;
 	diff: typeof diff;
-	splitBlock: typeof splitBlock;
-	joinBlocks: typeof joinBlocks;
-	deleteRange: typeof deleteRange;
-	indent: typeof indent;
-	outdent: typeof outdent;
-	wrap: typeof wrap;
+	diffRange: typeof diffRange;
 	inheritedMarks: typeof inheritedMarks;
 	mapPos: typeof mapPos;
 	repair: typeof repair;

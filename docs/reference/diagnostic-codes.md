@@ -163,6 +163,7 @@ A mutator or typed write the document refuses.
 - `edit::import`
 - `edit::input_too_large`
 - `edit::index_out_of_range`
+- `edit::invalid_actor`
 - `edit::invalid_card_id`
 - `edit::invalid_field_name`
 - `edit::invalid_kind_name`

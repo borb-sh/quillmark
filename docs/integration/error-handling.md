@@ -68,6 +68,8 @@ A content write meets the content bounds under `edit::*`:
 - `edit::too_many_marks` (`count`, `max`): a text holding more marks than 64 and 4 per character of it.
 - `edit::too_many_anchors` (`count`, `max`): a value holding more than 100 000 anchors.
 
+A write whose `actor` is not 1 to 64 characters free of whitespace, controls and `:`, or opens with `?`, refuses with `edit::invalid_actor` (`actor`).
+
 `parse::payload_not_mapping` is a card-yaml block whose payload is YAML but not a mapping, usually code fenced with `~~~` in a body. It is located at the fence's line. Its `args` carry `actual` (`string`, `number`, `boolean` or `sequence`) and, when the fence has one, `info`, the info string.
 
 `parse::missing_kind` is a card-yaml block after the root whose payload names no `$kind`: a card missing its kind line, or code fenced with `~~~` whose text reads as a mapping. It is located at the fence's line, and its `args` carry `info` when the fence has one.

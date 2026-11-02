@@ -942,14 +942,17 @@ impl PyDocument {
     /// **Apply** `change` to the value at `field` on `card`, all its steps or
     /// none, and return the receipt: `applied` (the change in its normalized
     /// form, which `invert` undoes), `hash` (the next write's `base`),
-    /// `dropped_anchors`, `moved_anchors`, `warnings` and `rebased`. `base`
-    /// is the hash the writer read (`hash_at`); pass it. One the value has
+    /// `dropped_anchors`, `moved_anchors`, `warnings`, `rebased` and
+    /// `minted`, each placeholder id the change gave a record mapped to the id
+    /// the write minted. `actor` scopes each id the write mints,
+    /// `{actor}:{prefix}{n}`. `base` is the hash the writer read
+    /// (`hash_at`); pass it. One the value has
     /// moved on from rebases the change over the change since, raising
     /// `edit::rebase_conflict` where they touch the same text or
     /// record and `edit::stale_base` where the document no longer holds the change
     /// since. A refused change raises `edit::content_apply` and writes
     /// nothing.
-    #[pyo3(signature = (change, field=None, card=None, base=None))]
+    #[pyo3(signature = (change, field=None, card=None, base=None, actor=None))]
     fn apply<'py>(
         &mut self,
         py: Python<'py>,
@@ -957,19 +960,20 @@ impl PyDocument {
         field: Option<&str>,
         card: Option<CardSel>,
         base: Option<&str>,
+        actor: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "apply")?;
         let target = Target::resolve(&self.inner, card)?;
         let change = crate::content::change_from_py(change, "apply")?;
         let edit = quillmark_core::document::Edit::Apply(change);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base, actor })
     }
 
     /// Rewrite the value at `field` on `card` as `markdown`: the anchors and
     /// islands whose `qm-*` tags it keeps (`annotated` spells them) stay put,
     /// and the rest keeps what a word-aligned diff keeps. Returns the receipt,
     /// its `warnings` the import's. Raises as `apply`.
-    #[pyo3(signature = (markdown, field=None, card=None, base=None))]
+    #[pyo3(signature = (markdown, field=None, card=None, base=None, actor=None))]
     fn revise<'py>(
         &mut self,
         py: Python<'py>,
@@ -977,17 +981,18 @@ impl PyDocument {
         field: Option<&str>,
         card: Option<CardSel>,
         base: Option<&str>,
+        actor: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "revise")?;
         let target = Target::resolve(&self.inner, card)?;
         let edit = quillmark_core::document::Edit::Revise(markdown);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base, actor })
     }
 
     /// Write `content` over the value at `field` on `card`, carrying each
     /// anchor it does not name where a diff keeps its text and reporting the
     /// rest in `dropped_anchors`. Raises as `apply`.
-    #[pyo3(signature = (content, field=None, card=None, base=None))]
+    #[pyo3(signature = (content, field=None, card=None, base=None, actor=None))]
     fn replace<'py>(
         &mut self,
         py: Python<'py>,
@@ -995,12 +1000,13 @@ impl PyDocument {
         field: Option<&str>,
         card: Option<CardSel>,
         base: Option<&str>,
+        actor: Option<&str>,
     ) -> PyResult<Bound<'py, PyDict>> {
         require_card_id(&card, "replace")?;
         let target = Target::resolve(&self.inner, card)?;
         let content = crate::content::content_from_py(content, "replace")?;
         let edit = quillmark_core::document::Edit::Replace(content);
-        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, base)
+        crate::content::write(py, &mut self.inner, target.index, &target.base, field, edit, quillmark_core::document::WriteOptions { base, actor })
     }
 }
 

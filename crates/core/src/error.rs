@@ -828,6 +828,7 @@ mod args_canon {
                 island: "isl-x".into(),
                 kind: "x-chart".into(),
             },
+            EditError::InvalidActor("a:b".into()),
         ] {
             add(e.code(), e.args());
         }

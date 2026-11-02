@@ -9,7 +9,7 @@ use pyo3::types::PyDict;
 use quillmark_content::change::{self, Change};
 use quillmark_content::model::Content;
 use quillmark_content::wire::ParseError;
-use quillmark_core::document::{Document, Edit, EditError, Receipt, Target, check_change, check_content_value};
+use quillmark_core::document::{Document, Edit, EditError, Receipt, Target, WriteOptions, check_change, check_content_value};
 use quillmark_core::path::DocPath;
 
 use crate::errors::convert_edit_error;
@@ -53,7 +53,7 @@ pub(crate) fn write<'py>(
     base_path: &DocPath,
     field: Option<&str>,
     edit: Edit<'_>,
-    base: Option<&str>,
+    opts: WriteOptions<'_>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let path = match field {
         None => base_path.body(),
@@ -64,7 +64,7 @@ pub(crate) fn write<'py>(
         Some(i) => doc.card_mut(i).expect("the card index is resolved"),
     };
     let to_py = |e: EditError| convert_edit_error(e, base_path);
-    let receipt: Receipt = card.write(Target::from(field), edit, base).map_err(to_py)?;
+    let receipt: Receipt = card.write(Target::from(field), edit, opts).map_err(to_py)?;
     let card_id = card.id().map(str::to_string);
     let warnings = py_diagnostics(receipt.diagnostics(Some(&path)));
     let dropped: Vec<_> = receipt
@@ -98,6 +98,7 @@ pub(crate) fn write<'py>(
     out.set_item("moved_anchors", json_to_py(py, &serde_json::Value::Array(moved))?)?;
     out.set_item("warnings", warnings)?;
     out.set_item("rebased", receipt.rebased)?;
+    out.set_item("minted", receipt.minted)?;
     Ok(out)
 }
 

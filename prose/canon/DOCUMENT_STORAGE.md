@@ -403,13 +403,13 @@ Each section below states one handle's policy whole.
 ## Island-id determinism
 
 A structural id is part of the canonical form, so it is hash input like every
-other field, and byte-stability's promise: equal content → equal bytes,
-*whatever the producer*: requires that equal content carry equal ids. The rule:
-**an id Quillmark mints is a deterministic function of content, never drawn
-from an ambient source** (RNG, wall-clock, UUID, allocation identity, session
-or process state). An ambient id would make re-importing the same markdown
-yield different bytes for the same document, silently breaking divergence
-detection and cache keys.
+other field, and byte-stability's promise of equal bytes for equal content
+holds for a cold import, a migration and a revise: equal content from them
+carries equal ids. The rule: **an id Quillmark mints is a deterministic
+function of the values in play and the writer's actor, never drawn from an
+ambient source** (RNG, wall-clock, UUID, allocation identity, process state).
+An ambient id would make re-importing the same markdown yield different bytes
+for the same document, silently breaking divergence detection and cache keys.
 
 The scheme is positional: `{prefix}{n}` past the highest number the value
 already holds under the prefix (`ids::Minter`), so a cold import is a pure
@@ -420,12 +420,13 @@ The invariant that holds for every `Content`, checked by `Content::validate`,
 is therefore **uniqueness**, not `id == isl-{index}`.
 
 A step names the ids of what it lands, and the apply refuses one already live
-in its scope. A producer minting in a step is bound by the same rule where it
-wants equal edits to reach equal bytes; a live client mints its own by a rule
-of its own, and a write re-mints one it introduces that the value holds, so a
-live document's hash is stable from the moment it is stored rather than equal
-to a cold import's. Merge repair derives each id it mints from the ids
-involved ([CONTENT.md](CONTENT.md) § "Merge repair").
+in its scope. A live client mints none of its own: a record it puts carries a
+placeholder the write fills, and the write mints under the client's actor,
+`{actor}:{prefix}{n}`, so two clients never mint one id
+([CONTENT.md](CONTENT.md) § Ids). A live document's bytes therefore depend on
+which actors wrote it, and its hash is stable from the moment it is stored
+rather than equal to a cold import's. Merge repair derives each id it mints
+from the ids involved ([CONTENT.md](CONTENT.md) § "Merge repair").
 
 A markdown revise keeps the ids: `diff::align` gives the value read from the
 markdown the ids of what it kept, an island equal to a stored one keeping that

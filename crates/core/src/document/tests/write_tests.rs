@@ -23,7 +23,7 @@ fn apply_lands_a_change_and_answers_its_inverse() {
     let base = doc.main().hash_of(Target::Body).unwrap();
     let receipt = doc
         .main_mut()
-        .apply(Target::Body, &split_at(12, "b9"), Some(&base))
+        .apply(Target::Body, &split_at(12, "b9"), Some(base.as_str()))
         .unwrap();
     let body = doc.main().body();
     assert_eq!(body.text, "Revenue grew\n12%.\nShip v2");
@@ -60,7 +60,7 @@ fn a_base_from_before_a_thousand_keystrokes_rebases() {
     assert_eq!(doc.main().read_at(Target::Body, Some(&hashes[499])).unwrap().text, format!("{typed}Revenue grew 12%.\nShip v2"));
     let receipt = doc
         .main_mut()
-        .apply(Target::Body, &split_at(7, "b8"), Some(&base))
+        .apply(Target::Body, &split_at(7, "b8"), Some(base.as_str()))
         .unwrap();
     assert!(receipt.rebased);
     assert_eq!(doc.main().body().text, format!("{typed}Revenue\ngrew 12%.\nShip v2{typed}"));
@@ -83,7 +83,7 @@ fn a_base_past_the_step_bound_or_a_refused_change_writes_nothing() {
     let held = doc.clone();
     let err = doc
         .main_mut()
-        .apply(Target::Body, &split_at(7, "b8"), Some(folded))
+        .apply(Target::Body, &split_at(7, "b8"), Some(folded.as_str()))
         .unwrap_err();
     assert_eq!(err.code(), "edit::stale_base");
     let err = doc.main_mut().apply(Target::Body, &split_at(2, "b8"), None).unwrap_err();
@@ -91,7 +91,7 @@ fn a_base_past_the_step_bound_or_a_refused_change_writes_nothing() {
     assert_eq!(doc, held);
     let receipt = doc
         .main_mut()
-        .apply(Target::Body, &split_at(typed + 7, "b8"), Some(reach))
+        .apply(Target::Body, &split_at(typed + 7, "b8"), Some(reach.as_str()))
         .unwrap();
     assert!(receipt.rebased);
     assert_eq!(doc.main().body().text, format!("{}Revenue\ngrew 12%.\nShip v2", "x".repeat(hashes.len() * EACH)));
@@ -108,7 +108,7 @@ fn the_newest_write_stays_past_the_step_bound() {
     type_keys(&mut doc, [(0, 2 * LOG_STEPS + 1)]);
     let receipt = doc
         .main_mut()
-        .apply(Target::Body, &split_at(10, "b8"), Some(&base))
+        .apply(Target::Body, &split_at(10, "b8"), Some(base.as_str()))
         .unwrap();
     assert!(receipt.rebased);
     assert_eq!(doc.main().body().text, format!("{}Revenue\ngrew 12%.\nShip v2", "x".repeat(2 * LOG_STEPS + 4)));
@@ -124,7 +124,7 @@ fn a_stale_base_rebases_over_what_changed_since() {
     doc.main_mut().apply(Target::Body, &split_at(12, "b9"), None).unwrap();
     let receipt = doc
         .main_mut()
-        .apply(Target::Body, &split_at(7, "b8"), Some(&base))
+        .apply(Target::Body, &split_at(7, "b8"), Some(base.as_str()))
         .unwrap();
     assert!(receipt.rebased);
     assert_eq!(doc.main().body().text, "Revenue\ngrew\n12%.\nShip v2");
@@ -147,7 +147,7 @@ fn a_slow_anchor_lands_on_its_text_over_live_typing() {
         anchor: Anchor::new("c1".to_string(), 13, 16),
         quote: Some("12%".to_string()),
     })]);
-    let receipt = doc.main_mut().apply(Target::Body, &place, Some(&base)).unwrap();
+    let receipt = doc.main_mut().apply(Target::Body, &place, Some(base.as_str())).unwrap();
     assert!(receipt.rebased);
     assert_eq!(doc.main().body().anchors, [Anchor::new("c1".to_string(), 21, 24)]);
 }
@@ -161,7 +161,7 @@ fn a_slow_revise_keeps_a_concurrent_edit_elsewhere() {
     doc.main_mut().revise(Target::Body, "Revenue grew 12%.\n\nShip v2 on Friday", None).unwrap();
     let receipt = doc
         .main_mut()
-        .revise(Target::Body, "Revenue grew 14%.\n\nShip v2", Some(&base))
+        .revise(Target::Body, "Revenue grew 14%.\n\nShip v2", Some(base.as_str()))
         .unwrap();
     assert!(receipt.rebased);
     assert_eq!(doc.main().body().text, "Revenue grew 14%.\nShip v2 on Friday");
@@ -176,10 +176,10 @@ fn a_slow_revise_keeps_a_concurrent_edit_elsewhere() {
 fn two_stale_revises_that_each_add_a_paragraph_elsewhere_both_land() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nAlpha\n\nBeta\n\nGamma\n");
     let base = doc.main().hash_of(Target::Body).unwrap();
-    doc.main_mut().revise(Target::Body, "Alpha\n\nInserted one\n\nBeta\n\nGamma\n", Some(&base)).unwrap();
+    doc.main_mut().revise(Target::Body, "Alpha\n\nInserted one\n\nBeta\n\nGamma\n", Some(base.as_str())).unwrap();
     let receipt = doc
         .main_mut()
-        .revise(Target::Body, "Alpha\n\nBeta\n\nGamma\n\nInserted two\n", Some(&base))
+        .revise(Target::Body, "Alpha\n\nBeta\n\nGamma\n\nInserted two\n", Some(base.as_str()))
         .unwrap();
     assert!(receipt.rebased);
     assert_eq!(doc.main().body().text, "Alpha\nInserted one\nBeta\nGamma\nInserted two");
@@ -191,9 +191,9 @@ fn two_stale_revises_that_each_add_a_paragraph_elsewhere_both_land() {
 fn a_stale_replace_reusing_ids_introduced_since_lands_beside_them() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nAlpha\n\nGamma\n");
     let base = doc.main().hash_of(Target::Body).unwrap();
-    doc.main_mut().revise(Target::Body, "Alpha[^a]\n\n- one\n\nGamma\n\n[^a]: first", Some(&base)).unwrap();
+    doc.main_mut().revise(Target::Body, "Alpha[^a]\n\n- one\n\nGamma\n\n[^a]: first", Some(base.as_str())).unwrap();
     let mine = quillmark_content::markdown::from_markdown("Alpha\n\nGamma[^b]\n\n- two\n\n[^b]: second").unwrap().content;
-    let receipt = doc.main_mut().replace(Target::Body, &mine, Some(&base)).unwrap();
+    let receipt = doc.main_mut().replace(Target::Body, &mine, Some(base.as_str())).unwrap();
     assert!(receipt.rebased);
     let body = doc.main().body();
     assert_eq!((body.containers.len(), body.islands.len()), (4, 2));
@@ -210,7 +210,7 @@ fn overlapping_edits_refuse_with_a_rebase_conflict() {
     let held = doc.clone();
     let err = doc
         .main_mut()
-        .revise(Target::Body, "Revenue grew 14%.\n\nShip v2", Some(&base))
+        .revise(Target::Body, "Revenue grew 14%.\n\nShip v2", Some(base.as_str()))
         .unwrap_err();
     assert_eq!(err.code(), "edit::rebase_conflict");
     let args = err.args();
@@ -233,10 +233,10 @@ fn a_stale_write_keeps_a_record_changed_since_or_refuses() {
         attrs: serde_json::json!({"level": 2}).as_object().cloned(),
         path: None,
     })]);
-    doc.main_mut().apply(Target::Body, &heading, Some(&base)).unwrap();
+    doc.main_mut().apply(Target::Body, &heading, Some(base.as_str())).unwrap();
     let receipt = doc
         .main_mut()
-        .revise(Target::Body, "Revenue grew 12%.\n\n> Ship v2", Some(&base))
+        .revise(Target::Body, "Revenue grew 12%.\n\n> Ship v2", Some(base.as_str()))
         .unwrap();
     assert!(receipt.rebased);
     let b1 = doc.main().body().blocks[1].clone();
@@ -245,7 +245,7 @@ fn a_stale_write_keeps_a_record_changed_since_or_refuses() {
     let held = doc.clone();
     let err = doc
         .main_mut()
-        .revise(Target::Body, "Revenue grew 12%.\n\n### Ship v2", Some(&base))
+        .revise(Target::Body, "Revenue grew 12%.\n\n### Ship v2", Some(base.as_str()))
         .unwrap_err();
     assert_eq!(err.code(), "edit::rebase_conflict");
     assert_eq!(err.args()["reason"], serde_json::json!("changed"));
@@ -272,7 +272,7 @@ fn a_write_mints_from_the_values_alone_and_a_stale_step_misses_a_freed_id() {
     assert_eq!(ids, ["b0", "b1", "b2"]);
 
     let held = doc.clone();
-    let err = doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\n## Gamma", Some(&base)).unwrap_err();
+    let err = doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\n## Gamma", Some(base.as_str())).unwrap_err();
     assert_eq!((err.code(), err.args()["reason"].clone()), ("edit::rebase_conflict", serde_json::json!("missing")));
     assert_eq!(doc, held);
     let heading = Change::new(vec![Step::SetBlock(quillmark_content::change::SetBlock {
@@ -281,7 +281,7 @@ fn a_write_mints_from_the_values_alone_and_a_stale_step_misses_a_freed_id() {
         attrs: serde_json::json!({"level": 1}).as_object().cloned(),
         path: None,
     })]);
-    let err = doc.main_mut().apply(Target::Body, &heading, Some(&base)).unwrap_err();
+    let err = doc.main_mut().apply(Target::Body, &heading, Some(base.as_str())).unwrap_err();
     assert_eq!((err.code(), err.args()["reason"].clone()), ("edit::rebase_conflict", serde_json::json!("missing")));
     assert_eq!(doc, held);
 }
@@ -303,9 +303,9 @@ fn a_stale_step_misses_an_id_a_live_editor_minted_again() {
         attrs: serde_json::json!({"level": 1}).as_object().cloned(),
         path: None,
     })]);
-    let err = doc.main_mut().apply(Target::Body, &heading, Some(&base)).unwrap_err();
+    let err = doc.main_mut().apply(Target::Body, &heading, Some(base.as_str())).unwrap_err();
     assert_eq!((err.code(), err.args()["reason"].clone()), ("edit::rebase_conflict", serde_json::json!("missing")));
-    let err = doc.main_mut().revise(Target::Body, "alpha\n\nbravo\n\n# charlie", Some(&base)).unwrap_err();
+    let err = doc.main_mut().revise(Target::Body, "alpha\n\nbravo\n\n# charlie", Some(base.as_str())).unwrap_err();
     assert_eq!(err.code(), "edit::rebase_conflict");
     assert_eq!(doc, held);
 }
@@ -316,9 +316,9 @@ fn a_stale_step_misses_an_id_a_live_editor_minted_again() {
 fn a_stale_move_of_a_block_re_kinded_since_refuses() {
     let mut doc = parse("~~~\n$quill: q\n~~~\n\nAlpha\n\nBeta\n\nGamma\n");
     let base = doc.main().hash_of(Target::Body).unwrap();
-    doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\n## Gamma", Some(&base)).unwrap();
+    doc.main_mut().revise(Target::Body, "Alpha\n\nBeta\n\n## Gamma", Some(base.as_str())).unwrap();
     let held = doc.clone();
-    let err = doc.main_mut().revise(Target::Body, "Alpha\n\nGamma\n\nBeta", Some(&base)).unwrap_err();
+    let err = doc.main_mut().revise(Target::Body, "Alpha\n\nGamma\n\nBeta", Some(base.as_str())).unwrap_err();
     assert_eq!(err.code(), "edit::rebase_conflict");
     assert_eq!(doc, held);
 }
@@ -395,7 +395,7 @@ fn a_write_lands_on_the_card_its_writer_read() {
         shuffle(&mut doc);
         let at = doc.card_index("bbb").unwrap();
         let change = Change::new(vec![Step::Splice(Splice::new(5, "", " world"))]);
-        doc.card_mut(at).unwrap().apply(Target::Body, &change, Some(&base)).unwrap();
+        doc.card_mut(at).unwrap().apply(Target::Body, &change, Some(base.as_str())).unwrap();
         let written: Vec<String> = bodies(&doc).into_iter().filter(|(_, t)| t != "Hello").map(|(id, _)| id).collect();
         assert_eq!(written, ["bbb"]);
         assert_eq!(doc.card_by_id("bbb").unwrap().body().text, "Hello world");
@@ -634,4 +634,58 @@ fn a_remembered_hash_is_the_values_own() {
     for target in [Target::Body, notes] {
         assert_eq!(doc.main().hash_of(target).unwrap(), content_hash(&doc.main().read(target).unwrap()));
     }
+}
+
+/// Two live writers gesture from one read under their own actors: each
+/// verb answers its receipt, the second rebased, and their mints differ. A
+/// placeholder in a stale apply is filled past the value it lands on and named
+/// in `minted`; a revise under an actor mints under it, and a bad actor
+/// writes nothing.
+#[test]
+fn gestures_and_placeholders_mint_under_the_writers_actor() {
+    use crate::document::WriteOptions;
+    use quillmark_content::gestures::Wrap;
+    let mut doc = parse("~~~\n$quill: q\n~~~\n\nalpha\n\nbravo\n\ncharlie\n");
+    let base = doc.main().hash_of(Target::Body).unwrap();
+    let ann = WriteOptions { base: Some(&base), actor: Some("ann") };
+    let bo = WriteOptions { base: Some(&base), actor: Some("bo") };
+    let quoted = doc.main_mut().wrap(Target::Body, "b0", "b1", Wrap::Quote, ann).unwrap();
+    assert_eq!(quoted.minted.get("?0").map(String::as_str), Some("ann:q0"));
+    let split = doc.main_mut().split_block(Target::Body, 14, None, bo).unwrap();
+    assert!(split.rebased);
+    assert_eq!(split.minted.get("?0").map(String::as_str), Some("bo:b0"));
+    let listed = doc.main_mut().wrap(Target::Body, "b2", "b2", Wrap::List { ordered: true, checked: None }, bo).unwrap();
+    assert!(listed.rebased);
+    assert_eq!(listed.minted.values().map(String::as_str).collect::<Vec<_>>(), ["bo:l0", "bo:i0"]);
+    let body = doc.main().body();
+    let ids: Vec<&str> = body.blocks.iter().map(|b| b.id.as_str()).collect();
+    assert_eq!(ids, ["b0", "b1", "b2", "bo:b0"]);
+    assert_eq!(body.blocks[2].path, ["bo:l0", "bo:i0"]);
+    let located = doc.main().locate(Target::Body, 7).unwrap();
+    assert_eq!((located.id.as_str(), located.index, located.path.as_slice()), ("b1", 1, &["ann:q0".to_string()][..]));
+
+    let insert = Change::new(vec![
+        Step::Splice(Splice { blocks: vec![Block::new("?p".to_string(), BlockKind::Para)], ..Splice::new(19, "", "\nnew") }),
+        Step::SetBlock(quillmark_content::change::SetBlock {
+            id: "?p".into(),
+            kind: Some("heading".into()),
+            attrs: serde_json::json!({"level": 2}).as_object().cloned(),
+            path: None,
+        }),
+    ]);
+    let filled = doc.main_mut().apply(Target::Body, &insert, Some(base.as_str())).unwrap();
+    assert!(filled.rebased);
+    assert_eq!(filled.minted.get("?p").map(String::as_str), Some("b3"));
+    assert!(doc.main().body().blocks.iter().any(|b| b.id == "b3" && matches!(b.kind, BlockKind::Heading { level: 2 })));
+
+    let now = doc.main().hash_of(Target::Body).unwrap();
+    let more = format!("{}\n\nend\n", doc.main().body_annotated().markdown.trim_end());
+    let revised = doc.main_mut().revise(Target::Body, &more, WriteOptions { base: Some(&now), actor: Some("cy") }).unwrap();
+    assert_eq!(doc.main().body().blocks.last().unwrap().id, "cy:b0");
+    assert!(revised.minted.is_empty());
+
+    let held = doc.clone();
+    let err = doc.main_mut().join_blocks(Target::Body, "b1", WriteOptions { base: None, actor: Some("a:b") }).unwrap_err();
+    assert_eq!(err.code(), "edit::invalid_actor");
+    assert_eq!(doc, held);
 }

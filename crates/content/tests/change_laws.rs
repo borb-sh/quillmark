@@ -642,7 +642,7 @@ fn segments(c: &Content) -> Vec<String> {
 #[test]
 fn a_split_keeps_the_text_on_its_id_and_a_join_keeps_the_left_block() {
     let d = from_markdown("# Title\n\nalpha\n\nbody").unwrap().content;
-    let split = |at| segments(&apply(&d, &split_block(&d, at, "n").unwrap()).unwrap().content);
+    let split = |at| segments(&apply(&d, &split_block(&d, at, Some("n")).unwrap()).unwrap().content);
     assert_eq!(split(8), ["b0#=Title", "b1=al", "n=pha", "b2=body"]);
     assert_eq!(split(5), ["b0#=Title", "n#=", "b1=alpha", "b2=body"]);
     assert_eq!(split(11), ["b0#=Title", "b1=alpha", "n=", "b2=body"]);
@@ -685,7 +685,7 @@ proptest! {
     #[test]
     fn a_split_keeps_every_id_and_its_join_undoes_it(d in document(), at in any::<usize>()) {
         let at = at % (d.len_usv() + 1);
-        let split = apply(&d, &split_block(&d, at, "n").unwrap()).unwrap().content;
+        let split = apply(&d, &split_block(&d, at, Some("n")).unwrap()).unwrap().content;
         let kept: Vec<&str> = split.blocks.iter().map(|b| b.id.as_str()).filter(|id| *id != "n").collect();
         prop_assert_eq!(kept, d.blocks.iter().map(|b| b.id.as_str()).collect::<Vec<_>>());
         let joined = apply(&split, &join_blocks(&split, "n").unwrap()).unwrap().content;
@@ -2009,4 +2009,136 @@ fn a_diff_merging_or_splitting_table_cells_lands_the_span() {
         let change = quillmark_content::diff::diff(from, to).unwrap();
         assert_eq!(&apply(from, &change).unwrap().content, to);
     }
+}
+
+/// Each character of `c`'s text, a `\n` with the id of the block it opens and
+/// a slot with its island's.
+fn keyed(c: &Content) -> Vec<String> {
+    let (mut nl, mut sl) = (0, 0);
+    c.text
+        .chars()
+        .map(|ch| match ch {
+            '\n' => {
+                nl += 1;
+                format!("\n{}", c.blocks[nl].id)
+            }
+            ISLAND_SLOT => {
+                sl += 1;
+                format!("{ch}{}", c.islands[sl - 1].id)
+            }
+            ch => ch.to_string(),
+        })
+        .collect()
+}
+
+/// The narrowest range of `a` outside which `b` holds the same characters
+/// and records: `(from, to)`, offsets into `a`.
+fn changed_range(a: &Content, b: &Content) -> (usize, usize) {
+    let (ka, kb) = (keyed(a), keyed(b));
+    let lead = ka.iter().zip(&kb).take_while(|(x, y)| x == y).count();
+    let room = ka.len().min(kb.len()) - lead;
+    let tail = ka.iter().rev().zip(kb.iter().rev()).take(room).take_while(|(x, y)| x == y).count();
+    (lead, ka.len() - tail)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(400))]
+
+    /// A range splice reaches what the whole diff reaches for every range,
+    /// and over a range holding every change, is one splice no wider than
+    /// it.
+    #[test]
+    fn a_range_diff_reaches_the_diffs_value_and_is_never_coarser_than_its_range(
+        d in document(), ops in ops(), wide in (any::<usize>(), any::<usize>()), wild in (any::<usize>(), any::<usize>()),
+    ) {
+        use quillmark_content::diff::{diff, diff_range};
+        let edited = apply(&d, &change_for(&d, &ops)).unwrap().content;
+        let whole = apply(&d, &diff(&d, &edited).unwrap()).unwrap().content;
+        let (from, to) = changed_range(&d, &edited);
+        let len = d.len_usv();
+        let (from, to) = (from - wide.0 % (from + 1), to + wide.1 % (len - to + 1));
+        let change = diff_range(&d, &edited, from, to).unwrap();
+        prop_assert_eq!(&apply(&d, &change).unwrap().content, &whole, "{:?}", change);
+        let splices: Vec<&Splice> = change.steps.iter().filter_map(|s| if let Step::Splice(s) = s { Some(s) } else { None }).collect();
+        prop_assert!(splices.len() <= 1, "{:?}", change);
+        let grown = edited.len_usv() + to - len;
+        for s in splices {
+            prop_assert!(s.delete.chars().count() <= to - from && s.insert.chars().count() <= grown - from, "{:?} over {}..{}", s, from, to);
+        }
+        let (x, y) = (wild.0 % (len + 1), wild.1 % (len + 1));
+        let any = diff_range(&d, &edited, x.min(y), x.max(y)).unwrap();
+        prop_assert_eq!(apply(&d, &any).unwrap().content, whole);
+    }
+}
+
+#[test]
+fn a_range_diff_types_one_letter_as_one_letter_and_keeps_enter_on_the_text() {
+    use quillmark_content::diff::diff_range;
+    let d = from_markdown("Paragraph one\n\ntwo").unwrap().content;
+    let typed = apply(&d, &Change::new(vec![Step::Splice(Splice::new(4, "", "x"))])).unwrap().content;
+    let change = diff_range(&d, &typed, 4, 4).unwrap();
+    assert_eq!(change.steps, [Step::Splice(Splice::new(4, "", "x"))]);
+    let entered = apply(&d, &split_block(&d, 14, Some("n")).unwrap()).unwrap().content;
+    assert_eq!(segments(&entered), ["b0=Paragraph one", "n=", "b1=two"]);
+    let change = diff_range(&d, &entered, 14, 14).unwrap();
+    assert_eq!(apply(&d, &change).unwrap().content, entered);
+    assert!(matches!(&change.steps[..], [Step::Splice(s)] if s.delete.is_empty() && s.insert == "\n"), "{:?}", change);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(300))]
+
+    /// Two writers each gesture from one value under their own actor: the
+    /// ids each mints are its own, so where the second rebases over the
+    /// first, nothing is renamed and the value holds only ids one of them or
+    /// the value gave.
+    #[test]
+    fn two_actors_gesturing_from_one_value_never_mint_one_id(
+        d in nested_document(), picks in prop::collection::vec((any::<usize>(), any::<usize>(), 0u8..5), 2),
+    ) {
+        use quillmark_content::mint::fill;
+        let n = d.blocks.len();
+        let gesture = |(x, y, g): (usize, usize, u8)| {
+            let (k0, k1) = ((x % n).min(y % n), (x % n).max(y % n));
+            let (first, last) = (&d.blocks[k0].id, &d.blocks[k1].id);
+            match g {
+                0 => wrap(&d, first, last, &Wrap::List { ordered: x % 2 == 0, checked: None }),
+                1 => wrap(&d, first, last, &Wrap::Quote),
+                2 => indent(&d, first, last),
+                3 => outdent(&d, first, last),
+                _ => split_block(&d, x % (d.len_usv() + 1), None),
+            }
+        };
+        let (Ok(a), Ok(b)) = (gesture(picks[0]), gesture(picks[1])) else { return Ok(()) };
+        let (a, b) = (fill(&a, &[&d], None, Some("ann")).unwrap(), fill(&b, &[&d], None, Some("bo")).unwrap());
+        let (ours, theirs): (BTreeSet<&String>, BTreeSet<&String>) = (a.minted.values().collect(), b.minted.values().collect());
+        prop_assert!(ours.iter().all(|id| id.starts_with("ann:")) && theirs.iter().all(|id| id.starts_with("bo:")));
+        let Ok(first) = apply(&d, &a.change) else { return Ok(()) };
+        let Ok(rebased) = rebase(&d, &b.change, &a.change) else { return Ok(()) };
+        let done = apply(&first.content, &rebased);
+        prop_assert!(done.is_ok(), "{:?}", done);
+        let done = done.unwrap().content;
+        let given: BTreeSet<&String> = d.blocks.iter().map(|b| &b.id).chain(d.containers.iter().map(|k| &k.id)).chain(ours).chain(theirs).collect();
+        for id in done.blocks.iter().map(|b| &b.id).chain(done.containers.iter().map(|k| &k.id)) {
+            prop_assert!(given.contains(id), "{} is renamed", id);
+        }
+    }
+}
+
+#[test]
+fn a_placeholder_is_filled_by_the_apply_and_by_a_rebase_past_both_values() {
+    let d = from_markdown("one\n\ntwo").unwrap().content;
+    let insert = |at, id: &str| {
+        Change::new(vec![
+            Step::Splice(Splice { blocks: vec![Block::new(id.to_string(), BlockKind::Para)], ..Splice::new(at, "", "\nnew") }),
+            Step::SetBlock(SetBlock { id: id.to_string(), kind: Some("heading".into()), attrs: json!({"level": 2}).as_object().cloned(), path: None }),
+        ])
+    };
+    let done = apply(&d, &insert(3, "?p")).unwrap();
+    assert_eq!(done.minted.get("?p").map(String::as_str), Some("b2"));
+    assert_eq!(segments(&done.content), ["b0=one", "b2#=new", "b1=two"]);
+    let ours = apply(&d, &insert(7, "b2")).unwrap().content;
+    let rebased = rebase(&d, &insert(3, "?p"), &insert(7, "b2")).unwrap();
+    assert_eq!(segments(&apply(&ours, &rebased).unwrap().content), ["b0=one", "b3#=new", "b1=two", "b2#=new"]);
+    assert!(matches!(apply(&d, &Change::new(vec![insert(3, "?p").steps[1].clone()])), Err(ApplyError::BadStep { .. })));
 }

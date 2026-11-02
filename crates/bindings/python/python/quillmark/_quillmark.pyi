@@ -164,13 +164,28 @@ class Document:
     def read(self, field: str | None = None, card: int | str | None = None) -> Content: ...
     def annotated(self, field: str | None = None, card: int | str | None = None) -> str: ...
     def apply(
-        self, change: Change, field: str | None = None, card: str | None = None, base: str | None = None
+        self,
+        change: Change,
+        field: str | None = None,
+        card: str | None = None,
+        base: str | None = None,
+        actor: str | None = None,
     ) -> Receipt: ...
     def revise(
-        self, markdown: str, field: str | None = None, card: str | None = None, base: str | None = None
+        self,
+        markdown: str,
+        field: str | None = None,
+        card: str | None = None,
+        base: str | None = None,
+        actor: str | None = None,
     ) -> Receipt: ...
     def replace(
-        self, content: Content, field: str | None = None, card: str | None = None, base: str | None = None
+        self,
+        content: Content,
+        field: str | None = None,
+        card: str | None = None,
+        base: str | None = None,
+        actor: str | None = None,
     ) -> Receipt: ...
 
 # A content value: `text` (a `\n` opens a block, U+2028 is a hard break, U+FFFC
@@ -199,6 +214,9 @@ class Receipt(TypedDict):
     # The base was a value the field had moved on from, and the write was
     # rebased over what changed since.
     rebased: bool
+    # Each placeholder id the change gave a record it put, and the id the
+    # write minted for it.
+    minted: dict[str, str]
 
 def invert(change: Change, before: Content) -> Change: ...
 def diff(before: Content, after: Content) -> Change: ...

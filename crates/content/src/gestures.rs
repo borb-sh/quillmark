@@ -1,26 +1,77 @@
 //! The change of each editing gesture a host lowers, so every editor binding
 //! splits, joins, deletes, nests and wraps blocks and grows marks the same way:
-//! the text a gesture keeps keeps its block's id, a container a gesture opens
-//! takes an id no container holds, and text typed at a mark's edge takes it as
-//! the canon's growth defaults say.
+//! the text a gesture keeps keeps its block's id, a record a gesture opens
+//! carries a [placeholder](crate::ids::is_placeholder) the write that lands it
+//! fills, `?0` first and on in the order the change puts them, and text typed
+//! at a mark's edge takes it as the canon's growth defaults say.
 
 use crate::change::{ApplyError, Change, ContainerStep, SetBlock, Splice, Step};
-use crate::ids::{Minter, prefix};
+use crate::ids::PLACEHOLDER;
 use crate::model::{Block, Container, ContainerKind, Content, HARD_BREAK, MarkKind, Usv};
 
+/// One gesture, as a write takes it: [`change`](Self::change) builds its
+/// change from the value its writer read.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Gesture {
+    /// [`split_block`]: the new block `id`, or a placeholder where absent.
+    SplitBlock { at: Usv, id: Option<String> },
+    /// [`join_blocks`].
+    JoinBlocks { id: String },
+    /// [`delete_range`].
+    DeleteRange { start: Usv, end: Usv },
+    /// [`indent`].
+    Indent { first: String, last: String },
+    /// [`outdent`].
+    Outdent { first: String, last: String },
+    /// [`wrap`].
+    Wrap { first: String, last: String, with: Wrap },
+}
+
+impl Gesture {
+    /// The gesture's change on `content`.
+    pub fn change(&self, content: &Content) -> Result<Change, ApplyError> {
+        match self {
+            Gesture::SplitBlock { at, id } => split_block(content, *at, id.as_deref()),
+            Gesture::JoinBlocks { id } => join_blocks(content, id),
+            Gesture::DeleteRange { start, end } => delete_range(content, *start, *end),
+            Gesture::Indent { first, last } => indent(content, first, last),
+            Gesture::Outdent { first, last } => outdent(content, first, last),
+            Gesture::Wrap { first, last, with } => wrap(content, first, last, with),
+        }
+    }
+
+    /// The gesture with its offsets, counted in `u` over `content`'s text,
+    /// as scalar offsets; `Stale` where one falls inside a character or past
+    /// the text.
+    pub fn to_scalars(&self, content: &Content, u: impl crate::units::Units) -> Result<Gesture, ApplyError> {
+        let at = |n: Usv| crate::units::to_scalars(u, &content.text, n).ok_or(ApplyError::Stale { step: 0 });
+        Ok(match self {
+            Gesture::SplitBlock { at: n, id } => Gesture::SplitBlock { at: at(*n)?, id: id.clone() },
+            Gesture::DeleteRange { start, end } => Gesture::DeleteRange { start: at(*start)?, end: at(*end)? },
+            g => g.clone(),
+        })
+    }
+}
+
+/// The `n`th placeholder a gesture puts.
+fn placeholder(n: usize) -> String {
+    format!("{PLACEHOLDER}{n}")
+}
+
 /// Enter at `at`: the change that splits the block holding `at` there. The
-/// new block `new_id` takes the split block's kind and path, and the text keeps
-/// its id. At the start of a block holding text, other than the first, the new
+/// new block, `new_id` or a placeholder where absent, takes the split block's
+/// kind and path, and the text keeps its id. At the start of a block holding text, other than the first, the new
 /// block is the empty one before it, its `\n` inserted ahead of the one that
 /// opens the block; anywhere else it is what follows `at`. A split at the start
 /// of the first block moves its text to `new_id`, since no `\n` opens it.
 /// `Stale` where `at` is past the text.
-pub fn split_block(content: &Content, at: Usv, new_id: &str) -> Result<Change, ApplyError> {
+pub fn split_block(content: &Content, at: Usv, new_id: Option<&str>) -> Result<Change, ApplyError> {
     let ranges = content.block_ranges();
     let k = ranges.iter().position(|&(s, e)| s <= at && at <= e).ok_or(ApplyError::Stale { step: 0 })?;
     let (start, end) = ranges[k];
     let at = if k > 0 && at == start && start < end { start - 1 } else { at };
-    let record = Block { id: new_id.to_string(), ..content.blocks[k].clone() };
+    let id = new_id.map_or_else(|| placeholder(0), str::to_string);
+    let record = Block { id, ..content.blocks[k].clone() };
     Ok(Change::new(vec![Step::Splice(Splice { blocks: vec![record], ..Splice::new(at, "", "\n") })]))
 }
 
@@ -142,7 +193,7 @@ pub fn indent(content: &Content, first: &str, last: &str) -> Result<Change, Appl
     let list = match nested {
         Some(id) => id,
         None => {
-            let id = minter(content).mint(prefix::LIST);
+            let id = placeholder(0);
             let kind = match kind_of(content, &path[j - 1]) {
                 Some(ContainerKind::List { ordered, .. }) => ContainerKind::List { ordered: *ordered, start: 1 },
                 _ => ContainerKind::List { ordered: false, start: 1 },
@@ -172,7 +223,6 @@ pub fn outdent(content: &Content, first: &str, last: &str) -> Result<Change, App
     let path = &content.blocks[k0].path;
     let j = innermost(content, path, |k| !matches!(k, ContainerKind::List { .. }))
         .ok_or(ApplyError::BadStep { step: 0, reason: "the block is in no list item or quote" })?;
-    let mut ids = minter(content);
     let mut steps = Vec::new();
     let quoted = matches!(kind_of(content, &path[j]), Some(ContainerKind::Quote));
     let (base, depth) = if quoted { (&path[..=j], j + 1) } else { (&path[..j], j) };
@@ -184,7 +234,7 @@ pub fn outdent(content: &Content, first: &str, last: &str) -> Result<Change, App
     }
     let split = start > 0 && held(start - 1) && tail > end + 1;
     let rest = if split {
-        let id = ids.mint(if quoted { prefix::QUOTE } else { prefix::LIST });
+        let id = placeholder(0);
         let kind = match kind_of(content, &base[depth - 1]) {
             Some(ContainerKind::List { ordered, .. }) => ContainerKind::List { ordered: *ordered, start: 1 },
             Some(k) => k.clone(),
@@ -261,12 +311,9 @@ pub fn wrap(content: &Content, first: &str, last: &str, with: &Wrap) -> Result<C
     }
     let (start, end) = child_run(content, shared, k0, k1)?;
     let d = shared.len();
-    let mut ids = minter(content);
     let mut steps = Vec::new();
-    let outer = ids.mint(match with {
-        Wrap::Quote => prefix::QUOTE,
-        Wrap::List { .. } => prefix::LIST,
-    });
+    let outer = placeholder(0);
+    let mut minted = 1;
     let kind = match with {
         Wrap::Quote => ContainerKind::Quote,
         Wrap::List { ordered, .. } => ContainerKind::List { ordered: *ordered, start: 1 },
@@ -282,7 +329,8 @@ pub fn wrap(content: &Content, first: &str, last: &str, with: &Wrap) -> Result<C
             let id = match &item {
                 Some((held, id)) if child.is_some() && *held == child && i > 0 => id.clone(),
                 _ => {
-                    let id = ids.mint(prefix::ITEM);
+                    let id = placeholder(minted);
+                    minted += 1;
                     steps.push(Step::Container(ContainerStep::Set(Container::new(
                         id.clone(),
                         ContainerKind::Item { checked: *checked },
@@ -348,10 +396,6 @@ fn child_run(content: &Content, base: &[String], k0: usize, k1: usize) -> Result
         end += 1;
     }
     Ok((start, end))
-}
-
-fn minter(content: &Content) -> Minter {
-    Minter::new(content.containers.iter().map(|c| c.id.clone()))
 }
 
 fn set_path(b: &Block, path: Vec<String>) -> Step {

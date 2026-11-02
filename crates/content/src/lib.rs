@@ -10,8 +10,8 @@
 //! [`anchors`] reads each anchor's context and re-attaches a dropped one,
 //! [`mapping`] carries positions across changes, [`rebase`] moves a change
 //! made from one value past another made from it, [`gestures`] is the change
-//! of each editing gesture, and [`repair`] makes valid a state two concurrent
-//! edits merged into.
+//! of each editing gesture, [`mint`] fills the ids a change leaves to its
+//! write, and [`repair`] makes valid a state two concurrent edits merged into.
 
 pub mod anchors;
 pub mod change;
@@ -23,6 +23,7 @@ pub mod lines;
 pub mod mapping;
 pub mod markdown;
 pub mod migrate;
+pub mod mint;
 pub mod model;
 pub mod rebase;
 pub mod repair;
