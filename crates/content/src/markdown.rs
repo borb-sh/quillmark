@@ -5,7 +5,7 @@ use crate::lines;
 use crate::lines::export::{AnchorRead, Annotated, ExportLoss};
 use crate::lines::import::{ImportError, ImportWarning};
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{BlockKind, Content, MarkKind};
+use crate::model::{BlockKind, Codec, Content, MarkKind};
 use crate::model::Usv;
 
 /// A markdown import: the content and what the markdown spelled that it
@@ -51,6 +51,20 @@ pub fn from_plaintext(s: &str) -> Content {
     from_lines(&lines::import::from_plaintext(s))
 }
 
+/// [`from_plaintext`] under [`Codec::Plain`]: a `text` field's value.
+pub fn plain(s: &str) -> Content {
+    Content { codec: Codec::Plain, ..from_plaintext(s) }
+}
+
+/// The text a value's codec projects it to: a [`Codec::Plain`] value its
+/// literal text, any other its markdown.
+pub fn to_text(c: &Content) -> String {
+    match c.codec {
+        Codec::Plain => to_plaintext(c),
+        Codec::Rich => to_markdown(c),
+    }
+}
+
 pub fn to_markdown(c: &Content) -> String {
     lines::export::to_markdown(&to_lines(c))
 }
@@ -89,6 +103,16 @@ pub fn to_markdown_checked(c: &Content) -> Exported {
 /// unwritable island's token, and every anchor listed (markdown-spec §6.4).
 pub fn to_markdown_annotated(c: &Content) -> Annotated {
     lines::export::to_markdown_annotated(&to_lines(c))
+}
+
+/// The annotated read under the value's codec: [`to_markdown_annotated`], or
+/// for a [`Codec::Plain`] value its literal text, no tag in it, and every
+/// anchor listed.
+pub fn to_text_annotated(c: &Content) -> Annotated {
+    match c.codec {
+        Codec::Rich => to_markdown_annotated(c),
+        Codec::Plain => lines::export::to_plaintext_annotated(&to_lines(c)),
+    }
 }
 
 /// The anchors [`to_markdown_annotated`] lists whose id `keep` holds.

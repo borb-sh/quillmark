@@ -11,7 +11,7 @@ use crate::lines::delta::{Op, diff_words as text_diff, rebase_pinned, without_se
 use crate::lines::import::{Against, ImportError, ImportWarning, from_markdown_against};
 use crate::lines::island::IslandType;
 use crate::migrate::{from_lines, to_lines};
-use crate::model::{Block, BlockKind, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind, Usv};
+use crate::model::{Block, BlockKind, Codec, Container, ContainerKind, Content, ISLAND_SLOT, Invariant, Island, Mark, MarkKind, Usv};
 use crate::table::{self, Table};
 use std::collections::{HashMap, HashSet};
 
@@ -751,9 +751,14 @@ pub fn revise(before: &Content, markdown: &str) -> Result<Revision, ReviseError>
 /// to `before`. A part of `before` the read lost and the writer left alone
 /// rides back in; one the writer rewrote is a [`ReviseError::Conflict`]. Ids
 /// are minted as [`revise_holding`] mints them, and one the rebase finds
-/// `over` introduced too is renamed past it.
+/// `over` introduced too is renamed past it. A [`Codec::Plain`] value reads
+/// `markdown` as its literal text, which is its whole read.
 pub fn revise_keeping(before: &Content, markdown: &str, now: &Content) -> Result<Revision, ReviseError> {
-    let read = revise_holding(before, &crate::markdown::to_markdown_annotated(before).markdown, before)?.content;
+    let spelled = match before.codec {
+        Codec::Rich => crate::markdown::to_markdown_annotated(before).markdown,
+        Codec::Plain => crate::markdown::to_plaintext(before),
+    };
+    let read = revise_holding(before, &spelled, before)?.content;
     if read == *before {
         return Ok(revise_holding(before, markdown, now)?);
     }
@@ -782,9 +787,17 @@ pub fn revise_keeping(before: &Content, markdown: &str, now: &Content) -> Result
 /// held to its own block by `rebase`.
 pub fn revise_holding(before: &Content, markdown: &str, now: &Content) -> Result<Revision, ImportError> {
     let lines = to_lines(before);
-    let Against { content: imported, warnings, pins } = from_markdown_against(markdown, &lines)?;
+    let Against { content: imported, warnings, pins } = match before.codec {
+        Codec::Rich => from_markdown_against(markdown, &lines)?,
+        Codec::Plain => Against {
+            content: crate::lines::import::from_plaintext(markdown),
+            warnings: Vec::new(),
+            pins: Vec::new(),
+        },
+    };
     let (imported, _) = rebase_pinned(&lines, imported, &pins);
     let mut content = holding(before, &align(before, from_lines(&imported)), now, true);
+    content.codec = before.codec;
     // A pinned anchor stands where its tag does; every other rides the diff's
     // splices, as a replace's do.
     let pinned: HashSet<String> = pins.into_iter().map(|p| p.id).collect();
@@ -864,7 +877,10 @@ fn holding(before: &Content, want: &Content, now: &Content, top: bool) -> Conten
     want
 }
 
-/// A line-form value written over `before`, under the ids of what it kept.
+/// A line-form value written over `before`, under the ids of what it kept and
+/// its codec.
 pub fn lift(before: &Content, after: &crate::lines::model::Content) -> Content {
-    align(before, from_lines(after))
+    let mut out = align(before, from_lines(after));
+    out.codec = before.codec;
+    out
 }

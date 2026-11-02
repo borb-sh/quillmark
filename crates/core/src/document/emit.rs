@@ -137,7 +137,16 @@ fn emit_card(out: &mut String, card: &Card, at: &DocPath, anchors: Option<&Ancho
 
 /// `content`'s annotated markdown, its anchors pushed at `path`.
 fn annotated(content: &Normalized, path: &DocPath, anchors: &Anchors) -> String {
-    let read = to_markdown_annotated(content);
+    annotated_as(super::Codec::Richtext, content, path, anchors)
+}
+
+/// [`annotated`] under `codec`: a `text` value reads as its literal text, its
+/// anchors listed and no tag spelled.
+fn annotated_as(codec: super::Codec, content: &Normalized, path: &DocPath, anchors: &Anchors) -> String {
+    let read = match codec {
+        super::Codec::Richtext => to_markdown_annotated(content),
+        super::Codec::Text => quillmark_content::lines::export::to_plaintext_annotated(content),
+    };
     anchors
         .found
         .borrow_mut()
@@ -235,7 +244,7 @@ impl<'a> EmitCtx<'a> {
                     .path
                     .iter()
                     .fold(field.clone(), |p, seg| p.segment(seg));
-                annotated(&canonical_content(value)?, &path, anchors)
+                annotated_as(super::Codec::of_object(value), &canonical_content(value)?, &path, anchors)
             }
         };
         Some(JsonValue::String(markdown))
@@ -398,9 +407,10 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
     }
 }
 
-/// The markdown projection of a content object, or `None` when `value` is not a
-/// canonical one. Emit applies it at every depth of a field's value: a
-/// top-level field, an object property, an array element.
+/// The projection of a content object under the codec it names, or `None`
+/// when `value` is not a canonical one: a `codec: "plain"` value its literal
+/// text, any other its markdown. Emit applies it at every depth of a field's
+/// value: a top-level field, an object property, an array element.
 ///
 /// Projecting keeps card-yaml markdown-clean rather than carrying a nested
 /// `{text, lines, marks, islands}` tree. It is lossy: island ids and
@@ -415,7 +425,7 @@ fn emit_items(out: &mut String, payload: &Payload, annotate: Option<(&DocPath, &
 /// `PartialEq` is order-independent, so a `Value` guard would also project a
 /// content-canonical object whose keys are in non-canonical order.
 pub(super) fn project_content_field(value: &JsonValue) -> Option<String> {
-    canonical_content(value).map(|rt| quillmark_content::lines::export::to_markdown(&rt))
+    canonical_content(value).map(|rt| super::Codec::of_object(value).project(&rt))
 }
 
 /// The content `value` is, when [`project_content_field`] projects it.

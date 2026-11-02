@@ -227,6 +227,25 @@ impl Payload {
         );
     }
 
+    /// Replace existing field `key` with `value`, keeping each comment nested
+    /// in it whose container `value` still holds, as a mapping or a sequence
+    /// that is no content object. A rewrite of the field's content leaves
+    /// keeps its comments.
+    pub(crate) fn replace_keeping_nested(&mut self, key: &str, value: QuillValue) {
+        let Some(slot) = self.items.iter_mut().find_map(|item| match item {
+            PayloadItem::Field { key: k, value } if k == key => Some(value),
+            _ => None,
+        }) else {
+            return;
+        };
+        *slot = value;
+        let value = slot.as_json().clone();
+        self.nested_comments.retain(|nc| match nc.container_path.split_first() {
+            Some((PathSegment::Key(k), rest)) if k == key => holds_container(&value, rest),
+            _ => true,
+        });
+    }
+
     /// Ordered iterator over raw items (`$` entries, fields, comments).
     pub fn items(&self) -> &[PayloadItem] {
         &self.items
@@ -735,5 +754,27 @@ mod tests {
         let mut fm = payload_with_nested();
         fm.rename_field("a", "renamed".to_string());
         assert_eq!(owners(&fm), vec!["renamed", "b", "$ext"]);
+    }
+}
+
+/// Whether `path` reaches a mapping or a sequence inside `value` that is no
+/// content object.
+fn holds_container(value: &serde_json::Value, path: &[PathSegment]) -> bool {
+    let mut at = value;
+    for seg in path {
+        let next = match (seg, at) {
+            (PathSegment::Key(k), serde_json::Value::Object(map)) => map.get(k),
+            (PathSegment::Index(i), serde_json::Value::Array(items)) => items.get(*i),
+            _ => None,
+        };
+        match next {
+            Some(v) => at = v,
+            None => return false,
+        }
+    }
+    match at {
+        serde_json::Value::Array(_) => true,
+        serde_json::Value::Object(_) => super::emit::canonical_content(at).is_none(),
+        _ => false,
     }
 }

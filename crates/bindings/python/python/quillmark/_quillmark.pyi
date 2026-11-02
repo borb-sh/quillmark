@@ -190,7 +190,8 @@ class Document:
 
 # A content value: `text` (a `\n` opens a block, U+2028 is a hard break, U+FFFC
 # an island's slot), `blocks`, and the optional `containers`, `marks`,
-# `anchors` and `islands`. Offsets count code points.
+# `anchors`, `islands` and `codec`, which a `text` field's value spells
+# `"plain"`. Offsets count code points.
 Content = dict[str, Any]
 
 # An edit: `{"steps": [...]}`, each step a dict of one key naming it.

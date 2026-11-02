@@ -153,11 +153,7 @@ fn conform_card(schema: &CardSchema, card: &mut Card, base: &DocPath, diags: &mu
         }
     }
     for (name, value) in updates {
-        // Pre-validated by `resolve_field_write` (name and stored-value depth),
-        // exactly as the typed commit's own insert.
-        card.payload_mut()
-            .insert(name, value)
-            .expect("conform rewrites fields it read, and a replace never grows the card");
+        card.payload_mut().replace_keeping_nested(&name, value);
     }
 }
 

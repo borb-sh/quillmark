@@ -66,6 +66,13 @@ impl AnchorSelector {
             .with_card_id(doc.card_id_at(path).map(str::to_string))
     }
 
+    /// A selector with no quote and no context: a comment on the whole value
+    /// at `path`, which [`reattach`](Document::reattach) answers where `path`
+    /// names a field holding no content.
+    pub fn is_whole(&self) -> bool {
+        self.quote.is_empty() && self.prefix.is_empty() && self.suffix.is_empty()
+    }
+
     pub fn context(&self) -> AnchorContext {
         AnchorContext::new(&*self.id, &*self.quote, &*self.prefix, &*self.suffix)
     }
@@ -122,6 +129,11 @@ impl Document {
     ///   orphans it. One naming none is path-strict.
     /// - A path naming no body or content value orphans its selector. A card
     ///   path's kind must be the card's.
+    /// - A [whole](AnchorSelector::is_whole) selector, no quote and no
+    ///   context, whose path names a field value holding no content, an enum,
+    ///   a number, a date, a boolean or a container of them, is reattached
+    ///   with that path as it resolves, and nothing is written. It orphans
+    ///   only where no value sits at its path.
     /// - An id live anywhere in the document, a cell's anchor included, is not
     ///   written: it is answered as reattached, with the selector the first
     ///   value holding it reads.
@@ -165,6 +177,11 @@ impl Document {
         for (i, selector) in selectors.iter().enumerate() {
             if let Some(live) = known.get(&selector.id) {
                 answer.push(Some(live.clone()));
+            } else if let Some(path) = paths[i].as_ref().filter(|p| selector.is_whole() && self.holds_whole(p)) {
+                answer.push(Some(
+                    AnchorSelector::new(&*selector.id, path.clone(), "", "", "")
+                        .with_card_id(self.card_id_at(path).map(str::to_string)),
+                ));
             } else {
                 answer.push(None);
                 let Some(path) = &paths[i] else {
@@ -207,6 +224,31 @@ impl Document {
             }
         }
         out
+    }
+
+    /// Whether `path` names a field value, at any depth, that holds no
+    /// content: what a [whole](AnchorSelector::is_whole) selector attaches to.
+    fn holds_whole(&self, path: &DocPath) -> bool {
+        let card = match path.segs().first() {
+            Some(DocSeg::Main) => &self.main,
+            Some(DocSeg::Card { kind, index }) => match self.cards.get(*index) {
+                Some(card) if card.kind() == kind.as_deref() => card,
+                _ => return false,
+            },
+            _ => return false,
+        };
+        let [DocSeg::Field { name }, tail @ ..] = &path.segs()[1..] else {
+            return false;
+        };
+        let Some(value) = card.payload().get(name) else {
+            return false;
+        };
+        let leaf = tail.iter().try_fold(value.as_json(), |value, seg| match seg {
+            DocSeg::Field { name } => value.as_object()?.get(name),
+            DocSeg::Index { index } => value.as_array()?.get(*index),
+            _ => None,
+        });
+        leaf.is_some_and(|leaf| !leaf.is_null() && content_of(leaf).is_none())
     }
 
     /// The `$id` of the composable card `path` names, `None` on the main card

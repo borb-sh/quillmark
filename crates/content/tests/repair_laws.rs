@@ -328,6 +328,7 @@ fn merge(w: &WriteBack, writers: usize) -> Raw {
     first[n] = text.len();
     let end = |e: usize| if e == 0 { 0 } else { last[e - 1] };
     Raw {
+        codec: c.codec,
         text: text.into_iter().collect(),
         blocks,
         containers: c.containers.clone(),

@@ -10,7 +10,7 @@
 use crate::ids::{Minter, prefix};
 use crate::lines::model::{self as line, Container as LineContainer, Line, LineKind};
 use crate::model::{
-    Anchor, Block, BlockKind, Container, ContainerKind, Content, HARD_BREAK, Island, Mark, MarkKind,
+    Anchor, Block, BlockKind, Codec, Container, ContainerKind, Content, HARD_BREAK, Island, Mark, MarkKind,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -122,7 +122,7 @@ pub fn from_lines(rt: &line::Content) -> Content {
             Island { id, island_type: i.island_type.clone(), props: object(props), slots }
         })
         .collect();
-    let mut out = Content { text, blocks, containers, marks, anchors, islands };
+    let mut out = Content { text, blocks, containers, marks, anchors, islands, codec: Codec::Rich };
     keep_first_holder(&mut out, &mut HashSet::new());
     out.normalize();
     out

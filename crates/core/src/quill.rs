@@ -147,7 +147,29 @@ pub(crate) fn test_date() -> CalendarDate {
 /// The canonical content a `text` cell carries for `s`.
 #[cfg(test)]
 pub(crate) fn text(s: &str) -> serde_json::Value {
-    quillmark_content::markdown::from_plaintext(s).to_value()
+    quillmark_content::markdown::plain(s).to_value()
+}
+
+/// The literal text of a value resting as a `text` content.
+#[cfg(test)]
+pub(crate) fn text_of(v: &serde_json::Value) -> String {
+    let content = quillmark_content::model::Content::from_value(v).expect("a content object");
+    assert_eq!(content.codec, quillmark_content::model::Codec::Plain, "rests under the plain codec: {v}");
+    quillmark_content::markdown::to_plaintext(&content)
+}
+
+/// `v` with each `text` content at any depth read back as its literal text.
+#[cfg(test)]
+pub(crate) fn plain_leaves(v: &serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    if v.get("codec").and_then(Value::as_str) == Some("plain") {
+        return Value::String(text_of(v));
+    }
+    match v {
+        Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), plain_leaves(v))).collect()),
+        Value::Array(items) => Value::Array(items.iter().map(plain_leaves).collect()),
+        other => other.clone(),
+    }
 }
 
 /// A field schema parsed from `yaml`.

@@ -5,7 +5,7 @@
 
 ## TL;DR
 
-One rich-text value per card body or `richtext` field: flat text, explicit blocks and containers, range marks, comment anchors, and islands that hold rich text of their own. Every structural part has an id and nothing derived is stored. Every edit is a `Change` that applies, inverts and composes, and a value two concurrent edits merged into an invalid state repairs deterministically.
+One content value per card body, `richtext` field or `text` field: flat text, explicit blocks and containers, range marks, comment anchors, and islands that hold rich text of their own. Every structural part has an id and nothing derived is stored. Every edit is a `Change` that applies, inverts and composes, and a value two concurrent edits merged into an invalid state repairs deterministically.
 
 ## The value
 
@@ -37,6 +37,7 @@ A short field as it is stored. A `\n` opens a block, `U+2028` is a hard break in
 - **Marks** are formatting over `[start, end)`. Same-kind marks union. `link` and `font_family` are keyed: a character holds at most one url and one family.
 - **Anchors** are comment handles with a host-minted id, kept apart from marks. A point is an anchor with `start == end`.
 - **Islands** are tables, images, footnotes and equations, one per slot in slot order. A table's cells and a footnote's note are slots, each a nested `Content` of paragraphs. Rows, columns and slots carry ids, so an anchor in a cell stays in its slot wherever the row moves.
+- **`codec`** is `"plain"` on a `text` field's value and absent on every other. A plain value is read and written as its literal text: markdown projects it verbatim, a revise reads its input as text, and its annotated read spells no tag ([SCHEMAS.md](SCHEMAS.md) § "Content fields rest per codec"). Any other name is `ParseError::UnknownName` with axis `codec`. The key is part of the canonical bytes, and a change, which applies to the value it was made from, never sets it.
 
 Offsets are Unicode scalar values in storage. Each binding speaks its host's units at its boundary and converts inside ([BINDINGS.md](BINDINGS.md) § "Content offsets").
 
@@ -67,6 +68,7 @@ Each axis is a closed set, and a name outside it is `ParseError::UnknownName` at
 - a heading holding a hard break, a rule holding text, a code block holding an island, and a block-only island (a table) sharing its block with anything else;
 - an island whose props do not read as its type's (a table whose grid names a row, column or cell no slot backs, or a slot no cell names), and a table of more than `MAX_TABLE_CELLS` cells;
 - a mark or anchor past the text, an empty mark, and a slot holding anything but paragraphs in no container;
+- a `codec: "plain"` value holding a mark, an island, a container or a block other than a paragraph (`Invariant::NotPlain`), so no step formats a plain value and repair flattens one that a merge formatted;
 - more marks on one text, a field's or a slot's, than `max_marks` of its length: `MARKS_BASE` (64) and `MARKS_PER_CHAR` (4) per character, and more than `MAX_ANCHORS` (100 000) anchors over the value and its slots.
 
 Normalizing spends the mark bound before validating can refuse: a mark crosses as many blocks as it spans, and `x-` marks of distinct attributes never union, so marks times blocks of them come out of a value that names each once. The decoder (`Content::from_value`) therefore checks the bound first, counting each mark once per `\n` and `U+2028` it spans plus one, the most it can be cut into (`Content::check_bounds`), and so does a change: a step whose marks would pass the bound refuses before it settles them, as `Invariant::TooManyMarks`. Repair keeps the marks in order up to the bound and the anchors in reading order up to theirs, and reports the rest.
