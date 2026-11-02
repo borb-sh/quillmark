@@ -811,7 +811,7 @@ fn revise_lines(before: &Content, lines: &crate::lines::model::Lines, markdown: 
     let Against { content: imported, warnings, pins } = match before.codec {
         Codec::Rich => from_markdown_against(markdown, lines)?,
         Codec::Plain => Against {
-            content: crate::lines::import::from_plaintext(markdown),
+            content: to_lines(&crate::markdown::from_plaintext(markdown)),
             warnings: Vec::new(),
             pins: Vec::new(),
         },

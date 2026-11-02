@@ -623,7 +623,7 @@ impl QuillConfig {
                         )),
                     };
                 };
-                let rt = quillmark_content::lines::import::from_plaintext(&text);
+                let rt = quillmark_content::migrate::to_lines(&quillmark_content::markdown::from_plaintext(&text));
                 Ok(commit(None, &plain_check(rt)?))
             }
             FieldType::RichText { multiline } => {

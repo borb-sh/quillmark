@@ -362,7 +362,7 @@ island ids, content-only marks), and the object names its codec:
 | Codec | Stored form | Emit |
 |---|---|---|
 | `richtext` | the canonical content object, no `codec` key | its markdown, lossy where markdown cannot spell a part |
-| `text` | the canonical content object spelling `codec: "plain"` | its literal text, verbatim |
+| `text` | the canonical content object spelling `codec: "plain"` | its literal text, a paragraph break a blank line and a hard break a lone `\n` |
 
 The key is what lets the schema-free paths keep the literal codec. Emit is
 schema-free: `project_content_field` routes every canonical content object in a
