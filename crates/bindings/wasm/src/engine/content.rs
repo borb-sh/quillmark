@@ -210,6 +210,52 @@ export interface MapResult {
  *  item per wrapped child, each `checked` as given. */
 export type WrapKind = { kind: "quote" } | { kind: "list"; ordered: boolean; checked?: boolean };
 
+/**
+ * A value as a merge of concurrent edits left it, for `repair`: shaped as
+ * `Content`, its invariants unchecked. `islands` is an array paired with the
+ * slots in order, or an object keyed by island id with `slot_ids` naming the
+ * island each `U+FFFC` carries, `null` for none. An anchor placed as a range
+ * carries `range: true`, since one collapsed to zero width reads as a point
+ * otherwise. An offset inside a character moves to its start, and one past
+ * the text to its end.
+ */
+export interface RawContent {
+    text: string;
+    blocks: ContentBlock[];
+    containers?: ContentContainer[];
+    marks?: ContentMark[];
+    anchors?: (ContentAnchor & { range?: boolean })[];
+    islands?: (ContentIsland & { slots?: Record<string, RawContent> })[]
+        | Record<string, Omit<ContentIsland, "id"> & { slots?: Record<string, RawContent> }>;
+    slot_ids?: (string | null)[];
+}
+
+/**
+ * One mend `repair` made. `inserts` marks one whose write-back inserts text
+ * or a slot, which only a session's single writer writes back; any peer may
+ * write back a report holding none.
+ */
+export type Repair = { inserts?: true } & (
+| { repair: "missing_container"; block: string; container: string }
+| { repair: "two_parents"; container: string }
+| { repair: "split_run"; container: string; fresh: string }
+| { repair: "orphan_slot"; island: string | null }
+| { repair: "orphan_island"; island: string }
+| { repair: "shared_island"; island: string; fresh: string }
+| { repair: "split_block"; island: string; block: string }
+| { repair: "empty_cell"; island: string; slot: string }
+| { repair: "collapsed_anchor"; id: string }
+| { repair: "invalid"; reason: string }
+| { repair: "in_slot"; island: string; slot: string; inner: Repair }
+);
+
+/** What `repair` read a merged value as: the valid `content`, and each
+ *  mend, none for a value already valid. */
+export interface Repaired {
+    content: Content;
+    repairs: Repair[];
+}
+
 "#;
 
 #[derive(serde::Serialize)]
@@ -536,6 +582,22 @@ pub fn diff(
     let change = quillmark_content::diff::diff(&before, &after).map_err(|e| apply_error(e.into()))?;
     let change = units::change_from_scalars(&change, &before, Utf16).map_err(apply_error)?;
     serialize_or_throw(&change.to_value(), "diff")
+}
+
+/// The valid value every peer holding the merged state `raw` reads, and what
+/// was mended to reach it: total and deterministic, every id it mints derived
+/// from the ids involved. Throws only on a `raw` not shaped as content.
+#[wasm_bindgen(js_name = repair, unchecked_return_type = "Repaired")]
+pub fn repair(#[wasm_bindgen(unchecked_param_type = "RawContent")] raw: JsValue) -> Result<JsValue, JsValue> {
+    let json = js_value_to_json(raw, "repair")?;
+    let raw = quillmark_content::repair::Raw::from_value_in(&json, Utf16)
+        .map_err(|e| WasmError::from(format!("repair: not shaped as content: {e}")).to_js_value())?;
+    let (content, repairs) = quillmark_content::repair::repair(raw);
+    let out = serde_json::json!({
+        "content": content.to_value_in(Utf16),
+        "repairs": repairs.iter().map(quillmark_content::repair::Repair::to_value).collect::<Vec<_>>(),
+    });
+    serialize_or_throw(&out, "repair")
 }
 
 fn gesture_out(change: Result<Change, change::ApplyError>, content: &Content, ctx: &str) -> Result<JsValue, JsValue> {

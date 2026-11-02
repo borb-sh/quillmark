@@ -29,6 +29,7 @@ import type {
 	wrap,
 	inheritedMarks,
 	mapPos,
+	repair,
 	isInline,
 	isPlain,
 	parseDocPath,
@@ -59,6 +60,7 @@ export interface CoreSurface {
 	wrap: typeof wrap;
 	inheritedMarks: typeof inheritedMarks;
 	mapPos: typeof mapPos;
+	repair: typeof repair;
 	isInline: typeof isInline;
 	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;

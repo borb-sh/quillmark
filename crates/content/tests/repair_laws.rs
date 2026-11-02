@@ -688,3 +688,20 @@ fn two_peers_writing_back_an_inserting_repair_leave_a_valid_second_copy() {
         assert_eq!(repair(merge(&w, 2)).0.text, twice);
     }
 }
+
+#[test]
+fn a_raw_in_utf16_clamps_an_offset_inside_a_character_or_past_the_text() {
+    use quillmark_content::units::Utf16;
+    let v = json!({
+        "text": "😀ab",
+        "blocks": [{"id": "b0", "kind": "para"}],
+        "marks": [{"start": 1, "end": 9, "type": "strong"}],
+        "islands": {},
+        "slot_ids": [],
+    });
+    let raw = Raw::from_value_in(&v, Utf16).unwrap();
+    assert_eq!((raw.marks[0].start, raw.marks[0].end), (0, 3));
+    let (c, repairs) = repair(raw);
+    assert!(repairs.is_empty(), "{repairs:?}");
+    assert_eq!((c.marks[0].start, c.marks[0].end), (0, 3));
+}

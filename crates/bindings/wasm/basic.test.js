@@ -22,6 +22,7 @@ import {
   wrap,
   inheritedMarks,
   mapPos,
+  repair,
   isInline,
   isPlain,
   parseDocPath,
@@ -799,6 +800,30 @@ describe('Document apply: the write primitive', () => {
     expect(mapPos(insert, 0)).toMatchObject({ pos: 2, deleted: false })
     expect(mapPos(insert, 0, 'before').pos).toBe(0)
     expect(() => mapPos(insert, 0, 'sideways')).toThrow(/assoc/)
+  })
+
+  it('repair reads a merged state as a valid value, offsets in UTF-16', () => {
+    const valid = importMarkdown('😀 **ab**').content
+    expect(repair(valid)).toEqual({ content: valid, repairs: [] })
+
+    const merged = {
+      text: '😀 ab\nc',
+      blocks: [
+        { id: 'b0', kind: 'para', path: ['gone'] },
+        { id: 'b1', kind: 'para' },
+      ],
+      marks: [{ start: 3, end: 5, type: 'strong' }],
+      anchors: [{ id: 'a', start: 4, end: 4, range: true }],
+    }
+    const { content, repairs } = repair(merged)
+    expect(content.blocks[0].path).toBeUndefined()
+    expect(content.marks).toEqual([{ start: 3, end: 5, type: 'strong' }])
+    expect(content.anchors).toBeUndefined()
+    expect(repairs).toEqual([
+      { repair: 'missing_container', block: 'b0', container: 'gone' },
+      { repair: 'collapsed_anchor', id: 'a' },
+    ])
+    expect(() => repair({ text: 1 })).toThrow(/repair/)
   })
 
   it('normalize answers what replace stores, and refuses what replace refuses', () => {
