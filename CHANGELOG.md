@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.134.0 - 2026-11-02
 
 Upgrade path: [0.133 → 0.134](docs/migrations/0.133-to-0.134.md). Every
 content value is the content model, and offsets in content values and changes
@@ -305,8 +305,8 @@ over its keys: read `receipt["warnings"]`.
 - feat(wasm): **`anchorContexts`, `anchorContext`, `reattach` and
   `droppedAnchors`.** The selector crosses flat, its `path` a `DocPath`
   string; `reattach(selectors, deltas?)` takes a `Record<path, Delta>` and
-  returns `{ reattached, orphaned }`. The `Revised` receipt of `revise`,
-  `reviseContent`, `writer.reviseBody` and `writer.reviseField` gains
+  returns `{ reattached, orphaned }`. The `Revised` receipt of
+  `writer.reviseBody` and `writer.reviseField` gains
   `droppedAnchors: { id, line }[]`. (#2349)
 - feat(python)!: **the revise verbs return the whole receipt.**
   `writer.revise_body` / `revise_field` return `{ delta, warnings,
@@ -317,6 +317,32 @@ over its keys: read `receipt["warnings"]`.
 - docs(canon): **`COMMENTS.md` states the comment-anchor contract**: the
   thread outside the document, the id it shares with its anchor, the matching
   rule, drift, table cells, and the hosting rule. (#2349)
+
+### Removed
+
+- refactor(wasm)!: **WASM API no consumer uses.** `Document.revise` (the
+  0.133 markdown revise; `revise` is now the content-lane write),
+  `rebase`, `loadStored`, `storeFields`, `Quill.seedMain`,
+  `Document.markdownRules`, `assignInstances`, `CardReader` and
+  `reader.card(i)`, `CardWriter.index` / `kind`, the writer's and reader's
+  `document` getters and `LiveSession.backendId` are removed. The migration
+  guide's § Removed names each replacement.
+- refactor(core,pdf)!: **public items nothing outside their crate uses.**
+  `BUNDLE_MEDIA_TYPE` is removed; `QuillConfig::is_snake_case_identifier`,
+  `quillmark_pdf::CHECK_GLYPH` and `FieldSpec::assert_finite_rect` are
+  crate-private; `SessionHandle::update` has no default, and the
+  `backend::update_unsupported` code no built-in backend raised is gone.
+- refactor(content)!: **`serial::line_kind_to_value` is removed**, and
+  `serial::line_kind_from_value`, `container_from_value` and
+  `mark_from_value` are crate-private: decode a whole value through
+  `lines::serial::from_canonical_value`.
+
+### Dependencies
+
+- build(deps): **`serde-saphyr` 2.0**, with the YAML error sanitizer
+  stripping its new API names from messages; **Typst's `hayro` 0.7** for the
+  PDF form backend's raster; `pyo3` 0.30.1 and `lopdf` 0.46.
+- ci(release): PyPI publishes only where `PUBLISH_PYPI` is set.
 
 ## v0.133.0 - 2026-10-29
 
